@@ -54,6 +54,7 @@ import {
   mapLaunchTokenError,
 } from "@/lib/meta/launch-error-classify";
 import { summariseRelaunchGuard } from "@/lib/bulk-attach/launch-validation";
+import { bulkAttachRotationMessage } from "@/lib/meta/rotation-adset";
 import type { AdCreativeDraft } from "@/lib/types";
 
 export const maxDuration = 600;
@@ -243,7 +244,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // variation to these ad sets" flow pre-checks the same thing client-side
   // via GET /api/meta/bulk-attach-ads/adset-guard for faster feedback.
   const allTargetAdSetIds = [...new Set(campaignIds.flatMap((cid) => campaignAdSets[cid]))];
+  // A rotation creative sharing these ad sets with anything else is refused
+  // before the live read. One rotation creative still needs the live flag.
+  const shareRefusal = bulkAttachRotationMessage(newCreatives, allTargetAdSetIds, null);
+  if (shareRefusal) {
+    console.error(`[bulk-attach-ads] ✗ rotation ad set guard: ${shareRefusal}`);
+    return NextResponse.json({ error: shareRefusal }, { status: 400 });
+  }
   const guardInfoMap = await fetchAdSetGuardInfo(allTargetAdSetIds, token);
+  const rotationRefusal = bulkAttachRotationMessage(newCreatives, allTargetAdSetIds, guardInfoMap);
+  if (rotationRefusal) {
+    console.error(`[bulk-attach-ads] ✗ rotation ad set guard: ${rotationRefusal}`);
+    return NextResponse.json({ error: rotationRefusal }, { status: 400 });
+  }
   const { blockedMessage } = summariseRelaunchGuard(Array.from(guardInfoMap.values()), 0);
   if (blockedMessage) {
     console.error(`[bulk-attach-ads] ✗ Dynamic Creative guard blocked launch: ${blockedMessage}`);

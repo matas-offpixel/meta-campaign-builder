@@ -43,6 +43,7 @@ import {
   fetchCampaignById,
   fetchCampaignByIdForLedger,
   fetchAdSetById,
+  fetchAdSetGuardInfo,
   fetchAdSetsForCampaign,
   fetchCustomAudienceAvailability,
   checkAudienceReadiness,
@@ -113,9 +114,16 @@ import {
   invertAssignments,
   validateCreativePayload,
   sanitizeCreativeForStrictMode,
-  creativeTriggersVariationRotation,
+  creativeLaunchPath,
   suppressedCopyNote,
 } from "@/lib/meta/creative";
+import {
+  attachAdSetRotationRows,
+  dynamicAdSetIdsForDraft,
+  existingRotationRefusal,
+  rotationNeedsLiveAdSetCheck,
+  rotationShareRefusal,
+} from "@/lib/meta/rotation-adset";
 import { metaAdName } from "@/lib/creative-name-from-filename";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { applyPageInstagramOverridesToCreatives } from "@/lib/meta/apply-page-instagram-overrides";
@@ -789,6 +797,14 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     s.enabled && !adSetAudienceRemoved(s, draft.audiences);
   const enabledSets = draft.adSetSuggestions.filter(launchable);
 
+  // A rotation creative sharing an ad set is refused before any Graph read
+  // or write. The assignment matrix is ad set id → creative ids.
+  const rotationShare = rotationShareRefusal(draft);
+  if (rotationShare) {
+    console.error(`[launch-campaign] ✗ rotation ad set guard: ${rotationShare}`);
+    return launchJson({ error: rotationShare }, { status: 400 });
+  }
+
   console.log("[launch-campaign] ▶ Starting launch", {
     draftId: draft.id,
     adAccountId,
@@ -810,79 +826,16 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     return launchJson({ error: foreignAccount }, { status: 400 });
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Dynamic Creative planning (variation rotation) — runs before any Meta write
-  //
-  // A creative with N variations (Single mode) is built as a Dynamic-Creative
-  // asset_feed_spec (see buildVariationRotationCreative). Meta only rotates the
-  // assets if the AD SET is created with is_dynamic_creative:true — otherwise it
-  // silently degrades to a single asset. Two rules follow:
-  //   1. Flag every ad set that has ≥1 variation-rotation creative assigned so
-  //      Phase 2/2b (and the multi-campaign loop) create it as dynamic.
-  //   2. A dynamic ad set allows AT MOST ONE ad. Each assigned creative becomes
-  //      one ad, so a dynamic ad set MUST have exactly one creative assigned.
-  //      We fail fast with an actionable error rather than auto-splitting the ad
-  //      set, because cloning an ad set would duplicate its daily budget — an
-  //      unsafe silent side effect. The operator moves the extra creatives to
-  //      their own ad set.
-  //
-  // Detection mirrors buildCreativePayload exactly (creativeTriggersVariationRotation
-  // is gated on ENABLE_MULTI_PLACEMENT_ASSETS), so nothing is
-  // flagged dynamic when rotation cannot actually fire. Attach modes reuse
-  // existing ad sets whose is_dynamic_creative flag cannot be changed, so this
-  // only affects ad sets we create.
-  const dynamicAdSetIds = new Set<string>();
-  {
-    const creativesById = new Map(draft.creatives.map((c) => [c.id, c]));
-    const adSetToCreativeIds = new Map<string, string[]>();
-    for (const [creativeId, adSetIds] of Object.entries(draft.creativeAssignments ?? {})) {
-      for (const asId of adSetIds ?? []) {
-        const arr = adSetToCreativeIds.get(asId) ?? [];
-        arr.push(creativeId);
-        adSetToCreativeIds.set(asId, arr);
-      }
-    }
-    const dynamicViolations: { adSetName: string; creativeNames: string[] }[] = [];
-    for (const adSet of enabledSets) {
-      const assignedCreativeIds = adSetToCreativeIds.get(adSet.id) ?? [];
-      const hasRotationCreative = assignedCreativeIds.some((id) => {
-        const c = creativesById.get(id);
-        return c ? creativeTriggersVariationRotation(c) : false;
-      });
-      if (!hasRotationCreative) continue;
-      dynamicAdSetIds.add(adSet.id);
-      if (assignedCreativeIds.length > 1) {
-        dynamicViolations.push({
-          adSetName: adSet.name,
-          creativeNames: assignedCreativeIds.map((id) => creativesById.get(id)?.name ?? id),
-        });
-      }
-    }
-    if (dynamicViolations.length > 0) {
-      const detail = dynamicViolations
-        .map(
-          (v) =>
-            `"${v.adSetName}" has ${v.creativeNames.length} creatives assigned (${v.creativeNames.join(", ")})`,
-        )
-        .join("; ");
-      console.error(
-        `[launch-campaign] ✗ Dynamic Creative guard: ${dynamicViolations.length} ad set(s) violate the one-ad-per-dynamic-ad-set rule — ${detail}`,
-      );
-      return launchJson(
-        {
-          error:
-            "A variation-rotation creative uses Dynamic Creative, and a Dynamic Creative ad set can contain only ONE ad. " +
-            "Give each variation-rotation creative its own ad set and move the other creatives to a separate ad set, then relaunch. " +
-            `Affected ad sets: ${detail}.`,
-        },
-        { status: 400 },
-      );
-    }
-    if (dynamicAdSetIds.size > 0) {
-      console.log(
-        `[launch-campaign] Dynamic Creative — ${dynamicAdSetIds.size} ad set(s) will be created with is_dynamic_creative:true`,
-      );
-    }
+  // A solo rotation creative flags the ad set this launch creates as
+  // is_dynamic_creative. Existing ad sets are checked later, once their ids
+  // are known: Meta can't switch one to dynamic, and one that already has an
+  // ad can't take another (subcode 1885553).
+  const dynamicAdSetIds = new Set(dynamicAdSetIdsForDraft(draft));
+  const rotationLiveCheck = rotationNeedsLiveAdSetCheck(draft);
+  if (dynamicAdSetIds.size > 0) {
+    console.log(
+      `[launch-campaign] Dynamic Creative — ${dynamicAdSetIds.size} ad set(s) will be created with is_dynamic_creative:true`,
+    );
   }
 
   // Website-destination guard for the ad sets this launch is about to create.
@@ -997,6 +950,22 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           ` count=${attachAdSetIds.length}`
         : ""),
   );
+
+  // attach_adset: the ad sets already exist. Read is_dynamic_creative before
+  // any create. A non-dynamic ad set can't be switched; a dynamic one that
+  // already has an ad can't take another.
+  if (wizardMode === "attach_adset" && rotationLiveCheck) {
+    const guards = await fetchAdSetGuardInfo(attachAdSetIds, launchToken);
+    const refusal = existingRotationRefusal(
+      attachAdSetRotationRows(draft),
+      draft.creatives,
+      guards,
+    );
+    if (refusal) {
+      console.error(`[launch-campaign] ✗ rotation ad set guard: ${refusal}`);
+      return launchJson({ error: refusal }, { status: 400 });
+    }
+  }
 
   if (wizardMode === "attach_campaign" || isAttachAllAdSets) {
     if (attachCampaignSnapshots.length === 0) {
@@ -3379,6 +3348,23 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     console.log(
       `[launch-campaign] Phase 2 (attach_all_adsets) ✓  registered ${adSetMetaIds.size} ad set(s) for Phase 4`,
     );
+    if (rotationLiveCheck) {
+      const ids = [...adSetMetaIds.values()];
+      const guards = await fetchAdSetGuardInfo(ids, launchToken);
+      const refusal = existingRotationRefusal(
+        ids.map((metaId) => ({
+          metaId,
+          name: metaId,
+          creativeIds: draft.creatives.map((c) => c.id),
+        })),
+        draft.creatives,
+        guards,
+      );
+      if (refusal) {
+        console.error(`[launch-campaign] ✗ rotation ad set guard: ${refusal}`);
+        return launchJson({ error: refusal }, { status: 400 });
+      }
+    }
   }
 
   // ── attach_adset short-circuit ──────────────────────────────────────────
@@ -3985,11 +3971,11 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
-      const isMultiPlacement = !!creativePayload.asset_feed_spec?.asset_customization_rules?.length;
+      const launchPath = creativeLaunchPath(creativePayload);
       console.log(
         `[launch-campaign] Phase 3 — POSTing creative "${creative.name}" to Meta:`,
         JSON.stringify({
-          path: isMultiPlacement ? "multi_placement" : "single_asset",
+          path: launchPath,
           ctaTypes: creativePayload.asset_feed_spec?.call_to_action_types,
           hasAssetFeedSpec: !!creativePayload.asset_feed_spec,
           assetFeedVideoCount: creativePayload.asset_feed_spec?.videos?.length ?? 0,
@@ -4014,7 +4000,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         const dur = elapsed(cStart);
         console.log(
           `[launch-campaign] Phase 3 ✓  creative: ${creative.name} → ${metaCreativeId}` +
-            ` (${dur}ms) path=${isMultiPlacement ? "multi_placement" : "single_asset"} strictMode=${strictMode}`,
+            ` (${dur}ms) path=${launchPath} strictMode=${strictMode}`,
         );
 
         const cIdx = updatedCreatives.findIndex((c) => c.id === creative.id);
@@ -4060,7 +4046,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         console.error(
           `[launch-campaign] Phase 3 ✗  creative failed: "${creative.name}"`,
           JSON.stringify({
-            path: isMultiPlacement ? "multi_placement" : "single_asset",
+            path: launchPath,
             kind: classified.kind,
             code: isMetaErr ? (err as MetaApiError).code : undefined,
             subcode: isMetaErr ? (err as MetaApiError).subcode : undefined,

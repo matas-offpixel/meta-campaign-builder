@@ -9,6 +9,7 @@ import {
 } from "@/lib/wizard/use-campaign-draft";
 
 import { AssignCreatives } from "@/components/steps/assign-creatives";
+import { splitRotationOntoOwnAdSet } from "@/lib/wizard/split-rotation-adset";
 import { AudiencesStep } from "@/components/steps/audiences/audiences-step";
 import { BudgetSchedule } from "@/components/steps/budget-schedule";
 import { CampaignSetup } from "@/components/steps/campaign-setup";
@@ -524,6 +525,23 @@ function AdSetsTab({
           creatives={draft.creatives}
           assignments={draft.creativeAssignments}
           onChange={onAssignmentsChange}
+          onSplitRotation={
+            attachAdSetMode
+              ? undefined
+              : (adSetId, creativeId) => {
+                  const creative = controller.draft.creatives.find((c) => c.id === creativeId);
+                  const next = splitRotationOntoOwnAdSet({
+                    adSets: controller.draft.adSetSuggestions,
+                    assignments: controller.draft.creativeAssignments,
+                    adSetId,
+                    creativeId,
+                    creativeName: creative?.name ?? "",
+                    newId: crypto.randomUUID(),
+                  });
+                  controller.updateAdSetSuggestions(next.adSets);
+                  controller.updateCreativeAssignments(next.assignments);
+                }
+          }
           attachAdSetMode={attachAdSetMode}
         />
       ) : null}

@@ -19,6 +19,7 @@ import {
   objectivePixelProblem,
 } from "./wizard/import-edits.ts";
 import { ADD_SUBMODE_REQUIRED } from "./library/add-to-campaign.ts";
+import { rotationAssignmentErrors } from "./meta/rotation-adset.ts";
 
 export const ATTACH_EVENT_BEFORE_LAUNCH = "Attach an event before launching";
 
@@ -362,6 +363,11 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
     );
   }
 
+  // attach_all has no assign step. Every creative lands on every existing ad set.
+  if (draft.settings.wizardMode === "attach_all_adsets") {
+    errors.push(...rotationAssignmentErrors(draft));
+  }
+
   return { valid: errors.length === 0, errors };
 }
 
@@ -432,6 +438,7 @@ function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
         );
       }
     }
+    errors.push(...rotationAssignmentErrors(draft));
     return { valid: errors.length === 0, errors };
   }
 
@@ -447,6 +454,7 @@ function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
   if (!hasAssignment && draft.creatives.length > 0 && enabledSets.length > 0) {
     errors.push("Assign at least one creative to an ad set");
   }
+  errors.push(...rotationAssignmentErrors(draft));
   return { valid: errors.length === 0, errors };
 }
 

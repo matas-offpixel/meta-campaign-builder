@@ -1013,6 +1013,15 @@ export function creativeTriggersVariationRotation(creative: AdCreativeDraft): bo
   return detectVariationRotation(creative) !== null;
 }
 
+/** Which builder produced a payload. Rotation has an asset_feed_spec and no placement rules. */
+export function creativeLaunchPath(
+  payload: MetaCreativePayload,
+): "multi_placement" | "variation_rotation" | "single_asset" {
+  if ((payload.asset_feed_spec?.asset_customization_rules?.length ?? 0) > 0) return "multi_placement";
+  if (payload.asset_feed_spec) return "variation_rotation";
+  return "single_asset";
+}
+
 export const BUY_TICKETS_FACEBOOK_EVENT_WARNING =
   "Ads Manager will show this ad as a Facebook event. Use Book now to keep the Website destination.";
 
