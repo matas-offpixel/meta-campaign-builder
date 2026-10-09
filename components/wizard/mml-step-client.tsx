@@ -19,8 +19,9 @@ import {
   googleChannelAvailable,
   identityInitial,
   identityLabel,
-  preferChannelValue,
-  type ChannelHistoryPick,
+  resolveChannelField,
+  type ChannelFieldRow,
+  type ChannelHistoryEntry,
   type MmlChannelSelection,
 } from "@/lib/plan/mml-wizard";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
@@ -94,7 +95,7 @@ export function MmlStepClient({
   const googleOk = googleChannelAvailable(
     events.find((event) => event.clientId === clientId)?.googleCustomerId,
   );
-  const [history, setHistory] = useState<ChannelHistoryPick | null>(null);
+  const [entries, setEntries] = useState<ChannelHistoryEntry[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [destination, setDestination] = useState(destinationUrl);
   const [pendingAccountId, setPendingAccountId] = useState<string | null>(null);
@@ -106,19 +107,19 @@ export function MmlStepClient({
 
   useEffect(() => {
     if (!clientId) {
-      setHistory(null);
+      setEntries(null);
       return;
     }
     let cancelled = false;
     setHistoryError(null);
     fetch(`/api/plan/channel-history?clientId=${encodeURIComponent(clientId)}`)
       .then(async (res) => {
-        const json = (await res.json()) as { ok?: boolean; history?: ChannelHistoryPick; error?: string };
-        if (!res.ok || !json.ok || !json.history) throw new Error(json.error ?? "Could not read channel history");
-        return json.history;
+        const json = (await res.json()) as { ok?: boolean; entries?: ChannelHistoryEntry[]; error?: string };
+        if (!res.ok || !json.ok || !json.entries) throw new Error(json.error ?? "Could not read channel history");
+        return json.entries;
       })
       .then((next) => {
-        if (!cancelled) setHistory(next);
+        if (!cancelled) setEntries(next);
       })
       .catch((err: unknown) => {
         if (!cancelled) setHistoryError(err instanceof Error ? err.message : "Could not read channel history");
@@ -129,39 +130,52 @@ export function MmlStepClient({
   }, [clientId]);
 
   const settings = draft?.settings;
-  const metaAccountId = preferChannelValue(
-    settings?.metaAdAccountId || settings?.adAccountId,
-    history?.metaAdAccountId,
-    resolved?.metaAdAccount.value,
-  );
-  const pixelId = preferChannelValue(
-    settings?.metaPixelId || settings?.pixelId,
-    history?.metaPixelId,
-    resolved?.metaPixel.value,
-  );
-  const pageId = preferChannelValue(
-    settings?.metaPageId,
-    history?.metaPageId,
-    resolved?.facebookPage.value,
-  );
-  const igId = preferChannelValue(
-    settings?.metaIGAccountId,
-    history?.metaIgAccountId,
-    resolved?.instagramActor.value,
-  );
-  const advertiserId = preferChannelValue(
-    null,
-    history?.tiktokAdvertiserId,
-    resolved?.tiktokAdvertiser.value,
-  );
-  const identityId = preferChannelValue(
-    null,
-    history?.tiktokIdentityId,
-    resolved?.tiktokIdentity.value?.id,
-  );
+  const venueKey = selectedEvent?.venueKey ?? selectedEvent?.venueName ?? null;
+  const venueLabel = selectedEvent?.venueName ?? selectedEvent?.venueKey ?? null;
+  const historyRows = (pick: (entry: ChannelHistoryEntry) => { value: string | null; accountId: string | null }): ChannelFieldRow[] =>
+    (entries ?? []).map((entry) => {
+      const field = pick(entry);
+      return { value: field.value, at: entry.updatedAt, venueKey: entry.venueKey, accountId: field.accountId };
+    });
+  const accountPick = resolveChannelField({
+    stored: settings?.metaAdAccountId || settings?.adAccountId,
+    rows: historyRows((entry) => ({ value: entry.metaAdAccountId, accountId: null })),
+    venueKey,
+    venueLabel,
+    accountId: null,
+    clientDefault: resolved?.metaAdAccount.value,
+  });
+  const metaAccountId = accountPick.value;
+  const pixelPick = resolveChannelField({
+    stored: settings?.metaPixelId || settings?.pixelId,
+    rows: historyRows((entry) => ({ value: entry.metaPixelId, accountId: entry.metaAdAccountId })),
+    venueKey,
+    venueLabel,
+    accountId: metaAccountId,
+    clientDefault: resolved?.metaPixel.value,
+  });
+  const pixelId = pixelPick.value;
+  const advertiserPick = resolveChannelField({
+    stored: null,
+    rows: historyRows((entry) => ({ value: entry.tiktokAdvertiserId, accountId: null })),
+    venueKey,
+    venueLabel,
+    accountId: null,
+    clientDefault: resolved?.tiktokAdvertiser.value,
+  });
+  const advertiserId = advertiserPick.value;
+  const identityPick = resolveChannelField({
+    stored: null,
+    rows: historyRows((entry) => ({ value: entry.tiktokIdentityId, accountId: entry.tiktokAdvertiserId })),
+    venueKey,
+    venueLabel,
+    accountId: advertiserId,
+    clientDefault: resolved?.tiktokIdentity.value?.id,
+  });
+  const identityId = identityPick.value;
 
   useEffect(() => {
-    if (!draft || !history || !clientId || applied.current === `${planId}:${clientId}`) return;
+    if (!draft || !entries || !clientId || applied.current === `${planId}:${clientId}`) return;
     applied.current = `${planId}:${clientId}`;
     const current = draft.settings;
     const next: CampaignSettings = { ...current };
@@ -179,25 +193,62 @@ export function MmlStepClient({
       next.pixelId = pixelId!;
       next.metaPixelId = pixelId!;
     });
-    fill(!current.metaPageId, pageId, () => {
-      next.metaPageId = pageId!;
-    });
-    fill(!current.metaIGAccountId, igId, () => {
-      next.metaIGAccountId = igId!;
-    });
     if (!current.clientId && clientId) {
       next.clientId = clientId;
       changed = true;
     }
     if (changed) onSettings(next);
-    // The fill reads the draft once per client. Later edits must not re-apply history.
+    // Account and pixel fill once. Page waits until the account's Page list is loaded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, history, clientId, planId]);
+  }, [draft, entries, clientId, planId]);
 
   const accounts = useFetchAdAccounts();
   const pixels = useFetchPixels(metaAccountId ?? undefined);
   const pages = useFetchPages(metaAccountId ?? undefined);
-  const pageIdentity = useFetchPageIdentity(pageId ?? undefined, metaAccountId ?? undefined);
+  const pagesSettled = !pages.loading && pages.data.length > 0;
+  const pageFromDefault = settings?.channelDefaultsApplied?.facebookPage === true;
+  const pagePick = resolveChannelField({
+    stored: pagesSettled || !pageFromDefault ? settings?.metaPageId : null,
+    storedFromDefault: pagesSettled && pageFromDefault,
+    rows: pagesSettled
+      ? historyRows((entry) => ({ value: entry.metaPageId, accountId: entry.metaAdAccountId }))
+      : [],
+    venueKey,
+    venueLabel,
+    accountId: metaAccountId,
+    clientDefault: pagesSettled ? resolved?.facebookPage.value : null,
+    accountPageIds: pagesSettled ? pages.data.map((page) => page.id) : null,
+  });
+  const pageId = pagePick.value;
+  const igPick = resolveChannelField({
+    stored: pagesSettled || !settings?.channelDefaultsApplied?.instagramActor ? settings?.metaIGAccountId : null,
+    storedFromDefault: pagesSettled && settings?.channelDefaultsApplied?.instagramActor === true,
+    rows: pagesSettled
+      ? historyRows((entry) => ({ value: entry.metaIgAccountId, accountId: entry.metaAdAccountId }))
+      : [],
+    venueKey,
+    venueLabel,
+    accountId: metaAccountId,
+    clientDefault: pagesSettled ? resolved?.instagramActor.value : null,
+  });
+  const igId = pagePick.flagged ? null : igPick.value;
+  const pageIdentity = useFetchPageIdentity((pageId ?? pagePick.flagged) ?? undefined, metaAccountId ?? undefined);
+
+  useEffect(() => {
+    if (!pagesSettled || !settings || !pagePick.flagged) return;
+    if (settings.metaPageId !== pagePick.flagged) return;
+    if (!settings.channelDefaultsApplied?.facebookPage && !settings.channelDefaultsApplied?.instagramActor) return;
+    onSettings({
+      ...settings,
+      metaPageId: undefined,
+      metaIGAccountId: settings.channelDefaultsApplied.instagramActor ? undefined : settings.metaIGAccountId,
+      channelDefaultsApplied: {
+        ...settings.channelDefaultsApplied,
+        facebookPage: false,
+        instagramActor: settings.channelDefaultsApplied.instagramActor ? false : settings.channelDefaultsApplied.instagramActor,
+      },
+    });
+  }, [pagesSettled, pagePick.flagged, settings, onSettings]);
   const [identities, setIdentities] = useState<TikTokIdentityOption[]>([]);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [tiktokAccounts, setTiktokAccounts] = useState<
@@ -306,11 +357,12 @@ export function MmlStepClient({
   }));
   const accountOptions = metaAdAccountPickerOptions(accounts.data);
   const pixelOptions = metaPixelPickerOptions(pixels.data);
-  const selectedPage = pages.data.find((page) => page.id === pageId);
+  const shownPageId = pageId ?? pagePick.flagged;
+  const selectedPage = pages.data.find((page) => page.id === shownPageId);
   const pageName =
     selectedPage?.name?.trim() ||
     pageIdentity.data?.pageName?.trim() ||
-    (pageId ? identityNames.facebookPage[pageId]?.trim() : "") ||
+    (shownPageId ? identityNames.facebookPage[shownPageId]?.trim() : "") ||
     "";
   const pageOptions = [
     ...(pageId && !pages.data.some((page) => page.id === pageId)
@@ -341,6 +393,14 @@ export function MmlStepClient({
     label: account.account_name?.trim() || "Google Ads",
     sublabel: account.google_customer_id,
   }));
+  const googlePick = resolveChannelField({
+    stored: googleAccountId,
+    rows: historyRows((entry) => ({ value: entry.googleAdsAccountId, accountId: null })),
+    venueKey,
+    venueLabel,
+    accountId: null,
+    clientDefault: resolved?.googleAdsAccount.value,
+  });
   const advertiserName = tiktokAdvertiser
     ? tiktokAccounts.find((row) => row.tiktok_advertiser_id === tiktokAdvertiser)?.account_name?.trim() ||
       identityNames.tiktokAdvertiser[tiktokAdvertiser] ||
@@ -352,9 +412,9 @@ export function MmlStepClient({
     null;
 
   useEffect(() => {
-    if (googleAccountId || !history?.googleAdsAccountId) return;
-    setGoogleAccountId(history.googleAdsAccountId);
-  }, [googleAccountId, history?.googleAdsAccountId]);
+    if (googleAccountId || !googlePick.value) return;
+    setGoogleAccountId(googlePick.value);
+  }, [googleAccountId, googlePick.value]);
 
   const googleCustomerId =
     selectedGoogle?.google_customer_id ?? resolved?.googleAdsCustomer.value ?? null;
@@ -428,9 +488,9 @@ export function MmlStepClient({
     if (error) setHistoryError(error.message);
   }
 
-  const pageFace = pageId
+  const pageFace = shownPageId
     ? identityLabel({
-        id: pageId,
+        id: shownPageId,
         name: pageName,
         noun: "page",
       })
@@ -537,6 +597,7 @@ export function MmlStepClient({
               placeholder="Select an ad account"
               emptyText="No ad accounts"
             />
+            <PickNote note={accountPick.note} />
             {pendingAccountId ? (
               <div className="space-y-2">
                 <StatusLine tone="alert" className="text-xs text-destructive">
@@ -583,7 +644,8 @@ export function MmlStepClient({
               placeholder="Select a pixel"
               emptyText="No pixels"
             />
-            {pageId && pageFace ? (
+            <PickNote note={pixelPick.note} />
+            {shownPageId && pageFace ? (
               <Face
                 imageUrl={selectedPage?.pictureUrl ?? null}
                 label={pageFace.primary}
@@ -595,14 +657,26 @@ export function MmlStepClient({
                 }
               />
             ) : null}
+            {pagePick.flagged ? (
+              <p className="text-xs text-warning">{"Not on this ad account's Pages"}</p>
+            ) : null}
             <Combobox
               label="Facebook Page"
               value={pageId ?? ""}
-              onChange={(id) => writeSettings({ metaPageId: id || undefined })}
+              onChange={(id) =>
+                writeSettings({
+                  metaPageId: id || undefined,
+                  channelDefaultsApplied: {
+                    ...settings?.channelDefaultsApplied,
+                    facebookPage: false,
+                  },
+                })
+              }
               options={pageOptions}
               placeholder="Select a Page"
               emptyText="No Pages"
             />
+            <PickNote note={pagePick.note} />
             {igId && igFace ? (
               <Face
                 imageUrl={linkedIg?.profilePictureUrl ?? null}
@@ -619,6 +693,7 @@ export function MmlStepClient({
               placeholder="Select Instagram"
               emptyText="No Instagram account on this Page"
             />
+            <PickNote note={igPick.note} />
             {accounts.error ? (
               <StatusLine tone="alert" className="text-xs text-destructive">
                 {accounts.error}
@@ -659,6 +734,7 @@ export function MmlStepClient({
               placeholder="Select an advertiser"
               emptyText="No TikTok advertisers"
             />
+            <PickNote note={advertiserPick.note} />
             {tiktokIdentity && tiktokFace ? (
               <Face
                 imageUrl={tiktokAvatar?.kind === "image" ? tiktokAvatar.src : null}
@@ -682,6 +758,7 @@ export function MmlStepClient({
               placeholder="Select a TikTok identity"
               emptyText="No identities"
             />
+            <PickNote note={identityPick.note} />
             {identityError ? (
               <StatusLine tone="alert" className="text-xs text-destructive">
                 {identityError}
@@ -715,6 +792,7 @@ export function MmlStepClient({
               placeholder="Select a Google Ads customer"
               emptyText="No Google Ads accounts"
             />
+            <PickNote note={googlePick.note} />
           </div>
         </Card>
       ) : null}
@@ -793,6 +871,11 @@ function ChannelCard({
       {label}
     </button>
   );
+}
+
+function PickNote({ note }: { note: string | null }) {
+  if (!note) return null;
+  return <p className="text-[11px] text-muted-foreground">{note}</p>;
 }
 
 function Face({

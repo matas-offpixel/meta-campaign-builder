@@ -15,6 +15,6 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ ok: false, error: "Not signed in" }, { status: 401 });
   }
-  const history = await loadChannelHistory(supabase, user.id, clientId);
-  return NextResponse.json({ ok: true, history });
+  const entries = await loadChannelHistory(supabase, user.id, clientId);
+  return NextResponse.json({ ok: true, entries });
 }

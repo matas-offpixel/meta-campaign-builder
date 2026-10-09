@@ -1,7 +1,19 @@
 import { createDefaultCreative, createDefaultDraft } from "../../campaign-defaults.ts";
-import type { CampaignDraft } from "../../types.ts";
+import type { CampaignDraft, CampaignObjective, OptimisationGoal } from "../../types.ts";
 import { composeMetaScheduleIso } from "../schedule.ts";
-import type { CampaignPlan } from "../types.ts";
+import type { CampaignPlan, CampaignPlanObjectiveIntent } from "../types.ts";
+
+/** Plan intent → Meta objective and the optimisation goal the adapter writes. */
+export function metaObjectiveForIntent(intent: CampaignPlanObjectiveIntent): {
+  objective: CampaignObjective;
+  optimisationGoal: OptimisationGoal;
+} {
+  return {
+    objective: intent,
+    optimisationGoal:
+      intent === "awareness" || intent === "engagement" ? "reach" : "conversions",
+  };
+}
 
 /**
  * Map a campaign plan onto the existing Meta CampaignDraft shape.
@@ -15,11 +27,9 @@ export function planToMetaDraft(plan: CampaignPlan): CampaignDraft {
 
   draft.settings.eventId = intent.eventId;
   draft.settings.campaignName = plan.name?.trim() || "Plan campaign";
-  draft.settings.objective = intent.objectiveIntent;
-  draft.settings.optimisationGoal =
-    intent.objectiveIntent === "awareness" || intent.objectiveIntent === "engagement"
-      ? "reach"
-      : "conversions";
+  const mapped = metaObjectiveForIntent(intent.objectiveIntent);
+  draft.settings.objective = mapped.objective;
+  draft.settings.optimisationGoal = mapped.optimisationGoal;
 
   draft.budgetSchedule.budgetAmount = intent.budget.metaDaily;
   draft.budgetSchedule.startDate = composeMetaScheduleIso(

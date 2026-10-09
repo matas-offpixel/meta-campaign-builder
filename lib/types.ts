@@ -1236,6 +1236,11 @@ export interface CampaignSettings {
     facebookPage?: boolean;
     instagramActor?: boolean;
   };
+  /**
+   * The operator picked an objective on the MML step, or the event default
+   * was applied once. Stops an on-sale plan from being rewritten on every open.
+   */
+  mmlObjectiveChosen?: boolean;
 
   /**
    * Explicit Instagram account choice per Facebook Page when a page has 2+

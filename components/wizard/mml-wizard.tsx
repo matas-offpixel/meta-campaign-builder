@@ -9,8 +9,10 @@ import { AssignCreatives } from "@/components/steps/assign-creatives";
 import { AudiencesStep } from "@/components/steps/audiences/audiences-step";
 import { BudgetSchedule } from "@/components/steps/budget-schedule";
 import { Creatives } from "@/components/steps/creatives";
+import { OptimisationStrategy } from "@/components/steps/optimisation-strategy";
 import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import { MmlStepClient } from "@/components/wizard/mml-step-client";
+import { MmlStepObjective } from "@/components/wizard/mml-step-objective";
 import { WizardFooter } from "@/components/wizard/wizard-footer";
 import { WizardStepper } from "@/components/wizard/wizard-stepper";
 import type { GoogleAdsAccountOption } from "@/components/wizard/mml-step-client";
@@ -57,6 +59,7 @@ export function MmlWizard({
   onOpenDrawer,
   onSave,
   launch,
+  benchmarks,
 }: {
   plan: CampaignPlan;
   events: PlanEventOption[];
@@ -68,6 +71,7 @@ export function MmlWizard({
   onOpenDrawer: (adapter: PlanAdapterName) => void;
   onSave: () => Promise<boolean>;
   launch: ReactNode;
+  benchmarks: ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -169,12 +173,14 @@ export function MmlWizard({
     },
     onEvent: (eventId: string) => onPatchIntent({ eventId }),
     onDestination: (destinationUrl: string) => onPatchIntent({ destinationUrl }),
+    onPatchIntent,
     onOpenDrawer,
     onIdentity,
     onBlockers,
     onChannel,
     channel,
     launch,
+    benchmarks,
   };
 
   return (
@@ -253,6 +259,8 @@ type Shared = {
   onChannel: (channel: MmlChannel) => void;
   channel: MmlChannel;
   launch: ReactNode;
+  benchmarks: ReactNode;
+  onPatchIntent: (patch: Partial<CampaignPlan["intent"]>) => void;
 };
 
 function MmlDraftSteps({ draftId, step, ...shared }: { draftId: string; step: MmlWizardStep } & Shared) {
@@ -341,13 +349,24 @@ function MmlStepSwitch({
       />
     );
   }
-  if (step === 1 || step === 2) {
+  if (step === 1) {
     return (
-      <DrawerLine
-        line={mmlPlaceholderLine(step)}
+      <MmlStepObjective
+        plan={shared.plan}
+        draft={draft}
         channels={shared.channels}
-        onOpenDrawer={shared.onOpenDrawer}
+        tiktokDraftId={shared.plan.launches.tiktok.draftId}
+        onPatchIntent={shared.onPatchIntent}
+        onApplyDraft={onApplyDraft}
       />
+    );
+  }
+  if (step === 2) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-4">
+        {shared.benchmarks}
+        {meta}
+      </div>
     );
   }
   if (step === 7) return <div className="mx-auto max-w-5xl">{shared.launch}</div>;
@@ -390,6 +409,7 @@ function MetaStepBody({
     updateAdSetSuggestions,
     markGenerateReplaceImportedConfirmed,
     updateCreativeAssignments,
+    updateOptimisationStrategy,
   } = controller;
   const metaStep = channel === "meta" ? metaValidateStepForMml(step) : null;
   const blockerKey = metaStep != null ? validateStep(metaStep, draft, resolved).errors.join("\n") : "";
@@ -397,6 +417,20 @@ function MetaStepBody({
     onBlockers(blockerKey ? blockerKey.split("\n") : []);
   }, [blockerKey, onBlockers]);
 
+  if (step === 2) {
+    return (
+      <OptimisationStrategy
+        strategy={draft.optimisationStrategy}
+        objective={draft.settings.objective}
+        budgetAmount={draft.budgetSchedule.budgetAmount}
+        currency={draft.budgetSchedule.currency}
+        onChange={updateOptimisationStrategy}
+        draftId={draft.id}
+        campaignStatus={draft.status}
+        clientId={draft.settings.clientId}
+      />
+    );
+  }
   if (step === 3) {
     return (
       <AudiencesStep
