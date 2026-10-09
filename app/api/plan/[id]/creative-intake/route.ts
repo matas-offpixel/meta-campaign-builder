@@ -70,7 +70,7 @@ export async function GET(
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse> {
+): Promise<Response> {
   const { id } = await params;
   const supabase = await createClient();
   const {
@@ -143,9 +143,44 @@ export async function POST(
   }
 
   if (action === "send") {
-    const saved = await syncPlanCreativeIntake(supabase, plan);
-    if (!saved.ok) return NextResponse.json(saved, { status: saved.status });
-    return NextResponse.json({ ok: true, notes: saved.notes, changed: saved.changed, view: await loadCreativeIntakeView(supabase, plan) });
+    const stream = req.headers.get("accept")?.includes("application/x-ndjson") === true;
+    if (!stream) {
+      const saved = await syncPlanCreativeIntake(supabase, plan);
+      if (!saved.ok) return NextResponse.json(saved, { status: saved.status });
+      const view = await loadCreativeIntakeView(supabase, plan);
+      return NextResponse.json({ ok: true, notes: saved.notes, changed: saved.changed, results: saved.results, view });
+    }
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      async start(controller) {
+        const send = (payload: unknown) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+        };
+        try {
+          const saved = await syncPlanCreativeIntake(supabase, plan, {
+            onUpload: (event) => send({ type: "progress", ...event }),
+          });
+          if (!saved.ok) {
+            send({ type: "done", ok: false, error: saved.error });
+            return;
+          }
+          const view = await loadCreativeIntakeView(supabase, plan);
+          send({
+            type: "done",
+            ok: true,
+            notes: saved.notes,
+            changed: saved.changed,
+            results: saved.results,
+            view,
+          });
+        } catch (err) {
+          send({ type: "done", ok: false, error: err instanceof Error ? err.message : "Send failed" });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+    return new Response(body, { headers: { "Content-Type": "application/x-ndjson" } });
   }
 
   return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });

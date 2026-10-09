@@ -11,10 +11,18 @@ import {
   findChannelId,
   fingerprintBytes,
   loadAssetsByIds,
+  upgradeRegisteredAspect,
   upsertRegisteredAsset,
   type CreativeAssetRow,
 } from "../creatives/asset-registry.ts";
 import { handleUploadAsset } from "../meta/upload-asset-handler.ts";
+import { createServiceRoleClient } from "../supabase/server.ts";
+import {
+  deliverIntakeAssetsToMeta,
+  META_UPLOAD_BUCKET,
+  stampUploadedAssets,
+  type MetaUploadStorage,
+} from "./creative-intake-meta.ts";
 import { upsertPlanAssetRoute, loadPlanAssetRoutes } from "./asset-routing-db.ts";
 import { runPlanTikTokAssetFanout } from "./asset-routing-server.ts";
 import { tikTokLaunchIsLive } from "./asset-routing-execute.ts";
@@ -24,6 +32,7 @@ import {
   type IntakeAssetRecord as ApplyAsset,
 } from "./creative-intake-apply.ts";
 import {
+  detectedBucketAfterRegister,
   intakeAspect,
   isMultiPlacementEnabled,
   matchRefusal,
@@ -31,10 +40,9 @@ import {
   mayDeleteIntakeUpload,
   planIntakeSend,
   intakeSendChanges,
-  uploadIntakeSlots,
   type IntakeBucket,
-  type IntakeMetaUploadSlot,
   type IntakeSendAsset,
+  type IntakeSendReport,
 } from "./creative-intake.ts";
 import {
   attachIntakeAsset,
@@ -275,6 +283,18 @@ export async function registerIntakeUpload(
   if (!upserted.ok) {
     return { ok: false, status: upserted.tableMissing ? 503 : 500, error: upserted.error, tableMissing: upserted.tableMissing };
   }
+  const bucketDecision = detectedBucketAfterRegister({
+    created: upserted.created,
+    existingAspect: upserted.asset.aspectRatio,
+    measured: measured.bucket,
+  });
+  if (bucketDecision.upgradeAsset && bucketDecision.bucket !== "other") {
+    await upgradeRegisteredAspect(supabase, {
+      assetId: upserted.asset.id,
+      userId: plan.userId,
+      aspectRatio: bucketDecision.bucket,
+    });
+  }
   if (
     !upserted.created &&
     mayDeleteIntakeUpload(input.storagePath, upserted.asset.storagePath)
@@ -285,7 +305,7 @@ export async function registerIntakeUpload(
     planId: plan.id,
     assetId: upserted.asset.id,
     userId: plan.userId,
-    detectedBucket: upserted.created ? measured.bucket : upserted.asset.aspectRatio,
+    detectedBucket: bucketDecision.bucket,
     detectedWidth: measured.width,
     detectedHeight: measured.height,
     unreadableReason: measured.reason,
@@ -361,7 +381,11 @@ export async function unmatchIntakeGroup(
 export async function syncPlanCreativeIntake(
   supabase: unknown,
   plan: CampaignPlan,
-): Promise<{ ok: true; notes: string[]; changed: boolean } | { ok: false; status: number; error: string }> {
+  hooks?: { onUpload?: (event: { index: number; total: number; filename: string }) => void },
+): Promise<
+  | { ok: true; notes: string[]; changed: boolean; results: IntakeSendReport[] }
+  | { ok: false; status: number; error: string }
+> {
   const drafts = await loadLinkedDraftsForPlan(supabase, plan);
   if (!drafts.meta) {
     return { ok: false, status: 409, error: "Prepare the Meta draft before sending" };
@@ -443,6 +467,7 @@ export async function syncPlanCreativeIntake(
     creativeIds: new Set(applied.fingerprints.map((row) => row.creativeId)),
     userId: plan.userId,
     byRegistry,
+    onUpload: hooks?.onUpload,
   });
   if (applied.changed || uploaded.changed) {
     const saved = await upsertLinkedMetaDraft(supabase, uploaded.draft, plan.userId);
@@ -475,6 +500,7 @@ export async function syncPlanCreativeIntake(
     if (!saved.ok) return { ok: false, status: saved.tableMissing ? 503 : 500, error: saved.error };
   }
   const notes = [...planSend.notes];
+  const tiktokError = new Map<string, string>();
   if (drafts.tiktok && planSend.tiktokWrites.length > 0) {
     const fresh = await loadLinkedDraftsForPlan(supabase, plan);
     if (fresh.tiktok && fresh.meta) {
@@ -485,22 +511,56 @@ export async function syncPlanCreativeIntake(
         tiktokDraft: fresh.tiktok,
       });
       for (const cell of fanout.cells) {
-        if (!cell.ok && cell.reason) notes.push(cell.reason);
+        if (!cell.ok && cell.reason) {
+          notes.push(cell.reason);
+          tiktokError.set(cell.assetId, cell.reason);
+        }
       }
     }
+  }
+  const tiktokOn = new Set(planSend.tiktokWrites.filter((write) => write.enabled).map((write) => write.assetId));
+  for (const route of routes) {
+    if (route.channel === "tiktok" && route.enabled) tiktokOn.add(route.assetId);
   }
   return {
     ok: true,
     notes: [...new Set(notes)],
     changed: applied.changed || uploaded.changed || intakeSendChanges(planSend),
+    results: intakeSendReports(uploaded.draft, new Set(applied.fingerprints.map((row) => row.creativeId)), sendAssets, tiktokOn, tiktokError),
   };
+}
+
+function intakeSendReports(
+  draft: CampaignDraft,
+  creativeIds: Set<string>,
+  assets: IntakeSendAsset[],
+  tiktokOn: Set<string>,
+  tiktokError: Map<string, string>,
+): IntakeSendReport[] {
+  const reports: IntakeSendReport[] = [];
+  for (const creative of draft.creatives) {
+    if (!creativeIds.has(creative.id)) continue;
+    const slots = creative.assetVariations.flatMap((variation) => variation.assets);
+    const metaError = slots.find((asset) => asset.error)?.error ?? null;
+    const registryIds = new Set(slots.map((asset) => asset.registryAssetId).filter((id): id is string => Boolean(id)));
+    const vertical = assets.find((asset) => registryIds.has(asset.id) && asset.mediaKind === "video" && asset.bucket === "9:16");
+    const routed = vertical != null && tiktokOn.has(vertical.id);
+    const tiktokFailed = vertical && routed ? tiktokError.get(vertical.id) ?? null : null;
+    reports.push({
+      label: creative.name?.trim() || "Creative",
+      error: metaError ?? tiktokFailed,
+      tiktok: Boolean(vertical) && routed && !metaError && !tiktokFailed,
+    });
+  }
+  return reports;
 }
 
 /**
  * Uploads pending MML assets through `/api/meta/upload-asset`'s storage-path
  * body. A `creative_asset_channel_ids` hit for this ad account makes no call.
- * The route is given a copy, never the registry object's path, because a
- * failed upload deletes the path it was handed.
+ * The route is given a service-role copy, never the registry object's path,
+ * because a failed upload deletes the path it was handed. The session client
+ * cannot read this bucket, so its copy returns "Object not found".
  */
 async function uploadMmlDraftAssets(input: {
   supabase: unknown;
@@ -508,19 +568,86 @@ async function uploadMmlDraftAssets(input: {
   creativeIds: Set<string>;
   userId: string;
   byRegistry: Map<string, CreativeAssetRow>;
+  onUpload?: (event: { index: number; total: number; filename: string }) => void;
 }): Promise<{ draft: CampaignDraft; changed: boolean }> {
-  type Slot = IntakeMetaUploadSlot & { assetId: string };
-  const slots: Slot[] = [];
+  const adAccountId = input.draft.settings.adAccountId || input.draft.settings.metaAdAccountId || "";
+  if (!adAccountId) {
+    const slots = pendingSlots(input.draft, input.creativeIds).map((slot) =>
+      slot.uploadStatus === "uploaded"
+        ? slot
+        : { ...slot, uploadStatus: "pending" as const, error: "No Meta ad account on this draft" },
+    );
+    return {
+      draft: stampUploadedAssets(input.draft, slots, input.creativeIds),
+      changed: slots.some((slot) => slot.error === "No Meta ad account on this draft"),
+    };
+  }
+
+  const channelId = new Map<string, string | null>();
+  const readError = new Map<string, string>();
+  const registryIds = new Set<string>();
   for (const creative of input.draft.creatives) {
     if (!input.creativeIds.has(creative.id)) continue;
     for (const variation of creative.assetVariations) {
       for (const asset of variation.assets) {
+        if (asset.registryAssetId) registryIds.add(asset.registryAssetId);
+      }
+    }
+  }
+  for (const assetId of registryIds) {
+    const found = await findChannelId(input.supabase, {
+      assetId,
+      userId: input.userId,
+      channel: "meta",
+      scope: adAccountId,
+    });
+    if (!found.ok) readError.set(assetId, found.error);
+    else channelId.set(assetId, found.platformId);
+  }
+
+  let storage: MetaUploadStorage | null = null;
+  const serviceStorage: MetaUploadStorage = {
+    copy: (from, to) => {
+      storage ??= serviceRoleStorage();
+      return storage.copy(from, to);
+    },
+    remove: (paths) => {
+      storage ??= serviceRoleStorage();
+      return storage.remove(paths);
+    },
+  };
+  return deliverIntakeAssetsToMeta({
+    draft: input.draft,
+    creativeIds: input.creativeIds,
+    assetsById: input.byRegistry,
+    adAccountId,
+    channelPlatformId: (assetId) => channelId.get(assetId) ?? null,
+    channelReadError: (assetId) => readError.get(assetId) ?? null,
+    storage: serviceStorage,
+    upload: (request) => handleUploadAsset(request),
+    onUpload: input.onUpload,
+  });
+}
+
+function pendingSlots(draft: CampaignDraft, creativeIds: Set<string>) {
+  const slots: Array<{
+    assetId: string;
+    registryAssetId: string;
+    mediaKind: "image" | "video";
+    uploadStatus: "pending" | "uploading" | "uploaded" | "error";
+    assetHash?: string;
+    videoId?: string;
+    error?: string;
+  }> = [];
+  for (const creative of draft.creatives) {
+    if (!creativeIds.has(creative.id)) continue;
+    for (const variation of creative.assetVariations) {
+      for (const asset of variation.assets) {
         if (!asset.registryAssetId || !asset.storagePath) continue;
-        const row = input.byRegistry.get(asset.registryAssetId);
         slots.push({
           assetId: asset.id,
           registryAssetId: asset.registryAssetId,
-          mediaKind: row?.mediaKind ?? (creative.mediaType === "video" ? "video" : "image"),
+          mediaKind: creative.mediaType === "video" ? "video" : "image",
           uploadStatus: asset.uploadStatus,
           assetHash: asset.assetHash,
           videoId: asset.videoId,
@@ -529,136 +656,17 @@ async function uploadMmlDraftAssets(input: {
       }
     }
   }
-  if (slots.length === 0) return { draft: input.draft, changed: false };
+  return slots;
+}
 
-  const adAccountId = input.draft.settings.adAccountId || input.draft.settings.metaAdAccountId || "";
-  if (!adAccountId) {
-    const flagged = slots.map((slot) =>
-      slot.uploadStatus === "uploaded"
-        ? slot
-        : { ...slot, uploadStatus: "pending" as const, error: "No Meta ad account on this draft" },
-    );
-    return { draft: writeUploadOntoDraft(input.draft, flagged, input.creativeIds), changed: flagged.some((slot, index) => slot.error !== slots[index]?.error) };
-  }
-
-  const channelId = new Map<string, string | null>();
-  const readError = new Map<string, string>();
-  for (const slot of slots) {
-    if (channelId.has(slot.registryAssetId) || readError.has(slot.registryAssetId)) continue;
-    const found = await findChannelId(input.supabase, {
-      assetId: slot.registryAssetId,
-      userId: input.userId,
-      channel: "meta",
-      scope: adAccountId,
-    });
-    if (!found.ok) readError.set(slot.registryAssetId, found.error);
-    else channelId.set(slot.registryAssetId, found.platformId);
-  }
-
-  const result = await uploadIntakeSlots({
-    slots,
-    channelPlatformId: (assetId) => channelId.get(assetId) ?? null,
-    upload: async (slot) => {
-      const failed = readError.get(slot.registryAssetId);
-      if (failed) return { ok: false as const, error: failed };
-      const row = input.byRegistry.get(slot.registryAssetId);
-      if (!row) return { ok: false as const, error: "Asset is not in the registry" };
-      return postStoredAssetToMeta(input.supabase, {
-        adAccountId,
-        filename: row.filename,
-        mediaKind: slot.mediaKind,
-        contentHash: row.contentHash,
-        byteSize: row.byteSize,
-        storagePath: row.storagePath,
-        aspectRatio: row.aspectRatio === "other" ? undefined : row.aspectRatio,
-      });
+function serviceRoleStorage(): MetaUploadStorage {
+  const bucket = createServiceRoleClient().storage.from(META_UPLOAD_BUCKET);
+  return {
+    copy: async (from, to) => {
+      const copied = await bucket.copy(from, to);
+      return { error: copied.error };
     },
-  });
-  return {
-    draft: writeUploadOntoDraft(input.draft, result.slots, input.creativeIds),
-    changed: result.slots.some(
-      (slot, index) =>
-        slot.uploadStatus !== slots[index]?.uploadStatus ||
-        slot.assetHash !== slots[index]?.assetHash ||
-        slot.videoId !== slots[index]?.videoId ||
-        slot.error !== slots[index]?.error,
-    ),
-  };
-}
-
-async function postStoredAssetToMeta(
-  supabase: unknown,
-  input: {
-    adAccountId: string;
-    filename: string;
-    mediaKind: "image" | "video";
-    contentHash: string;
-    byteSize: number;
-    storagePath: string;
-    aspectRatio?: string;
-  },
-): Promise<{ ok: true; hash?: string; videoId?: string } | { ok: false; error: string }> {
-  const folder = input.mediaKind === "video" ? "videos" : "images";
-  const copyPath = `${folder}/mml-${crypto.randomUUID()}-meta-upload`;
-  const copied = await storageOf(supabase).from(BUCKET).copy(input.storagePath, copyPath);
-  if (copied.error) {
-    return { ok: false, error: copied.error.message ?? "Could not copy the file for Meta" };
-  }
-  try {
-    const response = await handleUploadAsset(
-      new Request("http://localhost/api/meta/upload-asset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          storagePath: copyPath,
-          storageBucket: BUCKET,
-          type: input.mediaKind,
-          adAccountId: input.adAccountId,
-          fileName: input.filename,
-          contentHash: input.contentHash,
-          byteSize: input.byteSize,
-          aspectRatio: input.aspectRatio,
-        }),
-      }),
-    );
-    const json = (await response.json().catch(() => null)) as { error?: string; hash?: string; videoId?: string } | null;
-    if (!response.ok) return { ok: false, error: json?.error ?? `HTTP ${response.status}` };
-    return { ok: true, hash: json?.hash, videoId: json?.videoId };
-  } finally {
-    if (mayDeleteIntakeUpload(copyPath, input.storagePath)) {
-      await storageOf(supabase).from(BUCKET).remove([copyPath]).catch(() => undefined);
-    }
-  }
-}
-
-function writeUploadOntoDraft(
-  draft: CampaignDraft,
-  slots: Array<IntakeMetaUploadSlot & { assetId: string }>,
-  creativeIds: Set<string>,
-): CampaignDraft {
-  const byAsset = new Map(slots.map((slot) => [slot.assetId, slot]));
-  return {
-    ...draft,
-    creatives: draft.creatives.map((creative) => {
-      if (!creativeIds.has(creative.id)) return creative;
-      return {
-        ...creative,
-        assetVariations: creative.assetVariations.map((variation) => ({
-          ...variation,
-          assets: variation.assets.map((asset) => {
-            const slot = byAsset.get(asset.id);
-            if (!slot) return asset;
-            return {
-              ...asset,
-              uploadStatus: slot.uploadStatus,
-              assetHash: slot.assetHash,
-              videoId: slot.videoId,
-              error: slot.error,
-            };
-          }),
-        })),
-      };
-    }),
+    remove: (paths) => bucket.remove(paths),
   };
 }
 

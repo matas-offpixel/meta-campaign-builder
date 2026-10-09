@@ -289,6 +289,35 @@ export async function upsertRegisteredAsset(
 }
 
 /**
+ * Upgrade a registry row from "other" or null to a measured standard ratio.
+ * A row that already has 4:5, 1:1 or 9:16 is left alone.
+ */
+export async function upgradeRegisteredAspect(
+  supabase: unknown,
+  input: { assetId: string; userId: string; aspectRatio: Exclude<RegistryAspect, "other"> },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  type UpdateClient = {
+    from: (table: string) => {
+      update: (row: Record<string, unknown>) => {
+        eq: (col: string, value: string) => {
+          eq: (col: string, value: string) => {
+            or: (filters: string) => Promise<{ error: { message?: string } | null }>;
+          };
+        };
+      };
+    };
+  };
+  const { error } = await (supabase as UpdateClient)
+    .from(CREATIVE_ASSETS_TABLE)
+    .update({ aspect_ratio: input.aspectRatio })
+    .eq("id", input.assetId)
+    .eq("user_id", input.userId)
+    .or("aspect_ratio.eq.other,aspect_ratio.is.null");
+  if (error) return { ok: false, error: error.message ?? "aspect update failed" };
+  return { ok: true };
+}
+
+/**
  * Record a platform id. A hit for the same asset+channel+scope is a no-op
  * and keeps the first platform_id — never a second upload.
  */

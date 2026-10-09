@@ -11,8 +11,11 @@ import {
 } from "../creative-intake-apply.ts";
 import {
   bucketFromMeasurement,
+  detectedBucketAfterRegister,
   intakeAspect,
   intakeCreativeFingerprint,
+  intakeSendResultLine,
+  intakeUploadProgress,
   intakeSendChanges,
   isIntakeUploadPath,
   matchAssetMode,
@@ -429,6 +432,58 @@ describe("send round 2", () => {
     });
     assert.equal(failed.slots[0]?.uploadStatus, "pending");
     assert.equal(failed.slots[0]?.error, "Meta said no");
+  });
+});
+
+describe("dedupe keeps a measured ratio when the registry row is other", () => {
+  it("a 1080×1920 measurement on an other row lands in 9:16 and does not replace 4:5", () => {
+    const measured = intakeAspect({ width: 1080, height: 1920, filename: "clip.mp4" });
+    assert.equal(measured.bucket, "9:16");
+    assert.deepEqual(
+      detectedBucketAfterRegister({ created: false, existingAspect: "other", measured: measured.bucket }),
+      { bucket: "9:16", upgradeAsset: true },
+    );
+    assert.deepEqual(
+      detectedBucketAfterRegister({ created: false, existingAspect: null, measured: "1:1" }),
+      { bucket: "1:1", upgradeAsset: true },
+    );
+    assert.deepEqual(
+      detectedBucketAfterRegister({ created: false, existingAspect: "4:5", measured: "9:16" }),
+      { bucket: "4:5", upgradeAsset: false },
+    );
+    assert.deepEqual(
+      detectedBucketAfterRegister({ created: true, existingAspect: "other", measured: "9:16" }),
+      { bucket: "9:16", upgradeAsset: false },
+    );
+  });
+});
+
+describe("send feedback copy", () => {
+  it("names the asset being uploaded and the per-group result", () => {
+    assert.equal(intakeUploadProgress(1, 3), "Uploading 1 of 3…");
+    assert.equal(
+      intakeSendResultLine({ label: "Grid", error: null, tiktok: false }),
+      "✓ Grid uploaded to Meta",
+    );
+    assert.equal(
+      intakeSendResultLine({ label: "Reel", error: null, tiktok: true }),
+      "✓ Reel uploaded to Meta · ✓ routed to TikTok",
+    );
+    assert.equal(
+      intakeSendResultLine({ label: "Story", error: "Object not found", tiktok: false }),
+      "Story: Object not found",
+    );
+  });
+});
+
+describe("video register always sends the measured frame", () => {
+  it("posts videoWidth and videoHeight on every register, including a later dedupe", () => {
+    const source = readFileSync("components/plan/mml-creative-intake.tsx", "utf8");
+    assert.match(source, /video\.videoWidth/);
+    assert.match(source, /video\.videoHeight/);
+    assert.match(source, /width: measured\.width/);
+    assert.match(source, /height: measured\.height/);
+    assert.doesNotMatch(source, /dedup/);
   });
 });
 

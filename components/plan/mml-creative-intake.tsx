@@ -8,8 +8,11 @@ import { sha256HexOfBlob } from "@/lib/creatives/sha256-stream";
 import {
   INTAKE_BUCKETS,
   META_CROSS_PUBLISH_NOTE,
+  intakeSendResultLine,
+  intakeUploadProgress,
   matchRefusal,
   type IntakeBucket,
+  type IntakeSendReport,
 } from "@/lib/plan/creative-intake";
 import type { CampaignPlan } from "@/lib/plan/types";
 import {
@@ -82,7 +85,11 @@ function measureFile(file: File): Promise<{ width: number | null; height: number
     return new Promise((resolve) => {
       const video = document.createElement("video");
       video.preload = "metadata";
-      video.onloadedmetadata = () => {
+      video.muted = true;
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
         resolve({
           width: video.videoWidth || null,
           height: video.videoHeight || null,
@@ -90,7 +97,20 @@ function measureFile(file: File): Promise<{ width: number | null; height: number
         });
         URL.revokeObjectURL(url);
       };
+      video.onloadedmetadata = () => {
+        if (video.videoWidth && video.videoHeight) finish();
+        else {
+          try {
+            video.currentTime = 0.01;
+          } catch {
+            finish();
+          }
+        }
+      };
+      video.onseeked = () => finish();
       video.onerror = () => {
+        if (settled) return;
+        settled = true;
         resolve({ width: null, height: null, durationSeconds: null });
         URL.revokeObjectURL(url);
       };
@@ -121,6 +141,8 @@ export function MmlCreativeIntake({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [sendResults, setSendResults] = useState<IntakeSendReport[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
@@ -253,14 +275,60 @@ export function MmlCreativeIntake({
   async function send() {
     setBusy(true);
     setError(null);
+    setSendResults([]);
+    setProgress(null);
     try {
       await prepareDrafts();
-      const json = await post({ action: "send" });
-      setNotes(json.notes ?? []);
+      const res = await fetch(`/api/plan/${encodeURIComponent(planId)}/creative-intake`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
+        body: JSON.stringify({ action: "send" }),
+      });
+      if (!res.body) throw new Error("Send failed");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let donePayload: {
+        ok?: boolean;
+        error?: string;
+        notes?: string[];
+        results?: IntakeSendReport[];
+        view?: IntakeView;
+      } | null = null;
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const message = JSON.parse(line) as {
+            type?: string;
+            index?: number;
+            total?: number;
+            ok?: boolean;
+            error?: string;
+            notes?: string[];
+            results?: IntakeSendReport[];
+            view?: IntakeView;
+          };
+          if (message.type === "progress" && message.index && message.total) {
+            setProgress(intakeUploadProgress(message.index, message.total));
+          }
+          if (message.type === "done") donePayload = message;
+        }
+      }
+      if (!res.ok && !donePayload) throw new Error(`HTTP ${res.status}`);
+      if (!donePayload?.ok) throw new Error(donePayload?.error ?? "Send failed");
+      if (donePayload.view?.assets) setView(donePayload.view);
+      setNotes(donePayload.notes ?? []);
+      setSendResults(donePayload.results ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send failed");
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -397,6 +465,16 @@ export function MmlCreativeIntake({
           Send to Meta + TikTok
         </Button>
       </div>
+      {progress ? <StatusLine className={`${VIZ_TYPE.label} text-foreground`}>{progress}</StatusLine> : null}
+      {sendResults.map((result, index) => (
+        <StatusLine
+          key={`${result.label}-${index}`}
+          tone={result.error ? "alert" : "status"}
+          className={`${VIZ_TYPE.label} ${result.error ? "text-destructive" : "text-foreground"}`}
+        >
+          {intakeSendResultLine(result)}
+        </StatusLine>
+      ))}
       {crossPublish ? <StatusLine className={`${VIZ_TYPE.label} text-muted-foreground`}>{META_CROSS_PUBLISH_NOTE}</StatusLine> : null}
       {notes.map((note) => (
         <StatusLine key={note} className={`${VIZ_TYPE.label} text-muted-foreground`}>{note}</StatusLine>
