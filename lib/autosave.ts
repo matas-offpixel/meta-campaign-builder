@@ -281,6 +281,7 @@ function migrateCreative(c: Partial<AdCreativeDraft> & { id: string }): AdCreati
     description: readBlankCopy(c.description),
     destinationUrl: c.destinationUrl ?? "",
     cta: c.cta ?? "book_now",
+    rotateVariations: c.rotateVariations === true,
     existingPost: c.existingPost,
     enhancements: c.enhancements ?? { ...DEFAULT_ENHANCEMENTS },
     ...(c.importedMeta ? { importedMeta: c.importedMeta } : {}),

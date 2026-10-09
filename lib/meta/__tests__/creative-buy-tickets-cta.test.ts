@@ -79,6 +79,7 @@ describe("Single mode + N variations + BUY_TICKETS → variation-rotation path f
   it("4 variations + BUY_TICKETS → asset_feed_spec.call_to_action_types: [BUY_TICKETS], all 4 hashes present", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
+      rotateVariations: true,
       assetVariations: [
         imageVariation("v1", "Variation 1", "hash_1"),
         imageVariation("v2", "Variation 2", "hash_2"),

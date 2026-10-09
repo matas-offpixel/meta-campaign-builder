@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import { ATTACHED_AD_SET_KEY_PREFIX } from "@/lib/types";
 import { rotationProblemsFromMatrix } from "@/lib/meta/rotation-adset";
+import { adsThisCreativeLaunches } from "@/lib/meta/variation-ads";
 import { CardDescription, Datum, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import { RotationAdSetNote } from "@/components/steps/rotation-adset-note";
 
@@ -139,8 +140,11 @@ function AssignCreativesBody({
   };
 
   const totalAds = useMemo(() => {
-    return Object.values(assignments).reduce((sum, ids) => sum + ids.length, 0);
-  }, [assignments]);
+    const byId = new Map(creatives.map((creative) => [creative.id, creative]));
+    return Object.values(assignments).reduce((sum, ids) => {
+      return sum + ids.reduce((n, id) => n + (byId.get(id) ? adsThisCreativeLaunches(byId.get(id)!) : 0), 0);
+    }, 0);
+  }, [assignments, creatives]);
 
   const rotationProblems = useMemo(
     () =>

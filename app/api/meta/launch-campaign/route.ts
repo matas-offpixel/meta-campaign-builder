@@ -124,6 +124,12 @@ import {
   rotationNeedsLiveAdSetCheck,
   rotationShareRefusal,
 } from "@/lib/meta/rotation-adset";
+import {
+  META_ADS_PER_AD_SET_LIMIT,
+  adSetAdLimitMessage,
+  expandVariationAds,
+  firstExistingPostByAdSet,
+} from "@/lib/meta/variation-ads";
 import { metaAdName } from "@/lib/creative-name-from-filename";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { applyPageInstagramOverridesToCreatives } from "@/lib/meta/apply-page-instagram-overrides";
@@ -1261,6 +1267,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   //
   // `launchCreatives` shadows `draft.creatives` for all downstream phases.
   let launchCreatives: AdCreativeDraft[] = draft.creatives.map((c) => ({ ...c }));
+  let launchAssignments = draft.creativeAssignments ?? {};
 
   // Operator IG picks must reach creative payloads — not just Phase 1.5 pageToIg.
   launchCreatives = applyPageInstagramOverridesToCreatives(
@@ -1469,6 +1476,39 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
 
   phaseDurations["preflight"] = elapsed(preflightStart);
   console.log(`[launch-campaign] Preflight done in ${phaseDurations["preflight"]}ms — ${preflightWarnings.length} warning(s)`);
+
+  // One normal ad per variation, unless the creative opted into rotation.
+  // Happens before any campaign / ad set / creative POST.
+  {
+    const expanded = expandVariationAds(launchCreatives, launchAssignments);
+    launchCreatives = expanded.creatives;
+    launchAssignments = expanded.assignments;
+  }
+  if (wizardMode === "attach_adset") {
+    const guards = await fetchAdSetGuardInfo(attachAdSetIds, launchToken);
+    const message = adSetAdLimitMessage(
+      attachAdSetSnapshots.map((adSet) => ({
+        name: adSet.name,
+        existingAds: guards.get(adSet.id)?.adCount ?? 0,
+        newAds: (launchAssignments[attachedAdSetKey(adSet.id)] ?? []).length,
+      })),
+    );
+    if (message) return launchJson({ error: message }, { status: 400 });
+  } else if (!isAttachAllAdSets) {
+    const message = adSetAdLimitMessage(
+      enabledSets.map((adSet) => ({
+        name: adSet.name,
+        existingAds: 0,
+        newAds: (launchAssignments[adSet.id] ?? []).length,
+      })),
+    );
+    if (message) return launchJson({ error: message }, { status: 400 });
+  } else if (launchCreatives.length > META_ADS_PER_AD_SET_LIMIT) {
+    const message = adSetAdLimitMessage([
+      { name: "each selected ad set", existingAds: 0, newAds: launchCreatives.length },
+    ]);
+    if (message) return launchJson({ error: message }, { status: 400 });
+  }
 
   // An emptied multi-city row resolves to no included area. Refuse it here,
   // before any mutate, so a request that skips the client gate does not
@@ -3348,9 +3388,9 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     console.log(
       `[launch-campaign] Phase 2 (attach_all_adsets) ✓  registered ${adSetMetaIds.size} ad set(s) for Phase 4`,
     );
+    const ids = [...adSetMetaIds.values()];
+    const guards = await fetchAdSetGuardInfo(ids, launchToken);
     if (rotationLiveCheck) {
-      const ids = [...adSetMetaIds.values()];
-      const guards = await fetchAdSetGuardInfo(ids, launchToken);
       const refusal = existingRotationRefusal(
         ids.map((metaId) => ({
           metaId,
@@ -3364,6 +3404,17 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         console.error(`[launch-campaign] ✗ rotation ad set guard: ${refusal}`);
         return launchJson({ error: refusal }, { status: 400 });
       }
+    }
+    const adLimit = adSetAdLimitMessage(
+      ids.map((metaId) => ({
+        name: metaId,
+        existingAds: guards.get(metaId)?.adCount ?? 0,
+        newAds: launchCreatives.length,
+      })),
+    );
+    if (adLimit) {
+      console.error(`[launch-campaign] ✗ ad set ad limit: ${adLimit}`);
+      return launchJson({ error: adLimit }, { status: 400 });
     }
   }
 
@@ -3486,19 +3537,8 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     }
     console.log("[launch-campaign] Phase 2 — creating", standardSets.length, "standard ad sets");
 
-    // Build adSetId → first existing-post creative so placement overrides can
-    // be applied to the ad set targeting before creating it.
-    // (draft.creativeAssignments is creative-id → ad-set-id[]; invert it here)
-    const adSetToCreativeMap = new Map<string, AdCreativeDraft>();
-    for (const [creativeId, adSetIds] of Object.entries(draft.creativeAssignments ?? {})) {
-      const creative = launchCreatives.find((c) => c.id === creativeId);
-      if (!creative || creative.sourceType !== "existing_post") continue;
-      for (const asId of adSetIds ?? []) {
-        if (!adSetToCreativeMap.has(asId)) {
-          adSetToCreativeMap.set(asId, creative);
-        }
-      }
-    }
+    // Ad set id → first existing-post creative, for placement overrides.
+    const adSetToCreativeMap = firstExistingPostByAdSet(launchAssignments, launchCreatives);
 
     // Create standard ad sets concurrently in batches of 5
     const BATCH_SIZE = 5;
@@ -4287,7 +4327,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const phase4Start = Date.now();
-  const creativeToAdSetIds = invertAssignments(draft.creativeAssignments ?? {});
+  const creativeToAdSetIds = invertAssignments(launchAssignments);
   // Lookup by internal id: name for display, metaAdSetId from this run's Map
   const adSetNameById = new Map<string, string>(
     draft.adSetSuggestions.map((s) => [s.id, s.name]),
@@ -4341,7 +4381,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   const skippedOrphanAdSets: NonNullable<LaunchSummary["skippedOrphanAdSets"]> = [];
 
   for (const creativeEntry of creativesCreated) {
-    const creative = draft.creatives.find((c) => c.name === creativeEntry.name);
+    const creative = launchCreatives.find((c) => c.name === creativeEntry.name);
     if (!creative) continue;
 
     // GOAL 2 — attach_all_adsets: bypass the assignment matrix and attach to
@@ -4458,7 +4498,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     });
 
     // Build creative-to-adset assignment lookup once (shared across campaigns).
-    const creativeToAdSetIdsMulti = invertAssignments(draft.creativeAssignments ?? {});
+    const creativeToAdSetIdsMulti = invertAssignments(launchAssignments);
 
     for (let ci = 1; ci < verifiedCampaigns.length; ci++) {
       await sleep(1000);
@@ -4484,15 +4524,8 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       const ciFreshlyCreatedEngagementAudienceIds = new Set(freshlyCreatedEngagementAudienceIds);
       const ciReceiptAudienceIds = new Set(receiptAudienceIds);
 
-      // Build adSet → existing-post creative map for placement override logic.
-      const ciAdSetToCreativeMap = new Map<string, AdCreativeDraft>();
-      for (const [creativeId, adSetIds] of Object.entries(draft.creativeAssignments ?? {})) {
-        const creative = launchCreatives.find((c) => c.id === creativeId);
-        if (!creative || creative.sourceType !== "existing_post") continue;
-        for (const asId of adSetIds ?? []) {
-          if (!ciAdSetToCreativeMap.has(asId)) ciAdSetToCreativeMap.set(asId, creative);
-        }
-      }
+      // Ad set id → first existing-post creative, for placement overrides.
+      const ciAdSetToCreativeMap = firstExistingPostByAdSet(launchAssignments, launchCreatives);
 
       const ciObjective =
         nextCampaign.internalObjective ??
@@ -4793,7 +4826,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       const ciAdTasks: Promise<void>[] = [];
 
       for (const creativeEntry of creativesCreated) {
-        const creative = draft.creatives.find((c) => c.name === creativeEntry.name);
+        const creative = launchCreatives.find((c) => c.name === creativeEntry.name);
         if (!creative) continue;
         const assignedAdSetIds = creativeToAdSetIdsMulti[creative.id] ?? [];
         for (const internalAdSetId of assignedAdSetIds) {
@@ -4914,6 +4947,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   const cleanSuggestions = draft.adSetSuggestions.map(({ metaAdSetId: _id, ...rest }) => rest);
   const publishedDraft: CampaignDraft = {
     ...draft,
+    creativeAssignments: launchAssignments,
     metaCampaignId,
     creatives: stampPublishedCreatives(
       updatedCreatives,

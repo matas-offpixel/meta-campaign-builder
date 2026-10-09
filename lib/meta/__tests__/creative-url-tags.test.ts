@@ -59,7 +59,8 @@ const SHAPES: Record<string, () => AdCreativeDraft> = {
         },
       ],
     }),
-  "asset_feed_spec rotation": () => creative({ assetVariations: [image("v1", "hash_1"), image("v2", "hash_2")] }),
+  "asset_feed_spec rotation": () =>
+    creative({ rotateVariations: true, assetVariations: [image("v1", "hash_1"), image("v2", "hash_2")] }),
   "asset_feed_spec multi-placement": () =>
     creative({
       assetMode: "dual",

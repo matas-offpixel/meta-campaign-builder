@@ -1001,6 +1001,8 @@ function buildVariationRotationCreative(
  *
  * Mirrors the routing in {@link buildCreativePayload} EXACTLY so the launch
  * orchestration flags precisely the ad sets that get a rotation creative:
+ *   - the creative opts in (`rotateVariations`). Off, the default, launches
+ *     one normal ad per variation instead;
  *   - gated behind `ENABLE_MULTI_PLACEMENT_ASSETS === "1"` (same flag as the
  *     builder), so it returns false whenever rotation cannot fire;
  *   - never fires for existing-post creatives;
@@ -1008,6 +1010,7 @@ function buildVariationRotationCreative(
  *     2+ variations, same media kind).
  */
 export function creativeTriggersVariationRotation(creative: AdCreativeDraft): boolean {
+  if (creative.rotateVariations !== true) return false;
   if (process.env.ENABLE_MULTI_PLACEMENT_ASSETS !== "1") return false;
   if (creative.sourceType === "existing_post") return false;
   return detectVariationRotation(creative) !== null;
@@ -1237,10 +1240,12 @@ async function buildCreativePayloadShape(
   // Meta rejects BOOK_NOW there (subcode 1885396). Single-asset paths below
   // keep BOOK_NOW in link_data / video_data.
   if (process.env.ENABLE_MULTI_PLACEMENT_ASSETS === "1") {
-    // ── Variation rotation (Single mode + N variations) ────────────────────
-    // Checked BEFORE multi-placement detection so Single mode + N variations
-    // always wins over any accidental multi-placement detection.
-    const rotationPlan = detectVariationRotation(creative);
+    // ── Variation rotation (opt-in, Single mode + N variations) ─────────────
+    // Only when the creative asks to rotate. Otherwise launch expands the
+    // creative into one ad per variation before this builder runs.
+    const rotationPlan = creativeTriggersVariationRotation(creative)
+      ? detectVariationRotation(creative)
+      : null;
     if (rotationPlan) {
       console.error(
         `[buildCreativePayload] "${creative.name}" → VARIATION-ROTATION path` +

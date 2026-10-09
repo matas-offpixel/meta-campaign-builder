@@ -23,6 +23,7 @@ import {
   type CreativeFailureResult,
 } from "@/lib/meta/creative";
 import { metaAdName } from "@/lib/creative-name-from-filename";
+import { adSetAdLimitMessage, expandVariationAds } from "@/lib/meta/variation-ads";
 import type { AdCreativeDraft, AdSetSuggestion } from "@/lib/types";
 
 // Same ceiling as /api/meta/launch-campaign — this route can create many
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Build lookup helpers ──────────────────────────────────────────────────
   // internalCreativeId → [ internalAdSetId, ... ]
-  const creativeToInternalAdSetIds = invertAssignments(assignments ?? {});
+  let creativeToInternalAdSetIds = invertAssignments(assignments ?? {});
 
   // internalAdSetId → AdSetSuggestion (for metaAdSetId + name lookups)
   const adSetByInternalId = new Map<string, AdSetSuggestion>(
@@ -161,6 +162,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
       return creative;
     });
+  }
+
+  {
+    const expanded = expandVariationAds(patchedCreatives, assignments ?? {});
+    patchedCreatives = expanded.creatives;
+    creativeToInternalAdSetIds = invertAssignments(expanded.assignments);
+    const names = new Map((adSetSuggestions ?? []).map((adSet) => [adSet.id, adSet.name]));
+    const adLimit = adSetAdLimitMessage(
+      Object.keys(expanded.assignments).map((id) => ({
+        name: names.get(id) ?? id,
+        existingAds: 0,
+        newAds: expanded.assignments[id]?.length ?? 0,
+      })),
+    );
+    if (adLimit) {
+      return NextResponse.json({ error: adLimit }, { status: 400 });
+    }
   }
 
   // Bookkeeping only — never throws into the ad path. No draft here:

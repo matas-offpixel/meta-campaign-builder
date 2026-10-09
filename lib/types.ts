@@ -782,6 +782,13 @@ export interface AdCreativeDraft {
   mediaType: "image" | "video";
   assetMode: AssetMode;
   assetVariations: AssetVariation[];
+  /**
+   * Single mode with 2+ variations. Off (the default) launches one normal ad
+   * per variation. On, Meta rotates them in one dynamic-creative ad. Not every
+   * ad account allows that. Absent on drafts saved before the flag;
+   * `migrateDraft` fills false.
+   */
+  rotateVariations?: boolean;
   captions: CaptionVariant[];
   headline: string;
   description: string;

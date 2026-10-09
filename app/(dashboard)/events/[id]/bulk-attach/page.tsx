@@ -58,6 +58,7 @@ import {
 import { useFetchPages } from "@/lib/hooks/useMeta";
 import { RotationAdSetNote } from "@/components/steps/rotation-adset-note";
 import { useBulkAttachRotationBlock } from "@/components/steps/use-bulk-attach-rotation";
+import { adsThisCreativeLaunches } from "@/lib/meta/variation-ads";
 import type { AdSetGuardInfo } from "@/lib/meta/client";
 import type { AdSetGuardResponse } from "@/app/api/meta/bulk-attach-ads/adset-guard/route";
 
@@ -315,7 +316,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     (sum, s) => sum + s.size,
     0,
   );
-  const totalAdsToCreate = totalSelectedAdSets * creatives.length;
+  const totalAdsToCreate =
+    totalSelectedAdSets * creatives.reduce((sum, creative) => sum + adsThisCreativeLaunches(creative), 0);
 
   // ── localStorage autosave ─────────────────────────────────────────────────
   useEffect(() => {
