@@ -40,7 +40,8 @@ describe("lookupFallbackGeoConstant", () => {
   });
 
   it("normalises extra whitespace", () => {
-    assert.equal(lookupFallbackGeoConstant(" south east "), "geoTargetConstants/9049069");
+    assert.equal(lookupFallbackGeoConstant(" manchester "), "geoTargetConstants/1006912");
+    assert.equal(lookupFallbackGeoConstant(" south east "), null);
   });
 
   it("matches 'uk' alias for United Kingdom", () => {
