@@ -19,7 +19,7 @@ MML section ③ replaces the placeholder. Suggest fetches a ticket URL (or uses 
 
 ## Validation
 
-- [x] `node --conditions react-server --experimental-strip-types --test lib/plan/__tests__/copy.test.ts` — 16 pass
+- [x] `node --conditions react-server --experimental-strip-types --test lib/plan/__tests__/copy.test.ts` — 19 pass (review round 1: special-purpose block list, pinned lookup, second Apply, scarcity phrases)
 - [x] `lib/plan/__tests__/mml-shell.test.ts`, `canvas.test.ts`, `drawer.test.ts` — pass
 - [ ] `npm test` (full suite, CI)
 - [ ] Browser: paste a ticket URL on a real plan. Not exercised here (no signed-in session).
@@ -31,3 +31,5 @@ Model: `claude-haiku-4-5`, named `MML_COPY_MODEL` in `lib/plan/copy-suggest.ts`.
 The Editor-template proof is not this PR. Migration 194 is in the PR body and is not applied.
 
 A paused YouTube campaign with no daily is a separate PR (#1045).
+
+Review round 1: the page fetch uses `net.BlockList` for the IANA special-purpose ranges (plus multicast and deprecated site-local), normalises IPv4-mapped and IPv4-compatible forms to IPv4, and connects with an undici Agent whose `connect.lookup` returns only the vetted addresses. A second Apply skips copy that is already present, case- and whitespace-insensitive. Migration 194 is unchanged and unapplied.

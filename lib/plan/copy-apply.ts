@@ -74,6 +74,28 @@ export interface ApplyCopyResult {
   tiktokChanged: boolean;
 }
 
+/** Case and repeated whitespace do not make a second copy of the same line. */
+function copyKey(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function uniqueCopy(lines: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of lines) {
+    const key = copyKey(line);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(line.trim().replace(/\s+/g, " "));
+  }
+  return out;
+}
+
+function sameCopyList(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((text, index) => copyKey(text) === copyKey(right[index] ?? ""));
+}
+
 function clampList(lines: readonly string[], maxLen: number, maxCount: number): string[] {
   const out: string[] = [];
   for (const line of lines) {
@@ -90,13 +112,25 @@ function writeMetaCreative(creative: AdCreativeDraft, selection: CopySelection, 
     captions: creative.captions.map((row) => ({ ...row })),
   };
   if (across.caption && selection.metaPrimary.length > 0) {
-    next.captions = selection.metaPrimary.map((text, index) => ({
-      id: creative.captions[index]?.id ?? crypto.randomUUID(),
-      text,
-    }));
+    const incoming = uniqueCopy(selection.metaPrimary);
+    const existing = creative.captions.map((row) => row.text).filter((text) => copyKey(text));
+    if (!sameCopyList(existing, incoming)) {
+      next.captions = incoming.map((text, index) => ({
+        id: creative.captions[index]?.id ?? crypto.randomUUID(),
+        text,
+      }));
+    }
   }
-  if (across.headline && selection.metaHeadline) next.headline = selection.metaHeadline;
-  if (across.description && selection.metaDescription) next.description = selection.metaDescription;
+  if (across.headline && selection.metaHeadline && copyKey(selection.metaHeadline) !== copyKey(creative.headline ?? "")) {
+    next.headline = selection.metaHeadline;
+  }
+  if (
+    across.description &&
+    selection.metaDescription &&
+    copyKey(selection.metaDescription) !== copyKey(creative.description ?? "")
+  ) {
+    next.description = selection.metaDescription;
+  }
   if (across.url && selection.url.trim()) next.destinationUrl = selection.url.trim();
   if (across.cta) next.cta = selection.cta;
   return next;
@@ -159,7 +193,7 @@ export function applyCopy(input: ApplyCopyInput): ApplyCopyResult {
     const items = tiktok.creatives.items.map((item) => {
       if (!isRoutedTikTok(item)) return item;
       const next = { ...item };
-      if (input.across.caption && selection.tiktok) {
+      if (input.across.caption && selection.tiktok && copyKey(selection.tiktok) !== copyKey(item.adText ?? "")) {
         next.adText = selection.tiktok;
         next.caption = selection.tiktok;
       }
@@ -275,13 +309,22 @@ export function applyCopyToGoogleTree(
     [...input.keywords],
     noise,
   );
-  const changed =
-    JSON.stringify(merged.tree.campaigns[0]?.ad_groups[0]?.rsas[0]?.headlines) !== JSON.stringify(rsa.headlines) ||
-    JSON.stringify(merged.tree.campaigns[0]?.ad_groups[0]?.rsas[0]?.descriptions) !== JSON.stringify(rsa.descriptions) ||
-    merged.addedKeywords > 0 ||
-    merged.addedNegatives > 0 ||
-    merged.replacedDerivedKeywords > 0;
-  return { tree: merged.tree, changed, note: null };
+  if (googleCopySignature(merged.tree) === googleCopySignature(tree)) {
+    return { tree, changed: false, note: null };
+  }
+  return { tree: merged.tree, changed: true, note: null };
+}
+
+function googleCopySignature(tree: GoogleSearchPlanTree): string {
+  const group = tree.campaigns[0]?.ad_groups[0];
+  const rsa = group?.rsas[0];
+  const headlines = (rsa?.headlines ?? []).map((row) => `${copyKey(row.text)}#${row.pin_position ?? ""}`);
+  const descriptions = (rsa?.descriptions ?? []).map((row) => `${copyKey(row.text)}#${row.pin_position ?? ""}`);
+  const keywords = (group?.keywords ?? [])
+    .map((row) => `${row.keyword.trim().toLowerCase()}|${row.match_type}|${(row.notes ?? "").trim()}`)
+    .sort();
+  const negatives = tree.plan_negatives.map((row) => `${row.keyword.trim().toLowerCase()}|${row.match_type}`).sort();
+  return JSON.stringify({ headlines, descriptions, keywords, negatives });
 }
 
 function derivedNoteFromJobs(keyword: string): string {
@@ -294,15 +337,23 @@ function mergeSlots<T extends RsaHeadline | RsaDescription>(
   seeds: Set<string>,
   max: number,
 ): T[] {
-  const queue = [...incoming];
-  const next: T[] = current.map((slot) => {
-    const pinned = slot.pin_position != null && slot.pin_position !== undefined;
-    if (!seeded(slot.text, seeds, Boolean(pinned)) || queue.length === 0) return slot;
-    const text = queue.shift() ?? slot.text;
-    return { ...slot, text };
-  });
-  while (queue.length > 0 && next.length < max) {
-    next.push({ text: queue.shift() as string } as T);
+  const next: T[] = current.map((slot) => ({ ...slot }));
+  const incomingKeys = new Set(incoming.map((text) => copyKey(text)).filter(Boolean));
+  const has = (key: string) => next.some((slot) => copyKey(slot.text) === key);
+  for (const raw of incoming) {
+    const text = raw.trim().replace(/\s+/g, " ");
+    const key = copyKey(text);
+    if (!key || has(key)) continue;
+    const seedIndex = next.findIndex((slot) => {
+      const pinned = slot.pin_position != null && slot.pin_position !== undefined;
+      if (!seeded(slot.text, seeds, Boolean(pinned))) return false;
+      return !incomingKeys.has(copyKey(slot.text));
+    });
+    if (seedIndex >= 0) {
+      next[seedIndex] = { ...next[seedIndex], text };
+      continue;
+    }
+    if (next.length < max) next.push({ text } as T);
   }
   return next;
 }

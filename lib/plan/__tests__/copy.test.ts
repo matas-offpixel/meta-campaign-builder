@@ -15,12 +15,21 @@ import {
   TIKTOK_COPY_LAUNCHED_NOTE,
 } from "../copy-apply.ts";
 import { factCorpus, unsupportedFact, type CopyEventFacts } from "../copy-facts.ts";
-import { fetchEventPage, isBlockedIp } from "../copy-fetch.ts";
+import { fetchEventPage, isBlockedIp, type PinnedLookup } from "../copy-fetch.ts";
+import type { Dispatcher } from "undici";
 import { COPY_LIMITS, fitLimit, fitTikTok } from "../copy-limits.ts";
 import { scrapeHtml } from "../copy-scrape.ts";
 import { buildSuggestions, keywordsFromEvent, MML_COPY_MODEL } from "../copy-suggest.ts";
 import { IDLE_PLAN_LAUNCH, type CampaignPlan } from "../types.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
+
+/** The lookup the undici Agent will call on connect, not a side channel. */
+function agentConnectLookup(dispatcher: Dispatcher): PinnedLookup | null {
+  const stored = Object.getOwnPropertySymbols(dispatcher)
+    .map((symbol) => (dispatcher as unknown as Record<symbol, { connect?: { lookup?: PinnedLookup } }>)[symbol])
+    .find((value) => typeof value?.connect?.lookup === "function");
+  return stored?.connect?.lookup ?? null;
+}
 
 const event = (): CopyEventFacts => ({
   name: "CamelPhat",
@@ -56,6 +65,35 @@ describe("fact check", () => {
   it("allows a capacity that is on the event row", () => {
     const withCapacity = factCorpus("", { ...event(), capacity: "2000" });
     assert.equal(unsupportedFact("Capacity 2000", withCapacity), null);
+  });
+
+  it("drops scarcity phrasing unless the source uses that phrase", () => {
+    const phrases = [
+      "sold-out",
+      "sell-out",
+      "sold out!",
+      "last few",
+      "final tickets",
+      "final release",
+      "limited tickets",
+      "few left",
+      "low availability",
+      "nearly sold out",
+      "don't miss out on the last",
+    ];
+    for (const phrase of phrases) {
+      const reason = unsupportedFact(phrase, corpus());
+      assert.ok(reason, phrase);
+      assert.match(reason, /not in the page or the event/);
+    }
+    const soldOut = factCorpus("Tonight is sold-out.", event());
+    assert.equal(unsupportedFact("sold out!", soldOut), null);
+    assert.equal(unsupportedFact("sold-out", soldOut), null);
+    assert.match(unsupportedFact("sell-out", soldOut) ?? "", /sell out/);
+    assert.match(unsupportedFact("last few", soldOut) ?? "", /last few/);
+    const lastFew = factCorpus("The last few are here.", event());
+    assert.equal(unsupportedFact("Last few", lastFew), null);
+    assert.equal(unsupportedFact("don't miss out on the last", factCorpus("Don't miss out on the last one.", event())), null);
   });
 });
 
@@ -110,11 +148,53 @@ describe("channel limits", () => {
 });
 
 describe("page fetch and scrape", () => {
-  it("refuses private, loopback and link-local addresses", () => {
-    for (const ip of ["127.0.0.1", "10.1.2.3", "192.168.0.4", "172.16.0.1", "169.254.169.254", "::1", "fe80::1"]) {
-      assert.equal(isBlockedIp(ip), true, ip);
+  it("refuses every special-purpose range, including mapped and compatible forms", () => {
+    const blocked = [
+      "0.1.2.3",
+      "10.1.2.3",
+      "100.64.0.1",
+      "127.0.0.1",
+      "169.254.169.254",
+      "172.16.0.1",
+      "192.0.0.1",
+      "192.0.2.1",
+      "192.31.196.1",
+      "192.52.193.1",
+      "192.88.99.1",
+      "192.168.0.4",
+      "192.175.48.1",
+      "198.18.0.1",
+      "198.51.100.1",
+      "203.0.113.1",
+      "224.0.0.1",
+      "240.0.0.1",
+      "255.255.255.255",
+      "::",
+      "::1",
+      "::ffff:7f00:1",
+      "::ffff:a9fe:a9fe",
+      "::127.0.0.1",
+      "::7f00:1",
+      "64:ff9b::a00:1",
+      "64:ff9b::808:808",
+      "64:ff9b:1::1",
+      "100::1",
+      "100:0:0:1::1",
+      "2001::1",
+      "2001:db8::1",
+      "2002::1",
+      "2620:4f:8000::1",
+      "3fff::1",
+      "5f00::1",
+      "fc00::1",
+      "fe80::1",
+      "fec0::1",
+      "ff00::1",
+    ];
+    for (const ip of blocked) assert.equal(isBlockedIp(ip), true, ip);
+    for (const ip of ["93.184.216.34", "8.8.8.8", "192.0.1.1", "100.63.255.255", "172.32.0.1", "::ffff:8.8.8.8", "::8.8.8.8", "2606:4700:4700::1111"]) {
+      assert.equal(isBlockedIp(ip), false, ip);
     }
-    assert.equal(isBlockedIp("93.184.216.34"), false);
   });
 
   it("refuses a private address before the request, including after a redirect", async () => {
@@ -159,6 +239,36 @@ describe("page fetch and scrape", () => {
     assert.equal(page.event?.priceCurrency, "GBP");
     assert.equal(page.event?.performer, "CamelPhat");
     assert.equal(page.text.includes("fan@secret.example"), false);
+  });
+
+  it("pins the connection to the first vetted address when a later lookup is private", async () => {
+    let calls = 0;
+    const lookup = async (_hostname: string) => {
+      calls += 1;
+      return calls === 1 ? ["93.184.216.34"] : ["127.0.0.1"];
+    };
+    const page = await fetchEventPage("https://tickets.example/event", {
+      lookup,
+      fetch: async (_url, init) => {
+        const connect = agentConnectLookup(init.dispatcher);
+        assert.ok(connect);
+        const pinned = await new Promise<string[]>((resolve, reject) => {
+          connect("tickets.example", { all: true }, (err, addresses) => {
+            if (err || !Array.isArray(addresses)) {
+              reject(err ?? new Error("expected addresses"));
+              return;
+            }
+            resolve(addresses.map((row) => row.address));
+          });
+        });
+        assert.deepEqual(pinned, ["93.184.216.34"]);
+        assert.equal(calls, 1);
+        return new Response("<html></html>", { headers: { "content-type": "text/html" } });
+      },
+    });
+    assert.equal(page.ok, true);
+    assert.equal(calls, 1);
+    assert.deepEqual(await lookup("tickets.example"), ["127.0.0.1"]);
   });
 });
 
@@ -414,6 +524,160 @@ describe("apply", () => {
     });
     assert.equal(JSON.stringify(skipped.tree.campaigns[0].ad_groups[0].rsas[0].headlines), before);
     assert.match(skipped.note ?? "", /pushed/);
+  });
+
+  it("a second Apply with the same selection changes nothing, and Send stays a no-op", () => {
+    const draft = createDefaultDraft();
+    const creative = metaCreative("creative-1");
+    draft.creatives = [creative];
+    const before = creativeDraftFingerprint(creative);
+    const tiktok = createDefaultTikTokDraft("tt-1");
+    tiktok.creatives.items = [
+      {
+        id: "routed",
+        name: "Routed",
+        mode: "VIDEO_REFERENCE",
+        baseName: "Routed",
+        videoId: null,
+        videoUrl: null,
+        thumbnailUrl: null,
+        durationSeconds: null,
+        title: null,
+        sparkPostId: null,
+        caption: "",
+        adText: "",
+        displayName: "",
+        landingPageUrl: "",
+        cta: null,
+        musicId: null,
+        derivedFrom: "registry:asset-1",
+      },
+    ];
+    const selection = {
+      metaPrimary: ["CamelPhat at Printworks", "London"],
+      metaHeadline: "CamelPhat",
+      metaDescription: "Printworks",
+      tiktok: "CamelPhat at Printworks",
+      googleHeadlines: ["CamelPhat", "Printworks"],
+      googleDescriptions: ["CamelPhat at Printworks"],
+      url: "https://tickets.example/event",
+      cta: "book_now" as const,
+    };
+    const across = { caption: true, url: true, cta: true, headline: true, description: true };
+    const owned = [{ key: singleGroupKey("asset-1"), creativeId: "creative-1", fingerprint: before, draftFingerprint: before }];
+    const first = applyCopy({
+      meta: draft,
+      tiktok,
+      owned,
+      selection,
+      across,
+      metaLaunched: false,
+      tiktokLaunched: false,
+    });
+    assert.equal(first.metaChanged, true);
+    assert.equal(first.tiktokChanged, true);
+    const stamped = first.fingerprints[0];
+    assert.ok(stamped);
+    const written = first.meta?.creatives[0];
+    assert.ok(written);
+    const second = applyCopy({
+      meta: first.meta,
+      tiktok: first.tiktok,
+      owned: [{ key: stamped.key, creativeId: stamped.creativeId, fingerprint: stamped.fingerprint, draftFingerprint: stamped.fingerprint }],
+      selection,
+      across,
+      metaLaunched: false,
+      tiktokLaunched: false,
+    });
+    assert.equal(second.metaChanged, false);
+    assert.equal(second.tiktokChanged, false);
+    assert.equal(second.notes.includes(DRAWER_COPY_NOTE), false);
+    assert.deepEqual(second.meta?.creatives[0]?.captions.map((row) => row.text), written.captions.map((row) => row.text));
+    assert.equal(second.meta?.creatives[0]?.headline, written.headline);
+    assert.equal(second.tiktok?.creatives.items[0]?.adText, first.tiktok?.creatives.items[0]?.adText);
+    assert.equal(second.fingerprints[0]?.fingerprint, stamped.fingerprint);
+    assert.equal(
+      sendAfterApplyIsNoop({
+        assets: [asset],
+        owned: {
+          key: stamped.key,
+          creativeId: stamped.creativeId,
+          fingerprint: stamped.fingerprint,
+          draftFingerprint: second.fingerprints[0]?.fingerprint ?? "",
+        },
+      }),
+      true,
+    );
+
+    const cased = applyCopy({
+      meta: second.meta,
+      tiktok: second.tiktok,
+      owned: [{ key: stamped.key, creativeId: stamped.creativeId, fingerprint: stamped.fingerprint, draftFingerprint: stamped.fingerprint }],
+      selection: {
+        ...selection,
+        metaPrimary: ["camelphat at printworks", "London "],
+        metaHeadline: "camelphat",
+        metaDescription: "printworks",
+        tiktok: "camelphat at printworks",
+      },
+      across,
+      metaLaunched: false,
+      tiktokLaunched: false,
+    });
+    assert.equal(cased.metaChanged, false);
+    assert.equal(cased.tiktokChanged, false);
+    assert.deepEqual(cased.meta?.creatives[0]?.captions.map((row) => row.text), ["CamelPhat at Printworks", "London"]);
+    assert.equal(cased.tiktok?.creatives.items[0]?.adText, "CamelPhat at Printworks");
+
+    const plan: CampaignPlan = {
+      id: "11111111-1111-4111-8111-111111111111",
+      userId: "22222222-2222-4222-8222-222222222222",
+      name: "CamelPhat",
+      status: "draft",
+      intent: {
+        eventId: "33333333-3333-4333-8333-333333333333",
+        objectiveIntent: "purchase",
+        target: { value: null, unit: null },
+        budget: { totalDaily: 10, metaDaily: 8, tiktokDaily: 1, googleDaily: 1 },
+        destinationUrl: "https://tickets.example/event",
+        audienceClusterRef: null,
+        creativeSetRef: null,
+        startDate: "2026-10-01",
+        endDate: "2026-10-24",
+        startTime: null,
+        endTime: null,
+      },
+      launches: { meta: IDLE_PLAN_LAUNCH, tiktok: IDLE_PLAN_LAUNCH, google: IDLE_PLAN_LAUNCH },
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    };
+    const tree = planToGoogleDraft(plan);
+    const google = {
+      headlines: ["CamelPhat", "Printworks"],
+      descriptions: ["CamelPhat at Printworks"],
+      keywords: keywordsFromEvent(event()),
+    };
+    const seeded = applyCopyToGoogleTree(tree, google);
+    assert.equal(seeded.changed, true);
+    const again = applyCopyToGoogleTree(seeded.tree, google);
+    assert.equal(again.changed, false);
+    const headlinesOf = (value: typeof seeded.tree) => value.campaigns[0].ad_groups[0].rsas[0].headlines;
+    const descriptionsOf = (value: typeof seeded.tree) => value.campaigns[0].ad_groups[0].rsas[0].descriptions;
+    assert.deepEqual(headlinesOf(again.tree), headlinesOf(seeded.tree));
+    assert.deepEqual(descriptionsOf(again.tree), descriptionsOf(seeded.tree));
+    assert.deepEqual(
+      again.tree.campaigns[0].ad_groups[0].keywords.map((row) => row.keyword),
+      seeded.tree.campaigns[0].ad_groups[0].keywords.map((row) => row.keyword),
+    );
+    const casedGoogle = applyCopyToGoogleTree(again.tree, {
+      ...google,
+      headlines: ["camelphat", "Printworks "],
+      descriptions: ["camelphat at printworks"],
+    });
+    assert.equal(casedGoogle.changed, false);
+    assert.deepEqual(headlinesOf(casedGoogle.tree).map((row) => row.text), headlinesOf(seeded.tree).map((row) => row.text));
+    const keys = headlinesOf(casedGoogle.tree).map((row) => row.text.trim().toLowerCase().replace(/\s+/g, " "));
+    assert.equal(new Set(keys).size, keys.length);
   });
 });
 

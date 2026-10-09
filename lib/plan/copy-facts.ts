@@ -1,11 +1,29 @@
 /**
  * A suggestion may only state facts that are in the scraped page or the
  * event row. Numbers, prices, dates and venue or artist names are checked
- * after generation. "Sold out", "last tickets" and a capacity are refused
- * unless those words are already in the source.
+ * after generation. Scarcity ("sold out", "sold-out", "last few", and the
+ * rest of the list) is refused unless that same phrase, with hyphens and
+ * punctuation folded, is already in the source. A capacity is refused
+ * unless the source names one.
  */
 
-const BANNED_PHRASES = ["sold out", "last tickets", "last ticket", "selling fast", "almost gone"] as const;
+/** Longer phrases first, so a line is named for the phrase it actually uses. */
+const BANNED_PHRASES: ReadonlyArray<{ key: string; label: string }> = [
+  { key: "dont miss out on the last", label: "don't miss out on the last" },
+  { key: "nearly sold out", label: "nearly sold out" },
+  { key: "low availability", label: "low availability" },
+  { key: "limited tickets", label: "limited tickets" },
+  { key: "final release", label: "final release" },
+  { key: "final tickets", label: "final tickets" },
+  { key: "selling fast", label: "selling fast" },
+  { key: "almost gone", label: "almost gone" },
+  { key: "last tickets", label: "last tickets" },
+  { key: "last ticket", label: "last ticket" },
+  { key: "sold out", label: "sold out" },
+  { key: "sell out", label: "sell out" },
+  { key: "last few", label: "last few" },
+  { key: "few left", label: "few left" },
+];
 
 const MONTHS = [
   "January",
@@ -99,15 +117,41 @@ function normalise(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+/** Hyphens and punctuation fold away so "sold-out" and "sold out!" are one phrase. */
+function phraseKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[-‐‑‒–—]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasPhrase(haystack: string, phrase: string): boolean {
+  let from = 0;
+  while (from <= haystack.length) {
+    const at = haystack.indexOf(phrase, from);
+    if (at < 0) return false;
+    const before = at === 0 || haystack[at - 1] === " ";
+    const afterAt = at + phrase.length;
+    const after = afterAt === haystack.length || haystack[afterAt] === " ";
+    if (before && after) return true;
+    from = at + 1;
+  }
+  return false;
+}
+
 /** First reason the line states a fact the corpus does not contain. */
 export function unsupportedFact(suggestion: string, corpus: string): string | null {
   const text = suggestion.trim();
   if (!text) return "empty";
   const haystack = normalise(corpus);
-  const lower = normalise(text);
+  const phrases = phraseKey(corpus);
+  const lower = phraseKey(text);
   for (const phrase of BANNED_PHRASES) {
-    if (lower.includes(phrase) && !haystack.includes(phrase)) {
-      return `"${phrase}" is not in the page or the event`;
+    if (hasPhrase(lower, phrase.key) && !hasPhrase(phrases, phrase.key)) {
+      return `"${phrase.label}" is not in the page or the event`;
     }
   }
   if (/\bcapacit(?:y|ies)\b/i.test(text) && !haystack.includes("capacity")) {
