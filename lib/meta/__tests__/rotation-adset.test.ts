@@ -61,6 +61,7 @@ function creative(id: string, variations: number): AdCreativeDraft {
     description: "",
     destinationUrl: "https://example.com",
     cta: "book_now",
+    rotateVariations: true,
     enhancements: enhancementsOff,
   };
 }

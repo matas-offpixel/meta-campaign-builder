@@ -4,9 +4,9 @@
  * Bug (PR #663): buildCreativePayload read assetVariations[0] exclusively
  * across every payload builder — when an operator uploaded N variations
  * expecting Meta to rotate them, only variation 0 reached Meta (variations
- * 2..N silently discarded at payload build time). Matas's design intent:
- * variations = asset rotation within a single ad via asset_feed_spec
- * (Dynamic Creative rotation), NOT separate ads.
+ * 2..N silently discarded at payload build time). Rotation is now opt-in
+ * (`rotateVariations`). These fixtures set it. The default is one ad per
+ * variation (`lib/meta/variation-ads.ts`).
  *
  * Bug #2 (PR #665, REVERTED here): PR #665 shipped the rotation asset_feed_spec
  * with a shared "rotation" adlabel across all N assets + 2 asset_customization_rules,
@@ -66,6 +66,7 @@ function baseCreative(overrides: Partial<AdCreativeDraft> = {}): AdCreativeDraft
     description: "Limited availability",
     destinationUrl: "https://example.com/tickets",
     cta: "learn_more",
+    rotateVariations: true,
     enhancements: baseEnhancements,
     ...overrides,
   };

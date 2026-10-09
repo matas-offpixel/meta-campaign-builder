@@ -139,6 +139,7 @@ export function createDefaultCreative(objective?: CampaignObjective): AdCreative
     description: "",
     destinationUrl: "",
     cta: defaultCtaForObjective(objective),
+    rotateVariations: false,
     enhancements: { ...ENHANCEMENTS_OFF },
   };
 }

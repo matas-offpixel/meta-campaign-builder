@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { SearchInput } from "@/components/ui/search-input";
 import {
@@ -1139,6 +1140,18 @@ function CreativesBody({
                             </Button>
                           </div>
                         </div>
+                        {(active.assetVariations ?? []).length >= 2 &&
+                        (active.assetMode ?? "dual") === "single" &&
+                        active.sourceType !== "existing_post" ? (
+                          <Checkbox
+                            className="mb-3"
+                            checked={active.rotateVariations === true}
+                            onChange={(e) =>
+                              updateAd(active.id, { rotateVariations: e.target.checked })
+                            }
+                            label="Rotate variations in one ad (dynamic creative — not every ad account allows this)"
+                          />
+                        ) : null}
                         <div className="space-y-3">
                           {(active.assetVariations ?? []).map((variation, vi) => (
                             <AssetVariationCard
