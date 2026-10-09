@@ -12,6 +12,7 @@ import { AudiencesStep } from "@/components/steps/audiences/audiences-step";
 import { Creatives } from "@/components/steps/creatives";
 import { BudgetSchedule } from "@/components/steps/budget-schedule";
 import { AssignCreatives } from "@/components/steps/assign-creatives";
+import { splitRotationOntoOwnAdSet } from "@/lib/wizard/split-rotation-adset";
 import { ReviewLaunch } from "@/components/steps/review-launch";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import { LoadTemplateModal } from "@/components/templates/load-template-modal";
@@ -527,6 +528,23 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
               creatives={draft.creatives}
               assignments={draft.creativeAssignments}
               onChange={updateCreativeAssignments}
+              onSplitRotation={
+                isAttachAdSet
+                  ? undefined
+                  : (adSetId, creativeId) => {
+                      const creative = draft.creatives.find((c) => c.id === creativeId);
+                      const next = splitRotationOntoOwnAdSet({
+                        adSets: draft.adSetSuggestions,
+                        assignments: draft.creativeAssignments,
+                        adSetId,
+                        creativeId,
+                        creativeName: creative?.name ?? "",
+                        newId: crypto.randomUUID(),
+                      });
+                      updateAdSetSuggestions(next.adSets);
+                      updateCreativeAssignments(next.assignments);
+                    }
+              }
               attachAdSetMode={isAttachAdSet}
             />
           );

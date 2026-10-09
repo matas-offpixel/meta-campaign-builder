@@ -56,6 +56,8 @@ import {
   summariseRelaunchGuard,
 } from "@/lib/bulk-attach/launch-validation";
 import { useFetchPages } from "@/lib/hooks/useMeta";
+import { RotationAdSetNote } from "@/components/steps/rotation-adset-note";
+import { useBulkAttachRotationBlock } from "@/components/steps/use-bulk-attach-rotation";
 import type { AdSetGuardInfo } from "@/lib/meta/client";
 import type { AdSetGuardResponse } from "@/app/api/meta/bulk-attach-ads/adset-guard/route";
 
@@ -305,6 +307,10 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const [templatePreviewLoading, setTemplatePreviewLoading] = useState(false);
 
   // ── Computed totals ───────────────────────────────────────────────────────
+  const rotationBlock = useBulkAttachRotationBlock(
+    creatives,
+    Array.from(campaignAdSets.values()).flatMap((ids) => Array.from(ids)),
+  );
   const totalSelectedAdSets = Array.from(campaignAdSets.values()).reduce(
     (sum, s) => sum + s.size,
     0,
@@ -1062,6 +1068,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                 />
               </div>
 
+              {rotationBlock.text ? <RotationAdSetNote message={rotationBlock.text} /> : null}
               <div className="flex flex-col items-end gap-2">
                 <Button
                   size="sm"
@@ -1072,7 +1079,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                       c.assetVariations?.some((v) =>
                         v.assets?.some((a) => a.uploadStatus === "uploaded"),
                       ),
-                    )
+                    ) ||
+                    rotationBlock.blocked
                   }
                 >
                   Review & launch <ChevronRight className="ml-1 h-3.5 w-3.5" />
@@ -1143,6 +1151,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                 )}
               </div>
 
+              {rotationBlock.text ? <RotationAdSetNote message={rotationBlock.text} /> : null}
               <div className="flex flex-col items-end gap-2">
                 {creativeLaunchReadiness.pagesStillLoading && (
                   <p className="text-xs text-muted-foreground">
@@ -1159,7 +1168,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                   onClick={handleLaunch}
                   disabled={
                     launching ||
-                    !creativeLaunchReadiness.ready
+                    !creativeLaunchReadiness.ready ||
+                    rotationBlock.blocked
                   }
                 >
                   {launching ? (

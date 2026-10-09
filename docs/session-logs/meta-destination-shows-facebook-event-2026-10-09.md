@@ -605,3 +605,59 @@ Creative-level validate_only does not check the CTA (the BOOK_NOW control passes
 ### Matas to confirm (Step 3)
 
 From the app, launch into a test ad set, paused: one Dual image ad and one Full image ad, CTA Book now. Open each in Ads Manager and confirm button "Book now" and Main destination "Website". No live ads were changed.
+
+## Review: #1048 (head 0674e74), 2026-10-09
+- Checked in lib/meta/creative.ts at the head:
+  - `mapCTAToAssetFeed` sends book_now as BOOK_TRAVEL, and only in the AFS builders. `mapCTAToMeta` (single asset) keeps BOOK_NOW.
+  - The link labels (`display_url: ""` and `link_url_label` per rule) are in buildMultiPlacementCreative.
+- CI green.
+- Behaviour change to note: Single mode + 2+ variations with Book now now goes to the rotation path, so the ad set is created as dynamic creative. Before this it shipped variation 1 only. The validate_only dry run covered Dual image and Dual video only, not rotation.
+- Merge gate (Matas, from the PR's Vercel preview): three paused Book now ads into a test ad set: Dual image, Full image, and Single + 2 variations. Each must open in Ads Manager with button "Book now" and Main destination "Website", and the rotation one must create without error.
+- **#1048 merged 572e4b2 (head 0674e74), 2026-10-09**, at Matas's request before the paused test. The test now runs on prod: Dual image, Full image, Single + 2 variations, all Book now, all paused. Each should show Book now + Website.
+- Test draft for the #1048 check, built 2026-10-09 by Claude via the app UI: **e285c464-426d-4619-a870-63e4e5dec074**.
+  - Account and tracking: Off/Pixel act_932846012721428, pixel 1475359374117271, event Test001, Page Off/Pixel (1101274319726113).
+  - Mode attach_campaign into the PAUSED campaign [test8] Purchase (120239302271820582), creating one new ad set (£5/day, 20–27 Oct, UK).
+  - Creatives, all Book now, URL offpixel.co.uk: Dual 4:5+9:16, Full 4:5+9:16+1:1, Single with 2 variations (9:16).
+  - Not launched; Matas publishes. The paused campaign means no spend.
+- Found while building it:
+  - `/campaign/new` (direct URL) saves with id "new", and the Supabase upsert returns 400. Drafts must start from the library's New Campaign modal.
+  - `/api/meta/pages` for act_932846012721428 stayed pending for more than 70s, then returned with "couldn't load all pages".
+  - `/api/meta/interest-suggestions` returned 503.
+- **Test launch, 2026-10-09 19:47 UTC** (draft e285c464). It created ad set 120246995940480582 under the paused [test8] Purchase campaign:
+  - Ad 120246995942830582 "Dual" (creative 1571899524618002): created.
+  - Ad 120246995942970582 "Full" (creative 1640401167791639): created.
+  - Both are PENDING_REVIEW, and the campaign is paused, so neither can spend.
+  - "Single 2 variations" failed. Its creative was built (1136236128731854, AFS, call_to_action_types ["BOOK_TRAVEL"], 2 images, rotation path). The ad then hit **1885553 "Dynamic creative ad sets allow for one active ad at most"**: the rotation creative made the shared ad set dynamic, and the other creatives were also in it.
+- **Regression risk from #1048:** before it, a Book now rotation fell back to a single asset, so the ad set was never dynamic. Now any Single + N variations Book now creative assigned to an ad set together with other creatives fails at the ad step. Fix needed: rotation creatives go in their own ad set, or Assign/preflight blocks sharing an ad set with them. (Related: open task #85.)
+- Small nit: the Phase 3 log line says `path=single_asset` for the rotation creative even though the payload is AFS.
+- **Confirmed (Matas, Ads Manager, 2026-10-09):**
+  - Dual (120246995942830582) and Full (120246995942970582) both open with **Main destination: Website**, URL https://offpixel.co.uk/, button **"Book now"** in the Feed and Story previews.
+  - Per-placement media is intact: 4:5 for Feeds, 9:16 for Stories/Reels.
+  - So #1048's BOOK_TRAVEL fix is verified live. Still open: the rotation + shared-ad-set bug (1885553), with its prompt sent.
+
+## Fix: a rotation creative gets its own ad set (1885553)
+
+Branch `cursor/meta-rotation-own-adset` off main `572e4b2`. PR [#1049](https://github.com/matas-offpixel/meta-campaign-builder/pull/1049).
+
+### Why the 19:47 launch missed the guard
+
+The launch route's Dynamic Creative guard read `creativeAssignments` as creative id → ad set ids. The matrix is the other way round: ad set id → creative ids (`invertAssignments` in `lib/meta/creative.ts`). Every lookup missed, so the share was not refused and ad set `120246995940480582` was created without `is_dynamic_creative`. Dual and Full were created. The rotation creative (AFS, `BOOK_TRAVEL`, two images) then failed at ad create with code 100 / subcode 1885553. #1048 made Book now take that path; before it, Book now rotation fell back to variation 1 and the ad set was never dynamic.
+
+The same inverted reading is still in the existing-post map (Phase 2 and the multi-campaign loop). Left alone.
+
+### Decision: block, do not fall back to variation 1
+
+Falling back would drop the extra variations, which is what #1048 stopped doing.
+
+- Assign (wizard, drawer): a rotation creative (`creativeTriggersVariationRotation`: flag `ENABLE_MULTI_PLACEMENT_ASSETS=1`, not an existing post, Single mode, 2+ variations, same media) may not share an ad set, and an ad set holds at most one. Message: "Ads with several variations need their own ad set. Meta allows one ad in a dynamic ad set." Continue stays blocked until it is resolved. "Give it its own ad set" clones the ad set as `<ad set> — <creative>` (`nameSource: "operator"`, live Meta ids dropped) and moves the creative. That clone is the one created with `is_dynamic_creative`.
+- Attach (`attach_adset` / `attach_all_adsets`) and both bulk-attach pages: block, no clone. Bulk-attach never creates an ad set, so there is nothing to clone. A share is refused with the sentence above. A lone rotation creative into an existing ad set that is not dynamic: "Ads with several variations can't go into this ad set. Meta can't switch an existing ad set to dynamic." A dynamic ad set that already has an ad: "This dynamic ad set already has an ad. Meta allows one ad in a dynamic ad set."
+- The assign step cannot see the live flag, so it blocks every rotation creative aimed at an existing ad set. Launch is the one place that allows the case Meta allows: the ad set is already dynamic, it has zero ads, and this is the only creative. That read is a GET, after the share refusal and before any POST. A missing live row blocks.
+- Launch share refusal returns before the account-scope Graph read and before any campaign / ad set / creative POST.
+- Phase 3 logs `path=variation_rotation` when the payload has `asset_feed_spec` and no placement rules, `multi_placement` when it has rules, `single_asset` otherwise.
+
+No change to the BOOK_TRAVEL mapping or to creative payload shapes.
+
+### Tests
+
+- `lib/meta/__tests__/rotation-adset.test.ts` (11): share blocks `validateStep(6)`; after the split, two ad sets and `dynamicAdSetIdsForDraft` is the clone; non-dynamic attach blocks; dynamic with an ad blocks; dynamic with zero ads and one creative is allowed; the assign step blocks `attach_adset` before a live read; bulk-attach share needs no read; `creativeLaunchPath`; the assign step renders the message and "Give it its own ad set"; the share `return` in the launch route is before `foreignAccountLaunchError`, `createMetaCampaign` and `fetchAdSetGuardInfo`.
+- `npm test`: node 7268 tests, 7264 pass, 0 fail, 4 skipped; vitest 8/8. `tsc --noEmit`: 346 errors, none in touched files. ESLint on touched files: 0 errors (pre-existing warnings on the launch route, drawer, assign step). `npm run build`: passes. No new Meta POST (the only new Graph call is the existing ad-set guard GET, and only when a lone rotation creative is aimed at an existing ad set).

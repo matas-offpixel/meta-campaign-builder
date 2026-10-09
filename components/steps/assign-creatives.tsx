@@ -11,7 +11,9 @@ import type {
   CreativeAssignmentMatrix,
 } from "@/lib/types";
 import { ATTACHED_AD_SET_KEY_PREFIX } from "@/lib/types";
+import { rotationProblemsFromMatrix } from "@/lib/meta/rotation-adset";
 import { CardDescription, Datum, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { RotationAdSetNote } from "@/components/steps/rotation-adset-note";
 
 interface AssignCreativesProps {
   /** `drawer` drops the step heading; the `⊞` tab already names the surface. */
@@ -20,6 +22,11 @@ interface AssignCreativesProps {
   creatives: AdCreativeDraft[];
   assignments: CreativeAssignmentMatrix;
   onChange: (assignments: CreativeAssignmentMatrix) => void;
+  /**
+   * Clone the ad set and move one rotation creative into it. Only for ad sets
+   * this launch creates. Existing Meta ad sets can't be switched to dynamic.
+   */
+  onSplitRotation?: (adSetId: string, creativeId: string) => void;
   /**
    * When true, render the per-ad card view tailored for the
    * "Add ads to existing ad set(s)" flow. Each ad card lists the selected
@@ -42,6 +49,7 @@ function AssignCreativesBody({
   creatives,
   assignments,
   onChange,
+  onSplitRotation,
   attachAdSetMode = false,
 }: AssignCreativesProps) {
   const enabledSets = useMemo(() => adSets.filter((s) => s.enabled), [adSets]);
@@ -134,6 +142,35 @@ function AssignCreativesBody({
     return Object.values(assignments).reduce((sum, ids) => sum + ids.length, 0);
   }, [assignments]);
 
+  const rotationProblems = useMemo(
+    () =>
+      rotationProblemsFromMatrix({
+        creatives,
+        adSets: enabledSets,
+        assignments,
+        existing: attachAdSetMode,
+      }),
+    [creatives, enabledSets, assignments, attachAdSetMode],
+  );
+  const rotationMessage = rotationProblems[0]?.message ?? null;
+  const splitActions =
+    onSplitRotation && !attachAdSetMode
+      ? rotationProblems
+          .filter((problem) => problem.kind === "shares")
+          .flatMap((problem) =>
+            problem.rotationCreativeIds.map((creativeId) => {
+              const creative = creatives.find((c) => c.id === creativeId);
+              const creativeName = creative?.name?.trim() || "Ad";
+              return {
+                key: `${problem.adSetId}:${creativeId}`,
+                label: "Give it its own ad set",
+                onClick: () => onSplitRotation(problem.adSetId, creativeId),
+                title: `${problem.adSetName} — ${creativeName}`,
+              };
+            }),
+          )
+      : [];
+
   if (enabledSets.length === 0 || creatives.length === 0) {
     return (
       <div className="mx-auto max-w-3xl space-y-6">
@@ -183,6 +220,8 @@ function AssignCreativesBody({
             </Button>
           </div>
         </div>
+
+        {rotationMessage ? <RotationAdSetNote message={rotationMessage} actions={splitActions} /> : null}
 
         <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary-light/30 px-3 py-2 text-xs">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
@@ -314,6 +353,8 @@ function AssignCreativesBody({
           <Button variant="ghost" size="sm" onClick={clearAll}>Clear All</Button>
         </div>
       </div>
+
+      {rotationMessage ? <RotationAdSetNote message={rotationMessage} actions={splitActions} /> : null}
 
       <Card className="p-0 overflow-x-auto">
         <table className="w-full text-sm">
