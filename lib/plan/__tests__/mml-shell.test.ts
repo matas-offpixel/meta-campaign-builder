@@ -220,10 +220,10 @@ describe("MML canvas — section order on /mml/[id]", () => {
     };
     const zones: Record<string, RegExp[]> = {
       event: [/<CanvasHeader/, /<MmlPromoterIdentity/, /<CanvasWindow/, /<Combobox/],
-      creatives: [/<MmlCreativeIntake/, /<CanvasAssets/],
+      creatives: [/<CanvasAssets/],
       budget: [/<CanvasBudget/, /<CanvasTarget/, /<CanvasAdjust/, /<CanvasLearn/],
       channels: [/<CanvasChannels/, /id=\{PLAN_STEP2_HASH\}/],
-      launch: [/<CanvasLaunch/],
+      launch: [/\{launchPanel\}/],
     };
     for (const [id, patterns] of Object.entries(zones)) {
       for (const pattern of patterns) assert.match(body(id), pattern, `${pattern} in ${id}`);
@@ -239,9 +239,11 @@ describe("MML canvas — section order on /mml/[id]", () => {
       assert.equal(MML_SECTION[id].placeholder, undefined, id);
     }
     const src = read("components/plan/plan-workspace.tsx");
-    assert.match(src, /<MmlPlaceholderCard>\{MML_SECTION\.locations\.placeholder\}<\/MmlPlaceholderCard>/);
+    assert.match(src, /<MmlWizard/);
+    assert.doesNotMatch(src, /MmlCreativeIntake/);
+    assert.match(src, /<CanvasLaunch/);
     assert.match(src, /<MmlCopy/);
-    assert.match(src, /<MmlCreativeIntake/);
+    assert.match(src, /<MmlPlaceholderCard>\{MML_SECTION\.locations\.placeholder\}<\/MmlPlaceholderCard>/);
     assert.equal(src.match(/readOnly \? null : \(\s*<(MmlPlaceholderCard|MmlSection section=\{MML_SECTION\.(copy|locations)\})/g)?.length, 2);
     const card = read("components/plan/mml-section.tsx");
     const placeholder = card.slice(card.indexOf("export function MmlPlaceholderCard"));

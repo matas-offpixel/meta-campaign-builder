@@ -14,7 +14,6 @@ import { CanvasLaunch } from "@/components/plan/canvas-launch";
 import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
 import { MmlCopy } from "@/components/plan/mml-copy";
-import { MmlCreativeIntake } from "@/components/plan/mml-creative-intake";
 import { MmlPlaceholderCard, MmlSection } from "@/components/plan/mml-section";
 import { MmlPromoterIdentity } from "@/components/plan/mml-promoter-identity";
 import { maybePlanNoShowLock } from "@/components/plan/plan-no-show-lock";
@@ -25,6 +24,7 @@ import { MetaDrawerMount } from "@/components/plan/meta-drawer";
 import { TikTokDrawerMount } from "@/components/plan/tiktok-drawer";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
 import { Combobox } from "@/components/ui/combobox";
+import { MmlWizard } from "@/components/wizard/mml-wizard";
 import { InfoTip } from "@/components/viz/info-tip";
 import type { OverflowMenuItem } from "@/components/viz/overflow-menu";
 import {
@@ -39,7 +39,7 @@ import {
   planLaunchButton,
   type PlanChannelRowModel,
 } from "@/lib/plan/canvas";
-import type { IdentityNameMap } from "@/lib/plan/identity-chips";
+import { EMPTY_IDENTITY_NAMES, type IdentityNameMap } from "@/lib/plan/identity-chips";
 import { EMPTY_CHANNEL_FACTS } from "@/lib/plan/canvas-facts";
 import { MML_LIST_PATH, MML_NEW_HREF, mmlPlanHref } from "@/lib/plan/mml-routes";
 import { MML_SECTION } from "@/lib/plan/mml-sections";
@@ -278,6 +278,7 @@ export function PlanWorkspace({
    */
   const restoredDrawer = useRef(false);
   useEffect(() => {
+    if (!readOnly) return;
     if (restoredDrawer.current) return;
     restoredDrawer.current = true;
     const fromUrl = readDrawerUrl(searchParams);
@@ -296,10 +297,11 @@ export function PlanWorkspace({
         : defaultAnchorFor(fromUrl.adapter),
       tab: fromUrl.tab,
     });
-  }, [searchParams, plan.launches]);
+  }, [searchParams, plan.launches, readOnly]);
 
   /** Shallow replace — the route stays `/mml/[id]`; only the query moves. */
   useEffect(() => {
+    if (!readOnly && !drawer && !decisionsOpen) return;
     const next = drawerUrl(
       pathname,
       decisionsOpen
@@ -315,7 +317,7 @@ export function PlanWorkspace({
     const current = `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`;
     if (next !== current) router.replace(next, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- searchParams is the comparison basis, not a trigger
-  }, [drawer, decisionsOpen, pathname, router]);
+  }, [drawer, decisionsOpen, pathname, router, readOnly]);
 
   const hasMetaDraft = plan.launches.meta.draftId != null;
   const selectedEvent = events.find((event) => event.id === plan.intent.eventId) ?? null;
@@ -1154,9 +1156,36 @@ export function PlanWorkspace({
 
   /** Roadmap placeholders and the ① markers are operator-only. */
   const numbered = !readOnly;
+  const launchPanel = (
+    <CanvasLaunch
+      role={role}
+      button={launchButton}
+      stages={undefined}
+      error={error}
+      onLaunch={() => void launchAll()}
+      onResumeAll={() =>
+        void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
+      }
+      readyAdapters={readyLaunchAdapters(rows)}
+      preflightSettled={preflightOk !== null}
+      blockerSentence={launchBlockedLine({
+        hasEvent: Boolean(plan.intent.eventId),
+        busy,
+        windowOk,
+        issues,
+        blockerCount: planPreflightBlockerCount(issues),
+      })}
+      blockerGroups={launchBlockerGroups(issues)}
+      onOpenBlocker={(anchor) => {
+        const row = rows.find((item) => item.adapter === anchor.drawer);
+        if (row) void openChannel(row, undefined, anchor);
+      }}
+    />
+  );
 
   return (
     <div>
+      {readOnly ? (
       <div className="space-y-8">
       <MmlSection section={MML_SECTION.event} numbered={numbered}>
         <CanvasHeader
@@ -1191,7 +1220,7 @@ export function PlanWorkspace({
           resolved={resolved}
           identityNames={identityNames}
           shareAction={
-            role === "operator" && persisted ? (
+            !readOnly && persisted ? (
               <PlanShareAction
                 planId={plan.id}
                 initialToken={initialShareToken}
@@ -1269,7 +1298,7 @@ export function PlanWorkspace({
           hasEvent={!noShow}
           resolved={resolved}
           names={identityNames}
-          editLink={role === "operator"}
+          editLink={!readOnly}
         />
 
         {isLearnFace || isAdjustFace ? null : (
@@ -1296,14 +1325,6 @@ export function PlanWorkspace({
       </MmlSection>
 
       <MmlSection section={MML_SECTION.creatives} numbered={numbered}>
-        {readOnly ? null : (
-          <MmlCreativeIntake
-            planId={plan.id}
-            clientId={selectedEvent?.clientId ?? null}
-            persisted={persisted}
-            onLaunches={(launches) => setPlan((current) => ({ ...current, launches }))}
-          />
-        )}
         <CanvasAssets
           planId={plan.id}
           hasMetaDraft={hasMetaDraft}
@@ -1424,7 +1445,7 @@ export function PlanWorkspace({
                   onLifetime={setLifetimeTotal}
                   readOnly={readOnly || noShow}
                   readAcross={readAcross}
-                  remedyLinks={role === "operator" && !noShow}
+                  remedyLinks={!readOnly && !noShow}
                 />,
               )}
             </div>
@@ -1451,7 +1472,7 @@ export function PlanWorkspace({
                   benchmarkRows={benchmarkRows}
                   unitPicker={share.unitPicker && !noShow}
                   campaignTarget={campaignTarget}
-                  remedyLinks={role === "operator" && !noShow}
+                  remedyLinks={!readOnly && !noShow}
                 />,
               )}
             </aside>
@@ -1496,32 +1517,30 @@ export function PlanWorkspace({
       </MmlSection>
 
       <MmlSection section={MML_SECTION.launch} numbered={numbered}>
-        <CanvasLaunch
-          role={role}
-          button={launchButton}
-          stages={undefined}
-          error={error}
-          onLaunch={() => void launchAll()}
-          onResumeAll={() =>
-            void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
-          }
-          readyAdapters={readyLaunchAdapters(rows)}
-          preflightSettled={preflightOk !== null}
-          blockerSentence={launchBlockedLine({
-            hasEvent: Boolean(plan.intent.eventId),
-            busy,
-            windowOk,
-            issues,
-            blockerCount: planPreflightBlockerCount(issues),
-          })}
-          blockerGroups={launchBlockerGroups(issues)}
-          onOpenBlocker={(anchor) => {
-            const row = rows.find((item) => item.adapter === anchor.drawer);
-            if (row) void openChannel(row, undefined, anchor);
-          }}
-        />
+        {launchPanel}
       </MmlSection>
       </div>
+      ) : (
+        <MmlWizard
+          plan={plan}
+          events={events}
+          resolved={resolved}
+          identityNames={identityNames ?? EMPTY_IDENTITY_NAMES}
+          googleAdsAccounts={googleAdsAccounts.map((account) => ({
+            id: account.id,
+            account_name: account.account_name,
+            google_customer_id: account.google_customer_id,
+          }))}
+          drawerOpen={drawer !== null || decisionsOpen}
+          onPatchIntent={patchIntent}
+          onOpenDrawer={(adapter) => {
+            const row = rows.find((item) => item.adapter === adapter);
+            if (row) void openChannel(row);
+          }}
+          onSave={persistNow}
+          launch={launchPanel}
+        />
+      )}
 
       {share.drawerEdit && drawer?.adapter === "meta" ? (
         <MetaDrawerMount
