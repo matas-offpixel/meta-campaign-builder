@@ -231,17 +231,16 @@ describe("MML canvas — section order on /mml/[id]", () => {
     assert.match(body("budget"), /<aside[^>]*>\s*\{maybePlanNoShowLock\(\s*noShow,\s*<CanvasTarget/);
   });
 
-  it("③ and ⑤ are placeholder cards naming their PR, operator-only, with no controls", () => {
+  it("③ is the copy control and ⑤ stays a placeholder, both operator-only", () => {
     assert.equal(MML_SECTION.creatives.placeholder, undefined);
-    assert.match(MML_SECTION.copy.placeholder ?? "", /^Coming in M3/);
+    assert.equal(MML_SECTION.copy.placeholder, undefined);
     assert.match(MML_SECTION.locations.placeholder ?? "", /^Coming in M4/);
-    for (const id of ["event", "creatives", "budget", "channels", "launch"] as const) {
+    for (const id of ["event", "creatives", "copy", "budget", "channels", "launch"] as const) {
       assert.equal(MML_SECTION[id].placeholder, undefined, id);
     }
     const src = read("components/plan/plan-workspace.tsx");
-    for (const id of ["copy", "locations"]) {
-      assert.match(src, new RegExp(`<MmlPlaceholderCard>\\{MML_SECTION\\.${id}\\.placeholder\\}</MmlPlaceholderCard>`));
-    }
+    assert.match(src, /<MmlPlaceholderCard>\{MML_SECTION\.locations\.placeholder\}<\/MmlPlaceholderCard>/);
+    assert.match(src, /<MmlCopy/);
     assert.match(src, /<MmlCreativeIntake/);
     assert.equal(src.match(/readOnly \? null : \(\s*<(MmlPlaceholderCard|MmlSection section=\{MML_SECTION\.(copy|locations)\})/g)?.length, 2);
     const card = read("components/plan/mml-section.tsx");

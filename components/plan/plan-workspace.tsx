@@ -13,6 +13,7 @@ import { CanvasHeader } from "@/components/plan/canvas-header";
 import { CanvasLaunch } from "@/components/plan/canvas-launch";
 import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
+import { MmlCopy } from "@/components/plan/mml-copy";
 import { MmlCreativeIntake } from "@/components/plan/mml-creative-intake";
 import { MmlPlaceholderCard, MmlSection } from "@/components/plan/mml-section";
 import { MmlPromoterIdentity } from "@/components/plan/mml-promoter-identity";
@@ -1316,7 +1317,7 @@ export function PlanWorkspace({
 
       {readOnly ? null : (
         <MmlSection section={MML_SECTION.copy}>
-          <MmlPlaceholderCard>{MML_SECTION.copy.placeholder}</MmlPlaceholderCard>
+          <MmlCopy planId={plan.id} defaultUrl={plan.intent.destinationUrl} />
         </MmlSection>
       )}
 
