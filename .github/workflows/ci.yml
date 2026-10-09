@@ -1,9 +1,17 @@
 name: CI
 
+# Runs on pull requests only. main is built by Vercel on every merge, and
+# each PR head was already tested here, so a second full run on push to
+# main doubled Actions minutes (3,000 included per month, used up by
+# 9 Oct 2026). Docs-only changes (session logs, frame PNGs, *.md) skip CI.
 on:
   pull_request:
-  push:
-    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      # Frame baselines are what frames:check compares; a PNG-only change
+      # must still be checked.
+      - "!docs/frames/**"
 
 permissions:
   contents: read
@@ -36,25 +44,11 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  build:
-    name: npm run build
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-
   frames:
     name: frames:check
-    needs: build
+    # This job runs its own `npm run build` (with ENABLE_PLAN_FRAMES=1), so
+    # it is also the build check. A separate build job paid for a second
+    # npm ci + build on every push.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
