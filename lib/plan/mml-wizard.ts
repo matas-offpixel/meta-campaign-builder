@@ -334,6 +334,9 @@ function mostCommon(values: readonly string[]): string | null {
 
 export interface ChannelHistoryEntry {
   venueKey: string | null;
+  eventId: string | null;
+  /** `published` votes. Drafts vote only when the venue has no published launch. */
+  status: string | null;
   updatedAt: string;
   metaAdAccountId: string | null;
   metaPixelId: string | null;
@@ -344,7 +347,9 @@ export interface ChannelHistoryEntry {
   googleAdsAccountId: string | null;
 }
 
-export type ChannelPickSource = "venue" | "ad-account" | "client";
+export type ChannelPickSource = "event" | "venue" | "ad-account" | "client";
+
+export const EVENT_LAST_LAUNCH_NOTE = "used on this event's last launch";
 
 export interface ScopedPick {
   value: string | null;
@@ -357,6 +362,58 @@ export interface ChannelFieldRow {
   at: string;
   venueKey: string | null;
   accountId: string | null;
+  eventId?: string | null;
+  status?: string | null;
+}
+
+/**
+ * Published launches vote. A venue with none falls back to drafts.
+ * One vote per event per value, so three drafts of one show are not three campaigns.
+ * Rows with no event each keep their own vote.
+ */
+export function channelHistoryVotes(rows: readonly ChannelFieldRow[]): ChannelFieldRow[] {
+  const explicit = rows.filter((row) => row.status != null);
+  const pool =
+    explicit.length === 0
+      ? rows
+      : (() => {
+          const published = explicit.filter((row) => row.status === "published");
+          return published.length > 0
+            ? published
+            : explicit.filter((row) => row.status === "draft");
+        })();
+  const best = new Map<string, ChannelFieldRow>();
+  let anon = 0;
+  for (const row of pool) {
+    const value = row.value?.trim() ?? "";
+    if (!value) continue;
+    const eventKey = row.eventId?.trim() || `row:${anon++}`;
+    const key = `${eventKey}\0${value}`;
+    const prev = best.get(key);
+    if (!prev || row.at > prev.at) best.set(key, row);
+  }
+  return [...best.values()];
+}
+
+/** The plan's own event: the page on its newest published launch, on this ad account. */
+export function eventLastLaunch(input: {
+  rows: readonly ChannelFieldRow[];
+  eventId: string | null;
+  accountId: string | null;
+}): { value: string; at: string } | null {
+  const eventId = input.eventId?.trim() ?? "";
+  if (!eventId) return null;
+  const account = input.accountId?.trim() ?? "";
+  let best: { value: string; at: string } | null = null;
+  for (const row of input.rows) {
+    if ((row.eventId?.trim() ?? "") !== eventId) continue;
+    if (row.status != null && row.status !== "published") continue;
+    if (account && (row.accountId?.trim() ?? "") !== account) continue;
+    const value = row.value?.trim() ?? "";
+    if (!value) continue;
+    if (!best || row.at > best.at) best = { value, at: row.at };
+  }
+  return best;
 }
 
 /** Venue, then the chosen account, then the whole client. Empty tiers are skipped. */
@@ -366,14 +423,18 @@ export function scopedMostUsed(input: {
   accountId: string | null;
 }): ScopedPick {
   const venue = normalVenue(input.venueKey);
+  const account = input.accountId?.trim() ?? "";
   if (venue) {
     const picked = pickTier(
-      input.rows.filter((row) => normalVenue(row.venueKey) === venue),
+      input.rows.filter((row) => {
+        if (normalVenue(row.venueKey) !== venue) return false;
+        if (!account) return true;
+        return (row.accountId?.trim() ?? "") === account;
+      }),
       "venue",
     );
     if (picked) return picked;
   }
-  const account = input.accountId?.trim() ?? "";
   if (account) {
     const picked = pickTier(
       input.rows.filter((row) => (row.accountId?.trim() ?? "") === account),
@@ -385,9 +446,10 @@ export function scopedMostUsed(input: {
 }
 
 function pickTier(rows: readonly ChannelFieldRow[], source: ChannelPickSource): ScopedPick | null {
-  const value = mostUsedId(rows.map((row) => ({ value: row.value, at: row.at })));
+  const voted = channelHistoryVotes(rows);
+  const value = mostUsedId(voted.map((row) => ({ value: row.value, at: row.at })));
   if (!value) return null;
-  const count = rows.filter((row) => (row.value?.trim() ?? "") === value).length;
+  const count = voted.filter((row) => (row.value?.trim() ?? "") === value).length;
   return { value, count, source };
 }
 
@@ -399,6 +461,7 @@ export function normalVenue(value: string | null | undefined): string | null {
 export function channelPickNote(pick: ScopedPick, venueLabel: string | null): string | null {
   if (!pick.value || !pick.source) return null;
   const noun = pick.count === 1 ? "campaign" : "campaigns";
+  if (pick.source === "event") return EVENT_LAST_LAUNCH_NOTE;
   if (pick.source === "venue") {
     const venue = venueLabel?.trim() || "this venue";
     return `used on ${pick.count} ${venue} ${noun}`;
@@ -426,10 +489,16 @@ export function resolveChannelField(input: {
   venueKey: string | null;
   venueLabel: string | null;
   accountId: string | null;
+  eventId?: string | null;
   clientDefault: string | null | undefined;
   accountPageIds?: readonly string[] | null;
 }): ResolvedChannelFieldPick {
   const stored = input.stored?.trim() || null;
+  const launch = eventLastLaunch({
+    rows: input.rows,
+    eventId: input.eventId ?? null,
+    accountId: input.accountId,
+  });
   const scoped = scopedMostUsed({
     rows: input.rows,
     venueKey: input.venueKey,
@@ -439,7 +508,11 @@ export function resolveChannelField(input: {
   let note: string | null = null;
   if (stored && !input.storedFromDefault) {
     candidate = stored;
-    if (scoped.value === stored) note = channelPickNote(scoped, input.venueLabel);
+    if (launch?.value === stored) note = EVENT_LAST_LAUNCH_NOTE;
+    else if (scoped.value === stored) note = channelPickNote(scoped, input.venueLabel);
+  } else if (launch) {
+    candidate = launch.value;
+    note = EVENT_LAST_LAUNCH_NOTE;
   } else if (scoped.value) {
     candidate = scoped.value;
     note = channelPickNote(scoped, input.venueLabel);
@@ -485,4 +558,102 @@ export function tikTokForPlanIntent(intent: CampaignPlanObjectiveIntent): {
   const goal = TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE[objective][0];
   if (!goal) return null;
   return { objective, goal };
+}
+
+/** Book now and Sign up follow the Meta CTA. Other mapped objectives use Learn more. */
+export function tikTokCtaForPlanIntent(
+  intent: CampaignPlanObjectiveIntent,
+): "BOOK_NOW" | "SIGN_UP" | "LEARN_MORE" | null {
+  if (intent === "purchase") return "BOOK_NOW";
+  if (intent === "registration") return "SIGN_UP";
+  if (intent === "traffic" || intent === "engagement") return "LEARN_MORE";
+  return null;
+}
+
+/** TikTok ad text is 100 characters, cut on a word when the caption is longer. */
+export function tikTokAdTextFromCaption(caption: string): string {
+  const text = caption.trim().replace(/\s+/g, " ");
+  if (text.length <= 100) return text;
+  const slice = text.slice(0, 100);
+  const space = slice.lastIndexOf(" ");
+  return (space > 40 ? slice.slice(0, space) : slice).trimEnd();
+}
+
+const TIKTOK_COUNTRY_NAMES = new Set([
+  "united kingdom",
+  "ireland",
+  "united states",
+  "brazil",
+  "germany",
+  "france",
+  "spain",
+]);
+
+/**
+ * A country code or an empty list is not a regional audience. Nationwide
+ * is the budget step. "GB" and the United Kingdom id are country-level.
+ */
+export function tikTokNeedsRegionalLocation(codes: readonly string[]): boolean {
+  if (codes.length === 0) return true;
+  return codes.every((code) => !/^\d+$/.test(code) || code === "2635167");
+}
+
+/** City token from a venue name: "NX Newcastle" → "newcastle". */
+export function venueCityToken(venueName: string | null | undefined): string | null {
+  const words = (venueName ?? "")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((word) => word.length > 2 && word !== "the" && word !== "nx");
+  return words.at(-1) ?? null;
+}
+
+/**
+ * A TikTok region around the venue, not the country. Nationwide is the
+ * budget step's decision. The ids are the refine tab's region list.
+ */
+export function tikTokRegionalRegion(
+  regions: readonly { id: string; name: string }[],
+  venueName: string | null | undefined,
+): { id: string; name: string } | null {
+  const token = venueCityToken(venueName);
+  if (!token) return null;
+  const matches = regions.filter((region) => {
+    const name = region.name.trim().toLowerCase();
+    if (!name || TIKTOK_COUNTRY_NAMES.has(name)) return false;
+    return name.includes(token);
+  });
+  matches.sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name));
+  return matches[0] ?? null;
+}
+
+/** One 9:16 video. Images, other ratios, and Dual/Full creatives stay on Meta. */
+export function metaCreativeIsSingleVerticalVideo(creative: {
+  mediaType?: string | null;
+  assetMode?: string | null;
+  sourceType?: string | null;
+  assetVariations?: ReadonlyArray<{
+    assets?: ReadonlyArray<{
+      aspectRatio?: string | null;
+      videoId?: string | null;
+      assetHash?: string | null;
+      fileName?: string | null;
+      registryAssetId?: string | null;
+    }>;
+  }>;
+}): boolean {
+  if (creative.sourceType === "existing_post") return false;
+  if (creative.assetMode === "dual" || creative.assetMode === "full") return false;
+  if (creative.mediaType === "image") return false;
+  const filled = (creative.assetVariations ?? []).flatMap((variation) =>
+    (variation.assets ?? []).filter(
+      (asset) =>
+        Boolean(asset.videoId?.trim()) ||
+        Boolean(asset.assetHash?.trim()) ||
+        Boolean(asset.fileName?.trim()) ||
+        Boolean(asset.registryAssetId?.trim()),
+    ),
+  );
+  if (filled.length !== 1) return false;
+  const asset = filled[0];
+  return asset.aspectRatio === "9:16" && Boolean(asset.videoId?.trim() || creative.mediaType === "video");
 }

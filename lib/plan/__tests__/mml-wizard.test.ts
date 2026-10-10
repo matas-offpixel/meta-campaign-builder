@@ -5,11 +5,13 @@ import { describe, it } from "node:test";
 import {
   atUsername,
   channelPickNote,
+  eventLastLaunch,
   eventObjectiveDefault,
   googleChannelAvailable,
   identityInitial,
   identityLabel,
   initialMmlChannels,
+  metaCreativeIsSingleVerticalVideo,
   metaFieldsFromDraft,
   mmlClientStepBlockers,
   mmlPlaceholderLine,
@@ -21,7 +23,12 @@ import {
   resolveChannelField,
   scopedMostUsed,
   summariseChannelHistory,
+  tikTokAdTextFromCaption,
+  tikTokCtaForPlanIntent,
   tikTokForPlanIntent,
+  tikTokNeedsRegionalLocation,
+  tikTokRegionalRegion,
+  EVENT_LAST_LAUNCH_NOTE,
 } from "../mml-wizard.ts";
 import { metaObjectiveForIntent } from "../adapters/meta.ts";
 
@@ -177,14 +184,16 @@ describe("MML step 1", () => {
 
   it("mounts the Meta creator steps and does not mount the intake", () => {
     const wizard = readFileSync("components/wizard/mml-wizard.tsx", "utf8");
+    const audiences = readFileSync("components/wizard/mml-step-audiences.tsx", "utf8");
     assert.match(wizard, /<Creatives/);
-    assert.match(wizard, /<AudiencesStep/);
+    assert.match(audiences, /<MetaAudiencesStep/);
     assert.match(wizard, /<BudgetSchedule/);
     assert.match(wizard, /<AssignCreatives/);
     assert.match(wizard, /<WizardStepper/);
     assert.match(wizard, /<WizardFooter/);
     assert.match(wizard, /<OptimisationStrategy/);
     assert.match(wizard, /<MmlStepObjective/);
+    assert.match(wizard, /<MmlStepAudiences/);
     assert.match(wizard, /benchmarks/);
     assert.doesNotMatch(wizard, /MmlCreativeIntake/);
     assert.doesNotMatch(wizard, /Coming in M/);
@@ -249,6 +258,147 @@ describe("MML venue defaults", () => {
     });
     assert.equal(selected.value, "nx-page");
     assert.equal(selected.flagged, null);
+  });
+
+  it("loads launches filed on another client when the event is this client's", () => {
+    const source = readFileSync("lib/plan/channel-history.ts", "utf8");
+    assert.match(source, /\.in\("event_id", eventIds\)/);
+  });
+
+  it("counts Folamour's published launch, not Puzzle drafts or another ad account", () => {
+    const nx = "act_606252931141334";
+    const puzzleAccount = "act_1058599195559790";
+    const venuePage = "259905047197071";
+    const puzzle = "103824529223927";
+    const venue = "nx newcastle";
+    const published = (eventId: string, at: string, page: string, accountId: string) => ({
+      value: page,
+      at,
+      venueKey: venue,
+      accountId,
+      eventId,
+      status: "published" as const,
+    });
+    const draft = (eventId: string, at: string, page: string, accountId = nx) => ({
+      value: page,
+      at,
+      venueKey: venue,
+      accountId,
+      eventId,
+      status: "draft" as const,
+    });
+    const rows = [
+      published("folamour", "2026-10-05T09:00:00Z", venuePage, nx),
+      published("azyr", "2026-10-03T00:00:00Z", venuePage, nx),
+      published("azyr", "2026-09-14T00:00:00Z", venuePage, nx),
+      published("global", "2026-09-30T00:00:00Z", venuePage, nx),
+      published("global", "2026-09-19T00:00:00Z", venuePage, nx),
+      published("east-end", "2026-09-17T00:00:00Z", venuePage, nx),
+      draft("dj-ez", "2026-09-01T00:00:00Z", venuePage),
+      draft("folamour", "2026-09-07T21:00:00Z", puzzle),
+      draft("folamour", "2026-09-07T22:00:00Z", puzzle),
+      draft("folamour", "2026-10-09T00:00:00Z", puzzle),
+      draft("azyr", "2026-10-08T00:00:00Z", puzzle),
+      published("modern-funktion", "2026-10-01T00:00:00Z", puzzle, puzzleAccount),
+      published("rudimental", "2026-09-20T00:00:00Z", "156873374377231", nx),
+      published("schak", "2026-09-18T00:00:00Z", "109194631619954", nx),
+      published("robbie", "2026-09-16T00:00:00Z", "269098466834722", nx),
+    ];
+    const venuePick = scopedMostUsed({ rows, venueKey: venue, accountId: nx });
+    assert.equal(venuePick.value, venuePage);
+    assert.equal(venuePick.count, 4);
+    const folamour = resolveChannelField({
+      stored: puzzle,
+      storedFromDefault: true,
+      rows,
+      venueKey: venue,
+      venueLabel: "NX Newcastle",
+      accountId: nx,
+      eventId: "folamour",
+      clientDefault: puzzle,
+      accountPageIds: [venuePage, puzzle],
+    });
+    assert.equal(folamour.value, venuePage);
+    assert.equal(folamour.note, EVENT_LAST_LAUNCH_NOTE);
+    assert.equal(eventLastLaunch({ rows, eventId: "folamour", accountId: nx })?.value, venuePage);
+  });
+
+  it("uses drafts when a venue has no published launch", () => {
+    const rows = [
+      {
+        value: "draft-page",
+        at: "2026-10-02T00:00:00Z",
+        venueKey: "the garage",
+        accountId: "act_nx",
+        eventId: "one",
+        status: "draft",
+      },
+      {
+        value: "draft-page",
+        at: "2026-10-01T00:00:00Z",
+        venueKey: "the garage",
+        accountId: "act_nx",
+        eventId: "one",
+        status: "draft",
+      },
+      {
+        value: "other",
+        at: "2026-09-01T00:00:00Z",
+        venueKey: "the garage",
+        accountId: "act_nx",
+        eventId: "two",
+        status: "draft",
+      },
+    ];
+    const pick = scopedMostUsed({ rows, venueKey: "the garage", accountId: "act_nx" });
+    assert.equal(pick.value, "draft-page");
+    assert.equal(pick.count, 1);
+  });
+});
+
+describe("MML TikTok reel row", () => {
+  it("cuts ad text on a word, maps the CTA, and only offers a single 9:16 video", () => {
+    const caption = `${"word ".repeat(40)}tail`;
+    const text = tikTokAdTextFromCaption(caption);
+    assert.ok(text.length <= 100);
+    assert.equal(text.endsWith(" "), false);
+    assert.equal(tikTokAdTextFromCaption("Book now"), "Book now");
+    assert.equal(tikTokCtaForPlanIntent("purchase"), "BOOK_NOW");
+    assert.equal(tikTokCtaForPlanIntent("registration"), "SIGN_UP");
+    assert.equal(tikTokCtaForPlanIntent("awareness"), null);
+    const video = {
+      mediaType: "video",
+      assetMode: "single",
+      assetVariations: [{ assets: [{ aspectRatio: "9:16", videoId: "v1" }] }],
+    };
+    assert.equal(metaCreativeIsSingleVerticalVideo(video), true);
+    assert.equal(metaCreativeIsSingleVerticalVideo({ ...video, assetMode: "dual" }), false);
+    assert.equal(
+      metaCreativeIsSingleVerticalVideo({
+        ...video,
+        assetVariations: [{ assets: [{ aspectRatio: "4:5", videoId: "v1" }] }],
+      }),
+      false,
+    );
+    assert.equal(
+      metaCreativeIsSingleVerticalVideo({ ...video, mediaType: "image", assetVariations: [{ assets: [{ aspectRatio: "9:16", fileName: "a.jpg" }] }] }),
+      false,
+    );
+    assert.deepEqual(
+      tikTokRegionalRegion(
+        [
+          { id: "2635167", name: "United Kingdom" },
+          { id: "city", name: "Newcastle upon Tyne" },
+          { id: "longer", name: "Newcastle upon Tyne, England" },
+        ],
+        "NX Newcastle",
+      ),
+      { id: "city", name: "Newcastle upon Tyne" },
+    );
+    assert.equal(tikTokNeedsRegionalLocation([]), true);
+    assert.equal(tikTokNeedsRegionalLocation(["GB"]), true);
+    assert.equal(tikTokNeedsRegionalLocation(["2635167"]), true);
+    assert.equal(tikTokNeedsRegionalLocation(["2641673"]), false);
   });
 });
 
