@@ -1539,6 +1539,30 @@ export function PlanWorkspace({
           }}
           onSave={persistNow}
           launch={launchPanel}
+          benchmarks={
+            <CanvasTarget
+              value={plan.intent.target.value}
+              unit={plan.intent.target.unit}
+              objectiveIntent={plan.intent.objectiveIntent}
+              presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
+              onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
+              onUnit={setTargetUnit}
+              onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
+              generalSaleAt={selectedEvent?.generalSaleAt}
+              presaleAt={selectedEvent?.presaleAt}
+              kind={selectedEvent?.kind}
+              venueName={selectedEvent?.venueName}
+              venueKey={selectedEvent?.venueKey}
+              clientId={selectedEvent?.clientId}
+              excludeEventId={selectedEvent?.id}
+              launched={launchStamp != null}
+              now={clock}
+              benchmarkRows={benchmarkRows}
+              unitPicker={!noShow}
+              campaignTarget={campaignTarget}
+              remedyLinks={!noShow}
+            />
+          }
         />
       )}
 

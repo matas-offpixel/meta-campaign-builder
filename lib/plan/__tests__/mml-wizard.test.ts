@@ -4,10 +4,13 @@ import { describe, it } from "node:test";
 
 import {
   atUsername,
+  channelPickNote,
+  eventObjectiveDefault,
   googleChannelAvailable,
   identityInitial,
   identityLabel,
   initialMmlChannels,
+  metaFieldsFromDraft,
   mmlClientStepBlockers,
   mmlPlaceholderLine,
   mmlStepForDrawer,
@@ -15,8 +18,12 @@ import {
   mostUsedId,
   preferChannelValue,
   readMmlWizardLocation,
+  resolveChannelField,
+  scopedMostUsed,
   summariseChannelHistory,
+  tikTokForPlanIntent,
 } from "../mml-wizard.ts";
+import { metaObjectiveForIntent } from "../adapters/meta.ts";
 
 describe("MML wizard deep links", () => {
   it("maps each drawer onto the step and channel pill", () => {
@@ -176,7 +183,88 @@ describe("MML step 1", () => {
     assert.match(wizard, /<AssignCreatives/);
     assert.match(wizard, /<WizardStepper/);
     assert.match(wizard, /<WizardFooter/);
+    assert.match(wizard, /<OptimisationStrategy/);
+    assert.match(wizard, /<MmlStepObjective/);
+    assert.match(wizard, /benchmarks/);
     assert.doesNotMatch(wizard, /MmlCreativeIntake/);
     assert.doesNotMatch(wizard, /Coming in M/);
+  });
+});
+
+describe("MML venue defaults", () => {
+  it("reads the page and Instagram from the creative identity", () => {
+    const fields = metaFieldsFromDraft({
+      settings: { pageId: null, metaPageId: "client-default-page", metaIGAccountId: "settings-ig" },
+      creatives: [
+        { identity: { pageId: "venue-page", instagramActorId: "venue-ig", instagramAccountId: "content" } },
+        { identity: { pageId: "venue-page", instagramAccountId: "content" } },
+        { identity: { pageId: "other-page", instagramActorId: "other-ig" } },
+      ],
+    });
+    assert.equal(fields.pageId, "venue-page");
+    assert.equal(fields.igId, "venue-ig");
+  });
+
+  it("picks the venue page over the client's most used page", () => {
+    const rows = [
+      { value: "puzzle", at: "2026-10-09T00:00:00Z", venueKey: "electric studios", accountId: "act_nx" },
+      { value: "puzzle", at: "2026-10-08T00:00:00Z", venueKey: "electric studios", accountId: "act_nx" },
+      { value: "puzzle", at: "2026-10-07T00:00:00Z", venueKey: "nx newcastle", accountId: "act_puzzle" },
+      { value: "nx-page", at: "2026-10-06T00:00:00Z", venueKey: "nx newcastle", accountId: "act_nx" },
+      { value: "nx-page", at: "2026-10-05T00:00:00Z", venueKey: "NX NEWCASTLE", accountId: "act_nx" },
+    ];
+    const pick = scopedMostUsed({ rows, venueKey: "nx newcastle", accountId: "act_nx" });
+    assert.equal(pick.value, "nx-page");
+    assert.equal(pick.source, "venue");
+    assert.equal(pick.count, 2);
+    assert.equal(channelPickNote(pick, "NX Newcastle"), "used on 2 NX Newcastle campaigns");
+  });
+
+  it("flags a page that is not on the ad account's list and does not select it", () => {
+    const flagged = resolveChannelField({
+      stored: "puzzle",
+      storedFromDefault: true,
+      rows: [
+        { value: "puzzle", at: "2026-10-09T00:00:00Z", venueKey: "nx newcastle", accountId: "act_nx" },
+        { value: "nx-page", at: "2026-10-08T00:00:00Z", venueKey: "nx newcastle", accountId: "act_nx" },
+      ],
+      venueKey: "nx newcastle",
+      venueLabel: "NX Newcastle",
+      accountId: "act_nx",
+      clientDefault: "puzzle",
+      accountPageIds: ["nx-page"],
+    });
+    assert.equal(flagged.value, null);
+    assert.equal(flagged.flagged, "puzzle");
+    assert.match(flagged.note ?? "", /NX Newcastle/);
+
+    const selected = resolveChannelField({
+      stored: null,
+      rows: [{ value: "nx-page", at: "2026-10-08T00:00:00Z", venueKey: "nx newcastle", accountId: "act_nx" }],
+      venueKey: "nx newcastle",
+      venueLabel: "NX Newcastle",
+      accountId: "act_nx",
+      clientDefault: "puzzle",
+      accountPageIds: ["nx-page"],
+    });
+    assert.equal(selected.value, "nx-page");
+    assert.equal(selected.flagged, null);
+  });
+});
+
+describe("MML objective", () => {
+  it("uses the adapter mappings, and leaves Awareness off TikTok", () => {
+    assert.equal(eventObjectiveDefault("on_sale").intent, "purchase");
+    assert.equal(eventObjectiveDefault("on_sale").cta, "book_now");
+    assert.equal(eventObjectiveDefault("presale").cta, "sign_up");
+    assert.deepEqual(metaObjectiveForIntent("purchase"), {
+      objective: "purchase",
+      optimisationGoal: "conversions",
+    });
+    assert.equal(tikTokForPlanIntent("purchase")?.objective, "LEAD_GENERATION");
+    assert.equal(tikTokForPlanIntent("registration")?.objective, "LEAD_GENERATION");
+    assert.equal(tikTokForPlanIntent("awareness"), null);
+    assert.equal(tikTokForPlanIntent("traffic")?.objective, "TRAFFIC");
+    assert.ok(tikTokForPlanIntent("engagement"));
   });
 });

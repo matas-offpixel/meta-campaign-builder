@@ -4,7 +4,13 @@
  * fork the Meta stepper.
  */
 
-import type { PlanAdapterName } from "./types.ts";
+import type { PlanAdapterName, CampaignPlanObjectiveIntent } from "./types.ts";
+import { mapIntentToTikTokObjective } from "./adapters/tiktok.ts";
+import {
+  TIKTOK_OBJECTIVES,
+  TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE,
+} from "../tiktok-wizard/campaign-setup.ts";
+import type { TikTokObjective, TikTokOptimisationGoal } from "../types/tiktok-draft.ts";
 
 export const MML_WIZARD_STEPS = [
   { label: "Client & channels", description: "Client, channels, identities" },
@@ -180,17 +186,11 @@ export function summariseChannelHistory(input: {
   const metaPage: Array<{ value: string | null; at: string }> = [];
   const metaIg: Array<{ value: string | null; at: string }> = [];
   for (const row of input.meta) {
-    const settings = record(record(row.draftJson)?.settings);
-    metaAccount.push({
-      value: text(settings?.metaAdAccountId) ?? text(settings?.adAccountId),
-      at: row.updatedAt,
-    });
-    metaPixel.push({
-      value: text(settings?.metaPixelId) ?? text(settings?.pixelId),
-      at: row.updatedAt,
-    });
-    metaPage.push({ value: text(settings?.metaPageId), at: row.updatedAt });
-    metaIg.push({ value: text(settings?.metaIGAccountId), at: row.updatedAt });
+    const fields = metaFieldsFromDraft(row.draftJson);
+    metaAccount.push({ value: fields.adAccountId, at: row.updatedAt });
+    metaPixel.push({ value: fields.pixelId, at: row.updatedAt });
+    metaPage.push({ value: fields.pageId, at: row.updatedAt });
+    metaIg.push({ value: fields.igId, at: row.updatedAt });
   }
   const advertisers: Array<{ value: string | null; at: string }> = [];
   const identities: Array<{ value: string | null; at: string }> = [];
@@ -257,9 +257,8 @@ export function metaValidateStepForMml(step: MmlWizardStep): 3 | 4 | 5 | 6 | nul
 }
 
 export function mmlPlaceholderLine(step: MmlWizardStep): string {
-  if (step === 1) return "Objective still lives on each channel's drawer.";
-  if (step === 2) return "Optimisation still lives on the Meta drawer.";
-  return "This still lives on the channel drawer.";
+  const lines: Partial<Record<MmlWizardStep, string>> = {};
+  return lines[step] ?? "This still lives on the channel drawer.";
 }
 
 /**
@@ -287,4 +286,203 @@ export function atUsername(username: string | null | undefined): string | null {
   const raw = username?.trim() ?? "";
   if (!raw) return null;
   return raw.startsWith("@") ? raw : `@${raw}`;
+}
+
+/**
+ * Page and Instagram are on each creative's identity. `settings.pageId` is
+ * empty on the Electric Brixton drafts; `settings.metaPageId` is only the
+ * fallback when no creative has a page (it is often the client default).
+ * Instagram prefers `identity.instagramActorId`, then `identity.instagramAccountId`.
+ */
+export function metaFieldsFromDraft(draftJson: unknown): {
+  adAccountId: string | null;
+  pixelId: string | null;
+  pageId: string | null;
+  igId: string | null;
+} {
+  const root = record(draftJson);
+  const settings = record(root?.settings);
+  const creatives = Array.isArray(root?.creatives) ? root.creatives : [];
+  const pages: string[] = [];
+  const igs: string[] = [];
+  for (const creative of creatives) {
+    const identity = record(record(creative)?.identity);
+    const page = text(identity?.pageId);
+    const ig = text(identity?.instagramActorId) ?? text(identity?.instagramAccountId);
+    if (page) pages.push(page);
+    if (ig) igs.push(ig);
+  }
+  return {
+    adAccountId: text(settings?.metaAdAccountId) ?? text(settings?.adAccountId),
+    pixelId: text(settings?.metaPixelId) ?? text(settings?.pixelId),
+    pageId: mostCommon(pages) ?? text(settings?.metaPageId),
+    igId: mostCommon(igs) ?? text(settings?.metaIGAccountId),
+  };
+}
+
+function mostCommon(values: readonly string[]): string | null {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  let best: { value: string; n: number } | null = null;
+  for (const [value, n] of counts) {
+    if (!best || n > best.n) best = { value, n };
+  }
+  return best?.value ?? null;
+}
+
+export interface ChannelHistoryEntry {
+  venueKey: string | null;
+  updatedAt: string;
+  metaAdAccountId: string | null;
+  metaPixelId: string | null;
+  metaPageId: string | null;
+  metaIgAccountId: string | null;
+  tiktokAdvertiserId: string | null;
+  tiktokIdentityId: string | null;
+  googleAdsAccountId: string | null;
+}
+
+export type ChannelPickSource = "venue" | "ad-account" | "client";
+
+export interface ScopedPick {
+  value: string | null;
+  count: number;
+  source: ChannelPickSource | null;
+}
+
+export interface ChannelFieldRow {
+  value: string | null;
+  at: string;
+  venueKey: string | null;
+  accountId: string | null;
+}
+
+/** Venue, then the chosen account, then the whole client. Empty tiers are skipped. */
+export function scopedMostUsed(input: {
+  rows: readonly ChannelFieldRow[];
+  venueKey: string | null;
+  accountId: string | null;
+}): ScopedPick {
+  const venue = normalVenue(input.venueKey);
+  if (venue) {
+    const picked = pickTier(
+      input.rows.filter((row) => normalVenue(row.venueKey) === venue),
+      "venue",
+    );
+    if (picked) return picked;
+  }
+  const account = input.accountId?.trim() ?? "";
+  if (account) {
+    const picked = pickTier(
+      input.rows.filter((row) => (row.accountId?.trim() ?? "") === account),
+      "ad-account",
+    );
+    if (picked) return picked;
+  }
+  return pickTier(input.rows, "client") ?? { value: null, count: 0, source: null };
+}
+
+function pickTier(rows: readonly ChannelFieldRow[], source: ChannelPickSource): ScopedPick | null {
+  const value = mostUsedId(rows.map((row) => ({ value: row.value, at: row.at })));
+  if (!value) return null;
+  const count = rows.filter((row) => (row.value?.trim() ?? "") === value).length;
+  return { value, count, source };
+}
+
+export function normalVenue(value: string | null | undefined): string | null {
+  const trimmed = value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+  return trimmed || null;
+}
+
+export function channelPickNote(pick: ScopedPick, venueLabel: string | null): string | null {
+  if (!pick.value || !pick.source) return null;
+  const noun = pick.count === 1 ? "campaign" : "campaigns";
+  if (pick.source === "venue") {
+    const venue = venueLabel?.trim() || "this venue";
+    return `used on ${pick.count} ${venue} ${noun}`;
+  }
+  if (pick.source === "ad-account") return `used on ${pick.count} ${noun} on this ad account`;
+  return `used on ${pick.count} ${noun} for this client`;
+}
+
+export interface ResolvedChannelFieldPick {
+  value: string | null;
+  flagged: string | null;
+  note: string | null;
+}
+
+/**
+ * Stored operator value, then venue / account / client history, then the
+ * client default. A page that is not on the ad account's Page list is
+ * returned as `flagged` and is not the selected value.
+ * `accountPageIds === null` means the list is not ready, so nothing is flagged.
+ */
+export function resolveChannelField(input: {
+  stored: string | null | undefined;
+  storedFromDefault?: boolean;
+  rows: readonly ChannelFieldRow[];
+  venueKey: string | null;
+  venueLabel: string | null;
+  accountId: string | null;
+  clientDefault: string | null | undefined;
+  accountPageIds?: readonly string[] | null;
+}): ResolvedChannelFieldPick {
+  const stored = input.stored?.trim() || null;
+  const scoped = scopedMostUsed({
+    rows: input.rows,
+    venueKey: input.venueKey,
+    accountId: input.accountId,
+  });
+  let candidate: string | null = null;
+  let note: string | null = null;
+  if (stored && !input.storedFromDefault) {
+    candidate = stored;
+    if (scoped.value === stored) note = channelPickNote(scoped, input.venueLabel);
+  } else if (scoped.value) {
+    candidate = scoped.value;
+    note = channelPickNote(scoped, input.venueLabel);
+  } else if (input.clientDefault?.trim()) {
+    candidate = input.clientDefault.trim();
+    note = "client default";
+  }
+  const pages = input.accountPageIds;
+  if (pages && candidate && !pages.includes(candidate)) {
+    return { value: null, flagged: candidate, note };
+  }
+  return { value: candidate, flagged: null, note };
+}
+
+/** On sale is ticket sales. Every other phase starts as registration. */
+export function eventObjectiveDefault(phase: string | null | undefined): {
+  intent: "purchase" | "registration";
+  cta: "book_now" | "sign_up";
+} {
+  if (phase === "on_sale") return { intent: "purchase", cta: "book_now" };
+  return { intent: "registration", cta: "sign_up" };
+}
+
+export const MML_OBJECTIVE_CARDS: ReadonlyArray<{
+  intent: "purchase" | "registration" | "traffic" | "awareness" | "engagement";
+  label: string;
+  sublabel: string;
+}> = [
+  { intent: "purchase", label: "Purchase", sublabel: "Sales → Purchase" },
+  { intent: "registration", label: "Registration", sublabel: "Sales → CompleteRegistration" },
+  { intent: "traffic", label: "Traffic", sublabel: "Landing Page Views" },
+  { intent: "awareness", label: "Awareness", sublabel: "Reach" },
+  { intent: "engagement", label: "Engagement", sublabel: "Boost an existing post" },
+];
+
+/** Null when the adapter's TikTok objective is not one the TikTok wizard offers. */
+export function tikTokForPlanIntent(intent: CampaignPlanObjectiveIntent): {
+  objective: TikTokObjective;
+  goal: TikTokOptimisationGoal;
+} | null {
+  const objective = mapIntentToTikTokObjective(intent);
+  if (!(TIKTOK_OBJECTIVES as readonly string[]).includes(objective)) return null;
+  const goal = TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE[objective][0];
+  if (!goal) return null;
+  return { objective, goal };
 }
