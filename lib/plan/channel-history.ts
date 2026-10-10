@@ -18,7 +18,7 @@ export async function loadChannelHistory(
   const [meta, tiktok, events] = await Promise.all([
     supabase
       .from("campaign_drafts")
-      .select("draft_json, updated_at, event_id")
+      .select("id, draft_json, updated_at, event_id, status")
       .eq("user_id", userId)
       .eq("client_id", clientId),
     supabase
@@ -45,6 +45,29 @@ export async function loadChannelHistory(
   }
 
   const eventIds = [...eventVenue.keys()];
+  // A launch can be filed under another client while the event stays here.
+  // Folamour's published drafts are on IRONWORKS; the plan is Electric Brixton.
+  const metaOnEvents = eventIds.length
+    ? await supabase
+        .from("campaign_drafts")
+        .select("id, draft_json, updated_at, event_id, status")
+        .eq("user_id", userId)
+        .in("event_id", eventIds)
+    : { data: [] as { id: string }[], error: null };
+  if (metaOnEvents.error) return [];
+  const seenDrafts = new Set<string>();
+  const metaRows = [];
+  for (const row of [...(meta.data ?? []), ...(metaOnEvents.data ?? [])] as {
+    id: string;
+    draft_json: unknown;
+    updated_at: string;
+    event_id: string | null;
+    status: string | null;
+  }[]) {
+    if (seenDrafts.has(row.id)) continue;
+    seenDrafts.add(row.id);
+    metaRows.push(row);
+  }
   const google = eventIds.length
     ? await supabase
         .from("google_search_plans")
@@ -56,14 +79,12 @@ export async function loadChannelHistory(
   if (google.error) return [];
 
   const entries: ChannelHistoryEntry[] = [];
-  for (const row of (meta.data ?? []) as {
-    draft_json: unknown;
-    updated_at: string;
-    event_id: string | null;
-  }[]) {
+  for (const row of metaRows) {
     const fields = metaFieldsFromDraft(row.draft_json);
     entries.push({
       venueKey: row.event_id ? (eventVenue.get(row.event_id) ?? null) : null,
+      eventId: row.event_id,
+      status: row.status,
       updatedAt: row.updated_at,
       metaAdAccountId: fields.adAccountId,
       metaPixelId: fields.pixelId,
@@ -82,6 +103,8 @@ export async function loadChannelHistory(
     const account = record(record(row.state)?.accountSetup);
     entries.push({
       venueKey: row.event_id ? (eventVenue.get(row.event_id) ?? null) : null,
+      eventId: row.event_id,
+      status: null,
       updatedAt: row.updated_at,
       metaAdAccountId: null,
       metaPixelId: null,
@@ -99,6 +122,8 @@ export async function loadChannelHistory(
   }[]) {
     entries.push({
       venueKey: row.event_id ? (eventVenue.get(row.event_id) ?? null) : null,
+      eventId: row.event_id,
+      status: null,
       updatedAt: row.updated_at,
       metaAdAccountId: null,
       metaPixelId: null,

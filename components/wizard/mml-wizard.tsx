@@ -6,13 +6,14 @@ import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { AssignCreatives } from "@/components/steps/assign-creatives";
-import { AudiencesStep } from "@/components/steps/audiences/audiences-step";
 import { BudgetSchedule } from "@/components/steps/budget-schedule";
 import { Creatives } from "@/components/steps/creatives";
 import { OptimisationStrategy } from "@/components/steps/optimisation-strategy";
 import { StepSurfaceProvider } from "@/components/steps/step-surface";
+import { MmlStepAudiences } from "@/components/wizard/mml-step-audiences";
 import { MmlStepClient } from "@/components/wizard/mml-step-client";
 import { MmlStepObjective } from "@/components/wizard/mml-step-objective";
+import { MmlTikTokReelRow } from "@/components/wizard/mml-tiktok-reel-row";
 import { WizardFooter } from "@/components/wizard/wizard-footer";
 import { WizardStepper } from "@/components/wizard/wizard-stepper";
 import type { GoogleAdsAccountOption } from "@/components/wizard/mml-step-client";
@@ -37,7 +38,7 @@ import {
   type MmlWizardStep,
 } from "@/lib/plan/mml-wizard";
 import type { PlanAdapterName, CampaignPlan } from "@/lib/plan/types";
-import { attachedAdSetKey, type AdSetSuggestion, type WizardStep } from "@/lib/types";
+import { attachedAdSetKey, type AdSetSuggestion, type AudienceSettings, type WizardStep } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
 import { useCampaignDraft } from "@/lib/wizard/use-campaign-draft";
 import { splitRotationOntoOwnAdSet } from "@/lib/wizard/split-rotation-adset";
@@ -135,6 +136,7 @@ export function MmlWizard({
   const channel = location.channel;
 
   useEffect(() => {
+    if (step === 3) return;
     if (step < 3 || step > 6 || channel !== "meta") setReported([]);
   }, [step, channel]);
 
@@ -265,7 +267,7 @@ type Shared = {
 
 function MmlDraftSteps({ draftId, step, ...shared }: { draftId: string; step: MmlWizardStep } & Shared) {
   const controller = useCampaignDraft(draftId);
-  const { draft, hydrated, updateSettings, updateDraft } = controller;
+  const { draft, hydrated, updateSettings, updateDraft, updateAudiences, handlePageInstagramOverride } = controller;
   return (
     <WizardEventContextProvider draftId={draftId} eventId={draft.settings.eventId} enabled={hydrated}>
       <EventEndDateSync draft={draft} updateDraft={updateDraft} />
@@ -275,6 +277,8 @@ function MmlDraftSteps({ draftId, step, ...shared }: { draftId: string; step: Mm
         draft={hydrated ? draft : null}
         onSettings={updateSettings}
         onApplyDraft={updateDraft}
+        onAudiences={updateAudiences}
+        onPageInstagramOverride={handlePageInstagramOverride}
         meta={
           hydrated ? (
             <MetaStepBody
@@ -283,6 +287,8 @@ function MmlDraftSteps({ draftId, step, ...shared }: { draftId: string; step: Mm
               controller={controller}
               resolved={shared.resolved}
               onBlockers={shared.onBlockers}
+              plan={shared.plan}
+              channels={shared.channels}
             />
           ) : (
             <p className="text-sm text-muted-foreground">Loading the Meta draft…</p>
@@ -301,6 +307,8 @@ function MmlStepsWithoutDraft({ step, ...shared }: { step: MmlWizardStep } & Sha
       draft={null}
       onSettings={() => {}}
       onApplyDraft={() => {}}
+      onAudiences={() => {}}
+      onPageInstagramOverride={() => {}}
       meta={
         <DrawerLine
           line="This plan has no Meta draft yet."
@@ -317,6 +325,8 @@ function MmlStepSwitch({
   draft,
   onSettings,
   onApplyDraft,
+  onAudiences,
+  onPageInstagramOverride,
   meta,
   ...shared
 }: {
@@ -324,6 +334,8 @@ function MmlStepSwitch({
   draft: ReturnType<typeof useCampaignDraft>["draft"] | null;
   onSettings: (settings: ReturnType<typeof useCampaignDraft>["draft"]["settings"]) => void;
   onApplyDraft: (updater: (draft: ReturnType<typeof useCampaignDraft>["draft"]) => ReturnType<typeof useCampaignDraft>["draft"]) => void;
+  onAudiences: (audiences: AudienceSettings) => void;
+  onPageInstagramOverride: (pageId: string, igId: string) => void;
   meta: ReactNode;
 } & Shared) {
   if (step === 0) {
@@ -361,6 +373,23 @@ function MmlStepSwitch({
       />
     );
   }
+  if (step === 3) {
+    return (
+      <MmlStepAudiences
+        channels={shared.channels}
+        draft={draft}
+        resolved={shared.resolved}
+        events={shared.events}
+        eventId={shared.plan.intent.eventId}
+        tiktokDraftId={shared.plan.launches.tiktok.draftId}
+        googleDraftId={shared.plan.launches.google.draftId}
+        onAudiences={onAudiences}
+        onSettings={onSettings}
+        onPageInstagramOverride={onPageInstagramOverride}
+        onBlockers={shared.onBlockers}
+      />
+    );
+  }
   if (step === 2) {
     return (
       <div className="mx-auto max-w-5xl space-y-4">
@@ -392,19 +421,21 @@ function MetaStepBody({
   controller,
   resolved,
   onBlockers,
+  plan,
+  channels,
 }: {
   step: MmlWizardStep;
   channel: MmlChannel;
   controller: ReturnType<typeof useCampaignDraft>;
   resolved: ResolvedChannelDefaults | null;
   onBlockers: (errors: string[]) => void;
+  plan: CampaignPlan;
+  channels: MmlChannelSelection;
 }) {
   const {
     draft,
     updateSettings,
-    updateAudiences,
     updateCreatives,
-    handlePageInstagramOverride,
     updateBudgetSchedule,
     updateAdSetSuggestions,
     markGenerateReplaceImportedConfirmed,
@@ -431,23 +462,6 @@ function MetaStepBody({
       />
     );
   }
-  if (step === 3) {
-    return (
-      <AudiencesStep
-        audiences={draft.audiences}
-        onChange={updateAudiences}
-        settings={draft.settings}
-        onSettingsChange={updateSettings}
-        onPageInstagramOverride={handlePageInstagramOverride}
-        adAccountId={draft.settings.metaAdAccountId}
-        clientId={draft.settings.clientId}
-        eventId={draft.settings.eventId}
-        campaignName={draft.settings.campaignName}
-        imported={draft.importMeta != null}
-        adSetSuggestions={draft.adSetSuggestions}
-      />
-    );
-  }
   if (step === 4) {
     return (
       <Creatives
@@ -457,6 +471,19 @@ function MetaStepBody({
         onSettingsChange={updateSettings}
         adAccountId={draft.settings.metaAdAccountId}
         copyNotes={draft.importMeta?.copyNotes}
+        afterActive={
+          channels.tiktok
+            ? (creative) => (
+                <MmlTikTokReelRow
+                  key={creative.id}
+                  planId={plan.id}
+                  objectiveIntent={plan.intent.objectiveIntent}
+                  tiktokDraftId={plan.launches.tiktok.draftId}
+                  creative={creative}
+                />
+              )
+            : undefined
+        }
       />
     );
   }

@@ -100,6 +100,8 @@ interface CreativesProps {
   planDestinationUrl?: string;
   /** Imported creatives whose source had no headline. */
   copyNotes?: readonly { creativeId: string; text: string }[];
+  /** Rendered under the new-ad editor. The MML wizard uses it for the TikTok reel row. */
+  afterActive?: (creative: AdCreativeDraft) => ReactNode;
 }
 
 const ASSET_MODES: { value: AssetMode; label: string; desc: string }[] = [
@@ -159,6 +161,7 @@ function CreativesBody({
   onResetQueueBinding,
   planDestinationUrl = "",
   copyNotes,
+  afterActive,
 }: CreativesProps) {
   const drawer = useIsDrawer();
   const planOwnsDestination = usePlanOwnsDestination();
@@ -1324,6 +1327,7 @@ function CreativesBody({
                       </div>
                     </IdentityDisclosure>
                   ) : null}
+                  {afterActive ? afterActive(active) : null}
                 </>
               )}
 

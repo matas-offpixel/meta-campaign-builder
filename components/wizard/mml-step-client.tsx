@@ -135,7 +135,14 @@ export function MmlStepClient({
   const historyRows = (pick: (entry: ChannelHistoryEntry) => { value: string | null; accountId: string | null }): ChannelFieldRow[] =>
     (entries ?? []).map((entry) => {
       const field = pick(entry);
-      return { value: field.value, at: entry.updatedAt, venueKey: entry.venueKey, accountId: field.accountId };
+      return {
+        value: field.value,
+        at: entry.updatedAt,
+        venueKey: entry.venueKey,
+        accountId: field.accountId,
+        eventId: entry.eventId,
+        status: entry.status,
+      };
     });
   const accountPick = resolveChannelField({
     stored: settings?.metaAdAccountId || settings?.adAccountId,
@@ -216,6 +223,7 @@ export function MmlStepClient({
     venueKey,
     venueLabel,
     accountId: metaAccountId,
+    eventId,
     clientDefault: pagesSettled ? resolved?.facebookPage.value : null,
     accountPageIds: pagesSettled ? pages.data.map((page) => page.id) : null,
   });
@@ -229,6 +237,7 @@ export function MmlStepClient({
     venueKey,
     venueLabel,
     accountId: metaAccountId,
+    eventId,
     clientDefault: pagesSettled ? resolved?.instagramActor.value : null,
   });
   const igId = pagePick.flagged ? null : igPick.value;
