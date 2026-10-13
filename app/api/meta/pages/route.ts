@@ -16,6 +16,9 @@
  */
 
 import { type NextRequest } from "next/server";
+
+/** Fluid default is 300s when unset. Declared so the personal walk's 240s budget sits inside it. */
+export const maxDuration = 300;
 import { createClient } from "@/lib/supabase/server";
 import {
   fetchPagedPageEdge,
