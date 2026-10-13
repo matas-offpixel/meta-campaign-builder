@@ -1,3 +1,4 @@
+import { campaignObjectiveChangedMessage } from "./attach-objective.ts";
 import { mapObjectiveToMeta } from "./campaign.ts";
 import type { CampaignObjective } from "../types.ts";
 import {
@@ -83,21 +84,6 @@ export function campaignGoneReason(
 }
 
 /**
- * The attach path's refusal, for a ledger hit whose live campaign no
- * longer has the objective this draft would create.
- */
-export function campaignObjectiveChangedMessage(
-  campaignName: string,
-  draftObjective: string,
-  liveObjective: string,
-): string {
-  return (
-    `Campaign "${campaignName}" objective changed since you picked it ` +
-    `(snapshot: "${draftObjective}", live: "${liveObjective}"). Re-open Step 1 and re-select.`
-  );
-}
-
-/**
  * campaign_create ledger hit. A stored id is not a campaign we just
  * minted — re-fetch it. ARCHIVED, DELETED, or a definite not-found
  * (code 100 / subcode 33, or code 803) drops the row and creates.
@@ -163,9 +149,12 @@ export async function runCampaignCreateLedger(input: {
       );
       return { id, outcome: "recreated" };
     }
-    const liveInternal = actual || "unknown";
     throw new CampaignLedgerObjectiveError(
-      campaignObjectiveChangedMessage(live.name?.trim() || input.campaignName, input.draftObjective, liveInternal),
+      campaignObjectiveChangedMessage(
+        live.name?.trim() || input.campaignName,
+        expected,
+        actual || "unknown",
+      ),
     );
   }
 

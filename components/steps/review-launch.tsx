@@ -38,7 +38,10 @@ import {
   adSetsSkippedForMissingAudience,
   skippedAudienceReviewLine,
 } from "@/lib/wizard/import-edits";
-import { formatAttachMultiCampaignReviewLine } from "@/lib/meta/attach-objective";
+import {
+  formatAttachMultiCampaignReviewLine,
+  formatAttachVoteDriftReviewLine,
+} from "@/lib/meta/attach-objective";
 import { METRIC_LABELS, TIME_WINDOW_LABELS } from "@/lib/optimisation-rules";
 import {
   failedAdLabelsFromSummary,
@@ -1274,6 +1277,20 @@ export function ReviewLaunch({
             </Datum>
           </span>
         )}
+
+      {wizardMode === "attach_campaign" &&
+        (() => {
+          const line = formatAttachVoteDriftReviewLine({
+            draftObjective: draft.settings.objective,
+            campaigns: draft.settings.existingMetaCampaigns ?? [],
+          });
+          if (!line) return null;
+          return (
+            <span data-testid="attach-vote-drift-line">
+              <Datum className="text-sm text-muted-foreground">{line}</Datum>
+            </span>
+          );
+        })()}
 
       {(() => {
         const skipped = adSetsSkippedForMissingAudience(draft.adSetSuggestions, draft.audiences).length;

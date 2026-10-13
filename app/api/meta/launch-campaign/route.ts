@@ -165,7 +165,14 @@ import type {
   CampaignObjective,
 } from "@/lib/types";
 import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/lib/types";
-import { assertAttachSelectionObjectives, assertSameObjective, resolveAttachCampaign } from "@/lib/meta/attach-objective";
+import {
+  assertAttachSelectionObjectives,
+  assertSameObjective,
+  attachMetaObjectiveDriftMessage,
+  attachVoteDriftLogLine,
+  decideAttachObjective,
+  resolveAttachCampaign,
+} from "@/lib/meta/attach-objective";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
 import { stampPublishedCreatives } from "@/lib/meta/persist-launch-creatives";
@@ -1686,27 +1693,35 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         );
       }
 
-      // GOAL 1 FIX — compare each campaign's live objective against ITS OWN
-      // snapshot, not against the global draft.settings.objective which can
-      // differ when multiple campaigns with different objectives are selected.
+      // A real objective change is the raw Meta objective (OUTCOME_SALES →
+      // OUTCOME_LEADS). Purchase vs initiate checkout under OUTCOME_SALES
+      // is the same campaign; the new ad set keeps the draft's event.
+      const snap0 = attachCampaignSnapshots[0];
+      const campName = snap0?.name ?? attachTargetId ?? "selected campaign";
+      const kept =
+        wizardMode === "attach_campaign"
+          ? decideAttachObjective({
+              campaignName: campName,
+              snapshotObjective: snap0?.objective,
+              liveObjective: live.objective,
+              draftObjective: draft.settings.objective,
+              liveVotedObjective: voted.objective,
+            })
+          : null;
       if (wizardMode === "attach_campaign" || isAttachAllAdSets) {
-        const snap0 = attachCampaignSnapshots[0];
-        const snappedInternal =
-          wizardMode === "attach_campaign"
-            ? snap0?.internalObjective
-              ? snap0.internalObjective
-              : mapMetaObjectiveToInternal(snap0?.objective ?? "")
-            : mapMetaObjectiveToInternal(snap0?.objective ?? "") ?? snap0?.internalObjective;
-        const liveInternal = wizardMode === "attach_campaign" ? internal : objectiveOnly;
-        if (snappedInternal && liveInternal && liveInternal !== snappedInternal) {
-          const campName = snap0?.name ?? attachTargetId ?? "selected campaign";
-          return launchJson(
-            {
-              error: `Campaign "${campName}" objective changed since you picked it (snapshot: "${snappedInternal}", live: "${liveInternal}"). Re-open Step 1 and re-select.`,
-            },
-            { status: 409 },
-          );
+        const driftMessage =
+          kept?.driftMessage ??
+          attachMetaObjectiveDriftMessage({
+            campaignName: campName,
+            snapshotObjective: snap0?.objective,
+            liveObjective: live.objective,
+          });
+        if (driftMessage) {
+          return launchJson({ error: driftMessage }, { status: 409 });
         }
+      }
+      if (kept?.eventDrift) {
+        console.log(attachVoteDriftLogLine(kept.eventDrift));
       }
 
       metaCampaignId = live.id;
@@ -1714,7 +1729,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         id: live.id,
         name: live.name ?? attachCampaignSnapshots[0]?.name ?? live.id,
         objective: live.objective ?? "",
-        internalObjective: internal,
+        internalObjective: kept?.objective ?? internal,
         ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
         daily_budget: live.daily_budget,
         lifetime_budget: live.lifetime_budget,
@@ -1739,19 +1754,21 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             const ciInternal = voted.objective;
             if (!ciInternal)
               throw new Error(`Campaign "${c.name}" has an unsupported objective "${c.objective ?? "unknown"}"`);
-            // GOAL 1 — per-campaign snapshot drift detection: compare live
-            // objective against THIS campaign's own snapshot objective.
-            if (snap.objective && c.objective && c.objective !== snap.objective) {
-              throw new Error(
-                `Campaign "${c.name}" objective changed since you picked it ` +
-                `(snapshot: "${snap.objective}", live: "${c.objective}"). Re-open Step 1 and re-select.`,
-              );
-            }
+            const keptEvent = snap.internalObjective ?? draft.settings.objective;
+            const decision = decideAttachObjective({
+              campaignName: c.name ?? snap.name,
+              snapshotObjective: snap.objective,
+              liveObjective: c.objective,
+              draftObjective: keptEvent,
+              liveVotedObjective: voted.objective,
+            });
+            if (decision.driftMessage) throw new Error(decision.driftMessage);
+            if (decision.eventDrift) console.log(attachVoteDriftLogLine(decision.eventDrift));
             return {
               id: c.id,
               name: c.name ?? snap.id,
               objective: c.objective ?? "",
-              internalObjective: ciInternal,
+              internalObjective: decision.objective,
               ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
               daily_budget: c.daily_budget,
               lifetime_budget: c.lifetime_budget,

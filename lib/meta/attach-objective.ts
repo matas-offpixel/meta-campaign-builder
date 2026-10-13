@@ -81,11 +81,25 @@ export function attachChipLabel(objective: CampaignObjective): string {
   return CHIP_LABEL[objective];
 }
 
+/** Visible Step 1 badge. An unread page must not look like a vote. */
+export function attachObjectiveBadgeLabel(input: {
+  internalObjective: CampaignObjective;
+  adSetsUnread?: boolean;
+}): string {
+  const label = attachChipLabel(input.internalObjective);
+  return input.adSetsUnread ? `event not read, using ${label}` : label;
+}
+
 export function attachObjectiveChipTitle(
   source: "campaign" | "adsets",
   adSetCount: number,
   truncated = false,
+  adSetsUnread = false,
+  fallbackLabel?: string,
 ): string {
+  if (adSetsUnread) {
+    return fallbackLabel ? `event not read, using ${fallbackLabel}` : "event not read";
+  }
   if (source !== "adsets" || adSetCount === 0) {
     return adSetCount === 0
       ? "No ad sets yet — from the campaign objective"
@@ -276,16 +290,101 @@ export type AssertSameObjectiveResult =
     };
 
 /**
+ * 409 text when the Meta campaign objective itself changed
+ * (`OUTCOME_SALES` → `OUTCOME_LEADS`). A different conversion event under
+ * the same objective is not this message.
+ */
+export function campaignObjectiveChangedMessage(
+  campaignName: string,
+  snapshotObjective: string,
+  liveObjective: string,
+): string {
+  return (
+    `Campaign "${campaignName}" objective changed since you picked it ` +
+    `(snapshot: "${snapshotObjective}", live: "${liveObjective}"). Re-open Step 1 and re-select.`
+  );
+}
+
+/** Null when either side is missing or the raw Meta objectives still match. */
+export function attachMetaObjectiveDriftMessage(input: {
+  campaignName: string;
+  snapshotObjective?: string | null;
+  liveObjective?: string | null;
+}): string | null {
+  const snapshot = (input.snapshotObjective ?? "").trim();
+  const live = (input.liveObjective ?? "").trim();
+  if (!snapshot || !live) return null;
+  if (snapshot.toUpperCase() === live.toUpperCase()) return null;
+  return campaignObjectiveChangedMessage(input.campaignName, snapshot, live);
+}
+
+/**
+ * The new ad set keeps the objective Step 1 stored. A live ad-set vote that
+ * names a different event under the same Meta objective is logged, not a 409.
+ */
+export function decideAttachObjective(input: {
+  campaignName: string;
+  snapshotObjective?: string | null;
+  liveObjective?: string | null;
+  draftObjective: CampaignObjective;
+  liveVotedObjective?: CampaignObjective;
+}): {
+  driftMessage: string | null;
+  objective: CampaignObjective;
+  eventDrift: { draft: CampaignObjective; live: CampaignObjective } | null;
+} {
+  const driftMessage = attachMetaObjectiveDriftMessage(input);
+  const live = input.liveVotedObjective;
+  const eventDrift =
+    !driftMessage && live && live !== input.draftObjective
+      ? { draft: input.draftObjective, live }
+      : null;
+  return { driftMessage, objective: input.draftObjective, eventDrift };
+}
+
+export function attachVoteDriftLogLine(drift: { draft: string; live: string }): string {
+  return `[attach-vote] event differs from campaign majority: draft=${drift.draft} live=${drift.live}`;
+}
+
+/**
+ * Review information when the picker actually voted an event and the draft
+ * kept a different one. A campaign-objective guess is not a majority.
+ */
+export function formatAttachVoteDriftReviewLine(input: {
+  draftObjective: CampaignObjective;
+  campaigns: Array<{
+    conversionEvent?: string | null;
+    internalObjective?: CampaignObjective;
+    objectiveSource?: "campaign" | "adsets";
+    adSetsUnread?: boolean;
+  }>;
+}): string | null {
+  const draftEvent =
+    OBJECTIVE_EVENT_LABEL[input.draftObjective] ?? CHIP_LABEL[input.draftObjective];
+  const lines: string[] = [];
+  for (const campaign of input.campaigns) {
+    if (campaign.adSetsUnread || campaign.objectiveSource !== "adsets") continue;
+    const event =
+      campaign.conversionEvent ??
+      (campaign.internalObjective
+        ? (OBJECTIVE_EVENT_LABEL[campaign.internalObjective] ??
+          CHIP_LABEL[campaign.internalObjective])
+        : null);
+    if (!event || event === draftEvent) continue;
+    lines.push(
+      `Campaign mostly optimises for ${event}; this ad set uses ${draftEvent}`,
+    );
+  }
+  const unique = [...new Set(lines)];
+  return unique.length > 0 ? unique.join(" ") : null;
+}
+
+/**
  * Returns `ok: true` when all snapshots share the same raw Meta objective
  * string (e.g. `"LINK_CLICKS"`), or when the list has ≤ 1 entry.
  *
  * On conflict, returns `ok: false` with the first conflicting pair named so
- * the caller can surface a human-readable error:
- *
- * ```
- * "Selected campaigns have incompatible objectives. "{A}" is {objA} while
- * "{B}" is {objB}. Pick campaigns with the same objective and re-try."
- * ```
+ * the caller can surface a human-readable error.
  */
 export function assertSameObjective(
   snaps: ExistingMetaCampaignSnapshot[],

@@ -43,7 +43,7 @@ import {
   Plus, Link2, Layers, AlertCircle, Info, X, ListChecks,
 } from "lucide-react";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
-import { attachChipLabel, attachObjectiveChipTitle } from "@/lib/meta/attach-objective";
+import { attachObjectiveBadgeLabel, attachObjectiveChipTitle } from "@/lib/meta/attach-objective";
 import { AdSetPicker } from "./adset-picker";
 import { CrossCampaignAdSetPicker } from "./cross-campaign-adset-picker";
 
@@ -381,6 +381,7 @@ export function CampaignSetup({
         objectiveSource: campaign.objectiveSource,
         adSetCount: campaign.adSetCount,
         ...(campaign.adSetCountTruncated ? { adSetCountTruncated: true } : {}),
+        ...(campaign.adSetsUnread ? { adSetsUnread: true } : {}),
         ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
         ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
         status: campaign.status,
@@ -455,6 +456,7 @@ export function CampaignSetup({
             objectiveSource: campaign.objectiveSource,
             adSetCount: campaign.adSetCount,
             ...(campaign.adSetCountTruncated ? { adSetCountTruncated: true } : {}),
+            ...(campaign.adSetsUnread ? { adSetsUnread: true } : {}),
             ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
             ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
             status: campaign.status,
@@ -771,13 +773,20 @@ export function CampaignSetup({
                                   camp.objectiveSource ?? "campaign",
                                   camp.adSetCount ?? 0,
                                   camp.adSetCountTruncated === true,
+                                  camp.adSetsUnread === true,
+                                  attachObjectiveBadgeLabel({
+                                    internalObjective: camp.internalObjective,
+                                  }),
                                 )
                               : undefined
                           }
                         >
                           <Badge variant="primary">
                             {camp.internalObjective
-                              ? attachChipLabel(camp.internalObjective)
+                              ? attachObjectiveBadgeLabel({
+                                  internalObjective: camp.internalObjective,
+                                  adSetsUnread: camp.adSetsUnread === true,
+                                })
                               : camp.objective}
                           </Badge>
                         </span>

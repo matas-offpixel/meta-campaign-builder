@@ -202,6 +202,25 @@ describe("attach_campaign budget shape", () => {
     assert.equal(payload.bid_strategy, undefined);
   });
 
+  it("CBO lifetime attach sends end_time and no ad set budget", () => {
+    const attached = budgetScheduleForAttach(
+      schedule({
+        budgetLevel: "ad_set",
+        budgetType: "lifetime",
+        endDate: "2026-11-07T23:59",
+        timezone: "Europe/London",
+      }),
+      { lifetime_budget: "5000" },
+    );
+    const payload = build(adSet({ budgetPerDay: 20, budgetLifetime: 850 }), attached);
+    assert.equal(attached.budgetLevel, "campaign");
+    assert.equal(payload.daily_budget, undefined);
+    assert.equal(payload.lifetime_budget, undefined);
+    assert.equal(payload.bid_strategy, undefined);
+    assert.equal(typeof payload.end_time, "number");
+    assert.ok((payload.end_time ?? 0) > 0);
+  });
+
   it("ABO target + CBO draft sends daily_budget from budgetPerDay", () => {
     const attached = budgetScheduleForAttach(
       schedule({ budgetLevel: "campaign", budgetType: "daily", budgetAmount: 50 }),

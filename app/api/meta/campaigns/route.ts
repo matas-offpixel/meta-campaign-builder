@@ -184,7 +184,10 @@ export async function GET(req: NextRequest) {
       token,
     });
 
-    const data = res.data.map(toSummary);
+    const data = res.data.map((raw) => ({
+      ...toSummary(raw),
+      ...(res.adSetsUnread ? { adSetsUnread: true as const } : {}),
+    }));
     const compatibleCount = data.filter((c) => c.compatible).length;
 
     console.log(

@@ -14,8 +14,12 @@ import {
   assertAttachDraftObjective,
   assertAttachSelectionObjectives,
   attachChipLabel,
+  attachObjectiveBadgeLabel,
   attachObjectiveChipTitle,
+  attachVoteDriftLogLine,
+  decideAttachObjective,
   formatAttachMultiCampaignReviewLine,
+  formatAttachVoteDriftReviewLine,
   resolveAttachCampaign,
 } from "../attach-objective.ts";
 
@@ -331,5 +335,105 @@ describe("attach_campaign payload", () => {
     );
     assert.equal(payload.promoted_object?.custom_event_type, "COMPLETE_REGISTRATION");
     assert.equal(payload.promoted_object?.pixel_id, "2261755947685271");
+  });
+});
+
+describe("attach objective drift", () => {
+  it("keeps the draft event when OUTCOME_SALES votes differ", () => {
+    const decision = decideAttachObjective({
+      campaignName: "[NX26-AZYR] Azyr b2b PB69 - On Sale",
+      snapshotObjective: "OUTCOME_SALES",
+      liveObjective: "OUTCOME_SALES",
+      draftObjective: "purchase",
+      liveVotedObjective: "initiate_checkout",
+    });
+    assert.equal(decision.driftMessage, null);
+    assert.equal(decision.objective, "purchase");
+    assert.deepEqual(decision.eventDrift, {
+      draft: "purchase",
+      live: "initiate_checkout",
+    });
+    assert.equal(
+      attachVoteDriftLogLine(decision.eventDrift!),
+      "[attach-vote] event differs from campaign majority: draft=purchase live=initiate_checkout",
+    );
+    const payload = buildAdSetPayload(
+      makeAdSet(),
+      "120251882111960755",
+      emptyAudiences,
+      schedule,
+      "conversions",
+      decision.objective,
+      "px",
+    );
+    assert.equal(payload.promoted_object?.custom_event_type, "PURCHASE");
+  });
+
+  it("409s when the Meta objective changes from OUTCOME_SALES to OUTCOME_LEADS", () => {
+    const decision = decideAttachObjective({
+      campaignName: "Azyr",
+      snapshotObjective: "OUTCOME_SALES",
+      liveObjective: "OUTCOME_LEADS",
+      draftObjective: "purchase",
+      liveVotedObjective: "registration",
+    });
+    assert.match(decision.driftMessage ?? "", /OUTCOME_SALES/);
+    assert.match(decision.driftMessage ?? "", /OUTCOME_LEADS/);
+    assert.match(decision.driftMessage ?? "", /objective changed since you picked it/);
+    assert.equal(decision.eventDrift, null);
+  });
+
+  it("launches a no-adsets snapshot against a live ad-set vote", () => {
+    const unread = resolveAttachCampaign({ objective: "OUTCOME_SALES" });
+    assert.equal(unread.objectiveSource, "campaign");
+    assert.equal(unread.adSetCount, 0);
+    assert.equal(unread.objective, "purchase");
+    assert.equal(
+      attachObjectiveBadgeLabel({
+        internalObjective: unread.objective!,
+        adSetsUnread: true,
+      }),
+      "event not read, using Purchase",
+    );
+    assert.equal(
+      attachObjectiveChipTitle("campaign", 0, false, true, "Purchase"),
+      "event not read, using Purchase",
+    );
+
+    const decision = decideAttachObjective({
+      campaignName: "Azyr",
+      snapshotObjective: "OUTCOME_SALES",
+      liveObjective: "OUTCOME_SALES",
+      draftObjective: "purchase",
+      liveVotedObjective: "initiate_checkout",
+    });
+    assert.equal(decision.driftMessage, null);
+    assert.equal(decision.objective, "purchase");
+    assert.equal(
+      formatAttachVoteDriftReviewLine({
+        draftObjective: "purchase",
+        campaigns: [
+          {
+            objectiveSource: "campaign",
+            adSetsUnread: true,
+            internalObjective: "purchase",
+          },
+        ],
+      }),
+      null,
+    );
+    assert.equal(
+      formatAttachVoteDriftReviewLine({
+        draftObjective: "purchase",
+        campaigns: [
+          {
+            objectiveSource: "adsets",
+            conversionEvent: "Initiate checkout",
+            internalObjective: "initiate_checkout",
+          },
+        ],
+      }),
+      "Campaign mostly optimises for Initiate checkout; this ad set uses Purchase",
+    );
   });
 });
