@@ -757,6 +757,11 @@ export interface RawMetaCampaign {
   /** Minor units. Absent, 0, or "0" means this campaign is not CBO. */
   daily_budget?: string | number;
   lifetime_budget?: string | number;
+  /**
+   * Absent on a lowest-cost campaign budget. COST_CAP and the bid-cap
+   * strategies are the cases where a new ad set may use a different goal.
+   */
+  bid_strategy?: string;
   /** Present when the read asked for adsets.limit(50){promoted_object,optimization_goal}. */
   adsets?: {
     data?: Array<{
@@ -836,6 +841,9 @@ export async function fetchCampaignsForAccount(params: {
       "buying_type",
       "created_time",
       "updated_time",
+      "daily_budget",
+      "lifetime_budget",
+      "bid_strategy",
       ...(includeAdSets ? [ATTACH_ADSET_VOTE_FIELDS] : []),
     ].join(",");
     const queryParams: Record<string, string> = {
@@ -908,7 +916,7 @@ export async function fetchCampaignById(
   token?: string,
 ): Promise<RawMetaCampaign | null> {
   try {
-    const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time,daily_budget,lifetime_budget,adsets.limit(50){promoted_object,optimization_goal}";
+    const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time,daily_budget,lifetime_budget,bid_strategy,adsets.limit(50){promoted_object,optimization_goal}";
     const res = token
       ? await graphGetWithToken<RawMetaCampaign>(`/${campaignId}`, { fields }, token)
       : await graphGet<RawMetaCampaign>(`/${campaignId}`, { fields });

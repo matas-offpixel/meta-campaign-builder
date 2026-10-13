@@ -42,6 +42,10 @@ import {
   formatAttachMultiCampaignReviewLine,
   formatAttachVoteDriftReviewLine,
 } from "@/lib/meta/attach-objective";
+import {
+  attachCampaignTargets,
+  attachOptimisationWarningForCampaign,
+} from "@/lib/meta/attach-optimisation";
 import { METRIC_LABELS, TIME_WINDOW_LABELS } from "@/lib/optimisation-rules";
 import {
   failedAdLabelsFromSummary,
@@ -1290,6 +1294,30 @@ export function ReviewLaunch({
               <Datum className="text-sm text-muted-foreground">{line}</Datum>
             </span>
           );
+        })()}
+
+      {wizardMode === "attach_campaign" &&
+        (() => {
+          const selected = attachCampaignTargets(
+            draft.settings.existingMetaCampaigns,
+            draft.settings.existingMetaCampaign,
+          );
+          return selected.flatMap((campaign) => {
+            const warning = attachOptimisationWarningForCampaign({
+              campaignName: campaign.name,
+              draftObjective: draft.settings.objective,
+              draftOptimisationGoal: draft.settings.optimisationGoal,
+              delivery: campaign.deliveryOptimisation,
+            });
+            if (!warning) return [];
+            return [
+              <span key={campaign.id} data-testid="attach-optimisation-warning">
+                <Datum className="text-sm text-warning">
+                  {selected.length > 1 ? `${campaign.name}: ${warning}` : warning}
+                </Datum>
+              </span>,
+            ];
+          });
         })()}
 
       {(() => {

@@ -1398,6 +1398,19 @@ export interface ExistingMetaCampaignSnapshot {
   conversionEvent?: string;
   /** Most common promoted_object.pixel_id among those ad sets. */
   pixelId?: string;
+  /**
+   * Copied from the picker so Step 1 and Review can warn before launch.
+   * The launch itself re-reads the live campaign and does not trust this.
+   */
+  deliveryOptimisation?: {
+    bidStrategy?: string;
+    dailyBudget?: string;
+    lifetimeBudget?: string;
+    adSets: Array<{
+      optimization_goal?: string;
+      promoted_object?: { custom_event_type?: string };
+    }>;
+  };
   /** Raw configured status, e.g. "ACTIVE", "PAUSED". */
   status: string;
   /** Raw effective status (delivery state), if returned by Meta. */
@@ -1499,6 +1512,20 @@ export interface MetaCampaignSummary {
   /** Winning conversion event for the selected-campaign line. */
   conversionEvent?: string;
   pixelId?: string;
+  /**
+   * Existing ad sets' optimisation, plus the campaign budget and bid
+   * strategy. Step 1 warns when a lowest-cost campaign will not use the
+   * draft's goal. Absent when the list was read without ad sets.
+   */
+  deliveryOptimisation?: {
+    bidStrategy?: string;
+    dailyBudget?: string;
+    lifetimeBudget?: string;
+    adSets: Array<{
+      optimization_goal?: string;
+      promoted_object?: { custom_event_type?: string };
+    }>;
+  };
   /** Configured status, e.g. "ACTIVE". */
   status: string;
   /** Delivery state (more granular than `status`). */

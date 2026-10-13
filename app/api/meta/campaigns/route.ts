@@ -97,8 +97,29 @@ function deriveCompatibility(raw: RawMetaCampaign): {
   return { compatible: true, internalObjective: internal, ...vote };
 }
 
+function deliveryOptimisation(raw: RawMetaCampaign): MetaCampaignSummary["deliveryOptimisation"] {
+  const adSets = raw.adsets?.data;
+  if (!adSets || adSets.length === 0) return undefined;
+  return {
+    ...(raw.bid_strategy ? { bidStrategy: raw.bid_strategy } : {}),
+    ...(raw.daily_budget != null && raw.daily_budget !== ""
+      ? { dailyBudget: String(raw.daily_budget) }
+      : {}),
+    ...(raw.lifetime_budget != null && raw.lifetime_budget !== ""
+      ? { lifetimeBudget: String(raw.lifetime_budget) }
+      : {}),
+    adSets: adSets.map((row) => ({
+      ...(row.optimization_goal ? { optimization_goal: row.optimization_goal } : {}),
+      ...(row.promoted_object?.custom_event_type
+        ? { promoted_object: { custom_event_type: row.promoted_object.custom_event_type } }
+        : {}),
+    })),
+  };
+}
+
 function toSummary(raw: RawMetaCampaign): MetaCampaignSummary {
   const c = deriveCompatibility(raw);
+  const delivery = deliveryOptimisation(raw);
   return {
     id: raw.id,
     name: raw.name,
@@ -109,6 +130,7 @@ function toSummary(raw: RawMetaCampaign): MetaCampaignSummary {
     ...(c.adSetCountTruncated ? { adSetCountTruncated: true } : {}),
     ...(c.conversionEvent ? { conversionEvent: c.conversionEvent } : {}),
     ...(c.pixelId ? { pixelId: c.pixelId } : {}),
+    ...(delivery ? { deliveryOptimisation: delivery } : {}),
     status: raw.status ?? "",
     effectiveStatus: raw.effective_status,
     buyingType: raw.buying_type,

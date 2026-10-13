@@ -44,6 +44,10 @@ import {
 } from "lucide-react";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
 import { attachObjectiveBadgeLabel, attachObjectiveChipTitle } from "@/lib/meta/attach-objective";
+import {
+  attachCampaignTargets,
+  attachOptimisationWarningForCampaign,
+} from "@/lib/meta/attach-optimisation";
 import { AdSetPicker } from "./adset-picker";
 import { CrossCampaignAdSetPicker } from "./cross-campaign-adset-picker";
 
@@ -321,8 +325,10 @@ export function CampaignSetup({
   // fall back to wrapping the legacy singular field for backward compat.
   const selectedCampaigns = useMemo<ExistingMetaCampaignSnapshot[]>(
     () =>
-      settings.existingMetaCampaigns ??
-      (settings.existingMetaCampaign ? [settings.existingMetaCampaign] : []),
+      attachCampaignTargets(
+        settings.existingMetaCampaigns,
+        settings.existingMetaCampaign,
+      ),
     [settings.existingMetaCampaigns, settings.existingMetaCampaign],
   );
   const selectedCampaignIds = useMemo(
@@ -384,6 +390,9 @@ export function CampaignSetup({
         ...(campaign.adSetsUnread ? { adSetsUnread: true } : {}),
         ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
         ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
+        ...(campaign.deliveryOptimisation
+          ? { deliveryOptimisation: campaign.deliveryOptimisation }
+          : {}),
         status: campaign.status,
         effectiveStatus: campaign.effectiveStatus,
         capturedAt: new Date().toISOString(),
@@ -459,6 +468,9 @@ export function CampaignSetup({
             ...(campaign.adSetsUnread ? { adSetsUnread: true } : {}),
             ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
             ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
+            ...(campaign.deliveryOptimisation
+              ? { deliveryOptimisation: campaign.deliveryOptimisation }
+              : {}),
             status: campaign.status,
             effectiveStatus: campaign.effectiveStatus,
             capturedAt: new Date().toISOString(),
@@ -804,6 +816,22 @@ export function CampaignSetup({
                           {camp.pixelId ? ` · pixel ${camp.pixelId}` : ""}
                         </Datum>
                       ) : null}
+                      {settings.wizardMode === "attach_campaign"
+                        ? (() => {
+                            const warning = attachOptimisationWarningForCampaign({
+                              campaignName: camp.name,
+                              draftObjective: settings.objective,
+                              draftOptimisationGoal: settings.optimisationGoal,
+                              delivery: camp.deliveryOptimisation,
+                            });
+                            if (!warning) return null;
+                            return (
+                              <span data-testid="attach-optimisation-warning">
+                                <Datum className="mt-1 text-[11px] text-warning">{warning}</Datum>
+                              </span>
+                            );
+                          })()
+                        : null}
                     </div>
                     {camp.locked ? null : (
                     <button
