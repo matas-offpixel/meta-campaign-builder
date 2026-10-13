@@ -65,12 +65,12 @@ describe("launch-campaign route: task #126 Advantage+/objective preflight wiring
 
   it("standard Phase 2 and MC Phase 2 (map+throw sites) throw the { adSet, err } shape other failures use", () => {
     const standardMatch = ROUTE.match(
-      /adSet\.advantagePlus && !isAdvantageAudienceSupportedForObjective\(phase2Objective, draft\.settings\.optimisationGoal\)\) \{\s*\n\s*throw \{ adSet, err: new Error\(advantageAudienceObjectiveMismatchMessage\(adSet\.name, phase2Objective\)\) \};/,
+      /adSet\.advantagePlus && !isAdvantageAudienceSupportedForObjective\(phase2Objective, optimisationGoalFor\(metaCampaignId\)\)\) \{\s*\n\s*throw \{ adSet, err: new Error\(advantageAudienceObjectiveMismatchMessage\(adSet\.name, phase2Objective\)\) \};/,
     );
     assert.ok(standardMatch, "expected standard Phase 2's preflight to throw { adSet, err } with phase2Objective");
 
     const mcMatch = ROUTE.match(
-      /adSet\.advantagePlus && !isAdvantageAudienceSupportedForObjective\(ciObjective, draft\.settings\.optimisationGoal\)\) \{\s*\n\s*throw \{ adSet, err: new Error\(advantageAudienceObjectiveMismatchMessage\(adSet\.name, ciObjective\)\) \};/,
+      /adSet\.advantagePlus && !isAdvantageAudienceSupportedForObjective\(ciObjective, optimisationGoalFor\(nextCampaign\.id\)\)\) \{\s*\n\s*throw \{ adSet, err: new Error\(advantageAudienceObjectiveMismatchMessage\(adSet\.name, ciObjective\)\) \};/,
     );
     assert.ok(mcMatch, "expected MC[ci] Phase 2's preflight to throw { adSet, err } with ciObjective");
   });
@@ -82,7 +82,7 @@ describe("launch-campaign route: task #126 Advantage+/objective preflight wiring
     // createAdSetWithSalvage as `initialError`, wasting the whole ladder on
     // an error none of its classifiers match instead of failing fast.
     const continueSites = ROUTE.match(
-      /!isAdvantageAudienceSupportedForObjective\([^)]*\)\)\s*\{[\s\S]{0,200}?advantageAudienceObjectiveMismatchMessage[\s\S]{0,500}?continue;/g,
+      /!isAdvantageAudienceSupportedForObjective\((?:[^()]|\([^()]*\))*\)\)\s*\{[\s\S]{0,200}?advantageAudienceObjectiveMismatchMessage[\s\S]{0,500}?continue;/g,
     );
     assert.equal(continueSites?.length, 2, "expected exactly 2 continue-style preflight sites (Phase 2b + MC Phase 2b)");
   });

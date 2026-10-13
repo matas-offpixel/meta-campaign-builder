@@ -163,6 +163,7 @@ import type {
   ExistingMetaCampaignSnapshot,
   CampaignAttachResult,
   CampaignObjective,
+  OptimisationGoal,
 } from "@/lib/types";
 import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/lib/types";
 import {
@@ -173,6 +174,10 @@ import {
   decideAttachObjective,
   resolveAttachCampaign,
 } from "@/lib/meta/attach-objective";
+import {
+  attachCampaignTargets,
+  decideAttachOptimisation,
+} from "@/lib/meta/attach-optimisation";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
 import { stampPublishedCreatives } from "@/lib/meta/persist-launch-creatives";
@@ -941,10 +946,10 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     wizardMode === "attach_campaign" ||
     wizardMode === "attach_adset" ||
     isAttachAllAdSets
-      ? (draft.settings.existingMetaCampaigns ??
-         (draft.settings.existingMetaCampaign
-           ? [draft.settings.existingMetaCampaign]
-           : []))
+      ? attachCampaignTargets(
+          draft.settings.existingMetaCampaigns,
+          draft.settings.existingMetaCampaign,
+        )
       : [];
   const attachTargetId = attachCampaignSnapshots[0]?.id ?? draft.settings.existingMetaCampaign?.id;
 
@@ -1569,10 +1574,21 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     name: string;
     objective: string;
     internalObjective?: CampaignObjective;
+    /**
+     * Set when a lowest-cost campaign budget forces the new ad set onto
+     * the existing ad sets' optimisation. Absent means the draft's goal.
+     */
+    optimisationGoal?: OptimisationGoal;
     pixelId?: string;
     daily_budget?: string | number;
     lifetime_budget?: string | number;
   };
+  function optimisationGoalFor(campaignId: string): OptimisationGoal {
+    return (
+      verifiedCampaigns.find((campaign) => campaign.id === campaignId)?.optimisationGoal ??
+      draft.settings.optimisationGoal
+    );
+  }
   function pixelForCreatedAdSet(campaignId: string): string | undefined {
     const fromDraft = draft.settings.metaPixelId || draft.settings.pixelId || undefined;
     if (fromDraft) return fromDraft;
@@ -1600,7 +1616,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             campaignId,
             draft.audiences,
             schedule,
-            draft.settings.optimisationGoal,
+            optimisationGoalFor(campaignId),
             objective,
             pixelForCreatedAdSet(campaignId),
             false,
@@ -1696,10 +1712,27 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       // A real objective change is the raw Meta objective (OUTCOME_SALES →
       // OUTCOME_LEADS). Purchase vs initiate checkout under OUTCOME_SALES
       // is the same campaign; the new ad set keeps the draft's event.
+      // Lowest-cost CBO is the exception: the new ad set uses the live ad
+      // sets' optimisation, and a missing snapshot does not skip that read.
       const snap0 = attachCampaignSnapshots[0];
-      const campName = snap0?.name ?? attachTargetId ?? "selected campaign";
-      const kept =
+      const campName = snap0?.name ?? live.name ?? attachTargetId ?? "selected campaign";
+      const optimisation =
         wizardMode === "attach_campaign"
+          ? decideAttachOptimisation({
+              campaignName: campName,
+              draftObjective: draft.settings.objective,
+              draftOptimisationGoal: draft.settings.optimisationGoal,
+              campaign: live,
+            })
+          : null;
+      if (optimisation?.action === "refuse") {
+        console.error(
+          `[launch-campaign] Phase 1 attach optimisation refused: ${optimisation.message}`,
+        );
+        return launchJson({ error: optimisation.message }, { status: 400 });
+      }
+      const kept =
+        wizardMode === "attach_campaign" && optimisation?.action !== "use_campaign"
           ? decideAttachObjective({
               campaignName: campName,
               snapshotObjective: snap0?.objective,
@@ -1708,7 +1741,10 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
               liveVotedObjective: voted.objective,
             })
           : null;
-      if (wizardMode === "attach_campaign" || isAttachAllAdSets) {
+      if (
+        optimisation?.action !== "use_campaign" &&
+        (wizardMode === "attach_campaign" || isAttachAllAdSets)
+      ) {
         const driftMessage =
           kept?.driftMessage ??
           attachMetaObjectiveDriftMessage({
@@ -1723,13 +1759,25 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       if (kept?.eventDrift) {
         console.log(attachVoteDriftLogLine(kept.eventDrift));
       }
+      if (optimisation?.action === "use_campaign") {
+        console.log(`[attach-optimisation] ${optimisation.warning}`);
+        preflightWarnings.push({
+          stage: "attach_optimisation",
+          message: optimisation.warning,
+          severity: "amber",
+        });
+      }
 
       metaCampaignId = live.id;
       verifiedCampaigns.push({
         id: live.id,
         name: live.name ?? attachCampaignSnapshots[0]?.name ?? live.id,
         objective: live.objective ?? "",
-        internalObjective: kept?.objective ?? internal,
+        internalObjective:
+          optimisation?.action === "use_campaign" ? optimisation.objective : (kept?.objective ?? internal),
+        ...(optimisation?.action === "use_campaign"
+          ? { optimisationGoal: optimisation.optimisationGoal }
+          : {}),
         ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
         daily_budget: live.daily_budget,
         lifetime_budget: live.lifetime_budget,
@@ -1754,9 +1802,31 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             const ciInternal = voted.objective;
             if (!ciInternal)
               throw new Error(`Campaign "${c.name}" has an unsupported objective "${c.objective ?? "unknown"}"`);
+            const campaignName = c.name ?? snap.name;
+            const optimisation = decideAttachOptimisation({
+              campaignName,
+              draftObjective: draft.settings.objective,
+              draftOptimisationGoal: draft.settings.optimisationGoal,
+              campaign: c,
+            });
+            if (optimisation.action === "refuse") throw new Error(optimisation.message);
+            if (optimisation.action === "use_campaign") {
+              console.log(`[attach-optimisation] ${optimisation.warning}`);
+              return {
+                id: c.id,
+                name: c.name ?? snap.id,
+                objective: c.objective ?? "",
+                internalObjective: optimisation.objective,
+                optimisationGoal: optimisation.optimisationGoal,
+                optimisationWarning: optimisation.warning,
+                ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
+                daily_budget: c.daily_budget,
+                lifetime_budget: c.lifetime_budget,
+              };
+            }
             const keptEvent = snap.internalObjective ?? draft.settings.objective;
             const decision = decideAttachObjective({
-              campaignName: c.name ?? snap.name,
+              campaignName,
               snapshotObjective: snap.objective,
               liveObjective: c.objective,
               draftObjective: keptEvent,
@@ -1769,6 +1839,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
               name: c.name ?? snap.id,
               objective: c.objective ?? "",
               internalObjective: decision.objective,
+              optimisationWarning: undefined as string | undefined,
               ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
               daily_budget: c.daily_budget,
               lifetime_budget: c.lifetime_budget,
@@ -1782,7 +1853,15 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
               { status: 400 },
             );
           }
-          verifiedCampaigns.push(r.value);
+          const { optimisationWarning, ...campaign } = r.value;
+          if (optimisationWarning) {
+            preflightWarnings.push({
+              stage: "attach_optimisation",
+              message: optimisationWarning,
+              severity: "amber",
+            });
+          }
+          verifiedCampaigns.push(campaign);
         }
         console.log(
           `[launch-campaign] Phase 1 (multi-campaign) — validated all ${verifiedCampaigns.length} campaigns: ` +
@@ -1924,10 +2003,13 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     if (wizardMode === "attach_campaign") {
       // The draft objective is the first campaign's. Compare it only for a
       // single selection. Mixed campaigns each keep their own voted event.
+      // A lowest-cost match already chose the campaign's optimisation, so
+      // that campaign is not compared back to the draft.
+      const compared = verifiedCampaigns.filter((campaign) => !campaign.optimisationGoal);
       const gate = assertAttachSelectionObjectives({
         draftObjective: draft.settings.objective,
-        selectedCount: verifiedCampaigns.length,
-        campaigns: verifiedCampaigns.flatMap((campaign) =>
+        selectedCount: compared.length,
+        campaigns: compared.flatMap((campaign) =>
           campaign.internalObjective
             ? [{ name: campaign.name, resolvedObjective: campaign.internalObjective }]
             : [],
@@ -3577,7 +3659,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           // calling Meta, instead of letting the create fail (subcode
           // 1870196) and get silently "fixed" by the salvage ladder's
           // 1870196 handler — see lib/meta/advantage-plus-compat.ts.
-          if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, draft.settings.optimisationGoal)) {
+          if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, optimisationGoalFor(metaCampaignId))) {
             throw { adSet, err: new Error(advantageAudienceObjectiveMismatchMessage(adSet.name, phase2Objective)) };
           }
 
@@ -3586,7 +3668,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             metaCampaignId,
             draft.audiences,
             budgetScheduleForCreatedAdSets(metaCampaignId),
-            draft.settings.optimisationGoal,
+            optimisationGoalFor(metaCampaignId),
             phase2Objective,
             pixelForCreatedAdSet(metaCampaignId),
             dynamicAdSetIds.has(adSet.id),
@@ -3766,7 +3848,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
 
                 const rebuiltPayload = buildAdSetPayload(
                   adSet, metaCampaignId, draft.audiences, budgetScheduleForCreatedAdSets(metaCampaignId),
-                  draft.settings.optimisationGoal, phase2Objective,
+                  optimisationGoalFor(metaCampaignId), phase2Objective,
                   pixelForCreatedAdSet(metaCampaignId),
                   dynamicAdSetIds.has(adSet.id),
                   draft.settings.placementConfig,
@@ -4217,7 +4299,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       // task #126 — objective-gated preflight (same reasoning as standard
       // Phase 2 above): fail fast instead of relying on the salvage ladder's
       // 1870196 handler to silently strip the flag.
-      if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, draft.settings.optimisationGoal)) {
+      if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, optimisationGoalFor(metaCampaignId))) {
         const message = advantageAudienceObjectiveMismatchMessage(adSet.name, phase2Objective);
         console.error(`[launch-campaign] Phase 2b ✗  lookalike ad set failed: ${adSet.name}: ${message}`);
         adSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: message });
@@ -4233,7 +4315,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           metaCampaignId,
           draft.audiences,
           budgetScheduleForCreatedAdSets(metaCampaignId),
-          draft.settings.optimisationGoal,
+          optimisationGoalFor(metaCampaignId),
           phase2Objective,
           pixelForCreatedAdSet(metaCampaignId),
           dynamicAdSetIds.has(adSet.id),
@@ -4299,7 +4381,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         try {
           const adSetPayload = buildAdSetPayload(
             adSet, metaCampaignId, draft.audiences, budgetScheduleForCreatedAdSets(metaCampaignId),
-            draft.settings.optimisationGoal, phase2Objective,
+            optimisationGoalFor(metaCampaignId), phase2Objective,
             pixelForCreatedAdSet(metaCampaignId),
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
@@ -4570,7 +4652,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
 
             // task #126 — objective-gated preflight (same reasoning as
             // standard Phase 2 above).
-            if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, draft.settings.optimisationGoal)) {
+            if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, optimisationGoalFor(nextCampaign.id))) {
               throw { adSet, err: new Error(advantageAudienceObjectiveMismatchMessage(adSet.name, ciObjective)) };
             }
 
@@ -4579,7 +4661,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
               nextCampaign.id,
               draft.audiences,
               budgetScheduleForCreatedAdSets(nextCampaign.id),
-              draft.settings.optimisationGoal,
+              optimisationGoalFor(nextCampaign.id),
               ciObjective,
               pixelForCreatedAdSet(nextCampaign.id),
               dynamicAdSetIds.has(adSet.id),
@@ -4648,7 +4730,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
                 if (replacements.length > 0) {
                   const rebuiltPayload = buildAdSetPayload(
                     adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
-                    draft.settings.optimisationGoal, ciObjective,
+                    optimisationGoalFor(nextCampaign.id), ciObjective,
                     pixelForCreatedAdSet(nextCampaign.id),
                     dynamicAdSetIds.has(adSet.id),
                     draft.settings.placementConfig,
@@ -4742,7 +4824,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
 
         // task #126 — objective-gated preflight (same reasoning as standard
         // Phase 2 above).
-        if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, draft.settings.optimisationGoal)) {
+        if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, optimisationGoalFor(nextCampaign.id))) {
           ciAdSetsFailed.push({
             name: adSetDisplayName(adSet, draft.audiences),
             error: advantageAudienceObjectiveMismatchMessage(adSet.name, ciObjective),
@@ -4755,7 +4837,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         try {
           const adSetPayload = buildAdSetPayload(
             adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
-            draft.settings.optimisationGoal, ciObjective,
+            optimisationGoalFor(nextCampaign.id), ciObjective,
             pixelForCreatedAdSet(nextCampaign.id),
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
@@ -4799,7 +4881,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           try {
             const adSetPayload = buildAdSetPayload(
               adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
-              draft.settings.optimisationGoal, ciObjective,
+              optimisationGoalFor(nextCampaign.id), ciObjective,
               pixelForCreatedAdSet(nextCampaign.id),
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
