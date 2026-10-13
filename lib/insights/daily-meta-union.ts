@@ -114,12 +114,18 @@ export async function fetchEventDailyMetaMetricsUnion(
     }
     rows.push(...res.days);
     res.campaignNames.forEach((n) => names.add(n));
-    res.campaignIds.forEach((id, index) => {
+    // `campaignIds` and `campaignNames` are built from separate Sets by
+    // the fetcher, so their order does NOT correspond. Pairing them by
+    // index logged the wrong (or an empty) name — a cosmetic bug, but the
+    // claim log is the audit trail for which event owns what, so it has
+    // to be right. Carry the name only where the fetcher gives one id.
+    const soleName = res.campaignIds.length === 1 ? res.campaignNames[0] ?? "" : "";
+    res.campaignIds.forEach((id) => {
       seen.add(id);
       included.add(id);
       decisions.push({
         campaignId: id,
-        campaignName: res.campaignNames[index] ?? "",
+        campaignName: soleName,
         adAccountId,
         reason: "coded",
         added: !stored.has(id),
