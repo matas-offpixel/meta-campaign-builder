@@ -41,13 +41,13 @@ import {
 import { derivePlanName } from "@/lib/plan/plan-name";
 import { patchBudgetSchedule } from "@/lib/wizard/budget-schedule-update";
 import { useCampaignDraft } from "@/lib/wizard/use-campaign-draft";
-import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
+import { planOwnsLaunch, type LinkedMetaPlanSummary } from "@/lib/plan/linked-plan";
 import { mmlPlanHref } from "@/lib/plan/mml-routes";
 
 interface WizardShellProps {
   draftId: string;
   /** Set when this draft belongs to a campaign plan. Ordinary drafts omit it. */
-  linkedPlan?: LinkedPlanSummary | null;
+  linkedPlan?: LinkedMetaPlanSummary | null;
 }
 
 export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
@@ -371,6 +371,14 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     }
   };
 
+  const canvasOwnsLaunch =
+    linkedPlan != null &&
+    planOwnsLaunch({
+      wizardMode: draft.settings.wizardMode,
+      planLaunchStatus: linkedPlan.metaLaunchStatus,
+      draftStatus: draft.status,
+    });
+
   // ─── Loading gate ────────────────────────────────────────────────────────────
   if (!hydrated) {
     return (
@@ -550,12 +558,13 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
           );
         })()}
         {/*
-          Launch stays here for a standalone draft and only there: a
-          plan-linked draft launches from the canvas with the other
-          channels, so rendering Launch twice would be two ways to start
-          the same campaign (§3a row 8, friction #6).
+          The canvas takes Launch only for an unpublished new campaign
+          whose Meta row is still idle or failed. Attach modes, a
+          published draft, and a plan that has already launched stay on
+          this creator. Review always renders; when the canvas owns
+          Launch it is read-only and points there.
         */}
-        {step === 7 && !linkedPlan && (
+        {step === 7 && (
           <ReviewLaunch
             draft={draft}
             isLaunching={launching}
@@ -566,9 +575,10 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             launchSummary={launchSummary}
             onGoToLibrary={() => router.push("/")}
             linkedPlan={linkedPlan}
-            onUpdateSettings={updateSettings}
-            onRetryFailedAds={handleLaunch}
-            onRetryLaunch={handleLaunch}
+            canvasOwnsLaunch={canvasOwnsLaunch}
+            onUpdateSettings={canvasOwnsLaunch ? undefined : updateSettings}
+            onRetryFailedAds={canvasOwnsLaunch ? undefined : handleLaunch}
+            onRetryLaunch={canvasOwnsLaunch ? undefined : handleLaunch}
           />
         )}
       </main>
@@ -581,8 +591,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         saveStatus={saveStatus}
         launching={launching}
         launchCooldownLabel={launchCooldown.label}
-        showLaunch={!linkedPlan}
-        planHref={linkedPlan ? mmlPlanHref(linkedPlan.id) : null}
+        showLaunch={!canvasOwnsLaunch}
+        planHref={canvasOwnsLaunch && linkedPlan ? mmlPlanHref(linkedPlan.id) : null}
         onBack={handleBack}
         onContinue={handleContinue}
         onSaveDraft={handleSaveDraft}

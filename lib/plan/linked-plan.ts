@@ -1,6 +1,45 @@
+import type { CampaignPlanLaunchStatus } from "./types.ts";
+import type { WizardMode } from "../types.ts";
+
 export interface LinkedPlanSummary {
   id: string;
   name: string | null;
+}
+
+/** Meta loader also returns the launch-row status the canvas-ownership rule reads. */
+export interface LinkedMetaPlanSummary extends LinkedPlanSummary {
+  metaLaunchStatus: CampaignPlanLaunchStatus;
+}
+
+export interface PlanOwnsLaunchInput {
+  wizardMode: WizardMode | null | undefined;
+  planLaunchStatus: CampaignPlanLaunchStatus | null | undefined;
+  draftStatus: "draft" | "published" | "archived" | null | undefined;
+}
+
+/**
+ * The plan canvas takes Launch only for an unpublished new campaign whose
+ * Meta row has not launched (`idle` or `failed`). `"new"` is the
+ * new-campaign wizard mode. Attach modes, a published draft, and a live
+ * (or still launching, or skipped) row stay on the creator.
+ */
+export function planOwnsLaunch(input: PlanOwnsLaunchInput): boolean {
+  if ((input.wizardMode ?? "new") !== "new") return false;
+  if (input.draftStatus === "published") return false;
+  return input.planLaunchStatus === "idle" || input.planLaunchStatus === "failed";
+}
+
+function metaLaunchStatus(value: unknown): CampaignPlanLaunchStatus {
+  if (
+    value === "idle" ||
+    value === "launching" ||
+    value === "live" ||
+    value === "failed" ||
+    value === "skipped"
+  ) {
+    return value;
+  }
+  return "idle";
 }
 
 /**
@@ -14,7 +53,7 @@ export async function loadPlanForMetaDraft(
   supabase: unknown,
   draftId: string,
   userId: string,
-): Promise<LinkedPlanSummary | null> {
+): Promise<LinkedMetaPlanSummary | null> {
   const client = supabase as {
     from: (table: string) => {
       select: (cols: string) => {
@@ -36,7 +75,7 @@ export async function loadPlanForMetaDraft(
 
   const link = await client
     .from("campaign_plan_meta_launch")
-    .select("plan_id")
+    .select("plan_id, status")
     .eq("draft_id", draftId)
     .maybeSingle();
   const planId = (link.data?.plan_id as string | undefined) ?? null;
@@ -52,6 +91,7 @@ export async function loadPlanForMetaDraft(
   return {
     id: plan.data.id as string,
     name: (plan.data.name as string | null) ?? null,
+    metaLaunchStatus: metaLaunchStatus(link.data?.status),
   };
 }
 
