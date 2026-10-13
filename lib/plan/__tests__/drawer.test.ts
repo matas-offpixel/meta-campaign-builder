@@ -634,16 +634,22 @@ describe("launch belongs to the canvas for a plan-linked draft", () => {
     assert.match(footer, /planHref/, "which links to the plan");
   });
 
-  it("the shell hides it exactly when the draft has a plan", () => {
+  it("the shell hides Launch only when the plan owns it", () => {
     const shell = read("components/wizard/wizard-shell.tsx");
-    assert.match(shell, /showLaunch=\{!linkedPlan\}/);
-    assert.match(shell, /planHref=\{linkedPlan \? mmlPlanHref\(linkedPlan\.id\) : null\}/);
+    assert.match(shell, /planOwnsLaunch\(/);
+    assert.match(shell, /showLaunch=\{!canvasOwnsLaunch\}/);
+    assert.match(shell, /planHref=\{canvasOwnsLaunch && linkedPlan \? mmlPlanHref\(linkedPlan\.id\) : null\}/);
   });
 
-  it("a standalone draft still renders review and its Launch", () => {
+  it("review always renders; the canvas pointer replaces launch controls", () => {
     const shell = read("components/wizard/wizard-shell.tsx");
-    assert.match(shell, /!linkedPlan && \(/, "review is gated on there being no plan");
+    assert.match(shell, /step === 7 && \(/);
+    assert.doesNotMatch(shell, /step === 7 && !linkedPlan/);
     assert.match(shell, /<ReviewLaunch/);
+    assert.match(shell, /canvasOwnsLaunch=\{canvasOwnsLaunch\}/);
+    const review = read("components/steps/review-launch.tsx");
+    assert.match(review, /data-testid="launch-on-canvas"/);
+    assert.match(review, /LAUNCH_ON_CANVAS_LABEL/);
   });
 
   it("the retry panels move under the ⊞ tab so they stay reachable", () => {
@@ -693,12 +699,13 @@ describe("/campaign/[id] is the ladder; /plan/[id] keeps the drawer", () => {
     assert.match(read("components/plan/meta-drawer.tsx"), /useCampaignDraft\(/);
   });
 
-  it("standalone ReviewLaunch launches ACTIVE; a plan-linked draft does not launch here", () => {
+  it("standalone ReviewLaunch launches ACTIVE; the canvas owns Launch only via planOwnsLaunch", () => {
     const shell = read("components/wizard/wizard-shell.tsx");
-    assert.match(shell, /showLaunch=\{!linkedPlan\}/);
-    assert.match(shell, /step === 7 && !linkedPlan && \(/);
+    assert.match(shell, /showLaunch=\{!canvasOwnsLaunch\}/);
+    assert.match(shell, /step === 7 && \(/);
+    assert.doesNotMatch(shell, /step === 7 && !linkedPlan/);
     assert.match(shell, /<ReviewLaunch/);
-    assert.match(shell, /onRetryFailedAds=\{handleLaunch\}/);
+    assert.match(shell, /onRetryFailedAds=\{canvasOwnsLaunch \? undefined : handleLaunch\}/);
     const workspace = read("components/plan/plan-workspace.tsx");
     assert.match(workspace, /<CanvasLaunch/);
   });

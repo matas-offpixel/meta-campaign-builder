@@ -3,6 +3,8 @@
 import React, { useMemo, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { markPageCapabilityFailures } from "@/lib/hooks/useMeta";
+import { LAUNCH_ON_CANVAS_LABEL } from "@/lib/plan/drawer";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { planContinuationHref } from "@/lib/plan/schedule";
 import { Card, CardTitle } from "@/components/ui/card";
 import { ThresholdBand } from "@/components/viz/threshold-band";
@@ -95,6 +97,11 @@ interface ReviewLaunchProps {
    * leave this unset and the continuation is not rendered.
    */
   linkedPlan?: { id: string; name: string | null } | null;
+  /**
+   * The plan canvas owns Launch. Review still renders, read-only, and the
+   * canvas pointer replaces the launch controls.
+   */
+  canvasOwnsLaunch?: boolean;
   /**
    * Optional escape hatch for review-only fields (currently the Creative
    * Integrity Mode toggle). If absent the toggle renders read-only.
@@ -899,6 +906,7 @@ export function ReviewLaunch({
   launchSummary,
   onGoToLibrary,
   linkedPlan,
+  canvasOwnsLaunch = false,
   onUpdateSettings,
   onRetryFailedAds,
 }: ReviewLaunchProps) {
@@ -1278,6 +1286,16 @@ export function ReviewLaunch({
           </span>
         );
       })()}
+
+      {canvasOwnsLaunch && linkedPlan ? (
+        <a
+          href={mmlPlanHref(linkedPlan.id)}
+          data-testid="launch-on-canvas"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+        >
+          {LAUNCH_ON_CANVAS_LABEL} ↗
+        </a>
+      ) : null}
 
       <span data-testid="launch-budget-line">
         <Datum className="text-sm text-foreground">

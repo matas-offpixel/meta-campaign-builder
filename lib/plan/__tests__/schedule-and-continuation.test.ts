@@ -226,6 +226,8 @@ describe("wizard launch writes the plan child row", () => {
       userId: "user-1",
       campaignId: "120251192700000",
       ok: true,
+      wizardMode: "new",
+      draftStatus: "draft",
     });
     assert.equal(result.recorded, true);
     assert.equal(result.planId, "plan-1");
@@ -250,11 +252,54 @@ describe("wizard launch writes the plan child row", () => {
       campaignId: null,
       ok: false,
       error: "Failed to create campaign",
+      wizardMode: "new",
+      draftStatus: "draft",
     });
     assert.equal(result.recorded, true);
     const row = db.rows.get("campaign_plan_meta_launch:plan-1");
     assert.equal(row?.status, "failed");
     assert.equal(row?.error, "Failed to create campaign");
+  });
+
+  it("does not write a linked live plan on an attach launch, success or failure", async () => {
+    for (const ok of [true, false]) {
+      const db = memoryDb({
+        plan_id: "plan-1",
+        user_id: "user-1",
+        draft_id: "draft-1",
+        platform_campaign_id: "existing-campaign",
+        status: "live",
+        error: null,
+      });
+      const logs: string[] = [];
+      const original = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+      try {
+        const result = await recordWizardMetaLaunch(db, {
+          draftId: "draft-1",
+          userId: "user-1",
+          campaignId: ok ? "other-campaign" : null,
+          ok,
+          error: ok ? null : "attach failed",
+          wizardMode: "attach_all_adsets",
+          draftStatus: "published",
+        });
+        assert.equal(result.recorded, false);
+        assert.equal(result.planId, "plan-1");
+        const row = db.rows.get("campaign_plan_meta_launch:plan-1");
+        assert.equal(row?.status, "live");
+        assert.equal(row?.platform_campaign_id, "existing-campaign");
+        assert.equal(row?.error, null);
+        assert.equal(db.updates.length, 0);
+        assert.ok(
+          logs.some((line) => line.includes("[plan-record] skipped: creator-owned launch")),
+        );
+      } finally {
+        console.log = original;
+      }
+    }
   });
 
   it("is a no-op for an ordinary (non-plan) draft", async () => {
@@ -264,6 +309,8 @@ describe("wizard launch writes the plan child row", () => {
       userId: "user-1",
       campaignId: "1202",
       ok: true,
+      wizardMode: "new",
+      draftStatus: "draft",
     });
     assert.equal(result.recorded, false);
     assert.equal(db.rows.size, 0);

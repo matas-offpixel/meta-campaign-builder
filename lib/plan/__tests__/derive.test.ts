@@ -553,6 +553,7 @@ describe("non-plan drafts are unchanged", () => {
     assert.deepEqual(await loadPlanForMetaDraft(supabase, "draft-1", "user-1"), {
       id: "plan-1",
       name: "BB26 Kayode",
+      metaLaunchStatus: "idle",
     });
   });
 
