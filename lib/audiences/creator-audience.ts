@@ -1,3 +1,4 @@
+import { parseBracketedEventCode } from "../insights/meta-event-code-match.ts";
 import { buildAudienceName } from "./naming.ts";
 import type { CustomAudienceGroup } from "../types.ts";
 
@@ -15,7 +16,13 @@ export function defaultPixelAudienceName(input: {
   pixelEvent: string;
 }): string {
   const campaignName = input.campaignName.trim();
-  const eventCode = campaignName.match(/^\[([^\]]+)\]/)?.[1]?.trim() || null;
+  // `[CODE]` anywhere, not just at the start. Electric's campaigns were
+  // renamed to their invoice format on 13 Oct 2026 —
+  // `261023 Folamour | [NX26-FOLAMOUR] On sale` — so an anchored match
+  // returns null and the audience silently drops from event scope to
+  // client scope, named after the whole campaign. Same rule the rollup
+  // matcher already uses.
+  const eventCode = parseBracketedEventCode(campaignName);
   return buildAudienceName({
     scope: eventCode ? "event" : "client",
     client: { slug: null, name: campaignName || "Audience" },
