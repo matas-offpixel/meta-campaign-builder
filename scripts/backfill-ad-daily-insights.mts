@@ -5,8 +5,8 @@
 // windows with a 2 s pause before every Graph call after the first. A
 // window Meta fails with code 1/2 is split 7 → 3 → 1 days by the runner
 // (`fetchAdAccountInsightsAdaptive`); every split call is counted, and
-// so is every batched ad set promoted_object read (≤50 ids a call, only
-// sales conversion ad sets not already known).
+// so is every batched ad set promoted_object read (one Batch API POST
+// per ≤50 ids, only sales conversion ad sets not already known).
 //
 // Dry-run by default: prints the window plan and the minimum call count
 // (one call per window; +1 per extra page of 500 ad-days) and calls
@@ -22,6 +22,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 import { graphGetWithToken } from "../lib/meta/client.ts";
+import { graphMultiGetByIds } from "../lib/meta/graph-multi-get.ts";
 import { normalizeAdAccountId } from "../lib/meta/ad-account.ts";
 import { AD_INSIGHTS_WINDOW_DAYS, insightsSpans } from "../lib/ad-daily-insights/fetch.ts";
 import { runAdDailyInsights } from "../lib/ad-daily-insights/runner.ts";
@@ -67,10 +68,17 @@ async function main() {
   const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   let first = true;
-  const graphGet = async (path: string, params: Record<string, string>) => {
+  const pause = async () => {
     if (!first) await sleep(PAUSE_MS);
     first = false;
+  };
+  const graphGet = async (path: string, params: Record<string, string>) => {
+    await pause();
     return graphGetWithToken(path, params, token, { maxAttempts: 1 });
+  };
+  const multiGet = async (path: string, params: Record<string, string>) => {
+    await pause();
+    return graphMultiGetByIds(path, params, token);
   };
 
   let calls = 0;
@@ -80,6 +88,7 @@ async function main() {
       env: { ENABLE_AD_DAILY_INSIGHTS: "1" },
       db,
       graphGet,
+      multiGet,
       accounts: [account!],
       window,
     });

@@ -25,6 +25,13 @@ export const AD_INSIGHTS_MAX_PAGES = 50;
 
 export type GraphGet = (path: string, params: Record<string, string>) => Promise<unknown>;
 
+/**
+ * Batch node read. Production passes `graphMultiGetByIds` closed over
+ * the token. `path` is ignored by that helper; `params.ids` is the CSV
+ * and `params.fields` the field list. Not a Graph `ids` query.
+ */
+export type GraphMultiGet = (path: string, params: Record<string, string>) => Promise<unknown>;
+
 export type AccountFetchStatus = "ok" | "rate_limited" | "auth_error" | "error";
 
 export type AccountFetchResult = {

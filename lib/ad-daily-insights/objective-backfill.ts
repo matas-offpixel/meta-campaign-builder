@@ -5,16 +5,16 @@
  *
  * Per ad account: the distinct meta_adset_id still missing a field the
  * stage needs (no campaign_objective, or a sales conversion ad set with
- * no promoted_event), read in batches of ≤50 with one attempt each, then
- * one UPDATE per ad set by meta_adset_id and ad_account_id. `plan` calls nothing; `fetch`
- * reads Meta and writes nothing; `apply` writes.
+ * no promoted_event), read in batches of ≤50 with one Batch API POST
+ * each, then one UPDATE per ad set by meta_adset_id and ad_account_id.
+ * `plan` calls nothing; `fetch` reads Meta and writes nothing; `apply` writes.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { metaObjectiveNeedsPromotedEvent } from "../launched-ad-sets/snapshot.ts";
 import { ADSET_BATCH, fetchAdSetMeta, type AdSetMeta } from "./adset-meta.ts";
-import type { GraphGet } from "./fetch.ts";
+import type { GraphMultiGet } from "./fetch.ts";
 import { loadClientAdAccounts } from "./runner.ts";
 
 export const OBJECTIVE_BACKFILL_FIELDS = "campaign{objective},optimization_goal,promoted_object";
@@ -86,7 +86,7 @@ export async function adSetsToFill(db: SupabaseClient, adAccountId: string, has1
 
 export async function runObjectiveBackfill(deps: {
   db: SupabaseClient;
-  graphGet: GraphGet;
+  multiGet: GraphMultiGet;
   accounts: readonly string[];
   mode: ObjectiveBackfillMode;
   /** False before migration 187: every ad set counts as missing. */
@@ -114,7 +114,7 @@ export async function runObjectiveBackfill(deps: {
 
   outer: for (const { adAccountId, adSetIds } of plan) {
     for (let start = 0; start < adSetIds.length; start += ADSET_BATCH) {
-      const fetched = await fetchAdSetMeta(deps.graphGet, adSetIds.slice(start, start + ADSET_BATCH), OBJECTIVE_BACKFILL_FIELDS);
+      const fetched = await fetchAdSetMeta(deps.multiGet, adSetIds.slice(start, start + ADSET_BATCH), OBJECTIVE_BACKFILL_FIELDS);
       result.metaCalls += fetched.calls;
       if (fetched.error) {
         result.failedBatches++;

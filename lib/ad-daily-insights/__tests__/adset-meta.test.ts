@@ -65,23 +65,25 @@ describe("ad set promoted event in the nightly run", () => {
       return { error: null };
     });
     const graph: { path: string; params: Record<string, string> }[] = [];
+    const readMeta = async (path: string, params: Record<string, string>) => {
+      graph.push({ path, params });
+      if (path === "/") return { "s-new": { id: "s-new", promoted_object: { custom_event_type: "COMPLETE_REGISTRATION" } } };
+      return {
+        data: [
+          adRow("a1", "s-known", "OUTCOME_SALES", "OFFSITE_CONVERSIONS"),
+          adRow("a2", "s-new", "OUTCOME_SALES", "OFFSITE_CONVERSIONS"),
+          adRow("a3", "s-new", "OUTCOME_SALES", "OFFSITE_CONVERSIONS"),
+          adRow("a4", "s-reach", "OUTCOME_AWARENESS", "REACH"),
+        ],
+      };
+    };
     const result = await runAdDailyInsights({
       env: ON,
       db,
       window: WINDOW,
       accounts: ["act_1"],
-      graphGet: async (path, params) => {
-        graph.push({ path, params });
-        if (path === "/") return { "s-new": { id: "s-new", promoted_object: { custom_event_type: "COMPLETE_REGISTRATION" } } };
-        return {
-          data: [
-            adRow("a1", "s-known", "OUTCOME_SALES", "OFFSITE_CONVERSIONS"),
-            adRow("a2", "s-new", "OUTCOME_SALES", "OFFSITE_CONVERSIONS"),
-            adRow("a3", "s-new", "OUTCOME_SALES", "OFFSITE_CONVERSIONS"),
-            adRow("a4", "s-reach", "OUTCOME_AWARENESS", "REACH"),
-          ],
-        };
-      },
+      graphGet: readMeta,
+      multiGet: readMeta,
     });
     assert.deepEqual(op(calls.find(isStoredRead)!, "in"), ["meta_adset_id", ["s-known", "s-new"]]);
     const batched = graph.filter((g) => g.path === "/");
@@ -100,19 +102,21 @@ describe("ad set promoted event in the nightly run", () => {
   it("an ad set seen on an earlier account in the run is not read again; awareness-only runs cost nothing extra", async () => {
     const { db, calls } = fakeDb(() => ({ data: [], error: null }));
     let batches = 0;
+    const readMeta = async (path: string) => {
+      if (path === "/") {
+        batches++;
+        return { s1: { promoted_object: { custom_event_type: "PURCHASE" } } };
+      }
+      if (path === "/act_3/insights") return { data: [adRow("a9", "s9", "OUTCOME_AWARENESS", "REACH")] };
+      return { data: [adRow(`a-${path}`, "s1", "OUTCOME_SALES", "OFFSITE_CONVERSIONS")] };
+    };
     const result = await runAdDailyInsights({
       env: ON,
       db,
       window: WINDOW,
       accounts: ["act_1", "act_2", "act_3"],
-      graphGet: async (path) => {
-        if (path === "/") {
-          batches++;
-          return { s1: { promoted_object: { custom_event_type: "PURCHASE" } } };
-        }
-        if (path === "/act_3/insights") return { data: [adRow("a9", "s9", "OUTCOME_AWARENESS", "REACH")] };
-        return { data: [adRow(`a-${path}`, "s1", "OUTCOME_SALES", "OFFSITE_CONVERSIONS")] };
-      },
+      graphGet: readMeta,
+      multiGet: readMeta,
     });
     assert.equal(batches, 1);
     assert.equal(result.metaCalls, 4);
@@ -134,21 +138,76 @@ describe("ad set promoted event in the nightly run", () => {
     assert.equal(out.calls, 3);
   });
 
+  it("maps objective, optimization goal and promoted event from one batch per 50 ids", async () => {
+    const ids = ["s0", "s1", ...Array.from({ length: 49 }, (_, i) => `pad${i}`)];
+    const calls: { n: number; fields: string }[] = [];
+    const out = await fetchAdSetMeta(
+      async (_path, params) => {
+        calls.push({ n: params.ids.split(",").length, fields: params.fields });
+        return {
+          s0: {
+            optimization_goal: "OFFSITE_CONVERSIONS",
+            promoted_object: { custom_event_type: "PURCHASE" },
+            campaign: { objective: "OUTCOME_SALES" },
+          },
+        };
+      },
+      ids,
+      "campaign{objective},optimization_goal,promoted_object",
+    );
+    assert.deepEqual(calls, [
+      { n: 50, fields: "campaign{objective},optimization_goal,promoted_object" },
+      { n: 1, fields: "campaign{objective},optimization_goal,promoted_object" },
+    ]);
+    assert.equal(out.calls, 2);
+    assert.deepEqual(out.meta.get("s0"), {
+      campaignObjective: "OUTCOME_SALES",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      promotedEvent: "PURCHASE",
+    });
+    assert.equal(out.meta.has("s1"), false, "a failed sub-request is absent");
+  });
+
+  it("a whole-batch failure stops with its code and keeps earlier batches", async () => {
+    const ids = Array.from({ length: 51 }, (_, i) => `s${i}`);
+    const out = await fetchAdSetMeta(
+      async (_path, params) => {
+        const n = params.ids.split(",").length;
+        if (n === 1) throw Object.assign(new Error("batch down"), { code: 17 });
+        return {
+          s0: {
+            optimization_goal: "REACH",
+            campaign: { objective: "OUTCOME_AWARENESS" },
+          },
+        };
+      },
+      ids,
+      "campaign{objective},optimization_goal,promoted_object",
+    );
+    assert.equal(out.calls, 2);
+    assert.equal(out.error, "batch down");
+    assert.equal(out.code, 17);
+    assert.equal(out.meta.get("s0")?.campaignObjective, "OUTCOME_AWARENESS");
+    assert.equal(out.meta.has("s50"), false);
+  });
+
   it("a failed ad set read leaves promoted_event out of the upsert, still writes the rows, and stops asking for the run", async () => {
     const { db, calls } = fakeDb(() => ({ data: [], error: null }));
     let batches = 0;
+    const readMeta = async (path: string) => {
+      if (path === "/") {
+        batches++;
+        throw Object.assign(new Error("too many calls"), { code: 17 });
+      }
+      return { data: [adRow(`a-${path}`, path === "/act_1/insights" ? "s1" : "s2", "OUTCOME_SALES", "OFFSITE_CONVERSIONS")] };
+    };
     const result = await runAdDailyInsights({
       env: ON,
       db,
       window: WINDOW,
       accounts: ["act_1", "act_2"],
-      graphGet: async (path) => {
-        if (path === "/") {
-          batches++;
-          throw Object.assign(new Error("too many calls"), { code: 17 });
-        }
-        return { data: [adRow(`a-${path}`, path === "/act_1/insights" ? "s1" : "s2", "OUTCOME_SALES", "OFFSITE_CONVERSIONS")] };
-      },
+      graphGet: readMeta,
+      multiGet: readMeta,
     });
     assert.equal(batches, 1);
     assert.equal(result.metaCalls, 3);
@@ -172,18 +231,20 @@ describe("a stored promoted event is never overwritten with NULL", () => {
       failStoredRead: true,
     });
     let batches = 0;
+    const readMeta = async (path: string) => {
+      if (path === "/") {
+        batches++;
+        throw Object.assign(new Error("too many calls"), { code: 17 });
+      }
+      return { data: [sales("a1", "s-buy")] };
+    };
     const result = await runAdDailyInsights({
       env: ON,
       db: store.db,
       window: WINDOW,
       accounts: ["act_1"],
-      graphGet: async (path) => {
-        if (path === "/") {
-          batches++;
-          throw Object.assign(new Error("too many calls"), { code: 17 });
-        }
-        return { data: [sales("a1", "s-buy")] };
-      },
+      graphGet: readMeta,
+      multiGet: readMeta,
     });
     assert.equal(batches, 0, "an unreadable stored event is unknown: Meta is not asked");
     assert.match(result.outcomes![0].adsetError ?? "", /statement timeout/);
@@ -202,9 +263,11 @@ describe("a stored promoted event is never overwritten with NULL", () => {
       window: WINDOW,
       accounts: ["act_1", "act_2"],
       graphGet: async (path) => {
-        if (path === "/") throw Object.assign(new Error("rate"), { code: 80004 });
         if (path === "/act_1/insights") return { data: [sales("a1", "s-new")] };
         return { data: [sales("a2", "s-reg")] };
+      },
+      multiGet: async () => {
+        throw Object.assign(new Error("rate"), { code: 80004 });
       },
     });
     assert.equal(result.outcomes![0].adsetError, "rate");
@@ -222,16 +285,14 @@ describe("a stored promoted event is never overwritten with NULL", () => {
       db: store.db,
       window: WINDOW,
       accounts: ["act_1"],
-      graphGet: async (path) => {
-        if (path === "/") return { "s-buy": { promoted_object: { custom_event_type: "PURCHASE" } } };
-        return {
-          data: [
-            adRow("a-reach", "s-reach", "OUTCOME_AWARENESS", "REACH"),
-            { ...sales("a-buy", "s-buy") },
-            { ad_id: "a-bare", adset_id: "s-reach", date_start: "2026-10-05", spend: "1", actions: [] },
-          ],
-        };
-      },
+      graphGet: async () => ({
+        data: [
+          adRow("a-reach", "s-reach", "OUTCOME_AWARENESS", "REACH"),
+          { ...sales("a-buy", "s-buy") },
+          { ad_id: "a-bare", adset_id: "s-reach", date_start: "2026-10-05", spend: "1", actions: [] },
+        ],
+      }),
+      multiGet: async () => ({ "s-buy": { promoted_object: { custom_event_type: "PURCHASE" } } }),
     });
     const reach = store.rows.get("a-reach|2026-10-05")!;
     assert.equal(reach.promoted_event, "LEAD");
@@ -290,7 +351,7 @@ describe("objective backfill", () => {
         mode,
         has187: true,
         accounts: ["act_1"],
-        graphGet: async (_path, params) => {
+        multiGet: async (_path, params) => {
           graph.push(params);
           return graphAnswer;
         },
@@ -312,7 +373,7 @@ describe("objective backfill", () => {
 
   it("apply UPDATEs by meta_adset_id; before migration 187 every ad set counts and apply refuses", async () => {
     const { db, calls } = fakeDb(() => ({ data: stored, error: null }));
-    const result = await runObjectiveBackfill({ db, mode: "apply", has187: true, accounts: ["act_1"], graphGet: async () => graphAnswer });
+    const result = await runObjectiveBackfill({ db, mode: "apply", has187: true, accounts: ["act_1"], multiGet: async () => graphAnswer });
     const updates = calls.filter((c) => op(c, "update"));
     assert.deepEqual(
       updates.map((c) => c.ops.filter(([n]) => n === "eq").map(([, a]) => a)),
@@ -333,11 +394,11 @@ describe("objective backfill", () => {
       mode: "plan",
       has187: false,
       accounts: ["act_1"],
-      graphGet: async () => ({}),
+      multiGet: async () => ({}),
     });
     assert.equal(pre.plan[0].adSetIds.length, 4);
     await assert.rejects(
-      runObjectiveBackfill({ db, mode: "apply", has187: false, accounts: ["act_1"], graphGet: async () => ({}) }),
+      runObjectiveBackfill({ db, mode: "apply", has187: false, accounts: ["act_1"], multiGet: async () => ({}) }),
       /migration 187/,
     );
   });
@@ -364,7 +425,7 @@ describe("objective backfill", () => {
       mode: "fetch",
       has187: true,
       accounts: ["act_1", "act_2"],
-      graphGet: async () => {
+      multiGet: async () => {
         n++;
         throw Object.assign(new Error(n === 1 ? "unsupported get" : "rate"), { code: n === 1 ? 100 : 80004 });
       },

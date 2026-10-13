@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { graphGetWithToken } from "@/lib/meta/client";
+import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import { isAdDailyInsightsEnabled, runAdDailyInsights } from "@/lib/ad-daily-insights/runner";
 
 /**
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
       db: supabase,
       // One attempt per call: a retry would hide its cost from metaCalls.
       graphGet: (path, params) => graphGetWithToken(path, params, token, { maxAttempts: 1 }),
+      multiGet: (path, params) => graphMultiGetByIds(path, params, token),
     });
     return NextResponse.json(result, { status: result.ok ? 200 : 207 });
   } catch (err) {
