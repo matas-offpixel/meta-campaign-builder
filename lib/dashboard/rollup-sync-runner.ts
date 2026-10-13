@@ -73,6 +73,12 @@ import {
   VENUE_ALLOCATOR_ALREADY_RAN,
 } from "@/lib/dashboard/venue-allocator-batch-dedupe";
 import { isSuspiciousTicketingZeroFetch } from "@/lib/dashboard/ticketing-zero-fetch-guard";
+import { collectClientAdAccountIds } from "./client-ad-accounts.ts";
+import type { DailyMetaMetricsResult } from "../insights/types.ts";
+import {
+  fetchEventDailyMetaMetricsUnion,
+  formatClaimDecision,
+} from "../insights/daily-meta-union.ts";
 
 /**
  * lib/dashboard/rollup-sync-runner.ts
@@ -520,27 +526,99 @@ export async function runRollupSyncForEvent(
       // from the campaign-level bracket match here and re-added at ad-set
       // level below, so each ad set lands on its true venue event_code.
       const isGlasgowSplit = isGlasgowSplitEventCode(eventCode);
-      // Use persisted campaign IDs when available to skip name-based discovery
-      // (more reliable for events like Ironworks where CONTAIN is flaky).
-      const knownCampaignIds = metaCampaignId
+      // The persisted list is a HINT, never the filter. It used to replace
+      // name discovery entirely and was written once, on first discovery,
+      // so every campaign created afterwards was invisible for the life of
+      // the event (Folamour lost £688.21 of on-sale spend that way).
+      const storedCampaignIds = metaCampaignId
         ? metaCampaignId.split(",").map((id) => id.trim()).filter(Boolean)
-        : undefined;
-      const metaFetch = await fetchEventDailyMetaMetrics({
+        : [];
+      // Scan every account this client can spend from, not just the one the
+      // event resolves to: Fever 105's campaigns are split across two.
+      // One read per run; a failure here degrades to the event's own
+      // account rather than blocking the sync.
+      let clientMetaAdAccountId: string | null = null;
+      const siblingEventAdAccountIds: (string | null)[] = [];
+      if (clientId) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sb = supabase as any;
+        const [clientRow, siblingRows] = await Promise.all([
+          sb.from("clients").select("meta_ad_account_id").eq("id", clientId).maybeSingle(),
+          sb.from("events").select("meta_ad_account_id").eq("client_id", clientId),
+        ]);
+        if (clientRow?.error) {
+          console.warn(
+            `[rollup-sync] client ad account read failed client=${clientId}: ${clientRow.error.message}`,
+          );
+        } else {
+          clientMetaAdAccountId = clientRow?.data?.meta_ad_account_id ?? null;
+        }
+        if (siblingRows?.error) {
+          console.warn(
+            `[rollup-sync] sibling ad accounts read failed client=${clientId}: ${siblingRows.error.message}`,
+          );
+        } else {
+          for (const row of (siblingRows?.data ?? []) as { meta_ad_account_id: string | null }[]) {
+            siblingEventAdAccountIds.push(row.meta_ad_account_id ?? null);
+          }
+        }
+      }
+      const adAccountIds = collectClientAdAccountIds({
+        eventAdAccountId: adAccountId,
+        clientAdAccountId: clientMetaAdAccountId,
+        siblingEventAdAccountIds,
+      });
+      console.log(
+        `[rollup-sync] meta scanning ${adAccountIds.length} account(s) event=${eventCode} accounts=${JSON.stringify(adAccountIds)}`,
+      );
+      const union = await fetchEventDailyMetaMetricsUnion({
         eventCode,
-        adAccountId,
-        token,
-        since: sinceStr,
-        until: untilStr,
+        adAccountIds,
+        storedCampaignIds,
         ...(isGlasgowSplit
           ? { excludeCampaignIds: [GLASGOW_TRAFFIC_CAMPAIGN_ID] }
           : {}),
-        ...(knownCampaignIds ? { knownCampaignIds } : {}),
+        fetchDaily: (call) =>
+          fetchEventDailyMetaMetrics({
+            eventCode: call.eventCode,
+            adAccountId: call.adAccountId,
+            token,
+            since: sinceStr,
+            until: untilStr,
+            ...(call.excludeCampaignIds
+              ? { excludeCampaignIds: call.excludeCampaignIds }
+              : {}),
+            ...(call.knownCampaignIds
+              ? { knownCampaignIds: call.knownCampaignIds }
+              : {}),
+          }),
       });
-      if (!metaFetch.ok) {
-        metaResult.reason = metaFetch.error.reason;
-        metaResult.error = metaFetch.error.message;
+      for (const decision of union.decisions) {
+        console.log(formatClaimDecision(eventCode, decision));
+      }
+      for (const accountError of union.accountErrors) {
         console.warn(
-          `[rollup-sync] meta fetch failed reason=${metaFetch.error.reason} msg=${metaFetch.error.message}`,
+          `[rollup-sync] meta account read failed event=${eventCode} acct=${accountError.adAccountId}: ${accountError.message}`,
+        );
+      }
+      const metaFetch: DailyMetaMetricsResult = {
+        ok: true,
+        days: union.days,
+        campaignNames: union.campaignNames,
+        campaignIds: union.campaignIds,
+      };
+      // No quiet successes: if EVERY account failed to read we have no
+      // evidence of anything, and writing an empty day set would report ok
+      // while silently zeroing the event. A partial read (some accounts
+      // answered) is allowed through, but never persists the hint — see
+      // the campaign_id write below.
+      const everyAccountFailed =
+        union.accountErrors.length > 0 && union.accountErrors.length === adAccountIds.length;
+      if (everyAccountFailed) {
+        metaResult.reason = "meta_api_error";
+        metaResult.error = union.accountErrors.map((e) => e.message).join("; ");
+        console.warn(
+          `[rollup-sync] meta fetch failed event=${eventCode} accounts=${adAccountIds.length} msg=${metaResult.error}`,
         );
       } else {
         diagnostics.metaCampaignsMatched = metaFetch.campaignNames;
@@ -555,10 +633,13 @@ export async function runRollupSyncForEvent(
           }`,
         );
 
-        // Persist newly discovered campaign IDs so subsequent cron runs use
-        // the faster campaign.id IN filter instead of name-based CONTAIN.
-        // Only persists on first discovery (when metaCampaignId was null).
-        if (!metaCampaignId && metaFetch.campaignIds.length > 0 && eventId) {
+        // Rewrite the hint from THIS run's result, every run. The old
+        // `if (!metaCampaignId …)` guard meant the column was written once
+        // and never refreshed, which is the whole defect: a campaign
+        // launched after the first tick could never join its event. An
+        // account that failed to read is skipped above, so a partial union
+        // must not be allowed to shrink the stored list.
+        if (union.accountErrors.length === 0 && metaFetch.campaignIds.length > 0 && eventId) {
           const newCampaignId = metaFetch.campaignIds.join(",");
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const { error: persistErr } = await (supabase as any)
@@ -675,7 +756,11 @@ export async function runRollupSyncForEvent(
               ...(isGlasgowSplit
                 ? { excludeCampaignIds: [GLASGOW_TRAFFIC_CAMPAIGN_ID] }
                 : {}),
-              ...(knownCampaignIds ? { knownCampaignIds } : {}),
+              // Today's row is filtered to exactly the campaigns this run
+              // claimed, so it cannot disagree with the historical rows.
+              ...(union.campaignIds.length > 0
+                ? { knownCampaignIds: union.campaignIds }
+                : {}),
             });
             if (snap.ok && snap.days.length > 0) {
               snapshotSpend = snap.days[0]?.spend ?? 0;
