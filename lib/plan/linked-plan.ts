@@ -29,7 +29,7 @@ export function planOwnsLaunch(input: PlanOwnsLaunchInput): boolean {
   return input.planLaunchStatus === "idle" || input.planLaunchStatus === "failed";
 }
 
-function metaLaunchStatus(value: unknown): CampaignPlanLaunchStatus {
+export function parsePlanLaunchStatus(value: unknown): CampaignPlanLaunchStatus {
   if (
     value === "idle" ||
     value === "launching" ||
@@ -91,7 +91,7 @@ export async function loadPlanForMetaDraft(
   return {
     id: plan.data.id as string,
     name: (plan.data.name as string | null) ?? null,
-    metaLaunchStatus: metaLaunchStatus(link.data?.status),
+    metaLaunchStatus: parsePlanLaunchStatus(link.data?.status),
   };
 }
 

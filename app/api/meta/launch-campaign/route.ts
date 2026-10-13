@@ -910,6 +910,13 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   //   - "attach_adset"    → ensure both picker selections (campaign + ad set)
   //                         are present and that they're consistent.
   const wizardMode: WizardMode = draft.settings.wizardMode ?? "new";
+  // Read before any launch write. The success path publishes the draft
+  // before the plan row is recorded, and that later status must not
+  // decide whether the plan row is updated.
+  const preLaunchPlanOwnership = {
+    wizardMode,
+    draftStatus: draft.status,
+  };
   // Creative Integrity Mode — defaults to ON for any draft that pre-dates
   // the flag (also enforced in `migrateDraft`). Read once and reused inside
   // the Phase 3 creative loop and in the launch summary.
@@ -2047,6 +2054,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         error: message,
         platformAdAccountId:
           draft.settings.adAccountId || draft.settings.metaAdAccountId || null,
+        ...preLaunchPlanOwnership,
       });
       const { code, subcode } = metaCodesFromUnknown(err);
       if (isMetaRateLimitCode(code, subcode)) {
@@ -4991,6 +4999,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     ok: true,
     platformAdAccountId:
       draft.settings.adAccountId || draft.settings.metaAdAccountId || null,
+    ...preLaunchPlanOwnership,
   });
 
   console.log(

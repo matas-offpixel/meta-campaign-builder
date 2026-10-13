@@ -58,5 +58,11 @@ describe("planOwnsLaunch", () => {
     assert.match(shell, /planOwnsLaunch\(/);
     assert.match(shell, /canvasOwnsLaunch=\{canvasOwnsLaunch\}/);
     assert.match(readFileSync("components/steps/review-launch.tsx", "utf8"), /launch-on-canvas/);
+    const record = readFileSync("lib/plan/record-wizard-launch.ts", "utf8");
+    assert.match(record, /planOwnsLaunch\(/);
+    assert.match(record, /\[plan-record\] skipped: creator-owned launch/);
+    assert.match(route, /preLaunchPlanOwnership/);
+    assert.match(route, /\.\.\.preLaunchPlanOwnership/);
+    assert.doesNotMatch(route, /draftStatus: publishedDraft\.status/);
   });
 });
