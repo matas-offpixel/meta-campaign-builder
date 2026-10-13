@@ -14,7 +14,12 @@ import { metaObjectiveNeedsPromotedEvent } from "../launched-ad-sets/snapshot.ts
 import { normalizeAdAccountId } from "../meta/ad-account.ts";
 import { createPromotedEventLookup } from "./adset-meta.ts";
 import { deriveAdDailyInsight, type AdDailyInsightRow } from "./derive.ts";
-import { fetchAdAccountInsightsAdaptive, type AccountFetchStatus, type GraphGet } from "./fetch.ts";
+import {
+  fetchAdAccountInsightsAdaptive,
+  type AccountFetchStatus,
+  type GraphGet,
+  type GraphMultiGet,
+} from "./fetch.ts";
 
 export const AD_DAILY_INSIGHTS_DAYS = 3;
 const UPSERT_CHUNK = 500;
@@ -156,6 +161,8 @@ export async function runAdDailyInsights(deps: {
   env: Record<string, string | undefined>;
   db: SupabaseClient;
   graphGet: GraphGet;
+  /** Batch API reader for ad set facts. Production passes `graphMultiGetByIds`. */
+  multiGet?: GraphMultiGet;
   now?: Date;
   /** Override for the backfill script. */
   accounts?: string[];
@@ -170,7 +177,13 @@ export async function runAdDailyInsights(deps: {
     : await loadClientAdAccounts(deps.db);
 
   const outcomes: AccountOutcome[] = [];
-  const promotedEvents = createPromotedEventLookup(deps.db, deps.graphGet);
+  const promotedEvents = createPromotedEventLookup(
+    deps.db,
+    deps.multiGet ??
+      (async () => {
+        throw new Error("ad set reads go through graphMultiGetByIds");
+      }),
+  );
   let metaCalls = 0;
   let rowsWritten = 0;
   for (const adAccountId of loaded.accounts) {

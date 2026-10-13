@@ -3,15 +3,15 @@
  * row says OFFSITE_CONVERSIONS for Complete Registration and Purchase
  * alike; the event is on the ad set's promoted_object (probe 2026-10-08).
  *
- * One batched `GET /?ids=…` per ≤50 ad set ids, one attempt each. The
- * nightly run reads only ad sets whose promoted event it does not
- * already have, in this run or on ad_daily_insights, so a steady state
- * costs about zero extra calls.
+ * One Batch API POST per ≤50 ad set ids (`graphMultiGetByIds`), one
+ * attempt each. The nightly run reads only ad sets whose promoted event
+ * it does not already have, in this run or on ad_daily_insights, so a
+ * steady state costs about zero extra calls.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { GraphGet } from "./fetch.ts";
+import type { GraphMultiGet } from "./fetch.ts";
 
 export const ADSET_BATCH = 50;
 
@@ -32,11 +32,13 @@ function text(value: unknown): string | null {
 }
 
 /**
- * Batched read of `fields` for `ids`. Stops at the first failed call and
- * returns what it has; every call made is counted.
+ * Batched read of `fields` for `ids` via the Batch API. One POST per
+ * ≤50 ids. Stops at the first whole-batch failure and returns what it
+ * has, including that failure's code. A sub-request that fails is
+ * absent from the map. Every POST made is counted.
  */
 export async function fetchAdSetMeta(
-  graphGet: GraphGet,
+  multiGet: GraphMultiGet,
   ids: readonly string[],
   fields: string,
 ): Promise<{ meta: Map<string, AdSetMeta>; calls: number; error?: string; code?: number }> {
@@ -47,7 +49,7 @@ export async function fetchAdSetMeta(
     calls++;
     let body: unknown;
     try {
-      body = await graphGet("/", { ids: chunk.join(","), fields });
+      body = await multiGet("/", { ids: chunk.join(","), fields });
     } catch (err) {
       const code = (err as { code?: unknown })?.code;
       return {
@@ -120,7 +122,7 @@ export async function readStoredPromotedEvents(db: SupabaseClient, ids: readonly
  * is not asked for those ids), Meta answering with no promoted event,
  * and Meta reads stopped after a failed call (the next run retries).
  */
-export function createPromotedEventLookup(db: SupabaseClient, graphGet: GraphGet) {
+export function createPromotedEventLookup(db: SupabaseClient, multiGet: GraphMultiGet) {
   const events = new Map<string, string>();
   const settled = new Set<string>();
   let stopped = false;
@@ -143,7 +145,7 @@ export function createPromotedEventLookup(db: SupabaseClient, graphGet: GraphGet
       }
       const missing = unknown.filter((id) => !settled.has(id));
       if (missing.length === 0 || stopped) return { calls: 0 };
-      const fetched = await fetchAdSetMeta(graphGet, missing, "promoted_object");
+      const fetched = await fetchAdSetMeta(multiGet, missing, "promoted_object");
       for (const [id, meta] of fetched.meta) {
         settled.add(id);
         if (meta.promotedEvent) events.set(id, meta.promotedEvent);

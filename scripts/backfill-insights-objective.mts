@@ -4,9 +4,9 @@
 // promoted_event (migration 187) for rows written before the nightly
 // cron requested them, per active-client ad account (archived excluded,
 // `loadClientAdAccounts`; `--account` must be one of them). Logic: lib/ad-daily-insights/objective-backfill.ts.
-// One batched GET per ≤50 ad sets, one attempt each, 2 s apart; a rate
-// limit or auth error stops the run (re-run later; filled ad sets are
-// skipped).
+// One Batch API POST per ≤50 ad sets, one attempt each, 2 s apart; a
+// rate limit or auth error stops the run (re-run later; filled ad sets
+// are skipped).
 //
 // Modes:
 //   (default)  dry run: counts ad sets, prints the call count. No Meta
@@ -22,7 +22,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { graphGetWithToken } from "../lib/meta/client.ts";
+import { graphMultiGetByIds } from "../lib/meta/graph-multi-get.ts";
 import { normalizeAdAccountId } from "../lib/meta/ad-account.ts";
 import {
   backfillAccounts,
@@ -61,10 +61,10 @@ async function main() {
     has187,
     mode,
     accounts: await backfillAccounts(db, accountArg),
-    graphGet: async (path, params) => {
+    multiGet: async (path, params) => {
       if (!first) await sleep(PAUSE_MS);
       first = false;
-      return graphGetWithToken(path, params, token!, { maxAttempts: 1 });
+      return graphMultiGetByIds(path, params, token!);
     },
   });
 
