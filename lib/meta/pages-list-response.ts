@@ -12,7 +12,16 @@
 
 import type { MetaApiPage } from "../types.ts";
 
-export const PAGES_LIST_PAGE_SIZE = 200;
+export const PAGES_LIST_PAGE_SIZE = 100;
+/** Last size we ask Graph for. Smaller than this, the walk gives up. */
+export const PAGES_LIST_MIN_PAGE_SIZE = 25;
+/**
+ * `/me/accounts` only. The pages route does not set `maxDuration`, so it
+ * uses the Fluid default (300s). One heavy page already took 30–130s in
+ * production; a full walk at the reduced size can outlive that. Stop and
+ * return what we have before the platform kills the function.
+ */
+export const PAGES_PERSONAL_WALK_BUDGET_MS = 240_000;
 export const PAGES_LIST_MAX_PAGES = 10;
 export const PAGES_LIST_PAGINATION_CAP = "PAGES_LIST_PAGINATION_CAP";
 export const PAGES_ERROR_TTL_MS = 30_000;
@@ -76,6 +85,78 @@ export async function settlePagesSource(
     log(`[/api/meta/pages] ${source} fetch failed: ${message}`);
     return { pages: [], failed: true };
   }
+}
+
+/**
+ * Walk one Graph page edge. Starts at {@link PAGES_LIST_PAGE_SIZE}. A
+ * reduce-data error retries the same cursor at half the size (100 → 50 →
+ * 25) and keeps that size for the rest of the walk. A later cursor that
+ * still fails returns the pages already fetched, marked truncated.
+ */
+export async function walkPageEdge<T>(input: {
+  path: string;
+  load: (after: string | undefined, limit: number) => Promise<GraphPage<T>>;
+  isReduceData: (err: unknown) => boolean;
+  pageSize?: number;
+  minPageSize?: number;
+  maxPages?: number;
+  budgetMs?: number;
+  now?: () => number;
+  log?: (message: string) => void;
+  warn?: (code: string, fetchedPages: number) => void;
+}): Promise<{ items: T[]; truncated: boolean }> {
+  const now = input.now ?? Date.now;
+  const started = now();
+  const minPageSize = input.minPageSize ?? PAGES_LIST_MIN_PAGE_SIZE;
+  const maxPages = input.maxPages ?? PAGES_LIST_MAX_PAGES;
+  let limit = input.pageSize ?? PAGES_LIST_PAGE_SIZE;
+  const items: T[] = [];
+  let after: string | undefined;
+  let graphPages = 0;
+
+  const overBudget = () =>
+    input.budgetMs != null && now() - started >= input.budgetMs;
+
+  while (graphPages < maxPages) {
+    if (overBudget()) {
+      if (items.length > 0) {
+        input.log?.(
+          `[fetchPagedPageEdge] time budget path=${input.path} kept=${items.length}`,
+        );
+        return { items, truncated: true };
+      }
+      break;
+    }
+    try {
+      const page = await input.load(after, limit);
+      items.push(...page.data);
+      graphPages += 1;
+      if (!page.hasNext || !page.after) {
+        return { items, truncated: false };
+      }
+      after = page.after;
+    } catch (err) {
+      if (input.isReduceData(err) && limit > minPageSize) {
+        limit = Math.floor(limit / 2);
+        input.log?.(
+          `[fetchPagedPageEdge] reduce-data path=${input.path} limit=${limit}`,
+        );
+        continue;
+      }
+      if (items.length > 0) {
+        return { items, truncated: true };
+      }
+      throw err;
+    }
+  }
+
+  if (items.length > 0) {
+    input.warn?.(PAGES_LIST_PAGINATION_CAP, graphPages);
+    return { items, truncated: true };
+  }
+  throw new Error(
+    `[fetchPagedPageEdge] ${input.path} returned no pages before the walk stopped`,
+  );
 }
 
 /**
@@ -155,11 +236,7 @@ export function buildPagesListPayload(args: {
       total: pages.length,
     },
     degraded,
-    warning: incomplete
-      ? truncated
-        ? PAGES_LIST_PAGINATION_CAP
-        : PAGES_LOAD_INCOMPLETE_MESSAGE
-      : undefined,
+    warning: incomplete ? PAGES_LOAD_INCOMPLETE_MESSAGE : undefined,
   };
 }
 

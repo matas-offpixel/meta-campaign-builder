@@ -28,7 +28,10 @@ import type { UploadAssetResult } from "./upload";
 import { ATTACH_ADSET_VOTE_FIELDS } from "./attach-objective.ts";
 import { isReduceDataError } from "./error-classify";
 import { withActPrefix } from "./ad-account-id.ts";
-import { followCursors, PAGES_LIST_PAGE_SIZE } from "./pages-list-response.ts";
+import {
+  PAGES_PERSONAL_WALK_BUDGET_MS,
+  walkPageEdge,
+} from "./pages-list-response.ts";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
 import {
   parseAppUsageHeader,
@@ -186,6 +189,7 @@ interface GraphPagedResponse<T> {
 export async function graphGet<T>(
   path: string,
   params: Record<string, string> = {},
+  options?: { maxAttempts?: number },
 ): Promise<T> {
   const token = process.env.META_ACCESS_TOKEN;
   if (!token) {
@@ -193,7 +197,7 @@ export async function graphGet<T>(
       "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
     );
   }
-  return graphGetWithToken<T>(path, params, token);
+  return graphGetWithToken<T>(path, params, token, options);
 }
 
 /**
@@ -655,38 +659,59 @@ const PAGE_LIST_FIELDS =
   "id,name,fan_count,category,picture{url},instagram_business_account";
 
 /**
+ * Same reduce-data check `fetchCampaignsForAccount` uses. Code 1 /
+ * subcode 99 is this error even when `message` is only
+ * "An unknown error occurred" and the phrase sits in `error_user_msg`.
+ */
+function isPageListReduceData(err: unknown): boolean {
+  return (
+    isReduceDataError(err) ||
+    (err instanceof MetaApiError && err.code === 1 && err.subcode === 99)
+  );
+}
+
+/**
  * Walk a Graph page edge to exhaustion (or the named pagination cap).
- * Used by the wizard picker so a 200-item first page cannot silently drop
- * later pages.
+ * Default page size is 100. A reduce-data response retries that cursor
+ * at half the size, down to 25, and keeps the smaller size. Pages already
+ * fetched survive a later failure (`truncated`).
+ *
+ * Graph code 1 is retried up to five times inside `graphGet` before it
+ * throws. On this edge that retry repeats a query Meta has already
+ * refused, which is the 30–130s failure. One attempt, then shrink.
  */
 export async function fetchPagedPageEdge(
   path: string,
   token?: string,
 ): Promise<{ pages: MetaApiPage[]; truncated: boolean }> {
-  const result = await followCursors<MetaApiPage>(
-    async (after) => {
+  const result = await walkPageEdge<MetaApiPage>({
+    path,
+    budgetMs: path === "/me/accounts" ? PAGES_PERSONAL_WALK_BUDGET_MS : undefined,
+    isReduceData: isPageListReduceData,
+    log: (message) => console.warn(message),
+    warn: (code, fetchedPages) => {
+      console.warn(
+        `[fetchPagedPageEdge] ${code} path=${path} graphPages=${fetchedPages}`,
+      );
+    },
+    load: async (after, limit) => {
       const params: Record<string, string> = {
         fields: PAGE_LIST_FIELDS,
-        limit: String(PAGES_LIST_PAGE_SIZE),
+        limit: String(limit),
       };
       if (after) params.after = after;
       const res = token
-        ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(path, params, token)
-        : await graphGet<GraphPagedResponse<MetaApiPage>>(path, params);
+        ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(path, params, token, {
+            maxAttempts: 1,
+          })
+        : await graphGet<GraphPagedResponse<MetaApiPage>>(path, params, { maxAttempts: 1 });
       return {
         data: res.data ?? [],
         after: res.paging?.cursors?.after ?? null,
         hasNext: Boolean(res.paging?.next),
       };
     },
-    {
-      warn: (code, fetchedPages) => {
-        console.warn(
-          `[fetchPagedPageEdge] ${code} path=${path} graphPages=${fetchedPages}`,
-        );
-      },
-    },
-  );
+  });
   return { pages: result.items, truncated: result.truncated };
 }
 
