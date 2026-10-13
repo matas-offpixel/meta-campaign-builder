@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
 import { isCampaignRuntimeActive } from "@/lib/bulk-attach/campaign-active";
-import { attachChipLabel, attachObjectiveChipTitle } from "@/lib/meta/attach-objective";
+import { attachObjectiveBadgeLabel, attachObjectiveChipTitle } from "@/lib/meta/attach-objective";
 import type { MetaCampaignSummary } from "@/lib/types";
 import { useFetchCampaigns } from "@/lib/hooks/useMeta";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
@@ -256,9 +256,18 @@ export function CampaignMultiPicker({
                               c.objectiveSource ?? "campaign",
                               c.adSetCount ?? 0,
                               c.adSetCountTruncated === true,
+                              c.adSetsUnread === true,
+                              attachObjectiveBadgeLabel({
+                                internalObjective: c.internalObjective,
+                              }),
                             )}
                           >
-                            <Badge variant="primary">{attachChipLabel(c.internalObjective)}</Badge>
+                            <Badge variant="primary">
+                              {attachObjectiveBadgeLabel({
+                                internalObjective: c.internalObjective,
+                                adSetsUnread: c.adSetsUnread === true,
+                              })}
+                            </Badge>
                           </span>
                         ) : (
                           <span className="capitalize">{objectiveLabel(c.objective)}</span>

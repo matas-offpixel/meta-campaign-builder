@@ -1388,6 +1388,12 @@ export interface ExistingMetaCampaignSnapshot {
   adSetCount?: number;
   /** Graph returned another ad set page. The chip says "50+". */
   adSetCountTruncated?: boolean;
+  /**
+   * The picker had to list this page without ad sets (Graph code 1 /
+   * subcode 99). The internal objective is the campaign-objective fallback,
+   * not a vote.
+   */
+  adSetsUnread?: boolean;
   /** Winning conversion event, e.g. "Complete registration". */
   conversionEvent?: string;
   /** Most common promoted_object.pixel_id among those ad sets. */
@@ -1488,6 +1494,8 @@ export interface MetaCampaignSummary {
   objectiveSource?: "campaign" | "adsets";
   adSetCount?: number;
   adSetCountTruncated?: boolean;
+  /** Page was listed without ad sets. The badge says the event was not read. */
+  adSetsUnread?: boolean;
   /** Winning conversion event for the selected-campaign line. */
   conversionEvent?: string;
   pixelId?: string;

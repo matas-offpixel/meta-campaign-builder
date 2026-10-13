@@ -751,6 +751,11 @@ export interface FetchCampaignsResult {
   data: RawMetaCampaign[];
   nextCursor?: string;
   hasMore: boolean;
+  /**
+   * True when `withAdSets` was asked for and this page was retried without
+   * the ad set edge (Graph code 1 / subcode 99). The rows then have no vote.
+   */
+  adSetsUnread: boolean;
 }
 
 /**
@@ -834,6 +839,7 @@ export async function fetchCampaignsForAccount(params: {
   };
 
   let res: GraphPagedResponse<RawMetaCampaign>;
+  let adSetsUnread = false;
   try {
     res = await requestPage(withAdSets);
   } catch (err) {
@@ -845,6 +851,7 @@ export async function fetchCampaignsForAccount(params: {
       `[fetchCampaignsForAccount] adsets edge too heavy (code 1 / subcode 99); ` +
         `retrying page without ad sets adAccountId=${adAccountId}`,
     );
+    adSetsUnread = true;
     res = await requestPage(false);
   }
 
@@ -860,6 +867,7 @@ export async function fetchCampaignsForAccount(params: {
     data: sorted,
     nextCursor: res.paging?.cursors?.after,
     hasMore: !!res.paging?.next,
+    adSetsUnread,
   };
 }
 
