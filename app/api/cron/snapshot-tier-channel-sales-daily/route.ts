@@ -50,31 +50,81 @@ export async function GET(req: NextRequest) {
   const snapshotDate = todayInLondon();
   const supabase = await createServiceRoleClient();
 
-  // Find events with tier_channel_sales rows updated in the last 48 h.
-  const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-  const { data: recentSales, error: salesErr } = await supabase
-    .from("tier_channel_sales")
-    .select("event_id, tickets_sold, revenue_amount")
-    .gte("updated_at", since);
-
-  if (salesErr) {
-    return NextResponse.json(
-      { ok: false, error: salesErr.message, startedAt },
-      { status: 500 },
-    );
+  // EVERY event that has tier_channel_sales, not just those changed in the
+  // last 48 h.
+  //
+  // The old filter was `updated_at >= now() - 48h`. When nothing changed —
+  // a dead upstream feed, or simply a quiet two days on a static sale —
+  // `byEvent.size === 0` returned `{ ok: true, snapshotsWritten: 0 }`. A
+  // cron that writes nothing and reports success is indistinguishable from
+  // one with nothing to do, which is how a dead leg stays dead unnoticed.
+  // Daily history wants a row per event per day regardless: a flat day is
+  // a fact about the sale, not an absence of data.
+  //
+  // Paginated: a plain `.select()` is capped at 1000 rows by PostgREST and
+  // truncates silently. `tier_channel_sales` is one row per event × tier ×
+  // channel, so Internal Counts (13 events × tiers × 8 outlets) takes it
+  // past that cap on its own.
+  const allSalesRows: { event_id: unknown; tickets_sold: unknown; revenue_amount: unknown }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("tier_channel_sales")
+      .select("event_id, tickets_sold, revenue_amount")
+      .range(from, from + 999);
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message, startedAt },
+        { status: 500 },
+      );
+    }
+    const page = data ?? [];
+    allSalesRows.push(...page);
+    if (page.length < 1000) break;
   }
 
-  // Aggregate SUM per event across all rows (tiers × channels).
-  const byEvent = new Map<string, { tickets: number; revenue: number }>();
-  for (const row of recentSales ?? []) {
+  // Stop at a week past the show. Without this the cron writes a daily row
+  // for every archived event for ever — ~50 finished 4theFans fixtures
+  // alone — and the history table grows with rows nobody reads. A week of
+  // grace covers late settlement and post-show corrections.
+  const staleBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const candidateIds = [...new Set(allSalesRows.map((r) => String(r.event_id)))];
+  const liveEventIds = new Set<string>();
+  for (let from = 0; from < candidateIds.length; from += 500) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("id, event_date")
+      .in("id", candidateIds.slice(from, from + 500));
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message, startedAt },
+        { status: 500 },
+      );
+    }
+    for (const row of (data ?? []) as { id: string; event_date: string | null }[]) {
+      // A null event_date has no show to be past, so it stays in.
+      if (!row.event_date || row.event_date >= staleBefore) liveEventIds.add(row.id);
+    }
+  }
+
+  // Cumulative total per event across all tiers and channels.
+  const fullTotals = new Map<string, { tickets: number; revenue: number }>();
+  for (const row of allSalesRows) {
     const eid = String(row.event_id);
-    const cur = byEvent.get(eid) ?? { tickets: 0, revenue: 0 };
+    if (!liveEventIds.has(eid)) continue;
+    const cur = fullTotals.get(eid) ?? { tickets: 0, revenue: 0 };
     cur.tickets += Number(row.tickets_sold ?? 0);
     cur.revenue += Number(row.revenue_amount ?? 0);
-    byEvent.set(eid, cur);
+    fullTotals.set(eid, cur);
   }
 
-  if (byEvent.size === 0) {
+  if (fullTotals.size === 0) {
+    // Genuinely no tier_channel_sales anywhere. Still not a silent ok:
+    // say so, so "0 written" can be read as "0 to write".
+    console.warn(
+      `[snapshot-tier-channel-sales-daily] no tier_channel_sales rows exist at all (date=${snapshotDate})`,
+    );
     return NextResponse.json({
       ok: true,
       startedAt,
@@ -82,33 +132,9 @@ export async function GET(req: NextRequest) {
       snapshotDate,
       eventsConsidered: 0,
       snapshotsWritten: 0,
+      rowsScanned: 0,
+      reason: "no_tier_channel_sales_rows",
     });
-  }
-
-  // For each distinct event, we need the FULL SUM (not just recently-
-  // updated rows) to get the cumulative total. Fetch all rows for these
-  // events to build the accurate SUM.
-  const eventIds = [...byEvent.keys()];
-  const { data: allSales, error: allErr } = await supabase
-    .from("tier_channel_sales")
-    .select("event_id, tickets_sold, revenue_amount")
-    .in("event_id", eventIds);
-
-  if (allErr) {
-    return NextResponse.json(
-      { ok: false, error: allErr.message, startedAt },
-      { status: 500 },
-    );
-  }
-
-  // Recompute accurate cumulative totals from the full set.
-  const fullTotals = new Map<string, { tickets: number; revenue: number }>();
-  for (const row of allSales ?? []) {
-    const eid = String(row.event_id);
-    const cur = fullTotals.get(eid) ?? { tickets: 0, revenue: 0 };
-    cur.tickets += Number(row.tickets_sold ?? 0);
-    cur.revenue += Number(row.revenue_amount ?? 0);
-    fullTotals.set(eid, cur);
   }
 
   let written = 0;
@@ -139,6 +165,8 @@ export async function GET(req: NextRequest) {
     snapshotDate,
     eventsConsidered: fullTotals.size,
     snapshotsWritten: written,
+    rowsScanned: allSalesRows.length,
+    eventsSkippedStale: candidateIds.length - liveEventIds.size,
     errors: errors.length > 0 ? errors : undefined,
   });
 }

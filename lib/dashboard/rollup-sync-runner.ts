@@ -77,6 +77,7 @@ import { collectClientAdAccountIds } from "./client-ad-accounts.ts";
 import type { DailyMetaMetricsResult } from "../insights/types.ts";
 import {
   fetchEventDailyMetaMetricsUnion,
+  fetchEventTodayMetaSnapshotUnion,
   formatClaimDecision,
 } from "../insights/daily-meta-union.ts";
 
@@ -748,20 +749,40 @@ export async function runRollupSyncForEvent(
           let snapshotEngagements = 0;
           let snapshotOk = false;
           try {
-            const snap = await fetchEventTodayMetaSnapshot({
+            // Today's row is summed across every account the client owns,
+            // and filtered to exactly the campaigns this run claimed, so it
+            // can neither under-count a cross-account show nor disagree
+            // with the historical rows.
+            const snapUnion = await fetchEventTodayMetaSnapshotUnion({
               eventCode,
-              adAccountId,
-              token,
-              todayDate: todayStr,
+              adAccountIds,
+              claimedCampaignIds: union.campaignIds,
               ...(isGlasgowSplit
                 ? { excludeCampaignIds: [GLASGOW_TRAFFIC_CAMPAIGN_ID] }
                 : {}),
-              // Today's row is filtered to exactly the campaigns this run
-              // claimed, so it cannot disagree with the historical rows.
-              ...(union.campaignIds.length > 0
-                ? { knownCampaignIds: union.campaignIds }
-                : {}),
+              fetchToday: (call) =>
+                fetchEventTodayMetaSnapshot({
+                  eventCode: call.eventCode,
+                  adAccountId: call.adAccountId,
+                  token,
+                  todayDate: todayStr,
+                  ...(call.excludeCampaignIds
+                    ? { excludeCampaignIds: call.excludeCampaignIds }
+                    : {}),
+                  ...(call.knownCampaignIds
+                    ? { knownCampaignIds: call.knownCampaignIds }
+                    : {}),
+                }),
             });
+            for (const accountError of snapUnion.accountErrors) {
+              console.warn(
+                `[rollup-sync] meta today-snapshot account read failed event=${eventCode} acct=${accountError.adAccountId}: ${accountError.message}`,
+              );
+            }
+            const snap = {
+              ok: true as const,
+              days: snapUnion.day ? [snapUnion.day] : [],
+            };
             if (snap.ok && snap.days.length > 0) {
               snapshotSpend = snap.days[0]?.spend ?? 0;
               snapshotPresaleSpend = snap.days[0]?.presaleSpend ?? 0;
@@ -781,9 +802,19 @@ export async function runRollupSyncForEvent(
               console.log(
                 `[rollup-sync] meta today snapshot ok spend=${snapshotSpend} clicks=${snapshotClicks} regs=${snapshotRegs} purchases=${snapshotPurchases}`,
               );
-            } else if (!snap.ok) {
+            } else if (snapUnion.accountErrors.length === adAccountIds.length) {
+              // Every account failed — no evidence either way. Logged as a
+              // failure, never as a zero.
               console.warn(
-                `[rollup-sync] meta today snapshot failed reason=${snap.error.reason} msg=${snap.error.message}`,
+                `[rollup-sync] meta today snapshot failed event=${eventCode} accounts=${adAccountIds.length} msg=${snapUnion.accountErrors
+                  .map((e) => e.message)
+                  .join("; ")}`,
+              );
+            } else {
+              console.log(
+                `[rollup-sync] meta today snapshot: no rows yet event=${eventCode} accountsRead=${
+                  adAccountIds.length - snapUnion.accountErrors.length
+                }`,
               );
             }
           } catch (err) {

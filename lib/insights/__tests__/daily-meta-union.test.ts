@@ -106,3 +106,46 @@ describe("fetchEventDailyMetaMetricsUnion", () => {
     assert.equal(merged[0]?.spend, 15);
   });
 });
+
+describe("fetchEventTodayMetaSnapshotUnion", () => {
+  it("sums today across accounts instead of reading only the event's own", async () => {
+    const { fetchEventTodayMetaSnapshotUnion } = await import("../daily-meta-union.ts");
+    const res = await fetchEventTodayMetaSnapshotUnion({
+      eventCode: "ES26-FEVER105",
+      adAccountIds: [SHEFFIELD, NX],
+      claimedCampaignIds: ["s1", "n1"],
+      fetchToday: async ({ adAccountId }) =>
+        adAccountId === SHEFFIELD
+          ? ok([row("2026-10-14", 40)], ["s1"], ["a"])
+          : ok([row("2026-10-14", 12)], ["n1"], ["b"]),
+    });
+    assert.equal(res.day?.spend, 52);
+    assert.equal(res.accountsWithRow, 2);
+  });
+
+  it("returns no day rather than a zero when every account fails", async () => {
+    const { fetchEventTodayMetaSnapshotUnion } = await import("../daily-meta-union.ts");
+    const res = await fetchEventTodayMetaSnapshotUnion({
+      eventCode: "NX26-MF",
+      adAccountIds: [NX],
+      claimedCampaignIds: [],
+      fetchToday: async () =>
+        ({ ok: false, error: { reason: "meta_api_error", message: "429" } }),
+    });
+    assert.equal(res.day, null);
+    assert.equal(res.accountErrors.length, 1);
+    assert.equal(res.accountsWithRow, 0);
+  });
+
+  it("distinguishes 'no rows yet' from 'read failed'", async () => {
+    const { fetchEventTodayMetaSnapshotUnion } = await import("../daily-meta-union.ts");
+    const res = await fetchEventTodayMetaSnapshotUnion({
+      eventCode: "NX26-MF",
+      adAccountIds: [NX],
+      claimedCampaignIds: [],
+      fetchToday: async () => ok([], [], []),
+    });
+    assert.equal(res.day, null);
+    assert.equal(res.accountErrors.length, 0, "an empty read is not an error");
+  });
+});

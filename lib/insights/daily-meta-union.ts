@@ -180,3 +180,65 @@ export function formatClaimDecision(eventCode: string, d: CampaignClaimDecision)
   const added = d.added ? " added" : "";
   return `[rollup-sync] claim ${eventCode} ${d.reason}${added} id=${d.campaignId} acct=${d.adAccountId} name=${JSON.stringify(d.campaignName)}${suffix}`;
 }
+
+export interface TodaySnapshotUnionArgs {
+  eventCode: string;
+  adAccountIds: string[];
+  /** Campaigns this run claimed. Empty means "no filter", same as before. */
+  claimedCampaignIds: string[];
+  excludeCampaignIds?: string[];
+  fetchToday: (args: {
+    adAccountId: string;
+    eventCode: string;
+    knownCampaignIds?: string[];
+    excludeCampaignIds?: string[];
+  }) => Promise<DailyMetaMetricsResult>;
+}
+
+export interface TodaySnapshotUnionResult {
+  /** Merged single day, or null when no account returned a row. */
+  day: DailyMetaMetricsRow | null;
+  accountErrors: { adAccountId: string; message: string }[];
+  /** Accounts that answered with a row — for the "is zero plausible" check. */
+  accountsWithRow: number;
+}
+
+/**
+ * Today's row, summed across every account the client owns.
+ *
+ * The historical leg has scanned all accounts since #1062, but this one
+ * still read a single account, so an event whose spend spans two of them
+ * had a correct history and an under-counted today. Fever 105's sibling
+ * campaigns are paused so the gap was £0 on the day, but it would bite any
+ * live cross-account show — which is why this is the first thing fixed
+ * after that PR rather than a later cleanup.
+ */
+export async function fetchEventTodayMetaSnapshotUnion(
+  args: TodaySnapshotUnionArgs,
+): Promise<TodaySnapshotUnionResult> {
+  const rows: DailyMetaMetricsRow[] = [];
+  const accountErrors: { adAccountId: string; message: string }[] = [];
+  let accountsWithRow = 0;
+
+  for (const adAccountId of args.adAccountIds) {
+    const res = await args.fetchToday({
+      adAccountId,
+      eventCode: args.eventCode,
+      ...(args.claimedCampaignIds.length > 0
+        ? { knownCampaignIds: args.claimedCampaignIds }
+        : {}),
+      ...(args.excludeCampaignIds ? { excludeCampaignIds: args.excludeCampaignIds } : {}),
+    });
+    if (!res.ok) {
+      accountErrors.push({ adAccountId, message: res.error.message });
+      continue;
+    }
+    if (res.days.length > 0) {
+      accountsWithRow += 1;
+      rows.push(...res.days);
+    }
+  }
+
+  const merged = mergeDailyRows(rows);
+  return { day: merged[0] ?? null, accountErrors, accountsWithRow };
+}
