@@ -5,6 +5,7 @@
 import {
   CRON_ALARMS,
   MISSING_INTERVAL_MULTIPLIER,
+  NOT_REPORTING_GRACE_MS,
   type AlarmCondition,
   type CronAlarmSpec,
 } from "./cron-alarm-config.ts";
@@ -28,7 +29,20 @@ export interface AlarmEvidence {
   eventsExpectingTickets: number;
   /** Events with tier-channel sales inside the 7-day window. */
   eventsInTierChannelWindow: number;
+  /**
+   * When this watcher first ran. Null on the very first run — nothing has
+   * been observed yet, so "not reporting" cannot mean anything.
+   */
+  evaluatorFirstRunAt?: string | null;
+  /** First `cron_runs` row per cron, for the per-cron half of the grace. */
+  firstSeenByCron?: Map<string, string>;
 }
+
+/** The three counts, without the run maps — what goes in the detail jsonb. */
+export type AlarmCounts = Pick<
+  AlarmEvidence,
+  "eventsWithRecentMetaSpend" | "eventsExpectingTickets" | "eventsInTierChannelWindow"
+>;
 
 export function evaluateCronAlarms(
   evidence: AlarmEvidence,
@@ -48,7 +62,12 @@ export function evaluateCronAlarms(
     const ageMinutes = lastSeenAt
       ? (now.getTime() - new Date(lastSeenAt).getTime()) / 60000
       : Number.POSITIVE_INFINITY;
-    if (ageMinutes > dueAfterMinutes) {
+    // Grace: silent until 24h after the later of this watcher's first run
+    // and this cron's own first row. Without it, day one is a dozen alerts
+    // that only say "the table is new".
+    const inGrace = withinNotReportingGrace(evidence, spec.cronName, now);
+
+    if (!inGrace && ageMinutes > dueAfterMinutes) {
       out.push({ kind: "not_reporting", cronName: spec.cronName, lastSeenAt, dueAfterMinutes });
       // A cron that isn't reporting cannot also have written an
       // implausible zero — one alarm, not two, for one fault.
@@ -66,6 +85,29 @@ export function evaluateCronAlarms(
     }
   }
   return out;
+}
+
+/**
+ * Whether "not reporting" is still graced for one cron. Exported so the
+ * evaluator reports the same set it acts on rather than recomputing it.
+ */
+export function withinNotReportingGrace(
+  evidence: AlarmEvidence,
+  cronName: string,
+  now: Date,
+): boolean {
+  const from = laterOf(
+    evidence.evaluatorFirstRunAt ?? null,
+    evidence.firstSeenByCron?.get(cronName) ?? null,
+  );
+  if (from === null) return true;
+  return now.getTime() - new Date(from).getTime() < NOT_REPORTING_GRACE_MS;
+}
+
+function laterOf(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
 }
 
 function implausibleZeroReason(

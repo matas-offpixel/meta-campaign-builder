@@ -24,6 +24,24 @@ export const MISSING_INTERVAL_MULTIPLIER = 2;
 export const ALERT_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * "Not reporting" stays silent for this long after a cron is first seen.
+ *
+ * `cron_runs` starts empty, so on day one EVERY entry looks like it has
+ * never reported — a dozen Slack messages that say nothing except "this
+ * table is new". A daily cron also needs a full day before its first row
+ * exists, and `internal-counts-ingest` is listed before Phase 1 ships the
+ * route at all.
+ *
+ * Measured from the later of the evaluator's own first run and the cron's
+ * own first row, so a cron added later gets its own grace rather than
+ * inheriting an expired one.
+ *
+ * Implausible-zero alarms are NOT graced: a cron that ran and wrote an
+ * impossible zero is telling you something true from its first run.
+ */
+export const NOT_REPORTING_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Meta spend is judged against the last two days, not the last run: Meta
  * backfills late and a show can legitimately spend nothing overnight.
  */
@@ -50,6 +68,13 @@ export const TIER_CHANNEL_WINDOW_DAYS = 7;
  * project. A cron that is supposed to write nothing must never be wired to
  * an alarm that fires when it writes nothing.
  */
+/**
+ * Leg names that live inside another cron's route. Exported so the route
+ * that records the leg and the list that watches it cannot drift apart.
+ */
+export const AUTOTAG_LEG_NAME = "refresh-active-creatives:autotag";
+export const CIRQLIN_LEG_NAME = "mailchimp-eod-snapshot:cirqlin";
+
 export const CRON_ALARMS: CronAlarmSpec[] = [
   // rollup-sync-events — 0 7,13,19 UTC. Longest gap 19:00 → 07:00 = 720.
   { cronName: "rollup-sync-events:meta", intervalMinutes: 720, zeroRule: "rollup_meta" },
@@ -65,7 +90,7 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
   // 30 7,13,19 UTC. Longest gap 19:30 → 07:30 = 720.
   { cronName: "refresh-active-creatives", intervalMinutes: 720, zeroRule: "never" },
   // Runs inside refresh-active-creatives; silent unless ENABLE_AI_AUTOTAG=1.
-  { cronName: "refresh-active-creatives:autotag", intervalMinutes: 720, zeroRule: "never" },
+  { cronName: AUTOTAG_LEG_NAME, intervalMinutes: 720, zeroRule: "never" },
 
   { cronName: "ad-daily-insights", intervalMinutes: 1440, zeroRule: "never" },
   { cronName: "learning-refresh", intervalMinutes: 1440, zeroRule: "never" },
@@ -74,7 +99,7 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
 
   // 55 23 UTC, with the Cirqlin signup sync as its own leg inside it.
   { cronName: "mailchimp-eod-snapshot", intervalMinutes: 1440, zeroRule: "never" },
-  { cronName: "mailchimp-eod-snapshot:cirqlin", intervalMinutes: 1440, zeroRule: "never" },
+  { cronName: CIRQLIN_LEG_NAME, intervalMinutes: 1440, zeroRule: "never" },
 
   { cronName: "optimisation-tick", intervalMinutes: 240, zeroRule: "never" },
   { cronName: "budget-pacing-check", intervalMinutes: 60, zeroRule: "never" },

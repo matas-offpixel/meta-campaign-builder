@@ -24,7 +24,13 @@ import {
   alarmDedupeKey,
   type AlarmCondition,
 } from "./cron-alarm-config.ts";
-import { evaluateCronAlarms, type AlarmEvidence, type CronRunFact } from "./cron-alarm-rules.ts";
+import {
+  evaluateCronAlarms,
+  withinNotReportingGrace,
+  type AlarmCounts,
+  type AlarmEvidence,
+  type CronRunFact,
+} from "./cron-alarm-rules.ts";
 import { recordCronRun } from "./cron-run-log.ts";
 
 export const CRON_ALARM_EVALUATOR_NAME = "cron-alarm-evaluator";
@@ -36,8 +42,10 @@ export interface EvaluatorResult {
   ok: boolean;
   conditions: AlarmCondition[];
   alerted: { dedupeKey: string; result: NotifyResult }[];
-  evidence: Omit<AlarmEvidence, "latestRunByCron">;
+  evidence: AlarmCounts;
   cronsSeen: number;
+  /** Crons still inside their 24h "not reporting" grace, for the run detail. */
+  inGrace: string[];
 }
 
 /** Latest run per cron name, across the longest window any spec cares about. */
@@ -77,7 +85,7 @@ async function loadLatestRuns(db: Db, now: Date): Promise<Map<string, CronRunFac
  * an archived client must never make a cron look broken, and the next one
  * archived has to behave the same without anybody editing this file.
  */
-async function loadEvidence(db: Db, now: Date): Promise<Omit<AlarmEvidence, "latestRunByCron">> {
+async function loadEvidence(db: Db, now: Date): Promise<AlarmCounts> {
   const today = now.toISOString().slice(0, 10);
   const spendSince = new Date(now.getTime() - ROLLUP_SPEND_LOOKBACK_DAYS * 86_400_000)
     .toISOString()
@@ -144,6 +152,36 @@ async function loadEvidence(db: Db, now: Date): Promise<Omit<AlarmEvidence, "lat
   };
 }
 
+/**
+ * Earliest `cron_runs` row per watched cron — the per-cron half of the
+ * grace period. One `limit(1)` per name rather than a scan of the whole
+ * table, which only grows: ~a dozen tiny indexed reads per run.
+ */
+async function loadFirstSeen(db: Db): Promise<Map<string, string>> {
+  const firstSeen = new Map<string, string>();
+  await Promise.all(
+    CRON_ALARMS.map(async (spec) => {
+      const { data, error } = await db
+        .from("cron_runs")
+        .select("started_at")
+        .eq("cron_name", spec.cronName)
+        .order("started_at", { ascending: true })
+        .limit(1);
+      if (error) throw new Error(`cron_runs first-seen read failed: ${error.message}`);
+      const first = (data ?? [])[0] as { started_at?: string } | undefined;
+      if (first?.started_at) firstSeen.set(spec.cronName, String(first.started_at));
+    }),
+  );
+  return firstSeen;
+}
+
+/** Which watched crons the grace period is still covering, for the detail. */
+function gracedCrons(evidence: AlarmEvidence, now: Date): string[] {
+  return CRON_ALARMS.filter((spec) =>
+    withinNotReportingGrace(evidence, spec.cronName, now),
+  ).map((spec) => spec.cronName);
+}
+
 function describe(condition: AlarmCondition): string {
   if (condition.kind === "not_reporting") {
     const seen = condition.lastSeenAt ? `last seen ${condition.lastSeenAt}` : "never reported";
@@ -160,20 +198,30 @@ export async function runCronAlarmEvaluator(
   const startedAt = now.toISOString();
   let conditions: AlarmCondition[] = [];
   const alerted: { dedupeKey: string; result: NotifyResult }[] = [];
-  let evidence: Omit<AlarmEvidence, "latestRunByCron"> = {
+  let evidence: AlarmCounts = {
     eventsWithRecentMetaSpend: 0,
     eventsExpectingTickets: 0,
     eventsInTierChannelWindow: 0,
   };
   let cronsSeen = 0;
+  let inGrace: string[] = [];
   let ok = true;
   let error: string | null = null;
 
   try {
-    const [latestRunByCron, loaded] = await Promise.all([loadLatestRuns(db, now), loadEvidence(db, now)]);
+    const [latestRunByCron, loaded, firstSeenByCron] = await Promise.all([
+      loadLatestRuns(db, now),
+      loadEvidence(db, now),
+      loadFirstSeen(db),
+    ]);
     evidence = loaded;
     cronsSeen = latestRunByCron.size;
-    conditions = evaluateCronAlarms({ ...loaded, latestRunByCron }, now);
+    // Null on the watcher's very first run: it records its own row after
+    // this, so there is nothing yet to measure a grace period from.
+    const evaluatorFirstRunAt = firstSeenByCron.get(CRON_ALARM_EVALUATOR_NAME) ?? null;
+    const full: AlarmEvidence = { ...loaded, latestRunByCron, firstSeenByCron, evaluatorFirstRunAt };
+    inGrace = gracedCrons(full, now);
+    conditions = evaluateCronAlarms(full, now);
 
     for (const condition of conditions) {
       const dedupeKey = alarmDedupeKey(condition);
@@ -200,11 +248,11 @@ export async function runCronAlarmEvaluator(
     ok,
     rowsWritten: conditions.length,
     rowsConsidered: cronsSeen,
-    detail: { evidence, conditions },
+    detail: { evidence, conditions, inGrace },
     error,
   });
 
-  return { ok, conditions, alerted, evidence, cronsSeen };
+  return { ok, conditions, alerted, evidence, cronsSeen, inGrace };
 }
 
 export { notify };

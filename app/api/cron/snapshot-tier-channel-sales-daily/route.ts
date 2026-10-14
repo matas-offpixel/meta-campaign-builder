@@ -184,7 +184,7 @@ export const GET = withCronRunLog(
       }
     },
     rows: (b) => Number(b.snapshotsWritten ?? 0),
-  considered: (b) => Number(b.eventsConsidered ?? 0),
+    considered: (b) => Number(b.eventsConsidered ?? 0),
   },
   handleGET,
 );
