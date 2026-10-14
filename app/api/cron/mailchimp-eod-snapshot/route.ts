@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   dropArchivedClientRows,
@@ -39,7 +41,7 @@ const DRIFT_TOLERANCE = 5;
  *
  * This guarantees correct end-of-day data even if webhooks were missed.
  */
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const cronStartedAt = Date.now();
   if (!isCronAuthorized(req.headers.get("authorization"))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -262,3 +264,18 @@ export async function GET(req: NextRequest) {
     cirqlinLeft,
   });
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "mailchimp-eod-snapshot",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.rowsWritten ?? 0),
+  },
+  handleGET,
+);

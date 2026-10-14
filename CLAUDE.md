@@ -102,6 +102,19 @@ Standalone Meta still launches ACTIVE from `ReviewLaunch` (launch panel only). S
 
 `clients.status = 'archived'` hides a client from default dashboard views (clients list, Today, events, overview, plans, library Drafts/Published, Armed) and from every cron (rollup-sync, refresh-active-creatives, show-week-burst, refresh-creative-insights, scan-enhancement-flags, budget-pacing, optimisation-tick, ad-daily-insights, Mailchimp, funnel-pacing, portal snapshots). Events, drafts, and plans are archived through their client (`campaign_drafts.client_id`, else the draft's event). Rows with no client stay visible. `paused` counts as active. The clients-list "Archived" / "All" filters and an explicit `clientId` still show archived clients. Share links and the client portal never check status. Use `lib/db/client-status.ts` (`ARCHIVED`, `activeClientFilter`, `loadArchivedClientIds`, `loadArchivedClientScope`). `lib/db/__tests__/client-status-guard.test.ts` fails on inline client-status `"archived"` literals.
 
+Archiving a client fully also means **pausing its ticketing connections**:
+`sync-ticketing` selects `.eq("status","active")`, so a connection left on
+`error` is skipped but still reads as a broken feed someone should fix.
+`status` is CHECK-constrained to `active | paused | error` — there is no
+`disabled`. 4theFans (`37906506-56b7-4d58-ab62-1b042e2b561a`) was archived
+this way on 14 Oct 2026: both connections (`fourthefans`, `eventbrite`) set
+to `paused`, `last_error` preserved. Its learning contribution needed no
+change — `lib/learning/joins.ts` already drops archived-client facts before
+`tag_performance`, `creative_scores` and `client_funnel_benchmarks` are
+recomputed, so cross-client `vertical`/`all` scopes re-aggregate without it.
+The cron alarms exclude archived clients by rule for the same reason: an
+archived client must never make a cron look broken.
+
 ### Meta API layer
 
 - `lib/meta/` — `client.ts`, `campaign.ts`, `adset.ts`, `creative.ts`, `upload.ts`

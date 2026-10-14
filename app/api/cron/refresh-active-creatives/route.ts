@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
@@ -301,7 +303,7 @@ function getAnthropicClient(): Anthropic | null {
   return new Anthropic({ apiKey });
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
@@ -799,3 +801,18 @@ function buildKnownTagsByHash(
 function creativeNameForGroup(group: ConceptGroupRow): string | null {
   return group.ad_names[0]?.trim() || group.display_name.trim() || null;
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "refresh-active-creatives",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.rowsWritten ?? 0),
+  },
+  handleGET,
+);
