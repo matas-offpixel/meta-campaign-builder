@@ -1,0 +1,94 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { evaluateCronAlarms, type AlarmEvidence, type CronRunFact } from "../cron-alarm-rules.ts";
+import { alarmDedupeKey, type CronAlarmSpec } from "../cron-alarm-config.ts";
+
+const NOW = new Date("2026-10-14T12:00:00Z");
+const run = (over: Partial<CronRunFact> = {}): CronRunFact => ({
+  cronName: "rollup-sync-events",
+  startedAt: "2026-10-14T11:00:00Z",
+  ok: true, rowsWritten: 10, rowsConsidered: 10, detail: {}, ...over,
+});
+const evidence = (over: Partial<AlarmEvidence> = {}): AlarmEvidence => ({
+  latestRunByCron: new Map(),
+  eventsWithRecentMetaSpend: 0,
+  eventsExpectingTickets: 0,
+  eventsInTierChannelWindow: 0,
+  ...over,
+});
+const SPEC: CronAlarmSpec[] = [
+  { cronName: "rollup-sync-events", intervalMinutes: 360, zeroRule: "rollup_meta" },
+];
+const TIER: CronAlarmSpec[] = [
+  { cronName: "snapshot-tier-channel-sales-daily", intervalMinutes: 1440, zeroRule: "tier_channel" },
+];
+
+describe("evaluateCronAlarms", () => {
+  it("is silent when a cron ran recently and wrote rows", () => {
+    const out = evaluateCronAlarms(
+      evidence({ latestRunByCron: new Map([["rollup-sync-events", run()]]) }), NOW, SPEC);
+    assert.deepEqual(out, []);
+  });
+
+  it("alarms when a cron has never reported at all", () => {
+    const out = evaluateCronAlarms(evidence(), NOW, SPEC);
+    assert.equal(out.length, 1);
+    assert.equal(out[0]?.kind, "not_reporting");
+    assert.equal((out[0] as { lastSeenAt: string | null }).lastSeenAt, null);
+  });
+
+  it("waits 2x the interval before calling a cron missing", () => {
+    // 7h late on a 6h cron: inside 2x, still quiet.
+    const quiet = evaluateCronAlarms(evidence({
+      latestRunByCron: new Map([["rollup-sync-events", run({ startedAt: "2026-10-14T05:00:00Z" })]]),
+    }), NOW, SPEC);
+    assert.deepEqual(quiet, []);
+    // 13h late: past 2x, alarm.
+    const loud = evaluateCronAlarms(evidence({
+      latestRunByCron: new Map([["rollup-sync-events", run({ startedAt: "2026-10-13T23:00:00Z" })]]),
+    }), NOW, SPEC);
+    assert.equal(loud[0]?.kind, "not_reporting");
+  });
+
+  it("stays silent on a zero when nothing was expected", () => {
+    const out = evaluateCronAlarms(evidence({
+      latestRunByCron: new Map([["rollup-sync-events", run({ rowsWritten: 0, rowsConsidered: 0 })]]),
+      eventsWithRecentMetaSpend: 0,
+    }), NOW, SPEC);
+    assert.deepEqual(out, [], "a quiet day must not train people to ignore the alarm");
+  });
+
+  it("alarms on a zero when claimed campaigns did spend", () => {
+    const out = evaluateCronAlarms(evidence({
+      latestRunByCron: new Map([["rollup-sync-events", run({ rowsWritten: 0 })]]),
+      eventsWithRecentMetaSpend: 3,
+    }), NOW, SPEC);
+    assert.equal(out[0]?.kind, "implausible_zero");
+    assert.match((out[0] as { reason: string }).reason, /3 event/);
+  });
+
+  it("does not alarm the tier-channel zero while every event is out of window", () => {
+    // Today's real state: all 54 events with tier-channel sales are >7d past.
+    const out = evaluateCronAlarms(evidence({
+      latestRunByCron: new Map([["snapshot-tier-channel-sales-daily",
+        run({ cronName: "snapshot-tier-channel-sales-daily", rowsWritten: 0, rowsConsidered: 0 })]]),
+      eventsInTierChannelWindow: 0,
+    }), NOW, TIER);
+    assert.deepEqual(out, []);
+  });
+
+  it("raises one alarm, not two, for a cron that is simply absent", () => {
+    const out = evaluateCronAlarms(evidence({ eventsWithRecentMetaSpend: 9 }), NOW, SPEC);
+    assert.equal(out.length, 1);
+    assert.equal(out[0]?.kind, "not_reporting");
+  });
+
+  it("gives each condition a stable dedupe key", () => {
+    assert.equal(
+      alarmDedupeKey({ kind: "not_reporting", cronName: "x", lastSeenAt: null, dueAfterMinutes: 1 }),
+      "cron_not_reporting:x");
+    assert.equal(
+      alarmDedupeKey({ kind: "implausible_zero", cronName: "x", rule: "tickets", reason: "r" }),
+      "cron_zero:x:tickets");
+  });
+});
