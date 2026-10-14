@@ -1,8 +1,10 @@
+import { lookupFallbackGeoConstant } from "../../google-ads/geo-resolve.ts";
 import { derivePlanDailyBudget, inclusiveDays } from "../../google-search/budget.ts";
 import {
   DEFAULT_GEO_TARGET_TYPE,
   DEFAULT_PACING,
   DEFAULT_STRUCTURE_MODE,
+  type GoogleSearchGeoTarget,
   type GoogleSearchPlanTree,
 } from "../../google-search/types.ts";
 import type { CampaignPlan } from "../types.ts";
@@ -110,5 +112,67 @@ export function planToGoogleDraft(plan: CampaignPlan): GoogleSearchPlanTree {
     ],
     plan_negatives: [],
     sitelinks: [],
+  };
+}
+
+/**
+ * Labels the verified geotarget list can name. Anything else is left
+ * out — a nearby id is not invented.
+ */
+export function googleGeoTargetsFromLabels(labels: string[]): GoogleSearchGeoTarget[] {
+  const seen = new Set<string>();
+  const targets: GoogleSearchGeoTarget[] = [];
+  for (const label of labels) {
+    const trimmed = label.trim();
+    if (!trimmed) continue;
+    const resource = lookupFallbackGeoConstant(trimmed);
+    if (!resource || seen.has(resource)) continue;
+    seen.add(resource);
+    targets.push({
+      location: trimmed,
+      resolved_resource_name: resource,
+      resolved_name: trimmed,
+    });
+  }
+  return targets;
+}
+
+/**
+ * Write the Google share onto the Search plan's budget columns
+ * (total_budget, daily_budget, campaign daily_budget) and the plan dates.
+ * Resolved location labels replace geo targets. An unresolved list leaves
+ * the targets already on the plan.
+ */
+export function applyPlanBudgetToGoogle(
+  tree: GoogleSearchPlanTree,
+  input: {
+    googleDaily: number;
+    startDate: string | null;
+    endDate: string | null;
+    locationLabels: string[];
+  },
+): GoogleSearchPlanTree {
+  const start = input.startDate?.slice(0, 10) || null;
+  const end = input.endDate?.slice(0, 10) || null;
+  const dateRange = start && end ? { since: start, until: end } : tree.plan.date_range;
+  const days = inclusiveDays(dateRange);
+  const daily = Math.round(Math.max(0, input.googleDaily) * 100) / 100;
+  const totalBudget = days && daily > 0 ? Math.round(daily * days * 100) / 100 : null;
+  const resolved = googleGeoTargetsFromLabels(input.locationLabels);
+  const campaigns =
+    tree.campaigns.length === 1
+      ? tree.campaigns.map((campaign) => ({ ...campaign, daily_budget: daily }))
+      : tree.campaigns;
+
+  return {
+    ...tree,
+    plan: {
+      ...tree.plan,
+      total_budget: totalBudget,
+      daily_budget: derivePlanDailyBudget(totalBudget, dateRange),
+      date_range: dateRange,
+      geo_targets: resolved.length > 0 ? resolved : tree.plan.geo_targets,
+    },
+    campaigns,
   };
 }
