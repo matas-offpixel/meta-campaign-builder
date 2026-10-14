@@ -1,4 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
+
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+import { recordCronRun } from "@/lib/reporting/cron-run-log";
+import { AUTOTAG_LEG_NAME } from "@/lib/reporting/cron-alarm-config";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
@@ -301,7 +305,7 @@ function getAnthropicClient(): Anthropic | null {
   return new Anthropic({ apiKey });
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
@@ -519,7 +523,7 @@ export async function GET(req: NextRequest) {
     `[cron refresh-active-creatives] cadence=base done events=${results.length} all_ok=${allOk} presets_written=${totalPresetsRefreshed} skipped_time_budget=${eventsSkippedTimeBudget} elapsed_ms=${Date.now() - runStartedMs}`,
   );
 
-  if (autoTagEnabled) {
+  {
     const totals = results.reduce(
       (acc, r) => {
         if (!r.aiAutoTag) return acc;
@@ -532,6 +536,10 @@ export async function GET(req: NextRequest) {
         acc.cacheCreationInputTokens +=
           r.aiAutoTag.usage.cacheCreationInputTokens;
         acc.inputTokens += r.aiAutoTag.usage.inputTokens;
+        acc.assignmentsUpserted += r.aiAutoTag.assignmentsUpserted;
+        acc.creativesConsidered += r.aiAutoTag.creativesConsidered;
+        acc.creativesTagged += r.aiAutoTag.creativesTagged;
+        acc.errors += r.aiAutoTag.errors;
         return acc;
       },
       {
@@ -543,11 +551,38 @@ export async function GET(req: NextRequest) {
         cacheReadInputTokens: 0,
         cacheCreationInputTokens: 0,
         inputTokens: 0,
+        assignmentsUpserted: 0,
+        creativesConsidered: 0,
+        creativesTagged: 0,
+        errors: 0,
       },
     );
-    console.log(
-      `[cron refresh-active-creatives] ai autotag totals claude_calls=${totals.claudeCalls} skip_count=${totals.skipCount} reused_cross_event=${totals.reusedCrossEvent} thumbnail_cache_hits=${totals.thumbnailCacheHits} thumbnail_meta_fetches=${totals.thumbnailMetaFetches} cache_read_input_tokens=${totals.cacheReadInputTokens} cache_creation_input_tokens=${totals.cacheCreationInputTokens} input_tokens=${totals.inputTokens}`,
-    );
+    if (autoTagEnabled) {
+      console.log(
+        `[cron refresh-active-creatives] ai autotag totals claude_calls=${totals.claudeCalls} skip_count=${totals.skipCount} reused_cross_event=${totals.reusedCrossEvent} thumbnail_cache_hits=${totals.thumbnailCacheHits} thumbnail_meta_fetches=${totals.thumbnailMetaFetches} cache_read_input_tokens=${totals.cacheReadInputTokens} cache_creation_input_tokens=${totals.cacheCreationInputTokens} input_tokens=${totals.inputTokens}`,
+      );
+    }
+
+    // The autotagger is a cron inside a cron: it has its own failure mode
+    // (ENABLE_AI_AUTOTAG unset, no Anthropic key, every creative skipped)
+    // that the parent's row cannot show, so it gets its own one. Recorded
+    // even when disabled — `enabled: false` in the detail is the answer to
+    // "why are no tags being written", and keeping the clock warm means a
+    // turned-off tagger reads as off rather than as a dead cron.
+    await recordCronRun(supabase, {
+      cronName: AUTOTAG_LEG_NAME,
+      startedAt: new Date(runStartedMs).toISOString(),
+      ok: totals.errors === 0,
+      rowsWritten: totals.assignmentsUpserted,
+      rowsConsidered: totals.creativesConsidered,
+      detail: {
+        enabled: autoTagEnabled,
+        anthropicKeyPresent: Boolean(process.env.ANTHROPIC_API_KEY),
+        claudeCalls: totals.claudeCalls,
+        creativesTagged: totals.creativesTagged,
+        errors: totals.errors,
+      },
+    });
   }
 
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
@@ -799,3 +834,18 @@ function buildKnownTagsByHash(
 function creativeNameForGroup(group: ConceptGroupRow): string | null {
   return group.ad_names[0]?.trim() || group.display_name.trim() || null;
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "refresh-active-creatives",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.rowsWritten ?? 0),
+  },
+  handleGET,
+);

@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+
 import { MetaApiError } from "@/lib/meta/client";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -153,7 +155,7 @@ function isAuthorized(req: NextRequest): boolean {
   return header.trim() === expected.trim();
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
@@ -386,3 +388,18 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "refresh-creative-insights",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.rowsWritten ?? 0),
+  },
+  handleGET,
+);

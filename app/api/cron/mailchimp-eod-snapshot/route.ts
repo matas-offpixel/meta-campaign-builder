@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+import { recordCronRun } from "@/lib/reporting/cron-run-log";
+import { CIRQLIN_LEG_NAME } from "@/lib/reporting/cron-alarm-config";
+
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   dropArchivedClientRows,
@@ -39,7 +43,7 @@ const DRIFT_TOLERANCE = 5;
  *
  * This guarantees correct end-of-day data even if webhooks were missed.
  */
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const cronStartedAt = Date.now();
   if (!isCronAuthorized(req.headers.get("authorization"))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -230,6 +234,7 @@ export async function GET(req: NextRequest) {
       buildLiveNotifyDeps(supabase),
     );
   let cirqlinLeft = 0;
+  const cirqlinStartedAt = new Date().toISOString();
   for (let i = 0; i < cirqlinEvents.length; i += 1) {
     if (cirqlinCronOverBudget(cronStartedAt, Date.now())) {
       cirqlinLeft = cirqlinCronLeft(cirqlinEvents.length, i);
@@ -254,6 +259,27 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // The Cirqlin signup sync is a cron inside a cron, with its own ways to
+  // go quiet: an unset read secret, a tag that matches nothing on Cirqlin's
+  // side, a time budget that ran out before the first event. None of that
+  // shows in the parent's row, which counts corrected snapshots.
+  const cirqlinDaysWritten = cirqlinResults.reduce((n, r) => n + (r.daysWritten ?? 0), 0);
+  await recordCronRun(supabase, {
+    cronName: CIRQLIN_LEG_NAME,
+    startedAt: cirqlinStartedAt,
+    ok: cirqlinResults.every((r) => r.ok),
+    rowsWritten: cirqlinDaysWritten,
+    rowsConsidered: cirqlinEvents.length,
+    detail: {
+      eventsSynced: cirqlinResults.filter((r) => r.ok).length,
+      eventsLeftOnBudget: cirqlinLeft,
+      counted: cirqlinResults.reduce((n, r) => n + (r.counted ?? 0), 0),
+      failures: cirqlinResults
+        .filter((r) => !r.ok)
+        .map((r) => ({ eventId: r.eventId, reason: r.reason ?? "unknown" })),
+    },
+  });
+
   return NextResponse.json({
     ok: true,
     eventsProcessed: results.length,
@@ -262,3 +288,18 @@ export async function GET(req: NextRequest) {
     cirqlinLeft,
   });
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "mailchimp-eod-snapshot",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.rowsWritten ?? 0),
+  },
+  handleGET,
+);

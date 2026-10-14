@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+
 import { upsertDailyHistory } from "@/lib/db/tier-channel-daily-history";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -41,7 +43,7 @@ function todayInLondon(): string {
   }).format(new Date());
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -170,3 +172,19 @@ export async function GET(req: NextRequest) {
     errors: errors.length > 0 ? errors : undefined,
   });
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "snapshot-tier-channel-sales-daily",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.snapshotsWritten ?? 0),
+    considered: (b) => Number(b.eventsConsidered ?? 0),
+  },
+  handleGET,
+);
