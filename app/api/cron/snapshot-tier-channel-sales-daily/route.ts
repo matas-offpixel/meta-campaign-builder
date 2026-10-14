@@ -82,10 +82,37 @@ export async function GET(req: NextRequest) {
     if (page.length < 1000) break;
   }
 
+  // Stop at a week past the show. Without this the cron writes a daily row
+  // for every archived event for ever — ~50 finished 4theFans fixtures
+  // alone — and the history table grows with rows nobody reads. A week of
+  // grace covers late settlement and post-show corrections.
+  const staleBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const candidateIds = [...new Set(allSalesRows.map((r) => String(r.event_id)))];
+  const liveEventIds = new Set<string>();
+  for (let from = 0; from < candidateIds.length; from += 500) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("id, event_date")
+      .in("id", candidateIds.slice(from, from + 500));
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message, startedAt },
+        { status: 500 },
+      );
+    }
+    for (const row of (data ?? []) as { id: string; event_date: string | null }[]) {
+      // A null event_date has no show to be past, so it stays in.
+      if (!row.event_date || row.event_date >= staleBefore) liveEventIds.add(row.id);
+    }
+  }
+
   // Cumulative total per event across all tiers and channels.
   const fullTotals = new Map<string, { tickets: number; revenue: number }>();
   for (const row of allSalesRows) {
     const eid = String(row.event_id);
+    if (!liveEventIds.has(eid)) continue;
     const cur = fullTotals.get(eid) ?? { tickets: 0, revenue: 0 };
     cur.tickets += Number(row.tickets_sold ?? 0);
     cur.revenue += Number(row.revenue_amount ?? 0);
@@ -139,6 +166,7 @@ export async function GET(req: NextRequest) {
     eventsConsidered: fullTotals.size,
     snapshotsWritten: written,
     rowsScanned: allSalesRows.length,
+    eventsSkippedStale: candidateIds.length - liveEventIds.size,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
