@@ -92,3 +92,73 @@ describe("evaluateCronAlarms", () => {
       "cron_zero:x:tickets");
   });
 });
+
+describe("the agreed alarm set", () => {
+  it("keeps sync-ticketing silent now that no connection is active", async () => {
+    const { CRON_ALARMS } = await import("../cron-alarm-config.ts");
+    const spec = CRON_ALARMS.filter((s) => s.cronName === "sync-ticketing");
+    // 4theFans' two connections were paused on 14 Oct, so the cron
+    // legitimately considers 0 and writes 0 on every run.
+    const out = evaluateCronAlarms(
+      evidence({
+        latestRunByCron: new Map([[
+          "sync-ticketing",
+          run({ cronName: "sync-ticketing", rowsWritten: 0, rowsConsidered: 0 }),
+        ]]),
+        eventsExpectingTickets: 0,
+      }),
+      NOW,
+      spec,
+    );
+    assert.deepEqual(out, [], "no active connections means no tickets expected");
+  });
+
+  it("still alarms sync-ticketing if an event genuinely expects tickets", async () => {
+    const { CRON_ALARMS } = await import("../cron-alarm-config.ts");
+    const spec = CRON_ALARMS.filter((s) => s.cronName === "sync-ticketing");
+    const out = evaluateCronAlarms(
+      evidence({
+        latestRunByCron: new Map([[
+          "sync-ticketing",
+          run({ cronName: "sync-ticketing", rowsWritten: 0, rowsConsidered: 0 }),
+        ]]),
+        eventsExpectingTickets: 2,
+      }),
+      NOW, spec,
+    );
+    assert.equal(out[0]?.kind, "implausible_zero");
+  });
+
+  it("tolerates the overnight gap without crying every morning", async () => {
+    const { CRON_ALARMS } = await import("../cron-alarm-config.ts");
+    const spec = CRON_ALARMS.filter((s) => s.cronName === "rollup-sync-events:meta");
+    // 19:00 run, evaluated at 06:00 — 11h, inside 2x720.
+    const out = evaluateCronAlarms(
+      evidence({
+        latestRunByCron: new Map([[
+          "rollup-sync-events:meta",
+          run({ cronName: "rollup-sync-events:meta", startedAt: "2026-10-13T19:00:00Z" }),
+        ]]),
+      }),
+      new Date("2026-10-14T06:00:00Z"), spec,
+    );
+    assert.deepEqual(out, []);
+  });
+
+  it("watches the watcher", async () => {
+    const { CRON_ALARMS } = await import("../cron-alarm-config.ts");
+    const spec = CRON_ALARMS.filter((s) => s.cronName === "cron-alarm-evaluator");
+    assert.equal(spec.length, 1, "the evaluator must be in its own alarm set");
+    const out = evaluateCronAlarms(evidence(), NOW, spec);
+    assert.equal(out[0]?.kind, "not_reporting");
+  });
+
+  it("excludes the crons that are 0 by design", async () => {
+    const { CRON_ALARMS } = await import("../cron-alarm-config.ts");
+    const names = CRON_ALARMS.map((s) => s.cronName);
+    for (const excluded of ["match-attribution", "show-week-burst", "bm-page-scan", "mailchimp-backfill-tick"]) {
+      assert.ok(!names.includes(excluded), `${excluded} must not be alarmed`);
+    }
+    assert.ok(!names.some((n) => n.startsWith("d2c-")), "d2c crons are idle");
+  });
+});
