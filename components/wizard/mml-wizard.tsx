@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
@@ -11,6 +11,7 @@ import { Creatives } from "@/components/steps/creatives";
 import { OptimisationStrategy } from "@/components/steps/optimisation-strategy";
 import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import { MmlStepAudiences } from "@/components/wizard/mml-step-audiences";
+import { MmlBudgetReview, MmlStepBudget, type MmlBudgetController } from "@/components/wizard/mml-step-budget";
 import { MmlStepClient } from "@/components/wizard/mml-step-client";
 import { MmlStepObjective } from "@/components/wizard/mml-step-objective";
 import { MmlTikTokReelRow } from "@/components/wizard/mml-tiktok-reel-row";
@@ -38,7 +39,13 @@ import {
   type MmlWizardStep,
 } from "@/lib/plan/mml-wizard";
 import type { PlanAdapterName, CampaignPlan } from "@/lib/plan/types";
-import { attachedAdSetKey, type AdSetSuggestion, type AudienceSettings, type WizardStep } from "@/lib/types";
+import {
+  attachedAdSetKey,
+  type AdSetSuggestion,
+  type AudienceSettings,
+  type BudgetScheduleSettings,
+  type WizardStep,
+} from "@/lib/types";
 import { validateStep } from "@/lib/validation";
 import { useCampaignDraft } from "@/lib/wizard/use-campaign-draft";
 import { splitRotationOntoOwnAdSet } from "@/lib/wizard/split-rotation-adset";
@@ -136,7 +143,7 @@ export function MmlWizard({
   const channel = location.channel;
 
   useEffect(() => {
-    if (step === 3) return;
+    if (step === 3 || step === 5) return;
     if (step < 3 || step > 6 || channel !== "meta") setReported([]);
   }, [step, channel]);
 
@@ -338,6 +345,7 @@ function MmlStepSwitch({
   onPageInstagramOverride: (pageId: string, igId: string) => void;
   meta: ReactNode;
 } & Shared) {
+  const budgetController = useRef<MmlBudgetController | null>(null);
   if (step === 0) {
     return (
       <MmlStepClient
@@ -387,6 +395,10 @@ function MmlStepSwitch({
         onSettings={onSettings}
         onPageInstagramOverride={onPageInstagramOverride}
         onBlockers={shared.onBlockers}
+        budget={shared.plan.intent.budget}
+        startDate={shared.plan.intent.startDate}
+        endDate={shared.plan.intent.endDate}
+        budgetType={draft?.budgetSchedule.budgetType ?? "daily"}
       />
     );
   }
@@ -398,7 +410,73 @@ function MmlStepSwitch({
       </div>
     );
   }
-  if (step === 7) return <div className="mx-auto max-w-5xl">{shared.launch}</div>;
+  if (step === 5) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-4">
+        <MmlStepBudget
+          plan={shared.plan}
+          channels={shared.channels}
+          onChannels={shared.onChannels}
+          onPatchIntent={shared.onPatchIntent}
+          onBlockers={shared.onBlockers}
+          events={shared.events}
+          tiktokDraftId={shared.plan.launches.tiktok.draftId}
+          googleDraftId={shared.plan.launches.google.draftId}
+          onApplyDraft={draft ? onApplyDraft : null}
+          budgetSchedule={draft?.budgetSchedule ?? null}
+          controllerRef={budgetController}
+        />
+        {draft ? (
+          <BudgetSchedule
+            budgetSchedule={draft.budgetSchedule}
+            adSetSuggestions={draft.adSetSuggestions}
+            audiences={draft.audiences}
+            settings={draft.settings}
+            onBudgetChange={(update) => {
+              let prevSchedule: BudgetScheduleSettings | null = null;
+              let nextSchedule: BudgetScheduleSettings | null = null;
+              onApplyDraft((current) => {
+                prevSchedule = current.budgetSchedule;
+                nextSchedule = update(current.budgetSchedule);
+                return { ...current, budgetSchedule: nextSchedule };
+              });
+              if (prevSchedule && nextSchedule) {
+                budgetController.current?.observeSchedule(prevSchedule, nextSchedule);
+              }
+            }}
+            onSuggestionsChange={(adSetSuggestions) => onApplyDraft((current) => ({ ...current, adSetSuggestions }))}
+            onSettingsChange={onSettings}
+            generateReplaceImportedConfirmed={draft.generateReplaceImportedConfirmed}
+            onGenerateReplaceImportedConfirmed={() =>
+              onApplyDraft((current) =>
+                current.generateReplaceImportedConfirmed
+                  ? current
+                  : { ...current, generateReplaceImportedConfirmed: true },
+              )
+            }
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">This plan has no Meta draft yet.</p>
+        )}
+      </div>
+    );
+  }
+  if (step === 7) {
+    const venueName = shared.events.find((event) => event.id === shared.plan.intent.eventId)?.venueName ?? null;
+    return (
+      <div className="mx-auto max-w-5xl space-y-4">
+        <MmlBudgetReview
+          budget={shared.plan.intent.budget}
+          channels={shared.channels}
+          mode={draft?.budgetSchedule.budgetType === "lifetime" ? "lifetime" : "daily"}
+          startDate={draft?.budgetSchedule.startDate || shared.plan.intent.startDate}
+          endDate={draft?.budgetSchedule.endDate || shared.plan.intent.endDate}
+          venueName={venueName}
+        />
+        {shared.launch}
+      </div>
+    );
+  }
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <ChannelPills channels={shared.channels} channel={shared.channel} onChannel={shared.onChannel} />
@@ -436,9 +514,7 @@ function MetaStepBody({
     draft,
     updateSettings,
     updateCreatives,
-    updateBudgetSchedule,
     updateAdSetSuggestions,
-    markGenerateReplaceImportedConfirmed,
     updateCreativeAssignments,
     updateOptimisationStrategy,
   } = controller;
@@ -487,21 +563,7 @@ function MetaStepBody({
       />
     );
   }
-  if (step === 5) {
-    return (
-      <BudgetSchedule
-        budgetSchedule={draft.budgetSchedule}
-        adSetSuggestions={draft.adSetSuggestions}
-        audiences={draft.audiences}
-        settings={draft.settings}
-        onBudgetChange={updateBudgetSchedule}
-        onSuggestionsChange={updateAdSetSuggestions}
-        onSettingsChange={updateSettings}
-        generateReplaceImportedConfirmed={draft.generateReplaceImportedConfirmed}
-        onGenerateReplaceImportedConfirmed={markGenerateReplaceImportedConfirmed}
-      />
-    );
-  }
+  if (step === 5) return null;
   if (step === 6) {
     const selectedAdSets =
       draft.settings.existingMetaAdSets ??

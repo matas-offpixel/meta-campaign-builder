@@ -10,8 +10,15 @@ import { AudiencesStep as TikTokAudiencesStep } from "@/components/tiktok-wizard
 import { getTikTokDraft, upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
 import { useGoogleSearchTree } from "@/lib/wizard/use-google-search-tree";
 import { googleKeywordBlockers } from "@/lib/plan/drawer";
-import { tikTokNeedsRegionalLocation, tikTokRegionalRegion } from "@/lib/plan/mml-wizard";
-import type { MmlChannel, MmlChannelSelection } from "@/lib/plan/mml-wizard";
+import { channelDisplayAmount, mmlBudgetDays, planTikTokAdGroups, tikTokGroupLines } from "@/lib/plan/mml-budget";
+import {
+  tikTokNeedsRegionalLocation,
+  tikTokRegionalRegion,
+  venueCityToken,
+  type MmlChannel,
+  type MmlChannelSelection,
+} from "@/lib/plan/mml-wizard";
+import type { CampaignPlanBudgetSplit } from "@/lib/plan/types";
 import type { PlanEventOption } from "@/lib/plan/event-picker";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { TikTokRegionOption } from "@/lib/tiktok/audience";
@@ -38,6 +45,10 @@ export function MmlStepAudiences({
   onSettings,
   onPageInstagramOverride,
   onBlockers,
+  budget,
+  startDate,
+  endDate,
+  budgetType,
 }: {
   channels: MmlChannelSelection;
   draft: CampaignDraft | null;
@@ -50,6 +61,10 @@ export function MmlStepAudiences({
   onSettings: (settings: CampaignSettings) => void;
   onPageInstagramOverride: (pageId: string, igId: string) => void;
   onBlockers: (errors: string[]) => void;
+  budget: CampaignPlanBudgetSplit;
+  startDate: string | null;
+  endDate: string | null;
+  budgetType: "daily" | "lifetime";
 }) {
   const selected = (["meta", "tiktok", "google"] as const).filter((channel) => channels[channel]);
   const [tab, setTab] = useState<MmlChannel>(selected[0] ?? "meta");
@@ -182,7 +197,17 @@ export function MmlStepAudiences({
               ? "Open audience"
               : "Interests"}
           </p>
-          <p className="text-sm text-muted-foreground">Regional · nationwide decided by budget in step 6</p>
+          {tikTokAudienceLines({
+            budget,
+            budgetType,
+            startDate,
+            endDate,
+            venueName,
+          }).map((line) => (
+            <p key={line} className="text-sm text-muted-foreground">
+              {line}
+            </p>
+          ))}
           <details className="rounded-md border border-border bg-card">
             <summary className="flex cursor-pointer list-none items-center gap-1 px-4 py-3 text-sm font-medium">
               details
@@ -224,6 +249,25 @@ function GoogleKeywordsTab({
       <NegativesStep surface="drawer" tree={google.tree} onChange={google.onChange} />
     </div>
   );
+}
+
+function tikTokAudienceLines(input: {
+  budget: CampaignPlanBudgetSplit;
+  budgetType: "daily" | "lifetime";
+  startDate: string | null;
+  endDate: string | null;
+  venueName: string | null;
+}): string[] {
+  const days = mmlBudgetDays(input.startDate?.slice(0, 10) ?? null, input.endDate?.slice(0, 10) ?? null);
+  const token = venueCityToken(input.venueName);
+  const venue = token ? token.charAt(0).toUpperCase() + token.slice(1) : "venue";
+  const plan = planTikTokAdGroups({
+    share: channelDisplayAmount(input.budget.tiktokDaily, input.budgetType, days),
+    mode: input.budgetType,
+    days,
+    venueLabel: venue,
+  });
+  return tikTokGroupLines(plan, input.budgetType, days);
 }
 
 function StatusDot({ count }: { count: number }) {

@@ -1,6 +1,7 @@
 import { TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE } from "../../tiktok-wizard/campaign-setup.ts";
 import {
   createDefaultTikTokDraft,
+  type TikTokAdGroupDraft,
   type TikTokCampaignDraft,
   type TikTokObjective,
 } from "../../types/tiktok-draft.ts";
@@ -101,4 +102,81 @@ export function planToTikTokDraft(plan: CampaignPlan): TikTokCampaignDraft {
   draft.creativeAssignments.byAdGroupId = { [adGroupId]: [creativeId] };
 
   return draft;
+}
+
+export interface TikTokAdGroupPlanInput {
+  mode: "DAILY" | "LIFETIME";
+  /** TikTok's daily share, in major units. */
+  dailyAmount: number;
+  groups: Array<{ role: "regional" | "nationwide"; name: string; amount: number }>;
+  startDate: string | null;
+  endDate: string | null;
+  startTime: string | null;
+  endTime: string | null;
+}
+
+function isNationwideGroup(name: string): boolean {
+  return name === "Nationwide UK" || name.startsWith("Nationwide UK");
+}
+
+/**
+ * Patch budget, schedule, and ad groups onto a TikTok draft that already
+ * has creatives. An empty group list is a no-op so a share under TikTok's
+ * minimum is never written. Locations stay the draft's existing codes:
+ * the write path has one location list, and the nationwide group is the
+ * extra ad group named here.
+ */
+export function applyTikTokAdGroupPlan(
+  draft: TikTokCampaignDraft,
+  input: TikTokAdGroupPlanInput,
+): TikTokCampaignDraft {
+  if (input.groups.length === 0) return draft;
+
+  const existing = draft.budgetSchedule.adGroups;
+  const nationwideExisting = existing.find((group) => isNationwideGroup(group.name));
+  const regionalExisting = existing.find((group) => group !== nationwideExisting) ?? existing[0];
+
+  const adGroups: TikTokAdGroupDraft[] = input.groups.map((group) => {
+    const kept = group.role === "nationwide" ? nationwideExisting : regionalExisting;
+    return {
+      id: kept?.id ?? crypto.randomUUID(),
+      name: group.name,
+      budget: group.amount,
+      startAt: kept?.startAt ?? null,
+      endAt: kept?.endAt ?? null,
+      ...(kept?.interestGroupId != null ? { interestGroupId: kept.interestGroupId } : {}),
+    };
+  });
+
+  const assignments = { ...draft.creativeAssignments.byAdGroupId };
+  const regionalId = adGroups.find((group) => group.name.startsWith("Regional ·"))?.id;
+  const nationwideId = adGroups.find((group) => isNationwideGroup(group.name))?.id;
+  if (nationwideId && regionalId && !assignments[nationwideId] && assignments[regionalId]) {
+    assignments[nationwideId] = [...assignments[regionalId]];
+  }
+  const keptIds = new Set(adGroups.map((group) => group.id));
+  for (const id of Object.keys(assignments)) {
+    if (!keptIds.has(id)) delete assignments[id];
+  }
+
+  const amount = Math.round(input.groups.reduce((sum, group) => sum + group.amount, 0) * 100) / 100;
+
+  return {
+    ...draft,
+    budgetSchedule: {
+      ...draft.budgetSchedule,
+      budgetMode: input.mode,
+      budgetAmount: amount,
+      dailyBudget: input.dailyAmount,
+      lifetimeBudget: input.mode === "LIFETIME" ? amount : null,
+      scheduleStartAt: composeTikTokScheduleAt(
+        input.startDate,
+        input.startTime,
+        TIKTOK_DEFAULT_START_HOUR,
+      ),
+      scheduleEndAt: composeTikTokScheduleAt(input.endDate, input.endTime, TIKTOK_DEFAULT_END_HOUR),
+      adGroups,
+    },
+    creativeAssignments: { byAdGroupId: assignments },
+  };
 }
