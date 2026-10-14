@@ -48,6 +48,30 @@ export async function loadLaunchRollupDays(
   return ((data ?? []) as Array<Record<string, unknown>>).map(rollupDayFromRow);
 }
 
+export async function loadTikTokBenchmarkRows(
+  supabase: unknown,
+  clientId: string,
+): Promise<BenchmarkRow[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const client = supabase as any;
+  const { data, error } = await client
+    .from(BENCHMARK_VIEW)
+    .select("client_id, venue_key, event_id, event_code, event_date, unit, channel, cost")
+    .eq("client_id", clientId)
+    .eq("channel", "tiktok");
+  if (error) return [];
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    client_id: String(row.client_id ?? ""),
+    venue_key: String(row.venue_key ?? ""),
+    event_id: String(row.event_id ?? ""),
+    event_code: String(row.event_code ?? ""),
+    event_date: row.event_date == null ? null : String(row.event_date),
+    unit: String(row.unit ?? ""),
+    channel: String(row.channel ?? ""),
+    cost: num(row.cost),
+  }));
+}
+
 export async function loadPlanBenchmarkRows(
   supabase: unknown,
   input: { clientId: string; venueKey: string },

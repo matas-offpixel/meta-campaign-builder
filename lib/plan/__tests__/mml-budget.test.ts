@@ -6,13 +6,20 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY } from "../../tiktok/write/mapping.ts";
+import {
+  TIKTOK_MIN_CAMPAIGN_DAILY_BUDGET_BY_CURRENCY,
+  TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY,
+  tikTokCampaignBudgetIssue,
+} from "../../tiktok/write/mapping.ts";
+import { formatTikTokAdGroupReviewLine } from "../../tiktok-wizard/budget-schedule.ts";
 import { applyPlanBudgetToGoogle } from "../adapters/google.ts";
 import { applyTikTokAdGroupPlan, planToTikTokDraft } from "../adapters/tiktok.ts";
 import { applyPreset } from "../budget-split.ts";
 import { planToGoogleDraft } from "../adapters/google.ts";
 import {
   TIKTOK_MIN_ADGROUP_DAILY_GBP,
+  TIKTOK_MIN_CAMPAIGN_DAILY_GBP,
+  mmlTikTokCampaignBudget,
   applyDisplayedPreset,
   channelDisplayAmount,
   editDisplayedShare,
@@ -81,12 +88,14 @@ describe("outlet split", () => {
 });
 
 describe("TikTok ad groups", () => {
-  it("uses TikTok's GBP floor, not the recalled £20", () => {
-    assert.equal(TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY.GBP, 50);
+  it("uses TikTok's £20 ad-group floor and £50 campaign floor", () => {
+    assert.equal(TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY.GBP, 20);
     assert.equal(TIKTOK_MIN_ADGROUP_DAILY_GBP, TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY.GBP);
+    assert.equal(TIKTOK_MIN_CAMPAIGN_DAILY_GBP, 50);
+    assert.equal(TIKTOK_MIN_CAMPAIGN_DAILY_BUDGET_BY_CURRENCY.GBP, 50);
     assert.equal(
       tikTokMinimumMessage(TIKTOK_MIN_ADGROUP_DAILY_GBP),
-      "TikTok needs at least £50/day (TikTok's minimum per ad group)",
+      "TikTok needs at least £20/day per ad group",
     );
   });
 
@@ -101,7 +110,7 @@ describe("TikTok ad groups", () => {
     });
     assert.equal(blocked.blocked, true);
     assert.equal(blocked.groups.length, 0);
-    assert.equal(blocked.message, "TikTok needs at least £20/day (TikTok's minimum per ad group)");
+    assert.equal(blocked.message, "TikTok needs at least £20/day per ad group");
 
     const regional = planTikTokAdGroups({
       share: 30,
@@ -183,45 +192,73 @@ describe("TikTok ad groups", () => {
     ]);
   });
 
-  it("blocks £15, £30 and £55 at TikTok's £50 floor, and adds nationwide at £100", () => {
-    const blocked = (share: number) =>
+  it("blocks £15, keeps £30 regional, and splits £55 into £20 and £35", () => {
+    const planned = (share: number) =>
       planTikTokAdGroups({ share, mode: "daily", days: null, venueLabel: "Newcastle" });
-    assert.equal(blocked(15).blocked, true);
-    assert.equal(blocked(30).blocked, true);
-    assert.equal(blocked(45).blocked, true);
-    assert.match(blocked(15).message ?? "", /£50\/day/);
+    assert.equal(planned(15).blocked, true);
+    assert.equal(planned(15).groups.length, 0);
+    assert.equal(planned(15).message, "TikTok needs at least £20/day per ad group");
 
-    const regional = blocked(55);
+    const regional = planned(30);
     assert.equal(regional.blocked, false);
     assert.deepEqual(
       regional.groups.map((group) => [group.role, group.amount]),
-      [["regional", 55]],
+      [["regional", 30]],
     );
 
-    const both = blocked(100);
+    const both = planned(55);
     assert.deepEqual(
       both.groups.map((group) => [group.name, group.amount]),
       [
-        ["Regional · Newcastle", 50],
-        ["Nationwide UK", 50],
+        ["Regional · Newcastle", 20],
+        ["Nationwide UK", 35],
       ],
     );
-    const more = blocked(135);
-    assert.equal(more.groups[0]!.amount, 50);
-    assert.equal(more.groups[1]!.amount, 85);
-    assert.equal(more.groups[0]!.amount + more.groups[1]!.amount, 135);
+    assert.equal(both.groups[0]!.amount + both.groups[1]!.amount, 55);
   });
 
-  it("blocks a lifetime share under £50 × days and writes nothing under the floor", () => {
+  it("blocks a campaign budget of £40, allows £50, and allows unset", () => {
+    const base = {
+      budgetMode: "DAILY" as const,
+      startAt: "2026-10-01T00:00:00Z",
+      endAt: "2026-10-10T00:00:00Z",
+      currency: "GBP",
+    };
+    assert.match(tikTokCampaignBudgetIssue({ ...base, budgetAmount: 40 }) ?? "", /50/);
+    assert.equal(tikTokCampaignBudgetIssue({ ...base, budgetAmount: 50 }), null);
+    assert.equal(tikTokCampaignBudgetIssue({ ...base, budgetAmount: null }), null);
+    assert.equal(mmlTikTokCampaignBudget({ dailyAmount: 40, mode: "DAILY", groupTotal: 40 }), null);
+    assert.equal(mmlTikTokCampaignBudget({ dailyAmount: 50, mode: "DAILY", groupTotal: 50 }), 50);
+    assert.equal(
+      formatTikTokAdGroupReviewLine({
+        index: 1,
+        dailyAmount: 20,
+        targetCost: 10,
+        resultLabel: "purchase",
+      }),
+      "Ad group 1 · £20/day · target £10 per purchase",
+    );
+    assert.equal(
+      formatTikTokAdGroupReviewLine({
+        index: 1,
+        dailyAmount: 20,
+        targetCost: null,
+        resultLabel: "purchase",
+      }),
+      "Ad group 1 · £20/day",
+    );
+  });
+
+  it("blocks a lifetime share under £20 × days and writes nothing under the floor", () => {
     const days = 4;
     const under = planTikTokAdGroups({
-      share: 100,
+      share: 70,
       mode: "lifetime",
       days,
       venueLabel: "Newcastle",
     });
     assert.equal(under.blocked, true);
-    assert.equal(under.minimum, 200);
+    assert.equal(under.minimum, 80);
     assert.equal(under.groups.length, 0);
 
     const draft = planToTikTokDraft(readyPlan());
@@ -261,8 +298,9 @@ describe("TikTok ad groups", () => {
       endTime: null,
     });
     assert.equal(once.budgetSchedule.adGroups.length, 2);
-    assert.equal(once.budgetSchedule.adGroups[0]!.budget, 50);
-    assert.equal(once.budgetSchedule.adGroups[1]!.budget, 70);
+    assert.equal(once.budgetSchedule.adGroups[0]!.budget, 20);
+    assert.equal(once.budgetSchedule.adGroups[1]!.budget, 100);
+    assert.equal(once.budgetSchedule.budgetAmount, 120);
     assert.equal(once.budgetSchedule.dailyBudget, 120);
     assert.deepEqual(twice.budgetSchedule.adGroups, once.budgetSchedule.adGroups);
     assert.deepEqual(
@@ -308,9 +346,9 @@ describe("step 6 blockers", () => {
   it("blocks TikTok under the live minimum and offers a raise that reaches it", () => {
     const budget = { totalDaily: 100, metaDaily: 80, tiktokDaily: 15, googleDaily: 5 };
     const errors = mmlBudgetBlockers({ ...base, budget });
-    assert.deepEqual(errors, ["TikTok needs at least £50/day (TikTok's minimum per ad group)"]);
+    assert.deepEqual(errors, ["TikTok needs at least £20/day per ad group"]);
     const raised = raiseTikTokToMinimum(budget, ALL);
-    assert.equal(raised.tiktokDaily, 50);
+    assert.equal(raised.tiktokDaily, 20);
     assert.equal(sumPence(raised), pence(raised.totalDaily));
     assert.equal(
       mmlBudgetBlockers({ ...base, budget: raised }).some((line) => line.includes("TikTok needs")),
@@ -322,9 +360,9 @@ describe("step 6 blockers", () => {
       tiktok: true,
       google: false,
     });
-    assert.equal(tiny.tiktokDaily, 50);
-    assert.equal(tiny.metaDaily, 20);
-    assert.equal(tiny.totalDaily, 70);
+    assert.equal(tiny.tiktokDaily, 20);
+    assert.equal(tiny.metaDaily, 10);
+    assert.equal(tiny.totalDaily, 30);
 
     const off = turnChannelOff(budget, ALL, "tiktok");
     assert.equal(off.selected.tiktok, false);

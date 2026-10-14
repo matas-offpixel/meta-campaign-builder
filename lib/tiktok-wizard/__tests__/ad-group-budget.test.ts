@@ -49,7 +49,7 @@ function relaunch2Draft() {
     {
       id: LONDON_ID,
       name: "London",
-      budget: 30,
+      budget: 15,
       startAt: null,
       endAt: null,
     },
@@ -87,7 +87,7 @@ describe("937e9b11 ad-group budget is the number that blocks", () => {
     assert.ok(tikTokAdGroupBudgetIssue(blocked.issues, LONDON_ID));
     assert.match(
       tikTokAdGroupBudgetIssue(blocked.issues, LONDON_ID)!.message,
-      /below TikTok's GBP minimum of 50/,
+      /below TikTok's GBP minimum of 20/,
     );
     assert.equal(
       blocked.issues.some((issue) => issue.id === `adgroup-${LONDON_ID}-budget`),
@@ -116,7 +116,7 @@ describe("937e9b11 ad-group budget is the number that blocks", () => {
 
   it("an ad group at exactly the floor passes; one a penny under does not", () => {
     const atFloor = relaunch2Draft();
-    atFloor.budgetSchedule.adGroups[0]!.budget = 50;
+    atFloor.budgetSchedule.adGroups[0]!.budget = 20;
     assert.equal(
       tikTokAdGroupBudgetIssue(
         collectTikTokLaunchPreflight(atFloor).issues,
@@ -126,13 +126,13 @@ describe("937e9b11 ad-group budget is the number that blocks", () => {
     );
 
     const under = relaunch2Draft();
-    under.budgetSchedule.adGroups[0]!.budget = 49.99;
+    under.budgetSchedule.adGroups[0]!.budget = 19.99;
     const issue = tikTokAdGroupBudgetIssue(
       collectTikTokLaunchPreflight(under).issues,
       LONDON_ID,
     );
     assert.ok(issue);
-    assert.match(issue.message, /49\.99/);
+    assert.match(issue.message, /19\.99/);
   });
 
   it("a currency with no documented floor does not block on amount", () => {
@@ -162,13 +162,13 @@ describe("937e9b11 ad-group budget is the number that blocks", () => {
       budgetAmount: 80,
       dailyBudget: 80,
     };
-    assert.equal(patched.adGroups[0]?.budget, 30);
+    assert.equal(patched.adGroups[0]?.budget, 15);
     const reconciled = reconcileTikTokAdGroups({
       ...draft,
       budgetSchedule: patched,
     });
     assert.equal(reconciled.adGroups.length, 1);
-    assert.equal(reconciled.adGroups[0]?.budget, 30);
+    assert.equal(reconciled.adGroups[0]?.budget, 15);
     assert.equal(reconciled.changed, false);
   });
 
@@ -187,9 +187,9 @@ describe("937e9b11 ad-group budget is the number that blocks", () => {
     const next = patchTikTokAdGroupBudget(
       draft.budgetSchedule.adGroups,
       LONDON_ID,
-      50,
+      20,
     );
-    assert.equal(next[0]?.budget, 50);
+    assert.equal(next[0]?.budget, 20);
     assert.equal(next[1]?.budget, 40);
     assert.equal(draft.budgetSchedule.budgetAmount, 50);
     assert.equal(
@@ -305,7 +305,7 @@ describe("Assign ad-group budget field (task #139)", () => {
         endAt: "2027-09-08T09:00",
         currency: "GBP",
       }),
-      "TikTok's GBP minimum for DAILY is 50",
+      "TikTok's GBP minimum for DAILY is 20",
     );
   });
 });

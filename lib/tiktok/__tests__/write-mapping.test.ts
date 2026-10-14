@@ -27,6 +27,7 @@ import {
   mapTikTokSavedAudienceId,
   mapTikTokScheduleType,
   tikTokAdGroupBudgetFloor,
+  tikTokCampaignBudgetIssue,
 } from "../write/mapping.ts";
 
 describe("mapTikTokAgeGroups", () => {
@@ -937,7 +938,7 @@ describe("Sales is WEB_CONVERSIONS plus two display fields", () => {
 });
 
 describe("tikTokAdGroupBudgetFloor", () => {
-  it("uses TikTok's GBP daily 50 and 50 × scheduled days for lifetime", () => {
+  it("uses TikTok's GBP ad-group daily 20 and 20 × scheduled days for lifetime", () => {
     const daily = tikTokAdGroupBudgetFloor({
       budgetMode: "DAILY",
       startAt: "2026-05-01T09:00:00Z",
@@ -962,10 +963,71 @@ describe("tikTokAdGroupBudgetFloor", () => {
       endAt: "2026-05-08T09:00:00Z",
       currency: "EUR",
     });
-    assert.equal(daily.ok && daily.value, 50);
-    assert.equal(lifetime.ok && lifetime.value, 350);
+    assert.equal(daily.ok && daily.value, 20);
+    assert.equal(lifetime.ok && lifetime.value, 140);
     assert.equal(missingEnd.ok, false);
     assert.equal(unknown.ok && unknown.value, null);
+  });
+
+  it("blocks a campaign budget of £40, allows £50, and allows unset", () => {
+    const base = {
+      budgetMode: "DAILY" as const,
+      startAt: "2026-05-01T09:00:00Z",
+      endAt: "2026-05-08T09:00:00Z",
+      currency: "GBP",
+    };
+    assert.match(tikTokCampaignBudgetIssue({ ...base, budgetAmount: 40 }) ?? "", /GBP 50/);
+    assert.equal(tikTokCampaignBudgetIssue({ ...base, budgetAmount: 50 }), null);
+    assert.equal(tikTokCampaignBudgetIssue({ ...base, budgetAmount: null }), null);
+
+    const unset = payloadDraft();
+    unset.budgetSchedule.budgetAmount = null;
+    const campaign = buildTikTokCampaignPayload({ advertiserId: "adv-1", draft: unset });
+    assert.equal(campaign.ok, true);
+    if (!campaign.ok) return;
+    assert.equal(campaign.value.budget_mode, "BUDGET_MODE_INFINITE");
+    assert.equal(campaign.value.budget, undefined);
+  });
+
+  it("writes Puzzle's conversion_bid_price for a £10 target and omits it when empty", () => {
+    const draft = payloadDraft();
+    draft.campaignSetup.objective = "LEAD_GENERATION";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.campaignSetup.bidStrategy = "COST_CAP";
+    draft.optimisation.bidStrategy = "COST_CAP";
+    draft.optimisation.targetCostPerResult = 10;
+    draft.accountSetup.pixelId = "px-1";
+    draft.accountSetup.optimisationEvent = "SHOPPING";
+    draft.budgetSchedule.budgetAmount = null;
+    draft.budgetSchedule.adGroups[0].budget = 30;
+
+    const withTarget = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(withTarget.ok, true);
+    if (!withTarget.ok) return;
+    assert.equal(withTarget.value.budget, 30);
+    assert.equal(withTarget.value.bid_type, "BID_TYPE_CUSTOM");
+    assert.equal(withTarget.value.conversion_bid_price, 10);
+    assert.equal(withTarget.value.bid_price, undefined);
+
+    draft.campaignSetup.bidStrategy = "LOWEST_COST";
+    draft.optimisation.bidStrategy = "LOWEST_COST";
+    draft.optimisation.targetCostPerResult = null;
+    const empty = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(empty.ok, true);
+    if (!empty.ok) return;
+    assert.equal(empty.value.bid_type, "BID_TYPE_NO_BID");
+    assert.equal(empty.value.conversion_bid_price, undefined);
+    assert.equal(empty.value.bid_price, undefined);
   });
 });
 

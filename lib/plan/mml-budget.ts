@@ -5,13 +5,10 @@
  * Lifetime toggle only changes the figures on screen: a lifetime total is
  * daily × inclusive days.
  *
- * TikTok's GBP floor is £50 a day per ad group. That is the live minimum
- * in `TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY` (TikTok 40002, "Your budget
- * setting must not be less than £50", advertiser 7639802149165301776,
- * request 202608210618444D942991BC30CBAA9000). Matas recalled £20. £20 is
- * under the floor the write path refuses, so this constant is 50. A test
- * locks it to the write-path map. Lifetime minimum is £50 × scheduled days,
- * the same rule as `tikTokAdGroupBudgetFloor`.
+ * Ad-group floor is £20/day (`TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY`). Campaign
+ * floor is £50/day, and only when the draft sets a campaign budget. A share
+ * under £50 leaves the campaign budget unset (`BUDGET_MODE_INFINITE`).
+ * Lifetime is the daily floor × inclusive days.
  */
 
 import {
@@ -25,11 +22,14 @@ import {
 } from "./budget-split.ts";
 import type { CampaignPlanBudgetSplit, PlanAdapterName } from "./types.ts";
 
+/** GBP ad-group daily floor. Equals the write path's GBP entry. */
+export const TIKTOK_MIN_ADGROUP_DAILY_GBP = 20;
+
 /**
- * GBP ad-group daily floor. Equals the write path's GBP entry.
- * Do not lower this to the recalled £20 — TikTok rejects it.
+ * GBP campaign daily floor. Applied only when the TikTok draft has its own
+ * campaign budget. Under this, MML leaves the campaign budget unset.
  */
-export const TIKTOK_MIN_ADGROUP_DAILY_GBP = 50;
+export const TIKTOK_MIN_CAMPAIGN_DAILY_GBP = 50;
 
 export type MmlBudgetMode = "daily" | "lifetime";
 
@@ -187,7 +187,22 @@ export function turnChannelOff(
 }
 
 export function tikTokMinimumMessage(minimumDaily: number): string {
-  return `TikTok needs at least ${formatGbp(minimumDaily)}/day (TikTok's minimum per ad group)`;
+  return `TikTok needs at least ${formatGbp(minimumDaily)}/day per ad group`;
+}
+
+/**
+ * Campaign budget written onto the TikTok draft. The daily share must be at
+ * least £50; otherwise the campaign budget is left unset and the ad groups
+ * carry the money. Lifetime stores daily × days when the daily share clears
+ * the campaign floor.
+ */
+export function mmlTikTokCampaignBudget(input: {
+  dailyAmount: number;
+  mode: "DAILY" | "LIFETIME";
+  groupTotal: number;
+}): number | null {
+  if (!(input.dailyAmount >= TIKTOK_MIN_CAMPAIGN_DAILY_GBP)) return null;
+  return round2(input.groupTotal);
 }
 
 /**
