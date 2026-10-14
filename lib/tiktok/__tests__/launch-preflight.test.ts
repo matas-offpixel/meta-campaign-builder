@@ -253,18 +253,45 @@ describe("collectTikTokLaunchPreflight", () => {
     }
   });
 
-  it("blocks the derived per-ad-group split when it falls under the floor", () => {
+  it("blocks an ad group under £20 and a campaign budget under £50", () => {
     const draft = launchableDraft();
     draft.budgetSchedule.adGroups = [];
-    draft.budgetSchedule.budgetAmount = 30;
+    draft.budgetSchedule.budgetAmount = 15;
     draft.creativeAssignments.byAdGroupId = {
       "adgroup-1": ["creative-1"],
     };
-    const result = collectTikTokLaunchPreflight(draft);
-    assert.equal(result.ok, false);
-    const budgetIssues = result.issues.filter((issue) => issue.field === "budget");
-    assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 1")));
-    assert.ok(budgetIssues.every((issue) => issue.message.includes("50")));
+    const underAdGroup = collectTikTokLaunchPreflight(draft);
+    assert.equal(underAdGroup.ok, false);
+    const adGroupIssues = underAdGroup.issues.filter((issue) => issue.field === "budget");
+    assert.ok(adGroupIssues.some((issue) => issue.message.includes("Ad group 1")));
+    assert.ok(adGroupIssues.some((issue) => issue.message.includes("20")));
+
+    const campaign = launchableDraft();
+    campaign.budgetSchedule.budgetAmount = 40;
+    campaign.budgetSchedule.adGroups[0].budget = 40;
+    const blockedCampaign = collectTikTokLaunchPreflight(campaign);
+    assert.equal(blockedCampaign.ok, false);
+    assert.ok(
+      blockedCampaign.issues.some((issue) => issue.message.includes("GBP 50")),
+    );
+
+    const atFloor = launchableDraft();
+    atFloor.budgetSchedule.budgetAmount = 50;
+    atFloor.budgetSchedule.adGroups[0].budget = 20;
+    const okFloor = collectTikTokLaunchPreflight(atFloor);
+    assert.equal(
+      okFloor.issues.some((issue) => issue.id === "budget-minimum" || issue.message.includes("GBP 50")),
+      false,
+    );
+
+    const unset = launchableDraft();
+    unset.budgetSchedule.budgetAmount = null;
+    unset.budgetSchedule.adGroups[0].budget = 30;
+    const unsetResult = collectTikTokLaunchPreflight(unset);
+    assert.equal(
+      unsetResult.issues.some((issue) => issue.id === "budget-minimum"),
+      false,
+    );
   });
 
   it("passes a CONVERSIONS draft with pixel, CONVERT, and a pixel event", () => {

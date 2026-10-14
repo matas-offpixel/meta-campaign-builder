@@ -64,6 +64,48 @@ export function disableSmartPlus(
   };
 }
 
+/** Review line. Empty target is lowest cost and omits the target clause. */
+export function formatTikTokAdGroupReviewLine(input: {
+  index: number;
+  dailyAmount: number;
+  targetCost: number | null;
+  resultLabel: string;
+}): string {
+  const daily = formatReviewPounds(input.dailyAmount);
+  const head = `Ad group ${input.index} · £${daily}/day`;
+  if (input.targetCost == null || !(input.targetCost > 0)) return head;
+  return `${head} · target £${formatReviewPounds(input.targetCost)} per ${input.resultLabel}`;
+}
+
+function formatReviewPounds(amount: number): string {
+  const rounded = Math.round(amount * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+export function tikTokResultLabel(input: {
+  objective?: string | null;
+  optimisationEvent?: string | null;
+}): string {
+  const event = (input.optimisationEvent ?? "").toUpperCase();
+  if (
+    input.objective === "purchase" ||
+    input.objective === "CONVERSIONS" ||
+    event === "SHOPPING" ||
+    event === "ON_WEB_ORDER"
+  ) {
+    return "purchase";
+  }
+  if (
+    input.objective === "registration" ||
+    event === "ON_WEB_REGISTER" ||
+    event === "COMPLETE_REGISTRATION"
+  ) {
+    return "registration";
+  }
+  if (input.objective === "traffic" || input.objective === "CLICK") return "click";
+  return "result";
+}
+
 export function parseOptionalMoney(raw: string): number | null {
   if (!raw.trim()) return null;
   const parsed = parseMoneyAmountInput(raw);

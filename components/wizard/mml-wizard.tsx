@@ -472,6 +472,8 @@ function MmlStepSwitch({
           startDate={draft?.budgetSchedule.startDate || shared.plan.intent.startDate}
           endDate={draft?.budgetSchedule.endDate || shared.plan.intent.endDate}
           venueName={venueName}
+          tiktokDraftId={shared.plan.launches.tiktok.draftId}
+          objectiveIntent={shared.plan.intent.objectiveIntent}
         />
         {shared.launch}
       </div>

@@ -10,6 +10,7 @@ import {
   TIKTOK_DEFAULT_END_HOUR,
   TIKTOK_DEFAULT_START_HOUR,
 } from "../schedule.ts";
+import { TIKTOK_MIN_CAMPAIGN_DAILY_GBP } from "../mml-budget.ts";
 import type { CampaignPlan, CampaignPlanObjectiveIntent } from "../types.ts";
 
 /**
@@ -35,8 +36,8 @@ export function mapIntentToTikTokObjective(
 /**
  * Map a campaign plan onto the existing TikTokCampaignDraft shape.
  * No launch. Account / identity / video stay empty so
- * collectTikTokLaunchPreflight lists the real blockers (including the
- * £50/day GBP ad-group floor).
+ * collectTikTokLaunchPreflight lists the real blockers. A TikTok share
+ * under £50/day leaves the campaign budget unset.
  */
 export function planToTikTokDraft(plan: CampaignPlan): TikTokCampaignDraft {
   const draft = createDefaultTikTokDraft(crypto.randomUUID());
@@ -54,7 +55,10 @@ export function planToTikTokDraft(plan: CampaignPlan): TikTokCampaignDraft {
   draft.optimisation.smartPlusEnabled = false;
 
   draft.budgetSchedule.budgetMode = "DAILY";
-  draft.budgetSchedule.budgetAmount = intent.budget.tiktokDaily;
+  draft.budgetSchedule.budgetAmount =
+    intent.budget.tiktokDaily >= TIKTOK_MIN_CAMPAIGN_DAILY_GBP
+      ? intent.budget.tiktokDaily
+      : null;
   draft.budgetSchedule.dailyBudget = intent.budget.tiktokDaily;
   draft.budgetSchedule.scheduleStartAt = composeTikTokScheduleAt(
     intent.startDate,
@@ -113,6 +117,11 @@ export interface TikTokAdGroupPlanInput {
   endDate: string | null;
   startTime: string | null;
   endTime: string | null;
+  /**
+   * Omit to leave the draft's bid alone. null is lowest cost.
+   * A positive number is the ad-group cost cap.
+   */
+  targetCostPerResult?: number | null;
 }
 
 function isNationwideGroup(name: string): boolean {
@@ -160,13 +169,33 @@ export function applyTikTokAdGroupPlan(
   }
 
   const amount = Math.round(input.groups.reduce((sum, group) => sum + group.amount, 0) * 100) / 100;
+  const campaignBudget =
+    input.dailyAmount >= TIKTOK_MIN_CAMPAIGN_DAILY_GBP ? amount : null;
+  const target =
+    input.targetCostPerResult === undefined
+      ? undefined
+      : input.targetCostPerResult != null && input.targetCostPerResult > 0
+        ? input.targetCostPerResult
+        : null;
+  const bidStrategy =
+    target === undefined ? undefined : target == null ? "LOWEST_COST" : "COST_CAP";
 
   return {
     ...draft,
+    ...(bidStrategy
+      ? {
+          campaignSetup: { ...draft.campaignSetup, bidStrategy },
+          optimisation: {
+            ...draft.optimisation,
+            bidStrategy,
+            targetCostPerResult: target ?? null,
+          },
+        }
+      : {}),
     budgetSchedule: {
       ...draft.budgetSchedule,
       budgetMode: input.mode,
-      budgetAmount: amount,
+      budgetAmount: campaignBudget,
       dailyBudget: input.dailyAmount,
       lifetimeBudget: input.mode === "LIFETIME" ? amount : null,
       scheduleStartAt: composeTikTokScheduleAt(

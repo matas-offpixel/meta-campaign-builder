@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject, PointerEvent as ReactPointerEvent } from "react";
 
 import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { getTikTokDraft, upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
+import { loadTikTokBenchmarkRows } from "@/lib/plan/launch-reads";
+import { tikTokBenchmarkCost } from "@/lib/plan/benchmarks";
+import {
+  formatTikTokAdGroupReviewLine,
+  parseOptionalMoney,
+  tikTokResultLabel,
+} from "@/lib/tiktok-wizard/budget-schedule";
 import { applyPlanBudgetToGoogle } from "@/lib/plan/adapters/google";
 import { applyTikTokAdGroupPlan } from "@/lib/plan/adapters/tiktok";
 import { PLAN_BUDGET_PRESETS, presetChipCopy } from "@/lib/plan/budget-split";
@@ -13,6 +20,7 @@ import type { PlanEventOption } from "@/lib/plan/event-picker";
 import { venueCityToken } from "@/lib/plan/mml-wizard";
 import {
   TIKTOK_MIN_ADGROUP_DAILY_GBP,
+  TIKTOK_MIN_CAMPAIGN_DAILY_GBP,
   applyDisplayedPreset,
   channelDisplayAmount,
   displayTotal,
@@ -94,6 +102,8 @@ export function MmlBudgetReview({
   startDate,
   endDate,
   venueName,
+  tiktokDraftId,
+  objectiveIntent,
 }: {
   budget: CampaignPlanBudgetSplit;
   channels: MmlChannelSelection;
@@ -101,6 +111,8 @@ export function MmlBudgetReview({
   startDate: string | null;
   endDate: string | null;
   venueName: string | null;
+  tiktokDraftId?: string | null;
+  objectiveIntent?: string | null;
 }) {
   const days = mmlBudgetDays(dateOnly(startDate), dateOnly(endDate));
   const lifetime = mode === "lifetime" && Boolean(days);
@@ -116,7 +128,34 @@ export function MmlBudgetReview({
           venueLabel: venue,
         })
       : null;
-  const lines = tiktok ? tikTokGroupLines(tiktok, mode, days) : [];
+  const [targetCost, setTargetCost] = useState<number | null>(null);
+  useEffect(() => {
+    if (!tiktokDraftId) return;
+    let cancelled = false;
+    void getTikTokDraft(createClient(), tiktokDraftId).then((loaded) => {
+      if (cancelled) return;
+      setTargetCost(loaded?.optimisation.targetCostPerResult ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tiktokDraftId]);
+  const resultLabel = tikTokResultLabel({ objective: objectiveIntent });
+  const lines =
+    tiktok && !tiktok.blocked
+      ? tiktok.groups.map((group, index) => {
+          const daily =
+            lifetime && days && days > 0 ? Math.round((group.amount / days) * 100) / 100 : group.amount;
+          return formatTikTokAdGroupReviewLine({
+            index: index + 1,
+            dailyAmount: daily,
+            targetCost,
+            resultLabel,
+          });
+        })
+      : tiktok
+        ? tikTokGroupLines(tiktok, mode, days)
+        : [];
   const dailyKey = { meta: "metaDaily", tiktok: "tiktokDaily", google: "googleDaily" } as const;
 
   return (
@@ -191,6 +230,38 @@ export function MmlStepBudget({
         venueLabel: venue,
       })
     : null;
+  const [targetDraft, setTargetDraft] = useState("");
+  const [targetCost, setTargetCost] = useState<number | null>(null);
+  const [targetReady, setTargetReady] = useState(false);
+  const [benchmarkHint, setBenchmarkHint] = useState<string | null>(null);
+  const event = events.find((row) => row.id === plan.intent.eventId);
+  useEffect(() => {
+    if (!tiktokDraftId) return;
+    let cancelled = false;
+    void getTikTokDraft(createClient(), tiktokDraftId).then((loaded) => {
+      if (cancelled || !loaded) return;
+      const value = loaded.optimisation.targetCostPerResult;
+      setTargetCost(value);
+      setTargetDraft(value == null ? "" : String(value));
+      setTargetReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tiktokDraftId]);
+  useEffect(() => {
+    if (!event?.clientId) return;
+    let cancelled = false;
+    const unit = plan.intent.target.unit ?? (plan.intent.objectiveIntent === "traffic" ? "click" : plan.intent.objectiveIntent === "purchase" ? "purchase" : null);
+    void loadTikTokBenchmarkRows(createClient(), event.clientId).then((rows) => {
+      if (cancelled) return;
+      const cost = tikTokBenchmarkCost(rows, { clientId: event.clientId!, unit });
+      setBenchmarkHint(cost == null ? null : `Usual TikTok cost per result ${formatGbp(cost)}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [event?.clientId, plan.intent.objectiveIntent, plan.intent.target.unit]);
 
   const googleRef = useRef<{ apply: (updater: (tree: GoogleSearchPlanTree) => GoogleSearchPlanTree) => void } | null>(
     null,
@@ -235,7 +306,10 @@ export function MmlStepBudget({
     nextEnd: string | null,
     nextMode: MmlBudgetMode,
     labels: string[],
+    targetOverride?: number | null,
   ) {
+    const nextTarget =
+      targetOverride === undefined ? (targetReady ? targetCost : undefined) : targetOverride;
     const nextDays = mmlBudgetDays(nextStart, nextEnd);
     if (selected.google && googleDraftId) {
       googleRef.current?.apply((tree) =>
@@ -271,6 +345,7 @@ export function MmlStepBudget({
           endDate: nextEnd,
           startTime: timeOf(budgetSchedule?.startDate) ?? plan.intent.startTime,
           endTime: timeOf(budgetSchedule?.endDate) ?? plan.intent.endTime,
+          targetCostPerResult: nextTarget,
         });
         await upsertTikTokDraft(supabase, applied.id, { ...applied, userId: auth.user.id });
       })();
@@ -493,6 +568,48 @@ export function MmlStepBudget({
                   {line}
                 </p>
               ))}
+              {budget.tiktokDaily >= TIKTOK_MIN_CAMPAIGN_DAILY_GBP ? (
+                <p className="text-sm text-muted-foreground">
+                  Campaign budget {formatGbp(channelDisplayAmount(budget.tiktokDaily, mode, days))}/
+                  {mode === "lifetime" ? "run" : "day"}
+                </p>
+              ) : tiktokPlan && !tiktokPlan.blocked ? (
+                <p className="text-sm text-muted-foreground">
+                  Campaign budget left unset. TikTok&apos;s £50 campaign minimum applies only when a campaign budget is set.
+                </p>
+              ) : null}
+              <div className="max-w-xs space-y-1">
+                <Input
+                  id="mml-tiktok-target-cost"
+                  label="Target cost per result (£)"
+                  type="text"
+                  inputMode="decimal"
+                  value={targetDraft}
+                  placeholder="Lowest cost"
+                  onChange={(event) => setTargetDraft(event.target.value)}
+                  onBlur={() => {
+                    try {
+                      const parsed = parseOptionalMoney(targetDraft);
+                      setTargetCost(parsed);
+                      setTargetDraft(parsed == null ? "" : String(parsed));
+                      writeOutlets(
+                        budget,
+                        channels,
+                        start,
+                        end,
+                        mode,
+                        locationLabels(budgetSchedule?.locationGroups),
+                        parsed,
+                      );
+                    } catch {
+                      setTargetDraft(targetCost == null ? "" : String(targetCost));
+                    }
+                  }}
+                />
+                {benchmarkHint ? (
+                  <p className="text-xs text-muted-foreground">{benchmarkHint}</p>
+                ) : null}
+              </div>
               {tiktokPlan.blocked ? (
                 <div className="flex flex-wrap gap-2">
                   <button
