@@ -163,6 +163,13 @@ export interface BrandTemplateDefinition {
   /** Per-locale button label + a shared URL template (may contain `{{var}}`). */
   button?: { text: LocalizedString; url: string };
   /**
+   * Multiple URL buttons, in render order. Use instead of `button` when a
+   * template needs more than one CTA (e.g. tickets AND community). Meta caps
+   * WhatsApp URL buttons at 2 — validateDefinition enforces that rather than
+   * letting Meta reject the submission after the fact.
+   */
+  buttons?: { text: LocalizedString; url: string }[];
+  /**
    * Variable holding the header image URL. Defaults to `event_artwork_url`.
    * Set to `null` to omit the image header entirely.
    */
@@ -209,6 +216,17 @@ export function extractVariableKeys(text: string): string[] {
  * precise message on the first problem. Returns the full set of variable keys
  * the template references.
  */
+/** Meta caps WhatsApp URL buttons per template. */
+export const MAX_WHATSAPP_URL_BUTTONS = 2;
+
+/** Normalise `button` / `buttons` into one ordered list. */
+export function allButtons(
+  def: Pick<BrandTemplateDefinition, "button" | "buttons">,
+): { text: LocalizedString; url: string }[] {
+  if (def.buttons?.length) return def.buttons;
+  return def.button ? [def.button] : [];
+}
+
 export function validateDefinition(def: BrandTemplateDefinition): string[] {
   if (!def.name || !NAME_RE.test(def.name)) {
     throw new TemplateDefinitionError(
@@ -231,6 +249,14 @@ export function validateDefinition(def: BrandTemplateDefinition): string[] {
       );
     }
   }
+  if (def.button && def.buttons?.length) {
+    throw new TemplateDefinitionError(`${def.name}: set either button or buttons, not both.`);
+  }
+  if (allButtons(def).length > MAX_WHATSAPP_URL_BUTTONS) {
+    throw new TemplateDefinitionError(
+      `${def.name}: ${allButtons(def).length} URL buttons — Meta allows at most ${MAX_WHATSAPP_URL_BUTTONS}.`,
+    );
+  }
   const headerVar = def.headerImageUrl
     ? null
     : def.headerImageVar === null
@@ -249,13 +275,13 @@ export function validateDefinition(def: BrandTemplateDefinition): string[] {
     if (def.footer && typeof def.footer[locale] !== "string") {
       throw new TemplateDefinitionError(`${def.name}: footer missing for locale "${locale}".`);
     }
-    if (def.button) {
-      if (typeof def.button.text?.[locale] !== "string" || !def.button.text[locale].trim()) {
-        throw new TemplateDefinitionError(`${def.name}: button.text missing for locale "${locale}".`);
+    for (const [i, b] of allButtons(def).entries()) {
+      if (typeof b.text?.[locale] !== "string" || !b.text[locale].trim()) {
+        throw new TemplateDefinitionError(`${def.name}: button[${i}].text missing for locale "${locale}".`);
       }
     }
   }
-  if (def.button?.url) extractVariableKeys(def.button.url).forEach((k) => referenced.add(k));
+  for (const b of allButtons(def)) extractVariableKeys(b.url).forEach((k) => referenced.add(k));
 
   // Every referenced variable must have examples for every locale.
   for (const key of referenced) {
