@@ -11,6 +11,7 @@
  * Usage:
  *   REEL_SOURCE_DIR="/path" npx tsx scripts/upload-reel-photos.ts                  # bridge (default)
  *   REEL_SOURCE_DIR="/path" REEL_TARGET=woods npx tsx scripts/upload-reel-photos.ts
+ *   REEL_SOURCE_DIR="/path" FRAMES_PER_PHOTO_OVERRIDE=8 npx tsx scripts/upload-reel-photos.ts
  *   ... --force                                                                     # re-upload existing
  */
 
@@ -53,7 +54,12 @@ const BUCKET = "campaign-assets";
 const RESIZE_WIDTH = 1080;
 const RESIZE_HEIGHT = 1620;
 const JPEG_QUALITY = 82;
-const FRAMES_PER_PHOTO = 7;
+const FRAMES_PER_PHOTO = parseInt(process.env.FRAMES_PER_PHOTO_OVERRIDE || "7", 10);
+if (!Number.isFinite(FRAMES_PER_PHOTO) || FRAMES_PER_PHOTO < 1 || FRAMES_PER_PHOTO > 60) {
+  throw new Error(
+    `FRAMES_PER_PHOTO_OVERRIDE must be an integer between 1 and 60 (got ${process.env.FRAMES_PER_PHOTO_OVERRIDE ?? "7"}).`,
+  );
+}
 
 interface ManifestPhoto {
   index: number;
