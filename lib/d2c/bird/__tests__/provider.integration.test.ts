@@ -17,17 +17,15 @@ import { resolveBirdTemplateVariables } from "../template-variables.ts";
  * `.scratch/bird-runtime-send-capture.txt` — sourced from Bird's public API
  * docs after a real DevTools capture proved unobtainable (see that file's
  * "CAPTURE PROVENANCE" section). `BIRD_RUNTIME_SEND_VERIFIED` is now `true`
- * and the three shape assertions below are filled in and active.
+ * and the shape assertions below are filled in and active.
  *
- * The `recipients[]` and template-body fixtures below are byte-diffed against
- * the capture's own "COMPLETE EXAMPLE" (workspace/channel ids, phone number,
- * projectId/version, and parameter values are taken verbatim from that file).
- * The `list_id` fixture is the ONE item Bird's docs don't cover — it is
- * diffed against the capture's own documented best-guess recommendation
- * (`{ contacts: [{ listId }] }`), not a confirmed live shape. If Matas's
- * post-merge smoke test 422s specifically on a list-targeted send, iterate
- * per the fallback chain in docs/D2C_LIVE_FIRE_RUNBOOK.md and update this
- * fixture + provider.ts together.
+ * STATUS (2026-07-14): the `list_id` receiver shape (`{ contacts: [{ listId }] }`)
+ * was live-rejected — Bird 422 "property listId is unsupported". Bird's
+ * channels /messages endpoint has NO list-targeting field; list-targeted sends
+ * now preflight GET /lists/{id}/contacts and fan out one `{ identifierValue }`
+ * message per member. The old best-guess assertion is replaced by the fan-out
+ * test below. The `recipients[]` and template-body fixtures remain byte-diffed
+ * against the capture's own "COMPLETE EXAMPLE".
  */
 
 const CAPTURE_WORKSPACE_ID = "9c308f77-c5ed-44d3-9714-9da017c7536c";
@@ -83,30 +81,104 @@ test("BIRD_RUNTIME_SEND_VERIFIED is flipped on (shape reconciled with capture)",
   assert.equal(BIRD_RUNTIME_SEND_VERIFIED, true);
 });
 
-// ── list_id → correct receiver shape sent ──────────────────────────────────
+// ── list_id → fan-out to individual identifiers (2026-07-14) ────────────────
+//
+// Bird's channels /messages endpoint has no list-targeting: a listId receiver
+// 422s ("property listId is unsupported"). A list-targeted send now preflights
+// GET /lists/{id}/contacts, resolves phone identifiers, and sends one message
+// per member with a `{ identifierValue }` receiver. No outgoing body may carry
+// `listId`.
 
-test("list_id → correct receiver shape sent (capture's documented best-guess fix)", async () => {
+test("list_id → preflights list contacts then fans out one identifierValue message each", async () => {
+  const LIST_ID = "9386300f-2c97-4d75-ad41-2c87aeedcb2c";
+  const getUrls: string[] = [];
+  const postBodies: Record<string, unknown>[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (method === "GET" && url.includes(`/lists/${LIST_ID}/contacts`)) {
+      getUrls.push(url);
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "c1",
+              featuredIdentifiers: [{ key: "phonenumber", value: "+447700900001" }],
+            },
+            { id: "c2", attributes: { phonenumber: ["+447700900002"] } },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    postBodies.push(init?.body ? JSON.parse(String(init.body)) : {});
+    return new Response(JSON.stringify({ id: "msg-uuid-1" }), { status: 200 });
+  }) as unknown as typeof fetch;
+
   const message: D2CMessage = {
     channel: "whatsapp",
     subject: null,
     bodyMarkdown: "n/a",
-    audience: { list_id: "9386300f-2c97-4d75-ad41-2c87aeedcb2c" },
+    audience: { list_id: LIST_ID },
     variables: {},
     correlationId: "send-list",
   };
   const r = await new BirdProvider().send(captureConnection(), message);
+
   assert.equal(r.ok, true, r.error);
-  assert.ok(capturedBody, "expected a JSON body");
-  const receiver = (capturedBody as Record<string, unknown>).receiver;
-  // Capture's fix recommendation: array of one object carrying listId — NOT
-  // the layer-6 bug shape `{ contacts: { listId } }` (object, not array).
-  assert.deepEqual(receiver, {
-    contacts: [{ listId: "9386300f-2c97-4d75-ad41-2c87aeedcb2c" }],
+  // Preflighted the list-contacts endpoint exactly once.
+  assert.equal(getUrls.length, 1);
+  assert.match(
+    getUrls[0],
+    /\/lists\/9386300f-2c97-4d75-ad41-2c87aeedcb2c\/contacts\?/,
+  );
+  // One message per resolved member, each a phone-identifier receiver.
+  assert.equal(postBodies.length, 2);
+  assert.deepEqual(postBodies[0].receiver, {
+    contacts: [{ identifierValue: "+447700900001" }],
   });
-  // Guard against ever regressing to the exact 422-causing shape.
-  assert.notDeepEqual(receiver, {
-    contacts: { listId: "9386300f-2c97-4d75-ad41-2c87aeedcb2c" },
+  assert.deepEqual(postBodies[1].receiver, {
+    contacts: [{ identifierValue: "+447700900002" }],
   });
+  // Never the unsupported list-targeted shape (the 2026-07-14 422 cause).
+  for (const b of postBodies) {
+    assert.ok(
+      !JSON.stringify(b).includes("listId"),
+      "no outgoing body may carry listId",
+    );
+  }
+  const details = r.details as Record<string, unknown>;
+  assert.equal(details.mode, "list_fanout");
+  assert.equal(details.sent, 2);
+  assert.equal(details.failed, 0);
+});
+
+test("list_id → ok:false when the list resolves to 0 phone-reachable members", async () => {
+  const LIST_ID = "empty-list-0000";
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (method === "GET" && url.includes(`/lists/${LIST_ID}/contacts`)) {
+      return new Response(
+        JSON.stringify({
+          results: [{ id: "c1", featuredIdentifiers: [{ key: "emailaddress", value: "a@b.com" }] }],
+        }),
+        { status: 200 },
+      );
+    }
+    return new Response(JSON.stringify({ id: "should-not-send" }), { status: 200 });
+  }) as unknown as typeof fetch;
+
+  const r = await new BirdProvider().send(captureConnection(), {
+    channel: "whatsapp",
+    subject: null,
+    bodyMarkdown: "n/a",
+    audience: { list_id: LIST_ID },
+    variables: {},
+    correlationId: "send-empty-list",
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error ?? "", /0 phone-reachable/);
 });
 
 // ── recipients[] → correct receiver shape sent ─────────────────────────────

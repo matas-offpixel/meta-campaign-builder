@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 
 import {
+  contactPhoneIdentifiers,
   createGroup,
   findGroupByName,
   getGroup,
+  listContactsInList,
   listGroups,
   resolveOrCreateGroup,
 } from "../client.ts";
@@ -110,4 +112,77 @@ test("resolveOrCreateGroup: creates when no match found", async () => {
   const result = await resolveOrCreateGroup(CFG, "T26-NEWCITY");
   assert.equal(result.existed, false);
   assert.equal(result.group.id, "g-new");
+});
+
+// ── listContactsInList + contactPhoneIdentifiers (2026-07-14) ───────────────
+
+test("listContactsInList GETs /lists/{id}/contacts and unwraps results", async () => {
+  mockFetch((method, url) => {
+    assert.equal(method, "GET");
+    assert.match(url, /\/lists\/list-1\/contacts\?limit=100$/);
+    return new Response(
+      JSON.stringify({
+        results: [
+          { id: "c1", featuredIdentifiers: [{ key: "phonenumber", value: "+447700900001" }] },
+        ],
+      }),
+      { status: 200 },
+    );
+  });
+  const contacts = await listContactsInList(CFG, "list-1");
+  assert.equal(contacts.length, 1);
+  assert.equal(contacts[0].id, "c1");
+});
+
+test("listContactsInList follows a next-page cursor then stops", async () => {
+  let i = 0;
+  mockFetch((method, url) => {
+    i += 1;
+    if (i === 1) {
+      assert.match(url, /\/lists\/list-1\/contacts\?limit=100$/);
+      return new Response(
+        JSON.stringify({ results: [{ id: "c1" }], nextPageToken: "tok2" }),
+        { status: 200 },
+      );
+    }
+    assert.match(url, /\/lists\/list-1\/contacts\?limit=100&pageToken=tok2$/);
+    return new Response(JSON.stringify({ results: [{ id: "c2" }] }), { status: 200 });
+  });
+  const contacts = await listContactsInList(CFG, "list-1");
+  assert.deepEqual(contacts.map((c) => c.id), ["c1", "c2"]);
+  assert.equal(calls.length, 2);
+});
+
+test("listContactsInList stops if the cursor repeats (no infinite loop)", async () => {
+  mockFetch(() =>
+    new Response(
+      JSON.stringify({ results: [{ id: "c1" }], nextPageToken: "same" }),
+      { status: 200 },
+    ),
+  );
+  const contacts = await listContactsInList(CFG, "list-1", { maxPages: 50 });
+  // page 1 records cursor "same"; page 2 returns "same" again -> break.
+  assert.equal(calls.length, 2);
+  assert.equal(contacts.length, 2);
+});
+
+test("contactPhoneIdentifiers reads featuredIdentifiers + attributes.phonenumber, skips blanks", () => {
+  const phones = contactPhoneIdentifiers({
+    id: "c1",
+    featuredIdentifiers: [
+      { key: "emailaddress", value: "a@b.com" },
+      { key: "phonenumber", value: "+447700900001" },
+    ],
+    attributes: { phonenumber: ["+447700900002", "  "], emailaddress: ["a@b.com"] },
+  });
+  assert.deepEqual(phones, ["+447700900001", "+447700900002"]);
+});
+
+test("contactPhoneIdentifiers returns [] for an email-only contact", () => {
+  const phones = contactPhoneIdentifiers({
+    id: "c2",
+    featuredIdentifiers: [{ key: "emailaddress", value: "a@b.com" }],
+    attributes: { emailaddress: ["a@b.com"] },
+  });
+  assert.deepEqual(phones, []);
 });

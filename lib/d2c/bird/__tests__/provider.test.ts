@@ -420,26 +420,44 @@ test("resolveBirdListId: tag with no matching Bird group → null (caller surfac
   assert.deepEqual(result, { listId: null, resolvedFromTag: true });
 });
 
-test("live send: audience.tag only (no list_id, no recipients) resolves list_id and includes it in the receiver payload", async () => {
+test("live send: audience.tag only (no list_id, no recipients) resolves the group then fans out to its members", async () => {
+  // 2026-07-14: Bird's /messages endpoint has no list-targeting field; a
+  // resolved tag→group must be preflighted (GET /lists/{id}/contacts) and
+  // fanned out to individual identifierValue receivers, never sent as a single
+  // listId receiver (that shape 422'd live).
   process.env.FEATURE_D2C_LIVE = "true";
-  const calls: { url: string; body: unknown }[] = [];
+  const calls: { url: string; method: string; body: unknown }[] = [];
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
     if (url.includes("/groups")) {
-      calls.push({ url, body: null });
+      calls.push({ url, method, body: null });
       return new Response(
         JSON.stringify({ results: [{ id: "grp-algarve", name: "T26-ALGARVE" }] }),
         { status: 200 },
       );
     }
+    if (url.includes("/contacts")) {
+      calls.push({ url, method, body: null });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "m1",
+              featuredIdentifiers: [{ key: "phonenumber", value: "+447700900001" }],
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
     const body = init?.body ? JSON.parse(String(init.body)) : null;
-    calls.push({ url, body });
+    calls.push({ url, method, body });
     return new Response(JSON.stringify({ id: "msg-tag-resolved" }), { status: 200 });
   };
 
   // Exact shape of the live T26-ALGARVE WA DM reminder row: audience carries
-  // `tag`, never `list_id` — this is what 422'd with "Bird sends require
-  // audience.recipients[] or audience.list_id."
+  // `tag`, never `list_id`.
   const tagOnlyMessage: D2CMessage = {
     channel: "whatsapp",
     subject: null,
@@ -457,13 +475,27 @@ test("live send: audience.tag only (no list_id, no recipients) resolves list_id 
   const r = await new BirdProvider().send(baseConnection(), tagOnlyMessage);
   assert.equal(r.ok, true, r.error);
 
-  const groupsCall = calls.find((c) => c.url.includes("/groups"));
-  assert.ok(groupsCall, "expected a Bird group lookup for the tag");
+  // Resolved the tag to a group, then preflighted that list's contacts.
+  assert.ok(
+    calls.find((c) => c.url.includes("/groups")),
+    "expected a Bird group lookup for the tag",
+  );
+  assert.ok(
+    calls.find((c) => c.url.includes("/lists/grp-algarve/contacts")),
+    "expected a preflight GET on the resolved list's contacts",
+  );
 
+  // Fanned out with a phone-identifier receiver — never the unsupported listId.
   const messagesCall = calls.find((c) => c.url.includes("/messages"));
   assert.ok(messagesCall, "expected a POST to the messages endpoint");
   const body = messagesCall!.body as Record<string, unknown>;
-  assert.deepEqual(body.receiver, { contacts: [{ listId: "grp-algarve" }] });
+  assert.deepEqual(body.receiver, {
+    contacts: [{ identifierValue: "+447700900001" }],
+  });
+  assert.ok(
+    !JSON.stringify(body).includes("listId"),
+    "outgoing body must not carry listId",
+  );
 
   // Cache-back payload for the caller (cron route) to persist onto
   // d2c_scheduled_sends.audience for retry idempotence + audit.
@@ -502,11 +534,25 @@ test("live send: audience.tag with no matching Bird group → graceful error nam
   );
 });
 
-test("live send: audience.list_id present alongside audience.tag → list_id wins, no group lookup, no resolvedAudiencePatch", async () => {
+test("live send: audience.list_id present alongside audience.tag → list_id wins, no group lookup, fans out, no resolvedAudiencePatch", async () => {
   process.env.FEATURE_D2C_LIVE = "true";
   const calls: string[] = [];
   globalThis.fetch = async (input: RequestInfo | URL) => {
-    calls.push(String(input));
+    const url = String(input);
+    calls.push(url);
+    if (url.includes("/contacts")) {
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "m1",
+              featuredIdentifiers: [{ key: "phonenumber", value: "+447700900001" }],
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
     return new Response(JSON.stringify({ id: "msg-explicit" }), { status: 200 });
   };
 
@@ -521,6 +567,10 @@ test("live send: audience.list_id present alongside audience.tag → list_id win
   const r = await new BirdProvider().send(baseConnection(), explicitMessage);
   assert.equal(r.ok, true, r.error);
   assert.equal(calls.some((u) => u.includes("/groups")), false);
+  assert.ok(
+    calls.some((u) => u.includes("/lists/list-explicit/contacts")),
+    "expected a preflight on the explicit list",
+  );
   const details = r.details as Record<string, unknown>;
   assert.equal(details.resolvedAudiencePatch, undefined);
 });
