@@ -158,6 +158,12 @@ export async function resolveMailchimpAudience(
     (l): l is { id: string; name: string } =>
       typeof l.id === "string" && typeof l.name === "string",
   );
+  // A brief may give the audience NAME ("Throwback") or its Mailchimp ID
+  // ("27eb062177"). An id match is exact and unambiguous — this is not fuzzy
+  // matching, it is the same identifier in its other form.
+  const byId = lists.filter((l) => l.id === name.trim());
+  if (byId.length === 1) return { id: byId[0].id, name: byId[0].name };
+
   const exact = lists.filter((l) => sameName(l.name, name));
   if (exact.length === 1) return { id: exact[0].id, name: exact[0].name };
 
@@ -169,7 +175,8 @@ export async function resolveMailchimpAudience(
   }
   const near = nearMisses(name, lists.map((l) => l.name));
   throw new AudienceRoutingError([
-    `mailchimp_list ${JSON.stringify(name)} does not exist in Mailchimp.` +
+    `mailchimp_list ${JSON.stringify(name)} does not exist in Mailchimp (matched neither an ` +
+      `audience name nor an audience id).` +
       (near.length ? ` Did the brief mean ${near.map((n) => JSON.stringify(n)).join(" or ")}? ` +
         "(Not substituted — fix the brief.)" : "") +
       ` ${lists.length} audience(s) available.`,

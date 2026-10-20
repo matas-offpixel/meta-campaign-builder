@@ -164,8 +164,9 @@ export async function shipTemplateDefinitions(
         continue;
       }
 
-      // One project per template (created if absent).
-      const projectName = def.name;
+      // One project per template (created if absent). The project carries the
+      // human-facing name; the template keeps its Meta-legal snake_case name.
+      const projectName = def.projectName ?? def.name;
       const existingProject = await findProjectByName(cfg, projectName);
       const project = existingProject ?? (await createProject(cfg, projectName));
       const projectCreated = !existingProject;
