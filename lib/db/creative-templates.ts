@@ -58,3 +58,39 @@ export async function listCreativeRendersForEvent(
   }
   return (data ?? []) as unknown as CreativeRender[];
 }
+
+export async function getCreativeTemplateById(
+  supabase: AnySupabaseClient,
+  id: string,
+): Promise<CreativeTemplate | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("creative_templates")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.warn("[creatives getTemplate]", error.message);
+    return null;
+  }
+  if (!data) return null;
+  return data as unknown as CreativeTemplate;
+}
+
+export async function getCreativeRenderById(
+  supabase: AnySupabaseClient,
+  id: string,
+): Promise<CreativeRender | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("creative_renders")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.warn("[creatives getRender]", error.message);
+    return null;
+  }
+  if (!data) return null;
+  return data as unknown as CreativeRender;
+}
