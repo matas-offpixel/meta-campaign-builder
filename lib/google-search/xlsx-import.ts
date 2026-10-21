@@ -31,6 +31,12 @@
  *   - Budget & Phasing — only the `Total Google Search budget (£)` row,
  *                       which becomes the plan total. The phase grid is
  *                       not read.
+ *   - Locations       — location | bid modifier (%) | targeting
+ *                       (tab may be named Geo, or Targeting when the
+ *                       name has no budget and no exclusion). Rows are
+ *                       unresolved: the import route fills
+ *                       `resolved_resource_name`. No Locations tab emits
+ *                       `geo_none`.
  *
  * Defensive choices:
  *   - All header lookups normalise via `headerKey()` (lowercase, strip
@@ -49,6 +55,7 @@
 
 import * as XLSX from "xlsx";
 
+import { parseBidModifierInput } from "./bid-modifier.ts";
 import { derivePlanDailyBudget, formatPounds } from "./budget.ts";
 import {
   cell,
@@ -65,6 +72,8 @@ import {
   DEFAULT_PACING,
   DEFAULT_STRUCTURE_MODE,
   GOOGLE_SEARCH_LIMITS,
+  type GoogleSearchGeoTarget,
+  type GoogleSearchGeoTargetType,
   type GoogleSearchAdGroupDraftNode,
   type GoogleSearchBiddingStrategy,
   type GoogleSearchCampaignDraftNode,
@@ -171,6 +180,7 @@ export function parseGoogleSearchPlanXlsx(
 
   const totalBudget = readPlanTotalBudget(tabs.budget);
   const planDailyBudget = derivePlanDailyBudget(totalBudget, campaignHints.dateRange);
+  const locations = parseLocationsTab(tabs.locations, warnings);
 
   // Step 6: apply structure mode.
   // In single_campaign mode: collapse all C-code campaigns into one campaign
@@ -201,8 +211,8 @@ export function parseGoogleSearchPlanXlsx(
       daily_budget: planDailyBudget,
       pacing: DEFAULT_PACING,
       bidding_strategy: campaignHints.biddingStrategy ?? "maximize_clicks",
-      geo_targets: [],
-      geo_target_type: DEFAULT_GEO_TARGET_TYPE,
+      geo_targets: locations.targets,
+      geo_target_type: locations.geo_target_type,
       date_range: campaignHints.dateRange,
     },
     campaigns: finalCampaigns,
@@ -483,6 +493,8 @@ interface IndexedTabs {
   campaigns: XLSX.WorkSheet | null;
   /** Only the plan total row is read; the phase grid is not. */
   budget: XLSX.WorkSheet | null;
+  /** Location | bid modifier | targeting. Unresolved; the import route resolves. */
+  locations: XLSX.WorkSheet | null;
 }
 
 /**
@@ -502,6 +514,23 @@ function isCampaignsSheet(name: string): boolean {
   return tokens.includes("campaign") || tokens.includes("campaigns");
 }
 
+/**
+ * Locations when a token is `location`, `locations` or `geo`. `targeting`
+ * counts only with no `budget` and no `exclusion` / `exclusions` token, so
+ * "Targeting & Budget" stays the budget tab and the YouTube
+ * "Targeting & Exclusions" tab is left alone. Checked last in `indexTabs`,
+ * so a tab that already routes to Campaigns, Keywords, Negatives, Ad Copy,
+ * Overview or Budget is not taken.
+ */
+function isLocationsSheet(name: string): boolean {
+  const tokens = sheetTokens(name);
+  if (tokens.includes("location") || tokens.includes("locations") || tokens.includes("geo")) return true;
+  if (!tokens.includes("targeting")) return false;
+  if (tokens.includes("budget")) return false;
+  if (tokens.includes("exclusion") || tokens.includes("exclusions")) return false;
+  return true;
+}
+
 function indexTabs(workbook: XLSX.WorkBook): IndexedTabs {
   const out: IndexedTabs = {
     overview: null,
@@ -510,6 +539,7 @@ function indexTabs(workbook: XLSX.WorkBook): IndexedTabs {
     negativeKeywords: null,
     campaigns: null,
     budget: null,
+    locations: null,
   };
   for (const name of workbook.SheetNames) {
     const key = headerKey(name);
@@ -520,8 +550,91 @@ function indexTabs(workbook: XLSX.WorkBook): IndexedTabs {
     else if (isCampaignsSheet(name)) out.campaigns ??= sheet;
     else if (key.includes("overview") || key.includes("summary")) out.overview ??= sheet;
     else if (sheetTokens(name).includes("budget")) out.budget ??= sheet;
+    else if (isLocationsSheet(name)) out.locations ??= sheet;
   }
   return out;
+}
+
+const GEO_NONE_MESSAGE = "No locations in the sheet — add them in the Budget step before push.";
+
+function geoTargetTypeFromCell(raw: string): GoogleSearchGeoTargetType | null {
+  const key = headerKey(raw);
+  if (key === "presenceorinterest") return "PRESENCE_OR_INTEREST";
+  if (key === "presence") return "PRESENCE";
+  return null;
+}
+
+/**
+ * Locations tab → wizard geo rows with no `resolved_resource_name`.
+ * The import route resolves them. A missing tab warns `geo_none`.
+ */
+function parseLocationsTab(
+  sheet: XLSX.WorkSheet | null,
+  warnings: GoogleSearchImportWarning[],
+): { targets: GoogleSearchGeoTarget[]; geo_target_type: GoogleSearchGeoTargetType } {
+  if (!sheet) {
+    warnings.push({ code: "geo_none", message: GEO_NONE_MESSAGE });
+    return { targets: [], geo_target_type: DEFAULT_GEO_TARGET_TYPE };
+  }
+  const raw = rawRows(sheet);
+  const records = recordsFromRawRowsWithHeaderScan(raw, ["location"]);
+  const rows = records.length > 0 || raw.some((row) => (row ?? []).some((c) => headerKey(c) === "location"))
+    ? records
+    : recordsFromRawRowsWithHeaderScan(raw, ["locations"]);
+  if (rows.length === 0) {
+    warnings.push({
+      code: "geo_tab_empty",
+      message: "The Locations tab has no location rows.",
+    });
+    return { targets: [], geo_target_type: DEFAULT_GEO_TARGET_TYPE };
+  }
+
+  const seen = new Set<string>();
+  const targets: GoogleSearchGeoTarget[] = [];
+  let geo_target_type: GoogleSearchGeoTargetType = DEFAULT_GEO_TARGET_TYPE;
+  let typeSet = false;
+  for (const row of rows) {
+    const targeting = cell(row.targeting);
+    if (!typeSet && targeting) {
+      const parsed = geoTargetTypeFromCell(targeting);
+      if (parsed) {
+        geo_target_type = parsed;
+        typeSet = true;
+      }
+    }
+    const location = cell(row.location ?? row.locations);
+    if (!location) continue;
+    const key = location.toLowerCase();
+    if (seen.has(key)) {
+      warnings.push({
+        code: "geo_duplicate",
+        message: `Location "${location}" is listed twice — the second row was skipped.`,
+        context: { location },
+      });
+      continue;
+    }
+    seen.add(key);
+    const rawModifier = cell(row.bidmodifier ?? row.bidmodifierpct);
+    let bid_modifier_pct: number | null = null;
+    if (rawModifier !== "") {
+      bid_modifier_pct = parseBidModifierInput(rawModifier);
+      if (bid_modifier_pct == null) {
+        warnings.push({
+          code: "geo_bad_modifier",
+          message: `Bid modifier "${rawModifier}" on "${location}" isn't a percentage — the location is imported with no modifier.`,
+          context: { location, raw: rawModifier },
+        });
+      }
+    }
+    targets.push({ location, bid_modifier_pct });
+  }
+  if (targets.length === 0) {
+    warnings.push({
+      code: "geo_tab_empty",
+      message: "The Locations tab has no location rows.",
+    });
+  }
+  return { targets, geo_target_type };
 }
 
 /**

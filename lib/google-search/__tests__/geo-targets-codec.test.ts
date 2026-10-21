@@ -130,6 +130,21 @@ describe("serializeGeoTargetsColumn", () => {
     assert.deepEqual(wire?.targets, []);
   });
 
+  it("keeps an explicit null resolution, and leaves an absent one absent", () => {
+    const wire = serializeGeoTargetsColumn({
+      targets: [
+        { location: "London", bid_modifier_pct: null, resolved_resource_name: "geoTargetConstants/1006886", resolved_name: "London,England,United Kingdom" },
+        { location: "Nowhere", bid_modifier_pct: null, resolved_resource_name: null, resolved_name: null },
+        { location: "Not tried", bid_modifier_pct: null },
+      ],
+      geo_target_type: "PRESENCE",
+    });
+    const decoded = parseGeoTargetsColumn(wire);
+    assert.equal(decoded.targets[0]?.resolved_resource_name, "geoTargetConstants/1006886");
+    assert.equal(decoded.targets[1]?.resolved_resource_name, null);
+    assert.equal("resolved_resource_name" in (decoded.targets[2] ?? {}), false);
+  });
+
   it("does NOT throw when the entire decoded object is null / undefined", () => {
     assert.doesNotThrow(() => serializeGeoTargetsColumn(null as unknown as import("../geo-targets-codec.ts").DecodedGeoTargetsColumn));
     assert.doesNotThrow(() => serializeGeoTargetsColumn(undefined as unknown as import("../geo-targets-codec.ts").DecodedGeoTargetsColumn));

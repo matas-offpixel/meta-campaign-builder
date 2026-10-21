@@ -107,12 +107,19 @@ function normaliseTargets(raw: unknown): GoogleSearchGeoTarget[] {
       typeof e.bid_modifier_pct === "number" && Number.isFinite(e.bid_modifier_pct)
         ? e.bid_modifier_pct
         : null;
-    const resolvedResourceName =
-      typeof e.resolved_resource_name === "string" ? e.resolved_resource_name : null;
-    const resolvedName = typeof e.resolved_name === "string" ? e.resolved_name : null;
     const target: GoogleSearchGeoTarget = { location, bid_modifier_pct: bidModifier };
-    if (resolvedResourceName !== null) target.resolved_resource_name = resolvedResourceName;
-    if (resolvedName !== null) target.resolved_name = resolvedName;
+    // Absent means not tried yet. An explicit null means tried and no match,
+    // and has to survive a save or Review never sees it.
+    if ("resolved_resource_name" in e) {
+      target.resolved_resource_name =
+        typeof e.resolved_resource_name === "string" && e.resolved_resource_name.trim()
+          ? e.resolved_resource_name
+          : null;
+    }
+    if ("resolved_name" in e) {
+      target.resolved_name =
+        typeof e.resolved_name === "string" && e.resolved_name.trim() ? e.resolved_name : null;
+    }
     out.push(target);
   }
   return out;
