@@ -179,6 +179,7 @@ function makeTrackingClient(
 ) {
   let suggestCallCount = 0;
   const suggestCalledWith: string[][] = [];
+  const mutations: Array<{ resource: string; operations: unknown[] }> = [];
   let seq = 1000;
 
   const client = {
@@ -186,8 +187,8 @@ function makeTrackingClient(
       _creds: GoogleAdsCustomerCredentials,
       resource: string,
       operations: unknown[],
-      _opts = {},
     ) {
+      mutations.push({ resource, operations });
       const results = operations.map(() => ({
         resourceName: `customers/${CUSTOMER_ID}/${resource}/${seq++}`,
       }));
@@ -210,6 +211,7 @@ function makeTrackingClient(
     client: client as unknown as GoogleAdsClient,
     getSuggestCallCount: () => suggestCallCount,
     getSuggestCalledWith: () => suggestCalledWith,
+    getMutations: () => mutations,
   };
 }
 
@@ -285,5 +287,42 @@ describe("push adapter — pre-resolved IDs skip suggest", () => {
     assert.ok(!calledNames.includes("london"), "london must NOT be in suggest calls (pre-resolved)");
     assert.ok(calledNames.includes("manchester"), "manchester must be in suggest calls (no pre-resolved)");
     assert.equal(summary.geoTargetsCreated.length, 2);
+  });
+
+  it("does not trust a resolution made for different text", async () => {
+    const newcastleId = "geoTargetConstants/1006851";
+    const unitedKingdomId = "geoTargetConstants/2826";
+    const { client, getSuggestCalledWith, getMutations } = makeTrackingClient({
+      "united kingdom": { resourceName: unitedKingdomId, displayName: "United Kingdom" },
+    });
+    const tree = makeMinimalTree();
+    tree.plan.geo_targets = [
+      {
+        location: "United Kingdom",
+        bid_modifier_pct: null,
+        resolved_resource_name: newcastleId,
+        resolved_name: "Newcastle upon Tyne, England, United Kingdom",
+      },
+    ];
+
+    const summary = await pushGoogleSearchPlan({
+      tree,
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+
+    const calledNames = getSuggestCalledWith().flat();
+    assert.ok(calledNames.includes("United Kingdom"), "suggest must re-resolve the current text");
+    assert.equal(summary.geoTargetsFailed.length, 0);
+    const criteria = getMutations().filter((call) => call.resource === "campaignCriteria");
+    const created = criteria.flatMap((call) =>
+      call.operations.map((op) => {
+        const create = (op as { create: { location: { geoTargetConstant: string } } }).create;
+        return create.location.geoTargetConstant;
+      }),
+    );
+    assert.deepEqual(created, [unitedKingdomId]);
+    assert.ok(!created.includes(newcastleId));
   });
 });
