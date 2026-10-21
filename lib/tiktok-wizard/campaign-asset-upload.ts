@@ -116,6 +116,11 @@ async function uploadResumableTusFromBrowser(
     `cacheControl ${toBase64("3600")}`,
   ].join(",");
 
+  // No `x-upsert`. This runs with the user's session token, and an upsert
+  // needs SELECT + UPDATE on storage.objects as well as INSERT. The bucket
+  // only grants authenticated INSERT, so an upsert is refused with
+  // "new row violates row-level security policy". Paths are fresh UUIDs,
+  // so there is never an object to overwrite.
   const createRes = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -125,7 +130,6 @@ async function uploadResumableTusFromBrowser(
       "Tus-Resumable": "1.0.0",
       "Upload-Length": String(file.size),
       "Upload-Metadata": uploadMetadata,
-      "x-upsert": "true",
     },
   });
   if (createRes.status !== 201) {
