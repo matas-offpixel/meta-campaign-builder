@@ -359,7 +359,19 @@ export interface GoogleSearchImportWarning {
     | "rsa_layout"
     /** A sheet field was stored on the draft but push does not apply it
      *  (launch status, schedule, networks, keyword status, keyword Max CPC). */
-    | "sheet_field_recorded";
+    | "sheet_field_recorded"
+    /** The same location is listed twice on the Locations tab. The second row is skipped. */
+    | "geo_duplicate"
+    /** A bid-modifier cell was not a percentage. The row is kept with no modifier. */
+    | "geo_bad_modifier"
+    /** A Locations tab was present but had no location rows. */
+    | "geo_tab_empty"
+    /** The workbook has no Locations tab. */
+    | "geo_none"
+    /** Suggest returned no Google Ads location. `resolved_resource_name` is null. */
+    | "geo_unresolved"
+    /** Google Ads could not be asked (no account, credentials, or the call threw). Rows stay unresolved. */
+    | "geo_resolve_failed";
   message: string;
   /** Free-form context for the wizard to display. */
   context?: Record<string, string | number | null>;

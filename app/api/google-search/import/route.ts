@@ -2,6 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { createGoogleSearchPlanTreeFromDraft } from "@/lib/db/google-search-plans";
+import { GoogleAdsClient } from "@/lib/google-ads/client";
+import { getGoogleAdsCredentials } from "@/lib/google-ads/credentials";
+import { resolveGeoLocations, type GeoResolution } from "@/lib/google-ads/geo-resolve";
+import { resolveImportedGeoTargets } from "@/lib/google-search/import-geo";
 import { defaultSitelinkSeeds } from "@/lib/google-search/sitelink-defaults";
 import {
   STRUCTURE_MODES,
@@ -131,6 +135,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 422 },
     );
   }
+
+  await resolveImportedGeoTargets(draft, (locations) =>
+    resolveLocationsForImport(supabase, googleAdsAccountId, locations),
+  );
 
   try {
     // Seed default sitelinks if the parser didn't produce any (xlsx Phase 1
@@ -273,6 +281,32 @@ async function importVideoPlan(
       { status: 500 },
     );
   }
+}
+
+/**
+ * One suggest batch, the same call the push pre-resolve uses. Throws when
+ * there is nothing to call with (no account, no credentials, client config),
+ * which the importer records as `geo_resolve_failed` and still saves the plan.
+ */
+async function resolveLocationsForImport(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  accountId: string | null,
+  locations: string[],
+): Promise<Array<GeoResolution | null>> {
+  if (!accountId) throw new Error("no Google Ads account on the import");
+  const credentials = await getGoogleAdsCredentials(supabase as never, accountId);
+  if (!credentials) throw new Error("no credentials for the Google Ads account");
+  const client = new GoogleAdsClient();
+  return resolveGeoLocations(
+    locations,
+    client,
+    {
+      customerId: credentials.customer_id,
+      refreshToken: credentials.refresh_token,
+      loginCustomerId: credentials.login_customer_id,
+    },
+    new Map(),
+  );
 }
 
 function readUuid(raw: FormDataEntryValue | null): string | null {

@@ -134,7 +134,7 @@ export function detectWorkbookKind(workbook: XLSX.WorkBook): GoogleWorkbookDetec
 
 export const SEARCH_TABS = {
   required: ["Keywords"],
-  optional: ["Campaigns", "RSAs", "Negatives", "Budget & Phasing", "Assets & Extensions"],
+  optional: ["Campaigns", "RSAs", "Negatives", "Budget & Phasing", "Assets & Extensions", "Locations"],
 } as const;
 
 export const VIDEO_TABS = {

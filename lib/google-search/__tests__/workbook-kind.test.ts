@@ -101,6 +101,21 @@ describe("detectWorkbookKind", () => {
   it("neither tab → unknown", () => {
     assert.equal(detectWorkbookKind(workbook({ Sheet1: [] })).kind, "unknown");
   });
+
+  it("a Locations tab does not make a video sheet a search sheet, or a locations-only sheet a search sheet", () => {
+    const video = workbook({
+      "3 Targeting & Exclusions": [["Location", "Targeting"], ["London", "Presence"]],
+      "4 Placements": [["Placement", "Type"], ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "Video"]],
+    });
+    assert.equal(detectWorkbookKind(video).kind, "video");
+    assert.equal(detectWorkbookKind(workbook({ Locations: [["Location"], ["London"]] })).kind, "unknown");
+    assert.equal(detectWorkbookKind(workbook({ Targeting: [["Location"], ["London"]] })).kind, "unknown");
+    const search = workbook({
+      "4 Keywords": [KEYWORDS_HEADER, KEYWORD_ROW],
+      Locations: [["Location", "Targeting"], ["London", "Presence"]],
+    });
+    assert.equal(detectWorkbookKind(search).kind, "search");
+  });
 });
 
 describe("import messages", () => {
@@ -109,7 +124,7 @@ describe("import messages", () => {
     assert.match(message, /Tabs found: Sheet1, Notes\./);
     assert.match(
       message,
-      /Search needs a Keywords tab \(optional: Campaigns, RSAs, Negatives, Budget & Phasing, Assets & Extensions\)\./,
+      /Search needs a Keywords tab \(optional: Campaigns, RSAs, Negatives, Budget & Phasing, Assets & Extensions, Locations\)\./,
     );
     assert.match(
       message,
