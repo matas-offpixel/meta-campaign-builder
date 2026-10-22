@@ -4,6 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import {
+  fetchCampaignNameById,
+  fetchCodedCampaignsForAccount,
   fetchEventDailyMetaMetrics,
   fetchEventLifetimeMetaMetrics,
   fetchEventTodayMetaSnapshot,
@@ -593,6 +595,14 @@ export async function runRollupSyncForEvent(
               ? { knownCampaignIds: call.knownCampaignIds }
               : {}),
           }),
+        fetchCodedCampaigns: (call) =>
+          fetchCodedCampaignsForAccount({
+            eventCode: call.eventCode,
+            adAccountId: call.adAccountId,
+            token,
+          }),
+        fetchCampaignName: (call) =>
+          fetchCampaignNameById({ campaignId: call.campaignId, token }),
       });
       for (const decision of union.decisions) {
         console.log(formatClaimDecision(eventCode, decision));
