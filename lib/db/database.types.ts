@@ -1122,6 +1122,53 @@ export type Database = {
           },
         ]
       }
+      client_reports: {
+        Row: {
+          client_id: string
+          created_at: string
+          enabled: boolean
+          expires_at: string | null
+          id: string
+          season: string
+          share_token: string
+          storage_path: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          enabled?: boolean
+          expires_at?: string | null
+          id?: string
+          season: string
+          share_token: string
+          storage_path: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          enabled?: boolean
+          expires_at?: string | null
+          id?: string
+          season?: string
+          share_token?: string
+          storage_path?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_reports_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_ticketing_connections: {
         Row: {
           client_id: string

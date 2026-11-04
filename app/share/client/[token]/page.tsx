@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 
+import { visibleSeasonReports } from "@/lib/client-reports/access";
 import { loadClientPortalData } from "@/lib/db/client-portal-server";
+import { listClientSeasonReports } from "@/lib/db/client-reports";
 import { resolveShareByToken } from "@/lib/db/report-shares";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
@@ -105,8 +107,19 @@ export default async function ClientPortalPage({ params, searchParams }: Props) 
     return <ClientPortalUnavailable />;
   }
 
+  const seasonReports = visibleSeasonReports(
+    await listClientSeasonReports(result.client.id),
+    result.client.id,
+    new Date(),
+  ).map((report) => ({
+    title: report.title,
+    season: report.season,
+    shareToken: report.share_token,
+  }));
+
   return (
     <DashboardTabs
+      seasonReports={seasonReports}
       clientId={result.client.id}
       token={token}
       client={result.client}

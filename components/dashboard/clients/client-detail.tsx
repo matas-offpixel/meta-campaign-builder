@@ -29,6 +29,8 @@ import { PlatformAccountsCard } from "./platform-accounts-card";
 import { ChannelDefaultsCard } from "./channel-defaults-card";
 import { BillingSection } from "./billing-section";
 import { ClientShareLinkCard } from "./client-share-link-card";
+import { ClientReportsCard } from "./client-reports-card";
+import type { ClientReportCard } from "@/lib/client-reports/access";
 import { RefreshAllSpendButton } from "./refresh-all-spend-button";
 import { NewEventKindModal } from "./new-event-kind-modal";
 import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
@@ -114,6 +116,8 @@ interface Props {
    * paint, no client round-trip.
    */
   initialShare: { token: string; enabled: boolean } | null;
+  /** Season reports for this client. Empty when migration 196 is unapplied. */
+  initialReports?: ClientReportCard[];
   /**
    * Latest weekly snapshot per event_id (RLS-scoped to the current
    * user). Used by the topline stats panel + per-event metrics table
@@ -218,6 +222,7 @@ export function ClientDetail({
   clientQuotes,
   defaults,
   initialShare,
+  initialReports = [],
   latestSnapshots,
   ticketingConnections,
   ticketingLinkDiscoveryStats,
@@ -600,6 +605,11 @@ export function ClientDetail({
           <ClientShareLinkCard
             clientId={client.id}
             initialShare={initialShare}
+          />
+
+          <ClientReportsCard
+            clientId={client.id}
+            initialReports={initialReports}
           />
 
           <ClientStatsPanel
