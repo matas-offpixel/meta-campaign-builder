@@ -8,6 +8,7 @@ import {
   listQuotesServer,
 } from "@/lib/db/invoicing-server";
 import { getShareForClient } from "@/lib/db/report-shares";
+import { listOwnedClientReports } from "@/lib/db/client-reports";
 import { listLatestSnapshotsForClient } from "@/lib/db/client-snapshots-server";
 import { listConnectionsForUser } from "@/lib/db/ticketing";
 import {
@@ -80,6 +81,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     clientInvoices,
     clientQuotes,
     share,
+    reports,
     latestSnapshots,
     ticketing,
     d2c,
@@ -98,6 +100,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     listInvoicesForClientWithRefsServer(user.id, id),
     listQuotesServer(user.id, { client_id: id }),
     getShareForClient(id),
+    listOwnedClientReports(id),
     listLatestSnapshotsForClient(user.id, id),
     listConnectionsForUser(supabase, { clientId: id }),
     listD2CConnectionsForUser(supabase, { clientId: id }),
@@ -240,6 +243,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       clientQuotes={clientQuotes}
       defaults={defaults}
       initialShare={initialShare}
+      initialReports={reports}
       latestSnapshots={latestSnapshots}
       ticketingConnections={safeTicketing}
       ticketingLinkDiscoveryStats={ticketingLinkDiscoveryStats}

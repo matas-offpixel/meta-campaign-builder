@@ -63,6 +63,11 @@ interface Props {
   initialPastExpanded?: boolean;
   /** Whether the Cancelled Events accordion should render expanded on first paint. */
   initialCancelledExpanded?: boolean;
+  /**
+   * Enabled, unexpired season reports for the public client portal.
+   * Each link uses the report's own token, not the portal token.
+   */
+  seasonReports?: { title: string; season: string; shareToken: string }[];
 }
 
 export function DashboardTabs({
@@ -88,6 +93,7 @@ export function DashboardTabs({
   patternsFunnel,
   initialPastExpanded = false,
   initialCancelledExpanded = false,
+  seasonReports = [],
 }: Props) {
   const grouped = groupEventsByClientRegion(events);
   const visibleRegions = visibleClientRegions(grouped);
@@ -176,6 +182,30 @@ export function DashboardTabs({
 
   const content = (
     <>
+      {isShared && seasonReports.length > 0 ? (
+        <section
+          aria-label="Season reports"
+          className="mx-auto max-w-7xl px-6 pt-4"
+        >
+          <h2 className="font-heading text-base tracking-wide">Season reports</h2>
+          <ul className="mt-2 space-y-1">
+            {seasonReports.map((report) => (
+              <li key={report.shareToken}>
+                <a
+                  href={`/share/season/${report.shareToken}`}
+                  className="text-sm underline underline-offset-2"
+                >
+                  {report.title}
+                </a>
+                <span className="text-xs text-muted-foreground">
+                  {" "}
+                  · {report.season}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {!isShared ? (
         <div className="mx-auto max-w-7xl px-6 pt-4">
           <EnhancementFlagBanner clientId={clientId} />
