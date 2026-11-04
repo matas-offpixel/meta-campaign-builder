@@ -44,6 +44,12 @@ export interface TikTokCreativeInput {
   video_views_100p: number | null;
   thumbnail_url: string | null;
   deeplink_url: string | null;
+  /**
+   * The ad's `video_id`. Tier 1 prefers it over the thumbnail's `VideoID`
+   * (the same value), so a durable Storage URL or a dropped expired URL
+   * does not change grouping.
+   */
+  video_id?: string | null;
 }
 
 export interface TikTokCreativeGroup {
@@ -160,7 +166,7 @@ function deriveGroupKey(row: TikTokCreativeInput): {
   reason: KeyReason;
 } {
   // Tier 1 — VideoID (most precise TikTok signal)
-  const videoId = extractVideoId(row.thumbnail_url);
+  const videoId = row.video_id?.trim() || extractVideoId(row.thumbnail_url);
   if (videoId) return { key: `video:${videoId}`, reason: "video_id" };
 
   // Tier 2 — thumbnail path

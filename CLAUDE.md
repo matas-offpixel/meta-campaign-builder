@@ -173,6 +173,7 @@ LANDING_PAGES_META_API_VERSION=
 BM_TOKEN_KEY=
 FACEBOOK_OAUTH_SCOPES=
 ENABLE_META_THUMBNAIL_FETCH=
+ENABLE_TIKTOK_THUMBNAIL_FETCH=
 ENABLE_OPTIMISATION_AUTOMATION=
 ENABLE_OPTIMISATION_WRITES=
 ENABLE_OPTIMISATION_PAUSE_WRITES=
@@ -344,6 +345,22 @@ ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 > `lib/meta/thumbnail-proxy-server.ts`) now routes through this helper; a
 > regression-guard test (`lib/meta/__tests__/video-thumbnail-cache-guard.test.ts`)
 > greps the tree to keep it that way.
+
+> **`ENABLE_TIKTOK_THUMBNAIL_FETCH`** (default `"1"` when unset) gates the TikTok
+> calls behind durable TikTok thumbnails (`lib/tiktok/thumbnail-cache.ts`).
+> TikTok cover and image URLs are signed and expire about six hours after the
+> read, so after the `tiktok-active-creatives` cron writes its snapshot rows it
+> stores each ad's video cover (`/file/video/ad/info/`, 60 ids a call) or image
+> (`/file/image/ad/info/`, 100 ids a call) in the `creative-thumbnails` bucket at
+> `tiktok/video/{advertiser_id}/{video_id}.jpg` or `tiktok/image/{advertiser_id}/{image_id}.jpg`
+> ("/" in an image id → "__"). Storage first, TikTok only on a miss, at most 20
+> info calls per run, one call per id even when requested concurrently. Readers
+> (`readActiveTikTokCreativesSnapshot`, the share report's TikTok grid) list
+> Storage only and serve the object, else the snapshot URL while unexpired, else
+> null. Set to `"0"` to stop TikTok calls and downloads; cache hits still serve.
+> Spark ads that carry only `tiktok_item_id` have no video or image id and get no
+> thumbnail from this path. Backfill: `scripts/backfill-tiktok-thumbnails.mts`
+> (dry-run by default, `--apply` writes, `--client` or `--event-code`).
 
 > **`OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED`** must be exactly `"true"`
 > to POST a custom audience onto a live ad set from the Published library

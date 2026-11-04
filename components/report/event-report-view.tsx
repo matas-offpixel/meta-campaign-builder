@@ -105,6 +105,8 @@ export interface TikTokSnapshotCreative {
   video_views_100p: number | null;
   thumbnail_url: string | null;
   deeplink_url: string | null;
+  video_id?: string | null;
+  image_ids?: string[] | null;
 }
 
 export interface TikTokSnapshotData {

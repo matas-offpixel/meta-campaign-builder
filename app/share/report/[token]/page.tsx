@@ -63,7 +63,11 @@ import {
 import type { EventDailyRollup } from "@/lib/db/event-daily-rollups";
 import { buildTikTokRollupTotalsDisplay } from "@/lib/tiktok/rollup-totals-display";
 import type { TikTokShareAdRow } from "@/lib/tiktok/share-render";
-import { readActiveTikTokCreativesSnapshot } from "@/lib/tiktok/snapshots";
+import {
+  readActiveTikTokCreativesSnapshot,
+  readEventTikTokAdvertiserId,
+} from "@/lib/tiktok/snapshots";
+import { resolveSnapshotThumbnailUrls } from "@/lib/tiktok/thumbnail-cache";
 import {
   isSnapshotFresh,
   readActiveCreativesSnapshot,
@@ -703,7 +707,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
               db
                 .from("tiktok_active_creatives_snapshots")
                 .select(
-                  "ad_id,ad_name,campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,video_views_2s,video_views_6s,video_views_100p,thumbnail_url,deeplink_url,window_until",
+                  "ad_id,ad_name,campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,video_views_2s,video_views_6s,video_views_100p,thumbnail_url,deeplink_url,video_id,image_ids,window_until",
                 )
                 .eq("event_id", event_id)
                 .eq("kind", "ok")
@@ -731,14 +735,20 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
             // here to keep only the latest window per ad_id before passing to the
             // grouper. The grouper then collapses ad_ids into creative concepts.
             const seenAdIds = new Set<string>();
-            const creatives = (crRes.data ?? [])
+            const latestCreatives = (crRes.data ?? [])
               .filter((row: { ad_id: string }) => {
                 if (seenAdIds.has(row.ad_id)) return false;
                 seenAdIds.add(row.ad_id);
                 return true;
               })
               // Strip window_until — not part of TikTokSnapshotCreative
-              .map(({ window_until: _w, ...rest }: { window_until: unknown; ad_id: string; ad_name: string | null; campaign_id: string | null; campaign_name: string | null; spend: number | null; impressions: number | null; reach: number | null; clicks: number | null; ctr: number | null; video_views_2s: number | null; video_views_6s: number | null; video_views_100p: number | null; thumbnail_url: string | null; deeplink_url: string | null }) => rest) as import("@/components/report/event-report-view").TikTokSnapshotCreative[];
+              .map(({ window_until: _w, ...rest }: { window_until: unknown; ad_id: string; ad_name: string | null; campaign_id: string | null; campaign_name: string | null; spend: number | null; impressions: number | null; reach: number | null; clicks: number | null; ctr: number | null; video_views_2s: number | null; video_views_6s: number | null; video_views_100p: number | null; thumbnail_url: string | null; deeplink_url: string | null; video_id: string | null; image_ids: string[] | null }) => rest) as import("@/components/report/event-report-view").TikTokSnapshotCreative[];
+            const creatives = await resolveSnapshotThumbnailUrls(
+              admin,
+              await readEventTikTokAdvertiserId(admin, event_id),
+              latestCreatives,
+              new Date(),
+            );
             console.log(
               `[share/report] tiktok_snapshots breakdown_rows=${breakdowns.length} creative_rows=${creatives.length}`,
             );
