@@ -358,8 +358,15 @@ ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 > (`readActiveTikTokCreativesSnapshot`, the share report's TikTok grid) list
 > Storage only and serve the object, else the snapshot URL while unexpired, else
 > null. Set to `"0"` to stop TikTok calls and downloads; cache hits still serve.
-> Spark ads that carry only `tiktok_item_id` have no video or image id and get no
-> thumbnail from this path. Backfill: `scripts/backfill-tiktok-thumbnails.mts`
+> Spark ads that carry only `tiktok_item_id` take their cover from
+> `GET /tt_video/list/` (`video_info.poster_url`), paged per identity after the
+> video and image pass. Item ids that list does not contain are read with
+> `GET /identity/video/info/` (doc 1738958351620097, up to 20 `item_ids` a
+> call): `video_info.poster_url`, or the first carousel `image_url`. Each list
+> page and each info call counts toward the same 20-call cap. The bytes are
+> stored at `tiktok/item/{advertiser_id}/{tiktok_item_id}.jpg`. An identity
+> whose post list or info read is unauthorised, or whose Spark auth has ended,
+> is skipped. Readers serve that object for an item-only row, else null. Backfill: `scripts/backfill-tiktok-thumbnails.mts`
 > (dry-run by default, `--apply` writes, `--client` or `--event-code`).
 
 > **`OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED`** must be exactly `"true"`

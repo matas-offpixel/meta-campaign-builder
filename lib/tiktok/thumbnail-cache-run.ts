@@ -15,16 +15,22 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getTikTokCredentials } from "./credentials.ts";
 import {
+  cacheTikTokSparkItemThumbnails,
   cacheTikTokThumbnails,
   thumbnailIdsForRows,
   TIKTOK_THUMB_MAX_CALLS_PER_RUN,
   type CacheTikTokThumbnailsInput,
+  type SparkThumbnailItem,
   type TikTokThumbnailMissingReason,
 } from "./thumbnail-cache.ts";
 
 export interface ThumbnailRowIds {
   video_id?: string | null;
   image_ids?: string[] | null;
+  tiktok_item_id?: string | null;
+  identity_id?: string | null;
+  identity_type?: string | null;
+  identity_bc_id?: string | null;
 }
 
 export interface TikTokThumbnailRunStats {
@@ -32,8 +38,12 @@ export interface TikTokThumbnailRunStats {
   cached: number;
   stored: number;
   missing: number;
-  /** Rows with neither a video_id nor an image id (Spark ads with only tiktok_item_id). */
+  /** Rows with no video id, no image id, and no tiktok_item_id. */
   rowsWithoutIds: number;
+  /** `/tt_video/list/` pages fetched for Spark covers. */
+  sparkPages: number;
+  /** Identities skipped because the post list was denied or Spark auth had ended. */
+  sparkIdentitiesSkipped: number;
   /** `${accountId}:${kind}:${id}` → outcome. */
   outcomes: Map<
     string,
@@ -57,9 +67,17 @@ export async function cacheThumbnailsForAccounts(input: {
     stored: 0,
     missing: 0,
     rowsWithoutIds: 0,
+    sparkPages: 0,
+    sparkIdentitiesSkipped: 0,
     outcomes: new Map(),
   };
   const budget = { callsLeft: input.maxCalls ?? TIKTOK_THUMB_MAX_CALLS_PER_RUN };
+  const ready: Array<{
+    accountId: string;
+    advertiserId: string;
+    token: string;
+    rows: readonly ThumbnailRowIds[];
+  }> = [];
   const readCredentials =
     input.readCredentials ??
     ((accountId: string) =>
@@ -69,10 +87,11 @@ export async function cacheThumbnailsForAccounts(input: {
   for (const [accountId, rows] of input.rowsByAccount) {
     const { videoIds, imageIds } = thumbnailIdsForRows(rows);
     stats.rowsWithoutIds += rows.filter(
-      (r) => !r.video_id && !(r.image_ids?.length),
+      (r) => !r.video_id && !(r.image_ids?.length) && !r.tiktok_item_id,
     ).length;
     const idCount = videoIds.length + imageIds.length;
-    if (idCount === 0) continue;
+    const spark = sparkItems(rows);
+    if (idCount === 0 && spark.length === 0) continue;
 
     const advertiserId = await readAdvertiserId(input.supabase, accountId);
     let token: string | null = null;
@@ -92,8 +111,17 @@ export async function cacheThumbnailsForAccounts(input: {
       stats.missing += idCount;
       for (const id of videoIds) stats.outcomes.set(`${accountId}:video:${id}`, { kind: "missing", reason: "no_credentials" });
       for (const id of imageIds) stats.outcomes.set(`${accountId}:image:${id}`, { kind: "missing", reason: "no_credentials" });
+      for (const item of spark) {
+        stats.missing += 1;
+        stats.outcomes.set(`${accountId}:item:${item.itemId}`, {
+          kind: "missing",
+          reason: item.identityId && item.identityType ? "no_credentials" : "spark_identity_missing",
+        });
+      }
       continue;
     }
+    ready.push({ accountId, advertiserId, token, rows });
+    if (idCount === 0) continue;
 
     const res = await cacheTikTokThumbnails({
       admin: input.supabase,
@@ -114,7 +142,46 @@ export async function cacheThumbnailsForAccounts(input: {
       stats.outcomes.set(`${accountId}:${key}`, { kind: outcome.kind, reason: outcome.reason });
     }
   }
+
+  for (const account of ready) {
+    const items = sparkItems(account.rows);
+    if (items.length === 0) continue;
+    const res = await cacheTikTokSparkItemThumbnails({
+      admin: input.supabase,
+      advertiserId: account.advertiserId,
+      token: account.token,
+      items,
+      budget,
+      dryRun: input.dryRun,
+      request: input.request,
+      fetchImage: input.fetchImage,
+    });
+    stats.calls += res.calls;
+    stats.sparkPages += res.pages;
+    stats.sparkIdentitiesSkipped += res.identitiesSkipped;
+    stats.cached += res.cached;
+    stats.stored += res.stored;
+    stats.missing += res.missing;
+    for (const [key, outcome] of res.outcomes) {
+      stats.outcomes.set(`${account.accountId}:${key}`, { kind: outcome.kind, reason: outcome.reason });
+    }
+  }
   return stats;
+}
+
+function sparkItems(rows: readonly ThumbnailRowIds[]): SparkThumbnailItem[] {
+  const byId = new Map<string, SparkThumbnailItem>();
+  for (const row of rows) {
+    if (row.video_id || row.image_ids?.length || !row.tiktok_item_id) continue;
+    if (byId.has(row.tiktok_item_id)) continue;
+    byId.set(row.tiktok_item_id, {
+      itemId: row.tiktok_item_id,
+      identityId: row.identity_id ?? null,
+      identityType: row.identity_type ?? null,
+      identityBcId: row.identity_bc_id ?? null,
+    });
+  }
+  return [...byId.values()];
 }
 
 async function readAdvertiserId(

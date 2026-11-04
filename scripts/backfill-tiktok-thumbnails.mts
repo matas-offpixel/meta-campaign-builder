@@ -10,7 +10,10 @@
 //
 // Dry-run by default: lists Storage and reads TikTok info (GET only) to see
 // which ids TikTok returns a cover for, and downloads and writes nothing.
-// --apply downloads and uploads.
+// Spark rows (tiktok_item_id, no video_id or image id) are paged from
+// GET /tt_video/list/ after the video and image pass. Item ids that list
+// does not contain are read with GET /identity/video/info/. Each list page
+// and each info call counts toward --max-calls. --apply downloads and uploads.
 //
 // Usage:
 //   node --experimental-strip-types --env-file=.env.local \
@@ -50,6 +53,8 @@ interface SnapshotRow {
   video_id: string | null;
   image_ids: string[] | null;
   tiktok_item_id: string | null;
+  identity_id: string | null;
+  identity_type: string | null;
   window_since: string;
   window_until: string;
 }
@@ -88,7 +93,7 @@ async function main() {
     if (!latest) continue;
     const { data: rows, error: rowsError } = await db
       .from("tiktok_active_creatives_snapshots")
-      .select("ad_id, video_id, image_ids, tiktok_item_id, window_since, window_until")
+      .select("ad_id, video_id, image_ids, tiktok_item_id, identity_id, identity_type, window_since, window_until")
       .eq("event_id", event.id)
       .eq("kind", "ok")
       .eq("window_since", latest.window_since)
@@ -108,7 +113,7 @@ async function main() {
 
   console.log(APPLY ? "mode: apply" : "mode: dry run (TikTok info reads only; nothing downloaded or written)");
   console.log(
-    `ids: calls=${stats.calls} cached=${stats.cached} ${APPLY ? "stored" : "would_store"}=${stats.stored} missing=${stats.missing}`,
+    `ids: calls=${stats.calls} cached=${stats.cached} ${APPLY ? "stored" : "would_store"}=${stats.stored} missing=${stats.missing} tiktok_spark_pages=${stats.sparkPages} tiktok_spark_identities_skipped=${stats.sparkIdentitiesSkipped}`,
   );
   for (const { code, accountId, rows } of adsByEvent) {
     const counts = new Map<string, number>();
@@ -124,7 +129,17 @@ async function main() {
         found.find((o) => o?.kind === "stored") ??
         found.find(Boolean);
       if (!row.video_id && !(row.image_ids?.length)) {
-        bump(row.tiktok_item_id ? "without: spark item only (no video_id/image_ids)" : "without: no ids");
+        const spark = row.tiktok_item_id
+          ? stats.outcomes.get(`${accountId}:item:${row.tiktok_item_id}`)
+          : undefined;
+        if (!row.tiktok_item_id) bump("without: no ids");
+        else if (!accountId) bump("without: no tiktok account");
+        else if (spark?.kind === "cached") bump("durable already");
+        else if (spark?.kind === "stored") bump(APPLY ? "durable now" : "would get durable");
+        else if (spark?.reason === "spark_post_not_found") bump("spark: post not found");
+        else if (spark?.reason === "spark_auth_expired") bump("spark: auth expired");
+        else if (spark?.reason === "spark_identity_missing") bump("spark: identity missing");
+        else bump(`without: ${spark?.reason ?? "unknown"}`);
       } else if (!accountId) {
         bump("without: no tiktok account");
       } else if (best?.kind === "cached") {

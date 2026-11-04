@@ -124,7 +124,7 @@ export async function GET(req: NextRequest) {
     rowsByAccount: thumbRowsByAccount,
   });
   console.log(
-    `[tiktok-active-creatives] tiktok_thumb_calls=${thumbnails.calls} tiktok_thumb_cached=${thumbnails.cached} tiktok_thumb_stored=${thumbnails.stored} tiktok_thumb_missing=${thumbnails.missing} tiktok_thumb_rows_without_ids=${thumbnails.rowsWithoutIds}`,
+    `[tiktok-active-creatives] tiktok_thumb_calls=${thumbnails.calls} tiktok_thumb_cached=${thumbnails.cached} tiktok_thumb_stored=${thumbnails.stored} tiktok_thumb_missing=${thumbnails.missing} tiktok_thumb_rows_without_ids=${thumbnails.rowsWithoutIds} tiktok_spark_pages=${thumbnails.sparkPages} tiktok_spark_identities_skipped=${thumbnails.sparkIdentitiesSkipped}`,
   );
 
   return NextResponse.json({
@@ -140,6 +140,8 @@ export async function GET(req: NextRequest) {
       stored: thumbnails.stored,
       missing: thumbnails.missing,
       rowsWithoutIds: thumbnails.rowsWithoutIds,
+      sparkPages: thumbnails.sparkPages,
+      sparkIdentitiesSkipped: thumbnails.sparkIdentitiesSkipped,
     },
     results,
   });

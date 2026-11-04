@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
+import { TikTokApiError } from "../client.ts";
 import {
+  cacheTikTokSparkItemThumbnails,
   cacheTikTokThumbnails,
   resolveSnapshotThumbnailUrls,
   thumbnailIdsForRows,
   tiktokThumbnailPath,
   tiktokThumbnailStem,
   unexpiredTikTokSignedUrl,
+  type SparkThumbnailItem,
   type TikTokThumbnailCacheClient,
 } from "../thumbnail-cache.ts";
 import { readActiveTikTokCreativesSnapshot } from "../snapshots.ts";
@@ -82,6 +85,10 @@ describe("tiktokThumbnailPath", () => {
     assert.equal(
       tiktokThumbnailPath("image", ADV, "tos-alisg-p-0051c001-sg/oEiu1EP1"),
       `tiktok/image/${ADV}/tos-alisg-p-0051c001-sg__oEiu1EP1.jpg`,
+    );
+    assert.equal(
+      tiktokThumbnailPath("item", ADV, "7540693385208872978"),
+      `tiktok/item/${ADV}/7540693385208872978.jpg`,
     );
   });
 
@@ -249,6 +256,7 @@ describe("resolveSnapshotThumbnailUrls", () => {
     const { client } = fakeStorage([
       `tiktok/video/${ADV}/v1.jpg`,
       `tiktok/image/${ADV}/tos-x__img.jpg`,
+      `tiktok/item/${ADV}/item-4.jpg`,
     ]);
     const out = await resolveSnapshotThumbnailUrls(
       client,
@@ -258,6 +266,18 @@ describe("resolveSnapshotThumbnailUrls", () => {
         { video_id: null, image_ids: ["tos-x/img"], thumbnail_url: null },
         { video_id: "v2", image_ids: null, thumbnail_url: signed(FUTURE) },
         { video_id: "v3", image_ids: null, thumbnail_url: signed(PAST) },
+        {
+          video_id: null,
+          image_ids: null,
+          tiktok_item_id: "item-4",
+          thumbnail_url: signed(FUTURE),
+        },
+        {
+          video_id: null,
+          image_ids: [],
+          tiktok_item_id: "item-5",
+          thumbnail_url: signed(FUTURE),
+        },
       ],
       NOW,
     );
@@ -267,6 +287,8 @@ describe("resolveSnapshotThumbnailUrls", () => {
         `${PUBLIC}/tiktok/video/${ADV}/v1.jpg`,
         `${PUBLIC}/tiktok/image/${ADV}/tos-x__img.jpg`,
         signed(FUTURE),
+        null,
+        `${PUBLIC}/tiktok/item/${ADV}/item-4.jpg`,
         null,
       ],
     );
@@ -280,6 +302,8 @@ describe("readActiveTikTokCreativesSnapshot thumbnails", () => {
       { ad_id: "a1", video_id: "v1", image_ids: null, thumbnail_url: signed(PAST) },
       { ad_id: "a2", video_id: "v2", image_ids: null, thumbnail_url: signed(FUTURE) },
       { ad_id: "a3", video_id: "v3", image_ids: null, thumbnail_url: signed(PAST) },
+      { ad_id: "a4", video_id: null, image_ids: null, thumbnail_url: signed(FUTURE), tiktok_item_id: "item-4" },
+      { ad_id: "a5", video_id: null, image_ids: null, thumbnail_url: signed(FUTURE), tiktok_item_id: "item-5" },
     ].map((r) => ({
       ...r,
       kind: "ok",
@@ -297,7 +321,7 @@ describe("readActiveTikTokCreativesSnapshot thumbnails", () => {
       video_views_6s: null,
       video_views_100p: null,
       deeplink_url: null,
-      tiktok_item_id: null,
+      tiktok_item_id: "tiktok_item_id" in r ? r.tiktok_item_id : null,
       identity_type: null,
       payload: null,
     }));
@@ -323,7 +347,7 @@ describe("readActiveTikTokCreativesSnapshot thumbnails", () => {
 
   it("serves the durable URL, the unexpired signed URL, and null when expired", async () => {
     const snapshot = await readActiveTikTokCreativesSnapshot(
-      fakeSupabase([`tiktok/video/${ADV}/v1.jpg`]),
+      fakeSupabase([`tiktok/video/${ADV}/v1.jpg`, `tiktok/item/${ADV}/item-4.jpg`]),
       "e1",
       { since: "2026-10-01", until: "2026-11-03" },
       { now: NOW },
@@ -333,5 +357,228 @@ describe("readActiveTikTokCreativesSnapshot thumbnails", () => {
     assert.equal(byAd.get("a1"), `${PUBLIC}/tiktok/video/${ADV}/v1.jpg`);
     assert.equal(byAd.get("a2"), signed(FUTURE));
     assert.equal(byAd.get("a3"), null);
+    assert.equal(byAd.get("a4"), `${PUBLIC}/tiktok/item/${ADV}/item-4.jpg`);
+    assert.equal(byAd.get("a5"), null);
+  });
+});
+
+const ITEM = "7540693385208872978";
+
+function sparkItem(itemId: string, patch: Partial<SparkThumbnailItem> = {}): SparkThumbnailItem {
+  return {
+    itemId,
+    identityId: "auth-identity-1",
+    identityType: "AUTH_CODE",
+    ...patch,
+  };
+}
+
+function sparkRow(itemId: string, auth: { status?: string; end?: string } = {}) {
+  return {
+    item_info: { item_id: itemId, item_type: "VIDEO", status: "HESITATE_RECOMMEND" },
+    auth_info: {
+      ad_auth_status: auth.status ?? "AUTHORIZED",
+      auth_end_time: auth.end ?? "2027-01-01 00:00:00",
+    },
+    video_info: { poster_url: signed(FUTURE) },
+  };
+}
+
+describe("cacheTikTokSparkItemThumbnails", () => {
+  it("stores an item found on page 2 once and stops the walk", async () => {
+    const { client, uploads } = fakeStorage();
+    const pages: number[] = [];
+    const request = (async (_path: string, params: Record<string, unknown>) => {
+      const page = Number(params.page);
+      pages.push(page);
+      assert.equal(params.identity_id, "auth-identity-1");
+      assert.equal(params.identity_type, "AUTH_CODE");
+      if (page === 1) {
+        return {
+          list: [sparkRow("other-item")],
+          page_info: { page: 1, page_size: 50, total_number: 3, total_page: 5 },
+        };
+      }
+      if (page === 2) {
+        return {
+          list: [sparkRow(ITEM), sparkRow("item-c")],
+          page_info: { page: 2, page_size: 50, total_number: 3, total_page: 5 },
+        };
+      }
+      throw new Error(`walked to page ${page}`);
+    }) as never;
+    const input = {
+      admin: client,
+      advertiserId: ADV,
+      token: "t",
+      request,
+      fetchImage: imageFetch,
+      now: NOW,
+    };
+    const [a, b] = await Promise.all([
+      cacheTikTokSparkItemThumbnails({
+        ...input,
+        items: [sparkItem(ITEM), sparkItem("item-c")],
+      }),
+      cacheTikTokSparkItemThumbnails({ ...input, items: [sparkItem(ITEM)] }),
+    ]);
+    assert.deepEqual(pages, [1, 2]);
+    assert.deepEqual([...uploads].sort(), [
+      `tiktok/item/${ADV}/${ITEM}.jpg`,
+      `tiktok/item/${ADV}/item-c.jpg`,
+    ]);
+    assert.equal(a.pages, 2);
+    assert.equal(a.stored, 2);
+    assert.equal(b.stored, 1);
+    assert.equal(b.pages, 0);
+    assert.equal(a.outcomes.get(`item:${ITEM}`)?.kind, "stored");
+  });
+
+  it("skips an expired identity and an unauthorised identity without another page", async () => {
+    const expiredPages: number[] = [];
+    const expired = await cacheTikTokSparkItemThumbnails({
+      admin: fakeStorage().client,
+      advertiserId: ADV,
+      token: "t",
+      items: [sparkItem(ITEM)],
+      now: NOW,
+      fetchImage: imageFetch,
+      request: (async (_path: string, params: Record<string, unknown>) => {
+        const page = Number(params.page);
+        expiredPages.push(page);
+        if (page !== 1) throw new Error("retried an expired identity");
+        return {
+          list: [sparkRow("other-item", { status: "EXPIRED", end: "2020-01-01 00:00:00" })],
+          page_info: { page: 1, page_size: 50, total_number: 4, total_page: 3 },
+        };
+      }) as never,
+    });
+    assert.deepEqual(expiredPages, [1]);
+    assert.equal(expired.identitiesSkipped, 1);
+    assert.equal(expired.outcomes.get(`item:${ITEM}`)?.reason, "spark_auth_expired");
+    assert.equal(expired.stored, 0);
+
+    const deniedPages: number[] = [];
+    const denied = await cacheTikTokSparkItemThumbnails({
+      admin: fakeStorage().client,
+      advertiserId: ADV,
+      token: "t",
+      items: [sparkItem("item-denied", { identityId: "auth-2" })],
+      now: NOW,
+      fetchImage: imageFetch,
+      request: (async () => {
+        deniedPages.push(1);
+        throw new TikTokApiError("identity unauthorised", 40105, "req-1", 401);
+      }) as never,
+    });
+    assert.deepEqual(deniedPages, [1]);
+    assert.equal(denied.identitiesSkipped, 1);
+    assert.equal(denied.pages, 1);
+    assert.equal(denied.outcomes.get("item:item-denied")?.reason, "spark_auth_expired");
+  });
+
+  it("makes zero TikTok calls with ENABLE_TIKTOK_THUMBNAIL_FETCH=0; a stored item still serves", async () => {
+    process.env.ENABLE_TIKTOK_THUMBNAIL_FETCH = "0";
+    const { client } = fakeStorage([`tiktok/item/${ADV}/${ITEM}.jpg`]);
+    let calls = 0;
+    const res = await cacheTikTokSparkItemThumbnails({
+      admin: client,
+      advertiserId: ADV,
+      token: "t",
+      items: [sparkItem(ITEM), sparkItem("item-miss")],
+      now: NOW,
+      fetchImage: imageFetch,
+      request: (async () => {
+        calls += 1;
+        throw new Error("killswitch called TikTok");
+      }) as never,
+    });
+    assert.equal(calls, 0);
+    assert.equal(res.pages, 0);
+    assert.equal(res.cached, 1);
+    assert.equal(res.missing, 1);
+    assert.equal(res.outcomes.get("item:item-miss")?.reason, "killswitch");
+    assert.equal(res.outcomes.get(`item:${ITEM}`)?.url, `${PUBLIC}/tiktok/item/${ADV}/${ITEM}.jpg`);
+  });
+
+  it("reads an item the list does not contain from /identity/video/info/ once", async () => {
+    const { client, uploads } = fakeStorage();
+    const paths: string[] = [];
+    const request = (async (path: string, params: Record<string, unknown>) => {
+      paths.push(path);
+      if (path === "/identity/video/info/") {
+        assert.deepEqual(params.item_ids, [ITEM, "item-carousel"]);
+        return {
+          video_details: [
+            { item_id: ITEM, video_info: { poster_url: signed(FUTURE) } },
+            {
+              item_id: "item-carousel",
+              carousel_info: { image_info: [{ image_url: signed(FUTURE) }] },
+            },
+          ],
+        };
+      }
+      assert.equal(path, "/tt_video/list/");
+      return { list: [sparkRow("someone-else")], page_info: { page: 1, page_size: 50, total_number: 1, total_page: 1 } };
+    }) as never;
+    const res = await cacheTikTokSparkItemThumbnails({
+      admin: client,
+      advertiserId: ADV,
+      token: "t",
+      items: [sparkItem(ITEM), sparkItem("item-carousel")],
+      now: NOW,
+      fetchImage: imageFetch,
+      request,
+    });
+    assert.deepEqual(paths, ["/tt_video/list/", "/identity/video/info/"]);
+    assert.deepEqual([...uploads].sort(), [
+      `tiktok/item/${ADV}/${ITEM}.jpg`,
+      `tiktok/item/${ADV}/item-carousel.jpg`,
+    ]);
+    assert.equal(res.stored, 2);
+    assert.equal(res.pages, 1);
+  });
+
+  it("skips the rest of an identity when /identity/video/info/ is unauthorised", async () => {
+    const ids = Array.from({ length: 21 }, (_, i) => `item-${i}`);
+    const infoCalls: number[] = [];
+    const res = await cacheTikTokSparkItemThumbnails({
+      admin: fakeStorage().client,
+      advertiserId: ADV,
+      token: "t",
+      items: ids.map((id) => sparkItem(id)),
+      now: NOW,
+      fetchImage: imageFetch,
+      request: (async (path: string, params: Record<string, unknown>) => {
+        if (path === "/identity/video/info/") {
+          infoCalls.push((params.item_ids as string[]).length);
+          throw new TikTokApiError("identity unauthorised", 40105, "req-2", 401);
+        }
+        return { list: [], page_info: { page: 1, page_size: 50, total_number: 0, total_page: 0 } };
+      }) as never,
+    });
+    assert.deepEqual(infoCalls, [20]);
+    assert.equal(res.identitiesSkipped, 1);
+    assert.equal(res.stored, 0);
+    assert.equal(res.outcomes.get("item:item-20")?.reason, "spark_auth_expired");
+  });
+
+  it("does not store a poster that is not an image", async () => {
+    const { client, uploads } = fakeStorage();
+    const res = await cacheTikTokSparkItemThumbnails({
+      admin: client,
+      advertiserId: ADV,
+      token: "t",
+      items: [sparkItem(ITEM)],
+      now: NOW,
+      request: (async () => ({
+        list: [sparkRow(ITEM)],
+        page_info: { page: 1, page_size: 50, total_number: 1, total_page: 1 },
+      })) as never,
+      fetchImage: (async () =>
+        new Response("x", { headers: { "content-type": "video/mp4" } })) as typeof fetch,
+    });
+    assert.deepEqual(uploads, []);
+    assert.equal(res.outcomes.get(`item:${ITEM}`)?.reason, "store_failed");
   });
 });
