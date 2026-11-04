@@ -3,7 +3,7 @@
  *
  * Meta's snapshot-stored `creative.thumbnail_url` values expire within
  * minutes. We re-resolve via Graph at cache-miss time, persist bytes to
- * `creative-thumbnails/{ad_id}.{ext}`, and serve from Storage on hits so
+ * `creative-thumbnails/v2/{ad_id}.{ext}`, and serve from Storage on hits so
  * `/api/proxy/creative-thumbnail` stays fast and deploy-stable.
  */
 
@@ -12,14 +12,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/db/database.types";
 import { fetchThumbnailImageBytes } from "@/lib/meta/thumbnail-proxy-server";
 import {
-  CREATIVE_THUMBNAIL_BUCKET,
-  CREATIVE_THUMB_CACHE_SEC,
-  storagePathForAd,
-} from "@/lib/meta/creative-thumbnail-pure";
+  downloadVersionedThumbnail,
+  resolveStoredThumbnail,
+  uploadVersionedThumbnail,
+} from "@/lib/meta/creative-thumbnail-store";
+import { CREATIVE_THUMBNAIL_BUCKET } from "@/lib/meta/creative-thumbnail-pure";
 
 export {
   CREATIVE_THUMBNAIL_BUCKET,
   CREATIVE_THUMB_CACHE_SEC,
+  CREATIVE_THUMB_MIN_BYTES,
   metaPlaceholderSvgBytes,
   storagePathForAd,
 } from "@/lib/meta/creative-thumbnail-pure";
@@ -32,7 +34,8 @@ function sanitizeAdId(adId: string): string | null {
 }
 
 /**
- * Try to download a previously cached object. Tries common extensions.
+ * The refreshed `v2/{adId}.{ext}` object. A root `{adId}.{ext}` from the
+ * old order is left unread so the next request fetches once.
  */
 export async function downloadCachedThumbnail(
   admin: SupabaseClient<Database>,
@@ -40,24 +43,10 @@ export async function downloadCachedThumbnail(
 ): Promise<{ buffer: Buffer; contentType: string; path: string } | null> {
   const safe = sanitizeAdId(adId);
   if (!safe) return null;
-  for (const ext of ["jpg", "png", "webp", "gif"]) {
-    const path = `${safe}.${ext}`;
-    const { data, error } = await admin.storage
-      .from(CREATIVE_THUMBNAIL_BUCKET)
-      .download(path);
-    if (error || !data) continue;
-    const arr = new Uint8Array(await data.arrayBuffer());
-    const ct =
-      ext === "png"
-        ? "image/png"
-        : ext === "webp"
-          ? "image/webp"
-          : ext === "gif"
-            ? "image/gif"
-            : "image/jpeg";
-    return { buffer: Buffer.from(arr), contentType: ct, path };
-  }
-  return null;
+  return downloadVersionedThumbnail(
+    admin.storage.from(CREATIVE_THUMBNAIL_BUCKET),
+    safe,
+  );
 }
 
 export async function uploadThumbnailToCache(
@@ -68,16 +57,12 @@ export async function uploadThumbnailToCache(
 ): Promise<string> {
   const safe = sanitizeAdId(adId);
   if (!safe) throw new Error("Invalid ad_id");
-  const path = storagePathForAd(safe, contentType);
-  const { error } = await admin.storage
-    .from(CREATIVE_THUMBNAIL_BUCKET)
-    .upload(path, buffer, {
-      contentType,
-      upsert: true,
-      cacheControl: `${CREATIVE_THUMB_CACHE_SEC}`,
-    });
-  if (error) throw new Error(error.message);
-  return path;
+  return uploadVersionedThumbnail(
+    admin.storage.from(CREATIVE_THUMBNAIL_BUCKET),
+    safe,
+    buffer,
+    contentType,
+  );
 }
 
 export interface FetchAndCacheThumbnailArgs {
@@ -93,13 +78,8 @@ export interface FetchAndCacheThumbnailArgs {
 export async function fetchAndCacheThumbnail(
   args: FetchAndCacheThumbnailArgs,
 ): Promise<{ buffer: Buffer; contentType: string }> {
-  const { buffer, contentType } = await fetchThumbnailImageBytes(
-    args.adId,
-    args.fbToken,
-    args.admin,
-  );
-  await uploadThumbnailToCache(args.admin, args.adId, buffer, contentType);
-  return { buffer, contentType };
+  const resolved = await resolveThumbnailBytes(args);
+  return { buffer: resolved.buffer, contentType: resolved.contentType };
 }
 
 /**
@@ -112,14 +92,11 @@ export async function resolveThumbnailBytes(
   contentType: string;
   source: "cache" | "meta";
 }> {
-  const cached = await downloadCachedThumbnail(args.admin, args.adId);
-  if (cached) {
-    return {
-      buffer: cached.buffer,
-      contentType: cached.contentType,
-      source: "cache",
-    };
-  }
-  const fresh = await fetchAndCacheThumbnail(args);
-  return { ...fresh, source: "meta" };
+  const safe = sanitizeAdId(args.adId);
+  if (!safe) throw new Error("Invalid ad_id");
+  return resolveStoredThumbnail({
+    bucket: args.admin.storage.from(CREATIVE_THUMBNAIL_BUCKET),
+    adId: safe,
+    load: () => fetchThumbnailImageBytes(safe, args.fbToken, args.admin),
+  });
 }
