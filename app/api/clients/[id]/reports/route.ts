@@ -48,9 +48,11 @@ function jsonError(err: unknown) {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ clientId: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { clientId } = await params;
+  // [id], not [clientId]: every other /api/clients route uses [id].
+  // A second slug name stops the Next server, which is how frames:check died.
+  const { id: clientId } = await params;
   if (!UUID.test(clientId)) {
     return NextResponse.json(
       { ok: false, error: "client id must be a uuid" },

@@ -16,7 +16,7 @@ A client can open a self-contained HTML season report without a login. The repor
 - `lib/client-reports/access.ts` — token gate, CSP, 4.5 MB cap, portal filter, owner predicate
 - `lib/db/client-reports.ts` — owner CRUD and service-role read
 - `app/share/season/[token]/route.ts` — public HTML document
-- `app/api/clients/[clientId]/reports/` — upload, enable, expiry, regenerate, replace
+- `app/api/clients/[id]/reports/` — upload, enable, expiry, regenerate, replace. The slug is `[id]`, the same as the other client routes. `[clientId]` next to `[id]` stops the Next server (`clientId` !== `id`), which is what failed `frames:check` on the first head. No frame baseline changed.
 - `components/dashboard/clients/client-reports-card.tsx` — operator card on `/clients/[id]`
 - `app/share/client/[token]/page.tsx` — Season reports list
 - `lib/client-reports/__tests__/season-reports.test.ts`

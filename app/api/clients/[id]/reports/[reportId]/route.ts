@@ -52,9 +52,10 @@ function jsonError(err: unknown) {
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: Promise<{ clientId: string; reportId: string }> },
+  { params }: { params: Promise<{ id: string; reportId: string }> },
 ) {
-  const { clientId, reportId } = await params;
+  // [id], not [clientId]. See the create route.
+  const { id: clientId, reportId } = await params;
   if (!UUID.test(clientId) || !UUID.test(reportId)) {
     return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
   }
@@ -108,9 +109,9 @@ export async function PATCH(
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ clientId: string; reportId: string }> },
+  { params }: { params: Promise<{ id: string; reportId: string }> },
 ) {
-  const { clientId, reportId } = await params;
+  const { id: clientId, reportId } = await params;
   if (!UUID.test(clientId) || !UUID.test(reportId)) {
     return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
   }

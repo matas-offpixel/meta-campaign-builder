@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
@@ -188,6 +188,8 @@ describe("public route wiring", () => {
     const route = readFileSync("app/share/season/[token]/route.ts", "utf8");
     const portal = readFileSync("app/share/client/[token]/page.tsx", "utf8");
     const prefixes = readFileSync("lib/auth/public-routes.ts", "utf8");
+    assert.equal(existsSync("app/api/clients/[id]/reports/route.ts"), true);
+    assert.equal(existsSync("app/api/clients/[clientId]/reports/route.ts"), false);
     assert.match(route, /buildSeasonReportResponse/);
     assert.match(route, /storagePathBelongsToClient/);
     assert.doesNotMatch(route, /allow-same-origin/);
