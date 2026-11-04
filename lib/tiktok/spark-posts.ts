@@ -1,4 +1,4 @@
-import { tiktokGet } from "./client.ts";
+import { TikTokApiError, tiktokGet } from "./client.ts";
 import type { TikTokAccountSetup } from "../types/tiktok-draft.ts";
 
 type TikTokGet = typeof tiktokGet;
@@ -147,6 +147,16 @@ export function isTikTokSparkAuthExpired(
   return end != null && end <= now;
 }
 
+/**
+ * The post list refused this identity. 40002 is parameter validation, not
+ * auth, so it is not a refusal. Callers skip the identity and do not page again.
+ */
+export function isTikTokSparkListDenied(err: unknown): boolean {
+  if (!(err instanceof TikTokApiError)) return false;
+  if (err.code === 40001 || err.code === 40105) return true;
+  return err.httpStatus === 401 || err.httpStatus === 403;
+}
+
 export function isTikTokSparkPublic(
   post: Pick<TikTokSparkPost, "status">,
 ): boolean {
@@ -180,6 +190,11 @@ export async function fetchTikTokSparkPosts(input: {
   token: string;
   page?: number;
   pageSize?: number;
+  /** Narrows the list to one identity. Omitted by the post picker. */
+  identityId?: string | null;
+  identityType?: string | null;
+  /** Required by TikTok when identity_type is BC_AUTH_TT. */
+  identityBcId?: string | null;
   request?: TikTokGet;
   now?: Date;
 }): Promise<TikTokSparkPostPage> {
@@ -187,14 +202,18 @@ export async function fetchTikTokSparkPosts(input: {
   const pageSize = clampPageSize(input.pageSize);
   const request = input.request ?? tiktokGet;
   const fetchedAt = (input.now ?? new Date()).toISOString();
+  const params: Record<string, string | number | string[]> = {
+    advertiser_id: input.advertiserId,
+    item_types: ["VIDEO"],
+    page,
+    page_size: pageSize,
+  };
+  if (input.identityId) params.identity_id = input.identityId;
+  if (input.identityType) params.identity_type = input.identityType;
+  if (input.identityBcId) params.identity_authorized_bc_id = input.identityBcId;
   const res = await request<SparkListResponse>(
     TIKTOK_SPARK_POSTS_PATH,
-    {
-      advertiser_id: input.advertiserId,
-      item_types: ["VIDEO"],
-      page,
-      page_size: pageSize,
-    },
+    params,
     input.token,
   );
   const posts = (res.list ?? [])

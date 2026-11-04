@@ -707,7 +707,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
               db
                 .from("tiktok_active_creatives_snapshots")
                 .select(
-                  "ad_id,ad_name,campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,video_views_2s,video_views_6s,video_views_100p,thumbnail_url,deeplink_url,video_id,image_ids,window_until",
+                  "ad_id,ad_name,campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,video_views_2s,video_views_6s,video_views_100p,thumbnail_url,deeplink_url,video_id,image_ids,tiktok_item_id,window_until",
                 )
                 .eq("event_id", event_id)
                 .eq("kind", "ok")
@@ -742,7 +742,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
                 return true;
               })
               // Strip window_until — not part of TikTokSnapshotCreative
-              .map(({ window_until: _w, ...rest }: { window_until: unknown; ad_id: string; ad_name: string | null; campaign_id: string | null; campaign_name: string | null; spend: number | null; impressions: number | null; reach: number | null; clicks: number | null; ctr: number | null; video_views_2s: number | null; video_views_6s: number | null; video_views_100p: number | null; thumbnail_url: string | null; deeplink_url: string | null; video_id: string | null; image_ids: string[] | null }) => rest) as import("@/components/report/event-report-view").TikTokSnapshotCreative[];
+              .map(({ window_until: _w, ...rest }: { window_until: unknown; ad_id: string; ad_name: string | null; campaign_id: string | null; campaign_name: string | null; spend: number | null; impressions: number | null; reach: number | null; clicks: number | null; ctr: number | null; video_views_2s: number | null; video_views_6s: number | null; video_views_100p: number | null; thumbnail_url: string | null; deeplink_url: string | null; video_id: string | null; image_ids: string[] | null; tiktok_item_id: string | null }) => rest) as import("@/components/report/event-report-view").TikTokSnapshotCreative[];
             const creatives = await resolveSnapshotThumbnailUrls(
               admin,
               await readEventTikTokAdvertiserId(admin, event_id),
