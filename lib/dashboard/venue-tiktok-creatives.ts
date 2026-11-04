@@ -77,17 +77,19 @@ async function loadEventGroup(
   );
   if (window.source !== "computed") return null;
 
-  const snapshot = await readActiveTikTokCreativesSnapshot(supabase, event.id, {
-    since: window.since,
-    until: window.until,
-  });
+  const snapshot = await readActiveTikTokCreativesSnapshot(
+    supabase,
+    event.id,
+    { since: window.since, until: window.until },
+    { now },
+  );
   if (!snapshot) return null;
 
   const delivering = snapshot.rows.filter(
     (row) => (row.cost ?? 0) > 0 || (row.impressions ?? 0) > 0,
   );
   const cards = groupTikTokCreatives(delivering.map(toCreativeInput)).map(
-    (group) => tiktokCardFromGroup(group, now),
+    tiktokCardFromGroup,
   );
   if (cards.length === 0) return null;
 
@@ -115,5 +117,6 @@ function toCreativeInput(row: TikTokShareAdRow): TikTokCreativeInput {
     video_views_100p: row.video_views_p100,
     thumbnail_url: row.thumbnail_url,
     deeplink_url: row.deeplink_url,
+    video_id: row.video_id ?? null,
   };
 }

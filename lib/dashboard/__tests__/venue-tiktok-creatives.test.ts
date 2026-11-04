@@ -4,10 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveCanonicalTikTokWindow } from "../../share/tiktok-window.ts";
 import { loadVenueTikTokCreatives } from "../venue-tiktok-creatives.ts";
-import {
-  liveTikTokThumbnailUrl,
-  venueCreativesLayout,
-} from "../venue-tiktok-creatives-view.ts";
+import { venueCreativesLayout } from "../venue-tiktok-creatives-view.ts";
 
 const CLIENT_ID = "f7ed8aef-8527-4c3e-a16a-a05fc38861f5";
 const NOW = new Date("2026-11-04T15:00:00Z");
@@ -320,26 +317,6 @@ describe("loadVenueTikTokCreatives", () => {
     assert.equal(card.display_name, "VID 3");
     assert.equal(card.cpc, null);
     assert.equal(card.video_views_2s, null);
-  });
-});
-
-describe("liveTikTokThumbnailUrl", () => {
-  const base = "https://p16-common-sign.tiktokcdn.com/obj/abc~tplv.jpeg";
-  it("drops a signed URL whose x-expires has passed", () => {
-    const expiresAt = Math.floor(NOW.getTime() / 1000) - 60;
-    assert.equal(
-      liveTikTokThumbnailUrl(`${base}?x-expires=${expiresAt}&x-signature=s`, NOW),
-      null,
-    );
-  });
-  it("keeps an unexpired signed URL and an unsigned URL", () => {
-    const expiresAt = Math.floor(NOW.getTime() / 1000) + 3600;
-    const signed = `${base}?x-expires=${expiresAt}&x-signature=s`;
-    assert.equal(liveTikTokThumbnailUrl(signed, NOW), signed);
-    assert.equal(liveTikTokThumbnailUrl(base, NOW), base);
-  });
-  it("returns null for a missing URL", () => {
-    assert.equal(liveTikTokThumbnailUrl(null, NOW), null);
   });
 });
 

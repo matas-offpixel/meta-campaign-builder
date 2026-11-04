@@ -2,8 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { resolveComputedTikTokWindow } from "@/lib/share/tiktok-window";
-import { fetchTikTokAdsForShare } from "@/lib/tiktok/share-render";
+import {
+  fetchTikTokAdsForShare,
+  type TikTokShareAdRow,
+} from "@/lib/tiktok/share-render";
 import { writeActiveTikTokCreativesSnapshot } from "@/lib/tiktok/snapshots";
+import { cacheThumbnailsForAccounts } from "@/lib/tiktok/thumbnail-cache-run";
 
 export const maxDuration = 800;
 export const dynamic = "force-dynamic";
@@ -61,6 +65,7 @@ export async function GET(req: NextRequest) {
     wroteSnapshot: boolean;
     error?: string;
   }> = [];
+  const thumbRowsByAccount = new Map<string, TikTokShareAdRow[]>();
 
   for (const event of events) {
     const accountId = resolveTikTokAccountId(event);
@@ -85,6 +90,12 @@ export async function GET(req: NextRequest) {
         { eventId: event.id, userId: event.user_id, window },
         { kind: "ok", rows, fetchedAt: new Date().toISOString() },
       );
+      if (wroteSnapshot) {
+        thumbRowsByAccount.set(accountId, [
+          ...(thumbRowsByAccount.get(accountId) ?? []),
+          ...rows,
+        ]);
+      }
       results.push({
         eventId: event.id,
         ok: true,
@@ -108,6 +119,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const thumbnails = await cacheThumbnailsForAccounts({
+    supabase,
+    rowsByAccount: thumbRowsByAccount,
+  });
+  console.log(
+    `[tiktok-active-creatives] tiktok_thumb_calls=${thumbnails.calls} tiktok_thumb_cached=${thumbnails.cached} tiktok_thumb_stored=${thumbnails.stored} tiktok_thumb_missing=${thumbnails.missing} tiktok_thumb_rows_without_ids=${thumbnails.rowsWithoutIds}`,
+  );
+
   return NextResponse.json({
     ok: true,
     startedAt,
@@ -115,6 +134,13 @@ export async function GET(req: NextRequest) {
     eventsConsidered: events.length,
     eventsProcessed: results.length,
     snapshotsWritten: results.filter((result) => result.wroteSnapshot).length,
+    thumbnails: {
+      calls: thumbnails.calls,
+      cached: thumbnails.cached,
+      stored: thumbnails.stored,
+      missing: thumbnails.missing,
+      rowsWithoutIds: thumbnails.rowsWithoutIds,
+    },
     results,
   });
 }

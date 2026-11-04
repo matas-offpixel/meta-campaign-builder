@@ -38,9 +38,13 @@ export interface VenueTikTokEventGroup {
   cards: VenueTikTokCreativeCard[];
 }
 
+/**
+ * `group.thumbnail_url` is already the reader's display URL (durable Storage
+ * object, else an unexpired signed URL, else null), see
+ * `readActiveTikTokCreativesSnapshot`.
+ */
 export function tiktokCardFromGroup(
   group: TikTokCreativeGroup,
-  now: Date,
 ): VenueTikTokCreativeCard {
   return {
     group_key: group.group_key,
@@ -52,24 +56,9 @@ export function tiktokCardFromGroup(
     clicks: group.clicks,
     cpc: group.clicks > 0 ? group.spend / group.clicks : null,
     video_views_2s: group.video_views_2s,
-    thumbnail_url: liveTikTokThumbnailUrl(group.thumbnail_url, now),
+    thumbnail_url: group.thumbnail_url,
     deeplink_url: group.deeplink_url,
   };
-}
-
-/**
- * TikTok CDN thumbnails are signed (`x-expires=<unix seconds>`, about six
- * hours after the cron fetch). An expired URL is dropped so the card shows
- * its placeholder instead of requesting a 403.
- */
-export function liveTikTokThumbnailUrl(
-  url: string | null,
-  now: Date,
-): string | null {
-  if (!url) return null;
-  const match = /[?&]x-expires=(\d+)/i.exec(url);
-  if (match && Number(match[1]) * 1000 <= now.getTime()) return null;
-  return url;
 }
 
 export interface VenueCreativesLayout {
