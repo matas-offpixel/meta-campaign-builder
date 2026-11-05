@@ -1686,6 +1686,7 @@ export type Database = {
           clip_no: number
           created_at: string
           creative_asset_id: string
+          crop_focus_y: number
           event_id: string | null
           external_id: string | null
           fetched_at: string | null
@@ -1708,6 +1709,7 @@ export type Database = {
           clip_no: number
           created_at?: string
           creative_asset_id: string
+          crop_focus_y?: number
           event_id?: string | null
           external_id?: string | null
           fetched_at?: string | null
@@ -1730,6 +1732,7 @@ export type Database = {
           clip_no?: number
           created_at?: string
           creative_asset_id?: string
+          crop_focus_y?: number
           event_id?: string | null
           external_id?: string | null
           fetched_at?: string | null
