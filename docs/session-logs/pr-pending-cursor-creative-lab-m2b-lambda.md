@@ -16,6 +16,8 @@ Caption renders no longer run the Remotion compositor inside the Vercel function
 
 `renderMediaOnLambdaAndStream` and `deploySiteFromBundle` are not in 4.0.471. Renders call `renderMediaOnLambda` and poll `getRenderProgress`. The deploy script calls `bundle()`, then `deploySite()`, which bundles the entry point again.
 
+The route imports `@remotion/lambda/client` and reads the finished mp4 with the S3 client. The package root loads `@remotion/bundler`, and that rspack binding is not in the Vercel function. `downloadMedia` lives on the package root and also loads `@remotion/renderer`.
+
 A concurrency quota of 10 or lower renders the whole clip in one function (`framesPerLambda` = the frame count, `concurrencyPerLambda` = 1). Above that, Remotion's own split is used.
 
 Deployed 5 Nov 2026. The account quota is 10, so caption renders use one function.

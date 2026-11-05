@@ -4,15 +4,17 @@
  * deploySiteFromBundle is also absent: the deploy script calls bundle(),
  * then deploySite(), which bundles the entry point again.
  *
+ * The Vercel route imports @remotion/lambda/client. The package root
+ * loads @remotion/bundler, and that native rspack binding is not in
+ * the function. The mp4 is read with the S3 client from the progress
+ * outKey, so this path does not load @remotion/renderer either.
+ *
  * A new AWS account's Lambda concurrency quota is often 10. One render
  * fans out to a function per chunk, so a quota of 10 (or lower) renders
  * the whole clip in one function.
  */
 
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { GetServiceQuotaCommand } from "@aws-sdk/client-service-quotas";
 import { LambdaClientInternals } from "@remotion/lambda/client";
 
@@ -71,9 +73,21 @@ export type LambdaRenderOutput = {
 
 type Started = { bucketName: string; renderId: string };
 
+async function downloadLambdaObject(bucket: string, key: string): Promise<Uint8Array> {
+  const client = LambdaClientInternals.getS3Client({
+    region: REMOTION_REGION,
+    customCredentials: null,
+    forcePathStyle: false,
+    requestHandler: null,
+  });
+  const object = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!object.Body) throw new Error("Lambda render produced no file");
+  return new Uint8Array(await object.Body.transformToByteArray());
+}
+
 /** Render, poll once through to the end, and download the mp4. Deletes a partial S3 render if the poll fails. */
 export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl: string): Promise<LambdaRenderOutput> {
-  const { getFunctions, renderMediaOnLambda, getRenderProgress, downloadMedia, deleteRender } = await import("@remotion/lambda");
+  const { getFunctions, renderMediaOnLambda, getRenderProgress, deleteRender } = await import("@remotion/lambda/client");
   const functions = await getFunctions({ region: REMOTION_REGION, compatibleOnly: true });
   const functionName = functions[0]?.functionName;
   if (!functionName) throw new Error("No compatible Remotion Lambda function in eu-west-2. Run scripts/remotion-lambda-deploy.mts.");
@@ -110,21 +124,16 @@ export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl
       throw new Error(progress.errors[0]?.message ?? "Lambda render failed");
     }
 
-    const temp = path.join(os.tmpdir(), `caption-${output.renderId}.mp4`);
-    try {
-      await downloadMedia({ region: REMOTION_REGION, bucketName: output.bucketName, renderId: output.renderId, outPath: temp });
-      const bytes = new Uint8Array(await fs.readFile(temp));
-      return {
-        bytes,
-        renderMs: Date.now() - startedAt,
-        estimatedCostUsd: progress.costs.accruedSoFar,
-        estimatedCostDisplay: progress.costs.displayCost,
-        bucketName: output.bucketName,
-        lambdaRenderId: output.renderId,
-      };
-    } finally {
-      await fs.unlink(temp).catch(() => {});
-    }
+    if (!progress.outBucket || !progress.outKey) throw new Error("Lambda render finished without an output file");
+    const bytes = await downloadLambdaObject(progress.outBucket, progress.outKey);
+    return {
+      bytes,
+      renderMs: Date.now() - startedAt,
+      estimatedCostUsd: progress.costs.accruedSoFar,
+      estimatedCostDisplay: progress.costs.displayCost,
+      bucketName: output.bucketName,
+      lambdaRenderId: output.renderId,
+    };
   } catch (err) {
     if (started) {
       await deleteRender({ region: REMOTION_REGION, bucketName: started.bucketName, renderId: started.renderId }).catch(() => {});
@@ -134,6 +143,6 @@ export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl
 }
 
 export async function deleteLambdaRender(target: { bucketName: string; lambdaRenderId: string }): Promise<void> {
-  const { deleteRender } = await import("@remotion/lambda");
+  const { deleteRender } = await import("@remotion/lambda/client");
   await deleteRender({ region: REMOTION_REGION, bucketName: target.bucketName, renderId: target.lambdaRenderId });
 }
