@@ -5,9 +5,11 @@
  * - Client / event: `resolveAdContext` (launched_ads → launched_ad_sets →
  *   [EVENT_CODE] in campaign_name). A context with an event but no client
  *   takes the event's client.
- * - Tags: creative_tag_assignments by meta_ad_id when any assignment
- *   carries the ad's id, else by (event_id, creative_name = ad_name) —
- *   creative_name holds the Meta AD name (audit two §5).
+ * - Tags: the union of creative_tag_assignments by meta_ad_id and by
+ *   (event_id, creative_name = ad_name) — creative_name holds the Meta AD
+ *   name (audit two §5). The auto-tagger stamps one representative ad id
+ *   per content group and Creative Lab stamps its own ad ids, so neither
+ *   key alone holds every tag an ad carries.
  * - Stage, first that applies (recorded as `stageSource`):
  *   1. phase_at_launch on the ad set, which comes from the campaign
  *      objective (`phaseAtLaunchFromObjective`: registration → presale,
@@ -239,10 +241,10 @@ export function tagsForAd(
   index: TagIndex,
 ): { tagIds: string[]; via: TagVia | null } {
   const byId = index.byAdId.get(metaAdId);
-  if (byId?.size) return { tagIds: [...byId].sort(), via: "meta_ad_id" };
   const byName = eventId && adName ? index.byEventName.get(eventNameKey(eventId, adName)) : undefined;
-  if (byName?.size) return { tagIds: [...byName].sort(), via: "name" };
-  return { tagIds: [], via: null };
+  const tagIds = [...new Set([...(byId ?? []), ...(byName ?? [])])].sort();
+  if (!tagIds.length) return { tagIds, via: null };
+  return { tagIds, via: byId?.size ? "meta_ad_id" : "name" };
 }
 
 export type LearningFact = {

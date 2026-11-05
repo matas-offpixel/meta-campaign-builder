@@ -48,8 +48,26 @@ describe("learning joins: ad-day → tags", () => {
     new Set(["t-motion", "t-still"]),
   );
 
-  it("by meta_ad_id when an assignment carries the ad's id, whatever the ad's name", () => {
-    assert.deepEqual(tagsForAd("ad-by-id", "event-a", "Motion 1", index), { tagIds: ["t-still"], via: "meta_ad_id" });
+  it("by meta_ad_id, whatever the ad's name, plus any tags on the ad's (event, name)", () => {
+    assert.deepEqual(tagsForAd("ad-by-id", "event-a", "Unnamed", index), { tagIds: ["t-still"], via: "meta_ad_id" });
+    assert.deepEqual(tagsForAd("ad-by-id", "event-a", "Motion 1", index), {
+      tagIds: ["t-motion", "t-still"],
+      via: "meta_ad_id",
+    });
+  });
+
+  it("an AI tag by name and a caption_style tag by meta_ad_id are both reported", () => {
+    const lab = buildTagIndex(
+      [
+        { event_id: "event-a", creative_name: "LUKEDEAN-clip01_cap-lineup1", tag_id: "t-ai-hook", meta_ad_id: null },
+        { event_id: "event-a", creative_name: "LUKEDEAN-clip01_cap-lineup1", tag_id: "t-caption", meta_ad_id: "ad-lab" },
+      ],
+      new Set(["t-ai-hook", "t-caption"]),
+    );
+    assert.deepEqual(tagsForAd("ad-lab", "event-a", "LUKEDEAN-clip01_cap-lineup1", lab), {
+      tagIds: ["t-ai-hook", "t-caption"],
+      via: "meta_ad_id",
+    });
   });
 
   it("else by (event_id, creative_name = ad_name); another event's name does not match", () => {

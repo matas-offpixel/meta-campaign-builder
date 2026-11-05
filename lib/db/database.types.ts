@@ -1570,6 +1570,512 @@ export type Database = {
         }
         Relationships: []
       }
+      creative_lab_artists: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          client_id: string
+          created_at: string
+          id: string
+          ig_username: string | null
+          name: string
+          rights_doc_ref: string | null
+          starting_caption: string | null
+          tiktok_identity_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          client_id: string
+          created_at?: string
+          id?: string
+          ig_username?: string | null
+          name: string
+          rights_doc_ref?: string | null
+          starting_caption?: string | null
+          tiktok_identity_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          client_id?: string
+          created_at?: string
+          id?: string
+          ig_username?: string | null
+          name?: string
+          rights_doc_ref?: string | null
+          starting_caption?: string | null
+          tiktok_identity_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_artists_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_captions: {
+        Row: {
+          caption_no: number
+          created_at: string
+          event_id: string
+          facts_hash: string
+          generated_by: string
+          id: string
+          lines: string[]
+          status: string
+          style: string
+          style_version: string
+          text: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          caption_no: number
+          created_at?: string
+          event_id: string
+          facts_hash: string
+          generated_by: string
+          id?: string
+          lines: string[]
+          status?: string
+          style: string
+          style_version: string
+          text: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          caption_no?: number
+          created_at?: string
+          event_id?: string
+          facts_hash?: string
+          generated_by?: string
+          id?: string
+          lines?: string[]
+          status?: string
+          style?: string
+          style_version?: string
+          text?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_captions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_clips: {
+        Row: {
+          artist_id: string
+          audio_status: string
+          clip_no: number
+          created_at: string
+          creative_asset_id: string
+          event_id: string | null
+          external_id: string | null
+          fetched_at: string | null
+          id: string
+          ig_comments_count: number | null
+          ig_followers_at_fetch: number | null
+          ig_like_count: number | null
+          ig_posted_at: string | null
+          in_s: number | null
+          out_s: number | null
+          permalink: string | null
+          rights_ref: string
+          source: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          artist_id: string
+          audio_status?: string
+          clip_no: number
+          created_at?: string
+          creative_asset_id: string
+          event_id?: string | null
+          external_id?: string | null
+          fetched_at?: string | null
+          id?: string
+          ig_comments_count?: number | null
+          ig_followers_at_fetch?: number | null
+          ig_like_count?: number | null
+          ig_posted_at?: string | null
+          in_s?: number | null
+          out_s?: number | null
+          permalink?: string | null
+          rights_ref: string
+          source: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          artist_id?: string
+          audio_status?: string
+          clip_no?: number
+          created_at?: string
+          creative_asset_id?: string
+          event_id?: string | null
+          external_id?: string | null
+          fetched_at?: string | null
+          id?: string
+          ig_comments_count?: number | null
+          ig_followers_at_fetch?: number | null
+          ig_like_count?: number | null
+          ig_posted_at?: string | null
+          in_s?: number | null
+          out_s?: number | null
+          permalink?: string | null
+          rights_ref?: string
+          source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_clips_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clips_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_event_facts: {
+        Row: {
+          allowed_dates: string[]
+          created_at: string
+          event_id: string
+          lineup: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          allowed_dates?: string[]
+          created_at?: string
+          event_id: string
+          lineup?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          allowed_dates?: string[]
+          created_at?: string
+          event_id?: string
+          lineup?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_event_facts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_renders: {
+        Row: {
+          aspect: string
+          caption_id: string
+          clip_id: string
+          created_at: string
+          creative_asset_id: string | null
+          error: string | null
+          id: string
+          render_ms: number | null
+          ssim: number | null
+          status: string
+          style_version: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          aspect: string
+          caption_id: string
+          clip_id: string
+          created_at?: string
+          creative_asset_id?: string | null
+          error?: string | null
+          id?: string
+          render_ms?: number | null
+          ssim?: number | null
+          status?: string
+          style_version: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          aspect?: string
+          caption_id?: string
+          clip_id?: string
+          created_at?: string
+          creative_asset_id?: string | null
+          error?: string | null
+          id?: string
+          render_ms?: number | null
+          ssim?: number | null
+          status?: string
+          style_version?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_renders_caption_id_fkey"
+            columns: ["caption_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_captions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_renders_clip_id_fkey"
+            columns: ["clip_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_clips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_round_ad_launches: {
+        Row: {
+          ad_account_id: string | null
+          created_at: string
+          id: string
+          meta_ad_id: string
+          meta_adset_id: string
+          meta_campaign_id: string | null
+          round_ad_id: string
+          user_id: string
+        }
+        Insert: {
+          ad_account_id?: string | null
+          created_at?: string
+          id?: string
+          meta_ad_id: string
+          meta_adset_id: string
+          meta_campaign_id?: string | null
+          round_ad_id: string
+          user_id: string
+        }
+        Update: {
+          ad_account_id?: string | null
+          created_at?: string
+          id?: string
+          meta_ad_id?: string
+          meta_adset_id?: string
+          meta_campaign_id?: string | null
+          round_ad_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_round_ad_launches_round_ad_id_fkey"
+            columns: ["round_ad_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_round_ads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_round_ads: {
+        Row: {
+          ad_name: string
+          caption_id: string
+          clip_id: string
+          confirmed: boolean
+          created_at: string
+          id: string
+          result_metric: string | null
+          retest_of: string | null
+          role: string
+          round_id: string
+          updated_at: string
+          user_id: string
+          verdict: string | null
+          verdict_cost_per_result: number | null
+          verdict_fair_share: number | null
+          verdict_reason: string | null
+          verdict_results: number | null
+          verdict_spend_share: number | null
+          window_end: string | null
+          window_start: string | null
+        }
+        Insert: {
+          ad_name: string
+          caption_id: string
+          clip_id: string
+          confirmed?: boolean
+          created_at?: string
+          id?: string
+          result_metric?: string | null
+          retest_of?: string | null
+          role?: string
+          round_id: string
+          updated_at?: string
+          user_id: string
+          verdict?: string | null
+          verdict_cost_per_result?: number | null
+          verdict_fair_share?: number | null
+          verdict_reason?: string | null
+          verdict_results?: number | null
+          verdict_spend_share?: number | null
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Update: {
+          ad_name?: string
+          caption_id?: string
+          clip_id?: string
+          confirmed?: boolean
+          created_at?: string
+          id?: string
+          result_metric?: string | null
+          retest_of?: string | null
+          role?: string
+          round_id?: string
+          updated_at?: string
+          user_id?: string
+          verdict?: string | null
+          verdict_cost_per_result?: number | null
+          verdict_fair_share?: number | null
+          verdict_reason?: string | null
+          verdict_results?: number | null
+          verdict_spend_share?: number | null
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_round_ads_caption_id_fkey"
+            columns: ["caption_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_captions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_round_ads_clip_id_fkey"
+            columns: ["clip_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_clips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_round_ads_retest_of_fkey"
+            columns: ["retest_of"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_round_ads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_round_ads_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_rounds: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          artist_id: string
+          built_at: string
+          channel: string
+          created_at: string
+          draft_id: string | null
+          event_id: string
+          id: string
+          judged_at: string | null
+          launched_at: string | null
+          round_no: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          artist_id: string
+          built_at?: string
+          channel?: string
+          created_at?: string
+          draft_id?: string | null
+          event_id: string
+          id?: string
+          judged_at?: string | null
+          launched_at?: string | null
+          round_no: number
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          artist_id?: string
+          built_at?: string
+          channel?: string
+          created_at?: string
+          draft_id?: string | null
+          event_id?: string
+          id?: string
+          judged_at?: string | null
+          launched_at?: string | null
+          round_no?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_rounds_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_rounds_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_rounds_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creative_renders: {
         Row: {
           asset_url: string | null
