@@ -173,4 +173,102 @@ describe("renderCaptionOnClip", () => {
     await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "other", deps: deps(async () => ({ bytes: new Uint8Array(), renderMs: 1 })).deps }), /another user/);
     assert.equal(fake.tables.creative_lab_renders[0].status, "queued");
   });
+
+  it("registers the asset and deletes the Lambda render", async () => {
+    const fake = seed();
+    const deleted: { bucketName: string; lambdaRenderId: string }[] = [];
+    const result = await renderCaptionOnClip(db(fake), {
+      renderId: "render-1",
+      userId: "op",
+      serveUrl: "https://serve.example/creative-lab",
+      deps: {
+        signUrl: async () => "https://signed.example/ugc1.mp4",
+        probe: async () => ({ width: 956, height: 718, fps: 30, durationInSeconds: 34.06 }),
+        upload: async () => {},
+        lambda: {
+          render: async () => ({
+            bytes: new Uint8Array([7, 7, 7]),
+            renderMs: 4321,
+            estimatedCostUsd: 0.012,
+            estimatedCostDisplay: "$0.012",
+            bucketName: "remotionlambda-euwest2",
+            lambdaRenderId: "lambda-render-1",
+          }),
+          deleteRender: async (target) => {
+            deleted.push(target);
+          },
+        },
+      },
+    });
+    assert.equal(result.renderMs, 4321);
+    assert.equal(result.estimatedCostUsd, 0.012);
+    assert.deepEqual([result.width, result.height], [402, 718]);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "done");
+    assert.equal(fake.tables.creative_lab_renders[0].creative_asset_id, result.creativeAssetId);
+    assert.equal(fake.tables.creative_assets.some((asset) => asset.id === result.creativeAssetId), true);
+    assert.deepEqual(deleted, [{ bucketName: "remotionlambda-euwest2", lambdaRenderId: "lambda-render-1" }]);
+  });
+
+  it("marks the row failed when Lambda returns an error and does not delete", async () => {
+    const fake = seed();
+    let deleted = false;
+    await assert.rejects(
+      renderCaptionOnClip(db(fake), {
+        renderId: "render-1",
+        userId: "op",
+        serveUrl: "https://serve.example/creative-lab",
+        deps: {
+          signUrl: async () => "https://signed.example/ugc1.mp4",
+          probe: async () => ({ width: 720, height: 1280, fps: 30, durationInSeconds: 10 }),
+          upload: async () => {},
+          lambda: {
+            render: async () => {
+              throw new Error("Chrome failed to launch");
+            },
+            deleteRender: async () => {
+              deleted = true;
+            },
+          },
+        },
+      }),
+      /Chrome failed to launch/,
+    );
+    assert.equal(fake.tables.creative_lab_renders[0].status, "failed");
+    assert.match(String(fake.tables.creative_lab_renders[0].error), /Chrome failed to launch/);
+    assert.equal(fake.tables.creative_assets.length, 1);
+    assert.equal(deleted, false);
+  });
+
+  it("rejects a missing serve URL before calling Lambda", async () => {
+    const previous = process.env.REMOTION_LAMBDA_SERVE_URL;
+    delete process.env.REMOTION_LAMBDA_SERVE_URL;
+    let called = false;
+    try {
+      await assert.rejects(
+        renderCaptionOnClip(db(seed()), {
+          renderId: "render-1",
+          userId: "op",
+          deps: {
+            signUrl: async () => "https://signed.example/ugc1.mp4",
+            probe: async () => ({ width: 720, height: 1280, fps: 30, durationInSeconds: 10 }),
+            upload: async () => {},
+            lambda: {
+              render: async () => {
+                called = true;
+                throw new Error("should not render");
+              },
+              deleteRender: async () => {
+                called = true;
+              },
+            },
+          },
+        }),
+        /REMOTION_LAMBDA_SERVE_URL/,
+      );
+      assert.equal(called, false);
+    } finally {
+      if (previous === undefined) delete process.env.REMOTION_LAMBDA_SERVE_URL;
+      else process.env.REMOTION_LAMBDA_SERVE_URL = previous;
+    }
+  });
 });

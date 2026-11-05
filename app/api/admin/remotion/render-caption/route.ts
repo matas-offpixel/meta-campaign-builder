@@ -2,26 +2,23 @@
  * POST /api/admin/remotion/render-caption
  *
  * Burns one caption onto one clip (one creative_lab_renders row) and
- * registers the mp4. Body: { "renderId": "<uuid>" }.
+ * registers the mp4. The render runs on Remotion Lambda in eu-west-2.
+ * Body: { "renderId": "<uuid>" }.
  *
  * A measurement body, { "timing": { "storagePath", "lines", "aspect" } },
- * renders and drops the file. It writes no creative_assets row. That is
- * how the 1080p feasibility timing is taken.
+ * renders on Lambda, deletes the S3 object, and writes no creative_assets
+ * row. That is how the 1080p feasibility timing is taken.
  *
  * Auth: cookie-bound operator session, same as render-reel.
- * Flag: FEATURE_REMOTION=1. Memory 3 GB, 600s.
+ * Flag: FEATURE_REMOTION=1. maxDuration 300. Default function memory.
+ * REMOTION_LAMBDA_SERVE_URL must be set (scripts/remotion-lambda-deploy.mts
+ * prints it). This route does not use Chrome or the compositor, and it
+ * does not depend on the Remotion files traced in next.config.ts.
  *
- * The Vercel function image lacks glibc 2.35, so the Remotion compositor
- * does not start (`libm.so.6: version GLIBC_2.35 not found`). Verified
- * 5 Nov 2026 on Node 22.x and on Node 26.x. The project setting is 24.x;
- * `engines` `>=22` selects 26.x, so 24.x did not run. The render path
- * moves to Remotion Lambda in M2b.
+ * render-reel still renders in-process with the compositor, which the
+ * Vercel function image cannot start. It is left on that path.
  */
 
-import fs from "node:fs/promises";
-import path from "node:path";
-
-import chromium from "@sparticuz/chromium";
 import { NextResponse } from "next/server";
 
 import { isRemotionEnabled } from "@/lib/creatives/types";
@@ -31,12 +28,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 600;
-export const config = { memory: 3008 };
-
-function bundlePath(): string {
-  return path.join(process.cwd(), ".remotion/bundle");
-}
+export const maxDuration = 300;
 
 type Body = {
   renderId?: string;
@@ -62,20 +54,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    await fs.access(bundlePath());
-  } catch {
-    return NextResponse.json({ error: "Remotion bundle not found. Run `npm run bundle-remotion` before deploying." }, { status: 500 });
-  }
-
-  const originalCwd = process.cwd();
-  const tmpCwd = "/tmp/remotion-cwd";
-  await fs.mkdir(tmpCwd, { recursive: true });
-  process.chdir(tmpCwd);
-
-  try {
-    const browserExecutable = await chromium.executablePath();
-    const serveUrl = bundlePath();
-
     if (body.timing) {
       const aspect = body.timing.aspect;
       if (aspect !== "9:16" && aspect !== "4:5") return NextResponse.json({ error: "timing.aspect must be 9:16 or 4:5" }, { status: 400 });
@@ -88,34 +66,23 @@ export async function POST(request: Request): Promise<NextResponse> {
         lines: body.timing.lines,
         aspect: aspect as CaptionAspect,
         cropFocusY: body.timing.cropFocusY,
-        serveUrl,
-        browserExecutable,
       });
-      console.error(`[render-caption] TIMING ${result.width}x${result.height} ${result.durationSeconds.toFixed(1)}s renderMs=${result.renderMs}`);
+      console.error(
+        `[render-caption] TIMING ${result.width}x${result.height} ${result.durationSeconds.toFixed(1)}s renderMs=${result.renderMs} cost=${result.estimatedCostDisplay ?? "n/a"}`,
+      );
       return NextResponse.json({ timing: true, ...result });
     }
 
     if (!body.renderId) return NextResponse.json({ error: "renderId is required" }, { status: 400 });
-    const result = await renderCaptionOnClip(supabase, {
-      renderId: body.renderId,
-      userId: user.id,
-      serveUrl,
-      browserExecutable,
-    });
+    const result = await renderCaptionOnClip(supabase, { renderId: body.renderId, userId: user.id });
     console.error(
       `[render-caption] DONE renderId=${result.renderId} aspect=${result.aspect} ` +
-        `${result.width}x${result.height} renderMs=${result.renderMs} asset=${result.creativeAssetId}`,
+        `${result.width}x${result.height} renderMs=${result.renderMs} asset=${result.creativeAssetId} cost=${result.estimatedCostDisplay ?? "n/a"}`,
     );
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[render-caption] ERROR:`, message);
     return NextResponse.json({ error: message }, { status: 500 });
-  } finally {
-    try {
-      process.chdir(originalCwd);
-    } catch (cwdErr) {
-      console.error(`[render-caption] failed to restore cwd: ${cwdErr instanceof Error ? cwdErr.message : cwdErr}`);
-    }
   }
 }

@@ -188,7 +188,13 @@ ENABLE_BUDGET_PACING_ALERTS=
 ENABLE_AD_DAILY_INSIGHTS=
 ENABLE_LEARNING_REFRESH=
 ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
+REMOTION_AWS_ACCESS_KEY_ID=
+REMOTION_AWS_SECRET_ACCESS_KEY=
+REMOTION_AWS_REGION=
+REMOTION_LAMBDA_SERVE_URL=
 ```
+
+> **`REMOTION_AWS_ACCESS_KEY_ID`**, **`REMOTION_AWS_SECRET_ACCESS_KEY`**, **`REMOTION_AWS_REGION`**, **`REMOTION_LAMBDA_SERVE_URL`** — Caption renders run on Remotion Lambda in `eu-west-2` because the Vercel function image has no glibc 2.35, so `@remotion/compositor-linux-x64-gnu` does not start (verified 5 Nov 2026 on Node 22.x and 26.x). `scripts/remotion-lambda-deploy.mts` creates the bucket and the function and prints the serve URL; set `REMOTION_LAMBDA_SERVE_URL` from that output on Preview and Production. Keep a billing alarm on the AWS account — the June ceiling was $20, then $50 — so a render loop cannot run up a bill. See `docs/REMOTION_LAMBDA_SETUP.md`.
 
 > **`BM_TOKEN_KEY`** (migration 145 — Business Manager Asset Sync) is the pgcrypto
 > symmetric key for `client_business_managers.access_token_encrypted` (the

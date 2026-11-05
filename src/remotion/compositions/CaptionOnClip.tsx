@@ -25,10 +25,11 @@ export type CaptionOnClipProps = {
   plate: "video" | "black";
 };
 
-const fontHandle = delayRender("TikTok Sans");
+// The full clip is extracted before this promise can resolve. 58s is not enough.
+const fontHandle = delayRender("TikTok Sans", { timeoutInMilliseconds: 180_000 });
 // A single weight pins the face but leaves the variable `wght` axis at its default (300).
 const face = new FontFace(profile.fontFamily, `url(${tiktokSansUrl})`, { weight: "300 900", stretch: "75% 150%" });
-face
+const fontReady = face
   .load()
   .then((loaded) => {
     document.fonts.add(loaded);
@@ -36,6 +37,7 @@ face
   })
   .catch((err: unknown) => {
     cancelRender(err instanceof Error ? err : new Error(String(err)));
+    throw err;
   });
 
 function variation(fontWidth: number): string {
@@ -66,10 +68,22 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
   const { fontPx, safeWidth } = layout;
   const fontWidth = profile.fontWidth;
   const [measureHandle] = useState(() => delayRender("caption measure"));
+  const [fontLoaded, setFontLoaded] = useState(false);
+
+  useEffect(() => {
+    let gone = false;
+    fontReady.then(() => {
+      if (!gone) setFontLoaded(true);
+    }, () => {});
+    return () => {
+      gone = true;
+    };
+  }, []);
 
   useEffect(() => {
     let gone = false;
     (async () => {
+      await fontReady;
       await document.fonts.ready;
       if (gone) return;
       const tooLong = props.lines.find((line) => line.length > profile.charsPerLine);
@@ -97,7 +111,7 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000", overflow: "hidden" }}>
-      {props.plate === "video" ? (
+      {props.plate === "video" && fontLoaded ? (
         <OffthreadVideo
           src={props.clipUrl}
           startFrom={startFrom}
