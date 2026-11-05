@@ -3,6 +3,7 @@
   "storagePath": "videos/953d0ffb-6c28-4a7f-961a-4aa03b9fdc74.mp4",
   "timestampSec": 1.0,
   "frame": { "width": 720, "height": 1280 },
+  "safeRect": { "x": 0, "y": 0.1458, "w": 1, "h": 0.7083 },
   "lines": ["Luke Dean joins", "Enzo Siragusa for", "our 4th Birthday", "You in?"],
   "box": { "x": 190, "y": 377, "width": 330, "height": 156 },
   "lumaMin": 175,

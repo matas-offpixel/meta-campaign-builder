@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AbsoluteFill, Audio, cancelRender, continueRender, delayRender, OffthreadVideo } from "remotion";
 
 import tiktokSansUrl from "../fonts/TikTokSans[opsz,slnt,wdth,wght].ttf";
-import { captionLayout, profile, type CaptionAspect } from "../caption-style/profile";
+import { captionInsideSafeRect, captionLayout, profile, type CaptionAspect } from "../caption-style/profile";
 
 export type CaptionAudio = "original" | "muted" | "replaced";
 
@@ -15,7 +15,7 @@ export type CaptionOnClipProps = {
   outS?: number;
   audio: CaptionAudio;
   replacementAudioUrl?: string;
-  /** 0–1, the source point at the vertical centre of a 4:5 crop. Ignored for 9:16. */
+  /** 0–1, the vertical centre of the 4:5 safe rectangle inside the 9:16 frame. 0.5 is centred. */
   cropFocusY: number;
   sourceWidth: number;
   sourceHeight: number;
@@ -57,14 +57,15 @@ function measureLine(line: string, fontPx: number, fontWidth: number): number {
 }
 
 /**
- * Burn a caption onto a clip. The caption is static from frame 0. 4:5 is a
- * same-width crop of the source, so the text stays the same size against
- * the footage and over the same part of it. Fails when a line is longer
- * than the profile allows or, once the font has loaded, wider than the
- * aspect's safe zone.
+ * Burn a caption onto a 9:16 clip. The caption is static from frame 0.
+ * Fails when a line is longer than the profile allows, wider than the safe
+ * zone, or when any measured line leaves the 4:5 safe rectangle.
  */
 export function CaptionOnClip(props: CaptionOnClipProps) {
-  const layout = captionLayout(props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY);
+  const layout = useMemo(
+    () => captionLayout(props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY),
+    [props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY],
+  );
   const { fontPx, safeWidth } = layout;
   const fontWidth = profile.fontWidth;
   const [measureHandle] = useState(() => delayRender("caption measure"));
@@ -91,9 +92,14 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
         cancelRender(new Error(tooLong ? `"${tooLong}" exceeds ${profile.charsPerLine} characters` : `${props.lines.length} lines`));
         return;
       }
-      const tooWide = props.lines.find((line) => measureLine(line, fontPx, fontWidth) > safeWidth);
+      const widths = props.lines.map((line) => measureLine(line, fontPx, fontWidth));
+      const tooWide = props.lines.find((line, i) => widths[i] > safeWidth);
       if (tooWide) {
-        cancelRender(new Error(`"${tooWide}" is wider than the ${props.aspect} safe zone`));
+        cancelRender(new Error(`"${tooWide}" is wider than the 9:16 safe zone`));
+        return;
+      }
+      if (!captionInsideSafeRect(layout, widths)) {
+        cancelRender(new Error("caption leaves the 4:5 safe rectangle"));
         return;
       }
       continueRender(measureHandle);
@@ -103,7 +109,7 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
     return () => {
       gone = true;
     };
-  }, [fontPx, fontWidth, safeWidth, measureHandle, props.aspect, props.lines]);
+  }, [fontPx, fontWidth, safeWidth, layout, measureHandle, props.lines]);
 
   const startFrom = Math.round((props.inS ?? 0) * props.fps);
   const endAt = props.outS == null ? undefined : Math.round(props.outS * props.fps);

@@ -23,7 +23,6 @@ import { NextResponse } from "next/server";
 
 import { isRemotionEnabled } from "@/lib/creatives/types";
 import { renderCaptionOnClip, renderTimingSample } from "@/lib/creative-lab/render";
-import type { CaptionAspect } from "@/src/remotion/caption-style/profile";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -56,7 +55,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     if (body.timing) {
       const aspect = body.timing.aspect;
-      if (aspect !== "9:16" && aspect !== "4:5") return NextResponse.json({ error: "timing.aspect must be 9:16 or 4:5" }, { status: 400 });
+      if (aspect !== "9:16") return NextResponse.json({ error: "timing.aspect must be 9:16" }, { status: 400 });
       if (!body.timing.storagePath || !Array.isArray(body.timing.lines)) {
         return NextResponse.json({ error: "timing needs storagePath and lines" }, { status: 400 });
       }
@@ -64,7 +63,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         bucket: body.timing.bucket ?? "campaign-assets",
         storagePath: body.timing.storagePath,
         lines: body.timing.lines,
-        aspect: aspect as CaptionAspect,
+        aspect: "9:16",
         cropFocusY: body.timing.cropFocusY,
       });
       console.error(

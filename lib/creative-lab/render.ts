@@ -5,8 +5,8 @@
  * image lacks glibc 2.35, so the compositor never starts (verified 5 Nov
  * 2026 on Node 22.x and 26.x). One creative_lab_renders row per call.
  * No Meta or TikTok calls. The clip is a 60-minute signed URL. Dimensions
- * come from the mp4 header, not ffprobe. A 720-wide source stays 720 wide,
- * and a 4:5 render is a same-width crop. Never upscaled.
+ * come from the mp4 header, not ffprobe. A 720-wide source stays 720 wide.
+ * Video is 9:16 only. Never upscaled.
  *
  * The Lambda cost is returned to the caller. It is not stored: migration
  * 198 is still unapplied, and a cost column would need another one.
@@ -112,9 +112,26 @@ export function audioMode(status: string): CaptionOnClipProps["audio"] {
   return "original";
 }
 
-function asAspect(value: unknown): CaptionAspect {
-  if (value === "9:16" || value === "4:5") return value;
-  throw new Error(`aspect ${String(value)} is not 9:16 or 4:5`);
+export type LabRenderKind = "video" | "static";
+
+const STATIC_ASPECTS = ["1:1", "4:5", "9:16"] as const;
+
+/**
+ * A video row is 9:16 only. A static row (M6, nothing writes one yet) may
+ * be 1:1, 4:5 or 9:16. A missing kind is a video row from before migration 199.
+ */
+export function loadLabRender(row: { aspect: unknown; kind?: unknown }): { kind: "video"; aspect: "9:16" } | { kind: "static"; aspect: "1:1" | "4:5" | "9:16" } {
+  const kind = row.kind == null ? "video" : row.kind;
+  if (kind !== "video" && kind !== "static") throw new Error(`kind ${String(kind)} is not video or static`);
+  const aspect = String(row.aspect);
+  if (kind === "video") {
+    if (aspect !== "9:16") throw new Error(`aspect '${aspect}' with kind 'video' is not rendered`);
+    return { kind, aspect: "9:16" };
+  }
+  if (!STATIC_ASPECTS.includes(aspect as (typeof STATIC_ASPECTS)[number])) {
+    throw new Error(`aspect '${aspect}' is not a static size`);
+  }
+  return { kind: "static", aspect: aspect as "1:1" | "4:5" | "9:16" };
 }
 
 function asLines(value: unknown): string[] {
@@ -122,8 +139,8 @@ function asLines(value: unknown): string[] {
   return value as string[];
 }
 
-function storageName(renderId: string, aspect: CaptionAspect): string {
-  return `videos/creative-lab/${renderId}-${aspect === "9:16" ? "9x16" : "4x5"}.mp4`;
+function storageName(renderId: string): string {
+  return `videos/creative-lab/${renderId}-9x16.mp4`;
 }
 
 export type RenderOutcome = {
@@ -168,7 +185,9 @@ export async function renderCaptionOnClip(
     ]);
     if (!clip) throw new Error("clip not found");
     if (!caption) throw new Error("caption not found");
-    const aspect = asAspect(render.aspect);
+    const loaded = loadLabRender({ aspect: render.aspect, kind: render.kind });
+    if (loaded.kind !== "video") throw new Error("static renders are not written yet");
+    const aspect = loaded.aspect;
     const lines = asLines(caption.lines);
     if (lines.length > profile.maxLines) throw new Error(`${lines.length} lines; at most ${profile.maxLines}`);
     const over = lines.find((line) => line.length > profile.charsPerLine);
@@ -214,7 +233,7 @@ export async function renderCaptionOnClip(
     const { bytes, renderMs } = rendered;
 
     const identity = fingerprintBytes(bytes);
-    const storagePath = storageName(input.renderId, aspect);
+    const storagePath = storageName(input.renderId);
     const upload = input.deps?.upload ?? defaultUpload;
     await upload(storagePath, bytes);
     const registered = await upsertRegisteredAsset(db, {
@@ -297,12 +316,14 @@ export async function renderTimingSample(
   const probe = input.deps?.probe ?? probeClip;
   const signed = await sign(input.bucket, input.storagePath);
   const meta = await probe(signed);
-  const size = outputSize(meta.width, meta.height, input.aspect);
+  const loaded = loadLabRender({ aspect: input.aspect, kind: "video" });
+  if (loaded.kind !== "video") throw new Error("video renders are 9:16 only");
+  const size = outputSize(meta.width, meta.height, loaded.aspect);
   const props: CaptionOnClipProps = {
     clipUrl: signed,
     lines: input.lines,
     styleVersion: version,
-    aspect: input.aspect,
+    aspect: loaded.aspect,
     audio: "original",
     cropFocusY: input.cropFocusY ?? 0.5,
     sourceWidth: meta.width,
