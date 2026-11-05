@@ -55,7 +55,7 @@ First score of that locked profile, Remotion's Chrome: **SSIM 0.5784**, dice 0.5
 - [x] ESLint on the touched files
 - [x] `npm run build`
 - [x] `npm run bundle-remotion` and `scripts/caption-style-check.mts` (SSIM 0.5784)
-- [ ] Preview renders of the raw on 9:16 and 4:5, and the 1080p timing sample. Recorded in the PR body after the preview is up.
+- [ ] Preview renders of the raw on 9:16 and 4:5, and the 1080p timing sample. Recorded in the PR body after the preview is up. The first preview failed typechecking `ctx.fontStretch` (the DOM type is a keyword union; the wdth axis is a percentage). The follow-up assigns it through a string cast.
 
 ## Notes
 

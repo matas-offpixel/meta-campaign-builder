@@ -47,8 +47,10 @@ function measureLine(line: string, fontPx: number, fontWidth: number): number {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no canvas to measure the caption");
   ctx.font = `${profile.fontWeight} ${fontPx}px "${profile.fontFamily}"`;
-  ctx.fontStretch = `${fontWidth}%`;
-  ctx.fontVariationSettings = variation(fontWidth);
+  // CanvasFontStretch is a keyword union. The wdth axis is a percentage.
+  const axis = ctx as unknown as { fontStretch: string; fontVariationSettings: string };
+  axis.fontStretch = `${fontWidth}%`;
+  axis.fontVariationSettings = variation(fontWidth);
   return ctx.measureText(line).width;
 }
 
