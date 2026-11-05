@@ -9,6 +9,12 @@
  * The clip is probed with getVideoMetadata (@remotion/renderer) and the
  * output matches the source: a 720-wide source stays 720 wide, and a 4:5
  * render is a same-width crop. Never upscaled.
+ *
+ * The Vercel function image lacks glibc 2.35, so
+ * @remotion/compositor-linux-x64-gnu does not start (`libm.so.6: version
+ * GLIBC_2.35 not found`). Verified 5 Nov 2026 on Node 22.x and on Node 26.x.
+ * The project setting is 24.x; `engines` `>=22` selects 26.x, so 24.x did
+ * not run. The render path moves to Remotion Lambda in M2b.
  */
 
 import { randomUUID } from "node:crypto";

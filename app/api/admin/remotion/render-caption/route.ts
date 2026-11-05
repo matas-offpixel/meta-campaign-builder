@@ -10,6 +10,12 @@
  *
  * Auth: cookie-bound operator session, same as render-reel.
  * Flag: FEATURE_REMOTION=1. Memory 3 GB, 600s.
+ *
+ * The Vercel function image lacks glibc 2.35, so the Remotion compositor
+ * does not start (`libm.so.6: version GLIBC_2.35 not found`). Verified
+ * 5 Nov 2026 on Node 22.x and on Node 26.x. The project setting is 24.x;
+ * `engines` `>=22` selects 26.x, so 24.x did not run. The render path
+ * moves to Remotion Lambda in M2b.
  */
 
 import fs from "node:fs/promises";

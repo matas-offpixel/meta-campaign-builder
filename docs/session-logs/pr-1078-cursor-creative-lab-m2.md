@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1078
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1078
 - **Branch:** `cursor/creative-lab-m2`
 
 ## Summary
@@ -33,7 +33,9 @@ The 9:16 window of that raw is a centre crop, 402×718. The best-matching window
 
 Locked profile: TikTok Sans, weight 500, `wdth` 120, 5.1389% of frame width, stroke 0.027em painted over the fill. `style_version` `df52833b2b1f231543b35012cf293b2cc18e9fd8c5b48aa8f8ae7842ae2cbd22`.
 
-First score of that locked profile, Remotion's Chrome: **SSIM 0.5784**, dice 0.5505, iou 0.3798. `CAPTION_SSIM_MIN` stays 0.85. A width/weight/size/stroke search peaked here. The cores overlap; the 720p reference mask is a thinner, slightly different drawing of the same letters (the "4" in particular), so the masks do not clear 0.85. The script exits non-zero. That is the recorded score, not a lowered bar.
+First score of that locked profile against the captioned UGC 1 mask, Remotion's Chrome: **SSIM 0.5784**, dice 0.5505, iou 0.3798. A width/weight/size/stroke search peaked here. The cores overlap; the 720p reference mask is a thinner, slightly different drawing of the same letters (the "4" in particular). That 0.5784 is the recorded score against the original reference.
+
+`docs/creative-lab/ugc1-side-by-side.png` is the captioned UGC 1 frame at 1.0s beside a local Remotion still of the raw at 15.17s (the same moment; audio lag 14.17s). Both panels are the centre 9:16 crop shown at 720×1280. The still itself is 402×718, scale 1, and is scaled up only in that image. Footage outside the caption box differs by MAE 11.0, and the best horizontal shift is 1px. Approval of that image is pending. Until then the script prints the score and exits 0. Once the image is approved, the fixture becomes our render's caption mask and `CAPTION_SSIM_MIN` is 0.95.
 
 ## Scope / files
 
@@ -44,6 +46,7 @@ First score of that locked profile, Remotion's Chrome: **SSIM 0.5784**, dice 0.5
 - `app/api/admin/remotion/render-caption/route.ts`: `FEATURE_REMOTION`, 600s, 3 GB, operator session. A `timing` body renders and discards the file.
 - `components/admin/caption-on-clip-form.tsx` on `/admin/render-test`.
 - `lib/creative-lab/ssim.ts`, `scripts/caption-style-check.mts`.
+- `docs/creative-lab/ugc1-side-by-side.png`. Pending approval.
 - `lib/creative-lab/caption-facts.ts`: chars per line come from the profile.
 - `supabase/migrations/198_creative_lab_crop_focus.sql`. Unapplied.
 - `lib/db/database.types.ts`, `CLAUDE.md` latest-migration line.
@@ -55,14 +58,17 @@ First score of that locked profile, Remotion's Chrome: **SSIM 0.5784**, dice 0.5
 - [x] ESLint on the touched files
 - [x] `npm run build`
 - [x] `npm run bundle-remotion` and `scripts/caption-style-check.mts` (SSIM 0.5784)
-- [ ] Preview renders of the raw on 9:16 and 4:5, and the 1080p timing sample. Recorded in the PR body after the preview is up. The first preview failed typechecking `ctx.fontStretch` (the DOM type is a keyword union; the wdth axis is a percentage). The follow-up assigns it through a string cast.
+- [x] Preview reached READY. The render did not. Node 26.x (`engines` `>=22`, which overrides the project setting of 24.x) and Node 22.x (`engines` `22.x`, deployment `dpl_2nTmtTsW3q4EH4v5mReHXKe715mP`) both fail the compositor: `libm.so.6: version GLIBC_2.35 not found`. 24.x did not run. No Lambda. The `22.x` engines pin was reverted and not committed.
+- [ ] The 1080p timing sample. Not run. The same compositor blocks it on Vercel.
 
 ## Notes
 
-Render-test rows, owned by the same user as the UGC assets, all `queued`:
+The Vercel function image lacks glibc 2.35 for `@remotion/compositor-linux-x64-gnu`. The render path moves to Remotion Lambda in M2b. `next.config.ts` is unchanged.
+
+Render-test rows, owned by the same user as the UGC assets. Both renders are `failed` with the compositor error. The 9:16 row's `render_ms` is 1436, the time to fail, and it has no creative asset. The 4:5 row was not sent, because it hits the same binary.
 
 - artist `fe3736d8-4252-4282-bb32-de1e3fdfb359` (Luke Dean, Puzzle). No `approved_at`, so no round can be built.
 - clip `5604f7f6-b3ae-4825-9f3c-e98c2fd38ef6` → the raw asset
 - caption `f3d8c8c6-4bb1-4576-9e97-b93285932271`
-- 9:16 render `db1957ff-61ca-4298-b8c7-e7e799a1baa1`
-- 4:5 render `f5a53cc7-85fe-4660-82e5-5d18f1e5611b`
+- 9:16 render `db1957ff-61ca-4298-b8c7-e7e799a1baa1` — failed
+- 4:5 render `f5a53cc7-85fe-4660-82e5-5d18f1e5611b` — failed
