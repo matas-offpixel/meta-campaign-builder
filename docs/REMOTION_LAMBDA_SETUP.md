@@ -33,6 +33,8 @@ It calls `getOrCreateBucket`, skips `deployFunction` when a compatible function 
 
 A concurrency quota of 10 or lower makes each caption render use one function. The script prints the quota.
 
+`remotion.config.ts` inlines the caption font. Lambda's Chrome did not finish fetching the root-relative file. `bundle()` does not load that config, so the deploy script passes the override in `deploySite`'s `options`.
+
 Deployed 5 Nov 2026:
 
 | | |

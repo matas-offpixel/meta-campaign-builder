@@ -7,12 +7,17 @@
  * Prints the bucket, function name, serve URL and concurrency quota.
  * @remotion/lambda 4.0.471 has no deploySiteFromBundle, so this bundles
  * the entry point and then calls deploySite, which bundles it again.
+ * bundle() does not read remotion.config.ts, so the webpack override is
+ * passed in. That override inlines the caption font.
  */
 
 import path from "node:path";
 
 import { bundle } from "@remotion/bundler";
+import { ConfigInternals } from "@remotion/cli/config";
 import { deployFunction, deploySite, getFunctions, getOrCreateBucket } from "@remotion/lambda";
+
+import "../remotion.config.ts";
 
 import { LAMBDA_DISK_MB, LAMBDA_MEMORY_MB, LAMBDA_SITE_NAME, LAMBDA_TIMEOUT_SECONDS, REMOTION_REGION, lambdaChunking, readConcurrencyLimit } from "../lib/creative-lab/lambda.ts";
 
@@ -44,12 +49,20 @@ if (chosen) {
 }
 
 const entryPoint = path.join(process.cwd(), "src/remotion/index.tsx");
-const localBundle = await bundle({ entryPoint });
+const webpackOverride = ConfigInternals.getWebpackOverrideFn();
+const localBundle = await bundle({ entryPoint, webpackOverride });
 console.log(`local bundle ${localBundle}`);
 
-const site = await deploySite({ entryPoint, bucketName, region: REMOTION_REGION, siteName: LAMBDA_SITE_NAME });
+const site = await deploySite({
+  entryPoint,
+  bucketName,
+  region: REMOTION_REGION,
+  siteName: LAMBDA_SITE_NAME,
+  options: { webpackOverride, enableCaching: false },
+});
 console.log(`serveUrl ${site.serveUrl}`);
 console.log(`site ${site.siteName}`);
+console.log(`uploaded ${site.stats.uploadedFiles} deleted ${site.stats.deletedFiles} untouched ${site.stats.untouchedFiles}`);
 
 const concurrency = await readConcurrencyLimit();
 const chunking = lambdaChunking(concurrency, 1);
