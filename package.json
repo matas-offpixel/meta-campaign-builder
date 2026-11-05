@@ -19,6 +19,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
     "@remotion/bundler": "4.0.471",
+    "@remotion/lambda": "4.0.471",
     "@remotion/renderer": "4.0.471",
     "@sparticuz/chromium": "^149.0.0",
     "@supabase/ssr": "^0.9.0",

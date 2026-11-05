@@ -1,47 +1,52 @@
 /**
  * Burn one caption onto one clip and register the mp4.
  *
- * Runs only from a route under /api/admin/remotion/**. next.config.ts
- * traces the Remotion bundle, the compositor and @sparticuz/chromium into
- * that path alone; anywhere else the bundle and Chrome are missing at
- * runtime. One creative_lab_renders row per call. No Meta or TikTok calls.
+ * The render runs on Remotion Lambda in eu-west-2. The Vercel function
+ * image lacks glibc 2.35, so the compositor never starts (verified 5 Nov
+ * 2026 on Node 22.x and 26.x). One creative_lab_renders row per call.
+ * No Meta or TikTok calls. The clip is a 60-minute signed URL. Dimensions
+ * come from the mp4 header, not ffprobe. A 720-wide source stays 720 wide,
+ * and a 4:5 render is a same-width crop. Never upscaled.
  *
- * The clip is probed with getVideoMetadata (@remotion/renderer) and the
- * output matches the source: a 720-wide source stays 720 wide, and a 4:5
- * render is a same-width crop. Never upscaled.
- *
- * The Vercel function image lacks glibc 2.35, so
- * @remotion/compositor-linux-x64-gnu does not start (`libm.so.6: version
- * GLIBC_2.35 not found`). Verified 5 Nov 2026 on Node 22.x and on Node 26.x.
- * The project setting is 24.x; `engines` `>=22` selects 26.x, so 24.x did
- * not run. The render path moves to Remotion Lambda in M2b.
+ * The Lambda cost is returned to the caller. It is not stored: migration
+ * 198 is still unapplied, and a cost column would need another one.
  */
-
-import { randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 import { fingerprintBytes, upsertRegisteredAsset } from "../creatives/asset-registry.ts";
 import type { CaptionOnClipProps } from "../../src/remotion/compositions/CaptionOnClip.tsx";
 import { outputSize, profile, styleVersion, type CaptionAspect } from "../../src/remotion/caption-style/profile.ts";
+import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
+import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 
-export const OFFTHREAD_VIDEO_CACHE_BYTES = 512 * 1024 * 1024;
-const COMPOSITION_ID = "CaptionOnClip";
+export type { Probe };
+
 const BUCKET = "campaign-assets";
-const SIGNED_URL_SECONDS = 60 * 30;
-
-export type Probe = { width: number; height: number; fps: number; durationInSeconds: number };
+const SIGNED_URL_SECONDS = 60 * 60;
 
 export type CaptionRenderRequest = { props: CaptionOnClipProps; muted: boolean };
+
+export type LambdaHandle = { bucketName: string; lambdaRenderId: string };
+
+export type RenderedClip = {
+  bytes: Uint8Array;
+  renderMs: number;
+  estimatedCostUsd: number | null;
+  estimatedCostDisplay: string | null;
+  lambda: LambdaHandle | null;
+};
 
 export type RenderDeps = {
   signUrl: (bucket: string, objectPath: string) => Promise<string>;
   probe: (url: string) => Promise<Probe>;
-  renderToFile: (req: CaptionRenderRequest) => Promise<{ bytes: Uint8Array; renderMs: number }>;
+  /** Test double for the local path. Production uses `lambda`. */
+  renderToFile?: (req: CaptionRenderRequest) => Promise<{ bytes: Uint8Array; renderMs: number }>;
+  lambda?: {
+    render: (req: CaptionRenderRequest, serveUrl: string) => Promise<LambdaRenderOutput>;
+    deleteRender: (target: LambdaHandle) => Promise<void>;
+  };
   upload: (objectPath: string, bytes: Uint8Array) => Promise<void>;
 };
 
@@ -90,49 +95,15 @@ async function defaultUpload(objectPath: string, bytes: Uint8Array): Promise<voi
   if (error) throw new Error(`storage upload: ${error.message}`);
 }
 
-/** Probe with Remotion's getVideoMetadata. Dynamic import so the tests never load the renderer. */
-export async function probeClip(url: string): Promise<Probe> {
-  const { getVideoMetadata } = await import("@remotion/renderer");
-  const meta = await getVideoMetadata(url);
-  if (!meta.width || !meta.height || !meta.durationInSeconds) throw new Error("clip has no dimensions or duration");
-  return { width: meta.width, height: meta.height, fps: meta.fps || 30, durationInSeconds: meta.durationInSeconds };
+/** Moov-atom probe. No compositor, so it runs on the Vercel function image. */
+export function probeClip(url: string): Promise<Probe> {
+  return probeMp4Url(url);
 }
 
-/**
- * renderMedia, h264, veryfast, with the off-thread video cache capped at
- * 512 MB. `browserExecutable` null lets Remotion use its own Chrome (the
- * local reference check); the Vercel route passes @sparticuz/chromium.
- */
-export async function renderCaptionWithRemotion(
-  req: CaptionRenderRequest,
-  env: { serveUrl: string; browserExecutable: string | null; outputLocation: string },
-): Promise<{ bytes: Uint8Array; renderMs: number }> {
-  const { renderMedia, selectComposition } = await import("@remotion/renderer");
-  const inputProps = req.props as unknown as Record<string, unknown>;
-  const composition = await selectComposition({
-    serveUrl: env.serveUrl,
-    id: COMPOSITION_ID,
-    inputProps,
-    browserExecutable: env.browserExecutable,
-  });
-  const started = Date.now();
-  await renderMedia({
-    composition,
-    serveUrl: env.serveUrl,
-    codec: "h264",
-    outputLocation: env.outputLocation,
-    inputProps,
-    imageFormat: "jpeg",
-    pixelFormat: "yuv420p",
-    crf: 23,
-    x264Preset: "veryfast",
-    offthreadVideoCacheSizeInBytes: OFFTHREAD_VIDEO_CACHE_BYTES,
-    muted: req.muted,
-    browserExecutable: env.browserExecutable,
-    concurrency: 1,
-  });
-  return { bytes: new Uint8Array(await fs.readFile(env.outputLocation)), renderMs: Date.now() - started };
-}
+const defaultLambda: NonNullable<RenderDeps["lambda"]> = {
+  render: renderCaptionViaLambda,
+  deleteRender: deleteLambdaRender,
+};
 
 /** 'cleared' plays the clip's own audio, the same as 'original'. */
 export function audioMode(status: string): CaptionOnClipProps["audio"] {
@@ -164,6 +135,8 @@ export type RenderOutcome = {
   height: number;
   storagePath: string;
   durationSeconds: number;
+  estimatedCostUsd: number | null;
+  estimatedCostDisplay: string | null;
 };
 
 /**
@@ -177,7 +150,6 @@ export async function renderCaptionOnClip(
     renderId: string;
     userId: string;
     serveUrl?: string;
-    browserExecutable?: string | null;
     deps?: Partial<RenderDeps>;
   },
 ): Promise<RenderOutcome> {
@@ -187,6 +159,7 @@ export async function renderCaptionOnClip(
 
   const started = Date.now();
   await patchRender(db, input.renderId, { status: "rendering", error: null });
+  let pendingDelete: { lambda: NonNullable<RenderDeps["lambda"]>; handle: LambdaHandle } | null = null;
   try {
     const [clip, caption, version] = await Promise.all([
       one(db, "creative_lab_clips", String(render.clip_id)),
@@ -211,6 +184,8 @@ export async function renderCaptionOnClip(
     const bucket = String(source.storage_bucket ?? BUCKET);
     const sign = input.deps?.signUrl ?? defaultSign;
     const probe = input.deps?.probe ?? probeClip;
+    const lambda = input.deps?.renderToFile ? null : (input.deps?.lambda ?? defaultLambda);
+    const serveUrl = lambda ? requireLambdaServeUrl(input.serveUrl) : "";
     const signed = await sign(bucket, String(source.storage_path));
     const meta = await probe(signed);
 
@@ -231,23 +206,12 @@ export async function renderCaptionOnClip(
       durationInSeconds: meta.durationInSeconds,
       plate: "video",
     };
-    const renderToFile =
-      input.deps?.renderToFile ??
-      (async (req: CaptionRenderRequest) => {
-        if (!input.serveUrl) throw new Error("serveUrl is required to render");
-        const temp = path.join(os.tmpdir(), `caption-${randomUUID()}.mp4`);
-        try {
-          return await renderCaptionWithRemotion(req, {
-            serveUrl: input.serveUrl,
-            browserExecutable: input.browserExecutable ?? null,
-            outputLocation: temp,
-          });
-        } finally {
-          await fs.unlink(temp).catch(() => {});
-        }
-      });
+    const request: CaptionRenderRequest = { props, muted: audio === "muted" };
     const size = outputSize(meta.width, meta.height, aspect);
-    const { bytes, renderMs } = await renderToFile({ props, muted: audio === "muted" });
+    const rendered: RenderedClip = input.deps?.renderToFile
+      ? { ...(await input.deps.renderToFile(request)), estimatedCostUsd: null, estimatedCostDisplay: null, lambda: null }
+      : await lambdaRender(lambda!, request, serveUrl);
+    const { bytes, renderMs } = rendered;
 
     const identity = fingerprintBytes(bytes);
     const storagePath = storageName(input.renderId, aspect);
@@ -271,6 +235,11 @@ export async function renderCaptionOnClip(
       render_ms: renderMs,
       creative_asset_id: registered.asset.id,
     });
+    if (rendered.lambda && lambda) {
+      pendingDelete = { lambda, handle: rendered.lambda };
+      await lambda.deleteRender(rendered.lambda);
+      pendingDelete = null;
+    }
     return {
       renderId: input.renderId,
       renderMs,
@@ -280,17 +249,35 @@ export async function renderCaptionOnClip(
       height: size.height,
       storagePath,
       durationSeconds: Math.round((outS - inS) * 1000) / 1000,
+      estimatedCostUsd: rendered.estimatedCostUsd,
+      estimatedCostDisplay: rendered.estimatedCostDisplay,
     };
   } catch (err) {
+    if (pendingDelete) await pendingDelete.lambda.deleteRender(pendingDelete.handle).catch(() => {});
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
     await patchRender(db, input.renderId, { status: "failed", error: message, render_ms: Date.now() - started }).catch(() => {});
     throw err instanceof Error ? err : new Error(message);
   }
 }
 
+async function lambdaRender(
+  lambda: NonNullable<RenderDeps["lambda"]>,
+  request: CaptionRenderRequest,
+  serveUrl: string,
+): Promise<RenderedClip> {
+  const output = await lambda.render(request, serveUrl);
+  return {
+    bytes: output.bytes,
+    renderMs: output.renderMs,
+    estimatedCostUsd: output.estimatedCostUsd,
+    estimatedCostDisplay: output.estimatedCostDisplay,
+    lambda: { bucketName: output.bucketName, lambdaRenderId: output.lambdaRenderId },
+  };
+}
+
 /**
- * Feasibility timing only. Renders and drops the bytes: nothing is
- * uploaded and no creative_assets row is written.
+ * Feasibility timing only. Renders on Lambda, deletes the S3 object, and
+ * drops the bytes. Nothing is uploaded and no creative_assets row is written.
  */
 export async function renderTimingSample(
   input: {
@@ -299,12 +286,13 @@ export async function renderTimingSample(
     lines: string[];
     aspect: CaptionAspect;
     cropFocusY?: number;
-    serveUrl: string;
-    browserExecutable: string | null;
-    deps?: Partial<Pick<RenderDeps, "signUrl" | "probe" | "renderToFile">>;
+    serveUrl?: string;
+    deps?: Partial<Pick<RenderDeps, "signUrl" | "probe" | "renderToFile" | "lambda">>;
   },
-): Promise<{ renderMs: number; width: number; height: number; durationSeconds: number }> {
+): Promise<{ renderMs: number; width: number; height: number; durationSeconds: number; estimatedCostUsd: number | null; estimatedCostDisplay: string | null }> {
   const version = await styleVersion();
+  const lambda = input.deps?.renderToFile ? null : (input.deps?.lambda ?? defaultLambda);
+  const serveUrl = lambda ? requireLambdaServeUrl(input.serveUrl) : "";
   const sign = input.deps?.signUrl ?? defaultSign;
   const probe = input.deps?.probe ?? probeClip;
   const signed = await sign(input.bucket, input.storagePath);
@@ -323,20 +311,17 @@ export async function renderTimingSample(
     durationInSeconds: meta.durationInSeconds,
     plate: "video",
   };
-  const renderToFile =
-    input.deps?.renderToFile ??
-    (async (req: CaptionRenderRequest) => {
-      const temp = path.join(os.tmpdir(), `caption-timing-${randomUUID()}.mp4`);
-      try {
-        return await renderCaptionWithRemotion(req, {
-          serveUrl: input.serveUrl,
-          browserExecutable: input.browserExecutable,
-          outputLocation: temp,
-        });
-      } finally {
-        await fs.unlink(temp).catch(() => {});
-      }
-    });
-  const { renderMs } = await renderToFile({ props, muted: false });
-  return { renderMs, width: size.width, height: size.height, durationSeconds: meta.durationInSeconds };
+  const request: CaptionRenderRequest = { props, muted: false };
+  const rendered: RenderedClip = input.deps?.renderToFile
+    ? { ...(await input.deps.renderToFile(request)), estimatedCostUsd: null, estimatedCostDisplay: null, lambda: null }
+    : await lambdaRender(lambda!, request, serveUrl);
+  if (rendered.lambda) await lambda!.deleteRender(rendered.lambda);
+  return {
+    renderMs: rendered.renderMs,
+    width: size.width,
+    height: size.height,
+    durationSeconds: meta.durationInSeconds,
+    estimatedCostUsd: rendered.estimatedCostUsd,
+    estimatedCostDisplay: rendered.estimatedCostDisplay,
+  };
 }
