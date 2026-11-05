@@ -19,7 +19,7 @@
  *     "final" / "last" only when exactly one tier has stock and it is the
  *     highest-priced; "under N" only when remaining < N; "N left" only
  *     when remaining ≤ N; "sold out" only when a tier has none left.
- *   - wrap at the style profile's characters per line (default 18), at
+ *   - wrap at the style profile's characters per line (v1.json; 18), at
  *     most 4 lines; the lines returned are the ones the renderer draws.
  *   - no emoji, no '#', not all caps.
  *
@@ -29,10 +29,10 @@
 
 import { createHash } from "node:crypto";
 
+import { CHARS_PER_LINE } from "../../src/remotion/caption-style/profile.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import type { CaptionStyle } from "./tags.ts";
 
-export const DEFAULT_CHARS_PER_LINE = 18;
 export const DEFAULT_MAX_LINES = 4;
 
 export type StyleProfile = { version: string; charsPerLine?: number; maxLines?: number };
@@ -439,7 +439,7 @@ export function validateCaption(
 ): CaptionValidation {
   const errors: CaptionError[] = [];
   const trimmed = text.trim();
-  const charsPerLine = styleProfile.charsPerLine ?? DEFAULT_CHARS_PER_LINE;
+  const charsPerLine = styleProfile.charsPerLine ?? CHARS_PER_LINE;
   const maxLines = styleProfile.maxLines ?? DEFAULT_MAX_LINES;
   const lines = wrapCaption(trimmed, charsPerLine);
 

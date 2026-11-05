@@ -10,7 +10,7 @@ type Filter = (row: Row) => boolean;
 export type FakeDb = {
   from(table: string): unknown;
   tables: Record<string, Row[]>;
-  writes: { table: string; op: "insert" | "upsert"; rows: Row[] }[];
+  writes: { table: string; op: "insert" | "upsert" | "update"; rows: Row[] }[];
 };
 
 export function fakeDb(seed: Record<string, Row[]>): FakeDb {
@@ -24,6 +24,7 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
     let limit: number | null = null;
     let offset = 0;
     let written: Row[] | null = null;
+    let updatePayload: Row | null = null;
 
     const rows = (): Row[] => {
       if (written) return written;
@@ -50,7 +51,8 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
           Object.assign(existing, p);
           return existing;
         }
-        const row = { id: `${table}-${nextId++}`, ...p };
+        const row = { ...p };
+        if (row.id == null) row.id = `${table}-${nextId++}`;
         tables[table].push(row);
         return row;
       });
@@ -69,12 +71,22 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
       range: (from: number, to: number) => ((offset = from), (limit = to - from + 1), api),
       insert: (payload: Row | Row[]) => (write("insert", payload), api),
       upsert: (payload: Row | Row[], options?: { onConflict?: string }) => (write("upsert", payload, options?.onConflict), api),
+      update: (payload: Row) => ((updatePayload = payload), api),
       maybeSingle: async () => ({ data: rows()[0] ?? null, error: null }),
       single: async () => {
         const first = rows()[0];
         return first ? { data: first, error: null } : { data: null, error: { message: "no rows" } };
       },
-      then: (resolve: (value: { data: Row[]; error: null }) => unknown) => resolve({ data: rows(), error: null }),
+      then: (resolve: (value: { data: Row[]; error: null }) => unknown) => {
+        if (updatePayload) {
+          const matched = (tables[table] ?? []).filter((r) => filters.every((f) => f(r)));
+          for (const row of matched) Object.assign(row, updatePayload);
+          writes.push({ table, op: "update", rows: matched });
+          updatePayload = null;
+          return resolve({ data: matched, error: null });
+        }
+        return resolve({ data: rows(), error: null });
+      },
     };
     return api;
   }
