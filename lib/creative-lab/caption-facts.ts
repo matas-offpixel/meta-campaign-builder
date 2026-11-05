@@ -1,0 +1,460 @@
+/**
+ * Caption fact validator (roadmap §2 rules 1 and 8).
+ *
+ * A caption may state only what the event record holds:
+ *   - names: every name the writer declares must be on the lineup
+ *     (creative_lab_event_facts.lineup), or in the event name, venue or
+ *     city. A capitalised-phrase check backs that up for names the writer
+ *     did not declare; it skips a stoplist of words captions use in title
+ *     case (Birthday, Boxing Day, Final Release, New Year, ...).
+ *   - dates: a day + month (27 Dec, 27 December, 27.12, Dec 27th) must be
+ *     the event date or one of allowed_dates (presale, general sale). A
+ *     weekday next to a date must be that date's weekday; a bare weekday
+ *     must be the event's. An ordinal alone ("4th Birthday") is not a date.
+ *   - £ amounts must equal a tier price.
+ *   - scarcity (style 'scarcity', or final / last / left / remaining /
+ *     sold out) needs tier rows whose remaining stock is known. Remaining
+ *     is quantity_available − quantity_sold: quantity_available holds the
+ *     allocation (lib/db/ticketing.ts replaceEventTicketTiers).
+ *     "final" / "last" only when exactly one tier has stock and it is the
+ *     highest-priced; "under N" only when remaining < N; "N left" only
+ *     when remaining ≤ N; "sold out" only when a tier has none left.
+ *   - wrap at the style profile's characters per line (default 18), at
+ *     most 4 lines; the lines returned are the ones the renderer draws.
+ *   - no emoji, no '#', not all caps.
+ *
+ * facts_hash is sha256 over canonical JSON (sorted keys; tiers reduced to
+ * name, price, remaining), so it changes when stock does.
+ */
+
+import { createHash } from "node:crypto";
+
+import type { ServiceRoleDb } from "./load.ts";
+import type { CaptionStyle } from "./tags.ts";
+
+export const DEFAULT_CHARS_PER_LINE = 18;
+export const DEFAULT_MAX_LINES = 4;
+
+export type StyleProfile = { version: string; charsPerLine?: number; maxLines?: number };
+
+export type FactTier = { name: string; price: number | null; remaining: number | null };
+
+export type EventFacts = {
+  eventId: string;
+  eventName: string;
+  /** YYYY-MM-DD */
+  eventDate: string | null;
+  venueName: string | null;
+  venueCity: string | null;
+  lineup: string[];
+  /** YYYY-MM-DD */
+  allowedDates: string[];
+  tiers: FactTier[];
+};
+
+export type CaptionErrorCode =
+  | "empty"
+  | "unknown_name"
+  | "date_not_in_facts"
+  | "weekday_mismatch"
+  | "price_not_in_facts"
+  | "scarcity_without_tiers"
+  | "remaining_unknown"
+  | "final_not_true"
+  | "count_not_true"
+  | "sold_out_not_true"
+  | "too_long"
+  | "emoji"
+  | "hashtag"
+  | "all_caps";
+
+export type CaptionError = { code: CaptionErrorCode; detail: string };
+
+export type CaptionValidation = { ok: boolean; errors: CaptionError[]; lines: string[]; factsHash: string };
+
+/** Null when either count is unknown. */
+export function remainingStock(quantitySold: number | null, quantityAvailable: number | null): number | null {
+  if (quantitySold == null || quantityAvailable == null) return null;
+  return Math.max(0, quantityAvailable - quantitySold);
+}
+
+/**
+ * Service role only: event_ticket_tiers has RLS on and no authenticated
+ * policy (migration 070). Call after the event's ownership is checked.
+ */
+export async function loadEventFacts(serviceRoleDb: ServiceRoleDb, eventId: string): Promise<EventFacts> {
+  const [eventRes, factsRes, tiersRes] = await Promise.all([
+    serviceRoleDb.from("events").select("id, name, event_date, venue_name, venue_city").eq("id", eventId).maybeSingle(),
+    serviceRoleDb.from("creative_lab_event_facts").select("lineup, allowed_dates").eq("event_id", eventId).maybeSingle(),
+    serviceRoleDb.from("event_ticket_tiers").select("tier_name, price, quantity_sold, quantity_available").eq("event_id", eventId),
+  ]);
+  if (eventRes.error) throw new Error(`events: ${eventRes.error.message}`);
+  if (factsRes.error) throw new Error(`creative_lab_event_facts: ${factsRes.error.message}`);
+  if (tiersRes.error) throw new Error(`event_ticket_tiers: ${tiersRes.error.message}`);
+  const event = eventRes.data as {
+    id: string;
+    name: string;
+    event_date: string | null;
+    venue_name: string | null;
+    venue_city: string | null;
+  } | null;
+  if (!event) throw new Error(`no event ${eventId}`);
+  const facts = factsRes.data as { lineup: string[] | null; allowed_dates: string[] | null } | null;
+  const tiers = (tiersRes.data ?? []) as {
+    tier_name: string;
+    price: number | string | null;
+    quantity_sold: number | null;
+    quantity_available: number | null;
+  }[];
+  return {
+    eventId: event.id,
+    eventName: event.name,
+    eventDate: event.event_date ? event.event_date.slice(0, 10) : null,
+    venueName: event.venue_name,
+    venueCity: event.venue_city,
+    lineup: (facts?.lineup ?? []).map((n) => n.trim()).filter(Boolean),
+    allowedDates: (facts?.allowed_dates ?? []).map((d) => d.slice(0, 10)),
+    tiers: tiers.map((t) => ({
+      name: t.tier_name,
+      price: t.price == null ? null : Number(t.price),
+      remaining: remainingStock(t.quantity_sold, t.quantity_available),
+    })),
+  };
+}
+
+// ─── facts hash ──────────────────────────────────────────────────────────────
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map((k) => [k, canonical((value as Record<string, unknown>)[k])]),
+    );
+  }
+  return value;
+}
+
+export function canonicalFactsJson(facts: EventFacts): string {
+  return JSON.stringify(
+    canonical({
+      eventId: facts.eventId,
+      eventName: facts.eventName,
+      eventDate: facts.eventDate,
+      venueName: facts.venueName,
+      venueCity: facts.venueCity,
+      lineup: [...facts.lineup].sort(),
+      allowedDates: [...facts.allowedDates].sort(),
+      tiers: facts.tiers
+        .map((t) => ({ name: t.name, price: t.price, remaining: t.remaining }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    }),
+  );
+}
+
+export function factsHash(facts: EventFacts): string {
+  return createHash("sha256").update(canonicalFactsJson(facts)).digest("hex");
+}
+
+// ─── wrap ────────────────────────────────────────────────────────────────────
+
+/** Greedy word wrap; an explicit newline starts a new line; a word longer than the line stands alone. */
+export function wrapCaption(text: string, charsPerLine: number): string[] {
+  const lines: string[] = [];
+  for (const paragraph of text.split(/\r?\n/)) {
+    let line = "";
+    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+      if (!line) line = word;
+      else if (line.length + 1 + word.length <= charsPerLine) line += ` ${word}`;
+      else {
+        lines.push(line);
+        line = word;
+      }
+    }
+    if (line) lines.push(line);
+  }
+  return lines;
+}
+
+// ─── names ───────────────────────────────────────────────────────────────────
+
+const STOPWORDS = new Set(
+  [
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "sat", "sun",
+    "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+    "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+    "birthday", "boxing", "day", "days", "night", "nights", "new", "year", "years", "eve", "christmas", "xmas",
+    "easter", "halloween", "bank", "holiday", "weekend", "week",
+    "final", "release", "last", "first", "early", "bird", "presale", "general", "admission", "sale", "on",
+    "tickets", "ticket", "now", "live", "doors", "open", "lineup", "line", "up", "sold", "out", "left", "remaining",
+    "limited", "next", "party", "part", "one", "two", "the", "a", "an", "you", "your", "we", "our", "us", "join",
+    "don't", "dont", "miss", "it", "this", "that", "all", "see", "who", "what", "are", "ready", "get", "grab", "book",
+    "in", "at", "for", "and", "with", "is", "be", "back", "here", "there", "dj", "djs", "b2b", "vip", "special",
+    "guest", "guests", "plus", "more", "tba", "tbc", "free", "entry", "only", "under",
+  ],
+);
+
+const PARTICLES = new Set(["de", "da", "del", "della", "di", "du", "van", "von", "der", "den", "le", "la", "el", "al", "y"]);
+
+type Word = { core: string; key: string; capital: boolean; breakAfter: boolean };
+
+function words(text: string): Word[] {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((raw) => {
+      const core = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'’]+$/gu, "").replace(/['’]s$/u, "");
+      return {
+        core,
+        key: normalise(core),
+        capital: /^\p{Lu}/u.test(core),
+        breakAfter: /[.,!?:;)\]"”–—-]$/u.test(raw),
+      };
+    });
+}
+
+function normalise(s: string): string {
+  return s
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/['’]/g, "'")
+    .trim();
+}
+
+function phraseKeys(s: string): string[] {
+  return words(s)
+    .map((w) => w.key)
+    .filter(Boolean);
+}
+
+function containsPhrase(haystack: string[], needle: string[]): boolean {
+  if (!needle.length || needle.length > haystack.length) return false;
+  for (let i = 0; i + needle.length <= haystack.length; i += 1) {
+    if (needle.every((k, j) => haystack[i + j] === k)) return true;
+  }
+  return false;
+}
+
+function knownName(name: string, facts: EventFacts): boolean {
+  const key = phraseKeys(name);
+  if (!key.length) return false;
+  if (facts.lineup.some((n) => phraseKeys(n).join(" ") === key.join(" "))) return true;
+  return [facts.eventName, facts.venueName, facts.venueCity].some((s) => s && containsPhrase(phraseKeys(s), key));
+}
+
+function checkNames(text: string, declared: readonly string[], facts: EventFacts): CaptionError[] {
+  const errors: CaptionError[] = [];
+  for (const name of declared) {
+    if (!knownName(name, facts)) errors.push({ code: "unknown_name", detail: `"${name}" is not on the lineup, event name or venue` });
+  }
+
+  const ws = words(text);
+  const covered = ws.map((w) => !w.key || STOPWORDS.has(w.key));
+  const fixedWords = new Set(
+    [facts.eventName, facts.venueName ?? "", facts.venueCity ?? ""].flatMap((s) => phraseKeys(s)),
+  );
+  ws.forEach((w, i) => {
+    if (fixedWords.has(w.key)) covered[i] = true;
+  });
+  for (const phrase of [...facts.lineup, ...declared.filter((n) => knownName(n, facts))].map(phraseKeys)) {
+    for (let i = 0; i + phrase.length <= ws.length; i += 1) {
+      if (phrase.every((k, j) => ws[i + j].key === k)) for (let j = 0; j < phrase.length; j += 1) covered[i + j] = true;
+    }
+  }
+
+  let run: number[] = [];
+  const flush = () => {
+    if (run.filter((i) => ws[i].capital).length >= 2) {
+      errors.push({ code: "unknown_name", detail: `"${run.map((i) => ws[i].core).join(" ")}" looks like a name not in the facts` });
+    }
+    run = [];
+  };
+  for (let i = 0; i < ws.length; i += 1) {
+    const w = ws[i];
+    const next = ws[i + 1];
+    if (!covered[i] && w.capital) {
+      run.push(i);
+    } else if (
+      run.length &&
+      !covered[i] &&
+      PARTICLES.has(w.key) &&
+      !ws[i - 1].breakAfter &&
+      next &&
+      !covered[i + 1] &&
+      next.capital
+    ) {
+      run.push(i);
+      continue;
+    } else {
+      flush();
+      continue;
+    }
+    if (w.breakAfter) flush();
+  }
+  flush();
+  return errors;
+}
+
+// ─── dates ───────────────────────────────────────────────────────────────────
+
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+const MONTH_RE = "(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
+const WEEKDAY_RE = "(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tues|Tue|Wed|Thurs|Thur|Thu|Fri|Sat|Sun)\\b\\.?";
+const WEEKDAYS: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+type DateClaim = { start: number; end: number; day: number; month: number; year: number | null; text: string };
+
+function monthOf(token: string): number {
+  return MONTHS[token.slice(0, 3).toLowerCase()];
+}
+
+function dateClaims(text: string): DateClaim[] {
+  const claims: DateClaim[] = [];
+  const push = (m: RegExpExecArray, day: number, month: number, year: string | undefined) => {
+    if (day < 1 || day > 31 || month < 1 || month > 12) return;
+    if (claims.some((c) => m.index < c.end && m.index + m[0].length > c.start)) return;
+    claims.push({
+      start: m.index,
+      end: m.index + m[0].length,
+      day,
+      month,
+      year: year ? Number(year.length === 2 ? `20${year}` : year) : null,
+      text: m[0],
+    });
+  };
+  const dayMonth = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH_RE}(?:,?\\s+(\\d{4}))?\\b`, "gi");
+  for (let m; (m = dayMonth.exec(text)); ) push(m, Number(m[1]), monthOf(m[2]), m[3]);
+  const monthDay = new RegExp(`\\b${MONTH_RE}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4}))?`, "gi");
+  for (let m; (m = monthDay.exec(text)); ) push(m, Number(m[2]), monthOf(m[1]), m[3]);
+  const numeric = /(?<![£$€\d.,])\b(\d{1,2})[./](\d{1,2})(?:[./](\d{4}|\d{2}))?\b(?![.,]?\d)/g;
+  for (let m; (m = numeric.exec(text)); ) push(m, Number(m[1]), Number(m[2]), m[3]);
+  return claims.sort((a, b) => a.start - b.start);
+}
+
+function ymd(iso: string): { y: number; m: number; d: number } {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return { y, m, d };
+}
+
+function weekdayOf(y: number, m: number, d: number): number {
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+function checkDates(text: string, facts: EventFacts): CaptionError[] {
+  const errors: CaptionError[] = [];
+  const factDates = [facts.eventDate, ...facts.allowedDates].filter((d): d is string => Boolean(d)).map(ymd);
+  const claims = dateClaims(text);
+  const resolved = new Map<DateClaim, { y: number; m: number; d: number }>();
+  for (const c of claims) {
+    const hit = factDates.find((f) => f.m === c.month && f.d === c.day && (c.year == null || c.year === f.y));
+    if (hit) resolved.set(c, hit);
+    else errors.push({ code: "date_not_in_facts", detail: `"${c.text}" is not the event date or an allowed date` });
+  }
+
+  const weekday = new RegExp(`\\b${WEEKDAY_RE}`, "g");
+  for (let m; (m = weekday.exec(text)); ) {
+    const day = WEEKDAYS[m[1].slice(0, 3).toLowerCase()];
+    const after = m.index + m[0].length;
+    const attached = claims.find((c) => c.start >= after && /^[\s,]{0,3}$/.test(text.slice(after, c.start)));
+    if (attached) {
+      const date = resolved.get(attached);
+      if (date && weekdayOf(date.y, date.m, date.d) !== day) {
+        errors.push({ code: "weekday_mismatch", detail: `"${m[1]}" is not the weekday of ${attached.text}` });
+      }
+      continue;
+    }
+    if (!facts.eventDate) {
+      errors.push({ code: "date_not_in_facts", detail: `"${m[1]}" but the event has no date` });
+      continue;
+    }
+    const e = ymd(facts.eventDate);
+    if (weekdayOf(e.y, e.m, e.d) !== day) {
+      errors.push({ code: "weekday_mismatch", detail: `"${m[1]}" is not the event's weekday` });
+    }
+  }
+  return errors;
+}
+
+// ─── prices and scarcity ─────────────────────────────────────────────────────
+
+function checkPrices(text: string, facts: EventFacts): CaptionError[] {
+  const errors: CaptionError[] = [];
+  const prices = facts.tiers.map((t) => t.price).filter((p): p is number => p != null);
+  for (const m of text.matchAll(/£\s?(\d{1,5}(?:[.,]\d{1,2})?)/g)) {
+    const amount = Number(m[1].replace(",", "."));
+    if (!prices.some((p) => Math.abs(p - amount) < 0.005)) {
+      errors.push({ code: "price_not_in_facts", detail: `${m[0]} is not a tier price` });
+    }
+  }
+  return errors;
+}
+
+const SCARCITY_RE = /\b(final|last|left|remaining|sold\s+out)\b/i;
+
+function checkScarcity(text: string, style: CaptionStyle, facts: EventFacts): CaptionError[] {
+  if (style !== "scarcity" && !SCARCITY_RE.test(text)) return [];
+  if (!facts.tiers.length) return [{ code: "scarcity_without_tiers", detail: "the event has no ticket tiers" }];
+  if (facts.tiers.some((t) => t.remaining == null)) {
+    return [{ code: "remaining_unknown", detail: "a tier's remaining stock is not known" }];
+  }
+  const errors: CaptionError[] = [];
+  const remaining = facts.tiers.reduce((s, t) => s + (t.remaining as number), 0);
+
+  if (/\b(final|last)\b/i.test(text)) {
+    const inStock = facts.tiers.filter((t) => (t.remaining as number) > 0);
+    const top = Math.max(...facts.tiers.map((t) => t.price ?? Number.NEGATIVE_INFINITY));
+    if (inStock.length !== 1 || inStock[0].price == null || inStock[0].price !== top) {
+      errors.push({
+        code: "final_not_true",
+        detail: `${inStock.length} tier(s) in stock; "final"/"last" needs exactly one, the highest-priced`,
+      });
+    }
+  }
+  for (const m of text.matchAll(/\b(?:under|less than|fewer than)\s+(\d+)\b/gi)) {
+    if (!(remaining < Number(m[1]))) errors.push({ code: "count_not_true", detail: `"${m[0]}" but ${remaining} remain` });
+  }
+  for (const m of text.matchAll(/\b(?:only\s+)?(\d+)\s+(?:tickets?\s+)?(?:left|remaining)\b/gi)) {
+    if (/\b(?:under|less than|fewer than)\s+$/i.test(text.slice(0, m.index))) continue;
+    if (!(remaining <= Number(m[1]))) errors.push({ code: "count_not_true", detail: `"${m[0]}" but ${remaining} remain` });
+  }
+  if (/\bsold\s+out\b/i.test(text) && !facts.tiers.some((t) => t.remaining === 0)) {
+    errors.push({ code: "sold_out_not_true", detail: "no tier has sold out" });
+  }
+  return errors;
+}
+
+// ─── validate ────────────────────────────────────────────────────────────────
+
+export function validateCaption(
+  text: string,
+  style: CaptionStyle,
+  declaredNames: readonly string[],
+  facts: EventFacts,
+  styleProfile: StyleProfile,
+): CaptionValidation {
+  const errors: CaptionError[] = [];
+  const trimmed = text.trim();
+  const charsPerLine = styleProfile.charsPerLine ?? DEFAULT_CHARS_PER_LINE;
+  const maxLines = styleProfile.maxLines ?? DEFAULT_MAX_LINES;
+  const lines = wrapCaption(trimmed, charsPerLine);
+
+  if (!trimmed) errors.push({ code: "empty", detail: "no text" });
+  errors.push(...checkNames(trimmed, declaredNames, facts));
+  errors.push(...checkDates(trimmed, facts));
+  errors.push(...checkPrices(trimmed, facts));
+  errors.push(...checkScarcity(trimmed, style, facts));
+  if (lines.length > maxLines) {
+    errors.push({ code: "too_long", detail: `${lines.length} lines at ${charsPerLine} characters; at most ${maxLines}` });
+  }
+  if (/\p{Extended_Pictographic}/u.test(trimmed)) errors.push({ code: "emoji", detail: "emoji are not allowed" });
+  if (trimmed.includes("#")) errors.push({ code: "hashtag", detail: "'#' is not allowed" });
+  const letters = trimmed.match(/\p{L}/gu) ?? [];
+  if (letters.length >= 4 && !/\p{Ll}/u.test(trimmed)) errors.push({ code: "all_caps", detail: "all capitals" });
+
+  return { ok: errors.length === 0, errors, lines, factsHash: factsHash(facts) };
+}
