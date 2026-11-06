@@ -54,6 +54,7 @@ export async function saveLabArtist(
     startingCaption: string;
     metaPageId?: string | null;
     instagramActorId?: string | null;
+    artistVoice?: boolean;
   },
 ): Promise<{ id: string; startingCaption: StartingCaptionResult | null }> {
   const name = args.name.trim();
@@ -77,7 +78,14 @@ export async function saveLabArtist(
     id = String((inserted.data as Row).id);
   }
   const startingCaption = args.eventId
-    ? await recordStartingCaption(db, { userId: args.userId, eventId: args.eventId, artistName: name, text: args.startingCaption })
+    ? await recordStartingCaption(db, {
+        userId: args.userId,
+        eventId: args.eventId,
+        artistName: name,
+        text: args.startingCaption,
+        metaPageId: args.metaPageId,
+        artistVoice: args.artistVoice,
+      })
     : null;
   return { id, startingCaption };
 }

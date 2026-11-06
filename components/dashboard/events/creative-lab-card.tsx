@@ -212,6 +212,7 @@ function ArtistRow({
   const [name, setName] = useState(artist?.name ?? "");
   const [ref, setRef] = useState(artist?.rightsDocRef ?? "");
   const [caption, setCaption] = useState(artist?.startingCaption ?? "");
+  const [artistVoice, setArtistVoice] = useState(Boolean(artist?.metaPageId));
   const [accountId, setAccountId] = useState(accounts[0] ?? "");
   const [pageId, setPageId] = useState(artist?.metaPageId ?? "");
   const [instagramActorId, setInstagramActorId] = useState(artist?.instagramActorId ?? "");
@@ -243,6 +244,7 @@ function ArtistRow({
 
   async function choosePage(next: string) {
     setPageId(next);
+    if (next) setArtistVoice(true);
     setInstagramActorId("");
     setIgLabel("");
     setIgNote("");
@@ -275,6 +277,10 @@ function ArtistRow({
         <input className="rounded border border-border bg-background p-2" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
         <input className="rounded border border-border bg-background p-2" placeholder="Rights ref" value={ref} onChange={(e) => setRef(e.target.value)} />
         <input className="rounded border border-border bg-background p-2" placeholder="Starting caption" value={caption} onChange={(e) => setCaption(e.target.value)} />
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={artistVoice || Boolean(pageId)} onChange={(e) => setArtistVoice(e.target.checked)} disabled={Boolean(pageId)} />
+          Artist voice
+        </label>
         {accounts.length > 1 ? (
           <select className="rounded border border-border bg-background p-2" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
             {accounts.map((id) => <option key={id} value={id}>{id}</option>)}
@@ -288,7 +294,7 @@ function ArtistRow({
         <p className="text-muted-foreground">{igLabel ? `Instagram ${igLabel}` : igNote || "No artist Instagram account yet."}</p>
       </div>
       <div className="mt-2 flex gap-2">
-        <Button type="button" disabled={busy} onClick={() => onSave({ action: "saveArtist", artistId: artist?.id, name, rightsDocRef: ref, startingCaption: caption, metaPageId: pageId || null, instagramActorId: instagramActorId || null })}>Save</Button>
+        <Button type="button" disabled={busy} onClick={() => onSave({ action: "saveArtist", artistId: artist?.id, name, rightsDocRef: ref, startingCaption: caption, metaPageId: pageId || null, instagramActorId: instagramActorId || null, artistVoice: artistVoice || Boolean(pageId) })}>Save</Button>
         {artist && artist.rights !== "approved" ? (
           <Button type="button" disabled={busy || !ref.trim() || !caption.trim()} onClick={() => onSave({ action: "approveArtist", artistId: artist.id })}>Approve rights</Button>
         ) : null}

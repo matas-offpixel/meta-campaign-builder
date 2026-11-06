@@ -161,6 +161,12 @@ export type CaptionCheckOptions = {
    * "returns to" and "last year" need one of these.
    */
   pastAppearances?: readonly { artist: string; venue: string; city?: string | null }[];
+  /**
+   * The artist speaking an artist_first_person caption. Past and city
+   * claims, and the name check, use this artist when the sentence does
+   * not name them.
+   */
+  speakingArtist?: string | null;
 };
 
 /** Case, punctuation and emoji folded, for the per-event dedupe. */
@@ -854,14 +860,17 @@ function checkPast(
   facts: EventFacts,
   declared: readonly string[],
   past: readonly { artist: string; venue: string; city?: string | null }[] | undefined,
+  speakingArtist?: string | null,
 ): CaptionError[] {
   if (!PAST_CUE.test(text)) return [];
   const claimed = text
     .split(/(?<=[.!?])\s+/)
     .filter((sentence) => PAST_CUE.test(sentence))
     .join(" ");
-  const known = [...facts.lineup, ...(facts.headliners ?? []), ...declared].filter(Boolean);
-  const artists = known.filter((name) => mentionsArtist(claimed, name));
+  const speaker = speakingArtist?.trim() ?? "";
+  const known = [...facts.lineup, ...(facts.headliners ?? []), ...declared, speaker].filter(Boolean);
+  const named = known.filter((name) => mentionsArtist(claimed, name));
+  const artists = named.length ? named : speaker ? [speaker] : [];
   const city = venueAfter(claimed, "back in");
   if (city) {
     if (!artists.length) {
@@ -933,13 +942,15 @@ export function validateCaption(
   // so a newline cannot leave a one-word line in the middle.
   const trimmed = (style === "four_line" ? text : text.replace(/[\r\n]+/g, " ")).trim().replace(/[ \t]+/g, " ");
   const extra = options.extraNames ?? [];
+  const speaker = style === "artist_first_person" ? options.speakingArtist?.trim() ?? "" : "";
+  const declared = speaker && !declaredNames.some((name) => sameArtist(name, speaker)) ? [...declaredNames, speaker] : declaredNames;
   if (!trimmed) errors.push({ code: "empty", detail: "no text" });
 
   const chars = trimmed.length;
   if (chars > profile.long.maxChars) {
     errors.push({ code: "too_long", detail: `${chars} characters; an overlay is at most ${profile.long.maxChars}` });
   }
-  const protectedNames = [...facts.lineup, ...(facts.headliners ?? []), ...declaredNames, ...extra];
+  const protectedNames = [...facts.lineup, ...(facts.headliners ?? []), ...declared, ...extra];
   const defaultWidth = styleProfile.charsPerLine ?? CHARS_PER_LINE;
   const defaultLines = style === "four_line" ? [] : wrapCaption(trimmed, defaultWidth, protectedNames);
   const long = style !== "four_line" && (chars >= profile.long.minChars || defaultLines.length > (styleProfile.maxLines ?? DEFAULT_MAX_LINES));
@@ -948,14 +959,14 @@ export function validateCaption(
   const lines = long ? wrapCaption(trimmed, charsPerLine, protectedNames) : style === "four_line" ? wrapCaption(trimmed, charsPerLine, protectedNames) : defaultLines;
   const sizeVariant = long ? "long" : "default";
 
-  errors.push(...factErrors(trimmed, style, declaredNames, facts, extra, options.crowdTicketsSold));
+  errors.push(...factErrors(trimmed, style, declared, facts, extra, options.crowdTicketsSold));
   errors.push(...layoutErrors(trimmed, lines, maxLines, charsPerLine, style));
   errors.push(...checkBilling(trimmed, style, facts, options.allowSupportArtist));
   errors.push(...checkVoice(trimmed, lines));
   errors.push(...checkSet(trimmed));
   errors.push(...checkFootage(trimmed, facts, options.clipVenueName));
   errors.push(...checkPickOne(trimmed, facts, options.upcomingEvents ?? []));
-  errors.push(...checkPast(trimmed, facts, declaredNames, options.pastAppearances));
+  errors.push(...checkPast(trimmed, facts, declared, options.pastAppearances, speaker));
   if (options.saleStage) errors.push(...checkStage(trimmed, options.saleStage));
 
   const primary = options.primaryText?.trim() ?? "";
@@ -966,11 +977,11 @@ export function validateCaption(
     if ((options.emojiInPrimary ?? true) === false && /\p{Extended_Pictographic}/u.test(primary)) {
       errors.push({ code: "primary_emoji", detail: "this client does not allow emoji in primary text" });
     }
-    errors.push(...factErrors(primary, style, declaredNames, facts, extra, options.crowdTicketsSold));
+    errors.push(...factErrors(primary, style, declared, facts, extra, options.crowdTicketsSold));
     errors.push(...checkSet(primary));
     errors.push(...checkFootage(primary, facts, options.clipVenueName));
     errors.push(...checkPickOne(primary, facts, options.upcomingEvents ?? []));
-    errors.push(...checkPast(primary, facts, declaredNames, options.pastAppearances));
+    errors.push(...checkPast(primary, facts, declared, options.pastAppearances, speaker));
     if (options.saleStage) errors.push(...checkStage(primary, options.saleStage));
   }
 

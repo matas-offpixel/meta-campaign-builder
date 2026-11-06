@@ -32,6 +32,7 @@ type Body = {
   startingCaption?: string;
   metaPageId?: string | null;
   instagramActorId?: string | null;
+  artistVoice?: boolean;
   source?: string;
   rightsRef?: string;
   permalinks?: string[];
@@ -94,6 +95,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
             startingCaption: body.startingCaption ?? "",
             metaPageId: body.metaPageId,
             instagramActorId: body.instagramActorId,
+            artistVoice: body.artistVoice === true,
           }),
         );
       case "approveArtist":

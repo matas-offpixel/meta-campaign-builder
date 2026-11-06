@@ -371,6 +371,7 @@ export async function generateCaptions(
       clipVenueName: clipVenue,
       upcomingEvents: upcoming.map((show) => show.eventName),
       pastAppearances: past,
+      speakingArtist: args.style === "artist_first_person" ? artistName : null,
     });
     if (!check.ok) {
       deps.onReject?.(overlay, primary, check.errors);

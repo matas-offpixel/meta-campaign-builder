@@ -27,9 +27,9 @@ function db() {
 }
 
 describe("starting caption", () => {
-  it("treats first person as the artist and our as the promoter", () => {
-    assert.equal(startingCaptionStyle("I'll see you at Circuit"), "artist_first_person");
-    assert.equal(startingCaptionStyle("Luke Dean joins for our 4th Birthday. You in?"), "lineup");
+  it("follows the artist's voice, not the wording", () => {
+    assert.equal(startingCaptionStyle(true), "artist_first_person");
+    assert.equal(startingCaptionStyle(false), "lineup");
   });
 
   it("inserts a passing starting caption as a proposed control", async () => {
@@ -58,5 +58,37 @@ describe("starting caption", () => {
     });
     assert.equal(again?.inserted, false);
     assert.equal(fake.tables.creative_lab_captions.length, 1);
+  });
+
+  it("stores a Page-backed starting caption as the artist's voice", async () => {
+    const fake = db();
+    fake.tables.creative_lab_event_facts[0].lineup = ["Enzo Siragusa"];
+    fake.tables.creative_lab_event_facts[0].headliners = ["Enzo Siragusa"];
+    fake.tables.events.push({
+      id: "past-1",
+      client_id: "client-1",
+      name: "Puzzle",
+      event_date: "2025-12-27",
+      venue_name: "Engine Rooms",
+      venue_city: "Southampton",
+    });
+    fake.tables.creative_lab_event_facts.push({
+      event_id: "past-1",
+      lineup: ["Enzo Siragusa"],
+      headliners: ["Enzo Siragusa"],
+      allowed_dates: [],
+    });
+    const text = "Back in Southampton on 27th December to close out the year w/ Puzzle.";
+    const result = await recordStartingCaption(fake as unknown as ServiceRoleDb, {
+      userId: USER,
+      eventId: EVENT,
+      artistName: "Enzo Siragusa",
+      text,
+      metaPageId: "page-enzo",
+      now: new Date("2026-11-06T12:00:00Z"),
+    });
+    assert.equal(result?.style, "artist_first_person");
+    assert.equal(result?.ok, true, result?.errors.map((error) => error.detail).join("; "));
+    assert.equal(fake.tables.creative_lab_captions[0].style, "artist_first_person");
   });
 });
