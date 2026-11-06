@@ -66,6 +66,8 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
       // Only `not(column, "is", null)` is used.
       not: (column: string) => (filters.push((r) => r[column] != null), api),
       lte: (column: string, value: string) => (filters.push((r) => String(r[column]) <= value), api),
+      lt: (column: string, value: string) => (filters.push((r) => String(r[column]) < String(value)), api),
+      gte: (column: string, value: string) => (filters.push((r) => String(r[column]) >= String(value)), api),
       order: (column: string, options: { ascending: boolean }) => ((order = { column, ascending: options.ascending }), api),
       limit: (n: number) => ((limit = n), api),
       range: (from: number, to: number) => ((offset = from), (limit = to - from + 1), api),

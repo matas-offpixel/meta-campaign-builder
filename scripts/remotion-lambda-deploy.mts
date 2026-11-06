@@ -30,8 +30,7 @@ const { bucketName } = await getOrCreateBucket({ region: REMOTION_REGION });
 console.log(`bucket ${bucketName}`);
 
 const existing = await getFunctions({ region: REMOTION_REGION, compatibleOnly: true });
-const compatible = existing.find((fn) => fn.memorySizeInMb === LAMBDA_MEMORY_MB && fn.timeoutInSeconds === LAMBDA_TIMEOUT_SECONDS && fn.diskSizeInMb === LAMBDA_DISK_MB);
-const chosen = compatible ?? existing[0];
+const chosen = existing.find((fn) => fn.memorySizeInMb === LAMBDA_MEMORY_MB && fn.timeoutInSeconds === LAMBDA_TIMEOUT_SECONDS && fn.diskSizeInMb === LAMBDA_DISK_MB);
 let functionName: string;
 if (chosen) {
   functionName = chosen.functionName;

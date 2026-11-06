@@ -21,7 +21,15 @@ import { LambdaClientInternals } from "@remotion/lambda/client";
 import type { CaptionRenderRequest } from "./render.ts";
 
 export const REMOTION_REGION = "eu-west-2" as const;
-export const LAMBDA_TIMEOUT_SECONDS = 240;
+export const LAMBDA_TIMEOUT_SECONDS = 480;
+
+/** The function whose timeout is the one this build deploys. A shorter function is not used. */
+export function pickLambdaFunction<T extends { functionName: string; timeoutInSeconds: number }>(
+  functions: readonly T[],
+  timeoutSeconds = LAMBDA_TIMEOUT_SECONDS,
+): T | undefined {
+  return functions.find((fn) => fn.timeoutInSeconds === timeoutSeconds);
+}
 export const LAMBDA_MEMORY_MB = 2048;
 export const LAMBDA_DISK_MB = 2048;
 export const LAMBDA_SITE_NAME = "creative-lab";
@@ -89,8 +97,8 @@ async function downloadLambdaObject(bucket: string, key: string): Promise<Uint8A
 export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl: string): Promise<LambdaRenderOutput> {
   const { getFunctions, renderMediaOnLambda, getRenderProgress, deleteRender } = await import("@remotion/lambda/client");
   const functions = await getFunctions({ region: REMOTION_REGION, compatibleOnly: true });
-  const functionName = functions[0]?.functionName;
-  if (!functionName) throw new Error("No compatible Remotion Lambda function in eu-west-2. Run scripts/remotion-lambda-deploy.mts.");
+  const functionName = pickLambdaFunction(functions)?.functionName;
+  if (!functionName) throw new Error("No 480s Remotion Lambda function in eu-west-2. Run scripts/remotion-lambda-deploy.mts.");
 
   const limit = await readConcurrencyLimit();
   const chunking = lambdaChunking(limit, frameCount(req.props));
@@ -113,7 +121,7 @@ export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl
     });
     started = { bucketName: output.bucketName, renderId: output.renderId };
 
-    const deadline = startedAt + 270_000;
+    const deadline = startedAt + 450_000;
     let progress = await getRenderProgress({ region: REMOTION_REGION, functionName, bucketName: output.bucketName, renderId: output.renderId });
     while (!progress.done && !progress.fatalErrorEncountered) {
       if (Date.now() > deadline) throw new Error("Lambda render timed out");

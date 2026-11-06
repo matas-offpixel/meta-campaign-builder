@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   factsHash,
+  formatBilling,
   loadEventFacts,
   remainingStock,
   validateCaption,
@@ -153,7 +154,7 @@ describe("creative lab captions: prices and scarcity", () => {
 describe("creative lab captions: form", () => {
   it("wraps at the style profile's characters per line and fails over four lines", () => {
     assert.deepEqual(wrapCaption("one two three four five", 9), ["one two", "three", "four five"]);
-    const long = "Luke Dean and Enzo Siragusa and Reeshy and Benji King all on one bill this year";
+    const long = "aaaaabbbbb cccccddddd eeeeefffff ggggghhhhh iiiiiijjjj";
     const out = validateCaption(long, "lineup", ["Luke Dean", "Enzo Siragusa", "Reeshy", "Benji King"], P26, STYLE);
     assert.deepEqual(out.errors.map((e) => e.code), ["too_long"]);
     const wide = validateCaption(long, "lineup", ["Luke Dean", "Enzo Siragusa", "Reeshy", "Benji King"], P26, {
@@ -197,11 +198,223 @@ describe("creative lab captions: facts", () => {
       ],
     });
     const facts = await loadEventFacts(db as unknown as ServiceRoleDb, "evt-day");
+    assert.equal(facts.hasFacts, true);
+    assert.deepEqual(facts.headliners, []);
     assert.deepEqual(facts.lineup, ["Luke Dean", "Reeshy"]);
     assert.deepEqual(facts.allowedDates, ["2026-10-30"]);
     assert.deepEqual(facts.tiers, [
       { name: "Tier 1", price: 20, remaining: 0 },
       { name: "Tier 2", price: 25, remaining: null },
     ]);
+  });
+});
+
+describe("creative lab captions: M3 checks", () => {
+  const overlay = (text: string, opts: Parameters<typeof validateCaption>[5] = {}) =>
+    validateCaption(text, "lineup", ["Luke Dean"], P26, STYLE, opts);
+
+  it("allows a crowd number only when the filmed show sold at least that many", () => {
+    const text = "This is what 2,000 people look like with Luke Dean";
+    assert.equal(overlay(text, { crowdTicketsSold: 2000 }).ok, true);
+    assert.deepEqual(overlay(text, { crowdTicketsSold: 400 }).errors.map((e) => e.code), ["crowd_unproven"]);
+    assert.deepEqual(overlay(text, { crowdTicketsSold: null }).errors.map((e) => e.code), ["crowd_unproven"]);
+  });
+
+  it("lets a Next list name an upcoming show and refuses a past one, at most three", () => {
+    const upcoming = "Next: Schak, East End Dubs, Robbie Doherty";
+    const pass = overlay(upcoming, { extraNames: ["Schak", "East End Dubs", "Robbie Doherty"] });
+    assert.equal(pass.ok, true);
+    const past = overlay("Next: Azyr, Schak", { extraNames: ["Schak"] });
+    assert.ok(past.errors.some((e) => e.code === "unknown_name" && e.detail.includes("Azyr")));
+    const four = overlay("Next: Schak, East End Dubs, Robbie Doherty, Folamour", {
+      extraNames: ["Schak", "East End Dubs", "Robbie Doherty", "Folamour"],
+    });
+    assert.ok(four.errors.some((e) => e.code === "next_list"));
+  });
+
+  it("rejects emoji on the overlay and follows the primary-text setting", () => {
+    assert.ok(overlay("Luke Dean 💚").errors.some((e) => e.code === "emoji"));
+    const primary = overlay("Luke Dean joins", { primaryText: "Who's in? 💚", emojiInPrimary: true });
+    assert.equal(primary.ok, true);
+    const blocked = overlay("Luke Dean joins", { primaryText: "Who's in? 💚", emojiInPrimary: false });
+    assert.deepEqual(blocked.errors.map((e) => e.code), ["primary_emoji"]);
+  });
+
+  it("uses the long size from 73 to 96 characters and rejects 97 or a word past the line", () => {
+    const line = (n: number, ch: string) => ch.repeat(n);
+    const at96 = [line(24, "a"), line(24, "b"), line(24, "c"), line(21, "d")].join(" ");
+    assert.equal(at96.length, 96);
+    const fit = overlay(at96);
+    assert.equal(fit.sizeVariant, "long");
+    assert.equal(fit.ok, true);
+    assert.equal(fit.lines.length, 4);
+    const at97 = `${at96}e`;
+    assert.equal(at97.length, 97);
+    assert.ok(overlay(at97).errors.some((e) => e.code === "too_long"));
+    assert.ok(overlay("a".repeat(19)).errors.some((e) => e.code === "word_too_long"));
+  });
+
+  it("four_line is exactly four lines", () => {
+    const out = validateCaption("One\nTwo\nThree", "four_line", [], P26, STYLE);
+    assert.ok(out.errors.some((e) => e.code === "four_line"));
+  });
+
+  it("wraps Interplanetary Criminal at the space", () => {
+    assert.deepEqual(wrapCaption("Interplanetary Criminal", 18), ["Interplanetary", "Criminal"]);
+    assert.equal(overlay("Interplanetary Criminal", { extraNames: ["Interplanetary Criminal"] }).ok, true);
+  });
+});
+
+const NAMES = ["Enzo Siragusa", "Luke Dean", "Reeshy", "Phill de Janeiro", "Benji King"];
+const HEADLINERS = ["Enzo Siragusa", "Luke Dean", "Reeshy"];
+
+describe("creative lab captions: names stay whole and lines balance", () => {
+  it("does not split a name in a Next list", () => {
+    const lines = wrapCaption("Next: Enzo Siragusa, Luke Dean, Reeshy", 18, NAMES);
+    for (const name of ["Enzo Siragusa", "Luke Dean", "Reeshy"]) {
+      assert.equal(lines.filter((line) => line.includes(name.split(" ")[0])).length, 1);
+      assert.ok(lines.some((line) => line.includes(name)), name);
+    }
+  });
+
+  it("does not leave coming alone", () => {
+    const lines = wrapCaption("The lineup is coming", 18);
+    assert.ok(lines.every((line) => line !== "coming"));
+    assert.ok(lines.some((line) => line.includes("coming") && line.split(/\s+/).length > 1));
+  });
+
+  it("reflows a newline so a one-word line cannot sit in the middle", () => {
+    const out = validateCaption("Luke Dean closing\nout\nCircuit for our 4th birthday", "lineup", ["Luke Dean"], P26, STYLE);
+    assert.equal(out.lines.includes("out"), false);
+    assert.ok(out.lines.every((line, i) => i === out.lines.length - 1 || line.trim().split(/\s+/).length > 1));
+  });
+
+  it("keeps Phill de Janeiro and Benji King whole", () => {
+    const lines = wrapCaption("Phill de Janeiro & Benji King", 18, ["Phill de Janeiro", "Benji King"]);
+    assert.ok(lines.some((line) => line.includes("Phill de Janeiro")));
+    assert.ok(lines.some((line) => line.includes("Benji King")));
+    assert.equal(lines.some((line) => line === "de" || line.startsWith("Janeiro") || line === "Benji"), false);
+  });
+});
+
+describe("creative lab captions: long size, sale stage, billing", () => {
+  const billed: EventFacts = { ...P26, headliners: HEADLINERS };
+
+  it("passes the 94-character Prospa line on the long size", () => {
+    const text = "Prospa at NX last season. This season: Interplanetary Criminal, Schak, East End Dubs and more.";
+    assert.equal(text.length, 94);
+    const names = ["Prospa", "Interplanetary Criminal", "Schak", "East End Dubs"];
+    const lines = wrapCaption(text, 24, names);
+    assert.ok(lines.length <= 5, lines.join(" | "));
+    assert.ok(lines.some((line) => line.includes("Interplanetary Criminal")));
+    assert.ok(lines.some((line) => line.includes("East End Dubs")));
+    const out = validateCaption(text, "whats_next", names, P26, STYLE, { extraNames: names });
+    assert.equal(out.sizeVariant, "long");
+    assert.equal(out.ok, true, out.errors.map((e) => e.detail).join("; "));
+  });
+
+  it("uses ticket CTAs on sale and signup CTAs before it", () => {
+    const ticket = validateCaption("Luke Dean at Circuit", "lineup", ["Luke Dean"], P26, STYLE, {
+      saleStage: "on_sale",
+      primaryText: "Tickets on sale now",
+    });
+    assert.equal(ticket.ok, true);
+    const signupOnSale = validateCaption("Luke Dean at Circuit", "lineup", ["Luke Dean"], P26, STYLE, {
+      saleStage: "on_sale",
+      primaryText: "Get on the list for priority access",
+    });
+    assert.ok(signupOnSale.errors.some((e) => e.code === "signup_on_sale"));
+    const overlaySignup = validateCaption("Sign up for presale", "lineup", [], P26, STYLE, { saleStage: "on_sale" });
+    assert.ok(overlaySignup.errors.some((e) => e.code === "signup_on_sale"));
+    const earlyTicket = validateCaption("Luke Dean at Circuit", "lineup", ["Luke Dean"], P26, STYLE, {
+      saleStage: "upcoming",
+      primaryText: "Grab yours",
+    });
+    assert.ok(earlyTicket.errors.some((e) => e.code === "ticket_before_sale"));
+    const signup = validateCaption("Luke Dean at Circuit", "lineup", ["Luke Dean"], P26, STYLE, {
+      saleStage: "signup",
+      primaryText: "Who's coming?",
+    });
+    assert.equal(signup.ok, true);
+  });
+
+  it("rejects scarcity wording when Puzzle has no ticket numbers", () => {
+    for (const text of ["Final tickets", "Selling fast", "80% sold"]) {
+      const out = validateCaption(text, "scarcity", [], P26, STYLE);
+      assert.ok(out.errors.some((e) => e.code === "scarcity_without_tiers"), text);
+    }
+  });
+
+  it("rejects a support-only lineup caption and keeps a folded bill", () => {
+    const alone = validateCaption("Phill de Janeiro at Circuit", "lineup", ["Phill de Janeiro"], billed, STYLE);
+    assert.ok(alone.errors.some((e) => e.code === "support_artist"));
+    const asked = validateCaption("Phill de Janeiro at Circuit", "lineup", ["Phill de Janeiro"], billed, STYLE, {
+      allowSupportArtist: "Phill de Janeiro",
+    });
+    assert.equal(asked.ok, true, asked.errors.map((e) => e.detail).join("; "));
+    assert.equal(formatBilling(billed), "Enzo Siragusa, Luke Dean, Reeshy & more");
+    const folded = validateCaption(formatBilling(billed), "lineup", HEADLINERS, billed, STYLE);
+    assert.equal(folded.ok, true, folded.errors.map((e) => e.detail).join("; "));
+    const full = validateCaption("Enzo Siragusa, Luke Dean, Reeshy, Phill de Janeiro, Benji King", "lineup", NAMES, billed, STYLE);
+    assert.equal(full.errors.some((e) => e.code === "support_artist"), false);
+  });
+
+  it("builds a Next list from headliners", () => {
+    const support = validateCaption("Next: Phill de Janeiro", "whats_next", ["Phill de Janeiro"], billed, STYLE);
+    assert.ok(support.errors.some((e) => e.code === "next_list" || e.code === "support_artist"));
+    const next = validateCaption("Next: Enzo Siragusa, Luke Dean", "whats_next", HEADLINERS, billed, STYLE);
+    assert.equal(next.ok, true, next.errors.map((e) => e.detail).join("; "));
+  });
+
+  it("rejects the generic overlay lines", () => {
+    assert.ok(validateCaption("Sign up now", "lineup", [], P26, STYLE).errors.some((e) => e.code === "generic_overlay"));
+    assert.ok(validateCaption("Four years deep", "experience", [], P26, STYLE).errors.some((e) => e.code === "generic_overlay"));
+    assert.ok(validateCaption("This one matters", "experience", [], P26, STYLE).errors.some((e) => e.code === "generic_overlay"));
+    assert.ok(validateCaption("Puzzle turns 4", "experience", [], P26, STYLE).errors.some((e) => e.code === "generic_overlay"));
+  });
+});
+
+describe("creative lab captions: claims the record does not hold", () => {
+  const billed: EventFacts = { ...P26, headliners: HEADLINERS };
+  const sameRoom = "Same room. Next: Enzo Siragusa, Luke Dean, Reeshy";
+
+  it("rejects a set time, on the overlay or the primary text", () => {
+    for (const text of ["closing out", "opening", "first track", "last track", "headlining", "b2b", "3-hour set", "all night long", "sunrise set"]) {
+      assert.ok(validateCaption(`Luke Dean ${text} Circuit`, "lineup", ["Luke Dean"], billed, STYLE).errors.some((e) => e.code === "set_not_in_facts"), text);
+    }
+    const closing = validateCaption("Luke Dean closing out Circuit", "lineup", ["Luke Dean"], billed, STYLE);
+    assert.ok(closing.errors.some((e) => e.code === "set_not_in_facts"));
+    const primary = validateCaption("Luke Dean at Circuit", "lineup", ["Luke Dean"], billed, STYLE, {
+      primaryText: "Luke Dean closing out Circuit",
+    });
+    assert.ok(primary.errors.some((e) => e.code === "set_not_in_facts"));
+    assert.equal(validateCaption("Enzo Siragusa at Circuit last season", "whats_next", ["Enzo Siragusa"], billed, STYLE, {
+      extraNames: ["Enzo Siragusa"],
+    }).errors.some((e) => e.code === "set_not_in_facts"), false);
+  });
+
+  it("rejects footage claims unless the clip was filmed at that venue", () => {
+    const dropped = validateCaption("POV: Luke Dean just dropped the first track at Circuit", "pov", ["Luke Dean"], billed, STYLE);
+    assert.ok(dropped.errors.some((e) => e.code === "footage_venue"));
+    assert.ok(dropped.errors.some((e) => e.code === "set_not_in_facts"));
+    const noClip = validateCaption(sameRoom, "whats_next", HEADLINERS, billed, STYLE);
+    assert.ok(noClip.errors.some((e) => e.code === "footage_venue"));
+    const filmed = validateCaption(sameRoom, "whats_next", HEADLINERS, billed, STYLE, { clipVenueName: "Circuit" });
+    assert.equal(filmed.ok, true, filmed.errors.map((e) => e.detail).join("; "));
+    const otherRoom = validateCaption(sameRoom, "whats_next", HEADLINERS, billed, STYLE, { clipVenueName: "Engine Rooms" });
+    assert.ok(otherRoom.errors.some((e) => e.code === "footage_venue"));
+    assert.equal(validateCaption("Luke Dean is playing Circuit", "lineup", ["Luke Dean"], billed, STYLE).ok, true);
+    assert.equal(validateCaption("Enzo Siragusa, Luke Dean, Reeshy & more are taking over Circuit", "lineup", HEADLINERS, billed, STYLE).ok, true);
+  });
+
+  it("requires Pick one to be 2 or 3 names from the record, never a Next list", () => {
+    const list = validateCaption("Pick one: Enzo Siragusa, Luke Dean or Reeshy", "question", HEADLINERS, billed, STYLE);
+    assert.equal(list.ok, true, list.errors.map((e) => e.detail).join("; "));
+    const next = validateCaption("Pick one: Next: Enzo Siragusa, Luke Dean", "question", HEADLINERS, billed, STYLE);
+    assert.ok(next.errors.some((e) => e.code === "pick_one"));
+    const one = validateCaption("Pick one: Enzo Siragusa", "question", ["Enzo Siragusa"], billed, STYLE);
+    assert.ok(one.errors.some((e) => e.code === "pick_one"));
+    const support = validateCaption("Pick one: Phill de Janeiro or Benji King", "question", ["Phill de Janeiro", "Benji King"], billed, STYLE);
+    assert.ok(support.errors.some((e) => e.code === "pick_one"));
   });
 });

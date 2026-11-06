@@ -16,7 +16,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 import { fingerprintBytes, upsertRegisteredAsset } from "../creatives/asset-registry.ts";
 import type { CaptionOnClipProps } from "../../src/remotion/compositions/CaptionOnClip.tsx";
-import { outputSize, profile, styleVersion, type CaptionAspect } from "../../src/remotion/caption-style/profile.ts";
+import { captionLimits, outputSize, profile, styleVersion, type CaptionAspect, type CaptionSize } from "../../src/remotion/caption-style/profile.ts";
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
@@ -139,7 +139,12 @@ function asLines(value: unknown): string[] {
   return value as string[];
 }
 
-function storageName(renderId: string): string {
+/**
+ * Attempt 1 keeps the original path. A retry uses a new object so the
+ * upload's upsert:false does not collide with the failed attempt.
+ */
+export function renderStoragePath(renderId: string, attempt = 1): string {
+  if (attempt > 1) return `videos/creative-lab/${renderId}-a${attempt}-9x16.mp4`;
   return `videos/creative-lab/${renderId}-9x16.mp4`;
 }
 
@@ -188,10 +193,13 @@ export async function renderCaptionOnClip(
     const loaded = loadLabRender({ aspect: render.aspect, kind: render.kind });
     if (loaded.kind !== "video") throw new Error("static renders are not written yet");
     const aspect = loaded.aspect;
+    const size: CaptionSize = caption.size_variant === "long" ? "long" : "default";
+    if (size === "long" && !profile.longApproved) throw new Error("long caption size is not approved");
+    const limits = captionLimits(size);
     const lines = asLines(caption.lines);
-    if (lines.length > profile.maxLines) throw new Error(`${lines.length} lines; at most ${profile.maxLines}`);
-    const over = lines.find((line) => line.length > profile.charsPerLine);
-    if (over) throw new Error(`"${over}" exceeds ${profile.charsPerLine} characters`);
+    if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
+    const over = lines.find((line) => line.length > limits.charsPerLine);
+    if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
     if (caption.style_version !== version || render.style_version !== version) {
       throw new Error(`style_version does not match the bundled profile ${version}`);
     }
@@ -224,16 +232,18 @@ export async function renderCaptionOnClip(
       fps: meta.fps,
       durationInSeconds: meta.durationInSeconds,
       plate: "video",
+      size,
     };
     const request: CaptionRenderRequest = { props, muted: audio === "muted" };
-    const size = outputSize(meta.width, meta.height, aspect);
+    const frame = outputSize(meta.width, meta.height, aspect);
     const rendered: RenderedClip = input.deps?.renderToFile
       ? { ...(await input.deps.renderToFile(request)), estimatedCostUsd: null, estimatedCostDisplay: null, lambda: null }
       : await lambdaRender(lambda!, request, serveUrl);
     const { bytes, renderMs } = rendered;
 
     const identity = fingerprintBytes(bytes);
-    const storagePath = storageName(input.renderId);
+    const attempt = Number(render.attempt ?? 1);
+    const storagePath = renderStoragePath(input.renderId, Number.isFinite(attempt) && attempt > 0 ? attempt : 1);
     const upload = input.deps?.upload ?? defaultUpload;
     await upload(storagePath, bytes);
     const registered = await upsertRegisteredAsset(db, {
@@ -264,8 +274,8 @@ export async function renderCaptionOnClip(
       renderMs,
       creativeAssetId: registered.asset.id,
       aspect,
-      width: size.width,
-      height: size.height,
+      width: frame.width,
+      height: frame.height,
       storagePath,
       durationSeconds: Math.round((outS - inS) * 1000) / 1000,
       estimatedCostUsd: rendered.estimatedCostUsd,

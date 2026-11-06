@@ -60,7 +60,7 @@ Sizes: S = 1–3 files (Claude Code), M = one Cursor PR, L = two or more Cursor 
 
 ### M3: Caption writer + round builder (M, Cursor)
 - `generateCaptions(eventId, style, n)`: Claude call with the event record; output `{style, text, chars, lines}`; validator rejects any date/price/venue not in the record and any text over 4 lines at the fixed size.
-- `proposeRound(eventId)`: reads the last round's verdicts, applies "winning clip + new captions, winning caption + new clips", builds drafts (paused) into the event's current ad set via the attach path, writes `creative_lab_*` rows.
+- `proposeRound(eventId)`: reads the last round's verdicts, applies "winning clip + new captions, winning caption + new clips", and writes `creative_lab_*` rows. Nothing reaches Meta before the round is approved. M3b launches through the existing attach path, paused.
 - UI: a "Creative Lab" card on the event page: artist, clips, rounds, each round's ads with verdicts, Approve → launch.
 - Gate: round 2 for Luke Dean built by the tool, approved by Matas, launched through attach.
 

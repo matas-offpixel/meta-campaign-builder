@@ -10,6 +10,15 @@
   "lineHeight": 1.054,
   "charsPerLine": 18,
   "maxLines": 4,
+  "longApproved": false,
+  "long": {
+    "fontSizePctOfWidth": 0.038542,
+    "charsPerLine": 24,
+    "maxLines": 5,
+    "minChars": 73,
+    "maxChars": 96,
+    "source": "0.75 times the locked default, up to 5 lines of 24. The captioned UGC folder had no frame measured for this size, so it stays unapproved until the side-by-side is signed off. Stroke stays the same fraction of the em, so it scales with the letters. 24 characters is 18 divided by 0.75."
+  },
   "horizontalCenterPctOfWidth": 0.493,
   "verticalCenterPctOfSourceHeight": 0.355469,
   "safeZone": {

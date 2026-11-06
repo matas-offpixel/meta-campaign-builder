@@ -14,9 +14,11 @@ import {
   type CaptionOnClipProps,
 } from "./compositions/CaptionOnClip";
 import {
+  captionLimits,
   outputSize,
   profile,
   styleVersion,
+  type CaptionSize,
 } from "./caption-style/profile";
 
 const cityStaticDefaultProps: FourTfCityStaticProps = {
@@ -91,14 +93,17 @@ function RemotionRoot() {
             throw new Error(`styleVersion ${p.styleVersion} does not match the bundled profile ${version}`);
           }
           if (p.aspect !== "9:16") throw new Error("video renders are 9:16 only");
-          if (p.lines.length > profile.maxLines) throw new Error(`${p.lines.length} lines; at most ${profile.maxLines}`);
-          const over = p.lines.find((line) => line.length > profile.charsPerLine);
-          if (over) throw new Error(`"${over}" exceeds ${profile.charsPerLine} characters`);
-          const size = outputSize(p.sourceWidth, p.sourceHeight, p.aspect);
+          const size = (p.size ?? "default") as CaptionSize;
+          if (size === "long" && !profile.longApproved && !p.unapprovedProof) throw new Error("long caption size is not approved");
+          const limits = captionLimits(size);
+          if (!p.unapprovedProof && p.lines.length > limits.maxLines) throw new Error(`${p.lines.length} lines; at most ${limits.maxLines}`);
+          const over = p.lines.find((line) => line.length > limits.charsPerLine);
+          if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
+          const frame = outputSize(p.sourceWidth, p.sourceHeight, p.aspect);
           const inS = p.inS ?? 0;
           const outS = p.outS ?? p.durationInSeconds;
           const frames = p.plate === "black" ? 1 : Math.max(1, Math.round((outS - inS) * (p.fps || 30)));
-          return { width: size.width, height: size.height, durationInFrames: frames, fps: p.fps || 30 };
+          return { width: frame.width, height: frame.height, durationInFrames: frames, fps: p.fps || 30 };
         }}
         fps={30}
         width={720}

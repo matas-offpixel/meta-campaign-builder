@@ -61,6 +61,13 @@ describe("creative lab rounds: ad names", () => {
     const accented = buildAdName({ artistName: "Phill de Janeiro", clipNo: 12, style: "social_proof", captionNo: 3 });
     assert.equal(accented, "PHILLDEJANEIRO-clip12_cap-social_proof3");
     assert.deepEqual(parseAdName(accented), { artist: "PHILLDEJANEIRO", clipNo: 12, style: "social_proof", captionNo: 3 });
+    assert.deepEqual(parseAdName("LUKEDEAN-clip01_cap-whats_next1"), { artist: "LUKEDEAN", clipNo: 1, style: "whats_next", captionNo: 1 });
+    assert.deepEqual(parseAdName("LUKEDEAN-clip02_cap-artist_first_person1"), {
+      artist: "LUKEDEAN",
+      clipNo: 2,
+      style: "artist_first_person",
+      captionNo: 1,
+    });
   });
 
   it("a variation suffix would break the pattern, so a Lab creative launches with one variation", () => {

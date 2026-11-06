@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { lambdaChunking, requireLambdaServeUrl } from "../lambda.ts";
+import { lambdaChunking, pickLambdaFunction, requireLambdaServeUrl } from "../lambda.ts";
 
 describe("lambda chunking", () => {
   it("renders in one function when the concurrency quota is 10 or lower", () => {
@@ -11,6 +11,15 @@ describe("lambda chunking", () => {
 
   it("leaves the split to Remotion when the quota is higher", () => {
     assert.deepEqual(lambdaChunking(1000, 591), { singleFunction: false });
+  });
+
+  it("uses the 480s function and leaves a 240s function alone", () => {
+    const chosen = pickLambdaFunction([
+      { functionName: "remotion-render-4-0-471-mem2048mb-disk2048mb-240sec", timeoutInSeconds: 240 },
+      { functionName: "remotion-render-4-0-471-mem2048mb-disk2048mb-480sec", timeoutInSeconds: 480 },
+    ]);
+    assert.equal(chosen?.functionName, "remotion-render-4-0-471-mem2048mb-disk2048mb-480sec");
+    assert.equal(pickLambdaFunction([{ functionName: "old", timeoutInSeconds: 240 }]), undefined);
   });
 
   it("refuses to start without a serve URL", () => {

@@ -29,18 +29,18 @@ Deploy, by hand, when the composition changes. It is not a build step:
 node --env-file=.env.local --experimental-strip-types scripts/remotion-lambda-deploy.mts
 ```
 
-It calls `getOrCreateBucket`, skips `deployFunction` when a compatible function already exists, bundles `src/remotion/index.tsx`, and deploys the site as `creative-lab`. 4.0.471 has no `deploySiteFromBundle`, so `deploySite` bundles the entry point again. Function settings, when it does deploy: timeout 240s, memory 2048 MB, disk 2048 MB, CloudWatch log group on.
+It calls `getOrCreateBucket`, skips `deployFunction` when a compatible function already exists, bundles `src/remotion/index.tsx`, and deploys the site as `creative-lab`. 4.0.471 has no `deploySiteFromBundle`, so `deploySite` bundles the entry point again. Function settings, when it does deploy: timeout 480s, memory 2048 MB, disk 2048 MB, CloudWatch log group on. A function deployed at 240s is not reused; the name gains `480sec` and `REMOTION_LAMBDA_SERVE_URL` stays the same site.
 
 A concurrency quota of 10 or lower makes each caption render use one function. The script prints the quota.
 
 `remotion.config.ts` inlines the caption font. Lambda's Chrome did not finish fetching the root-relative file. `bundle()` does not load that config, so the deploy script passes the override in `deploySite`'s `options`.
 
-Deployed 5 Nov 2026:
+Deployed 6 Nov 2026. The 240s function from 5 Nov is still in the account. Renders select the 480s function by timeout, so nothing should point at the old one. The serve URL did not change.
 
 | | |
 |---|---|
 | Bucket | `remotionlambda-euwest2-sm404lvpzi` |
-| Function | `remotion-render-4-0-471-mem2048mb-disk2048mb-240sec` |
+| Function | `remotion-render-4-0-471-mem2048mb-disk2048mb-480sec` |
 | Site | `creative-lab` |
 | Serve URL | `https://remotionlambda-euwest2-sm404lvpzi.s3.eu-west-2.amazonaws.com/sites/creative-lab/index.html` |
 | Concurrency | 10, so caption renders use one Lambda function |

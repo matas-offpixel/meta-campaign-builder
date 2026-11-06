@@ -16,7 +16,18 @@
 import { upsertCreativeTagAssignment } from "../db/creative-tags.ts";
 import { resolveAdEvent, type ServiceRoleDb } from "./load.ts";
 
-export const CAPTION_STYLES = ["lineup", "question", "scarcity", "social_proof"] as const;
+export const CAPTION_STYLES = [
+  "lineup",
+  "question",
+  "scarcity",
+  "social_proof",
+  "venue",
+  "whats_next",
+  "artist_first_person",
+  "experience",
+  "four_line",
+  "pov",
+] as const;
 export type CaptionStyle = (typeof CAPTION_STYLES)[number];
 
 export const CAPTION_STYLE_LABELS: Readonly<Record<CaptionStyle, string>> = {
@@ -24,7 +35,18 @@ export const CAPTION_STYLE_LABELS: Readonly<Record<CaptionStyle, string>> = {
   question: "Question",
   scarcity: "Scarcity",
   social_proof: "Social proof",
+  venue: "Venue",
+  whats_next: "What's next",
+  artist_first_person: "Artist, first person",
+  experience: "Experience",
+  four_line: "Four line",
+  pov: "POV",
 };
+
+/** artist_first_person is the artist's voice. Every other style is the promoter's. There is no voice column. */
+export function voiceForStyle(style: CaptionStyle): "artist" | "promoter" {
+  return style === "artist_first_person" ? "artist" : "promoter";
+}
 
 export const CREATIVE_LAB_DIMENSIONS = ["caption_style"] as const;
 export type CreativeLabDimension = (typeof CREATIVE_LAB_DIMENSIONS)[number];

@@ -25,6 +25,17 @@ export type CaptionProfile = {
   lineHeight: number;
   charsPerLine: number;
   maxLines: number;
+  /** False until Matas signs the long-size side-by-side. Not part of the style hash. */
+  longApproved: boolean;
+  /** Smaller type for overlays of 73–96 characters. Four lines, 24 characters. */
+  long: {
+    fontSizePctOfWidth: number;
+    charsPerLine: number;
+    maxLines: number;
+    minChars: number;
+    maxChars: number;
+    source: string;
+  };
   horizontalCenterPctOfWidth: number;
   /** Of the source frame. At crop focus 0.5 this is where the block sits; other foci move it with the safe rectangle. */
   verticalCenterPctOfSourceHeight: number;
@@ -45,6 +56,42 @@ function evenDown(n: number): number {
   return Math.floor(n / 2) * 2;
 }
 
+export type CaptionSize = "default" | "long";
+
+/** Type size for one variant. Does not consult longApproved: the render path refuses an unapproved long burn. */
+export function captionLimits(size: CaptionSize = "default"): {
+  fontSizePctOfWidth: number;
+  charsPerLine: number;
+  maxLines: number;
+} {
+  if (size === "long") {
+    return {
+      fontSizePctOfWidth: profile.long.fontSizePctOfWidth,
+      charsPerLine: profile.long.charsPerLine,
+      maxLines: profile.long.maxLines,
+    };
+  }
+  return {
+    fontSizePctOfWidth: profile.fontSizePctOfWidth,
+    charsPerLine: profile.charsPerLine,
+    maxLines: profile.maxLines,
+  };
+}
+
+/**
+ * The hashed profile. `longApproved` is left out: signing the long size
+ * off must not change style_version, or every caption already stamped
+ * would stop rendering. The long size numbers stay in the hash.
+ */
+export function versionedProfile(value: unknown = profile): unknown {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const copy = { ...(value as Record<string, unknown>) };
+    delete copy.longApproved;
+    return copy;
+  }
+  return value;
+}
+
 /** Stable JSON: sorted keys at every level, no whitespace. */
 export function canonicalProfileJson(value: unknown = profile): string {
   if (Array.isArray(value)) return `[${value.map((v) => canonicalProfileJson(v)).join(",")}]`;
@@ -59,11 +106,16 @@ export function canonicalProfileJson(value: unknown = profile): string {
 
 let cachedVersion: Promise<string> | null = null;
 
-/** sha256 hex of the canonical profile. Same value in Node and in the render bundle. */
-export function styleVersion(): Promise<string> {
-  cachedVersion ??= crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalProfileJson())).then((buf) =>
+/** sha256 hex of the profile with longApproved removed. */
+export function hashProfile(value: unknown = profile): Promise<string> {
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalProfileJson(versionedProfile(value)))).then((buf) =>
     [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join(""),
   );
+}
+
+/** sha256 hex of the canonical profile, ignoring longApproved. Same value in Node and in the render bundle. */
+export function styleVersion(): Promise<string> {
+  cachedVersion ??= hashProfile(profile);
   return cachedVersion;
 }
 
@@ -137,6 +189,7 @@ export function captionLayout(
   sourceHeight: number,
   aspect: CaptionAspect,
   cropFocusY: number,
+  size: CaptionSize = "default",
 ): CaptionLayout {
   const output = outputSize(sourceWidth, sourceHeight, aspect);
   const crop = cropWindow(sourceWidth, sourceHeight, output);
@@ -145,10 +198,12 @@ export function captionLayout(
   const safeRect = safeRectangle(output, cropFocusY);
   const centred = safeRectangle(output, 0.5);
   const sourceY = profile.verticalCenterPctOfSourceHeight * sourceHeight;
+  const limits = captionLimits(size);
+  const fontPx = limits.fontSizePctOfWidth * output.width;
   return {
     output,
-    fontPx: profile.fontSizePctOfWidth * output.width,
-    strokePx: profile.strokeWidthPctOfFontSize * profile.fontSizePctOfWidth * output.width,
+    fontPx,
+    strokePx: profile.strokeWidthPctOfFontSize * fontPx,
     centerX: profile.horizontalCenterPctOfWidth * output.width,
     centerY: (sourceY - crop.top) * scale + (safeRect.y - centred.y),
     crop,
