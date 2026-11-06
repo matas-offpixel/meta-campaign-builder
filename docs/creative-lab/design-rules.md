@@ -1,6 +1,6 @@
 # Creative Lab — design rules
 
-Paste this into every Cursor prompt that touches the Creative Lab, the asset bank, the campaign drawer or any Off Pixel tool next to them. The frames it points at are in `docs/creative-lab/creative-lab-redesign-2026-11-06.html` (F1–F5) and `docs/creative-lab/creative-lab-pass-2-2026-11-06.html` (A10, B1–B6) and `docs/creative-lab/creative-lab-pass-3-2026-11-06.html` (caption overlay, B7) in this repo. When a prompt says "a clip tile", it means the clip tile below, not a new design.
+Paste this into every Cursor prompt that touches the Creative Lab, the asset bank, the campaign drawer or any Off Pixel tool next to them. The frames it points at are in `docs/design-record/2026-11-06-creative-lab-f1-f5.html` (F1–F5) and `docs/design-record/2026-11-06-creative-lab-pass-2.html` (A10, B1–B6) and `docs/design-record/2026-11-06-creative-lab-pass-3.html` (caption overlay, B7) in this repo. When a prompt says "a clip tile", it means the clip tile below, not a new design.
 
 ## The rules
 
@@ -29,7 +29,7 @@ Point at these by name. Each line is what it shows at rest, its one action, and 
 | **Artist row** | drag · photo · name + ★ · handle dots · rights chip · clip count | one (`Find clips` / `Add Instagram` / `Clear for artist channels`) + `⋯` | rows stack, action on its own line |
 | **Artist card** (hover/ⓘ) | photo · handles · played with you · genres · checked-on date · Open in Spotify | none | a bottom sheet |
 | **Rights chip** | `Promoter page only` (ink outline) / `✓ Cleared — artist channels too` (olive) + who, when | `Clear for artist channels` | same chip |
-| **Clip tile** | 9:16 first frame · source badge · length · name · one status (cost + verdict / Untested / reason) | tap = play; `⋯` | 2 across; New / Can't run scroll sideways |
+| **Clip tile** | 9:16 first frame · source badge · length · name · one status (cost + verdict / Untested / reason) · scrubber along the bottom of the frame, spanning only the part that runs (first 30 s at most) | tap = play; `⋯` | 2 across; New / Can't run scroll sideways |
 | **Candidate tile** | rank · frame · ♥ / 💬 · age · aspect | `Add` (or `Add · crop`) → progress → `✓ Added` | 2 across |
 | **Crop picker** | widest frame with the 9:16 window, shaded outside; 6-frame strip | `Use this crop` | full width, button full width |
 | **Render row** | mini frame · pairing · progress · ready / time left / queue place | tap ready = play | the 9:16 preview beside a progress line |
