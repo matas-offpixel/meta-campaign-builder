@@ -156,7 +156,11 @@ describe("creative lab captions: form", () => {
     assert.deepEqual(wrapCaption("one two three four five", 9), ["one two", "three", "four five"]);
     const long = "aaaaabbbbb cccccddddd eeeeefffff ggggghhhhh iiiiiijjjj";
     const out = validateCaption(long, "lineup", ["Luke Dean", "Enzo Siragusa", "Reeshy", "Benji King"], P26, STYLE);
-    assert.deepEqual(out.errors.map((e) => e.code), ["too_long"]);
+    assert.equal(out.sizeVariant, "long");
+    assert.equal(out.ok, true, out.errors.map((e) => e.detail).join("; "));
+    const pastLong = "abcdefghijklm ".repeat(6).trim();
+    const overflow = validateCaption(pastLong, "lineup", ["Luke Dean", "Enzo Siragusa", "Reeshy", "Benji King"], P26, STYLE);
+    assert.ok(overflow.errors.some((e) => e.code === "too_long"));
     const wide = validateCaption(long, "lineup", ["Luke Dean", "Enzo Siragusa", "Reeshy", "Benji King"], P26, {
       version: "wide",
       charsPerLine: 40,
@@ -252,6 +256,13 @@ describe("creative lab captions: M3 checks", () => {
     assert.equal(at97.length, 97);
     assert.ok(overlay(at97).errors.some((e) => e.code === "too_long"));
     assert.ok(overlay("a".repeat(19)).errors.some((e) => e.code === "word_too_long"));
+    const southampton = "Back in Southampton on 27th December to close out the year w/ Puzzle.";
+    assert.equal(wrapCaption(southampton, 18).length, 5);
+    const wrapped = overlay(southampton);
+    assert.equal(wrapped.sizeVariant, "long");
+    assert.ok(wrapped.lines.length <= 5);
+    assert.ok(wrapped.lines.every((line) => line.length <= 24));
+    assert.equal(wrapped.errors.some((e) => e.code === "too_long" || e.code === "word_too_long"), false);
   });
 
   it("four_line is exactly four lines", () => {
@@ -433,6 +444,22 @@ describe("creative lab captions: claims the record does not hold", () => {
       pastAppearances: [{ artist: "Luke Dean", venue: "Circuit" }],
     });
     assert.equal(held.errors.some((e) => e.code === "past_not_in_facts"), false);
+    const city = "Luke Dean back in Southampton";
+    const missingCity = validateCaption(city, "whats_next", ["Luke Dean"], billed, STYLE);
+    assert.ok(missingCity.errors.some((e) => e.code === "past_not_in_facts"));
+    const heldCity = validateCaption(city, "whats_next", ["Luke Dean"], billed, STYLE, {
+      pastAppearances: [{ artist: "Luke Dean", venue: "Engine Rooms", city: "southampton" }],
+    });
+    assert.equal(heldCity.errors.some((e) => e.code === "past_not_in_facts"), false);
+    const enzo = "Back in Southampton on 27th December to close out the year w/ Puzzle.";
+    const unnamed = validateCaption(enzo, "artist_first_person", [], P26, STYLE, { speakingArtist: "Enzo Siragusa" });
+    assert.ok(unnamed.errors.some((e) => e.code === "past_not_in_facts"), unnamed.errors.map((e) => e.detail).join("; "));
+    const southampton = validateCaption(enzo, "artist_first_person", [], P26, STYLE, {
+      speakingArtist: "Enzo Siragusa",
+      pastAppearances: [{ artist: "Enzo Siragusa", venue: "Engine Rooms", city: "Southampton" }],
+    });
+    assert.equal(southampton.ok, true, southampton.errors.map((e) => e.detail).join("; "));
+    assert.equal(southampton.errors.some((e) => e.code === "past_not_in_facts"), false);
     assert.equal(validateCaption("Luke Dean at Circuit", "lineup", ["Luke Dean"], billed, STYLE).ok, true);
   });
 

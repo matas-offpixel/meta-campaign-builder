@@ -23,7 +23,17 @@ const MAX_CLIP_SECONDS = 30;
 const SUPPORT_AD_CAP = 2;
 
 export class RoundBuildError extends Error {
-  readonly code: "no_ad_set_record" | "no_destination" | "no_page" | "ad_set_full" | "no_previous_target" | "ad_set_changed" | "support_cap";
+  readonly code:
+    | "no_ad_set_record"
+    | "no_destination"
+    | "no_page"
+    | "no_objective"
+    | "no_ad_set_name"
+    | "no_clips"
+    | "ad_set_full"
+    | "no_previous_target"
+    | "ad_set_changed"
+    | "support_cap";
 
   constructor(code: RoundBuildError["code"], message: string) {
     super(message);
@@ -40,6 +50,9 @@ export type RoundTarget = {
   instagramActorId: string | null;
   destinationUrl: string;
   cta: string;
+  campaignObjective: string;
+  adSetName: string;
+  adSetStatus: string;
 };
 
 export type ProposedAd = {
@@ -76,13 +89,44 @@ function clipSeconds(clip: Row, asset: Row | undefined): number | null {
   return end - start;
 }
 
+type DraftJson = {
+  creatives?: { identity?: { pageId?: string; instagramActorId?: string } }[];
+  settings?: {
+    objective?: string;
+    existingMetaCampaign?: { objective?: string };
+    existingMetaAdSets?: { id?: string; name?: string; status?: string }[];
+  };
+  existingMetaAdSets?: { id?: string; name?: string; status?: string }[];
+};
+
+function asDraft(draft: unknown): DraftJson {
+  return (draft ?? {}) as DraftJson;
+}
+
 function pageFromDraft(draft: unknown): { pageId: string | null; instagramActorId: string | null } {
-  const creatives = (draft as { creatives?: { identity?: { pageId?: string; instagramActorId?: string } }[] } | null)?.creatives ?? [];
+  const creatives = asDraft(draft).creatives ?? [];
   for (const creative of creatives) {
     const pageId = creative.identity?.pageId?.trim();
     if (pageId) return { pageId, instagramActorId: creative.identity?.instagramActorId?.trim() || null };
   }
   return { pageId: null, instagramActorId: null };
+}
+
+function adSetFromDraft(draft: unknown, adsetMetaId: string): { name: string | null; status: string | null } {
+  const json = asDraft(draft);
+  const sets = [...(json.settings?.existingMetaAdSets ?? []), ...(json.existingMetaAdSets ?? [])];
+  const hit = sets.find((row) => row.id === adsetMetaId);
+  return { name: hit?.name?.trim() || null, status: hit?.status?.trim() || null };
+}
+
+function objectiveFromRecord(adSet: Row, draft: unknown): string | null {
+  const recorded = String(adSet.objective ?? "").trim();
+  if (recorded) return recorded;
+  const json = asDraft(draft);
+  const fromSettings = json.settings?.objective?.trim();
+  if (fromSettings) return fromSettings;
+  const fromCampaign = json.settings?.existingMetaCampaign?.objective?.trim();
+  return fromCampaign || null;
 }
 
 async function resolveTarget(db: ServiceRoleDb, adsetMetaId: string): Promise<RoundTarget> {
@@ -101,15 +145,27 @@ async function resolveTarget(db: ServiceRoleDb, adsetMetaId: string): Promise<Ro
   }
   let pageId: string | null = null;
   let instagramActorId: string | null = null;
+  let draftJson: unknown = null;
   if (adSet.draft_id) {
     const draftRes = await db.from("campaign_drafts").select("draft_json").eq("id", String(adSet.draft_id)).maybeSingle();
     if (draftRes.error) throw new Error(`campaign_drafts: ${draftRes.error.message}`);
-    const found = pageFromDraft((draftRes.data as { draft_json?: unknown } | null)?.draft_json);
+    const json = (draftRes.data as { draft_json?: unknown } | null)?.draft_json;
+    const found = pageFromDraft(json);
     pageId = found.pageId;
     instagramActorId = found.instagramActorId;
+    draftJson = json;
   }
   if (!pageId) {
     throw new RoundBuildError("no_page", `Ad set ${adsetMetaId} has no Page on the draft that launched it.`);
+  }
+  const campaignObjective = objectiveFromRecord(adSet, draftJson);
+  if (!campaignObjective) {
+    throw new RoundBuildError("no_objective", `Ad set ${adsetMetaId} has no recorded objective.`);
+  }
+  const named = adSetFromDraft(draftJson, adsetMetaId);
+  const adSetName = String(adSet.source_name ?? "").trim() || named.name;
+  if (!adSetName) {
+    throw new RoundBuildError("no_ad_set_name", `Ad set ${adsetMetaId} has no name on the launched record.`);
   }
   return {
     adAccountId: String(adSet.ad_account_id),
@@ -119,6 +175,9 @@ async function resolveTarget(db: ServiceRoleDb, adsetMetaId: string): Promise<Ro
     instagramActorId,
     destinationUrl: String(withCopy.destination_url).trim(),
     cta: String(withCopy.cta).trim(),
+    campaignObjective,
+    adSetName,
+    adSetStatus: named.status || "ACTIVE",
   };
 }
 
@@ -131,10 +190,15 @@ function targetFromRound(row: Row): RoundTarget {
     instagramActorId: row.instagram_actor_id ? String(row.instagram_actor_id) : null,
     destinationUrl: String(row.destination_url ?? ""),
     cta: String(row.cta ?? ""),
+    campaignObjective: String(row.meta_campaign_objective ?? "").trim(),
+    adSetName: String(row.meta_adset_name ?? "").trim(),
+    adSetStatus: String(row.meta_adset_status ?? "").trim() || "ACTIVE",
   };
   if (!target.adAccountId || !target.metaCampaignId || !target.metaAdsetId || !target.pageId || !target.destinationUrl || !target.cta) {
     throw new RoundBuildError("no_previous_target", "The previous round has no stored ad set target to copy.");
   }
+  if (!target.campaignObjective) throw new RoundBuildError("no_objective", "The previous round has no recorded objective.");
+  if (!target.adSetName) throw new RoundBuildError("no_ad_set_name", "The previous round has no ad set name.");
   return target;
 }
 
@@ -197,14 +261,28 @@ export async function proposeRound(
   args: { userId: string; eventId: string; artistId: string; adsetMetaId: string; maxAds?: number },
 ): Promise<ProposeRoundResult> {
   const maxAds = args.maxAds ?? 8;
-  const artistRes = await db.from("creative_lab_artists").select("id, client_id, name, rights_doc_ref, approved_at, starting_caption").eq("id", args.artistId).maybeSingle();
+  const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
   if (artistRes.error) throw new Error(`creative_lab_artists: ${artistRes.error.message}`);
   const eventRes = await db.from("events").select("id, client_id").eq("id", args.eventId).maybeSingle();
   if (eventRes.error) throw new Error(`events: ${eventRes.error.message}`);
   const event = eventRes.data as { client_id: string | null } | null;
   if (!event) throw new Error("No event with that id.");
-  const artist = artistRes.data as (LabArtist & { starting_caption?: string | null }) | null;
+  const artist = artistRes.data as (LabArtist & {
+    starting_caption?: string | null;
+    meta_page_id?: string | null;
+    instagram_actor_id?: string | null;
+  }) | null;
   assertArtistCleared(artist, event.client_id);
+
+  const clipRows = await list(db, "creative_lab_clips", "artist_id", args.artistId);
+  const assetRows = await list(db, "creative_assets", "user_id", args.userId);
+  const assets = new Map(assetRows.map((row) => [String(row.id), row]));
+  const clips = clipRows
+    .map((clip) => ({ ...clip, seconds: clipSeconds(clip, assets.get(String(clip.creative_asset_id))) }) as Clip)
+    .sort((a, b) => Number(a.clip_no) - Number(b.clip_no));
+  const skipped: { reason: string }[] = [];
+  const shortClips = usable(clips, skipped);
+  if (!shortClips.length) throw new RoundBuildError("no_clips", "no clips");
 
   const rounds = (await list(db, "creative_lab_rounds", "event_id", args.eventId))
     .filter((row) => row.artist_id === args.artistId)
@@ -215,32 +293,21 @@ export async function proposeRound(
     throw new RoundBuildError("ad_set_changed", `Round ${Number(previous.round_no) + 1} keeps ad set ${target.metaAdsetId}.`);
   }
 
-  const [clipRows, captionRows, assetRows, artistPages, version] = await Promise.all([
-    list(db, "creative_lab_clips", "artist_id", args.artistId),
+  const [captionRows, version] = await Promise.all([
     list(db, "creative_lab_captions", "event_id", args.eventId),
-    list(db, "creative_assets", "user_id", args.userId),
-    list(db, "artists", "client_id", artist.client_id),
     styleVersion(),
   ]);
-  const assets = new Map(assetRows.map((row) => [String(row.id), row]));
-  const clips = clipRows
-    .map((clip) => ({ ...clip, seconds: clipSeconds(clip, assets.get(String(clip.creative_asset_id))) }) as Clip)
-    .sort((a, b) => Number(a.clip_no) - Number(b.clip_no));
   const approved = captionRows
     .filter((row) => row.status === "approved")
     .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
-  const artistPage = artistPages.find((row) => String(row.name ?? "").trim().toLowerCase() === artist.name.trim().toLowerCase());
-  const hasArtistPage = Boolean(String(artistPage?.meta_page_id ?? "").trim());
-
-  const skipped: { reason: string }[] = [];
-  const shortClips = usable(clips, skipped);
+  const hasArtistVoice = Boolean(String(artist.meta_page_id ?? "").trim() && String(artist.instagram_actor_id ?? "").trim());
   const tickets = await ticketsSoldByEvent(
     db,
     shortClips.flatMap((clip) => (clip.event_id ? [String(clip.event_id)] : [])),
   );
   const pairs = previous
-    ? pairsFromPlan(previous, shortClips, approved, hasArtistPage, tickets, skipped, maxAds, db)
-    : pairsForFirstRound(artist.starting_caption ?? "", shortClips, approved, hasArtistPage, tickets, skipped, maxAds);
+    ? pairsFromPlan(previous, shortClips, approved, hasArtistVoice, tickets, skipped, maxAds, db)
+    : pairsForFirstRound(artist.starting_caption ?? "", shortClips, approved, hasArtistVoice, tickets, skipped, maxAds);
 
   const planned = await capSupport(db, args.eventId, args.artistId, artist.name, await pairs, skipped);
   const existingAds = await list(db, "launched_ads", "meta_adset_id", target.metaAdsetId);
@@ -307,6 +374,9 @@ export async function proposeRound(
       instagram_actor_id: target.instagramActorId,
       destination_url: target.destinationUrl,
       cta: target.cta,
+      meta_campaign_objective: target.campaignObjective,
+      meta_adset_name: target.adSetName,
+      meta_adset_status: target.adSetStatus,
     })
     .eq("id", round.id);
   if (update.error) throw new Error(`creative_lab_rounds update: ${update.error.message}`);
@@ -318,7 +388,7 @@ type Pair = { clipId: string; captionId: string; role: "control" | "challenger";
 
 function allowCaption(caption: Caption, hasArtistPage: boolean, skipped: { reason: string }[]): boolean {
   if (caption.style === "artist_first_person" && !hasArtistPage) {
-    skipped.push({ reason: `caption ${caption.caption_no} is artist_first_person and artists.meta_page_id is missing` });
+    skipped.push({ reason: `caption ${caption.caption_no} is artist_first_person and the artist has no Page and Instagram account` });
     return false;
   }
   return true;

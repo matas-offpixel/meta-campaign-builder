@@ -20,9 +20,9 @@
  *     highest-priced; "under N" only when remaining < N; "N left" only
  *     when remaining ≤ N; "sold out" only when a tier has none left.
  *   - wrap at the style profile's characters per line (v1.json; 18), at
- *     most 4 lines. An overlay of 73–96 characters uses the long size
- *     (up to 5 × 24). Over 96, or a single word longer than that size's
- *     line, is rejected. A lineup name that fits on one line is not
+ *     most 4 lines. An overlay that does not fit those 4 lines, or that
+ *     is 73–96 characters, uses the long size (up to 5 × 24). Over 96,
+ *     or a single word longer than that size's line, is rejected. A lineup name that fits on one line is not
  *     broken. Lines are balanced: no single-word line except the last.
  *     four_line must be exactly 4 lines.
  *   - layout (wrap, emoji, '#', all caps) applies to the overlay only.
@@ -160,7 +160,13 @@ export type CaptionCheckOptions = {
    * client, or the show the clip was filmed at. "last season", "back at",
    * "returns to" and "last year" need one of these.
    */
-  pastAppearances?: readonly { artist: string; venue: string }[];
+  pastAppearances?: readonly { artist: string; venue: string; city?: string | null }[];
+  /**
+   * The artist speaking an artist_first_person caption. Past and city
+   * claims, and the name check, use this artist when the sentence does
+   * not name them.
+   */
+  speakingArtist?: string | null;
 };
 
 /** Case, punctuation and emoji folded, for the per-event dedupe. */
@@ -830,11 +836,18 @@ function checkPickOne(text: string, facts: EventFacts, upcoming: readonly string
   return [];
 }
 
-const PAST_CUE = /\blast season\b|\blast year\b|\bback at\b|\breturns to\b/i;
+const PAST_CUE = /\blast season\b|\blast year\b|\bback at\b|\bback in\b|\breturns to\b/i;
 
 function venueAfter(text: string, cue: string): string | null {
   const match = text.match(new RegExp(`\\b${cue}\\s+([\\p{L}\\p{N}'’.-]+(?:\\s+[\\p{L}\\p{N}'’.-]+){0,3})`, "iu"));
-  return match?.[1]?.replace(/[.!,]+$/g, "").trim() || null;
+  if (!match) return null;
+  const stop = /^(on|to|for|last|this|at|with|the|and|w)$/i;
+  const kept: string[] = [];
+  for (const word of match[1].split(/\s+/)) {
+    if (stop.test(word)) break;
+    kept.push(word.replace(/[.!,]+$/g, ""));
+  }
+  return kept.join(" ").trim() || null;
 }
 
 /**
@@ -846,15 +859,30 @@ function checkPast(
   text: string,
   facts: EventFacts,
   declared: readonly string[],
-  past: readonly { artist: string; venue: string }[] | undefined,
+  past: readonly { artist: string; venue: string; city?: string | null }[] | undefined,
+  speakingArtist?: string | null,
 ): CaptionError[] {
   if (!PAST_CUE.test(text)) return [];
   const claimed = text
     .split(/(?<=[.!?])\s+/)
     .filter((sentence) => PAST_CUE.test(sentence))
     .join(" ");
-  const known = [...facts.lineup, ...(facts.headliners ?? []), ...declared].filter(Boolean);
-  const artists = known.filter((name) => mentionsArtist(claimed, name));
+  const speaker = speakingArtist?.trim() ?? "";
+  const known = [...facts.lineup, ...(facts.headliners ?? []), ...declared, speaker].filter(Boolean);
+  const named = known.filter((name) => mentionsArtist(claimed, name));
+  const artists = named.length ? named : speaker ? [speaker] : [];
+  const city = venueAfter(claimed, "back in");
+  if (city) {
+    if (!artists.length) {
+      return [{ code: "past_not_in_facts", detail: "a past appearance needs an artist and a city the record holds" }];
+    }
+    const held = past ?? [];
+    for (const artist of artists) {
+      const hit = held.some((row) => sameArtist(row.artist, artist) && sameVenue(row.city ?? "", city));
+      if (!hit) return [{ code: "past_not_in_facts", detail: `no past show has ${artist} in ${city}` }];
+    }
+    return [];
+  }
   let venue = venueAfter(claimed, "back at") ?? venueAfter(claimed, "returns to");
   const season = claimed.match(/\bat\s+([\p{L}\p{N}'’.-]+(?:\s+[\p{L}\p{N}'’.-]+){0,3})\s+last season\b/iu);
   if (season) venue = season[1].replace(/[.!,]+$/g, "").trim();
@@ -914,27 +942,31 @@ export function validateCaption(
   // so a newline cannot leave a one-word line in the middle.
   const trimmed = (style === "four_line" ? text : text.replace(/[\r\n]+/g, " ")).trim().replace(/[ \t]+/g, " ");
   const extra = options.extraNames ?? [];
+  const speaker = style === "artist_first_person" ? options.speakingArtist?.trim() ?? "" : "";
+  const declared = speaker && !declaredNames.some((name) => sameArtist(name, speaker)) ? [...declaredNames, speaker] : declaredNames;
   if (!trimmed) errors.push({ code: "empty", detail: "no text" });
 
   const chars = trimmed.length;
-  const long = chars >= profile.long.minChars;
   if (chars > profile.long.maxChars) {
     errors.push({ code: "too_long", detail: `${chars} characters; an overlay is at most ${profile.long.maxChars}` });
   }
-  const charsPerLine = long ? profile.long.charsPerLine : (styleProfile.charsPerLine ?? CHARS_PER_LINE);
+  const protectedNames = [...facts.lineup, ...(facts.headliners ?? []), ...declared, ...extra];
+  const defaultWidth = styleProfile.charsPerLine ?? CHARS_PER_LINE;
+  const defaultLines = style === "four_line" ? [] : wrapCaption(trimmed, defaultWidth, protectedNames);
+  const long = style !== "four_line" && (chars >= profile.long.minChars || defaultLines.length > (styleProfile.maxLines ?? DEFAULT_MAX_LINES));
+  const charsPerLine = long ? profile.long.charsPerLine : defaultWidth;
   const maxLines = long ? profile.long.maxLines : (styleProfile.maxLines ?? DEFAULT_MAX_LINES);
-  const protectedNames = [...facts.lineup, ...(facts.headliners ?? []), ...declaredNames, ...extra];
-  const lines = wrapCaption(trimmed, charsPerLine, protectedNames);
+  const lines = long ? wrapCaption(trimmed, charsPerLine, protectedNames) : style === "four_line" ? wrapCaption(trimmed, charsPerLine, protectedNames) : defaultLines;
   const sizeVariant = long ? "long" : "default";
 
-  errors.push(...factErrors(trimmed, style, declaredNames, facts, extra, options.crowdTicketsSold));
+  errors.push(...factErrors(trimmed, style, declared, facts, extra, options.crowdTicketsSold));
   errors.push(...layoutErrors(trimmed, lines, maxLines, charsPerLine, style));
   errors.push(...checkBilling(trimmed, style, facts, options.allowSupportArtist));
   errors.push(...checkVoice(trimmed, lines));
   errors.push(...checkSet(trimmed));
   errors.push(...checkFootage(trimmed, facts, options.clipVenueName));
   errors.push(...checkPickOne(trimmed, facts, options.upcomingEvents ?? []));
-  errors.push(...checkPast(trimmed, facts, declaredNames, options.pastAppearances));
+  errors.push(...checkPast(trimmed, facts, declared, options.pastAppearances, speaker));
   if (options.saleStage) errors.push(...checkStage(trimmed, options.saleStage));
 
   const primary = options.primaryText?.trim() ?? "";
@@ -945,11 +977,11 @@ export function validateCaption(
     if ((options.emojiInPrimary ?? true) === false && /\p{Extended_Pictographic}/u.test(primary)) {
       errors.push({ code: "primary_emoji", detail: "this client does not allow emoji in primary text" });
     }
-    errors.push(...factErrors(primary, style, declaredNames, facts, extra, options.crowdTicketsSold));
+    errors.push(...factErrors(primary, style, declared, facts, extra, options.crowdTicketsSold));
     errors.push(...checkSet(primary));
     errors.push(...checkFootage(primary, facts, options.clipVenueName));
     errors.push(...checkPickOne(primary, facts, options.upcomingEvents ?? []));
-    errors.push(...checkPast(primary, facts, declaredNames, options.pastAppearances));
+    errors.push(...checkPast(primary, facts, declared, options.pastAppearances, speaker));
     if (options.saleStage) errors.push(...checkStage(primary, options.saleStage));
   }
 

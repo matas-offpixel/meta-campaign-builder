@@ -180,7 +180,7 @@ For lineup, social_proof and whats_next, name headliners only, in that order. Su
 
 Return only by calling ${TOOL_NAME}.
 
-The overlay is burned onto the video. No emoji, no '#', not all capitals. Default size is 4 lines of 18 characters. An overlay of 73 to 96 characters uses a smaller size, up to 5 lines of 24. Over 96 is useless. A name that fits on one line stays whole. four_line is exactly 4 lines.
+The overlay is burned onto the video. No emoji, no '#', not all capitals. Default size is 4 lines of 18 characters. An overlay that does not fit those 4 lines uses a smaller size, up to 5 lines of 24, and never more than 96 characters. Over 96 is useless. A name that fits on one line stays whole. four_line is exactly 4 lines.
 
 Primary text is at most 125 characters. Emoji are allowed there.
 
@@ -371,6 +371,7 @@ export async function generateCaptions(
       clipVenueName: clipVenue,
       upcomingEvents: upcoming.map((show) => show.eventName),
       pastAppearances: past,
+      speakingArtist: args.style === "artist_first_person" ? artistName : null,
     });
     if (!check.ok) {
       deps.onReject?.(overlay, primary, check.errors);

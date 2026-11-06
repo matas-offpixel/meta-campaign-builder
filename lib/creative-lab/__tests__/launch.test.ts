@@ -40,6 +40,9 @@ function roundDb(over: { status?: string; ads?: Record<string, unknown>[] } = {}
         instagram_actor_id: "ig_1",
         destination_url: "https://tickets.example/puzzle",
         cta: "buy_tickets",
+        meta_campaign_objective: "OUTCOME_LEADS",
+        meta_adset_name: "Puzzle signup",
+        meta_adset_status: "ACTIVE",
       },
     ],
     events: [{ id: "evt-1", client_id: "client-1", name: "Puzzle 4th Birthday Part 1", user_id: USER }],
@@ -75,7 +78,7 @@ function roundDb(over: { status?: string; ads?: Record<string, unknown>[] } = {}
 
 function calls() {
   const uploads: LabUploadRequest[] = [];
-  const launches: { createPaused?: boolean; names: string[]; pages: string[] }[] = [];
+  const launches: { createPaused?: boolean; names: string[]; pages: string[]; ig: (string | null)[]; objective: string; settingsObjective: string }[] = [];
   const tags: { metaAdId: string; style: string; creativeName: string }[] = [];
   return {
     uploads,
@@ -85,11 +88,14 @@ function calls() {
       uploads.push(request);
       return { videoId: `vid-${request.contentHash}`, registryAssetId: "asset-1" };
     },
-    launch: async (body: { draft: { creatives: { name: string; identity: { pageId: string } }[] }; createPaused: true }) => {
+    launch: async (body: { draft: { settings: { objective: string; existingMetaCampaign?: { objective?: string } }; creatives: { name: string; identity: { pageId: string; instagramActorId?: string } }[] }; createPaused: true }) => {
       launches.push({
         createPaused: body.createPaused,
         names: body.draft.creatives.map((creative) => creative.name),
         pages: body.draft.creatives.map((creative) => creative.identity.pageId),
+        ig: body.draft.creatives.map((creative) => creative.identity.instagramActorId ?? null),
+        objective: body.draft.settings.existingMetaCampaign?.objective ?? "",
+        settingsObjective: body.draft.settings.objective,
       });
       return { ok: true, status: 201, launchRunId: "run-1" };
     },
@@ -245,11 +251,24 @@ describe("launch a round", () => {
         { id: "ad-2", round_id: ROUND, user_id: USER, ad_name: "LUKEDEAN-clip01_cap-artist_first_person1", caption_id: "cap-2", render_id: "render-2", launch_state: "ready" },
       ],
     });
-    fake.tables.artists[0].meta_page_id = "";
     const seen = calls();
     const result = await launchApprovedRound(ROUND, { db: fake as unknown as ServiceRoleDb, userId: USER, upload: seen.upload, launch: seen.launch, tag: seen.tag });
     assert.equal(seen.launches.length, 0);
+    assert.equal(seen.uploads.length, 0);
     assert.equal(result.errors[0].error, "no artist page");
+  });
+
+  it("fails an artist-first-person ad before upload when the artist has no Instagram account", async () => {
+    const fake = roundDb({
+      ads: [
+        { id: "ad-2", round_id: ROUND, user_id: USER, ad_name: "LUKEDEAN-clip01_cap-artist_first_person1", caption_id: "cap-2", render_id: "render-2", launch_state: "ready" },
+      ],
+    });
+    fake.tables.creative_lab_artists[0].meta_page_id = "page_luke";
+    const seen = calls();
+    const result = await launchApprovedRound(ROUND, { db: fake as unknown as ServiceRoleDb, userId: USER, upload: seen.upload, launch: seen.launch, tag: seen.tag });
+    assert.equal(seen.uploads.length, 0);
+    assert.equal(result.errors[0].error, "no artist Instagram account");
   });
 
   it("uses the artist page for an artist-first-person ad", async () => {
@@ -258,6 +277,8 @@ describe("launch a round", () => {
         { id: "ad-2", round_id: ROUND, user_id: USER, ad_name: "LUKEDEAN-clip01_cap-artist_first_person1", caption_id: "cap-2", render_id: "render-2", launch_state: "ready" },
       ],
     });
+    fake.tables.creative_lab_artists[0].meta_page_id = "page_luke";
+    fake.tables.creative_lab_artists[0].instagram_actor_id = "ig_luke";
     const seen = calls();
     fake.tables.launched_ads.push({
       launch_run_id: "run-1",
@@ -292,7 +313,7 @@ describe("launch a round", () => {
             videoId: "vid-hash-a",
             registryAssetId: "asset-1",
             pageId: "page_luke",
-            instagramActorId: "ig_1",
+            instagramActorId: "ig_luke",
           },
         ],
       ),
@@ -302,6 +323,10 @@ describe("launch a round", () => {
     assert.equal(seen.uploads[0].aspectRatio, "9:16");
     assert.equal(seen.uploads[0].contentHash, "hash-a");
     assert.deepEqual(seen.launches[0].pages, ["page_luke"]);
+    assert.deepEqual(seen.launches[0].ig, ["ig_luke"]);
+    assert.equal(seen.launches[0].objective, "OUTCOME_LEADS");
+    assert.equal(seen.launches[0].settingsObjective, "registration");
+    assert.notEqual(seen.launches[0].objective, "OUTCOME_SALES");
   });
 });
 

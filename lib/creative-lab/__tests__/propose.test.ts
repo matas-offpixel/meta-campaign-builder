@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { buildLabDraft } from "../lab-draft.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { proposeRound, RoundBuildError } from "../propose.ts";
 import { RoundRefusedError } from "../rounds.ts";
@@ -25,7 +26,14 @@ function seed(over: Record<string, Record<string, unknown>[]> = {}): FakeDb {
         starting_caption: "Luke Dean joins",
       },
     ],
-    launched_ad_sets: [{ meta_adset_id: ADSET, ad_account_id: "act", meta_campaign_id: "camp", draft_id: "draft-1" }],
+    launched_ad_sets: [{
+      meta_adset_id: ADSET,
+      ad_account_id: "act",
+      meta_campaign_id: "camp",
+      draft_id: "draft-1",
+      objective: "registration",
+      source_name: "Puzzle signup",
+    }],
     launched_ads: [
       {
         id: "ad-live",
@@ -102,6 +110,39 @@ describe("proposeRound", () => {
     assert.ok(result.skipped.some((row) => row.reason.includes("artist_first_person")));
     assert.equal(result.target.pageId, "page-1");
     assert.equal(result.target.destinationUrl, "https://tickets.example/p26");
+    assert.equal(result.target.campaignObjective, "registration");
+    assert.equal(result.target.adSetName, "Puzzle signup");
+    assert.notEqual(result.target.campaignObjective, "OUTCOME_SALES");
+    assert.equal(fake.tables.creative_lab_rounds[0].meta_campaign_objective, "registration");
+    assert.equal(fake.tables.creative_lab_rounds[0].meta_adset_name, "Puzzle signup");
+    const draft = buildLabDraft({
+      roundId: result.roundId,
+      eventId: EVENT,
+      clientId: CLIENT,
+      campaignName: "Puzzle",
+      adAccountId: result.target.adAccountId,
+      campaignId: result.target.metaCampaignId,
+      campaignObjective: result.target.campaignObjective,
+      adSetId: result.target.metaAdsetId,
+      adSetName: result.target.adSetName,
+      adSetStatus: result.target.adSetStatus,
+      destinationUrl: result.target.destinationUrl,
+      cta: result.target.cta,
+    }, []);
+    assert.equal(draft.settings.objective, "registration");
+    assert.equal(draft.settings.existingMetaCampaign?.objective, "registration");
+    assert.notEqual(draft.settings.existingMetaCampaign?.objective, "OUTCOME_SALES");
+    assert.equal(draft.settings.existingMetaAdSets?.[0]?.name, "Puzzle signup");
+  });
+
+  it("stops at no clips before it writes a round", async () => {
+    const fake = seed();
+    await assert.rejects(
+      proposeRound(db(fake), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: "missing" }),
+      (err: unknown) => err instanceof RoundBuildError && err.code === "no_clips" && err.message === "no clips",
+    );
+    assert.equal(fake.tables.creative_lab_rounds.length, 0);
+    assert.equal(fake.writes.some((write) => write.table === "artists"), false);
   });
 
   it("builds round 2 from the previous verdicts and copies the stored ad set", async () => {
@@ -129,6 +170,8 @@ describe("proposeRound", () => {
           instagram_actor_id: "ig-1",
           destination_url: "https://tickets.example/p26",
           cta: "LEARN_MORE",
+          meta_campaign_objective: "registration",
+          meta_adset_name: "Puzzle signup",
         },
       ],
       creative_lab_round_ads: [
@@ -239,6 +282,8 @@ describe("proposeRound", () => {
         instagram_actor_id: "ig-1",
         destination_url: "https://tickets.example/p26",
         cta: "LEARN_MORE",
+        meta_campaign_objective: "registration",
+        meta_adset_name: "Puzzle signup",
       }],
       creative_lab_round_ads: [
         { id: "prev-1", round_id: "round-1", clip_id: "clip-1", caption_id: "cap-start", verdict: "winner", confirmed: true },

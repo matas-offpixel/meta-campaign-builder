@@ -1578,6 +1578,8 @@ export type Database = {
           created_at: string
           id: string
           ig_username: string | null
+          instagram_actor_id: string | null
+          meta_page_id: string | null
           name: string
           rights_doc_ref: string | null
           starting_caption: string | null
@@ -1592,6 +1594,8 @@ export type Database = {
           created_at?: string
           id?: string
           ig_username?: string | null
+          instagram_actor_id?: string | null
+          meta_page_id?: string | null
           name: string
           rights_doc_ref?: string | null
           starting_caption?: string | null
@@ -1606,6 +1610,8 @@ export type Database = {
           created_at?: string
           id?: string
           ig_username?: string | null
+          instagram_actor_id?: string | null
+          meta_page_id?: string | null
           name?: string
           rights_doc_ref?: string | null
           starting_caption?: string | null
@@ -2055,7 +2061,10 @@ export type Database = {
           judged_at: string | null
           launched_at: string | null
           meta_adset_id: string | null
+          meta_adset_name: string | null
+          meta_adset_status: string | null
           meta_campaign_id: string | null
+          meta_campaign_objective: string | null
           page_id: string | null
           round_no: number
           status: string
@@ -2079,7 +2088,10 @@ export type Database = {
           judged_at?: string | null
           launched_at?: string | null
           meta_adset_id?: string | null
+          meta_adset_name?: string | null
+          meta_adset_status?: string | null
           meta_campaign_id?: string | null
+          meta_campaign_objective?: string | null
           page_id?: string | null
           round_no: number
           status?: string
@@ -2103,7 +2115,10 @@ export type Database = {
           judged_at?: string | null
           launched_at?: string | null
           meta_adset_id?: string | null
+          meta_adset_name?: string | null
+          meta_adset_status?: string | null
           meta_campaign_id?: string | null
+          meta_campaign_objective?: string | null
           page_id?: string | null
           round_no?: number
           status?: string
@@ -5794,6 +5809,237 @@ export type Database = {
           user_id?: string
           user_ratings_total?: number | null
           website?: string | null
+        }
+        Relationships: []
+      }
+      ad_daily_insights: {
+        Row: {
+          actions: Json | null
+          ad_account_id: string | null
+          ad_name: string | null
+          campaign_name: string | null
+          campaign_objective: string | null
+          date: string
+          id: string
+          impressions: number | null
+          landing_page_views: number | null
+          link_clicks: number | null
+          meta_ad_id: string
+          meta_adset_id: string | null
+          optimization_goal: string | null
+          promoted_event: string | null
+          purchases: number | null
+          registrations: number | null
+          result_action_type: string | null
+          spend: number | null
+        }
+        Insert: {
+          actions?: Json | null
+          ad_account_id?: string | null
+          ad_name?: string | null
+          campaign_name?: string | null
+          campaign_objective?: string | null
+          date: string
+          id?: string
+          impressions?: number | null
+          landing_page_views?: number | null
+          link_clicks?: number | null
+          meta_ad_id: string
+          meta_adset_id?: string | null
+          optimization_goal?: string | null
+          promoted_event?: string | null
+          purchases?: number | null
+          registrations?: number | null
+          result_action_type?: string | null
+          spend?: number | null
+        }
+        Update: {
+          actions?: Json | null
+          ad_account_id?: string | null
+          ad_name?: string | null
+          campaign_name?: string | null
+          campaign_objective?: string | null
+          date?: string
+          id?: string
+          impressions?: number | null
+          landing_page_views?: number | null
+          link_clicks?: number | null
+          meta_ad_id?: string
+          meta_adset_id?: string | null
+          optimization_goal?: string | null
+          promoted_event?: string | null
+          purchases?: number | null
+          registrations?: number | null
+          result_action_type?: string | null
+          spend?: number | null
+        }
+        Relationships: []
+      }
+      bm_ad_accounts: {
+        Row: {
+          ad_account_id: string
+          currency: string | null
+          id: string
+        }
+        Insert: {
+          ad_account_id: string
+          currency?: string | null
+          id?: string
+        }
+        Update: {
+          ad_account_id?: string
+          currency?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
+      creative_assets: {
+        Row: {
+          aspect_ratio: string | null
+          byte_size: number | null
+          content_hash: string | null
+          duration_seconds: number | null
+          filename: string | null
+          id: string
+          media_kind: string | null
+          storage_bucket: string | null
+          storage_path: string | null
+          thumbnail_url: string | null
+          user_id: string
+        }
+        Insert: {
+          aspect_ratio?: string | null
+          byte_size?: number | null
+          content_hash?: string | null
+          duration_seconds?: number | null
+          filename?: string | null
+          id?: string
+          media_kind?: string | null
+          storage_bucket?: string | null
+          storage_path?: string | null
+          thumbnail_url?: string | null
+          user_id: string
+        }
+        Update: {
+          aspect_ratio?: string | null
+          byte_size?: number | null
+          content_hash?: string | null
+          duration_seconds?: number | null
+          filename?: string | null
+          id?: string
+          media_kind?: string | null
+          storage_bucket?: string | null
+          storage_path?: string | null
+          thumbnail_url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      launched_ads: {
+        Row: {
+          ad_account_id: string | null
+          ad_name: string | null
+          client_id: string | null
+          cta: string | null
+          destination_url: string | null
+          event_id: string | null
+          id: string
+          launch_run_id: string | null
+          launched_at: string | null
+          meta_ad_id: string | null
+          meta_adset_id: string | null
+          meta_campaign_id: string | null
+        }
+        Insert: {
+          ad_account_id?: string | null
+          ad_name?: string | null
+          client_id?: string | null
+          cta?: string | null
+          destination_url?: string | null
+          event_id?: string | null
+          id?: string
+          launch_run_id?: string | null
+          launched_at?: string | null
+          meta_ad_id?: string | null
+          meta_adset_id?: string | null
+          meta_campaign_id?: string | null
+        }
+        Update: {
+          ad_account_id?: string | null
+          ad_name?: string | null
+          client_id?: string | null
+          cta?: string | null
+          destination_url?: string | null
+          event_id?: string | null
+          id?: string
+          launch_run_id?: string | null
+          launched_at?: string | null
+          meta_ad_id?: string | null
+          meta_adset_id?: string | null
+          meta_campaign_id?: string | null
+        }
+        Relationships: []
+      }
+      launched_ad_sets: {
+        Row: {
+          ad_account_id: string | null
+          client_id: string | null
+          draft_id: string | null
+          event_id: string | null
+          id: string
+          meta_adset_id: string
+          meta_campaign_id: string | null
+          objective: string | null
+          phase_at_launch: string | null
+          source_name: string | null
+        }
+        Insert: {
+          ad_account_id?: string | null
+          client_id?: string | null
+          draft_id?: string | null
+          event_id?: string | null
+          id?: string
+          meta_adset_id: string
+          meta_campaign_id?: string | null
+          objective?: string | null
+          phase_at_launch?: string | null
+          source_name?: string | null
+        }
+        Update: {
+          ad_account_id?: string | null
+          client_id?: string | null
+          draft_id?: string | null
+          event_id?: string | null
+          id?: string
+          meta_adset_id?: string
+          meta_campaign_id?: string | null
+          objective?: string | null
+          phase_at_launch?: string | null
+          source_name?: string | null
+        }
+        Relationships: []
+      }
+      tag_performance: {
+        Row: {
+          baseline_cpr: number | null
+          id: string
+          scope: string
+          scope_id: string
+          stage: string
+        }
+        Insert: {
+          baseline_cpr?: number | null
+          id?: string
+          scope: string
+          scope_id: string
+          stage: string
+        }
+        Update: {
+          baseline_cpr?: number | null
+          id?: string
+          scope?: string
+          scope_id?: string
+          stage?: string
         }
         Relationships: []
       }

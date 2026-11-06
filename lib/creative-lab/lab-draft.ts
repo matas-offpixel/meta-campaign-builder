@@ -13,6 +13,7 @@ import {
   attachedAdSetKey,
   type AdCreativeDraft,
   type CampaignDraft,
+  type CampaignObjective,
   type CTAType,
   type CreativeEnhancementSettings,
 } from "../types.ts";
@@ -51,6 +52,21 @@ export type LabDraftAd = {
 };
 
 const CTA_VALUES: readonly CTAType[] = ["sign_up", "learn_more", "book_now", "buy_tickets"];
+
+const SETTINGS_OBJECTIVES: readonly CampaignObjective[] = ["purchase", "initiate_checkout", "registration", "traffic", "awareness", "engagement"];
+
+/** The draft's internal objective. The snapshot keeps the recorded string. */
+export function labSettingsObjective(stored: string): CampaignObjective {
+  const value = stored.trim();
+  if ((SETTINGS_OBJECTIVES as readonly string[]).includes(value)) return value as CampaignObjective;
+  const upper = value.toUpperCase();
+  if (upper === "OUTCOME_LEADS" || upper === "LEAD_GENERATION" || upper === "OUTCOME_LEAD_GENERATION") return "registration";
+  if (upper === "OUTCOME_TRAFFIC" || upper === "LINK_CLICKS") return "traffic";
+  if (upper === "OUTCOME_AWARENESS" || upper === "REACH" || upper === "BRAND_AWARENESS") return "awareness";
+  if (upper === "OUTCOME_ENGAGEMENT" || upper === "POST_ENGAGEMENT") return "engagement";
+  if (upper === "OUTCOME_SALES") return "purchase";
+  throw new Error(`unknown objective: ${stored}`);
+}
 
 export function labCta(value: string): CTAType {
   const key = value.trim().toLowerCase().replace(/\s+/g, "_");
@@ -110,7 +126,7 @@ export function buildLabDraft(target: LabDraftTarget, ads: readonly LabDraftAd[]
       metaAdAccountId: target.adAccountId,
       campaignCode: "",
       campaignName: target.campaignName,
-      objective: "purchase",
+      objective: labSettingsObjective(target.campaignObjective),
       wizardMode: "attach_adset",
       existingMetaCampaign: {
         id: target.campaignId,

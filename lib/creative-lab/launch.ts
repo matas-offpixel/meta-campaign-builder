@@ -75,7 +75,7 @@ export type LaunchRoundResult = {
   errors: { roundAdId: string; adName: string; error: string }[];
 };
 
-const TARGET_COLUMNS = ["ad_account_id", "meta_campaign_id", "meta_adset_id", "page_id", "destination_url", "cta"] as const;
+const TARGET_COLUMNS = ["ad_account_id", "meta_campaign_id", "meta_adset_id", "page_id", "destination_url", "cta", "meta_campaign_objective", "meta_adset_name"] as const;
 
 function text(row: Row, key: string): string {
   return String(row[key] ?? "").trim();
@@ -125,10 +125,10 @@ function targetOf(round: Row, eventName: string, clientId: string | null): LabDr
     campaignName: eventName || "Creative Lab",
     adAccountId: text(round, "ad_account_id"),
     campaignId: text(round, "meta_campaign_id"),
-    campaignObjective: "OUTCOME_SALES",
+    campaignObjective: text(round, "meta_campaign_objective"),
     adSetId: text(round, "meta_adset_id"),
-    adSetName: text(round, "meta_adset_id"),
-    adSetStatus: "ACTIVE",
+    adSetName: text(round, "meta_adset_name"),
+    adSetStatus: text(round, "meta_adset_status") || "ACTIVE",
     destinationUrl: text(round, "destination_url"),
     cta: text(round, "cta"),
   };
@@ -158,24 +158,24 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
   }
   const target = targetOf(round, event?.name ? String(event.name) : "", event?.client_id ? String(event.client_id) : null);
 
-  const [ads, captions, renders, assets, launches, artistPages] = await Promise.all([
+  const [ads, captions, renders, assets, launches] = await Promise.all([
     many(deps.db, "creative_lab_round_ads", "round_id", roundId),
     many(deps.db, "creative_lab_captions", "event_id", text(round, "event_id")),
     many(deps.db, "creative_lab_renders", "user_id", deps.userId),
     many(deps.db, "creative_assets", "user_id", deps.userId),
     many(deps.db, "creative_lab_round_ad_launches", "user_id", deps.userId),
-    many(deps.db, "artists", "client_id", artist.client_id),
   ]);
   const captionOf = new Map(captions.map((row) => [text(row, "id"), row]));
   const renderOf = new Map(renders.map((row) => [text(row, "id"), row]));
   const assetOf = new Map(assets.map((row) => [text(row, "id"), row]));
   const already = new Set(launches.map((row) => text(row, "round_ad_id")));
-  const artistPage = artistPages.find((row) => text(row, "name").toLowerCase() === artist.name.trim().toLowerCase());
-  const artistPageId = text(artistPage ?? {}, "meta_page_id");
+  const artistPageId = text(artistRow ?? {}, "meta_page_id");
+  const artistInstagramId = text(artistRow ?? {}, "instagram_actor_id");
+  const promoterInstagramId = text(round, "instagram_actor_id") || null;
 
   const skipped: LaunchRoundResult["skipped"] = [];
   const errors: LaunchRoundResult["errors"] = [];
-  const ready: { ad: Row; caption: Row; asset: Row; style: CaptionStyle; pageId: string }[] = [];
+  const ready: { ad: Row; caption: Row; asset: Row; style: CaptionStyle; pageId: string; instagramActorId: string | null }[] = [];
 
   for (const ad of ads) {
     const state = text(ad, "launch_state");
@@ -195,13 +195,21 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
       await mark(deps.db, text(ad, "id"), "launch_failed", "the render file is missing");
       continue;
     }
-    const pageId = style === "artist_first_person" ? artistPageId : text(round, "page_id");
-    if (style === "artist_first_person" && !pageId) {
-      errors.push({ roundAdId: text(ad, "id"), adName, error: "no artist page" });
-      await mark(deps.db, text(ad, "id"), "launch_failed", "no artist page");
+    if (style === "artist_first_person") {
+      if (!artistPageId) {
+        errors.push({ roundAdId: text(ad, "id"), adName, error: "no artist page" });
+        await mark(deps.db, text(ad, "id"), "launch_failed", "no artist page");
+        continue;
+      }
+      if (!artistInstagramId) {
+        errors.push({ roundAdId: text(ad, "id"), adName, error: "no artist Instagram account" });
+        await mark(deps.db, text(ad, "id"), "launch_failed", "no artist Instagram account");
+        continue;
+      }
+      ready.push({ ad, caption, asset, style, pageId: artistPageId, instagramActorId: artistInstagramId });
       continue;
     }
-    ready.push({ ad, caption, asset, style, pageId });
+    ready.push({ ad, caption, asset, style, pageId: text(round, "page_id"), instagramActorId: promoterInstagramId });
   }
 
   const result: LaunchRoundResult = { roundId, status: "approved", launched: [], skipped, errors };
@@ -246,7 +254,7 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
       videoId: video.videoId,
       registryAssetId: video.registryAssetId || text(item.asset, "id"),
       pageId: item.pageId,
-      instagramActorId: text(round, "instagram_actor_id") || null,
+      instagramActorId: item.instagramActorId,
     });
     sent.push(item);
   }

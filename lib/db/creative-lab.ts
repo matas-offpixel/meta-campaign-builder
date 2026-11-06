@@ -59,6 +59,8 @@ export type CreativeLabCardData = {
     name: string;
     rightsDocRef: string | null;
     startingCaption: string | null;
+    metaPageId: string | null;
+    instagramActorId: string | null;
     rights: RightsState;
     rightsLabel: string;
   }[];
@@ -85,7 +87,7 @@ export type CreativeLabCardData = {
     validatorDetail: string;
     awaitingLong: boolean;
   }[];
-  adSets: { metaAdSetId: string; name: string; status: string; adCount: number; cap: 50 }[];
+  adSets: { metaAdSetId: string; adAccountId: string; name: string; status: string; adCount: number; cap: 50 }[];
   rounds: {
     id: string;
     roundNo: number;
@@ -170,6 +172,8 @@ export async function loadCreativeLabCard(
       name: text(row, "name"),
       rightsDocRef: text(row, "rights_doc_ref") || null,
       startingCaption: text(row, "starting_caption") || null,
+      metaPageId: text(row, "meta_page_id") || null,
+      instagramActorId: text(row, "instagram_actor_id") || null,
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
     })),
@@ -222,6 +226,7 @@ export async function loadCreativeLabCard(
       }),
     adSets: adSets.map((row) => ({
       metaAdSetId: text(row, "meta_adset_id"),
+      adAccountId: text(row, "ad_account_id"),
       name: text(row, "source_name") || text(row, "meta_adset_id"),
       status: text(row, "phase_at_launch") || "recorded",
       adCount: counts.get(text(row, "meta_adset_id")) ?? 0,
