@@ -1581,6 +1581,7 @@ export type Database = {
           instagram_actor_id: string | null
           meta_page_id: string | null
           name: string
+          played_cities: string[]
           rights_doc_ref: string | null
           starting_caption: string | null
           tiktok_identity_id: string | null
@@ -1597,6 +1598,7 @@ export type Database = {
           instagram_actor_id?: string | null
           meta_page_id?: string | null
           name: string
+          played_cities?: string[]
           rights_doc_ref?: string | null
           starting_caption?: string | null
           tiktok_identity_id?: string | null
@@ -1613,6 +1615,7 @@ export type Database = {
           instagram_actor_id?: string | null
           meta_page_id?: string | null
           name?: string
+          played_cities?: string[]
           rights_doc_ref?: string | null
           starting_caption?: string | null
           tiktok_identity_id?: string | null

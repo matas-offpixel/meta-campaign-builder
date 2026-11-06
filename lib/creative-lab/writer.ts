@@ -288,10 +288,13 @@ export async function generateCaptions(
   const stage = args.stageOverride ?? saleStageFromStatus(event.status);
 
   let artistName = "";
+  let playedCities: string[] = [];
   if (args.artistId) {
-    const artistRes = await db.from("creative_lab_artists").select("name").eq("id", args.artistId).maybeSingle();
+    const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
     if (artistRes.error) throw new Error(`creative_lab_artists: ${artistRes.error.message}`);
-    artistName = (artistRes.data as { name?: string } | null)?.name?.trim() ?? "";
+    const artist = artistRes.data as { name?: string; played_cities?: unknown } | null;
+    artistName = artist?.name?.trim() ?? "";
+    playedCities = Array.isArray(artist?.played_cities) ? artist.played_cities.map((city) => String(city).trim()).filter(Boolean) : [];
   }
 
   const [upcoming, tickets, clipVenue, emojiOk, existing, version, past] = await Promise.all([
@@ -372,6 +375,7 @@ export async function generateCaptions(
       upcomingEvents: upcoming.map((show) => show.eventName),
       pastAppearances: past,
       speakingArtist: args.style === "artist_first_person" ? artistName : null,
+      playedCities: args.style === "artist_first_person" ? playedCities : undefined,
     });
     if (!check.ok) {
       deps.onReject?.(overlay, primary, check.errors);

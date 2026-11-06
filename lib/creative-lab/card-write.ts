@@ -21,6 +21,10 @@ function text(row: Row | null | undefined, key: string): string {
   return String(row?.[key] ?? "").trim();
 }
 
+function cityList(value: readonly string[] | null | undefined): string[] {
+  return (value ?? []).map((city) => city.trim()).filter(Boolean);
+}
+
 export async function saveLabFacts(
   db: ServiceRoleDb,
   args: { userId: string; eventId: string; lineup: string[]; headliners: string[]; allowedDates: string[] },
@@ -54,21 +58,34 @@ export async function saveLabArtist(
     startingCaption: string;
     metaPageId?: string | null;
     instagramActorId?: string | null;
+    playedCities?: readonly string[];
     artistVoice?: boolean;
   },
 ): Promise<{ id: string; startingCaption: StartingCaptionResult | null }> {
   const name = args.name.trim();
   if (!name) throw new Error("An artist needs a name.");
+  const metaPageId = args.metaPageId?.trim() || null;
+  let instagramActorId = args.instagramActorId?.trim() || null;
+  const playedCities = cityList(args.playedCities);
+  let id = args.artistId?.trim() || "";
+  if (id) {
+    const existingRes = await db.from("creative_lab_artists").select("*").eq("id", id).eq("user_id", args.userId).maybeSingle();
+    if (existingRes.error) throw new Error(existingRes.error.message);
+    const existing = existingRes.data as Row | null;
+    const previousPage = text(existing, "meta_page_id");
+    const previousInstagram = text(existing, "instagram_actor_id");
+    if (metaPageId === previousPage && !instagramActorId && previousInstagram) instagramActorId = previousInstagram;
+  }
   const payload = {
     user_id: args.userId,
     client_id: args.clientId,
     name,
     rights_doc_ref: args.rightsDocRef.trim() || null,
     starting_caption: args.startingCaption.trim() || null,
-    meta_page_id: args.metaPageId?.trim() || null,
-    instagram_actor_id: args.instagramActorId?.trim() || null,
+    meta_page_id: metaPageId,
+    instagram_actor_id: instagramActorId,
+    played_cities: playedCities,
   };
-  let id = args.artistId?.trim() || "";
   if (id) {
     const updated = await db.from("creative_lab_artists").update(payload).eq("id", id).eq("user_id", args.userId);
     if (updated.error) throw new Error(updated.error.message);
@@ -85,6 +102,7 @@ export async function saveLabArtist(
         text: args.startingCaption,
         metaPageId: args.metaPageId,
         artistVoice: args.artistVoice,
+        playedCities,
       })
     : null;
   return { id, startingCaption };

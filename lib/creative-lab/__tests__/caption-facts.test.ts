@@ -460,6 +460,22 @@ describe("creative lab captions: claims the record does not hold", () => {
     });
     assert.equal(southampton.ok, true, southampton.errors.map((e) => e.detail).join("; "));
     assert.equal(southampton.errors.some((e) => e.code === "past_not_in_facts"), false);
+    const confirmed = validateCaption(enzo, "artist_first_person", [], P26, STYLE, {
+      speakingArtist: "Enzo Siragusa",
+      playedCities: ["Southampton"],
+    });
+    assert.equal(confirmed.ok, true, confirmed.errors.map((e) => e.detail).join("; "));
+    assert.equal(confirmed.errors.some((e) => e.code === "past_not_in_facts"), false);
+    const elsewhere = validateCaption(enzo, "artist_first_person", [], P26, STYLE, {
+      speakingArtist: "Enzo Siragusa",
+      playedCities: ["Bristol"],
+    });
+    assert.ok(elsewhere.errors.some((e) => e.code === "past_not_in_facts"), elsewhere.errors.map((e) => e.detail).join("; "));
+    const otherArtist = validateCaption("Luke Dean back in Southampton", "artist_first_person", ["Luke Dean"], P26, STYLE, {
+      speakingArtist: "Enzo Siragusa",
+      playedCities: ["Southampton"],
+    });
+    assert.ok(otherArtist.errors.some((e) => e.code === "past_not_in_facts"));
     assert.equal(validateCaption("Luke Dean at Circuit", "lineup", ["Luke Dean"], billed, STYLE).ok, true);
   });
 
