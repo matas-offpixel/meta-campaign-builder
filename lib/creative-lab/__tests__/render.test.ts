@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { before, describe, it } from "node:test";
 
 import { styleVersion } from "../../../src/remotion/caption-style/profile.ts";
 import type { ServiceRoleDb } from "../load.ts";
-import { audioMode, loadLabRender, renderCaptionOnClip, type CaptionRenderRequest } from "../render.ts";
+import { audioMode, loadLabRender, renderCaptionOnClip, renderStoragePath, type CaptionRenderRequest } from "../render.ts";
 import { fakeDb, type FakeDb } from "./fake-db.ts";
 
 const LINES = ["Luke Dean joins", "Enzo Siragusa for", "our 4th Birthday", "You in?"];
@@ -284,5 +285,40 @@ describe("renderCaptionOnClip", () => {
       if (previous === undefined) delete process.env.REMOTION_LAMBDA_SERVE_URL;
       else process.env.REMOTION_LAMBDA_SERVE_URL = previous;
     }
+  });
+
+  it("refuses the long size while it is unapproved, before any upload", async () => {
+    const fake = seed();
+    fake.tables.creative_lab_captions[0].size_variant = "long";
+    let uploaded = false;
+    await assert.rejects(
+      renderCaptionOnClip(db(fake), {
+        renderId: "render-1",
+        userId: "op",
+        deps: deps(async () => {
+          uploaded = true;
+          return { bytes: new Uint8Array([1]), renderMs: 1 };
+        }).deps,
+      }),
+      /long caption size is not approved/,
+    );
+    assert.equal(uploaded, false);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "failed");
+  });
+
+  it("writes a retry to a new object so the failed attempt is left in place", async () => {
+    const fake = seed();
+    fake.tables.creative_lab_renders[0].attempt = 2;
+    const { uploaded, deps: d } = deps(async () => ({ bytes: new Uint8Array([1, 2, 3]), renderMs: 4 }));
+    const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d });
+    assert.equal(renderStoragePath("render-1", 1), "videos/creative-lab/render-1-9x16.mp4");
+    assert.equal(renderStoragePath("render-1", 2), "videos/creative-lab/render-1-a2-9x16.mp4");
+    assert.equal(result.storagePath, "videos/creative-lab/render-1-a2-9x16.mp4");
+    assert.equal(uploaded[0].path, result.storagePath);
+  });
+
+  it("never asks Remotion to photograph an unapproved long size", () => {
+    const source = readFileSync(new URL("../render.ts", import.meta.url), "utf8");
+    assert.equal(source.includes("unapprovedProof"), false);
   });
 });

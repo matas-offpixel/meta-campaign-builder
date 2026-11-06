@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AbsoluteFill, Audio, cancelRender, continueRender, delayRender, OffthreadVideo } from "remotion";
 
 import tiktokSansUrl from "../fonts/TikTokSans[opsz,slnt,wdth,wght].ttf";
-import { captionInsideSafeRect, captionLayout, captionLineStrokes, profile, type CaptionAspect } from "../caption-style/profile";
+import { captionInsideSafeRect, captionLayout, captionLimits, captionLineStrokes, profile, type CaptionAspect, type CaptionSize } from "../caption-style/profile";
 
 export type CaptionAudio = "original" | "muted" | "replaced";
 
@@ -23,6 +23,14 @@ export type CaptionOnClipProps = {
   durationInSeconds: number;
   /** "black" draws the caption alone, for the reference-frame check. */
   plate: "video" | "black";
+  /** Absent is the locked default size. "long" refuses while the profile is unapproved. */
+  size?: CaptionSize;
+  /**
+   * Local side-by-side only. Production renders never set this.
+   * Lets the unapproved long size be photographed, including a line that
+   * the validator would reject, so the type can be signed off.
+   */
+  unapprovedProof?: boolean;
 };
 
 // The full clip is extracted before this promise can resolve. 58s is not enough.
@@ -62,9 +70,10 @@ function measureLine(line: string, fontPx: number, fontWidth: number): number {
  * zone, or when any measured line leaves the 4:5 safe rectangle.
  */
 export function CaptionOnClip(props: CaptionOnClipProps) {
+  const size = props.size ?? "default";
   const layout = useMemo(
-    () => captionLayout(props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY),
-    [props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY],
+    () => captionLayout(props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, size),
+    [props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, size],
   );
   const { fontPx, safeWidth } = layout;
   const fontWidth = profile.fontWidth;
@@ -87,9 +96,14 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
       await fontReady;
       await document.fonts.ready;
       if (gone) return;
-      const tooLong = props.lines.find((line) => line.length > profile.charsPerLine);
-      if (props.lines.length > profile.maxLines || tooLong) {
-        cancelRender(new Error(tooLong ? `"${tooLong}" exceeds ${profile.charsPerLine} characters` : `${props.lines.length} lines`));
+      if (size === "long" && !profile.longApproved && !props.unapprovedProof) {
+        cancelRender(new Error("long caption size is not approved"));
+        return;
+      }
+      const limits = captionLimits(size);
+      const tooLong = props.lines.find((line) => line.length > limits.charsPerLine);
+      if ((!props.unapprovedProof && props.lines.length > limits.maxLines) || tooLong) {
+        cancelRender(new Error(tooLong ? `"${tooLong}" exceeds ${limits.charsPerLine} characters` : `${props.lines.length} lines`));
         return;
       }
       const widths = props.lines.map((line) => measureLine(line, fontPx, fontWidth));
@@ -98,7 +112,7 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
         cancelRender(new Error(`"${tooWide}" is wider than the 9:16 safe zone`));
         return;
       }
-      if (!captionInsideSafeRect(layout, widths)) {
+      if (!props.unapprovedProof && !captionInsideSafeRect(layout, widths)) {
         cancelRender(new Error("caption leaves the 4:5 safe rectangle"));
         return;
       }
@@ -109,7 +123,7 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
     return () => {
       gone = true;
     };
-  }, [fontPx, fontWidth, safeWidth, layout, measureHandle, props.lines]);
+  }, [fontPx, fontWidth, safeWidth, layout, measureHandle, props.lines, props.unapprovedProof, size]);
 
   const startFrom = Math.round((props.inS ?? 0) * props.fps);
   const endAt = props.outS == null ? undefined : Math.round(props.outS * props.fps);
@@ -127,7 +141,7 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
   };
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "#000", overflow: "hidden" }}>
+    <AbsoluteFill style={{ backgroundColor: props.plate === "black" && props.unapprovedProof ? "#00ff00" : "#000", overflow: "hidden" }}>
       {props.plate === "video" && fontLoaded ? (
         <OffthreadVideo
           src={props.clipUrl}

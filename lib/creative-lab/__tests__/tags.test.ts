@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { CREATIVE_TAG_DIMENSIONS } from "../../db/creative-tags.ts";
 import { computeTagPerformance } from "../../learning/tag-performance.ts";
 import { CLIENTS, fact, NOW } from "../../learning/__tests__/fixtures.ts";
 import type { ServiceRoleDb } from "../load.ts";
-import { assignCaptionStyleTag, CREATIVE_LAB_DIMENSIONS } from "../tags.ts";
+import { assignCaptionStyleTag, CAPTION_STYLES, CREATIVE_LAB_DIMENSIONS, voiceForStyle } from "../tags.ts";
 import { fakeDb } from "./fake-db.ts";
 
 const P26 = {
@@ -118,5 +119,12 @@ describe("creative lab tags: caption_style", () => {
     const client = rows.find((r) => r.scope === "client" && r.dimension === "caption_style");
     assert.ok(client);
     assert.deepEqual([client.value_key, client.stage, client.ads, client.results], ["lineup", "registration", 1, 4]);
+  });
+
+  it("takes the voice from the style, and migration 200 lists every style", () => {
+    assert.equal(voiceForStyle("artist_first_person"), "artist");
+    assert.equal(voiceForStyle("lineup"), "promoter");
+    const migration = readFileSync(new URL("../../../supabase/migrations/200_creative_lab_m3.sql", import.meta.url), "utf8");
+    for (const style of CAPTION_STYLES) assert.match(migration, new RegExp(`'${style}'`));
   });
 });

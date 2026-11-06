@@ -153,7 +153,7 @@ describe("creative lab captions: prices and scarcity", () => {
 describe("creative lab captions: form", () => {
   it("wraps at the style profile's characters per line and fails over four lines", () => {
     assert.deepEqual(wrapCaption("one two three four five", 9), ["one two", "three", "four five"]);
-    const long = "Luke Dean and Enzo Siragusa and Reeshy and Benji King all on one bill this year";
+    const long = "aaaaabbbbb cccccddddd eeeeefffff ggggghhhhh iiiiiijjjj";
     const out = validateCaption(long, "lineup", ["Luke Dean", "Enzo Siragusa", "Reeshy", "Benji King"], P26, STYLE);
     assert.deepEqual(out.errors.map((e) => e.code), ["too_long"]);
     const wide = validateCaption(long, "lineup", ["Luke Dean", "Enzo Siragusa", "Reeshy", "Benji King"], P26, {
@@ -203,5 +203,61 @@ describe("creative lab captions: facts", () => {
       { name: "Tier 1", price: 20, remaining: 0 },
       { name: "Tier 2", price: 25, remaining: null },
     ]);
+  });
+});
+
+describe("creative lab captions: M3 checks", () => {
+  const overlay = (text: string, opts: Parameters<typeof validateCaption>[5] = {}) =>
+    validateCaption(text, "lineup", ["Luke Dean"], P26, STYLE, opts);
+
+  it("allows a crowd number only when the filmed show sold at least that many", () => {
+    const text = "This is what 2,000 people look like with Luke Dean";
+    assert.equal(overlay(text, { crowdTicketsSold: 2000 }).ok, true);
+    assert.deepEqual(overlay(text, { crowdTicketsSold: 400 }).errors.map((e) => e.code), ["crowd_unproven"]);
+    assert.deepEqual(overlay(text, { crowdTicketsSold: null }).errors.map((e) => e.code), ["crowd_unproven"]);
+  });
+
+  it("lets a Next list name an upcoming show and refuses a past one, at most three", () => {
+    const upcoming = "Next: Schak, East End Dubs, Robbie Doherty";
+    const pass = overlay(upcoming, { extraNames: ["Schak", "East End Dubs", "Robbie Doherty"] });
+    assert.equal(pass.ok, true);
+    const past = overlay("Next: Azyr, Schak", { extraNames: ["Schak"] });
+    assert.ok(past.errors.some((e) => e.code === "unknown_name" && e.detail.includes("Azyr")));
+    const four = overlay("Next: Schak, East End Dubs, Robbie Doherty, Folamour", {
+      extraNames: ["Schak", "East End Dubs", "Robbie Doherty", "Folamour"],
+    });
+    assert.ok(four.errors.some((e) => e.code === "next_list"));
+  });
+
+  it("rejects emoji on the overlay and follows the primary-text setting", () => {
+    assert.ok(overlay("Luke Dean 💚").errors.some((e) => e.code === "emoji"));
+    const primary = overlay("Luke Dean joins", { primaryText: "Who's in? 💚", emojiInPrimary: true });
+    assert.equal(primary.ok, true);
+    const blocked = overlay("Luke Dean joins", { primaryText: "Who's in? 💚", emojiInPrimary: false });
+    assert.deepEqual(blocked.errors.map((e) => e.code), ["primary_emoji"]);
+  });
+
+  it("uses the long size from 73 to 96 characters and rejects 97 or a word past the line", () => {
+    const line = (n: number, ch: string) => ch.repeat(n);
+    const at96 = [line(24, "a"), line(24, "b"), line(24, "c"), line(21, "d")].join(" ");
+    assert.equal(at96.length, 96);
+    const fit = overlay(at96);
+    assert.equal(fit.sizeVariant, "long");
+    assert.equal(fit.ok, true);
+    assert.equal(fit.lines.length, 4);
+    const at97 = `${at96}e`;
+    assert.equal(at97.length, 97);
+    assert.ok(overlay(at97).errors.some((e) => e.code === "too_long"));
+    assert.ok(overlay("a".repeat(19)).errors.some((e) => e.code === "word_too_long"));
+  });
+
+  it("four_line is exactly four lines", () => {
+    const out = validateCaption("One\nTwo\nThree", "four_line", [], P26, STYLE);
+    assert.ok(out.errors.some((e) => e.code === "four_line"));
+  });
+
+  it("wraps Interplanetary Criminal at the space", () => {
+    assert.deepEqual(wrapCaption("Interplanetary Criminal", 18), ["Interplanetary", "Criminal"]);
+    assert.equal(overlay("Interplanetary Criminal", { extraNames: ["Interplanetary Criminal"] }).ok, true);
   });
 });

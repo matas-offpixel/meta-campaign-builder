@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import reference from "../../../src/remotion/caption-style/reference/reference.json" with { type: "json" };
-import { CHARS_PER_LINE, boxInsideRect, captionInsideSafeRect, captionLayout, captionLineStrokes, lineFits, outputSize, profile, styleVersion } from "../../../src/remotion/caption-style/profile.ts";
+import { CHARS_PER_LINE, boxInsideRect, captionInsideSafeRect, captionLayout, captionLineStrokes, hashProfile, lineFits, outputSize, profile, styleVersion } from "../../../src/remotion/caption-style/profile.ts";
 
 const sourceY = profile.verticalCenterPctOfSourceHeight * 1280;
 
@@ -93,6 +93,14 @@ describe("caption layout", () => {
   it("reads the wrap width from v1.json and hashes the profile stably", async () => {
     assert.equal(CHARS_PER_LINE, 18);
     assert.equal(profile.fontWeight, 400);
+    assert.equal(profile.longApproved, false);
+    assert.equal(profile.long.charsPerLine, 24);
+    assert.ok(Math.abs(profile.long.fontSizePctOfWidth / profile.fontSizePctOfWidth - 0.75) < 0.001);
+    const layout = captionLayout(720, 1280, "9:16", 0.5);
+    const longLayout = captionLayout(720, 1280, "9:16", 0.5, "long");
+    assert.ok(Math.abs(longLayout.fontPx / layout.fontPx - 0.75) < 0.01);
+    assert.ok(Math.abs(longLayout.strokePx / layout.strokePx - 0.75) < 0.01);
+    assert.equal(await hashProfile(profile), await hashProfile({ ...profile, longApproved: true }));
     assert.equal(await styleVersion(), await styleVersion());
     assert.match(await styleVersion(), /^[0-9a-f]{64}$/);
   });

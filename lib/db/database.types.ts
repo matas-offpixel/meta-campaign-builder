@@ -1627,11 +1627,14 @@ export type Database = {
         Row: {
           caption_no: number
           created_at: string
+          declared_names: string[]
           event_id: string
           facts_hash: string
           generated_by: string
           id: string
           lines: string[]
+          primary_text: string | null
+          size_variant: string
           status: string
           style: string
           style_version: string
@@ -1642,11 +1645,14 @@ export type Database = {
         Insert: {
           caption_no: number
           created_at?: string
+          declared_names?: string[]
           event_id: string
           facts_hash: string
           generated_by: string
           id?: string
           lines: string[]
+          primary_text?: string | null
+          size_variant?: string
           status?: string
           style: string
           style_version: string
@@ -1657,11 +1663,14 @@ export type Database = {
         Update: {
           caption_no?: number
           created_at?: string
+          declared_names?: string[]
           event_id?: string
           facts_hash?: string
           generated_by?: string
           id?: string
           lines?: string[]
+          primary_text?: string | null
+          size_variant?: string
           status?: string
           style?: string
           style_version?: string
@@ -1804,6 +1813,7 @@ export type Database = {
       creative_lab_renders: {
         Row: {
           aspect: string
+          attempt: number
           caption_id: string
           clip_id: string
           created_at: string
@@ -1820,6 +1830,7 @@ export type Database = {
         }
         Insert: {
           aspect: string
+          attempt?: number
           caption_id: string
           clip_id: string
           created_at?: string
@@ -1836,6 +1847,7 @@ export type Database = {
         }
         Update: {
           aspect?: string
+          attempt?: number
           caption_id?: string
           clip_id?: string
           created_at?: string
@@ -1916,6 +1928,9 @@ export type Database = {
           confirmed: boolean
           created_at: string
           id: string
+          launch_error: string | null
+          launch_state: string
+          render_id: string | null
           result_metric: string | null
           retest_of: string | null
           role: string
@@ -1938,6 +1953,9 @@ export type Database = {
           confirmed?: boolean
           created_at?: string
           id?: string
+          launch_error?: string | null
+          launch_state?: string
+          render_id?: string | null
           result_metric?: string | null
           retest_of?: string | null
           role?: string
@@ -1960,6 +1978,9 @@ export type Database = {
           confirmed?: boolean
           created_at?: string
           id?: string
+          launch_error?: string | null
+          launch_state?: string
+          render_id?: string | null
           result_metric?: string | null
           retest_of?: string | null
           role?: string
@@ -2004,55 +2025,83 @@ export type Database = {
             referencedRelation: "creative_lab_rounds"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "creative_lab_round_ads_render_id_fkey"
+            columns: ["render_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_renders"
+            referencedColumns: ["id"]
+          },
         ]
       }
       creative_lab_rounds: {
         Row: {
+          ad_account_id: string | null
           approved_at: string | null
           approved_by: string | null
           artist_id: string
           built_at: string
           channel: string
           created_at: string
+          cta: string | null
+          destination_url: string | null
           draft_id: string | null
           event_id: string
           id: string
+          instagram_actor_id: string | null
           judged_at: string | null
           launched_at: string | null
+          meta_adset_id: string | null
+          meta_campaign_id: string | null
+          page_id: string | null
           round_no: number
           status: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          ad_account_id?: string | null
           approved_at?: string | null
           approved_by?: string | null
           artist_id: string
           built_at?: string
           channel?: string
           created_at?: string
+          cta?: string | null
+          destination_url?: string | null
           draft_id?: string | null
           event_id: string
           id?: string
+          instagram_actor_id?: string | null
           judged_at?: string | null
           launched_at?: string | null
+          meta_adset_id?: string | null
+          meta_campaign_id?: string | null
+          page_id?: string | null
           round_no: number
           status?: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          ad_account_id?: string | null
           approved_at?: string | null
           approved_by?: string | null
           artist_id?: string
           built_at?: string
           channel?: string
           created_at?: string
+          cta?: string | null
+          destination_url?: string | null
           draft_id?: string | null
           event_id?: string
           id?: string
+          instagram_actor_id?: string | null
           judged_at?: string | null
           launched_at?: string | null
+          meta_adset_id?: string | null
+          meta_campaign_id?: string | null
+          page_id?: string | null
           round_no?: number
           status?: string
           updated_at?: string
@@ -2078,6 +2127,32 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_style_settings: {
+        Row: {
+          client_id: string
+          emoji_in_primary: boolean
+          style: string
+        }
+        Insert: {
+          client_id: string
+          emoji_in_primary?: boolean
+          style: string
+        }
+        Update: {
+          client_id?: string
+          emoji_in_primary?: boolean
+          style?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_style_settings_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
             referencedColumns: ["id"]
           },
         ]

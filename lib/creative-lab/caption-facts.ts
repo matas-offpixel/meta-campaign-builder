@@ -20,8 +20,17 @@
  *     highest-priced; "under N" only when remaining < N; "N left" only
  *     when remaining ≤ N; "sold out" only when a tier has none left.
  *   - wrap at the style profile's characters per line (v1.json; 18), at
- *     most 4 lines; the lines returned are the ones the renderer draws.
- *   - no emoji, no '#', not all caps.
+ *     most 4 lines. An overlay of 73–96 characters uses the long size
+ *     (4 × 24). Over 96, or a single word longer than that size's line,
+ *     is rejected. four_line must be exactly 4 lines.
+ *   - layout (wrap, emoji, '#', all caps) applies to the overlay only.
+ *     Overlay emoji are never allowed. Primary text may use emoji when
+ *     the client's style setting says so, and is capped at 125 characters.
+ *   - a "Next:" list is at most 3 names, each from this event or from the
+ *     client's upcoming lineups (passed in as extra names).
+ *   - a crowd number ("2,000 people", "2,000 music lovers") needs the
+ *     filmed show's tickets sold to be at least that number. No clip
+ *     event, or no count, rejects it.
  *
  * facts_hash is sha256 over canonical JSON (sorted keys; tiers reduced to
  * name, price, remaining), so it changes when stock does.
@@ -29,7 +38,7 @@
 
 import { createHash } from "node:crypto";
 
-import { CHARS_PER_LINE } from "../../src/remotion/caption-style/profile.ts";
+import { CHARS_PER_LINE, profile } from "../../src/remotion/caption-style/profile.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import type { CaptionStyle } from "./tags.ts";
 
@@ -64,13 +73,52 @@ export type CaptionErrorCode =
   | "count_not_true"
   | "sold_out_not_true"
   | "too_long"
+  | "word_too_long"
+  | "four_line"
   | "emoji"
   | "hashtag"
-  | "all_caps";
+  | "all_caps"
+  | "crowd_unproven"
+  | "next_list"
+  | "primary_too_long"
+  | "primary_emoji";
 
 export type CaptionError = { code: CaptionErrorCode; detail: string };
 
-export type CaptionValidation = { ok: boolean; errors: CaptionError[]; lines: string[]; factsHash: string };
+export type CaptionValidation = {
+  ok: boolean;
+  errors: CaptionError[];
+  lines: string[];
+  factsHash: string;
+  sizeVariant: "default" | "long";
+};
+
+/** Primary text cap. The overlay cap is the long size's maxChars. */
+export const PRIMARY_TEXT_MAX = 125;
+
+export type CaptionCheckOptions = {
+  /** Lineup names from the client's other upcoming events. */
+  extraNames?: readonly string[];
+  /**
+   * Tickets sold at the show the clip was filmed at.
+   * Null, or leaving it out, rejects a crowd number.
+   */
+  crowdTicketsSold?: number | null;
+  primaryText?: string | null;
+  /** Default true. Overlay emoji are never allowed. */
+  emojiInPrimary?: boolean;
+};
+
+/** Case, punctuation and emoji folded, for the per-event dedupe. */
+export function normaliseCaption(text: string): string {
+  return text
+    .normalize("NFKD")
+    .replace(/\p{Extended_Pictographic}/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
 
 /** Null when either count is unknown. */
 export function remainingStock(quantitySold: number | null, quantityAvailable: number | null): number | null {
@@ -428,6 +476,105 @@ function checkScarcity(text: string, style: CaptionStyle, facts: EventFacts): Ca
   return errors;
 }
 
+// ─── crowd, next lists, size ─────────────────────────────────────────────────
+
+const CROWD_RE = /\b(\d{1,3}(?:,\d{3})+|\d+)\s+(?:music\s+lovers|people)\b/gi;
+
+function crowdClaims(text: string): { raw: string; n: number }[] {
+  return [...text.matchAll(CROWD_RE)].map((m) => ({ raw: m[0], n: Number(m[1].replace(/,/g, "")) }));
+}
+
+/** Why a crowd number cannot be said for this filmed show. Null when the text makes no claim, or the count covers it. */
+export function crowdBlock(text: string, ticketsSold: number | null): string | null {
+  return checkCrowd(text, ticketsSold)[0]?.detail ?? null;
+}
+
+function checkCrowd(text: string, ticketsSold: number | null | undefined): CaptionError[] {
+  const claims = crowdClaims(text);
+  if (!claims.length) return [];
+  if (ticketsSold == null) {
+    return claims.map((c) => ({
+      code: "crowd_unproven" as const,
+      detail: `"${c.raw}" needs the filmed show's tickets sold, and this clip has no filmed show`,
+    }));
+  }
+  return claims
+    .filter((c) => ticketsSold < c.n)
+    .map((c) => ({ code: "crowd_unproven" as const, detail: `"${c.raw}" but the filmed show sold ${ticketsSold}` }));
+}
+
+/** Names after "Next:", "& more" stripped. Null when the caption has no Next list. */
+export function nextListItems(text: string): string[] | null {
+  const at = /\bnext\s*:/i.exec(text);
+  if (!at) return null;
+  return text
+    .slice(at.index + at[0].length)
+    .split(",")
+    .map((item) => item.replace(/\s*&?\s*\bmore\b\.?$/i, "").trim())
+    .filter(Boolean);
+}
+
+function itemIsName(item: string, name: string): boolean {
+  const wanted = phraseKeys(name);
+  if (!wanted.length) return false;
+  const have = new Set(phraseKeys(item));
+  return wanted.every((key) => have.has(key));
+}
+
+function checkNextList(text: string, allowedNames: readonly string[]): CaptionError[] {
+  const items = nextListItems(text);
+  if (!items) return [];
+  const errors: CaptionError[] = [];
+  if (items.length > 3) {
+    errors.push({ code: "next_list", detail: `${items.length} names after Next:; at most 3` });
+  }
+  for (const item of items) {
+    if (!allowedNames.some((name) => itemIsName(item, name))) {
+      errors.push({ code: "unknown_name", detail: `"${item}" is not on an upcoming lineup for this client` });
+    }
+  }
+  return errors;
+}
+
+function withExtraNames(facts: EventFacts, extra: readonly string[]): EventFacts {
+  return extra.length ? { ...facts, lineup: [...facts.lineup, ...extra] } : facts;
+}
+
+function factErrors(
+  text: string,
+  style: CaptionStyle,
+  declared: readonly string[],
+  facts: EventFacts,
+  extra: readonly string[],
+  ticketsSold: number | null | undefined,
+): CaptionError[] {
+  const named = withExtraNames(facts, extra);
+  return [
+    ...checkNames(text, declared, named),
+    ...checkDates(text, facts),
+    ...checkPrices(text, facts),
+    ...checkScarcity(text, style, facts),
+    ...checkCrowd(text, ticketsSold),
+    ...checkNextList(text, named.lineup),
+  ];
+}
+
+function layoutErrors(text: string, lines: string[], maxLines: number, charsPerLine: number, style: CaptionStyle): CaptionError[] {
+  const errors: CaptionError[] = [];
+  const over = text.split(/\s+/).find((word) => word.length > charsPerLine);
+  if (over) errors.push({ code: "word_too_long", detail: `"${over}" is longer than ${charsPerLine} characters` });
+  if (style === "four_line" && lines.length !== 4) {
+    errors.push({ code: "four_line", detail: `four_line needs exactly 4 lines and wrapped to ${lines.length}` });
+  } else if (lines.length > maxLines) {
+    errors.push({ code: "too_long", detail: `${lines.length} lines at ${charsPerLine} characters; at most ${maxLines}` });
+  }
+  if (/\p{Extended_Pictographic}/u.test(text)) errors.push({ code: "emoji", detail: "emoji are not allowed on the overlay" });
+  if (text.includes("#")) errors.push({ code: "hashtag", detail: "'#' is not allowed" });
+  const letters = text.match(/\p{L}/gu) ?? [];
+  if (letters.length >= 4 && !/\p{Ll}/u.test(text)) errors.push({ code: "all_caps", detail: "all capitals" });
+  return errors;
+}
+
 // ─── validate ────────────────────────────────────────────────────────────────
 
 export function validateCaption(
@@ -436,25 +583,36 @@ export function validateCaption(
   declaredNames: readonly string[],
   facts: EventFacts,
   styleProfile: StyleProfile,
+  options: CaptionCheckOptions = {},
 ): CaptionValidation {
   const errors: CaptionError[] = [];
   const trimmed = text.trim();
-  const charsPerLine = styleProfile.charsPerLine ?? CHARS_PER_LINE;
-  const maxLines = styleProfile.maxLines ?? DEFAULT_MAX_LINES;
-  const lines = wrapCaption(trimmed, charsPerLine);
-
+  const extra = options.extraNames ?? [];
   if (!trimmed) errors.push({ code: "empty", detail: "no text" });
-  errors.push(...checkNames(trimmed, declaredNames, facts));
-  errors.push(...checkDates(trimmed, facts));
-  errors.push(...checkPrices(trimmed, facts));
-  errors.push(...checkScarcity(trimmed, style, facts));
-  if (lines.length > maxLines) {
-    errors.push({ code: "too_long", detail: `${lines.length} lines at ${charsPerLine} characters; at most ${maxLines}` });
-  }
-  if (/\p{Extended_Pictographic}/u.test(trimmed)) errors.push({ code: "emoji", detail: "emoji are not allowed" });
-  if (trimmed.includes("#")) errors.push({ code: "hashtag", detail: "'#' is not allowed" });
-  const letters = trimmed.match(/\p{L}/gu) ?? [];
-  if (letters.length >= 4 && !/\p{Ll}/u.test(trimmed)) errors.push({ code: "all_caps", detail: "all capitals" });
 
-  return { ok: errors.length === 0, errors, lines, factsHash: factsHash(facts) };
+  const chars = trimmed.length;
+  const long = chars >= profile.long.minChars;
+  if (chars > profile.long.maxChars) {
+    errors.push({ code: "too_long", detail: `${chars} characters; an overlay is at most ${profile.long.maxChars}` });
+  }
+  const charsPerLine = long ? profile.long.charsPerLine : (styleProfile.charsPerLine ?? CHARS_PER_LINE);
+  const maxLines = long ? profile.long.maxLines : (styleProfile.maxLines ?? DEFAULT_MAX_LINES);
+  const lines = wrapCaption(trimmed, charsPerLine);
+  const sizeVariant = long ? "long" : "default";
+
+  errors.push(...factErrors(trimmed, style, declaredNames, facts, extra, options.crowdTicketsSold));
+  errors.push(...layoutErrors(trimmed, lines, maxLines, charsPerLine, style));
+
+  const primary = options.primaryText?.trim() ?? "";
+  if (options.primaryText != null) {
+    if (primary.length > PRIMARY_TEXT_MAX) {
+      errors.push({ code: "primary_too_long", detail: `${primary.length} characters; primary text is at most ${PRIMARY_TEXT_MAX}` });
+    }
+    if ((options.emojiInPrimary ?? true) === false && /\p{Extended_Pictographic}/u.test(primary)) {
+      errors.push({ code: "primary_emoji", detail: "this client does not allow emoji in primary text" });
+    }
+    errors.push(...factErrors(primary, style, declaredNames, facts, extra, options.crowdTicketsSold));
+  }
+
+  return { ok: errors.length === 0, errors, lines, factsHash: factsHash(facts), sizeVariant };
 }
