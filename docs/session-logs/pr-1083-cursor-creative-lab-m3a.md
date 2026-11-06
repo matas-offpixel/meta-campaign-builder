@@ -60,3 +60,26 @@ P26-BDAY-NIGHT refused with `no event facts`.
 Scarcity attempt `Final tickets. Selling fast.` rejected: `scarcity_without_tiers` — the event has no ticket tiers. Puzzle's Skiddle feed has no numbers.
 
 The earlier rights check still stands: `proposeRound` for Luke Dean refused with `not_approved` before any round row was written.
+
+A later pass rejects claims the record does not hold, on the overlay and the primary text. A set time (closing, closing out, opening, first track, last track, headlining, b2b, an N-hour set, all night long, sunrise set) always fails: there is no set-time field. "same room", "this room", "in here", "just dropped", "right now" and "this is {venue}" need a clip filmed at the promoted venue. "is playing {venue}" and "are taking over {venue}" stay. "Pick one:" is 2 or 3 headliners or upcoming shows, never a Next list.
+
+Read-only rerun for P26-BDAY-DAY, `stageOverride: 'on_sale'`, no clip. Not inserted.
+
+Lineup, passed:
+
+1. Overlay `Luke Dean at` / `Circuit 27` / `December`. Primary `Who's grabbing a ticket? 🎟️`. Size `default`.
+2. Overlay `Enzo Siragusa,` / `Luke Dean, Reeshy &` / `more are taking over` / `Circuit 27 December`. Primary `Tag who you're bringing 🎶`. Size `long`.
+3. Overlay `POV: you just saw` / `the Puzzle 4th` / `Birthday lineup`. Primary `Grab yours 🎟️`. Size `default`.
+
+What's next, passed:
+
+1. Overlay `This is what four years` / `of Puzzle looks like.` / `Next: Enzo Siragusa,` / `Luke Dean, Reeshy`. Primary `Who's coming? 🎟️`. Size `long`.
+2. Overlay `Pick one:` / `Enzo Siragusa,` / `Luke Dean, Reeshy`. Primary `Tickets on sale now 🔊`. Size `default`.
+3. Overlay `Luke Dean at Circuit` / `last season. This` / `season: Enzo Siragusa,` / `Luke Dean, Reeshy & more`. Primary `Who's coming?`. Size `long`.
+
+POV, passed:
+
+1. Overlay `POV: your night` / `out at Circuit` / `on 27 December`. Primary `Tickets on sale now 🎟️`. Size `default`.
+2. Overlay `POV: Luke Dean` / `at Circuit on` / `27 December`. Primary `Who's coming? 🔊`. Size `default`.
+
+Rejected on that run: `Puzzle 4th Birthday / Enzo Siragusa, Luke Dean, Reeshy & more / 27 December` — `too_long`, 5 lines at 18. `Pick one: Enzo Siragusa Luke Dean Reeshy` — `pick_one`, the names are not a list of 2 or 3. `Luke Dean closing out Circuit` — `set_not_in_facts`.

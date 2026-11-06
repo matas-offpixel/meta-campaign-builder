@@ -75,6 +75,8 @@ export type GenerateCaptionsArgs = {
 export type GenerateCaptionsDeps = {
   anthropic?: AnthropicLike;
   model?: string;
+  /** Dropped candidates, so a preview can show why. Does not change what is kept. */
+  onReject?: (overlay: string, primary: string, errors: { code: string; detail: string }[]) => void;
 };
 
 type PlaceholderValues = {
@@ -148,6 +150,12 @@ Shapes to mirror, with the tokens:
 
 Do not write a generic ad. The overlay must not say "Sign up now", "Four years deep", "This one matters", or only that the brand turns a number.
 
+Do not copy a set time out of an example. Never write closing, closing out, opening, first track, last track, headlining, b2b, an hour set, all night long, or sunrise set. The record has no set times.
+
+Do not claim the footage was shot in the room. Never write "same room", "this room", "in here", "just dropped", "right now", or "this is {venue}". "{artist} at {venue}", "is playing {venue}" and "are taking over {venue}" are about the show, and those stay.
+
+"Pick one:" is 2 or 3 headliners, or upcoming shows, from the record. It is never followed by "Next:".
+
 Primary text is the short question or CTA from the examples ("Who's coming?", "Tag who you're bringing"). It is not a restatement of the overlay.
 
 ${cta}
@@ -179,6 +187,19 @@ async function rowsOf(db: ServiceRoleDb, table: string, column: string, value: s
   const res = await db.from(table).select("*").eq(column, value);
   if (res.error) throw new Error(`${table}: ${res.error.message}`);
   return (res.data ?? []) as Row[];
+}
+
+/** Venue of the show the clip was filmed at. Null when there is no clip, or the clip has no event. */
+async function filmedVenue(db: ServiceRoleDb, clipId: string | undefined): Promise<string | null> {
+  if (!clipId) return null;
+  const clipRes = await db.from("creative_lab_clips").select("event_id").eq("id", clipId).maybeSingle();
+  if (clipRes.error) throw new Error(`creative_lab_clips: ${clipRes.error.message}`);
+  const eventId = (clipRes.data as { event_id?: string | null } | null)?.event_id ?? null;
+  if (!eventId) return null;
+  const eventRes = await db.from("events").select("venue_name").eq("id", eventId).maybeSingle();
+  if (eventRes.error) throw new Error(`events: ${eventRes.error.message}`);
+  const venue = (eventRes.data as { venue_name?: string | null } | null)?.venue_name?.trim();
+  return venue || null;
 }
 
 async function filmedShowTickets(db: ServiceRoleDb, clipId: string | undefined): Promise<number | null> {
@@ -260,9 +281,10 @@ export async function generateCaptions(
     artistName = (artistRes.data as { name?: string } | null)?.name?.trim() ?? "";
   }
 
-  const [upcoming, tickets, emojiOk, existing, version] = await Promise.all([
+  const [upcoming, tickets, clipVenue, emojiOk, existing, version] = await Promise.all([
     loadUpcomingLineups(db, event.client_id, londonDay(now)),
     filmedShowTickets(db, args.clipId),
+    filmedVenue(db, args.clipId),
     emojiInPrimary(db, event.client_id, args.style),
     rowsOf(db, "creative_lab_captions", "event_id", args.eventId),
     styleVersion(),
@@ -313,7 +335,7 @@ export async function generateCaptions(
     messages: [
       {
         role: "user",
-        content: `Write ${args.n + 4} different ${args.style} candidates for ${facts.eventName}. Sale stage: ${stage}. Name these headliners only, in this order: ${(facts.headliners ?? []).join(", ")}. Use the tokens. Do not invent a date, a price, a venue or a name.`,
+        content: `Write ${args.n + 4} different ${args.style} candidates for ${facts.eventName}. Sale stage: ${stage}. Name these headliners only, in this order: ${(facts.headliners ?? []).join(", ")}. Use the tokens. Do not invent a date, a price, a venue, a set time, or where the footage was filmed. "Pick one:" is 2 or 3 of these headliners and is never a Next list.`,
       },
     ],
   });
@@ -332,8 +354,13 @@ export async function generateCaptions(
       primaryText: primary,
       emojiInPrimary: emojiOk,
       saleStage: stage,
+      clipVenueName: clipVenue,
+      upcomingEvents: upcoming.flatMap((show) => [show.eventName, ...show.headliners]),
     });
-    if (!check.ok) continue;
+    if (!check.ok) {
+      deps.onReject?.(overlay, primary, check.errors);
+      continue;
+    }
     seen.add(key);
     const captionNo = await nextCaptionNo(db, args.eventId, args.style);
     const inserted = await insertCaption(db, {

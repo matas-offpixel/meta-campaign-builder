@@ -107,7 +107,10 @@ export type CaptionErrorCode =
   | "signup_on_sale"
   | "ticket_before_sale"
   | "support_artist"
-  | "generic_overlay";
+  | "generic_overlay"
+  | "set_not_in_facts"
+  | "footage_venue"
+  | "pick_one";
 
 export type CaptionError = { code: CaptionErrorCode; detail: string };
 
@@ -140,6 +143,14 @@ export type CaptionCheckOptions = {
    * and whats_next otherwise refuse an overlay that singles support out.
    */
   allowSupportArtist?: string;
+  /**
+   * The show the clip was filmed at. Footage claims ("same room", "just
+   * dropped", "at [venue]" about the clip) need this, and its venue must
+   * match. Omit it, or leave the venue empty, and those claims fail.
+   */
+  clipVenueName?: string | null;
+  /** Upcoming show names a "Pick one:" list may use, besides headliners. */
+  upcomingEvents?: readonly string[];
 };
 
 /** Case, punctuation and emoji folded, for the per-event dedupe. */
@@ -717,6 +728,70 @@ function bareBirthday(line: string): boolean {
   return /^(?:\d+\s+years(?:\s+of\s+[\p{L}\s]+)?|[\p{L}\s]{0,40}?\bturns?\s+\d+)$/iu.test(trimmed);
 }
 
+/** No set-time column exists yet, so a slot claim cannot be true. */
+const SET_RE = /\b(closing out|closing|opening|first track|last track|headlining|b2b|all night long|sunrise set|\d+\s*-?\s*hours?\s+set)\b/i;
+
+function checkSet(text: string): CaptionError[] {
+  const claim = text.match(SET_RE);
+  if (!claim) return [];
+  return [{ code: "set_not_in_facts", detail: `"${claim[1]}" is a set time, and the event record has none` }];
+}
+
+function escapeReg(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sameVenue(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * A claim that the clip was filmed in the room. Future lines about the
+ * show ("is playing Circuit", "are taking over Circuit", "{artist} at
+ * {venue}") are the booking, not the footage.
+ */
+function checkFootage(text: string, facts: EventFacts, clipVenue: string | null | undefined): CaptionError[] {
+  const promoted = facts.venueName?.trim() ?? "";
+  const clip = clipVenue?.trim() ?? "";
+  const errors: CaptionError[] = [];
+  const room = text.match(/\b(same room|this room|in here)\b/i);
+  if (room && (!clip || !promoted || !sameVenue(clip, promoted))) {
+    errors.push({ code: "footage_venue", detail: `"${room[1]}" needs a clip filmed at ${promoted || "this event's venue"}` });
+  }
+  const cue = text.match(/\b(just dropped|right now)\b/i);
+  const atPromoted = promoted ? new RegExp(`\\bat\\s+${escapeReg(promoted)}\\b`, "i").test(text) : false;
+  const thisIsPromoted = promoted ? new RegExp(`\\bthis is\\s+${escapeReg(promoted)}\\b`, "i").test(text) : false;
+  const footage = Boolean(cue || thisIsPromoted || (atPromoted && cue));
+  if (footage && (!clip || !promoted || !sameVenue(clip, promoted))) {
+    const phrase = cue?.[1] ?? `this is ${promoted}`;
+    errors.push({ code: "footage_venue", detail: `"${phrase}" needs a clip filmed at ${promoted || "this event's venue"}` });
+  }
+  return errors;
+}
+
+function checkPickOne(text: string, facts: EventFacts, upcoming: readonly string[]): CaptionError[] {
+  const found = text.match(/\bpick one\s*:\s*(.+)$/i);
+  if (!found) return [];
+  const tail = found[1].trim();
+  if (/\bnext\s*:/i.test(tail)) {
+    return [{ code: "pick_one", detail: `"Pick one:" cannot introduce a Next list` }];
+  }
+  const options = tail
+    .split(/\s*,\s*|\s+\bor\b\s+|\s+\band\b\s+/i)
+    .map((option) => option.replace(/[.!?]+$/g, "").trim())
+    .filter(Boolean);
+  if (options.length < 2 || options.length > 3) {
+    return [{ code: "pick_one", detail: `"Pick one:" needs 2 or 3 options and has ${options.length}` }];
+  }
+  const known = [...(facts.headliners ?? []), ...upcoming];
+  for (const option of options) {
+    const key = phraseKeys(option).join(" ");
+    const hit = known.some((name) => phraseKeys(name).join(" ") === key);
+    if (!hit) return [{ code: "pick_one", detail: `"${option}" is not a headliner or an upcoming show` }];
+  }
+  return [];
+}
+
 function checkVoice(text: string, lines: string[]): CaptionError[] {
   if (GENERIC_OVERLAY.test(text)) {
     return [{ code: "generic_overlay", detail: "the overlay is a generic line" }];
@@ -774,6 +849,9 @@ export function validateCaption(
   errors.push(...layoutErrors(trimmed, lines, maxLines, charsPerLine, style));
   errors.push(...checkBilling(trimmed, style, facts, options.allowSupportArtist));
   errors.push(...checkVoice(trimmed, lines));
+  errors.push(...checkSet(trimmed));
+  errors.push(...checkFootage(trimmed, facts, options.clipVenueName));
+  errors.push(...checkPickOne(trimmed, facts, options.upcomingEvents ?? []));
   if (options.saleStage) errors.push(...checkStage(trimmed, options.saleStage));
 
   const primary = options.primaryText?.trim() ?? "";
@@ -785,6 +863,9 @@ export function validateCaption(
       errors.push({ code: "primary_emoji", detail: "this client does not allow emoji in primary text" });
     }
     errors.push(...factErrors(primary, style, declaredNames, facts, extra, options.crowdTicketsSold));
+    errors.push(...checkSet(primary));
+    errors.push(...checkFootage(primary, facts, options.clipVenueName));
+    errors.push(...checkPickOne(primary, facts, options.upcomingEvents ?? []));
     if (options.saleStage) errors.push(...checkStage(primary, options.saleStage));
   }
 

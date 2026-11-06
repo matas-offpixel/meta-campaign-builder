@@ -373,3 +373,48 @@ describe("creative lab captions: long size, sale stage, billing", () => {
     assert.ok(validateCaption("Puzzle turns 4", "experience", [], P26, STYLE).errors.some((e) => e.code === "generic_overlay"));
   });
 });
+
+describe("creative lab captions: claims the record does not hold", () => {
+  const billed: EventFacts = { ...P26, headliners: HEADLINERS };
+  const sameRoom = "Same room. Next: Enzo Siragusa, Luke Dean, Reeshy";
+
+  it("rejects a set time, on the overlay or the primary text", () => {
+    for (const text of ["closing out", "opening", "first track", "last track", "headlining", "b2b", "3-hour set", "all night long", "sunrise set"]) {
+      assert.ok(validateCaption(`Luke Dean ${text} Circuit`, "lineup", ["Luke Dean"], billed, STYLE).errors.some((e) => e.code === "set_not_in_facts"), text);
+    }
+    const closing = validateCaption("Luke Dean closing out Circuit", "lineup", ["Luke Dean"], billed, STYLE);
+    assert.ok(closing.errors.some((e) => e.code === "set_not_in_facts"));
+    const primary = validateCaption("Luke Dean at Circuit", "lineup", ["Luke Dean"], billed, STYLE, {
+      primaryText: "Luke Dean closing out Circuit",
+    });
+    assert.ok(primary.errors.some((e) => e.code === "set_not_in_facts"));
+    assert.equal(validateCaption("Enzo Siragusa at Circuit last season", "whats_next", ["Enzo Siragusa"], billed, STYLE, {
+      extraNames: ["Enzo Siragusa"],
+    }).errors.some((e) => e.code === "set_not_in_facts"), false);
+  });
+
+  it("rejects footage claims unless the clip was filmed at that venue", () => {
+    const dropped = validateCaption("POV: Luke Dean just dropped the first track at Circuit", "pov", ["Luke Dean"], billed, STYLE);
+    assert.ok(dropped.errors.some((e) => e.code === "footage_venue"));
+    assert.ok(dropped.errors.some((e) => e.code === "set_not_in_facts"));
+    const noClip = validateCaption(sameRoom, "whats_next", HEADLINERS, billed, STYLE);
+    assert.ok(noClip.errors.some((e) => e.code === "footage_venue"));
+    const filmed = validateCaption(sameRoom, "whats_next", HEADLINERS, billed, STYLE, { clipVenueName: "Circuit" });
+    assert.equal(filmed.ok, true, filmed.errors.map((e) => e.detail).join("; "));
+    const otherRoom = validateCaption(sameRoom, "whats_next", HEADLINERS, billed, STYLE, { clipVenueName: "Engine Rooms" });
+    assert.ok(otherRoom.errors.some((e) => e.code === "footage_venue"));
+    assert.equal(validateCaption("Luke Dean is playing Circuit", "lineup", ["Luke Dean"], billed, STYLE).ok, true);
+    assert.equal(validateCaption("Enzo Siragusa, Luke Dean, Reeshy & more are taking over Circuit", "lineup", HEADLINERS, billed, STYLE).ok, true);
+  });
+
+  it("requires Pick one to be 2 or 3 names from the record, never a Next list", () => {
+    const list = validateCaption("Pick one: Enzo Siragusa, Luke Dean or Reeshy", "question", HEADLINERS, billed, STYLE);
+    assert.equal(list.ok, true, list.errors.map((e) => e.detail).join("; "));
+    const next = validateCaption("Pick one: Next: Enzo Siragusa, Luke Dean", "question", HEADLINERS, billed, STYLE);
+    assert.ok(next.errors.some((e) => e.code === "pick_one"));
+    const one = validateCaption("Pick one: Enzo Siragusa", "question", ["Enzo Siragusa"], billed, STYLE);
+    assert.ok(one.errors.some((e) => e.code === "pick_one"));
+    const support = validateCaption("Pick one: Phill de Janeiro or Benji King", "question", ["Phill de Janeiro", "Benji King"], billed, STYLE);
+    assert.ok(support.errors.some((e) => e.code === "pick_one"));
+  });
+});
