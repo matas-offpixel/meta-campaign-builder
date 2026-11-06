@@ -4,13 +4,18 @@ import { describe, it } from "node:test";
 import { loadEventFacts } from "../caption-facts.ts";
 import {
   addSpotifyToLineup,
+  artistPrimaryAction,
+  enrichLibraryArtists,
   labArtistForLibrary,
+  labNextStep,
   lineupFacts,
   planLineupBackfill,
   P26_BDAY_LINEUP,
   saveLabLineup,
+  showClearForArtistChannels,
   tagSuggestions,
 } from "../lineup.ts";
+import { spotifyNameMatch } from "../spotify-match.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { fakeDb } from "./fake-db.ts";
 
@@ -162,5 +167,59 @@ describe("creative lab lineup", () => {
     assert.deepEqual(plan.createArtists, P26_BDAY_LINEUP.map((row) => row.name));
     assert.deepEqual(plan.links.map((row) => row.name), ["Enzo Siragusa", "Luke Dean"]);
     assert.equal(plan.rows.every((row) => row.artistId == null), true);
+  });
+
+  it("picks one primary action, and a support act with no clips is not cleared", () => {
+    const support = { instagramHandle: null, labArtistId: null, clearedAt: null, isHeadliner: false, clipCount: 0 };
+    assert.equal(artistPrimaryAction(support), "add_instagram");
+    assert.equal(showClearForArtistChannels(support), false);
+    assert.equal(artistPrimaryAction({ ...support, instagramHandle: "@luke", labArtistId: "lab", clipCount: 1, isHeadliner: true }), "find_clips");
+    assert.equal(showClearForArtistChannels({ clearedAt: null, isHeadliner: true, clipCount: 0 }), true);
+    assert.equal(artistPrimaryAction({ instagramHandle: "@enzo", labArtistId: "lab", clearedAt: "2026-11-06", isHeadliner: true, clipCount: 4 }), "find_clips");
+    assert.equal(showClearForArtistChannels({ clearedAt: "2026-11-06", isHeadliner: true, clipCount: 4 }), false);
+  });
+
+  it("highlights captions when one is waiting, not the lineup", () => {
+    const next = labNextStep({ lineupCount: 5, captionsWaiting: true, roundReady: false, runningRound: null, clipCount: 5 });
+    assert.equal(next.target, "lab-captions");
+    assert.match(next.text, /Approve a caption, then propose round 1/);
+    assert.equal(next.verb, "Approve");
+    assert.notEqual(next.verb, "Go");
+    const empty = labNextStep({ lineupCount: 0, captionsWaiting: false, roundReady: false, runningRound: null, clipCount: 0 });
+    assert.equal(empty.target, "lab-lineup");
+  });
+
+  it("enriches one exact Spotify name, stores several, and leaves none", async () => {
+    const hits = {
+      "Enzo Siragusa": [{ id: "spot-enzo", name: "Enzo Siragusa", image_url: "https://img.example/enzo.jpg", genres: ["tech house"] }],
+      Reeshy: [
+        { id: "spot-a", name: "Reeshy", image_url: null, genres: ["house"] },
+        { id: "spot-b", name: "Reeshy", image_url: null, genres: ["uk garage"] },
+      ],
+      "Benji King": [{ id: "spot-other", name: "Benjamin King", image_url: null, genres: [] }],
+    };
+    const db = fakeDb({
+      artists: [
+        { id: "enzo", user_id: USER, name: "Enzo Siragusa", spotify_id: null, profile_jsonb: {} },
+        { id: "reeshy", user_id: USER, name: "Reeshy", spotify_id: null, profile_jsonb: {} },
+        { id: "benji", user_id: USER, name: "Benji King", spotify_id: null, profile_jsonb: {} },
+        { id: "done", user_id: USER, name: "Luke Dean", spotify_id: "already", profile_jsonb: {} },
+      ],
+    });
+    const result = await enrichLibraryArtists(db as unknown as ServiceRoleDb, {
+      userId: USER,
+      artistIds: ["enzo", "reeshy", "benji", "done"],
+      search: async (name) => hits[name as keyof typeof hits] ?? [],
+    });
+    assert.deepEqual(result, { enriched: ["Enzo Siragusa"], pick: ["Reeshy"], none: ["Benji King"] });
+    const enzo = db.tables.artists.find((row) => row.id === "enzo");
+    assert.equal(enzo?.spotify_id, "spot-enzo");
+    assert.equal(enzo?.profile_image_url, "https://img.example/enzo.jpg");
+    assert.deepEqual(enzo?.genres, ["tech house"]);
+    const reeshy = db.tables.artists.find((row) => row.id === "reeshy");
+    assert.equal(reeshy?.spotify_id ?? null, null);
+    assert.equal(spotifyNameMatch("Reeshy", hits.Reeshy).kind, "several");
+    assert.equal(spotifyNameMatch("Benji King", hits["Benji King"]).kind, "none");
+    assert.equal(db.tables.artists.find((row) => row.id === "done")?.spotify_id, "already");
   });
 });

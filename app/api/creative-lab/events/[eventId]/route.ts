@@ -18,10 +18,10 @@ import {
   editLabCaption,
 } from "@/lib/creative-lab/card-write";
 import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
-import { isSpotifyConfigured } from "@/lib/enrichment/spotify";
+import { isSpotifyConfigured, searchArtists } from "@/lib/enrichment/spotify";
 import { requestArtistClip } from "@/lib/creative-lab/ig-discovery";
 import type { SaleStage } from "@/lib/creative-lab/caption-facts";
-import { addSpotifyToLineup, labArtistForLibrary, saveLabLineup, tagSuggestions } from "@/lib/creative-lab/lineup";
+import { addSpotifyToLineup, applySpotifyCandidate, enrichLibraryArtists, labArtistForLibrary, saveLabLineup, tagSuggestions } from "@/lib/creative-lab/lineup";
 import type { ServiceRoleDb } from "@/lib/creative-lab/load";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -114,7 +114,38 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
         return NextResponse.json(await suggestLineup(db, { userId: user.id, eventId, query: body.query ?? "" }));
       case "saveLineup":
         await saveLabLineup(db, { userId: user.id, eventId, slots: body.slots ?? [] });
+        if (isSpotifyConfigured()) {
+          try {
+            await enrichLibraryArtists(db as unknown as ServiceRoleDb, {
+              userId: user.id,
+              artistIds: (body.slots ?? []).map((slot) => slot.artistId),
+              search: async (name) => {
+                const hits = await searchArtists(name, { limit: 5 });
+                return hits.map((hit) => ({ id: hit.id, name: hit.name, image_url: hit.image_url, genres: hit.genres }));
+              },
+            });
+          } catch {
+            // The lineup is already saved. A Spotify miss can be picked later.
+          }
+        }
         return NextResponse.json({ ok: true });
+      case "pickSpotify": {
+        const pick = body.spotify;
+        if (!body.libraryArtistId || !pick?.spotifyId?.trim() || !pick.name?.trim()) {
+          return NextResponse.json({ error: "Pick a Spotify artist." }, { status: 400 });
+        }
+        await applySpotifyCandidate(db as unknown as ServiceRoleDb, {
+          userId: user.id,
+          artistId: body.libraryArtistId,
+          candidate: {
+            spotifyId: pick.spotifyId,
+            name: pick.name,
+            imageUrl: pick.imageUrl ?? null,
+            genres: pick.genres ?? [],
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
       case "addSpotify": {
         const pick = body.spotify;
         if (!pick?.name?.trim() || !pick.spotifyId?.trim()) {

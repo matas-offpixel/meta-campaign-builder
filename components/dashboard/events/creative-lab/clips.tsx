@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
-import { cantRunReason, durationLabel, groupClips, metricUnit, money, sourceBadge, verdictChip } from "@/lib/creative-lab/surface";
+import { cantRunReason, clipBucket, durationLabel, groupClips, metricUnit, money, sourceBadge, verdictChip } from "@/lib/creative-lab/surface";
 import { uploadFileToCampaignAssets } from "@/lib/tiktok-wizard/campaign-asset-upload";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
@@ -135,12 +135,7 @@ function ClipGroup({
           const chip = clip.judged ? verdictChip(clip.judged.verdict === "untested" || clip.judged.verdict === "thin" ? "untested" : clip.judged.verdict) : verdictChip("untested");
           return (
             <article key={clip.id} className={`w-36 shrink-0 sm:w-auto ${reason ? "rounded border border-dashed border-destructive p-1" : ""}`} title={clip.rightsRef}>
-              {clip.thumbnailUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- storage thumbnail, not a static asset
-                <img src={clip.thumbnailUrl} alt="" className="aspect-[9/16] w-full rounded object-cover" />
-              ) : (
-                <div className="flex aspect-[9/16] w-full items-center justify-center rounded border border-border bg-card text-sm">{initials(clip.artistName)}</div>
-              )}
+              <ClipFrame src={clip.previewUrl} hasFile={clip.hasFile} name={clip.artistName} />
               <p className="mt-1 flex justify-between text-xs">
                 <span>{sourceBadge(clip.source)}</span>
                 <span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span>
@@ -161,7 +156,31 @@ function ClipGroup({
 }
 
 function clipBucketKeeping(clip: CreativeLabCardData["clips"][number]): boolean {
-  return Boolean(clip.judged) && clip.judged?.verdict !== "untested" && clip.judged?.verdict !== "thin" && clip.cleared && !clip.renderError;
+  return clipBucket(clip) === "keeping";
+}
+
+function ClipFrame({ src, hasFile, name }: { src: string | null; hasFile: boolean; name: string }) {
+  const video = useRef<HTMLVideoElement>(null);
+  if (src) {
+    return (
+      <video
+        ref={video}
+        src={`${src}#t=0.5`}
+        muted
+        playsInline
+        preload="metadata"
+        className="aspect-[9/16] w-full rounded object-cover"
+        onClick={() => {
+          const node = video.current;
+          if (!node) return;
+          if (node.paused) void node.play();
+          else node.pause();
+        }}
+      />
+    );
+  }
+  if (hasFile) return <div className="aspect-[9/16] w-full rounded bg-black" aria-label={name} />;
+  return <div className="flex aspect-[9/16] w-full items-center justify-center rounded border border-border bg-card text-sm">{initials(name)}</div>;
 }
 
 function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: boolean; onSave: Save }) {

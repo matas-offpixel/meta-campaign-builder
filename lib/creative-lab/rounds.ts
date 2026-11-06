@@ -1,9 +1,11 @@
 /**
- * Creative Lab rounds: the rights gate and ad names.
+ * Creative Lab rounds: who may be used, and ad names.
  *
- * Rights (roadmap §2 rule 6): no round is built for an artist until Matas
- * has ticked them as cleared (approved_at). A rights note is optional.
- * The artist must belong to the event's client: the tick is for one promoter.
+ * Any artist's clips may run in promoter-voice ads on the promoter's Page.
+ * Clearance (approved_at) is needed only for artist-voice ads, which run
+ * from the artist's own Page and Instagram. That check is per caption, in
+ * propose and again per ad at launch. A rights note is optional. The artist
+ * must belong to the event's client: the tick is for one promoter.
  *
  * Ad names are ASCII only, <ARTIST>-clip<NN>_cap-<style><N>, so a regex
  * can parse them later and metaAdName() leaves them unchanged.
@@ -32,12 +34,13 @@ export type LabArtist = {
   approved_at: string | null;
 };
 
-/** Throws RoundRefusedError when the artist may not be used in a round. */
+/**
+ * The artist exists and belongs to this client. An uncleared artist is
+ * still usable: promoter-voice ads proceed, and artist-voice ads are
+ * skipped by the caller.
+ */
 export function assertArtistCleared(artist: LabArtist | null, eventClientId: string | null): asserts artist is LabArtist {
   if (!artist) throw new RoundRefusedError("artist_not_found", "No Creative Lab artist with that id.");
-  if (!artist.approved_at) {
-    throw new RoundRefusedError("not_approved", `${artist.name}: not ticked as cleared.`);
-  }
   if (eventClientId && artist.client_id !== eventClientId) {
     throw new RoundRefusedError("artist_client_mismatch", `${artist.name}: permission is held by another client.`);
   }

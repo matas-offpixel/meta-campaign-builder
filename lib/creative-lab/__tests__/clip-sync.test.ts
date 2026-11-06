@@ -52,7 +52,7 @@ describe("creative lab clip sync", () => {
         return { files: [], folderError: null };
       },
     });
-    assert.deepEqual(called, ["live"]);
+    assert.deepEqual(called, ["live", "unapproved"]);
     assert.equal(result.skippedArchived, 1);
     assert.equal(clipSyncShouldRecord(result), false);
     assert.equal(clipSyncShouldRecord({ imported: 1, failed: 0 }), true);
@@ -61,6 +61,7 @@ describe("creative lab clip sync", () => {
 
   it("imports at most 10 new files for an artist", async () => {
     const fake = db();
+    fake.tables.creative_lab_artists.find((row) => row.id === "unapproved")!.clip_folder_url = null;
     const files = Array.from({ length: 12 }, (_, index) => ({
       sourceFileId: `file-${index}`,
       name: `clip-${index}.mp4`,

@@ -46,28 +46,49 @@ export type JudgedClip = {
   roundNo: number;
 };
 
+/** A clip longer than this is refused. The same limit proposeRound uses. */
+export const CLIP_LIMIT_SECONDS = 30;
+
 export type ClipForGroup = {
   id: string;
+  artistId?: string;
   artistName: string;
   clipNo: number;
   cleared: boolean;
   renderError: string | null;
+  durationSeconds?: number | null;
   judged: JudgedClip | null;
 };
 
 export type ClipBucket = "keeping" | "new" | "cant";
 
+export function clipOverLimit(seconds: number | null | undefined): boolean {
+  return seconds != null && Number.isFinite(seconds) && seconds > CLIP_LIMIT_SECONDS;
+}
+
 export function clipBucket(clip: ClipForGroup): ClipBucket {
-  if (!clip.cleared || clip.renderError) return "cant";
+  if (clip.renderError || clipOverLimit(clip.durationSeconds)) return "cant";
   if (!clip.judged) return "new";
   if (clip.judged.verdict === "untested" || clip.judged.verdict === "thin") return "new";
   return "keeping";
 }
 
 export function cantRunReason(clip: ClipForGroup): string | null {
-  if (!clip.cleared) return `${clip.artistName} isn't cleared`;
   if (clip.renderError) return clip.renderError;
+  if (clipOverLimit(clip.durationSeconds)) {
+    return `This clip is ${Math.round(clip.durationSeconds ?? 0)}s. Clips over ${CLIP_LIMIT_SECONDS} seconds can't run.`;
+  }
   return null;
+}
+
+/** The best New clip of a headliner. A refused or over-limit clip is never returned. */
+export function feedPostClip<T extends ClipForGroup>(clips: readonly T[], headlinerIds: ReadonlySet<string>): T | null {
+  const groups = groupClips(clips);
+  const freshHead = groups.fresh.find((clip) => clip.artistId != null && headlinerIds.has(clip.artistId));
+  if (freshHead) return freshHead;
+  if (groups.fresh[0]) return groups.fresh[0];
+  const keptHead = groups.keeping.find((clip) => clip.artistId != null && headlinerIds.has(clip.artistId));
+  return keptHead ?? groups.keeping[0] ?? null;
 }
 
 export function groupClips<T extends ClipForGroup>(clips: readonly T[]): { keeping: T[]; fresh: T[]; cant: T[] } {

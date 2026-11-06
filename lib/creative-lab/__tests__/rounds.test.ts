@@ -30,9 +30,11 @@ async function refusal(artist: Record<string, unknown>): Promise<string> {
 }
 
 describe("creative lab rounds: rights gate", () => {
-  it("refuses an artist who is not ticked as cleared", async () => {
-    assert.equal(await refusal({ ...CLEARED, rights_doc_ref: null, approved_at: null }), "not_approved");
-    assert.equal(await refusal({ ...CLEARED, approved_at: null }), "not_approved");
+  it("an uncleared artist still gets a draft round", async () => {
+    const fake = db({ ...CLEARED, rights_doc_ref: null, approved_at: null });
+    const round = await createRound(fake as unknown as ServiceRoleDb, { userId: "op", eventId: "evt-day", artistId: "artist-luke" });
+    assert.equal(round.status, "draft");
+    assert.equal(round.artist_id, "artist-luke");
   });
 
   it("a cleared tick is enough without a rights note", async () => {

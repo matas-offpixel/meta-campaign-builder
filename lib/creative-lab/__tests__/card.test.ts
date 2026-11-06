@@ -11,11 +11,11 @@ const LUKE = "fe3736d8-4252-4282-bb32-de1e3fdfb359";
 describe("creative lab card", () => {
   it("names the three rights states", () => {
     assert.equal(rightsState({}), "missing");
-    assert.equal(rightsLabel({}), "Not cleared");
+    assert.equal(rightsLabel({}), "Promoter page only");
     assert.equal(rightsState({ rights_doc_ref: "PENDING: Luke Dean team" }), "recorded");
-    assert.equal(rightsLabel({ rights_doc_ref: "PENDING: Luke Dean team" }), "Not cleared");
+    assert.equal(rightsLabel({ rights_doc_ref: "PENDING: Luke Dean team" }), "Promoter page only");
     assert.equal(rightsState({ approved_at: "2026-11-06T00:00:00Z" }), "approved");
-    assert.equal(rightsLabel({ approved_at: "2026-11-06T00:00:00Z" }), "Cleared");
+    assert.equal(rightsLabel({ approved_at: "2026-11-06T00:00:00Z" }), "Cleared — artist channels too");
   });
 
   it("keeps headliners as an ordered subset of the lineup", () => {
@@ -67,7 +67,7 @@ describe("creative lab card", () => {
     });
     assert.deepEqual(card.facts?.lineup[0], "Enzo Siragusa");
     assert.deepEqual(card.facts?.headliners, ["Enzo Siragusa", "Luke Dean", "Reeshy"]);
-    assert.equal(card.artists[0]?.rightsLabel, "Not cleared");
+    assert.equal(card.artists[0]?.rightsLabel, "Promoter page only");
     assert.equal(card.rounds.length, 0);
     assert.equal(card.launchesEnabled, false);
     assert.equal(card.daysToEvent, 51);

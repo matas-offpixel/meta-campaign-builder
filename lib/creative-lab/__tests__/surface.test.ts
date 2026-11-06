@@ -5,6 +5,7 @@ import {
   cantRunReason,
   captionCopy,
   failedCheckSentence,
+  feedPostClip,
   firstPairings,
   groupClips,
   money,
@@ -25,10 +26,11 @@ const LUKE: ClipForGroup = {
 };
 
 describe("creative lab surface", () => {
-  it("puts an uncleared clip, including Luke Dean's, in Can't run", () => {
-    const enzo: ClipForGroup = { id: "enzo-1", artistName: "Enzo Siragusa", clipNo: 1, cleared: true, renderError: null, judged: null };
+  it("puts Luke Dean's uncleared clip in New, and only a refused or over-limit clip in Can't run", () => {
+    const enzo: ClipForGroup = { id: "enzo-1", artistId: "enzo", artistName: "Enzo Siragusa", clipNo: 1, cleared: true, renderError: null, judged: null };
     const kept: ClipForGroup = {
       id: "enzo-2",
+      artistId: "enzo",
       artistName: "Enzo Siragusa",
       clipNo: 2,
       cleared: true,
@@ -37,18 +39,23 @@ describe("creative lab surface", () => {
     };
     const refused: ClipForGroup = {
       id: "enzo-bad",
+      artistId: "enzo",
       artistName: "Enzo Siragusa",
       clipNo: 5,
       cleared: true,
       renderError: "The caption does not fit the frame.",
       judged: null,
     };
-    const groups = groupClips([kept, enzo, LUKE, refused]);
+    const long: ClipForGroup = { id: "long", artistId: "luke", artistName: "Luke Dean", clipNo: 3, cleared: false, renderError: null, durationSeconds: 45, judged: null };
+    const groups = groupClips([kept, enzo, LUKE, refused, long]);
     assert.deepEqual(groups.keeping.map((clip) => clip.id), ["enzo-2"]);
-    assert.deepEqual(groups.fresh.map((clip) => clip.id), ["enzo-1"]);
-    assert.deepEqual(groups.cant.map((clip) => clip.id), ["luke-clip", "enzo-bad"]);
-    assert.equal(cantRunReason(LUKE), "Luke Dean isn't cleared");
+    assert.deepEqual(groups.fresh.map((clip) => clip.id), ["enzo-1", "luke-clip"]);
+    assert.deepEqual(groups.cant.map((clip) => clip.id), ["enzo-bad", "long"]);
+    assert.equal(cantRunReason(LUKE), null);
     assert.equal(cantRunReason(refused), "The caption does not fit the frame.");
+    assert.match(cantRunReason(long) ?? "", /45s/);
+    assert.equal(feedPostClip([refused, long, LUKE, enzo], new Set(["enzo"]))?.id, "enzo-1");
+    assert.equal(feedPostClip([refused, long], new Set(["enzo"])), null);
   });
 
   it("renders caption lines as breaks and never a slash", () => {

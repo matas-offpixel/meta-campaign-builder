@@ -162,23 +162,13 @@ export async function importArtistClips(
   if (!artist) throw new Error("No artist with that id.");
   const userId = text(artist, "user_id");
   const shareMessage = args.shareMessage ?? shareMessageFromConfig;
-  if (!text(artist, "approved_at")) {
-    const message = "Approve this artist's rights before importing clips.";
-    await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
-    throw new ClipIntakeError("rights_not_approved", message);
-  }
   const folderUrl = text(artist, "clip_folder_url");
   if (!folderUrl) {
     const message = "Add a Drive or Dropbox folder link first.";
     await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
     throw new ClipIntakeError("no_folder", message);
   }
-  const rightsRef = text(artist, "rights_doc_ref");
-  if (!rightsRef) {
-    const message = "A rights ref is required.";
-    await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
-    throw new ClipIntakeError("rights_not_approved", message);
-  }
+  const rightsRef = text(artist, "rights_doc_ref") || "Promoter page";
   const source = CLIP_SOURCES.has(text(artist, "clip_source")) ? text(artist, "clip_source") : "file";
   const listing = args.listing ?? (await defaultListing());
   const upload = args.upload ?? ((storagePath: string, bytes: Buffer, type: string) => defaultUpload(db, storagePath, bytes, type));

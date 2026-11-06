@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import type { LabLineupRow } from "@/lib/db/creative-lab";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
-import { clearedOn, type LibrarySuggestion, type SpotifySuggestion } from "@/lib/creative-lab/lineup";
+import { artistPrimaryAction, clearedOn, showClearForArtistChannels, type LibrarySuggestion, type SpotifySuggestion } from "@/lib/creative-lab/lineup";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
 
@@ -43,6 +43,8 @@ export function LabLineup({
   const [spotify, setSpotify] = useState<SpotifySuggestion[]>([]);
   const [spotifyError, setSpotifyError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [card, setCard] = useState<string | null>(null);
+  const [pick, setPick] = useState<string | null>(null);
 
   useEffect(() => {
     setOrder(rows);
@@ -159,7 +161,6 @@ export function LabLineup({
       <ul className="space-y-2">
         {order.map((row) => {
           const artist = artists.find((item) => item.id === row.labArtistId);
-          const hasInstagram = Boolean(row.instagramHandle || artist?.instagramActorId);
           return (
             <li
               key={row.artistId}
@@ -186,13 +187,18 @@ export function LabLineup({
                   <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-xs">{initials(row.name)}</span>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium">{row.name}</p>
-                  {handles(row) ? <p className="text-muted-foreground">{handles(row)}</p> : null}
-                  <Rights row={row} />
+                  <button type="button" className="text-left font-medium underline-offset-2 hover:underline" onClick={() => setCard(card === row.artistId ? null : row.artistId)}>
+                    {row.name}
+                  </button>
+                  {handles(row) ? <p className="text-muted-foreground">{handles(row)}</p> : <p className="text-muted-foreground">no Instagram yet</p>}
+                  <Rights row={row} busy={busy} onSave={onSave} />
                   <p className="tabular-nums text-muted-foreground">{row.clipCount} {row.clipCount === 1 ? "clip" : "clips"}</p>
+                  {!row.spotifyId && row.spotifyCandidates.length > 1 ? (
+                    <button type="button" className="underline" onClick={() => setPick(pick === row.artistId ? null : row.artistId)}>Pick the right {row.name}</button>
+                  ) : null}
                 </div>
-                <div className="flex items-center gap-2">
-                  <RowAction row={row} artist={artist} hasInstagram={hasInstagram} busy={busy} onSave={onSave} onEdit={() => setOpen(row.artistId)} onFound={() => router.refresh()} />
+                <div className="flex w-full items-center gap-2 sm:w-auto">
+                  <RowAction row={row} artist={artist} busy={busy} onSave={onSave} onEdit={() => setOpen(row.artistId)} onFound={() => router.refresh()} />
                   <details className="relative">
                     <summary className="cursor-pointer list-none">⋯</summary>
                     <div className="absolute right-0 z-10 mt-1 w-64 rounded border border-border bg-card p-2">
@@ -212,7 +218,31 @@ export function LabLineup({
                   </details>
                 </div>
               </div>
-              <Profile row={row} />
+              {card === row.artistId ? <ArtistCard row={row} /> : null}
+              {pick === row.artistId ? (
+                <ul className="mt-2 space-y-1 rounded border border-border p-2">
+                  {row.spotifyCandidates.map((candidate) => (
+                    <li key={candidate.spotifyId}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 py-1 text-left"
+                        disabled={busy}
+                        onClick={() => void onSave({
+                          action: "pickSpotify",
+                          libraryArtistId: row.artistId,
+                          spotify: { spotifyId: candidate.spotifyId, name: candidate.name, imageUrl: candidate.imageUrl, genres: candidate.genres },
+                        })}
+                      >
+                        {candidate.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- Spotify artist photo
+                          <img src={candidate.imageUrl} alt="" className="h-8 w-8 rounded-full object-cover" />
+                        ) : null}
+                        <span>{candidate.name}{candidate.genres.length ? ` · ${candidate.genres.slice(0, 2).join(", ")}` : ""}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {open === row.artistId ? (
                 <EditRow row={row} artist={artist} adAccountId={adAccountId} busy={busy} onSave={onSave} />
               ) : null}
@@ -237,24 +267,28 @@ export function LabLineup({
   );
 }
 
-function Rights({ row }: { row: LabLineupRow }) {
-  if (row.clearedAt) {
-    const when = clearedOn(row.clearedAt);
-    return (
-      <p>
-        <span className="text-success">✓ Cleared{row.clearedBy ? ` · ${row.clearedBy}` : ""}, {when}</span>
-        {row.rightsNote ? <span className="text-muted-foreground"> · {row.rightsNote}</span> : null}
-      </p>
-    );
-  }
-  if (row.labArtistId) return <p>○ Not cleared</p>;
-  return <p className="text-muted-foreground">— Not needed: no clips</p>;
+function Rights({ row, busy, onSave }: { row: LabLineupRow; busy: boolean; onSave: Save }) {
+  const when = row.clearedAt ? clearedOn(row.clearedAt) : null;
+  const clear = showClearForArtistChannels(row) && artistPrimaryAction(row) !== "clear";
+  return (
+    <p title={row.rightsNote || undefined}>
+      {row.clearedAt ? (
+        <span className="text-success">✓ Cleared — artist channels too{row.clearedBy || when ? ` · ${[row.clearedBy, when].filter(Boolean).join(", ")}` : ""}</span>
+      ) : (
+        <span className="rounded border border-foreground px-1.5 py-0.5 text-xs">Promoter page only</span>
+      )}
+      {clear ? (
+        <button type="button" className="ml-2 underline" disabled={busy} onClick={() => onSave({ action: "clearLibrary", libraryArtistId: row.artistId, name: row.name, cleared: true })}>
+          Clear for artist channels
+        </button>
+      ) : null}
+    </p>
+  );
 }
 
 function RowAction({
   row,
   artist,
-  hasInstagram,
   busy,
   onSave,
   onEdit,
@@ -262,46 +296,55 @@ function RowAction({
 }: {
   row: LabLineupRow;
   artist: CreativeLabCardData["artists"][number] | undefined;
-  hasInstagram: boolean;
   busy: boolean;
   onSave: Save;
   onEdit: () => void;
   onFound: () => void;
 }) {
-  if (!row.clearedAt) {
-    return <Button type="button" disabled={busy} onClick={() => onSave({ action: "clearLibrary", libraryArtistId: row.artistId, name: row.name, cleared: true })}>Mark cleared</Button>;
+  const action = artistPrimaryAction(row);
+  if (action === "add_instagram") return <Button type="button" disabled={busy} onClick={onEdit}>Add Instagram</Button>;
+  if (action === "clear") {
+    return <Button type="button" disabled={busy} onClick={() => onSave({ action: "clearLibrary", libraryArtistId: row.artistId, name: row.name, cleared: true })}>Clear for artist channels</Button>;
   }
-  if (!hasInstagram) return <Button type="button" disabled={busy} onClick={onEdit}>Add Instagram</Button>;
-  return (
-    <Button
-      type="button"
-      disabled={busy || !artist}
-      onClick={async () => {
-        if (!artist) return;
-        await fetch(`/api/creative-lab/artists/${artist.id}/find-clips`, { method: "POST" });
-        onFound();
-      }}
-    >
-      Find clips
-    </Button>
-  );
+  if (action === "find_clips") {
+    return (
+      <Button
+        type="button"
+        disabled={busy || !artist}
+        onClick={async () => {
+          if (!artist) return;
+          await fetch(`/api/creative-lab/artists/${artist.id}/find-clips`, { method: "POST" });
+          onFound();
+        }}
+      >
+        Find clips
+      </Button>
+    );
+  }
+  return null;
 }
 
-function Profile({ row }: { row: LabLineupRow }) {
+function ArtistCard({ row }: { row: LabLineupRow }) {
   const when = row.enrichedAt ? clearedOn(row.enrichedAt) : null;
   return (
-    <details className="mt-1">
-      <summary className="cursor-pointer text-muted-foreground">ⓘ</summary>
-      <div className="mt-1 rounded border border-dashed border-border p-2">
+    <div className="mt-2 rounded border border-border p-2">
+      <div className="flex items-center gap-2">
         {row.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- stored profile photo
-          <img src={row.imageUrl} alt="" className="mb-2 h-16 w-16 rounded object-cover" />
-        ) : null}
-        <p>{row.genres.length ? row.genres.join(", ") : "No genres stored."}</p>
-        <p>{row.playedBefore.length ? `Played before: ${row.playedBefore.join(", ")}` : "No played-before cities stored."}</p>
-        {when ? <p className="text-muted-foreground">Enriched {when}</p> : null}
+          <img src={row.imageUrl} alt="" className="h-12 w-12 rounded object-cover" />
+        ) : (
+          <span className="flex h-12 w-12 items-center justify-center rounded border border-border text-xs">{initials(row.name)}</span>
+        )}
+        <div>
+          <p className="font-medium">{row.name}</p>
+          <p className="text-muted-foreground">{handles(row) || "no Instagram yet"}</p>
+        </div>
       </div>
-    </details>
+      <p className="mt-2">{row.playedBefore.length ? row.playedBefore.join(" · ") : "First time on one of your bills."}</p>
+      <p>{row.genres.length ? row.genres.join(", ") : "No genres stored."}</p>
+      {when ? <p className="text-muted-foreground">Checked on Spotify {when}</p> : null}
+      {row.spotifyId ? <p><a className="underline" href={`https://open.spotify.com/artist/${row.spotifyId}`}>Open in Spotify</a></p> : null}
+    </div>
   );
 }
 

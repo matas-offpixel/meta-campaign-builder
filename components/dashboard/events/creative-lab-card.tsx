@@ -10,6 +10,7 @@ import { LabRound } from "@/components/dashboard/events/creative-lab/round";
 import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { labNextStep } from "@/lib/creative-lab/lineup";
+import { clipBucket } from "@/lib/creative-lab/surface";
 
 async function post(eventId: string, body: Record<string, unknown>): Promise<{ ok: boolean; status: number; json: Record<string, unknown> }> {
   const res = await fetch(`/api/creative-lab/events/${eventId}`, {
@@ -60,22 +61,43 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
   }
 
   const running = lab.rounds.find((round) => round.ads.some((ad) => ad.metaAdId));
+  const waiting = lab.captions.some((caption) => caption.status === "proposed");
+  const approved = lab.captions.some((caption) => caption.status === "approved");
   const next = labNextStep({
     lineupCount: lab.lineupRows.length,
-    unclearedWithClips: lab.lineupRows.some((row) => row.clipCount > 0 && !row.clearedAt),
-    captionsWaiting: lab.captions.some((caption) => caption.status === "proposed"),
-    roundReady: lab.captions.some((caption) => caption.status === "approved") && lab.clips.length > 0 && !running,
+    captionsWaiting: waiting,
+    roundReady: approved && lab.clips.length > 0 && !running,
     runningRound: running?.roundNo ?? null,
     clipCount: lab.clips.length,
   });
   const working = lab.working;
+  const cant = lab.clips.filter((clip) => clipBucket(clip) === "cant").length;
 
   return (
     <details className="rounded-lg border border-border bg-card" open>
       <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Creative Lab</summary>
       <div className="space-y-6 border-t border-border px-4 py-4 text-sm">
         {error ? <p className="text-destructive">{error}</p> : null}
-        <LabStrip lineup={lab.lineupRows.length} clips={lab.clips.length} captions={lab.captions.length} round={lab.rounds[0]?.roundNo ?? null} next={next} working={working} />
+        <LabStrip
+          eventId={lab.eventId}
+          lineup={lab.lineupRows.length}
+          clips={lab.clips.length}
+          captions={lab.captions.length}
+          round={lab.rounds[0]?.roundNo ?? null}
+          next={next}
+          working={working}
+          saleDatesMissing={lab.saleDatesMissing}
+          states={{
+            lineup: lab.lineupRows.length ? "on the bill" : "empty",
+            lineupShort: lab.lineupRows.length ? "on bill" : "empty",
+            clips: cant ? `${cant} blocked` : "ready",
+            clipsShort: cant ? "blocked" : "ready",
+            captions: waiting ? "need approval" : approved ? "approved" : "none yet",
+            captionsShort: waiting ? "waiting" : approved ? "approved" : "none",
+            round: lab.rounds[0] ? lab.rounds[0].status : "not started",
+            roundShort: lab.rounds[0] ? "open" : "none",
+          }}
+        />
         {!lab.facts || lab.facts.headliners.length === 0 ? <p>headliners not set</p> : null}
         <LabLineup eventId={lab.eventId} rows={lab.lineupRows} artists={lab.artists} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
         <LabClips lab={lab} busy={busy} onSave={(body) => run(body)} onError={setError} />

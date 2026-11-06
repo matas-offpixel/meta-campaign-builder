@@ -5,7 +5,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
-import { captionCopy, ctaForStage, groupClips, metricUnit, money, styleLabel, verdictChip } from "@/lib/creative-lab/surface";
+import { captionCopy, ctaForStage, feedPostClip, groupClips, metricUnit, money, styleLabel, verdictChip } from "@/lib/creative-lab/surface";
+import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
 
@@ -120,7 +121,8 @@ function Control<T extends string>({
           <button
             key={option.id}
             type="button"
-            className={`rounded border px-2 py-1 text-sm ${option.id === value ? "border-foreground bg-card" : "border-border"}`}
+            aria-pressed={option.id === value}
+            className={`rounded px-2 py-1 text-sm ${option.id === value ? "bg-foreground text-background" : "border border-border bg-transparent"}`}
             onClick={() => onChange(option.id)}
           >
             {option.label}
@@ -149,9 +151,12 @@ function FeedPost({
   const [editing, setEditing] = useState(false);
   const [overlay, setOverlay] = useState(captionCopy(caption.lines));
   const [primary, setPrimary] = useState(caption.primaryText);
-  const paired = lab.rounds.flatMap((round) => round.ads).find((ad) => ad.captionId === caption.id);
-  const clip = lab.clips.find((row) => row.id === paired?.clipId) ?? lab.clips[0];
+  const headliners = new Set(lab.lineupRows.filter((row) => row.isHeadliner && row.labArtistId).map((row) => row.labArtistId as string));
+  const clip = feedPostClip(lab.clips, headliners);
   const copy = captionCopy(caption.lines);
+  const held = caption.style === "artist_first_person" && !lab.artists.some((artist) => artist.rights === "approved")
+    ? `Artist voice — runs once ${lab.artists[0]?.name ?? "this artist"} is cleared for their own channels.`
+    : null;
   return (
     <article className="w-full shrink-0 snap-start rounded border border-border bg-card sm:w-72">
       <div className="flex items-center gap-2 p-2">
@@ -161,17 +166,14 @@ function FeedPost({
           <span className="block text-xs text-muted-foreground">Sponsored</span>
         </span>
       </div>
-      <div className="relative">
-        {clip?.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- storage thumbnail, not a static asset
-          <img src={clip.thumbnailUrl} alt="" className="aspect-[4/5] w-full object-cover" />
-        ) : (
-          <div className="flex aspect-[4/5] w-full items-center justify-center border-y border-border">{clip ? initials(clip.artistName) : "—"}</div>
-        )}
-        <p className="absolute inset-x-3 bottom-3 whitespace-pre-line rounded bg-card p-2 text-sm text-foreground">{copy}</p>
+      <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} />
+      {caption.primaryText ? <p className="px-3 py-2 text-sm">{caption.primaryText}</p> : null}
+      <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2">
+        <p className="font-medium">{lab.eventName}</p>
+        <span className="rounded bg-foreground px-3 py-1.5 text-background">{ctaForStage(stage)}</span>
       </div>
-      <p className="border-t border-border px-3 py-2 text-sm">{ctaForStage(stage)}</p>
-      <p className="px-3 text-xs text-muted-foreground">{caption.primaryText}</p>
+      <p className="px-3 pb-2 text-xs text-muted-foreground">{styleLabel(caption.style)}{clip ? ` · ${clip.artistName} #${clip.clipNo}` : ""}</p>
+      {held ? <p className="px-3 pb-2 text-sm">{held}</p> : null}
       {caption.validatorDetail ? <p className="px-3 pb-2 text-sm text-destructive">{caption.validatorDetail}</p> : null}
       {editing ? (
         <form
@@ -187,10 +189,12 @@ function FeedPost({
           <Button type="submit" disabled={busy}>Save</Button>
         </form>
       ) : (
-        <div className="flex gap-2 p-2">
-          <button type="button" aria-label="Edit" onClick={() => { setOverlay(captionCopy(caption.lines)); setPrimary(caption.primaryText); setEditing(true); }}>✎</button>
-          <button type="button" aria-label="Reject" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "rejected" })}>✕</button>
-          <button type="button" aria-label="Approve" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "approved" })}>✓</button>
+        <div className="flex items-center gap-2 p-2">
+          <button type="button" aria-label="Edit" className="h-8 w-8 rounded border border-border" onClick={() => { setOverlay(captionCopy(caption.lines)); setPrimary(caption.primaryText); setEditing(true); }}>✎</button>
+          <button type="button" aria-label="Reject" className="h-8 w-8 rounded border border-border" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "rejected" })}>✕</button>
+          {held ? null : (
+            <button type="button" aria-label="Approve" className="h-8 w-8 rounded bg-foreground text-background" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "approved" })}>✓</button>
+          )}
         </div>
       )}
     </article>

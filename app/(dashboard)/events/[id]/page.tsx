@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
 import { loadCreativeLabCard } from "@/lib/db/creative-lab";
+import { signClipPreviews } from "@/lib/creative-lab/clip-preview";
 import { parseEventTab } from "@/lib/dashboard/format";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -168,12 +169,21 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
     venueName: event.venue_name,
     venueCity: event.venue_city,
     eventStatus: event.status ?? null,
+    presaleAt: event.presale_at ?? null,
+    generalSaleAt: event.general_sale_at ?? null,
     operatorId: user.id,
     operatorName: typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : typeof user.user_metadata?.name === "string" ? user.user_metadata.name : null,
   }).catch((err) => {
     console.error("[EventDetailPage] loadCreativeLabCard failed:", err);
     return null;
   });
+  if (lab) {
+    const signed = await signClipPreviews(lab.clips).catch((err) => {
+      console.error("[EventDetailPage] clip preview urls failed:", err);
+      return new Map<string, string>();
+    });
+    for (const clip of lab.clips) clip.previewUrl = signed.get(clip.id) ?? null;
+  }
 
   return (
     <EventDetail

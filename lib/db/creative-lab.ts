@@ -7,7 +7,7 @@ import { profile } from "../../src/remotion/caption-style/profile.ts";
 import { validateCaption, type EventFacts } from "../creative-lab/caption-facts.ts";
 import { labLaunchesEnabled } from "../creative-lab/killswitch.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
-import { artistKey, playedBefore } from "../creative-lab/lineup.ts";
+import { artistKey, playedBefore, spotifyCandidatesOf } from "../creative-lab/lineup.ts";
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
@@ -31,6 +31,7 @@ export type LabLineupRow = {
   clearedBy: string | null;
   rightsNote: string | null;
   clipCount: number;
+  spotifyCandidates: { spotifyId: string; name: string; imageUrl: string | null; genres: string[] }[];
 };
 
 async function rows(db: ServiceRoleDb, table: string, column: string, value: string): Promise<Row[]> {
@@ -60,7 +61,7 @@ export function rightsState(artist: { rights_doc_ref?: string | null; approved_a
 }
 
 export function rightsLabel(artist: { rights_doc_ref?: string | null; approved_at?: string | null }): string {
-  return artist.approved_at ? "Cleared" : "Not cleared";
+  return artist.approved_at ? "Cleared — artist channels too" : "Promoter page only";
 }
 
 /** Headliners stay in the order given, and every name is on the lineup. */
@@ -73,9 +74,11 @@ export function headlinerError(lineup: readonly string[], headliners: readonly s
 
 export type CreativeLabCardData = {
   eventId: string;
+  eventName: string;
   eventStatus: string | null;
   clientName: string | null;
   launchesEnabled: boolean;
+  saleDatesMissing: boolean;
   longApproved: boolean;
   paydayLabel: string;
   daysToEvent: number | null;
@@ -116,6 +119,9 @@ export type CreativeLabCardData = {
     filmedEventId: string | null;
     durationSeconds: number | null;
     thumbnailUrl: string | null;
+    storagePath: string | null;
+    previewUrl: string | null;
+    hasFile: boolean;
     artistName: string;
     cleared: boolean;
     renderError: string | null;
@@ -161,6 +167,8 @@ export async function loadCreativeLabCard(
     venueName: string | null;
     venueCity: string | null;
     eventStatus: string | null;
+    presaleAt?: string | null;
+    generalSaleAt?: string | null;
     operatorId?: string | null;
     operatorName?: string | null;
     now?: Date;
@@ -265,6 +273,7 @@ export async function loadCreativeLabCard(
         clearedBy: text(lab, "approved_by") && text(lab, "approved_by") === (args.operatorId ?? "") ? (args.operatorName || "You") : null,
         rightsNote: text(lab, "rights_doc_ref") || null,
         clipCount: labId ? clipRows.filter((clip) => text(clip, "artist_id") === labId).length : 0,
+        spotifyCandidates: text(artist, "spotify_id") ? [] : spotifyCandidatesOf(artist?.profile_jsonb),
       }];
     });
 
@@ -304,9 +313,11 @@ export async function loadCreativeLabCard(
 
   return {
     eventId: args.eventId,
+    eventName: args.eventName,
     eventStatus: args.eventStatus,
     clientName,
     launchesEnabled: labLaunchesEnabled(),
+    saleDatesMissing: !String(args.presaleAt ?? "").trim() && !String(args.generalSaleAt ?? "").trim(),
     longApproved: profile.longApproved,
     paydayLabel: nextPayday(args.now).label,
     daysToEvent: daysUntilEvent(args.eventDate, args.now),
@@ -369,6 +380,9 @@ export async function loadCreativeLabCard(
         filmedEventId: text(row, "event_id") || null,
         durationSeconds: seconds,
         thumbnailUrl: text(renderedAsset, "thumbnail_url") || text(asset, "thumbnail_url") || null,
+        storagePath: text(asset, "storage_path") || null,
+        previewUrl: null,
+        hasFile: Boolean(text(asset, "storage_path")),
         artistName: text(artist, "name"),
         cleared: Boolean(artist?.approved_at),
         renderError: refused ? (text(latest, "error") || "The render was refused.") : null,
