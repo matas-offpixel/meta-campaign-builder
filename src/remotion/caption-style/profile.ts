@@ -163,6 +163,20 @@ export function lineFits(lineWidthPx: number, layout: CaptionLayout): boolean {
   return lineWidthPx <= layout.safeWidth;
 }
 
+export type LineStroke = {
+  color: string;
+  /** Visible outside edge, from the profile. */
+  widthPx: number;
+  /** Centred stroke drawn behind the fill. The fill covers the inner half, so the visible edge is widthPx. */
+  drawnPx: number;
+};
+
+/** One outside stroke per line, the same width, from the profile. */
+export function captionLineStrokes(lineCount: number, layout: CaptionLayout): LineStroke[] {
+  const widthPx = layout.strokePx;
+  return Array.from({ length: lineCount }, () => ({ color: profile.stroke, widthPx, drawnPx: widthPx * 2 }));
+}
+
 /** Each line's box: the measured width, and one line-height, stacked on the block centre. */
 export function lineBoxes(layout: CaptionLayout, lineWidths: readonly number[]): LineBox[] {
   const lineHeight = layout.fontPx * profile.lineHeight;

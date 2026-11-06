@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AbsoluteFill, Audio, cancelRender, continueRender, delayRender, OffthreadVideo } from "remotion";
 
 import tiktokSansUrl from "../fonts/TikTokSans[opsz,slnt,wdth,wght].ttf";
-import { captionInsideSafeRect, captionLayout, profile, type CaptionAspect } from "../caption-style/profile";
+import { captionInsideSafeRect, captionLayout, captionLineStrokes, profile, type CaptionAspect } from "../caption-style/profile";
 
 export type CaptionAudio = "original" | "muted" | "replaced";
 
@@ -114,6 +114,17 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
   const startFrom = Math.round((props.inS ?? 0) * props.fps);
   const endAt = props.outS == null ? undefined : Math.round(props.outS * props.fps);
   const videoHeight = props.sourceHeight * layout.scale;
+  const strokes = captionLineStrokes(props.lines.length, layout);
+  const type = {
+    fontFamily: `"${profile.fontFamily}"`,
+    fontWeight: profile.fontWeight,
+    fontStretch: `${fontWidth}%`,
+    fontVariationSettings: variation(fontWidth),
+    fontSize: layout.fontPx,
+    lineHeight: profile.lineHeight,
+    textAlign: "center" as const,
+    whiteSpace: "pre" as const,
+  };
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000", overflow: "hidden" }}>
@@ -139,20 +150,31 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
           left: layout.centerX,
           top: layout.centerY,
           transform: "translate(-50%, -50%)",
-          fontFamily: `"${profile.fontFamily}"`,
-          fontWeight: profile.fontWeight,
-          fontStretch: `${fontWidth}%`,
-          fontVariationSettings: variation(fontWidth),
-          fontSize: layout.fontPx,
-          lineHeight: profile.lineHeight,
-          color: profile.fill,
-          WebkitTextStroke: `${layout.strokePx}px ${profile.stroke}`,
-          paintOrder: "fill stroke",
-          textAlign: "center",
-          whiteSpace: "pre",
+          ...type,
         }}
       >
-        {props.lines.join("\n")}
+        {props.lines.map((line, i) => {
+          const stroke = strokes[i];
+          return (
+            <div key={i} style={{ position: "relative" }}>
+              <div
+                aria-hidden
+                style={{
+                  ...type,
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  right: 0,
+                  color: "transparent",
+                  WebkitTextStroke: `${stroke.drawnPx}px ${stroke.color}`,
+                }}
+              >
+                {line}
+              </div>
+              <div style={{ ...type, position: "relative", color: profile.fill }}>{line}</div>
+            </div>
+          );
+        })}
       </div>
     </AbsoluteFill>
   );
