@@ -124,9 +124,12 @@ function compare(baseline, current) {
  * own handler seeks it, then waits for the seek and a painted frame.
  */
 async function settleLab(page, shotId) {
+  // next/font's "<family> Fallback" faces point at a local() system font
+  // and fail where it isn't installed (Ubuntu CI). Only real faces count.
   const unloaded = await page.evaluate(async () => {
-    await Promise.all([...document.fonts].map((face) => (face.status === "loaded" ? face : face.load().catch(() => face))));
-    return [...document.fonts].filter((face) => face.status !== "loaded").map((face) => face.family);
+    const faces = [...document.fonts].filter((face) => !/ Fallback["']?$/.test(face.family));
+    await Promise.all(faces.map((face) => (face.status === "loaded" ? face : face.load().catch(() => face))));
+    return faces.filter((face) => face.status !== "loaded").map((face) => face.family);
   });
   if (unloaded.length) throw new Error(`${shotId}: fonts not loaded: ${unloaded.join(", ")}`);
   await page.waitForFunction(
