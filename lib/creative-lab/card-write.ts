@@ -14,6 +14,7 @@ import { RoundRefusedError } from "./rounds.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { isCaptionStyle } from "./tags.ts";
 import { headlinerError } from "../db/creative-lab.ts";
+import { loadEventFacts, saleStageFromStatus, validateCaption } from "./caption-facts.ts";
 import type { SaleStage } from "./caption-facts.ts";
 
 type Row = Record<string, unknown>;
@@ -242,6 +243,37 @@ export async function generateLabCaptions(
   });
 }
 
+export async function editLabCaption(
+  db: ServiceRoleDb,
+  args: { userId: string; eventId: string; captionId: string; text: string; primaryText: string },
+): Promise<{ ok: boolean; sentence: string | null }> {
+  const rowRes = await db.from("creative_lab_captions").select("*").eq("id", args.captionId).eq("user_id", args.userId).maybeSingle();
+  if (rowRes.error) throw new Error(rowRes.error.message);
+  const row = rowRes.data as { style?: string; style_version?: string; declared_names?: string[] } | null;
+  const style = String(row?.style ?? "");
+  if (!row || !isCaptionStyle(style)) throw new Error("No caption with that id.");
+  const eventRes = await db.from("events").select("status").eq("id", args.eventId).maybeSingle();
+  if (eventRes.error) throw new Error(eventRes.error.message);
+  const facts = await loadEventFacts(db, args.eventId);
+  const check = validateCaption(args.text, style, row.declared_names ?? [], facts, { version: String(row.style_version ?? "") }, {
+    primaryText: args.primaryText,
+    saleStage: saleStageFromStatus(text(eventRes.data as Row | null, "status")),
+  });
+  const updated = await db
+    .from("creative_lab_captions")
+    .update({
+      text: args.text.trim(),
+      lines: check.lines,
+      primary_text: args.primaryText.trim(),
+      facts_hash: check.factsHash,
+      size_variant: check.sizeVariant,
+    })
+    .eq("id", args.captionId)
+    .eq("user_id", args.userId);
+  if (updated.error) throw new Error(updated.error.message);
+  return { ok: check.ok, sentence: check.ok ? null : check.errors[0]?.detail ?? "This caption did not pass." };
+}
+
 export async function setLabCaptionStatus(
   db: ServiceRoleDb,
   args: { userId: string; captionId: string; status: "approved" | "rejected" },
@@ -257,7 +289,13 @@ export async function setLabCaptionStatus(
 
 export async function proposeLabRound(
   db: ServiceRoleDb,
-  args: { userId: string; eventId: string; artistId: string; adsetMetaId: string },
+  args: {
+    userId: string;
+    eventId: string;
+    artistId: string;
+    adsetMetaId: string;
+    include?: readonly { clipId: string; captionId: string }[];
+  },
 ): Promise<{ refused?: string; roundId?: string }> {
   try {
     const result = await proposeRound(db, args);

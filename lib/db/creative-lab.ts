@@ -9,6 +9,7 @@ import { labLaunchesEnabled } from "../creative-lab/killswitch.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
 import { artistKey, playedBefore } from "../creative-lab/lineup.ts";
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
+import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
 
 type Row = Record<string, unknown>;
@@ -73,6 +74,7 @@ export function headlinerError(lineup: readonly string[], headliners: readonly s
 export type CreativeLabCardData = {
   eventId: string;
   eventStatus: string | null;
+  clientName: string | null;
   launchesEnabled: boolean;
   longApproved: boolean;
   paydayLabel: string;
@@ -114,6 +116,10 @@ export type CreativeLabCardData = {
     filmedEventId: string | null;
     durationSeconds: number | null;
     thumbnailUrl: string | null;
+    artistName: string;
+    cleared: boolean;
+    renderError: string | null;
+    judged: { verdict: string | null; cost: number | null; results: number | null; metric: string | null; roundNo: number } | null;
   }[];
   assets: { id: string; filename: string; durationSeconds: number | null; thumbnailUrl: string | null }[];
   clientEvents: { id: string; name: string; eventDate: string | null }[];
@@ -138,9 +144,10 @@ export type CreativeLabCardData = {
     status: string;
     artistApproved: boolean;
     rendersPending: boolean;
-    ads: { id: string; adName: string; role: string; launchState: string; thumbnailUrl: string | null; metaAdId: string | null; adsManagerUrl: string | null }[];
+    ads: { id: string; adName: string; role: string; launchState: string; thumbnailUrl: string | null; metaAdId: string | null; adsManagerUrl: string | null; clipId: string; captionId: string; verdict: string | null; cost: number | null; results: number | null; metric: string | null }[];
   }[];
   lineupRows: LabLineupRow[];
+  working: { angle: string | null; clip: string | null } | null;
 };
 
 export async function loadCreativeLabCard(
@@ -172,15 +179,17 @@ export async function loadCreativeLabCard(
     rows(db, "event_artists", "event_id", args.eventId),
     rows(db, "event_artists", "user_id", args.userId),
     args.clientId
-      ? db.from("clients").select("meta_ad_account_id").eq("id", args.clientId).maybeSingle()
+      ? db.from("clients").select("meta_ad_account_id, name").eq("id", args.clientId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     db.from("events").select("meta_ad_account_id").eq("id", args.eventId).maybeSingle(),
   ]);
   if (clientAccount.error) throw new Error(`clients: ${clientAccount.error.message}`);
   if (eventAccount.error) throw new Error(`events: ${eventAccount.error.message}`);
   const adAccountId = text(clientAccount.data as Row | null, "meta_ad_account_id") || text(eventAccount.data as Row | null, "meta_ad_account_id") || null;
+  const clientName = text(clientAccount.data as Row | null, "name") || null;
   const artistIds = new Set(artists.map((row) => text(row, "id")));
   const clipRows = (await rows(db, "creative_lab_clips", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
+  const renderRows = (await rows(db, "creative_lab_renders", "user_id", args.userId)).filter((row) => clipRows.some((clip) => text(clip, "id") === text(row, "clip_id")));
   const candidateRows = (await rowsIfPresent(db, "creative_lab_ig_candidates", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
   const roundIds = new Set(rounds.map((row) => text(row, "id")));
   const adRows = (await rows(db, "creative_lab_round_ads", "user_id", args.userId)).filter((row) => roundIds.has(text(row, "round_id")));
@@ -259,14 +268,50 @@ export async function loadCreativeLabCard(
       }];
     });
 
+  const scopeIds = [...new Set([args.eventId, ...clientEvents.map((row) => text(row, "id")).filter(Boolean)])];
+  const insightRoundRes = await db.from("creative_lab_rounds").select("id, round_no, event_id").eq("user_id", args.userId).in("event_id", scopeIds);
+  if (insightRoundRes.error) throw new Error(`creative_lab_rounds: ${insightRoundRes.error.message}`);
+  const insightRounds = (insightRoundRes.data ?? []) as Row[];
+  const insightRoundIds = insightRounds.map((row) => text(row, "id")).filter(Boolean);
+  const insightAdRes = insightRoundIds.length
+    ? await db.from("creative_lab_round_ads").select("round_id, clip_id, caption_id, verdict, verdict_results, verdict_cost_per_result").in("round_id", insightRoundIds)
+    : { data: [] as Row[], error: null };
+  if (insightAdRes.error) throw new Error(`creative_lab_round_ads: ${insightAdRes.error.message}`);
+  const insightAds = (insightAdRes.data ?? []) as Row[];
+  const captionIds = [...new Set(insightAds.map((row) => text(row, "caption_id")).filter(Boolean))];
+  const insightCaptionRes = captionIds.length
+    ? await db.from("creative_lab_captions").select("id, style").in("id", captionIds)
+    : { data: [] as Row[], error: null };
+  if (insightCaptionRes.error) throw new Error(`creative_lab_captions: ${insightCaptionRes.error.message}`);
+  const styleOf = new Map(((insightCaptionRes.data ?? []) as Row[]).map((row) => [text(row, "id"), text(row, "style")]));
+  const workingAds: WorkingAd[] = insightAds.map((ad) => {
+    const round = insightRounds.find((row) => text(row, "id") === text(ad, "round_id"));
+    const clip = clipRows.find((row) => text(row, "id") === text(ad, "clip_id"));
+    const artist = artists.find((row) => text(row, "id") === text(clip, "artist_id"));
+    return {
+      style: styleOf.get(text(ad, "caption_id")) ?? "",
+      roundId: text(ad, "round_id"),
+      eventId: text(round, "event_id"),
+      verdict: ad.verdict == null || ad.verdict === "" ? null : String(ad.verdict),
+      cost: ad.verdict_cost_per_result == null ? null : Number(ad.verdict_cost_per_result),
+      results: ad.verdict_results == null ? null : Number(ad.verdict_results),
+      clipNo: Number(clip?.clip_no) || 0,
+      artistName: text(artist, "name"),
+      roundNo: Number(round?.round_no) || 0,
+    };
+  });
+  const working = whatsWorking(workingAds, { clientName: clientName || "this client", eventId: args.eventId });
+
   return {
     eventId: args.eventId,
     eventStatus: args.eventStatus,
+    clientName,
     launchesEnabled: labLaunchesEnabled(),
     longApproved: profile.longApproved,
     paydayLabel: nextPayday(args.now).label,
     daysToEvent: daysUntilEvent(args.eventDate, args.now),
     lineupRows,
+    working,
     facts: factsRow ? { lineup, headliners, allowedDates } : null,
     artists: artists.map((row) => ({
       id: text(row, "id"),
@@ -302,6 +347,19 @@ export async function loadCreativeLabCard(
     clips: clipRows.map((row) => {
       const asset = assetOf.get(text(row, "creative_asset_id"));
       const seconds = row.out_s == null ? (asset?.duration_seconds == null ? null : Number(asset.duration_seconds)) : Number(row.out_s);
+      const artist = artists.find((item) => text(item, "id") === text(row, "artist_id"));
+      const renders = renderRows
+        .filter((render) => text(render, "clip_id") === text(row, "id"))
+        .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+      const latest = renders[0];
+      const rendered = renders.find((render) => text(render, "status") === "done" && text(render, "creative_asset_id"));
+      const renderedAsset = rendered ? assetOf.get(text(rendered, "creative_asset_id")) : undefined;
+      const refused = latest && (text(latest, "status") === "failed" || text(latest, "error"));
+      const judgedAds = adRows
+        .filter((ad) => text(ad, "clip_id") === text(row, "id"))
+        .filter((ad) => text(ad, "verdict") || text(ad, "window_start") || ad.verdict_results != null || ad.verdict_cost_per_result != null)
+        .sort((a, b) => Number(rounds.find((round) => text(round, "id") === text(b, "round_id"))?.round_no) - Number(rounds.find((round) => text(round, "id") === text(a, "round_id"))?.round_no));
+      const judged = judgedAds[0];
       return {
         id: text(row, "id"),
         artistId: text(row, "artist_id"),
@@ -310,7 +368,19 @@ export async function loadCreativeLabCard(
         rightsRef: text(row, "rights_ref"),
         filmedEventId: text(row, "event_id") || null,
         durationSeconds: seconds,
-        thumbnailUrl: text(asset, "thumbnail_url") || null,
+        thumbnailUrl: text(renderedAsset, "thumbnail_url") || text(asset, "thumbnail_url") || null,
+        artistName: text(artist, "name"),
+        cleared: Boolean(artist?.approved_at),
+        renderError: refused ? (text(latest, "error") || "The render was refused.") : null,
+        judged: judged
+          ? {
+              verdict: judged.verdict == null || judged.verdict === "" ? null : String(judged.verdict),
+              cost: judged.verdict_cost_per_result == null ? null : Number(judged.verdict_cost_per_result),
+              results: judged.verdict_results == null ? null : Number(judged.verdict_results),
+              metric: text(judged, "result_metric") || null,
+              roundNo: Number(rounds.find((round) => text(round, "id") === text(judged, "round_id"))?.round_no) || 0,
+            }
+          : null,
       };
     }),
     assets: videos.map((row) => ({
@@ -342,7 +412,7 @@ export async function loadCreativeLabCard(
           primaryText: primary,
           sizeVariant,
           validatorOk: check?.ok ?? false,
-          validatorDetail: check ? (check.ok ? "passed" : check.errors.map((error) => error.detail).join("; ")) : "no event facts",
+          validatorDetail: check ? failedCheckSentence(check.ok, check.errors.map((error) => error.detail)) ?? "" : "No event facts.",
           awaitingLong: sizeVariant === "long" && !profile.longApproved,
         };
       }),
@@ -384,6 +454,12 @@ export async function loadCreativeLabCard(
               adsManagerUrl: metaAdId && account
                 ? `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${account}&selected_ad_ids=${metaAdId}`
                 : null,
+              clipId: text(ad, "clip_id"),
+              captionId: text(ad, "caption_id"),
+              verdict: ad.verdict == null || ad.verdict === "" ? null : String(ad.verdict),
+              cost: ad.verdict_cost_per_result == null ? null : Number(ad.verdict_cost_per_result),
+              results: ad.verdict_results == null ? null : Number(ad.verdict_results),
+              metric: text(ad, "result_metric") || null,
             };
           }),
         };
