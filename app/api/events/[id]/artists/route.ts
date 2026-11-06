@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { saveLabLineup } from "@/lib/creative-lab/lineup";
 import {
   addEventArtist,
   listEventArtists,
@@ -93,6 +94,7 @@ export async function POST(
       billingOrder:
         typeof body.billingOrder === "number" ? body.billingOrder : 0,
     });
+    await syncLineupFacts(guard.user.id, id);
     return NextResponse.json({ ok: true, eventArtist: row }, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to add artist.";
@@ -133,6 +135,7 @@ export async function PATCH(
       isHeadliner,
       billingOrder,
     );
+    await syncLineupFacts(guard.user.id, id);
     return NextResponse.json({ ok: true, eventArtist: row });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to update billing.";
@@ -164,9 +167,21 @@ export async function DELETE(
 
   try {
     await removeEventArtist(id, artistId);
+    await syncLineupFacts(guard.user.id, id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to remove artist.";
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
+}
+
+async function syncLineupFacts(userId: string, eventId: string) {
+  const db = createServiceRoleClient();
+  const roster = await db.from("event_artists").select("artist_id, is_headliner, billing_order").eq("event_id", eventId);
+  if (roster.error) throw new Error(roster.error.message);
+  const slots = (roster.data ?? [])
+    .slice()
+    .sort((a, b) => (a.billing_order ?? 0) - (b.billing_order ?? 0))
+    .map((row) => ({ artistId: row.artist_id, isHeadliner: row.is_headliner }));
+  await saveLabLineup(db, { userId, eventId, slots });
 }

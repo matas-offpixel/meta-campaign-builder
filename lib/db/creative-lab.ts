@@ -7,10 +7,30 @@ import { profile } from "../../src/remotion/caption-style/profile.ts";
 import { validateCaption, type EventFacts } from "../creative-lab/caption-facts.ts";
 import { labLaunchesEnabled } from "../creative-lab/killswitch.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
+import { artistKey, playedBefore } from "../creative-lab/lineup.ts";
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
 
 type Row = Record<string, unknown>;
+
+export type LabLineupRow = {
+  artistId: string;
+  name: string;
+  isHeadliner: boolean;
+  imageUrl: string | null;
+  instagramHandle: string | null;
+  tiktokHandle: string | null;
+  spotifyId: string | null;
+  metaPageId: string | null;
+  genres: string[];
+  enrichedAt: string | null;
+  playedBefore: string[];
+  labArtistId: string | null;
+  clearedAt: string | null;
+  clearedBy: string | null;
+  rightsNote: string | null;
+  clipCount: number;
+};
 
 async function rows(db: ServiceRoleDb, table: string, column: string, value: string): Promise<Row[]> {
   const res = await db.from(table).select("*").eq(column, value);
@@ -120,6 +140,7 @@ export type CreativeLabCardData = {
     rendersPending: boolean;
     ads: { id: string; adName: string; role: string; launchState: string; thumbnailUrl: string | null; metaAdId: string | null; adsManagerUrl: string | null }[];
   }[];
+  lineupRows: LabLineupRow[];
 };
 
 export async function loadCreativeLabCard(
@@ -133,10 +154,12 @@ export async function loadCreativeLabCard(
     venueName: string | null;
     venueCity: string | null;
     eventStatus: string | null;
+    operatorId?: string | null;
+    operatorName?: string | null;
     now?: Date;
   },
 ): Promise<CreativeLabCardData> {
-  const [factRows, artists, captions, rounds, adSets, launchedAds, assets, clientEvents, clientAccount, eventAccount] = await Promise.all([
+  const [factRows, artists, captions, rounds, adSets, launchedAds, assets, clientEvents, libraryArtists, roster, memberships, clientAccount, eventAccount] = await Promise.all([
     rows(db, "creative_lab_event_facts", "event_id", args.eventId),
     args.clientId ? rows(db, "creative_lab_artists", "client_id", args.clientId) : Promise.resolve([]),
     rows(db, "creative_lab_captions", "event_id", args.eventId),
@@ -145,6 +168,9 @@ export async function loadCreativeLabCard(
     rows(db, "launched_ads", "event_id", args.eventId),
     rows(db, "creative_assets", "user_id", args.userId),
     args.clientId ? rows(db, "events", "client_id", args.clientId) : Promise.resolve([]),
+    rows(db, "artists", "user_id", args.userId),
+    rows(db, "event_artists", "event_id", args.eventId),
+    rows(db, "event_artists", "user_id", args.userId),
     args.clientId
       ? db.from("clients").select("meta_ad_account_id").eq("id", args.clientId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -189,6 +215,50 @@ export async function loadCreativeLabCard(
     if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
   }
 
+  const today = (args.now ?? new Date()).toISOString().slice(0, 10);
+  const libraryById = new Map(libraryArtists.map((row) => [text(row, "id"), row]));
+  const lineupRows: LabLineupRow[] = roster
+    .slice()
+    .sort((a, b) => (Number(a.billing_order) || 0) - (Number(b.billing_order) || 0))
+    .flatMap((row) => {
+      const artistId = text(row, "artist_id");
+      const artist = libraryById.get(artistId);
+      const name = text(artist, "name");
+      if (!name) return [];
+      const lab = artists.find((item) => text(item, "artist_id") === artistId)
+        ?? artists.find((item) => artistKey(text(item, "name")) === artistKey(name));
+      const labId = lab ? text(lab, "id") : "";
+      const profileJson = artist?.profile_jsonb as { spotify?: { genres?: unknown } } | null;
+      const genres = Array.isArray(artist?.genres) && (artist.genres as string[]).length
+        ? (artist.genres as string[])
+        : Array.isArray(profileJson?.spotify?.genres)
+          ? (profileJson.spotify.genres as string[])
+          : [];
+      const eventCities = clientEvents
+        .filter((event) => text(event, "event_date").slice(0, 10) < today)
+        .filter((event) => memberships.some((member) => text(member, "artist_id") === artistId && text(member, "event_id") === text(event, "id") && text(event, "id") !== args.eventId))
+        .map((event) => text(event, "venue_city"))
+        .filter(Boolean);
+      return [{
+        artistId,
+        name,
+        isHeadliner: row.is_headliner === true,
+        imageUrl: text(artist, "profile_image_url") || null,
+        instagramHandle: text(artist, "instagram_handle") || text(lab, "ig_username") || null,
+        tiktokHandle: text(artist, "tiktok_handle") || null,
+        spotifyId: text(artist, "spotify_id") || null,
+        metaPageId: text(artist, "meta_page_id") || text(lab, "meta_page_id") || null,
+        genres,
+        enrichedAt: text(artist, "enriched_at") || null,
+        playedBefore: playedBefore(eventCities, Array.isArray(lab?.played_cities) ? (lab.played_cities as string[]) : []),
+        labArtistId: labId || null,
+        clearedAt: text(lab, "approved_at") || null,
+        clearedBy: text(lab, "approved_by") && text(lab, "approved_by") === (args.operatorId ?? "") ? (args.operatorName || "You") : null,
+        rightsNote: text(lab, "rights_doc_ref") || null,
+        clipCount: labId ? clipRows.filter((clip) => text(clip, "artist_id") === labId).length : 0,
+      }];
+    });
+
   return {
     eventId: args.eventId,
     eventStatus: args.eventStatus,
@@ -196,6 +266,7 @@ export async function loadCreativeLabCard(
     longApproved: profile.longApproved,
     paydayLabel: nextPayday(args.now).label,
     daysToEvent: daysUntilEvent(args.eventDate, args.now),
+    lineupRows,
     facts: factsRow ? { lineup, headliners, allowedDates } : null,
     artists: artists.map((row) => ({
       id: text(row, "id"),

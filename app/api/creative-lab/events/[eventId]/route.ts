@@ -16,8 +16,12 @@ import {
   setLabArtistCleared,
   setLabCaptionStatus,
 } from "@/lib/creative-lab/card-write";
+import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
+import { isSpotifyConfigured } from "@/lib/enrichment/spotify";
 import { requestArtistClip } from "@/lib/creative-lab/ig-discovery";
 import type { SaleStage } from "@/lib/creative-lab/caption-facts";
+import { addSpotifyToLineup, labArtistForLibrary, saveLabLineup, tagSuggestions } from "@/lib/creative-lab/lineup";
+import type { ServiceRoleDb } from "@/lib/creative-lab/load";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export const maxDuration = 800;
@@ -38,6 +42,19 @@ type Body = {
   clipFolderUrl?: string | null;
   clipSource?: string | null;
   artistVoice?: boolean;
+  slots?: { artistId: string; isHeadliner: boolean }[];
+  query?: string;
+  libraryArtistId?: string;
+  spotify?: {
+    name?: string;
+    spotifyId?: string;
+    imageUrl?: string | null;
+    genres?: string[];
+    instagramHandle?: string | null;
+    tiktokHandle?: string | null;
+    musicbrainzId?: string | null;
+    profileJson?: Record<string, unknown>;
+  };
   source?: string;
   rightsRef?: string;
   permalinks?: string[];
@@ -89,6 +106,67 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
           allowedDates: body.allowedDates ?? [],
         });
         return NextResponse.json({ ok: true });
+      case "suggest":
+        return NextResponse.json(await suggestLineup(db, { userId: user.id, eventId, query: body.query ?? "" }));
+      case "saveLineup":
+        await saveLabLineup(db, { userId: user.id, eventId, slots: body.slots ?? [] });
+        return NextResponse.json({ ok: true });
+      case "addSpotify": {
+        const pick = body.spotify;
+        if (!pick?.name?.trim() || !pick.spotifyId?.trim()) {
+          return NextResponse.json({ error: "Spotify did not return an artist." }, { status: 400 });
+        }
+        return NextResponse.json(await addSpotifyToLineup(db, {
+          userId: user.id,
+          eventId,
+          pick: {
+            name: pick.name,
+            spotifyId: pick.spotifyId,
+            imageUrl: pick.imageUrl ?? null,
+            genres: pick.genres ?? [],
+            instagramHandle: pick.instagramHandle ?? null,
+            tiktokHandle: pick.tiktokHandle ?? null,
+            musicbrainzId: pick.musicbrainzId ?? null,
+            profileJson: pick.profileJson ?? { spotify: { id: pick.spotifyId, name: pick.name, genres: pick.genres ?? [] } },
+          },
+        }));
+      }
+      case "clearLibrary":
+      case "saveLineupArtist":
+        if (!event.client_id) return NextResponse.json({ error: "This event has no client." }, { status: 400 });
+        try {
+          const labId = await labArtistForLibrary(db, {
+            userId: user.id,
+            clientId: event.client_id,
+            libraryArtistId: body.libraryArtistId ?? "",
+            name: body.name ?? "",
+          });
+          if (body.action === "clearLibrary") {
+            await setLabArtistCleared(db, { userId: user.id, artistId: labId, cleared: body.cleared === true });
+            return NextResponse.json({ ok: true, artistId: labId });
+          }
+          return NextResponse.json(await saveLabArtist(db, {
+            userId: user.id,
+            clientId: event.client_id,
+            eventId,
+            artistId: labId,
+            name: body.name ?? "",
+            rightsDocRef: body.rightsDocRef ?? "",
+            startingCaption: body.startingCaption ?? "",
+            metaPageId: body.metaPageId,
+            instagramActorId: body.instagramActorId,
+            playedCities: body.playedCities ?? [],
+            clipFolderUrl: body.clipFolderUrl,
+            clipSource: body.clipSource,
+            artistVoice: body.artistVoice === true,
+          }));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "";
+          if (/artist_id/i.test(message)) {
+            return NextResponse.json({ error: "The lineup link isn't available until the database update is applied." }, { status: 503 });
+          }
+          throw error;
+        }
       case "saveArtist":
         if (!event.client_id) return NextResponse.json({ error: "This event has no client." }, { status: 400 });
         return NextResponse.json(
@@ -163,4 +241,48 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Request failed" }, { status: 400 });
   }
+}
+
+async function suggestLineup(db: ServiceRoleDb, args: { userId: string; eventId: string; query: string }) {
+  const libraryRes = await db.from("artists").select("*").eq("user_id", args.userId) as { data: Record<string, unknown>[] | null; error: { message: string } | null };
+  if (libraryRes.error) throw new Error(libraryRes.error.message);
+  const rosterRes = await db.from("event_artists").select("*").eq("event_id", args.eventId) as { data: Record<string, unknown>[] | null; error: { message: string } | null };
+  if (rosterRes.error) throw new Error(rosterRes.error.message);
+  let spotifyError: string | null = null;
+  const spotify: { spotifyId: string; name: string; imageUrl: string | null; genres: string[]; instagramHandle: string | null; tiktokHandle: string | null; musicbrainzId: string | null; profileJson: Record<string, unknown> }[] = [];
+  if (args.query.trim() && isSpotifyConfigured()) {
+    try {
+      const found = await findArtistCandidates(args.query, { limit: 5 });
+      for (const row of found) {
+        if (!row.spotify_id) continue;
+        spotify.push({
+          spotifyId: row.spotify_id,
+          name: row.name,
+          imageUrl: row.profile_image_url,
+          genres: row.genres,
+          instagramHandle: row.instagram_handle,
+          tiktokHandle: row.tiktok_handle,
+          musicbrainzId: row.musicbrainz_id,
+          profileJson: row.profile_jsonb,
+        });
+      }
+    } catch {
+      spotifyError = "Spotify isn't answering — try again later.";
+    }
+  }
+  const library = (libraryRes.data ?? []).map((row) => ({
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    spotifyId: row.spotify_id ? String(row.spotify_id) : null,
+    imageUrl: row.profile_image_url ? String(row.profile_image_url) : null,
+  }));
+  return {
+    ...tagSuggestions({
+      query: args.query,
+      library,
+      spotify,
+      onLineupIds: new Set((rosterRes.data ?? []).map((row) => String(row.artist_id ?? ""))),
+    }),
+    spotifyError,
+  };
 }
