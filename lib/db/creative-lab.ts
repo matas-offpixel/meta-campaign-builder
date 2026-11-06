@@ -62,6 +62,9 @@ export type CreativeLabCardData = {
     metaPageId: string | null;
     instagramActorId: string | null;
     playedCities: string[];
+    clipFolderUrl: string | null;
+    clipSource: string;
+    clipFolderLastError: string | null;
     rights: RightsState;
     rightsLabel: string;
   }[];
@@ -184,6 +187,9 @@ export async function loadCreativeLabCard(
       metaPageId: text(row, "meta_page_id") || null,
       instagramActorId: text(row, "instagram_actor_id") || null,
       playedCities: Array.isArray(row.played_cities) ? row.played_cities.map((city) => String(city).trim()).filter(Boolean) : [],
+      clipFolderUrl: text(row, "clip_folder_url") || null,
+      clipSource: ["spark", "file", "instagram", "presskit"].includes(text(row, "clip_source")) ? text(row, "clip_source") : "file",
+      clipFolderLastError: text(row, "clip_folder_last_error") || null,
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
     })),

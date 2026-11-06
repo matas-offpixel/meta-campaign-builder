@@ -1575,6 +1575,10 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           client_id: string
+          clip_folder_last_error: string | null
+          clip_folder_synced_at: string | null
+          clip_folder_url: string | null
+          clip_source: string
           created_at: string
           id: string
           ig_username: string | null
@@ -1592,6 +1596,10 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           client_id: string
+          clip_folder_last_error?: string | null
+          clip_folder_synced_at?: string | null
+          clip_folder_url?: string | null
+          clip_source?: string
           created_at?: string
           id?: string
           ig_username?: string | null
@@ -1609,6 +1617,10 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           client_id?: string
+          clip_folder_last_error?: string | null
+          clip_folder_synced_at?: string | null
+          clip_folder_url?: string | null
+          clip_source?: string
           created_at?: string
           id?: string
           ig_username?: string | null
@@ -1718,6 +1730,7 @@ export type Database = {
           permalink: string | null
           rights_ref: string
           source: string
+          source_file_id: string | null
           updated_at: string
           user_id: string
         }
@@ -1741,6 +1754,7 @@ export type Database = {
           permalink?: string | null
           rights_ref: string
           source: string
+          source_file_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -1764,6 +1778,7 @@ export type Database = {
           permalink?: string | null
           rights_ref?: string
           source?: string
+          source_file_id?: string | null
           updated_at?: string
           user_id?: string
         }

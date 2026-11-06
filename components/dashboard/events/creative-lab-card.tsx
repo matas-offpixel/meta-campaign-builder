@@ -218,10 +218,16 @@ function ArtistRow({
   busy: boolean;
   onSave: (body: Record<string, unknown>) => Promise<unknown>;
 }) {
+  const router = useRouter();
   const [name, setName] = useState(artist?.name ?? "");
   const [ref, setRef] = useState(artist?.rightsDocRef ?? "");
   const [caption, setCaption] = useState(artist?.startingCaption ?? "");
   const [cities, setCities] = useState((artist?.playedCities ?? []).join("\n"));
+  const [folderUrl, setFolderUrl] = useState(artist?.clipFolderUrl ?? "");
+  const [clipSource, setClipSource] = useState(artist?.clipSource ?? "file");
+  const [folderNote, setFolderNote] = useState(artist?.clipFolderLastError ?? "");
+  const [importedFiles, setImportedFiles] = useState<{ name: string; outcome: string; reason: string | null }[]>([]);
+  const [importing, setImporting] = useState(false);
   const [artistVoice, setArtistVoice] = useState(Boolean(artist?.metaPageId));
   const [pageId, setPageId] = useState(artist?.metaPageId ?? "");
   const [instagramActorId, setInstagramActorId] = useState(artist?.instagramActorId ?? "");
@@ -312,6 +318,17 @@ function ArtistRow({
         <input className="rounded border border-border bg-background p-2" placeholder="Rights ref" value={ref} onChange={(e) => setRef(e.target.value)} />
         <input className="rounded border border-border bg-background p-2" placeholder="Starting caption" value={caption} onChange={(e) => setCaption(e.target.value)} />
         <label className="block">Played before (cities)<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={2} value={cities} onChange={(e) => setCities(e.target.value)} /></label>
+        <label className="block">Clip folder (Drive or Dropbox link)
+          <input className="mt-1 w-full rounded border border-border bg-background p-2" value={folderUrl} onChange={(e) => setFolderUrl(e.target.value)} />
+        </label>
+        <label className="block">Clip source
+          <select className="mt-1 w-full rounded border border-border bg-background p-2" value={clipSource} onChange={(e) => setClipSource(e.target.value)}>
+            <option value="file">file</option>
+            <option value="instagram">instagram — artist feed</option>
+            <option value="spark">spark</option>
+            <option value="presskit">presskit</option>
+          </select>
+        </label>
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={artistVoice || Boolean(pageId)} onChange={(e) => setArtistVoice(e.target.checked)} disabled={Boolean(pageId)} />
           Artist voice
@@ -327,9 +344,45 @@ function ArtistRow({
         )}
         {pageNote ? <p className="text-muted-foreground">{pageNote}</p> : null}
         <p className="text-muted-foreground">{igLabel ? `Instagram ${igLabel}` : igNote || "No artist Instagram account yet."}</p>
+        {folderNote ? <p>{folderNote}</p> : null}
+        {importedFiles.length > 0 ? (
+          <ul className="space-y-1">
+            {importedFiles.map((file, index) => (
+              <li key={`${file.name}:${index}`}>{file.name}: {file.outcome}{file.reason ? ` — ${file.reason}` : ""}</li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       <div className="mt-2 flex gap-2">
-        <Button type="button" disabled={busy} onClick={() => onSave({ action: "saveArtist", artistId: artist?.id, name, rightsDocRef: ref, startingCaption: caption, playedCities: linesOf(cities), metaPageId: pageId || null, instagramActorId: instagramActorId || null, artistVoice: artistVoice || Boolean(pageId) })}>Save</Button>
+        <Button type="button" disabled={busy || importing} onClick={async () => {
+          const result = await onSave({ action: "saveArtist", artistId: artist?.id, name, rightsDocRef: ref, startingCaption: caption, playedCities: linesOf(cities), clipFolderUrl: folderUrl, clipSource, metaPageId: pageId || null, instagramActorId: instagramActorId || null, artistVoice: artistVoice || Boolean(pageId) }) as { ok?: boolean; json?: { clipImport?: { files?: { name: string; outcome: string; reason: string | null }[]; folderError?: string | null }; clipImportError?: string | null } } | undefined;
+          const clipImport = result?.json?.clipImport;
+          if (result?.json?.clipImportError) setFolderNote(result.json.clipImportError);
+          else if (clipImport?.folderError) setFolderNote(clipImport.folderError);
+          else if (clipImport) setFolderNote("");
+          if (clipImport?.files) setImportedFiles(clipImport.files);
+        }}>Save</Button>
+        {artist ? (
+          <Button type="button" disabled={busy || importing || !folderUrl.trim()} onClick={async () => {
+            setImporting(true);
+            setFolderNote("");
+            try {
+              const res = await fetch(`/api/creative-lab/artists/${artist.id}/import-clips`, { method: "POST" });
+              const json = (await res.json()) as { error?: string; folderError?: string | null; files?: { name: string; outcome: string; reason: string | null }[] };
+              if (!res.ok) {
+                setFolderNote(json.error || "Could not import clips.");
+                return;
+              }
+              setImportedFiles(json.files ?? []);
+              setFolderNote(json.folderError || "");
+              router.refresh();
+            } catch {
+              setFolderNote("Could not import clips.");
+            } finally {
+              setImporting(false);
+            }
+          }}>{importing ? "Importing…" : "Import clips"}</Button>
+        ) : null}
         {artist && artist.rights !== "approved" ? (
           <Button type="button" disabled={busy || !ref.trim() || !caption.trim()} onClick={() => onSave({ action: "approveArtist", artistId: artist.id })}>Approve rights</Button>
         ) : null}

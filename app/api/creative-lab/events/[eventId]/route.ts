@@ -19,6 +19,7 @@ import {
 import type { SaleStage } from "@/lib/creative-lab/caption-facts";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
+export const maxDuration = 800;
 export const dynamic = "force-dynamic";
 
 type Body = {
@@ -33,6 +34,8 @@ type Body = {
   metaPageId?: string | null;
   instagramActorId?: string | null;
   playedCities?: string[];
+  clipFolderUrl?: string | null;
+  clipSource?: string | null;
   artistVoice?: boolean;
   source?: string;
   rightsRef?: string;
@@ -97,6 +100,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
             metaPageId: body.metaPageId,
             instagramActorId: body.instagramActorId,
             playedCities: body.playedCities ?? [],
+            clipFolderUrl: body.clipFolderUrl,
+            clipSource: body.clipSource,
             artistVoice: body.artistVoice === true,
           }),
         );
