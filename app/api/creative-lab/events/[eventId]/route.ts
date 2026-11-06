@@ -15,6 +15,7 @@ import {
   saveLabFacts,
   setLabArtistCleared,
   setLabCaptionStatus,
+  editLabCaption,
 } from "@/lib/creative-lab/card-write";
 import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
 import { isSpotifyConfigured } from "@/lib/enrichment/spotify";
@@ -67,6 +68,9 @@ type Body = {
   clipId?: string | null;
   stageOverride?: SaleStage | null;
   captionId?: string;
+  overlay?: string;
+  primaryText?: string;
+  pairs?: { clipId?: string; captionId?: string }[];
   status?: "approved" | "rejected";
   adsetMetaId?: string;
   roundId?: string;
@@ -222,7 +226,48 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
         }
         await setLabCaptionStatus(db, { userId: user.id, captionId: body.captionId ?? "", status: body.status });
         return NextResponse.json({ ok: true });
+      case "editCaption": {
+        const edited = await editLabCaption(db, {
+          userId: user.id,
+          eventId,
+          captionId: body.captionId ?? "",
+          text: body.overlay ?? "",
+          primaryText: body.primaryText ?? "",
+        });
+        return NextResponse.json(edited);
+      }
       case "propose": {
+        const pairs = (body.pairs ?? [])
+          .map((pair) => ({ clipId: pair.clipId ?? "", captionId: pair.captionId ?? "" }))
+          .filter((pair) => pair.clipId && pair.captionId);
+        if (pairs.length) {
+          const clipRes = await db.from("creative_lab_clips").select("id, artist_id").eq("user_id", user.id);
+          if (clipRes.error) throw new Error(clipRes.error.message);
+          const artistOf = new Map((clipRes.data ?? []).map((row) => [String(row.id), String(row.artist_id)]));
+          const byArtist = new Map<string, { clipId: string; captionId: string }[]>();
+          for (const pair of pairs) {
+            const artistId = artistOf.get(pair.clipId);
+            if (!artistId) continue;
+            const list = byArtist.get(artistId) ?? [];
+            list.push(pair);
+            byArtist.set(artistId, list);
+          }
+          let roundId: string | undefined;
+          let refused: string | undefined;
+          for (const [artistId, include] of byArtist) {
+            const result = await proposeLabRound(db, {
+              userId: user.id,
+              eventId,
+              artistId,
+              adsetMetaId: body.adsetMetaId ?? "",
+              include,
+            });
+            if (result.refused) refused = result.refused;
+            else roundId = result.roundId;
+          }
+          if (!roundId) return NextResponse.json({ refused: refused ?? "Nothing left to propose." }, { status: 409 });
+          return NextResponse.json({ roundId, refused });
+        }
         const result = await proposeLabRound(db, {
           userId: user.id,
           eventId,

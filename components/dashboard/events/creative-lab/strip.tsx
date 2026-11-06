@@ -13,12 +13,14 @@ export function LabStrip({
   captions,
   round,
   next,
+  working,
 }: {
   lineup: number;
   clips: number;
   captions: number;
   round: number | null;
   next: ReturnType<typeof labNextStep>;
+  working?: { angle: string | null; clip: string | null } | null;
 }) {
   const counts = [lineup, clips, captions, round == null ? "—" : round];
   return (
@@ -40,6 +42,12 @@ export function LabStrip({
         <span>Next: {next.text}</span>
         <a className="shrink-0 underline" href={`#${next.target}`}>Go</a>
       </p>
+      {working?.angle || working?.clip ? (
+        <p className="mt-1 text-sm">
+          {working.angle ? <span className="block">{working.angle}</span> : null}
+          {working.clip ? <span className="block">{working.clip}</span> : null}
+        </p>
+      ) : null}
     </div>
   );
 }

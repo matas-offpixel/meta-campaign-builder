@@ -258,7 +258,14 @@ async function capSupport(
 
 export async function proposeRound(
   db: ServiceRoleDb,
-  args: { userId: string; eventId: string; artistId: string; adsetMetaId: string; maxAds?: number },
+  args: {
+    userId: string;
+    eventId: string;
+    artistId: string;
+    adsetMetaId: string;
+    maxAds?: number;
+    include?: readonly { clipId: string; captionId: string }[];
+  },
 ): Promise<ProposeRoundResult> {
   const maxAds = args.maxAds ?? 8;
   const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
@@ -305,11 +312,22 @@ export async function proposeRound(
     db,
     shortClips.flatMap((clip) => (clip.event_id ? [String(clip.event_id)] : [])),
   );
-  const pairs = previous
-    ? pairsFromPlan(previous, shortClips, approved, hasArtistVoice, tickets, skipped, maxAds, db)
-    : pairsForFirstRound(artist.starting_caption ?? "", shortClips, approved, hasArtistVoice, tickets, skipped, maxAds);
+  const chosen = args.include
+    ? args.include
+        .filter((pair) => shortClips.some((clip) => clip.id === pair.clipId) && approved.some((caption) => caption.id === pair.captionId))
+        .map((pair, index) => ({
+          clipId: pair.clipId,
+          captionId: pair.captionId,
+          role: (index === 0 ? "control" : "challenger") as "control" | "challenger",
+          retestOf: null,
+        }))
+    : null;
+  const pairs = chosen
+    ?? (previous
+      ? await pairsFromPlan(previous, shortClips, approved, hasArtistVoice, tickets, skipped, maxAds, db)
+      : pairsForFirstRound(artist.starting_caption ?? "", shortClips, approved, hasArtistVoice, tickets, skipped, maxAds));
 
-  const planned = await capSupport(db, args.eventId, args.artistId, artist.name, await pairs, skipped);
+  const planned = await capSupport(db, args.eventId, args.artistId, artist.name, pairs, skipped);
   const existingAds = await list(db, "launched_ads", "meta_adset_id", target.metaAdsetId);
   if (existingAds.length + planned.length > MAX_ADS_PER_AD_SET) {
     throw new RoundBuildError(
