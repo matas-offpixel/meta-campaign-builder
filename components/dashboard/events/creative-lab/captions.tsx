@@ -154,8 +154,18 @@ function FeedPost({
   const [primary, setPrimary] = useState(caption.primaryText);
   const primaryField = useRef<HTMLTextAreaElement>(null);
   const clip = feedPostClip(lab.clips);
+  function discardEdits() {
+    setOverlay(captionCopy(caption.lines));
+    setPrimary(caption.primaryText);
+    setFocusPrimary(false);
+    setEditing(false);
+  }
   useEffect(() => {
-    if (editing && focusPrimary) primaryField.current?.focus();
+    if (!editing || !focusPrimary) return;
+    const field = primaryField.current;
+    if (!field) return;
+    field.focus();
+    field.scrollIntoView({ block: "nearest" });
   }, [editing, focusPrimary]);
   const copy = captionCopy(caption.lines);
   const headline = feedHeadline({ eventName: lab.eventName, eventDate: lab.eventDate, venue: lab.venueName });
@@ -203,14 +213,22 @@ function FeedPost({
             setEditing(false);
             void onSave({ action: "editCaption", captionId: caption.id, overlay, primaryText: primary });
           }}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            discardEdits();
+          }}
         >
           <label className="block text-xs">Overlay<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={4} value={overlay} onChange={(event) => setOverlay(event.target.value)} /></label>
           <label className="block text-xs">Primary text<textarea ref={primaryField} autoFocus={focusPrimary} className="mt-1 w-full rounded border border-border bg-background p-2" rows={2} value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
-          <Button type="submit" disabled={busy}>Save</Button>
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={busy}>Save</Button>
+            <Button type="button" variant="outline" onClick={discardEdits}>Cancel</Button>
+          </div>
         </form>
       ) : (
         <div className="flex items-center gap-2 p-2">
-          <button type="button" aria-label="Edit" className="h-8 w-8 rounded border border-border" onClick={() => { setOverlay(captionCopy(caption.lines)); setPrimary(caption.primaryText); setFocusPrimary(false); setEditing(true); }}>✎</button>
+          <button type="button" aria-label="Edit" className="h-8 w-8 rounded border border-border" onClick={() => { setOverlay(captionCopy(caption.lines)); setPrimary(caption.primaryText); setFocusPrimary(!caption.primaryText.trim()); setEditing(true); }}>✎</button>
           <button type="button" aria-label="Reject" className="h-8 w-8 rounded border border-border" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "rejected" })}>✕</button>
           {held ? null : (
             <button type="button" aria-label="Approve" className="h-8 w-8 rounded bg-foreground text-background" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "approved" })}>✓</button>
