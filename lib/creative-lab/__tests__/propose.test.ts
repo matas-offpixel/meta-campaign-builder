@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 import { buildLabDraft } from "../lab-draft.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { proposeRound, RoundBuildError } from "../propose.ts";
-import { RoundRefusedError } from "../rounds.ts";
 import { fakeDb, type FakeDb } from "./fake-db.ts";
 
 const USER = "op";
@@ -59,32 +58,44 @@ function seed(over: Record<string, Record<string, unknown>[]> = {}): FakeDb {
 
 const db = (fake: FakeDb) => fake as unknown as ServiceRoleDb;
 
-describe("proposeRound", () => {
-  it("unticking blocks propose, and a tick with no note does not", async () => {
-    const unticked = seed();
-    unticked.tables.creative_lab_artists[0].approved_at = null;
-    await assert.rejects(
-      proposeRound(db(unticked), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET }),
-      (err: unknown) => err instanceof RoundRefusedError && err.code === "not_approved",
-    );
-    assert.equal(unticked.tables.creative_lab_rounds.length, 0);
+function withVoices(over: Record<string, unknown> = {}) {
+  return seed({
+    creative_lab_clips: [
+      { id: "clip-1", artist_id: ARTIST, clip_no: 1, in_s: 0, out_s: 10, creative_asset_id: "asset-1" },
+    ],
+    creative_assets: [{ id: "asset-1", user_id: USER, duration_seconds: 12 }],
+    creative_lab_captions: [
+      { id: "cap-line", event_id: EVENT, status: "approved", text: "Luke Dean joins", style: "lineup", caption_no: 1, style_version: "v1", created_at: "2026-11-04" },
+      { id: "cap-fp", event_id: EVENT, status: "approved", text: "I play Circuit", style: "artist_first_person", caption_no: 1, style_version: "v1", created_at: "2026-11-05" },
+    ],
+    ...over,
+  });
+}
 
-    const ticked = seed();
-    ticked.tables.creative_lab_artists[0].rights_doc_ref = null;
-    await assert.rejects(
-      proposeRound(db(ticked), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET }),
-      (err: unknown) => err instanceof RoundBuildError && err.code === "no_clips",
-    );
+describe("proposeRound", () => {
+  it("an uncleared artist proposes a promoter-voice round and skips artist voice", async () => {
+    const fake = withVoices();
+    fake.tables.creative_lab_artists[0].approved_at = null;
+    fake.tables.creative_lab_artists[0].starting_caption = "I play Circuit";
+    fake.tables.creative_lab_artists[0].meta_page_id = "page-luke";
+    fake.tables.creative_lab_artists[0].instagram_actor_id = "ig-luke";
+    const result = await proposeRound(db(fake), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET });
+    assert.equal(result.ads.length > 0, true);
+    assert.equal(result.ads.every((ad) => !ad.adName.includes("artist_first_person")), true);
+    assert.equal(result.ads[0]?.role, "control");
+    assert.match(result.ads[0]?.adName ?? "", /lineup/);
+    assert.ok(result.skipped.some((row) => row.reason === "needs clearance to run on Luke Dean's channels"));
+    assert.ok(result.skipped.some((row) => row.reason === "not cleared for Luke Dean's own channels"));
   });
 
-  it("refuses an artist whose permission is stored but not approved", async () => {
-    const fake = seed();
-    fake.tables.creative_lab_artists[0].approved_at = null;
-    await assert.rejects(
-      proposeRound(db(fake), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET }),
-      (err: unknown) => err instanceof RoundRefusedError && err.code === "not_approved",
-    );
-    assert.equal(fake.tables.creative_lab_rounds.length, 0);
+  it("a cleared artist gets both voices", async () => {
+    const fake = withVoices();
+    fake.tables.creative_lab_artists[0].meta_page_id = "page-luke";
+    fake.tables.creative_lab_artists[0].instagram_actor_id = "ig-luke";
+    fake.tables.creative_lab_artists[0].rights_doc_ref = null;
+    const result = await proposeRound(db(fake), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET });
+    assert.ok(result.ads.some((ad) => ad.adName.includes("lineup")));
+    assert.ok(result.ads.some((ad) => ad.adName.includes("artist_first_person")));
   });
 
   it("builds round 1 as the starting caption plus three challengers, and reuses a finished render", async () => {

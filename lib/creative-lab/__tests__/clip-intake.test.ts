@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 
 import { DriveFetchError } from "../../clients/asset-queue/drive.ts";
 import {
-  ClipIntakeError,
   driveFolderShareMessage,
   importArtistClips,
   type ClipFolderFile,
@@ -181,27 +180,24 @@ describe("importArtistClips", () => {
     assert.equal(fake.tables.creative_lab_artists[0]?.clip_folder_last_error, null);
   });
 
-  it("refuses when rights are not approved", async () => {
-    const fake = artist({ approved_at: null });
+  it("imports a folder for an artist who is not cleared", async () => {
+    const fake = artist({ approved_at: null, rights_doc_ref: null });
     let listed = false;
-    await assert.rejects(
-      () => importArtistClips(fake as unknown as ServiceRoleDb, {
-        artistId: ARTIST,
-        listing: {
-          async list() {
-            listed = true;
-            return [];
-          },
-          async download() {
-            return Buffer.from("x");
-          },
+    const result = await importArtistClips(fake as unknown as ServiceRoleDb, {
+      artistId: ARTIST,
+      listing: {
+        async list() {
+          listed = true;
+          return [];
         },
-      }),
-      (err: unknown) => err instanceof ClipIntakeError && err.code === "rights_not_approved",
-    );
-    assert.equal(listed, false);
+        async download() {
+          return Buffer.from("x");
+        },
+      },
+    });
+    assert.equal(listed, true);
+    assert.equal(result.folderError, null);
     assert.equal(fake.tables.creative_lab_clips.length, 0);
-    assert.match(String(fake.tables.creative_lab_artists[0]?.clip_folder_last_error), /Approve this artist's rights/);
   });
 
   it("turns a Drive forbidden or missing folder into the share instruction", async () => {

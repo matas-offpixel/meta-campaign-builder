@@ -6,7 +6,6 @@ import {
   classifyAspect,
   findArtistClips,
   IG_MEDIA_FIELDS,
-  IgDiscoveryError,
   igScore,
   imageHeaderSize,
   plainIgMessage,
@@ -269,16 +268,13 @@ describe("findArtistClips", () => {
     assert.equal(fake.tables.creative_lab_ig_candidates.find((row) => row.ig_media_id === "v8")?.status, "requested");
   });
 
-  it("refuses an artist who is not ticked as cleared", async () => {
-    const graph = read([post({ id: "reel-a" })]);
+  it("finds clips for an artist who is not ticked as cleared", async () => {
+    const graph = read([post({ id: "reel-a", thumbWidth: 1080, thumbHeight: 1920 })]);
     const fake = seed();
     fake.tables.creative_lab_artists[0].approved_at = null;
-    await assert.rejects(
-      findArtistClips(fake as unknown as ServiceRoleDb, { artistId: "artist-1", now: NOW, read: graph }),
-      (err: unknown) => err instanceof IgDiscoveryError && err.code === "not_cleared",
-    );
-    assert.deepEqual(graph.calls, []);
-    assert.match(String(fake.tables.creative_lab_artists[0].ig_last_error), /cleared/);
+    const result = await findArtistClips(fake as unknown as ServiceRoleDb, { artistId: "artist-1", now: NOW, read: graph });
+    assert.equal(graph.calls.includes("media") || graph.calls.includes("profile"), true);
+    assert.equal(result.candidates.some((row) => row.igMediaId === "reel-a"), true);
   });
 
   it("strips tokens and urls from a stored error", () => {

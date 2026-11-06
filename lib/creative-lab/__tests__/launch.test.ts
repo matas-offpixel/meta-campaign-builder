@@ -245,6 +245,32 @@ describe("launch a round", () => {
     assert.equal(second.launched.length, 0);
   });
 
+  it("an uncleared artist launches the promoter-voice ad and skips artist voice", async () => {
+    const fake = roundDb({
+      ads: [
+        { id: "ad-1", round_id: ROUND, user_id: USER, ad_name: "LUKEDEAN-clip01_cap-lineup1", caption_id: "cap-1", render_id: "render-1", launch_state: "ready" },
+        { id: "ad-2", round_id: ROUND, user_id: USER, ad_name: "LUKEDEAN-clip01_cap-artist_first_person1", caption_id: "cap-2", render_id: "render-2", launch_state: "ready" },
+      ],
+    });
+    fake.tables.creative_lab_artists[0].approved_at = null;
+    fake.tables.creative_lab_artists[0].meta_page_id = "page_luke";
+    fake.tables.creative_lab_artists[0].instagram_actor_id = "ig_luke";
+    fake.tables.launched_ads.push({
+      launch_run_id: "run-1",
+      ad_name: "LUKEDEAN-clip01_cap-lineup1",
+      meta_ad_id: "meta-1",
+      meta_adset_id: ADSET,
+      meta_campaign_id: "camp_1",
+      ad_account_id: "act_1",
+    });
+    const seen = calls();
+    const result = await launchApprovedRound(ROUND, { db: fake as unknown as ServiceRoleDb, userId: USER, upload: seen.upload, launch: seen.launch, tag: seen.tag });
+    assert.deepEqual(seen.launches[0]?.names, ["LUKEDEAN-clip01_cap-lineup1"]);
+    assert.deepEqual(seen.launches[0]?.pages, ["page_promoter"]);
+    assert.equal(result.skipped.some((row) => row.reason === "not cleared for Luke Dean's own channels"), true);
+    assert.equal(result.launched.length, 1);
+  });
+
   it("skips an artist-first-person ad that has no artist page", async () => {
     const fake = roundDb({
       ads: [

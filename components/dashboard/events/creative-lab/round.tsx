@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { firstPairings, groupClips, roundMatrix, styleLabel } from "@/lib/creative-lab/surface";
+import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
 
@@ -30,11 +31,9 @@ export function LabRound({
     ? null
     : !lab.launchesEnabled
       ? "Lab launches are switched off"
-      : !latest.artistApproved
-        ? "Rights are not approved"
-        : latest.rendersPending
-          ? "Renders are still pending"
-          : null;
+      : latest.rendersPending
+        ? "Renders are still pending"
+        : null;
 
   function toggle(key: string) {
     setExcluded((current) => {
@@ -66,8 +65,9 @@ export function LabRound({
                       const cell = matrix.cells.find((item) => item.clipId === clip.id && item.captionId === caption.id);
                       return (
                         <td key={caption.id}>
-                          <button type="button" className={`h-8 w-full rounded border ${cell?.on ? "border-foreground bg-card" : "border-dashed border-border text-muted-foreground"}`} onClick={() => toggle(`${clip.id}:${caption.id}`)}>
-                            {cell?.on ? "On" : "Off"}
+                          <button type="button" className={`w-16 rounded border p-1 ${cell?.on ? "border-foreground bg-card" : "border-dashed border-border text-muted-foreground"}`} onClick={() => toggle(`${clip.id}:${caption.id}`)}>
+                            <CaptionOverlay lines={[]} src={clip.previewUrl} compact />
+                            <span className="mt-1 block text-xs">{cell?.on ? "On" : "Off"}</span>
                           </button>
                         </td>
                       );
@@ -83,8 +83,9 @@ export function LabRound({
               const caption = captions.find((row) => row.id === cell.captionId);
               return (
                 <li key={`${cell.clipId}:${cell.captionId}`}>
-                  <button type="button" className="text-left text-sm" onClick={() => toggle(`${cell.clipId}:${cell.captionId}`)}>
-                    {clip?.artistName} #{clip?.clipNo} · {caption ? styleLabel(caption.style) : "caption"} · {cell.on ? "On" : "Off"}
+                  <button type="button" className="flex items-center gap-2 text-left text-sm" onClick={() => toggle(`${cell.clipId}:${cell.captionId}`)}>
+                    <span className="w-10 shrink-0"><CaptionOverlay lines={[]} src={clip?.previewUrl} compact /></span>
+                    <span>{clip?.artistName} #{clip?.clipNo} · {caption ? styleLabel(caption.style) : "caption"} · {cell.on ? "On" : "Off"}</span>
                   </button>
                 </li>
               );
@@ -108,6 +109,28 @@ export function LabRound({
         </Button>
         {reason || matrix.on === 0 ? <span className="text-sm text-muted-foreground">{reason || "Turn at least one pairing on."}</span> : null}
       </div>
+      {lab.rounds.length > 0 ? (
+        <div className="space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
+          {lab.rounds.map((round) => (
+            <div key={round.id}>
+              <p className="text-xs tracking-wide text-muted-foreground uppercase">Round {round.roundNo}</p>
+              <ul>
+                {round.ads.map((ad) => {
+                  const clip = lab.clips.find((row) => row.id === ad.clipId);
+                  const caption = lab.captions.find((row) => row.id === ad.captionId);
+                  return (
+                    <li key={ad.id} className="flex items-center gap-2 py-1">
+                      <span className="w-10 shrink-0"><CaptionOverlay lines={[]} src={clip?.previewUrl} compact /></span>
+                      <span className="min-w-0 flex-1">{clip ? `${clip.artistName} #${clip.clipNo}` : "Clip"} × {caption ? styleLabel(caption.style) : "caption"}</span>
+                      <span className="text-muted-foreground">{ad.launchState === "ready" ? "Ready" : ad.launchState === "pending" ? "Rendering" : ad.verdict ?? ad.launchState}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {latest ? (
         <div className="flex flex-wrap items-center gap-3">
           <Button type="button" disabled={busy || Boolean(launchReason)} onClick={() => void onLaunch(latest.id)}>

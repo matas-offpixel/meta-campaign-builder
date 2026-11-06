@@ -7,7 +7,8 @@ import { profile } from "../../src/remotion/caption-style/profile.ts";
 import { validateCaption, type EventFacts } from "../creative-lab/caption-facts.ts";
 import { labLaunchesEnabled } from "../creative-lab/killswitch.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
-import { artistKey, playedBefore } from "../creative-lab/lineup.ts";
+import { artistKey, playedBefore, spotifyCandidatesOf } from "../creative-lab/lineup.ts";
+import { clipWindow, currentRenderError } from "../creative-lab/surface.ts";
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
@@ -31,6 +32,7 @@ export type LabLineupRow = {
   clearedBy: string | null;
   rightsNote: string | null;
   clipCount: number;
+  spotifyCandidates: { spotifyId: string; name: string; imageUrl: string | null; genres: string[] }[];
 };
 
 async function rows(db: ServiceRoleDb, table: string, column: string, value: string): Promise<Row[]> {
@@ -60,7 +62,7 @@ export function rightsState(artist: { rights_doc_ref?: string | null; approved_a
 }
 
 export function rightsLabel(artist: { rights_doc_ref?: string | null; approved_at?: string | null }): string {
-  return artist.approved_at ? "Cleared" : "Not cleared";
+  return artist.approved_at ? "Cleared — artist channels too" : "Promoter page only";
 }
 
 /** Headliners stay in the order given, and every name is on the lineup. */
@@ -73,9 +75,13 @@ export function headlinerError(lineup: readonly string[], headliners: readonly s
 
 export type CreativeLabCardData = {
   eventId: string;
+  eventName: string;
+  eventDate: string | null;
+  venueName: string | null;
   eventStatus: string | null;
   clientName: string | null;
   launchesEnabled: boolean;
+  saleDatesMissing: boolean;
   longApproved: boolean;
   paydayLabel: string;
   daysToEvent: number | null;
@@ -115,7 +121,16 @@ export type CreativeLabCardData = {
     rightsRef: string;
     filmedEventId: string | null;
     durationSeconds: number | null;
+    inS: number;
+    outS: number | null;
+    sourceWidth: number | null;
+    sourceHeight: number | null;
+    billingOrder: number;
+    isHeadliner: boolean;
     thumbnailUrl: string | null;
+    storagePath: string | null;
+    previewUrl: string | null;
+    hasFile: boolean;
     artistName: string;
     cleared: boolean;
     renderError: string | null;
@@ -161,6 +176,8 @@ export async function loadCreativeLabCard(
     venueName: string | null;
     venueCity: string | null;
     eventStatus: string | null;
+    presaleAt?: string | null;
+    generalSaleAt?: string | null;
     operatorId?: string | null;
     operatorName?: string | null;
     now?: Date;
@@ -265,6 +282,7 @@ export async function loadCreativeLabCard(
         clearedBy: text(lab, "approved_by") && text(lab, "approved_by") === (args.operatorId ?? "") ? (args.operatorName || "You") : null,
         rightsNote: text(lab, "rights_doc_ref") || null,
         clipCount: labId ? clipRows.filter((clip) => text(clip, "artist_id") === labId).length : 0,
+        spotifyCandidates: text(artist, "spotify_id") ? [] : spotifyCandidatesOf(artist?.profile_jsonb),
       }];
     });
 
@@ -304,9 +322,13 @@ export async function loadCreativeLabCard(
 
   return {
     eventId: args.eventId,
+    eventName: args.eventName,
+    eventDate: args.eventDate?.slice(0, 10) ?? null,
+    venueName: args.venueName?.trim() || null,
     eventStatus: args.eventStatus,
     clientName,
     launchesEnabled: labLaunchesEnabled(),
+    saleDatesMissing: !String(args.presaleAt ?? "").trim() && !String(args.generalSaleAt ?? "").trim(),
     longApproved: profile.longApproved,
     paydayLabel: nextPayday(args.now).label,
     daysToEvent: daysUntilEvent(args.eventDate, args.now),
@@ -346,15 +368,26 @@ export async function loadCreativeLabCard(
     })),
     clips: clipRows.map((row) => {
       const asset = assetOf.get(text(row, "creative_asset_id"));
-      const seconds = row.out_s == null ? (asset?.duration_seconds == null ? null : Number(asset.duration_seconds)) : Number(row.out_s);
+      const fileSeconds = asset?.duration_seconds == null || asset.duration_seconds === "" ? null : Number(asset.duration_seconds);
+      const storedIn = row.in_s == null || row.in_s === "" ? null : Number(row.in_s);
+      const storedOut = row.out_s == null || row.out_s === "" ? null : Number(row.out_s);
+      const window = clipWindow({
+        fileSeconds: fileSeconds != null && Number.isFinite(fileSeconds) ? fileSeconds : null,
+        inS: storedIn != null && Number.isFinite(storedIn) ? storedIn : null,
+        outS: storedOut != null && Number.isFinite(storedOut) ? storedOut : null,
+      });
+      const seconds = window.outS == null ? null : Math.max(0, window.outS - window.inS);
       const artist = artists.find((item) => text(item, "id") === text(row, "artist_id"));
-      const renders = renderRows
-        .filter((render) => text(render, "clip_id") === text(row, "id"))
-        .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
-      const latest = renders[0];
+      const bill = lineupRows.findIndex((line) => line.labArtistId === text(row, "artist_id"));
+      const line = bill >= 0 ? lineupRows[bill] : null;
+      const renders = renderRows.filter((render) => text(render, "clip_id") === text(row, "id"));
       const rendered = renders.find((render) => text(render, "status") === "done" && text(render, "creative_asset_id"));
       const renderedAsset = rendered ? assetOf.get(text(rendered, "creative_asset_id")) : undefined;
-      const refused = latest && (text(latest, "status") === "failed" || text(latest, "error"));
+      const renderError = currentRenderError(renders.map((render) => ({
+        status: text(render, "status"),
+        error: text(render, "error") || null,
+        createdAt: String(render.created_at ?? ""),
+      })));
       const judgedAds = adRows
         .filter((ad) => text(ad, "clip_id") === text(row, "id"))
         .filter((ad) => text(ad, "verdict") || text(ad, "window_start") || ad.verdict_results != null || ad.verdict_cost_per_result != null)
@@ -368,10 +401,19 @@ export async function loadCreativeLabCard(
         rightsRef: text(row, "rights_ref"),
         filmedEventId: text(row, "event_id") || null,
         durationSeconds: seconds,
+        inS: window.inS,
+        outS: window.outS,
+        sourceWidth: null,
+        sourceHeight: null,
+        billingOrder: bill >= 0 ? bill : Number.MAX_SAFE_INTEGER,
+        isHeadliner: line?.isHeadliner === true,
         thumbnailUrl: text(renderedAsset, "thumbnail_url") || text(asset, "thumbnail_url") || null,
+        storagePath: text(asset, "storage_path") || null,
+        previewUrl: null,
+        hasFile: Boolean(text(asset, "storage_path")),
         artistName: text(artist, "name"),
         cleared: Boolean(artist?.approved_at),
-        renderError: refused ? (text(latest, "error") || "The render was refused.") : null,
+        renderError,
         judged: judged
           ? {
               verdict: judged.verdict == null || judged.verdict === "" ? null : String(judged.verdict),

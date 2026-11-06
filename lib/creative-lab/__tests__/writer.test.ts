@@ -121,6 +121,22 @@ describe("generateCaptions", () => {
     assert.equal(fake.tables.creative_lab_captions.find((row) => row.id === written[0].id)?.style_version, await styleVersion());
   });
 
+  it("does not write a generated caption that has no primary text", async () => {
+    const fake = eventDb();
+    const rejected: string[] = [];
+    const written = await generateCaptions(fake as unknown as ServiceRoleDb, { eventId: EVENT, artistId: "artist-1", style: "lineup", n: 1, now: new Date("2026-11-06T12:00:00Z") }, {
+      anthropic: claude([
+        { overlay: "{artist} at {venue}", primaryText: "   ", declaredNames: ["Luke Dean"] },
+        { overlay: "{artist} at {venue}!", primaryText: "You in?", declaredNames: ["Luke Dean"] },
+      ], []),
+      onReject: (_overlay, _primary, errors) => rejected.push(errors.map((error) => error.code).join(",")),
+    });
+    assert.deepEqual(rejected, ["primary_missing"]);
+    assert.equal(written.length, 1);
+    assert.equal(written[0].primaryText, "You in?");
+    assert.equal(fake.tables.creative_lab_captions.some((row) => !String(row.primary_text ?? "").trim()), false);
+  });
+
   it("retries a caption_no clash once and takes the next number", async () => {
     const fake = eventDb();
     const written = await generateCaptions(clashOnce(fake), { eventId: EVENT, artistId: "artist-1", style: "lineup", n: 1, now: new Date("2026-11-06T12:00:00Z") }, {

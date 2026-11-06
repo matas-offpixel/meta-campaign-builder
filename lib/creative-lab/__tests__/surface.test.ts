@@ -4,10 +4,16 @@ import { describe, it } from "node:test";
 import {
   cantRunReason,
   captionCopy,
+  clipStripLines,
+  clipWindow,
+  currentRenderError,
   failedCheckSentence,
+  feedHeadline,
+  feedPostClip,
   firstPairings,
   groupClips,
   money,
+  playableClipSeconds,
   roundMatrix,
   verdictChip,
   whatsWorking,
@@ -25,10 +31,11 @@ const LUKE: ClipForGroup = {
 };
 
 describe("creative lab surface", () => {
-  it("puts an uncleared clip, including Luke Dean's, in Can't run", () => {
-    const enzo: ClipForGroup = { id: "enzo-1", artistName: "Enzo Siragusa", clipNo: 1, cleared: true, renderError: null, judged: null };
+  it("puts a superseded or long clip in New, and a refused render in Can't run", () => {
+    const enzo: ClipForGroup = { id: "enzo-1", artistId: "enzo", artistName: "Enzo Siragusa", clipNo: 1, cleared: true, renderError: null, judged: null };
     const kept: ClipForGroup = {
       id: "enzo-2",
+      artistId: "enzo",
       artistName: "Enzo Siragusa",
       clipNo: 2,
       cleared: true,
@@ -37,18 +44,45 @@ describe("creative lab surface", () => {
     };
     const refused: ClipForGroup = {
       id: "enzo-bad",
+      artistId: "enzo",
       artistName: "Enzo Siragusa",
       clipNo: 5,
       cleared: true,
-      renderError: "The caption does not fit the frame.",
+      renderError: "video renders are 9:16 only",
       judged: null,
     };
-    const groups = groupClips([kept, enzo, LUKE, refused]);
+    const history: ClipForGroup = { id: "luke-old", artistId: "luke", artistName: "Luke Dean", clipNo: 1, cleared: false, renderError: "superseded: 9:16 only", judged: null };
+    const long: ClipForGroup = { id: "long", artistId: "luke", artistName: "Luke Dean", clipNo: 3, cleared: false, renderError: null, durationSeconds: 45, judged: null };
+    const groups = groupClips([kept, enzo, LUKE, history, refused, long]);
     assert.deepEqual(groups.keeping.map((clip) => clip.id), ["enzo-2"]);
-    assert.deepEqual(groups.fresh.map((clip) => clip.id), ["enzo-1"]);
-    assert.deepEqual(groups.cant.map((clip) => clip.id), ["luke-clip", "enzo-bad"]);
-    assert.equal(cantRunReason(LUKE), "Luke Dean isn't cleared");
-    assert.equal(cantRunReason(refused), "The caption does not fit the frame.");
+    assert.deepEqual(groups.fresh.map((clip) => clip.id), ["enzo-1", "luke-clip", "luke-old", "long"]);
+    assert.deepEqual(groups.cant.map((clip) => clip.id), ["enzo-bad"]);
+    assert.equal(cantRunReason(history), null);
+    assert.equal(cantRunReason(long), null);
+    assert.equal(cantRunReason(refused), "This clip isn't vertical — use a 9:16 file.");
+    assert.equal(cantRunReason(refused)?.includes("9:16 only"), false);
+    assert.equal(playableClipSeconds({ fileSeconds: 45, inS: null, outS: null }), 30);
+    assert.equal(playableClipSeconds({ fileSeconds: 45, inS: 0, outS: 30 }), 30);
+    assert.equal(playableClipSeconds({ fileSeconds: 12, inS: null, outS: null }), 12);
+    assert.deepEqual(clipWindow({ fileSeconds: 34.06, inS: null, outS: null }), { inS: 0, outS: 30 });
+    assert.deepEqual(clipWindow({ fileSeconds: 34.06, inS: 2, outS: 12 }), { inS: 2, outS: 12 });
+    assert.equal(currentRenderError([
+      { status: "failed", error: "superseded: 9:16 only", createdAt: "2026-11-06T12:00:00Z" },
+      { status: "done", error: null, createdAt: "2026-11-05T12:00:00Z" },
+    ]), null);
+    const lukeLandscape = { ...LUKE, artistId: "luke", sourceWidth: 956, sourceHeight: 718, billingOrder: 1, isHeadliner: true };
+    const enzoVertical = { ...enzo, sourceWidth: 1080, sourceHeight: 1920, billingOrder: 0, isHeadliner: true };
+    const tinyVertical = { ...enzo, id: "tiny", sourceWidth: 480, sourceHeight: 854, billingOrder: 0, isHeadliner: true };
+    const widerCrop = { ...enzo, id: "square", sourceWidth: 1080, sourceHeight: 1080, billingOrder: 0, isHeadliner: true };
+    const laterTwin = { ...enzoVertical, id: "later", billingOrder: 3 };
+    assert.equal(feedPostClip([refused, long, lukeLandscape, enzoVertical])?.id, "enzo-1");
+    assert.equal(feedPostClip([widerCrop, { ...enzoVertical, id: "enzo-720", sourceWidth: 720, sourceHeight: 1280, billingOrder: 2 }])?.id, "enzo-720");
+    assert.equal(feedPostClip([laterTwin, enzoVertical])?.id, "enzo-1");
+    assert.equal(feedPostClip([lukeLandscape, tinyVertical]), null);
+    assert.equal(feedPostClip([refused]), null);
+    assert.equal(feedHeadline({ eventName: "Puzzle 4th Birthday", eventDate: "2026-12-27", venue: "Circuit & Engine Rooms" }), "Puzzle 4th Birthday · 27 December · Circuit & Engine Rooms");
+    assert.deepEqual(clipStripLines(1), { line: "1 blocked", short: "1 blocked" });
+    assert.deepEqual(clipStripLines(0), { line: "ready", short: "ready" });
   });
 
   it("renders caption lines as breaks and never a slash", () => {

@@ -172,6 +172,8 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
   const artistPageId = text(artistRow ?? {}, "meta_page_id");
   const artistInstagramId = text(artistRow ?? {}, "instagram_actor_id");
   const promoterInstagramId = text(round, "instagram_actor_id") || null;
+  const cleared = Boolean(artist?.approved_at);
+  const artistName = text(artistRow ?? {}, "name") || "this artist";
 
   const skipped: LaunchRoundResult["skipped"] = [];
   const errors: LaunchRoundResult["errors"] = [];
@@ -193,6 +195,10 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
     if (!caption || !isCaptionStyle(style) || !asset || !text(asset, "storage_path") || !text(asset, "content_hash")) {
       errors.push({ roundAdId: text(ad, "id"), adName, error: "the render file is missing" });
       await mark(deps.db, text(ad, "id"), "launch_failed", "the render file is missing");
+      continue;
+    }
+    if (style === "artist_first_person" && !cleared) {
+      skipped.push({ roundAdId: text(ad, "id"), adName, reason: `not cleared for ${artistName}'s own channels` });
       continue;
     }
     if (style === "artist_first_person") {

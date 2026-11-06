@@ -5,6 +5,7 @@
  */
 
 import type { ServiceRoleDb } from "./load.ts";
+import { spotifyNameMatch } from "./spotify-match.ts";
 
 type Row = Record<string, unknown>;
 
@@ -96,21 +97,50 @@ export function clearedOn(at: string): string {
   return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", day: "numeric", month: "short" }).format(new Date(at));
 }
 
+export type LabStep = "lab-lineup" | "lab-clips" | "lab-captions" | "lab-round";
+
+/**
+ * The step that needs the operator. Clearance is not one: promoter-voice
+ * ads run without it. The highlighted cell is `target`.
+ */
 export function labNextStep(args: {
   lineupCount: number;
-  unclearedWithClips: boolean;
   captionsWaiting: boolean;
   roundReady: boolean;
   runningRound: number | null;
   clipCount: number;
-}): { text: string; target: "lab-lineup" | "lab-clips" | "lab-captions" | "lab-round" } {
-  if (args.unclearedWithClips) return { text: "Clear the artists whose clips you would run.", target: "lab-lineup" };
-  if (args.captionsWaiting) return { text: "Approve a caption.", target: "lab-captions" };
-  if (args.roundReady) return { text: "Propose the round.", target: "lab-round" };
-  if (args.runningRound != null) return { text: `Round ${args.runningRound} is running.`, target: "lab-round" };
-  if (args.lineupCount === 0) return { text: "Add the lineup.", target: "lab-lineup" };
-  if (args.clipCount === 0) return { text: "Add a clip.", target: "lab-clips" };
-  return { text: "Add a clip.", target: "lab-clips" };
+}): { text: string; verb: string; target: LabStep } {
+  if (args.lineupCount === 0) return { text: "Add the lineup.", verb: "Add lineup", target: "lab-lineup" };
+  if (args.clipCount === 0) return { text: "Add a clip.", verb: "Add a clip", target: "lab-clips" };
+  if (args.captionsWaiting) return { text: "Approve a caption, then propose round 1.", verb: "Approve", target: "lab-captions" };
+  if (args.roundReady) return { text: "Propose round 1.", verb: "Propose", target: "lab-round" };
+  if (args.runningRound != null) return { text: `Round ${args.runningRound} is running.`, verb: "Open", target: "lab-round" };
+  return { text: "Write a caption.", verb: "Write", target: "lab-captions" };
+}
+
+export type ArtistRowAction = "find_clips" | "add_instagram" | "clear";
+
+/** One verb for the row. A support act with no clips is not asked to clear. */
+export function artistPrimaryAction(row: {
+  instagramHandle: string | null;
+  labArtistId: string | null;
+  clearedAt: string | null;
+  isHeadliner: boolean;
+  clipCount: number;
+}): ArtistRowAction | null {
+  if (!row.instagramHandle) return "add_instagram";
+  if (row.labArtistId) return "find_clips";
+  if (showClearForArtistChannels(row)) return "clear";
+  return null;
+}
+
+export function showClearForArtistChannels(row: {
+  clearedAt: string | null;
+  isHeadliner: boolean;
+  clipCount: number;
+}): boolean {
+  if (row.clearedAt) return false;
+  return row.isHeadliner || row.clipCount > 0;
 }
 
 export type BackfillPlan = {
@@ -289,4 +319,152 @@ export async function labArtistForLibrary(
     .single();
   if (inserted.error || !inserted.data) throw new Error(inserted.error?.message || "Could not save the artist.");
   return text(inserted.data as Row, "id");
+}
+
+export type SpotifyHit = {
+  id: string;
+  name: string;
+  image_url: string | null;
+  genres: string[];
+};
+
+export type SpotifyCandidate = {
+  spotifyId: string;
+  name: string;
+  imageUrl: string | null;
+  genres: string[];
+};
+
+function asProfile(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {};
+}
+
+export function spotifyCandidatesOf(profile: unknown): SpotifyCandidate[] {
+  const stored = asProfile(profile).spotify_candidates;
+  if (!Array.isArray(stored)) return [];
+  return stored.flatMap((row) => {
+    const item = asProfile(row);
+    const spotifyId = String(item.spotifyId ?? item.id ?? "").trim();
+    const name = String(item.name ?? "").trim();
+    if (!spotifyId || !name) return [];
+    return [{
+      spotifyId,
+      name,
+      imageUrl: item.imageUrl == null && item.image_url == null ? null : String(item.imageUrl ?? item.image_url),
+      genres: Array.isArray(item.genres) ? item.genres.map((genre) => String(genre)) : [],
+    }];
+  });
+}
+
+/**
+ * One Spotify search per library artist that has no spotify_id and has
+ * not been looked up before. One exact name is written. Several are
+ * stored for the row to offer. None is recorded so the search is not
+ * repeated on the next save.
+ */
+export async function enrichLibraryArtists(
+  db: ServiceRoleDb,
+  args: {
+    userId: string;
+    artistIds: readonly string[];
+    search: (name: string) => Promise<readonly SpotifyHit[]>;
+    now?: Date;
+  },
+): Promise<{ enriched: string[]; pick: string[]; none: string[] }> {
+  const artists = await rowsOf(db, "artists", "user_id", args.userId);
+  const byId = new Map(artists.map((row) => [text(row, "id"), row]));
+  const now = (args.now ?? new Date()).toISOString();
+  const enriched: string[] = [];
+  const pick: string[] = [];
+  const none: string[] = [];
+  for (const artistId of args.artistIds) {
+    const row = byId.get(artistId);
+    if (!row || text(row, "spotify_id")) continue;
+    const profile = asProfile(row.profile_jsonb);
+    if (profile.spotify_lookup) continue;
+    const name = text(row, "name");
+    const hits = await args.search(name);
+    const match = spotifyNameMatch(name, hits);
+    if (match.kind === "one") {
+      const saved = await db
+        .from("artists")
+        .update({
+          spotify_id: match.match.id,
+          profile_image_url: match.match.image_url,
+          genres: match.match.genres,
+          enriched_at: now,
+          profile_jsonb: {
+            ...profile,
+            spotify_lookup: "one",
+            spotify: { id: match.match.id, name: match.match.name, genres: match.match.genres, image_url: match.match.image_url },
+          },
+        })
+        .eq("id", artistId)
+        .eq("user_id", args.userId);
+      if (saved.error) throw new Error(saved.error.message);
+      enriched.push(name);
+      continue;
+    }
+    if (match.kind === "several") {
+      const saved = await db
+        .from("artists")
+        .update({
+          profile_jsonb: {
+            ...profile,
+            spotify_lookup: "several",
+            spotify_candidates: match.matches.map((hit) => ({
+              spotifyId: hit.id,
+              name: hit.name,
+              imageUrl: hit.image_url,
+              genres: hit.genres,
+            })),
+          },
+        })
+        .eq("id", artistId)
+        .eq("user_id", args.userId);
+      if (saved.error) throw new Error(saved.error.message);
+      pick.push(name);
+      continue;
+    }
+    const saved = await db
+      .from("artists")
+      .update({ profile_jsonb: { ...profile, spotify_lookup: "none" } })
+      .eq("id", artistId)
+      .eq("user_id", args.userId);
+    if (saved.error) throw new Error(saved.error.message);
+    none.push(name);
+  }
+  return { enriched, pick, none };
+}
+
+export async function applySpotifyCandidate(
+  db: ServiceRoleDb,
+  args: { userId: string; artistId: string; candidate: SpotifyCandidate; now?: Date },
+): Promise<void> {
+  const artists = await rowsOf(db, "artists", "user_id", args.userId);
+  const row = artists.find((item) => text(item, "id") === args.artistId);
+  if (!row) throw new Error("No artist with that id.");
+  const profile = asProfile(row.profile_jsonb);
+  const saved = await db
+    .from("artists")
+    .update({
+      spotify_id: args.candidate.spotifyId,
+      profile_image_url: args.candidate.imageUrl,
+      genres: args.candidate.genres,
+      enriched_at: (args.now ?? new Date()).toISOString(),
+      profile_jsonb: {
+        ...profile,
+        spotify_lookup: "one",
+        spotify_candidates: [],
+        spotify: {
+          id: args.candidate.spotifyId,
+          name: args.candidate.name,
+          genres: args.candidate.genres,
+          image_url: args.candidate.imageUrl,
+        },
+      },
+    })
+    .eq("id", args.artistId)
+    .eq("user_id", args.userId);
+  if (saved.error) throw new Error(saved.error.message);
 }

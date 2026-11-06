@@ -50,7 +50,7 @@ export async function runClipSync(
   let skippedArchived = 0;
   let considered = 0;
   for (const artist of artists) {
-    if (!text(artist, "clip_folder_url") || !text(artist, "approved_at")) continue;
+    if (!text(artist, "clip_folder_url")) continue;
     considered += 1;
     if (archived.has(text(artist, "client_id"))) {
       skippedArchived += 1;

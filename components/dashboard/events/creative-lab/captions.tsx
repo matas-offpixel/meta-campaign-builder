@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
-import { captionCopy, ctaForStage, groupClips, metricUnit, money, styleLabel, verdictChip } from "@/lib/creative-lab/surface";
+import { captionCopy, ctaForStage, feedHeadline, feedPostClip, metricUnit, money, styleLabel, verdictChip } from "@/lib/creative-lab/surface";
+import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
 
@@ -34,7 +35,7 @@ export function LabCaptions({
   const [stage, setStage] = useState<SaleStage>(stageDefault);
   const [count, setCount] = useState<1 | 3 | 5>(3);
   const [each, setEach] = useState(false);
-  const usable = [...groupClips(lab.clips).keeping, ...groupClips(lab.clips).fresh];
+  const lead = feedPostClip(lab.clips);
   const page = lab.clientName || "Page";
   const visible = lab.captions.filter((caption) => caption.status !== "rejected");
 
@@ -65,7 +66,7 @@ export function LabCaptions({
             action: "generate",
             style: angle,
             n: count,
-            clipId: each ? null : usable[0]?.id ?? null,
+            clipId: each ? null : lead?.id ?? null,
             stageOverride: stage,
           })}
         >
@@ -120,7 +121,8 @@ function Control<T extends string>({
           <button
             key={option.id}
             type="button"
-            className={`rounded border px-2 py-1 text-sm ${option.id === value ? "border-foreground bg-card" : "border-border"}`}
+            aria-pressed={option.id === value}
+            className={`rounded px-2 py-1 text-sm ${option.id === value ? "bg-foreground text-background" : "border border-border bg-transparent"}`}
             onClick={() => onChange(option.id)}
           >
             {option.label}
@@ -147,11 +149,29 @@ function FeedPost({
   onSave: Save;
 }) {
   const [editing, setEditing] = useState(false);
+  const [focusPrimary, setFocusPrimary] = useState(false);
   const [overlay, setOverlay] = useState(captionCopy(caption.lines));
   const [primary, setPrimary] = useState(caption.primaryText);
-  const paired = lab.rounds.flatMap((round) => round.ads).find((ad) => ad.captionId === caption.id);
-  const clip = lab.clips.find((row) => row.id === paired?.clipId) ?? lab.clips[0];
+  const primaryField = useRef<HTMLTextAreaElement>(null);
+  const clip = feedPostClip(lab.clips);
+  function discardEdits() {
+    setOverlay(captionCopy(caption.lines));
+    setPrimary(caption.primaryText);
+    setFocusPrimary(false);
+    setEditing(false);
+  }
+  useEffect(() => {
+    if (!editing || !focusPrimary) return;
+    const field = primaryField.current;
+    if (!field) return;
+    field.focus();
+    field.scrollIntoView({ block: "nearest" });
+  }, [editing, focusPrimary]);
   const copy = captionCopy(caption.lines);
+  const headline = feedHeadline({ eventName: lab.eventName, eventDate: lab.eventDate, venue: lab.venueName });
+  const held = caption.style === "artist_first_person" && !lab.artists.some((artist) => artist.rights === "approved")
+    ? `Artist voice — runs once ${lab.artists[0]?.name ?? "this artist"} is cleared for their own channels.`
+    : null;
   return (
     <article className="w-full shrink-0 snap-start rounded border border-border bg-card sm:w-72">
       <div className="flex items-center gap-2 p-2">
@@ -161,17 +181,29 @@ function FeedPost({
           <span className="block text-xs text-muted-foreground">Sponsored</span>
         </span>
       </div>
-      <div className="relative">
-        {clip?.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- storage thumbnail, not a static asset
-          <img src={clip.thumbnailUrl} alt="" className="aspect-[4/5] w-full object-cover" />
-        ) : (
-          <div className="flex aspect-[4/5] w-full items-center justify-center border-y border-border">{clip ? initials(clip.artistName) : "—"}</div>
-        )}
-        <p className="absolute inset-x-3 bottom-3 whitespace-pre-line rounded bg-card p-2 text-sm text-foreground">{copy}</p>
+      {caption.primaryText.trim() ? (
+        <p className="px-3 py-2 text-sm">{caption.primaryText}</p>
+      ) : (
+        <button
+          type="button"
+          className="block w-full px-3 py-2 text-left text-sm text-muted-foreground"
+          onClick={() => {
+            setOverlay(captionCopy(caption.lines));
+            setPrimary(caption.primaryText);
+            setFocusPrimary(true);
+            setEditing(true);
+          }}
+        >
+          No primary text yet — ✎ to add
+        </button>
+      )}
+      <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} inS={clip?.inS ?? 0} outS={clip?.outS ?? null} />
+      <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2">
+        <p className="min-w-0 font-medium">{headline}</p>
+        <span className="inline-flex min-w-28 shrink-0 items-center justify-center whitespace-nowrap rounded bg-foreground px-3 py-1.5 text-background">{ctaForStage(stage)}</span>
       </div>
-      <p className="border-t border-border px-3 py-2 text-sm">{ctaForStage(stage)}</p>
-      <p className="px-3 text-xs text-muted-foreground">{caption.primaryText}</p>
+      <p className="px-3 pb-2 text-xs text-muted-foreground">{styleLabel(caption.style)}{clip ? ` · ${clip.artistName} #${clip.clipNo}` : ""}</p>
+      {held ? <p className="px-3 pb-2 text-sm">{held}</p> : null}
       {caption.validatorDetail ? <p className="px-3 pb-2 text-sm text-destructive">{caption.validatorDetail}</p> : null}
       {editing ? (
         <form
@@ -181,16 +213,26 @@ function FeedPost({
             setEditing(false);
             void onSave({ action: "editCaption", captionId: caption.id, overlay, primaryText: primary });
           }}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            discardEdits();
+          }}
         >
           <label className="block text-xs">Overlay<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={4} value={overlay} onChange={(event) => setOverlay(event.target.value)} /></label>
-          <label className="block text-xs">Primary text<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={2} value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
-          <Button type="submit" disabled={busy}>Save</Button>
+          <label className="block text-xs">Primary text<textarea ref={primaryField} autoFocus={focusPrimary} className="mt-1 w-full rounded border border-border bg-background p-2" rows={2} value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={busy}>Save</Button>
+            <Button type="button" variant="outline" onClick={discardEdits}>Cancel</Button>
+          </div>
         </form>
       ) : (
-        <div className="flex gap-2 p-2">
-          <button type="button" aria-label="Edit" onClick={() => { setOverlay(captionCopy(caption.lines)); setPrimary(caption.primaryText); setEditing(true); }}>✎</button>
-          <button type="button" aria-label="Reject" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "rejected" })}>✕</button>
-          <button type="button" aria-label="Approve" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "approved" })}>✓</button>
+        <div className="flex items-center gap-2 p-2">
+          <button type="button" aria-label="Edit" className="h-8 w-8 rounded border border-border" onClick={() => { setOverlay(captionCopy(caption.lines)); setPrimary(caption.primaryText); setFocusPrimary(!caption.primaryText.trim()); setEditing(true); }}>✎</button>
+          <button type="button" aria-label="Reject" className="h-8 w-8 rounded border border-border" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "rejected" })}>✕</button>
+          {held ? null : (
+            <button type="button" aria-label="Approve" className="h-8 w-8 rounded bg-foreground text-background" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "approved" })}>✓</button>
+          )}
         </div>
       )}
     </article>

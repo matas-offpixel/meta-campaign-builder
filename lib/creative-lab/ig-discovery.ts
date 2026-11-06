@@ -422,11 +422,6 @@ export async function findArtistClips(
   const artist = artistRes.data as Row | null;
   if (!artist) throw new Error("No artist with that id.");
   const userId = text(artist, "user_id");
-  if (!text(artist, "approved_at")) {
-    const message = "Tick this artist as cleared before finding clips.";
-    await writeArtist(db, args.artistId, userId, { ig_last_error: message });
-    throw new IgDiscoveryError("not_cleared", message);
-  }
 
   const clientRes = await db.from("clients").select("*").eq("id", text(artist, "client_id")).maybeSingle();
   if (clientRes.error) throw new Error(plainIgMessage(clientRes.error.message));

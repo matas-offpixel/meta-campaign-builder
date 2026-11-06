@@ -1,0 +1,53 @@
+# Creative Lab — design rules
+
+Paste this into every Cursor prompt that touches the Creative Lab, the asset bank, the campaign drawer or any Off Pixel tool next to them. The frames it points at are in `docs/creative-lab/creative-lab-redesign-2026-11-06.html` (F1–F5) and `docs/creative-lab/creative-lab-pass-2-2026-11-06.html` (A10, B1–B6) and `docs/creative-lab/creative-lab-pass-3-2026-11-06.html` (caption overlay, B7) in this repo. When a prompt says "a clip tile", it means the clip tile below, not a new design.
+
+## The rules
+
+1. **States before fields.** Each section opens on what's true — a count, a chip, a preview — and the inputs that change it are behind `Edit`, `⋯` or a sheet. A section that opens on an empty form is wrong.
+2. **Previews first.** Anything that becomes an ad is shown as the ad: a clip as its first frame, a caption as a feed post, a render as a playable 9:16 preview, a warning as its artwork. Never a filename or a line of text standing in for it.
+3. **At most 3 inputs visible per section** before the user presses Edit or Add. A search or @ field counts as one input. Inputs are labelled; there are no unlabelled selects.
+4. **One primary action per row or card.** Everything else goes in `⋯`. The primary action is a verb on the thing (`Find clips`, `Approve`, `Use this crop`), never "Go" or "Submit".
+5. **No raw IDs, hashes, file IDs, field names or reference strings on screen.** No `events.status (…)`, no Drive IDs, no `proposed · long · passed`, no `/` line markers. Long provenance text (rights emails, notes) lives on hover or in Edit, never on the tile.
+6. **Numbers carry a unit and a comparison.** `£0.44 / signup`, `vs £0.58 in round 1`, `998 of 1,400 sold`. A number with no unit or no comparison isn't finished. Numbers are the biggest text in their cell.
+7. **Errors are one plain sentence saying what to fix.** "Needs a city this artist has played — add it to their row." Passed checks draw nothing. A refusal names the fix ("find a sharper copy or ask the team").
+8. **Empty states say what unlocks them.** "Approve at least 1 caption to propose round 1." Never "No rounds." and never an empty chart. "No clear winner" is a result and is drawn as one.
+9. **Every component defines its 393 behaviour**: what stacks, what scrolls sideways, what moves into a sheet, what drops to its own line. No horizontal page scroll; native selects are replaced by sheets.
+10. **Colour tokens only.** Sand, card, edit, ink, ink-2, ink-3, border; olive / ochre / brick to judge a number against the client's own band; platform tints to name a platform. No new hex values. Colour never carries meaning alone — a word or shape goes with it.
+11. **Never fabricate scarcity.** A ticket warning shows the ticket count that makes it true, its source and when it was read. If the data doesn't support it, it's locked.
+12. **Cross-client data is Matas-only.** Other clients' names, and anything drawn from their results, show only on his account (🔒 line). Clients see their own tier.
+13. **Captions on UGC use the locked caption style.** TikTok Sans, weight 400, width 120, white fill with a black stroke outside the letters, no shadow, no box. Centred; the block's centre sits about 36% down the 9:16 frame, inside the 4:5 safe area (about 30% down a 4:5 crop). Play controls go in the bottom corner, never over the text. One component everywhere a caption sits on a clip: the feed post, render rows, round cells and the timeline. Reference: `docs/creative-lab/ugc1-side-by-side.png`.
+14. **Artwork assets come from the artwork.** Lineup overlays, artist cards, ticket warnings and key-moment pushes are built from the designer's open artwork file (PSD) and the campaign's own font files, changing only the text layers the designer made. Never the caption style, never a fallback font. If a font is missing, that text can't be edited until it's uploaded. Copy that's too long is shortened, never set smaller; if it can't be shortened, it's flagged and can't be approved.
+
+## Named components
+
+Point at these by name. Each line is what it shows at rest, its one action, and what it does at 393.
+
+| Component | At rest | Primary action | 393 |
+|---|---|---|---|
+| **Strip** | 4 cells: kicker · big count · state line; the step needing you highlighted; `Next:` sentence + one button | the button (scrolls) | stays one row, shorter state words |
+| **Artist row** | drag · photo · name + ★ · handle dots · rights chip · clip count | one (`Find clips` / `Add Instagram` / `Clear for artist channels`) + `⋯` | rows stack, action on its own line |
+| **Artist card** (hover/ⓘ) | photo · handles · played with you · genres · checked-on date · Open in Spotify | none | a bottom sheet |
+| **Rights chip** | `Promoter page only` (ink outline) / `✓ Cleared — artist channels too` (olive) + who, when | `Clear for artist channels` | same chip |
+| **Clip tile** | 9:16 first frame · source badge · length · name · one status (cost + verdict / Untested / reason) | tap = play; `⋯` | 2 across; New / Can't run scroll sideways |
+| **Candidate tile** | rank · frame · ♥ / 💬 · age · aspect | `Add` (or `Add · crop`) → progress → `✓ Added` | 2 across |
+| **Crop picker** | widest frame with the 9:16 window, shaded outside; 6-frame strip | `Use this crop` | full width, button full width |
+| **Render row** | mini frame · pairing · progress · ready / time left / queue place | tap ready = play | the 9:16 preview beside a progress line |
+| **Feed-post caption** | the caption as a feed ad with its clip and the stage's CTA; angle · clip under it | ✓ (approve); ✎ ✕ secondary | one at a time |
+| **Proven chip** | the line · 4-bar strength · won n of m | tap = use it | stacked |
+| **Round matrix** | captions across, clips down, one cell per ad; `{n} ads` + reason when off | `Propose round {n}` | a list of pairings, then `+n more` |
+| **Rounds timeline** | columns per round; kept carries across, killed struck through with its verdict, new dashed | none | rounds stacked, newest first |
+| **Insight chip / bars** | scope toggle · one bar per option (cost per result) · winner olive · confidence line | scope toggle | label above the bars |
+| **Verdict chip** | `Winner` olive fill · `Loser` brick fill · `Holding` ink outline · `Untested` dashed · `Held` ochre | none | same |
+| **Delta chip** | ▲ / ▼ + what changed, or a sparkline + before → after | none | 2 chips + `+n` |
+| **Asset board** | asset types × formats; cell = thumb / thumb ✓ / dashed + with what's needed / ochre held | `Make the missing {n}` | 2 formats at a time, swipe |
+| **Approval card** | artwork preview · what it says · the ticket number that makes it true + source + time · when it runs | `Approve` (`Not now` secondary); locked shows how far off | preview left, words right, buttons below |
+| **Payday calendar** | weeks Mon–Sun; payday (last Friday) outlined; ticket pushes brick, content-led meta-blue | tap a day = its pushes | a list by week |
+| **Caption overlay** | the clip's frame with the caption in the locked style (rule 13); play bottom-left, scrubber along the bottom | tap = play | same component, scaled; at cell size it shows where the text sits, the words go on the label |
+| **Brand kit** | the artwork with editable text dashed; text slots (name · current text · font · max characters); locked layers as chips; fonts uploaded / missing | `Upload font` on a missing-font slot, `Replace` for the file | artwork on top, slots below |
+| **Variant proposal** | asset type chips (dashed until the ticket data allows them) · the ticket number that makes it true · before → after copy · fit meter · original + 4:5 / 9:16 / 1:1 previews | `Approve` (`Edit the copy` secondary); no Approve while a slot overflows | proposal on top, formats swipe |
+| **Fit meter** | bar against the slot's limit (solid line); olive fits, brick over; "17 of 18" | none | same |
+
+## How to use this in a prompt
+
+Name the frame and the component, then say only what's different: "Build B2's crop picker (crop picker component) on the candidate tile's `Add · crop`. Rules apply." If a screen needs something no component covers, stop and ask for a frame. Don't invent one in words.

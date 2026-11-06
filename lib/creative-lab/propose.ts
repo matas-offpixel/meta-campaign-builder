@@ -15,6 +15,7 @@ import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { assertArtistCleared, buildAdName, createRound, type LabArtist } from "./rounds.ts";
+import { clipWindow } from "./surface.ts";
 import type { CaptionStyle } from "./tags.ts";
 
 export const MAX_ADS_PER_AD_SET = 50;
@@ -83,10 +84,14 @@ async function list(db: ServiceRoleDb, table: string, column: string, value: str
 }
 
 function clipSeconds(clip: Row, asset: Row | undefined): number | null {
-  const start = clip.in_s == null ? 0 : Number(clip.in_s);
-  const end = clip.out_s == null ? (asset?.duration_seconds == null ? null : Number(asset.duration_seconds)) : Number(clip.out_s);
-  if (end == null || Number.isNaN(end)) return null;
-  return end - start;
+  const file = asset?.duration_seconds == null ? null : Number(asset.duration_seconds);
+  const window = clipWindow({
+    fileSeconds: file != null && Number.isFinite(file) ? file : null,
+    inS: clip.in_s == null ? null : Number(clip.in_s),
+    outS: clip.out_s == null ? null : Number(clip.out_s),
+  });
+  if (window.outS == null) return null;
+  return window.outS - window.inS;
 }
 
 type DraftJson = {
@@ -307,7 +312,8 @@ export async function proposeRound(
   const approved = captionRows
     .filter((row) => row.status === "approved")
     .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
-  const hasArtistVoice = Boolean(String(artist.meta_page_id ?? "").trim() && String(artist.instagram_actor_id ?? "").trim());
+  const cleared = Boolean(artist.approved_at);
+  const hasArtistVoice = cleared && Boolean(String(artist.meta_page_id ?? "").trim() && String(artist.instagram_actor_id ?? "").trim());
   const tickets = await ticketsSoldByEvent(
     db,
     shortClips.flatMap((clip) => (clip.event_id ? [String(clip.event_id)] : [])),
@@ -324,8 +330,8 @@ export async function proposeRound(
     : null;
   const pairs = chosen
     ?? (previous
-      ? await pairsFromPlan(previous, shortClips, approved, hasArtistVoice, tickets, skipped, maxAds, db)
-      : pairsForFirstRound(artist.starting_caption ?? "", shortClips, approved, hasArtistVoice, tickets, skipped, maxAds));
+      ? await pairsFromPlan(artist.name, cleared, previous, shortClips, approved, hasArtistVoice, tickets, skipped, maxAds, db)
+      : pairsForFirstRound(artist.name, artist.starting_caption ?? "", cleared, shortClips, approved, hasArtistVoice, tickets, skipped, maxAds));
 
   const planned = await capSupport(db, args.eventId, args.artistId, artist.name, pairs, skipped);
   const existingAds = await list(db, "launched_ads", "meta_adset_id", target.metaAdsetId);
@@ -404,7 +410,17 @@ export async function proposeRound(
 
 type Pair = { clipId: string; captionId: string; role: "control" | "challenger"; retestOf: string | null };
 
-function allowCaption(caption: Caption, hasArtistPage: boolean, skipped: { reason: string }[]): boolean {
+function allowCaption(
+  caption: Caption,
+  artistName: string,
+  cleared: boolean,
+  hasArtistPage: boolean,
+  skipped: { reason: string }[],
+): boolean {
+  if (caption.style === "artist_first_person" && !cleared) {
+    skipped.push({ reason: `not cleared for ${artistName}'s own channels` });
+    return false;
+  }
   if (caption.style === "artist_first_person" && !hasArtistPage) {
     skipped.push({ reason: `caption ${caption.caption_no} is artist_first_person and the artist has no Page and Instagram account` });
     return false;
@@ -447,7 +463,9 @@ function crowdReason(caption: Caption, clip: Clip, tickets: Map<string, number |
 }
 
 function pairsForFirstRound(
+  artistName: string,
   startingCaption: string,
+  cleared: boolean,
   clips: Clip[],
   approved: Caption[],
   hasArtistPage: boolean,
@@ -458,11 +476,21 @@ function pairsForFirstRound(
   const controlClip = clips[0];
   if (!controlClip) return [];
   const starting = approved.find((caption) => normaliseCaption(String(caption.text ?? "")) === normaliseCaption(startingCaption));
-  if (!starting) skipped.push({ reason: "the artist's starting caption is not an approved caption" });
+  let control: Caption | null = null;
+  if (!starting) {
+    skipped.push({ reason: "the artist's starting caption is not an approved caption" });
+  } else if (starting.style === "artist_first_person" && !cleared) {
+    skipped.push({ reason: `needs clearance to run on ${artistName}'s channels` });
+  } else if (allowCaption(starting, artistName, cleared, hasArtistPage, skipped)) {
+    control = starting;
+  }
+  if (!control) {
+    control = approved.find((caption) => caption.style !== "artist_first_person") ?? null;
+  }
   const pairs: Pair[] = [];
   const push = (clip: Clip, caption: Caption, role: Pair["role"]) => {
     if (pairs.length >= maxAds) return;
-    if (!allowCaption(caption, hasArtistPage, skipped)) return;
+    if (!allowCaption(caption, artistName, cleared, hasArtistPage, skipped)) return;
     const blocked = crowdReason(caption, clip, tickets);
     if (blocked) {
       skipped.push({ reason: `caption ${caption.caption_no} on clip ${clip.clip_no}: ${blocked}` });
@@ -470,23 +498,25 @@ function pairsForFirstRound(
     }
     pairs.push({ clipId: String(clip.id), captionId: String(caption.id), role, retestOf: null });
   };
-  if (starting) push(controlClip, starting, "control");
+  if (control) push(controlClip, control, "control");
   for (const caption of approved) {
     if (pairs.length >= maxAds) break;
-    if (starting && caption.id === starting.id) continue;
+    if (control && caption.id === control.id) continue;
     if (pairs.filter((pair) => pair.clipId === controlClip.id && pair.role === "challenger").length >= 3) break;
     push(controlClip, caption, "challenger");
   }
-  if (starting) {
+  if (control) {
     for (const clip of clips.slice(1)) {
       if (pairs.length >= maxAds) break;
-      push(clip, starting, "challenger");
+      push(clip, control, "challenger");
     }
   }
   return pairs;
 }
 
 async function pairsFromPlan(
+  artistName: string,
+  cleared: boolean,
   previous: Row,
   clips: Clip[],
   approved: Caption[],
@@ -518,7 +548,7 @@ async function pairsFromPlan(
     const clip = clipById.get(clipId);
     if (!clip) return;
     const caption = captionById.get(captionId);
-    if (!caption || !allowCaption(caption, hasArtistPage, skipped)) return;
+    if (!caption || !allowCaption(caption, artistName, cleared, hasArtistPage, skipped)) return;
     const blocked = crowdReason(caption, clip, tickets);
     if (blocked) {
       skipped.push({ reason: `caption ${caption.caption_no} on clip ${clip.clip_no}: ${blocked}` });

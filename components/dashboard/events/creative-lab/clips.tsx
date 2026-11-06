@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
-import { cantRunReason, durationLabel, groupClips, metricUnit, money, sourceBadge, verdictChip } from "@/lib/creative-lab/surface";
+import { cantRunReason, clipBucket, durationLabel, groupClips, metricUnit, money, sourceBadge, verdictChip } from "@/lib/creative-lab/surface";
 import { uploadFileToCampaignAssets } from "@/lib/tiktok-wizard/campaign-asset-upload";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
@@ -135,12 +135,7 @@ function ClipGroup({
           const chip = clip.judged ? verdictChip(clip.judged.verdict === "untested" || clip.judged.verdict === "thin" ? "untested" : clip.judged.verdict) : verdictChip("untested");
           return (
             <article key={clip.id} className={`w-36 shrink-0 sm:w-auto ${reason ? "rounded border border-dashed border-destructive p-1" : ""}`} title={clip.rightsRef}>
-              {clip.thumbnailUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- storage thumbnail, not a static asset
-                <img src={clip.thumbnailUrl} alt="" className="aspect-[9/16] w-full rounded object-cover" />
-              ) : (
-                <div className="flex aspect-[9/16] w-full items-center justify-center rounded border border-border bg-card text-sm">{initials(clip.artistName)}</div>
-              )}
+              <ClipFrame src={clip.previewUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} />
               <p className="mt-1 flex justify-between text-xs">
                 <span>{sourceBadge(clip.source)}</span>
                 <span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span>
@@ -161,7 +156,69 @@ function ClipGroup({
 }
 
 function clipBucketKeeping(clip: CreativeLabCardData["clips"][number]): boolean {
-  return Boolean(clip.judged) && clip.judged?.verdict !== "untested" && clip.judged?.verdict !== "thin" && clip.cleared && !clip.renderError;
+  return clipBucket(clip) === "keeping";
+}
+
+function ClipFrame({ src, hasFile, name, inS, outS }: { src: string | null; hasFile: boolean; name: string; inS: number; outS: number | null }) {
+  const video = useRef<HTMLVideoElement>(null);
+  const [time, setTime] = useState(inS);
+  const end = outS ?? inS;
+  function hold(node: HTMLVideoElement) {
+    if (node.currentTime < inS) node.currentTime = inS;
+    if (outS != null && node.currentTime >= outS) {
+      node.pause();
+      node.currentTime = inS;
+    }
+  }
+  if (src) {
+    return (
+      <div className="relative">
+        <video
+          ref={video}
+          src={src}
+          muted
+          playsInline
+          preload="metadata"
+          className="aspect-[9/16] w-full rounded object-cover"
+          onLoadedMetadata={(event) => {
+            const node = event.currentTarget;
+            const poster = inS === 0 && (outS == null || outS > 0.5) ? 0.5 : inS;
+            node.currentTime = poster;
+            setTime(poster);
+          }}
+          onTimeUpdate={(event) => {
+            hold(event.currentTarget);
+            setTime(event.currentTarget.currentTime);
+          }}
+          onClick={() => {
+            const node = video.current;
+            if (!node) return;
+            if (node.paused) {
+              if (outS != null && node.currentTime >= outS) node.currentTime = inS;
+              void node.play();
+            } else node.pause();
+          }}
+        />
+        <input
+          aria-label="Scrub"
+          className="absolute inset-x-2 bottom-2 h-1 accent-white"
+          type="range"
+          min={inS}
+          max={Math.max(end, inS + 0.1)}
+          step={0.1}
+          value={Math.min(Math.max(time, inS), end)}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (video.current) video.current.currentTime = next;
+            setTime(next);
+          }}
+          onClick={(event) => event.stopPropagation()}
+        />
+      </div>
+    );
+  }
+  if (hasFile) return <div className="aspect-[9/16] w-full rounded bg-black" aria-label={name} />;
+  return <div className="flex aspect-[9/16] w-full items-center justify-center rounded border border-border bg-card text-sm">{initials(name)}</div>;
 }
 
 function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: boolean; onSave: Save }) {

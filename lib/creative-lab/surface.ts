@@ -46,28 +46,140 @@ export type JudgedClip = {
   roundNo: number;
 };
 
+/** A file longer than this plays its first 30 seconds. The folder import stores the same window. */
+export const CLIP_TRIM_SECONDS = 30;
+
 export type ClipForGroup = {
   id: string;
+  artistId?: string;
   artistName: string;
   clipNo: number;
   cleared: boolean;
   renderError: string | null;
+  durationSeconds?: number | null;
   judged: JudgedClip | null;
 };
 
 export type ClipBucket = "keeping" | "new" | "cant";
 
+/** A superseded render is an old path, kept for the record. It is not a refusal. */
+export function isSupersededRender(error: string | null | undefined): boolean {
+  return (error ?? "").trim().toLowerCase().startsWith("superseded:");
+}
+
+/**
+ * The newest render that is still on the current path. A superseded row is
+ * skipped. Only a failed row on that path refuses the clip.
+ */
+export function currentRenderError(
+  renders: readonly { status: string; error: string | null; createdAt: string }[],
+): string | null {
+  const current = [...renders]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .find((render) => !isSupersededRender(render.error));
+  if (!current || current.status !== "failed") return null;
+  return current.error?.trim() || "The render was refused.";
+}
+
+/**
+ * The seconds the tile and the render play. A stored window is kept.
+ * When it is unset, a file longer than 30 seconds is the first 30 seconds.
+ */
+export function clipWindow(args: { fileSeconds: number | null; inS: number | null; outS: number | null }): { inS: number; outS: number | null } {
+  const inS = args.inS != null && Number.isFinite(args.inS) ? args.inS : null;
+  const outS = args.outS != null && Number.isFinite(args.outS) ? args.outS : null;
+  if (inS == null && outS == null) {
+    if (args.fileSeconds != null && Number.isFinite(args.fileSeconds) && args.fileSeconds > CLIP_TRIM_SECONDS) {
+      return { inS: 0, outS: CLIP_TRIM_SECONDS };
+    }
+    return { inS: 0, outS: args.fileSeconds != null && Number.isFinite(args.fileSeconds) ? args.fileSeconds : null };
+  }
+  return { inS: inS ?? 0, outS };
+}
+
+export function playableClipSeconds(args: { fileSeconds: number | null; inS: number | null; outS: number | null }): number | null {
+  const window = clipWindow(args);
+  if (window.outS == null) return null;
+  return Math.max(0, window.outS - window.inS);
+}
+
+/** Width of the largest 9:16 rectangle inside the source. A wider file loses the sides. */
+export function cropWidth9x16(width: number, height: number): number {
+  if (!(width > 0) || !(height > 0)) return 0;
+  const target = 9 / 16;
+  return width / height > target ? height * target : width;
+}
+
+export function isNative9x16(width: number, height: number): boolean {
+  if (!(width > 0) || !(height > 0)) return false;
+  const ratio = width / height;
+  return Math.abs(ratio - 9 / 16) / (9 / 16) <= 0.05;
+}
+
+/** A 9:16 crop under this width is not the lead and not Best clip. */
+export const MIN_LEAD_CROP_PX = 540;
+
+export type RankedClip = ClipForGroup & {
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
+  billingOrder?: number;
+  isHeadliner?: boolean;
+};
+
+/** Native 9:16 first, then the wider crop, then billing order. Under 540 px is left for a hand pick. */
+export function bestRunnableClip<T extends RankedClip>(clips: readonly T[]): T | null {
+  const eligible = clips.filter((clip) => {
+    if (clipBucket(clip) === "cant") return false;
+    const width = clip.sourceWidth;
+    const height = clip.sourceHeight;
+    if (width == null || height == null) return false;
+    return cropWidth9x16(width, height) >= MIN_LEAD_CROP_PX;
+  });
+  eligible.sort((a, b) => {
+    const nativeA = isNative9x16(a.sourceWidth ?? 0, a.sourceHeight ?? 0) ? 0 : 1;
+    const nativeB = isNative9x16(b.sourceWidth ?? 0, b.sourceHeight ?? 0) ? 0 : 1;
+    if (nativeA !== nativeB) return nativeA - nativeB;
+    const widthA = cropWidth9x16(a.sourceWidth ?? 0, a.sourceHeight ?? 0);
+    const widthB = cropWidth9x16(b.sourceWidth ?? 0, b.sourceHeight ?? 0);
+    if (widthB !== widthA) return widthB - widthA;
+    return (a.billingOrder ?? 0) - (b.billingOrder ?? 0);
+  });
+  return eligible[0] ?? null;
+}
+
 export function clipBucket(clip: ClipForGroup): ClipBucket {
-  if (!clip.cleared || clip.renderError) return "cant";
+  if (renderRefusalSentence(clip.renderError)) return "cant";
   if (!clip.judged) return "new";
   if (clip.judged.verdict === "untested" || clip.judged.verdict === "thin") return "new";
   return "keeping";
 }
 
+/** One sentence that says what to fix. A raw render error is never returned. */
+export function renderRefusalSentence(error: string | null | undefined): string | null {
+  const value = (error ?? "").trim();
+  if (!value || isSupersededRender(value)) return null;
+  const lower = value.toLowerCase();
+  if (lower.includes("9:16 only") || lower.includes("isn't vertical") || lower.includes("is not rendered")) {
+    return "This clip isn't vertical — use a 9:16 file.";
+  }
+  if (lower.includes("does not fit") || lower.includes("too long") || lower.includes("exceeds") || lower.includes("at most") || lower.includes("not approved")) {
+    return "This caption is too long — shorten it.";
+  }
+  if (lower.includes("style_version") || lower.includes("old style")) return "This caption is on an old style — generate it again.";
+  if (lower.includes("no source") || lower.includes("no file")) return "This clip has no file — import it again.";
+  if (lower.includes("timeout")) return "The render timed out — try it again.";
+  if (lower.includes("replaced audio") || lower.includes("no track")) return "This clip's new audio has no track yet — add the track.";
+  if (value.includes(" — ") && !value.includes(":") && value.length <= 140) return value;
+  return "This render was refused — find a sharper copy or ask the team.";
+}
+
 export function cantRunReason(clip: ClipForGroup): string | null {
-  if (!clip.cleared) return `${clip.artistName} isn't cleared`;
-  if (clip.renderError) return clip.renderError;
-  return null;
+  return renderRefusalSentence(clip.renderError);
+}
+
+/** The lead clip for the feed post and for Best clip. A refused clip, and a crop under 540 px, is never returned. */
+export function feedPostClip<T extends RankedClip>(clips: readonly T[]): T | null {
+  return bestRunnableClip(clips);
 }
 
 export function groupClips<T extends ClipForGroup>(clips: readonly T[]): { keeping: T[]; fresh: T[]; cant: T[] } {
@@ -112,6 +224,27 @@ export function failedCheckSentence(ok: boolean, details: readonly string[]): st
 
 export function ctaForStage(stage: "on_sale" | "upcoming" | "signup"): string {
   return stage === "on_sale" ? "Get tickets" : "Sign up";
+}
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** "{event} · {d Month} · {venue}". A missing date or venue is left out. */
+export function feedHeadline(args: { eventName: string; eventDate: string | null | undefined; venue: string | null | undefined }): string {
+  const parts = [args.eventName.trim()];
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(args.eventDate?.trim() ?? "");
+  const month = match ? MONTHS[Number(match[2]) - 1] : undefined;
+  const day = match ? Number(match[3]) : 0;
+  if (month && day >= 1 && day <= 31) parts.push(`${day} ${month}`);
+  const venue = args.venue?.trim();
+  if (venue) parts.push(venue);
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** The Clips cell. The short line keeps the blocked count. */
+export function clipStripLines(blocked: number): { line: string; short: string } {
+  if (blocked <= 0) return { line: "ready", short: "ready" };
+  const line = `${blocked} blocked`;
+  return { line, short: line };
 }
 
 export function styleLabel(style: string): string {
