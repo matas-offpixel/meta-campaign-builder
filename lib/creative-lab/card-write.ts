@@ -5,6 +5,7 @@
  */
 
 import { recordStartingCaption, type StartingCaptionResult } from "./starting-caption.ts";
+import { ClipIntakeError, importArtistClips, type ClipImportResult } from "./clip-intake.ts";
 import { generateCaptions } from "./writer.ts";
 import { judgeLabRound } from "./judge-round.ts";
 import { approveRound } from "./launch.ts";
@@ -59,23 +60,36 @@ export async function saveLabArtist(
     metaPageId?: string | null;
     instagramActorId?: string | null;
     playedCities?: readonly string[];
+    clipFolderUrl?: string | null;
+    clipSource?: string | null;
     artistVoice?: boolean;
   },
-): Promise<{ id: string; startingCaption: StartingCaptionResult | null }> {
+): Promise<{ id: string; startingCaption: StartingCaptionResult | null; clipImport: ClipImportResult | null; clipImportError: string | null }> {
   const name = args.name.trim();
   if (!name) throw new Error("An artist needs a name.");
   const metaPageId = args.metaPageId?.trim() || null;
   let instagramActorId = args.instagramActorId?.trim() || null;
   const playedCities = cityList(args.playedCities);
   let id = args.artistId?.trim() || "";
+  let previousUrl = "";
+  let previousSource = "file";
   if (id) {
     const existingRes = await db.from("creative_lab_artists").select("*").eq("id", id).eq("user_id", args.userId).maybeSingle();
     if (existingRes.error) throw new Error(existingRes.error.message);
     const existing = existingRes.data as Row | null;
     const previousPage = text(existing, "meta_page_id");
     const previousInstagram = text(existing, "instagram_actor_id");
+    previousUrl = text(existing, "clip_folder_url");
+    previousSource = text(existing, "clip_source") || "file";
     if (metaPageId === previousPage && !instagramActorId && previousInstagram) instagramActorId = previousInstagram;
   }
+  const clipFolderUrl = args.clipFolderUrl === undefined ? previousUrl || null : args.clipFolderUrl?.trim() || null;
+  const requestedSource = args.clipSource?.trim() ?? "";
+  const clipSource = ["spark", "file", "instagram", "presskit"].includes(requestedSource)
+    ? requestedSource
+    : ["spark", "file", "instagram", "presskit"].includes(previousSource)
+      ? previousSource
+      : "file";
   const payload = {
     user_id: args.userId,
     client_id: args.clientId,
@@ -85,6 +99,8 @@ export async function saveLabArtist(
     meta_page_id: metaPageId,
     instagram_actor_id: instagramActorId,
     played_cities: playedCities,
+    clip_folder_url: clipFolderUrl,
+    clip_source: clipSource,
   };
   if (id) {
     const updated = await db.from("creative_lab_artists").update(payload).eq("id", id).eq("user_id", args.userId);
@@ -105,7 +121,17 @@ export async function saveLabArtist(
         playedCities,
       })
     : null;
-  return { id, startingCaption };
+  let clipImport: ClipImportResult | null = null;
+  let clipImportError: string | null = null;
+  if (clipFolderUrl && clipFolderUrl !== previousUrl) {
+    try {
+      clipImport = await importArtistClips(db, { artistId: id });
+    } catch (err) {
+      if (!(err instanceof ClipIntakeError)) throw err;
+      clipImportError = err.message;
+    }
+  }
+  return { id, startingCaption, clipImport, clipImportError };
 }
 
 export async function approveLabArtist(db: ServiceRoleDb, args: { userId: string; artistId: string; now?: Date }): Promise<void> {
