@@ -26,5 +26,8 @@
       "bottom": 0.04
     }
   },
+  "safeRect": {
+    "9:16": { "x": 0, "y": 0.1458, "w": 1, "h": 0.7083 }
+  },
   "measurement": "Measured from Luke Dean - UGC 1.mp4 (creative_assets videos/953d0ffb-6c28-4a7f-961a-4aa03b9fdc74.mp4), the 720x1280 frame at t=1.0s. White-glyph mask: luma >= 175 inside the caption band. Mask bounds x 198-512, y 385-525. Cap height 27px (line 1, y 385-411). TikTok Sans wght 500 at opsz 36 has a 26px cap at em 37, so the size is 37/720 of the frame width. Line tops sit at 385, 424, 462 and 500, a pitch of 39px = 1.054em. The block centre is the mask midpoint, 455/1280 of the source height. The stroke is the dark fringe on the glyph edge, about 1px = 0.027em. Glyph check: height-normalised per-glyph IoU of line 2 against TikTok Sans 500 averaged 0.74; the diagnostic f and g matched it better than Circular Std, Helvetica or Arial Bold. SF Pro scored 0.75 overall and is not separable from TikTok Sans once the 720p stroke is included, so the brief's font stands. The variable font's wdth axis defaults to 100, which draws these lines about 14% narrower than the frame; wdth 120 matches the ink widths (line 2 about 315px). CSS font-weight does not move the wght axis, so the composition sets font-variation-settings. The stroke is painted over the fill. Method and the comparison box: reference/reference.json."
 }

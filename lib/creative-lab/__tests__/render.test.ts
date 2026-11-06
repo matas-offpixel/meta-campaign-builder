@@ -4,7 +4,7 @@ import { before, describe, it } from "node:test";
 
 import { styleVersion } from "../../../src/remotion/caption-style/profile.ts";
 import type { ServiceRoleDb } from "../load.ts";
-import { audioMode, renderCaptionOnClip, type CaptionRenderRequest } from "../render.ts";
+import { audioMode, loadLabRender, renderCaptionOnClip, type CaptionRenderRequest } from "../render.ts";
 import { fakeDb, type FakeDb } from "./fake-db.ts";
 
 const LINES = ["Luke Dean joins", "Enzo Siragusa for", "our 4th Birthday", "You in?"];
@@ -14,7 +14,7 @@ before(async () => {
   version = await styleVersion();
 });
 
-function seed(over: { aspect?: string; lines?: string[]; style?: string; audio?: string; userId?: string; focus?: number } = {}): FakeDb {
+function seed(over: { aspect?: string; kind?: string; lines?: string[]; style?: string; audio?: string; userId?: string; focus?: number } = {}): FakeDb {
   return fakeDb({
     creative_lab_renders: [
       {
@@ -24,6 +24,7 @@ function seed(over: { aspect?: string; lines?: string[]; style?: string; audio?:
         caption_id: "cap-1",
         style_version: over.style ?? version,
         aspect: over.aspect ?? "9:16",
+        kind: over.kind ?? "video",
         status: "queued",
       },
     ],
@@ -106,17 +107,30 @@ describe("renderCaptionOnClip", () => {
     assert.equal(asset.byte_size, 4);
   });
 
-  it("crops 4:5 at the clip's focus and treats cleared audio as the original", async () => {
+  it("rejects aspect 4:5 with kind video before rendering", async () => {
+    let called = false;
+    const fake = seed({ aspect: "4:5", kind: "video" });
+    const { deps: d } = deps(async () => {
+      called = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }), /aspect '4:5' with kind 'video'/);
+    assert.equal(called, false);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "failed");
+    assert.throws(() => loadLabRender({ aspect: "4:5", kind: "video" }), /aspect '4:5' with kind 'video'/);
+  });
+
+  it("plays cleared audio and passes the clip focus through on 9:16", async () => {
     const seen: CaptionRenderRequest[] = [];
-    const fake = seed({ aspect: "4:5", audio: "cleared", focus: 0.7 });
+    const fake = seed({ audio: "cleared", focus: 0.3 });
     const { deps: d } = deps(async (req) => {
       seen.push(req);
       return { bytes: new Uint8Array([9]), renderMs: 50 };
     });
     const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d });
-    assert.deepEqual([result.width, result.height], [720, 900]);
+    assert.deepEqual([result.width, result.height, result.aspect], [720, 1280, "9:16"]);
     assert.equal(seen[0].props.audio, "original");
-    assert.equal(seen[0].props.cropFocusY, 0.7);
+    assert.equal(seen[0].props.cropFocusY, 0.3);
     assert.equal(seen[0].muted, false);
   });
 

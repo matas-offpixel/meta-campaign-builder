@@ -90,6 +90,7 @@ function RemotionRoot() {
           if (p.styleVersion && p.styleVersion !== version) {
             throw new Error(`styleVersion ${p.styleVersion} does not match the bundled profile ${version}`);
           }
+          if (p.aspect !== "9:16") throw new Error("video renders are 9:16 only");
           if (p.lines.length > profile.maxLines) throw new Error(`${p.lines.length} lines; at most ${profile.maxLines}`);
           const over = p.lines.find((line) => line.length > profile.charsPerLine);
           if (over) throw new Error(`"${over}" exceeds ${profile.charsPerLine} characters`);

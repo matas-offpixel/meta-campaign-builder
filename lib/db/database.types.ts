@@ -1810,6 +1810,7 @@ export type Database = {
           creative_asset_id: string | null
           error: string | null
           id: string
+          kind: string
           render_ms: number | null
           ssim: number | null
           status: string
@@ -1825,6 +1826,7 @@ export type Database = {
           creative_asset_id?: string | null
           error?: string | null
           id?: string
+          kind?: string
           render_ms?: number | null
           ssim?: number | null
           status?: string
@@ -1840,6 +1842,7 @@ export type Database = {
           creative_asset_id?: string | null
           error?: string | null
           id?: string
+          kind?: string
           render_ms?: number | null
           ssim?: number | null
           status?: string
