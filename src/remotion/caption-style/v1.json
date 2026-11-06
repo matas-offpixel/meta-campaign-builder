@@ -10,7 +10,7 @@
   "lineHeight": 1.054,
   "charsPerLine": 18,
   "maxLines": 4,
-  "longApproved": false,
+  "longApproved": true,
   "long": {
     "fontSizePctOfWidth": 0.038542,
     "charsPerLine": 24,

@@ -24,6 +24,7 @@ import {
 import { CORPUS } from "./corpus.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { isCaptionStyle, voiceForStyle, type CaptionStyle } from "./tags.ts";
+import { loadPastAppearances } from "./past.ts";
 import { loadUpcomingLineups, londonDay, nextThreeNames, type UpcomingShow } from "./upcoming.ts";
 
 export const WRITER_MODEL = process.env.CREATIVE_LAB_WRITER_MODEL?.trim() || "claude-opus-4-6";
@@ -133,7 +134,13 @@ async function defaultAnthropic(): Promise<AnthropicLike> {
   return new Anthropic({ apiKey }) as unknown as AnthropicLike;
 }
 
-function systemPrompt(style: CaptionStyle, facts: EventFacts, upcoming: readonly UpcomingShow[], stage: SaleStage): string {
+function systemPrompt(
+  style: CaptionStyle,
+  facts: EventFacts,
+  upcoming: readonly UpcomingShow[],
+  stage: SaleStage,
+  past: readonly { artist: string; venue: string }[],
+): string {
   const examples = CORPUS[style].map((example, i) => `${i + 1}. Overlay: ${example.overlay}\n   Caption: ${example.primaryText}`).join("\n");
   const headliners = (facts.headliners ?? []).join(", ");
   const support = facts.lineup.filter((name) => !(facts.headliners ?? []).some((head) => head.toLowerCase() === name.toLowerCase()));
@@ -154,7 +161,13 @@ Do not copy a set time out of an example. Never write closing, closing out, open
 
 Do not claim the footage was shot in the room. Never write "same room", "this room", "in here", "just dropped", "right now", or "this is {venue}". "{artist} at {venue}", "is playing {venue}" and "are taking over {venue}" are about the show, and those stay.
 
-"Pick one:" is 2 or 3 headliners, or upcoming shows, from the record. It is never followed by "Next:".
+${past.length
+    ? `A past appearance is allowed only for these, already on record: ${past.map((row) => `${row.artist} at ${row.venue}`).join("; ")}. Do not write any other "last season", "back at", "returns to", or "last year".`
+    : `Do not write "last season", "back at", "returns to", or "last year". No past show of this artist at this venue is on record.`}
+
+${upcoming.length >= 2
+    ? `"Pick one:" is 2 or 3 of these upcoming shows, each a different night: ${upcoming.map((show) => show.eventName).join("; ")}. It is never a list of artists on this bill, and it is never followed by "Next:".`
+    : `Do not write "Pick one:". This client has fewer than 2 upcoming shows.`}
 
 Primary text is the short question or CTA from the examples ("Who's coming?", "Tag who you're bringing"). It is not a restatement of the overlay.
 
@@ -281,13 +294,14 @@ export async function generateCaptions(
     artistName = (artistRes.data as { name?: string } | null)?.name?.trim() ?? "";
   }
 
-  const [upcoming, tickets, clipVenue, emojiOk, existing, version] = await Promise.all([
+  const [upcoming, tickets, clipVenue, emojiOk, existing, version, past] = await Promise.all([
     loadUpcomingLineups(db, event.client_id, londonDay(now)),
     filmedShowTickets(db, args.clipId),
     filmedVenue(db, args.clipId),
     emojiInPrimary(db, event.client_id, args.style),
     rowsOf(db, "creative_lab_captions", "event_id", args.eventId),
     styleVersion(),
+    loadPastAppearances(db, event.client_id, londonDay(now), args.clipId),
   ]);
   const values: PlaceholderValues = {
     venue: facts.venueName ?? "",
@@ -297,7 +311,7 @@ export async function generateCaptions(
     lineup: formatBilling(facts),
     next3: joinNames(nextThreeNames(upcoming)),
   };
-  const extraNames = upcoming.flatMap((show) => show.headliners);
+  const extraNames = [...upcoming.flatMap((show) => [show.eventName, ...show.headliners])];
   const seen = new Set(existing.map((row) => normaliseCaption(String(row.text ?? ""))));
 
   const anthropic = deps.anthropic ?? (await defaultAnthropic());
@@ -306,7 +320,7 @@ export async function generateCaptions(
     model,
     max_tokens: 2000,
     temperature: 0.7,
-    system: systemPrompt(args.style, facts, upcoming, stage),
+    system: systemPrompt(args.style, facts, upcoming, stage, past),
     tools: [
       {
         name: TOOL_NAME,
@@ -335,7 +349,7 @@ export async function generateCaptions(
     messages: [
       {
         role: "user",
-        content: `Write ${args.n + 4} different ${args.style} candidates for ${facts.eventName}. Sale stage: ${stage}. Name these headliners only, in this order: ${(facts.headliners ?? []).join(", ")}. Use the tokens. Do not invent a date, a price, a venue, a set time, or where the footage was filmed. "Pick one:" is 2 or 3 of these headliners and is never a Next list.`,
+        content: `Write ${args.n + 4} different ${args.style} candidates for ${facts.eventName}. Sale stage: ${stage}. Name these headliners only, in this order: ${(facts.headliners ?? []).join(", ")}. Use the tokens. Do not invent a date, a price, a venue, a set time, a past appearance, or where the footage was filmed. ${upcoming.length >= 2 ? `"Pick one:" is 2 or 3 different upcoming shows (${upcoming.map((show) => show.eventName).join("; ")}), never artists on this bill, and never a Next list.` : `Do not write "Pick one:".`}`,
       },
     ],
   });
@@ -355,7 +369,8 @@ export async function generateCaptions(
       emojiInPrimary: emojiOk,
       saleStage: stage,
       clipVenueName: clipVenue,
-      upcomingEvents: upcoming.flatMap((show) => [show.eventName, ...show.headliners]),
+      upcomingEvents: upcoming.map((show) => show.eventName),
+      pastAppearances: past,
     });
     if (!check.ok) {
       deps.onReject?.(overlay, primary, check.errors);

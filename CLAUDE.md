@@ -161,6 +161,7 @@ CIRQLIN_API_BASE=
 D2C_TOKEN_KEY=
 D2C_BRIEF_PARSER_MODEL=
 CREATIVE_LAB_WRITER_MODEL=
+CREATIVE_LAB_LAUNCH_ENABLED=
 BIRD_API_BASE=
 FEATURE_D2C_LIVE=
 LANDING_PAGES_TOKEN_KEY=
@@ -527,6 +528,13 @@ REMOTION_LAMBDA_SERVE_URL=
 >   (`lib/d2c/brief-parser/index.ts`). Defaults to `claude-opus-4-6` when unset.
 > - `CREATIVE_LAB_WRITER_MODEL` — Anthropic model `generateCaptions` uses.
 >   Defaults to `claude-opus-4-6` when unset.
+> - `CREATIVE_LAB_LAUNCH_ENABLED` — Creative Lab round launch
+>   (`POST /api/creative-lab/rounds/[id]/launch`). Must be exactly `"true"`.
+>   Unset or any other value makes the route return 503 before any upload,
+>   Graph call or database write, and the event-card button stays disabled
+>   with "Lab launches are switched off". When it is on, every ad is still
+>   created paused (`createPaused: true`). Set it on Vercel only after M3b
+>   merges. This PR does not set it.
 > - `BIRD_API_BASE` — base URL for the Bird.com API client
 >   (`lib/d2c/bird/client.ts`). Defaults to `https://api.bird.com` when unset.
 > - `FEATURE_D2C_LIVE` — master live-send gate. When unset/`false` (default) every

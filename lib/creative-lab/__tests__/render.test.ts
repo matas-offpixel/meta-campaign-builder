@@ -287,23 +287,18 @@ describe("renderCaptionOnClip", () => {
     }
   });
 
-  it("refuses the long size while it is unapproved, before any upload", async () => {
+  it("renders the long size now that it is approved", async () => {
+    const seen: CaptionRenderRequest[] = [];
     const fake = seed();
     fake.tables.creative_lab_captions[0].size_variant = "long";
-    let uploaded = false;
-    await assert.rejects(
-      renderCaptionOnClip(db(fake), {
-        renderId: "render-1",
-        userId: "op",
-        deps: deps(async () => {
-          uploaded = true;
-          return { bytes: new Uint8Array([1]), renderMs: 1 };
-        }).deps,
-      }),
-      /long caption size is not approved/,
-    );
-    assert.equal(uploaded, false);
-    assert.equal(fake.tables.creative_lab_renders[0].status, "failed");
+    const { deps: d } = deps(async (req) => {
+      seen.push(req);
+      return { bytes: new Uint8Array([1]), renderMs: 1 };
+    });
+    const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d });
+    assert.equal(seen[0].props.size, "long");
+    assert.equal(result.creativeAssetId.length > 0, true);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "done");
   });
 
   it("writes a retry to a new object so the failed attempt is left in place", async () => {

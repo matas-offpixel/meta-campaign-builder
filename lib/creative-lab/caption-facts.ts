@@ -110,7 +110,8 @@ export type CaptionErrorCode =
   | "generic_overlay"
   | "set_not_in_facts"
   | "footage_venue"
-  | "pick_one";
+  | "pick_one"
+  | "past_not_in_facts";
 
 export type CaptionError = { code: CaptionErrorCode; detail: string };
 
@@ -149,8 +150,17 @@ export type CaptionCheckOptions = {
    * match. Omit it, or leave the venue empty, and those claims fail.
    */
   clipVenueName?: string | null;
-  /** Upcoming show names a "Pick one:" list may use, besides headliners. */
+  /**
+   * Upcoming show names. "Pick one:" may use 2 or 3 of these, each a
+   * different night. Artists on this event's bill are not options.
+   */
   upcomingEvents?: readonly string[];
+  /**
+   * Artist-at-venue pairs the record already holds: a past event of this
+   * client, or the show the clip was filmed at. "last season", "back at",
+   * "returns to" and "last year" need one of these.
+   */
+  pastAppearances?: readonly { artist: string; venue: string }[];
 };
 
 /** Case, punctuation and emoji folded, for the per-event dedupe. */
@@ -268,14 +278,15 @@ function atomsOf(paragraph: string, names: readonly string[], width: number): st
     .sort((a, b) => b.length - a.length);
   const atoms: string[] = [];
   for (let i = 0; i < tokens.length; ) {
-    const hit = phrases.find((parts) => parts.every((part, j) => tokenKey(tokens[i + j] ?? "") === part));
+    const hit = phrases.find((parts) => {
+      if (i + parts.length > tokens.length) return false;
+      if (!parts.every((part, j) => tokenKey(tokens[i + j] ?? "") === part)) return false;
+      return tokens.slice(i, i + parts.length).join(" ").length <= width;
+    });
     if (hit) {
-      const span = tokens.slice(i, i + hit.length).join(" ");
-      if (span.length <= width) {
-        atoms.push(span);
-        i += hit.length;
-        continue;
-      }
+      atoms.push(tokens.slice(i, i + hit.length).join(" "));
+      i += hit.length;
+      continue;
     }
     atoms.push(tokens[i]);
     i += 1;
@@ -322,11 +333,26 @@ function wrapAtoms(atoms: string[], width: number): string[] {
   return lines;
 }
 
-/** Word wrap. `names` that fit at this width move down whole. A word longer than the line stands alone. */
+const DATE_WEEKDAYS = "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday";
+const DATE_MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December";
+const DATE_PHRASE = new RegExp(`\\b(?:(${DATE_WEEKDAYS})\\s+)?(\\d{1,2}(?:st|nd|rd|th)?)\\s+(${DATE_MONTHS})\\b`, "gi");
+
+/** "27 December" and, when the line is wide enough, "Sunday 27 December". */
+function datePhrases(text: string): string[] {
+  const found: string[] = [];
+  for (const match of text.matchAll(DATE_PHRASE)) {
+    found.push(match[0]);
+    if (match[1]) found.push(`${match[2]} ${match[3]}`);
+  }
+  return found;
+}
+
+/** Word wrap. `names` and dates that fit at this width move down whole. A word longer than the line stands alone. */
 export function wrapCaption(text: string, charsPerLine: number, names: readonly string[] = []): string[] {
   const lines: string[] = [];
   for (const paragraph of text.split(/\r?\n/)) {
-    lines.push(...wrapAtoms(atomsOf(paragraph, names, charsPerLine), charsPerLine));
+    const protectedPhrases = [...names, ...datePhrases(paragraph)];
+    lines.push(...wrapAtoms(atomsOf(paragraph, protectedPhrases, charsPerLine), charsPerLine));
   }
   return lines;
 }
@@ -776,6 +802,10 @@ function checkPickOne(text: string, facts: EventFacts, upcoming: readonly string
   if (/\bnext\s*:/i.test(tail)) {
     return [{ code: "pick_one", detail: `"Pick one:" cannot introduce a Next list` }];
   }
+  const shows = [...new Set(upcoming.map((name) => name.trim()).filter(Boolean))];
+  if (shows.length < 2) {
+    return [{ code: "pick_one", detail: `"Pick one:" needs 2 upcoming shows and this client has ${shows.length}` }];
+  }
   const options = tail
     .split(/\s*,\s*|\s+\bor\b\s+|\s+\band\b\s+/i)
     .map((option) => option.replace(/[.!?]+$/g, "").trim())
@@ -783,11 +813,63 @@ function checkPickOne(text: string, facts: EventFacts, upcoming: readonly string
   if (options.length < 2 || options.length > 3) {
     return [{ code: "pick_one", detail: `"Pick one:" needs 2 or 3 options and has ${options.length}` }];
   }
-  const known = [...(facts.headliners ?? []), ...upcoming];
+  const keys = options.map((option) => phraseKeys(option).join(" "));
+  if (new Set(keys).size !== keys.length) {
+    return [{ code: "pick_one", detail: `"Pick one:" options have to be different nights` }];
+  }
+  const bill = [...facts.lineup, ...(facts.headliners ?? [])];
   for (const option of options) {
     const key = phraseKeys(option).join(" ");
-    const hit = known.some((name) => phraseKeys(name).join(" ") === key);
-    if (!hit) return [{ code: "pick_one", detail: `"${option}" is not a headliner or an upcoming show` }];
+    if (bill.some((name) => phraseKeys(name).join(" ") === key)) {
+      return [{ code: "pick_one", detail: `"${option}" is on this event's bill, not another night` }];
+    }
+    if (!shows.some((name) => phraseKeys(name).join(" ") === key)) {
+      return [{ code: "pick_one", detail: `"${option}" is not an upcoming show` }];
+    }
+  }
+  return [];
+}
+
+const PAST_CUE = /\blast season\b|\blast year\b|\bback at\b|\breturns to\b/i;
+
+function venueAfter(text: string, cue: string): string | null {
+  const match = text.match(new RegExp(`\\b${cue}\\s+([\\p{L}\\p{N}'’.-]+(?:\\s+[\\p{L}\\p{N}'’.-]+){0,3})`, "iu"));
+  return match?.[1]?.replace(/[.!,]+$/g, "").trim() || null;
+}
+
+/**
+ * "last season", "back at", "returns to" and "last year" are a past
+ * appearance. Allowed only when a past show, or the clip's filmed show,
+ * has that artist on the lineup at that venue.
+ */
+function checkPast(
+  text: string,
+  facts: EventFacts,
+  declared: readonly string[],
+  past: readonly { artist: string; venue: string }[] | undefined,
+): CaptionError[] {
+  if (!PAST_CUE.test(text)) return [];
+  const claimed = text
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => PAST_CUE.test(sentence))
+    .join(" ");
+  const known = [...facts.lineup, ...(facts.headliners ?? []), ...declared].filter(Boolean);
+  const artists = known.filter((name) => mentionsArtist(claimed, name));
+  let venue = venueAfter(claimed, "back at") ?? venueAfter(claimed, "returns to");
+  const season = claimed.match(/\bat\s+([\p{L}\p{N}'’.-]+(?:\s+[\p{L}\p{N}'’.-]+){0,3})\s+last season\b/iu);
+  if (season) venue = season[1].replace(/[.!,]+$/g, "").trim();
+  if (!venue && facts.venueName && new RegExp(`\\bat\\s+${escapeReg(facts.venueName)}\\b`, "i").test(claimed)) {
+    venue = facts.venueName;
+  }
+  if (!artists.length || !venue) {
+    return [{ code: "past_not_in_facts", detail: "a past appearance needs an artist and a venue the record holds" }];
+  }
+  const held = past ?? [];
+  for (const artist of artists) {
+    const hit = held.some((row) => sameArtist(row.artist, artist) && sameVenue(row.venue, venue!));
+    if (!hit) {
+      return [{ code: "past_not_in_facts", detail: `no past show has ${artist} at ${venue}` }];
+    }
   }
   return [];
 }
@@ -852,6 +934,7 @@ export function validateCaption(
   errors.push(...checkSet(trimmed));
   errors.push(...checkFootage(trimmed, facts, options.clipVenueName));
   errors.push(...checkPickOne(trimmed, facts, options.upcomingEvents ?? []));
+  errors.push(...checkPast(trimmed, facts, declaredNames, options.pastAppearances));
   if (options.saleStage) errors.push(...checkStage(trimmed, options.saleStage));
 
   const primary = options.primaryText?.trim() ?? "";
@@ -866,6 +949,7 @@ export function validateCaption(
     errors.push(...checkSet(primary));
     errors.push(...checkFootage(primary, facts, options.clipVenueName));
     errors.push(...checkPickOne(primary, facts, options.upcomingEvents ?? []));
+    errors.push(...checkPast(primary, facts, declaredNames, options.pastAppearances));
     if (options.saleStage) errors.push(...checkStage(primary, options.saleStage));
   }
 

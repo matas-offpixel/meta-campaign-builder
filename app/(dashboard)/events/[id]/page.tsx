@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
+import { loadCreativeLabCard } from "@/lib/db/creative-lab";
 import { parseEventTab } from "@/lib/dashboard/format";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -158,6 +159,20 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
     }),
   ]);
 
+  const lab = await loadCreativeLabCard(admin, {
+    eventId: event.id,
+    userId: user.id,
+    clientId: event.client_id ?? null,
+    eventName: event.name,
+    eventDate: event.event_date,
+    venueName: event.venue_name,
+    venueCity: event.venue_city,
+    eventStatus: event.status ?? null,
+  }).catch((err) => {
+    console.error("[EventDetailPage] loadCreativeLabCard failed:", err);
+    return null;
+  });
+
   return (
     <EventDetail
       event={event}
@@ -175,6 +190,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       ticketingSummary={ticketingSummary}
       ticketTiers={ticketTiers}
       initialGoogleAdsPlanId={googleAdsPlan?.id ?? null}
+      lab={lab}
     />
   );
 }
