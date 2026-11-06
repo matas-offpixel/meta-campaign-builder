@@ -260,7 +260,7 @@ async function main() {
     }
   } finally {
     server.kill("SIGTERM");
-    const index = evidenceIndex(results, { tolerance: TOLERANCE, sha: process.env.GITHUB_SHA ?? null });
+    const index = evidenceIndex(results, { tolerance: TOLERANCE, sha: process.env.FRAMES_HEAD_SHA || process.env.GITHUB_SHA || null });
     await writeFile(path.join(EVIDENCE, "index.json"), `${JSON.stringify(index.json, null, 2)}\n`);
     await writeFile(path.join(EVIDENCE, "index.md"), index.markdown);
   }

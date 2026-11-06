@@ -78,6 +78,9 @@ jobs:
       # Every write killswitch stays unset in this job; fixtures only.
       - name: Diff frames
         run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --check
+        env:
+          # On a PR, GITHUB_SHA is the merge ref; the index names the PR head.
+          FRAMES_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Upload plan-frames evidence
         if: always()
         uses: actions/upload-artifact@v4
