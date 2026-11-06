@@ -4,6 +4,7 @@
  * (the clip's foreign key). No Meta calls.
  */
 
+import { recordStartingCaption, type StartingCaptionResult } from "./starting-caption.ts";
 import { generateCaptions } from "./writer.ts";
 import { judgeLabRound } from "./judge-round.ts";
 import { approveRound } from "./launch.ts";
@@ -43,8 +44,18 @@ export async function saveLabFacts(
 
 export async function saveLabArtist(
   db: ServiceRoleDb,
-  args: { userId: string; clientId: string; artistId?: string | null; name: string; rightsDocRef: string; startingCaption: string },
-): Promise<string> {
+  args: {
+    userId: string;
+    clientId: string;
+    eventId?: string | null;
+    artistId?: string | null;
+    name: string;
+    rightsDocRef: string;
+    startingCaption: string;
+    metaPageId?: string | null;
+    instagramActorId?: string | null;
+  },
+): Promise<{ id: string; startingCaption: StartingCaptionResult | null }> {
   const name = args.name.trim();
   if (!name) throw new Error("An artist needs a name.");
   const payload = {
@@ -53,15 +64,22 @@ export async function saveLabArtist(
     name,
     rights_doc_ref: args.rightsDocRef.trim() || null,
     starting_caption: args.startingCaption.trim() || null,
+    meta_page_id: args.metaPageId?.trim() || null,
+    instagram_actor_id: args.instagramActorId?.trim() || null,
   };
-  if (args.artistId) {
-    const updated = await db.from("creative_lab_artists").update(payload).eq("id", args.artistId).eq("user_id", args.userId);
+  let id = args.artistId?.trim() || "";
+  if (id) {
+    const updated = await db.from("creative_lab_artists").update(payload).eq("id", id).eq("user_id", args.userId);
     if (updated.error) throw new Error(updated.error.message);
-    return args.artistId;
+  } else {
+    const inserted = await db.from("creative_lab_artists").insert(payload).select("id").single();
+    if (inserted.error || !inserted.data) throw new Error(inserted.error?.message || "artist insert failed");
+    id = String((inserted.data as Row).id);
   }
-  const inserted = await db.from("creative_lab_artists").insert(payload).select("id").single();
-  if (inserted.error || !inserted.data) throw new Error(inserted.error?.message || "artist insert failed");
-  return String((inserted.data as Row).id);
+  const startingCaption = args.eventId
+    ? await recordStartingCaption(db, { userId: args.userId, eventId: args.eventId, artistName: name, text: args.startingCaption })
+    : null;
+  return { id, startingCaption };
 }
 
 export async function approveLabArtist(db: ServiceRoleDb, args: { userId: string; artistId: string; now?: Date }): Promise<void> {
@@ -86,6 +104,7 @@ export async function addLabClip(
     artistId: string;
     source: string;
     rightsRef: string;
+    permalinks?: string[] | null;
     filmedEventId?: string | null;
     durationSeconds?: number | null;
     creativeAssetId?: string | null;
@@ -93,7 +112,13 @@ export async function addLabClip(
   },
 ): Promise<void> {
   if (!args.source.trim()) throw new Error("A clip needs a source.");
-  if (!args.rightsRef.trim()) throw new Error("A clip needs a rights ref.");
+  let rightsRef = args.rightsRef.trim();
+  if (!rightsRef && args.source.trim().toLowerCase() === "instagram") {
+    const artist = await db.from("creative_lab_artists").select("rights_doc_ref").eq("id", args.artistId).maybeSingle();
+    if (artist.error) throw new Error(artist.error.message);
+    rightsRef = text(artist.data as Row | null, "rights_doc_ref");
+  }
+  if (!rightsRef) throw new Error("A clip needs a rights ref.");
   const seconds = args.durationSeconds ?? args.newAsset?.durationSeconds ?? null;
   if (seconds != null && seconds > 30) throw new Error("Clips over 30 seconds are refused.");
   let assetId = args.creativeAssetId?.trim() || "";
@@ -131,16 +156,19 @@ export async function addLabClip(
   const clips = await db.from("creative_lab_clips").select("clip_no").eq("artist_id", args.artistId);
   if (clips.error) throw new Error(clips.error.message);
   const next = Math.max(0, ...((clips.data ?? []) as Row[]).map((row) => Number(row.clip_no) || 0)) + 1;
-  const inserted = await db.from("creative_lab_clips").insert({
+  const links = (args.permalinks ?? []).map((link) => link.trim()).filter(Boolean);
+  const rows = (links.length ? links : [null]).map((permalink, index) => ({
     user_id: args.userId,
     artist_id: args.artistId,
     creative_asset_id: assetId,
-    clip_no: next,
+    clip_no: next + index,
     source: args.source.trim(),
-    rights_ref: args.rightsRef.trim(),
+    rights_ref: rightsRef,
+    permalink,
     event_id: args.filmedEventId || null,
     out_s: seconds,
-  });
+  }));
+  const inserted = await db.from("creative_lab_clips").insert(rows);
   if (inserted.error) throw new Error(inserted.error.message);
 }
 

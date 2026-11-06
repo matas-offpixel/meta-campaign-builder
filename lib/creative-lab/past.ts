@@ -9,9 +9,9 @@
 
 import type { ServiceRoleDb } from "./load.ts";
 
-export type PastAppearance = { artist: string; venue: string; eventId: string };
+export type PastAppearance = { artist: string; venue: string; city: string; eventId: string };
 
-type EventRow = { id: string; venue_name: string | null; event_date: string | null; client_id: string | null };
+type EventRow = { id: string; venue_name: string | null; venue_city: string | null; event_date: string | null; client_id: string | null };
 type FactsRow = { event_id: string; lineup: string[] | null };
 
 export async function loadPastAppearances(
@@ -20,7 +20,7 @@ export async function loadPastAppearances(
   today: string,
   clipId?: string | null,
 ): Promise<PastAppearance[]> {
-  const eventsRes = await db.from("events").select("id, venue_name, event_date, client_id").eq("client_id", clientId);
+  const eventsRes = await db.from("events").select("id, venue_name, venue_city, event_date, client_id").eq("client_id", clientId);
   if (eventsRes.error) throw new Error(`events: ${eventsRes.error.message}`);
   const events = (eventsRes.data ?? []) as EventRow[];
 
@@ -43,14 +43,16 @@ export async function loadPastAppearances(
   if (factsRes.error) throw new Error(`creative_lab_event_facts: ${factsRes.error.message}`);
   const facts = new Map(((factsRes.data ?? []) as FactsRow[]).map((row) => [row.event_id, row.lineup ?? []]));
   const venueOf = new Map(events.map((event) => [event.id, event.venue_name?.trim() ?? ""]));
+  const cityOf = new Map(events.map((event) => [event.id, event.venue_city?.trim() ?? ""]));
 
   const out: PastAppearance[] = [];
   for (const eventId of ids) {
     const venue = venueOf.get(eventId) ?? "";
-    if (!venue) continue;
+    const city = cityOf.get(eventId) ?? "";
+    if (!venue && !city) continue;
     for (const artist of facts.get(eventId) ?? []) {
       const name = artist.trim();
-      if (name) out.push({ artist: name, venue, eventId });
+      if (name) out.push({ artist: name, venue, city, eventId });
     }
   }
   return out;

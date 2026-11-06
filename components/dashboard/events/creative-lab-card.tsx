@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,10 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
         setError(String(result.json.error || result.json.refused || "Request failed"));
         return result;
       }
+      const caption = result.json.startingCaption as { ok?: boolean; errors?: { detail: string }[] } | null | undefined;
+      if (caption && caption.ok === false) {
+        setError(caption.errors?.map((item) => item.detail).join("; ") || "The starting caption did not pass.");
+      }
       router.refresh();
       return result;
     } finally {
@@ -84,9 +88,9 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
         <section className="space-y-3">
           <h3 className="font-medium">Artists</h3>
           {lab.artists.map((artist) => (
-            <ArtistRow key={`${artist.id}:${artist.rightsLabel}:${artist.startingCaption ?? ""}`} artist={artist} busy={busy} onSave={(body) => run(body)} />
+            <ArtistRow key={`${artist.id}:${artist.rightsLabel}:${artist.startingCaption ?? ""}`} artist={artist} adSets={lab.adSets} busy={busy} onSave={(body) => run(body)} />
           ))}
-          <ArtistRow artist={null} busy={busy} onSave={(body) => run(body)} />
+          <ArtistRow artist={null} adSets={lab.adSets} busy={busy} onSave={(body) => run(body)} />
         </section>
 
         <section className="space-y-3">
@@ -195,16 +199,75 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
 
 function ArtistRow({
   artist,
+  adSets,
   busy,
   onSave,
 }: {
   artist: CreativeLabCardData["artists"][number] | null;
+  adSets: CreativeLabCardData["adSets"];
   busy: boolean;
   onSave: (body: Record<string, unknown>) => Promise<unknown>;
 }) {
+  const accounts = [...new Set(adSets.map((row) => row.adAccountId).filter(Boolean))];
   const [name, setName] = useState(artist?.name ?? "");
   const [ref, setRef] = useState(artist?.rightsDocRef ?? "");
   const [caption, setCaption] = useState(artist?.startingCaption ?? "");
+  const [accountId, setAccountId] = useState(accounts[0] ?? "");
+  const [pageId, setPageId] = useState(artist?.metaPageId ?? "");
+  const [instagramActorId, setInstagramActorId] = useState(artist?.instagramActorId ?? "");
+  const [pages, setPages] = useState<{ id: string; name: string }[]>([]);
+  const [igLabel, setIgLabel] = useState(artist?.instagramActorId ?? "");
+  const [igNote, setIgNote] = useState("");
+
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    void fetch(`/api/meta/pages?adAccountId=${encodeURIComponent(accountId)}`)
+      .then(async (res) => ({ ok: res.ok, json: (await res.json()) as { pages?: { id: string; name: string }[]; error?: string } }))
+      .then(({ ok, json }) => {
+        if (cancelled) return;
+        if (!ok) {
+          setIgNote(json.error || "Could not load Pages.");
+          setPages([]);
+          return;
+        }
+        setPages(json.pages ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setIgNote("Could not load Pages.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
+
+  async function choosePage(next: string) {
+    setPageId(next);
+    setInstagramActorId("");
+    setIgLabel("");
+    setIgNote("");
+    if (!next || !accountId) return;
+    const res = await fetch(`/api/meta/page-identity?pageId=${encodeURIComponent(next)}&adAccountId=${encodeURIComponent(accountId)}`);
+    const json = (await res.json()) as {
+      error?: string;
+      ig?: { state?: string; reason?: string; account?: { igActorId?: string; username?: string; name?: string } };
+    };
+    if (!res.ok) {
+      setIgNote(json.error || "Could not resolve the Instagram account.");
+      return;
+    }
+    if (json.ig?.state === "linked" && json.ig.account?.igActorId) {
+      setInstagramActorId(json.ig.account.igActorId);
+      setIgLabel(json.ig.account.username || json.ig.account.name || json.ig.account.igActorId);
+      return;
+    }
+    if (json.ig?.state === "no_ig") {
+      setIgNote("This Page has no Instagram account.");
+      return;
+    }
+    setIgNote(json.ig?.reason || "Instagram account unresolved.");
+  }
+
   return (
     <div className="rounded border border-border p-2">
       {artist ? <p>{artist.rightsLabel}</p> : <p className="text-muted-foreground">New artist</p>}
@@ -212,9 +275,20 @@ function ArtistRow({
         <input className="rounded border border-border bg-background p-2" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
         <input className="rounded border border-border bg-background p-2" placeholder="Rights ref" value={ref} onChange={(e) => setRef(e.target.value)} />
         <input className="rounded border border-border bg-background p-2" placeholder="Starting caption" value={caption} onChange={(e) => setCaption(e.target.value)} />
+        {accounts.length > 1 ? (
+          <select className="rounded border border-border bg-background p-2" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            {accounts.map((id) => <option key={id} value={id}>{id}</option>)}
+          </select>
+        ) : null}
+        <select className="rounded border border-border bg-background p-2" value={pageId} onChange={(e) => void choosePage(e.target.value)}>
+          <option value="">Artist Page</option>
+          {pageId && !pages.some((page) => page.id === pageId) ? <option value={pageId}>{pageId}</option> : null}
+          {pages.map((page) => <option key={page.id} value={page.id}>{page.name}</option>)}
+        </select>
+        <p className="text-muted-foreground">{igLabel ? `Instagram ${igLabel}` : igNote || "No artist Instagram account yet."}</p>
       </div>
       <div className="mt-2 flex gap-2">
-        <Button type="button" disabled={busy} onClick={() => onSave({ action: "saveArtist", artistId: artist?.id, name, rightsDocRef: ref, startingCaption: caption })}>Save</Button>
+        <Button type="button" disabled={busy} onClick={() => onSave({ action: "saveArtist", artistId: artist?.id, name, rightsDocRef: ref, startingCaption: caption, metaPageId: pageId || null, instagramActorId: instagramActorId || null })}>Save</Button>
         {artist && artist.rights !== "approved" ? (
           <Button type="button" disabled={busy || !ref.trim() || !caption.trim()} onClick={() => onSave({ action: "approveArtist", artistId: artist.id })}>Approve rights</Button>
         ) : null}
@@ -227,9 +301,25 @@ function ClipForm({ lab, busy, onError, onDone }: { lab: CreativeLabCardData; bu
   const [artistId, setArtistId] = useState(lab.artists[0]?.id ?? "");
   const [source, setSource] = useState("");
   const [rightsRef, setRightsRef] = useState("");
+  const [permalinks, setPermalinks] = useState("");
   const [filmedEventId, setFilmedEventId] = useState("");
   const [assetId, setAssetId] = useState("");
   const [working, setWorking] = useState(false);
+  const instagram = source.trim().toLowerCase() === "instagram";
+  const artist = lab.artists.find((row) => row.id === artistId);
+
+  function chooseArtist(next: string) {
+    setArtistId(next);
+    if (instagram && !rightsRef.trim()) {
+      const picked = lab.artists.find((row) => row.id === next);
+      if (picked?.rightsDocRef) setRightsRef(picked.rightsDocRef);
+    }
+  }
+
+  function chooseSource(next: string) {
+    setSource(next);
+    if (next.trim().toLowerCase() === "instagram" && !rightsRef.trim() && artist?.rightsDocRef) setRightsRef(artist.rightsDocRef);
+  }
 
   async function upload(file: File) {
     const duration = await fileDuration(file);
@@ -248,7 +338,8 @@ function ClipForm({ lab, busy, onError, onDone }: { lab: CreativeLabCardData; bu
         action: "addClip",
         artistId,
         source,
-        rightsRef,
+        rightsRef: rightsRef || (instagram ? artist?.rightsDocRef ?? "" : ""),
+        permalinks: instagram ? permalinks.split(/\n/).map((line) => line.trim()).filter(Boolean) : [],
         filmedEventId: filmedEventId || null,
         durationSeconds: duration,
         newAsset: { filename: file.name, storagePath, contentHash, byteSize: file.size, durationSeconds: duration },
@@ -264,10 +355,11 @@ function ClipForm({ lab, busy, onError, onDone }: { lab: CreativeLabCardData; bu
 
   return (
     <div className="grid gap-2">
-      <select className="rounded border border-border bg-background p-2" value={artistId} onChange={(e) => setArtistId(e.target.value)}>
-        {lab.artists.map((artist) => <option key={artist.id} value={artist.id}>{artist.name}</option>)}
+      <select className="rounded border border-border bg-background p-2" value={artistId} onChange={(e) => chooseArtist(e.target.value)}>
+        {lab.artists.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
       </select>
-      <input className="rounded border border-border bg-background p-2" placeholder="Source" value={source} onChange={(e) => setSource(e.target.value)} />
+      <input className="rounded border border-border bg-background p-2" placeholder="Source" value={source} onChange={(e) => chooseSource(e.target.value)} />
+      {instagram ? <textarea className="rounded border border-border bg-background p-2" rows={3} placeholder="Instagram post permalinks, one per line" value={permalinks} onChange={(e) => setPermalinks(e.target.value)} /> : null}
       <input className="rounded border border-border bg-background p-2" placeholder="Rights ref" value={rightsRef} onChange={(e) => setRightsRef(e.target.value)} />
       <select className="rounded border border-border bg-background p-2" value={filmedEventId} onChange={(e) => setFilmedEventId(e.target.value)}>
         <option value="">Filmed at (optional)</option>
@@ -277,8 +369,16 @@ function ClipForm({ lab, busy, onError, onDone }: { lab: CreativeLabCardData; bu
         <option value="">Existing video</option>
         {lab.assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.filename}</option>)}
       </select>
-      <Button type="button" disabled={busy || working || !source.trim() || !rightsRef.trim() || !assetId} onClick={async () => {
-        const result = await post(lab.eventId, { action: "addClip", artistId, source, rightsRef, filmedEventId: filmedEventId || null, creativeAssetId: assetId });
+      <Button type="button" disabled={busy || working || !source.trim() || (!rightsRef.trim() && !(instagram && artist?.rightsDocRef)) || !assetId} onClick={async () => {
+        const result = await post(lab.eventId, {
+          action: "addClip",
+          artistId,
+          source,
+          rightsRef: rightsRef || (instagram ? artist?.rightsDocRef ?? "" : ""),
+          permalinks: instagram ? permalinks.split(/\n/).map((line) => line.trim()).filter(Boolean) : [],
+          filmedEventId: filmedEventId || null,
+          creativeAssetId: assetId,
+        });
         if (!result.ok) onError(String(result.json.error || "Could not add the clip"));
         else onDone();
       }}>Add clip</Button>

@@ -30,8 +30,11 @@ type Body = {
   name?: string;
   rightsDocRef?: string;
   startingCaption?: string;
+  metaPageId?: string | null;
+  instagramActorId?: string | null;
   source?: string;
   rightsRef?: string;
+  permalinks?: string[];
   filmedEventId?: string | null;
   durationSeconds?: number | null;
   creativeAssetId?: string | null;
@@ -80,16 +83,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
         return NextResponse.json({ ok: true });
       case "saveArtist":
         if (!event.client_id) return NextResponse.json({ error: "This event has no client." }, { status: 400 });
-        return NextResponse.json({
-          id: await saveLabArtist(db, {
+        return NextResponse.json(
+          await saveLabArtist(db, {
             userId: user.id,
             clientId: event.client_id,
+            eventId,
             artistId: body.artistId,
             name: body.name ?? "",
             rightsDocRef: body.rightsDocRef ?? "",
             startingCaption: body.startingCaption ?? "",
+            metaPageId: body.metaPageId,
+            instagramActorId: body.instagramActorId,
           }),
-        });
+        );
       case "approveArtist":
         await approveLabArtist(db, { userId: user.id, artistId: body.artistId ?? "" });
         return NextResponse.json({ ok: true });
@@ -99,6 +105,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
           artistId: body.artistId ?? "",
           source: body.source ?? "",
           rightsRef: body.rightsRef ?? "",
+          permalinks: body.permalinks,
           filmedEventId: body.filmedEventId,
           durationSeconds: body.durationSeconds,
           creativeAssetId: body.creativeAssetId,
