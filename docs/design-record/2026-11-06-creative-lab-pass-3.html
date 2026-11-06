@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Off Pixel — Creative Lab, pass 3 — 6 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --meta:#5B7FA6; --ig:#B0607A; --tt:#6E5A9E; --sp:#3D7A52;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:22px;font-weight:600;margin:0 0 6px}
+h2{font-size:16px;font-weight:600;margin:52px 0 8px}
+p{margin:0 0 10px;max-width:80ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.note{background:var(--card);border-radius:10px;padding:16px 20px;margin:16px 0 24px}
+.note ol{margin:6px 0 0 18px;padding:0}.note li{margin:0 0 6px;max-width:92ch;font-size:13px}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.w1280{width:1040px;padding:20px}
+.w393{width:393px;padding:12px}
+.strike{text-decoration:line-through;color:var(--ink-3)}
+/* surfaces */
+.panel{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.sec-h h3{margin:0;font-size:13px;font-weight:600}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn[disabled]{opacity:.45}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:color-mix(in srgb,var(--olive) 55%,transparent)}
+.chip.warn{color:var(--ochre);border-color:color-mix(in srgb,var(--ochre) 55%,transparent)}
+.chip.bad{color:var(--brick);border-color:color-mix(in srgb,var(--brick) 55%,transparent)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.chip.lose{background:var(--brick);color:#fff;border-color:var(--brick)}
+.muted{color:var(--ink-3)}
+.mono{font-family:var(--mono)}
+/* F1 strip */
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:var(--card);border-radius:10px;overflow:hidden;margin:0 0 10px}
+.step{padding:12px 14px;border-right:1px solid var(--border);position:relative}
+.step:last-child{border-right:0}
+.step .n{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.step .s{font-size:12px;color:var(--ink-2);margin-top:2px}
+.step.now{background:var(--edit);box-shadow:inset 0 -3px 0 var(--ink)}
+.step .k{margin-bottom:6px}
+.next{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;margin:0 0 10px}
+.working{display:flex;gap:10px;align-items:baseline;font-size:12.5px;color:var(--ink-2);padding:8px 12px;border:1px solid var(--border);border-radius:8px}
+.w393 .strip{grid-template-columns:repeat(4,1fr)}
+.w393 .step{padding:9px 8px}
+.w393 .step .n{font-size:17px}
+.w393 .step .s{font-size:10.5px;line-height:1.3}
+.w393 .next{flex-direction:column;align-items:stretch}
+/* F2 lineup */
+.arow{display:grid;grid-template-columns:16px 40px minmax(0,1.3fr) minmax(0,1fr) 150px auto;gap:12px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border)}
+.arow:last-of-type{border-bottom:0}
+.drag{color:var(--ink-3);font-size:14px;letter-spacing:-2px;cursor:grab}
+.ph{width:40px;height:40px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font:700 13px var(--sans);color:#fff}
+.who b{display:flex;align-items:center;gap:6px;font-size:14px}
+.star{color:var(--ochre);font-size:14px}
+.star.off{color:var(--ink-3);opacity:.5}
+.handles{display:flex;gap:8px;margin-top:3px;font:11px var(--mono);color:var(--ink-3);flex-wrap:wrap}
+.handles i{font-style:normal;display:inline-flex;align-items:center;gap:3px}
+.dot{width:8px;height:8px;border-radius:2px;display:inline-block}
+.clipsct{font-size:12px;color:var(--ink-2)}
+.clipsct b{font-variant-numeric:tabular-nums}
+.typeahead{margin-top:10px;position:relative}
+.ta-in{display:flex;align-items:center;gap:8px;height:38px;background:var(--edit);border:1px solid var(--border-strong);border-radius:8px;padding:0 10px;font-size:14px}
+.ta-in .caret{width:1px;height:18px;background:var(--ink)}
+.ta-pop{position:relative;margin-top:6px;background:var(--edit);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 20px rgba(30,24,16,.12);padding:6px;max-width:460px}
+.ta-row{display:grid;grid-template-columns:32px 1fr auto;gap:10px;align-items:center;padding:6px;border-radius:6px}
+.ta-row.hi{background:var(--muted)}
+.ta-row .ph{width:32px;height:32px;font-size:11px}
+.ta-row small{display:block;font:11px var(--mono);color:var(--ink-3)}
+.ta-g{font:700 9px/1 var(--mono);letter-spacing:.16em;color:var(--ink-3);padding:8px 6px 4px}
+.spcard{background:var(--edit);border:1px solid var(--border-strong);border-radius:10px;padding:12px 14px;width:300px;box-shadow:0 8px 20px rgba(30,24,16,.12)}
+.spcard ol{margin:6px 0 10px 18px;padding:0;font-size:12.5px}
+.bar{height:6px;border-radius:3px;background:var(--muted);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--sp)}
+.w393 .arow{grid-template-columns:14px 36px minmax(0,1fr) auto;row-gap:6px}
+.w393 .arow .ph{width:36px;height:36px}
+.w393 .arow .rights,.w393 .arow .clipsct{grid-column:3 / -1}
+.w393 .arow .act{grid-column:3 / -1;justify-self:start}
+/* F3 clips */
+.grp-h{display:flex;align-items:baseline;gap:10px;margin:14px 0 8px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.tile{background:var(--edit);border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.thumb{aspect-ratio:9/16;max-height:210px;width:100%;position:relative;display:flex;align-items:flex-end}
+.thumb .dur{position:absolute;right:6px;bottom:6px;font:600 10px var(--mono);color:#fff;background:rgba(0,0,0,.45);padding:1px 5px;border-radius:4px}
+.thumb .src{position:absolute;left:6px;top:6px;width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;font:700 9px var(--mono);color:#fff}
+.thumb .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.75);font-size:22px}
+.tmeta{padding:7px 8px 8px;font-size:11.5px}
+.tmeta .t1{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tmeta .t2{display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap}
+.cpr{font:600 13px var(--sans);font-variant-numeric:tabular-nums}
+.tile.cant{opacity:.65;border-style:dashed;border-color:var(--brick)}
+.tile.skip{opacity:.55}
+.reason{font-size:11px;color:var(--brick)}
+.gs{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}.gs .grid{grid-template-columns:repeat(var(--n),150px)}
+.w393 .grid{grid-template-columns:repeat(2,1fr);gap:8px}
+.w393 .thumb{max-height:220px}
+.hscroll{display:flex;gap:8px;overflow:hidden}
+.hscroll .tile{flex:0 0 46%}
+/* F4 captions as ads */
+.gen{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin:0 0 14px}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden}
+.seg span{padding:5px 10px;font-size:12px;border-right:1px solid var(--border)}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.ads{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.ad{background:#fff;border-radius:10px;overflow:hidden;border:1px solid var(--border);color:#1c1e21;font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.ad-h{display:flex;gap:8px;align-items:center;padding:9px 10px}
+.ad-h .av{width:28px;height:28px;border-radius:50%;background:#2a2a2a;color:#fff;font:700 10px var(--sans);display:flex;align-items:center;justify-content:center}
+.ad-h b{font-size:12.5px;display:block;line-height:1.1}
+.ad-h small{font-size:11px;color:#65676b}
+.ad-copy{padding:0 10px 8px;font-size:12.5px;line-height:1.38;white-space:pre-line}
+.ad-media{aspect-ratio:4/5;position:relative}
+.ad-cta{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#f0f2f5;font-size:11.5px}
+.ad-cta b{font-size:12px}
+.ad-cta span.b{background:#e4e6eb;border-radius:6px;padding:5px 10px;font-weight:600;font-size:12px}
+.adfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 2px 0;flex-wrap:wrap}
+.acts{display:flex;gap:6px}
+.icon{display:inline-flex;width:30px;height:30px;border-radius:6px;border:1px solid var(--border-strong);align-items:center;justify-content:center;font-size:14px}
+.icon.yes{color:var(--olive);border-color:color-mix(in srgb,var(--olive) 60%,transparent)}
+.fail{font-size:12px;color:var(--brick);margin-top:6px}
+.w393 .ads{grid-template-columns:1fr}
+/* F5 round */
+.mx{display:grid;gap:8px}
+.mx .hd{font:700 9px/1.3 var(--mono);letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase;align-self:end}
+.cell{background:var(--edit);border:1px solid var(--border);border-radius:6px;padding:6px;font-size:11px;display:flex;gap:6px;align-items:center;min-height:54px}
+.cell .mini{width:26px;height:44px;border-radius:3px;flex:none}
+.cell.off{border-style:dashed;background:transparent;color:var(--ink-3)}
+.roundbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
+.big{font:600 20px var(--sans);font-variant-numeric:tabular-nums}
+table.hb{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 24px;background:var(--card);border-radius:8px;overflow:hidden}
+table.hb th,table.hb td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border)}
+table.hb th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.hb td:first-child{width:180px;font-weight:600}
+</style>
+<style>
+/* pass 2 additions */
+table.gap{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 18px;background:var(--card);border-radius:8px;overflow:hidden}
+table.gap th,table.gap td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border)}
+table.gap th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.gap td:first-child{width:36px;font:700 11px var(--mono);color:var(--ink-3)}
+.v-ok{color:var(--olive);font-weight:600}.v-gap{color:var(--brick);font-weight:600}.v-q{color:var(--ochre);font-weight:600}
+.live{font:11.5px var(--mono);color:var(--ink-2);background:var(--muted);padding:2px 6px;border-radius:4px}
+/* proven chips + strength */
+.str{display:inline-flex;gap:2px;margin-left:4px}.str i{width:5px;height:10px;border-radius:1px;background:var(--border-strong)}.str i.on{background:var(--olive)}
+.proven{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:99px;background:var(--edit);border:1px solid var(--border-strong);font-size:12px}
+.only{font:600 10px var(--mono);color:var(--ink-3)}
+/* insight bars */
+.ins{display:grid;grid-template-columns:120px 1fr;gap:6px 14px;align-items:center;font-size:12px}
+.ins .lab{font:700 9px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.hb2{display:flex;flex-direction:column;gap:3px}
+.hbar{display:grid;grid-template-columns:110px 1fr 60px;gap:8px;align-items:center;font-size:11.5px}
+.hbar .t{height:8px;border-radius:4px;background:var(--muted);position:relative;overflow:hidden}
+.hbar .t i{position:absolute;left:0;top:0;bottom:0;background:var(--ink)}
+.hbar .t i.w{background:var(--olive)}
+.hbar .t s{position:absolute;top:-2px;bottom:-2px;border-left:1px dashed var(--ink-3)}
+.conf{font:600 10px var(--mono);color:var(--ink-3)}
+.scope{display:inline-flex;border:1px solid var(--border-strong);border-radius:99px;overflow:hidden;font-size:11px}
+.scope span{padding:3px 9px}.scope span.on{background:var(--ink);color:var(--sand)}
+.dots{display:flex;gap:4px;flex-wrap:wrap}.dots i{width:12px;height:12px;border-radius:3px;border:1px solid var(--border-strong)}.dots i.on{background:var(--ink);border-color:var(--ink)}
+.spark{display:inline-block;vertical-align:middle}
+.delta{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:6px;background:var(--edit);border:1px solid var(--border);font-size:11.5px}
+.up{color:var(--olive);font-weight:700}.down{color:var(--brick);font-weight:700}
+/* crop picker */
+.crop{position:relative;width:100%;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:linear-gradient(90deg,#2b2320,#6b4a36 40%,#a37650 55%,#3a2a24)}
+.crop .shade{position:absolute;top:0;bottom:0;background:rgba(10,8,6,.62)}
+.crop .win{position:absolute;top:0;bottom:0;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+.crop .win .h{position:absolute;top:50%;width:10px;height:34px;margin-top:-17px;background:#fff;border-radius:3px}
+.crop .lab{position:absolute;left:8px;top:8px;font:600 10px var(--mono);color:#fff;background:rgba(0,0,0,.45);padding:2px 6px;border-radius:4px}
+.film{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-top:8px}
+.film b{aspect-ratio:9/16;border-radius:3px;background:linear-gradient(160deg,#4a3a2a,#9a7a5a);position:relative;display:block}
+.film b.txt{outline:2px solid var(--brick)}
+.film b.txt::after{content:"Aa";position:absolute;inset:auto 0 30% 0;text-align:center;font:700 10px var(--sans);color:#fff;background:rgba(155,59,40,.8)}
+.prog{height:6px;border-radius:3px;background:var(--muted);overflow:hidden}.prog i{display:block;height:100%;background:var(--ink)}
+.phone{width:180px;aspect-ratio:9/16;border-radius:14px;overflow:hidden;position:relative;background:linear-gradient(160deg,#3a2a24,#8a5a3a);border:3px solid #1e1810}
+.phone .cap{position:absolute;left:10px;right:10px;top:38%;color:#fff;font:700 12px/1.25 var(--sans);text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.phone .pl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.8);font-size:26px}
+.phone .bar{position:absolute;left:8px;right:8px;bottom:8px;height:3px;background:rgba(255,255,255,.35);border-radius:2px}.phone .bar i{display:block;height:100%;width:35%;background:#fff}
+/* rounds over time */
+.rt{display:grid;grid-template-columns:repeat(3,1fr);gap:0;position:relative}
+.rt .col{padding:0 18px;border-left:1px solid var(--border)}.rt .col:first-child{border-left:0;padding-left:0}
+.rt .it{display:flex;align-items:center;gap:8px;height:34px;margin:0 0 6px;padding:0 8px;border-radius:6px;background:var(--edit);border:1px solid var(--border);font-size:12px}
+.rt .it .mini{width:16px;height:26px;border-radius:2px;flex:none}
+.rt .it.kill{opacity:.55;text-decoration:line-through}
+.rt .it.new{border-style:dashed}
+.rt .it .tag{margin-left:auto}
+/* asset bank board */
+.board{display:grid;grid-template-columns:200px repeat(4,1fr);gap:6px;font-size:11.5px}
+.board .rh{font-weight:600;font-size:12px;align-self:center}
+.board .ch{font:700 9px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);align-self:end}
+.bc{height:64px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:4px;position:relative;font-size:11px}
+.bc.ex{background:linear-gradient(160deg,#4a3a2a,#9a7a5a);color:#fff}
+.bc.ap::after{content:"✓";position:absolute;right:4px;top:3px;width:16px;height:16px;border-radius:50%;background:var(--olive);color:#fff;font:700 10px/16px var(--sans);text-align:center}
+.bc.miss{border:1px dashed var(--border-strong);color:var(--ink-3)}
+.bc.na{background:transparent;color:var(--ink-3);opacity:.5}
+.bc.wait{background:var(--edit);border:1px solid var(--ochre);color:var(--ochre)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:11px}
+.cal .d{height:46px;border-radius:5px;background:var(--edit);padding:3px 5px;position:relative}
+.cal .d.pay{outline:2px solid var(--ink)}
+.cal .d.x{background:transparent}
+.cal .d small{display:block;font-size:9.5px;line-height:1.15;margin-top:2px}
+.cal .hd{font:700 9px/1 var(--mono);color:var(--ink-3);text-align:center}
+.pk{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:3px}
+.appr{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center;background:var(--edit);border:1px solid var(--border);border-radius:10px;padding:12px}
+.steps{display:flex;gap:0;font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.steps span{padding:4px 10px;border:1px solid var(--border-strong);color:var(--ink-3)}
+.steps span:first-child{border-radius:99px 0 0 99px}.steps span:last-child{border-radius:0 99px 99px 0}
+.steps span.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.steps span.done{color:var(--olive)}
+.spark-tile .thumb{background:linear-gradient(160deg,#111,#3a3a5a)}
+.held{font-size:12px;color:var(--ochre);margin-top:6px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.w393 .cmp,.w393 .rt{grid-template-columns:1fr}
+.w393 .rt .col{border-left:0;padding:0;margin-bottom:12px}
+.w393 .board{grid-template-columns:110px repeat(2,1fr)}
+.w393 .board .c34{display:none}
+.w393 .appr{grid-template-columns:80px 1fr}
+.w393 .appr .acts{grid-column:1 / -1}
+.w393 .ins{grid-template-columns:1fr}
+.w393 .hbar{grid-template-columns:90px 1fr 46px}
+.w393 .gs .grid{grid-template-columns:repeat(2,1fr)}
+</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=TikTok+Sans:wdth,wght@75..150,300..900&display=swap" rel="stylesheet">
+<style>
+/* locked caption style — rule 13 */
+.ugc{container-type:inline-size;position:relative;aspect-ratio:9/16;overflow:hidden;border-radius:8px;background:linear-gradient(170deg,#141018 0%,#2a1d2a 30%,#6a3b4a 55%,#c06a58 72%,#2a1a1a 100%)}
+.ugc.f45{aspect-ratio:4/5}
+.ugc .crowd{position:absolute;left:0;right:0;bottom:0;height:46%;background:radial-gradient(ellipse at 30% 0%,rgba(255,180,160,.35),transparent 60%),linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.65))}
+.ugc .lamp{position:absolute;left:44%;top:8%;width:12%;height:2.2%;background:#ff8a4a;border-radius:2px;box-shadow:0 0 12px #ff8a4a}
+.cap{position:absolute;left:10%;right:10%;top:36%;transform:translateY(-50%);text-align:center;font-family:"TikTok Sans",system-ui,sans-serif;font-weight:400;font-stretch:120%;font-variation-settings:"wdth" 120;font-size:5.1cqw;line-height:1.05;color:#fff;-webkit-text-stroke:1cqw #000;paint-order:stroke fill;white-space:pre-line}
+.ugc.f45 .cap{top:30%}
+.safe{position:absolute;left:0;right:0;top:14.84%;bottom:14.84%;border:1.5px dashed rgba(255,255,255,.6)}
+.safe span{position:absolute;right:4px;top:3px;font:600 9px var(--mono);color:#fff;background:rgba(0,0,0,.4);padding:1px 4px;border-radius:3px}
+.mark{position:absolute;left:0;right:0;border-top:1px solid #ffd34a}
+.mark span{position:absolute;left:4px;top:-14px;font:600 9px var(--mono);color:#ffd34a}
+.ctrl{position:absolute;left:4%;bottom:3.5%;display:flex;align-items:center;gap:6px;right:4%}
+.ctrl .pb{width:9cqw;height:9cqw;min-width:22px;min-height:22px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;font-size:max(9px,3.6cqw)}
+.ctrl .sc{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.35)}.ctrl .sc i{display:block;height:100%;width:30%;background:#fff;border-radius:2px}
+.ctrl .tm{font:600 max(9px,2.8cqw) var(--mono);color:#fff}
+.ugc .src2{position:absolute;left:4%;top:3%;font:700 max(8px,2.6cqw) var(--mono);color:#fff;background:rgba(0,0,0,.45);padding:1px 4px;border-radius:3px}
+.mini2{width:44px;flex:none}
+.mini2 .cap{-webkit-text-stroke:1.2cqw #000}
+/* brand kit */
+.poster{position:relative;aspect-ratio:4/5;border-radius:8px;overflow:hidden;background:#0d0b10;color:#f2ead8}
+.poster .bg{position:absolute;inset:0;background:radial-gradient(circle at 70% 30%,#5b2a6e 0%,transparent 45%),radial-gradient(circle at 20% 80%,#a03a2a 0%,transparent 40%),#0d0b10}
+.poster .ly{position:absolute;left:7%;right:7%;font-family:"Archivo","Helvetica Neue",Arial,sans-serif;letter-spacing:.02em}
+.poster .t1{top:7%;font-weight:800;font-size:9cqw;line-height:.95;text-transform:uppercase}
+.poster .t2{top:31%;font-weight:700;font-size:16cqw;line-height:1}
+.poster .t3{bottom:22%;font-weight:600;font-size:4.4cqw;line-height:1.25;text-transform:uppercase}
+.poster .t4{bottom:8%;font-weight:500;font-size:3.4cqw;text-transform:uppercase;opacity:.85}
+.poster .warn{position:absolute;left:0;right:0;top:52%;background:#f2ead8;color:#0d0b10;text-align:center;font:800 6.2cqw/1.4 "Archivo","Helvetica Neue",Arial,sans-serif;text-transform:uppercase;letter-spacing:.04em}
+.poster .hl{outline:2px dashed #ffd34a;outline-offset:2px}
+.pwrap{container-type:inline-size}
+.layers{display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.layer{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;padding:7px 9px;border-radius:6px;background:var(--edit);border:1px solid var(--border)}
+.layer .ic{font:700 11px var(--mono);color:var(--ink-3);text-align:center}
+.layer.slot{border-color:color-mix(in srgb,var(--olive) 45%,transparent)}
+.layer.lock{opacity:.7}
+.layer.nofont{border-color:var(--ochre);border-style:dashed}
+.layer small{display:block;font:11px var(--mono);color:var(--ink-3)}
+.fit{display:flex;align-items:center;gap:8px;font:11px var(--mono)}
+.fit .bar2{width:120px;height:6px;border-radius:3px;background:var(--muted);position:relative;overflow:visible}
+.fit .bar2 i{display:block;height:100%;border-radius:3px;background:var(--olive)}
+.fit .bar2 i.over{background:var(--brick)}
+.fit .bar2 s{position:absolute;top:-3px;bottom:-3px;border-left:2px solid var(--ink)}
+.diff{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;font-size:13px}
+.diff .was{color:var(--ink-3);text-decoration:line-through}
+.diff .now{font-weight:600}
+.trio{display:flex;gap:12px;align-items:flex-end}
+.trio .pwrap{flex:none}
+.typechips{display:flex;gap:6px;flex-wrap:wrap}
+.typechips span{padding:5px 10px;border-radius:99px;border:1px solid var(--border-strong);font-size:12px}
+.typechips span.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.typechips span.off{opacity:.45;border-style:dashed}
+.w393 .trio{flex-wrap:nowrap;overflow:hidden}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF PIXEL · CREATIVE LAB · DESIGN PASS 3 · 6 NOVEMBER 2026</div>
+<h1>Creative Lab — the real event, caption overlays, and the brand kit</h1>
+<p class="lead">This supersedes part A of pass 2 (<code>offpixel/creative-lab-pass-2.html</code>), which reviewed the cancelled duplicate <i>Puzzle 4th Birthday Part 1</i> instead of the real event. Part B of pass 2 stands, except that every caption-on-clip preview is redrawn here to rule 13. This pass has three parts: <b>A</b> is the review of the real event, <b>Puzzle 4th Birthday (P26-BDAY)</b>, with R1 and R2 both live; <b>13</b> is the locked caption style, applied to every preview; <b>B7</b> is the brand kit and artwork editing. Every number is a placeholder; artists, venue, date and copy are the event's own.</p>
+
+<h2 style="font-size:20px;margin-top:40px">A · Puzzle 4th Birthday, live (R1 + R2)</h2>
+<p class="lead">Read in your Chrome on <code>app.offpixel.co.uk/events/a092aca8…</code> on 6 Nov. Desktop was judged on the page rendered at 1280 inside your browser; phone at <b>533 px</b>, the narrowest your Chrome window would go. A true 393 px check still needs a screenshot from a phone. The real data matches: 5 artists with Enzo, Luke Dean and Reeshy starred; Enzo cleared with 4 clips; Luke Dean not cleared with 1 clip; 1 caption; no rounds.</p>
+<table class="gap">
+<tr><th>#</th><th>Where</th><th>Live today</th><th>Against the frame</th><th>Verdict</th></tr>
+<tr><td>A1</td><td>Strip</td><td><span class="live">Lineup 5 · Clips 5 · Captions 1 · Round —</span> · <span class="live">Next: Clear the artists whose clips you would run. Go</span>. At phone width: <span class="live">Line 5 · Caps 1</span></td><td>Each cell should be a kicker, a big number and a state line, with the step that needs you highlighted and a solid action button. Live has none of that, and the abbreviations at phone width aren't in the frame, which keeps the full words and shortens the state line instead. After B1 ships the <i>Next</i> sentence will be wrong, because clips run from the promoter page anyway. It should then read <i>Approve a caption, then propose round 1.</i></td><td class="v-gap">Gap</td></tr>
+<tr><td>A2</td><td>Lineup rows</td><td>5 rows; ★ on three; handle; <span class="live">✓ Cleared · You, 6 Nov · Email from Fuse (Enzo Siragusa marketing team), permission for paid use…</span>; a <i>Mark cleared</i> button on every uncleared row, including the three marked "not needed"; a ▶ ⓘ pair under every row</td><td>Rows built, order and stars right. Three gaps. (1) The chip should be one line, <i>✓ Cleared · Matas, 6 Nov</i>, with the Fuse email shown on hover or in Edit (rule 5). (2) A row whose chip says "not needed" shouldn't have <i>Mark cleared</i> as its main button; its one action is <i>Add Instagram</i>, or nothing. (3) The ▶ ⓘ pair under each row is extra controls. The artist card opens on hover over the name at desktop, and on the ⓘ at phone width only. There are no artist photos (initials everywhere); is enrichment running for this lineup?</td><td class="v-gap">Gap</td></tr>
+<tr><td>A3</td><td>Clip tiles</td><td>Grid in Keeping / New / Can't run with counts, but every tile is an empty 9:16 box with initials (<span class="live">ES</span>); there's no image or video element in the page at all; the source shows as the text <span class="live">IG</span>; an empty <span class="live">Keeping · 0 · ran · cost per result</span> heading is shown</td><td>The main fail of rule 2: there's no first frame anywhere. Every tile needs its poster frame (extract one at around 1 s when the clip is imported). The source should be a badge. Keeping should stay hidden until a round has run. Luke Dean's clip is in <i>Can't run</i>, which is right today but moves to <i>New</i> with B1.</td><td class="v-gap">Gap</td></tr>
+<tr><td>A4</td><td>Captions generator</td><td>Labelled Angle / How many / Stage / Pair with; at phone width How many and Stage sit behind <i>More</i></td><td>As drawn, apart from one thing: no option shows as chosen. The selected segment should be filled ink.</td><td class="v-q">Small gap</td></tr>
+<tr><td>A5</td><td>Feed-post caption</td><td>Post header, then a blank media area with <span class="live">LD</span> and the caption in dark body text at the bottom left of it; a plain-text <span class="live">Get tickets</span>; bare <span class="live">✎ ✕ ✓</span> glyphs</td><td>Four gaps. (1) The media needs the clip's first frame. (2) The caption is the locked overlay on the clip (rule 13 below), not body text; the post's own short copy goes above the media. (3) <i>Get tickets</i> should be the CTA bar's button. It's the right words for an on-sale event. (4) ✎ ✕ ✓ should be 30 px buttons. The post is also paired with Luke Dean's clip, which can't run today; <i>Best clip</i> should pick a runnable clip.</td><td class="v-gap">Gap</td></tr>
+<tr><td>A6</td><td>Round</td><td><span class="live">Propose</span> greyed, with <span class="live">Approve at least 1 caption to propose round 1.</span></td><td>Exactly as drawn.</td><td class="v-ok">Done</td></tr>
+<tr><td>A7</td><td>Header · Ticketing · Tickets sold</td><td><span class="live">Puzzle · on sale · Next payday Friday, 27 November 2026. 51 days to the event.</span>; a Ticketing link after the Lab; Tickets sold gone</td><td>As drawn.</td><td class="v-ok">Done</td></tr>
+<tr><td>A8</td><td>Event data</td><td>Milestones show presale and general sale as <span class="live">Not set</span> on an event that's on sale; budget <span class="live">—</span></td><td>Not a Lab gap, but B5's payday calendar and ticket warnings read these dates. Fill them in (or say they don't apply) before B5 is built.</td><td class="v-q">For you</td></tr>
+</table>
+<p class="lead"><b>Still reads like a form:</b> nothing big any more. The leftovers are the rights sentence on Enzo's row, the blank tiles, and the unstyled ✎ ✕ ✓. A3 and A5 together are the next fix, because they're why the Lab still doesn't look like the ads it makes.</p>
+
+<!-- ================= 13 ================= -->
+<h2 style="font-size:20px;margin-top:52px">Rule 13 · The locked caption style on every clip preview</h2>
+<p class="lead">Any caption on UGC uses the approved Luke Dean render (<code>docs/creative-lab/ugc1-side-by-side.png</code>): <b>TikTok Sans, weight 400, width 120, white with a black stroke outside the letters</b>, centred, sentence case, the block sitting about 36% of the way down. Play controls sit in the bottom corner, clear of the text. Every preview that shows a caption on a clip uses this one component: the feed post, render rows, round cells and the timeline.</p>
+<div class="frame">
+<figure><figcaption>The spec · 9:16 frame with the 4:5 safe area</figcaption>
+<div style="width:240px"><div class="ugc"><span class="lamp"></span><span class="crowd"></span><span class="safe"><span>4:5 safe</span></span><span class="mark" style="top:36%"><span>36%</span></span><div class="cap">Luke Dean joins
+Enzo Siragusa for
+our 4th Birthday
+You in?</div><div class="ctrl"><span class="pb">▶</span><span class="sc"><i></i></span><span class="tm">0:01</span></div></div></div>
+</figure>
+<figure><figcaption>Spec values</figcaption>
+<table class="gap" style="width:520px">
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Font</td><td>TikTok Sans · weight 400 · width 120 (<code>font-stretch:120%</code>)</td></tr>
+<tr><td>Size</td><td>about 5.1% of the frame width; line height 1.05 (line spacing about 3% of the frame height); lines wrap at about 80% of the width. Measured on the approved render; the first draft of this record said 6.6% and 1.14, which was wrong.</td></tr>
+<tr><td>Colour</td><td>white fill, black stroke outside the letters (about 1% of frame width), no shadow, no box</td></tr>
+<tr><td>Position</td><td>centred; block centre about 36% down the 9:16 frame, which keeps it inside the 4:5 safe area so the feed crop never cuts it. In a 4:5 crop the same block sits about 30% down.</td></tr>
+<tr><td>Case</td><td>as written, sentence case; line breaks are part of the caption</td></tr>
+<tr><td>Controls</td><td>play button bottom-left, scrubber along the bottom, time bottom-right; nothing over the middle 70% of the frame</td></tr>
+<tr><td>Never</td><td>a bold system font, a drop shadow, a centred play icon, or text over the middle</td></tr>
+</table>
+</figure>
+</div>
+<p class="lead"><b>Position, measured:</b> in the approved render the caption block's centre sits 35.5% down the full 9:16 frame (35.4% in our render, 35.5% in the original UGC), and the block is about 43% of the frame wide. That's what's drawn here and what #1092 builds.</p>
+
+<h3 style="font-size:13px;margin:22px 0 6px">The four previews, redrawn</h3>
+<div class="frame">
+<figure><figcaption>1280 · feed-post caption (4:5 feed crop)</figcaption>
+<div style="display:flex;gap:16px">
+  <div style="width:260px">
+    <div class="ad"><div class="ad-h"><span class="av">PZ</span><div><b>Puzzle</b><small>Sponsored</small></div></div>
+      <div class="ad-copy">Puzzle's 4th Birthday · 27 December · Circuit &amp; Engine Rooms</div>
+      <div class="ugc f45" style="border-radius:0"><span class="lamp"></span><span class="crowd"></span><span class="src2">IG</span><div class="cap">Luke Dean joins
+Enzo Siragusa for
+our 4th Birthday
+You in?</div><div class="ctrl"><span class="pb">▶</span><span class="sc"><i></i></span></div></div>
+      <div class="ad-cta"><div><small style="color:#65676b">SKIDDLE.COM</small><br><b>Puzzle 4th Birthday</b></div><span class="b">Get tickets</span></div></div>
+    <div class="adfoot"><span class="muted" style="font-size:12px">Lineup · Enzo #2</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div>
+  </div>
+</div>
+</figure>
+<figure><figcaption>1280 · render row and finished preview</figcaption>
+<div class="panel" style="width:520px;margin:0">
+  <div style="display:grid;grid-template-columns:1fr 150px;gap:18px;align-items:start">
+    <div>
+      <div style="display:grid;grid-template-columns:44px 1fr 90px;gap:10px;align-items:center;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--border)"><div class="mini2"><div class="ugc"><span class="crowd"></span><div class="cap">Luke Dean joins
+Enzo Siragusa for
+our 4th Birthday</div></div></div><span>Enzo #2 × "joins"</span><span class="chip ok">Ready</span></div>
+      <div style="display:grid;grid-template-columns:44px 1fr 90px;gap:10px;align-items:center;font-size:12.5px;padding:6px 0"><div class="mini2"><div class="ugc" style="background:linear-gradient(170deg,#141018,#2a3a4a 50%,#4a7a7a)"><span class="crowd"></span><div class="cap">Enzo Siragusa
+Luke Dean, Reeshy
+&amp; more</div></div></div><span>Enzo #3 × Lineup</span><div><div class="prog"><i style="width:55%"></i></div><span class="muted mono" style="font-size:10.5px">~1 min</span></div></div>
+    </div>
+    <div class="ugc"><span class="lamp"></span><span class="crowd"></span><div class="cap">Luke Dean joins
+Enzo Siragusa for
+our 4th Birthday
+You in?</div><div class="ctrl"><span class="pb">▶</span><span class="sc"><i></i></span><span class="tm">0:22</span></div></div>
+  </div>
+</div>
+</figure>
+</div>
+<div class="frame">
+<figure><figcaption>1280 · round cells and the timeline</figcaption>
+<div class="panel" style="width:640px;margin:0">
+  <div class="mx" style="grid-template-columns:120px repeat(2,1fr)">
+    <span></span><span class="hd">"joins"</span><span class="hd">Lineup</span>
+    <span class="hd" style="align-self:center">Enzo #2</span>
+    <div class="cell" style="min-height:84px"><div class="mini2"><div class="ugc"><span class="crowd"></span><div class="cap">Luke Dean joins
+Enzo Siragusa for
+our 4th Birthday</div></div></div>New</div>
+    <div class="cell" style="min-height:84px"><div class="mini2"><div class="ugc"><span class="crowd"></span><div class="cap">Enzo Siragusa
+Luke Dean, Reeshy
+&amp; more</div></div></div>New</div>
+  </div>
+  <div class="rt" style="grid-template-columns:repeat(2,1fr);margin-top:16px">
+    <div class="col"><div class="k" style="margin-bottom:8px">Round 1</div>
+      <div class="it" style="height:auto;padding:5px 8px"><div class="mini2" style="width:30px"><div class="ugc"><span class="crowd"></span><div class="cap">Luke Dean joins
+Enzo Siragusa</div></div></div>Enzo #2 × "joins"<span class="chip win tag">Winner</span></div></div>
+    <div class="col"><div class="k" style="margin-bottom:8px">Round 2</div>
+      <div class="it" style="height:auto;padding:5px 8px"><div class="mini2" style="width:30px"><div class="ugc"><span class="crowd"></span><div class="cap">Luke Dean joins
+Enzo Siragusa</div></div></div>Enzo #2 × "joins"<span class="chip tag">Kept</span></div></div>
+  </div>
+</div>
+</figure>
+<figure><figcaption>393 · feed post, one at a time</figcaption>
+<div class="vp w393">
+  <div class="ad"><div class="ad-h"><span class="av">PZ</span><div><b>Puzzle</b><small>Sponsored</small></div></div>
+    <div class="ad-copy">Puzzle's 4th Birthday · 27 December</div>
+    <div class="ugc f45" style="border-radius:0"><span class="lamp"></span><span class="crowd"></span><div class="cap">Luke Dean joins
+Enzo Siragusa for
+our 4th Birthday
+You in?</div><div class="ctrl"><span class="pb">▶</span><span class="sc"><i></i></span></div></div>
+    <div class="ad-cta"><div><b>Puzzle 4th Birthday</b></div><span class="b">Get tickets</span></div></div>
+  <div class="adfoot"><span class="muted" style="font-size:12px">Enzo #2</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div>
+</div>
+</figure>
+</div>
+<p class="lead">At round-cell and timeline size the caption won't be readable, and it doesn't need to be: what shows is <i>where</i> the text sits on <i>which</i> clip. The same component scales down, and the words are on the row label. Pass 2's B2 render preview, B6 Spark tiles (no caption, by design) and F4's feed posts all use this component from now on.</p>
+
+<h2 style="font-size:20px;margin-top:52px">Rule 14 · Artwork assets come from the artwork, never the caption style</h2>
+<p class="lead">Lineup overlays, artist cards, ticket warnings and key-moment pushes have to look like the rest of the campaign. So they're built from the designer's open artwork file (PSD) and the campaign's own font files, editing only the text layers the designer made. The locked caption style is for UGC captions only. If the artwork or a font is missing, the asset is missing; it's never rebuilt in a fallback style. B7 draws how that works.</p>
+
+<h2 style="font-size:20px;margin-top:52px">B7 · Brand kit and artwork editing</h2>
+<p class="lead">One kit per event, or per campaign when several events share artwork. There are three moments: <b>upload</b> (the open artwork file and its fonts; layers detected), <b>make a variant</b> (pick an asset type; Claude proposes the text change and the ticket number behind it; preview in three formats beside the original), and <b>approve</b> (the same approval card as B5). The board from B5 gains a "from artwork" source for its artwork rows.</p>
+
+<h3 style="font-size:13px;margin:18px 0 6px">B7a · The kit — artwork, layers, fonts</h3>
+<div class="frame">
+<figure><figcaption>1280 · Puzzle 4th Birthday · kit uploaded, one font missing</figcaption>
+<div class="vp w1280"><div class="panel">
+  <div class="sec-h"><h3>Brand kit · Puzzle 4th Birthday</h3><span><span class="muted" style="font-size:12px">Puzzle-4th-Birthday-Key-Art.psd · uploaded 6 Nov</span> <button class="btn ghost">Replace</button></span></div>
+  <div style="display:grid;grid-template-columns:300px 1fr;gap:22px;align-items:start">
+    <div class="pwrap"><div class="poster"><span class="bg"></span>
+      <div class="ly t1">Puzzle<br>4th Birthday</div>
+      <div class="ly t2 hl">27.12</div>
+      <div class="warn hl">On sale now</div>
+      <div class="ly t3 hl" style="opacity:.55">Enzo Siragusa · Luke Dean · Reeshy<br>Phill de Janeiro · Benji King</div>
+      <div class="ly t4">Circuit &amp; Engine Rooms · Southampton</div></div>
+      <p class="muted" style="font-size:11.5px;margin:8px 0 0">Dashed = editable text. Faded = its font is missing.</p></div>
+    <div>
+      <div class="k" style="margin-bottom:8px">Text you can change · 4</div>
+      <div class="layers">
+        <div class="layer slot"><span class="ic">T</span><div>Date<small>"27.12" · ABC Diatype Regular · max 5 characters</small></div><span class="chip ok">Editable</span></div>
+        <div class="layer slot"><span class="ic">T</span><div>Warning line<small>"On sale now" · ABC Diatype Regular · max 18 characters</small></div><span class="chip ok">Editable</span></div>
+        <div class="layer slot nofont"><span class="ic">T</span><div>Lineup<small>2 lines · max 36 characters a line</small></div><span><span class="muted" style="font-size:12px;margin-right:8px">Upload ABC Diatype Bold to edit this text</span><button class="btn">Upload font</button></span></div>
+        <div class="layer slot"><span class="ic">T</span><div>Price<small>hidden in the original · ABC Diatype Regular · max 12 characters</small></div><span class="chip ok">Editable</span></div>
+      </div>
+      <div class="k" style="margin:14px 0 8px">Locked · 5</div>
+      <div class="layers" style="flex-direction:row;flex-wrap:wrap">
+        <span class="chip">🔒 Background</span><span class="chip">🔒 Glow</span><span class="chip">🔒 Puzzle logo</span><span class="chip">🔒 Title "Puzzle 4th Birthday"</span><span class="chip">🔒 Venue line</span>
+      </div>
+      <div class="k" style="margin:14px 0 8px">Fonts · 1 of 2</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="chip ok">✓ ABC Diatype Regular</span><span class="chip warn">○ ABC Diatype Bold — upload to edit the lineup</span></div>
+    </div>
+  </div>
+</div></div></figure>
+<figure><figcaption>393 · artwork on top, layers below</figcaption>
+<div class="vp w393"><div class="panel">
+  <div class="sec-h"><h3>Brand kit</h3><button class="btn ghost">Replace</button></div>
+  <div class="pwrap" style="width:200px;margin:0 auto 12px"><div class="poster"><span class="bg"></span><div class="ly t1">Puzzle<br>4th Birthday</div><div class="ly t2 hl">27.12</div><div class="warn hl">On sale now</div><div class="ly t3" style="opacity:.55">Enzo Siragusa · Luke Dean · Reeshy</div></div></div>
+  <div class="layers">
+    <div class="layer slot"><span class="ic">T</span><div>Date<small>max 5</small></div><span class="chip ok">Editable</span></div>
+    <div class="layer slot"><span class="ic">T</span><div>Warning line<small>max 18</small></div><span class="chip ok">Editable</span></div>
+    <div class="layer slot nofont"><span class="ic">T</span><div>Lineup<small>Upload ABC Diatype Bold to edit this text</small></div><button class="btn">Upload</button></div>
+  </div>
+  <p class="muted" style="font-size:11.5px;margin:10px 0 0">5 locked layers · 1 of 2 fonts</p>
+</div></div></figure>
+</div>
+<p class="lead"><b>Layers are detected, not configured.</b> Every text layer becomes a slot, named from the layer name and checked by its content ("27.12" reads as a date), with its font and the most characters it can hold before it overflows the designer's box. Every image, shape and logo layer is locked. A text layer the designer didn't mean to change (the title, the venue) can be locked with one tap. A slot whose font isn't uploaded stays visible but faded, and the sentence names the exact font file to upload.</p>
+
+<h3 style="font-size:13px;margin:18px 0 6px">B7b · Make a variant — Claude proposes, you approve</h3>
+<div class="frame">
+<figure><figcaption>1280 · "Final 100 tickets"</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="sec-h"><h3>Make a variant</h3></div>
+  <div class="typechips" style="margin-bottom:14px"><span>Price rise</span><span class="on">Final 100 tickets</span><span class="off">80% sold · at 1,600</span><span class="off">Sold out · at 2,000</span><span>Key moment</span><span>Lineup update</span></div>
+  <div class="appr" style="grid-template-columns:1fr 280px;align-items:start">
+    <div>
+      <b style="font-size:14px">Final 100 tickets</b>
+      <div style="display:flex;align-items:center;gap:10px;font-size:12.5px;margin:8px 0 14px"><div class="prog" style="width:220px"><i style="width:95.6%;background:var(--ink)"></i></div><span class="mono">1,912 of 2,000 sold · 88 left</span><span class="muted">Skiddle, read today 09:00</span></div>
+      <div class="k" style="margin-bottom:6px">The change</div>
+      <div class="diff"><span class="was">On sale now</span><span>→</span><span class="now">Final 100 tickets</span></div>
+      <div class="fit" style="margin:8px 0 14px">Warning line <span class="bar2"><i style="width:94%"></i><s style="left:100%"></s></span> 17 of 18 · fits</div>
+      <p class="muted" style="font-size:12px;margin:0">Nothing else changes. Date, lineup and price layers keep the artwork's own text.</p>
+    </div>
+    <div class="trio">
+      <div><div class="k" style="margin-bottom:4px">Original</div><div class="pwrap" style="width:84px"><div class="poster"><span class="bg"></span><div class="ly t1">Puzzle<br>4th Birthday</div><div class="ly t2">27.12</div><div class="warn">On sale now</div></div></div></div>
+      <div><div class="k" style="margin-bottom:4px">4:5</div><div class="pwrap" style="width:84px"><div class="poster"><span class="bg"></span><div class="ly t1">Puzzle<br>4th Birthday</div><div class="ly t2">27.12</div><div class="warn">Final 100 tickets</div></div></div></div>
+      <div><div class="k" style="margin-bottom:4px">9:16</div><div class="pwrap" style="width:84px"><div class="poster" style="aspect-ratio:9/16"><span class="bg"></span><div class="ly t1" style="top:16%">Puzzle<br>4th Birthday</div><div class="ly t2" style="top:34%">27.12</div><div class="warn" style="top:52%">Final 100 tickets</div></div></div></div>
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:12px">
+    <div style="display:flex;gap:8px;align-items:center"><div class="k">1:1</div><div class="pwrap" style="width:84px"><div class="poster" style="aspect-ratio:1/1"><span class="bg"></span><div class="ly t1" style="top:6%;font-size:8cqw">Puzzle<br>4th Birthday</div><div class="ly t2" style="top:32%;font-size:14cqw">27.12</div><div class="warn" style="top:58%">Final 100 tickets</div></div></div></div>
+    <span><button class="btn">Edit the copy</button> <button class="btn solid">Approve</button></span>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>393 · proposal on top, formats swipe</figcaption>
+<div class="vp w393"><div class="panel">
+  <div class="typechips" style="margin-bottom:10px;flex-wrap:nowrap;overflow:hidden"><span class="on">Final 100</span><span>Price rise</span><span class="off">80% · at 1,600</span></div>
+  <b>Final 100 tickets</b>
+  <div class="mono" style="font-size:12px;margin:4px 0 10px">88 left of 2,000 · Skiddle today</div>
+  <div class="diff" style="font-size:12.5px"><span class="was">On sale now</span><span>→</span><span class="now">Final 100 tickets</span></div>
+  <div class="fit" style="margin:8px 0 12px"><span class="bar2" style="width:90px"><i style="width:94%"></i><s style="left:100%"></s></span> 17 of 18</div>
+  <div class="trio"><div class="pwrap" style="width:72px"><div class="poster"><span class="bg"></span><div class="ly t2">27.12</div><div class="warn">On sale now</div></div></div><div class="pwrap" style="width:72px"><div class="poster"><span class="bg"></span><div class="ly t2">27.12</div><div class="warn">Final 100 tickets</div></div></div><div class="pwrap" style="width:72px"><div class="poster" style="aspect-ratio:9/16"><span class="bg"></span><div class="ly t2" style="top:34%">27.12</div><div class="warn">Final 100 tickets</div></div></div></div>
+  <button class="btn solid" style="width:100%;justify-content:center;margin-top:12px">Approve</button>
+</div></div></figure>
+</div>
+<p class="lead">Asset types that the ticket data doesn't support yet are drawn dashed and say when they unlock (<i>80% sold · at 1,600</i>), the same rule as B5's locked approval card. The proposal names <b>which layer changes</b>, the <b>before → after copy</b>, the <b>fit meter</b> for that slot, and the <b>ticket number that makes it true</b>. The previews are rendered from the PSD with the campaign's fonts, at 4:5, 9:16 and 1:1, beside the untouched original. 9:16 and 1:1 reflow the designer's layout only where the PSD has artboards for them. Without those artboards they show <i>No 9:16 artboard in the file — ask the designer</i> rather than a stretched guess.</p>
+
+<h3 style="font-size:13px;margin:18px 0 6px">B7c · When the copy doesn't fit the slot</h3>
+<div class="frame">
+<figure><figcaption>1280 · shortened to fit</figcaption>
+<div class="vp" style="width:500px;padding:16px">
+  <div class="appr" style="grid-template-columns:1fr 84px">
+    <div>
+      <b>Price rise</b>
+      <div class="diff" style="margin:8px 0;font-size:12.5px;grid-template-columns:1fr"><span class="was">Prices rise at midnight Friday</span><span class="now">Prices rise Friday</span></div>
+      <div class="fit">Warning line <span class="bar2"><i style="width:100%"></i><s style="left:100%"></s></span> 18 of 18</div>
+      <p style="font-size:12px;margin:8px 0 0;color:var(--ochre)">Shortened to fit: 30 → 18 characters. "Midnight" is dropped; the rise time stays in the ad's own copy.</p>
+    </div>
+    <div class="pwrap"><div class="poster"><span class="bg"></span><div class="ly t2">27.12</div><div class="warn" style="font-size:5.4cqw">Prices rise Friday</div></div></div>
+  </div>
+</div></figure>
+<figure><figcaption>1280 · can't fit — flagged</figcaption>
+<div class="vp" style="width:500px;padding:16px">
+  <div class="appr" style="grid-template-columns:1fr 84px">
+    <div>
+      <b>Lineup update</b>
+      <div class="diff" style="margin:8px 0;font-size:12.5px;grid-template-columns:1fr"><span class="now">Enzo Siragusa · Luke Dean · Reeshy · Phill de Janeiro · Benji King · + 3 more</span></div>
+      <div class="fit">Lineup <span class="bar2"><i class="over" style="width:100%"></i><s style="left:72%"></s></span> 98 of 72</div>
+      <p style="font-size:12px;margin:8px 0 0;color:var(--brick)">Eight names won't fit in the lineup box, even in two lines. Choose which names to drop, or ask the designer for a three-line lineup layer.</p>
+      <div style="margin-top:8px"><button class="btn">Choose names</button></div>
+    </div>
+    <div class="pwrap"><div class="poster"><span class="bg"></span><div class="ly t2">27.12</div><div class="ly t3" style="outline:2px solid var(--brick)">Enzo Siragusa · Luke Dean · Reeshy · Phill de Janeiro · Benji King · Ah…</div></div></div>
+  </div>
+</div></figure>
+</div>
+<p class="lead"><b>Shorten, never shrink.</b> The designer's type size and box are fixed. When copy is too long, Claude shortens it and says what it dropped and where that information still lives (ochre). If it can't be shortened without losing meaning (a lineup can't lose an artist on its own), it flags it in brick, with one action, and there's no Approve button until it fits. The fit meter is the same everywhere: a bar against the slot's limit, and the limit is a solid line.</p>
+
+<h3 style="font-size:13px;margin:18px 0 6px">B7d · On the board</h3>
+<p class="lead">The asset board from B5 gets a small <span class="chip">from artwork</span> badge on the lineup-edit, artist-card, ticket-warning and key-moment rows. When there's no kit, those rows' missing cells read <i>+ upload the artwork file</i> instead of <i>+ make</i>. Approving a B7 variant files it straight into its cell as <span class="chip ok">✓</span> and puts it on the payday calendar.</p>
+
+<h2>What to send me next</h2>
+<p class="lead">One screenshot from a real phone at 393 so I can close A1 and A2 at that width. And whether enrichment is meant to have filled in artist photos for this lineup (A2).</p>
+</div></body></html>

@@ -24,6 +24,12 @@ This repo is worked on by two coding tools — Claude Code (terminal) and Cursor
 - Claude Code: single-file fixes with diagnosed root cause, tests, parser additions, mechanical refactors, documentation, log queries, MCP-driven ops work, 1–3 file changes.
 - Cursor: multi-file architectural work (4+ files), new primitives, cross-cutting refactors, anything where the parallel diff-review UI earns its keep.
 
+## Review loop
+
+Visual changes run the review loop in `docs/design-record/README.md`: design record → build prompt → PR + CI evidence → return → design verdict → fix loop on the same branch → squash merge → migrate from `main` once the sha256 matches. Creative Lab rules and components: `docs/creative-lab/design-rules.md`.
+
+Any new surface or changed words in the MML canvas, drawers, library, reports, event page / Creative Lab or `/admin` gets a design record in `docs/design-record/` first. Records are never edited after merge; a re-ruling gets a new record.
+
 ## Project
 
 Internal tool for building Meta/Facebook ad campaigns for event marketing. An 8-step campaign creation wizard with Supabase auth/persistence and a Meta API integration layer.
