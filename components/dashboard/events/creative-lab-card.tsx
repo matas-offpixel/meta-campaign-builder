@@ -88,9 +88,9 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
         <section className="space-y-3">
           <h3 className="font-medium">Artists</h3>
           {lab.artists.map((artist) => (
-            <ArtistRow key={`${artist.id}:${artist.rightsLabel}:${artist.startingCaption ?? ""}`} artist={artist} adSets={lab.adSets} busy={busy} onSave={(body) => run(body)} />
+            <ArtistRow key={`${artist.id}:${artist.rightsLabel}:${artist.startingCaption ?? ""}:${artist.playedCities.join("|")}`} artist={artist} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
           ))}
-          <ArtistRow artist={null} adSets={lab.adSets} busy={busy} onSave={(body) => run(body)} />
+          <ArtistRow artist={null} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
         </section>
 
         <section className="space-y-3">
@@ -197,59 +197,93 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
   );
 }
 
+function pageLabel(page: { id: string; name: string }): string {
+  return `${page.name} · ${page.id}`;
+}
+
+function igLabelOf(account: { igActorId?: string; username?: string; name?: string }): string {
+  const id = account.igActorId?.trim() ?? "";
+  const name = account.username?.trim() || account.name?.trim() || "";
+  return [name, id].filter(Boolean).join(" · ");
+}
+
 function ArtistRow({
   artist,
-  adSets,
+  adAccountId,
   busy,
   onSave,
 }: {
   artist: CreativeLabCardData["artists"][number] | null;
-  adSets: CreativeLabCardData["adSets"];
+  adAccountId: string | null;
   busy: boolean;
   onSave: (body: Record<string, unknown>) => Promise<unknown>;
 }) {
-  const accounts = [...new Set(adSets.map((row) => row.adAccountId).filter(Boolean))];
   const [name, setName] = useState(artist?.name ?? "");
   const [ref, setRef] = useState(artist?.rightsDocRef ?? "");
   const [caption, setCaption] = useState(artist?.startingCaption ?? "");
+  const [cities, setCities] = useState((artist?.playedCities ?? []).join("\n"));
   const [artistVoice, setArtistVoice] = useState(Boolean(artist?.metaPageId));
-  const [accountId, setAccountId] = useState(accounts[0] ?? "");
   const [pageId, setPageId] = useState(artist?.metaPageId ?? "");
   const [instagramActorId, setInstagramActorId] = useState(artist?.instagramActorId ?? "");
   const [pages, setPages] = useState<{ id: string; name: string }[]>([]);
   const [igLabel, setIgLabel] = useState(artist?.instagramActorId ?? "");
+  const [pageNote, setPageNote] = useState("");
   const [igNote, setIgNote] = useState("");
 
   useEffect(() => {
-    if (!accountId) return;
+    if (!adAccountId) return;
     let cancelled = false;
-    void fetch(`/api/meta/pages?adAccountId=${encodeURIComponent(accountId)}`)
+    void fetch(`/api/meta/pages?adAccountId=${encodeURIComponent(adAccountId)}`)
       .then(async (res) => ({ ok: res.ok, json: (await res.json()) as { pages?: { id: string; name: string }[]; error?: string } }))
       .then(({ ok, json }) => {
         if (cancelled) return;
         if (!ok) {
-          setIgNote(json.error || "Could not load Pages.");
+          setPageNote(json.error || "Could not load Pages.");
           setPages([]);
           return;
         }
+        setPageNote("");
         setPages(json.pages ?? []);
       })
       .catch(() => {
-        if (!cancelled) setIgNote("Could not load Pages.");
+        if (!cancelled) setPageNote("Could not load Pages.");
       });
     return () => {
       cancelled = true;
     };
-  }, [accountId]);
+  }, [adAccountId]);
+
+  useEffect(() => {
+    if (!adAccountId || !pageId) return;
+    let cancelled = false;
+    void fetch(`/api/meta/page-identity?pageId=${encodeURIComponent(pageId)}&adAccountId=${encodeURIComponent(adAccountId)}`)
+      .then(async (res) => ({ ok: res.ok, json: (await res.json()) as { ig?: { state?: string; account?: { igActorId?: string; username?: string; name?: string } } } }))
+      .then(({ ok, json }) => {
+        if (cancelled || !ok || json.ig?.state !== "linked" || !json.ig.account?.igActorId) return;
+        setIgLabel(igLabelOf(json.ig.account));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [adAccountId, pageId]);
 
   async function choosePage(next: string) {
+    if (next === pageId) return;
+    const savedPage = artist?.metaPageId ?? "";
+    const pageChanged = next !== savedPage;
     setPageId(next);
     if (next) setArtistVoice(true);
-    setInstagramActorId("");
-    setIgLabel("");
+    if (!pageChanged) {
+      setInstagramActorId(artist?.instagramActorId ?? "");
+      setIgLabel(artist?.instagramActorId ?? "");
+    } else {
+      setInstagramActorId("");
+      setIgLabel("");
+    }
     setIgNote("");
-    if (!next || !accountId) return;
-    const res = await fetch(`/api/meta/page-identity?pageId=${encodeURIComponent(next)}&adAccountId=${encodeURIComponent(accountId)}`);
+    if (!next || !adAccountId) return;
+    const res = await fetch(`/api/meta/page-identity?pageId=${encodeURIComponent(next)}&adAccountId=${encodeURIComponent(adAccountId)}`);
     const json = (await res.json()) as {
       error?: string;
       ig?: { state?: string; reason?: string; account?: { igActorId?: string; username?: string; name?: string } };
@@ -259,8 +293,8 @@ function ArtistRow({
       return;
     }
     if (json.ig?.state === "linked" && json.ig.account?.igActorId) {
-      setInstagramActorId(json.ig.account.igActorId);
-      setIgLabel(json.ig.account.username || json.ig.account.name || json.ig.account.igActorId);
+      if (pageChanged) setInstagramActorId(json.ig.account.igActorId);
+      setIgLabel(igLabelOf(json.ig.account));
       return;
     }
     if (json.ig?.state === "no_ig") {
@@ -277,24 +311,25 @@ function ArtistRow({
         <input className="rounded border border-border bg-background p-2" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
         <input className="rounded border border-border bg-background p-2" placeholder="Rights ref" value={ref} onChange={(e) => setRef(e.target.value)} />
         <input className="rounded border border-border bg-background p-2" placeholder="Starting caption" value={caption} onChange={(e) => setCaption(e.target.value)} />
+        <label className="block">Played before (cities)<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={2} value={cities} onChange={(e) => setCities(e.target.value)} /></label>
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={artistVoice || Boolean(pageId)} onChange={(e) => setArtistVoice(e.target.checked)} disabled={Boolean(pageId)} />
           Artist voice
         </label>
-        {accounts.length > 1 ? (
-          <select className="rounded border border-border bg-background p-2" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            {accounts.map((id) => <option key={id} value={id}>{id}</option>)}
+        {adAccountId ? (
+          <select className="rounded border border-border bg-background p-2" value={pageId} onChange={(e) => void choosePage(e.target.value)}>
+            <option value="">Artist Page</option>
+            {pageId && !pages.some((page) => page.id === pageId) ? <option value={pageId}>{pageId}</option> : null}
+            {pages.map((page) => <option key={page.id} value={page.id}>{pageLabel(page)}</option>)}
           </select>
-        ) : null}
-        <select className="rounded border border-border bg-background p-2" value={pageId} onChange={(e) => void choosePage(e.target.value)}>
-          <option value="">Artist Page</option>
-          {pageId && !pages.some((page) => page.id === pageId) ? <option value={pageId}>{pageId}</option> : null}
-          {pages.map((page) => <option key={page.id} value={page.id}>{page.name}</option>)}
-        </select>
+        ) : (
+          <p className="text-muted-foreground">No ad account on this client.</p>
+        )}
+        {pageNote ? <p className="text-muted-foreground">{pageNote}</p> : null}
         <p className="text-muted-foreground">{igLabel ? `Instagram ${igLabel}` : igNote || "No artist Instagram account yet."}</p>
       </div>
       <div className="mt-2 flex gap-2">
-        <Button type="button" disabled={busy} onClick={() => onSave({ action: "saveArtist", artistId: artist?.id, name, rightsDocRef: ref, startingCaption: caption, metaPageId: pageId || null, instagramActorId: instagramActorId || null, artistVoice: artistVoice || Boolean(pageId) })}>Save</Button>
+        <Button type="button" disabled={busy} onClick={() => onSave({ action: "saveArtist", artistId: artist?.id, name, rightsDocRef: ref, startingCaption: caption, playedCities: linesOf(cities), metaPageId: pageId || null, instagramActorId: instagramActorId || null, artistVoice: artistVoice || Boolean(pageId) })}>Save</Button>
         {artist && artist.rights !== "approved" ? (
           <Button type="button" disabled={busy || !ref.trim() || !caption.trim()} onClick={() => onSave({ action: "approveArtist", artistId: artist.id })}>Approve rights</Button>
         ) : null}

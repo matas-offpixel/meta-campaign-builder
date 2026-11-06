@@ -32,6 +32,7 @@ type Body = {
   startingCaption?: string;
   metaPageId?: string | null;
   instagramActorId?: string | null;
+  playedCities?: string[];
   artistVoice?: boolean;
   source?: string;
   rightsRef?: string;
@@ -95,6 +96,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
             startingCaption: body.startingCaption ?? "",
             metaPageId: body.metaPageId,
             instagramActorId: body.instagramActorId,
+            playedCities: body.playedCities ?? [],
             artistVoice: body.artistVoice === true,
           }),
         );

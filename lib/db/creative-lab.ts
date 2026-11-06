@@ -18,7 +18,7 @@ async function rows(db: ServiceRoleDb, table: string, column: string, value: str
   return (res.data ?? []) as Row[];
 }
 
-function text(row: Row | undefined, key: string): string {
+function text(row: Row | null | undefined, key: string): string {
   return String(row?.[key] ?? "").trim();
 }
 
@@ -61,6 +61,7 @@ export type CreativeLabCardData = {
     startingCaption: string | null;
     metaPageId: string | null;
     instagramActorId: string | null;
+    playedCities: string[];
     rights: RightsState;
     rightsLabel: string;
   }[];
@@ -88,6 +89,7 @@ export type CreativeLabCardData = {
     awaitingLong: boolean;
   }[];
   adSets: { metaAdSetId: string; adAccountId: string; name: string; status: string; adCount: number; cap: 50 }[];
+  adAccountId: string | null;
   rounds: {
     id: string;
     roundNo: number;
@@ -114,7 +116,7 @@ export async function loadCreativeLabCard(
     now?: Date;
   },
 ): Promise<CreativeLabCardData> {
-  const [factRows, artists, captions, rounds, adSets, launchedAds, assets, clientEvents] = await Promise.all([
+  const [factRows, artists, captions, rounds, adSets, launchedAds, assets, clientEvents, clientAccount, eventAccount] = await Promise.all([
     rows(db, "creative_lab_event_facts", "event_id", args.eventId),
     args.clientId ? rows(db, "creative_lab_artists", "client_id", args.clientId) : Promise.resolve([]),
     rows(db, "creative_lab_captions", "event_id", args.eventId),
@@ -123,7 +125,14 @@ export async function loadCreativeLabCard(
     rows(db, "launched_ads", "event_id", args.eventId),
     rows(db, "creative_assets", "user_id", args.userId),
     args.clientId ? rows(db, "events", "client_id", args.clientId) : Promise.resolve([]),
+    args.clientId
+      ? db.from("clients").select("meta_ad_account_id").eq("id", args.clientId).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    db.from("events").select("meta_ad_account_id").eq("id", args.eventId).maybeSingle(),
   ]);
+  if (clientAccount.error) throw new Error(`clients: ${clientAccount.error.message}`);
+  if (eventAccount.error) throw new Error(`events: ${eventAccount.error.message}`);
+  const adAccountId = text(clientAccount.data as Row | null, "meta_ad_account_id") || text(eventAccount.data as Row | null, "meta_ad_account_id") || null;
   const artistIds = new Set(artists.map((row) => text(row, "id")));
   const clipRows = (await rows(db, "creative_lab_clips", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
   const roundIds = new Set(rounds.map((row) => text(row, "id")));
@@ -174,6 +183,7 @@ export async function loadCreativeLabCard(
       startingCaption: text(row, "starting_caption") || null,
       metaPageId: text(row, "meta_page_id") || null,
       instagramActorId: text(row, "instagram_actor_id") || null,
+      playedCities: Array.isArray(row.played_cities) ? row.played_cities.map((city) => String(city).trim()).filter(Boolean) : [],
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
     })),
@@ -232,6 +242,7 @@ export async function loadCreativeLabCard(
       adCount: counts.get(text(row, "meta_adset_id")) ?? 0,
       cap: 50 as const,
     })),
+    adAccountId,
     rounds: rounds
       .sort((a, b) => Number(b.round_no) - Number(a.round_no))
       .map((round) => {

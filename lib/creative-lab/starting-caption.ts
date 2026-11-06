@@ -40,6 +40,7 @@ export async function recordStartingCaption(
     text: string;
     artistVoice?: boolean;
     metaPageId?: string | null;
+    playedCities?: readonly string[];
     now?: Date;
   },
 ): Promise<StartingCaptionResult | null> {
@@ -68,6 +69,7 @@ export async function recordStartingCaption(
     pastAppearances: past,
     extraNames: upcoming.flatMap((show) => [show.eventName, ...show.headliners]),
     speakingArtist: style === "artist_first_person" ? named : null,
+    playedCities: style === "artist_first_person" ? args.playedCities : undefined,
   });
   const rows = (existing.data ?? []) as Row[];
   const key = normaliseCaption(text);

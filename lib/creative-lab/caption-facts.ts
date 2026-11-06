@@ -158,9 +158,16 @@ export type CaptionCheckOptions = {
   /**
    * Artist-at-venue pairs the record already holds: a past event of this
    * client, or the show the clip was filmed at. "last season", "back at",
-   * "returns to" and "last year" need one of these.
+   * "returns to" and "last year" need one of these. A "back in [city]"
+   * claim can also be held by the speaking artist's played cities.
    */
   pastAppearances?: readonly { artist: string; venue: string; city?: string | null }[];
+  /**
+   * Cities the speaking artist has played before, confirmed by the
+   * operator, including shows another promoter ran. A city claim passes
+   * when the city is in this list, or a past client event holds it.
+   */
+  playedCities?: readonly string[];
   /**
    * The artist speaking an artist_first_person caption. Past and city
    * claims, and the name check, use this artist when the sentence does
@@ -853,7 +860,8 @@ function venueAfter(text: string, cue: string): string | null {
 /**
  * "last season", "back at", "returns to" and "last year" are a past
  * appearance. Allowed only when a past show, or the clip's filmed show,
- * has that artist on the lineup at that venue.
+ * has that artist on the lineup at that venue. "back in [city]" also
+ * passes when that city is in the speaking artist's played cities.
  */
 function checkPast(
   text: string,
@@ -861,6 +869,7 @@ function checkPast(
   declared: readonly string[],
   past: readonly { artist: string; venue: string; city?: string | null }[] | undefined,
   speakingArtist?: string | null,
+  playedCities?: readonly string[],
 ): CaptionError[] {
   if (!PAST_CUE.test(text)) return [];
   const claimed = text
@@ -877,9 +886,11 @@ function checkPast(
       return [{ code: "past_not_in_facts", detail: "a past appearance needs an artist and a city the record holds" }];
     }
     const held = past ?? [];
+    const played = playedCities ?? [];
     for (const artist of artists) {
-      const hit = held.some((row) => sameArtist(row.artist, artist) && sameVenue(row.city ?? "", city));
-      if (!hit) return [{ code: "past_not_in_facts", detail: `no past show has ${artist} in ${city}` }];
+      const pastShow = held.some((row) => sameArtist(row.artist, artist) && sameVenue(row.city ?? "", city));
+      const confirmed = Boolean(speaker) && sameArtist(artist, speaker) && played.some((row) => sameVenue(row, city));
+      if (!pastShow && !confirmed) return [{ code: "past_not_in_facts", detail: `no past show has ${artist} in ${city}` }];
     }
     return [];
   }
@@ -966,7 +977,7 @@ export function validateCaption(
   errors.push(...checkSet(trimmed));
   errors.push(...checkFootage(trimmed, facts, options.clipVenueName));
   errors.push(...checkPickOne(trimmed, facts, options.upcomingEvents ?? []));
-  errors.push(...checkPast(trimmed, facts, declared, options.pastAppearances, speaker));
+  errors.push(...checkPast(trimmed, facts, declared, options.pastAppearances, speaker, options.playedCities));
   if (options.saleStage) errors.push(...checkStage(trimmed, options.saleStage));
 
   const primary = options.primaryText?.trim() ?? "";
@@ -981,7 +992,7 @@ export function validateCaption(
     errors.push(...checkSet(primary));
     errors.push(...checkFootage(primary, facts, options.clipVenueName));
     errors.push(...checkPickOne(primary, facts, options.upcomingEvents ?? []));
-    errors.push(...checkPast(primary, facts, declared, options.pastAppearances, speaker));
+    errors.push(...checkPast(primary, facts, declared, options.pastAppearances, speaker, options.playedCities));
     if (options.saleStage) errors.push(...checkStage(primary, options.saleStage));
   }
 
