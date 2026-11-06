@@ -92,7 +92,7 @@ describe("caption layout", () => {
 
   it("reads the wrap width from v1.json and hashes the profile stably", async () => {
     assert.equal(CHARS_PER_LINE, 18);
-    assert.equal(profile.fontWeight, 500);
+    assert.equal(profile.fontWeight, 400);
     assert.equal(await styleVersion(), await styleVersion());
     assert.match(await styleVersion(), /^[0-9a-f]{64}$/);
   });
