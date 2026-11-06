@@ -26,8 +26,8 @@ event page / Creative Lab or `/admin` gets a record first.
 | Record | Frames |
 |---|---|
 | [`2026-11-06-creative-lab-f1-f5.html`](2026-11-06-creative-lab-f1-f5.html) | Creative Lab F1–F5 |
-| `2026-11-06-creative-lab-pass-2.html` | A10, B1–B6 (moves here from `docs/creative-lab/` after #1092 merges) |
-| [`2026-11-06-creative-lab-pass-3.html`](2026-11-06-creative-lab-pass-3.html) | A (P26-BDAY review), caption overlay, B7. Caption size corrected before merge to 5.1% of frame width, line height 1.05. The draft copy #1092 adds in `docs/creative-lab/` is deleted after #1092 merges, not moved |
+| [`2026-11-06-creative-lab-pass-2.html`](2026-11-06-creative-lab-pass-2.html) | A10, B1–B6 |
+| [`2026-11-06-creative-lab-pass-3.html`](2026-11-06-creative-lab-pass-3.html) | A (P26-BDAY review), caption overlay, B7. Caption size corrected before merge to 5.1% of frame width, line height 1.05. |
 
 The Creative Lab rules and components the records use are in
 `docs/creative-lab/design-rules.md`.
@@ -42,7 +42,8 @@ The Creative Lab rules and components the records use are in
    Claude Code: branch name off fresh `main`, the record's path, the exact
    changes, guard rules, the evidence shots wanted, and what the return must
    contain. Migrations are written but never applied by the builder.
-3. **PR and CI.** The builder runs `npm run precheck`, pushes, opens the PR. CI
+3. **PR and CI.** The builder makes sure `npm test` and `npm run build`
+   pass, pushes, opens the PR. CI
    runs build, unit tests, guards and the visual evidence (`frames:check`,
    `plan-frames` artifact).
 4. **Return.** The builder hands back the build-prompt tail below. The ops
@@ -97,7 +98,7 @@ Used as written.
 ### The tail of every build prompt (what the builder must hand back)
 
 ```
-Run npm run precheck before every push. Never apply a migration. Return, in this order:
+npm test and npm run build pass before every push. Never apply a migration. Return, in this order:
 - PR number and head SHA (40 characters)
 - CI run URL
 - the full URL of each evidence artifact, by name
