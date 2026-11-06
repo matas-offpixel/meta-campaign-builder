@@ -99,13 +99,94 @@ export function signServiceAccountJwt(
 
 // ─── Config loading ─────────────────────────────────────────────────────────────
 
+/** Escape raw line breaks that sit inside JSON string literals (e.g. a PEM pasted with real newlines). */
+function escapeNewlinesInStrings(input: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of input) {
+    if (inString) {
+      if (escaped) { escaped = false; out += ch; continue; }
+      if (ch === "\\") { escaped = true; out += ch; continue; }
+      if (ch === '"') { inString = false; out += ch; continue; }
+      if (ch === "\n") { out += "\\n"; continue; }
+      if (ch === "\r") { continue; }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out;
+}
+
+function tryParse(text: string): unknown {
+  try {
+    let value: unknown = JSON.parse(text);
+    // Double-encoded: the whole object was pasted as a JSON string.
+    if (typeof value === "string") value = JSON.parse(value);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Parses the env value, tolerating the common ways a key file gets mangled on
+ * paste: surrounding whitespace / BOM, wrapping quotes or backticks, curly
+ * quotes, a double-encoded string, real newlines inside the PEM, or base64 of
+ * the whole file. Never echoes any part of the value.
+ */
+export function parseServiceAccountJson(raw: string): Partial<ServiceAccount> {
+  const base = raw.replace(/^﻿/, "").trim();
+  const candidates: string[] = [base];
+  const unwrapped = base.replace(/^(['"`])([\s\S]*)\1$/, "$2").trim();
+  if (unwrapped !== base) candidates.push(unwrapped);
+  for (const c of [...candidates]) {
+    const straight = c.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    if (straight !== c) candidates.push(straight);
+  }
+  for (const c of [...candidates]) {
+    const fixed = escapeNewlinesInStrings(c);
+    if (fixed !== c) candidates.push(fixed);
+  }
+  if (/^[A-Za-z0-9+/=\s]+$/.test(base) && !base.includes("{")) {
+    try {
+      const decoded = Buffer.from(base.replace(/\s+/g, ""), "base64").toString("utf8").trim();
+      if (decoded.startsWith("{")) candidates.push(decoded, escapeNewlinesInStrings(decoded));
+    } catch { /* not base64 */ }
+  }
+  for (const c of candidates) {
+    const value = tryParse(c);
+    if (value && typeof value === "object" && !Array.isArray(value)) return value as Partial<ServiceAccount>;
+  }
+  throw new DriveFetchError(
+    "config_missing",
+    `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON is not valid JSON — paste the full service-account key file. ${describeUnparseable(base)}`,
+  );
+}
+
+/** Shape-only diagnosis: length, first/last character and where parsing stops. No key material. */
+export function describeUnparseable(value: string): string {
+  const first = value.charAt(0);
+  const last = value.charAt(value.length - 1);
+  const show = (c: string) => (c === "" ? "nothing" : /[{}\[\]"'`]/.test(c) ? `'${c}'` : c.trim() === "" ? "whitespace" : "a letter or digit");
+  let where = "";
+  try { JSON.parse(value); } catch (err) {
+    const m = /position (\d+)/.exec(String((err as Error).message));
+    if (m) where = ` Parsing stops at character ${m[1]} of ${value.length}.`;
+  }
+  return `The value is ${value.length} characters, starts with ${show(first)} and ends with ${show(last)}.${where}` +
+    (first !== "{" ? " It should start with '{'." : "") + (last !== "}" ? " It should end with '}' — it may be cut off." : "");
+}
+
 /**
  * Parses GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON into a ServiceAccount.
  * @throws {DriveFetchError("config_missing")} when the env var is absent or malformed
  */
 export function loadServiceAccount(): ServiceAccount {
   const raw = process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON;
-  if (!raw) {
+  if (!raw || !raw.trim()) {
     throw new DriveFetchError(
       "config_missing",
       "Google Drive service account not configured. Set GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON " +
@@ -113,15 +194,7 @@ export function loadServiceAccount(): ServiceAccount {
     );
   }
 
-  let parsed: Partial<ServiceAccount>;
-  try {
-    parsed = JSON.parse(raw) as Partial<ServiceAccount>;
-  } catch {
-    throw new DriveFetchError(
-      "config_missing",
-      "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON is not valid JSON — paste the full service-account key file.",
-    );
-  }
+  const parsed = parseServiceAccountJson(raw);
 
   if (!parsed.client_email || !parsed.private_key) {
     throw new DriveFetchError(
