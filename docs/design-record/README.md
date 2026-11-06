@@ -27,7 +27,7 @@ event page / Creative Lab or `/admin` gets a record first.
 |---|---|
 | [`2026-11-06-creative-lab-f1-f5.html`](2026-11-06-creative-lab-f1-f5.html) | Creative Lab F1–F5 |
 | `2026-11-06-creative-lab-pass-2.html` | A10, B1–B6 (moves here from `docs/creative-lab/` after #1092 merges) |
-| `2026-11-06-creative-lab-pass-3.html` | caption overlay, B7 (moves here from `docs/creative-lab/` after #1092 merges) |
+| [`2026-11-06-creative-lab-pass-3.html`](2026-11-06-creative-lab-pass-3.html) | A (P26-BDAY review), caption overlay, B7. Caption size corrected before merge to 5.1% of frame width, line height 1.05. The draft copy #1092 adds in `docs/creative-lab/` is deleted after #1092 merges, not moved |
 
 The Creative Lab rules and components the records use are in
 `docs/creative-lab/design-rules.md`.
