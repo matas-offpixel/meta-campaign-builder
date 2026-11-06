@@ -27,7 +27,6 @@ import {
 } from "@/components/dashboard/events/event-detail-tabs";
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
 import { EventVenuePanel } from "@/components/dashboard/events/event-venue-panel";
-import { EventArtistRosterPanel } from "@/components/dashboard/events/event-artist-roster-panel";
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
 import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
@@ -36,8 +35,6 @@ import { EventReportingTabs } from "@/components/dashboard/events/event-reportin
 import { EventActivityPanel } from "@/components/dashboard/events/event-activity-panel";
 import { EventActiveCreativesPanel } from "@/components/dashboard/events/event-active-creatives-panel";
 import { LinkedCampaignsPerformance } from "@/components/dashboard/events/linked-campaigns-performance";
-import { EventbriteLiveBlock } from "@/components/dashboard/events/eventbrite-live-block";
-import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-link-panel";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
 import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
@@ -332,9 +329,14 @@ export function EventDetail({
           </span>
         }
         description={
-          event.client?.name
-            ? `${event.client.name} · ${event.status.replace("_", " ")}`
-            : event.status.replace("_", " ")
+          [
+            event.client?.name
+              ? `${event.client.name} · ${event.status.replace("_", " ")}`
+              : event.status.replace("_", " "),
+            lab?.paydayLabel
+              ? `Next payday ${lab.paydayLabel}.${lab.daysToEvent == null ? "" : ` ${lab.daysToEvent} days to the event.`}`
+              : null,
+          ].filter(Boolean).join(" · ")
         }
         actions={
           <>
@@ -404,15 +406,9 @@ export function EventDetail({
           )}
 
           {/*
-            Eventbrite block + link panel used to render here,
-            visible above every tab. Moved into the Overview tab
-            in PR #57 #2 because they're operational/admin
-            surfaces, not reporting data — keeping them above
-            every tab made the Reporting view diverge from the
-            public /share/report/[token] surface clients see. The
-            Reporting tab now mirrors the share URL exactly; link
-            binding + live capacity numbers live on Overview with
-            the rest of the operational metadata.
+            Ticketing setup is the client Ticketing tab. Tickets sold
+            sits on Reporting, after the tiers. The share report is
+            unchanged: it still reads the same summary.
           */}
 
           <EventDetailTabs
@@ -425,71 +421,11 @@ export function EventDetail({
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
               {lab ? <CreativeLabCard lab={lab} /> : null}
-              {/*
-                Eventbrite live block + link/binding panel — moved
-                here from the above-tabs slot in PR #57 #2. They're
-                operational (capacity / sell-through / connection
-                config), not reporting, so they belong on the
-                Overview surface alongside venue + dates + drive
-                folder. The live block handles its own empty /
-                not-linked / linked states; the link panel renders
-                its own change CTA when a binding already exists.
-                Brand campaigns skip this entire block (no tickets
-                concept).
-              */}
-              {!isBrand && event.client_id && (
-                <div className="space-y-3">
-                  <EventbriteLiveBlock
-                    eventId={event.id}
-                    clientId={event.client_id}
-                    fallbackCapacity={event.capacity}
-                    initialLinks={ticketingSummary.links}
-                    initialConnection={ticketingSummary.connection}
-                    initialLatestSnapshot={ticketingSummary.latestSnapshot}
-                    aggregatedTicketsSold={
-                      ticketingSummary.aggregatedTicketsSold
-                    }
-                    aggregatedCapacity={ticketingSummary.aggregatedCapacity}
-                    aggregatedGrossRevenueCents={
-                      ticketingSummary.aggregatedGrossRevenueCents
-                    }
-                    aggregatedCurrency={ticketingSummary.aggregatedCurrency}
-                  />
-                  <EventbriteLinkPanel
-                    eventId={event.id}
-                    clientId={event.client_id}
-                    availableConnections={
-                      ticketingSummary.availableConnections
-                    }
-                    existingLinks={ticketingSummary.links}
-                  />
-                </div>
-              )}
-              {/*
-                Manual tickets-sold fallback (PR #57 #2). Only
-                rendered when there's no Eventbrite link bound for
-                this event — once the API connection is live the
-                manual override is redundant noise (and risks
-                drifting out of sync with the live snapshot). When
-                a plan-derived value is present the panel itself
-                flips to read-only; this gate just hides the whole
-                section when ticketing is API-driven.
-              */}
-              {!isBrand && ticketingSummary.links.length === 0 && (
-                <div className="space-y-2">
-                  <TicketsSoldPanel
-                    eventId={event.id}
-                    initialTicketsSold={initialTicketsSold}
-                    planTickets={planTickets}
-                  />
-                  <a
-                    href={`/events/${event.id}/manual-tickets`}
-                    className="inline-block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                  >
-                    Or bulk-enter historical ticket counts →
-                  </a>
-                </div>
-              )}
+              {!isBrand && event.client_id ? (
+                <p className="text-sm">
+                  <Link className="underline" href={`/clients/${event.client_id}?tab=ticketing`}>Ticketing</Link>
+                </p>
+              ) : null}
               {isBrand ? (
                 <BrandCampaignSummary event={event} />
               ) : (
@@ -508,7 +444,6 @@ export function EventDetail({
                     fallbackName={event.venue_name ?? null}
                     fallbackCity={event.venue_city ?? null}
                   />
-                  <EventArtistRosterPanel eventId={event.id} />
                   <DatesSection event={event} />
                 </>
               )}
@@ -733,12 +668,21 @@ export function EventDetail({
                 <TicketTiersSection tiers={ticketTiers} />
               )}
 
-              {/*
-                TicketsSoldPanel + Eventbrite live/link blocks
-                used to render here. They're operational, not
-                reporting — see the matching JSDocs / placement
-                in the Overview tab above.
-              */}
+              {!isBrand && ticketingSummary.links.length === 0 && (
+                <div className="space-y-2">
+                  <TicketsSoldPanel
+                    eventId={event.id}
+                    initialTicketsSold={initialTicketsSold}
+                    planTickets={planTickets}
+                  />
+                  <a
+                    href={`/events/${event.id}/manual-tickets`}
+                    className="inline-block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Or bulk-enter historical ticket counts →
+                  </a>
+                </div>
+              )}
 
               {/*
                 Per-channel reporting sub-tabs (Meta / TikTok / Google

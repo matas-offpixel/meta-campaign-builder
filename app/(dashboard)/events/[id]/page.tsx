@@ -168,6 +168,8 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
     venueName: event.venue_name,
     venueCity: event.venue_city,
     eventStatus: event.status ?? null,
+    operatorId: user.id,
+    operatorName: typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : typeof user.user_metadata?.name === "string" ? user.user_metadata.name : null,
   }).catch((err) => {
     console.error("[EventDetailPage] loadCreativeLabCard failed:", err);
     return null;

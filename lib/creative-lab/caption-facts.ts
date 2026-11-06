@@ -42,6 +42,7 @@
 import { createHash } from "node:crypto";
 
 import { CHARS_PER_LINE, profile } from "../../src/remotion/caption-style/profile.ts";
+import { allowedDatesFromEvent } from "./lineup.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import type { CaptionStyle } from "./tags.ts";
 
@@ -199,7 +200,7 @@ export function remainingStock(quantitySold: number | null, quantityAvailable: n
  */
 export async function loadEventFacts(serviceRoleDb: ServiceRoleDb, eventId: string): Promise<EventFacts> {
   const [eventRes, factsRes, tiersRes] = await Promise.all([
-    serviceRoleDb.from("events").select("id, name, event_date, venue_name, venue_city").eq("id", eventId).maybeSingle(),
+    serviceRoleDb.from("events").select("id, name, event_date, venue_name, venue_city, presale_at, general_sale_at").eq("id", eventId).maybeSingle(),
     serviceRoleDb.from("creative_lab_event_facts").select("lineup, headliners, allowed_dates").eq("event_id", eventId).maybeSingle(),
     serviceRoleDb.from("event_ticket_tiers").select("tier_name, price, quantity_sold, quantity_available").eq("event_id", eventId),
   ]);
@@ -212,6 +213,8 @@ export async function loadEventFacts(serviceRoleDb: ServiceRoleDb, eventId: stri
     event_date: string | null;
     venue_name: string | null;
     venue_city: string | null;
+    presale_at?: string | null;
+    general_sale_at?: string | null;
   } | null;
   if (!event) throw new Error(`no event ${eventId}`);
   const facts = factsRes.data as { lineup: string[] | null; headliners?: string[] | null; allowed_dates: string[] | null } | null;
@@ -230,7 +233,7 @@ export async function loadEventFacts(serviceRoleDb: ServiceRoleDb, eventId: stri
     lineup: (facts?.lineup ?? []).map((n) => n.trim()).filter(Boolean),
     headliners: (facts?.headliners ?? []).map((n) => n.trim()).filter(Boolean),
     hasFacts: facts != null,
-    allowedDates: (facts?.allowed_dates ?? []).map((d) => d.slice(0, 10)),
+    allowedDates: allowedDatesFromEvent(event, facts?.allowed_dates),
     tiers: tiers.map((t) => ({
       name: t.tier_name,
       price: t.price == null ? null : Number(t.price),

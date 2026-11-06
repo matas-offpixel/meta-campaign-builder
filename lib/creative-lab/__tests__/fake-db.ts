@@ -10,7 +10,7 @@ type Filter = (row: Row) => boolean;
 export type FakeDb = {
   from(table: string): unknown;
   tables: Record<string, Row[]>;
-  writes: { table: string; op: "insert" | "upsert" | "update"; rows: Row[] }[];
+  writes: { table: string; op: "insert" | "upsert" | "update" | "delete"; rows: Row[] }[];
 };
 
 export function fakeDb(seed: Record<string, Row[]>): FakeDb {
@@ -25,6 +25,7 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
     let offset = 0;
     let written: Row[] | null = null;
     let updatePayload: Row | null = null;
+    let deleteMode = false;
 
     const rows = (): Row[] => {
       if (written) return written;
@@ -74,12 +75,20 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
       insert: (payload: Row | Row[]) => (write("insert", payload), api),
       upsert: (payload: Row | Row[], options?: { onConflict?: string }) => (write("upsert", payload, options?.onConflict), api),
       update: (payload: Row) => ((updatePayload = payload), api),
+      delete: () => ((deleteMode = true), api),
       maybeSingle: async () => ({ data: rows()[0] ?? null, error: null }),
       single: async () => {
         const first = rows()[0];
         return first ? { data: first, error: null } : { data: null, error: { message: "no rows" } };
       },
       then: (resolve: (value: { data: Row[]; error: null }) => unknown) => {
+        if (deleteMode) {
+          const matched = (tables[table] ?? []).filter((r) => filters.every((f) => f(r)));
+          tables[table] = (tables[table] ?? []).filter((r) => !filters.every((f) => f(r)));
+          writes.push({ table, op: "delete", rows: matched });
+          deleteMode = false;
+          return resolve({ data: matched, error: null });
+        }
         if (updatePayload) {
           const matched = (tables[table] ?? []).filter((r) => filters.every((f) => f(r)));
           for (const row of matched) Object.assign(row, updatePayload);

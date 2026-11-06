@@ -1577,6 +1577,7 @@ export type Database = {
         Row: {
           approved_at: string | null
           approved_by: string | null
+          artist_id: string | null
           client_id: string
           clip_folder_last_error: string | null
           clip_folder_synced_at: string | null
@@ -1600,6 +1601,7 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
+          artist_id?: string | null
           client_id: string
           clip_folder_last_error?: string | null
           clip_folder_synced_at?: string | null
@@ -1623,6 +1625,7 @@ export type Database = {
         Update: {
           approved_at?: string | null
           approved_by?: string | null
+          artist_id?: string | null
           client_id?: string
           clip_folder_last_error?: string | null
           clip_folder_synced_at?: string | null

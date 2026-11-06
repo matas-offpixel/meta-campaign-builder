@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { LabLineup } from "@/components/dashboard/events/creative-lab/lineup";
+import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
+import { labNextStep } from "@/lib/creative-lab/lineup";
 import { uploadFileToCampaignAssets } from "@/lib/tiktok-wizard/campaign-asset-upload";
 
 const STYLES = [
@@ -30,17 +33,11 @@ async function post(eventId: string, body: Record<string, unknown>): Promise<{ o
   return { ok: res.ok, status: res.status, json };
 }
 
-function linesOf(value: string): string[] {
-  return value.split(/\n|,/).map((name) => name.trim()).filter(Boolean);
-}
 
 export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [lineup, setLineup] = useState((lab.facts?.lineup ?? []).join("\n"));
-  const [headliners, setHeadliners] = useState((lab.facts?.headliners ?? []).join("\n"));
-  const [dates, setDates] = useState((lab.facts?.allowedDates ?? []).join("\n"));
   const [judgeTable, setJudgeTable] = useState<string | null>(null);
 
   async function run(body: Record<string, unknown>) {
@@ -66,34 +63,26 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
   const launchReason = !lab.launchesEnabled
     ? "Lab launches are switched off"
     : null;
+  const running = lab.rounds.find((round) => round.ads.some((ad) => ad.metaAdId));
+  const next = labNextStep({
+    lineupCount: lab.lineupRows.length,
+    unclearedWithClips: lab.lineupRows.some((row) => row.clipCount > 0 && !row.clearedAt),
+    captionsWaiting: lab.captions.some((caption) => caption.status === "proposed"),
+    roundReady: lab.captions.some((caption) => caption.status === "approved") && lab.clips.length > 0 && !running,
+    runningRound: running?.roundNo ?? null,
+    clipCount: lab.clips.length,
+  });
 
   return (
-    <details className="rounded-lg border border-border bg-card">
+    <details className="rounded-lg border border-border bg-card" open>
       <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Creative Lab</summary>
       <div className="space-y-6 border-t border-border px-4 py-4 text-sm">
-        <p className="text-muted-foreground">
-          Next payday {lab.paydayLabel}. {lab.daysToEvent == null ? "No event date." : `${lab.daysToEvent} days to the event.`}
-        </p>
         {error ? <p className="text-destructive">{error}</p> : null}
+        <LabStrip lineup={lab.lineupRows.length} clips={lab.clips.length} captions={lab.captions.length} round={lab.rounds[0]?.roundNo ?? null} next={next} />
+        {!lab.facts || lab.facts.headliners.length === 0 ? <p>headliners not set</p> : null}
+        <LabLineup eventId={lab.eventId} rows={lab.lineupRows} artists={lab.artists} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
 
-        <section className="space-y-2">
-          <h3 className="font-medium">Facts</h3>
-          {!lab.facts || lab.facts.headliners.length === 0 ? <p>headliners not set</p> : null}
-          <label className="block">Lineup<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={4} value={lineup} onChange={(e) => setLineup(e.target.value)} /></label>
-          <label className="block">Headliners, in draw order<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={3} value={headliners} onChange={(e) => setHeadliners(e.target.value)} /></label>
-          <label className="block">Allowed dates<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={2} value={dates} onChange={(e) => setDates(e.target.value)} /></label>
-          <Button type="button" disabled={busy} onClick={() => run({ action: "saveFacts", lineup: linesOf(lineup), headliners: linesOf(headliners), allowedDates: linesOf(dates) })}>Save facts</Button>
-        </section>
-
-        <section className="space-y-3">
-          <h3 className="font-medium">Artists</h3>
-          {lab.artists.map((artist) => (
-            <ArtistRow key={`${artist.id}:${artist.rightsLabel}:${artist.startingCaption ?? ""}:${artist.playedCities.join("|")}`} artist={artist} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
-          ))}
-          <ArtistRow artist={null} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
-        </section>
-
-        <section className="space-y-3">
+        <section id="lab-clips" className="space-y-3">
           <h3 className="font-medium">Clips</h3>
           {lab.clips.length === 0 ? <p className="text-muted-foreground">No clips.</p> : null}
           <ul className="space-y-1">
@@ -111,7 +100,7 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
           <ClipForm lab={lab} busy={busy} onError={setError} onDone={() => router.refresh()} />
         </section>
 
-        <section className="space-y-3">
+        <section id="lab-captions" className="space-y-3">
           <h3 className="font-medium">Captions</h3>
           <GenerateForm lab={lab} busy={busy} onRun={run} />
           <ul className="space-y-3">
@@ -132,7 +121,7 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
           </ul>
         </section>
 
-        <section className="space-y-3">
+        <section id="lab-round" className="space-y-3">
           <h3 className="font-medium">Rounds</h3>
           {!lab.launchesEnabled ? (
             <Button type="button" disabled>
@@ -197,242 +186,6 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
   );
 }
 
-function pageLabel(page: { id: string; name: string }): string {
-  return `${page.name} · ${page.id}`;
-}
-
-function igLabelOf(account: { igActorId?: string; username?: string; name?: string }): string {
-  const id = account.igActorId?.trim() ?? "";
-  const name = account.username?.trim() || account.name?.trim() || "";
-  return [name, id].filter(Boolean).join(" · ");
-}
-
-function ArtistRow({
-  artist,
-  adAccountId,
-  busy,
-  onSave,
-}: {
-  artist: CreativeLabCardData["artists"][number] | null;
-  adAccountId: string | null;
-  busy: boolean;
-  onSave: (body: Record<string, unknown>) => Promise<unknown>;
-}) {
-  const router = useRouter();
-  const [name, setName] = useState(artist?.name ?? "");
-  const [ref, setRef] = useState(artist?.rightsDocRef ?? "");
-  const [caption, setCaption] = useState(artist?.startingCaption ?? "");
-  const [cities, setCities] = useState((artist?.playedCities ?? []).join("\n"));
-  const [folderUrl, setFolderUrl] = useState(artist?.clipFolderUrl ?? "");
-  const [clipSource, setClipSource] = useState(artist?.clipSource ?? "file");
-  const [folderNote, setFolderNote] = useState(artist?.clipFolderLastError ?? "");
-  const [importedFiles, setImportedFiles] = useState<{ name: string; outcome: string; reason: string | null }[]>([]);
-  const [importing, setImporting] = useState(false);
-  const [finding, setFinding] = useState(false);
-  const [igError, setIgError] = useState<string | null>(null);
-  const [artistVoice, setArtistVoice] = useState(Boolean(artist?.metaPageId));
-  const [pageId, setPageId] = useState(artist?.metaPageId ?? "");
-  const [instagramActorId, setInstagramActorId] = useState(artist?.instagramActorId ?? "");
-  const [pages, setPages] = useState<{ id: string; name: string }[]>([]);
-  const [igLabel, setIgLabel] = useState(artist?.instagramActorId ?? "");
-  const [pageNote, setPageNote] = useState("");
-  const [igNote, setIgNote] = useState("");
-
-  useEffect(() => {
-    if (!adAccountId) return;
-    let cancelled = false;
-    void fetch(`/api/meta/pages?adAccountId=${encodeURIComponent(adAccountId)}`)
-      .then(async (res) => ({ ok: res.ok, json: (await res.json()) as { pages?: { id: string; name: string }[]; error?: string } }))
-      .then(({ ok, json }) => {
-        if (cancelled) return;
-        if (!ok) {
-          setPageNote(json.error || "Could not load Pages.");
-          setPages([]);
-          return;
-        }
-        setPageNote("");
-        setPages(json.pages ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setPageNote("Could not load Pages.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [adAccountId]);
-
-  useEffect(() => {
-    if (!adAccountId || !pageId) return;
-    let cancelled = false;
-    void fetch(`/api/meta/page-identity?pageId=${encodeURIComponent(pageId)}&adAccountId=${encodeURIComponent(adAccountId)}`)
-      .then(async (res) => ({ ok: res.ok, json: (await res.json()) as { ig?: { state?: string; account?: { igActorId?: string; username?: string; name?: string } } } }))
-      .then(({ ok, json }) => {
-        if (cancelled || !ok || json.ig?.state !== "linked" || !json.ig.account?.igActorId) return;
-        setIgLabel(igLabelOf(json.ig.account));
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [adAccountId, pageId]);
-
-  async function choosePage(next: string) {
-    if (next === pageId) return;
-    const savedPage = artist?.metaPageId ?? "";
-    const pageChanged = next !== savedPage;
-    setPageId(next);
-    if (next) setArtistVoice(true);
-    if (!pageChanged) {
-      setInstagramActorId(artist?.instagramActorId ?? "");
-      setIgLabel(artist?.instagramActorId ?? "");
-    } else {
-      setInstagramActorId("");
-      setIgLabel("");
-    }
-    setIgNote("");
-    if (!next || !adAccountId) return;
-    const res = await fetch(`/api/meta/page-identity?pageId=${encodeURIComponent(next)}&adAccountId=${encodeURIComponent(adAccountId)}`);
-    const json = (await res.json()) as {
-      error?: string;
-      ig?: { state?: string; reason?: string; account?: { igActorId?: string; username?: string; name?: string } };
-    };
-    if (!res.ok) {
-      setIgNote(json.error || "Could not resolve the Instagram account.");
-      return;
-    }
-    if (json.ig?.state === "linked" && json.ig.account?.igActorId) {
-      if (pageChanged) setInstagramActorId(json.ig.account.igActorId);
-      setIgLabel(igLabelOf(json.ig.account));
-      return;
-    }
-    if (json.ig?.state === "no_ig") {
-      setIgNote("This Page has no Instagram account.");
-      return;
-    }
-    setIgNote(json.ig?.reason || "Instagram account unresolved.");
-  }
-
-  return (
-    <div className="rounded border border-border p-2">
-      {artist ? (
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={artist.rights === "approved"} disabled={busy || importing || finding} onChange={(e) => void onSave({ action: "setCleared", artistId: artist.id, cleared: e.target.checked })} />
-          Cleared
-        </label>
-      ) : <p className="text-muted-foreground">New artist. Save, then tick Cleared.</p>}
-      <div className="mt-2 grid gap-2">
-        <input className="rounded border border-border bg-background p-2" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-        <details>
-          <summary>Edit note</summary>
-          <input className="mt-1 w-full rounded border border-border bg-background p-2" placeholder="Note (optional)" value={ref} onChange={(e) => setRef(e.target.value)} />
-        </details>
-        <input className="rounded border border-border bg-background p-2" placeholder="Starting caption" value={caption} onChange={(e) => setCaption(e.target.value)} />
-        <label className="block">Played before (cities)<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={2} value={cities} onChange={(e) => setCities(e.target.value)} /></label>
-        <label className="block">Clip folder (Drive or Dropbox link)
-          <input className="mt-1 w-full rounded border border-border bg-background p-2" value={folderUrl} onChange={(e) => setFolderUrl(e.target.value)} />
-        </label>
-        <label className="block">Clip source
-          <select className="mt-1 w-full rounded border border-border bg-background p-2" value={clipSource} onChange={(e) => setClipSource(e.target.value)}>
-            <option value="file">file</option>
-            <option value="instagram">instagram — artist feed</option>
-            <option value="spark">spark</option>
-            <option value="presskit">presskit</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={artistVoice || Boolean(pageId)} onChange={(e) => setArtistVoice(e.target.checked)} disabled={Boolean(pageId)} />
-          Artist voice
-        </label>
-        {adAccountId ? (
-          <select className="rounded border border-border bg-background p-2" value={pageId} onChange={(e) => void choosePage(e.target.value)}>
-            <option value="">Artist Page</option>
-            {pageId && !pages.some((page) => page.id === pageId) ? <option value={pageId}>{pageId}</option> : null}
-            {pages.map((page) => <option key={page.id} value={page.id}>{pageLabel(page)}</option>)}
-          </select>
-        ) : (
-          <p className="text-muted-foreground">No ad account on this client.</p>
-        )}
-        {pageNote ? <p className="text-muted-foreground">{pageNote}</p> : null}
-        <p className="text-muted-foreground">{igLabel ? `Instagram ${igLabel}` : igNote || "No artist Instagram account yet."}</p>
-        {folderNote ? <p>{folderNote}</p> : null}
-        {(igError || artist?.igLastError) ? <p>{igError || artist?.igLastError}</p> : null}
-        {artist && artist.igCandidates.length > 0 ? (
-          <ul className="space-y-1">
-            {artist.igCandidates.map((clip) => (
-              <li key={clip.igMediaId}>
-                {clip.permalink ? <a href={clip.permalink}>{clip.postedAt || clip.permalink}</a> : (clip.postedAt || "undated")}
-                {` · ${clip.aspect || "aspect unknown"} · ${clip.likes ?? "likes hidden"} likes · ${clip.comments ?? 0} comments · ${clip.score == null ? "no score" : clip.score.toFixed(4)}`}
-                {` · ${clip.hasFile ? "file available" : "request from team"}`}
-                {` · ${clip.audioMatch == null ? "music unknown" : clip.audioMatch ? "music match" : "no music match"}`}
-                {clip.status === "requested" ? " · requested" : ""}
-                {!clip.hasFile && clip.status === "candidate" ? (
-                  <Button type="button" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {importedFiles.length > 0 ? (
-          <ul className="space-y-1">
-            {importedFiles.map((file, index) => (
-              <li key={`${file.name}:${index}`}>{file.name}: {file.outcome}{file.reason ? ` — ${file.reason}` : ""}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-      <div className="mt-2 flex gap-2">
-        <Button type="button" disabled={busy || importing} onClick={async () => {
-          const result = await onSave({ action: "saveArtist", artistId: artist?.id, name, rightsDocRef: ref, startingCaption: caption, playedCities: linesOf(cities), clipFolderUrl: folderUrl, clipSource, metaPageId: pageId || null, instagramActorId: instagramActorId || null, artistVoice: artistVoice || Boolean(pageId) }) as { ok?: boolean; json?: { clipImport?: { files?: { name: string; outcome: string; reason: string | null }[]; folderError?: string | null }; clipImportError?: string | null } } | undefined;
-          const clipImport = result?.json?.clipImport;
-          if (result?.json?.clipImportError) setFolderNote(result.json.clipImportError);
-          else if (clipImport?.folderError) setFolderNote(clipImport.folderError);
-          else if (clipImport) setFolderNote("");
-          if (clipImport?.files) setImportedFiles(clipImport.files);
-        }}>Save</Button>
-        {artist ? (
-          <Button type="button" disabled={busy || importing || !folderUrl.trim()} onClick={async () => {
-            setImporting(true);
-            setFolderNote("");
-            try {
-              const res = await fetch(`/api/creative-lab/artists/${artist.id}/import-clips`, { method: "POST" });
-              const json = (await res.json()) as { error?: string; folderError?: string | null; files?: { name: string; outcome: string; reason: string | null }[] };
-              if (!res.ok) {
-                setFolderNote(json.error || "Could not import clips.");
-                return;
-              }
-              setImportedFiles(json.files ?? []);
-              setFolderNote(json.folderError || "");
-              router.refresh();
-            } catch {
-              setFolderNote("Could not import clips.");
-            } finally {
-              setImporting(false);
-            }
-          }}>{importing ? "Importing…" : "Import clips"}</Button>
-        ) : null}
-        {artist ? (
-          <Button type="button" disabled={busy || finding || importing || artist.rights !== "approved"} onClick={async () => {
-            setFinding(true);
-            setIgError(null);
-            try {
-              const res = await fetch(`/api/creative-lab/artists/${artist.id}/find-clips`, { method: "POST" });
-              const json = (await res.json()) as { error?: string | null };
-              if (!res.ok || json.error) {
-                setIgError(json.error || "Could not find clips.");
-                return;
-              }
-              router.refresh();
-            } catch {
-              setIgError("Could not find clips.");
-            } finally {
-              setFinding(false);
-            }
-          }}>{finding ? "Finding…" : "Find clips on Instagram"}</Button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
 
 function ClipForm({ lab, busy, onError, onDone }: { lab: CreativeLabCardData; busy: boolean; onError: (message: string) => void; onDone: () => void }) {
   const [artistId, setArtistId] = useState(lab.artists[0]?.id ?? "");
