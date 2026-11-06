@@ -28,7 +28,9 @@ import {
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
 import { EventVenuePanel } from "@/components/dashboard/events/event-venue-panel";
 import { EventArtistRosterPanel } from "@/components/dashboard/events/event-artist-roster-panel";
+import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
 import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
+import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
 import { EventActivityPanel } from "@/components/dashboard/events/event-activity-panel";
@@ -148,6 +150,7 @@ interface Props {
   ticketTiers: EventTicketTierRow[];
   /** Existing Google Ads plan id for the Reporting tab, when present. */
   initialGoogleAdsPlanId: string | null;
+  lab: CreativeLabCardData | null;
 }
 
 /**
@@ -172,6 +175,7 @@ export function EventDetail({
   ticketingSummary,
   ticketTiers,
   initialGoogleAdsPlanId,
+  lab,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
   // resolved here so the Tickets sold StatCard, the read-only panel
@@ -420,6 +424,7 @@ export function EventDetail({
           {/* ───── Overview ───── */}
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
+              {lab ? <CreativeLabCard lab={lab} /> : null}
               {/*
                 Eventbrite live block + link/binding panel — moved
                 here from the above-tabs slot in PR #57 #2. They're

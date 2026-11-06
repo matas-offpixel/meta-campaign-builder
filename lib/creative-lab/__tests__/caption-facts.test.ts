@@ -308,7 +308,10 @@ describe("creative lab captions: long size, sale stage, billing", () => {
     assert.ok(lines.length <= 5, lines.join(" | "));
     assert.ok(lines.some((line) => line.includes("Interplanetary Criminal")));
     assert.ok(lines.some((line) => line.includes("East End Dubs")));
-    const out = validateCaption(text, "whats_next", names, P26, STYLE, { extraNames: names });
+    const out = validateCaption(text, "whats_next", names, P26, STYLE, {
+      extraNames: names,
+      pastAppearances: [{ artist: "Prospa", venue: "NX" }],
+    });
     assert.equal(out.sizeVariant, "long");
     assert.equal(out.ok, true, out.errors.map((e) => e.detail).join("; "));
   });
@@ -407,14 +410,40 @@ describe("creative lab captions: claims the record does not hold", () => {
     assert.equal(validateCaption("Enzo Siragusa, Luke Dean, Reeshy & more are taking over Circuit", "lineup", HEADLINERS, billed, STYLE).ok, true);
   });
 
-  it("requires Pick one to be 2 or 3 names from the record, never a Next list", () => {
-    const list = validateCaption("Pick one: Enzo Siragusa, Luke Dean or Reeshy", "question", HEADLINERS, billed, STYLE);
+  it("requires Pick one to be 2 or 3 different upcoming shows, never this bill", () => {
+    const nights = ["Bristol", "Leeds"];
+    const list = validateCaption("Pick one: Bristol or Leeds", "question", [], billed, STYLE, { upcomingEvents: nights });
     assert.equal(list.ok, true, list.errors.map((e) => e.detail).join("; "));
-    const next = validateCaption("Pick one: Next: Enzo Siragusa, Luke Dean", "question", HEADLINERS, billed, STYLE);
+    const artists = validateCaption("Pick one: Enzo Siragusa, Luke Dean or Reeshy", "question", HEADLINERS, billed, STYLE, { upcomingEvents: nights });
+    assert.ok(artists.errors.some((e) => e.code === "pick_one"));
+    const next = validateCaption("Pick one: Next: Bristol, Leeds", "question", [], billed, STYLE, { upcomingEvents: nights });
     assert.ok(next.errors.some((e) => e.code === "pick_one"));
-    const one = validateCaption("Pick one: Enzo Siragusa", "question", ["Enzo Siragusa"], billed, STYLE);
-    assert.ok(one.errors.some((e) => e.code === "pick_one"));
-    const support = validateCaption("Pick one: Phill de Janeiro or Benji King", "question", ["Phill de Janeiro", "Benji King"], billed, STYLE);
-    assert.ok(support.errors.some((e) => e.code === "pick_one"));
+    const few = validateCaption("Pick one: Bristol or Leeds", "question", [], billed, STYLE, { upcomingEvents: ["Bristol"] });
+    assert.ok(few.errors.some((e) => e.code === "pick_one" && /upcoming shows/.test(e.detail)));
+  });
+
+  it("rejects a past appearance that the record does not hold", () => {
+    const line = "Luke Dean at Circuit last season";
+    const rejected = validateCaption(line, "whats_next", ["Luke Dean"], billed, STYLE);
+    assert.ok(rejected.errors.some((e) => e.code === "past_not_in_facts"), rejected.errors.map((e) => e.detail).join("; "));
+    for (const text of ["Luke Dean is back at Circuit", "Luke Dean returns to Circuit", "Luke Dean at Circuit last year"]) {
+      assert.ok(validateCaption(text, "whats_next", ["Luke Dean"], billed, STYLE).errors.some((e) => e.code === "past_not_in_facts"), text);
+    }
+    const held = validateCaption(line, "whats_next", ["Luke Dean"], billed, STYLE, {
+      pastAppearances: [{ artist: "Luke Dean", venue: "Circuit" }],
+    });
+    assert.equal(held.errors.some((e) => e.code === "past_not_in_facts"), false);
+    assert.equal(validateCaption("Luke Dean at Circuit", "lineup", ["Luke Dean"], billed, STYLE).ok, true);
+  });
+
+  it("keeps a date on one line", () => {
+    const day = wrapCaption("Luke Dean at Circuit on 27 December", 18, ["Luke Dean"]);
+    assert.ok(day.some((line) => line.includes("27 December")), day.join(" | "));
+    assert.equal(day.some((line) => line === "27" || line === "December"), false);
+    const sunday = wrapCaption("Sunday 27 December at Circuit", 18);
+    assert.ok(sunday.some((line) => line.includes("Sunday 27 December")), sunday.join(" | "));
+    const narrow = wrapCaption("Sunday 27 December at Circuit", 17);
+    assert.ok(narrow.some((line) => line.includes("27 December")), narrow.join(" | "));
+    assert.equal(narrow.some((line) => line.includes("Sunday 27 December")), false);
   });
 });
