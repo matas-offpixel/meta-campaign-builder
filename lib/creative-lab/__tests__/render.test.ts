@@ -201,14 +201,18 @@ describe("renderCaptionOnClip", () => {
         probe: async () => ({ width: 956, height: 718, fps: 30, durationInSeconds: 34.06 }),
         upload: async () => {},
         lambda: {
-          render: async () => ({
+          render: async (request) => {
+            assert.equal(request.props.inS, 0);
+            assert.equal(request.props.outS, 30);
+            return {
             bytes: new Uint8Array([7, 7, 7]),
             renderMs: 4321,
             estimatedCostUsd: 0.012,
             estimatedCostDisplay: "$0.012",
             bucketName: "remotionlambda-euwest2",
             lambdaRenderId: "lambda-render-1",
-          }),
+            };
+          },
           deleteRender: async (target) => {
             deleted.push(target);
           },
@@ -216,6 +220,7 @@ describe("renderCaptionOnClip", () => {
       },
     });
     assert.equal(result.renderMs, 4321);
+    assert.equal(result.durationSeconds, 30);
     assert.equal(result.estimatedCostUsd, 0.012);
     assert.deepEqual([result.width, result.height], [402, 718]);
     assert.equal(fake.tables.creative_lab_renders[0].status, "done");

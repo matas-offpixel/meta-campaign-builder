@@ -352,7 +352,7 @@ export async function generateCaptions(
     messages: [
       {
         role: "user",
-        content: `Write ${args.n + 4} different ${args.style} candidates for ${facts.eventName}. Sale stage: ${stage}. Name these headliners only, in this order: ${(facts.headliners ?? []).join(", ")}. Use the tokens. Do not invent a date, a price, a venue, a set time, a past appearance, or where the footage was filmed. ${upcoming.length >= 2 ? `"Pick one:" is 2 or 3 different upcoming shows (${upcoming.map((show) => show.eventName).join("; ")}), never artists on this bill, and never a Next list.` : `Do not write "Pick one:".`}`,
+        content: `Write ${args.n + 4} different ${args.style} candidates for ${facts.eventName}. Sale stage: ${stage}. Every candidate includes primary_text. Name these headliners only, in this order: ${(facts.headliners ?? []).join(", ")}. Use the tokens. Do not invent a date, a price, a venue, a set time, a past appearance, or where the footage was filmed. ${upcoming.length >= 2 ? `"Pick one:" is 2 or 3 different upcoming shows (${upcoming.map((show) => show.eventName).join("; ")}), never artists on this bill, and never a Next list.` : `Do not write "Pick one:".`}`,
       },
     ],
   });
@@ -362,6 +362,10 @@ export async function generateCaptions(
     if (kept.length >= args.n) break;
     const overlay = substitutePlaceholders(candidate.overlay, values).trim();
     const primary = substitutePlaceholders(candidate.primaryText, values).trim();
+    if (!primary) {
+      deps.onReject?.(overlay, primary, [{ code: "primary_missing", detail: "a caption needs primary text" }]);
+      continue;
+    }
     if (stillHasPlaceholder(overlay) || stillHasPlaceholder(primary)) continue;
     const key = normaliseCaption(overlay);
     if (!key || seen.has(key)) continue;

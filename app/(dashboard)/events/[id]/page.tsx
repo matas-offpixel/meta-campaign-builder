@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
 import { loadCreativeLabCard } from "@/lib/db/creative-lab";
-import { signClipPreviews } from "@/lib/creative-lab/clip-preview";
+import { measureClipSources, signClipPreviews } from "@/lib/creative-lab/clip-preview";
 import { parseEventTab } from "@/lib/dashboard/format";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -183,6 +183,15 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       return new Map<string, string>();
     });
     for (const clip of lab.clips) clip.previewUrl = signed.get(clip.id) ?? null;
+    const sizes = await measureClipSources(lab.clips, signed).catch((err) => {
+      console.error("[EventDetailPage] clip sizes failed:", err);
+      return new Map<string, { width: number; height: number }>();
+    });
+    for (const clip of lab.clips) {
+      const size = sizes.get(clip.id);
+      clip.sourceWidth = size?.width ?? null;
+      clip.sourceHeight = size?.height ?? null;
+    }
   }
 
   return (

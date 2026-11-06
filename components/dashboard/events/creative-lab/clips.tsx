@@ -135,7 +135,7 @@ function ClipGroup({
           const chip = clip.judged ? verdictChip(clip.judged.verdict === "untested" || clip.judged.verdict === "thin" ? "untested" : clip.judged.verdict) : verdictChip("untested");
           return (
             <article key={clip.id} className={`w-36 shrink-0 sm:w-auto ${reason ? "rounded border border-dashed border-destructive p-1" : ""}`} title={clip.rightsRef}>
-              <ClipFrame src={clip.previewUrl} hasFile={clip.hasFile} name={clip.artistName} />
+              <ClipFrame src={clip.previewUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} />
               <p className="mt-1 flex justify-between text-xs">
                 <span>{sourceBadge(clip.source)}</span>
                 <span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span>
@@ -159,24 +159,62 @@ function clipBucketKeeping(clip: CreativeLabCardData["clips"][number]): boolean 
   return clipBucket(clip) === "keeping";
 }
 
-function ClipFrame({ src, hasFile, name }: { src: string | null; hasFile: boolean; name: string }) {
+function ClipFrame({ src, hasFile, name, inS, outS }: { src: string | null; hasFile: boolean; name: string; inS: number; outS: number | null }) {
   const video = useRef<HTMLVideoElement>(null);
+  const [time, setTime] = useState(inS);
+  const end = outS ?? inS;
+  function hold(node: HTMLVideoElement) {
+    if (node.currentTime < inS) node.currentTime = inS;
+    if (outS != null && node.currentTime >= outS) {
+      node.pause();
+      node.currentTime = inS;
+    }
+  }
   if (src) {
     return (
-      <video
-        ref={video}
-        src={`${src}#t=0.5`}
-        muted
-        playsInline
-        preload="metadata"
-        className="aspect-[9/16] w-full rounded object-cover"
-        onClick={() => {
-          const node = video.current;
-          if (!node) return;
-          if (node.paused) void node.play();
-          else node.pause();
-        }}
-      />
+      <div className="relative">
+        <video
+          ref={video}
+          src={src}
+          muted
+          playsInline
+          preload="metadata"
+          className="aspect-[9/16] w-full rounded object-cover"
+          onLoadedMetadata={(event) => {
+            const node = event.currentTarget;
+            const poster = inS === 0 && (outS == null || outS > 0.5) ? 0.5 : inS;
+            node.currentTime = poster;
+            setTime(poster);
+          }}
+          onTimeUpdate={(event) => {
+            hold(event.currentTarget);
+            setTime(event.currentTarget.currentTime);
+          }}
+          onClick={() => {
+            const node = video.current;
+            if (!node) return;
+            if (node.paused) {
+              if (outS != null && node.currentTime >= outS) node.currentTime = inS;
+              void node.play();
+            } else node.pause();
+          }}
+        />
+        <input
+          aria-label="Scrub"
+          className="absolute inset-x-2 bottom-2 h-1 accent-white"
+          type="range"
+          min={inS}
+          max={Math.max(end, inS + 0.1)}
+          step={0.1}
+          value={Math.min(Math.max(time, inS), end)}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (video.current) video.current.currentTime = next;
+            setTime(next);
+          }}
+          onClick={(event) => event.stopPropagation()}
+        />
+      </div>
     );
   }
   if (hasFile) return <div className="aspect-[9/16] w-full rounded bg-black" aria-label={name} />;

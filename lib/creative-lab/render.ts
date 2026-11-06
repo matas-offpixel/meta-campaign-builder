@@ -20,6 +20,7 @@ import { captionLimits, outputSize, profile, styleVersion, type CaptionAspect, t
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
+import { clipWindow } from "./surface.ts";
 
 export type { Probe };
 
@@ -216,8 +217,13 @@ export async function renderCaptionOnClip(
     const signed = await sign(bucket, String(source.storage_path));
     const meta = await probe(signed);
 
-    const inS = clip.in_s == null ? 0 : Number(clip.in_s);
-    const outS = clip.out_s == null ? meta.durationInSeconds : Number(clip.out_s);
+    const window = clipWindow({
+      fileSeconds: meta.durationInSeconds,
+      inS: clip.in_s == null ? null : Number(clip.in_s),
+      outS: clip.out_s == null ? null : Number(clip.out_s),
+    });
+    const inS = window.inS;
+    const outS = window.outS ?? meta.durationInSeconds;
     const props: CaptionOnClipProps = {
       clipUrl: signed,
       lines,

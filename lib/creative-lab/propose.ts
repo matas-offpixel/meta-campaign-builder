@@ -15,6 +15,7 @@ import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { assertArtistCleared, buildAdName, createRound, type LabArtist } from "./rounds.ts";
+import { clipWindow } from "./surface.ts";
 import type { CaptionStyle } from "./tags.ts";
 
 export const MAX_ADS_PER_AD_SET = 50;
@@ -83,10 +84,14 @@ async function list(db: ServiceRoleDb, table: string, column: string, value: str
 }
 
 function clipSeconds(clip: Row, asset: Row | undefined): number | null {
-  const start = clip.in_s == null ? 0 : Number(clip.in_s);
-  const end = clip.out_s == null ? (asset?.duration_seconds == null ? null : Number(asset.duration_seconds)) : Number(clip.out_s);
-  if (end == null || Number.isNaN(end)) return null;
-  return end - start;
+  const file = asset?.duration_seconds == null ? null : Number(asset.duration_seconds);
+  const window = clipWindow({
+    fileSeconds: file != null && Number.isFinite(file) ? file : null,
+    inS: clip.in_s == null ? null : Number(clip.in_s),
+    outS: clip.out_s == null ? null : Number(clip.out_s),
+  });
+  if (window.outS == null) return null;
+  return window.outS - window.inS;
 }
 
 type DraftJson = {

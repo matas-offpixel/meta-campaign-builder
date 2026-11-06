@@ -23,15 +23,20 @@ export function CaptionOverlay({
   lines,
   src,
   compact = false,
+  inS = 0,
+  outS = null,
 }: {
   lines: readonly string[];
   src?: string | null;
   compact?: boolean;
+  inS?: number;
+  outS?: number | null;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
-  const [time, setTime] = useState(0);
+  const [time, setTime] = useState(inS);
   const [duration, setDuration] = useState(0);
+  const end = outS ?? duration;
   const copy = lines.map((line) => line.trim()).filter(Boolean).join("\n");
   const stroke = `${profile.strokeWidthPctOfFontSize * 2}em`;
 
@@ -48,16 +53,28 @@ export function CaptionOverlay({
         <video
           ref={video}
           className="h-full w-full object-cover"
-          src={`${src}#t=0.5`}
+          src={src}
           muted
           playsInline
           preload="metadata"
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
-          onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
+          onTimeUpdate={(event) => {
+            const node = event.currentTarget;
+            if (node.currentTime < inS) node.currentTime = inS;
+            if (outS != null && node.currentTime >= outS) {
+              node.pause();
+              node.currentTime = inS;
+            }
+            setTime(node.currentTime);
+          }}
           onLoadedMetadata={(event) => {
-            const length = event.currentTarget.duration;
+            const node = event.currentTarget;
+            const length = node.duration;
             setDuration(Number.isFinite(length) ? length : 0);
+            const poster = inS === 0 && (outS == null || outS > 0.5) ? 0.5 : inS;
+            node.currentTime = poster;
+            setTime(poster);
           }}
           onClick={toggle}
         />
@@ -96,10 +113,10 @@ export function CaptionOverlay({
             aria-label="Scrub"
             className="h-1 min-w-0 flex-1 accent-white"
             type="range"
-            min={0}
-            max={duration || 0}
+            min={inS}
+            max={Math.max(end, inS + 0.1)}
             step={0.1}
-            value={duration ? Math.min(time, duration) : 0}
+            value={Math.min(Math.max(time, inS), end || inS)}
             onChange={(event) => {
               const next = Number(event.target.value);
               if (video.current) video.current.currentTime = next;

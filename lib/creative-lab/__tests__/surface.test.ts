@@ -5,6 +5,7 @@ import {
   cantRunReason,
   captionCopy,
   clipStripLines,
+  clipWindow,
   currentRenderError,
   failedCheckSentence,
   feedHeadline,
@@ -63,12 +64,22 @@ describe("creative lab surface", () => {
     assert.equal(playableClipSeconds({ fileSeconds: 45, inS: null, outS: null }), 30);
     assert.equal(playableClipSeconds({ fileSeconds: 45, inS: 0, outS: 30 }), 30);
     assert.equal(playableClipSeconds({ fileSeconds: 12, inS: null, outS: null }), 12);
+    assert.deepEqual(clipWindow({ fileSeconds: 34.06, inS: null, outS: null }), { inS: 0, outS: 30 });
+    assert.deepEqual(clipWindow({ fileSeconds: 34.06, inS: 2, outS: 12 }), { inS: 2, outS: 12 });
     assert.equal(currentRenderError([
       { status: "failed", error: "superseded: 9:16 only", createdAt: "2026-11-06T12:00:00Z" },
       { status: "done", error: null, createdAt: "2026-11-05T12:00:00Z" },
     ]), null);
-    assert.equal(feedPostClip([refused, long, LUKE, enzo], new Set(["enzo"]))?.id, "enzo-1");
-    assert.equal(feedPostClip([refused], new Set(["enzo"])), null);
+    const lukeLandscape = { ...LUKE, artistId: "luke", sourceWidth: 956, sourceHeight: 718, billingOrder: 1, isHeadliner: true };
+    const enzoVertical = { ...enzo, sourceWidth: 1080, sourceHeight: 1920, billingOrder: 0, isHeadliner: true };
+    const tinyVertical = { ...enzo, id: "tiny", sourceWidth: 480, sourceHeight: 854, billingOrder: 0, isHeadliner: true };
+    const widerCrop = { ...enzo, id: "square", sourceWidth: 1080, sourceHeight: 1080, billingOrder: 0, isHeadliner: true };
+    const laterTwin = { ...enzoVertical, id: "later", billingOrder: 3 };
+    assert.equal(feedPostClip([refused, long, lukeLandscape, enzoVertical])?.id, "enzo-1");
+    assert.equal(feedPostClip([widerCrop, { ...enzoVertical, id: "enzo-720", sourceWidth: 720, sourceHeight: 1280, billingOrder: 2 }])?.id, "enzo-720");
+    assert.equal(feedPostClip([laterTwin, enzoVertical])?.id, "enzo-1");
+    assert.equal(feedPostClip([lukeLandscape, tinyVertical]), null);
+    assert.equal(feedPostClip([refused]), null);
     assert.equal(feedHeadline({ eventName: "Puzzle 4th Birthday", eventDate: "2026-12-27", venue: "Circuit & Engine Rooms" }), "Puzzle 4th Birthday · 27 December · Circuit & Engine Rooms");
     assert.deepEqual(clipStripLines(1), { line: "1 blocked", short: "1 blocked" });
     assert.deepEqual(clipStripLines(0), { line: "ready", short: "ready" });

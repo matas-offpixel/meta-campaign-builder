@@ -81,14 +81,70 @@ export function currentRenderError(
   return current.error?.trim() || "The render was refused.";
 }
 
-/** When the window is unset, a long file is the first 30 seconds. A stored window is left as it is. */
-export function playableClipSeconds(args: { fileSeconds: number | null; inS: number | null; outS: number | null }): number | null {
-  const unset = args.inS == null && args.outS == null;
-  if (unset && args.fileSeconds != null && Number.isFinite(args.fileSeconds) && args.fileSeconds > CLIP_TRIM_SECONDS) {
-    return CLIP_TRIM_SECONDS;
+/**
+ * The seconds the tile and the render play. A stored window is kept.
+ * When it is unset, a file longer than 30 seconds is the first 30 seconds.
+ */
+export function clipWindow(args: { fileSeconds: number | null; inS: number | null; outS: number | null }): { inS: number; outS: number | null } {
+  const inS = args.inS != null && Number.isFinite(args.inS) ? args.inS : null;
+  const outS = args.outS != null && Number.isFinite(args.outS) ? args.outS : null;
+  if (inS == null && outS == null) {
+    if (args.fileSeconds != null && Number.isFinite(args.fileSeconds) && args.fileSeconds > CLIP_TRIM_SECONDS) {
+      return { inS: 0, outS: CLIP_TRIM_SECONDS };
+    }
+    return { inS: 0, outS: args.fileSeconds != null && Number.isFinite(args.fileSeconds) ? args.fileSeconds : null };
   }
-  if (args.outS != null && Number.isFinite(args.outS)) return args.outS;
-  return args.fileSeconds;
+  return { inS: inS ?? 0, outS };
+}
+
+export function playableClipSeconds(args: { fileSeconds: number | null; inS: number | null; outS: number | null }): number | null {
+  const window = clipWindow(args);
+  if (window.outS == null) return null;
+  return Math.max(0, window.outS - window.inS);
+}
+
+/** Width of the largest 9:16 rectangle inside the source. A wider file loses the sides. */
+export function cropWidth9x16(width: number, height: number): number {
+  if (!(width > 0) || !(height > 0)) return 0;
+  const target = 9 / 16;
+  return width / height > target ? height * target : width;
+}
+
+export function isNative9x16(width: number, height: number): boolean {
+  if (!(width > 0) || !(height > 0)) return false;
+  const ratio = width / height;
+  return Math.abs(ratio - 9 / 16) / (9 / 16) <= 0.05;
+}
+
+/** A 9:16 crop under this width is not the lead and not Best clip. */
+export const MIN_LEAD_CROP_PX = 540;
+
+export type RankedClip = ClipForGroup & {
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
+  billingOrder?: number;
+  isHeadliner?: boolean;
+};
+
+/** Native 9:16 first, then the wider crop, then billing order. Under 540 px is left for a hand pick. */
+export function bestRunnableClip<T extends RankedClip>(clips: readonly T[]): T | null {
+  const eligible = clips.filter((clip) => {
+    if (clipBucket(clip) === "cant") return false;
+    const width = clip.sourceWidth;
+    const height = clip.sourceHeight;
+    if (width == null || height == null) return false;
+    return cropWidth9x16(width, height) >= MIN_LEAD_CROP_PX;
+  });
+  eligible.sort((a, b) => {
+    const nativeA = isNative9x16(a.sourceWidth ?? 0, a.sourceHeight ?? 0) ? 0 : 1;
+    const nativeB = isNative9x16(b.sourceWidth ?? 0, b.sourceHeight ?? 0) ? 0 : 1;
+    if (nativeA !== nativeB) return nativeA - nativeB;
+    const widthA = cropWidth9x16(a.sourceWidth ?? 0, a.sourceHeight ?? 0);
+    const widthB = cropWidth9x16(b.sourceWidth ?? 0, b.sourceHeight ?? 0);
+    if (widthB !== widthA) return widthB - widthA;
+    return (a.billingOrder ?? 0) - (b.billingOrder ?? 0);
+  });
+  return eligible[0] ?? null;
 }
 
 export function clipBucket(clip: ClipForGroup): ClipBucket {
@@ -121,14 +177,9 @@ export function cantRunReason(clip: ClipForGroup): string | null {
   return renderRefusalSentence(clip.renderError);
 }
 
-/** The best New clip of a headliner. A refused clip is never returned. */
-export function feedPostClip<T extends ClipForGroup>(clips: readonly T[], headlinerIds: ReadonlySet<string>): T | null {
-  const groups = groupClips(clips);
-  const freshHead = groups.fresh.find((clip) => clip.artistId != null && headlinerIds.has(clip.artistId));
-  if (freshHead) return freshHead;
-  if (groups.fresh[0]) return groups.fresh[0];
-  const keptHead = groups.keeping.find((clip) => clip.artistId != null && headlinerIds.has(clip.artistId));
-  return keptHead ?? groups.keeping[0] ?? null;
+/** The lead clip for the feed post and for Best clip. A refused clip, and a crop under 540 px, is never returned. */
+export function feedPostClip<T extends RankedClip>(clips: readonly T[]): T | null {
+  return bestRunnableClip(clips);
 }
 
 export function groupClips<T extends ClipForGroup>(clips: readonly T[]): { keeping: T[]; fresh: T[]; cant: T[] } {

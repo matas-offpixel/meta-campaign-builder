@@ -5,6 +5,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { probeMp4Url } from "./mp4-probe.ts";
 
 const BUCKET = "campaign-assets";
 const SIGNED_URL_SECONDS = 60 * 30;
@@ -25,4 +26,25 @@ export async function signClipPreviews(
     }),
   );
   return signed;
+}
+
+/** Pixel size of each signed file. A miss leaves the clip off Best clip. */
+export async function measureClipSources(
+  clips: readonly { id: string }[],
+  signed: ReadonlyMap<string, string>,
+): Promise<Map<string, { width: number; height: number }>> {
+  const sizes = new Map<string, { width: number; height: number }>();
+  await Promise.all(
+    clips.map(async (clip) => {
+      const url = signed.get(clip.id);
+      if (!url) return;
+      try {
+        const probe = await probeMp4Url(url);
+        if (probe.width > 0 && probe.height > 0) sizes.set(clip.id, { width: probe.width, height: probe.height });
+      } catch (err) {
+        console.error("[creative-lab] clip size probe failed:", clip.id, err instanceof Error ? err.message : err);
+      }
+    }),
+  );
+  return sizes;
 }

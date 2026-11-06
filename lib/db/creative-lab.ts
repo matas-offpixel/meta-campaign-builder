@@ -8,7 +8,7 @@ import { validateCaption, type EventFacts } from "../creative-lab/caption-facts.
 import { labLaunchesEnabled } from "../creative-lab/killswitch.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
 import { artistKey, playedBefore, spotifyCandidatesOf } from "../creative-lab/lineup.ts";
-import { currentRenderError, playableClipSeconds } from "../creative-lab/surface.ts";
+import { clipWindow, currentRenderError } from "../creative-lab/surface.ts";
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
@@ -121,6 +121,12 @@ export type CreativeLabCardData = {
     rightsRef: string;
     filmedEventId: string | null;
     durationSeconds: number | null;
+    inS: number;
+    outS: number | null;
+    sourceWidth: number | null;
+    sourceHeight: number | null;
+    billingOrder: number;
+    isHeadliner: boolean;
     thumbnailUrl: string | null;
     storagePath: string | null;
     previewUrl: string | null;
@@ -363,14 +369,17 @@ export async function loadCreativeLabCard(
     clips: clipRows.map((row) => {
       const asset = assetOf.get(text(row, "creative_asset_id"));
       const fileSeconds = asset?.duration_seconds == null || asset.duration_seconds === "" ? null : Number(asset.duration_seconds);
-      const inS = row.in_s == null || row.in_s === "" ? null : Number(row.in_s);
-      const outS = row.out_s == null || row.out_s === "" ? null : Number(row.out_s);
-      const seconds = playableClipSeconds({
+      const storedIn = row.in_s == null || row.in_s === "" ? null : Number(row.in_s);
+      const storedOut = row.out_s == null || row.out_s === "" ? null : Number(row.out_s);
+      const window = clipWindow({
         fileSeconds: fileSeconds != null && Number.isFinite(fileSeconds) ? fileSeconds : null,
-        inS: inS != null && Number.isFinite(inS) ? inS : null,
-        outS: outS != null && Number.isFinite(outS) ? outS : null,
+        inS: storedIn != null && Number.isFinite(storedIn) ? storedIn : null,
+        outS: storedOut != null && Number.isFinite(storedOut) ? storedOut : null,
       });
+      const seconds = window.outS == null ? null : Math.max(0, window.outS - window.inS);
       const artist = artists.find((item) => text(item, "id") === text(row, "artist_id"));
+      const bill = lineupRows.findIndex((line) => line.labArtistId === text(row, "artist_id"));
+      const line = bill >= 0 ? lineupRows[bill] : null;
       const renders = renderRows.filter((render) => text(render, "clip_id") === text(row, "id"));
       const rendered = renders.find((render) => text(render, "status") === "done" && text(render, "creative_asset_id"));
       const renderedAsset = rendered ? assetOf.get(text(rendered, "creative_asset_id")) : undefined;
@@ -392,6 +401,12 @@ export async function loadCreativeLabCard(
         rightsRef: text(row, "rights_ref"),
         filmedEventId: text(row, "event_id") || null,
         durationSeconds: seconds,
+        inS: window.inS,
+        outS: window.outS,
+        sourceWidth: null,
+        sourceHeight: null,
+        billingOrder: bill >= 0 ? bill : Number.MAX_SAFE_INTEGER,
+        isHeadliner: line?.isHeadliner === true,
         thumbnailUrl: text(renderedAsset, "thumbnail_url") || text(asset, "thumbnail_url") || null,
         storagePath: text(asset, "storage_path") || null,
         previewUrl: null,
