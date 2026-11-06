@@ -1871,6 +1871,7 @@ export type Database = {
           posted_at: string | null
           reason: string | null
           score: number | null
+          slide_ids: string[]
           status: string
           updated_at: string
           user_id: string
@@ -1893,6 +1894,7 @@ export type Database = {
           posted_at?: string | null
           reason?: string | null
           score?: number | null
+          slide_ids?: string[]
           status?: string
           updated_at?: string
           user_id: string
@@ -1915,6 +1917,7 @@ export type Database = {
           posted_at?: string | null
           reason?: string | null
           score?: number | null
+          slide_ids?: string[]
           status?: string
           updated_at?: string
           user_id?: string

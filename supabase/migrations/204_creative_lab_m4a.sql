@@ -37,6 +37,7 @@ create table if not exists creative_lab_ig_candidates (
   user_id             uuid not null references auth.users (id) on delete cascade,
   artist_id           uuid not null references creative_lab_artists (id) on delete cascade,
   ig_media_id         text not null,
+  slide_ids           text[] not null default '{}',
   permalink           text,
   media_type          text,
   media_product_type  text,
@@ -59,6 +60,8 @@ create table if not exists creative_lab_ig_candidates (
 
 comment on table creative_lab_ig_candidates is
   'Instagram clips listed for an artist between runs. media_url is never stored: it expires and it is a file address. Migration 204.';
+comment on column creative_lab_ig_candidates.slide_ids is
+  'Other video slide ids of the same carousel, in carousel order. ig_media_id is the first video slide. A reel is empty. A carousel takes one of the eight slots.';
 comment on column creative_lab_ig_candidates.file_source is
   'own_edge when the artist''s own media edge was read. none when Business Discovery only listed the post.';
 comment on column creative_lab_ig_candidates.audio_match is

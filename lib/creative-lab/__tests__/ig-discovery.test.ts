@@ -94,28 +94,46 @@ describe("rankIgPosts", () => {
     assert.equal(ranked[1]?.score, 0.05);
   });
 
-  it("counts carousel video slides and skips image slides", () => {
-    const ranked = rankIgPosts(
-      [
-        post({
-          id: "album",
-          mediaType: "CAROUSEL_ALBUM",
-          mediaProductType: "FEED",
-          permalink: "https://www.instagram.com/p/album/",
-          likes: 20,
-          comments: 1,
-          children: [
-            { id: "slide-v", mediaType: "VIDEO" },
-            { id: "slide-i", mediaType: "IMAGE" },
-            { id: "slide-v2", mediaType: "VIDEO" },
-          ],
-        }),
+  it("counts a carousel once, on its first video slide", () => {
+    const album = post({
+      id: "album",
+      mediaType: "CAROUSEL_ALBUM",
+      mediaProductType: "FEED",
+      permalink: "https://www.instagram.com/p/album/",
+      likes: 20,
+      comments: 1,
+      children: [
+        { id: "slide-v", mediaType: "VIDEO" },
+        { id: "slide-i", mediaType: "IMAGE" },
+        { id: "slide-v2", mediaType: "VIDEO" },
       ],
-      { now: NOW, followers: 100, exclude: new Set() },
-    );
-    assert.deepEqual(ranked.map((row) => row.igMediaId), ["slide-v", "slide-v2"]);
+    });
+    const ranked = rankIgPosts([album], { now: NOW, followers: 100, exclude: new Set() });
+    assert.deepEqual(ranked.map((row) => row.igMediaId), ["slide-v"]);
+    assert.deepEqual(ranked[0]?.slideIds, ["slide-v2"]);
     assert.equal(ranked[0]?.permalink, "https://www.instagram.com/p/album/");
     assert.equal(ranked[0]?.score, igScore({ likes: 20, comments: 1, followers: 100, ageDays: 1 }));
+    const held = rankIgPosts([album], { now: NOW, followers: 100, exclude: new Set(["slide-v2"]) });
+    assert.equal(held.length, 0);
+  });
+
+  it("a 5-video carousel plus 7 reels is 8 distinct posts", () => {
+    const carousel = post({
+      id: "album",
+      mediaType: "CAROUSEL_ALBUM",
+      mediaProductType: "FEED",
+      permalink: "https://www.instagram.com/p/album/",
+      likes: 50,
+      children: Array.from({ length: 5 }, (_, index) => ({ id: `slide-${index}`, mediaType: "VIDEO" })),
+    });
+    const reels = Array.from({ length: 7 }, (_, index) => post({ id: `reel-${index}`, likes: 10 + index }));
+    const ranked = rankIgPosts([carousel, ...reels], { now: NOW, followers: 100, exclude: new Set() });
+    assert.equal(ranked.length, 8);
+    assert.equal(new Set(ranked.map((row) => row.igMediaId)).size, 8);
+    assert.equal(new Set(ranked.map((row) => row.permalink)).size, 8);
+    const album = ranked.find((row) => row.igMediaId === "slide-0");
+    assert.deepEqual(album?.slideIds, ["slide-1", "slide-2", "slide-3", "slide-4"]);
+    assert.equal(ranked.some((row) => row.igMediaId.startsWith("slide-") && row.igMediaId !== "slide-0"), false);
   });
 });
 

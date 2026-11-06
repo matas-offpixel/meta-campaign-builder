@@ -45,6 +45,8 @@ export type IgRead = {
 
 export type IgCandidate = {
   igMediaId: string;
+  /** Other video slides of the same carousel, in order. Empty for a reel. */
+  slideIds: string[];
   permalink: string | null;
   mediaType: string;
   mediaProductType: string | null;
@@ -92,7 +94,15 @@ function ageDays(postedAt: string, now: Date): number {
   return (now.getTime() - Date.parse(postedAt)) / 86_400_000;
 }
 
-/** Video posts and carousel video slides, scored and capped. */
+/** One slot per post. A carousel keeps its first video slide and lists the rest as alternates. */
+function carouselUnit(post: IgPost): { id: string; slideIds: string[] } | null {
+  if (post.mediaType === "VIDEO") return post.id ? { id: post.id, slideIds: [] } : null;
+  if (post.mediaType !== "CAROUSEL_ALBUM") return null;
+  const videos = post.children.filter((child) => child.mediaType === "VIDEO" && child.id).map((child) => child.id);
+  const [first, ...rest] = videos;
+  return first ? { id: first, slideIds: rest } : null;
+}
+
 export function rankIgPosts(
   posts: readonly IgPost[],
   args: { now: Date; followers: number | null; exclude: ReadonlySet<string>; limit?: number },
@@ -103,25 +113,22 @@ export function rankIgPosts(
     if (!post.postedAt || Number.isNaN(Date.parse(post.postedAt))) continue;
     const age = ageDays(post.postedAt, args.now);
     if (age > WINDOW_DAYS) continue;
-    const units = post.mediaType === "VIDEO"
-      ? [{ id: post.id }]
-      : post.mediaType === "CAROUSEL_ALBUM"
-        ? post.children.filter((child) => child.mediaType === "VIDEO" && child.id).map((child) => ({ id: child.id }))
-        : [];
-    for (const unit of units) {
-      if (args.exclude.has(unit.id) || seen.has(unit.id)) continue;
-      seen.add(unit.id);
-      ranked.push({
-        igMediaId: unit.id,
-        permalink: post.permalink,
-        mediaType: "VIDEO",
-        mediaProductType: post.mediaProductType,
-        postedAt: new Date(Date.parse(post.postedAt)).toISOString(),
-        likes: post.likes,
-        comments: post.comments,
-        score: igScore({ likes: post.likes, comments: post.comments, followers: args.followers, ageDays: age }),
-      });
-    }
+    const unit = carouselUnit(post);
+    if (!unit) continue;
+    const ids = [unit.id, ...unit.slideIds];
+    if (ids.some((id) => args.exclude.has(id) || seen.has(id))) continue;
+    for (const id of ids) seen.add(id);
+    ranked.push({
+      igMediaId: unit.id,
+      slideIds: unit.slideIds,
+      permalink: post.permalink,
+      mediaType: "VIDEO",
+      mediaProductType: post.mediaProductType,
+      postedAt: new Date(Date.parse(post.postedAt)).toISOString(),
+      likes: post.likes,
+      comments: post.comments,
+      score: igScore({ likes: post.likes, comments: post.comments, followers: args.followers, ageDays: age }),
+    });
   }
   ranked.sort((a, b) => b.score - a.score || a.igMediaId.localeCompare(b.igMediaId));
   return ranked.slice(0, args.limit ?? TOP_N);
@@ -347,6 +354,12 @@ export async function findArtistClips(
     if (HELD.has(text(row, "status"))) {
       const id = text(row, "ig_media_id");
       if (id) exclude.add(id);
+      if (Array.isArray(row.slide_ids)) {
+        for (const slide of row.slide_ids) {
+          const slideId = String(slide).trim();
+          if (slideId) exclude.add(slideId);
+        }
+      }
     }
   }
 
@@ -370,6 +383,7 @@ export async function findArtistClips(
         user_id: userId,
         artist_id: args.artistId,
         ig_media_id: row.igMediaId,
+        slide_ids: row.slideIds,
         permalink: row.permalink,
         media_type: row.mediaType,
         media_product_type: row.mediaProductType,
