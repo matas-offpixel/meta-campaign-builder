@@ -1,10 +1,9 @@
 /**
  * Creative Lab rounds: the rights gate and ad names.
  *
- * Rights (roadmap §2 rule 6): no round is built for an artist until the
- * written paid-use permission is stored (rights_doc_ref) and approved
- * (approved_at). The artist must belong to the event's client: rights
- * are granted to a promoter, not to every client that books the artist.
+ * Rights (roadmap §2 rule 6): no round is built for an artist until Matas
+ * has ticked them as cleared (approved_at). A rights note is optional.
+ * The artist must belong to the event's client: the tick is for one promoter.
  *
  * Ad names are ASCII only, <ARTIST>-clip<NN>_cap-<style><N>, so a regex
  * can parse them later and metaAdName() leaves them unchanged.
@@ -13,7 +12,7 @@
 import type { ServiceRoleDb } from "./load.ts";
 import type { CaptionStyle } from "./tags.ts";
 
-export type RoundRefusal = "artist_not_found" | "event_not_found" | "artist_client_mismatch" | "no_rights_doc" | "not_approved";
+export type RoundRefusal = "artist_not_found" | "event_not_found" | "artist_client_mismatch" | "not_approved";
 
 export class RoundRefusedError extends Error {
   readonly code: RoundRefusal;
@@ -36,11 +35,8 @@ export type LabArtist = {
 /** Throws RoundRefusedError when the artist may not be used in a round. */
 export function assertArtistCleared(artist: LabArtist | null, eventClientId: string | null): asserts artist is LabArtist {
   if (!artist) throw new RoundRefusedError("artist_not_found", "No Creative Lab artist with that id.");
-  if (!artist.rights_doc_ref?.trim()) {
-    throw new RoundRefusedError("no_rights_doc", `${artist.name}: no written paid-use permission stored (rights_doc_ref).`);
-  }
   if (!artist.approved_at) {
-    throw new RoundRefusedError("not_approved", `${artist.name}: permission stored but not approved (approved_at).`);
+    throw new RoundRefusedError("not_approved", `${artist.name}: not ticked as cleared.`);
   }
   if (eventClientId && artist.client_id !== eventClientId) {
     throw new RoundRefusedError("artist_client_mismatch", `${artist.name}: permission is held by another client.`);

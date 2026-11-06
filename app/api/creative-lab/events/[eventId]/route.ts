@@ -7,15 +7,16 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import {
   addLabClip,
-  approveLabArtist,
   approveLabRound,
   generateLabCaptions,
   judgeLabCard,
   proposeLabRound,
   saveLabArtist,
   saveLabFacts,
+  setLabArtistCleared,
   setLabCaptionStatus,
 } from "@/lib/creative-lab/card-write";
+import { requestArtistClip } from "@/lib/creative-lab/ig-discovery";
 import type { SaleStage } from "@/lib/creative-lab/caption-facts";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -53,6 +54,8 @@ type Body = {
   adsetMetaId?: string;
   roundId?: string;
   apply?: boolean;
+  cleared?: boolean;
+  igMediaId?: string;
 };
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: string }> }): Promise<NextResponse> {
@@ -105,8 +108,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
             artistVoice: body.artistVoice === true,
           }),
         );
-      case "approveArtist":
-        await approveLabArtist(db, { userId: user.id, artistId: body.artistId ?? "" });
+      case "setCleared":
+        await setLabArtistCleared(db, { userId: user.id, artistId: body.artistId ?? "", cleared: body.cleared === true });
+        return NextResponse.json({ ok: true });
+      case "requestIgCandidate":
+        await requestArtistClip(db, { userId: user.id, artistId: body.artistId ?? "", igMediaId: body.igMediaId ?? "" });
         return NextResponse.json({ ok: true });
       case "addClip":
         await addLabClip(db, {

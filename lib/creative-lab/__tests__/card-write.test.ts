@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { saveLabArtist } from "../card-write.ts";
+import { saveLabArtist, setLabArtistCleared } from "../card-write.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { fakeDb } from "./fake-db.ts";
 
@@ -59,5 +59,19 @@ describe("saveLabArtist", () => {
       instagramActorId: "",
     });
     assert.equal(fake.tables.creative_lab_artists[0].instagram_actor_id, null);
+  });
+});
+
+describe("setLabArtistCleared", () => {
+  it("ticks cleared without a note and unticking clears it", async () => {
+    const fake = artist();
+    fake.tables.creative_lab_artists[0].rights_doc_ref = null;
+    fake.tables.creative_lab_artists[0].approved_at = null;
+    await setLabArtistCleared(fake as unknown as ServiceRoleDb, { userId: USER, artistId: "artist-1", cleared: true, now: new Date("2026-11-06T12:00:00Z") });
+    assert.equal(fake.tables.creative_lab_artists[0].approved_at, "2026-11-06T12:00:00.000Z");
+    assert.equal(fake.tables.creative_lab_artists[0].approved_by, USER);
+    await setLabArtistCleared(fake as unknown as ServiceRoleDb, { userId: USER, artistId: "artist-1", cleared: false });
+    assert.equal(fake.tables.creative_lab_artists[0].approved_at, null);
+    assert.equal(fake.tables.creative_lab_artists[0].approved_by, null);
   });
 });

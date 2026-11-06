@@ -228,6 +228,8 @@ function ArtistRow({
   const [folderNote, setFolderNote] = useState(artist?.clipFolderLastError ?? "");
   const [importedFiles, setImportedFiles] = useState<{ name: string; outcome: string; reason: string | null }[]>([]);
   const [importing, setImporting] = useState(false);
+  const [finding, setFinding] = useState(false);
+  const [igError, setIgError] = useState<string | null>(null);
   const [artistVoice, setArtistVoice] = useState(Boolean(artist?.metaPageId));
   const [pageId, setPageId] = useState(artist?.metaPageId ?? "");
   const [instagramActorId, setInstagramActorId] = useState(artist?.instagramActorId ?? "");
@@ -312,10 +314,18 @@ function ArtistRow({
 
   return (
     <div className="rounded border border-border p-2">
-      {artist ? <p>{artist.rightsLabel}</p> : <p className="text-muted-foreground">New artist</p>}
+      {artist ? (
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={artist.rights === "approved"} disabled={busy || importing || finding} onChange={(e) => void onSave({ action: "setCleared", artistId: artist.id, cleared: e.target.checked })} />
+          Cleared
+        </label>
+      ) : <p className="text-muted-foreground">New artist. Save, then tick Cleared.</p>}
       <div className="mt-2 grid gap-2">
         <input className="rounded border border-border bg-background p-2" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-        <input className="rounded border border-border bg-background p-2" placeholder="Rights ref" value={ref} onChange={(e) => setRef(e.target.value)} />
+        <details>
+          <summary>Edit note</summary>
+          <input className="mt-1 w-full rounded border border-border bg-background p-2" placeholder="Note (optional)" value={ref} onChange={(e) => setRef(e.target.value)} />
+        </details>
         <input className="rounded border border-border bg-background p-2" placeholder="Starting caption" value={caption} onChange={(e) => setCaption(e.target.value)} />
         <label className="block">Played before (cities)<textarea className="mt-1 w-full rounded border border-border bg-background p-2" rows={2} value={cities} onChange={(e) => setCities(e.target.value)} /></label>
         <label className="block">Clip folder (Drive or Dropbox link)
@@ -345,6 +355,23 @@ function ArtistRow({
         {pageNote ? <p className="text-muted-foreground">{pageNote}</p> : null}
         <p className="text-muted-foreground">{igLabel ? `Instagram ${igLabel}` : igNote || "No artist Instagram account yet."}</p>
         {folderNote ? <p>{folderNote}</p> : null}
+        {(igError || artist?.igLastError) ? <p>{igError || artist?.igLastError}</p> : null}
+        {artist && artist.igCandidates.length > 0 ? (
+          <ul className="space-y-1">
+            {artist.igCandidates.map((clip) => (
+              <li key={clip.igMediaId}>
+                {clip.permalink ? <a href={clip.permalink}>{clip.postedAt || clip.permalink}</a> : (clip.postedAt || "undated")}
+                {` · ${clip.aspect || "aspect unknown"} · ${clip.likes ?? "likes hidden"} likes · ${clip.comments ?? 0} comments · ${clip.score == null ? "no score" : clip.score.toFixed(4)}`}
+                {` · ${clip.hasFile ? "file available" : "request from team"}`}
+                {` · ${clip.audioMatch == null ? "music unknown" : clip.audioMatch ? "music match" : "no music match"}`}
+                {clip.status === "requested" ? " · requested" : ""}
+                {!clip.hasFile && clip.status === "candidate" ? (
+                  <Button type="button" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {importedFiles.length > 0 ? (
           <ul className="space-y-1">
             {importedFiles.map((file, index) => (
@@ -383,8 +410,24 @@ function ArtistRow({
             }
           }}>{importing ? "Importing…" : "Import clips"}</Button>
         ) : null}
-        {artist && artist.rights !== "approved" ? (
-          <Button type="button" disabled={busy || !ref.trim() || !caption.trim()} onClick={() => onSave({ action: "approveArtist", artistId: artist.id })}>Approve rights</Button>
+        {artist ? (
+          <Button type="button" disabled={busy || finding || importing || artist.rights !== "approved"} onClick={async () => {
+            setFinding(true);
+            setIgError(null);
+            try {
+              const res = await fetch(`/api/creative-lab/artists/${artist.id}/find-clips`, { method: "POST" });
+              const json = (await res.json()) as { error?: string | null };
+              if (!res.ok || json.error) {
+                setIgError(json.error || "Could not find clips.");
+                return;
+              }
+              router.refresh();
+            } catch {
+              setIgError("Could not find clips.");
+            } finally {
+              setFinding(false);
+            }
+          }}>{finding ? "Finding…" : "Find clips on Instagram"}</Button>
         ) : null}
       </div>
     </div>

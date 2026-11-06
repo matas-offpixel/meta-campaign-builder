@@ -134,19 +134,22 @@ export async function saveLabArtist(
   return { id, startingCaption, clipImport, clipImportError };
 }
 
-export async function approveLabArtist(db: ServiceRoleDb, args: { userId: string; artistId: string; now?: Date }): Promise<void> {
+export async function setLabArtistCleared(
+  db: ServiceRoleDb,
+  args: { userId: string; artistId: string; cleared: boolean; now?: Date },
+): Promise<void> {
   const res = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).eq("user_id", args.userId).maybeSingle();
   if (res.error) throw new Error(res.error.message);
-  const artist = res.data as Row | null;
-  if (!artist) throw new Error("No artist with that id.");
-  if (!text(artist, "rights_doc_ref")) throw new Error("A rights ref is required.");
-  if (!text(artist, "starting_caption")) throw new Error("A starting caption is required.");
-  const updated = await db
-    .from("creative_lab_artists")
-    .update({ approved_by: args.userId, approved_at: (args.now ?? new Date()).toISOString() })
-    .eq("id", args.artistId)
-    .eq("user_id", args.userId);
+  if (!res.data) throw new Error("No artist with that id.");
+  const patch = args.cleared
+    ? { approved_by: args.userId, approved_at: (args.now ?? new Date()).toISOString() }
+    : { approved_by: null, approved_at: null };
+  const updated = await db.from("creative_lab_artists").update(patch).eq("id", args.artistId).eq("user_id", args.userId);
   if (updated.error) throw new Error(updated.error.message);
+}
+
+export async function approveLabArtist(db: ServiceRoleDb, args: { userId: string; artistId: string; now?: Date }): Promise<void> {
+  await setLabArtistCleared(db, { ...args, cleared: true });
 }
 
 export async function addLabClip(
