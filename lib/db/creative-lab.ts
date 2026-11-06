@@ -18,6 +18,14 @@ async function rows(db: ServiceRoleDb, table: string, column: string, value: str
   return (res.data ?? []) as Row[];
 }
 
+async function rowsIfPresent(db: ServiceRoleDb, table: string, column: string, value: string): Promise<Row[]> {
+  const res = await db.from(table).select("*").eq(column, value);
+  const error = res.error as { message?: string; code?: string } | null;
+  if (!error) return (res.data ?? []) as Row[];
+  if (error.code === "42P01" || /does not exist|schema cache/i.test(error.message ?? "")) return [];
+  throw new Error(`${table}: ${error.message}`);
+}
+
 function text(row: Row | null | undefined, key: string): string {
   return String(row?.[key] ?? "").trim();
 }
@@ -31,11 +39,7 @@ export function rightsState(artist: { rights_doc_ref?: string | null; approved_a
 }
 
 export function rightsLabel(artist: { rights_doc_ref?: string | null; approved_at?: string | null }): string {
-  const state = rightsState(artist);
-  const ref = artist.rights_doc_ref?.trim();
-  if (state === "approved") return ref ? `approved (${ref})` : "approved";
-  if (state === "recorded") return `recorded, not approved${ref ? ` (${ref})` : ""}`;
-  return "missing";
+  return artist.approved_at ? "Cleared" : "Not cleared";
 }
 
 /** Headliners stay in the order given, and every name is on the lineup. */
@@ -65,6 +69,18 @@ export type CreativeLabCardData = {
     clipFolderUrl: string | null;
     clipSource: string;
     clipFolderLastError: string | null;
+    igLastError: string | null;
+    igCandidates: {
+      igMediaId: string;
+      permalink: string | null;
+      postedAt: string | null;
+      likes: number | null;
+      comments: number | null;
+      score: number | null;
+      hasFile: boolean;
+      audioMatch: boolean | null;
+      status: string;
+    }[];
     rights: RightsState;
     rightsLabel: string;
   }[];
@@ -138,6 +154,7 @@ export async function loadCreativeLabCard(
   const adAccountId = text(clientAccount.data as Row | null, "meta_ad_account_id") || text(eventAccount.data as Row | null, "meta_ad_account_id") || null;
   const artistIds = new Set(artists.map((row) => text(row, "id")));
   const clipRows = (await rows(db, "creative_lab_clips", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
+  const candidateRows = (await rowsIfPresent(db, "creative_lab_ig_candidates", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
   const roundIds = new Set(rounds.map((row) => text(row, "id")));
   const adRows = (await rows(db, "creative_lab_round_ads", "user_id", args.userId)).filter((row) => roundIds.has(text(row, "round_id")));
   const launchRows = (await rows(db, "creative_lab_round_ad_launches", "user_id", args.userId)).filter((row) =>
@@ -190,6 +207,22 @@ export async function loadCreativeLabCard(
       clipFolderUrl: text(row, "clip_folder_url") || null,
       clipSource: ["spark", "file", "instagram", "presskit"].includes(text(row, "clip_source")) ? text(row, "clip_source") : "file",
       clipFolderLastError: text(row, "clip_folder_last_error") || null,
+      igLastError: text(row, "ig_last_error") || null,
+      igCandidates: candidateRows
+        .filter((candidate) => text(candidate, "artist_id") === text(row, "id"))
+        .filter((candidate) => text(candidate, "status") === "candidate" || text(candidate, "status") === "requested")
+        .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+        .map((candidate) => ({
+          igMediaId: text(candidate, "ig_media_id"),
+          permalink: text(candidate, "permalink") || null,
+          postedAt: text(candidate, "posted_at").slice(0, 10) || null,
+          likes: candidate.likes == null ? null : Number(candidate.likes),
+          comments: candidate.comments == null ? null : Number(candidate.comments),
+          score: candidate.score == null ? null : Number(candidate.score),
+          hasFile: candidate.has_file === true,
+          audioMatch: candidate.audio_match === true ? true : candidate.audio_match === false ? false : null,
+          status: text(candidate, "status"),
+        })),
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
     })),

@@ -60,6 +60,23 @@ function seed(over: Record<string, Record<string, unknown>[]> = {}): FakeDb {
 const db = (fake: FakeDb) => fake as unknown as ServiceRoleDb;
 
 describe("proposeRound", () => {
+  it("unticking blocks propose, and a tick with no note does not", async () => {
+    const unticked = seed();
+    unticked.tables.creative_lab_artists[0].approved_at = null;
+    await assert.rejects(
+      proposeRound(db(unticked), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET }),
+      (err: unknown) => err instanceof RoundRefusedError && err.code === "not_approved",
+    );
+    assert.equal(unticked.tables.creative_lab_rounds.length, 0);
+
+    const ticked = seed();
+    ticked.tables.creative_lab_artists[0].rights_doc_ref = null;
+    await assert.rejects(
+      proposeRound(db(ticked), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET }),
+      (err: unknown) => err instanceof RoundBuildError && err.code === "no_clips",
+    );
+  });
+
   it("refuses an artist whose permission is stored but not approved", async () => {
     const fake = seed();
     fake.tables.creative_lab_artists[0].approved_at = null;

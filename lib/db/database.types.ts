@@ -1280,6 +1280,7 @@ export type Database = {
           google_ads_customer_id: string | null
           google_drive_folder_url: string | null
           id: string
+          instagram_business_id: string | null
           instagram_handle: string | null
           last_probed_at: string | null
           mailchimp_account_id: string | null
@@ -1317,6 +1318,7 @@ export type Database = {
           google_ads_customer_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
+          instagram_business_id?: string | null
           instagram_handle?: string | null
           last_probed_at?: string | null
           mailchimp_account_id?: string | null
@@ -1354,6 +1356,7 @@ export type Database = {
           google_ads_customer_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
+          instagram_business_id?: string | null
           instagram_handle?: string | null
           last_probed_at?: string | null
           mailchimp_account_id?: string | null
@@ -1581,6 +1584,8 @@ export type Database = {
           clip_source: string
           created_at: string
           id: string
+          ig_last_error: string | null
+          ig_synced_at: string | null
           ig_username: string | null
           instagram_actor_id: string | null
           meta_page_id: string | null
@@ -1602,6 +1607,8 @@ export type Database = {
           clip_source?: string
           created_at?: string
           id?: string
+          ig_last_error?: string | null
+          ig_synced_at?: string | null
           ig_username?: string | null
           instagram_actor_id?: string | null
           meta_page_id?: string | null
@@ -1623,6 +1630,8 @@ export type Database = {
           clip_source?: string
           created_at?: string
           id?: string
+          ig_last_error?: string | null
+          ig_synced_at?: string | null
           ig_username?: string | null
           instagram_actor_id?: string | null
           meta_page_id?: string | null
@@ -1712,6 +1721,7 @@ export type Database = {
       creative_lab_clips: {
         Row: {
           artist_id: string
+          audio_match: boolean | null
           audio_status: string
           clip_no: number
           created_at: string
@@ -1727,6 +1737,7 @@ export type Database = {
           ig_posted_at: string | null
           in_s: number | null
           out_s: number | null
+          overlay_check: Json | null
           permalink: string | null
           rights_ref: string
           source: string
@@ -1736,6 +1747,7 @@ export type Database = {
         }
         Insert: {
           artist_id: string
+          audio_match?: boolean | null
           audio_status?: string
           clip_no: number
           created_at?: string
@@ -1751,6 +1763,7 @@ export type Database = {
           ig_posted_at?: string | null
           in_s?: number | null
           out_s?: number | null
+          overlay_check?: Json | null
           permalink?: string | null
           rights_ref: string
           source: string
@@ -1760,6 +1773,7 @@ export type Database = {
         }
         Update: {
           artist_id?: string
+          audio_match?: boolean | null
           audio_status?: string
           clip_no?: number
           created_at?: string
@@ -1775,6 +1789,7 @@ export type Database = {
           ig_posted_at?: string | null
           in_s?: number | null
           out_s?: number | null
+          overlay_check?: Json | null
           permalink?: string | null
           rights_ref?: string
           source?: string
@@ -1833,6 +1848,83 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: true
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_ig_candidates: {
+        Row: {
+          artist_id: string
+          audio_match: boolean | null
+          comments: number | null
+          created_at: string
+          fetched_at: string
+          file_source: string
+          followers_at_fetch: number | null
+          has_file: boolean
+          id: string
+          ig_media_id: string
+          likes: number | null
+          media_product_type: string | null
+          media_type: string | null
+          permalink: string | null
+          posted_at: string | null
+          reason: string | null
+          score: number | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          artist_id: string
+          audio_match?: boolean | null
+          comments?: number | null
+          created_at?: string
+          fetched_at?: string
+          file_source: string
+          followers_at_fetch?: number | null
+          has_file: boolean
+          id?: string
+          ig_media_id: string
+          likes?: number | null
+          media_product_type?: string | null
+          media_type?: string | null
+          permalink?: string | null
+          posted_at?: string | null
+          reason?: string | null
+          score?: number | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          artist_id?: string
+          audio_match?: boolean | null
+          comments?: number | null
+          created_at?: string
+          fetched_at?: string
+          file_source?: string
+          followers_at_fetch?: number | null
+          has_file?: boolean
+          id?: string
+          ig_media_id?: string
+          likes?: number | null
+          media_product_type?: string | null
+          media_type?: string | null
+          permalink?: string | null
+          posted_at?: string | null
+          reason?: string | null
+          score?: number | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_ig_candidates_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
             referencedColumns: ["id"]
           },
         ]

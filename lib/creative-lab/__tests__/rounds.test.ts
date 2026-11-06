@@ -30,13 +30,15 @@ async function refusal(artist: Record<string, unknown>): Promise<string> {
 }
 
 describe("creative lab rounds: rights gate", () => {
-  it("refuses an artist with no written permission stored", async () => {
-    assert.equal(await refusal({ ...CLEARED, rights_doc_ref: null, approved_at: null }), "no_rights_doc");
-    assert.equal(await refusal({ ...CLEARED, rights_doc_ref: "  " }), "no_rights_doc");
+  it("refuses an artist who is not ticked as cleared", async () => {
+    assert.equal(await refusal({ ...CLEARED, rights_doc_ref: null, approved_at: null }), "not_approved");
+    assert.equal(await refusal({ ...CLEARED, approved_at: null }), "not_approved");
   });
 
-  it("refuses an artist whose permission is stored but not approved", async () => {
-    assert.equal(await refusal({ ...CLEARED, approved_at: null }), "not_approved");
+  it("a cleared tick is enough without a rights note", async () => {
+    const fake = db({ ...CLEARED, rights_doc_ref: null });
+    const round = await createRound(fake as unknown as ServiceRoleDb, { userId: "op", eventId: "evt-day", artistId: "artist-luke" });
+    assert.equal(round.status, "draft");
   });
 
   it("refuses an artist cleared for another client", async () => {
