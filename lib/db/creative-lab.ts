@@ -77,6 +77,7 @@ export type CreativeLabCardData = {
       likes: number | null;
       comments: number | null;
       score: number | null;
+      aspect: string | null;
       hasFile: boolean;
       audioMatch: boolean | null;
       status: string;
@@ -219,6 +220,7 @@ export async function loadCreativeLabCard(
           likes: candidate.likes == null ? null : Number(candidate.likes),
           comments: candidate.comments == null ? null : Number(candidate.comments),
           score: candidate.score == null ? null : Number(candidate.score),
+          aspect: text(candidate, "aspect") || null,
           hasFile: candidate.has_file === true,
           audioMatch: candidate.audio_match === true ? true : candidate.audio_match === false ? false : null,
           status: text(candidate, "status"),

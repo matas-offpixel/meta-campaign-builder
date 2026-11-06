@@ -3,10 +3,12 @@ import { describe, it } from "node:test";
 
 import type { ServiceRoleDb } from "../load.ts";
 import {
+  classifyAspect,
   findArtistClips,
   IG_MEDIA_FIELDS,
   IgDiscoveryError,
   igScore,
+  imageHeaderSize,
   plainIgMessage,
   rankIgPosts,
   requestArtistClip,
@@ -29,6 +31,9 @@ function post(over: Partial<IgPost> & { id: string }): IgPost {
     postedAt: daysBefore(1),
     likes: 10,
     comments: 0,
+    thumbnailUrl: null,
+    thumbWidth: null,
+    thumbHeight: null,
     children: [],
     ...over,
   };
@@ -102,12 +107,14 @@ describe("rankIgPosts", () => {
       permalink: "https://www.instagram.com/p/album/",
       likes: 20,
       comments: 1,
-      children: [
-        { id: "slide-v", mediaType: "VIDEO" },
-        { id: "slide-i", mediaType: "IMAGE" },
-        { id: "slide-v2", mediaType: "VIDEO" },
-      ],
-    });
+          thumbWidth: 1080,
+          thumbHeight: 1920,
+          children: [
+            { id: "slide-v", mediaType: "VIDEO", thumbnailUrl: null },
+            { id: "slide-i", mediaType: "IMAGE", thumbnailUrl: null },
+            { id: "slide-v2", mediaType: "VIDEO", thumbnailUrl: null },
+          ],
+        });
     const ranked = rankIgPosts([album], { now: NOW, followers: 100, exclude: new Set() });
     assert.deepEqual(ranked.map((row) => row.igMediaId), ["slide-v"]);
     assert.deepEqual(ranked[0]?.slideIds, ["slide-v2"]);
@@ -124,7 +131,7 @@ describe("rankIgPosts", () => {
       mediaProductType: "FEED",
       permalink: "https://www.instagram.com/p/album/",
       likes: 50,
-      children: Array.from({ length: 5 }, (_, index) => ({ id: `slide-${index}`, mediaType: "VIDEO" })),
+      children: Array.from({ length: 5 }, (_, index) => ({ id: `slide-${index}`, mediaType: "VIDEO", thumbnailUrl: null })),
     });
     const reels = Array.from({ length: 7 }, (_, index) => post({ id: `reel-${index}`, likes: 10 + index }));
     const ranked = rankIgPosts([carousel, ...reels], { now: NOW, followers: 100, exclude: new Set() });
@@ -134,6 +141,49 @@ describe("rankIgPosts", () => {
     const album = ranked.find((row) => row.igMediaId === "slide-0");
     assert.deepEqual(album?.slideIds, ["slide-1", "slide-2", "slide-3", "slide-4"]);
     assert.equal(ranked.some((row) => row.igMediaId.startsWith("slide-") && row.igMediaId !== "slide-0"), false);
+  });
+
+  it("a 9:16 reel outranks an equal-engagement 16:9 slide, and the multiplier follows the decay", () => {
+    const ranked = rankIgPosts(
+      [
+        post({ id: "wide", mediaType: "CAROUSEL_ALBUM", mediaProductType: "FEED", likes: 100, comments: 10, thumbWidth: 1920, thumbHeight: 1080, children: [{ id: "wide-slide", mediaType: "VIDEO", thumbnailUrl: null }] }),
+        post({ id: "reel", likes: 100, comments: 10, thumbWidth: 1080, thumbHeight: 1920 }),
+      ],
+      { now: NOW, followers: 100, exclude: new Set() },
+    );
+    assert.deepEqual(ranked.map((row) => row.igMediaId), ["reel", "wide-slide"]);
+    assert.equal(ranked[0]?.aspect, "9:16");
+    assert.equal(ranked[1]?.aspect, "landscape");
+    const decayed = igScore({ likes: 100, comments: 10, followers: 100, ageDays: 1 });
+    assert.equal(ranked[0]?.score, decayed * 1);
+    assert.equal(ranked[1]?.score, decayed * 0.3);
+
+    const aged = rankIgPosts(
+      [post({ id: "old", likes: 10, postedAt: daysBefore(90), thumbWidth: 1080, thumbHeight: 1350, mediaProductType: "FEED" })],
+      { now: NOW, followers: 100, exclude: new Set() },
+    );
+    assert.equal(aged[0]?.aspect, "4:5");
+    assert.equal(aged[0]?.score, igScore({ likes: 10, comments: 0, followers: 100, ageDays: 90 }) * 0.7);
+    assert.equal(classifyAspect(1080, 1080, "FEED").multiplier, 0.55);
+    assert.equal(classifyAspect(null, null, "REELS").aspect, "9:16");
+    assert.equal(classifyAspect(null, null, "FEED").aspect, "unknown");
+  });
+
+  it("reads a JPEG or PNG header and nothing else", () => {
+    const png = new Uint8Array(24);
+    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+    png[16] = 0;
+    png[17] = 0;
+    png[18] = 4;
+    png[19] = 56;
+    png[20] = 0;
+    png[21] = 0;
+    png[22] = 7;
+    png[23] = 128;
+    assert.deepEqual(imageHeaderSize(png), { width: 1080, height: 1920 });
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x04, 0x38, 0x07, 0x80, 0x01, 0x01, 0x11, 0x00]);
+    assert.deepEqual(imageHeaderSize(jpeg), { width: 1920, height: 1080 });
+    assert.equal(imageHeaderSize(new Uint8Array([0x00, 0x01, 0x02])), null);
   });
 });
 
@@ -156,6 +206,35 @@ describe("findArtistClips", () => {
     assert.equal(stored.length, 2);
     assert.equal(stored.some((row) => "media_url" in row), false);
     assert.equal(IG_MEDIA_FIELDS.includes("media_url"), false);
+    assert.equal(IG_MEDIA_FIELDS.includes("thumbnail_url"), true);
+  });
+
+  it("measures the first video slide and does not store the thumbnail url", async () => {
+    const posts = [post({
+      id: "album",
+      mediaType: "CAROUSEL_ALBUM",
+      mediaProductType: "FEED",
+      thumbnailUrl: "https://cdn.example/cover.jpg",
+      children: [
+        { id: "img", mediaType: "IMAGE", thumbnailUrl: "https://cdn.example/image.jpg" },
+        { id: "vid", mediaType: "VIDEO", thumbnailUrl: "https://cdn.example/video.jpg" },
+      ],
+    })];
+    const graph = read(posts);
+    const seen: string[] = [];
+    graph.thumb = async (url) => {
+      seen.push(url);
+      return { width: 1080, height: 1350 };
+    };
+    const fake = seed();
+    const result = await findArtistClips(fake as unknown as ServiceRoleDb, { artistId: "artist-1", now: NOW, read: graph });
+    assert.deepEqual(seen, ["https://cdn.example/video.jpg"]);
+    assert.equal(result.candidates[0]?.aspect, "4:5");
+    assert.equal(result.candidates[0]?.thumbWidth, 1080);
+    assert.equal(result.candidates[0]?.thumbHeight, 1350);
+    const stored = JSON.stringify(fake.tables.creative_lab_ig_candidates);
+    assert.equal(stored.includes("cdn.example"), false);
+    assert.equal(stored.includes("thumbnail_url"), false);
   });
 
   it("falls back to Business Discovery with no file when the own edge cannot be read", async () => {

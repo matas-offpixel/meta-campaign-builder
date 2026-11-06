@@ -361,7 +361,7 @@ function ArtistRow({
             {artist.igCandidates.map((clip) => (
               <li key={clip.igMediaId}>
                 {clip.permalink ? <a href={clip.permalink}>{clip.postedAt || clip.permalink}</a> : (clip.postedAt || "undated")}
-                {` · ${clip.likes ?? "likes hidden"} likes · ${clip.comments ?? 0} comments · ${clip.score == null ? "no score" : clip.score.toFixed(4)}`}
+                {` · ${clip.aspect || "aspect unknown"} · ${clip.likes ?? "likes hidden"} likes · ${clip.comments ?? 0} comments · ${clip.score == null ? "no score" : clip.score.toFixed(4)}`}
                 {` · ${clip.hasFile ? "file available" : "request from team"}`}
                 {` · ${clip.audioMatch == null ? "music unknown" : clip.audioMatch ? "music match" : "no music match"}`}
                 {clip.status === "requested" ? " · requested" : ""}

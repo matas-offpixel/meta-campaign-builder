@@ -1872,6 +1872,9 @@ export type Database = {
           reason: string | null
           score: number | null
           slide_ids: string[]
+          aspect: string | null
+          thumb_height: number | null
+          thumb_width: number | null
           status: string
           updated_at: string
           user_id: string
@@ -1895,6 +1898,9 @@ export type Database = {
           reason?: string | null
           score?: number | null
           slide_ids?: string[]
+          aspect?: string | null
+          thumb_height?: number | null
+          thumb_width?: number | null
           status?: string
           updated_at?: string
           user_id: string
@@ -1918,6 +1924,9 @@ export type Database = {
           reason?: string | null
           score?: number | null
           slide_ids?: string[]
+          aspect?: string | null
+          thumb_height?: number | null
+          thumb_width?: number | null
           status?: string
           updated_at?: string
           user_id?: string
