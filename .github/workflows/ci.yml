@@ -72,15 +72,16 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Build frames app
         run: ENABLE_PLAN_FRAMES=1 npm run build
+      # Writes frames-evidence/: shots/<id>.png for every shot (the Ubuntu
+      # rasters), diff/<id>/{expected,actual,diff}.png for each shot over
+      # tolerance, and index.md / index.json (file → frame id, width, check).
+      # Every write killswitch stays unset in this job; fixtures only.
       - name: Diff frames
         run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --check
-      - name: Render Ubuntu rasters
-        if: failure()
-        run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --update
-      - name: Upload plan-frames PNGs
+      - name: Upload plan-frames evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: plan-frames
-          path: docs/frames/*.png
+          path: frames-evidence/
           if-no-files-found: ignore
