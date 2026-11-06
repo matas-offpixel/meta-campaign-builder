@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import reference from "../../../src/remotion/caption-style/reference/reference.json" with { type: "json" };
-import { CHARS_PER_LINE, boxInsideRect, captionInsideSafeRect, captionLayout, lineFits, outputSize, profile, styleVersion } from "../../../src/remotion/caption-style/profile.ts";
+import { CHARS_PER_LINE, boxInsideRect, captionInsideSafeRect, captionLayout, captionLineStrokes, lineFits, outputSize, profile, styleVersion } from "../../../src/remotion/caption-style/profile.ts";
 
 const sourceY = profile.verticalCenterPctOfSourceHeight * 1280;
 
@@ -68,6 +68,19 @@ describe("caption layout", () => {
     assert.equal(vertical.scale, 1);
     assert.equal(vertical.crop.left, (956 - 402) / 2);
     assert.equal(vertical.crop.top, 0);
+  });
+
+  it("strokes every line from the profile", () => {
+    const layout = captionLayout(720, 1280, "9:16", 0.5);
+    const strokes = captionLineStrokes(reference.lines.length, layout);
+    assert.equal(strokes.length, reference.lines.length);
+    const expected = profile.strokeWidthPctOfFontSize * layout.fontPx;
+    for (const stroke of strokes) {
+      assert.equal(stroke.color, profile.stroke);
+      assert.ok(Math.abs(stroke.widthPx - expected) < 0.001);
+      assert.equal(stroke.drawnPx, stroke.widthPx * 2);
+    }
+    assert.ok(Math.abs(expected - 2) < 0.01, `outside edge ${expected}px at 720 wide`);
   });
 
   it("a line wider than the safe zone does not fit", () => {

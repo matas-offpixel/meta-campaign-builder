@@ -5,13 +5,10 @@
  *   npm run bundle-remotion
  *   npx tsx scripts/caption-style-check.mts
  *
- * Renders the reference lines on black, thresholds that and the committed
- * frame inside the box in reference.json, and prints SSIM + overlap.
- *
- * The fixture is still the captioned UGC 1 mask. Approval of
- * docs/creative-lab/ugc1-side-by-side.png is pending, so the script prints
- * the score and exits 0. Once that render is approved, the fixture becomes
- * its caption mask and CAPTION_SSIM_MIN (0.95) is a drift guard.
+ * Renders the reference lines on black, thresholds the caption box, and
+ * scores that mask against reference/caption-mask.png. That fixture is the
+ * approved render. CAPTION_SSIM_MIN is a drift guard: the script exits
+ * non-zero when the score falls under it.
  */
 
 import { readFileSync } from "node:fs";
@@ -24,7 +21,6 @@ import { maskOverlap, readPng, ssim, thresholdBox, type Box } from "../lib/creat
 import { boxInsideRect, profile, styleVersion } from "../src/remotion/caption-style/profile.ts";
 import type { CaptionOnClipProps } from "../src/remotion/compositions/CaptionOnClip.tsx";
 
-/** Applies once docs/creative-lab/ugc1-side-by-side.png is approved. */
 const CAPTION_SSIM_MIN = 0.95;
 
 const root = process.cwd();
@@ -76,12 +72,19 @@ await renderStill({
   frame: 0,
 });
 
-const referenceMask = thresholdBox(readPng(readFileSync(path.join(root, "src/remotion/caption-style/reference/frame.png"))), box, reference.lumaMin);
+const fixtureImage = readPng(readFileSync(path.join(root, "src/remotion/caption-style/reference/caption-mask.png")));
+if (fixtureImage.width !== box.width || fixtureImage.height !== box.height) {
+  throw new Error(`caption mask is ${fixtureImage.width}x${fixtureImage.height}, expected ${box.width}x${box.height}`);
+}
+const fixture = Uint8Array.from(fixtureImage.luma, (value) => (value >= 128 ? 255 : 0));
 const renderedMask = thresholdBox(readPng(readFileSync(output)), box, reference.lumaMin);
-const score = ssim(referenceMask, renderedMask, box.width, box.height);
-const overlap = maskOverlap(referenceMask, renderedMask);
+const score = ssim(fixture, renderedMask, box.width, box.height);
+const overlap = maskOverlap(fixture, renderedMask);
 
 console.log(`SSIM ${score.toFixed(4)}  dice ${overlap.dice.toFixed(4)}  iou ${overlap.iou.toFixed(4)}`);
 console.log(`style_version ${version}`);
 console.log(`rendered ${output}`);
-console.log(`pending approval: docs/creative-lab/ugc1-side-by-side.png. After that render is approved, this check scores its caption mask and exits non-zero under ${CAPTION_SSIM_MIN}.`);
+if (score < CAPTION_SSIM_MIN) {
+  console.error(`caption mask drifted below ${CAPTION_SSIM_MIN}`);
+  process.exit(1);
+}
