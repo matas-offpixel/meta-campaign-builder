@@ -2,8 +2,8 @@
  * Lineups a "Next:" list may name.
  *
  * A show is included on its own date and drops the day after, in
- * Europe/London. Only events with creative_lab_event_facts.lineup filled
- * in count. events.notes is never read.
+ * Europe/London. Only events with headliners set count. Support names
+ * are not listed. events.notes is never read.
  */
 
 import type { ServiceRoleDb } from "./load.ts";
@@ -13,6 +13,8 @@ export type UpcomingShow = {
   eventName: string;
   eventDate: string;
   lineup: string[];
+  /** Draw order. The Next list uses these, not the rest of the lineup. */
+  headliners: string[];
 };
 
 /** YYYY-MM-DD in Europe/London. */
@@ -26,7 +28,7 @@ export function londonDay(now: Date): string {
 }
 
 type EventRow = { id: string; name: string; event_date: string | null; client_id: string };
-type FactsRow = { event_id: string; lineup: string[] | null };
+type FactsRow = { event_id: string; lineup: string[] | null; headliners?: string[] | null };
 
 /**
  * Upcoming shows for one client, soonest first.
@@ -45,32 +47,39 @@ export async function loadUpcomingLineups(
   });
   if (!events.length) return [];
 
-  const factsRes = await db.from("creative_lab_event_facts").select("event_id, lineup").in(
+  const factsRes = await db.from("creative_lab_event_facts").select("event_id, lineup, headliners").in(
     "event_id",
     events.map((event) => event.id),
   );
   if (factsRes.error) throw new Error(`creative_lab_event_facts: ${factsRes.error.message}`);
-  const lineupByEvent = new Map<string, string[]>();
+  const byEvent = new Map<string, { lineup: string[]; headliners: string[] }>();
   for (const row of (factsRes.data ?? []) as FactsRow[]) {
     const lineup = (row.lineup ?? []).map((name) => name.trim()).filter(Boolean);
-    if (lineup.length) lineupByEvent.set(row.event_id, lineup);
+    const headliners = (row.headliners ?? []).map((name) => name.trim()).filter(Boolean);
+    if (headliners.length) byEvent.set(row.event_id, { lineup, headliners });
   }
 
   return events
     .flatMap((event) => {
-      const lineup = lineupByEvent.get(event.id);
-      if (!lineup) return [];
-      return [{ eventId: event.id, eventName: event.name, eventDate: event.event_date!.slice(0, 10), lineup }];
+      const facts = byEvent.get(event.id);
+      if (!facts) return [];
+      return [{
+        eventId: event.id,
+        eventName: event.name,
+        eventDate: event.event_date!.slice(0, 10),
+        lineup: facts.lineup,
+        headliners: facts.headliners,
+      }];
     })
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.eventName.localeCompare(b.eventName));
 }
 
-/** Up to three names, one from each of the soonest shows that have a name not already listed. */
+/** Up to three headliners, soonest shows first, in each show's draw order. */
 export function nextThreeNames(shows: readonly UpcomingShow[], skip: ReadonlySet<string> = new Set()): string[] {
   const names: string[] = [];
   const seen = new Set([...skip].map((name) => name.toLowerCase()));
   for (const show of shows) {
-    for (const name of show.lineup) {
+    for (const name of show.headliners) {
       const key = name.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);

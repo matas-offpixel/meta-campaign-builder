@@ -42,7 +42,7 @@ const dir = mkdtempSync(path.join(tmpdir(), "creative-lab-long-"));
 const still = path.join(dir, "long.png");
 
 const version = await styleVersion();
-const lines = wrapCaption(LINE, profile.long.charsPerLine);
+const lines = wrapCaption(LINE, profile.long.charsPerLine, ["Prospa", "Interplanetary Criminal", "Schak", "East End Dubs"]);
 const props: CaptionOnClipProps = {
   clipUrl: "",
   lines,
@@ -105,7 +105,7 @@ const label = Buffer.from(
     <rect width="100%" height="100%" fill="#111"/>
     <text x="${panelW / 2}" y="28" fill="#fff" font-family="sans-serif" font-size="16" text-anchor="middle">UGC 1 reference, default size</text>
     <text x="${panelW + panelW / 2}" y="28" fill="#fff" font-family="sans-serif" font-size="16" text-anchor="middle">Long size, 0.75×, not approved</text>
-    <text x="${panelW + panelW / 2}" y="50" fill="#bbb" font-family="sans-serif" font-size="13" text-anchor="middle">No long caption was measured in the captioned folder. This sentence wraps to ${lines.length} lines.</text>
+    <text x="${panelW + panelW / 2}" y="50" fill="#bbb" font-family="sans-serif" font-size="13" text-anchor="middle">Up to 5 lines of 24. Not approved. This sentence wraps to ${lines.length} lines.</text>
   </svg>`,
 );
 

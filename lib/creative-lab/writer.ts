@@ -13,10 +13,13 @@
 import { styleVersion } from "../../src/remotion/caption-style/profile.ts";
 import {
   factsHash,
+  formatBilling,
   loadEventFacts,
   normaliseCaption,
+  saleStageFromStatus,
   validateCaption,
   type EventFacts,
+  type SaleStage,
 } from "./caption-facts.ts";
 import { CORPUS } from "./corpus.ts";
 import type { ServiceRoleDb } from "./load.ts";
@@ -62,6 +65,11 @@ export type GenerateCaptionsArgs = {
   style: CaptionStyle;
   n: number;
   now?: Date;
+  /**
+   * When events.status lags the door. on_sale uses ticket CTAs.
+   * upcoming and signup use signup CTAs. Never inferred from the name.
+   */
+  stageOverride?: SaleStage;
 };
 
 export type GenerateCaptionsDeps = {
@@ -123,23 +131,45 @@ async function defaultAnthropic(): Promise<AnthropicLike> {
   return new Anthropic({ apiKey }) as unknown as AnthropicLike;
 }
 
-function systemPrompt(style: CaptionStyle, facts: EventFacts, upcoming: readonly UpcomingShow[]): string {
+function systemPrompt(style: CaptionStyle, facts: EventFacts, upcoming: readonly UpcomingShow[], stage: SaleStage): string {
   const examples = CORPUS[style].map((example, i) => `${i + 1}. Overlay: ${example.overlay}\n   Caption: ${example.primaryText}`).join("\n");
-  return `You write paid-social captions for a live music promoter. Voice: ${voiceForStyle(style)}. Style: ${style}.
+  const headliners = (facts.headliners ?? []).join(", ");
+  const support = facts.lineup.filter((name) => !(facts.headliners ?? []).some((head) => head.toLowerCase() === name.toLowerCase()));
+  const cta = stage === "on_sale"
+    ? `Tickets are on sale. The primary text is a ticket CTA in the example's shape: "Tickets on sale now", "Grab yours", or "Who's coming?". Do not write "sign up", "get on the list", "priority access", or "presale" in either layer. If an example caption is a signup line, keep the overlay shape and change the caption.`
+    : `Tickets are not on sale. The primary text asks people to sign up. Do not write "ticket", "on sale", "grab yours", or "buy" in either layer.`;
+  return `You write one paid-social caption in the voice of the examples. Copy their sentence shapes. Voice: ${voiceForStyle(style)}. Style: ${style}. The overlay is one idea.
 
-Return only by calling ${TOOL_NAME}. Write ${MAX_CAPTIONS + 4} is the ceiling; write the number asked.
+Shapes to mirror, with the tokens:
+- "{artist} at {venue} last season."
+- "POV:"
+- "Pick one:"
+- "This is what … looks like"
 
-The overlay is burned onto the video. No emoji, no '#', not all capitals. Default size is 4 lines of 18 characters. An overlay of 73 to 96 characters uses a smaller size, 4 lines of 24. Over 96 is useless. A single word longer than the line width cannot render. four_line is exactly 4 lines.
+Do not write a generic ad. The overlay must not say "Sign up now", "Four years deep", "This one matters", or only that the brand turns a number.
 
-Primary text is the copy under the post, at most 125 characters. Emoji are allowed there.
+Primary text is the short question or CTA from the examples ("Who's coming?", "Tag who you're bringing"). It is not a restatement of the overlay.
+
+${cta}
+
+Headliners, in this order: ${headliners}.
+Support, never singled out: ${support.join(", ") || "none"}.
+For lineup, social_proof and whats_next, name headliners only, in that order. Support appears only inside a full lineup line, or as "& more".
+{next3} names headliners of upcoming shows, not support.
+
+Return only by calling ${TOOL_NAME}.
+
+The overlay is burned onto the video. No emoji, no '#', not all capitals. Default size is 4 lines of 18 characters. An overlay of 73 to 96 characters uses a smaller size, up to 5 lines of 24. Over 96 is useless. A name that fits on one line stays whole. four_line is exactly 4 lines.
+
+Primary text is at most 125 characters. Emoji are allowed there.
 
 Never type a date, a venue, a city, an artist, a lineup or a Next list. Use these tokens and nothing else for those facts:
 {artist} {venue} {city} {date} {lineup} {next3}
-{next3} is already three upcoming names. Write "Next: {next3}" when the style lists what is coming. Do not add a fourth name.
+{lineup} is the headliners, with "& more" when the bill has support. {next3} is already filled. Write "Next: {next3}" when the style lists what is coming. Do not add a fourth name.
 
-Event: ${facts.eventName}. Tokens will be filled from the record. Upcoming shows the Next list may use: ${upcoming.map((show) => show.eventName).join(", ") || "none"}.
+Event: ${facts.eventName}. Sale stage: ${stage}. Upcoming shows: ${upcoming.map((show) => show.eventName).join(", ") || "none"}.
 
-Examples of the shape, not facts to copy:
+Examples of this style only. Copy the shape, not the facts:
 ${examples}`;
 }
 
@@ -215,10 +245,13 @@ export async function generateCaptions(
   }
   const now = args.now ?? new Date();
   const facts = await loadEventFacts(db, args.eventId);
-  const eventRes = await db.from("events").select("id, client_id, user_id").eq("id", args.eventId).maybeSingle();
+  if (!facts.hasFacts) throw new Error("no event facts");
+  if (!facts.headliners?.length) throw new Error("headliners not set");
+  const eventRes = await db.from("events").select("id, client_id, user_id, status").eq("id", args.eventId).maybeSingle();
   if (eventRes.error) throw new Error(`events: ${eventRes.error.message}`);
-  const event = eventRes.data as { client_id: string; user_id: string } | null;
+  const event = eventRes.data as { client_id: string; user_id: string; status?: string | null } | null;
   if (!event) throw new Error(`no event ${args.eventId}`);
+  const stage = args.stageOverride ?? saleStageFromStatus(event.status);
 
   let artistName = "";
   if (args.artistId) {
@@ -239,10 +272,10 @@ export async function generateCaptions(
     city: facts.venueCity ?? "",
     date: formatCaptionDate(facts.eventDate),
     artist: artistName,
-    lineup: joinNames(facts.lineup),
+    lineup: formatBilling(facts),
     next3: joinNames(nextThreeNames(upcoming)),
   };
-  const extraNames = upcoming.flatMap((show) => show.lineup);
+  const extraNames = upcoming.flatMap((show) => show.headliners);
   const seen = new Set(existing.map((row) => normaliseCaption(String(row.text ?? ""))));
 
   const anthropic = deps.anthropic ?? (await defaultAnthropic());
@@ -251,7 +284,7 @@ export async function generateCaptions(
     model,
     max_tokens: 2000,
     temperature: 0.7,
-    system: systemPrompt(args.style, facts, upcoming),
+    system: systemPrompt(args.style, facts, upcoming, stage),
     tools: [
       {
         name: TOOL_NAME,
@@ -280,7 +313,7 @@ export async function generateCaptions(
     messages: [
       {
         role: "user",
-        content: `Write ${args.n + 4} different ${args.style} candidates for ${facts.eventName}. Use the tokens. Do not invent a date, a price, a venue or a name.`,
+        content: `Write ${args.n + 4} different ${args.style} candidates for ${facts.eventName}. Sale stage: ${stage}. Name these headliners only, in this order: ${(facts.headliners ?? []).join(", ")}. Use the tokens. Do not invent a date, a price, a venue or a name.`,
       },
     ],
   });
@@ -298,6 +331,7 @@ export async function generateCaptions(
       crowdTicketsSold: tickets,
       primaryText: primary,
       emojiInPrimary: emojiOk,
+      saleStage: stage,
     });
     if (!check.ok) continue;
     seen.add(key);

@@ -2,8 +2,12 @@
  * GET /api/cron/creative-lab-render-tick
  *
  * Every minute. Claims one queued Creative Lab caption render and burns
- * it. No Meta calls. Auth is the cron bearer. A run row is written so the
- * tick shows on /admin/cron-health.
+ * it. No Meta calls. Auth is the cron bearer.
+ *
+ * A cron_runs row is written only when the tick claimed a render, timed
+ * one out, or failed. /admin/cron-health does not treat a missing minute
+ * as a failure: it watches snapshot-table freshness and CRON_ALARMS, and
+ * this cron is in neither. A quiet minute is not a heartbeat.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -51,6 +55,10 @@ export const GET = withCronRunLog(
     },
     rows: (body) => Number(body.claimed ?? 0),
     detail: (body) => ({ timedOut: body.timedOut ?? 0, busy: body.busy ?? false, skippedArchived: body.skippedArchived ?? 0 }),
+    recordWhen: (body, status) => {
+      if (status >= 400 || body.ok === false) return true;
+      return Number(body.claimed ?? 0) > 0 || Number(body.timedOut ?? 0) > 0;
+    },
   },
   handleGET,
 );

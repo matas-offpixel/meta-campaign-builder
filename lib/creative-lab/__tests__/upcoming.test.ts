@@ -18,11 +18,11 @@ describe("upcoming lineups", () => {
         { id: "other", client_id: "someone-else", name: "Other", event_date: "2026-11-09" },
       ],
       creative_lab_event_facts: [
-        { event_id: "tonight", lineup: ["Schak"] },
-        { event_id: "later", lineup: ["East End Dubs"] },
-        { event_id: "past", lineup: ["Azyr"] },
-        { event_id: "empty", lineup: [] },
-        { event_id: "other", lineup: ["Folamour"] },
+        { event_id: "tonight", lineup: ["Schak", "Resident"], headliners: ["Schak"] },
+        { event_id: "later", lineup: ["East End Dubs", "Friend"], headliners: ["East End Dubs"] },
+        { event_id: "past", lineup: ["Azyr"], headliners: ["Azyr"] },
+        { event_id: "empty", lineup: ["Secret"], headliners: [] },
+        { event_id: "other", lineup: ["Folamour"], headliners: ["Folamour"] },
       ],
     });
     const onTheNight = await loadUpcomingLineups(db as unknown as ServiceRoleDb, "client", "2026-11-07");
@@ -30,5 +30,6 @@ describe("upcoming lineups", () => {
     const dayAfter = await loadUpcomingLineups(db as unknown as ServiceRoleDb, "client", "2026-11-08");
     assert.deepEqual(dayAfter.map((show) => show.eventId), ["later"]);
     assert.deepEqual(nextThreeNames(onTheNight), ["Schak", "East End Dubs"]);
+    assert.equal(onTheNight.some((show) => show.lineup.includes("Resident") && show.headliners.includes("Resident")), false);
   });
 });

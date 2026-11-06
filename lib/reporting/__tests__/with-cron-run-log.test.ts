@@ -70,6 +70,39 @@ describe("withCronRunLog", () => {
     assert.equal(rows.length, 0, "logging a 401 would reset the last-seen clock");
   });
 
+  it("skips a quiet tick when asked, and still records a throw", async () => {
+    const { rows, db } = fakeDb();
+    const quiet = withCronRunLog(
+      {
+        cronName: "creative-lab-render-tick",
+        getDb: () => db as never,
+        rows: (b) => Number(b.claimed ?? 0),
+        recordWhen: (body, status) => status >= 400 || body.ok === false || Number(body.claimed ?? 0) > 0 || Number(body.timedOut ?? 0) > 0,
+      },
+      async () => json({ ok: true, claimed: 0, timedOut: 0 }) as never,
+    );
+    await quiet({} as never);
+    assert.equal(rows.length, 0);
+    const busy = withCronRunLog(
+      {
+        cronName: "creative-lab-render-tick",
+        getDb: () => db as never,
+        rows: (b) => Number(b.claimed ?? 0),
+        recordWhen: (body) => Number(body.claimed ?? 0) > 0,
+      },
+      async () => json({ ok: true, claimed: 1 }) as never,
+    );
+    await busy({} as never);
+    assert.equal(rows.length, 1);
+    const dying = withCronRunLog(
+      { cronName: "creative-lab-render-tick", getDb: () => db as never, rows: () => 0, recordWhen: () => false },
+      async () => { throw new Error("boom"); },
+    );
+    await assert.rejects(() => dying({} as never), /boom/);
+    assert.equal(rows.length, 2);
+    assert.equal(rows[1]?.ok, false);
+  });
+
   it("survives a non-JSON response", async () => {
     const { rows, db } = fakeDb();
     const handler = withCronRunLog(

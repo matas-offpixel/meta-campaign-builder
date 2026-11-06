@@ -1780,6 +1780,7 @@ export type Database = {
           allowed_dates: string[]
           created_at: string
           event_id: string
+          headliners: string[]
           lineup: string[]
           updated_at: string
           user_id: string
@@ -1788,6 +1789,7 @@ export type Database = {
           allowed_dates?: string[]
           created_at?: string
           event_id: string
+          headliners?: string[]
           lineup?: string[]
           updated_at?: string
           user_id: string
@@ -1796,6 +1798,7 @@ export type Database = {
           allowed_dates?: string[]
           created_at?: string
           event_id?: string
+          headliners?: string[]
           lineup?: string[]
           updated_at?: string
           user_id?: string

@@ -19,9 +19,11 @@ import type { CaptionStyle } from "./tags.ts";
 
 export const MAX_ADS_PER_AD_SET = 50;
 const MAX_CLIP_SECONDS = 30;
+/** Support (on the bill, not a headliner) gets this many ads per event, across rounds. */
+const SUPPORT_AD_CAP = 2;
 
 export class RoundBuildError extends Error {
-  readonly code: "no_ad_set_record" | "no_destination" | "no_page" | "ad_set_full" | "no_previous_target" | "ad_set_changed";
+  readonly code: "no_ad_set_record" | "no_destination" | "no_page" | "ad_set_full" | "no_previous_target" | "ad_set_changed" | "support_cap";
 
   constructor(code: RoundBuildError["code"], message: string) {
     super(message);
@@ -151,6 +153,45 @@ function usable(clips: Clip[], skipped: { reason: string }[]): Clip[] {
   return ok;
 }
 
+function artistKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/**
+ * A support artist is capped at SUPPORT_AD_CAP ads for the event, counting
+ * every round. Headliners are not. Empty headliners refuses rather than
+ * guessing who is support. No facts row: no cap (the writer already refuses).
+ */
+async function capSupport(
+  db: ServiceRoleDb,
+  eventId: string,
+  artistId: string,
+  artistName: string,
+  planned: Pair[],
+  skipped: { reason: string }[],
+): Promise<Pair[]> {
+  const res = await db.from("creative_lab_event_facts").select("lineup, headliners").eq("event_id", eventId).maybeSingle();
+  if (res.error) throw new Error(`creative_lab_event_facts: ${res.error.message}`);
+  const row = res.data as { lineup?: string[] | null; headliners?: string[] | null } | null;
+  if (!row) return planned;
+  const headliners = (row.headliners ?? []).map((name) => name.trim()).filter(Boolean);
+  const lineup = (row.lineup ?? []).map((name) => name.trim()).filter(Boolean);
+  if (!headliners.length) throw new Error("headliners not set");
+  const key = artistKey(artistName);
+  const onBill = lineup.some((name) => artistKey(name) === key);
+  const headline = headliners.some((name) => artistKey(name) === key);
+  if (!onBill || headline) return planned;
+  const rounds = (await list(db, "creative_lab_rounds", "event_id", eventId)).filter((round) => round.artist_id === artistId);
+  let used = 0;
+  for (const round of rounds) used += (await list(db, "creative_lab_round_ads", "round_id", String(round.id))).length;
+  const room = Math.max(0, SUPPORT_AD_CAP - used);
+  for (let i = room; i < planned.length; i += 1) skipped.push({ reason: "support_cap" });
+  if (room === 0 && planned.length > 0) {
+    throw new RoundBuildError("support_cap", "A support artist is capped at 2 ads for this event.");
+  }
+  return planned.slice(0, room);
+}
+
 export async function proposeRound(
   db: ServiceRoleDb,
   args: { userId: string; eventId: string; artistId: string; adsetMetaId: string; maxAds?: number },
@@ -201,7 +242,7 @@ export async function proposeRound(
     ? pairsFromPlan(previous, shortClips, approved, hasArtistPage, tickets, skipped, maxAds, db)
     : pairsForFirstRound(artist.starting_caption ?? "", shortClips, approved, hasArtistPage, tickets, skipped, maxAds);
 
-  const planned = await pairs;
+  const planned = await capSupport(db, args.eventId, args.artistId, artist.name, await pairs, skipped);
   const existingAds = await list(db, "launched_ads", "meta_adset_id", target.metaAdsetId);
   if (existingAds.length + planned.length > MAX_ADS_PER_AD_SET) {
     throw new RoundBuildError(

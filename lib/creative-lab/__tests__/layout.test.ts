@@ -95,6 +95,7 @@ describe("caption layout", () => {
     assert.equal(profile.fontWeight, 400);
     assert.equal(profile.longApproved, false);
     assert.equal(profile.long.charsPerLine, 24);
+    assert.equal(profile.long.maxLines, 5);
     assert.ok(Math.abs(profile.long.fontSizePctOfWidth / profile.fontSizePctOfWidth - 0.75) < 0.001);
     const layout = captionLayout(720, 1280, "9:16", 0.5);
     const longLayout = captionLayout(720, 1280, "9:16", 0.5, "long");
@@ -103,5 +104,17 @@ describe("caption layout", () => {
     assert.equal(await hashProfile(profile), await hashProfile({ ...profile, longApproved: true }));
     assert.equal(await styleVersion(), await styleVersion());
     assert.match(await styleVersion(), /^[0-9a-f]{64}$/);
+  });
+
+  it("five long lines stay inside the 4:5 safe rectangle at the caption centre", () => {
+    const layout = captionLayout(720, 1280, "9:16", 0.5, "long");
+    assert.equal(profile.longApproved, false);
+    assert.equal(profile.long.maxLines, 5);
+    const width = layout.safeWidth;
+    assert.equal(lineFits(width, layout), true);
+    assert.equal(captionInsideSafeRect(layout, Array.from({ length: 5 }, () => width)), true);
+    const block = 5 * layout.fontPx * profile.lineHeight;
+    assert.ok(layout.centerY - block / 2 >= layout.safeRect.y);
+    assert.ok(layout.centerY + block / 2 <= layout.safeRect.y + layout.safeRect.height);
   });
 });

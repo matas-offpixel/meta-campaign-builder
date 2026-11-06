@@ -46,7 +46,7 @@ alter table creative_lab_captions
 comment on column creative_lab_captions.primary_text is
   'Ad copy under the post. Emoji follow creative_lab_style_settings. The overlay (text, lines) stays emoji-free.';
 comment on column creative_lab_captions.size_variant is
-  'default: 4 lines of 18. long: 4 lines of 24, for overlays of 73–96 characters. Renders of long refuse until the profile longApproved flag is true.';
+  'default: 4 lines of 18. long: up to 5 lines of 24, for overlays of 73–96 characters. Renders of long refuse until the profile longApproved flag is true.';
 comment on column creative_lab_captions.declared_names is
   'Names the writer says the caption uses. The validator still checks them against the event record.';
 
@@ -137,5 +137,20 @@ comment on column creative_lab_renders.attempt is
 
 comment on column creative_lab_clips.event_id is
   'The show the clip was filmed at. Null for a presskit clip. A crowd number is allowed only when this event''s tickets sold are at least the number claimed; null rejects the claim.';
+
+-- Headliners are the artists worth singling out, in draw order. Every name
+-- is also in lineup. Billing is per event: the same artist can headline one
+-- show and support another. Empty means the writer refuses rather than
+-- guessing. Nothing here reads follower counts.
+alter table creative_lab_event_facts
+  add column if not exists headliners text[] not null default '{}';
+
+alter table creative_lab_event_facts drop constraint if exists creative_lab_event_facts_headliners_in_lineup;
+alter table creative_lab_event_facts
+  add constraint creative_lab_event_facts_headliners_in_lineup
+  check (headliners <@ lineup);
+
+comment on column creative_lab_event_facts.headliners is
+  'Artists worth singling out, ordered by draw. Each name is also in lineup. An artist can headline one show and support another. Empty: the writer refuses. M4 may suggest names from follower counts; it does not write this column.';
 
 notify pgrst, 'reload schema';

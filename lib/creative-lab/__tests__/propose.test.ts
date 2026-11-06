@@ -193,4 +193,90 @@ describe("proposeRound", () => {
     const kept = await proposeRound(db(allowed), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET });
     assert.deepEqual(kept.ads.map((ad) => ad.captionId), ["cap-start", "cap-crowd"]);
   });
+
+  it("caps a support artist at 2 ads across rounds and does not cap a headliner", async () => {
+    const captions = [
+      { id: "cap-start", event_id: EVENT, status: "approved", text: "Benji King plays", style: "lineup", caption_no: 1, style_version: "v1", created_at: "2026-11-05" },
+      { id: "cap-a", event_id: EVENT, status: "approved", text: "You in?", style: "question", caption_no: 1, style_version: "v1", created_at: "2026-11-04" },
+      { id: "cap-b", event_id: EVENT, status: "approved", text: "Circuit tonight", style: "venue", caption_no: 1, style_version: "v1", created_at: "2026-11-03" },
+      { id: "cap-c", event_id: EVENT, status: "approved", text: "See you there", style: "experience", caption_no: 1, style_version: "v1", created_at: "2026-11-02" },
+    ];
+    const clips = [{ id: "clip-1", artist_id: ARTIST, clip_no: 1, in_s: 0, out_s: 10 }];
+    const facts = {
+      event_id: EVENT,
+      lineup: ["Enzo Siragusa", "Luke Dean", "Reeshy", "Benji King"],
+      headliners: ["Enzo Siragusa", "Luke Dean", "Reeshy"],
+    };
+    const support = seed({
+      creative_lab_clips: clips,
+      creative_lab_captions: captions,
+      creative_lab_event_facts: [facts],
+    });
+    support.tables.creative_lab_artists[0].name = "Benji King";
+    support.tables.creative_lab_artists[0].starting_caption = "Benji King plays";
+    const first = await proposeRound(db(support), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET });
+    assert.equal(first.ads.length, 2);
+    assert.ok(first.skipped.filter((row) => row.reason === "support_cap").length >= 1);
+
+    const again = seed({
+      creative_lab_clips: clips,
+      creative_lab_captions: [
+        ...captions,
+        { id: "cap-new", event_id: EVENT, status: "approved", text: "One more", style: "pov", caption_no: 1, style_version: "v1", created_at: "2026-11-06" },
+      ],
+      creative_lab_event_facts: [facts],
+      creative_lab_rounds: [{
+        id: "round-1",
+        event_id: EVENT,
+        artist_id: ARTIST,
+        round_no: 1,
+        channel: "meta",
+        status: "draft",
+        ad_account_id: "act",
+        meta_campaign_id: "camp",
+        meta_adset_id: ADSET,
+        page_id: "page-1",
+        instagram_actor_id: "ig-1",
+        destination_url: "https://tickets.example/p26",
+        cta: "LEARN_MORE",
+      }],
+      creative_lab_round_ads: [
+        { id: "prev-1", round_id: "round-1", clip_id: "clip-1", caption_id: "cap-start", verdict: "winner", confirmed: true },
+        { id: "prev-2", round_id: "round-1", clip_id: "clip-1", caption_id: "cap-a", verdict: "winner", confirmed: true },
+      ],
+    });
+    again.tables.creative_lab_artists[0].name = "Benji King";
+    again.tables.creative_lab_artists[0].starting_caption = "Benji King plays";
+    await assert.rejects(
+      proposeRound(db(again), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET }),
+      (err: unknown) => err instanceof RoundBuildError && err.code === "support_cap",
+    );
+    assert.equal(again.tables.creative_lab_rounds.length, 1);
+
+    const headliner = seed({
+      creative_lab_clips: clips,
+      creative_lab_captions: captions.map((row) => ({ ...row, text: row.id === "cap-start" ? "Enzo Siragusa plays" : row.text })),
+      creative_lab_event_facts: [facts],
+    });
+    headliner.tables.creative_lab_artists[0].name = "Enzo Siragusa";
+    headliner.tables.creative_lab_artists[0].starting_caption = "Enzo Siragusa plays";
+    const open = await proposeRound(db(headliner), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET });
+    assert.ok(open.ads.length > 2);
+    assert.equal(open.skipped.some((row) => row.reason === "support_cap"), false);
+  });
+
+  it("refuses to build a round when headliners are empty", async () => {
+    const fake = seed({
+      creative_lab_clips: [{ id: "clip-1", artist_id: ARTIST, clip_no: 1, in_s: 0, out_s: 10 }],
+      creative_lab_captions: [
+        { id: "cap-start", event_id: EVENT, status: "approved", text: "Luke Dean joins", style: "lineup", caption_no: 1, style_version: "v1", created_at: "2026-11-05" },
+      ],
+      creative_lab_event_facts: [{ event_id: EVENT, lineup: ["Luke Dean"], headliners: [] }],
+    });
+    await assert.rejects(
+      proposeRound(db(fake), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET }),
+      /headliners not set/,
+    );
+    assert.equal(fake.tables.creative_lab_rounds.length, 0);
+  });
 });

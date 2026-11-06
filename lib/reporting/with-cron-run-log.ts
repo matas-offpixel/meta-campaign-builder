@@ -35,6 +35,13 @@ export interface CronRunLogOptions {
   considered?: (body: Body) => number;
   /** Extra evidence for the evaluator, kept DB-side. */
   detail?: (body: Body) => Record<string, unknown>;
+  /**
+   * When this returns false, the response is not a run row. Throws still
+   * record. Default is to record every non-401 response. creative-lab-render-tick
+   * skips a quiet minute: /admin/cron-health watches snapshot tables and
+   * CRON_ALARMS, and that cron is in neither, so a missing minute is not a failure.
+   */
+  recordWhen?: (body: Body, status: number) => boolean;
 }
 
 export function withCronRunLog(
@@ -73,6 +80,8 @@ export function withCronRunLog(
     } catch {
       // A non-JSON response is still a run; record it with what we know.
     }
+    if (options.recordWhen && !options.recordWhen(body, response.status)) return response;
+
     await recordCronRun(db, {
       cronName: options.cronName,
       startedAt,

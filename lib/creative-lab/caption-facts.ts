@@ -21,13 +21,16 @@
  *     when remaining ≤ N; "sold out" only when a tier has none left.
  *   - wrap at the style profile's characters per line (v1.json; 18), at
  *     most 4 lines. An overlay of 73–96 characters uses the long size
- *     (4 × 24). Over 96, or a single word longer than that size's line,
- *     is rejected. four_line must be exactly 4 lines.
+ *     (up to 5 × 24). Over 96, or a single word longer than that size's
+ *     line, is rejected. A lineup name that fits on one line is not
+ *     broken. Lines are balanced: no single-word line except the last.
+ *     four_line must be exactly 4 lines.
  *   - layout (wrap, emoji, '#', all caps) applies to the overlay only.
  *     Overlay emoji are never allowed. Primary text may use emoji when
  *     the client's style setting says so, and is capped at 125 characters.
- *   - a "Next:" list is at most 3 names, each from this event or from the
- *     client's upcoming lineups (passed in as extra names).
+ *   - a "Next:" list is at most 3 names. When headliners are set, each
+ *     name is a headliner of this event or of an upcoming show (passed
+ *     in as extra names). Support is not a Next name.
  *   - a crowd number ("2,000 people", "2,000 music lovers") needs the
  *     filmed show's tickets sold to be at least that number. No clip
  *     event, or no count, rejects it.
@@ -56,10 +59,29 @@ export type EventFacts = {
   venueName: string | null;
   venueCity: string | null;
   lineup: string[];
+  /**
+   * Artists worth singling out, in draw order. Each name is also in
+   * lineup. Empty or omitted: the writer refuses rather than guessing.
+   * Billing is per event.
+   */
+  headliners?: string[];
+  /** False when creative_lab_event_facts has no row for the event. */
+  hasFacts?: boolean;
   /** YYYY-MM-DD */
   allowedDates: string[];
   tiers: FactTier[];
 };
+
+/** on_sale uses ticket CTAs. upcoming and signup use signup CTAs. */
+export type SaleStage = "on_sale" | "upcoming" | "signup";
+
+/** Reads events.status. Does not look at the event name. Anything else is upcoming. */
+export function saleStageFromStatus(status: string | null | undefined): SaleStage {
+  const value = (status ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (value === "on_sale") return "on_sale";
+  if (value === "signup") return "signup";
+  return "upcoming";
+}
 
 export type CaptionErrorCode =
   | "empty"
@@ -81,7 +103,11 @@ export type CaptionErrorCode =
   | "crowd_unproven"
   | "next_list"
   | "primary_too_long"
-  | "primary_emoji";
+  | "primary_emoji"
+  | "signup_on_sale"
+  | "ticket_before_sale"
+  | "support_artist"
+  | "generic_overlay";
 
 export type CaptionError = { code: CaptionErrorCode; detail: string };
 
@@ -107,6 +133,13 @@ export type CaptionCheckOptions = {
   primaryText?: string | null;
   /** Default true. Overlay emoji are never allowed. */
   emojiInPrimary?: boolean;
+  /** From events.status, or a stageOverride when that record lags. */
+  saleStage?: SaleStage;
+  /**
+   * The round builder asked for one support artist. lineup, social_proof
+   * and whats_next otherwise refuse an overlay that singles support out.
+   */
+  allowSupportArtist?: string;
 };
 
 /** Case, punctuation and emoji folded, for the per-event dedupe. */
@@ -133,7 +166,7 @@ export function remainingStock(quantitySold: number | null, quantityAvailable: n
 export async function loadEventFacts(serviceRoleDb: ServiceRoleDb, eventId: string): Promise<EventFacts> {
   const [eventRes, factsRes, tiersRes] = await Promise.all([
     serviceRoleDb.from("events").select("id, name, event_date, venue_name, venue_city").eq("id", eventId).maybeSingle(),
-    serviceRoleDb.from("creative_lab_event_facts").select("lineup, allowed_dates").eq("event_id", eventId).maybeSingle(),
+    serviceRoleDb.from("creative_lab_event_facts").select("lineup, headliners, allowed_dates").eq("event_id", eventId).maybeSingle(),
     serviceRoleDb.from("event_ticket_tiers").select("tier_name, price, quantity_sold, quantity_available").eq("event_id", eventId),
   ]);
   if (eventRes.error) throw new Error(`events: ${eventRes.error.message}`);
@@ -147,7 +180,7 @@ export async function loadEventFacts(serviceRoleDb: ServiceRoleDb, eventId: stri
     venue_city: string | null;
   } | null;
   if (!event) throw new Error(`no event ${eventId}`);
-  const facts = factsRes.data as { lineup: string[] | null; allowed_dates: string[] | null } | null;
+  const facts = factsRes.data as { lineup: string[] | null; headliners?: string[] | null; allowed_dates: string[] | null } | null;
   const tiers = (tiersRes.data ?? []) as {
     tier_name: string;
     price: number | string | null;
@@ -161,6 +194,8 @@ export async function loadEventFacts(serviceRoleDb: ServiceRoleDb, eventId: stri
     venueName: event.venue_name,
     venueCity: event.venue_city,
     lineup: (facts?.lineup ?? []).map((n) => n.trim()).filter(Boolean),
+    headliners: (facts?.headliners ?? []).map((n) => n.trim()).filter(Boolean),
+    hasFacts: facts != null,
     allowedDates: (facts?.allowed_dates ?? []).map((d) => d.slice(0, 10)),
     tiers: tiers.map((t) => ({
       name: t.tier_name,
@@ -193,6 +228,7 @@ export function canonicalFactsJson(facts: EventFacts): string {
       venueName: facts.venueName,
       venueCity: facts.venueCity,
       lineup: [...facts.lineup].sort(),
+      headliners: [...(facts.headliners ?? [])],
       allowedDates: [...facts.allowedDates].sort(),
       tiers: facts.tiers
         .map((t) => ({ name: t.name, price: t.price, remaining: t.remaining }))
@@ -207,22 +243,95 @@ export function factsHash(facts: EventFacts): string {
 
 // ─── wrap ────────────────────────────────────────────────────────────────────
 
-/** Greedy word wrap; an explicit newline starts a new line; a word longer than the line stands alone. */
-export function wrapCaption(text: string, charsPerLine: number): string[] {
-  const lines: string[] = [];
-  for (const paragraph of text.split(/\r?\n/)) {
-    let line = "";
-    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
-      if (!line) line = word;
-      else if (line.length + 1 + word.length <= charsPerLine) line += ` ${word}`;
-      else {
-        lines.push(line);
-        line = word;
+function tokenKey(raw: string): string {
+  const core = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'’]+$/gu, "").replace(/['’]s$/u, "");
+  return core.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/['’]/g, "'");
+}
+
+/** Names that fit on one line become one atom, longest first, so a wrap cannot split them. */
+function atomsOf(paragraph: string, names: readonly string[], width: number): string[] {
+  const tokens = paragraph.split(/\s+/).filter(Boolean);
+  const phrases = names
+    .map((name) => name.split(/\s+/).map(tokenKey).filter(Boolean))
+    .filter((parts) => parts.length > 0)
+    .sort((a, b) => b.length - a.length);
+  const atoms: string[] = [];
+  for (let i = 0; i < tokens.length; ) {
+    const hit = phrases.find((parts) => parts.every((part, j) => tokenKey(tokens[i + j] ?? "") === part));
+    if (hit) {
+      const span = tokens.slice(i, i + hit.length).join(" ");
+      if (span.length <= width) {
+        atoms.push(span);
+        i += hit.length;
+        continue;
       }
     }
-    if (line) lines.push(line);
+    atoms.push(tokens[i]);
+    i += 1;
+  }
+  return atoms;
+}
+
+/**
+ * Squared slack keeps the lines close in length. A single-word line that
+ * is not the last pays a penalty larger than any slack, so "coming" rides
+ * with the line above when it fits. An explicit newline is a hard break.
+ */
+function wrapAtoms(atoms: string[], width: number): string[] {
+  const n = atoms.length;
+  if (!n) return [];
+  const cost = Array<number>(n + 1).fill(Number.POSITIVE_INFINITY);
+  const brk = Array<number>(n + 1).fill(-1);
+  cost[n] = 0;
+  for (let i = n - 1; i >= 0; i -= 1) {
+    if (atoms[i].length > width) {
+      cost[i] = cost[i + 1] + width * width;
+      brk[i] = i + 1;
+      continue;
+    }
+    let len = 0;
+    for (let j = i; j < n; j += 1) {
+      len = j === i ? atoms[j].length : len + 1 + atoms[j].length;
+      if (len > width) break;
+      const slack = (width - len) ** 2 + (j === i && j !== n - 1 ? 10_000 : 0);
+      // Equal cost keeps the longer line. A short line then falls to the end.
+      if (cost[j + 1] + slack <= cost[i]) {
+        cost[i] = cost[j + 1] + slack;
+        brk[i] = j + 1;
+      }
+    }
+  }
+  const lines: string[] = [];
+  for (let i = 0; i < n; ) {
+    const next = brk[i];
+    if (next <= i) break;
+    lines.push(atoms.slice(i, next).join(" "));
+    i = next;
   }
   return lines;
+}
+
+/** Word wrap. `names` that fit at this width move down whole. A word longer than the line stands alone. */
+export function wrapCaption(text: string, charsPerLine: number, names: readonly string[] = []): string[] {
+  const lines: string[] = [];
+  for (const paragraph of text.split(/\r?\n/)) {
+    lines.push(...wrapAtoms(atomsOf(paragraph, names, charsPerLine), charsPerLine));
+  }
+  return lines;
+}
+
+function sameArtist(a: string, b: string): boolean {
+  const left = a.split(/\s+/).map(tokenKey).filter(Boolean).join(" ");
+  const right = b.split(/\s+/).map(tokenKey).filter(Boolean).join(" ");
+  return left.length > 0 && left === right;
+}
+
+/** Headliners in draw order, then " & more" when the bill has support. */
+export function formatBilling(facts: Pick<EventFacts, "lineup" | "headliners">): string {
+  const headliners = facts.headliners ?? [];
+  if (!headliners.length) return "";
+  const support = facts.lineup.filter((name) => !headliners.some((head) => sameArtist(head, name)));
+  return support.length ? `${headliners.join(", ")} & more` : headliners.join(", ");
 }
 
 // ─── names ───────────────────────────────────────────────────────────────────
@@ -442,10 +551,15 @@ function checkPrices(text: string, facts: EventFacts): CaptionError[] {
   return errors;
 }
 
-const SCARCITY_RE = /\b(final|last|left|remaining|sold\s+out)\b/i;
+/** "last season" is a corpus shape, not a stock claim. "selling fast" and "% sold" are. */
+function scarcityClaim(text: string): boolean {
+  if (/\b(final|left|remaining|sold\s+out|selling\s+fast)\b/i.test(text)) return true;
+  if (/%\s*sold|\bpercent(?:age)?\s+sold\b/i.test(text)) return true;
+  return /\blast\b(?!\s+(?:season|year|weekend|night|time|month|week)\b)/i.test(text);
+}
 
 function checkScarcity(text: string, style: CaptionStyle, facts: EventFacts): CaptionError[] {
-  if (style !== "scarcity" && !SCARCITY_RE.test(text)) return [];
+  if (style !== "scarcity" && !scarcityClaim(text)) return [];
   if (!facts.tiers.length) return [{ code: "scarcity_without_tiers", detail: "the event has no ticket tiers" }];
   if (facts.tiers.some((t) => t.remaining == null)) {
     return [{ code: "remaining_unknown", detail: "a tier's remaining stock is not known" }];
@@ -540,6 +654,11 @@ function withExtraNames(facts: EventFacts, extra: readonly string[]): EventFacts
   return extra.length ? { ...facts, lineup: [...facts.lineup, ...extra] } : facts;
 }
 
+function nextAllowed(facts: EventFacts, extra: readonly string[]): string[] {
+  const own = facts.headliners?.length ? facts.headliners : facts.lineup;
+  return [...own, ...extra];
+}
+
 function factErrors(
   text: string,
   style: CaptionStyle,
@@ -555,8 +674,56 @@ function factErrors(
     ...checkPrices(text, facts),
     ...checkScarcity(text, style, facts),
     ...checkCrowd(text, ticketsSold),
-    ...checkNextList(text, named.lineup),
+    ...checkNextList(text, nextAllowed(facts, extra)),
   ];
+}
+
+const SIGNUP_RE = /\bsign[\s-]?up\b|\bget on the list\b|\bpriority access\b|\bpresale\b/i;
+const TICKET_RE = /\btickets?\b|\bgrab yours\b|\bon sale\b|\bbuy\b/i;
+const GENERIC_OVERLAY = /\bsign up now\b|\bfour years deep\b|\bthis one matters\b/i;
+
+function checkStage(text: string, stage: SaleStage): CaptionError[] {
+  if (!text.trim()) return [];
+  if (stage === "on_sale" && SIGNUP_RE.test(text)) {
+    return [{ code: "signup_on_sale", detail: "tickets are on sale; the caption asks people to sign up" }];
+  }
+  if (stage !== "on_sale" && TICKET_RE.test(text)) {
+    return [{ code: "ticket_before_sale", detail: "tickets are not on sale; the caption asks people to buy" }];
+  }
+  return [];
+}
+
+function mentionsArtist(text: string, name: string): boolean {
+  return containsPhrase(phraseKeys(text), phraseKeys(name));
+}
+
+function checkBilling(text: string, style: CaptionStyle, facts: EventFacts, allowSupport?: string): CaptionError[] {
+  if (!facts.headliners || !["lineup", "social_proof", "whats_next"].includes(style)) return [];
+  const support = facts.lineup.filter((name) => !facts.headliners!.some((head) => sameArtist(head, name)));
+  const mentioned = support.filter((name) => mentionsArtist(text, name));
+  if (!mentioned.length) return [];
+  const full = facts.lineup.every((name) => mentionsArtist(text, name));
+  if (full) return [];
+  if (allowSupport && mentioned.length === 1 && sameArtist(mentioned[0], allowSupport)) return [];
+  return [{
+    code: "support_artist",
+    detail: `"${mentioned[0]}" is support; name the headliners, the full lineup, or "& more"`,
+  }];
+}
+
+/** A line whose only idea is that the brand turns N. */
+function bareBirthday(line: string): boolean {
+  const trimmed = line.trim().replace(/[.!]+$/g, "");
+  return /^(?:\d+\s+years(?:\s+of\s+[\p{L}\s]+)?|[\p{L}\s]{0,40}?\bturns?\s+\d+)$/iu.test(trimmed);
+}
+
+function checkVoice(text: string, lines: string[]): CaptionError[] {
+  if (GENERIC_OVERLAY.test(text)) {
+    return [{ code: "generic_overlay", detail: "the overlay is a generic line" }];
+  }
+  const bare = lines.find(bareBirthday);
+  if (bare) return [{ code: "generic_overlay", detail: `"${bare}" only says the brand turns a number` }];
+  return [];
 }
 
 function layoutErrors(text: string, lines: string[], maxLines: number, charsPerLine: number, style: CaptionStyle): CaptionError[] {
@@ -586,7 +753,9 @@ export function validateCaption(
   options: CaptionCheckOptions = {},
 ): CaptionValidation {
   const errors: CaptionError[] = [];
-  const trimmed = text.trim();
+  // four_line uses the writer's line breaks. Every other style is reflowed,
+  // so a newline cannot leave a one-word line in the middle.
+  const trimmed = (style === "four_line" ? text : text.replace(/[\r\n]+/g, " ")).trim().replace(/[ \t]+/g, " ");
   const extra = options.extraNames ?? [];
   if (!trimmed) errors.push({ code: "empty", detail: "no text" });
 
@@ -597,11 +766,15 @@ export function validateCaption(
   }
   const charsPerLine = long ? profile.long.charsPerLine : (styleProfile.charsPerLine ?? CHARS_PER_LINE);
   const maxLines = long ? profile.long.maxLines : (styleProfile.maxLines ?? DEFAULT_MAX_LINES);
-  const lines = wrapCaption(trimmed, charsPerLine);
+  const protectedNames = [...facts.lineup, ...(facts.headliners ?? []), ...declaredNames, ...extra];
+  const lines = wrapCaption(trimmed, charsPerLine, protectedNames);
   const sizeVariant = long ? "long" : "default";
 
   errors.push(...factErrors(trimmed, style, declaredNames, facts, extra, options.crowdTicketsSold));
   errors.push(...layoutErrors(trimmed, lines, maxLines, charsPerLine, style));
+  errors.push(...checkBilling(trimmed, style, facts, options.allowSupportArtist));
+  errors.push(...checkVoice(trimmed, lines));
+  if (options.saleStage) errors.push(...checkStage(trimmed, options.saleStage));
 
   const primary = options.primaryText?.trim() ?? "";
   if (options.primaryText != null) {
@@ -612,6 +785,7 @@ export function validateCaption(
       errors.push({ code: "primary_emoji", detail: "this client does not allow emoji in primary text" });
     }
     errors.push(...factErrors(primary, style, declaredNames, facts, extra, options.crowdTicketsSold));
+    if (options.saleStage) errors.push(...checkStage(primary, options.saleStage));
   }
 
   return { ok: errors.length === 0, errors, lines, factsHash: factsHash(facts), sizeVariant };
