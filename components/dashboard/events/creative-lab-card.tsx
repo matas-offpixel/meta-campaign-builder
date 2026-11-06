@@ -10,7 +10,7 @@ import { LabRound } from "@/components/dashboard/events/creative-lab/round";
 import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { labNextStep } from "@/lib/creative-lab/lineup";
-import { clipBucket } from "@/lib/creative-lab/surface";
+import { clipBucket, clipStripLines } from "@/lib/creative-lab/surface";
 
 async function post(eventId: string, body: Record<string, unknown>): Promise<{ ok: boolean; status: number; json: Record<string, unknown> }> {
   const res = await fetch(`/api/creative-lab/events/${eventId}`, {
@@ -72,6 +72,7 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
   });
   const working = lab.working;
   const cant = lab.clips.filter((clip) => clipBucket(clip) === "cant").length;
+  const clipLines = clipStripLines(cant);
 
   return (
     <details className="rounded-lg border border-border bg-card" open>
@@ -90,8 +91,8 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
           states={{
             lineup: lab.lineupRows.length ? "on the bill" : "empty",
             lineupShort: lab.lineupRows.length ? "on bill" : "empty",
-            clips: cant ? `${cant} blocked` : "ready",
-            clipsShort: cant ? "blocked" : "ready",
+            clips: clipLines.line,
+            clipsShort: clipLines.short,
             captions: waiting ? "need approval" : approved ? "approved" : "none yet",
             captionsShort: waiting ? "waiting" : approved ? "approved" : "none",
             round: lab.rounds[0] ? lab.rounds[0].status : "not started",

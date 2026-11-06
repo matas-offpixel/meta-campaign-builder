@@ -46,8 +46,8 @@ export type JudgedClip = {
   roundNo: number;
 };
 
-/** A clip longer than this is refused. The same limit proposeRound uses. */
-export const CLIP_LIMIT_SECONDS = 30;
+/** A file longer than this plays its first 30 seconds. The folder import stores the same window. */
+export const CLIP_TRIM_SECONDS = 30;
 
 export type ClipForGroup = {
   id: string;
@@ -62,26 +62,66 @@ export type ClipForGroup = {
 
 export type ClipBucket = "keeping" | "new" | "cant";
 
-export function clipOverLimit(seconds: number | null | undefined): boolean {
-  return seconds != null && Number.isFinite(seconds) && seconds > CLIP_LIMIT_SECONDS;
+/** A superseded render is an old path, kept for the record. It is not a refusal. */
+export function isSupersededRender(error: string | null | undefined): boolean {
+  return (error ?? "").trim().toLowerCase().startsWith("superseded:");
+}
+
+/**
+ * The newest render that is still on the current path. A superseded row is
+ * skipped. Only a failed row on that path refuses the clip.
+ */
+export function currentRenderError(
+  renders: readonly { status: string; error: string | null; createdAt: string }[],
+): string | null {
+  const current = [...renders]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .find((render) => !isSupersededRender(render.error));
+  if (!current || current.status !== "failed") return null;
+  return current.error?.trim() || "The render was refused.";
+}
+
+/** When the window is unset, a long file is the first 30 seconds. A stored window is left as it is. */
+export function playableClipSeconds(args: { fileSeconds: number | null; inS: number | null; outS: number | null }): number | null {
+  const unset = args.inS == null && args.outS == null;
+  if (unset && args.fileSeconds != null && Number.isFinite(args.fileSeconds) && args.fileSeconds > CLIP_TRIM_SECONDS) {
+    return CLIP_TRIM_SECONDS;
+  }
+  if (args.outS != null && Number.isFinite(args.outS)) return args.outS;
+  return args.fileSeconds;
 }
 
 export function clipBucket(clip: ClipForGroup): ClipBucket {
-  if (clip.renderError || clipOverLimit(clip.durationSeconds)) return "cant";
+  if (renderRefusalSentence(clip.renderError)) return "cant";
   if (!clip.judged) return "new";
   if (clip.judged.verdict === "untested" || clip.judged.verdict === "thin") return "new";
   return "keeping";
 }
 
-export function cantRunReason(clip: ClipForGroup): string | null {
-  if (clip.renderError) return clip.renderError;
-  if (clipOverLimit(clip.durationSeconds)) {
-    return `This clip is ${Math.round(clip.durationSeconds ?? 0)}s. Clips over ${CLIP_LIMIT_SECONDS} seconds can't run.`;
+/** One sentence that says what to fix. A raw render error is never returned. */
+export function renderRefusalSentence(error: string | null | undefined): string | null {
+  const value = (error ?? "").trim();
+  if (!value || isSupersededRender(value)) return null;
+  const lower = value.toLowerCase();
+  if (lower.includes("9:16 only") || lower.includes("isn't vertical") || lower.includes("is not rendered")) {
+    return "This clip isn't vertical — use a 9:16 file.";
   }
-  return null;
+  if (lower.includes("does not fit") || lower.includes("too long") || lower.includes("exceeds") || lower.includes("at most") || lower.includes("not approved")) {
+    return "This caption is too long — shorten it.";
+  }
+  if (lower.includes("style_version") || lower.includes("old style")) return "This caption is on an old style — generate it again.";
+  if (lower.includes("no source") || lower.includes("no file")) return "This clip has no file — import it again.";
+  if (lower.includes("timeout")) return "The render timed out — try it again.";
+  if (lower.includes("replaced audio") || lower.includes("no track")) return "This clip's new audio has no track yet — add the track.";
+  if (value.includes(" — ") && !value.includes(":") && value.length <= 140) return value;
+  return "This render was refused — find a sharper copy or ask the team.";
 }
 
-/** The best New clip of a headliner. A refused or over-limit clip is never returned. */
+export function cantRunReason(clip: ClipForGroup): string | null {
+  return renderRefusalSentence(clip.renderError);
+}
+
+/** The best New clip of a headliner. A refused clip is never returned. */
 export function feedPostClip<T extends ClipForGroup>(clips: readonly T[], headlinerIds: ReadonlySet<string>): T | null {
   const groups = groupClips(clips);
   const freshHead = groups.fresh.find((clip) => clip.artistId != null && headlinerIds.has(clip.artistId));
@@ -133,6 +173,27 @@ export function failedCheckSentence(ok: boolean, details: readonly string[]): st
 
 export function ctaForStage(stage: "on_sale" | "upcoming" | "signup"): string {
   return stage === "on_sale" ? "Get tickets" : "Sign up";
+}
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** "{event} · {d Month} · {venue}". A missing date or venue is left out. */
+export function feedHeadline(args: { eventName: string; eventDate: string | null | undefined; venue: string | null | undefined }): string {
+  const parts = [args.eventName.trim()];
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(args.eventDate?.trim() ?? "");
+  const month = match ? MONTHS[Number(match[2]) - 1] : undefined;
+  const day = match ? Number(match[3]) : 0;
+  if (month && day >= 1 && day <= 31) parts.push(`${day} ${month}`);
+  const venue = args.venue?.trim();
+  if (venue) parts.push(venue);
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** The Clips cell. The short line keeps the blocked count. */
+export function clipStripLines(blocked: number): { line: string; short: string } {
+  if (blocked <= 0) return { line: "ready", short: "ready" };
+  const line = `${blocked} blocked`;
+  return { line, short: line };
 }
 
 export function styleLabel(style: string): string {

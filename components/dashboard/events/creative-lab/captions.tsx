@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
-import { captionCopy, ctaForStage, feedPostClip, groupClips, metricUnit, money, styleLabel, verdictChip } from "@/lib/creative-lab/surface";
+import { captionCopy, ctaForStage, feedHeadline, feedPostClip, groupClips, metricUnit, money, styleLabel, verdictChip } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
@@ -154,6 +154,7 @@ function FeedPost({
   const headliners = new Set(lab.lineupRows.filter((row) => row.isHeadliner && row.labArtistId).map((row) => row.labArtistId as string));
   const clip = feedPostClip(lab.clips, headliners);
   const copy = captionCopy(caption.lines);
+  const headline = feedHeadline({ eventName: lab.eventName, eventDate: lab.eventDate, venue: lab.venueName });
   const held = caption.style === "artist_first_person" && !lab.artists.some((artist) => artist.rights === "approved")
     ? `Artist voice — runs once ${lab.artists[0]?.name ?? "this artist"} is cleared for their own channels.`
     : null;
@@ -166,10 +167,10 @@ function FeedPost({
           <span className="block text-xs text-muted-foreground">Sponsored</span>
         </span>
       </div>
+      {caption.primaryText.trim() ? <p className="px-3 py-2 text-sm">{caption.primaryText}</p> : null}
       <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} />
-      {caption.primaryText ? <p className="px-3 py-2 text-sm">{caption.primaryText}</p> : null}
       <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2">
-        <p className="font-medium">{lab.eventName}</p>
+        <p className="font-medium">{headline}</p>
         <span className="rounded bg-foreground px-3 py-1.5 text-background">{ctaForStage(stage)}</span>
       </div>
       <p className="px-3 pb-2 text-xs text-muted-foreground">{styleLabel(caption.style)}{clip ? ` · ${clip.artistName} #${clip.clipNo}` : ""}</p>

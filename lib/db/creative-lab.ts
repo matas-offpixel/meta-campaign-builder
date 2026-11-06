@@ -8,6 +8,7 @@ import { validateCaption, type EventFacts } from "../creative-lab/caption-facts.
 import { labLaunchesEnabled } from "../creative-lab/killswitch.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
 import { artistKey, playedBefore, spotifyCandidatesOf } from "../creative-lab/lineup.ts";
+import { currentRenderError, playableClipSeconds } from "../creative-lab/surface.ts";
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
@@ -75,6 +76,8 @@ export function headlinerError(lineup: readonly string[], headliners: readonly s
 export type CreativeLabCardData = {
   eventId: string;
   eventName: string;
+  eventDate: string | null;
+  venueName: string | null;
   eventStatus: string | null;
   clientName: string | null;
   launchesEnabled: boolean;
@@ -314,6 +317,8 @@ export async function loadCreativeLabCard(
   return {
     eventId: args.eventId,
     eventName: args.eventName,
+    eventDate: args.eventDate?.slice(0, 10) ?? null,
+    venueName: args.venueName?.trim() || null,
     eventStatus: args.eventStatus,
     clientName,
     launchesEnabled: labLaunchesEnabled(),
@@ -357,15 +362,23 @@ export async function loadCreativeLabCard(
     })),
     clips: clipRows.map((row) => {
       const asset = assetOf.get(text(row, "creative_asset_id"));
-      const seconds = row.out_s == null ? (asset?.duration_seconds == null ? null : Number(asset.duration_seconds)) : Number(row.out_s);
+      const fileSeconds = asset?.duration_seconds == null || asset.duration_seconds === "" ? null : Number(asset.duration_seconds);
+      const inS = row.in_s == null || row.in_s === "" ? null : Number(row.in_s);
+      const outS = row.out_s == null || row.out_s === "" ? null : Number(row.out_s);
+      const seconds = playableClipSeconds({
+        fileSeconds: fileSeconds != null && Number.isFinite(fileSeconds) ? fileSeconds : null,
+        inS: inS != null && Number.isFinite(inS) ? inS : null,
+        outS: outS != null && Number.isFinite(outS) ? outS : null,
+      });
       const artist = artists.find((item) => text(item, "id") === text(row, "artist_id"));
-      const renders = renderRows
-        .filter((render) => text(render, "clip_id") === text(row, "id"))
-        .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
-      const latest = renders[0];
+      const renders = renderRows.filter((render) => text(render, "clip_id") === text(row, "id"));
       const rendered = renders.find((render) => text(render, "status") === "done" && text(render, "creative_asset_id"));
       const renderedAsset = rendered ? assetOf.get(text(rendered, "creative_asset_id")) : undefined;
-      const refused = latest && (text(latest, "status") === "failed" || text(latest, "error"));
+      const renderError = currentRenderError(renders.map((render) => ({
+        status: text(render, "status"),
+        error: text(render, "error") || null,
+        createdAt: String(render.created_at ?? ""),
+      })));
       const judgedAds = adRows
         .filter((ad) => text(ad, "clip_id") === text(row, "id"))
         .filter((ad) => text(ad, "verdict") || text(ad, "window_start") || ad.verdict_results != null || ad.verdict_cost_per_result != null)
@@ -385,7 +398,7 @@ export async function loadCreativeLabCard(
         hasFile: Boolean(text(asset, "storage_path")),
         artistName: text(artist, "name"),
         cleared: Boolean(artist?.approved_at),
-        renderError: refused ? (text(latest, "error") || "The render was refused.") : null,
+        renderError,
         judged: judged
           ? {
               verdict: judged.verdict == null || judged.verdict === "" ? null : String(judged.verdict),

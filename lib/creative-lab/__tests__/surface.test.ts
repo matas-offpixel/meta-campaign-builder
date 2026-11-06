@@ -4,11 +4,15 @@ import { describe, it } from "node:test";
 import {
   cantRunReason,
   captionCopy,
+  clipStripLines,
+  currentRenderError,
   failedCheckSentence,
+  feedHeadline,
   feedPostClip,
   firstPairings,
   groupClips,
   money,
+  playableClipSeconds,
   roundMatrix,
   verdictChip,
   whatsWorking,
@@ -26,7 +30,7 @@ const LUKE: ClipForGroup = {
 };
 
 describe("creative lab surface", () => {
-  it("puts Luke Dean's uncleared clip in New, and only a refused or over-limit clip in Can't run", () => {
+  it("puts a superseded or long clip in New, and a refused render in Can't run", () => {
     const enzo: ClipForGroup = { id: "enzo-1", artistId: "enzo", artistName: "Enzo Siragusa", clipNo: 1, cleared: true, renderError: null, judged: null };
     const kept: ClipForGroup = {
       id: "enzo-2",
@@ -43,19 +47,31 @@ describe("creative lab surface", () => {
       artistName: "Enzo Siragusa",
       clipNo: 5,
       cleared: true,
-      renderError: "The caption does not fit the frame.",
+      renderError: "video renders are 9:16 only",
       judged: null,
     };
+    const history: ClipForGroup = { id: "luke-old", artistId: "luke", artistName: "Luke Dean", clipNo: 1, cleared: false, renderError: "superseded: 9:16 only", judged: null };
     const long: ClipForGroup = { id: "long", artistId: "luke", artistName: "Luke Dean", clipNo: 3, cleared: false, renderError: null, durationSeconds: 45, judged: null };
-    const groups = groupClips([kept, enzo, LUKE, refused, long]);
+    const groups = groupClips([kept, enzo, LUKE, history, refused, long]);
     assert.deepEqual(groups.keeping.map((clip) => clip.id), ["enzo-2"]);
-    assert.deepEqual(groups.fresh.map((clip) => clip.id), ["enzo-1", "luke-clip"]);
-    assert.deepEqual(groups.cant.map((clip) => clip.id), ["enzo-bad", "long"]);
-    assert.equal(cantRunReason(LUKE), null);
-    assert.equal(cantRunReason(refused), "The caption does not fit the frame.");
-    assert.match(cantRunReason(long) ?? "", /45s/);
+    assert.deepEqual(groups.fresh.map((clip) => clip.id), ["enzo-1", "luke-clip", "luke-old", "long"]);
+    assert.deepEqual(groups.cant.map((clip) => clip.id), ["enzo-bad"]);
+    assert.equal(cantRunReason(history), null);
+    assert.equal(cantRunReason(long), null);
+    assert.equal(cantRunReason(refused), "This clip isn't vertical — use a 9:16 file.");
+    assert.equal(cantRunReason(refused)?.includes("9:16 only"), false);
+    assert.equal(playableClipSeconds({ fileSeconds: 45, inS: null, outS: null }), 30);
+    assert.equal(playableClipSeconds({ fileSeconds: 45, inS: 0, outS: 30 }), 30);
+    assert.equal(playableClipSeconds({ fileSeconds: 12, inS: null, outS: null }), 12);
+    assert.equal(currentRenderError([
+      { status: "failed", error: "superseded: 9:16 only", createdAt: "2026-11-06T12:00:00Z" },
+      { status: "done", error: null, createdAt: "2026-11-05T12:00:00Z" },
+    ]), null);
     assert.equal(feedPostClip([refused, long, LUKE, enzo], new Set(["enzo"]))?.id, "enzo-1");
-    assert.equal(feedPostClip([refused, long], new Set(["enzo"])), null);
+    assert.equal(feedPostClip([refused], new Set(["enzo"])), null);
+    assert.equal(feedHeadline({ eventName: "Puzzle 4th Birthday", eventDate: "2026-12-27", venue: "Circuit & Engine Rooms" }), "Puzzle 4th Birthday · 27 December · Circuit & Engine Rooms");
+    assert.deepEqual(clipStripLines(1), { line: "1 blocked", short: "1 blocked" });
+    assert.deepEqual(clipStripLines(0), { line: "ready", short: "ready" });
   });
 
   it("renders caption lines as breaks and never a slash", () => {
