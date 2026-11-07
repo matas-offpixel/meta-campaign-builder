@@ -5,7 +5,9 @@
  * (rule 12), and the readers behind it are the cross-client module's.
  * Reads only. The page's context comes in the query; the Lab summary
  * comes in the body-less `lab` param as JSON, because the event page
- * already holds it.
+ * already holds it. The audience builder reads interest_clusters and
+ * the TikTok drawer reads tiktok_breakdown_snapshots through the same
+ * module; nothing here writes.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -15,7 +17,7 @@ import type { RailContext, RailLab, RailScope, RailStage, RailSurface } from "@/
 
 export const dynamic = "force-dynamic";
 
-const SURFACES = new Set<RailSurface>(["event", "campaign", "audience", "page"]);
+const SURFACES = new Set<RailSurface>(["event", "campaign", "audience_builder", "tiktok_campaign", "page"]);
 const SCOPES = new Set<RailScope>(["client", "vertical", "all"]);
 const STAGES = new Set<RailStage>(["registration", "ticket_sale"]);
 

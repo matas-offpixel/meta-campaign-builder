@@ -81,7 +81,8 @@ only watches: a visible video still at 0 s fails the shot.
 
 ## IR series
 
-The Insights rail (`docs/design-record/2026-11-07-insights-rail.html`) beside
+The Insights rail (`docs/design-record/2026-11-07-insights-rail.html`, issue 2
+`2026-11-08-insights-rail-2.html`) beside
 a fixture page, with its data given instead of fetched. Every figure is a
 literal tag_performance-shaped row in `rail-fixtures.ts`, and
 `lib/insights-rail/model` builds the sections from them, so the frames show
@@ -92,26 +93,36 @@ the same figures. Launches off, no Supabase, no Meta.
 |---|---|---|---|
 | IR0 | — | DOM guard | The runner opens `/admin/fixture-client`, `/share/report/fixture-token` and `/l/fixture-client/fixture-event` and counts `[data-insights-rail], [data-insights-pill]`: 0 on each, whatever the page renders. The evidence index lists where each landed |
 | IR1 | 1280 | Event page, rail collapsed | A 34 px tab reading "Insights ‹" down the right edge; the page keeps its width; Approve stays visible |
-| IR2 | 1280, 393 | Puzzle on sale → Ticket sale; client thin | Caption angle, Hook and Visual format all fall back: "Puzzle has no ticket sales attributed to its ads in the last 90 days. Showing all clients." and "🔒 Across clients · Matas only". Angle: "Urgency / scarcity costs 25% less than usual." £34.92 25% under, £45.13 4% under, £47.36 1% over, £51.91 11% over (baseline £46.86 / purchase); "strong · 255+ funded ads · 90 days · all clients · £ / purchase"; Use Scarcity + "needs the ticket count that makes it true". Hook: "Social proof costs 54% less than usual." £21.47, £38.13, £42.22, £45.38, "+5 more". Visual: "Nostalgia costs 38% less than usual." £29.09, £41.38, £44.57, £62.90 34% over (brick), "+5 more". Asset type: "Hybrid costs 30% less than usual." £32.81 30% under (olive), £42.21 10% under (olive), £48.28 3% over (ink), £52.61 12% over (brick), "+1 more"; "strong · 10+ funded ads"; baseline £46.86 / purchase. In the Lab last: "No round judged yet. Approve a caption and propose round 1." At 393 the same as a sheet at 86% with a scrim and ✕ |
+| IR2 | 1280, 393 | Puzzle on sale → Ticket sale; client thin (re-baselined in issue 2, R12/R13) | Caption angle, Hook, Visual format and Asset type all fall back: "Puzzle has no ticket sales attributed to its ads in the last 90 days. Showing all clients." and "🔒 Across clients · Matas only". Angle: "Urgency / scarcity costs 25% less than usual." £34.92 25% under, £45.13 4% under, £47.36 1% over, £51.91 11% over (baseline £46.86 / purchase); "strong · 225+ funded ads · 90 days · all clients · £ / purchase"; Use Scarcity + "needs the ticket count that makes it true". Hook: "Social proof costs 54% less than usual." £21.47, £38.13, £42.22, £45.38; "strong · 54+ funded ads · 90 days · all clients · +5 more". Visual: "Nostalgia costs 38% less than usual." Nostalgia £29.09 38% under (olive), Headline £41.38 12% under (olive), Billboard £44.57 5% under (ink), POV £57.57 23% over (brick); "strong · 15+ funded ads · 90 days · all clients · +3 more". Asset type: "Hybrid costs 30% less than usual." £32.81 30% under (olive), £42.21 10% under (olive), £48.28 3% over (ink), £52.61 12% over (brick); "strong · 10+ funded ads · 90 days · all clients · +1 more". In the Lab last: "No round judged yet. Approve a caption and propose round 1." At 393 the same as a sheet at 86% with a scrim and ✕ |
 | IR3 | 1280 | Rail only · Puzzle, Signup | Vertical disabled with "Vertical is off until the music rollup stops including other verticals." Angle: "No clear winner between Event announcement and Artist / headliner." £4.16 level, £4.17 level, £4.60 11% over (brick); "ok · 25+ funded ads · 90 days · this client · £ / signup". Hook: "No clear winner between FOMO and Curiosity." £4.16 level, £4.30 3% over, then "Urgency / Not enough data yet: 2 funded ads"; "strong · 49+ funded ads". Visual: "Headline costs 6% less than usual." £3.90 6% under (olive), £4.70 13% over (brick). Asset type: "Lifestyle image with text costs 7% less than usual." £3.85 7% under, £4.59 10% over, "UGC / Not enough data yet: 0 funded ads". Then In the Lab. No Use action |
 | IR4 | 1280, 393 | MML canvas (plan fixture A1), campaign context | Context line "New Meta campaign · Puzzle · Signup · Leads". Best lines: "Lines are scored overnight. None are scored yet, so the first examples arrive after tonight's run." Proven elsewhere: "No line is proven yet. Proven lines appear here as chips you can drop into the copy." Then Caption angle (no clear winner), Visual format (Headline 6% under), Asset type: "Lifestyle image with text costs 7% less than usual." £3.85 7% under, £4.59 10% over, "UGC / Not enough data yet: 0 funded ads". No Use action off the event page. The Meta drawer itself is not in the frame: it loads its draft from the database |
+| IR5 | 1280, 393 | Audience builder · Puzzle · Signup; Vertical · music selected | Context line "Audience builder · Puzzle · Signup"; the Vertical toggle is on and reads "Vertical · music" (cluster verticals are the clusters' own column). Interest clusters · "music · signup": "Disc Genre costs 41% less than its clients' usual." Rows with Add cluster: Disc Genre "£1.06 / signup · 41% under · 8 funded ad sets · 2 clients · ok", Music festivals "£0.98 / signup · 33% under · 3 funded ad sets · 2 clients · ok", Latest iPhone users "£2.00 / signup · 8% under · 3 funded ad sets · 1 client · ok", Electronic music "£2.13 / signup · 2% under · 4 funded ad sets · 1 client · ok"; thin line "Melodic Techno, Fashion, Streaming, Streaming — full" / "Not enough data yet: 1–2 funded ad sets each"; "28 clusters not tried yet · show · picked 7 times so far"; 🔒 line. Lookalikes and retargeting · Puzzle: "Not measured yet. Appears once results are stored per audience (source, lookalike range, cost per result), from the next nightly run after that job ships." The page shows Disc Genre with the chip "added from Insights". At 393 the sheet; "picked 7 times" is hidden |
 | IR6 | 1280 | Rail only · CL6 Lab judged | "In the Lab · round 1 · judged" first, then the four tag sections as IR3: "Lineup captions beat POV by 33% on Off Pixel Fixtures." Lineup £0.50 · 40 signups (olive), POV £0.75 · 20 signups (brick); "Ada North #1 × Lineup" Winner; "round 1 · 60 signups · £35 spent"; Use Lineup |
 | IR7 | 393 | Event page, collapsed | An "Insights ‹" pill in the header row beside the page's actions; no floating button; Approve visible |
+| IR8 | 1280, 393 | MML canvas (plan fixture A1), TikTok drawer context (?drawer=tt) | Context line "New TikTok campaign · Puzzle · Signup". Who clicks on TikTok · "Puzzle · 90 days": "No clear winner between 18–24 and 25–34." "18–24 · 9.3% watch past 2 s" £0.49 / click · level, "25–34 · 10.0% watch past 2 s" £0.50 / click · level, "35–44 / Not enough data yet: £7 spent, 13 clicks"; "ok · £109 spent · 218 clicks · 90 days · Puzzle · TikTok". Who watches: "Men watch past 2 s 8% more than usual." Men 10.5% · 8% over (olive), Women 9.2% · 6% under (brick); "ok · 2-s views ÷ impressions · 55,111 impressions · 90 days · Puzzle · TikTok". Then the ochre line "TikTok ads aren't tagged yet. These angles, hooks and formats come from Puzzle's Meta ads; the costs are Meta costs." and Caption angle, Hook, Visual format with the kicker "from Meta ads" and confidence lines ending "· Puzzle · Meta" (angle also "· £ / signup"), as IR3 draws them: no clear winner, "No clear winner between Curiosity and FOMO.", "Headline costs 6% less than usual." No Asset type, no interest category, no region, no Use action: exactly five sections. The TikTok drawer itself is not in the frame: it loads its draft from the database. At 393 the sheet |
 
 ## IR sources
 
-Every `row(...)` in `rail-fixtures.ts` is on this table with where its
-figures came from. `lib/plan/__tests__/rail-sources.test.ts` reads the
-fixture and fails on any row whose value key, cost, baseline, shrunk index,
-confidence and funded count are not together on one line here.
+Every `row(...)`, `cluster(...)` and `tt(...)` in `rail-fixtures.ts` is on one of
+the tables below with where its figures came from.
+`lib/plan/__tests__/rail-sources.test.ts` reads the fixture and fails on any
+row whose cells are not together on one line here.
 
-Sources: **R2** = record IR2 bars (all clients · ticket sale · 7 Nov);
-**R3** = record IR3 table (Puzzle · registration); **TP** = tag_performance,
-scope all · ticket_sale · 7 Nov, as given in the #1102 verdict 9b; **raw** =
-the stored shrunk index was not published, so cpr ÷ baseline to 3 dp stands
-in; **min** = the record prints only the section's confidence-line minimum,
-so every row carries that minimum; **hidden** = a row beyond the four bars,
-present only for the record's "+n more", never drawn.
+Sources: **R2** = record IR2 bars (issue 1; all clients · ticket sale · 7 Nov);
+**R3** = record IR3 table (issue 1; Puzzle · registration); **DN2** = issue 2's
+data note (`2026-11-08-insights-rail-2.html`): tag_performance, scope all ·
+ticket_sale · 7 Nov, baseline £46.86 / purchase, stored shrunk indexes and
+funded counts; **LE** = the same data note's `interest_clusters.live_evidence`
+rows, confirmed by a read-only query of production on 7 Nov (36 clusters, 8
+with spend, 28 untried, use_count Σ 7); **TB** = `tiktok_breakdown_snapshots`,
+Puzzle's two events' latest windows summed, read-only on 7 Nov (the data
+note prints the same sums rounded: £66 / 134 / 9.3 %, £36 / 71 / 10.0 %, £7 /
+13; women 9.2 % of 31,257, men 10.5 % of 23,854); **min** = the record prints
+only the section's confidence-line minimum, so every row carries that
+minimum; **hidden** = a row beyond the four bars, present only for the
+record's "+n more", never drawn.
+
+### Tag rows (IR1–IR4, IR6–IR8)
 
 | Dimension | Value key | £ / result | Baseline | Shrunk | Confidence | Funded | Source |
 |---|---|---|---|---|---|---|---|
@@ -127,47 +138,109 @@ present only for the record's "+n more", never drawn.
 | asset_type | high_production | 4.59 | 4.16 | 1.07 | ok | 25 | R3; funded min |
 | asset_type | ugc | null | 4.16 | null | thin | 0 | R3 (thin, 0 funded) |
 | messaging_angle | artist_headliner | null | 46.86 | null | thin | 0 | record data note: Puzzle ticket_sale all thin; count not published; never drawn |
-| hook_tactic | fomo | null | 46.86 | null | thin | 0 | as above |
-| visual_format | headline | null | 46.86 | null | thin | 0 | as above |
-| asset_type | high_production | null | 46.86 | null | thin | 0 | as above |
-| messaging_angle | urgency_scarcity_fomo | 34.92 | 46.86 | 0.745 | strong | 255 | R2; shrunk raw; funded min |
-| messaging_angle | event_announcement_update | 45.13 | 46.86 | 0.963 | strong | 255 | R2; shrunk raw; funded min |
-| messaging_angle | artist_headliner | 47.36 | 46.86 | 1.011 | strong | 255 | R2; shrunk raw; funded min |
-| messaging_angle | high_energy_atmosphere | 51.91 | 46.86 | 1.108 | strong | 255 | R2; shrunk raw; funded min |
-| hook_tactic | social_proof | 21.47 | 46.86 | 0.458 | strong | 54 | R2; shrunk raw; funded min |
-| hook_tactic | curiosity | 38.13 | 46.86 | 0.814 | strong | 54 | R2; shrunk raw; funded min |
-| hook_tactic | fomo | 42.22 | 46.86 | 0.901 | strong | 54 | R2; shrunk raw; funded min |
-| hook_tactic | urgency | 45.38 | 46.86 | 0.968 | strong | 54 | R2; shrunk raw; funded min |
-| hook_tactic | hidden_hook_1 | 45.39 | 46.86 | 0.969 | strong | 54 | hidden (R2 "+5 more") |
-| hook_tactic | hidden_hook_2 | 45.4 | 46.86 | 0.969 | strong | 54 | hidden (R2 "+5 more") |
-| hook_tactic | hidden_hook_3 | 45.41 | 46.86 | 0.969 | strong | 54 | hidden (R2 "+5 more") |
-| hook_tactic | hidden_hook_4 | 45.42 | 46.86 | 0.969 | strong | 54 | hidden (R2 "+5 more") |
-| hook_tactic | hidden_hook_5 | 45.43 | 46.86 | 0.97 | strong | 54 | hidden (R2 "+5 more") |
-| visual_format | nostalgia | 29.09 | 46.86 | 0.621 | strong | 15 | R2; shrunk raw; funded min |
-| visual_format | headline | 41.38 | 46.86 | 0.883 | strong | 15 | R2; shrunk raw; funded min |
-| visual_format | billboard | 44.57 | 46.86 | 0.951 | strong | 15 | R2; shrunk raw; funded min. The record draws it olive; at 0.951 the rule reads ink until the stored shrunk index is copied |
-| visual_format | cinematic_b_roll | 62.9 | 46.86 | 1.342 | strong | 15 | R2; shrunk raw; funded min |
-| visual_format | hidden_visual_1 | 62.91 | 46.86 | 1.343 | strong | 15 | hidden (R2 "+5 more") |
-| visual_format | hidden_visual_2 | 62.92 | 46.86 | 1.343 | strong | 15 | hidden (R2 "+5 more") |
-| visual_format | hidden_visual_3 | 62.93 | 46.86 | 1.343 | strong | 15 | hidden (R2 "+5 more") |
-| visual_format | hidden_visual_4 | 62.94 | 46.86 | 1.343 | strong | 15 | hidden (R2 "+5 more") |
-| visual_format | hidden_visual_5 | 62.95 | 46.86 | 1.343 | strong | 15 | hidden (R2 "+5 more") |
-| asset_type | hybrid | 32.81 | 46.86 | 0.85 | strong | 10 | TP |
-| asset_type | lifestyle_image_with_text | 42.21 | 46.86 | 0.9 | strong | 10 | TP (shrunk 0.90); confidence and funded not published, Hybrid's used |
-| asset_type | ugc | 48.28 | 46.86 | 1.03 | strong | 10 | TP; confidence and funded not published, Hybrid's used |
-| asset_type | high_production | 52.61 | 46.86 | 1.11 | strong | 10 | TP; confidence and funded not published, Hybrid's used |
-| asset_type | illustration | 118.95 | 46.86 | 2.538 | ok | 10 | TP (£118.95, "+2 more"); shrunk raw; confidence and funded not published; hidden |
+| hook_tactic | fomo | null | 46.86 | null | thin | 0 | record data note: Puzzle ticket_sale all thin; count not published; never drawn |
+| visual_format | headline | null | 46.86 | null | thin | 0 | record data note: Puzzle ticket_sale all thin; count not published; never drawn |
+| asset_type | high_production | null | 46.86 | null | thin | 0 | record data note: Puzzle ticket_sale all thin; count not published; never drawn |
+| messaging_angle | urgency_scarcity_fomo | 34.92 | 46.86 | 0.755 | strong | 255 | DN2 (stored index and funded count as printed; cpr from R2) |
+| messaging_angle | event_announcement_update | 45.13 | 46.86 | 0.964 | strong | 624 | DN2 (stored index and funded count as printed; cpr from R2) |
+| messaging_angle | artist_headliner | 47.36 | 46.86 | 1.011 | strong | 591 | DN2 (stored index and funded count as printed; cpr from R2) |
+| messaging_angle | high_energy_atmosphere | 51.91 | 46.86 | 1.103 | strong | 225 | DN2 (stored index and funded count as printed; cpr from R2) |
+| hook_tactic | social_proof | 21.47 | 46.86 | 0.543 | strong | 54 | DN2 (stored index and funded count as printed; cpr from R2) |
+| hook_tactic | curiosity | 38.13 | 46.86 | 0.814 | strong | 121 | DN2 (cpr from R2; stored index for this row unpublished, so raw cpr ÷ baseline stands in; funded as DN2 prints) |
+| hook_tactic | fomo | 42.22 | 46.86 | 0.901 | strong | 444 | DN2 (cpr from R2; stored index for this row unpublished, so raw cpr ÷ baseline stands in; funded as DN2 prints) |
+| hook_tactic | urgency | 45.38 | 46.86 | 0.97 | strong | 255 | DN2 (stored index and funded count as printed; cpr from R2) |
+| hook_tactic | hidden_hook_1 | 45.39 | 46.86 | 0.971 | strong | 54 | hidden (DN2 hook: 9 non-thin, 4 drawn, so 5 more with index ≥ 0.970; cpr and funded unpublished, never drawn) |
+| hook_tactic | hidden_hook_2 | 45.4 | 46.86 | 0.971 | strong | 54 | hidden (DN2 hook: 9 non-thin, 4 drawn, so 5 more with index ≥ 0.970; cpr and funded unpublished, never drawn) |
+| hook_tactic | hidden_hook_3 | 45.41 | 46.86 | 0.971 | strong | 54 | hidden (DN2 hook: 9 non-thin, 4 drawn, so 5 more with index ≥ 0.970; cpr and funded unpublished, never drawn) |
+| hook_tactic | hidden_hook_4 | 45.42 | 46.86 | 0.971 | strong | 54 | hidden (DN2 hook: 9 non-thin, 4 drawn, so 5 more with index ≥ 0.970; cpr and funded unpublished, never drawn) |
+| hook_tactic | hidden_hook_5 | 45.43 | 46.86 | 0.971 | strong | 54 | hidden (DN2 hook: 9 non-thin, 4 drawn, so 5 more with index ≥ 0.970; cpr and funded unpublished, never drawn) |
+| visual_format | nostalgia | 29.09 | 46.86 | 0.773 | strong | 15 | DN2 (stored index and funded count as printed; cpr from R2) |
+| visual_format | headline | 41.38 | 46.86 | 0.886 | strong | 396 | DN2 (stored index and funded count as printed; cpr from R2) |
+| visual_format | billboard | 44.57 | 46.86 | 0.964 | strong | 27 | DN2 (stored index and funded count as printed; cpr from R2) |
+| visual_format | pov | 57.57 | 46.86 | 1.186 | strong | 43 | DN2 (stored index and funded count as printed; cpr from R2) |
+| visual_format | celebrity | 66.77 | 46.86 | 1.324 | strong | 15 | DN2 ("+3 more": cpr and stored index as printed); funded unpublished, the drawn minimum 15 stands in; hidden, never drawn |
+| visual_format | cinematic_b_roll | 62.9 | 46.86 | 1.33 | strong | 15 | DN2 ("+3 more": cpr and stored index as printed); funded unpublished, the drawn minimum 15 stands in; hidden, never drawn |
+| visual_format | listicle | 72.25 | 46.86 | 1.413 | strong | 15 | DN2 ("+3 more": cpr and stored index as printed); funded unpublished, the drawn minimum 15 stands in; hidden, never drawn |
+| asset_type | hybrid | 32.81 | 46.86 | 0.85 | strong | 10 | DN2 (stored index and funded count as printed; cpr from R2) |
+| asset_type | lifestyle_image_with_text | 42.21 | 46.86 | 0.903 | strong | 445 | DN2 (stored index and funded count as printed; cpr from R2) |
+| asset_type | ugc | 48.28 | 46.86 | 1.029 | strong | 153 | DN2 (stored index and funded count as printed; cpr from R2) |
+| asset_type | high_production | 52.61 | 46.86 | 1.114 | strong | 127 | DN2 (stored index and funded count as printed; cpr from R2) |
+| asset_type | illustration | 118.95 | 46.86 | 2.36 | ok | 10 | DN2 (stored index 2.360, cpr £118.95); confidence and funded unpublished, Hybrid's used; hidden, never drawn |
 
-Animation is the other "+2 more" row and is thin; its funded count was not
-published, so it is left out rather than typed, and the fixture reads "+1
-more". The IR2 asset result "Hybrid costs 30% less than usual." is the
-model's own rule on the stored indexes: 0.90 − 0.85 is the 0.05 margin,
-read at 3 dp.
+Where DN2 prints no stored index (Curiosity, FOMO), the raw index stands in
+and is marked; Billboard's stored 0.964 now draws ink and POV (1.186) is the
+fourth visual bar, as R12 corrects. The funded count on the confidence line
+is the minimum of the four drawn rows (R12d): angle 225, hook 54, visual 15,
+asset 10.
 
 The record's figures differ from the model's in one place: IR3's and IR4's
 asset type reads 7% under (3.85 ÷ 4.16 = 0.9255), where the record rounded
-to 8%. The record allows ±1 point.
+to 8%. The record allows ±1 point. R13 also orders IR3's and IR6's hook
+bars Curiosity (0.98) before FOMO (1.0); issue 1 drew FOMO first.
 
-Placeholders the record marks (top creatives, "Meta spent on x of y ads")
-are omitted, not drawn (H10). Build 2 (the audience builder's clusters and
-the TikTok drawer) is not here.
+### Cluster rows (IR5)
+
+Columns are the fixture's: name, the cluster's own vertical, £ / signup,
+cprIndex (the % drawn is 1 − cprIndex), funded ad sets, clients,
+confidence, use_count, ad sets (0 = never tried).
+
+| Name | Vertical | £ / signup | cprIndex | Funded | Clients | Confidence | use_count | Ad sets | Source |
+|---|---|---|---|---|---|---|---|---|---|
+| Disc Genre | music | 1.06 | 0.59 | 8 | 2 | ok | 0 | 12 | LE (data note row; live_evidence 7 Nov) |
+| Music festivals | music | 0.98 | 0.67 | 3 | 2 | ok | 0 | 3 | LE (data note row; live_evidence 7 Nov) |
+| Melodic Techno | music | 1.44 | 0.77 | 1 | 1 | thin | 0 | 1 | LE (data note row; live_evidence 7 Nov) |
+| Fashion | music | 2.22 | 0.9 | 2 | 2 | thin | 0 | 2 | LE (data note row; live_evidence 7 Nov) |
+| Latest iPhone users | music | 2.0 | 0.92 | 3 | 1 | ok | 0 | 5 | LE (data note row; live_evidence 7 Nov) |
+| Electronic music | music | 2.13 | 0.98 | 4 | 1 | ok | 0 | 4 | LE (data note row; live_evidence 7 Nov) |
+| Streaming — full | music | 0.96 | 1.03 | 2 | 2 | thin | 0 | 3 | LE (data note row; live_evidence 7 Nov) |
+| Streaming | music | 2.24 | 1.03 | 2 | 1 | thin | 0 | 4 | LE (data note row; live_evidence 7 Nov) |
+| Arsenal | football | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Artists — Business Techno | music | null | null | 0 | 0 | thin | 3 | 0 | LE (untried; use_count 3 of the Σ 7 the data note prints) |
+| Artists — EDM | music | null | null | 0 | 0 | thin | 2 | 0 | LE (untried; use_count 2 of the Σ 7 the data note prints) |
+| Artists — Genres | music | null | null | 0 | 0 | thin | 1 | 0 | LE (untried; use_count 1 of the Σ 7 the data note prints) |
+| Artists — Melodic | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Artists — Metal | music | null | null | 0 | 0 | thin | 1 | 0 | LE (untried; use_count 1 of the Σ 7 the data note prints) |
+| Artists — POP ARTISTS | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Artists — Punk | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Artists — Trance | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Artists — Trance Genre | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Deep house | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Festival Commercial | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Festivals Venues — Headsy / Wide Ranging | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Festivals Venues — Tech House | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Football interests | football | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Football Prospecting | football | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| High end jewellers | lifestyle | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Lifestyle | lifestyle | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Luxury | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Other — Commercial Radio | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Other — Radio | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Other — Record Shops | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Other — Wide radio | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Other — Wider Electronic | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Prospecting - Fashionistas | lifestyle | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Prospecting - Luxury fashion | lifestyle | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Publications | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+| Radio + music news | music | null | null | 0 | 0 | thin | 0 | 0 | LE (untried) |
+
+### TikTok rows (IR8)
+
+Puzzle at Circuit (window 18 Aug – 24 Oct) + Puzzle 4th Birthday (28 Oct –
+7 Nov), each event's latest window per value, summed. `NONE` values are
+dropped by the reader.
+
+| Dimension | Value | £ spent | Clicks | Impressions | 2-s views | Source |
+|---|---|---|---|---|---|---|
+| age | AGE_18_24 | 66.3 | 134 | 35857 | 3317 | TB: 66.26 + 0.04, 133 + 1, 35,839 + 18, 3,316 + 1 → £0.49 / click, 9.3 % |
+| age | AGE_25_34 | 35.57 | 71 | 16558 | 1654 | TB: 35.56 + 0.01, 71 + 0, 16,539 + 19, 1,653 + 1 → £0.50 / click, 10.0 % |
+| age | AGE_35_44 | 6.69 | 13 | 2704 | 385 | TB: 6.69 + 0.00, 13 + 0, 2,703 + 1, 385 + 0 → thin |
+| gender | FEMALE | 61.54 | 128 | 31257 | 2861 | TB: 61.53 + 0.01, 127 + 1, 31,243 + 14, 2,859 + 2 → 9.2 % of 31,257 |
+| gender | MALE | 47.0 | 90 | 23854 | 2494 | TB: 46.96 + 0.04, 90 + 0, 23,830 + 24, 2,494 + 0 → 10.5 % of 23,854 |
+
+Placeholders the record marks (top creatives, "Meta spent on x of y ads",
+the IR5 page's "3 audiences in this draft") are omitted or drawn as
+placeholders, not as data (H10). The TikTok thin threshold (fewer than 20
+clicks or under £10; under 1,000 impressions for a rate) and the ±5 % level
+band are build choices the record leaves open; both are one-line constants
+in `lib/insights-rail/model.ts`.
+

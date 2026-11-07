@@ -108,6 +108,40 @@ describe("cross-client copy guard", () => {
     }
   });
 
+  it("the build-2 readers live in the cross-client module and only the rail route reaches them (issue 2 guard)", () => {
+    const readers = /\b(railClusterRows|railTikTokRows|sumLatestWindows)\b/;
+    const users = sourceFiles().filter((file) => {
+      if (file.includes("__tests__")) return false;
+      let src: string;
+      try {
+        src = readFileSync(file, "utf8");
+      } catch {
+        return false;
+      }
+      return readers.test(src);
+    });
+    assert.deepEqual(users, ["lib/learning/cross-client/index.ts", "lib/learning/cross-client/rail.ts"]);
+    // The rail is the only thing outside the learning loop that reads live_evidence or the TikTok breakdown table for a page.
+    for (const [file, src] of reachable()) {
+      assert.doesNotMatch(src, /railData|railClusterRows|railTikTokRows/, file);
+    }
+  });
+
+  it("the audience-builder and TikTok contexts are declared under the operator layout only (issue 2 guard)", () => {
+    const declared = sourceFiles().filter((file) => {
+      if (file.includes("__tests__") || file.startsWith("scripts/plan-frames/") || file.startsWith("components/insights-rail/")) return false;
+      let src: string;
+      try {
+        src = readFileSync(file, "utf8");
+      } catch {
+        return false;
+      }
+      return /surface=\{?"?(audience_builder|tiktok_campaign)|drawerFromQuery === "tt" \? "tiktok_campaign"/.test(src);
+    });
+    assert.ok(declared.length >= 3, declared.join(", "));
+    for (const file of declared) assert.match(file, /^app\/\(dashboard\)\//, file);
+  });
+
   it("every importer of lib/learning/cross-client/ calls requireOperator(", () => {
     const misses: string[] = [];
     for (const file of sourceFiles()) {

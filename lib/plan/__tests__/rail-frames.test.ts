@@ -24,7 +24,7 @@ describe("Insights rail frame catalog (IR)", () => {
   it("the runner shoots every IR id at the record's widths, and checks the record's guard paths", () => {
     assert.deepEqual(SHOT_WIDTHS, RAIL_FRAME_WIDTHS);
     assert.deepEqual([...SHOT_GUARDS], [...RAIL_GUARD_PATHS]);
-    assert.equal(RAIL_SHOTS.length, 8);
+    assert.equal(RAIL_SHOTS.length, 12);
     for (const shot of RAIL_SHOTS as { id: string; frame: string; width: number }[]) {
       assert.equal(shot.id, `${shot.frame}-${shot.width}`);
       assert.ok((RAIL_FRAME_IDS as readonly string[]).includes(shot.frame), shot.frame);
@@ -48,12 +48,12 @@ describe("Insights rail frame catalog (IR)", () => {
   it("IR1 and IR7 rest collapsed; the open frames open", () => {
     assert.equal(RAIL_FRAME_FIXTURES.IR1.open, false);
     assert.equal(RAIL_FRAME_FIXTURES.IR7.open, false);
-    for (const id of ["IR2", "IR3", "IR4", "IR6"] as const) assert.equal(RAIL_FRAME_FIXTURES[id].open, true, id);
+    for (const id of ["IR2", "IR3", "IR4", "IR5", "IR6", "IR8"] as const) assert.equal(RAIL_FRAME_FIXTURES[id].open, true, id);
     assert.equal(RAIL_FRAME_FIXTURES.IR3.railOnly, true);
     assert.equal(RAIL_FRAME_FIXTURES.IR6.railOnly, true);
   });
 
-  it("IR2: on sale opens on Ticket sale; every tag section falls back to all clients and says why (H5)", () => {
+  it("IR2: on sale opens on Ticket sale; every tag section falls back to all clients and says why (H5); R12/R13 corrections (H11)", () => {
     const { context, data } = RAIL_FRAME_FIXTURES.IR2;
     assert.equal(context.stage, "ticket_sale");
     const tags = data.sections.filter((section) => section.id !== "lab");
@@ -64,6 +64,16 @@ describe("Insights rail frame catalog (IR)", () => {
       assert.equal(section.lock, true);
     }
     const [angle, hook, visual, asset] = tags;
+    // R12c/d, R13: Billboard ink from its stored index, POV fourth, "+3 more", the drawn minimum 15.
+    assert.equal(visual!.result?.text, "Nostalgia costs 38% less than usual.");
+    assert.deepEqual(visual!.bars.map((bar) => [bar.label, bar.cpr, bar.note, bar.tone]), [
+      ["Nostalgia", 29.09, "38% under", "olive"],
+      ["Headline", 41.38, "12% under", "olive"],
+      ["Billboard", 44.57, "5% under", "ink"],
+      ["POV", 57.57, "23% over", "brick"],
+    ]);
+    assert.equal(visual!.more, 3);
+    assert.equal(visual!.confidence, "strong · 15+ funded ads · 90 days · all clients · +3 more");
     assert.equal(asset!.result?.text, "Hybrid costs 30% less than usual.");
     assert.deepEqual(asset!.bars.map((bar) => [bar.label, bar.cpr, bar.note, bar.tone]), [
       ["Hybrid", 32.81, "30% under", "olive"],
@@ -80,12 +90,11 @@ describe("Insights rail frame catalog (IR)", () => {
       ["Artist / headliner", 47.36, "1% over"],
       ["High-energy atmosphere", 51.91, "11% over"],
     ]);
+    assert.equal(angle!.confidence, "strong · 225+ funded ads · 90 days · all clients · £ / purchase");
     assert.equal(angle!.action?.label, "Use Scarcity");
     assert.equal(hook!.result?.text, "Social proof costs 54% less than usual.");
     assert.equal(hook!.more, 5);
-    assert.match(hook!.confidence!, /^strong · 54\+ funded ads · 90 days · all clients · \+5 more$/);
-    assert.equal(visual!.result?.text, "Nostalgia costs 38% less than usual.");
-    assert.equal(visual!.more, 5);
+    assert.equal(hook!.confidence, "strong · 54+ funded ads · 90 days · all clients · +5 more");
     assert.equal(data.sections.at(-1)!.id, "lab");
     assert.equal(data.sections.at(-1)!.empty, "No round judged yet. Approve a caption and propose round 1.");
   });
@@ -100,7 +109,8 @@ describe("Insights rail frame catalog (IR)", () => {
     assert.equal(angle!.scopeLabel, "Puzzle");
     assert.equal(angle!.fallback, null);
     assert.equal(angle!.result?.text, "No clear winner between Event announcement and Artist / headliner.");
-    assert.equal(hook!.result?.text, "No clear winner between FOMO and Curiosity.");
+    // R13 sorts by stored shrunk index, so Curiosity (0.98) draws before FOMO (1.0).
+    assert.equal(hook!.result?.text, "No clear winner between Curiosity and FOMO.");
     assert.deepEqual(hook!.thin.map((row) => [row.label, row.fundedAds]), [["Urgency", 2]]);
     assert.equal(visual!.result?.text, "Headline costs 6% less than usual.");
     assert.equal(data.sections.some((section) => section.action), false);
@@ -128,6 +138,65 @@ describe("Insights rail frame catalog (IR)", () => {
     assert.equal(lab.confidence, "round 1 · 60 signups · £35 spent");
     assert.deepEqual(lab.labRows, [{ name: "Ada North #1 × Lineup", verdict: "winner" }]);
     assert.equal(lab.action?.label, "Use Lineup");
+  });
+
+  it("IR5: the audience builder opens on the vertical; clusters as the data note, the R15 sentence (H12)", () => {
+    const { context, data, page } = RAIL_FRAME_FIXTURES.IR5;
+    assert.equal(context.surface, "audience_builder");
+    assert.equal(context.stage, "registration");
+    assert.deepEqual(data.sections.map((section) => section.id), ["interest_clusters", "lookalikes"]);
+    const [clusters, lookalikes] = data.sections;
+    assert.equal(clusters!.scope, "vertical");
+    assert.equal(clusters!.scopeLabel, "music · signup");
+    assert.equal(clusters!.result?.text, "Disc Genre costs 41% less than its clients' usual.");
+    assert.deepEqual(clusters!.clusters.map((row) => [row.name, row.line]), [
+      ["Disc Genre", "£1.06 / signup · 41% under · 8 funded ad sets · 2 clients · ok"],
+      ["Music festivals", "£0.98 / signup · 33% under · 3 funded ad sets · 2 clients · ok"],
+      ["Latest iPhone users", "£2.00 / signup · 8% under · 3 funded ad sets · 1 client · ok"],
+      ["Electronic music", "£2.13 / signup · 2% under · 4 funded ad sets · 1 client · ok"],
+    ]);
+    assert.equal(clusters!.clusterThin?.names, "Melodic Techno, Fashion, Streaming, Streaming — full");
+    assert.equal(clusters!.clusterThin?.note, "Not enough data yet: 1–2 funded ad sets each");
+    assert.equal(clusters!.untried?.count, 28);
+    assert.equal(clusters!.picked, 7);
+    assert.equal(clusters!.more, 0);
+    assert.equal(lookalikes!.kicker, "Lookalikes and retargeting");
+    assert.equal(lookalikes!.empty, "Not measured yet. Appears once results are stored per audience (source, lookalike range, cost per result), from the next nightly run after that job ships.");
+    assert.equal(data.verticalDisabledReason, null);
+    assert.equal(page.kind, "audience");
+    if (page.kind === "audience") assert.deepEqual(page.added.map((row) => row.name), ["Disc Genre"]);
+  });
+
+  it("IR8: TikTok's own two sections, the borrowed line, three Meta sections, no asset type, no Use (H13, H14)", () => {
+    const { context, data } = RAIL_FRAME_FIXTURES.IR8;
+    assert.equal(context.surface, "tiktok_campaign");
+    assert.equal(context.title, "New TikTok campaign");
+    assert.deepEqual(data.sections.map((section) => section.id), ["tiktok_clicks", "tiktok_watches", "messaging_angle", "hook_tactic", "visual_format"]);
+    const [clicks, watches, angle, hook, visual] = data.sections;
+    assert.equal(clicks!.result?.text, "No clear winner between 18–24 and 25–34.");
+    assert.deepEqual(clicks!.bars.map((bar) => [bar.label, bar.valueText, bar.note, bar.tone]), [
+      ["18–24 · 9.3% watch past 2 s", "£0.49 / click", "level", "ink"],
+      ["25–34 · 10.0% watch past 2 s", "£0.50 / click", "level", "ink"],
+    ]);
+    assert.deepEqual(clicks!.thin.map((row) => [row.label, row.line]), [["35–44", "Not enough data yet: £7 spent, 13 clicks"]]);
+    assert.equal(clicks!.confidence, "ok · £109 spent · 218 clicks · 90 days · Puzzle · TikTok");
+    assert.equal(watches!.result?.text, "Men watch past 2 s 8% more than usual.");
+    assert.deepEqual(watches!.bars.map((bar) => [bar.label, bar.valueText, bar.note, bar.tone]), [
+      ["Men", "10.5%", "8% over", "olive"],
+      ["Women", "9.2%", "6% under", "brick"],
+    ]);
+    assert.equal(watches!.confidence, "ok · 2-s views ÷ impressions · 55,111 impressions · 90 days · Puzzle · TikTok");
+    assert.equal(angle!.borrowed, "TikTok ads aren't tagged yet. These angles, hooks and formats come from Puzzle's Meta ads; the costs are Meta costs.");
+    for (const section of [angle!, hook!, visual!]) {
+      assert.equal(section.scopeLabel, "from Meta ads");
+      assert.match(section.confidence!, /Puzzle · (£ \/ signup · )?Meta$/);
+      assert.equal(section.action, null);
+    }
+    assert.equal(visual!.result?.text, "Headline costs 6% less than usual.");
+    assert.equal(data.sections.some((section) => section.id === "asset_type"), false);
+    for (const section of [clicks!, watches!]) {
+      for (const text of [section.result?.text ?? "", section.confidence ?? "", ...section.bars.map((bar) => bar.label)]) assert.doesNotMatch(text, /signup|ticket/i);
+    }
   });
 
   it("the frames page mounts rail fixtures", () => {

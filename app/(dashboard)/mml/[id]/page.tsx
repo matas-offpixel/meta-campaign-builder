@@ -318,8 +318,8 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             </p>
           ) : null}
           <InsightsPageContext
-            surface="campaign"
-            title={drawerFromQuery === "f" ? "New Meta campaign" : "MML canvas"}
+            surface={drawerFromQuery === "tt" ? "tiktok_campaign" : "campaign"}
+            title={drawerFromQuery === "f" ? "New Meta campaign" : drawerFromQuery === "tt" ? "New TikTok campaign" : "MML canvas"}
             clientId={railEvent?.clientId ?? null}
             clientName={railEvent?.clientName ?? null}
             verticalId={null}

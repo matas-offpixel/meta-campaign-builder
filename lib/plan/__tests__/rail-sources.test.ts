@@ -8,6 +8,10 @@ import { describe, it } from "node:test";
  */
 
 const ROW = /row\("(\w+)", "(\w+)", ([\d.]+|null), (IR[23]_BASELINE|[\d.]+), ([\d.]+|null), "(\w+)", (\d+)\)/g;
+/** cluster(name, vertical, cpr, cprIndex, fundedAdSets, clients, confidence, useCount, adSets) */
+const CLUSTER = /cluster\("([^"]+)", "(\w+)", ([\d.]+|null), ([\d.]+|null), (\d+), (\d+), "(\w+)", (\d+), (\d+)\)/g;
+/** tt(dimension, value, spend, clicks, impressions, views2s) */
+const TT = /tt\("(\w+)", "(\w+)", ([\d.]+), (\d+), (\d+), (\d+)\)/g;
 const BASELINES: Record<string, string> = { IR3_BASELINE: "4.16", IR2_BASELINE: "46.86" };
 
 function sourceLines(): string[] {
@@ -34,6 +38,25 @@ describe("IR fixture sources", () => {
         return cells.every((cell, index) => parts[index + 1] === cell);
       });
       if (!found) misses.push(`${dimension} ${key} ${cpr} ${baseline} ${shrunk} ${confidence} ${funded}`);
+    }
+    assert.deepEqual(misses, []);
+  });
+
+  it("every cluster and TikTok fixture row is on the README's IR sources table with all its figures", () => {
+    const fixture = readFileSync(new URL("../../../scripts/plan-frames/rail-fixtures.ts", import.meta.url), "utf8");
+    const lines = sourceLines();
+    const clusters = [...fixture.matchAll(CLUSTER)];
+    const tiktok = [...fixture.matchAll(TT)];
+    assert.equal(clusters.length, 36, "36 clusters on 7 Nov");
+    assert.equal(tiktok.length, 5, "three age rows and two gender rows");
+    const misses: string[] = [];
+    for (const match of [...clusters, ...tiktok]) {
+      const cells = match.slice(1);
+      const found = lines.some((line) => {
+        const parts = line.split("|").map((part) => part.trim());
+        return cells.every((cell, index) => parts[index + 1] === cell);
+      });
+      if (!found) misses.push(cells.join(" "));
     }
     assert.deepEqual(misses, []);
   });
