@@ -22,8 +22,8 @@ import {
   type AdCopySource,
   type StoredAdCopy,
 } from "./copy.ts";
+import { chunkLookupIds, selectIn } from "./id-lookup.ts";
 
-const DB_CHUNK = 200;
 const PAGE = 1000;
 
 export type CopyCaptureStatus = "ok" | "rate_limited" | "auth_error" | "error";
@@ -80,24 +80,26 @@ function rowOf(insert: CopyInsert): Record<string, unknown> {
 
 async function readStored(db: SupabaseClient, ids: readonly string[]): Promise<{ stored: Map<string, StoredAdCopy>; missingTable: boolean; error?: string }> {
   const stored = new Map<string, StoredAdCopy>();
-  for (let start = 0; start < ids.length; start += DB_CHUNK) {
-    const chunk = ids.slice(start, start + DB_CHUNK);
-    const { data, error } = await db.from("ad_copy").select("meta_ad_id, source, fetched_at").in("meta_ad_id", chunk);
-    if (error) {
-      if (missingTable(error.message)) return { stored, missingTable: true, error: error.message };
-      return { stored, missingTable: false, error: error.message };
-    }
-    for (const row of (data ?? []) as { meta_ad_id?: string; source?: string; fetched_at?: string }[]) {
-      if (!row.meta_ad_id || !row.source || !row.fetched_at) continue;
-      if (row.source !== "graph" && row.source !== "lab" && row.source !== "snapshot" && row.source !== "draft") continue;
-      stored.set(row.meta_ad_id, { source: row.source, fetchedAt: row.fetched_at });
-    }
+  const { rows, error } = await selectIn(
+    (chunk) => db.from("ad_copy").select("meta_ad_id, source, fetched_at").in("meta_ad_id", chunk),
+    ids,
+  );
+  for (const row of rows as { meta_ad_id?: string; source?: string; fetched_at?: string }[]) {
+    if (!row.meta_ad_id || !row.source || !row.fetched_at) continue;
+    if (row.source !== "graph" && row.source !== "lab" && row.source !== "snapshot" && row.source !== "draft") continue;
+    stored.set(row.meta_ad_id, { source: row.source, fetchedAt: row.fetched_at });
+  }
+  if (error) {
+    if (missingTable(error)) return { stored, missingTable: true, error };
+    return { stored, missingTable: false, error };
   }
   return { stored, missingTable: false };
 }
 
 async function writeCopies(db: SupabaseClient, rows: readonly CopyInsert[]): Promise<string | null> {
   if (rows.length === 0) return null;
+  // One POST, as before. A Graph page is 50 ads and that body is small;
+  // the URL limit only applies to the `.in()` reads.
   const { error } = await db.from("ad_copy").upsert(rows.map(rowOf), { onConflict: "meta_ad_id" });
   return error ? error.message : null;
 }
@@ -126,8 +128,7 @@ async function draftFallbacks(db: SupabaseClient, wanted: readonly string[]): Pr
   const found = new Map<string, AdCopyFields>();
   if (wanted.length === 0) return found;
   const launched: { meta_ad_id: string; draft_id: string; creative_name: string | null }[] = [];
-  for (let start = 0; start < wanted.length; start += DB_CHUNK) {
-    const chunk = wanted.slice(start, start + DB_CHUNK);
+  for (const chunk of chunkLookupIds(wanted)) {
     const { data, error } = await db
       .from("launched_ads")
       .select("meta_ad_id, draft_id, creative_name")
@@ -144,8 +145,7 @@ async function draftFallbacks(db: SupabaseClient, wanted: readonly string[]): Pr
   }
   const draftIds = [...new Set(launched.map((row) => row.draft_id))];
   const drafts = new Map<string, unknown>();
-  for (let start = 0; start < draftIds.length; start += DB_CHUNK) {
-    const chunk = draftIds.slice(start, start + DB_CHUNK);
+  for (const chunk of chunkLookupIds(draftIds)) {
     const { data, error } = await db.from("campaign_drafts").select("id, draft_json").in("id", chunk);
     if (error) {
       console.error(`[ad-copy] campaign_drafts read failed: ${error.message}`);
@@ -244,8 +244,7 @@ export async function captureAccountCopy(args: {
       const copy = fetched.get(id) ?? emptyCopy();
       writes.push({ ...copy, metaAdId: id, adAccountId: args.adAccountId, source: "graph", fetchedAt });
     }
-    for (let start = 0; start < touch.length; start += DB_CHUNK) {
-      const chunk = touch.slice(start, start + DB_CHUNK);
+    for (const chunk of chunkLookupIds(touch)) {
       const { error } = await args.db.from("ad_copy").update({ fetched_at: fetchedAt }).in("meta_ad_id", chunk);
       if (error) console.error(`[ad-copy] fetched_at refresh failed: ${error.message}`);
     }

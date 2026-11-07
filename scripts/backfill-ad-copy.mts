@@ -17,6 +17,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { normalizeAdAccountId } from "../lib/meta/ad-account.ts";
 import { AD_COPY_BATCH, needsCopyRead, type StoredAdCopy } from "../lib/ad-daily-insights/copy.ts";
 import { captureAccountCopy } from "../lib/ad-daily-insights/copy-capture.ts";
+import { selectIn } from "../lib/ad-daily-insights/id-lookup.ts";
 
 const PAGE = 1000;
 const PAUSE_MS = 2000;
@@ -56,18 +57,18 @@ async function listAds(db: SupabaseClient, only: string | null): Promise<Map<str
 
 async function storedCopy(db: SupabaseClient, ids: readonly string[]): Promise<Map<string, StoredAdCopy>> {
   const stored = new Map<string, StoredAdCopy>();
-  for (let start = 0; start < ids.length; start += PAGE) {
-    const chunk = ids.slice(start, start + PAGE);
-    const { data, error } = await db.from("ad_copy").select("meta_ad_id, source, fetched_at").in("meta_ad_id", chunk);
-    if (error) {
-      if (missingTable(error.message)) return stored;
-      throw new Error(`ad_copy: ${error.message}`);
-    }
-    for (const row of (data ?? []) as { meta_ad_id?: string; source?: string; fetched_at?: string }[]) {
-      if (!row.meta_ad_id || !row.fetched_at) continue;
-      if (row.source !== "graph" && row.source !== "lab" && row.source !== "snapshot" && row.source !== "draft") continue;
-      stored.set(row.meta_ad_id, { source: row.source, fetchedAt: row.fetched_at });
-    }
+  const { rows, error } = await selectIn(
+    (chunk) => db.from("ad_copy").select("meta_ad_id, source, fetched_at").in("meta_ad_id", chunk),
+    ids,
+  );
+  if (error) {
+    if (missingTable(error)) return stored;
+    throw new Error(`ad_copy: ${error}`);
+  }
+  for (const row of rows as { meta_ad_id?: string; source?: string; fetched_at?: string }[]) {
+    if (!row.meta_ad_id || !row.fetched_at) continue;
+    if (row.source !== "graph" && row.source !== "lab" && row.source !== "snapshot" && row.source !== "draft") continue;
+    stored.set(row.meta_ad_id, { source: row.source, fetchedAt: row.fetched_at });
   }
   return stored;
 }
