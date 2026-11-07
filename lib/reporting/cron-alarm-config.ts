@@ -29,8 +29,7 @@ export const ALERT_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000;
  * `cron_runs` starts empty, so on day one EVERY entry looks like it has
  * never reported — a dozen Slack messages that say nothing except "this
  * table is new". A daily cron also needs a full day before its first row
- * exists, and `internal-counts-ingest` is listed before Phase 1 ships the
- * route at all.
+ * exists.
  *
  * Measured from the later of the evaluator's own first run and the cron's
  * own first row, so a cron added later gets its own grace rather than
@@ -103,10 +102,6 @@ export const CRON_ALARMS: CronAlarmSpec[] = [
 
   { cronName: "optimisation-tick", intervalMinutes: 240, zeroRule: "never" },
   { cronName: "budget-pacing-check", intervalMinutes: 60, zeroRule: "never" },
-
-  // Phase 1 adds the route; the entry is here so a cron that never ships
-  // is visible as "not reporting" rather than silently absent.
-  { cronName: "internal-counts-ingest", intervalMinutes: 60, zeroRule: "never" },
 
   // The watcher watches itself: if the evaluator stops running, nothing
   // else can report that, because every other alarm depends on it.

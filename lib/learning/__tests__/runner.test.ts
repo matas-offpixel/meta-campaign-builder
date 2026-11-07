@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import { fakeDb, op } from "../../launched-ads/__tests__/fake-db.ts";
 import { currencyResolver } from "../currency.ts";
 import type { LearningInputs } from "../joins.ts";
-import { LEARNING_JOBS, runLearningRefresh } from "../runner.ts";
+import { LEARNING_JOBS, learningRefreshRunLog, runLearningRefresh } from "../runner.ts";
 import { CLIENTS, NOW, TAGS, fact } from "./fixtures.ts";
 
 function inputs(): LearningInputs {
@@ -55,6 +55,39 @@ describe("learning-refresh killswitch", () => {
     const claude = readFileSync("CLAUDE.md", "utf8");
     assert.match(claude, /ENABLE_LEARNING_REFRESH=/);
     assert.match(claude, /\/api\/cron\/learning-refresh/);
+  });
+
+  it("the run log sums jobs[*].rows and keeps each job's count", () => {
+    const body = {
+      ok: true,
+      jobs: {
+        creative_scores: { ok: true, rows: 10 },
+        tag_performance: { ok: true, rows: 4 },
+        client_funnel_benchmarks: { ok: true, rows: 2 },
+        interest_live_evidence: { ok: true, rows: 1 },
+        copy_performance: { ok: true, rows: 846 },
+      },
+    };
+    assert.deepEqual(learningRefreshRunLog(body), {
+      rows: 863,
+      detail: {
+        jobs: {
+          creative_scores: 10,
+          tag_performance: 4,
+          client_funnel_benchmarks: 2,
+          interest_live_evidence: 1,
+          copy_performance: 846,
+        },
+      },
+    });
+    assert.deepEqual(learningRefreshRunLog({ ok: true, skippedReason: "killswitch" }), {
+      rows: 0,
+      detail: {},
+    });
+    const route = readFileSync("app/api/cron/learning-refresh/route.ts", "utf8");
+    assert.match(route, /learningRefreshRunLog\(b\)\.rows/);
+    assert.match(route, /detail: \(b\) => learningRefreshRunLog\(b\)\.detail/);
+    assert.doesNotMatch(route, /rowsWritten/);
   });
 
   it("no lib/learning module calls Meta", () => {

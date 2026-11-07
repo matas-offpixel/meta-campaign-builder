@@ -215,16 +215,12 @@ describe("the agreed alarm set", () => {
     assert.equal(out[0]?.kind, "not_reporting");
   });
 
-  it("covers the not-yet-shipped internal-counts cron with the grace rule", async () => {
+  it("does not alarm a cron that was never built", async () => {
     const { CRON_ALARMS } = await import("../cron-alarm-config.ts");
-    const spec = CRON_ALARMS.filter((s) => s.cronName === "internal-counts-ingest");
-    assert.equal(spec.length, 1, "listed before Phase 1 ships the route");
-    // Phase 1 has not shipped, so it has no row of its own; the grace is
-    // measured from the watcher's first run and must be silent inside it.
-    const graced = evaluateCronAlarms(
-      evidence({ evaluatorFirstRunAt: "2026-10-14T00:00:00Z", firstSeenByCron: new Map() }),
-      NOW, spec);
-    assert.deepEqual(graced, []);
+    assert.equal(
+      CRON_ALARMS.some((s) => s.cronName === "internal-counts-ingest"),
+      false,
+    );
   });
 
   it("excludes the crons that are 0 by design", async () => {

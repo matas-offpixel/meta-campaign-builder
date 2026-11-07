@@ -29,8 +29,8 @@ import type { ClientPortalData } from "@/lib/db/client-portal-server";
 
 const TABLE = "client_portal_snapshots";
 
-/** Default freshness window — a snapshot older than this is treated as a miss. */
-export const CLIENT_PORTAL_SNAPSHOT_MAX_AGE_MS = 15 * 60 * 1000;
+/** Freshness window. The cron runs at 07:15, 13:15 and 19:15 UTC, so a row stays warm across the 12-hour night. */
+export const CLIENT_PORTAL_SNAPSHOT_MAX_AGE_MS = 13 * 60 * 60 * 1000;
 
 interface SnapshotRow {
   payload_jsonb: ClientPortalData;

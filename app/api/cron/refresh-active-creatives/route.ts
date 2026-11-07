@@ -58,12 +58,10 @@ import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
  * broken. Full architectural rationale lives in
  * `docs/META_INDEPENDENCE_RESEARCH.md`.
  *
- * Cadence: configured in `vercel.json` (`15 / every 6 hours` to
- * sit 15 minutes offset from the existing `rollup-sync-events`
- * cron at minute 30 — both call Meta and we don't want them
- * stepping on each other's per-account request budget). The
- * runner itself picks a tight 2h cadence per-event when
- * `event_date` is within 14 days, so show-week numbers stay
+ * Cadence: `30 7,13,19` in `vercel.json` — 07:30, 13:30 and 19:30 UTC,
+ * thirty minutes after rollup-sync. Both call Meta, so they stay off
+ * the same minute. The runner itself picks a tight 2h cadence per-event
+ * when `event_date` is within 14 days, so show-week numbers stay
  * fresher than the cron interval.
  *
  * Auth: bearer header `Authorization: Bearer <CRON_SECRET>`.
