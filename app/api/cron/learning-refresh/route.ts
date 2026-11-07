@@ -10,7 +10,8 @@ import { isLearningRefreshEnabled, runLearningRefresh } from "@/lib/learning/run
  *
  * Learning loop B — nightly (03:30 UTC, `vercel.json`, after
  * ad-daily-insights) stored learnings: creative_scores, tag_performance,
- * client_funnel_benchmarks, interest_clusters.live_evidence. DB-only,
+ * client_funnel_benchmarks, interest_clusters.live_evidence,
+ * copy_performance. DB-only,
  * zero Meta calls. Logic lives in `lib/learning/runner.ts`.
  *
  * Killswitch: `ENABLE_LEARNING_REFRESH` must be exactly `"1"`. Unset

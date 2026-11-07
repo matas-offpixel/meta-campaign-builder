@@ -57,7 +57,7 @@ describe("learning-refresh killswitch", () => {
   });
 
   it("no lib/learning module calls Meta", () => {
-    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency"]) {
+    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score"]) {
       const source = readFileSync(`lib/learning/${file}.ts`, "utf8");
       assert.doesNotMatch(source, /graph\.facebook|graphGet|from "\.\.\/meta\/client/, file);
     }
@@ -102,7 +102,7 @@ describe("learning-refresh jobs", () => {
     assert.equal(result.ok, true);
     assert.deepEqual(
       LEARNING_JOBS.map((n) => result.jobs[n].rows),
-      [2, 3, 2, 1],
+      [2, 3, 2, 1, 0],
     );
     assert.equal(result.preview?.tagPerformance.length, 3);
     assert.ok(calls.every((c) => !op(c, "upsert") && !op(c, "update") && !op(c, "delete") && !op(c, "insert")));

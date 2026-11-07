@@ -12,7 +12,8 @@
  * before 187 is applied and backfilled.
  *
  * --dry-run reads prod (service role, SELECTs only), computes every job
- * and writes nothing. It prints rows per job, the tag join rate per
+ * and writes nothing. It prints rows per job, the copy templates per
+ * stage and scope, the tag join rate per
  * client, ad-days per stage and per stage source, spend left in
  * 'unknown', and each active client's top 5 tags by
  * shrunk index with n. --apply runs the same code as the cron, writes
@@ -23,6 +24,7 @@ import { readFileSync } from "node:fs";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { COPY_SHRINK_K, passesCopyMinimum, type CopyPerformanceRow } from "../lib/learning/copy/score.ts";
 import { STAGE_SOURCES, type LoadLearningOptions, type StageSource } from "../lib/learning/joins.ts";
 import { runLearningRefresh } from "../lib/learning/runner.ts";
 import type { TagPerformanceRow } from "../lib/learning/tag-performance.ts";
@@ -121,6 +123,30 @@ if (result.preview) {
   for (const e of live) {
     console.log(`| ${e.name} | ${e.adSets} | ${e.fundedAdSets} | ${e.spend} | ${e.registrations} | ${e.cpr ?? "—"} | ${e.cprIndex ?? "—"} | ${e.clients.join(", ")} | ${e.confidence} |`);
   }
+
+  const copy = result.preview.copyPerformance;
+  console.log(`\n## Copy templates (k=${COPY_SHRINK_K}, shrink toward 1, n = events)\n`);
+  console.log("k = 2 because proven starts at 2 events, so the smallest proof weighs the same as the prior of 1. A 2-event line must be at 0.8 raw to shrink to 0.9. k = 10 was sized for ads; at 2 events it lifts a raw 0.5 to 0.92, so a two-event line could never be proven.");
+  for (const stage of ["ticket_sale", "registration"] as const) {
+    for (const scope of ["client", "vertical", "all"] as const) {
+      const found = copy.filter((row) => row.stage === stage && row.scope === scope);
+      const shown = found.filter((row) => passesCopyMinimum(row));
+      const proven = found.filter((row) => row.proven);
+      console.log(`${stage} ${scope}: templates ${found.length}, minimum ${shown.length}, proven ${proven.length}`);
+    }
+    const top = copy
+      .filter((row) => row.stage === stage && row.scope === "all" && passesCopyMinimum(row) && row.index_vs_event != null)
+      .sort((a, b) => a.index_vs_event! - b.index_vs_event! || b.events_n - a.events_n)
+      .slice(0, 5);
+    console.log(`${stage} top ${top.length}:`);
+    for (const row of top) console.log(copyLine(row));
+    const slotted = copy.filter((row) => row.stage === stage && row.scope === "all" && row.template_key.includes("{")).length;
+    console.log(`${stage} all-scope templates with a placeholder: ${slotted}`);
+  }
+}
+
+function copyLine(row: CopyPerformanceRow): string {
+  return `  index=${row.index_vs_event} events=${row.events_n} voice=${row.voice} proven=${row.proven}\n    key=${JSON.stringify(row.template_key)}\n    example=${JSON.stringify(row.example_text)}`;
 }
 
 function tagLine(t: TagPerformanceRow): string {

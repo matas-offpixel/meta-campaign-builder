@@ -1,12 +1,13 @@
 /**
  * Learning loop B — nightly learning refresh, DB-only, zero Meta calls.
  *
- * Loads facts once (lib/learning/joins.ts), then runs four jobs that
+ * Loads facts once (lib/learning/joins.ts), then runs five jobs that
  * each log their rows and fail alone:
  *   1. creative_scores           (lib/learning/creative-scores.ts)
  *   2. tag_performance           (lib/learning/tag-performance.ts)
  *   3. client_funnel_benchmarks  (lib/learning/funnel-benchmarks.ts)
  *   4. interest_clusters.live_evidence (lib/learning/interest-evidence.ts)
+ *   5. copy_performance            (lib/learning/copy-performance.ts)
  * `dryRun` computes everything and writes nothing.
  */
 
@@ -27,18 +28,21 @@ import {
   type Stage,
   type StageSource,
 } from "./joins.ts";
+import { computeCopyPerformance, loadCopyLibrary, scopeCounts, writeCopyPerformance, type CopyLibrary } from "./copy-performance.ts";
+import { passesCopyMinimum, type CopyPerformanceRow } from "./copy/score.ts";
 import { computeTagPerformance, writeTagPerformance, type TagPerformanceRow } from "./tag-performance.ts";
 
 export function isLearningRefreshEnabled(env: Record<string, string | undefined>): boolean {
   return env.ENABLE_LEARNING_REFRESH === "1";
 }
 
-export type LearningJobName = "creative_scores" | "tag_performance" | "client_funnel_benchmarks" | "interest_live_evidence";
+export type LearningJobName = "creative_scores" | "tag_performance" | "client_funnel_benchmarks" | "interest_live_evidence" | "copy_performance";
 export const LEARNING_JOBS: readonly LearningJobName[] = [
   "creative_scores",
   "tag_performance",
   "client_funnel_benchmarks",
   "interest_live_evidence",
+  "copy_performance",
 ];
 
 export type JobOutcome = { ok: boolean; rows: number; detail?: Record<string, unknown>; error?: string };
@@ -65,6 +69,7 @@ export type LearningRefreshResult =
         funnel: { rows: FunnelBenchmarkRow[]; skipped: FunnelSkip[] };
         liveEvidence: Record<string, LiveEvidence & { name: string }>;
         clients: LearningInputs["clients"];
+        copyPerformance: CopyPerformanceRow[];
       };
       error?: string;
     };
@@ -154,6 +159,7 @@ export async function runLearningRefresh(input: {
   let funnel: { rows: FunnelBenchmarkRow[]; skipped: FunnelSkip[] } = { rows: [], skipped: [] };
   let liveEvidence: Map<string, LiveEvidence> = new Map();
   let clusterNames = new Map<string, string>();
+  let copyRows: CopyPerformanceRow[] = [];
 
   const jobs = {} as Record<LearningJobName, JobOutcome>;
   jobs.creative_scores = await job("creative_scores", async () => {
@@ -192,6 +198,19 @@ export async function runLearningRefresh(input: {
     const written = await writeLiveEvidence(input.db, liveEvidence, runAt);
     return { ok: true, rows: written.written, detail: { matched } };
   });
+  jobs.copy_performance = await job("copy_performance", async () => {
+    const library: CopyLibrary = await loadCopyLibrary(input.db, inputs.facts, inputs.clients);
+    copyRows = computeCopyPerformance(library);
+    const scopes = scopeCounts(copyRows);
+    const detail = {
+      ...scopes,
+      shown: copyRows.filter((row) => row.scope === "all" && passesCopyMinimum(row)).length,
+      proven: copyRows.filter((row) => row.scope === "all" && row.proven).length,
+    };
+    if (dryRun) return { ok: true, rows: copyRows.length, detail: { ...detail, dryRun } };
+    const written = await writeCopyPerformance(input.db, copyRows, runAt);
+    return { ok: true, rows: written.written, detail: { ...scopes, staleDeleted: written.deleted } };
+  });
 
   const result: LearningRefreshResult = {
     ok: LEARNING_JOBS.every((name) => jobs[name].ok),
@@ -213,6 +232,7 @@ export async function runLearningRefresh(input: {
         [...liveEvidence].map(([id, e]) => [id, { ...e, name: clusterNames.get(id) ?? id }]),
       ),
       clients: inputs.clients,
+      copyPerformance: copyRows,
     };
   }
   console.log(
