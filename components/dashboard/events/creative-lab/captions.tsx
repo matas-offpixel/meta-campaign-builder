@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
-import { captionCopy, ctaForStage, feedHeadline, feedPostClip, metricUnit, money, styleLabel, verdictChip } from "@/lib/creative-lab/surface";
+import { captionCopy, ctaForStage, feedHeadline, feedPostClip, metricUnit, money, resultsLabel, roundHasRun, styleLabel } from "@/lib/creative-lab/surface";
+import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
@@ -197,7 +198,7 @@ function FeedPost({
           No primary text yet — ✎ to add
         </button>
       )}
-      <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} inS={clip?.inS ?? 0} outS={clip?.outS ?? null} />
+      <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} inS={clip?.inS ?? 0} outS={clip?.outS ?? null} />
       <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2">
         <p className="min-w-0 font-medium">{headline}</p>
         <span className="inline-flex min-w-28 shrink-0 items-center justify-center whitespace-nowrap rounded bg-foreground px-3 py-1.5 text-background">{ctaForStage(stage)}</span>
@@ -239,25 +240,31 @@ function FeedPost({
   );
 }
 
+/** Results per caption, once a round has launched. A draft or approved round has none to show. */
 function Ran({ lab }: { lab: CreativeLabCardData }) {
-  const groups = lab.rounds.map((round) => ({
-    round,
-    rows: round.ads.map((ad) => ({ ad, caption: lab.captions.find((caption) => caption.id === ad.captionId) })).filter((row) => row.caption),
-  })).filter((group) => group.rows.length > 0);
+  const groups = [...lab.rounds]
+    .filter((round) => roundHasRun(round.status))
+    .sort((a, b) => b.roundNo - a.roundNo)
+    .map((round) => ({
+      round,
+      rows: round.ads.map((ad) => ({ ad, caption: lab.captions.find((caption) => caption.id === ad.captionId) })).filter((row) => row.caption),
+    }))
+    .filter((group) => group.rows.length > 0);
   if (groups.length === 0) return null;
   return (
     <div className="space-y-2">
       {groups.map((group) => (
-        <div key={group.round.id}>
+        <div key={group.round.id} className="space-y-1">
           <p>Ran in round {group.round.roundNo}</p>
-          {group.rows.map((row) => {
-            const chip = verdictChip(row.ad.verdict);
-            return (
-              <p key={row.ad.id} className="text-sm">
-                {captionCopy(row.caption!.lines).split("\n")[0]} · {money(row.ad.cost)} / {metricUnit(row.ad.metric)} · {chip.label}
-              </p>
-            );
-          })}
+          {group.rows.map((row) => (
+            <p key={row.ad.id} className="flex flex-wrap items-center gap-2 text-sm">
+              <span>{captionCopy(row.caption!.lines).split("\n")[0]}</span>
+              <VerdictChip verdict={row.ad.verdict} />
+              {row.ad.cost != null && row.ad.results ? (
+                <span className="tabular-nums">{money(row.ad.cost)} / {metricUnit(row.ad.metric)} · {resultsLabel(row.ad.results, row.ad.metric)}</span>
+              ) : null}
+            </p>
+          ))}
         </div>
       ))}
     </div>

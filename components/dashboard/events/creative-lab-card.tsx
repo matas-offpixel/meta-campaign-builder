@@ -10,7 +10,7 @@ import { LabRound } from "@/components/dashboard/events/creative-lab/round";
 import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { labNextStep } from "@/lib/creative-lab/lineup";
-import { clipBucket, clipStripLines } from "@/lib/creative-lab/surface";
+import { clipBucket, clipStripState, roundStripState } from "@/lib/creative-lab/surface";
 
 async function post(eventId: string, body: Record<string, unknown>): Promise<{ ok: boolean; status: number; json: Record<string, unknown> }> {
   const res = await fetch(`/api/creative-lab/events/${eventId}`, {
@@ -60,7 +60,9 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
     router.refresh();
   }
 
-  const running = lab.rounds.find((round) => round.ads.some((ad) => ad.metaAdId));
+  const rounds = [...lab.rounds].sort((a, b) => a.roundNo - b.roundNo);
+  const newest = rounds.at(-1) ?? null;
+  const running = newest?.status === "launched" ? newest : null;
   const waiting = lab.captions.some((caption) => caption.status === "proposed");
   const approved = lab.captions.some((caption) => caption.status === "approved");
   const next = labNextStep({
@@ -69,10 +71,18 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
     roundReady: approved && lab.clips.length > 0 && !running,
     runningRound: running?.roundNo ?? null,
     clipCount: lab.clips.length,
+    judgedRound: newest?.status === "judged" ? newest.roundNo : null,
   });
   const working = lab.working;
   const cant = lab.clips.filter((clip) => clipBucket(clip) === "cant").length;
-  const clipLines = clipStripLines(cant);
+  const clipLines = clipStripState(lab.clips.length, cant);
+  const roundLines = roundStripState(newest?.status);
+  const starred = lab.lineupRows.some((row) => row.isHeadliner);
+  const headlinerNote = lab.lineupRows.length === 0
+    ? "Star the headliners once the lineup is in."
+    : starred
+      ? null
+      : "Star the headliners.";
 
   return (
     <details className="rounded-lg border border-border bg-card" open>
@@ -84,7 +94,7 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
           lineup={lab.lineupRows.length}
           clips={lab.clips.length}
           captions={lab.captions.length}
-          round={lab.rounds[0]?.roundNo ?? null}
+          round={newest?.roundNo ?? null}
           next={next}
           working={working}
           saleDatesMissing={lab.saleDatesMissing}
@@ -95,11 +105,11 @@ export function CreativeLabCard({ lab }: { lab: CreativeLabCardData }) {
             clipsShort: clipLines.short,
             captions: waiting ? "need approval" : approved ? "approved" : "none yet",
             captionsShort: waiting ? "waiting" : approved ? "approved" : "none",
-            round: lab.rounds[0] ? lab.rounds[0].status : "not started",
-            roundShort: lab.rounds[0] ? "open" : "none",
+            round: roundLines.line,
+            roundShort: roundLines.short,
           }}
         />
-        {!lab.facts || lab.facts.headliners.length === 0 ? <p>headliners not set</p> : null}
+        {headlinerNote ? <p className="text-muted-foreground">{headlinerNote}</p> : null}
         <LabLineup eventId={lab.eventId} rows={lab.lineupRows} artists={lab.artists} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
         <LabClips lab={lab} busy={busy} onSave={(body) => run(body)} onError={setError} />
         <LabCaptions lab={lab} busy={busy} onSave={(body) => run(body)} />

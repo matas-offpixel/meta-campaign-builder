@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  adPairingName,
+  candidateTileState,
   cantRunReason,
   captionCopy,
   clipStripLines,
+  clipStripState,
   clipWindow,
   currentRenderError,
   failedCheckSentence,
@@ -14,7 +17,14 @@ import {
   groupClips,
   money,
   playableClipSeconds,
+  postAge,
+  posterTime,
+  rankCandidates,
+  resultsLabel,
+  roundHasRun,
   roundMatrix,
+  roundStripState,
+  scrubWindow,
   verdictChip,
   whatsWorking,
   type ClipForGroup,
@@ -148,5 +158,54 @@ describe("creative lab surface", () => {
     assert.equal(money(null), "—");
     assert.equal(money(0), "—");
     assert.equal(money(0.42), "£0.42");
+  });
+
+  it("names the Clips and Round cells in long and short forms of one state", () => {
+    assert.deepEqual(clipStripState(0, 0), { line: "none yet", short: "none" });
+    assert.deepEqual(clipStripState(3, 0), { line: "ready", short: "ready" });
+    assert.deepEqual(roundStripState(undefined), { line: "not started", short: "none" });
+    assert.deepEqual(roundStripState("draft"), { line: "draft", short: "draft" });
+    assert.deepEqual(roundStripState("judged"), { line: "judged", short: "judged" });
+    for (const status of [undefined, "draft", "approved", "launched", "judged"]) {
+      assert.notEqual(roundStripState(status).short, "open");
+    }
+  });
+
+  it("gives tile numbers a unit and names pairings by artist, clip and angle", () => {
+    assert.equal(resultsLabel(40, "complete_registration"), "40 signups");
+    assert.equal(resultsLabel(1, "complete_registration"), "1 signup");
+    assert.equal(adPairingName({ artistName: "Ada North", clipNo: 1 }, "pov"), "Ada North #1 × POV");
+  });
+
+  it("only launched or judged rounds have run", () => {
+    assert.equal(roundHasRun("draft"), false);
+    assert.equal(roundHasRun("approved"), false);
+    assert.equal(roundHasRun("launched"), true);
+    assert.equal(roundHasRun("judged"), true);
+  });
+
+  it("scrubs in_s to the out point or the file's end, 30 s at most", () => {
+    assert.deepEqual(scrubWindow(0, null, 18), { start: 0, end: 18 });
+    assert.deepEqual(scrubWindow(0, null, 95), { start: 0, end: 30 });
+    assert.deepEqual(scrubWindow(5, 12, 95), { start: 5, end: 12 });
+    assert.deepEqual(scrubWindow(10, null, 95), { start: 10, end: 40 });
+    assert.deepEqual(scrubWindow(0, null, null), { start: 0, end: null });
+    assert.equal(posterTime(0, null), 0.5);
+    assert.equal(posterTime(4, 9), 4);
+  });
+
+  it("candidate tiles: rank, age, one action or one status line", () => {
+    const rows = rankCandidates([
+      { igMediaId: "b", postedAt: "2026-10-21", likes: 1, comments: 0, score: 0.6, aspect: "4:5", hasFile: false, status: "skipped", reason: "text overlay" },
+      { igMediaId: "a", postedAt: "2026-10-29", likes: 1, comments: 0, score: 0.9, aspect: "9:16", hasFile: false, status: "candidate" },
+    ]);
+    assert.deepEqual(rows.map((row) => [row.igMediaId, row.rank]), [["a", 1], ["b", 2]]);
+    assert.equal(postAge("2026-10-29", "2026-11-06T12:00:00Z"), "8 days ago");
+    assert.equal(postAge("2026-11-05", "2026-11-06T12:00:00Z"), "1 day ago");
+    assert.equal(postAge("2026-10-12", "2026-11-06T12:00:00Z"), "4 weeks ago");
+    assert.deepEqual(candidateTileState(rows[0]!), { action: "request", status: null });
+    assert.deepEqual(candidateTileState({ ...rows[0]!, hasFile: true }), { action: "add", status: null });
+    assert.deepEqual(candidateTileState(rows[1]!), { action: null, status: "Skipped — text overlay" });
+    assert.deepEqual(candidateTileState({ ...rows[0]!, status: "requested" }), { action: null, status: "Requested" });
   });
 });

@@ -85,6 +85,8 @@ export type CreativeLabCardData = {
   longApproved: boolean;
   paydayLabel: string;
   daysToEvent: number | null;
+  /** When the card was read (ISO). Ages on screen count from this, never the browser clock. */
+  now: string;
   facts: { lineup: string[]; headliners: string[]; allowedDates: string[] } | null;
   artists: {
     id: string;
@@ -109,6 +111,7 @@ export type CreativeLabCardData = {
       hasFile: boolean;
       audioMatch: boolean | null;
       status: string;
+      reason: string | null;
     }[];
     rights: RightsState;
     rightsLabel: string;
@@ -332,6 +335,7 @@ export async function loadCreativeLabCard(
     longApproved: profile.longApproved,
     paydayLabel: nextPayday(args.now).label,
     daysToEvent: daysUntilEvent(args.eventDate, args.now),
+    now: (args.now ?? new Date()).toISOString(),
     lineupRows,
     working,
     facts: factsRow ? { lineup, headliners, allowedDates } : null,
@@ -349,7 +353,7 @@ export async function loadCreativeLabCard(
       igLastError: text(row, "ig_last_error") || null,
       igCandidates: candidateRows
         .filter((candidate) => text(candidate, "artist_id") === text(row, "id"))
-        .filter((candidate) => text(candidate, "status") === "candidate" || text(candidate, "status") === "requested")
+        .filter((candidate) => ["candidate", "requested", "skipped"].includes(text(candidate, "status")))
         .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
         .map((candidate) => ({
           igMediaId: text(candidate, "ig_media_id"),
@@ -362,6 +366,7 @@ export async function loadCreativeLabCard(
           hasFile: candidate.has_file === true,
           audioMatch: candidate.audio_match === true ? true : candidate.audio_match === false ? false : null,
           status: text(candidate, "status"),
+          reason: text(candidate, "reason") || null,
         })),
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),

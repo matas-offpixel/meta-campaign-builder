@@ -9,6 +9,7 @@ import { LAB_FRAME_IDS as SHOT_IDS, LAB_SHOTS, LAB_WIDTHS } from "../../../scrip
 import { evidenceIndex } from "../../../scripts/plan-frames/evidence.mjs";
 import { changedBaselines, guardLine } from "../../../scripts/ci/design-pass-guard.mjs";
 import { roundMatrix } from "../../creative-lab/surface.ts";
+import { nextRoundView } from "../../creative-lab/round-next.ts";
 
 describe("Creative Lab frame catalog (CL)", () => {
   it("the runner shoots every CL id at 1280 and 393", () => {
@@ -77,11 +78,23 @@ describe("Creative Lab frame catalog (CL)", () => {
     assert.equal(flag!.cost! / win!.cost!, 1.5);
     assert.equal(lab.working?.angle, "Lineup captions beat POV by 33% on Off Pixel Fixtures");
     assert.equal(lab.working?.clip, "Ada North clip #1 is the current winner");
+    const next = nextRoundView({
+      rounds: lab.rounds,
+      usableClipIds: lab.clips.map((clip) => clip.id),
+      approvedCaptionIds: lab.captions.filter((caption) => caption.status === "approved").map((caption) => caption.id),
+    });
+    assert.equal(next?.roundNo, 2);
+    assert.equal(next?.pooledCost, 35 / 60);
+    assert.deepEqual(next?.plan.clips, [{ id: "clip-ada-1", kind: "kept" }, { id: "clip-ada-2", kind: "kept" }]);
+    assert.deepEqual(next?.plan.captions, [{ id: "cap-lineup", kind: "kept" }]);
+    assert.deepEqual(next?.column.clips.filter((item) => item.killed).map((item) => item.id), ["clip-bea-1"]);
+    assert.deepEqual(next?.column.captions.filter((item) => item.killed).map((item) => item.id), ["cap-pov"]);
   });
 
-  it("CL7 has three ranked candidates: one to request, one skipped, one requested", () => {
+  it("CL7 has four ranked candidates: request, skipped, requested, add", () => {
     const candidates = LAB_FRAME_FIXTURES.CL7.lab.artists[0]!.igCandidates;
-    assert.deepEqual(candidates.map((row) => row.status), ["candidate", "skipped", "requested"]);
+    assert.deepEqual(candidates.map((row) => row.status), ["candidate", "skipped", "requested", "candidate"]);
+    assert.deepEqual(candidates.map((row) => row.hasFile), [false, false, false, true]);
     const scores = candidates.map((row) => row.score ?? 0);
     assert.deepEqual(scores, [...scores].sort((a, b) => b - a));
   });

@@ -1,11 +1,25 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
-import { cantRunReason, clipBucket, durationLabel, groupClips, metricUnit, money, sourceBadge, verdictChip } from "@/lib/creative-lab/surface";
+import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
+import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
+import {
+  candidateTileState,
+  cantRunReason,
+  clipBucket,
+  durationLabel,
+  groupClips,
+  metricUnit,
+  money,
+  postAge,
+  rankCandidates,
+  resultsLabel,
+  sourceBadge,
+} from "@/lib/creative-lab/surface";
 import { uploadFileToCampaignAssets } from "@/lib/tiktok-wizard/campaign-asset-upload";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
@@ -123,29 +137,29 @@ function ClipGroup({
   clips: CreativeLabCardData["clips"];
   wide?: boolean;
 }) {
-  if (clips.length === 0) {
-    return <p className="mb-2 text-muted-foreground">{title} · 0{hint ? ` · ${hint}` : ""}</p>;
-  }
+  if (clips.length === 0) return null;
   return (
     <div>
       <p className="mb-2 text-muted-foreground">{title} · {clips.length}{hint ? ` · ${hint}` : ""}</p>
       <div className={wide ? "grid grid-cols-2 gap-2 sm:grid-cols-5" : "flex gap-2 overflow-x-auto sm:grid sm:grid-cols-5"}>
         {clips.map((clip) => {
           const reason = cantRunReason(clip);
-          const chip = clip.judged ? verdictChip(clip.judged.verdict === "untested" || clip.judged.verdict === "thin" ? "untested" : clip.judged.verdict) : verdictChip("untested");
+          const verdict = clip.judged ? (clip.judged.verdict === "thin" ? "untested" : clip.judged.verdict) : "untested";
           return (
             <article key={clip.id} className={`w-36 shrink-0 sm:w-auto ${reason ? "rounded border border-dashed border-destructive p-1" : ""}`} title={clip.rightsRef}>
-              <ClipFrame src={clip.previewUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} />
+              <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} />
               <p className="mt-1 flex justify-between text-xs">
                 <span>{sourceBadge(clip.source)}</span>
                 <span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span>
               </p>
               <p className="text-xs">{clip.artistName} #{clip.clipNo}</p>
               {reason ? <p className="text-xs text-destructive">{reason}</p> : (
-                <p className="text-xs">
-                  <span className={chip.tone === "win" ? "text-success" : chip.tone === "lose" || chip.tone === "flag" ? "text-destructive" : "text-muted-foreground"}>{chip.label}</span>
-                  {clip.judged && clipBucketKeeping(clip) ? <span className="tabular-nums"> · {money(clip.judged.cost)} / {metricUnit(clip.judged.metric)} · {clip.judged.results ?? "—"}</span> : null}
-                </p>
+                <div className="mt-1 space-y-1 text-xs">
+                  <VerdictChip verdict={verdict} />
+                  {clip.judged && clipBucket(clip) === "keeping" ? (
+                    <p className="tabular-nums">{money(clip.judged.cost)} / {metricUnit(clip.judged.metric)} · {resultsLabel(clip.judged.results, clip.judged.metric)}</p>
+                  ) : null}
+                </div>
               )}
             </article>
           );
@@ -155,63 +169,24 @@ function ClipGroup({
   );
 }
 
-function clipBucketKeeping(clip: CreativeLabCardData["clips"][number]): boolean {
-  return clipBucket(clip) === "keeping";
-}
-
-function ClipFrame({ src, hasFile, name, inS, outS }: { src: string | null; hasFile: boolean; name: string; inS: number; outS: number | null }) {
-  const video = useRef<HTMLVideoElement>(null);
-  const [time, setTime] = useState(inS);
-  const end = outS ?? inS;
-  function hold(node: HTMLVideoElement) {
-    if (node.currentTime < inS) node.currentTime = inS;
-    if (outS != null && node.currentTime >= outS) {
-      node.pause();
-      node.currentTime = inS;
-    }
-  }
+function ClipFrame({ src, poster, hasFile, name, inS, outS }: { src: string | null; poster: string | null; hasFile: boolean; name: string; inS: number; outS: number | null }) {
+  const { videoProps, rangeProps } = useClipVideo(inS, outS);
   if (src) {
     return (
       <div className="relative">
         <video
-          ref={video}
+          {...videoProps}
           src={src}
+          poster={poster ?? undefined}
           muted
           playsInline
           preload="metadata"
           className="aspect-[9/16] w-full rounded object-cover"
-          onLoadedMetadata={(event) => {
-            const node = event.currentTarget;
-            const poster = inS === 0 && (outS == null || outS > 0.5) ? 0.5 : inS;
-            node.currentTime = poster;
-            setTime(poster);
-          }}
-          onTimeUpdate={(event) => {
-            hold(event.currentTarget);
-            setTime(event.currentTarget.currentTime);
-          }}
-          onClick={() => {
-            const node = video.current;
-            if (!node) return;
-            if (node.paused) {
-              if (outS != null && node.currentTime >= outS) node.currentTime = inS;
-              void node.play();
-            } else node.pause();
-          }}
         />
         <input
           aria-label="Scrub"
           className="absolute inset-x-2 bottom-2 h-1 accent-white"
-          type="range"
-          min={inS}
-          max={Math.max(end, inS + 0.1)}
-          step={0.1}
-          value={Math.min(Math.max(time, inS), end)}
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (video.current) video.current.currentTime = next;
-            setTime(next);
-          }}
+          {...rangeProps}
           onClick={(event) => event.stopPropagation()}
         />
       </div>
@@ -221,26 +196,42 @@ function ClipFrame({ src, hasFile, name, inS, outS }: { src: string | null; hasF
   return <div className="flex aspect-[9/16] w-full items-center justify-center rounded border border-border bg-card text-sm">{initials(name)}</div>;
 }
 
+/** Candidate tiles (design rules): rank · frame · ♥ / 💬 · age · aspect; one action or one status line. */
 function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: boolean; onSave: Save }) {
-  const rows = lab.artists.flatMap((artist) => artist.igCandidates.map((clip) => ({ artist, clip })));
-  if (rows.length === 0) return null;
+  const groups = lab.artists
+    .map((artist) => ({ artist, rows: rankCandidates(artist.igCandidates) }))
+    .filter((group) => group.rows.length > 0);
+  if (groups.length === 0) return null;
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <h3 className="font-medium">Find clips on Instagram</h3>
-      <div className="flex gap-2 overflow-x-auto">
-        {rows.map(({ artist, clip }) => (
-          <article key={clip.igMediaId} className="w-40 shrink-0 rounded border border-border p-2">
-            <p className="text-xs">{clip.permalink ? <a href={clip.permalink}>{clip.postedAt || clip.permalink}</a> : (clip.postedAt || "undated")}</p>
-            <p className="tabular-nums text-xs">♥ {clip.likes ?? "—"} · 💬 {clip.comments ?? 0}</p>
-            <p className="text-xs text-muted-foreground">{clip.aspect || "aspect unknown"} · {artist.name}</p>
-            {!clip.hasFile && clip.status === "candidate" ? (
-              <Button type="button" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
-            ) : null}
-            <Button type="button" disabled title="coming in M4b">Add</Button>
-            <p className="text-xs text-muted-foreground" title="coming in M4b">Skipped — text overlay</p>
-          </article>
-        ))}
-      </div>
+      {groups.map(({ artist, rows }) => (
+        <div key={artist.id} className="space-y-2">
+          <p className="text-muted-foreground">{artist.name} · best first</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {rows.map((clip) => {
+              const state = candidateTileState(clip);
+              const age = postAge(clip.postedAt, lab.now);
+              return (
+                <article key={clip.igMediaId} className="rounded border border-border p-2">
+                  <div className="relative flex aspect-[9/16] w-full items-end rounded bg-foreground/80 p-1 text-xs text-background">
+                    <span className="absolute top-1 left-1 rounded bg-background px-1 font-medium tabular-nums text-foreground">{clip.rank}</span>
+                    {clip.permalink ? <a className="underline" href={clip.permalink}>Open post</a> : null}
+                  </div>
+                  <p className="mt-1 text-xs tabular-nums">♥ {clip.likes == null ? "—" : clip.likes.toLocaleString("en-GB")} · 💬 {(clip.comments ?? 0).toLocaleString("en-GB")}</p>
+                  <p className="text-xs text-muted-foreground">{[age, clip.aspect || "aspect unknown"].filter(Boolean).join(" · ")}</p>
+                  {state.action === "request" ? (
+                    <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap px-1" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
+                  ) : state.action === "add" ? (
+                    <Button type="button" size="sm" className="mt-1 w-full" disabled title="coming in M4b">Add</Button>
+                  ) : null}
+                  {state.status ? <p className="mt-1 text-xs text-muted-foreground">{state.status}</p> : null}
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

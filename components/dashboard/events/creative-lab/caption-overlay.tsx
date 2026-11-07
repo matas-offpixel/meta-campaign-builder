@@ -1,8 +1,8 @@
 "use client";
 
 import localFont from "next/font/local";
-import { useRef, useState } from "react";
 
+import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { profile } from "../../../../src/remotion/caption-style/profile";
 
 const tiktokSans = localFont({
@@ -22,61 +22,33 @@ const variation = `"opsz" 36, "slnt" 0, "wdth" ${profile.fontWidth}, "wght" ${pr
 export function CaptionOverlay({
   lines,
   src,
+  poster = null,
   compact = false,
   inS = 0,
   outS = null,
 }: {
   lines: readonly string[];
   src?: string | null;
+  poster?: string | null;
   compact?: boolean;
   inS?: number;
   outS?: number | null;
 }) {
-  const video = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [time, setTime] = useState(inS);
-  const [duration, setDuration] = useState(0);
-  const end = outS ?? duration;
+  const { videoProps, rangeProps, playing, toggle } = useClipVideo(inS, outS);
   const copy = lines.map((line) => line.trim()).filter(Boolean).join("\n");
   const stroke = `${profile.strokeWidthPctOfFontSize * 2}em`;
-
-  function toggle() {
-    const node = video.current;
-    if (!node) return;
-    if (node.paused) void node.play();
-    else node.pause();
-  }
 
   return (
     <div className="relative aspect-[9/16] w-full overflow-hidden bg-black" style={{ containerType: "inline-size" }}>
       {src ? (
         <video
-          ref={video}
+          {...videoProps}
           className="h-full w-full object-cover"
           src={src}
+          poster={poster ?? undefined}
           muted
           playsInline
           preload="metadata"
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-          onTimeUpdate={(event) => {
-            const node = event.currentTarget;
-            if (node.currentTime < inS) node.currentTime = inS;
-            if (outS != null && node.currentTime >= outS) {
-              node.pause();
-              node.currentTime = inS;
-            }
-            setTime(node.currentTime);
-          }}
-          onLoadedMetadata={(event) => {
-            const node = event.currentTarget;
-            const length = node.duration;
-            setDuration(Number.isFinite(length) ? length : 0);
-            const poster = inS === 0 && (outS == null || outS > 0.5) ? 0.5 : inS;
-            node.currentTime = poster;
-            setTime(poster);
-          }}
-          onClick={toggle}
         />
       ) : null}
       {compact ? (
@@ -109,20 +81,7 @@ export function CaptionOverlay({
           <button type="button" className="h-7 w-7 shrink-0 text-left text-white" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
             {playing ? "❚❚" : "▶"}
           </button>
-          <input
-            aria-label="Scrub"
-            className="h-1 min-w-0 flex-1 accent-white"
-            type="range"
-            min={inS}
-            max={Math.max(end, inS + 0.1)}
-            step={0.1}
-            value={Math.min(Math.max(time, inS), end || inS)}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              if (video.current) video.current.currentTime = next;
-              setTime(next);
-            }}
-          />
+          <input aria-label="Scrub" className="h-1 min-w-0 flex-1 accent-white" {...rangeProps} />
         </div>
       ) : null}
     </div>

@@ -176,6 +176,7 @@ function base(overrides: Partial<CreativeLabCardData>): CreativeLabCardData {
     longApproved: false,
     paydayLabel: "Fri 27 Nov",
     daysToEvent: 36,
+    now: LAB_NOW,
     facts: { lineup: [], headliners: [], allowedDates: ["2026-12-12"] },
     artists: [],
     clips: [],
@@ -241,9 +242,10 @@ const WORKING_ADS: WorkingAd[] = JUDGED_ADS.map((ad) => {
 // ── CL7: Ada North's Instagram, ranked by score.
 
 const IG_CANDIDATES: Artist["igCandidates"] = [
-  { igMediaId: "ig-1", permalink: null, postedAt: "2026-10-30", likes: 1200, comments: 40, score: 0.9, aspect: "9:16", hasFile: false, audioMatch: true, status: "candidate" },
-  { igMediaId: "ig-2", permalink: null, postedAt: "2026-10-21", likes: 800, comments: 20, score: 0.6, aspect: "4:5", hasFile: false, audioMatch: null, status: "skipped" },
-  { igMediaId: "ig-3", permalink: null, postedAt: "2026-10-12", likes: 400, comments: 10, score: 0.3, aspect: "landscape", hasFile: false, audioMatch: false, status: "requested" },
+  { igMediaId: "ig-1", permalink: null, postedAt: "2026-10-29", likes: 1200, comments: 40, score: 0.9, aspect: "9:16", hasFile: false, audioMatch: true, status: "candidate", reason: null },
+  { igMediaId: "ig-2", permalink: null, postedAt: "2026-10-21", likes: 800, comments: 20, score: 0.6, aspect: "4:5", hasFile: false, audioMatch: null, status: "skipped", reason: "text overlay" },
+  { igMediaId: "ig-3", permalink: null, postedAt: "2026-10-12", likes: 400, comments: 10, score: 0.3, aspect: "landscape", hasFile: false, audioMatch: false, status: "requested", reason: null },
+  { igMediaId: "ig-4", permalink: null, postedAt: "2026-11-05", likes: 300, comments: 5, score: 0.2, aspect: "9:16", hasFile: true, audioMatch: true, status: "candidate", reason: null },
 ];
 
 export const LAB_FRAME_FIXTURES: Record<LabFrameId, LabFrameFixture> = {

@@ -166,6 +166,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
           },
         }));
       }
+      case "labArtist":
       case "clearLibrary":
       case "saveLineupArtist":
         if (!event.client_id) return NextResponse.json({ error: "This event has no client." }, { status: 400 });
@@ -176,6 +177,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
             libraryArtistId: body.libraryArtistId ?? "",
             name: body.name ?? "",
           });
+          if (body.action === "labArtist") return NextResponse.json({ ok: true, artistId: labId });
           if (body.action === "clearLibrary") {
             await setLabArtistCleared(db, { userId: user.id, artistId: labId, cleared: body.cleared === true });
             return NextResponse.json({ ok: true, artistId: labId });

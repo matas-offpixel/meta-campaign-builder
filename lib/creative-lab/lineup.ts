@@ -101,7 +101,9 @@ export type LabStep = "lab-lineup" | "lab-clips" | "lab-captions" | "lab-round";
 
 /**
  * The step that needs the operator. Clearance is not one: promoter-voice
- * ads run without it. The highlighted cell is `target`.
+ * ads run without it. The highlighted cell is `target`. Once a round is
+ * judged and nothing newer exists, the next step is proposing the round
+ * after it.
  */
 export function labNextStep(args: {
   lineupCount: number;
@@ -109,18 +111,25 @@ export function labNextStep(args: {
   roundReady: boolean;
   runningRound: number | null;
   clipCount: number;
+  judgedRound?: number | null;
 }): { text: string; verb: string; target: LabStep } {
   if (args.lineupCount === 0) return { text: "Add the lineup.", verb: "Add lineup", target: "lab-lineup" };
   if (args.clipCount === 0) return { text: "Add a clip.", verb: "Add a clip", target: "lab-clips" };
   if (args.captionsWaiting) return { text: "Approve a caption, then propose round 1.", verb: "Approve", target: "lab-captions" };
+  if (args.judgedRound != null) {
+    return { text: `Round ${args.judgedRound} is judged. Propose round ${args.judgedRound + 1}.`, verb: "Propose", target: "lab-round" };
+  }
   if (args.roundReady) return { text: "Propose round 1.", verb: "Propose", target: "lab-round" };
   if (args.runningRound != null) return { text: `Round ${args.runningRound} is running.`, verb: "Open", target: "lab-round" };
   return { text: "Write a caption.", verb: "Write", target: "lab-captions" };
 }
 
-export type ArtistRowAction = "find_clips" | "add_instagram" | "clear";
+export type ArtistRowAction = "find_clips" | "add_instagram";
 
-/** One verb for the row. A support act with no clips is not asked to clear. */
+/**
+ * One verb for the row. An artist with Instagram is always Find clips;
+ * clearing is the rights chip's link, never the row's action.
+ */
 export function artistPrimaryAction(row: {
   instagramHandle: string | null;
   labArtistId: string | null;
@@ -129,9 +138,7 @@ export function artistPrimaryAction(row: {
   clipCount: number;
 }): ArtistRowAction | null {
   if (!row.instagramHandle) return "add_instagram";
-  if (row.labArtistId) return "find_clips";
-  if (showClearForArtistChannels(row)) return "clear";
-  return null;
+  return "find_clips";
 }
 
 export function showClearForArtistChannels(row: {

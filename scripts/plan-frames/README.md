@@ -42,31 +42,24 @@ The runner fails a CL shot if any declared font face has not loaded.
 
 | Id | State | What to check by hand |
 |---|---|---|
-| CL1 | Empty event, no facts, no ad set | Strip 0 · 0 · 0 · —; "Next: Add the lineup."; "headliners not set"; "No lineup yet." |
-| CL2 | Lineup only | 5 artists, 3 starred (Ada North, Bea Lowe, Cal Reyes). Ada cleared ("Matas, 2 Nov"); the other four read "Promoter page only". Of the two Lab artists, Ada is cleared and Bea is promoter page only. Row verbs: Ada, Bea Find clips; Cal Clear for artist channels; Dee Add Instagram; Eli none |
-| CL3 | 2 clips, 1 proposed Lineup caption | Clips: Ada North #1 IG 0:18 (native 9:16), Bea Lowe #1 file 0:24 (landscape, centre-cropped). Feed post on Ada North #1 (native wins the lead): overlay "Ada North / Bea Lowe / 12 December / Fixture Hall" on four lines; primary text "Ada North and Bea Lowe play Fixture Hall on 12 December. Tickets from £15."; headline "Fixture Night · 12 December · Fixture Hall" |
+| CL1 | Empty event, no facts, no ad set | Strip 0 empty · 0 none yet · 0 none yet · — not started (at 393: empty · none · none · none); "Next: Add the lineup."; "Star the headliners once the lineup is in."; "No lineup yet."; no Keeping / New / Can't run headings |
+| CL2 | Lineup only | 5 artists, 3 starred (Ada North, Bea Lowe, Cal Reyes). Ada cleared ("Matas, 2 Nov"); the other four read "Promoter page only". Row action: Find clips for Ada, Bea, Cal and Eli (all have Instagram), Add Instagram for Dee. "Clear for artist channels" is the chip's link on Bea and Cal (starred, not cleared), not on Eli. Every row has an action beside its ⋯ |
+| CL3 | 2 clips, 1 proposed Lineup caption | Clips: Ada North #1 IG 0:18 (native 9:16), Bea Lowe #1 file 0:24 (landscape, centre-cropped), both dashed Untested chips under "New · 2". Scrubbers span 0–18 s and 0–24 s, thumb at the 0.5 s poster. Feed post on Ada North #1: overlay "Ada North / Bea Lowe / 12 December / Fixture Hall" on four lines; primary text "Ada North and Bea Lowe play Fixture Hall on 12 December. Tickets from £15."; headline "Fixture Night · 12 December · Fixture Hall" |
 | CL4 | As CL3, primary text empty | The muted slot "No primary text yet — ✎ to add" in place of the primary text |
-| CL5 | Round 1 proposed | 2 approved captions (Lineup, POV) × 3 clips = 6 pairings. The runner clicks Ada North #1 × POV off, so the line reads "5 ads · 3 × 2, 1 left out". The draft round holds those 5 pairings, all Ready |
-| CL6 | Round 1 judged on signups | Ada North #1 × Lineup: Winner, £0.50 / signup × 40 = £20.00. Bea Lowe #1 × POV: "cost 1.5× the usual", £0.75 / signup × 20 = £15.00 (0.75 ÷ 0.50 = 1.5). Ada North #2 × Lineup: Untested. Keeping 2, New 1. What's working: "Lineup captions beat POV by 33% on Off Pixel Fixtures" ((0.75 − 0.50) ÷ 0.75 = 33.3%) and "Ada North clip #1 is the current winner" |
-| CL7 | Instagram candidates for Ada North | Three, by score 0.9 / 0.6 / 0.3: 2026-10-30 9:16 ♥ 1200 · 💬 40 (candidate, "Request from team"), 2026-10-21 4:5 ♥ 800 · 💬 20 (skipped), 2026-10-12 landscape ♥ 400 · 💬 10 (requested). Shown under Ada's lineup row and in "Find clips on Instagram" |
+| CL5 | Round 1 proposed | 2 approved captions (Lineup, POV) × 3 clips = 6 pairings. The runner clicks Ada North #1 × POV off, so the line reads "5 ads · 3 × 2, 1 left out". "Round 1 · draft" lists those 5 pairings as "{artist} #{n} × {angle}", all Ready. Strip: Round 1 draft. Nothing under "Ran in round 1" |
+| CL6 | Round 1 judged on signups | Ada North #1 × Lineup: Winner (olive), £0.50 / signup · 40 signups = £20.00. Bea Lowe #1 × POV: "cost 1.5× the usual" (brick), £0.75 / signup · 20 signups = £15.00 (0.75 ÷ 0.50 = 1.5). Ada North #2 × Lineup: Untested (dashed). Keeping 2, New 1. What's working: "Lineup captions beat POV by 33% on Off Pixel Fixtures" ((0.75 − 0.50) ÷ 0.75 = 33.3%) and "Ada North clip #1 is the current winner". Next: "Round 1 is judged. Propose round 2." Timeline: "Round 1 · judged · £0.58 / signup" (£35 ÷ 60 = £0.583), Bea Lowe #1 and the POV caption struck through; "Round 2 · plan": Ada North #1, Ada North #2 and the Lineup caption, all Kept. Matrix "2 ads · 2 × 1, 0 left out", button "Propose round 2". Strip: Round 1 judged |
+| CL7 | Instagram candidates for Ada North | Once, under "Find clips on Instagram", ranked 1–4 by score: 1 ♥ 1,200 · 💬 40 · 8 days ago · 9:16, Request from team; 2 ♥ 800 · 💬 20 · 2 weeks ago · 4:5, "Skipped — text overlay"; 3 ♥ 400 · 💬 10 · 4 weeks ago · landscape, "Requested"; 4 ♥ 300 · 💬 5 · 1 day ago · 9:16, Add. Ages count from the fixture's now (6 Nov 2026) |
 
-### What the component shows that the brief did not ask for
+### Known gaps
 
-These are how the current components render, not fixture choices. They are
-for the design verdict, not fixed here:
+- CL7: candidate frames are a placeholder box. Candidates store no
+  thumbnail (`media_url` is never stored and there is no thumbnail
+  column), so a real frame needs one stored at discovery.
+- Add on a candidate stays disabled until M4b.
 
-- CL7: the candidate cards show no rank number, and every card carries the
-  "Skipped — text overlay" placeholder and a disabled Add, including the
-  one that is not skipped. Dates show as stored (2026-10-30). The same
-  candidates are listed twice: under the lineup row and in the card row.
-- CL5: "Ran in round 1" lists the draft round's pairings as "— / result ·
-  Holding" before anything has run.
-- CL6: the round list shows the raw verdict word ("winner", "flagged",
-  "untested") where the clip tiles show the chip label.
-- Clip tiles: the scrubber spans 0–0.1 s when a clip has no out point, not
-  the part that runs (the design rules' Clip tile row says first 30 s at
-  most).
-- Clip tiles and the caption overlay seek to their poster frame in
-  `onLoadedMetadata`. When metadata arrives before hydration that never
-  runs, and the live page shows frame 0 (black for a fade-in). The runner
-  fires the event again after hydration so the shot is stable.
+### Poster frames
+
+Clip tiles and the caption overlay rest on their poster frame (0.5 s in,
+or in_s). The seek runs in `onLoadedMetadata` and again in a mount effect
+when metadata arrived before hydration (`use-clip-video.ts`). The runner
+only watches: a visible video still at 0 s fails the shot.

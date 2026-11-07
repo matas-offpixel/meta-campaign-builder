@@ -116,12 +116,10 @@ function compare(baseline, current) {
  * declared font face must load, and every visible video must show its
  * poster frame.
  *
- * The clip tiles and caption overlay seek to their poster in
- * onLoadedMetadata. When metadata arrives before React hydrates, that
- * handler never runs and the video sits unpainted at 0 s, so the shot
- * would depend on a race. Once each visible video is hydrated and has
- * metadata, the runner fires loadedmetadata again so the component's
- * own handler seeks it, then waits for the seek and a painted frame.
+ * The runner only watches. Every CL fixture clip starts at 0, so its
+ * poster is 0.5 s in; a video still at 0 s means the component missed
+ * its poster seek (the hydration race), and the shot fails instead of
+ * hiding it.
  */
 async function settleLab(page, shotId) {
   // next/font's "<family> Fallback" faces point at a local() system font
@@ -132,31 +130,24 @@ async function settleLab(page, shotId) {
     return faces.filter((face) => face.status !== "loaded").map((face) => face.family);
   });
   if (unloaded.length) throw new Error(`${shotId}: fonts not loaded: ${unloaded.join(", ")}`);
-  await page.waitForFunction(
-    () =>
-      [...document.querySelectorAll("video")]
-        .filter((node) => node.getClientRects().length > 0)
-        .every((node) => node.readyState >= 1 && Object.keys(node).some((key) => key.startsWith("__reactProps"))),
-    null,
-    { timeout: 15_000 },
-  );
-  const stuck = await page.evaluate(async () => {
-    const timeout = (ms) => new Promise((resolve) => setTimeout(() => resolve("timeout"), ms));
-    const videos = [...document.querySelectorAll("video")].filter((node) => node.getClientRects().length > 0);
-    const results = await Promise.all(
-      videos.map(async (node) => {
-        const painted = new Promise((resolve) => node.requestVideoFrameCallback(() => resolve("painted")));
-        const seeked = new Promise((resolve) => node.addEventListener("seeked", () => resolve("seeked"), { once: true }));
-        node.dispatchEvent(new Event("loadedmetadata"));
-        const seek = node.seeking ? await Promise.race([seeked, timeout(10_000)]) : "no-seek";
-        await Promise.race([painted, timeout(3000)]);
-        return seek === "timeout" || node.readyState < 2 ? node.getAttribute("src") : null;
-      }),
+  try {
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("video")]
+          .filter((node) => node.getClientRects().length > 0)
+          .every((node) => node.readyState >= 2 && !node.seeking && node.currentTime > 0),
+      null,
+      { timeout: 15_000 },
     );
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return results.filter(Boolean);
-  });
-  if (stuck.length) throw new Error(`${shotId}: video never reached its poster: ${stuck.join(", ")}`);
+  } catch {
+    const stuck = await page.evaluate(() =>
+      [...document.querySelectorAll("video")]
+        .filter((node) => node.getClientRects().length > 0 && !(node.readyState >= 2 && !node.seeking && node.currentTime > 0))
+        .map((node) => `${node.getAttribute("src")} at ${node.currentTime}s, readyState ${node.readyState}`),
+    );
+    throw new Error(`${shotId}: video never reached its poster: ${stuck.join("; ")}`);
+  }
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
 async function main() {
