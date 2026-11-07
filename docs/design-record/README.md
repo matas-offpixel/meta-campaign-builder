@@ -34,6 +34,7 @@ event page / Creative Lab or `/admin` gets a record first.
 | [`2026-11-08-asset-bank.html`](2026-11-08-asset-bank.html) | Asset bank (M6): release timeline, sold bars entered by hand, approval cards, payday calendar, board — AB1–AB4, rulings A1–A10. A1–A5 and H1–H4 superseded by issue 2; kept as issued. |
 | [`2026-11-08-asset-bank-2.html`](2026-11-08-asset-bank-2.html) | Asset bank issue 2, **current**: a release has a state (A1'–A3'), the vendor read proposes (A4', AB2), the claim ladder per client (A5', AB5), A11 ruling for Matas — AB1, AB2, AB4 redrawn, AB5 new |
 | [`2026-11-08-insights-rail-2.html`](2026-11-08-insights-rail-2.html) | Insights rail issue 2: build-1 corrections (R12–R13), the audience builder (IR5) and the TikTok drawer (IR8), rulings R14–R16 |
+| [`2026-11-08-overlay-templates.html`](2026-11-08-overlay-templates.html) | Artwork overlay templates for the brand kit (rule 14, B7): T1 artist clip, T2 standalone message, T3 lineup artwork as components with slots, the 4:5 rect, the 1:1 re-sit, ladder → claim words, size steps — OT1–OT4, rulings O1–O10, hand-back H1–H9 with the audit before build |
 
 The Creative Lab rules and components the records use are in
 `docs/creative-lab/design-rules.md`.
