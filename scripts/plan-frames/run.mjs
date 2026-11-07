@@ -131,6 +131,28 @@ async function settleLab(page, shotId) {
     return faces.filter((face) => face.status !== "loaded").map((face) => face.family);
   });
   if (unloaded.length) throw new Error(`${shotId}: fonts not loaded: ${unloaded.join(", ")}`);
+  // Rule 13: the overlay draws the stored lines exactly. Each caption must
+  // render as many lines as it stores, none wrapped, none wider than its box.
+  const badCaptions = await page.evaluate(() =>
+    [...document.querySelectorAll("[data-caption-lines]")].flatMap((box) => {
+      const stored = Number(box.getAttribute("data-caption-lines"));
+      const lines = [...box.querySelectorAll("[data-caption-line]")];
+      const boxWidth = box.getBoundingClientRect().width;
+      const range = document.createRange();
+      let drawn = 0;
+      const wide = [];
+      for (const line of lines) {
+        range.selectNodeContents(line);
+        drawn += range.getClientRects().length;
+        if (range.getBoundingClientRect().width > boxWidth + 0.5) wide.push(JSON.stringify(line.textContent));
+      }
+      const problems = [];
+      if (lines.length !== stored || drawn !== stored) problems.push(`${drawn} lines drawn, ${stored} stored`);
+      if (wide.length) problems.push(`wider than the box: ${wide.join(", ")}`);
+      return problems.length ? [`"${box.textContent}": ${problems.join("; ")}`] : [];
+    }),
+  );
+  if (badCaptions.length) throw new Error(`${shotId}: caption lines: ${badCaptions.join(" | ")}`);
   try {
     await page.waitForFunction(
       () =>

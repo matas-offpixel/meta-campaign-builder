@@ -35,7 +35,7 @@ export function CaptionOverlay({
   outS?: number | null;
 }) {
   const { videoProps, rangeProps, playing, toggle } = useClipVideo(inS, outS);
-  const copy = lines.map((line) => line.trim()).filter(Boolean).join("\n");
+  const shown = lines.map((line) => line.trim()).filter(Boolean);
   const stroke = `${profile.strokeWidthPctOfFontSize * 2}em`;
 
   return (
@@ -57,11 +57,13 @@ export function CaptionOverlay({
           className="absolute right-[8%] left-[8%] h-0.5 -translate-y-1/2 bg-white"
           style={{ top: `${profile.verticalCenterPctOfSourceHeight * 100}%`, outline: `1px solid ${profile.stroke}` }}
         />
-      ) : copy ? (
+      ) : shown.length ? (
+        // The safe-area box: 8% in from each side, 84% of the frame. Lines
+        // break only where the validator broke them; nothing wraps here.
         <p
-          className={`${tiktokSans.className} pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-center whitespace-pre-line`}
+          data-caption-lines={shown.length}
+          className={`${tiktokSans.className} pointer-events-none absolute right-[8%] left-[8%] -translate-y-1/2 text-center whitespace-pre`}
           style={{
-            left: `${profile.horizontalCenterPctOfWidth * 100}%`,
             top: `${profile.verticalCenterPctOfSourceHeight * 100}%`,
             fontSize: `${profile.fontSizePctOfWidth * 100}cqw`,
             fontWeight: profile.fontWeight,
@@ -73,7 +75,9 @@ export function CaptionOverlay({
             paintOrder: "stroke fill",
           }}
         >
-          {copy}
+          {shown.map((line, index) => (
+            <span key={index} data-caption-line className="block">{line}</span>
+          ))}
         </p>
       ) : null}
       {src && !compact ? (
