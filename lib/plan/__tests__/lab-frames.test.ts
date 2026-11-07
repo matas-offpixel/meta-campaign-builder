@@ -10,6 +10,8 @@ import { evidenceIndex } from "../../../scripts/plan-frames/evidence.mjs";
 import { changedBaselines, guardLine } from "../../../scripts/ci/design-pass-guard.mjs";
 import { roundMatrix } from "../../creative-lab/surface.ts";
 import { nextRoundView } from "../../creative-lab/round-next.ts";
+import { validateCaption, type EventFacts } from "../../creative-lab/caption-facts.ts";
+import { isCaptionStyle } from "../../creative-lab/tags.ts";
 
 describe("Creative Lab frame catalog (CL)", () => {
   it("the runner shoots every CL id at 1280 and 393", () => {
@@ -41,6 +43,45 @@ describe("Creative Lab frame catalog (CL)", () => {
       assert.ok(existsSync(new URL(`../../../public${url}`, import.meta.url)), url);
       assert.equal(isPublicPath(url), true, url);
     }
+  });
+
+  it("every artist row's clip count is that fixture's clips for its Lab artist", () => {
+    for (const fixture of Object.values(LAB_FRAME_FIXTURES)) {
+      for (const row of fixture.lab.lineupRows) {
+        const expected = row.labArtistId ? fixture.lab.clips.filter((clip) => clip.artistId === row.labArtistId).length : 0;
+        assert.equal(row.clipCount, expected, `${fixture.id} ${row.name}`);
+      }
+    }
+  });
+
+  it("every caption marked valid passes validateCaption as the loader calls it, with the lines it wraps", () => {
+    let checked = 0;
+    for (const fixture of Object.values(LAB_FRAME_FIXTURES)) {
+      const lab = fixture.lab;
+      if (!lab.facts) continue;
+      const facts: EventFacts = {
+        eventId: lab.eventId,
+        eventName: lab.eventName,
+        eventDate: lab.eventDate,
+        venueName: lab.venueName,
+        venueCity: null,
+        lineup: lab.facts.lineup,
+        headliners: lab.facts.headliners,
+        hasFacts: true,
+        allowedDates: lab.facts.allowedDates,
+        tiers: [],
+      };
+      for (const caption of lab.captions.filter((row) => row.validatorOk)) {
+        assert.ok(isCaptionStyle(caption.style), `${fixture.id} ${caption.id} style`);
+        const check = validateCaption(caption.lines.join(" "), caption.style, [], facts, { version: "" }, { primaryText: caption.primaryText });
+        assert.deepEqual(check.errors, [], `${fixture.id} ${caption.id}`);
+        assert.equal(check.ok, true, `${fixture.id} ${caption.id}`);
+        assert.deepEqual(check.lines, caption.lines, `${fixture.id} ${caption.id} lines`);
+        assert.ok(caption.lines[0]!.length <= 18, `${fixture.id} ${caption.id} first line "${caption.lines[0]}"`);
+        checked += 1;
+      }
+    }
+    assert.ok(checked >= 6, `only ${checked} captions checked`);
   });
 
   it("CL1 is an empty event; CL2 is 5 artists, 3 starred, 1 cleared", () => {

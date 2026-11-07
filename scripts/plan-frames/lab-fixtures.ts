@@ -128,8 +128,8 @@ const BEA = "lab-bea";
 
 /** 5 artists, 3 starred. Ada is cleared for artist channels; the rest are promoter page only. */
 const LINEUP: LabLineupRow[] = [
-  lineupRow({ artistId: "lib-ada", name: "Ada North", isHeadliner: true, instagramHandle: "adanorth", labArtistId: ADA, clearedAt: "2026-11-02T10:00:00.000Z", clearedBy: "Matas", clipCount: 2 }),
-  lineupRow({ artistId: "lib-bea", name: "Bea Lowe", isHeadliner: true, instagramHandle: "bealowe", tiktokHandle: "bealowe", labArtistId: BEA, clipCount: 1 }),
+  lineupRow({ artistId: "lib-ada", name: "Ada North", isHeadliner: true, instagramHandle: "adanorth", labArtistId: ADA, clearedAt: "2026-11-02T10:00:00.000Z", clearedBy: "Matas" }),
+  lineupRow({ artistId: "lib-bea", name: "Bea Lowe", isHeadliner: true, instagramHandle: "bealowe", tiktokHandle: "bealowe", labArtistId: BEA }),
   lineupRow({ artistId: "lib-cal", name: "Cal Reyes", isHeadliner: true, instagramHandle: "calreyes" }),
   lineupRow({ artistId: "lib-dee", name: "Dee Marsh" }),
   lineupRow({ artistId: "lib-eli", name: "Eli Stone", instagramHandle: "elistone" }),
@@ -152,18 +152,35 @@ const C3 = clip({ id: "clip-ada-2", artistId: ADA, artistName: "Ada North", clip
 
 // ── Captions ────────────────────────────────────────────────────────────
 
-const LINEUP_LINES = ["Ada North / Bea Lowe", "12 December", "Fixture Hall"];
-const LINEUP_PRIMARY = "Ada North and Bea Lowe play Fixture Hall on 12 December. Tickets from £15.";
-const POV_LINES = ["POV: the lights drop", "and Ada North walks on"];
+/**
+ * Lines are what validateCaption wraps the overlay into, which is what the
+ * live card shows. No price in primary text: the live loader passes no
+ * ticket tiers, so a price can never pass there.
+ */
+const LINEUP_LINES = ["Ada North Bea Lowe", "12 December", "Fixture Hall"];
+const LINEUP_PRIMARY = "Ada North and Bea Lowe play Fixture Hall on 12 December.";
+const POV_LINES = ["POV: lights drop", "and Ada North", "walks on"];
 
 const CAP_LINEUP = caption({ id: "cap-lineup", style: "lineup", lines: LINEUP_LINES, primaryText: LINEUP_PRIMARY });
-const CAP_POV = caption({ id: "cap-pov", style: "pov", lines: POV_LINES, primaryText: "12 December at Fixture Hall. Tickets from £15." });
+const CAP_POV = caption({ id: "cap-pov", style: "pov", lines: POV_LINES, primaryText: "12 December at Fixture Hall." });
 
 // ── Ad set ──────────────────────────────────────────────────────────────
 
 const AD_SET = { metaAdSetId: "fixture-adset-1", adAccountId: "act_fixture", name: "Fixture Night — signups", status: "ACTIVE", adCount: 0, cap: 50 as const };
 
+/** Each artist row's clip count is that fixture's own clips for its Lab artist, never typed. */
 function base(overrides: Partial<CreativeLabCardData>): CreativeLabCardData {
+  const lab = baseFields(overrides);
+  return {
+    ...lab,
+    lineupRows: lab.lineupRows.map((row) => ({
+      ...row,
+      clipCount: row.labArtistId ? lab.clips.filter((c) => c.artistId === row.labArtistId).length : 0,
+    })),
+  };
+}
+
+function baseFields(overrides: Partial<CreativeLabCardData>): CreativeLabCardData {
   return {
     eventId: EVENT_ID,
     eventName: "Fixture Night",
