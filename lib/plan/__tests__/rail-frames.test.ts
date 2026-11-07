@@ -109,8 +109,9 @@ describe("Insights rail frame catalog (IR)", () => {
     assert.equal(angle!.scopeLabel, "Puzzle");
     assert.equal(angle!.fallback, null);
     assert.equal(angle!.result?.text, "No clear winner between Event announcement and Artist / headliner.");
-    // R13 sorts by stored shrunk index, so Curiosity (0.98) draws before FOMO (1.0).
-    assert.equal(hook!.result?.text, "No clear winner between Curiosity and FOMO.");
+    // R13 sorts by stored shrunk index; Curiosity's stand-in is the raw 1.03, so FOMO (1.0) draws first.
+    assert.equal(hook!.result?.text, "No clear winner between FOMO and Curiosity.");
+    assert.deepEqual(hook!.bars.map((bar) => [bar.label, bar.note]), [["FOMO", "level"], ["Curiosity", "3% over"]]);
     assert.deepEqual(hook!.thin.map((row) => [row.label, row.fundedAds]), [["Urgency", 2]]);
     assert.equal(visual!.result?.text, "Headline costs 6% less than usual.");
     assert.equal(data.sections.some((section) => section.action), false);

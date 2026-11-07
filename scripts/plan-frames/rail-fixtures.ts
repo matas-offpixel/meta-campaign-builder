@@ -63,7 +63,8 @@ export const PUZZLE_REGISTRATION: TagRow[] = [
   row("messaging_angle", "artist_headliner", 4.17, IR3_BASELINE, 1.0, "ok", 25),
   row("messaging_angle", "high_energy_atmosphere", 4.6, IR3_BASELINE, 1.11, "ok", 25),
   row("hook_tactic", "fomo", 4.16, IR3_BASELINE, 1.0, "strong", 49),
-  row("hook_tactic", "curiosity", 4.3, IR3_BASELINE, 0.98, "strong", 49),
+  // Issue 1 printed 0.98 against a cpr 3% over baseline; a stand-in index must agree with its cpr (#1110 verdict item 4), so the raw 4.30 ÷ 4.16 stands in.
+  row("hook_tactic", "curiosity", 4.3, IR3_BASELINE, 1.03, "strong", 49),
   row("hook_tactic", "urgency", null, IR3_BASELINE, null, "thin", 2),
   row("visual_format", "headline", 3.9, IR3_BASELINE, 0.94, "ok", 21),
   row("visual_format", "cinematic_b_roll", 4.7, IR3_BASELINE, 1.11, "ok", 21),

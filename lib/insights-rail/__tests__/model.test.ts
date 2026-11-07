@@ -59,7 +59,7 @@ const IR3: TagRow[] = [
   row("asset_type", "high_production", 4.59, 4.16, 1.07, "ok", 30),
   row("asset_type", "ugc", null, 4.16, null, "thin", 0),
   row("hook_tactic", "fomo", 4.16, 4.16, 1.0, "strong", 49),
-  row("hook_tactic", "curiosity", 4.3, 4.16, 0.98, "strong", 52),
+  row("hook_tactic", "curiosity", 4.3, 4.16, 1.03, "strong", 52),
   row("hook_tactic", "urgency", 5.1, 4.16, 1.0, "thin", 2),
 ];
 
@@ -112,9 +112,9 @@ describe("insights rail model", () => {
     ]);
     assert.equal(angle!.confidence, "ok · 25+ funded ads · 90 days · this client · £ / signup");
     assert.equal(angle!.action, null);
-    // R13: rows sort by stored shrunk index, so Curiosity (0.98) draws before FOMO (1.0).
-    assert.equal(hook!.result?.text, "No clear winner between Curiosity and FOMO.");
-    assert.deepEqual(hook!.bars.map((bar) => bar.label), ["Curiosity", "FOMO"]);
+    // R13: rows sort by stored shrunk index; FOMO (1.0) draws before Curiosity (1.03, the raw stand-in).
+    assert.equal(hook!.result?.text, "No clear winner between FOMO and Curiosity.");
+    assert.deepEqual(hook!.bars.map((bar) => bar.label), ["FOMO", "Curiosity"]);
     assert.deepEqual(hook!.thin, [{ key: "urgency", label: "Urgency", fundedAds: 2 }]);
     assert.equal(hook!.confidence, "strong · 49+ funded ads · 90 days · this client");
     assert.equal(visual!.result?.text, "Headline costs 6% less than usual.");
@@ -332,6 +332,20 @@ describe("insights rail model", () => {
     assert.equal(cheap.result?.text, "18–24 costs 33% less than usual.");
     assert.deepEqual(cheap.bars.map((bar) => [bar.note, bar.tone]), [["33% under", "olive"], ["33% over", "brick"]]);
     assert.equal(buildTikTokSections([], "Puzzle")[0]!.empty, "Not enough data yet: no TikTok breakdowns for Puzzle in the last 90 days.");
+    // A gender row under 1,000 impressions is thin; the blended figure still counts it.
+    const thinGender = buildTikTokSections([
+      { dimension: "gender", value: "FEMALE", spend: 50, clicks: 100, impressions: 20000, views2s: 2000 },
+      { dimension: "gender", value: "MALE", spend: 2, clicks: 3, impressions: 999, views2s: 150 },
+    ], "Puzzle")[1]!;
+    assert.deepEqual(thinGender.bars.map((bar) => bar.label), ["Women"]);
+    assert.deepEqual(thinGender.thin, [{ key: "MALE", label: "Men", fundedAds: 999, line: "Not enough data yet: 999 impressions" }]);
+    assert.equal(thinGender.confidence, "ok · 2-s views ÷ impressions · 20,999 impressions · 90 days · Puzzle · TikTok");
+    const okGender = buildTikTokSections([
+      { dimension: "gender", value: "FEMALE", spend: 50, clicks: 100, impressions: 20000, views2s: 2000 },
+      { dimension: "gender", value: "MALE", spend: 2, clicks: 3, impressions: 1000, views2s: 150 },
+    ], "Puzzle")[1]!;
+    assert.deepEqual(okGender.bars.map((bar) => bar.label), ["Men", "Women"]);
+    assert.equal(okGender.thin.length, 0);
     assert.equal(tiktokAgeLabel("AGE_55_100"), "55–100");
     assert.equal(tiktokAgeLabel("AGE_55+"), "55+");
     assert.equal(tiktokGenderLabel("FEMALE"), "Women");

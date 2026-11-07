@@ -99,7 +99,7 @@ the same figures. Launches off, no Supabase, no Meta.
 | IR5 | 1280, 393 | Audience builder · Puzzle · Signup; Vertical · music selected | Context line "Audience builder · Puzzle · Signup"; the Vertical toggle is on and reads "Vertical · music" (cluster verticals are the clusters' own column). Interest clusters · "music · signup": "Disc Genre costs 41% less than its clients' usual." Rows with Add cluster: Disc Genre "£1.06 / signup · 41% under · 8 funded ad sets · 2 clients · ok", Music festivals "£0.98 / signup · 33% under · 3 funded ad sets · 2 clients · ok", Latest iPhone users "£2.00 / signup · 8% under · 3 funded ad sets · 1 client · ok", Electronic music "£2.13 / signup · 2% under · 4 funded ad sets · 1 client · ok"; thin line "Melodic Techno, Fashion, Streaming, Streaming — full" / "Not enough data yet: 1–2 funded ad sets each"; "28 clusters not tried yet · show · picked 7 times so far"; 🔒 line. Lookalikes and retargeting · Puzzle: "Not measured yet. Appears once results are stored per audience (source, lookalike range, cost per result), from the next nightly run after that job ships." The page shows Disc Genre with the chip "added from Insights". At 393 the sheet; "picked 7 times" is hidden |
 | IR6 | 1280 | Rail only · CL6 Lab judged | "In the Lab · round 1 · judged" first, then the four tag sections as IR3: "Lineup captions beat POV by 33% on Off Pixel Fixtures." Lineup £0.50 · 40 signups (olive), POV £0.75 · 20 signups (brick); "Ada North #1 × Lineup" Winner; "round 1 · 60 signups · £35 spent"; Use Lineup |
 | IR7 | 393 | Event page, collapsed | An "Insights ‹" pill in the header row beside the page's actions; no floating button; Approve visible |
-| IR8 | 1280, 393 | MML canvas (plan fixture A1), TikTok drawer context (?drawer=tt) | Context line "New TikTok campaign · Puzzle · Signup". Who clicks on TikTok · "Puzzle · 90 days": "No clear winner between 18–24 and 25–34." "18–24 · 9.3% watch past 2 s" £0.49 / click · level, "25–34 · 10.0% watch past 2 s" £0.50 / click · level, "35–44 / Not enough data yet: £7 spent, 13 clicks"; "ok · £109 spent · 218 clicks · 90 days · Puzzle · TikTok". Who watches: "Men watch past 2 s 8% more than usual." Men 10.5% · 8% over (olive), Women 9.2% · 6% under (brick); "ok · 2-s views ÷ impressions · 55,111 impressions · 90 days · Puzzle · TikTok". Then the ochre line "TikTok ads aren't tagged yet. These angles, hooks and formats come from Puzzle's Meta ads; the costs are Meta costs." and Caption angle, Hook, Visual format with the kicker "from Meta ads" and confidence lines ending "· Puzzle · Meta" (angle also "· £ / signup"), as IR3 draws them: no clear winner, "No clear winner between Curiosity and FOMO.", "Headline costs 6% less than usual." No Asset type, no interest category, no region, no Use action: exactly five sections. The TikTok drawer itself is not in the frame: it loads its draft from the database. At 393 the sheet |
+| IR8 | 1280, 393 | MML canvas (plan fixture A1), TikTok drawer context (?drawer=tt) | Context line "New TikTok campaign · Puzzle · Signup". Who clicks on TikTok · "Puzzle · 90 days": "No clear winner between 18–24 and 25–34." "18–24 · 9.3% watch past 2 s" £0.49 / click · level, "25–34 · 10.0% watch past 2 s" £0.50 / click · level, "35–44 / Not enough data yet: £7 spent, 13 clicks"; "ok · £109 spent · 218 clicks · 90 days · Puzzle · TikTok". Who watches: "Men watch past 2 s 8% more than usual." Men 10.5% · 8% over (olive), Women 9.2% · 6% under (brick); "ok · 2-s views ÷ impressions · 55,111 impressions · 90 days · Puzzle · TikTok". Then the ochre line "TikTok ads aren't tagged yet. These angles, hooks and formats come from Puzzle's Meta ads; the costs are Meta costs." and Caption angle, Hook, Visual format with the kicker "from Meta ads" and confidence lines ending "· Puzzle · Meta" (angle also "· £ / signup"), as IR3 draws them: no clear winner, "No clear winner between FOMO and Curiosity.", "Headline costs 6% less than usual." No Asset type, no interest category, no region, no Use action: exactly five sections. The TikTok drawer itself is not in the frame: it loads its draft from the database. At 393 the sheet |
 
 ## IR sources
 
@@ -130,7 +130,7 @@ record's "+n more", never drawn.
 | messaging_angle | artist_headliner | 4.17 | 4.16 | 1.0 | ok | 25 | R3; funded min |
 | messaging_angle | high_energy_atmosphere | 4.6 | 4.16 | 1.11 | ok | 25 | R3; funded min |
 | hook_tactic | fomo | 4.16 | 4.16 | 1.0 | strong | 49 | R3; funded min |
-| hook_tactic | curiosity | 4.3 | 4.16 | 0.98 | strong | 49 | R3; funded min |
+| hook_tactic | curiosity | 4.3 | 4.16 | 1.03 | strong | 49 | R3 cpr; funded min; shrunk is the raw 4.30 ÷ 4.16 stand-in: issue 1 printed 0.98 against a cpr 3% over baseline, and a stand-in index must agree with its own cpr (#1110 verdict item 4), so FOMO (1.0) draws first |
 | hook_tactic | urgency | null | 4.16 | null | thin | 2 | R3 (thin, 2 funded) |
 | visual_format | headline | 3.9 | 4.16 | 0.94 | ok | 21 | R3; funded min |
 | visual_format | cinematic_b_roll | 4.7 | 4.16 | 1.11 | ok | 21 | R3; funded min |
@@ -175,8 +175,7 @@ asset 10.
 
 The record's figures differ from the model's in one place: IR3's and IR4's
 asset type reads 7% under (3.85 ÷ 4.16 = 0.9255), where the record rounded
-to 8%. The record allows ±1 point. R13 also orders IR3's and IR6's hook
-bars Curiosity (0.98) before FOMO (1.0); issue 1 drew FOMO first.
+to 8%. The record allows ±1 point.
 
 ### Cluster rows (IR5)
 
