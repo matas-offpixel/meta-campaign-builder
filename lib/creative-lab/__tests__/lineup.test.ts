@@ -169,6 +169,23 @@ describe("creative lab lineup", () => {
     assert.equal(plan.rows.every((row) => row.artistId == null), true);
   });
 
+  it("Find clips for any artist with Instagram; clearing is the chip's link", () => {
+    const cal = { instagramHandle: "calreyes", labArtistId: null, clearedAt: null, isHeadliner: true, clipCount: 0 };
+    assert.equal(artistPrimaryAction(cal), "find_clips");
+    assert.equal(showClearForArtistChannels(cal), true);
+    const eli = { ...cal, isHeadliner: false };
+    assert.equal(artistPrimaryAction(eli), "find_clips");
+    assert.equal(showClearForArtistChannels(eli), false);
+  });
+
+  it("after a judged round, next is proposing the round after it", () => {
+    const next = labNextStep({ lineupCount: 5, captionsWaiting: false, roundReady: true, runningRound: null, clipCount: 3, judgedRound: 1 });
+    assert.equal(next.target, "lab-round");
+    assert.equal(next.verb, "Propose");
+    assert.match(next.text, /Propose round 2/);
+    assert.doesNotMatch(next.text, /running/);
+  });
+
   it("picks one primary action, and a support act with no clips is not cleared", () => {
     const support = { instagramHandle: null, labArtistId: null, clearedAt: null, isHeadliner: false, clipCount: 0 };
     assert.equal(artistPrimaryAction(support), "add_instagram");

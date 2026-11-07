@@ -88,3 +88,6 @@ WC26_funnel_xref_*.xlsx
 # Off/Pixel accounting — personal, must never be committed
 offpixel_vat_*.xlsx
 offpixel_xero_*.xlsx
+
+# plan-frames evidence pack (CI artifact)
+/frames-evidence/

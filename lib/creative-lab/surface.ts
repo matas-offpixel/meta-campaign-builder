@@ -358,3 +358,131 @@ function angleLine(ads: readonly WorkingAd[], clientName: string): string | null
   if (!best) return null;
   return `${styleLabel(best.left)} captions beat ${styleLabel(best.right)} by ${best.percent}% on ${clientName}`;
 }
+
+/** The Clips cell. Nothing yet reads "none yet"; the short line keeps the blocked count. */
+export function clipStripState(total: number, blocked: number): { line: string; short: string } {
+  if (total <= 0) return { line: "none yet", short: "none" };
+  return clipStripLines(blocked);
+}
+
+/** The Round cell: the latest round's state, in a long and a short form of the same word. */
+export function roundStripState(status: string | null | undefined): { line: string; short: string } {
+  switch (status) {
+    case null:
+    case undefined:
+    case "":
+      return { line: "not started", short: "none" };
+    case "draft":
+    case "rendering":
+      return { line: "draft", short: "draft" };
+    case "approved":
+      return { line: "approved", short: "approved" };
+    case "launched":
+      return { line: "running", short: "running" };
+    case "judged":
+      return { line: "judged", short: "judged" };
+    case "rejected":
+      return { line: "rejected", short: "rejected" };
+    default:
+      return { line: status, short: status };
+  }
+}
+
+/** "40 signups", "1 signup". */
+export function resultsLabel(results: number | null | undefined, metric: string | null | undefined): string {
+  if (results == null || !Number.isFinite(results)) return "—";
+  const unit = metricUnit(metric);
+  return `${results.toLocaleString("en-GB")} ${results === 1 ? unit : `${unit}s`}`;
+}
+
+/** "{artist} #{n} × {angle}". */
+export function adPairingName(clip: { artistName: string; clipNo: number } | null | undefined, style: string | null | undefined): string {
+  const left = clip ? `${clip.artistName} #${clip.clipNo}` : "Clip";
+  return `${left} × ${style ? styleLabel(style) : "caption"}`;
+}
+
+/** A round's ads have run once it has launched or been judged. Before that nothing has a result. */
+export function roundHasRun(status: string): boolean {
+  return status === "launched" || status === "judged";
+}
+
+/**
+ * The part of a clip a tile plays and scrubs: from in_s to the out point,
+ * or the file's end, and never more than 30 seconds.
+ */
+export function scrubWindow(inS: number, outS: number | null, duration: number | null): { start: number; end: number | null } {
+  const start = Number.isFinite(inS) ? inS : 0;
+  const stop = outS ?? (duration != null && duration > 0 ? duration : null);
+  if (stop == null) return { start, end: null };
+  return { start, end: Math.min(stop, start + CLIP_TRIM_SECONDS) };
+}
+
+/** The frame a tile rests on: half a second in when the clip starts at 0, else its in point. */
+export function posterTime(inS: number, outS: number | null): number {
+  return inS === 0 && (outS == null || outS > 0.5) ? 0.5 : inS;
+}
+
+export type CandidateForTile = {
+  igMediaId: string;
+  postedAt: string | null;
+  likes: number | null;
+  comments: number | null;
+  score: number | null;
+  aspect: string | null;
+  hasFile: boolean;
+  status: string;
+  reason?: string | null;
+};
+
+/** Best first: by score, then newest. Rank is 1-based. */
+export function rankCandidates<T extends CandidateForTile>(rows: readonly T[]): (T & { rank: number })[] {
+  return [...rows]
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || String(b.postedAt ?? "").localeCompare(String(a.postedAt ?? "")))
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+/** "today", "1 day ago", "8 days ago", "3 weeks ago", "2 months ago". */
+export function postAge(postedAt: string | null | undefined, now: string | Date): string | null {
+  const day = /^(\d{4}-\d{2}-\d{2})/.exec(postedAt ?? "")?.[1];
+  if (!day) return null;
+  const today = (typeof now === "string" ? now : now.toISOString()).slice(0, 10);
+  const days = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86_400_000);
+  if (!Number.isFinite(days) || days < 0) return null;
+  if (days === 0) return "today";
+  if (days === 1) return "1 day ago";
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  return `${Math.round(days / 30)} months ago`;
+}
+
+/** At most one action per candidate tile, and at most one status line. */
+export function candidateTileState(row: CandidateForTile): { action: "add" | "request" | null; status: string | null } {
+  if (row.status === "skipped") return { action: null, status: `Skipped — ${row.reason?.trim() || "not usable"}` };
+  if (row.status === "requested") return { action: null, status: "Requested" };
+  if (row.status === "imported") return { action: null, status: "✓ Added" };
+  return { action: row.hasFile ? "add" : "request", status: null };
+}
+
+/** The deciding verdict for one clip or caption across a round's ads. */
+export function itemVerdict(verdicts: readonly (string | null)[]): string | null {
+  for (const verdict of ["winner", "loser", "flagged", "untested", "thin"]) {
+    if (verdicts.includes(verdict)) return verdict;
+  }
+  return null;
+}
+
+/** The caption box is this share of the frame width (the 4:5 safe area's text column). */
+export const CAPTION_BOX_WIDTH_PCT = 84;
+
+/**
+ * Left and right insets, in % of the frame width, for a caption box
+ * CAPTION_BOX_WIDTH_PCT wide centred on the profile's horizontal centre
+ * (0.493 in v1.json → 7.3% / 8.7%). The preview reads the same profile
+ * value as the Lambda render, so a profile change moves both together.
+ */
+export function captionBoxInsets(horizontalCenterPctOfWidth: number, widthPct = CAPTION_BOX_WIDTH_PCT): { left: number; right: number } {
+  const centre = horizontalCenterPctOfWidth * 100;
+  const half = widthPct / 2;
+  const round = (value: number) => Math.round(value * 1000) / 1000;
+  return { left: round(centre - half), right: round(100 - centre - half) };
+}

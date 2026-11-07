@@ -246,19 +246,6 @@ export function LabLineup({
               {open === row.artistId ? (
                 <EditRow row={row} artist={artist} adAccountId={adAccountId} busy={busy} onSave={onSave} />
               ) : null}
-              {artist && artist.igCandidates.length > 0 ? (
-                <ul className="mt-2 space-y-1">
-                  {artist.igCandidates.map((clip) => (
-                    <li key={clip.igMediaId}>
-                      {clip.permalink ? <a href={clip.permalink}>{clip.postedAt || clip.permalink}</a> : (clip.postedAt || "undated")}
-                      {` · ${clip.aspect || "aspect unknown"} · ${clip.likes ?? "likes hidden"} likes · ${clip.comments ?? 0} comments`}
-                      {!clip.hasFile && clip.status === "candidate" ? (
-                        <Button type="button" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
             </li>
           );
         })}
@@ -269,7 +256,7 @@ export function LabLineup({
 
 function Rights({ row, busy, onSave }: { row: LabLineupRow; busy: boolean; onSave: Save }) {
   const when = row.clearedAt ? clearedOn(row.clearedAt) : null;
-  const clear = showClearForArtistChannels(row) && artistPrimaryAction(row) !== "clear";
+  const clear = showClearForArtistChannels(row);
   return (
     <p title={row.rightsNote || undefined}>
       {row.clearedAt ? (
@@ -303,25 +290,24 @@ function RowAction({
 }) {
   const action = artistPrimaryAction(row);
   if (action === "add_instagram") return <Button type="button" disabled={busy} onClick={onEdit}>Add Instagram</Button>;
-  if (action === "clear") {
-    return <Button type="button" disabled={busy} onClick={() => onSave({ action: "clearLibrary", libraryArtistId: row.artistId, name: row.name, cleared: true })}>Clear for artist channels</Button>;
-  }
-  if (action === "find_clips") {
-    return (
-      <Button
-        type="button"
-        disabled={busy || !artist}
-        onClick={async () => {
-          if (!artist) return;
-          await fetch(`/api/creative-lab/artists/${artist.id}/find-clips`, { method: "POST" });
-          onFound();
-        }}
-      >
-        Find clips
-      </Button>
-    );
-  }
-  return null;
+  return (
+    <Button
+      type="button"
+      disabled={busy}
+      onClick={async () => {
+        let labId = artist?.id ?? null;
+        if (!labId) {
+          const made = await onSave({ action: "labArtist", libraryArtistId: row.artistId, name: row.name });
+          labId = made?.ok ? String(made.json.artistId ?? "") || null : null;
+        }
+        if (!labId) return;
+        await fetch(`/api/creative-lab/artists/${labId}/find-clips`, { method: "POST" });
+        onFound();
+      }}
+    >
+      Find clips
+    </Button>
+  );
 }
 
 function ArtistCard({ row }: { row: LabLineupRow }) {

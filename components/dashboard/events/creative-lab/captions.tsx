@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
-import { captionCopy, ctaForStage, feedHeadline, feedPostClip, metricUnit, money, styleLabel, verdictChip } from "@/lib/creative-lab/surface";
+import { captionCopy, ctaForStage, feedHeadline, feedPostClip, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
@@ -78,7 +78,6 @@ export function LabCaptions({
           <FeedPost key={caption.id} lab={lab} caption={caption} page={page} stage={stageDefault} busy={busy} onSave={onSave} />
         ))}
       </div>
-      <Ran lab={lab} />
     </section>
   );
 }
@@ -197,7 +196,7 @@ function FeedPost({
           No primary text yet — ✎ to add
         </button>
       )}
-      <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} inS={clip?.inS ?? 0} outS={clip?.outS ?? null} />
+      <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} inS={clip?.inS ?? 0} outS={clip?.outS ?? null} />
       <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2">
         <p className="min-w-0 font-medium">{headline}</p>
         <span className="inline-flex min-w-28 shrink-0 items-center justify-center whitespace-nowrap rounded bg-foreground px-3 py-1.5 text-background">{ctaForStage(stage)}</span>
@@ -236,30 +235,5 @@ function FeedPost({
         </div>
       )}
     </article>
-  );
-}
-
-function Ran({ lab }: { lab: CreativeLabCardData }) {
-  const groups = lab.rounds.map((round) => ({
-    round,
-    rows: round.ads.map((ad) => ({ ad, caption: lab.captions.find((caption) => caption.id === ad.captionId) })).filter((row) => row.caption),
-  })).filter((group) => group.rows.length > 0);
-  if (groups.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      {groups.map((group) => (
-        <div key={group.round.id}>
-          <p>Ran in round {group.round.roundNo}</p>
-          {group.rows.map((row) => {
-            const chip = verdictChip(row.ad.verdict);
-            return (
-              <p key={row.ad.id} className="text-sm">
-                {captionCopy(row.caption!.lines).split("\n")[0]} · {money(row.ad.cost)} / {metricUnit(row.ad.metric)} · {chip.label}
-              </p>
-            );
-          })}
-        </div>
-      ))}
-    </div>
   );
 }
