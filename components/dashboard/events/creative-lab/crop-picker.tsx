@@ -42,7 +42,7 @@ export function CropPicker({
           window.addEventListener("pointerup", up);
         }}
       >
-        {src ? <video src={src} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : null}
+        {src ? <video src={src} muted playsInline preload="metadata" className="h-full w-full object-cover" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.5; }} /> : null}
         <div className="pointer-events-none absolute inset-y-0 border-2 border-white" style={{ left, width: "31.6%" }} />
       </div>
       <div className="flex gap-1 overflow-x-auto">

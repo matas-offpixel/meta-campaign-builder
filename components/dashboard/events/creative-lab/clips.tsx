@@ -211,7 +211,7 @@ function ClipFrame({ src, poster, hasFile, name, inS, outS }: { src: string | nu
 function Poster({ url }: { url: string | null }) {
   if (!url) return <div className="aspect-[9/16] w-full rounded bg-foreground/80" />;
   if (/\.(webm|mp4)(\?|$)/i.test(url)) {
-    return <video src={url} muted playsInline preload="metadata" className="aspect-[9/16] w-full rounded object-cover" />;
+    return <video src={url} muted playsInline preload="metadata" className="aspect-[9/16] w-full rounded object-cover" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.5; }} />;
   }
   return <img src={url} alt="" className="aspect-[9/16] w-full rounded object-cover" />;
 }
