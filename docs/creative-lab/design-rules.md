@@ -47,6 +47,10 @@ Point at these by name. Each line is what it shows at rest, its one action, and 
 | **Brand kit** | the artwork with editable text dashed; text slots (name · current text · font · max characters); locked layers as chips; fonts uploaded / missing | `Upload font` on a missing-font slot, `Replace` for the file | artwork on top, slots below |
 | **Variant proposal** | asset type chips (dashed until the ticket data allows them) · the ticket number that makes it true · before → after copy · fit meter · original + 4:5 / 9:16 / 1:1 previews | `Approve` (`Edit the copy` secondary); no Approve while a slot overflows | proposal on top, formats swipe |
 | **Fit meter** | bar against the slot's limit (solid line); olive fits, brick over; "17 of 18" | none | same |
+| **Insights rail** | Collapsed tab (34 px, "Insights ‹"). Open: header (title, context line, scope + stage toggles, lock line), then insight sections | none (the tab toggles) | header pill → 86% bottom sheet |
+| **Insight section** | kicker + scope used · result sentence · ≤4 bars (cost per result, baseline tick, olive / ink / brick by shrunk index), each label above its bar because the rail is narrow at every width · thin rows: no bar, muted sentence · confidence line · optional fallback line (ochre) · optional 🔒 line | `Use {angle}` only when the winner maps to the generator | same, inside the sheet |
+| **Cluster row** | name · £ / signup · % vs its clients' usual · funded ad sets · clients · confidence | `Add cluster` | same, meta line shortened |
+| **Creative thumb row** | 4 thumbs (4:5), each with £ / result and % vs the client's usual | tap = open the ad | 2 across, swipe |
 
 ## How to use this in a prompt
 

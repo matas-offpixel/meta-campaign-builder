@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
 import { CanvasAdjust } from "@/components/plan/canvas-adjust";
@@ -161,6 +161,7 @@ interface MirrorFacts {
 export function PlanWorkspace({
   initialPlan,
   events,
+  headerActions,
   tiktokAdvertiserId,
   googleAdsAccounts = [],
   isNew = false,
@@ -183,6 +184,8 @@ export function PlanWorkspace({
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
+  /** Rendered in the canvas header beside share; the operator page passes the Insights pill. */
+  headerActions?: ReactNode;
   tiktokAdvertiserId?: string | null;
   googleAdsAccounts?: GoogleSearchWizardContext["googleAdsAccounts"];
   isNew?: boolean;
@@ -1189,6 +1192,7 @@ export function PlanWorkspace({
       <div className="space-y-8">
       <MmlSection section={MML_SECTION.event} numbered={numbered}>
         <CanvasHeader
+          actions={headerActions}
           name={headerName}
           planTitle={plan.name}
           clientName={selectedEvent?.clientName ?? null}

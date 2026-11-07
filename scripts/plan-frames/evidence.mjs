@@ -9,6 +9,8 @@ const STATUS_WORD = {
   missing: "no baseline",
   diff: "over tolerance",
   resized: "size changed",
+  guard: "no rail mounted",
+  leak: "RAIL MOUNTED on a client surface",
 };
 
 /**
@@ -22,7 +24,9 @@ export function evidenceIndex(rows, meta) {
     sha: meta.sha,
     tolerancePct: meta.tolerance * 100,
     shots: rows.map((row) => ({
-      file: row.shot,
+      file: row.shot ?? null,
+      path: row.path ?? null,
+      landed: row.landed ?? null,
       frame: row.frame,
       width: row.width,
       status: row.status,
@@ -51,7 +55,8 @@ export function evidenceIndex(rows, meta) {
       let extra = "";
       if (row.status === "diff") extra = ` ${row.diffPct}% — \`${row.diff.dir}/\``;
       if (row.status === "resized") extra = ` ${row.diff.expected} → ${row.diff.actual} — \`${row.diff.dir}/\``;
-      return `| \`${row.shot}\` | ${row.frame} | ${row.width} | ${word}${extra} |`;
+      if (row.status === "guard" || row.status === "leak") extra = ` ${row.path} → ${row.landed}`;
+      return `| \`${row.shot ?? row.id}\` | ${row.frame} | ${row.width} | ${word}${extra} |`;
     }),
     "",
   ];

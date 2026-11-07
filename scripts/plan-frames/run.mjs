@@ -32,6 +32,7 @@ import { PNG } from "pngjs";
 import { classifyShot, missingBaselineLine } from "./baseline.mjs";
 import { evidenceIndex } from "./evidence.mjs";
 import { LAB_SHOTS } from "./lab-shots.mjs";
+import { RAIL_GUARD_PATHS, RAIL_SHOTS } from "./rail-shots.mjs";
 
 const PLAYWRIGHT_PIN = "1.63.0";
 const require = createRequire(import.meta.url);
@@ -65,7 +66,8 @@ const ONLY = (() => {
   const at = process.argv.indexOf("--only");
   return at >= 0 ? process.argv[at + 1] ?? "" : "";
 })();
-const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
+const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
+const RUN_GUARD = !ONLY || "IR0".startsWith(ONLY);
 
 function shotFile(id) {
   return path.join(OUT, `${id}.png`);
@@ -284,6 +286,30 @@ async function main() {
           );
         } else {
           console.log(`ok ${shot.id}`);
+        }
+      }
+      // IR0 (R3): the rail never mounts on a client surface. Whatever these
+      // routes render without a database (a redirect, a 404, an error
+      // page), their layouts are the client ones, and no rail element may
+      // be in the DOM.
+      if (RUN_GUARD) {
+        for (const guardPath of RAIL_GUARD_PATHS) {
+          const id = `IR0-${guardPath.split("/")[1]}`;
+          console.log(`guard ${id} ${guardPath}`);
+          const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
+          await page.goto(`${BASE}${guardPath}`, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => null);
+          await page.waitForTimeout(750);
+          const count = await page.evaluate(() => document.querySelectorAll("[data-insights-rail], [data-insights-pill]").length);
+          const landed = page.url().replace(BASE, "");
+          await page.close();
+          const leak = count > 0;
+          results.push({ id, frame: "IR0", width: 1280, shot: null, path: guardPath, landed, status: leak ? "leak" : "guard", diffPct: null, diff: null });
+          if (leak) {
+            failed = true;
+            console.error(`LEAK ${id}: ${count} rail element(s) on ${guardPath} (landed on ${landed})`);
+          } else {
+            console.log(`ok ${id} (landed on ${landed})`);
+          }
         }
       }
     } finally {

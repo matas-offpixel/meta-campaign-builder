@@ -10,6 +10,7 @@ write killswitch unset. The loop that uses these renders is in
 |---|---|---|---|
 | L, A, J, E | MML plan v2 | 1176 (L3, J2 also 768) | `fixtures.ts`, `builders.ts` |
 | CL | Creative Lab card on the event page | 1280 and 393 | `lab-fixtures.ts` |
+| IR | Insights rail beside the event page and the MML canvas | per frame (record) | `rail-fixtures.ts` |
 
 ## Evidence pack
 
@@ -77,3 +78,30 @@ Clip tiles and the caption overlay rest on their poster frame (0.5 s in,
 or in_s). The seek runs in `onLoadedMetadata` and again in a mount effect
 when metadata arrived before hydration (`use-clip-video.ts`). The runner
 only watches: a visible video still at 0 s fails the shot.
+
+## IR series
+
+The Insights rail (`docs/design-record/2026-11-07-insights-rail.html`) beside
+a fixture page, with its data given instead of fetched. Every figure is a
+literal tag_performance-shaped row in `rail-fixtures.ts`, and
+`lib/insights-rail/model` builds the sections from them, so the frames show
+what the model says and `lib/plan/__tests__/rail-frames.test.ts` asserts
+the same figures. Launches off, no Supabase, no Meta.
+
+| Id | Widths | State | What to check by hand |
+|---|---|---|---|
+| IR0 | — | DOM guard | The runner opens `/admin/fixture-client`, `/share/report/fixture-token` and `/l/fixture-client/fixture-event` and counts `[data-insights-rail], [data-insights-pill]`: 0 on each, whatever the page renders. The evidence index lists where each landed |
+| IR1 | 1280 | Event page, rail collapsed | A 34 px tab reading "Insights ‹" down the right edge; the page keeps its width; Approve stays visible |
+| IR2 | 1280, 393 | Puzzle on sale → Ticket sale; client thin | Caption angle, Hook and Visual format all fall back: "Puzzle has no ticket sales attributed to its ads in the last 90 days. Showing all clients." and "🔒 Across clients · Matas only". Angle: "Urgency / scarcity costs 25% less than usual." £34.92 25% under, £45.13 4% under, £47.36 1% over, £51.91 11% over (baseline £46.80 / purchase); "strong · 255+ funded ads · 90 days · all clients · £ / purchase"; Use Scarcity + "needs the ticket count that makes it true". Hook: "Social proof costs 54% less than usual." £21.47, £38.13, £42.22, £45.38, "+5 more". Visual: "Nostalgia costs 38% less than usual." £29.09, £41.38, £44.57, £62.90 34% over (brick), "+5 more". In the Lab last: "No round judged yet. Approve a caption and propose round 1." At 393 the same as a sheet at 86% with a scrim and ✕ |
+| IR3 | 1280 | Rail only · Puzzle, Signup | Vertical disabled with "Vertical is off until the music rollup stops including other verticals." Angle: "No clear winner between Event announcement and Artist / headliner." £4.16 level, £4.17 level, £4.60 11% over (brick); "ok · 25+ funded ads · 90 days · this client · £ / signup". Hook: "No clear winner between FOMO and Curiosity." £4.16 level, £4.30 3% over, then "Urgency / Not enough data yet: 2 funded ads"; "strong · 49+ funded ads". Visual: "Headline costs 6% less than usual." £3.90 6% under (olive), £4.70 13% over (brick). No Use action |
+| IR4 | 1280, 393 | MML canvas (plan fixture A1), campaign context | Context line "New Meta campaign · Puzzle · Signup · Leads". Best lines: "Lines are scored overnight. None are scored yet, so the first examples arrive after tonight's run." Proven elsewhere: "No line is proven yet. Proven lines appear here as chips you can drop into the copy." Then Caption angle (no clear winner), Visual format (Headline 6% under), Asset type: "Lifestyle image with text costs 7% less than usual." £3.85 7% under, £4.59 10% over, "UGC / Not enough data yet: 0 funded ads". No Use action off the event page. The Meta drawer itself is not in the frame: it loads its draft from the database |
+| IR6 | 1280 | Rail only · CL6 Lab judged | "In the Lab · round 1 · judged" first: "Lineup captions beat POV by 33% on Off Pixel Fixtures." Lineup £0.50 · 40 signups (olive), POV £0.75 · 20 signups (brick); "Ada North #1 × Lineup" Winner; "round 1 · 60 signups · £35 spent"; Use Lineup |
+| IR7 | 393 | Event page, collapsed | An "Insights ‹" pill in the header row beside the page's actions; no floating button; Approve visible |
+
+The record's figures differ from the model's in one place: IR3's and IR4's
+asset type reads 7% under (3.85 ÷ 4.16 = 0.9255), where the record rounded
+to 8%. The record allows ±1 point.
+
+Placeholders the record marks (top creatives, "Meta spent on x of y ads")
+are omitted, not drawn (H10). Build 2 (the audience builder's clusters and
+the TikTok drawer) is not here.

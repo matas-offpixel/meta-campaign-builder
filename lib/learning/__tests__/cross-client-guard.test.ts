@@ -64,9 +64,20 @@ function reachable(): Map<string, string> {
   return seen;
 }
 
-/** The Google drawer field key `ad_copy` is a section alias, not the table. */
+/**
+ * The Google drawer field key `ad_copy` is a section alias, not the table.
+ * The Insights rail (components/insights, lib/insights) reads through the
+ * cross-client module, so it is operator-only too (R3).
+ */
 function namesCopyLibrary(src: string): boolean {
-  return /learning\/cross-client/.test(src) || /\bcopy_performance\b/.test(src) || /(["'`])ad_copy\1/.test(src);
+  return (
+    /learning\/cross-client/.test(src) ||
+    /\bcopy_performance\b/.test(src) ||
+    /(["'`])ad_copy\1/.test(src) ||
+    /components\/insights-rail\//.test(src) ||
+    /lib\/insights-rail\//.test(src) ||
+    /api\/insights-rail/.test(src)
+  );
 }
 
 describe("cross-client copy guard", () => {
@@ -76,6 +87,25 @@ describe("cross-client copy guard", () => {
       if (namesCopyLibrary(src)) hits.push(file);
     }
     assert.deepEqual(hits, []);
+  });
+
+  it("the Insights rail is mounted by the operator layout only (R3)", () => {
+    const mounts = sourceFiles().filter((file) => {
+      if (file.startsWith("components/insights-rail/") || file.startsWith("scripts/plan-frames/") || file.includes("__tests__")) return false;
+      let src: string;
+      try {
+        src = readFileSync(file, "utf8");
+      } catch {
+        return false;
+      }
+      return /<InsightsRail\b/.test(src);
+    });
+    assert.deepEqual(mounts, ["app/(dashboard)/layout.tsx"]);
+    const layouts = sourceFiles().filter((file) => /^app\/(admin|share|l|c|j)\/.*layout\.tsx$/.test(file));
+    for (const file of layouts) {
+      const src = readFileSync(file, "utf8");
+      assert.doesNotMatch(src, /insights/i, file);
+    }
   });
 
   it("every importer of lib/learning/cross-client/ calls requireOperator(", () => {
