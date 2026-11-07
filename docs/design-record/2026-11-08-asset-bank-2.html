@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Asset bank (M6) — issue 2 — releases with a state, the claim ladder, the vendor read — 8 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.mono{font-family:var(--mono)}.muted{color:var(--ink-3)}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.sm{height:24px;padding:0 9px;font-size:11.5px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:var(--olive)}
+.chip.warn{color:var(--ochre);border-color:var(--ochre)}
+.chip.bad{color:var(--brick);border-color:var(--brick)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.chip.ink{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+/* app shell */
+.app{display:flex;height:100%}
+.nav{width:172px;flex:none;background:#e3d1bf;border-right:1px solid var(--border);padding:14px 12px;font-size:12px;color:var(--ink-2)}
+.nav b{display:block;font:700 12px var(--sans);color:var(--ink);letter-spacing:.04em;margin-bottom:6px}
+.nav .it{padding:4px 8px;border-radius:5px;margin:1px 0}.nav .it.on{background:var(--muted);color:var(--ink)}
+.main{flex:1;min-width:0;padding:16px 22px}
+.ttl{font:700 19px/1.1 var(--sans);letter-spacing:.03em;text-transform:uppercase}
+.sub{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.secrow{display:flex;justify-content:space-between;align-items:center}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin:0 0 10px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.sec-h h3{margin:0;font-size:13px;font-weight:600}
+.big{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.two{display:grid;grid-template-columns:1.25fr 1fr;gap:12px}
+/* release timeline */
+.tl{position:relative;padding:0 0 4px}
+.tl .axis{height:2px;background:var(--border-strong);margin:30px 0 0;position:relative}
+.tl .axis i{position:absolute;top:-4px;width:10px;height:10px;border-radius:50%;background:var(--ink);transform:translateX(-50%)}
+.tl .axis i.pay{background:transparent;border:2px solid var(--ink);width:12px;height:12px;top:-5px}
+.tl .axis i.now{background:var(--ochre)}
+.tl .axis em{position:absolute;top:-28px;transform:translateX(-50%);font:600 10.5px var(--sans);color:var(--ink-2);white-space:nowrap;font-style:normal}
+.tl .axis em.lo{top:10px}
+.rel{display:grid;grid-template-columns:150px 1fr 150px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:12px}
+.rel:first-child{border-top:0}
+.rel .nm{font-weight:600}.rel .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:11px}
+.rel .when{font:11px var(--mono);color:var(--ink-2)}
+.rel .when b{color:var(--ink)}
+.rel .st{text-align:right}
+/* sold bars */
+.sb{display:grid;grid-template-columns:150px 1fr 120px;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--border);font-size:12px}
+.sb:first-child{border-top:0}
+.sb .nm{font-weight:600}.sb .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:11px}
+.track{height:22px;border-radius:6px;background:var(--muted);position:relative}
+.track i{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:var(--ink-2)}
+.track i.full{background:var(--olive)}
+.track i.g{background:var(--border-strong)}
+.track .hd{position:absolute;top:-5px;width:14px;height:32px;border-radius:5px;background:var(--sand);border:2px solid var(--ink);transform:translateX(-50%);box-shadow:0 1px 3px rgba(30,24,16,.25)}
+.track .lbl{position:absolute;right:8px;top:0;bottom:0;display:flex;align-items:center;font:600 11px var(--mono);color:var(--ink)}
+.track .tick{position:absolute;top:-3px;bottom:-3px;border-left:1.5px dashed var(--ink-3)}
+.sb .v{font:11px var(--mono);text-align:right;color:var(--ink-2)}.sb .v b{display:block;font-size:13px;color:var(--ink)}
+.src{font:10.5px var(--mono);color:var(--ink-3);margin-top:8px}
+/* approval */
+.steps{display:flex;gap:0;font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.steps span{padding:4px 10px;border:1px solid var(--border-strong);color:var(--ink-3)}
+.steps span:first-child{border-radius:99px 0 0 99px}.steps span:last-child{border-radius:0 99px 99px 0}
+.steps span.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.steps span.done{color:var(--olive)}
+.appr{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center;background:var(--edit);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px}
+.appr.held{border-color:var(--ochre)}
+.appr.locked{opacity:.78}
+.ph9{width:120px;aspect-ratio:9/16;border-radius:12px;overflow:hidden;position:relative;background:linear-gradient(160deg,#3a2a24,#8a5a3a);border:3px solid #1e1810}
+.ph9 .cap{position:absolute;left:8px;right:8px;top:30%;color:#fff;font:700 10px/1.25 var(--sans);text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.prog{height:8px;border-radius:4px;background:var(--muted);overflow:hidden;position:relative}.prog i{display:block;height:100%;background:var(--ink)}
+.prog s{position:absolute;top:-2px;bottom:-2px;border-left:1.5px dashed var(--ink-3)}
+.acts{display:flex;gap:8px;flex-direction:column;align-items:stretch}
+/* calendar */
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:11px}
+.cal .d{height:50px;border-radius:5px;background:var(--edit);padding:3px 5px;position:relative}
+.cal .d.pay{outline:2px solid var(--ink)}
+.cal .d.win{background:var(--sand)}
+.cal .d small{display:block;font-size:9.5px;line-height:1.15;margin-top:2px}
+.cal .hd{font:700 9px/1 var(--mono);color:var(--ink-3);text-align:center}
+.pk{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:3px;vertical-align:middle}
+/* board */
+.board{display:grid;grid-template-columns:200px repeat(4,1fr);gap:6px;font-size:11.5px}
+.board .rh{font-weight:600;font-size:12px;align-self:center}
+.board .rh small{display:block;font-weight:400;color:var(--ink-3);font-size:10.5px}
+.board .ch{font:700 9px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);align-self:end}
+.bc{height:64px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:4px;position:relative;font-size:11px;text-align:center;padding:0 6px}
+.bc.ex{background:linear-gradient(160deg,#4a3a2a,#9a7a5a);color:#fff}
+.bc.ap::after{content:"✓";position:absolute;right:4px;top:3px;width:16px;height:16px;border-radius:50%;background:var(--olive);color:#fff;font:700 10px/16px var(--sans);text-align:center}
+.bc.miss{border:1px dashed var(--border-strong);color:var(--ink-3)}
+.bc.na{background:transparent;color:var(--ink-3);opacity:.5}
+.bc.wait{background:var(--edit);border:1px solid var(--ochre);color:var(--ochre)}
+.bc.lock{background:var(--edit);border:1px dashed var(--ink-3);color:var(--ink-3)}
+/* 393 */
+.phone{width:393px;position:relative;background:var(--sand);padding:12px 14px;font-size:12.5px}
+.phone .panel{padding:10px 12px}
+.phone .rel,.phone .sb{grid-template-columns:1fr;gap:4px}
+.phone .rel .st{text-align:left}
+.phone .sb .v{text-align:left}.phone .sb .v b{display:inline;margin-right:6px}
+.phone .board{grid-template-columns:96px repeat(2,1fr)}
+.phone .appr{grid-template-columns:80px 1fr}
+.phone .appr .acts{grid-column:1 / -1;flex-direction:row}
+.phone .ph9{width:80px}
+.inv{font-size:12.5px}
+
+/* issue 2 */
+.stc{display:inline-flex;border:1px solid var(--border-strong);border-radius:99px;overflow:hidden;font:600 10.5px var(--sans);white-space:nowrap}
+.stc span{padding:4px 7px;border-right:1px solid var(--border);color:var(--ink-2);font-size:10px}
+.stc span:last-child{border-right:0}
+.stc span.on{background:var(--ink);color:var(--sand)}
+.stc span.done{color:var(--ink-3)}
+.sr{display:grid;grid-template-columns:118px 1fr 168px;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--border);font-size:12px}
+.sr:first-child{border-top:0}
+.sr .nm{font-weight:600}.sr .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:11px}
+.sr .cnt{font:11px var(--mono);color:var(--ink-2);text-align:right}
+.sr .cnt b{display:block;font-size:12.5px;color:var(--ink)}
+.cntchip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:4px;border:1px dashed var(--border-strong);font:600 10.5px var(--sans);color:var(--ink-3)}
+.lad{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.rg{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:4px;font:600 9.5px var(--sans);white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.rg.done{background:var(--olive);color:#fff;border-color:var(--olive)}
+.rg.next{border-color:var(--ochre);color:var(--ochre);background:var(--edit)}
+.rg.fut{border-style:dashed;color:var(--ink-3)}
+.lad .ar{color:var(--ink-3);font-size:10px}
+.tl .axis .ld{position:absolute;top:22px;transform:none;white-space:nowrap}
+.tl .axis .ld.b{top:48px}
+.tl .axis .ld::before{content:"";position:absolute;left:-6px;top:-10px;width:1px;height:10px;background:var(--border-strong)}
+.cl2{display:grid;grid-template-columns:1fr 24px 1fr;gap:8px 10px;align-items:center;font-size:12px}
+.cl2 .h{font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.cl2 .c{background:var(--edit);border:1px solid var(--border);border-radius:6px;padding:7px 10px}
+.cl2 .c.trig{border-left:3px solid var(--ink-2)}
+.cl2 .c.claim{border-left:3px solid var(--ochre)}
+.cl2 .arr{text-align:center;color:var(--ink-3)}
+.cl2 .c small{display:block;color:var(--ink-3);font-size:10.5px;margin-top:2px}
+.prop{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center;background:var(--edit);border:1px solid var(--ochre);border-radius:10px;padding:12px;margin-bottom:10px}
+.read{font:11px var(--mono);color:var(--ink-2);background:var(--muted);border-radius:6px;padding:7px 9px;margin:6px 0}
+.read b{color:var(--ink)}
+.phone .sr{grid-template-columns:1fr;gap:4px}.phone .sr .cnt{text-align:left}.phone .sr .cnt b{display:inline;margin-right:6px}
+.phone .cl2{grid-template-columns:1fr}.phone .cl2 .arr{display:none}.phone .cl2 .h:nth-child(2){display:none}
+.phone .prop{grid-template-columns:80px 1fr}.phone .prop .acts{grid-column:1 / -1;flex-direction:row}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · ASSET BANK (M6) · 8 NOVEMBER 2026 · ISSUE 2</div>
+<h1>Asset bank — releases with a state, the claim ladder, and the vendor read</h1>
+<p class="lead">Issue 1 (<code>2026-11-08-asset-bank.html</code>, #1107) stands except where this issue corrects it. Four facts from Matas on 7 Nov change how a release is described, how its sold state is entered, what a warning may claim, and where the truth comes from. A1–A5 and H1–H4 are replaced below; A7–A10 (payday, board, 393) and the brand-kit dependency stand. Puzzle's real release dates are used; every price, capacity and count is a placeholder and flagged.</p>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px">
+<li><b>Issue 2 · 8 Nov 2026.</b> A release has a state, not a capacity (A1'). Sold entry is a state per release plus an optional count, one gesture (A3'). Warnings are a ladder per release, drawn on the timeline (A2', A5'). The claim ladder (trigger → claim) replaces truth conditions and is Matas's per-client component (A5', AB5). The vendor read (Mon / Wed / Fri) proposes the next rung; Matas approves or corrects (A4', AB2). Ruling A11 for Matas: how the claim ladder and the caption validator coexist. AB1, AB2, AB4 redrawn; AB3 kept; AB5 new. H1–H4 replaced; H9–H11 added.</li>
+<li><b>Issue 1 · 8 Nov 2026.</b> Release timeline, sold bars, truth conditions, approval cards, payday calendar, board. #1107.</li>
+</ul></div>
+
+<h2>Data note — what changed</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there on 7 Nov</th><th>What it means for issue 2</th></tr>
+<tr><td>Puzzle 4th Birthday releases</td><td>Early bird 21 Oct; 2nd release 29 Oct (community 11:30 / list 12:00); general sale 30 Oct 12:00; 3rd release 6 Nov (11:30 / 12:00). No prices, no capacities.</td><td>The real timeline for the frames. Four releases in 17 days: the release is the push, not the price. Capacity is unknown, so issue 1's sold bars (length = capacity) can't be the control.</td></tr>
+<tr><td>Ticket vendor pages (Skiddle, Ironworks)</td><td>No dashboard access for Matas. Tiers render client-side on the public page. Ops is probing a reader now; nothing is proved.</td><td>The vendor read (A4') is drawn as the primary source but is <b>to be proved</b>. Until it is, the proposal card works from a client message alone, with the same shape (H9).</td></tr>
+<tr><td>Cirqlin landing-page tiers</td><td>Claude reviews them on a Mon / Wed / Fri cadence today, by hand.</td><td>The cadence the automated read copies.</td></tr>
+<tr><td>event_ticket_tiers · tier_channel_sales</td><td>As issue 1: tiers by name with price, sold, available from provider syncs; running totals per channel.</td><td>Where a provider sync exists (Eventbrite, 4theFans), it feeds the release's count and the trigger is a count. Where it doesn't, the trigger is the state.</td></tr>
+<tr><td>caption-facts.ts</td><td>"final" / "last" only when one tier left and it's the highest-priced; "under N" only when remaining &lt; N; "sold out" only when a tier has none.</td><td>Conflicts with the claim ladder, which pushes 90% at an actual 70%. A11 proposes how they coexist; it needs Matas's ruling before H4 is built.</td></tr>
+<tr><td>Payday rules · board · 393 · brand kit</td><td>As issue 1.</td><td>Unchanged. AB3 is kept as issued with the pushes renamed to ladder claims.</td></tr>
+</table>
+
+<h2>A · Rulings (A1'–A5' replace issue 1's A1–A5; A6', A11 new; A7–A10 stand)</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>A1' A release is a name, two times and a state</td><td>A release has: name, community time, list time, and a <b>state</b>: <i>not yet · on sale · selling fast · final X · sold out</i>. Price and capacity are optional and shown only when known; a count is optional and shown only when entered or synced. A release with no community time is public. <code>events.presale_at</code> = the first release's community time and <code>general_sale_at</code> = the general-sale release's list time, both derived, as before.</td></tr>
+<tr><td>A2' The timeline carries the ladder</td><td>Releases draw on one horizontal line with today and the next payday marked. Under each release sits its <b>ladder</b>: the warning claims it has made, is about to make, and may make, as rungs (done · next · later). A release's state and its ladder are the same thing read two ways: the state is the rung it's on. No fixed set of six assets per event; the ladder is per release and per client.</td></tr>
+<tr><td>A3' Sold entry is a state, one gesture</td><td>Matas sets a release's state by tapping its segment: <i>not yet · on sale · selling fast · final X · sold out</i>. That's the whole entry; it saves with the date, his name and the source (vendor page, client message). A count is an optional chip beside it (<i>add a count</i>) that becomes a number when tapped; it never blocks the state. Never a form. The panel's big number is the number of releases on sale or selling fast, not a sold total, unless every release has a count. A state can move backwards (a release reopened) and asks once when it does.</td></tr>
+<tr><td>A4' The vendor read proposes; Matas corrects</td><td>Mon / Wed / Fri at 09:00 the tool reads the event's ticket page and writes what it saw per release (state, and a count or remaining if the page shows one). From that read and the claim ladder it <b>proposes</b> the next rung for each release that has moved, as a proposal card: what was read, what it proposes to push, Approve / Correct. Correct opens the state control inline; a corrected read becomes Matas's entry with his name on it. A client message does the same job by hand: Matas sets the state and the proposal follows. The reader is to be proved (data note); the card is the same either way.</td></tr>
+<tr><td>A5' The claim ladder: trigger → claim</td><td>Warnings are claims, and the ladder says which claim a trigger allows. Two columns. <b>Trigger</b>: what's actually true, from a count (actual sold ÷ capacity when both are known), a remaining figure from the page, or the release state and days on sale when there is no count. <b>Claim</b>: what the asset says. Matas's default ladder: actual 50% → "75% sold"; 60% → "80%"; 70% → "90%"; 80% → "95%"; 90% → "99%" or "final X". With states only: on sale (day 0) → "{release} live / selling fast"; selling fast for 7+ days → "{release} 90% sold out" or "final X {release} tickets" (client's choice); final X → "final X"; sold out → "sold out". Each client has their own ladder, edited as the component in AB5; the default is seeded. A claim never runs above its trigger, and the trigger is recorded on the approval (A6').</td></tr>
+<tr><td>A6' Approve, with the trigger on the card</td><td>Every proposed claim is an approval card: artwork preview, the claim it makes, the trigger that allows it (the read or the entry, with source and time), and when it runs. Approve → Scheduled → Live. A claim whose trigger is not yet met is <b>locked</b> and says what would unlock it. A claim whose trigger moves after approval (a corrected read, a reopened release) goes back to Held with one sentence saying why, and Today gets a row. Nothing runs without Approve.</td></tr>
+<tr><td>A7–A10</td><td>Stand as issued in issue 1: payday window and content-led mid-month (A7), payday exceptions (A8), the board tells the truth about what's missing (A9), 393 (A10). In A7, "Presale live" and "General sale live" become "{release} live" for any release; it still runs at the release time whatever the calendar says.</td></tr>
+<tr><td>A11 The ladder and the caption validator — ruling for Matas</td><td>Proposal: an approved warning is a <b>promoter claim</b> with its trigger recorded. The caption validator (<code>caption-facts.ts</code>) accepts a caption that repeats an approved, live claim's words for that release ("90% sold out", "final 50") while the claim is live. Everything else keeps the strict rule: a caption that says "sold out", "final" or "under N" on its own must be literally true. So the Lab can echo what the warning already says, and can't invent more. The alternative is to loosen the validator to the ladder everywhere, which makes every caption a claim; not proposed. <b>Needs Matas's yes before H4 is built.</b></td></tr>
+</table>
+
+<!-- ===================== AB1 ===================== -->
+<h2>AB1 · Releases with states and ladders, and the state entry (1280 and 393) — redrawn</h2>
+<div class="frame"><figure><figcaption>AB1-1280 · Puzzle 4th Birthday · Sat 7 Nov · 4 releases, real dates</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it on">Events</div><div class="it">Clients</div><div class="it">MML</div></div>
+  <div class="main">
+    <div class="secrow"><div><div class="ttl">Puzzle 4th Birthday</div><div class="sub">Puzzle · on sale · Next payday Friday 27 Nov · 50 days to the event</div></div><span><span class="btn">View client</span> <span class="btn">Edit</span></span></div>
+    <div class="panel" style="margin-top:12px">
+      <div class="sec-h"><h3>Releases</h3><span class="muted" style="font-size:11.5px">Sun 27 Dec · Circuit &amp; Engine Rooms <span class="btn sm" style="margin-left:8px">Edit releases</span></span></div>
+      <div class="tl" style="padding-bottom:56px"><div class="axis">
+        <i style="left:8%"></i><em style="left:8%">Early bird · 21 Oct</em><span class="ld" style="left:8%"><span class="lad"><span class="rg done">live</span><span class="ar">→</span><span class="rg done">sold out</span></span></span>
+        <i style="left:30%"></i><em style="left:30%">2nd release · 29 Oct 11:30 / 12:00</em><span class="ld b" style="left:30%"><span class="lad"><span class="rg done">live</span><span class="ar">→</span><span class="rg done">90% sold out</span><span class="ar">→</span><span class="rg done">sold out</span></span></span>
+        <i style="left:46%"></i><em style="left:46%">General sale · 30 Oct 12:00</em><span class="ld" style="left:46%"><span class="lad"><span class="rg done">live</span><span class="ar">→</span><span class="rg fut">90%</span><span class="ar">→</span><span class="rg fut">final X</span></span></span>
+        <i style="left:62%"></i><em style="left:62%">3rd release · 6 Nov 11:30 / 12:00</em><span class="ld b" style="left:62%"><span class="lad"><span class="rg done">live · selling fast</span><span class="ar">→</span><span class="rg next">90% · next read Mon</span><span class="ar">→</span><span class="rg fut">final X</span></span></span>
+        <i class="now" style="left:66%;top:-7px;width:3px;height:16px;border-radius:2px"></i><em style="left:66%;top:-40px;color:var(--ochre)">Today · 7 Nov</em>
+        <i class="pay" style="left:86%"></i><em style="left:86%">Payday · Fri 27 Nov</em>
+        <i style="left:98%;background:var(--brick)"></i><em style="left:98%">Show · 27 Dec</em>
+      </div></div>
+    </div>
+    <div class="two" style="grid-template-columns:1.7fr 1fr">
+      <div class="panel">
+        <div class="sec-h"><h3>Where each release is</h3><span><span class="big">2</span> <span class="muted" style="font-size:12px">of 4 on sale · 2 sold out</span></span></div>
+        <div class="sr"><div class="nm">Early bird<small>21 Oct</small></div><div class="stc"><span class="done">not yet</span><span class="done">on sale</span><span class="done">selling fast</span><span class="done">final X</span><span class="on">sold out</span></div><div class="cnt"><b>sold out</b>set 28 Oct · client message</div></div>
+        <div class="sr"><div class="nm">2nd release<small>29 Oct · 11:30 / 12:00</small></div><div class="stc"><span class="done">not yet</span><span class="done">on sale</span><span class="done">selling fast</span><span class="done">final X</span><span class="on">sold out</span></div><div class="cnt"><b>sold out</b>set 5 Nov · Skiddle read</div></div>
+        <div class="sr"><div class="nm">General sale<small>30 Oct · 12:00</small></div><div class="stc"><span class="done">not yet</span><span class="on">on sale</span><span>selling fast</span><span>final X</span><span>sold out</span></div><div class="cnt"><b>on sale</b>set 30 Oct · <span class="cntchip">add a count</span></div></div>
+        <div class="sr"><div class="nm">3rd release<small>6 Nov · 11:30 / 12:00</small></div><div class="stc"><span class="done">not yet</span><span class="done">on sale</span><span class="on">selling fast</span><span>final X</span><span>sold out</span></div><div class="cnt"><b>selling fast</b>set 6 Nov · Skiddle read · <span class="cntchip">add a count</span></div></div>
+        <div class="src">tap a state to set it · the read checks Skiddle Mon / Wed / Fri 09:00 · last read Fri 6 Nov 09:00</div>
+      </div>
+      <div class="panel">
+        <div class="sec-h"><h3>Claims</h3><span class="muted" style="font-size:11.5px">1 proposed · 2 later · 3 done</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px">
+          <div style="display:flex;justify-content:space-between"><span>2nd release live · selling fast</span><span class="chip ok">ran 29 Oct</span></div>
+          <div style="display:flex;justify-content:space-between"><span>2nd release 90% sold out</span><span class="chip ok">ran 4 Nov</span></div>
+          <div style="display:flex;justify-content:space-between"><span>3rd release live · selling fast</span><span class="chip ok">ran 6 Nov</span></div>
+          <div style="display:flex;justify-content:space-between"><span>3rd release 90% sold out <span class="muted">· payday window</span></span><span class="chip warn">proposed · Mon read</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Final X · 3rd release</span><span class="chip dash">later · after 90%</span></div>
+          <div style="display:flex;justify-content:space-between"><span>General sale 90% sold out</span><span class="chip dash">later · needs selling fast</span></div>
+        </div>
+        <div class="src">claims come from the ladder (AB5) · a claim never runs above its trigger</div>
+      </div>
+    </div>
+  </div>
+</div></div></figure>
+<figure><figcaption>AB1-393</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="ttl" style="font-size:15px">Puzzle 4th Birthday</div><div class="sub">on sale · payday Fri 27 Nov · 50 days</div>
+  <div class="panel" style="margin-top:10px"><div class="sec-h"><h3>Releases · 4</h3><span class="btn sm">Edit</span></div>
+    <div style="overflow:hidden"><div class="tl" style="width:760px;padding-bottom:78px"><div class="axis">
+      <i style="left:7%"></i><em style="left:7%">Early bird · 21 Oct</em><span class="ld" style="left:7%"><span class="lad"><span class="rg done">sold out</span></span></span>
+      <i style="left:28%"></i><em style="left:28%">2nd · 29 Oct</em><span class="ld b" style="left:28%"><span class="lad"><span class="rg done">90%</span><span class="ar">→</span><span class="rg done">sold out</span></span></span>
+      <i style="left:46%"></i><em style="left:46%">Gen sale · 30 Oct</em><span class="ld" style="left:46%"><span class="lad"><span class="rg done">live</span><span class="ar">→</span><span class="rg fut">90%</span></span></span>
+      <i style="left:64%"></i><em style="left:64%">3rd · 6 Nov</em><span class="ld b" style="left:64%"><span class="lad"><span class="rg done">live</span><span class="ar">→</span><span class="rg next">90%</span></span></span>
+      <i class="now" style="left:69%;top:-7px;width:3px;height:16px;border-radius:2px"></i><em style="left:69%;top:-40px;color:var(--ochre)">Today</em>
+      <i class="pay" style="left:88%"></i><em style="left:88%">Payday 27 Nov</em>
+    </div></div></div><div class="muted" style="font-size:10.5px;margin-top:4px">scrolls sideways →</div></div>
+  <div class="panel"><div class="sec-h"><h3>Where each release is</h3><span><span class="big">2</span> <span class="muted" style="font-size:11px">of 4 on sale</span></span></div>
+    <div class="sr"><div class="nm">General sale <small>30 Oct</small></div><div class="stc"><span class="done">not yet</span><span class="on">on sale</span><span>fast</span><span>final</span><span>out</span></div><div class="cnt"><b>on sale</b>30 Oct · <span class="cntchip">add a count</span></div></div>
+    <div class="sr"><div class="nm">3rd release <small>6 Nov</small></div><div class="stc"><span class="done">not yet</span><span class="done">on sale</span><span class="on">fast</span><span>final</span><span>out</span></div><div class="cnt"><b>selling fast</b>6 Nov · Skiddle</div></div>
+    <div class="src">tap a state · read Mon / Wed / Fri</div></div>
+</div></div></figure></div>
+<p class="lead">The state control is the entry: one tap, saved with date, name and source. The ladder under each release on the timeline is what has been claimed, what's next and what may come; the Claims panel lists the same rungs with their run state. A count is a chip until Matas or a sync fills it; when a count exists the trigger uses it, and the ladder's percentage rungs read against it.</p>
+
+<!-- ===================== AB2 ===================== -->
+<h2>AB2 · The proposal card and the approval card with its trigger (1280 and 393) — redrawn</h2>
+<div class="frame"><figure><figcaption>AB2-1280 · a vendor read proposing a rung · an approved claim · a locked one · one back to held</figcaption>
+<div class="vp" style="width:1280px;padding:20px">
+<div style="margin-bottom:10px" class="steps"><span class="done">✓ Read</span><span class="on">Propose</span><span>Approve</span><span>Scheduled</span><span>Live</span></div>
+<div class="prop">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap">2ND RELEASE<br>90% SOLD OUT</span></div>
+  <div>
+    <b style="font-size:14px">Proposes: push "2nd release 90% sold out"</b> <span class="chip warn" style="margin-left:6px">proposed</span>
+    <div class="read"><b>Skiddle read Wed 4 Nov 09:00:</b> 2nd release selling fast (on sale 6 days) · 3rd release not yet · early bird sold out</div>
+    <div style="font-size:12.5px"><span class="k">trigger</span> selling fast for 6 days, no count on the page &nbsp;<span class="k">→ claim</span> "90% sold out" (Puzzle's ladder: selling fast 5+ days → 90%)</div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Runs Thu 5 – Fri 6 Nov, before the 3rd release opens. Formats: 9:16 video, 4:5, 1:1. From the designer's PSD, "release" slot.</p>
+  </div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Correct</button></div>
+</div>
+<div class="appr held">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#3a4a2a)"><span class="cap">3RD RELEASE<br>LIVE NOW</span></div>
+  <div>
+    <b style="font-size:14px">3rd release live · selling fast</b> <span class="chip ok" style="margin-left:6px">approved · ran 6 Nov 12:00</span>
+    <div style="font-size:12.5px;margin-top:6px"><span class="k">trigger</span> 3rd release list time 6 Nov 12:00 passed, state on sale (Skiddle read Fri 6 Nov 09:00 showed it not yet; set by Matas at 12:02) &nbsp;<span class="k">→ claim</span> "live · selling fast"</div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Ran at the release time whatever the calendar said (A7).</p>
+  </div>
+  <div class="acts"><span class="chip ok">Live</span></div>
+</div>
+<div class="appr locked">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#4a4a4a)"><span class="cap">FINAL 50<br>3RD RELEASE</span></div>
+  <div>
+    <b style="font-size:14px">Final X · 3rd release</b> <span class="chip dash" style="margin-left:6px">locked</span>
+    <div style="font-size:12.5px;margin-top:6px"><span class="k">trigger</span> needs the release at <i>final X</i>, or a count at 90%+ &nbsp;<span class="k">today</span> selling fast, day 1, no count</div>
+    <p style="font-size:12.5px;margin:8px 0 0">Can't run yet. It comes back as a proposal when a read or an entry gets there; the X is the remaining figure from the page or the count, never typed.</p>
+  </div>
+  <div class="acts"><span class="chip dash">Locked</span></div>
+</div>
+<div class="appr" style="border-color:var(--brick)">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap">GEN SALE<br>90% SOLD OUT</span></div>
+  <div>
+    <b style="font-size:14px">General sale 90% sold out</b> <span class="chip bad" style="margin-left:6px">back to held</span>
+    <p style="font-size:12.5px;margin:6px 0 0">Approved on 5 Nov from a read that showed general sale selling fast. Today's read shows it on sale, not selling fast (the 3rd release took the demand). The trigger isn't met any more, so it's held until a read or an entry says selling fast again.</p>
+  </div>
+  <div class="acts"><button class="btn">Correct the read</button><button class="btn">Not now</button></div>
+</div>
+</figure>
+<figure><figcaption>AB2-393</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+<div class="prop">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap" style="font-size:7px">2ND RELEASE<br>90% SOLD OUT</span></div>
+  <div><b>Proposes: 2nd release 90% sold out</b><div class="read" style="font-size:10.5px"><b>Skiddle, Wed 09:00:</b> 2nd release selling fast · 3rd not yet</div><div class="muted" style="font-size:11.5px">selling fast 6 days → 90% · runs Thu–Fri</div></div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Correct</button></div>
+</div>
+<div class="appr locked">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#4a4a4a)"><span class="cap" style="font-size:7px">FINAL X</span></div>
+  <div><b>Final X · 3rd release</b><div class="muted" style="font-size:11.5px;margin-top:4px">needs final X or a count at 90%+ · day 1</div></div>
+  <div class="acts"><span class="chip dash">Locked</span></div>
+</div>
+</div></div></figure></div>
+<p class="lead">The proposal card is Matas's example drawn: the read in mono, the trigger and the claim side by side, Approve or Correct. <b>Correct</b> opens the state control inline on the card; the corrected state is saved as his entry and the proposal recomputes. When the reader isn't proved yet, the card's first line reads <i>Client message, Wed 4 Nov:</i> and the rest is identical (H9). The X in "final X" is always a figure the page or a count supplied; the card never asks him to type one.</p>
+
+<!-- ===================== AB3 (kept) ===================== -->
+<h2>AB3 · Payday calendar — kept from issue 1, pushes renamed to ladder claims</h2>
+<p class="lead">AB3-1280 and AB3-393 stand as issued in #1107, with these label changes only: "Price rise 1 Dec" → "3rd release 90% sold out" (in the payday window), "3rd release live 12:00" stays, "Final 100 · if true" → "Final X · 3rd release · if triggered", "Last day at £26" is removed (no price push). A7 and A8 unchanged. Not redrawn here, so the frame ids and baselines stay.</p>
+
+<!-- ===================== AB4 ===================== -->
+<h2>AB4 · The board — one row per release ladder (1280 and 393) — redrawn</h2>
+<div class="frame"><figure><figcaption>AB4-1280 · Puzzle 4th Birthday · ladder rows replace the six fixed warning rows</figcaption>
+<div class="vp" style="width:1280px;padding:20px"><div class="panel" style="margin:0">
+  <div class="sec-h"><h3>Asset bank</h3><span><span class="mono" style="font-size:12px">15 approved · 1 proposed · 3 locked · 5 missing</span> <button class="btn solid" style="margin-left:8px">Make the missing 5</button></span></div>
+  <div class="board">
+    <span></span><span class="ch">9:16 video</span><span class="ch">4:5 static</span><span class="ch">1:1 static</span><span class="ch">9:16 static</span>
+    <span class="rh">Headliner UGC · promoter voice</span><div class="bc ex ap">Enzo #2</div><div class="bc na">—</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">Headliner UGC · artist voice</span><div class="bc wait">Held · Luke Dean not cleared</div><div class="bc na">—</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">Artist card <small>A–Z, press shot</small></span><div class="bc ex">+ audio 15 s</div><div class="bc ex ap"></div><div class="bc ex ap"></div><div class="bc miss">+ needs Reeshy's press shot</div>
+    <span class="rh">Lineup artwork edit</span><div class="bc miss">+ needs the PSD</div><div class="bc ex ap"></div><div class="bc ex ap"></div><div class="bc ex"></div>
+    <span class="rh">2nd release <small>sold out · ladder done</small></span><div class="bc ex ap">90% sold out</div><div class="bc ex ap">90% sold out</div><div class="bc ex ap">live</div><div class="bc na">—</div>
+    <span class="rh">3rd release · 90% sold out <small>proposed · Mon read</small></span><div class="bc wait">Proposed · approve</div><div class="bc wait">Proposed · approve</div><div class="bc miss">+ needs the PSD "release" slot</div><div class="bc na">—</div>
+    <span class="rh">3rd release · final X <small>needs final X or 90%+ count</small></span><div class="bc lock">Locked · day 1</div><div class="bc lock">Locked</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">General sale · 90% <small>needs selling fast</small></span><div class="bc lock">Locked · on sale, not fast</div><div class="bc na">—</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">Client promo / experience</span><div class="bc ex ap">Venue walk-through</div><div class="bc ex ap"></div><div class="bc miss">+ needs client's edit</div><div class="bc na">—</div>
+  </div>
+  <p class="muted" style="font-size:11.5px;margin:10px 0 0">A ladder row per release that has a rung to make. Proposed = the read or an entry met the trigger and the card is waiting (ochre). Locked = trigger not met, with what would meet it (dashed). + needs = can't be made until the named thing arrives. A finished ladder (2nd release) stays as its approved cells.</p>
+</div></figure>
+<figure><figcaption>AB4-393 · two formats, swipe</figcaption>
+<div class="vp" style="width:393px"><div class="phone"><div class="panel">
+  <div class="sec-h"><h3>Asset bank</h3></div>
+  <p class="mono" style="font-size:12px;margin:0 0 10px">15 ✓ · 1 proposed · 3 locked · 5 missing</p>
+  <div class="board">
+    <span></span><span class="ch">9:16 video</span><span class="ch">4:5</span>
+    <span class="rh">UGC · promoter</span><div class="bc ex ap"></div><div class="bc na">—</div>
+    <span class="rh">Lineup edit</span><div class="bc miss">+ PSD</div><div class="bc ex ap"></div>
+    <span class="rh">3rd · 90%</span><div class="bc wait">Proposed</div><div class="bc wait">Proposed</div>
+    <span class="rh">3rd · final X</span><div class="bc lock">Locked</div><div class="bc lock">Locked</div>
+  </div>
+  <div class="muted" style="font-size:10.5px;margin-top:6px">swipe for 1:1 and 9:16 static →</div>
+</div></div></figure></div>
+
+<!-- ===================== AB5 ===================== -->
+<h2>AB5 · The claim ladder — trigger → claim, per client (1280 and 393) — new</h2>
+<div class="frame"><figure><figcaption>AB5-1280 · Puzzle's ladder, on the client page · Ticketing tab</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav" style="width:150px"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it on">Clients</div><div class="it">Events</div></div>
+  <div class="main">
+    <div class="secrow"><div><div class="ttl">Puzzle</div><div class="sub">promoter · music · Southampton</div></div><span class="btn">Edit</span></div>
+    <div class="tabs" style="display:flex;gap:18px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--border-strong);margin:10px 0 12px"><span>Overview</span><span>Events 5</span><span style="color:var(--ink);border-bottom:2px solid var(--ink);padding-bottom:6px">Ticketing</span><span>D2C</span><span>Campaigns</span></div>
+    <div class="two" style="grid-template-columns:1.4fr 1fr">
+      <div class="panel">
+        <div class="sec-h"><h3>Claim ladder</h3><span class="muted" style="font-size:11.5px">what a warning may say, by what's true · Puzzle's own · <span class="btn sm" style="margin-left:6px">Reset to default</span></span></div>
+        <div class="cl2">
+          <div class="h">Trigger · what's true</div><div></div><div class="h">Claim · what the asset says</div>
+          <div class="c trig">Release list time passed · state on sale<small>from the release time, or a read / entry</small></div><div class="arr">→</div><div class="c claim">"{release} live · selling fast"</div>
+          <div class="c trig">Selling fast for 5+ days, no count<small>Puzzle: 5 days (default 7)</small></div><div class="arr">→</div><div class="c claim">"{release} 90% sold out"<small>Puzzle prefers the % line; "final X" is the other option</small></div>
+          <div class="c trig">Actual 50% sold<small>when a count and a capacity exist</small></div><div class="arr">→</div><div class="c claim">"75% sold"</div>
+          <div class="c trig">Actual 60%</div><div class="arr">→</div><div class="c claim">"80% sold"</div>
+          <div class="c trig">Actual 70%</div><div class="arr">→</div><div class="c claim">"90% sold out"</div>
+          <div class="c trig">Actual 80%</div><div class="arr">→</div><div class="c claim">"95% sold"</div>
+          <div class="c trig">Actual 90% · or state final X · or the page shows remaining</div><div class="arr">→</div><div class="c claim">"99%" or "final X"<small>X = the remaining figure from the page or the count, never typed</small></div>
+          <div class="c trig">State sold out</div><div class="arr">→</div><div class="c claim">"sold out"</div>
+        </div>
+        <div class="src">edit a cell to change Puzzle's ladder · every approved claim records which rung allowed it · the default is Matas's ladder, seeded for new clients</div>
+      </div>
+      <div class="panel">
+        <div class="sec-h"><h3>How Puzzle's warnings run</h3></div>
+        <div style="font-size:12.5px;line-height:1.5">
+          <div><b>Read</b> Skiddle · Mon / Wed / Fri 09:00 <span class="chip dash">reader to be proved</span></div>
+          <div style="margin-top:6px"><b>Fallback</b> client message → Matas sets the state</div>
+          <div style="margin-top:6px"><b>Timing</b> payday window for % and final X claims; "{release} live" at the release time</div>
+          <div style="margin-top:6px"><b>Formats</b> 9:16 video · 4:5 · 1:1, from the PSD "release" slot</div>
+          <div style="margin-top:6px"><b>Approval</b> every claim, every time</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div></figure>
+<figure><figcaption>AB5-393 · the ladder stacks: trigger, then its claim</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="ttl" style="font-size:15px">Puzzle · claim ladder</div><div class="sub">what a warning may say, by what's true</div>
+  <div class="panel" style="margin-top:10px"><div class="cl2">
+    <div class="h">Trigger → claim</div><div></div><div class="h"></div>
+    <div class="c trig">List time passed · on sale</div><div></div><div class="c claim">"{release} live · selling fast"</div>
+    <div class="c trig">Selling fast 5+ days, no count</div><div></div><div class="c claim">"{release} 90% sold out"</div>
+    <div class="c trig">Actual 70%</div><div></div><div class="c claim">"90% sold out"</div>
+    <div class="c trig">Actual 90% · final X · page shows remaining</div><div></div><div class="c claim">"99%" or "final X"</div>
+  </div><div class="src">tap a cell to edit · 4 of 8 rungs shown</div></div>
+</div></div></figure></div>
+<p class="lead">The ladder is one component, drawn once, edited per client on the Ticketing tab. Matas's numbers are the seed; a client's ladder can differ (Puzzle: 5 days to the 90% line, and the % wording over "final X"). The trigger column is what the read or the entry must show; the claim column is what the asset says. The approval card quotes the rung it used, so every claim is traceable to the trigger that allowed it (A6').</p>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Release timeline</td><td>Replace the issue-1 line: a dot per release with name · date above; under each dot its <b>ladder</b> (rungs done · next · later); today and the next payday marked; the show in brick. Price and capacity appear only when known.</td></tr>
+<tr><td>State control</td><td>New (replaces sold bars as the control): a five-segment control per release, <i>not yet · on sale · selling fast · final X · sold out</i>; past segments muted; one tap sets and saves with date, name, source; an <i>add a count</i> chip beside it that becomes a number when tapped. 393: the same control with short labels.</td></tr>
+<tr><td>Sold bars</td><td>Kept only when a count and a capacity exist (provider sync or entered); then they draw under the state control as in issue 1. Never the only control.</td></tr>
+<tr><td>Proposal card</td><td>New: artwork preview · "Proposes: push {claim}" · the read in mono (source, time, what it saw per release) · trigger → claim on one line · when it runs · <code>Approve</code> / <code>Correct</code> (Correct opens the state control inline). 393: preview left, words right, buttons on their own row.</td></tr>
+<tr><td>Approval card</td><td>Add: the trigger line (source, time, rung used) under the claim; states held, locked (with what would unlock it), back to held (brick line saying what moved).</td></tr>
+<tr><td>Claim ladder</td><td>New: two columns, trigger → claim, one row per rung; editable cells; <code>Reset to default</code>. 393: stacked pairs.</td></tr>
+<tr><td>Asset board</td><td>Ticket-warning rows are ladder rows per release ("3rd release · 90% sold out"); cell states as A9 plus <b>proposed</b> (ochre).</td></tr>
+</table>
+
+<h2>Hand-back (H1–H4 replace issue 1's; H5–H8 stand; H9–H11 new)</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance (frame)</th></tr>
+<tr><td>H1' Releases</td><td><code>event_releases</code> (event_id, position, name, community_at, list_at, <b>state</b> enum not_yet · on_sale · selling_fast · final_x · sold_out, state_at, state_source, state_set_by, price?, capacity?, sold?, remaining?). <code>events.presale_at</code> / <code>general_sale_at</code> derived as before. Backfill: two releases per existing event, state from the dates (on_sale once list_at passed).</td><td>migration; 182 events</td><td>AB1-1280: four releases with Puzzle's real dates and the states as drawn</td></tr>
+<tr><td>H2' State entry</td><td>Tapping a segment writes state, state_at, source and user; the count chip writes sold (and <code>tier_channel_sales</code> channel manual when a capacity exists, so the history snapshot still runs). Backwards moves ask once.</td><td>event_releases; tier_channel_sales when a count exists</td><td>AB1: tap "selling fast" on the 3rd release → row updated, the Claims panel re-proposes within the same request</td></tr>
+<tr><td>H3' Freshness</td><td>state_at shown on every row; ochre after 3 days with "update?" when the release is on sale or selling fast; claims that depend on a stale state lock after 7 days (as A4 in issue 1).</td><td>state_at</td><td>fixture with an 8-day-old state: the 90% claim reads "locked · state is 8 days old"</td></tr>
+<tr><td>H4' Claim ladder</td><td><code>client_claim_ladders</code> (client_id, position, trigger_kind count_pct · state_days · state · page_remaining, trigger_value, claim_template, options jsonb); seeded with Matas's default; one module computes "next rung" from (release, ladder, latest read or entry) and is shared with the caption validator per A11 once Matas rules.</td><td>new table; caption-facts.ts</td><td>AB5-1280 rows as drawn; unit test per rung on the fixture releases</td></tr>
+<tr><td>H5–H8</td><td>As issue 1: approval cards (now with the trigger line), timing, board, 393.</td><td>—</td><td>AB2-1280 cards as drawn; AB4 counts 15 · 1 · 3 · 5</td></tr>
+<tr><td>H9 Vendor read</td><td>A cron Mon / Wed / Fri 09:00 per event with a ticket URL: fetch the public page, extract per-release state and any remaining figure, write <code>release_reads</code> (event_id, read_at, source, per-release jsonb, raw snapshot ref). Skiddle and Ironworks render tiers client-side: the reader must run a browser; <b>to be proved by ops</b> before this row is built. The proposal card is built against <code>release_reads</code> rows whether they come from the reader or from a client-message entry (source = message), so it ships first with the entry path.</td><td>new table; reader unproved</td><td>AB2-1280 first card from a read row; the same card from a message row with "Client message, Wed 4 Nov:" as its first line</td></tr>
+<tr><td>H10 Proposals</td><td>After every read or entry, compute the next rung per release; where it changed, create a proposal (state proposed) and a Today row; Approve → the existing approval flow; Correct → inline state control, saves an entry, recomputes.</td><td>ticket_warnings state rows (issue 1 H5) gain a <code>trigger</code> jsonb</td><td>AB2: Correct on the first card changes the state and the card recomputes without a page load</td></tr>
+<tr><td>H11 A11</td><td>Not built until Matas rules. If yes: the validator accepts a caption whose scarcity words match a live approved claim for the same release; else strict.</td><td>caption-facts.ts</td><td>unit test: a caption "90% sold out" passes only while that claim is live for that release</td></tr>
+</table>
+
+<h2>Invented in this issue</h2>
+<ul class="notes">
+<li>Every state, count, read time and claim date on Puzzle's releases except the four release dates. The real states come from the first read or Matas's entry.</li>
+<li>Puzzle's "5 days" threshold and its preference for the % wording; the default "7 days" for selling fast → 90%; the 3-day / 7-day freshness thresholds carried from issue 1.</li>
+<li>The five state names and their order; "fast / final / out" as the 393 short labels.</li>
+<li>The read time (09:00) and the proposal card's wording; the back-to-held sentence.</li>
+<li>The ladder table's seed rows beyond Matas's five percentages (the state-based rows and the sold-out row).</li>
+<li>Chip and rung styles: rung done olive fill, next ochre outline on edit, later dashed ink-3; the proposal card's ochre border; the read block on muted.</li>
+</ul>
+
+<h2>Frames for CI (AB series, issue 2)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>AB1</td><td>1280, 393</td><td>Puzzle's four real release dates; states sold out · sold out · on sale · selling fast; ladders as drawn; no counts</td></tr>
+<tr><td>AB2</td><td>1280, 393</td><td>a read row (Wed 4 Nov 09:00) proposing "2nd release 90% sold out"; an approved live claim; a locked final X; a back-to-held general-sale claim</td></tr>
+<tr><td>AB3</td><td>1280, 393</td><td>as issue 1, labels renamed per the AB3 note</td></tr>
+<tr><td>AB4</td><td>1280, 393</td><td>board counts 15 · 1 · 3 · 5</td></tr>
+<tr><td>AB5</td><td>1280, 393</td><td>Puzzle's ladder, 8 rungs, the 5-day override</td></tr>
+</table>
+
+</div>
+</body>
+</html>
