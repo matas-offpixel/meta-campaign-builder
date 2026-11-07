@@ -204,12 +204,13 @@ export async function runLearningRefresh(input: {
     const scopes = scopeCounts(copyRows);
     const detail = {
       ...scopes,
+      droppedNameOnly: library.droppedNameOnly,
       shown: copyRows.filter((row) => row.scope === "all" && passesCopyMinimum(row)).length,
       proven: copyRows.filter((row) => row.scope === "all" && row.proven).length,
     };
     if (dryRun) return { ok: true, rows: copyRows.length, detail: { ...detail, dryRun } };
     const written = await writeCopyPerformance(input.db, copyRows, runAt);
-    return { ok: true, rows: written.written, detail: { ...scopes, staleDeleted: written.deleted } };
+    return { ok: true, rows: written.written, detail: { ...scopes, droppedNameOnly: library.droppedNameOnly, staleDeleted: written.deleted } };
   });
 
   const result: LearningRefreshResult = {

@@ -103,14 +103,19 @@ export function pageIdOf(storyId: string | null | undefined): string | null {
 
 export type Voice = "promoter" | "artist" | "unknown";
 
-/** Voice is which Page posted the ad, not how the line is written. */
-export function voiceOf(storyId: string | null | undefined, promoterPageIds: readonly string[], artistPageIds: readonly string[]): Voice {
+/**
+ * Voice is which Page posted the ad. A page on the client's promoter list
+ * is the promoter. Any other page is an artist page. Unknown only when
+ * the ad has no page id.
+ */
+export function voiceOf(
+  storyId: string | null | undefined,
+  promoterPageIds: readonly string[],
+): { voice: Voice; pageId: string | null } {
   const page = pageIdOf(storyId);
-  if (!page) return "unknown";
-  const has = (ids: readonly string[]) => ids.some((id) => id.trim() === page);
-  if (has(promoterPageIds)) return "promoter";
-  if (has(artistPageIds)) return "artist";
-  return "unknown";
+  if (!page) return { voice: "unknown", pageId: null };
+  const promoter = promoterPageIds.some((id) => id.trim() === page);
+  return { voice: promoter ? "promoter" : "artist", pageId: page };
 }
 
 function applyClaims(text: string): { text: string; claims: ClaimSlot[] } {

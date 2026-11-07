@@ -27,6 +27,7 @@ create table if not exists copy_performance (
   confidence      text not null check (confidence in ('thin', 'ok', 'strong')),
   proven          boolean not null,
   client_ids      uuid[] not null default '{}',
+  page_id         text,
   updated_at      timestamptz not null default now(),
   primary key (template_key, field, stage, voice, scope, scope_id)
 );
@@ -39,6 +40,10 @@ comment on column copy_performance.proven is
   'n ≥ 2 events and the shrunk index is 0.9 or lower.';
 comment on column copy_performance.example_text is
   'One real line, from the event where this template did best.';
+comment on column copy_performance.page_id is
+  'Page that posted the example. A client promoter page (default pages, or the page on a launched draft) is voice promoter. Any other page is an artist page and is kept here. Null only when the ad has no page id.';
+comment on column copy_performance.events_n is
+  'Distinct shows. One ad counts toward one event. Same date and venue are one show. Cancelled events, and events with no date, are not shows.';
 
 create index if not exists copy_performance_scope_stage_idx
   on copy_performance (scope, scope_id, stage, index_vs_event);

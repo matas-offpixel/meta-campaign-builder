@@ -143,6 +143,19 @@ if (result.preview) {
     const slotted = copy.filter((row) => row.stage === stage && row.scope === "all" && row.template_key.includes("{")).length;
     console.log(`${stage} all-scope templates with a placeholder: ${slotted}`);
   }
+  const copyJob = result.jobs.copy_performance;
+  console.log(`name-only templates dropped: ${String(copyJob.detail?.droppedNameOnly ?? "—")}`);
+  const listed = copy.filter((item) => item.scope === "all" && (item.proven || passesCopyMinimum(item)));
+  console.log(`\n## Proven templates and the shows behind them\n`);
+  for (const row of listed.filter((item) => item.proven)) printCopyShows(row);
+  console.log(`\n## Minimum-passing templates and the shows behind them\n`);
+  for (const row of listed.filter((item) => !item.proven)) printCopyShows(row);
+}
+
+function printCopyShows(row: CopyPerformanceRow): void {
+  console.log(`${row.stage} index=${row.index_vs_event} events=${row.events_n} voice=${row.voice} page=${row.page_id ?? "—"} proven=${row.proven}`);
+  console.log(`  ${JSON.stringify(row.example_text)}`);
+  for (const show of row.shows ?? []) console.log(`  ${show.code ?? "—"}  ${show.date ?? "—"}  ${show.venue ?? "—"}  ads=${show.ads}  ${show.name ?? ""}`);
 }
 
 function copyLine(row: CopyPerformanceRow): string {

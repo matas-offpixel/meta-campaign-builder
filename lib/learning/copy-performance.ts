@@ -5,24 +5,26 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { normalizeAdAccountId, resolveEventAdAccountId } from "../meta/ad-account.ts";
+import type { CodedEvent } from "./ad-facts.ts";
 import type { LearningClient, LearningFact } from "./joins.ts";
 import { normaliseCopy, voiceOf, type CopyDictionaries, type Voice } from "./copy/normalise.ts";
-import {
-  scoreTemplates,
-  type CopyField,
-  type CopyPerformanceRow,
-  type CopyStage,
-  type ScoreAd,
-} from "./copy/score.ts";
+import { nameOnlyTemplateCount, scoreTemplates, type CopyField, type CopyPerformanceRow, type CopyStage, type ScoreAd } from "./copy/score.ts";
+import { eventForCopyAd, rollAd, showOf, type NamedShow, type ShowEvent } from "./copy/shows.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
 type EventRow = {
   id: string;
   name: string | null;
+  event_code: string | null;
+  event_date: string | null;
   venue_name: string | null;
   venue_city: string | null;
+  venue_key: string | null;
+  status: string | null;
   client_id: string | null;
+  meta_ad_account_id: string | null;
 };
 
 type CopyRow = {
@@ -34,6 +36,8 @@ type CopyRow = {
 
 export type CopyLibrary = {
   ads: ScoreAd[];
+  /** Name-only templates left out of copy_performance. */
+  droppedNameOnly: number;
 };
 
 const PAGE = 1000;
@@ -63,21 +67,33 @@ function linesOf(texts: readonly string[] | null, field: CopyField, dict: CopyDi
 }
 
 export async function loadCopyLibrary(db: Db, facts: readonly LearningFact[], clients: readonly LearningClient[]): Promise<CopyLibrary> {
-  const [copies, events, artists, memberships, factRows, pageRows] = await Promise.all([
+  const [copies, events, artists, memberships, factRows, pageRows, draftPages] = await Promise.all([
     loadPage<CopyRow>(db, "ad_copy", "meta_ad_id, bodies, titles, effective_object_story_id", "meta_ad_id"),
-    loadPage<EventRow>(db, "events", "id, name, venue_name, venue_city, client_id", "id"),
-    loadPage<{ id: string; name: string | null; meta_page_id: string | null }>(db, "artists", "id, name, meta_page_id", "id"),
+    loadPage<EventRow>(db, "events", "id, name, event_code, event_date, venue_name, venue_city, venue_key, status, client_id, meta_ad_account_id", "id"),
+    loadPage<{ id: string; name: string | null }>(db, "artists", "id, name", "id"),
     loadPage<{ event_id: string; artist_id: string; billing_order: number | null }>(db, "event_artists", "id, event_id, artist_id, billing_order", "id"),
     loadPage<{ event_id: string; lineup: string[] | null }>(db, "creative_lab_event_facts", "event_id, lineup", "event_id"),
-    loadPage<{ id: string; default_page_ids: string[] | null }>(db, "clients", "id, default_page_ids", "id"),
+    loadPage<{ id: string; default_page_ids: string[] | null; meta_ad_account_id: string | null }>(
+      db,
+      "clients",
+      "id, default_page_ids, meta_ad_account_id",
+      "id",
+    ),
+    loadPublishedPromoterPages(db),
   ]);
 
   const clientName = new Map(clients.map((client) => [client.id, client.name]));
   const verticalOf = new Map(clients.map((client) => [client.id, client.vertical]));
-  const promoterPages = new Map(pageRows.map((row) => [row.id, row.default_page_ids ?? []]));
+  const promoterPages = new Map<string, string[]>();
+  for (const row of pageRows) promoterPages.set(row.id, [...(row.default_page_ids ?? [])]);
+  for (const row of draftPages) {
+    const page = row.meta_page_id?.trim();
+    if (!row.client_id || !page) continue;
+    const list = promoterPages.get(row.client_id) ?? [];
+    if (!list.includes(page)) list.push(page);
+    promoterPages.set(row.client_id, list);
+  }
   const artistName = new Map(artists.filter((artist) => artist.name?.trim()).map((artist) => [artist.id, artist.name!.trim()]));
-  const artistPage = new Map(artists.filter((artist) => artist.meta_page_id?.trim()).map((artist) => [artist.id, artist.meta_page_id!.trim()]));
-  const artistIdByName = new Map([...artistName.entries()].map(([id, name]) => [name.toLowerCase(), id]));
   const lineupByEvent = new Map<string, string[]>();
   const ordered = [...memberships].sort((a, b) => (a.billing_order ?? 0) - (b.billing_order ?? 0));
   for (const row of ordered) {
@@ -96,37 +112,51 @@ export async function loadCopyLibrary(db: Db, facts: readonly LearningFact[], cl
   const globalEvents = events.map((event) => event.name?.trim() ?? "").filter(Boolean);
   const globalPromoters = [...clientName.values()];
 
+  const clientAccount = new Map(pageRows.map((row) => [row.id, row.meta_ad_account_id]));
+  const codedEvents: CodedEvent[] = events
+    .filter((event) => event.event_code?.trim())
+    .map((event) => ({
+      eventId: event.id,
+      clientId: event.client_id,
+      eventCode: event.event_code!.trim(),
+      adAccountId: normalizeAdAccountId(
+        resolveEventAdAccountId(event, event.client_id ? clientAccount.get(event.client_id) : null),
+      ),
+    }));
+  const namedShows: NamedShow[] = events
+    .filter((event) => event.status !== "cancelled" && event.event_date && event.name?.trim())
+    .map((event) => ({ eventId: event.id, clientId: event.client_id, name: event.name!.trim() }));
+  const shows = showOf(events.map(showEvent));
   const copyOf = new Map(copies.map((row) => [row.meta_ad_id, row]));
-  const rolled = new Map<string, { fact: LearningFact; stage: CopyStage; spend: number; results: number }>();
+  const rolled = new Map<string, { stage: CopyStage; clientId: string; parts: { eventId: string; spend: number; results: number }[] }>();
   for (const fact of facts) {
     if (fact.stage !== "registration" && fact.stage !== "ticket_sale") continue;
     if (!fact.clientId || !fact.eventId) continue;
+    const placed = eventForCopyAd(
+      fact.row,
+      { clientId: fact.clientId, eventId: fact.eventId, eventName: eventOf.get(fact.eventId)?.name },
+      codedEvents,
+      namedShows,
+    );
     const stage: CopyStage = fact.stage;
     const key = `${fact.row.meta_ad_id}|${stage}`;
-    const have = rolled.get(key) ?? { fact, stage, spend: 0, results: 0 };
-    have.spend += fact.spendGbp;
-    have.results += fact.result ?? 0;
+    const have = rolled.get(key) ?? { stage, clientId: placed.clientId, parts: [] };
+    have.clientId = placed.clientId;
+    have.parts.push({ eventId: placed.eventId, spend: fact.spendGbp, results: fact.result ?? 0 });
     rolled.set(key, have);
   }
 
   const ads: ScoreAd[] = [];
-  for (const { fact, stage, spend, results } of rolled.values()) {
-    const copy = copyOf.get(fact.row.meta_ad_id);
-    const event = eventOf.get(fact.eventId!);
-    if (!event) {
-      ads.push({
-        metaAdId: fact.row.meta_ad_id,
-        eventId: fact.eventId!,
-        clientId: fact.clientId!,
-        vertical: verticalOf.get(fact.clientId!) ?? "music",
-        stage,
-        voice: "unknown",
-        spend,
-        results,
-        lines: [],
-      });
-      continue;
-    }
+  for (const [key, { stage, clientId: ledgerClientId, parts }] of rolled) {
+    const chosen = rollAd(parts);
+    if (!chosen) continue;
+    const showId = shows.get(chosen.eventId);
+    if (!showId) continue;
+    const metaAdId = key.slice(0, key.lastIndexOf("|"));
+    const copy = copyOf.get(metaAdId);
+    const event = eventOf.get(chosen.eventId);
+    if (!event) continue;
+    const clientId = event.client_id ?? ledgerClientId;
     const lineup = lineupByEvent.get(event.id) ?? [];
     const names = lineup.length ? lineup : typedLineup.get(event.id) ?? [];
     const dict: CopyDictionaries = {
@@ -134,31 +164,61 @@ export async function loadCopyLibrary(db: Db, facts: readonly LearningFact[], cl
       venueName: event.venue_name,
       venueCity: event.venue_city,
       eventName: event.name,
-      clientName: clientName.get(fact.clientId!) ?? null,
+      clientName: clientName.get(clientId) ?? null,
       globalArtists,
       globalVenues,
       globalCities,
       globalEvents,
       globalPromoters,
     };
-    const artistPages = names
-      .map((name) => artistPage.get(artistIdByName.get(name.toLowerCase()) ?? "") ?? null)
-      .filter((id): id is string => Boolean(id));
-    const voice: Voice = voiceOf(copy?.effective_object_story_id, promoterPages.get(fact.clientId!) ?? [], artistPages);
+    const voice: { voice: Voice; pageId: string | null } = voiceOf(copy?.effective_object_story_id, promoterPages.get(clientId) ?? []);
     const lines = copy ? [...linesOf(copy.bodies, "body", dict), ...linesOf(copy.titles, "title", dict)] : [];
     ads.push({
-      metaAdId: fact.row.meta_ad_id,
-      eventId: fact.eventId!,
-      clientId: fact.clientId!,
-      vertical: verticalOf.get(fact.clientId!) ?? "music",
+      metaAdId,
+      eventId: chosen.eventId,
+      showId,
+      eventCode: event.event_code,
+      eventName: event.name,
+      eventDate: event.event_date,
+      venue: event.venue_name,
+      pageId: voice.pageId,
+      clientId,
+      vertical: verticalOf.get(clientId) ?? "music",
       stage,
-      voice,
-      spend,
-      results,
+      voice: voice.voice,
+      spend: chosen.spend,
+      results: chosen.results,
       lines,
     });
   }
-  return { ads };
+  return { ads, droppedNameOnly: nameOnlyTemplateCount(ads) };
+}
+
+function showEvent(event: EventRow): ShowEvent {
+  return {
+    id: event.id,
+    date: event.event_date,
+    venueName: event.venue_name,
+    venueKey: event.venue_key,
+    status: event.status,
+  };
+}
+
+async function loadPublishedPromoterPages(db: Db): Promise<{ client_id: string | null; meta_page_id: string | null }[]> {
+  const rows: { client_id: string | null; meta_page_id: string | null }[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from("campaign_drafts")
+      .select("client_id, meta_page_id:draft_json->settings->>metaPageId")
+      .eq("status", "published")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`campaign_drafts: ${error.message}`);
+    const chunk = (data ?? []) as { client_id: string | null; meta_page_id: string | null }[];
+    rows.push(...chunk);
+    if (chunk.length < PAGE) break;
+  }
+  return rows;
 }
 
 export function computeCopyPerformance(library: CopyLibrary): CopyPerformanceRow[] {
@@ -178,7 +238,11 @@ export async function writeCopyPerformance(
   }
   let written = 0;
   for (let start = 0; start < rows.length; start += 200) {
-    const chunk = rows.slice(start, start + 200).map((row) => ({ ...row, updated_at: updatedAt }));
+    const chunk = rows.slice(start, start + 200).map((row) => {
+      const { shows, ...stored } = row;
+      void shows;
+      return { ...stored, updated_at: updatedAt };
+    });
     const { error } = await db.from("copy_performance").upsert(chunk, { onConflict: COPY_PERFORMANCE_CONFLICT });
     if (error) throw new Error(`copy_performance upsert: ${error.message} (written ${written})`);
     written += chunk.length;

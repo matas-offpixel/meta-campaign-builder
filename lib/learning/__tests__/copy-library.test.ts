@@ -7,7 +7,8 @@ import { fakeDb, op } from "../../launched-ads/__tests__/fake-db.ts";
 import { MATAS_USER_IDS } from "../../auth/operator-allowlist.ts";
 import { computeCopyPerformance, writeCopyPerformance } from "../copy-performance.ts";
 import { dropUnsupportedClaims, emptyDictionaries, normaliseCopy, voiceOf } from "../copy/normalise.ts";
-import { COPY_SHRINK_K, passesCopyMinimum, scoreTemplates, shrinkTowardOne, type ScoreAd } from "../copy/score.ts";
+import { COPY_SHRINK_K, isNameOnlyTemplate, passesCopyMinimum, scoreTemplates, shrinkTowardOne, type ScoreAd } from "../copy/score.ts";
+import { eventForCopyAd, rollAd, showOf } from "../copy/shows.ts";
 
 register(new URL("../../__tests__/support/alias-hooks.mjs", import.meta.url));
 
@@ -81,10 +82,9 @@ describe("copy normaliser", () => {
   });
 
   it("voice comes from the page, and the key drops emoji and punctuation", () => {
-    assert.equal(voiceOf("11111_222", ["11111"], []), "promoter");
-    assert.equal(voiceOf("33333_222", ["11111"], ["33333"]), "artist");
-    assert.equal(voiceOf("99999_222", ["11111"], ["33333"]), "unknown");
-    assert.equal(voiceOf(null, ["11111"], []), "unknown");
+    assert.deepEqual(voiceOf("11111_222", ["11111"]), { voice: "promoter", pageId: "11111" });
+    assert.deepEqual(voiceOf("33333_222", ["11111"]), { voice: "artist", pageId: "33333" });
+    assert.deepEqual(voiceOf(null, ["11111"]), { voice: "unknown", pageId: null });
     const line = normaliseCopy("See you soon! 🔥", emptyDictionaries());
     assert.equal(line?.key, "see you soon");
   });
@@ -92,11 +92,13 @@ describe("copy normaliser", () => {
 
 function ad(overrides: Partial<ScoreAd> & Pick<ScoreAd, "metaAdId" | "eventId" | "spend" | "results">): ScoreAd {
   return {
+    showId: overrides.eventId,
+    pageId: null,
     clientId: "client-a",
     vertical: "music",
     stage: "ticket_sale",
     voice: "promoter",
-    lines: [{ field: "body", key: "see you in {city}", text: "See you in London" }],
+    lines: [{ field: "body", key: "see you down in {city}", text: "See you down in London" }],
     ...overrides,
   };
 }
@@ -109,7 +111,7 @@ describe("copy scoring", () => {
       ad({ metaAdId: "a3", eventId: "e2", spend: 200, results: 4 }),
       ad({ metaAdId: "a4", eventId: "e1", clientId: "client-a", spend: 0, results: 0, lines: [{ field: "body", key: "other", text: "Other" }] }),
     ]);
-    const all = rows.find((row) => row.scope === "all" && row.template_key === "see you in {city}")!;
+    const all = rows.find((row) => row.scope === "all" && row.template_key === "see you down in {city}")!;
     // e1 has 20 results so its own cost is £50. e2 has 4, so it uses the client cost.
     // Client is 500+500+200 = 1200 spend and 24 results → £50. a3 expected = 4.
     // a1 expected = 10. Index = 14/24.
@@ -121,7 +123,10 @@ describe("copy scoring", () => {
     assert.equal(COPY_SHRINK_K, 2);
     assert.equal(all.proven, all.index_vs_event! <= 0.9);
     assert.equal(passesCopyMinimum(all), true);
-    assert.equal(all.example_text, "See you in London");
+    assert.equal(isNameOnlyTemplate("{venue} {city}"), true);
+    assert.equal(scoreTemplates([ad({ metaAdId: "n1", eventId: "e1", spend: 400, results: 20, lines: [{ field: "title", key: "{venue} {city}", text: "Ironworks London" }] })]).length, 0);
+    assert.equal(isNameOnlyTemplate("see you soon fam extra"), false);
+    assert.equal(all.example_text, "See you down in London");
 
     const oneEvent = scoreTemplates([
       ad({ metaAdId: "b1", eventId: "e1", spend: 200, results: 10 }),
@@ -132,6 +137,13 @@ describe("copy scoring", () => {
     assert.equal(oneEvent.find((row) => row.scope === "all")!.ads_n, 3);
     assert.equal(oneEvent.find((row) => row.scope === "all")!.proven, false);
 
+    const sameShow = scoreTemplates([
+      ad({ metaAdId: "s1", eventId: "e1", showId: "show", spend: 400, results: 20 }),
+      ad({ metaAdId: "s2", eventId: "e2", showId: "show", spend: 400, results: 20 }),
+    ]);
+    assert.equal(sameShow.find((row) => row.scope === "all")!.events_n, 1);
+    assert.equal(sameShow.find((row) => row.scope === "all")!.ads_n, 2);
+
     const weak = shrinkTowardOne(2, 0.95);
     assert.ok(weak > 0.9);
     const strong = shrinkTowardOne(2, 0.5);
@@ -141,6 +153,93 @@ describe("copy scoring", () => {
   it("is idempotent", () => {
     const ads = [ad({ metaAdId: "a1", eventId: "e1", spend: 400, results: 10 }), ad({ metaAdId: "a2", eventId: "e2", spend: 400, results: 10 })];
     assert.deepEqual(computeCopyPerformance({ ads }), computeCopyPerformance({ ads }));
+  });
+});
+
+describe("shows", () => {
+  const dated = (id: string, date: string, venue: string) => ({
+    id,
+    date,
+    venueName: venue,
+    venueKey: venue.toLowerCase(),
+    status: "upcoming",
+  });
+
+  it("one ad counts toward the event it spent the most on", () => {
+    const rolled = rollAd([
+      { eventId: "always-on", spend: 30, results: 1 },
+      { eventId: "show", spend: 70, results: 4 },
+    ]);
+    assert.equal(rolled?.eventId, "show");
+    assert.equal(rolled?.spend, 100);
+    assert.equal(rolled?.results, 5);
+  });
+
+  it("events on the same date at the same venue are one show", () => {
+    const shows = showOf([
+      dated("b", "2026-10-03", "Ironworks"),
+      dated("a", "2026-10-03", "Ironworks"),
+      dated("c", "2026-11-01", "Ironworks"),
+    ]);
+    assert.equal(shows.get("a"), shows.get("b"));
+    assert.notEqual(shows.get("a"), shows.get("c"));
+  });
+
+  it("a bracketed campaign code beats a ledger event that points at a different show", () => {
+    const placed = eventForCopyAd(
+      { meta_ad_id: "ad", campaign_name: "[IRW0001] Jamie Jones - Signups" },
+      { clientId: "colyn-client", eventId: "colyn" },
+      [{ eventId: "jamie", clientId: "ironworks", eventCode: "IRW0001", adAccountId: "act_1" }],
+    );
+    assert.deepEqual(placed, { clientId: "ironworks", eventId: "jamie" });
+  });
+
+  it("a campaign that names one other show beats a ledger link that names nobody", () => {
+    const shows = [
+      { eventId: "worakls", clientId: "client", name: "Worakls" },
+      { eventId: "dod", clientId: "client", name: "D.O.D" },
+      { eventId: "colyn", clientId: "other", name: "Colyn" },
+    ];
+    const placed = eventForCopyAd(
+      { meta_ad_id: "ad", campaign_name: "[20261204CSA] Woraklis — Purchase" },
+      { clientId: "other", eventId: "colyn", eventName: "Colyn" },
+      [],
+      shows,
+    );
+    assert.deepEqual(placed, { clientId: "client", eventId: "worakls" });
+  });
+
+  it("keeps the ledger event when the campaign names that show", () => {
+    const placed = eventForCopyAd(
+      { meta_ad_id: "ad", campaign_name: "Colyn at E1" },
+      { clientId: "other", eventId: "colyn", eventName: "Colyn" },
+      [],
+      [
+        { eventId: "colyn", clientId: "other", name: "Colyn" },
+        { eventId: "worakls", clientId: "client", name: "Worakls" },
+      ],
+    );
+    assert.deepEqual(placed, { clientId: "other", eventId: "colyn" });
+  });
+
+  it("keeps the ledger event when the campaign names no show", () => {
+    const placed = eventForCopyAd(
+      { meta_ad_id: "ad", campaign_name: "Evergreen retargeting" },
+      { clientId: "client", eventId: "show" },
+      [{ eventId: "jamie", clientId: "ironworks", eventCode: "IRW0001", adAccountId: null }],
+    );
+    assert.deepEqual(placed, { clientId: "client", eventId: "show" });
+  });
+
+  it("a cancelled event is excluded, and an event with no date is not a show", () => {
+    const shows = showOf([
+      { ...dated("live", "2026-10-03", "Ironworks") },
+      { ...dated("off", "2026-10-03", "Ironworks"), status: "cancelled" },
+      { id: "always", date: null, venueName: "Ironworks", venueKey: "ironworks", status: "on_sale" },
+    ]);
+    assert.equal(shows.has("live"), true);
+    assert.equal(shows.has("off"), false);
+    assert.equal(shows.has("always"), false);
   });
 });
 
@@ -165,6 +264,7 @@ describe("copy_performance write", () => {
     const sql = readFileSync("supabase/migrations/207_copy_performance.sql", "utf8");
     assert.match(sql, /create table if not exists copy_performance/);
     assert.match(sql, /primary key \(template_key, field, stage, voice, scope, scope_id\)/);
+    assert.match(sql, /page_id\s+text/);
     assert.match(sql, /for select to authenticated using \(false\)/);
     assert.doesNotMatch(sql, /for (insert|update|delete)/);
     assert.doesNotMatch(sql, /using \(true\)/);

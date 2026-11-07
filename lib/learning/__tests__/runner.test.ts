@@ -57,7 +57,7 @@ describe("learning-refresh killswitch", () => {
   });
 
   it("no lib/learning module calls Meta", () => {
-    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score"]) {
+    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows"]) {
       const source = readFileSync(`lib/learning/${file}.ts`, "utf8");
       assert.doesNotMatch(source, /graph\.facebook|graphGet|from "\.\.\/meta\/client/, file);
     }
