@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Artwork overlay templates — T1 artist clip, T2 standalone message, T3 lineup artwork — 8 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  /* stand-in for Bootzy Condensed TM (not in this file). cap ≈ 0.72 em on the stand-in; the audit measures Bootzy's own ratio. */
+  --boot:"Bootzy Condensed TM",Impact,"Arial Narrow","Liberation Sans Narrow","DejaVu Sans Condensed",sans-serif;
+  --capr:0.72;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.mono{font-family:var(--mono)}.muted{color:var(--ink-3)}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:360px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:var(--olive)}.chip.warn{color:var(--ochre);border-color:var(--ochre)}.chip.bad{color:var(--brick);border-color:var(--brick)}.chip.dash{border-style:dashed;color:var(--ink-3)}
+
+/* ---- the frames: every size is a fraction of the frame (cqh = 1% of frame height, cqw = 1% of width) ---- */
+.fr{position:relative;letter-spacing:-.02em;container-type:size;overflow:hidden;border-radius:6px;background:#1a1512;color:#fff;font-family:var(--boot);text-transform:uppercase;line-height:1;font-stretch:condensed;font-weight:700}
+.fr.s916{width:324px;height:576px}
+.fr.s45{width:324px;height:405px}
+.fr.s11{width:324px;height:324px}
+.fr .bg{position:absolute;inset:0}
+.bg.clip{background:radial-gradient(ellipse at 50% 38%,#6b4a3a 0%,#2a1c18 45%,#0e0b0a 100%)}
+.bg.clip::after{content:"";position:absolute;left:30%;right:30%;top:46%;bottom:0;background:radial-gradient(ellipse at 50% 30%,#3a2a24 0%,transparent 60%)}
+.bg.venue{background:linear-gradient(180deg,#8a5a1c 0%,#4a2e10 55%,#1a1008 100%)}
+.bg.poster{background:linear-gradient(160deg,#1c2a2e 0%,#5a2a2a 40%,#c0392b 100%)}
+.bg .panel{position:absolute;left:9.2%;right:10.5%;top:19.2%;bottom:20%;background:rgba(10,8,8,.82)}
+/* safe rects */
+.safe{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.75);border-bottom:1px dashed rgba(255,255,255,.75);pointer-events:none}
+.safe.r45{top:14.84%;bottom:14.84%}
+.safe.r11{top:21.875%;bottom:21.875%;border-color:rgba(255,211,74,.9)}
+.safe i{position:absolute;right:3px;top:2px;font:600 7px var(--mono);font-style:normal;text-transform:none;color:#fff;background:rgba(0,0,0,.5);padding:1px 3px;border-radius:2px}
+.safe.r11 i{color:#ffd34a}
+/* text: white, black stroke outside; width 0.278% of frame width (3 px at 1080) → doubled for a centred stroke under paint-order */
+.tx{position:absolute;left:0;right:0;text-align:center;-webkit-text-stroke:0.556cqw #000;paint-order:stroke fill;white-space:pre-line}
+.tx.sh{-webkit-text-stroke:0;text-shadow:0.3cqh 0.3cqh 0.4cqh rgba(0,0,0,.85)}
+/* T1 slots. font-size = cap ÷ capr. */
+.t1 .artist{font-size:calc(10cqh / var(--capr));top:23cqh;transform:translateY(-50%);letter-spacing:-.02em;left:10cqw;right:10cqw;white-space:nowrap}
+.t1 .details{font-size:calc(3.1cqh / var(--capr));line-height:calc(3.5 / 3.1 * var(--capr));top:37cqh;transform:translateY(-50%)}
+.t1 .claim{font-size:calc(4cqh / var(--capr));top:76.7cqh;transform:translateY(-50%);line-height:1.12}
+.t1 .claim.step1{font-size:calc(4cqh / var(--capr))}
+.t1 .claim.step2{font-size:calc(3.4cqh / var(--capr))}
+/* in the 1:1 frame the same slots sit in the 1:1 rect */
+.s11 .t1 .artist{top:12cqh;font-size:calc(14.22cqh / var(--capr))}.s11 .t1 .details{top:31cqh;font-size:calc(4.41cqh / var(--capr))}.s11 .t1 .claim{top:88cqh;font-size:calc(5.69cqh / var(--capr))}
+/* the 4:5 crop: the 9:16 rect maps 14.84–85.16 → 0–100, so y' = (y−14.84)/0.7031; heights ×(1920/1350)=1.4222 */
+.s45 .t1 .artist{top:11.6cqh;font-size:calc(14.22cqh / var(--capr))}
+.s45 .t1 .details{top:31.5cqh;font-size:calc(4.41cqh / var(--capr))}
+.s45 .t1 .claim{top:88cqh;font-size:calc(5.69cqh / var(--capr))}
+/* T2 slots */
+.t2 .claim{font-size:calc(6cqh / var(--capr));line-height:calc(8.75 / 6 * var(--capr));top:50cqh;transform:translateY(-50%);left:7cqw;right:7cqw}
+.t2 .claim .n{font-size:1.5em;line-height:1;vertical-align:baseline}
+.t1 .claim,.t2 .claim,.t3 .names,.t2 .lineup,.t2 .det,.t1 .details,.t3 .det{white-space:nowrap}
+.t2 .claim .q{display:block;font-size:.6em;margin-top:.25em}
+.t2 .lineup{text-align:right;right:14.3cqw;left:auto;top:21.9cqh;font-size:calc(2.6cqh / var(--capr));line-height:calc(3 / 2.6 * var(--capr))}
+.t2 .det{text-align:left;left:14.3cqw;right:auto;top:76.7cqh;transform:translateY(-50%);font-size:calc(2.66cqh / var(--capr));line-height:calc(3 / 2.66 * var(--capr))}
+.t2 .logo{text-align:right;right:14.3cqw;left:auto;top:76.7cqh;transform:translateY(-50%);font-family:var(--mono);font-weight:700;letter-spacing:.3em;font-size:calc(1.9cqh / .72);-webkit-text-stroke:0}
+.s11 .t2 .lineup{top:10cqh;font-size:calc(3.7cqh / var(--capr))}.s11 .t2 .det{top:88cqh;font-size:calc(3.78cqh / var(--capr))}.s11 .t2 .logo{top:88cqh;font-size:calc(2.7cqh / .72)}.s11 .t2 .claim{font-size:calc(8.53cqh / var(--capr))}
+.s45 .t2 .claim{font-size:calc(8.53cqh / var(--capr))}
+.s45 .t2 .lineup{top:10cqh;font-size:calc(3.7cqh / var(--capr))}
+.s45 .t2 .det{top:88cqh;font-size:calc(3.78cqh / var(--capr))}.s45 .t2 .logo{top:88cqh;font-size:calc(2.7cqh / .72)}
+/* T3: the PSD's own positions */
+.t3 .logo{top:23.5cqh;font-family:var(--mono);letter-spacing:.3em;font-size:calc(1.86cqh / .72);-webkit-text-stroke:0;transform:translateY(-50%)}
+.t3 .bday{top:26.8cqh;font-family:Georgia,serif;font-style:italic;text-transform:none;font-weight:400;color:#f08a8a;font-size:calc(3.2cqh / .72);-webkit-text-stroke:0;transform:translateY(-50%)}
+.t3 .part{top:31.8cqh;color:#f08a8a;font-size:calc(2cqh / var(--capr));-webkit-text-stroke:0;transform:translateY(-50%)}
+.t3 .names{top:49.4cqh;transform:translateY(-50%);font-size:calc(4.2cqh / var(--capr));line-height:calc(6.1 / 4.2 * var(--capr));-webkit-text-stroke:0;text-shadow:0.25cqh 0.25cqh 0.5cqh rgba(0,0,0,.9)}
+.t3 .names em{font-style:normal;color:#f08a8a}
+.t3 .det{top:73.2cqh;transform:translateY(-50%);font-size:calc(1.6cqh / var(--capr));line-height:calc(2.1 / 1.6 * var(--capr));-webkit-text-stroke:0}
+.s45 .t3 .logo{top:12.3cqh;font-size:calc(2.65cqh/.72)}.s45 .t3 .bday{top:17cqh;font-size:calc(4.55cqh/.72)}.s45 .t3 .part{top:24.1cqh;font-size:calc(2.84cqh/var(--capr))}
+.s45 .t3 .names{top:49.1cqh;font-size:calc(5.97cqh/var(--capr))}.s45 .t3 .det{top:83cqh;font-size:calc(2.28cqh/var(--capr))}
+.s45 .bg .panel{top:6.2cqh;bottom:7.1cqh}
+.s11 .t3 .logo{top:2.1cqh;font-size:calc(3.31cqh/.72)}.s11 .t3 .bday{top:8.8cqh;font-size:calc(5.69cqh/.72)}.s11 .t3 .part{top:17.6cqh;font-size:calc(3.56cqh/var(--capr))}
+.s11 .t3 .names{top:48.9cqh;font-size:calc(7.47cqh/var(--capr))}.s11 .t3 .det{top:91.2cqh;font-size:calc(2.84cqh/var(--capr))}
+.s11 .bg .panel{top:-4.8cqh;bottom:3.6cqh}
+.lbl{position:absolute;left:4px;bottom:4px;font:600 8px var(--mono);text-transform:none;color:#fff;background:rgba(0,0,0,.5);padding:1px 4px;border-radius:2px;-webkit-text-stroke:0;letter-spacing:0;font-weight:600}
+.mk{position:absolute;left:0;right:0;border-top:1px solid #ffd34a;pointer-events:none}
+.mk i{position:absolute;left:3px;top:-10px;font:600 7px var(--mono);font-style:normal;color:#ffd34a;text-transform:none}
+.over{outline:2px solid var(--brick);outline-offset:2px}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.fit{display:flex;align-items:center;gap:8px;font:11px var(--mono);color:var(--ink-2);margin-top:6px}
+.fit .bar{flex:1;height:8px;border-radius:4px;background:var(--muted);position:relative;overflow:visible}
+.fit .bar i{display:block;height:100%;border-radius:4px;background:var(--olive)}.fit .bar i.o{background:var(--brick)}
+.fit .bar s{position:absolute;top:-3px;bottom:-3px;border-left:2px solid var(--ink)}
+.ladder td:nth-child(2),.ladder td:nth-child(3){font-family:var(--boot);text-transform:uppercase;font-weight:700;font-stretch:condensed;font-size:14px;line-height:1.1}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · ARTWORK OVERLAY TEMPLATES (BRAND KIT, B7 · RULE 14) · 8 NOVEMBER 2026 · ISSUE 1</div>
+<h1>Artwork overlay templates — T1 artist clip, T2 standalone message, T3 lineup artwork</h1>
+<p class="lead">Three named templates for the assets the asset bank makes from a brand kit (pass 2 B5/B7, design-rules rule 14, asset bank issue 2 A5'). Each is drawn from Matas's real Puzzle assets, measured, and ruled as slots with sizes as a fraction of frame height. The 4:5 information rectangle is drawn on every frame. Every value not read from an asset or the PSD is listed under <i>Invented</i>.</p>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px"><li><b>Issue 1 · 8 Nov 2026.</b> T1–T3 as components with slots; the 4:5 rect and the 1:1 re-sit; the ladder → claim words; size steps for too-long claims; the stroke; render-path hand-back H1–H9 and the audit before build.</li></ul></div>
+
+<h2>Data note — what was measured, 7 Nov</h2>
+<p class="lead">Five finished assets and the open PSD. Heights are cap heights (the height of a capital letter) as a % of the 9:16 frame height; positions are the slot's vertical centre. Measured with a row scan of white pixels; ±0.3 % at this resolution.</p>
+<table class="t">
+<tr><th>Asset</th><th>What's there</th><th>Measured</th><th>Rules it sets</th></tr>
+<tr><td>Locklead static (1080×1920)</td><td>Artist name top third; venue · city · date · time under it; "FINAL 50 2ND RELEASE TICKETS" lower third; face clear. White Bootzy, soft black drop shadow (no hard stroke).</td><td>Name cap 11.5 % H, centre 23.2 % H, width 60 % W. Details 4 lines, cap 3.1 % H, pitch 3.5 % H, lines at 32 / 35.5 / 39 / 42.4 % H. Claim cap 4.0 % H, centre 77.3 % H, width 62 % W.</td><td>T1 slots and positions.</td></tr>
+<tr><td>Locklead UGC clip, with and without CTA (screenshots, frame 832×1466 / 830×1389)</td><td>Same block, same places, on a moving clip; the CTA frame is the same clip with the claim added.</td><td>Name cap 9.5 % H at 23.6 % H; details centre 37 % H; claim cap 3.2 % H at 76 % H. Edge: a thin dark edge about 2 px at 830 wide (≈ 3 px at 1080), not the statics' soft shadow.</td><td>T1 is one component for stills and clips; the claim is optional. The edge on clips is a stroke.</td></tr>
+<tr><td>"TICKETS TO MOVE UP IN PRICE TO FINAL RELEASE THIS WEDNESDAY" (1080×1920)</td><td>Claim centred, three lines; lineup top-right, right-aligned; date · venue bottom-left; PUZZLE logo bottom-right. Shadow offset right, no stroke.</td><td>Claim cap 5.7 % H, line pitch 8.75 % H, block centre 54 % H, width 80 % W. Lineup cap 2.55 % H, pitch 3.0 % H, top 23 % H, right edge at 85.6 % W. Details cap 2.66 % H at 73–76 % H, left edge 14.3 % W. Logo 15 % W wide at 76 % H.</td><td>T2 slots, the 14.3 % W corner inset.</td></tr>
+<tr><td>"LIMITED £16.50 EARLY ENTRY TICKETS NOW AVAILABLE" (Central Park × Brighton Beach, 1125×2000)</td><td>Claim centred with the price biggest; logos top; venue · date · time strip at the bottom.</td><td>LIMITED 5.5 % H, £16.50 9.0 % H, EARLY ENTRY TICKETS 6.6 % H, NOW AVAILABLE 5.9 % H; block centre 52 % H. Logos at 21–25 % H. Strip cap 2.2 % H at 79.4 % H.</td><td>T2's number token (1.5× the line) and the partners variant of the lineup slot. Four lines here; the rule below caps the headline at two plus a qualifier.</td></tr>
+<tr><td>PUZZLE BIRTHDAY 1 STORY.psd (canvas ≈ 3375 × 6000 at 25 %; the audit confirms)</td><td>Layers top → bottom: <code>PAD1 b2bDANS</code> (texture), <code>uzzle-december-lineup-1080.jpg</code> (hidden, a flattened old export), <b>one live text layer</b> <code>PART 1 ENZO SIRAGUSA LUKE DEAN…SHY PHILL DE JANEIRO &amp; BENJI</code> in Bootzy Condensed TM Regular 112.61 pt with "PART 1" and "&amp;" in coral, <code>4th bday poster NEW</code> (smart object: the dark panel, PUZZLE logo, "4th Birthday" script, and the venue · date · time lines), <code>Background</code> (locked).</td><td>Panel 19–80 % H, 9–90 % W. Logo 22.6–24.4 % H. "PART 1" cap 2.0 % H at 31.8 % H. Names cap 4.2 % H, pitch 6.1 % H, 35–64 % H, width ≤ 52 % W. Details cap 1.6 % H, three lines at 70–76 % H.</td><td>T3 has exactly one editable slot today. The details and logo are pixels inside the smart object, so T3 cannot change the date or venue until the designer splits them into live text layers (O5).</td></tr>
+<tr><td>caption-facts.ts · asset bank issue 2 A5'</td><td>The claim ladder's claims; counts only from a trigger.</td><td>—</td><td>The ladder → words table (O7). A count or % in a claim comes from the proposal's trigger, never typed (rule 11).</td></tr>
+</table>
+
+<h2>O · Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O1 One master, one rectangle</td><td>Every asset is composed at 9:16, 1080×1920. The <b>4:5 rectangle</b> (1080×1350, y 285–1635, 14.84 % in from top and bottom) is the information rectangle: every slot sits inside it, so the 4:5 is a <b>pure centre crop</b> of the master. The 1:1 (1080×1080, 21.875 % in) is <b>not a crop</b>: it is the 4:5 arrangement scaled by 0.8 (1080 ÷ 1350) — every slot at the same fraction of the 1:1 rectangle, type at 0.8× its pixel size — with the background extended at the sides, rendered from the same props. Three files per asset: 9:16, 4:5, 1:1.</td></tr>
+<tr><td>O2 Positions and sizes</td><td>A slot's vertical position is a fraction of the <b>target rectangle</b> (4:5 or 1:1), so it lands the same way in each format. A slot's size is a <b>cap height as a fraction of the 9:16 frame height</b>; the pixel size is the same in 9:16 and 4:5, and 0.8× in 1:1. Widths are a maximum fraction of frame width. Text is centred unless the slot says otherwise. Nothing sits closer than 7 % W to a side edge.</td></tr>
+<tr><td>O3 T1 artist clip</td><td>For artist content, still or clip. Slots: <b>artist</b> (one line; cap 10 % H is the ceiling and the size drops until the name fits 80 % W, floor 6 % H; under the floor the name breaks first / last name on two lines at 6 % H; centre at 12 % of the rect = 23 % H in 9:16), <b>details</b> (four lines venue · city · date · time, cap 3.1 % H, pitch 3.5 % H, centre at 31 % of the rect = 37 % H), <b>claim</b> (optional; cap 4 % H, centre at 88 % of the rect = 76.7 % H, max width 80 % W). The middle 30–70 % H carries no text: the face or the clip. In the 1:1 file the slots sit at 12 / 31 / 88 % of its height (the master's 28.6 / 39.3 / 71.4 % H), type at 0.8×.</td></tr>
+<tr><td>O4 T2 standalone message</td><td>For a message with no artist image. Slots: <b>claim</b> (centred on the rect's centre = 50 % H, cap 6 % H, line pitch 8.75 % H, max width 86 % W; a <i>number token</i> — a count, %, or price — may draw at 1.5× the line; headline at most two lines plus one <i>qualifier</i> line at 0.6×, e.g. THIS WEDNESDAY), <b>lineup or partners</b> (top-right, right-aligned, cap 2.6 % H, pitch 3 % H, block top at 10 % of the rect = 21.9 % H, right edge 14.3 % W in; partners draw as logos at the same height when the event has them, else the typed lineup, max 6 lines), <b>details</b> (bottom-left, two lines date / venue, cap 2.66 % H, centre at 88 % of the rect = 76.7 % H, left edge 14.3 % W in), <b>logo</b> (bottom-right, the brand kit's wordmark, 15 % W wide, same centre line as details).</td></tr>
+<tr><td>O5 T3 lineup artwork edit</td><td>The PSD, unchanged except its live text layers, each a slot <b>named by its layer name</b>. Puzzle 4th Birthday has one: <code>PART 1 ENZO SIRAGUSA LUKE DEAN…</code> — one line "PART n" in the coral run, then one name per line, "&amp;" before the last name in the coral run. Style runs are kept by role (first line, the "&amp;" token), not by character index. The logo, the script and the venue · date · time lines are pixels inside <code>4th bday poster NEW</code>: the kit lists them as <span class="chip dash">locked · inside "4th bday poster NEW"</span>, and the date cannot change until the designer makes it a live layer — ask once, per kit. Hidden layers (<code>uzzle-december-lineup-1080.jpg</code>) are ignored. Rule 14 holds whole: shorten, never shrink; flagged if it can't be shortened.</td></tr>
+<tr><td>O6 Type and edge</td><td>Bootzy Condensed TM Regular, all caps, white, on T1 and T2. The edge is a <b>black stroke outside the letters, 0.28 % of frame width (3 px at 1080)</b> on both — Matas's rule ("a black outline throughout") and what the clip overlay actually carries; the statics' soft shadow is not reproduced. <b>For Matas:</b> the two statics measured carry a shadow, not a stroke; say if T2 should keep the shadow instead. T3 draws whatever effects the PSD's text layer carries (the audit reads them); no stroke is added.</td></tr>
+<tr><td>O7 Claim words</td><td>A claim comes from the ladder (asset bank issue 2, A5'), lands in the claim slot in caps, names the release verbatim, and never carries a number the trigger didn't supply. Table below. "Live" and "selling fast" claims say <i>now available</i> / <i>selling fast</i>; a % claim says <i>n% sold out</i>; final X says <i>FINAL X {release} TICKETS</i>; sold out says <i>{release} sold out</i>. Price is rarely the message: the number token is a price only on a price rung (a release ends on a date), otherwise it's the count or %.</td></tr>
+<tr><td>O8 Too long</td><td>T1 and T2 slots step, never a third line. <b>T1 claim:</b> step 0 one line at 4 % H (≤ 36 characters); step 1 two lines at 4 % H; step 2 two lines at 3.4 % H (≤ 2 × 42). <b>T2 claim:</b> step 0 two lines at 6 % H (≤ 2 × 30); step 1 two lines at 5.2 % H (≤ 2 × 34). Past the last step the words are shortened in a fixed order (drop TICKETS → drop NOW → the release's number form, "3RD" for "3RD RELEASE" only when the release word is already on the frame) and the proposal says what was dropped; if it still doesn't fit, it's flagged and can't be approved (rule 14). The fit meter reads the step reached ("step 1 of 2 · 2 lines"). T3 never steps: rule 14 as written.</td></tr>
+<tr><td>O9 Lineup and partners</td><td>T2's top-right slot draws the event's typed lineup (the Lab's artist rows, in their order; "&amp; MORE" when the event says more TBA) or the event's partner logos when the kit has them. Never typed on the asset. T1's details read the event's venue, city, date and times. T3 reads the lineup from the same rows.</td></tr>
+<tr><td>O10 One component per template</td><td>T1, T2 and T3 are three components in design-rules.md with the slots above. A new asset type (artist card, key-moment push) is a T1 or T2 with its claim set, not a fourth template, until a record says otherwise.</td></tr>
+</table>
+
+<!-- ===================== OT1 ===================== -->
+<h2>OT1 · T1 artist clip — 9:16 master, the 4:5 crop, the 1:1 re-sit</h2>
+<div class="frame">
+<figure><figcaption>OT1-916 · 1080×1920 at ⅓ · Enzo Siragusa · claim "FINAL 100 3RD RELEASE TICKETS" · white dashed = 4:5 rect · yellow = 1:1 rect</figcaption>
+<div class="fr s916"><div class="bg clip"></div>
+  <div class="safe r45"><i>4:5 rect · 14.84 %</i></div><div class="safe r11"><i>1:1 rect · 21.9 %</i></div>
+  <div class="t1"><div class="tx artist">Enzo Siragusa</div>
+  <div class="tx details">Circuit<br>Southampton<br>Sun 27 Dec<br>1pm – 9:30pm</div>
+  <div class="tx claim">Final 100 3rd release tickets</div></div>
+  <span class="lbl">clip or still · stand-in</span>
+</div></figure>
+<figure><figcaption>OT1-45 · 1080×1350 · a pure crop of the master (same pixels)</figcaption>
+<div class="fr s45"><div class="bg clip" style="background-position:50% 50%"></div>
+  <div class="t1"><div class="tx artist">Enzo Siragusa</div>
+  <div class="tx details">Circuit<br>Southampton<br>Sun 27 Dec<br>1pm – 9:30pm</div>
+  <div class="tx claim">Final 100 3rd release tickets</div></div>
+  <span class="lbl">crop · y 285–1635</span>
+</div></figure>
+<figure><figcaption>OT1-11 · 1080×1080 · the 4:5 arrangement at 0.8×, re-sat in the 1:1 rect</figcaption>
+<div class="fr s11"><div class="bg clip"></div>
+  <div class="t1"><div class="tx artist">Enzo Siragusa</div>
+  <div class="tx details">Circuit<br>Southampton<br>Sun 27 Dec<br>1pm – 9:30pm</div>
+  <div class="tx claim">Final 100 3rd release tickets</div></div>
+  <span class="lbl">the 4:5 at 0.8× · 12 / 31 / 88 % of this file</span>
+</div></figure>
+<figure><figcaption>OT1-916b · the same frame without the claim (teaser stage) · the lower third is the clip</figcaption>
+<div class="fr s916"><div class="bg clip"></div>
+  <div class="safe r45"><i>4:5 rect</i></div>
+  <div class="t1"><div class="tx artist">Enzo Siragusa</div>
+  <div class="tx details">Circuit<br>Southampton<br>Sun 27 Dec<br>1pm – 9:30pm</div></div>
+  <span class="lbl">claim slot empty</span>
+</div></figure>
+</div>
+<p class="lead">The artist name is the biggest thing on the frame and sits where the Locklead assets put it; the four detail lines keep the designer's pitch; the claim sits at the bottom of the rect so a face or a clip's action in the middle 40 % stays clear. On a clip the overlay is static for the clip's length. The 4:5 is the master cropped; the 1:1 is a second render of the same props at 0.8×, which is why it is listed as a format and not a crop.</p>
+
+<!-- ===================== OT2 ===================== -->
+<h2>OT2 · T2 standalone message — claim central, lineup, details, logo in the corners</h2>
+<div class="frame">
+<figure><figcaption>OT2-916 · 1080×1920 at ⅓ · the Puzzle 4th Birthday lineup top-right · claim with a number token</figcaption>
+<div class="fr s916"><div class="bg venue"></div>
+  <div class="safe r45"><i>4:5 rect</i></div><div class="safe r11"><i>1:1 rect</i></div>
+  <div class="t2"><div class="tx lineup">Enzo Siragusa<br>Luke Dean<br>Reeshy<br>Phill de Janeiro<br>Benji King</div>
+  <div class="tx claim">Final <span class="n">100</span><br>3rd release tickets</div>
+  <div class="tx det">Sun 27 Dec<br>Circuit</div>
+  <div class="tx logo">PUZZLE</div></div>
+  <span class="lbl">stand-in · venue photo</span>
+</div></figure>
+<figure><figcaption>OT2-45 · pure crop</figcaption>
+<div class="fr s45"><div class="bg venue"></div>
+  <div class="t2"><div class="tx lineup">Enzo Siragusa<br>Luke Dean<br>Reeshy<br>Phill de Janeiro<br>Benji King</div>
+  <div class="tx claim">Final <span class="n">100</span><br>3rd release tickets</div>
+  <div class="tx det">Sun 27 Dec<br>Circuit</div>
+  <div class="tx logo">PUZZLE</div></div>
+  <span class="lbl">crop</span>
+</div></figure>
+<figure><figcaption>OT2-11 · the 4:5 arrangement at 0.8× in the 1:1 rect</figcaption>
+<div class="fr s11"><div class="bg venue"></div>
+  <div class="t2"><div class="tx lineup">Enzo Siragusa<br>Luke Dean<br>Reeshy<br>Phill de Janeiro<br>Benji King</div>
+  <div class="tx claim">Final <span class="n">100</span><br>3rd release tickets</div>
+  <div class="tx det">Sun 27 Dec<br>Circuit</div>
+  <div class="tx logo">PUZZLE</div></div>
+  <span class="lbl">the 4:5 at 0.8×</span>
+</div></figure>
+<figure><figcaption>OT2-916b · a release-change claim: headline two lines + qualifier · no number token</figcaption>
+<div class="fr s916"><div class="bg venue"></div>
+  <div class="safe r45"><i>4:5 rect</i></div>
+  <div class="t2"><div class="tx lineup">Enzo Siragusa<br>Luke Dean<br>Reeshy<br>Phill de Janeiro<br>Benji King</div>
+  <div class="tx claim">3rd release ends<br>final release next<span class="q">this Wednesday</span></div>
+  <div class="tx det">Sun 27 Dec<br>Circuit</div>
+  <div class="tx logo">PUZZLE</div></div>
+  <span class="lbl">qualifier at 0.6×</span>
+</div></figure>
+</div>
+<p class="lead">The claim is the message and the biggest thing; the number token (a count, a % or a price) draws at 1.5× the line so the figure reads first, as £16.50 does on the Brighton asset. The corners carry what the asset is about — who, when, where, whose — at the designer's 14.3 % W inset. Matas's "tickets to move up in price…" is this template with a two-line headline and the day as the qualifier.</p>
+
+<!-- ===================== OT3 ===================== -->
+<h2>OT3 · T3 lineup artwork edit — the PSD with its one live layer</h2>
+<div class="frame">
+<figure><figcaption>OT3-916 · PUZZLE BIRTHDAY 1 STORY.psd at ⅓ · slot = the lineup text layer · everything else is the designer's pixels</figcaption>
+<div class="fr s916"><div class="bg poster"><div class="panel"></div></div>
+  <div class="safe r45"><i>4:5 rect</i></div><div class="safe r11"><i>1:1 rect</i></div>
+  <div class="t3"><div class="tx logo">PUZZLE</div><div class="tx bday">4th Birthday</div>
+  <div class="tx part">Part 1</div>
+  <div class="tx names" style="outline:1px dashed rgba(255,255,255,.6);outline-offset:4px;left:14%;right:14%">Enzo Siragusa<br>Luke Dean<br>Reeshy<br>Phill de Janeiro <em>&amp;</em><br>Benji King</div>
+  <div class="tx det">Circuit › Southampton<br>Sunday 27th December<br>1pm › 9:30pm</div></div>
+  <span class="lbl">dashed = the one editable slot</span>
+</div></figure>
+<figure><figcaption>OT3-45 · pure crop · the panel, logo and details all inside</figcaption>
+<div class="fr s45"><div class="bg poster"><div class="panel"></div></div>
+  <div class="t3"><div class="tx logo">PUZZLE</div><div class="tx bday">4th Birthday</div>
+  <div class="tx part">Part 1</div>
+  <div class="tx names" style="left:14%;right:14%">Enzo Siragusa<br>Luke Dean<br>Reeshy<br>Phill de Janeiro <em>&amp;</em><br>Benji King</div>
+  <div class="tx det">Circuit › Southampton<br>Sunday 27th December<br>1pm › 9:30pm</div></div>
+  <span class="lbl">crop</span>
+</div></figure>
+<figure><figcaption>OT3-11 · crop (the PSD has no 1:1 layout) · the panel's top edge is cut, logo and details hold</figcaption>
+<div class="fr s11"><div class="bg poster"><div class="panel"></div></div>
+  <div class="t3"><div class="tx logo">PUZZLE</div><div class="tx bday">4th Birthday</div>
+  <div class="tx part">Part 1</div>
+  <div class="tx names" style="left:14%;right:14%">Enzo Siragusa<br>Luke Dean<br>Reeshy<br>Phill de Janeiro <em>&amp;</em><br>Benji King</div>
+  <div class="tx det">Circuit › Southampton<br>Sunday 27th December<br>1pm › 9:30pm</div></div>
+  <span class="lbl">crop · panel edge cut</span>
+</div></figure>
+</div>
+<p class="lead">T3 is the only template where the file decides the layout. Its slots are the live text layers by name, and this PSD has one. The 1:1 is a crop here because the PSD carries no 1:1 arrangement to re-sit into: the kit says so ("No 1:1 artboard in the file — ask the designer", as B7b). The date on this artwork is not editable: the kit shows the date line as a locked chip with the smart object's name, and the first proposal for a date change on this kit asks the designer once.</p>
+
+<!-- ===================== OT4 ===================== -->
+<h2>OT4 · Size steps — the claim slot when the words are long</h2>
+<div class="steps">
+<figure><figcaption>Step 0 · one line · 4 % H</figcaption>
+<div class="fr s45" style="height:200px;width:324px"><div class="bg clip"></div><div class="t1"><div class="tx claim" style="top:50%;font-size:calc(5.69cqh / var(--capr))">3rd release sold out</div></div></div>
+<div class="fit">fit <span class="bar"><i style="width:56%"></i><s style="left:100%"></s></span> 20 of 36</div></figure>
+<figure><figcaption>Step 1 · two lines · 4 % H</figcaption>
+<div class="fr s45" style="height:200px;width:324px"><div class="bg clip"></div><div class="t1"><div class="tx claim" style="top:50%;font-size:calc(5.69cqh / var(--capr))">Final 100 3rd release<br>tickets now available</div></div></div>
+<div class="fit">fit <span class="bar"><i style="width:100%"></i><s style="left:100%"></s></span> step 1 of 2 · 2 lines</div></figure>
+<figure><figcaption>Step 2 · two lines · 3.4 % H</figcaption>
+<div class="fr s45" style="height:200px;width:324px"><div class="bg clip"></div><div class="t1"><div class="tx claim" style="top:50%;font-size:calc(4.84cqh / var(--capr))">Final 100 3rd release tickets<br>selling fast · don't miss out</div></div></div>
+<div class="fit">fit <span class="bar"><i style="width:100%"></i><s style="left:100%"></s></span> step 2 of 2 · 2 lines</div></figure>
+<figure><figcaption>Over · shortened, then flagged</figcaption>
+<div class="fr s45 over" style="height:200px;width:324px"><div class="bg clip"></div><div class="t1"><div class="tx claim" style="top:50%;font-size:calc(4.84cqh / var(--capr))">Final 100 3rd release tickets<br>for the 4th birthday party at Circ…</div></div></div>
+<div class="fit">fit <span class="bar"><i class="o" style="width:100%"></i><s style="left:72%"></s></span> 61 of 42 · can't shorten</div></figure>
+</div>
+<p class="lead" style="margin-top:12px">Steps are tried in order and the first that fits wins; the fit meter names the step. Shortening follows the fixed drop order in O8 and the proposal says what went. Over the last step with nothing left to drop, the asset is flagged in brick and has no Approve. The claim slot never takes a third line; T2's qualifier line is not a third line of the claim, it's its own slot.</p>
+
+<h2>The ladder's claims in T1 and T2 (asset bank issue 2, A5')</h2>
+<table class="t ladder">
+<tr><th>Rung (trigger → claim)</th><th>T1 claim slot</th><th>T2 claim block</th><th>Number from</th></tr>
+<tr><td>List time passed · on sale → "{release} live · selling fast"</td><td>3rd release now available</td><td>3rd release tickets / now available <span class="q" style="font-size:.7em">· selling fast</span></td><td>—</td></tr>
+<tr><td>Selling fast 5+ days → "{release} 90% sold out"</td><td>3rd release 90% sold out</td><td>3rd release / <span style="font-size:1.4em">90%</span> sold out</td><td>the rung's %, recorded on the approval</td></tr>
+<tr><td>Actual 50 / 60 / 70 / 80 % → "75 / 80 / 90 / 95% sold"</td><td>75% of tickets sold</td><td><span style="font-size:1.4em">75%</span> sold</td><td>the rung's %</td></tr>
+<tr><td>Actual 90 % · final X · page shows remaining → "99%" or "final X"</td><td>Final 100 3rd release tickets</td><td>Final <span style="font-size:1.4em">100</span> 3rd release tickets</td><td>the remaining figure from the read or the count, never typed</td></tr>
+<tr><td>State sold out → "sold out"</td><td>3rd release sold out</td><td>3rd release / sold out <span class="q" style="font-size:.7em">· final release on sale now</span></td><td>—</td></tr>
+<tr><td>Release ends on a date (price rung — <b>not in A5'</b>, from the "move up in price" asset)</td><td>3rd release ends Wednesday</td><td>3rd release ends / final release next <span class="q" style="font-size:.7em">· this Wednesday</span></td><td>the next release's list time; a price only when the ladder row says so</td></tr>
+</table>
+<p class="lead"><b>For Matas:</b> the last row is a rung the ladder doesn't have — a release ending on a known date is a claim the data supports without a count (the next release's list time). Proposed as a ladder row in the next asset-bank issue; until then T2 can only make it from a typed claim, which the proposal card marks as such.</p>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>At rest · slots</th><th>393</th></tr>
+<tr><td>T1 artist clip</td><td>9:16 master with the 4:5 rect; slots artist (10 % H cap at 12 % of the rect), details (4 lines, 3.1 % H, at 31 %), claim (optional, 4 % H, at 88 %); still or clip overlay; formats 9:16 · 4:5 crop · 1:1 re-sit.</td><td>previews at 2 across; the three formats swipe</td></tr>
+<tr><td>T2 standalone message</td><td>Slots claim (6 % H, ≤ 2 lines + qualifier, number token 1.5×), lineup or partners (top-right), details (bottom-left), logo (bottom-right), corner inset 14.3 % W; formats as T1.</td><td>same</td></tr>
+<tr><td>T3 lineup artwork</td><td>The PSD; slots = its live text layers by name, style runs kept by role; locked layers as chips naming the smart object; formats 9:16 and crops only where the PSD's rect allows, else "ask the designer".</td><td>artwork on top, slots below (as Brand kit)</td></tr>
+<tr><td>Safe rect</td><td>Drawn on every artwork preview in the kit and on proposals: 4:5 white dashed, 1:1 yellow dashed, with the % label.</td><td>same, labels drop</td></tr>
+<tr><td>Fit meter</td><td>Gains the step reading for T1/T2 slots: "step 1 of 2 · 2 lines"; brick + "can't shorten" over the last step.</td><td>same</td></tr>
+<tr><td>Variant proposal</td><td>Previews are the three formats from this record (9:16 · 4:5 · 1:1) beside the original; the template's name on the card ("T1 artist clip").</td><td>as pass 2</td></tr>
+</table>
+
+<h2>Hand-back — the render path</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H1 Kit ingest (T3)</td><td>Parse the PSD with <code>ag-psd</code> once per kit (new dependency — needs approval): export every visible non-text layer as a PNG at full resolution in stack order; for each text layer read name, text, font, size, colour, tracking, box, transform, style runs and layer effects; store under the kit with the canvas size and ppi. Hidden layers are listed but not exported.</td><td>brand_kits (B7), new kit_layers rows</td><td>Puzzle 4th Birthday kit lists one editable slot named by its layer and the locked chips; the export of the smart-object layer matches Photoshop's within 1 px</td></tr>
+<tr><td>H2 Compositions</td><td>Three Remotion compositions in <code>src/remotion/compositions/</code>: <code>ArtistClipOverlay</code> (T1, video on a clip or still on an image), <code>StandaloneMessage</code> (T2, still), <code>PsdLineup</code> (T3, still from the exported layers + rebuilt text). Props are the slots and the event facts; sizes from this record as constants in one file (<code>overlay-templates.ts</code>), never per-call.</td><td>—</td><td>OT1–OT3 rendered from the fixture match the record's slot positions within 1 % H</td></tr>
+<tr><td>H3 Formats</td><td>One render per format from the same props: 9:16 (1080×1920), 4:5 (1080×1350, the composition offset by −285 px, not a transcode), 1:1 (1080×1080, the 1:1 rect). Stills via <code>renderStillOnLambda</code>; video (T1 on a clip) via <code>renderMediaOnLambda</code> as the caption path does (<code>lib/creative-lab/lambda.ts</code>).</td><td>—</td><td>the three files per asset; the 4:5 is pixel-identical to the master's crop</td></tr>
+<tr><td>H4 Font</td><td>Bootzy Condensed TM Regular as a file (OTF/TTF) uploaded to the kit, loaded with <code>@remotion/fonts</code> from the kit's storage; the kit shows it as <span class="chip ok">uploaded</span> or <span class="chip bad">missing</span> and T1–T3 don't render without it (rule 14: no fallback). Licence: if it's an Adobe Fonts activation it can't be copied out — the kit needs a server licence or the designer's file.</td><td>brand_kit_fonts (B7)</td><td>a kit with the font missing shows no Make action on T1–T3 rows and names the font</td></tr>
+<tr><td>H5 Edge</td><td>T1/T2: stroke outside, 0.28 % W, black; T3: the PSD's effects. The stroke is drawn as SVG stroke under the fill (paint-order), not CSS text-shadow.</td><td>—</td><td>a 1080-wide render shows a 3 px black edge outside the white letter</td></tr>
+<tr><td>H6 Claims</td><td>The claim slot takes the approved claim's words from the proposal (asset bank issue 2 H10); the number token is bound to the trigger's figure. The O7 table is a function (rung → words) with a test per row.</td><td>ticket_warnings · client_claim_ladders</td><td>unit test per rung; a typed number is refused</td></tr>
+<tr><td>H7 Steps</td><td>The O8 step ladder as data (per slot: steps of cap height and max characters per line), measured with the real font's advance widths, not a character count; drop order per slot.</td><td>overlay-templates.ts</td><td>OT4 four states from the fixture claims; "can't shorten" has no Approve</td></tr>
+<tr><td>H8 Audit before build</td><td>Ops runs it on the Puzzle PSD and the font and reports: (a) canvas size and ppi; (b) every text layer with name, font, pt size, transform matrix and style runs — confirm exactly one live layer and that logo, script and details are inside <code>4th bday poster NEW</code>; (c) the text layer's effects (stroke? shadow? values) — this sets T3's edge and tells us whether the designer's "outline" is a stroke; (d) hidden layers present; (e) the font file: available, format, licence, and its cap-height ratio (the record's cap % → font px conversion); (f) <code>renderStillOnLambda</code> present in @remotion/lambda 4.0.471 on the deployed function; (g) a side-by-side: Photoshop export vs the Remotion render of the same copy, diff ≤ 1 % of pixels. Nothing in H1–H7 is built until (b), (c) and (e) are on record.</td><td>the PSD; the font</td><td>a written audit note under docs/session-logs</td></tr>
+<tr><td>H9 CI frames</td><td>OT1–OT4 at ⅓ scale from the fixture, stills only (the clip case renders the first frame), plus the kit's T3 slot list at 1280 and 393 (Brand kit component).</td><td>fixture</td><td>frames:check on OT1-916 / 45 / 11, OT2 ×3, OT3 ×3, OT4 ×4</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>Rounding of the measured sizes to the rules: artist 10 % H (measured 9.5–11.5), details 3.1 / 3.5, claim 4 % H, T2 claim 6 % H and 8.75 % pitch, corner inset 14.3 % W, number token 1.5×, qualifier 0.6×. The 7 % W side margin.</li>
+<li>Positions as fractions of the target rectangle (12 / 31 / 88 % for T1; 10 / 50 / 88 % for T2) and the 1:1 as the 4:5 arrangement at 0.8× rather than a crop: the designer's sizes do not fit a 1:1 crop (the artist name's top sits above the 1:1 line), so the choice was scale or re-lay; scale keeps the look.</li>
+<li>The stroke width 0.28 % W (3 px at 1080) on T1/T2: read from the UGC overlay's ≈ 2 px at 830 wide; the UGC caption's own stroke measured 2 px at 720, so this is the heavier of the two, and not the statics' shadow. O6 asks Matas to confirm.</li>
+<li>The artist slot's shrink-to-width (ceiling 10 % H, floor 6 % H, then two lines): the Locklead name is 8 letters; ENZO SIRAGUSA is 13 and would not fit one line at 10 % H even in Bootzy.</li>
+<li>The step ladder (two steps, the 15 % size drop, the character limits per line) and the drop order (TICKETS → NOW → number form).</li>
+<li>The claim words in the ladder table; the "release ends" rung.</li>
+<li>The T3 style-run rule (by role, not index) and the "ask the designer once" behaviour for locked details.</li>
+<li>The stand-in font in these frames (Impact / Arial Narrow with cap ≈ 0.72 em) and the gradient backgrounds; nothing about Bootzy's metrics is known until the audit (H8 e).</li>
+<li>The PSD canvas size ≈ 3375 × 6000 (from the 25 % ruler); the details' cap 1.6 % H.</li>
+</ul>
+
+<h2>Frames for CI (OT series)</h2>
+<table class="t">
+<tr><th>Id</th><th>Format</th><th>Fixture</th></tr>
+<tr><td>OT1</td><td>916, 45, 11, 916b</td><td>Enzo Siragusa; Circuit · Southampton · Sun 27 Dec · 1pm–9:30pm; claim "FINAL 100 3RD RELEASE TICKETS"; 916b without the claim</td></tr>
+<tr><td>OT2</td><td>916, 45, 11, 916b</td><td>lineup Enzo Siragusa · Luke Dean · Reeshy · Phill de Janeiro · Benji King; details Sun 27 Dec / Circuit; PUZZLE wordmark; claim with number token 100; 916b the release-ends claim with qualifier</td></tr>
+<tr><td>OT3</td><td>916, 45, 11</td><td>PUZZLE BIRTHDAY 1 STORY.psd layers; the lineup slot with "PART 1" and "&amp;" runs</td></tr>
+<tr><td>OT4</td><td>four 4:5 claim cells</td><td>step 0, 1, 2 and the flagged over case</td></tr>
+</table>
+
+</div>
+<script>
+/* stand-in font only: shrink a one-line slot until it fits its box, as O3 rules for the artist name */
+document.querySelectorAll(".fr .tx.artist, .fr .tx.claim, .fr .tx.lineup, .fr .tx.det, .fr .tx.names").forEach(function(e){var n=0;while(e.scrollWidth>e.clientWidth+1&&n<40){var fs=parseFloat(getComputedStyle(e).fontSize);e.style.fontSize=(fs*0.96)+"px";n++;}});
+</script>
+</body>
+</html>
