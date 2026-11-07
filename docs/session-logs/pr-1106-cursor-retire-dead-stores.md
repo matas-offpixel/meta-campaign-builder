@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1106
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1106
 - **Branch:** `cursor/retire-dead-stores`
 
 ## Summary
