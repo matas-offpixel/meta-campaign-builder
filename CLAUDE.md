@@ -629,10 +629,10 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   (see `lib/ticketing/manual/provider.ts`).
 - `events.total_marketing_budget` was DROPPED in 051 — the total is
   computed live from plan paid media + additional spend entries.
-- Funnel planner (April 2026): `event_funnel_overrides` table
-  (migration 060) stores per-event and per-venue conversion-rate
-  overrides used by the Funnel Planner UI shell on event-report
-  deep-dives.
+- Funnel rates: `client_funnel_benchmarks` (migration 158) is the live
+  store. `event_funnel_overrides` (migration 060) was never read by a
+  shell. Migration 209 drops it, and drops `campaign_daily_insights`,
+  which `ad_daily_insights` (migration 185) replaced.
 - TikTok pipeline (April 2026): `tiktok_accounts` (encrypted credentials,
   migration 054), `tiktok_active_creatives_snapshots` (057),
   `tiktok_campaign_drafts` + `tiktok_campaign_templates` (058),
