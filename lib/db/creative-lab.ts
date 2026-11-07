@@ -183,6 +183,7 @@ export type CreativeLabCardData = {
     updatedAt: string;
     previewUrl: string | null;
     posterUrl: string | null;
+    clipPreviewUrl: string | null;
     lines: string[];
     playing: boolean;
   }[];
@@ -417,7 +418,7 @@ export async function loadCreativeLabCard(
           reason: text(candidate, "reason") || null,
           thumbnailUrl: publicThumbUrl(text(candidate, "thumbnail_path")),
           lengthSeconds: null,
-          overlayOpen: ["text_overlay", "check_by_eye"].includes(overlayOf(candidate.overlay_check)?.verdict ?? ""),
+          overlayOpen: false,
           overlay: overlayOf(candidate.overlay_check),
         })),
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
@@ -487,6 +488,7 @@ export async function loadCreativeLabCard(
     }),
     renders: renderRows.map((row) => {
       const clip = clipRows.find((item) => text(item, "id") === text(row, "clip_id"));
+      const clipAsset = clip ? assetOf.get(text(clip, "creative_asset_id")) : undefined;
       const artist = artists.find((item) => text(item, "id") === text(clip ?? null, "artist_id"));
       const caption = captions.find((item) => text(item, "id") === text(row, "caption_id"));
       const asset = assetOf.get(text(row, "creative_asset_id"));
@@ -501,6 +503,7 @@ export async function loadCreativeLabCard(
         updatedAt: String(row.updated_at ?? row.created_at ?? ""),
         previewUrl: text(asset, "public_url") || null,
         posterUrl: text(asset, "thumbnail_url") || null,
+        clipPreviewUrl: text(clipAsset, "public_url") || text(clipAsset, "thumbnail_url") || null,
         lines: [],
         playing: false,
       };

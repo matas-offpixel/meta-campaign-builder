@@ -7,6 +7,8 @@ import { profile } from "../../../src/remotion/caption-style/profile.ts";
 import {
   adPairingName,
   candidateTileState,
+  cropWindowBox,
+  renderRowWord,
   cantRunReason,
   CAPTION_BOX_WIDTH_PCT,
   captionBoxInsets,
@@ -208,10 +210,27 @@ describe("creative lab surface", () => {
     assert.equal(postAge("2026-10-29", "2026-11-06T12:00:00Z"), "8 days ago");
     assert.equal(postAge("2026-11-05", "2026-11-06T12:00:00Z"), "1 day ago");
     assert.equal(postAge("2026-10-12", "2026-11-06T12:00:00Z"), "4 weeks ago");
-    assert.deepEqual(candidateTileState(rows[0]!), { action: "request", status: null });
-    assert.deepEqual(candidateTileState({ ...rows[0]!, hasFile: true }), { action: "add", status: null });
-    assert.deepEqual(candidateTileState(rows[1]!), { action: null, status: "Skipped — text overlay" });
-    assert.deepEqual(candidateTileState({ ...rows[0]!, status: "requested" }), { action: null, status: "Requested" });
+    assert.deepEqual(candidateTileState(rows[0]!), { action: "request", status: null, see: false });
+    assert.deepEqual(candidateTileState({ ...rows[0]!, hasFile: true }), { action: "add", status: null, see: false });
+    assert.deepEqual(candidateTileState({ ...rows[1]!, overlay: { verdict: "text_overlay", flagged: 3 } }), { action: null, status: "Skipped — text in 3 of 8 frames", see: true });
+    assert.deepEqual(candidateTileState({ ...rows[0]!, status: "requested" }), { action: null, status: "Requested", see: false });
+    assert.deepEqual(
+      candidateTileState({ ...rows[0]!, overlay: { verdict: "check_by_eye", flagged: 0 } }),
+      { action: "import", status: "Couldn't check for text — look before you import", see: false },
+    );
+  });
+
+  it("puts the 9:16 window at the focus point and still names a render with no estimate", () => {
+    const box = cropWindowBox(0.5, 1920, 1080);
+    assert.equal(box.label, "16:9 → 9:16");
+    assert.ok(Math.abs(box.width - (9 / 16) / (16 / 9)) < 1e-9);
+    assert.ok(Math.abs(box.left - (1 - box.width) * 0.5) < 1e-9);
+    assert.equal(box.top, 0);
+    assert.equal(box.height, 1);
+    const rendering = { id: "a", status: "rendering", renderMs: null, updatedAt: "", error: null };
+    assert.equal(renderRowWord(rendering, [rendering], "2026-11-06T12:00:00.000Z"), "rendering");
+    const queued = { id: "b", status: "queued", renderMs: null, updatedAt: "", error: null };
+    assert.equal(renderRowWord(queued, [rendering, queued], "2026-11-06T12:00:00.000Z"), "queued · 2nd");
   });
 
   it("builds the caption box from the profile's centre, so a profile change moves the preview with the render", () => {

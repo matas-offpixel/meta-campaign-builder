@@ -135,7 +135,12 @@ describe("Creative Lab frame catalog (CL)", () => {
   it("CL7 has four ranked candidates: request, skipped, requested, add", () => {
     const candidates = LAB_FRAME_FIXTURES.CL7.lab.artists[0]!.igCandidates;
     assert.deepEqual(candidates.map((row) => row.status), ["candidate", "skipped", "requested", "candidate"]);
-    assert.deepEqual(candidates.map((row) => row.hasFile), [false, false, false, true]);
+    assert.deepEqual(candidates.map((row) => row.hasFile), [false, true, false, true]);
+    assert.equal(candidates[1]!.overlay?.flagged, 3);
+    const same = LAB_FRAME_FIXTURES.CL8.lab.artists[0]!.igCandidates;
+    assert.equal(same[1]!.id, candidates[1]!.id);
+    assert.equal(same[1]!.overlayOpen, true);
+    assert.equal(candidates[1]!.overlayOpen, false);
     const scores = candidates.map((row) => row.score ?? 0);
     assert.deepEqual(scores, [...scores].sort((a, b) => b - a));
   });

@@ -12,7 +12,11 @@ export function PosterVideo({ src, at, className }: { src: string; at: number; c
     const node = ref.current;
     if (!node) return;
     const go = () => {
-      if (Math.abs(node.currentTime - at) > 0.05) node.currentTime = at;
+      const duration = node.duration;
+      const target = Number.isFinite(duration) && duration > 0.05
+        ? Math.min(Math.max(at, 0), duration - 0.05)
+        : at;
+      if (Math.abs(node.currentTime - target) > 0.05) node.currentTime = target;
     };
     if (node.readyState >= HTMLMediaElement.HAVE_METADATA) go();
     node.addEventListener("loadedmetadata", go);

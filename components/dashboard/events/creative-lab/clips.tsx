@@ -10,7 +10,7 @@ import { RenderRows } from "@/components/dashboard/events/creative-lab/render-ro
 import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
 import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
 import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
-import { overlayPanelLine, overlaySkipLine } from "@/lib/creative-lab/overlay-check";
+import { overlayPanelLine } from "@/lib/creative-lab/overlay-check";
 import {
   candidateAddLabel,
   candidateTileState,
@@ -154,6 +154,7 @@ function ClipGroup({
         {clips.map((clip) => {
           const reason = cantRunReason(clip);
           const verdict = clip.judged ? (clip.judged.verdict === "thin" ? "untested" : clip.judged.verdict) : "untested";
+          const wideFrame = clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight);
           return (
             <article key={clip.id} className={`w-36 shrink-0 sm:w-auto ${reason ? "rounded border border-dashed border-destructive p-1" : ""}`} title={clip.rightsRef}>
               <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} />
@@ -163,9 +164,7 @@ function ClipGroup({
               </p>
               <p className="text-xs">{clip.artistName} #{clip.clipNo}</p>
               {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
-              {clip.sourceWidth && clip.sourceHeight && !isNative9x16(clip.sourceWidth, clip.sourceHeight) ? (
-                clip.cropOpen ? <CropPicker src={clip.previewUrl} focus={clip.cropFocusX} onSave={(focus) => onCrop(clip.id, focus)} /> : <p className="text-xs text-muted-foreground">Crop to 9:16</p>
-              ) : null}
+              {wideFrame && !clip.cropOpen ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
               {reason ? <p className="text-xs text-destructive">{reason}</p> : (
                 <div className="mt-1 space-y-1 text-xs">
                   <VerdictChip verdict={verdict} />
@@ -178,6 +177,17 @@ function ClipGroup({
           );
         })}
       </div>
+      {clips.filter((clip) => clip.cropOpen && clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight)).map((clip) => (
+        <CropPicker
+          key={clip.id}
+          src={clip.previewUrl}
+          focus={clip.cropFocusX}
+          clipNo={clip.clipNo}
+          sourceWidth={clip.sourceWidth}
+          sourceHeight={clip.sourceHeight}
+          onSave={(focus) => onCrop(clip.id, focus)}
+        />
+      ))}
     </div>
   );
 }
@@ -224,6 +234,8 @@ function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: bool
   const groups = lab.artists
     .map((artist) => ({ artist, rows: rankCandidates(artist.igCandidates) }))
     .filter((group) => group.rows.length > 0);
+  const opened = groups.flatMap((group) => group.rows).find((clip) => clip.overlayOpen)?.id ?? null;
+  const [openId, setOpenId] = useState<string | null>(opened);
   if (groups.length === 0) return null;
 
   async function add(id: string, anyway: boolean) {
@@ -243,53 +255,71 @@ function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: bool
   return (
     <div className="space-y-3">
       <h3 className="font-medium">Find clips on Instagram</h3>
-      {groups.map(({ artist, rows }) => (
-        <div key={artist.id} className="space-y-2">
-          <p className="text-muted-foreground">{artist.name} · best first · likes, comments and how recent · native 9:16 first</p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {rows.map((clip) => {
-              const state = candidateTileState(clip);
-              const age = postAge(clip.postedAt, lab.now);
-              const flagged = clip.overlay?.verdict === "text_overlay";
-              const review = clip.overlay?.verdict === "check_by_eye";
-              const status = flagged && clip.overlay
-                ? overlaySkipLine(clip.overlay.flagged)
-                : clip.reason?.includes("Too low quality")
-                  ? clip.reason
-                  : state.status;
-              return (
-                <article key={clip.igMediaId} className="rounded border border-border p-2">
-                  <div className="relative">
-                    <Poster url={clip.thumbnailUrl} />
-                    <span className="absolute top-1 left-1 rounded bg-background px-1 text-xs font-medium tabular-nums text-foreground">{clip.rank}</span>
-                    {clip.lengthSeconds != null ? <span className="absolute bottom-1 left-1 text-xs text-white">▶ {durationLabel(clip.lengthSeconds)}</span> : null}
-                  </div>
-                  <p className="mt-1 text-xs tabular-nums">♥ {clip.likes == null ? "—" : clip.likes.toLocaleString("en-GB")} · 💬 {(clip.comments ?? 0).toLocaleString("en-GB")}</p>
-                  <p className="text-xs text-muted-foreground">{[age, clip.aspect || "aspect unknown"].filter(Boolean).join(" · ")}</p>
-                  {state.action === "request" ? (
-                    <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap px-1" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
-                  ) : state.action === "add" ? (
-                    <Button type="button" size="sm" className="mt-1 w-full" disabled={busy || importing === clip.id} onClick={() => void add(clip.id, false)}>{importing === clip.id ? "Importing…" : candidateAddLabel(clip.aspect)}</Button>
-                  ) : null}
-                  {status ? <p className="mt-1 text-xs text-muted-foreground">{status}</p> : null}
-                  {clip.overlayOpen && clip.overlay ? (
-                    <div className="mt-2 space-y-1">
-                      <p className="text-xs">Why #{clip.rank} was skipped</p>
-                      <div className="flex gap-1 overflow-x-auto">
-                        {clip.overlay.frames.map((frame) => (
-                          <div key={frame.t} className={`flex h-12 w-8 shrink-0 items-end justify-center rounded bg-black text-[10px] text-white ${frame.text ? "outline outline-2 outline-destructive" : ""}`}>{frame.text ? "Aa" : ""}</div>
-                        ))}
-                      </div>
-                      <p className="text-xs">{flagged ? overlayPanelLine(clip.overlay.flagged) : "Looks clean?"}</p>
-                      <Button type="button" size="sm" className="w-full" disabled={busy} onClick={() => void add(clip.id, true)}>{review ? "Looks clean? Import" : "Import anyway"}</Button>
+      {groups.map(({ artist, rows }) => {
+        const open = rows.find((clip) => clip.id === openId && clip.overlay) ?? null;
+        return (
+          <div key={artist.id} className="space-y-2">
+            <p className="text-muted-foreground">{artist.name} · best first · likes, comments and how recent · native 9:16 first</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {rows.map((clip) => {
+                const state = candidateTileState(clip);
+                const age = postAge(clip.postedAt, lab.now);
+                const dimmed = clip.status === "skipped" || clip.status === "requested";
+                const quality = clip.reason?.includes("Too low quality") ? clip.reason : null;
+                return (
+                  <article key={clip.igMediaId} className={`rounded border border-border p-2 ${dimmed ? "opacity-[0.55]" : ""}`}>
+                    <div className="relative">
+                      <Poster url={clip.thumbnailUrl} />
+                      <span className="absolute top-1 left-1 rounded bg-background px-1 text-xs font-medium tabular-nums text-foreground">{clip.rank}</span>
+                      {clip.lengthSeconds != null ? <span className="absolute bottom-1 left-1 text-xs text-white">▶ {durationLabel(clip.lengthSeconds)}</span> : null}
                     </div>
-                  ) : null}
-                </article>
-              );
-            })}
+                    <p className="mt-1 text-xs tabular-nums">♥ {clip.likes == null ? "—" : clip.likes.toLocaleString("en-GB")} · 💬 {(clip.comments ?? 0).toLocaleString("en-GB")}</p>
+                    <p className="text-xs text-muted-foreground">{[age, clip.aspect || "aspect unknown"].filter(Boolean).join(" · ")}</p>
+                    {state.action === "request" ? (
+                      <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap px-1" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
+                    ) : state.action === "add" ? (
+                      <Button type="button" size="sm" className="mt-1 w-full" disabled={busy || importing === clip.id} onClick={() => void add(clip.id, false)}>{importing === clip.id ? "Importing…" : candidateAddLabel(clip.aspect)}</Button>
+                    ) : state.action === "import" ? (
+                      <Button type="button" size="sm" className="mt-1 w-full" disabled={busy || importing === clip.id} onClick={() => void add(clip.id, true)}>Import</Button>
+                    ) : null}
+                    {quality ? <p className="mt-1 text-xs text-destructive">{quality}</p> : state.see ? (
+                      <p className="mt-1 text-xs text-destructive">
+                        {state.status} · <button type="button" className="underline" onClick={() => setOpenId(clip.id)}>see</button>
+                      </p>
+                    ) : state.status ? <p className="mt-1 text-xs text-muted-foreground">{state.status}</p> : null}
+                  </article>
+                );
+              })}
+            </div>
+            {open?.overlay ? (
+              <section className="w-full max-w-[460px] space-y-2 rounded border border-border bg-card p-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <h3 className="font-medium">Why #{open.rank} was skipped</h3>
+                  <span className="text-xs text-muted-foreground">8 frames checked</span>
+                </div>
+                <div className="grid grid-cols-8 gap-1">
+                  {open.overlay.frames.map((frame) => (
+                    <div key={frame.t} className={`relative aspect-[9/16] overflow-hidden rounded bg-black ${frame.text ? "outline outline-2 outline-destructive" : ""}`}>
+                      <FrameStill src={open.thumbnailUrl} at={frame.t} />
+                      {frame.text ? <span className="absolute inset-x-0 bottom-[30%] bg-destructive/80 text-center text-[10px] text-white">Aa</span> : null}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs">
+                  {overlayPanelLine(open.overlay.flagged)}{" "}
+                  <button type="button" className="underline" disabled={busy} onClick={() => void add(open.id, true)}>Import anyway</button>
+                </p>
+              </section>
+            ) : null}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
+}
+
+function FrameStill({ src, at }: { src: string | null; at: number }) {
+  if (!src) return null;
+  if (/\.(webm|mp4)(\?|$)/i.test(src)) return <PosterVideo src={src} at={at} className="h-full w-full object-cover" />;
+  return <img src={src} alt="" className="h-full w-full object-cover" />;
 }

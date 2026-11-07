@@ -27,6 +27,7 @@ Import an artist's own Instagram clips, reject burned-in text, crop every clip t
 
 - Fixture candidate lengths (▶ 0:18 and the rest) are drawn for the frames only. Instagram's listing does not return a duration, and none is stored.
 - The crop picker's six frames are six video elements of the clip file, seeked locally. Opening the picker does not call Lambda.
-- A minute on a render row is shown only when a finished render has a measured `render_ms`. With no average, the row says Rendering.
+- A minute on a render row is shown only when a finished render has a measured `render_ms`. With no average, the row says rendering.
+- Pass 2 of the design verdict: the skipped line is "Skipped — text in 3 of 8 frames · see", the check and the crop are panels, and the finished render plays beside the rows.
 - The Lambda still is one invocation at 2048 MB in eu-west-2. Its `estimatedPrice` is the cost of that call. The vision call is one `claude-sonnet-4-6` forced tool with the sheet and the thumbnail.
 - The first real import is Add on production after this merges and migration 210 is applied.
