@@ -7,6 +7,7 @@ import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
 import { captionCopy, ctaForStage, feedHeadline, feedPostClip, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
+import { USE_ANGLE_EVENT } from "@/components/insights-rail/use-angle";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
 
@@ -33,6 +34,16 @@ export function LabCaptions({
   const stageDefault = saleStageFromStatus(lab.eventStatus);
   const [angle, setAngle] = useState<(typeof ANGLES)[number]>("lineup");
   const [stage, setStage] = useState<SaleStage>(stageDefault);
+
+  // The Insights rail's "Use {angle}" (R9): pre-select, never generate.
+  useEffect(() => {
+    const onUse = (event: Event) => {
+      const next = (event as CustomEvent<{ angle?: string }>).detail?.angle;
+      if (next && (ANGLES as readonly string[]).includes(next)) setAngle(next as (typeof ANGLES)[number]);
+    };
+    window.addEventListener(USE_ANGLE_EVENT, onUse);
+    return () => window.removeEventListener(USE_ANGLE_EVENT, onUse);
+  }, []);
   const [count, setCount] = useState<1 | 3 | 5>(3);
   const [each, setEach] = useState(false);
   const lead = feedPostClip(lab.clips);

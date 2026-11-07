@@ -34,6 +34,7 @@ export function CanvasHeader({
   planTitle,
   clientName,
   venueName,
+  actions,
   eventDate,
   eventCode,
   thumbUrl,
@@ -56,6 +57,8 @@ export function CanvasHeader({
   planTitle?: string | null;
   clientName: string | null;
   venueName?: string | null;
+  /** The page's own header actions (the Insights pill at 393), before share. */
+  actions?: ReactNode;
   eventDate: string | null;
   eventCode: string | null;
   thumbUrl: string | null;
@@ -145,6 +148,7 @@ export function CanvasHeader({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        {actions}
         {shareAction}
         {handle ? (
           <button

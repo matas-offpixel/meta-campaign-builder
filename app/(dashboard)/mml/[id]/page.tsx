@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/dashboard/page-header";
+import { InsightsPill } from "@/components/insights-rail/insights-pill";
+import { InsightsPageContext } from "@/components/insights-rail/rail-context";
+import { objectiveWord, stageForTargetUnit } from "@/lib/insights-rail/model";
 import { PlanWorkspace } from "@/components/plan/plan-workspace";
 import { loadEventFunnelView } from "@/lib/db/event-funnel-load";
 import { loadAdjustReads } from "@/lib/plan/adjust-reads";
@@ -36,12 +39,12 @@ import { createClient } from "@/lib/supabase/server";
 
 interface Props {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ event?: string }>;
+  searchParams: Promise<{ event?: string; drawer?: string }>;
 }
 
 export default async function PlanDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
-  const { event: eventFromQuery } = await searchParams;
+  const { event: eventFromQuery, drawer: drawerFromQuery } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -297,6 +300,8 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
       ? await loadOwnerPlanShare(supabase, plan.id, user.id)
       : null;
 
+  const railEvent = eventOptions.find((event) => event.id === workspacePlan.intent.eventId) ?? null;
+
   return (
     <>
       <PageHeader
@@ -312,7 +317,19 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
                 : "That plan was not found. Showing a new workspace instead of a fake stored plan."}
             </p>
           ) : null}
+          <InsightsPageContext
+            surface="campaign"
+            title={drawerFromQuery === "f" ? "New Meta campaign" : "MML canvas"}
+            clientId={railEvent?.clientId ?? null}
+            clientName={railEvent?.clientName ?? null}
+            verticalId={null}
+            eventId={railEvent?.id ?? null}
+            stage={stageForTargetUnit(workspacePlan.intent.target.unit)}
+            objective={objectiveWord(workspacePlan.intent.target.unit)}
+            lab={null}
+          />
           <PlanWorkspace
+            headerActions={<InsightsPill />}
             initialPlan={workspacePlan}
             events={eventOptions}
             tiktokAdvertiserId={advertiserIds.length === 1 ? advertiserIds[0] : null}

@@ -28,6 +28,10 @@ import {
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
 import { EventVenuePanel } from "@/components/dashboard/events/event-venue-panel";
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
+import { InsightsPill } from "@/components/insights-rail/insights-pill";
+import { InsightsPageContext } from "@/components/insights-rail/rail-context";
+import { railLabFromCard } from "@/lib/insights-rail/lab-summary";
+import { stageForEventStatus } from "@/lib/insights-rail/model";
 import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
@@ -286,6 +290,17 @@ export function EventDetail({
 
   return (
     <>
+      <InsightsPageContext
+        surface="event"
+        title={event.name}
+        clientId={event.client?.id ?? null}
+        clientName={event.client?.name ?? null}
+        verticalId={null}
+        eventId={event.id}
+        stage={stageForEventStatus(event.status)}
+        objective={null}
+        lab={railLabFromCard(lab)}
+      />
       <PageHeader
         title={
           <span className="inline-flex min-w-0 items-center gap-2">
@@ -340,6 +355,7 @@ export function EventDetail({
         }
         actions={
           <>
+            <InsightsPill />
             {event.client && (
               <Link href={`/clients/${event.client.id}`}>
                 <Button variant="outline" size="sm">
