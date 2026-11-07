@@ -47,6 +47,28 @@ export const LEARNING_JOBS: readonly LearningJobName[] = [
 
 export type JobOutcome = { ok: boolean; rows: number; detail?: Record<string, unknown>; error?: string };
 
+/**
+ * `cron_runs.rows_written` for this route. The response has no
+ * `rowsWritten`; each job reports its own `rows`. A killswitch body
+ * has no jobs and writes nothing.
+ */
+export function learningRefreshRunLog(body: Record<string, unknown>): {
+  rows: number;
+  detail: Record<string, unknown>;
+} {
+  const jobs = body.jobs;
+  if (!jobs || typeof jobs !== "object") return { rows: 0, detail: {} };
+  const perJob: Record<string, number> = {};
+  let rows = 0;
+  for (const [name, job] of Object.entries(jobs as Record<string, { rows?: unknown }>)) {
+    const n = Number(job?.rows ?? 0);
+    const count = Number.isFinite(n) ? n : 0;
+    perJob[name] = count;
+    rows += count;
+  }
+  return { rows, detail: { jobs: perJob } };
+}
+
 export type LearningRefreshResult =
   | { ok: true; skippedReason: "killswitch" }
   | {

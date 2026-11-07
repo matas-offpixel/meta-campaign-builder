@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import type { NotifyOptions, NotifyResult } from "../../notify/slack.ts";
@@ -6,6 +7,7 @@ import {
   ROLLUP_TICKETS_DEAD_DEDUPE_KEY,
   notifyRollupTicketsDeadIfNeeded,
   shouldAlarmRollupTicketsDead,
+  snapshotListingGrowth,
 } from "../rollup-tickets-freshness.ts";
 
 describe("shouldAlarmRollupTicketsDead", () => {
@@ -90,5 +92,37 @@ describe("notifyRollupTicketsDeadIfNeeded", () => {
     );
     assert.equal(quiet.alarmed, false);
     assert.equal(calls.length, 0);
+  });
+});
+
+describe("snapshotListingGrowth", () => {
+  it("does not treat two flat listings on one event as growth", () => {
+    assert.equal(
+      snapshotListingGrowth([
+        { event_id: "e", source: "fourthefans", external_event_id: "218", tickets_sold: 218 },
+        { event_id: "e", source: "fourthefans", external_event_id: "4318", tickets_sold: 4318 },
+        { event_id: "e", source: "fourthefans", external_event_id: "218", tickets_sold: 218 },
+        { event_id: "e", source: "fourthefans", external_event_id: "4318", tickets_sold: 4318 },
+      ]),
+      0,
+    );
+  });
+
+  it("the loader reads each listing, not one lifetime per event", () => {
+    const loader = readFileSync("lib/db/rollup-tickets-freshness-load.ts", "utf8");
+    assert.match(loader, /snapshotListingGrowth/);
+    assert.match(loader, /external_event_id, connection_id/);
+  });
+
+  it("sums real movement on each listing", () => {
+    assert.equal(
+      snapshotListingGrowth([
+        { event_id: "e", source: "fourthefans", external_event_id: "218", tickets_sold: 100 },
+        { event_id: "e", source: "fourthefans", external_event_id: "218", tickets_sold: 150 },
+        { event_id: "e", source: "fourthefans", connection_id: "c2", tickets_sold: 4 },
+        { event_id: "e", source: "fourthefans", connection_id: "c2", tickets_sold: 9 },
+      ]),
+      55,
+    );
   });
 });

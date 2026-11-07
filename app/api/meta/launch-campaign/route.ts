@@ -20,6 +20,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { NextRequest, NextResponse } from "next/server";
 import { adSetAudienceRemoved, adSetDisplayName } from "@/lib/wizard/import-edits";
 import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
+import { predictionUnitForDraft, writeDraftLaunchPrediction } from "@/lib/plan/launch-prediction";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
   isLaunchErrorSource,
@@ -5099,6 +5100,16 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     platformAdAccountId:
       draft.settings.adAccountId || draft.settings.metaAdAccountId || null,
     ...preLaunchPlanOwnership,
+  });
+
+  await writeDraftLaunchPrediction(supabase, {
+    userId: user.id,
+    draftId: draft.id,
+    eventId: draft.settings.eventId,
+    unit: predictionUnitForDraft({
+      objective: draft.settings.objective,
+      presetUnit: draft.optimisationStrategy.preset?.targetUnit ?? null,
+    }),
   });
 
   console.log(

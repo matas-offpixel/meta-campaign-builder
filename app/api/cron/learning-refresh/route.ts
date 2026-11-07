@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { isLearningRefreshEnabled, runLearningRefresh } from "@/lib/learning/runner";
+import { isLearningRefreshEnabled, learningRefreshRunLog, runLearningRefresh } from "@/lib/learning/runner";
 
 /**
  * GET /api/cron/learning-refresh
@@ -71,7 +71,8 @@ export const GET = withCronRunLog(
         return null;
       }
     },
-    rows: (b) => Number(b.rowsWritten ?? 0),
+    rows: (b) => learningRefreshRunLog(b).rows,
+    detail: (b) => learningRefreshRunLog(b).detail,
   },
   handleGET,
 );
