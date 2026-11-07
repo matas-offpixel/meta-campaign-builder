@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Asset bank (M6) — releases, sold count, warnings — 8 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.mono{font-family:var(--mono)}.muted{color:var(--ink-3)}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.sm{height:24px;padding:0 9px;font-size:11.5px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:var(--olive)}
+.chip.warn{color:var(--ochre);border-color:var(--ochre)}
+.chip.bad{color:var(--brick);border-color:var(--brick)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.chip.ink{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+/* app shell */
+.app{display:flex;height:100%}
+.nav{width:172px;flex:none;background:#e3d1bf;border-right:1px solid var(--border);padding:14px 12px;font-size:12px;color:var(--ink-2)}
+.nav b{display:block;font:700 12px var(--sans);color:var(--ink);letter-spacing:.04em;margin-bottom:6px}
+.nav .it{padding:4px 8px;border-radius:5px;margin:1px 0}.nav .it.on{background:var(--muted);color:var(--ink)}
+.main{flex:1;min-width:0;padding:16px 22px}
+.ttl{font:700 19px/1.1 var(--sans);letter-spacing:.03em;text-transform:uppercase}
+.sub{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.secrow{display:flex;justify-content:space-between;align-items:center}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin:0 0 10px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.sec-h h3{margin:0;font-size:13px;font-weight:600}
+.big{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.two{display:grid;grid-template-columns:1.25fr 1fr;gap:12px}
+/* release timeline */
+.tl{position:relative;padding:0 0 4px}
+.tl .axis{height:2px;background:var(--border-strong);margin:30px 0 0;position:relative}
+.tl .axis i{position:absolute;top:-4px;width:10px;height:10px;border-radius:50%;background:var(--ink);transform:translateX(-50%)}
+.tl .axis i.pay{background:transparent;border:2px solid var(--ink);width:12px;height:12px;top:-5px}
+.tl .axis i.now{background:var(--ochre)}
+.tl .axis em{position:absolute;top:-28px;transform:translateX(-50%);font:600 10.5px var(--sans);color:var(--ink-2);white-space:nowrap;font-style:normal}
+.tl .axis em.lo{top:10px}
+.rel{display:grid;grid-template-columns:150px 1fr 150px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:12px}
+.rel:first-child{border-top:0}
+.rel .nm{font-weight:600}.rel .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:11px}
+.rel .when{font:11px var(--mono);color:var(--ink-2)}
+.rel .when b{color:var(--ink)}
+.rel .st{text-align:right}
+/* sold bars */
+.sb{display:grid;grid-template-columns:150px 1fr 120px;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--border);font-size:12px}
+.sb:first-child{border-top:0}
+.sb .nm{font-weight:600}.sb .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:11px}
+.track{height:22px;border-radius:6px;background:var(--muted);position:relative}
+.track i{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:var(--ink-2)}
+.track i.full{background:var(--olive)}
+.track i.g{background:var(--border-strong)}
+.track .hd{position:absolute;top:-5px;width:14px;height:32px;border-radius:5px;background:var(--sand);border:2px solid var(--ink);transform:translateX(-50%);box-shadow:0 1px 3px rgba(30,24,16,.25)}
+.track .lbl{position:absolute;right:8px;top:0;bottom:0;display:flex;align-items:center;font:600 11px var(--mono);color:var(--ink)}
+.track .tick{position:absolute;top:-3px;bottom:-3px;border-left:1.5px dashed var(--ink-3)}
+.sb .v{font:11px var(--mono);text-align:right;color:var(--ink-2)}.sb .v b{display:block;font-size:13px;color:var(--ink)}
+.src{font:10.5px var(--mono);color:var(--ink-3);margin-top:8px}
+/* approval */
+.steps{display:flex;gap:0;font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.steps span{padding:4px 10px;border:1px solid var(--border-strong);color:var(--ink-3)}
+.steps span:first-child{border-radius:99px 0 0 99px}.steps span:last-child{border-radius:0 99px 99px 0}
+.steps span.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.steps span.done{color:var(--olive)}
+.appr{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center;background:var(--edit);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px}
+.appr.held{border-color:var(--ochre)}
+.appr.locked{opacity:.78}
+.ph9{width:120px;aspect-ratio:9/16;border-radius:12px;overflow:hidden;position:relative;background:linear-gradient(160deg,#3a2a24,#8a5a3a);border:3px solid #1e1810}
+.ph9 .cap{position:absolute;left:8px;right:8px;top:30%;color:#fff;font:700 10px/1.25 var(--sans);text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.prog{height:8px;border-radius:4px;background:var(--muted);overflow:hidden;position:relative}.prog i{display:block;height:100%;background:var(--ink)}
+.prog s{position:absolute;top:-2px;bottom:-2px;border-left:1.5px dashed var(--ink-3)}
+.acts{display:flex;gap:8px;flex-direction:column;align-items:stretch}
+/* calendar */
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:11px}
+.cal .d{height:50px;border-radius:5px;background:var(--edit);padding:3px 5px;position:relative}
+.cal .d.pay{outline:2px solid var(--ink)}
+.cal .d.win{background:var(--sand)}
+.cal .d small{display:block;font-size:9.5px;line-height:1.15;margin-top:2px}
+.cal .hd{font:700 9px/1 var(--mono);color:var(--ink-3);text-align:center}
+.pk{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:3px;vertical-align:middle}
+/* board */
+.board{display:grid;grid-template-columns:200px repeat(4,1fr);gap:6px;font-size:11.5px}
+.board .rh{font-weight:600;font-size:12px;align-self:center}
+.board .rh small{display:block;font-weight:400;color:var(--ink-3);font-size:10.5px}
+.board .ch{font:700 9px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);align-self:end}
+.bc{height:64px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:4px;position:relative;font-size:11px;text-align:center;padding:0 6px}
+.bc.ex{background:linear-gradient(160deg,#4a3a2a,#9a7a5a);color:#fff}
+.bc.ap::after{content:"✓";position:absolute;right:4px;top:3px;width:16px;height:16px;border-radius:50%;background:var(--olive);color:#fff;font:700 10px/16px var(--sans);text-align:center}
+.bc.miss{border:1px dashed var(--border-strong);color:var(--ink-3)}
+.bc.na{background:transparent;color:var(--ink-3);opacity:.5}
+.bc.wait{background:var(--edit);border:1px solid var(--ochre);color:var(--ochre)}
+.bc.lock{background:var(--edit);border:1px dashed var(--ink-3);color:var(--ink-3)}
+/* 393 */
+.phone{width:393px;position:relative;background:var(--sand);padding:12px 14px;font-size:12.5px}
+.phone .panel{padding:10px 12px}
+.phone .rel,.phone .sb{grid-template-columns:1fr;gap:4px}
+.phone .rel .st{text-align:left}
+.phone .sb .v{text-align:left}.phone .sb .v b{display:inline;margin-right:6px}
+.phone .board{grid-template-columns:96px repeat(2,1fr)}
+.phone .appr{grid-template-columns:80px 1fr}
+.phone .appr .acts{grid-column:1 / -1;flex-direction:row}
+.phone .ph9{width:80px}
+.inv{font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · ASSET BANK (M6) · 8 NOVEMBER 2026 · ISSUE 1</div>
+<h1>Asset bank — releases, the sold count, and warnings that are true</h1>
+<p class="lead">Extends pass 2's B5 (the board, the payday calendar, the approval card) with three facts from Matas: an event runs several releases, not one presale and one general sale; tickets sold per release are entered by hand, because Matas has no access to the clients' Skiddle or Ironworks dashboards; and every ticket-warning asset is grounded in those two things, held for his Approve, and timed around payday. Rules 6, 8, 11 and 14 apply throughout. Numbers in frames are placeholders unless the data note fixes them.</p>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px">
+<li><b>Issue 1 · 8 Nov 2026.</b> First record. Adds the release timeline and the sold-count entry (new); redraws B5's approval card, payday calendar and board against them. Supersedes B5's ticket-warning row and approval card; B5's board structure and the rest of pass 2 stand.</li>
+</ul></div>
+
+<h2>Data note — read before building</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there on 7 Nov</th><th>What it means for M6</th></tr>
+<tr><td>events</td><td>One <code>presale_at</code> and one <code>general_sale_at</code> per event. 182 events.</td><td>Not enough. Puzzle runs early bird → 2nd release (community 11:30 / list 12:00) → general sale → 3rd release. The record adds a <b>release</b> entity (A1); the two event dates stay as the first community-presale and the general-sale release's list time, so nothing downstream breaks.</td></tr>
+<tr><td>event_ticket_tiers</td><td>841 rows: <code>tier_name, price, quantity_sold, quantity_available, snapshot_at</code>. Replaced by the ticketing sync. Puzzle has 0 rows.</td><td>Carries price and capacity but no times, and the sync overwrites it. Releases need their own table (H1). Where a provider sync exists, tiers map onto releases by name.</td></tr>
+<tr><td>tier_channel_sales · tier_channel_sales_daily_history</td><td>604 running totals per (event, tier, channel); 6,409 daily snapshots at 23:55.</td><td>The sold count entered by hand writes here (channel <i>manual</i>, tier = release name) and the nightly snapshot keeps the history. No new sales table.</td></tr>
+<tr><td>Ticketing sync</td><td>Eventbrite, 4theFans, manual, foursomething_internal. Skiddle and Ironworks: no API, no dashboard access for Matas.</td><td>For most clients the sold count comes from the client, by message or screenshot, and Matas enters it. The entry must take seconds (A3).</td></tr>
+<tr><td>Rollup tickets leg</td><td>Stale since 3 Sep (north star issue 2, §1A).</td><td>Warnings read <code>tier_channel_sales</code> directly, never the rollup, so they stay true while the rollup is repaired.</td></tr>
+<tr><td>Payday</td><td><code>lib/creative-lab/payday.ts</code>: last Friday of the London month. <code>pacing.ts isInPaydayWindow</code>: 18 days from the Thursday before to the Monday 17 days later.</td><td>Both rules are in code; the calendar draws them, it doesn't redefine them. December's payday on Christmas Day is the first exception the rule needs (A8).</td></tr>
+<tr><td>Caption fact rules</td><td><code>caption-facts.ts</code>: "final" / "last" only when one tier left and it's the highest-priced; "under N" only when remaining &lt; N; "sold out" only when a tier has none; £ must equal a tier price.</td><td>The warning truth conditions (A5) are the same rules, applied to releases. One source of truth: the caption validator reads the release timeline too (H6).</td></tr>
+<tr><td>Brand kit (B7)</td><td>Record exists; nothing built. Warnings render from the designer's PSD text slots (rule 14).</td><td>Until B7 is built, a warning cell on the board reads <i>+ needs the PSD</i>, never a fallback font.</td></tr>
+</table>
+
+<h2>A · Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>A1 Releases</td><td>An event has an ordered list of <b>releases</b>: name, community time, list time, price, capacity. Community time is when the WhatsApp community gets the link; list time is when signups do (and the public, for general sale). A release with no community time is public. <code>events.presale_at</code> = the first release's community time; <code>events.general_sale_at</code> = the general-sale release's list time; both derived, never typed twice.</td></tr>
+<tr><td>A2 The timeline is one line</td><td>Releases draw on one horizontal line with today and the next payday marked. Each release is a dot with its name above and its price below. Capacity and sold are not on the line; they're in the sold bars underneath. One line, however many releases.</td></tr>
+<tr><td>A3 Sold by hand, one step</td><td>Tickets sold are entered on the <b>sold bars</b>: one bar per release, length = capacity, filled to sold. Matas drags the handle or taps the bar at the count; the number updates as he drags, and the entry saves with today's date, his name and the source he picks once per event (Skiddle screenshot, client message, Ironworks). Never a form, never a table of fields. The total (<i>1,240 of 2,000 · 62%</i>) is the biggest number on the panel. An entry can only move a count forward; a correction downwards asks once ("Lower than last time, 1,310 on 5 Nov. Sure?").</td></tr>
+<tr><td>A4 Freshness is always shown</td><td>Every sold count carries its entry date. Older than 3 days it reads in ochre with <i>entered Tue 4 Nov · update?</i>; older than 7 days the warnings that depend on it lock (A5), because a warning built on a stale count is a fabricated one.</td></tr>
+<tr><td>A5 Warnings and their truth conditions</td><td>Six warning assets, each grounded in the timeline and the sold count. <b>Presale live</b>: a release's community or list time has passed and it has capacity left. <b>General sale live</b>: the general-sale release's list time has passed. <b>Final 100</b>: remaining across all releases ≤ 100 (the threshold is the asset's name; a <i>Final 50</i> variant follows the same rule). <b>Price rise on {date}</b>: the next release has a higher price and a list time; {date} is that list time's day. <b>80% sold</b>: sold ÷ total capacity ≥ 0.80. <b>Sold out</b>: sold = total capacity. A warning whose condition isn't met is <b>locked</b> and says how far off it is; it has no Approve.</td></tr>
+<tr><td>A6 Approve, then it's scheduled, then it runs</td><td>Every warning is an approval card: artwork preview, the sentence it says, the number that makes it true with its source and entry date, and when it will run. Approve → Scheduled → Live. Nothing runs without Approve. <i>Not now</i> snoozes to the next payday window. An approved warning whose condition stops being true before it runs (a release extended, a count corrected) goes back to Held and tells Today.</td></tr>
+<tr><td>A7 Timing</td><td>Ticket warnings run inside the payday window (code: Thursday before the last Friday, 18 days). Content-led pushes (artist cards, UGC, experience) run mid-month, outside the window. <b>Presale live</b> and <b>General sale live</b> are the exceptions: they run at their release time whatever the calendar says. <b>Price rise on {date}</b> runs from 4 days before the date to the date, and if that overlaps a payday window it starts on the window's first day.</td></tr>
+<tr><td>A8 Payday exceptions</td><td>When the last Friday is a bank holiday or 24–26 December, the payday push moves to the previous working day and the calendar says why on the day. No other movement; the rule stays last Friday.</td></tr>
+<tr><td>A9 The board tells the truth about what's missing</td><td>Every ticket-warning cell on the board is one of: a thumbnail (made), a thumbnail with ✓ (approved), <b>held</b> in ochre (true, waiting for Approve), <b>locked</b> dashed (not true yet, with the count that unlocks it), or <b>+ needs …</b> dashed (true but can't be made: no PSD, no font, no artwork). <i>Make the missing n</i> makes only the cells that are true and makeable.</td></tr>
+<tr><td>A10 393</td><td>The timeline stays one line and scrolls sideways if the names overlap. Sold bars stack full width; the handle is 32 px tall for a thumb. Approval cards: preview left, words right, buttons on their own row. The calendar is a list by week. The board shows two formats at a time and swipes.</td></tr>
+</table>
+
+<!-- ===================== AB1 ===================== -->
+<h2>AB1 · Release timeline and the sold count — on the event page, above the board (1280 and 393)</h2>
+<div class="frame"><figure><figcaption>AB1-1280 · Puzzle 4th Birthday · on sale · 4 releases</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it on">Events</div><div class="it">Clients</div><div class="it">MML</div></div>
+  <div class="main">
+    <div class="secrow"><div><div class="ttl">Puzzle 4th Birthday</div><div class="sub">Puzzle · on sale · Next payday Friday 27 Nov · 50 days to the event</div></div><span><span class="btn">View client</span> <span class="btn">Edit</span></span></div>
+    <div class="panel" style="margin-top:12px">
+      <div class="sec-h"><h3>Releases</h3><span class="muted" style="font-size:11.5px">Sun 27 Dec · Circuit &amp; Engine Rooms · capacity 2,000 <span class="btn sm" style="margin-left:8px">Edit releases</span></span></div>
+      <div class="tl"><div class="axis">
+        <i style="left:6%"></i><em style="left:6%">Early bird</em><em class="lo" style="left:6%">£18 · 12 Oct</em>
+        <i style="left:22%"></i><em style="left:22%">2nd release</em><em class="lo" style="left:22%">£22 · 21 Oct 11:30 / 12:00</em>
+        <i style="left:40%"></i><em style="left:40%">General sale</em><em class="lo" style="left:40%">£26 · 30 Oct 12:00</em>
+        <i class="now" style="left:52%"></i><em style="left:52%;color:var(--ochre)">Today · 7 Nov</em>
+        <i class="pay" style="left:74%"></i><em style="left:74%">Payday · Fri 27 Nov</em>
+        <i style="left:78%"></i><em class="lo" style="left:78%">3rd release · £30 · 1 Dec 12:00</em>
+        <i style="left:98%;background:var(--brick)"></i><em style="left:98%">Show · 27 Dec</em>
+      </div></div>
+    </div>
+    <div class="two">
+      <div class="panel">
+        <div class="sec-h"><h3>Sold so far</h3><span><span class="big">1,240</span> <span class="muted" style="font-size:12px">of 2,000 · 62%</span></span></div>
+        <div class="sb"><div class="nm">Early bird<small>£18 · 300</small></div><div class="track"><i class="full" style="width:100%"></i><span class="lbl" style="color:#fff">300 · sold out</span></div><div class="v"><b>300 of 300</b>entered 14 Oct</div></div>
+        <div class="sb"><div class="nm">2nd release<small>£22 · 500</small></div><div class="track"><i style="width:94%"></i><span class="hd" style="left:94%"></span></div><div class="v"><b>470 of 500</b>entered today 09:10</div></div>
+        <div class="sb"><div class="nm">General sale<small>£26 · 800</small></div><div class="track"><i style="width:59%"></i><span class="hd" style="left:59%"></span><span class="tick" style="left:80%"></span></div><div class="v"><b>470 of 800</b>entered today 09:10</div></div>
+        <div class="sb"><div class="nm">3rd release<small>£30 · 400 · opens 1 Dec</small></div><div class="track"><i class="g" style="width:0%"></i><span class="lbl" style="color:var(--ink-3)">not open yet</span></div><div class="v"><b>—</b></div></div>
+        <div class="src">by hand · from Skiddle screenshot · last entered today 09:10 by Matas · drag a bar or tap it at the count</div>
+      </div>
+      <div class="panel">
+        <div class="sec-h"><h3>Warnings</h3><span class="muted" style="font-size:11.5px">3 held · 2 locked · 1 done</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px">
+          <div style="display:flex;justify-content:space-between"><span>General sale live</span><span class="chip ok">ran 30 Oct</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Price rise on 1 Dec <span class="muted">· £26 → £30</span></span><span class="chip warn">held · approve</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Payday push <span class="muted">· 27 Nov</span></span><span class="chip warn">held · approve</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Presale live · 3rd release <span class="muted">· 1 Dec</span></span><span class="chip warn">held · approve</span></div>
+          <div style="display:flex;justify-content:space-between"><span>80% sold</span><span class="chip dash">locked · needs 1,600</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Final 100</span><span class="chip dash">locked · needs 1,900</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Sold out</span><span class="chip dash">locked · needs 2,000</span></div>
+        </div>
+        <div class="src">true from the releases and the sold count · locked ones unlock the moment the count gets there</div>
+      </div>
+    </div>
+  </div>
+</div></div></figure>
+<figure><figcaption>AB1-393</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="ttl" style="font-size:15px">Puzzle 4th Birthday</div><div class="sub">on sale · payday Fri 27 Nov · 50 days</div>
+  <div class="panel" style="margin-top:10px"><div class="sec-h"><h3>Releases · 4</h3><span class="btn sm">Edit</span></div>
+    <div style="overflow:hidden"><div class="tl" style="width:560px"><div class="axis">
+      <i style="left:9%"></i><em style="left:9%">Early bird</em><em class="lo" style="left:9%">£18</em>
+      <i style="left:22%"></i><em style="left:22%">2nd · 21 Oct</em><em class="lo" style="left:22%">£22</em>
+      <i style="left:42%"></i><em style="left:42%">Gen sale · 30 Oct</em><em class="lo" style="left:42%">£26</em>
+      <i class="now" style="left:56%"></i><em style="left:56%;color:var(--ochre)">Today</em>
+      <i class="pay" style="left:76%"></i><em style="left:76%">Payday 27 Nov</em>
+      <i style="left:84%"></i><em class="lo" style="left:84%">3rd · 1 Dec · £30</em>
+    </div></div></div><div class="muted" style="font-size:10.5px;margin-top:4px">scrolls sideways →</div></div>
+  <div class="panel"><div class="sec-h"><h3>Sold so far</h3><span><span class="big">1,240</span> <span class="muted" style="font-size:11px">of 2,000</span></span></div>
+    <div class="sb"><div class="nm">2nd release <small>£22 · 500</small></div><div class="track"><i style="width:94%"></i><span class="hd" style="left:94%"></span></div><div class="v"><b>470 of 500</b>today 09:10</div></div>
+    <div class="sb"><div class="nm">General sale <small>£26 · 800</small></div><div class="track"><i style="width:59%"></i><span class="hd" style="left:59%"></span><span class="tick" style="left:80%"></span></div><div class="v"><b>470 of 800</b>today 09:10</div></div>
+    <div class="src">by hand · Skiddle screenshot · drag or tap</div></div>
+</div></div></figure></div>
+<p class="lead">The dashed tick on the general-sale bar is where <i>80% sold</i> becomes true for the whole event (1,600), drawn on the bar that will cross it. The handle is the only control: drag it, or tap the bar where the count is. The source line is the provenance (rule 5 says no raw ids; rule 11 says show where the number came from). When a provider sync exists for the client, the bars fill themselves and the source line reads <i>Eventbrite · read 09:00</i>; the hand entry stays available for corrections.</p>
+
+<!-- ===================== AB2 ===================== -->
+<h2>AB2 · Approval cards — held, locked, and one that went back (1280 and 393)</h2>
+<div class="frame"><figure><figcaption>AB2-1280 · the Warnings panel opened</figcaption>
+<div class="vp" style="width:1280px;padding:20px">
+<div style="margin-bottom:10px" class="steps"><span class="done">✓ True</span><span class="on">Approve</span><span>Scheduled</span><span>Live</span></div>
+<div class="appr held">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap">PRICES RISE<br>1 DECEMBER</span></div>
+  <div>
+    <b style="font-size:14px">Price rise on 1 Dec</b> <span class="chip warn" style="margin-left:6px">held</span>
+    <div style="display:flex;gap:16px;align-items:center;margin:8px 0;font-size:12.5px"><span class="mono" style="font-size:16px;font-weight:600">£26 → £30</span><span class="muted">3rd release opens Tue 1 Dec 12:00 · from the releases</span></div>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12.5px"><div class="prog" style="width:220px"><i style="width:62%"></i></div><span class="mono">1,240 of 2,000 sold · 62% · entered today 09:10</span></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Runs Fri 27 Nov – Tue 1 Dec (payday window). Formats: 9:16 video, 4:5, 1:1. From the designer's PSD, text slot "headline".</p>
+  </div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Not now</button></div>
+</div>
+<div class="appr held">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#3a4a2a)"><span class="cap">3RD RELEASE<br>LIVE NOW</span></div>
+  <div>
+    <b style="font-size:14px">Presale live · 3rd release</b> <span class="chip warn" style="margin-left:6px">held</span>
+    <div style="display:flex;gap:16px;align-items:center;margin:8px 0;font-size:12.5px"><span class="mono" style="font-size:16px;font-weight:600">£30 · 400 tickets</span><span class="muted">community 11:30 · list 12:00 · Tue 1 Dec</span></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Runs at 12:00 on 1 Dec, whatever the calendar says (A7). Approve now so it's rendered and scheduled; it goes live by itself at the release time.</p>
+  </div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Not now</button></div>
+</div>
+<div class="appr locked">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#4a4a4a)"><span class="cap">80% SOLD</span></div>
+  <div>
+    <b style="font-size:14px">80% sold</b> <span class="chip dash" style="margin-left:6px">locked</span>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12.5px;margin:8px 0"><div class="prog" style="width:220px"><i style="width:62%;background:var(--ink-3)"></i><s style="left:80%"></s></div><span class="mono">62% · needs 1,600</span></div>
+    <p style="font-size:12.5px;margin:0">Can't run yet — 360 more tickets until it's true. It comes back here the moment the count gets there.</p>
+  </div>
+  <div class="acts"><span class="chip dash">Locked</span></div>
+</div>
+<div class="appr" style="border-color:var(--brick)">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap">PAYDAY<br>PUSH</span></div>
+  <div>
+    <b style="font-size:14px">Payday push · 27 Nov</b> <span class="chip bad" style="margin-left:6px">back to held</span>
+    <p style="font-size:12.5px;margin:6px 0 0">Approved on 3 Nov with "2nd release · last 50". Today's count is 470 of 500, so the true line is "last 30". Re-rendered with 30; needs your Approve again.</p>
+  </div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Not now</button></div>
+</div>
+</figure>
+<figure><figcaption>AB2-393</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+<div class="appr held">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap" style="font-size:7px">PRICES RISE<br>1 DEC</span></div>
+  <div><b>Price rise on 1 Dec</b><div class="mono" style="font-size:13px;margin:4px 0">£26 → £30</div><div class="muted" style="font-size:11.5px">1,240 of 2,000 · entered today · runs 27 Nov – 1 Dec</div></div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Not now</button></div>
+</div>
+<div class="appr locked">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#4a4a4a)"><span class="cap" style="font-size:7px">80% SOLD</span></div>
+  <div><b>80% sold</b><div class="muted" style="font-size:11.5px;margin-top:4px">62% · needs 1,600 · 360 to go</div></div>
+  <div class="acts"><span class="chip dash">Locked</span></div>
+</div>
+</div></div></figure></div>
+<p class="lead">Every card shows the number that makes it true, where it came from and when it was entered. The fourth card is the rule in A6 drawn: an approved warning whose number changed goes back to Held with the new render, and says in one sentence what changed. It never runs the old artwork.</p>
+
+<!-- ===================== AB3 ===================== -->
+<h2>AB3 · Payday calendar — ticket pushes in the window, content mid-month (1280 and 393)</h2>
+<div class="frame"><figure><figcaption>AB3-1280 · 23 Nov – 27 Dec · the payday window shaded</figcaption>
+<div class="vp" style="width:1280px;padding:20px"><div class="panel" style="margin:0">
+  <div class="sec-h"><h3>Pushes · 23 Nov – 27 Dec</h3><span style="font-size:11.5px"><span class="pk" style="background:var(--brick)"></span>ticket warning <span class="pk" style="background:var(--meta);margin-left:8px"></span>content-led <span class="pk" style="border:2px solid var(--ink);margin-left:8px"></span>payday <span class="pk" style="background:var(--sand);border:1px solid var(--border-strong);margin-left:8px"></span>payday window</span></div>
+  <div class="cal">
+    <span class="hd">MON</span><span class="hd">TUE</span><span class="hd">WED</span><span class="hd">THU</span><span class="hd">FRI</span><span class="hd">SAT</span><span class="hd">SUN</span>
+    <div class="d">23</div><div class="d">24</div><div class="d">25</div><div class="d win">26</div><div class="d pay win">27<small><b>Payday</b><br><span class="pk" style="background:var(--brick)"></span>Payday push · Price rise 1 Dec</small></div><div class="d win">28<small><span class="pk" style="background:var(--brick)"></span>Price rise</small></div><div class="d win">29</div>
+    <div class="d win">30<small><span class="pk" style="background:var(--brick)"></span>Last day at £26</small></div><div class="d win">1 Dec<small><span class="pk" style="background:var(--brick)"></span>3rd release live 12:00</small></div><div class="d win">2</div><div class="d win">3</div><div class="d win">4</div><div class="d win">5</div><div class="d win">6</div>
+    <div class="d win">7</div><div class="d win">8</div><div class="d win">9</div><div class="d win">10</div><div class="d win">11</div><div class="d win">12</div><div class="d win">13</div>
+    <div class="d win">14</div><div class="d">15<small><span class="pk" style="background:var(--meta)"></span>Artist cards</small></div><div class="d">16<small><span class="pk" style="background:var(--meta)"></span>UGC · Enzo</small></div><div class="d">17<small><span class="pk" style="background:var(--meta)"></span>Experience</small></div><div class="d">18</div><div class="d">19</div><div class="d">20</div>
+    <div class="d">21</div><div class="d">22<small><span class="pk" style="background:var(--brick)"></span>Final 100 · if true</small></div><div class="d">23</div><div class="d pay">24<small><b>Payday push</b> moved · 25th is Christmas</small></div><div class="d" style="opacity:.6">25<small>Payday · Christmas Day</small></div><div class="d">26</div><div class="d" style="background:var(--ink);color:var(--sand)">27<small style="color:var(--sand)">Show</small></div>
+  </div>
+  <p class="muted" style="font-size:11.5px;margin:10px 0 0">The window is the code's 18 days: Thursday 26 Nov to Monday 14 Dec. Ticket warnings sit inside it; content-led pushes sit outside it. <i>Presale live</i> runs at its release time regardless. December's payday falls on Christmas Day, so the push moves to Thursday 24 and the day says why (A8).</p>
+</div></figure>
+<figure><figcaption>AB3-393 · a list, by week</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="k" style="margin-bottom:8px">Week of 23 Nov · payday window opens Thu</div>
+  <div style="font-size:12.5px;display:flex;flex-direction:column;gap:6px">
+    <div style="font-weight:600"><span class="pk" style="background:var(--brick)"></span>Fri 27 · Payday push + Price rise 1 Dec</div>
+    <div><span class="pk" style="background:var(--brick)"></span>Mon 30 · Last day at £26</div>
+    <div><span class="pk" style="background:var(--brick)"></span>Tue 1 Dec · 3rd release live 12:00</div>
+  </div>
+  <div class="k" style="margin:14px 0 8px">Week of 14 Dec · mid-month</div>
+  <div style="font-size:12.5px;display:flex;flex-direction:column;gap:6px">
+    <div><span class="pk" style="background:var(--meta)"></span>Tue 15 · Artist cards</div>
+    <div><span class="pk" style="background:var(--meta)"></span>Wed 16 · UGC · Enzo</div>
+  </div>
+  <div class="k" style="margin:14px 0 8px">Week of 21 Dec · show week</div>
+  <div style="font-size:12.5px;display:flex;flex-direction:column;gap:6px">
+    <div><span class="pk" style="background:var(--brick)"></span>Tue 22 · Final 100 · if true</div>
+    <div style="font-weight:600"><span class="pk" style="border:2px solid var(--ink)"></span>Thu 24 · Payday push (moved from Christmas Day)</div>
+  </div>
+</div></div></figure></div>
+
+<!-- ===================== AB4 ===================== -->
+<h2>AB4 · The board — what's missing, and why (1280 and 393)</h2>
+<div class="frame"><figure><figcaption>AB4-1280 · Puzzle 4th Birthday · the ticket-warning row against the releases</figcaption>
+<div class="vp" style="width:1280px;padding:20px"><div class="panel" style="margin:0">
+  <div class="sec-h"><h3>Asset bank</h3><span><span class="mono" style="font-size:12px">14 approved · 3 held · 3 locked · 6 missing</span> <button class="btn solid" style="margin-left:8px">Make the missing 6</button></span></div>
+  <div class="board">
+    <span></span><span class="ch">9:16 video</span><span class="ch">4:5 static</span><span class="ch">1:1 static</span><span class="ch">9:16 static</span>
+    <span class="rh">Headliner UGC · promoter voice</span><div class="bc ex ap">Enzo #2</div><div class="bc na">—</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">Headliner UGC · artist voice</span><div class="bc wait">Held · Luke Dean not cleared</div><div class="bc na">—</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">Artist card <small>A–Z, press shot</small></span><div class="bc ex">+ audio 15 s</div><div class="bc ex ap"></div><div class="bc ex ap"></div><div class="bc miss">+ needs Reeshy's press shot</div>
+    <span class="rh">Lineup artwork edit</span><div class="bc miss">+ needs the PSD</div><div class="bc ex ap"></div><div class="bc ex ap"></div><div class="bc ex"></div>
+    <span class="rh">Price rise on 1 Dec <small>£26 → £30 · true</small></span><div class="bc wait">Held · approve</div><div class="bc wait">Held · approve</div><div class="bc wait">Held · approve</div><div class="bc na">—</div>
+    <span class="rh">Presale live · 3rd release <small>1 Dec 12:00 · true</small></span><div class="bc wait">Held · approve</div><div class="bc miss">+ needs the PSD "release" slot</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">80% sold <small>needs 1,600 · at 1,240</small></span><div class="bc lock">Locked · 360 to go</div><div class="bc lock">Locked</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">Final 100 · Sold out <small>needs 1,900 · 2,000</small></span><div class="bc lock">Locked · 660 to go</div><div class="bc lock">Locked · 760 to go</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">Client promo / experience</span><div class="bc ex ap">Venue walk-through</div><div class="bc ex ap"></div><div class="bc miss">+ needs client's edit</div><div class="bc na">—</div>
+  </div>
+  <p class="muted" style="font-size:11.5px;margin:10px 0 0">Held = true and waiting for Approve (ochre). Locked = not true yet, with the count that unlocks it (dashed). + needs = true but can't be made until the named thing arrives. "Make the missing 6" makes the six dashed <i>+ needs</i> cells only once their need is met; it never makes a locked cell.</p>
+</div></figure>
+<figure><figcaption>AB4-393 · two formats, swipe</figcaption>
+<div class="vp" style="width:393px"><div class="phone"><div class="panel">
+  <div class="sec-h"><h3>Asset bank</h3></div>
+  <p class="mono" style="font-size:12px;margin:0 0 10px">14 ✓ · 3 held · 3 locked · 6 missing</p>
+  <div class="board">
+    <span></span><span class="ch">9:16 video</span><span class="ch">4:5</span>
+    <span class="rh">UGC · promoter</span><div class="bc ex ap"></div><div class="bc na">—</div>
+    <span class="rh">Lineup edit</span><div class="bc miss">+ PSD</div><div class="bc ex ap"></div>
+    <span class="rh">Price rise 1 Dec</span><div class="bc wait">Held</div><div class="bc wait">Held</div>
+    <span class="rh">80% sold</span><div class="bc lock">360 to go</div><div class="bc lock">Locked</div>
+  </div>
+  <div class="muted" style="font-size:10.5px;margin-top:6px">swipe for 1:1 and 9:16 static →</div>
+</div></div></figure></div>
+
+<h2>Components (add to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>At rest</th><th>Primary action</th><th>393</th></tr>
+<tr><td>Release timeline</td><td>One horizontal line: a dot per release with name above, price · date below; today in ochre; next payday as an outlined dot; the show in brick at the end</td><td><code>Edit releases</code> (a sheet: name, community time, list time, price, capacity)</td><td>same line, scrolls sideways</td></tr>
+<tr><td>Sold bars</td><td>One bar per release, length = capacity, filled to sold, the count and its entry date beside it (on the bar only when there is no handle: sold out, not open); a dashed tick where the next warning becomes true; a handle; total as the big number; a source line with entry date and who</td><td>drag the handle or tap the bar at the count (saves at once)</td><td>bars stack full width, 32 px handle</td></tr>
+<tr><td>Approval card</td><td>(from B5, extended) artwork preview · name · the number that makes it true + source + entry date · when it runs · formats · PSD slot; states held (ochre), locked (dashed, "n to go"), back to held (brick line saying what changed)</td><td><code>Approve</code> (<code>Not now</code> secondary); none while locked</td><td>preview left, words right, buttons on their own row</td></tr>
+<tr><td>Payday calendar</td><td>(from B5, extended) weeks Mon–Sun; the 18-day window shaded; payday outlined; ticket pushes brick, content-led meta-blue; a moved payday says why on the day</td><td>tap a day = its pushes</td><td>a list by week</td></tr>
+<tr><td>Asset board</td><td>(from B5, extended) cells: thumb · thumb ✓ · held (ochre) · locked (dashed, count to go) · + needs … (dashed)</td><td><code>Make the missing {n}</code></td><td>two formats at a time, swipe</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance (frame)</th></tr>
+<tr><td>H1 Releases</td><td>Table <code>event_releases</code> (event_id, position, name, community_at, list_at, price, capacity). <code>events.presale_at</code> and <code>general_sale_at</code> derived from it on save; existing events backfilled as two releases (Presale, General sale) with capacity null until edited.</td><td>migration; 182 events backfilled</td><td>AB1-1280: four releases on one line in order; the two event dates equal the derived values</td></tr>
+<tr><td>H2 Sold bars</td><td>Writes <code>tier_channel_sales</code> (tier_name = release name, channel = manual, snapshot_at = now) and lets the nightly history snapshot run. Source picked once per event, stored on the event. Downward correction asks once.</td><td>tier_channel_sales, tier_channel_sales_daily_history</td><td>AB1: drag to 470 → row updated, total 1,240, source line shows today and the name; next day the history row exists</td></tr>
+<tr><td>H3 Freshness</td><td>Entry date on every bar; ochre after 3 days with "update?"; dependent warnings lock after 7 days.</td><td>snapshot_at</td><td>fixture with an 8-day-old count: 80% sold reads "locked · count is 8 days old"</td></tr>
+<tr><td>H4 Truth conditions</td><td>The six conditions in A5, computed from releases + sold, in one module shared with the caption validator (<code>caption-facts.ts</code> reads releases, not only tiers).</td><td>event_releases, tier_channel_sales</td><td>AB1 Warnings panel: states as drawn for the fixture counts; unit test per condition</td></tr>
+<tr><td>H5 Approval cards</td><td>Held / locked / back-to-held states; Approve → scheduled with the run window from A7; Not now → next window; a changed number re-renders and returns to held with the one-line reason; Today gets a row.</td><td>creative_lab_renders (kind static/video), a new <code>ticket_warnings</code> state row per (event, warning, format)</td><td>AB2-1280 four cards as drawn; the fourth's sentence verbatim</td></tr>
+<tr><td>H6 Timing</td><td>Window from <code>isInPaydayWindow</code>; content-led outside; presale/gen-sale live at release time; price rise 4 days before; A8 exceptions.</td><td>payday.ts, pacing.ts</td><td>AB3-1280: window shaded 26 Nov – 14 Dec; 24 Dec reads "moved · 25th is Christmas"</td></tr>
+<tr><td>H7 Board</td><td>Cell states per A9; "Make the missing n" counts only true-and-makeable cells.</td><td>B7 brand kit for the PSD slots</td><td>AB4-1280 counts: 14 · 3 · 3 · 6 on the fixture</td></tr>
+<tr><td>H8 393</td><td>Per A10.</td><td>—</td><td>AB1-393, AB2-393, AB3-393, AB4-393 as drawn; no horizontal page scroll (the timeline scrolls inside its panel)</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<p class="lead">Values the drawing needed that no rule or record had set. Approve or replace before anything goes to Cursor.</p>
+<ul class="notes">
+<li>Puzzle 4th Birthday's releases and counts (Early bird £18 · 300; 2nd release £22 · 500; General sale £26 · 800; 3rd release £30 · 400 on 1 Dec; 1,240 sold): placeholders. The real timeline comes from Matas's brief.</li>
+<li>The freshness thresholds in A4: 3 days (ochre) and 7 days (lock).</li>
+<li>The price-rise run window in A7: 4 days before the date.</li>
+<li>The "Final 50" variant and the 80% threshold as the only percentage warning.</li>
+<li>Sold-bar handle: 14 × 32 px, sand fill, ink border; the dashed next-warning tick; the window shading: sand on the edit-coloured days, so the window reads as "page colour" and the rest as cards (tokens only, rule 10).</li>
+<li>The source line's wording and the downward-correction sentence.</li>
+</ul>
+
+<h2>Frames for CI (AB series)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>AB1</td><td>1280, 393</td><td>event on sale, 4 releases, counts 300 / 470 / 470 / —, entered today</td></tr>
+<tr><td>AB2</td><td>1280, 393</td><td>warnings: price rise held, presale live held, 80% locked, payday push back-to-held</td></tr>
+<tr><td>AB3</td><td>1280, 393</td><td>23 Nov – 27 Dec, payday 27 Nov, Christmas exception</td></tr>
+<tr><td>AB4</td><td>1280, 393</td><td>board counts 14 · 3 · 3 · 6</td></tr>
+</table>
+
+</div>
+</body>
+</html>
