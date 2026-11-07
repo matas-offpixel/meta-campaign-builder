@@ -507,8 +507,9 @@ REMOTION_LAMBDA_SERVE_URL=
 > → `adset_objective` (the majority of the ad set's result days) →
 > `unknown`; never campaign names) and tags
 > (`creative_tag_assignments` by `meta_ad_id`, else event + ad name), then
-> runs four independent jobs: `creative_scores`, `tag_performance`
+> runs five independent jobs: `creative_scores`, `tag_performance`
 > (migration 186; client → vertical → all shrinkage, `lib/learning/shrink.ts`),
+> `copy_performance` (migration 207; normalised ad copy, event-relative index, service-role only),
 > `client_funnel_benchmarks` (`learned`, never over `manually-overridden`)
 > and `interest_clusters.live_evidence` (never `evidence`). Archived clients
 > are excluded. Readers: `lib/learning/read.ts`. Check before enabling:
