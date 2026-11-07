@@ -29,7 +29,8 @@ event page / Creative Lab or `/admin` gets a record first.
 | [`2026-11-06-creative-lab-pass-2.html`](2026-11-06-creative-lab-pass-2.html) | A10, B1–B6 |
 | [`2026-11-06-creative-lab-pass-3.html`](2026-11-06-creative-lab-pass-3.html) | A (P26-BDAY review), caption overlay, B7. Caption size corrected before merge to 5.1% of frame width, line height 1.05. |
 | [`2026-11-07-insights-rail.html`](2026-11-07-insights-rail.html) | Insights rail IR1–IR6, rulings R1–R11 |
-| [`2026-11-08-north-star.html`](2026-11-08-north-star.html) | The map (NS1–NS4): Agency OS north star, issue 1. Check every PR's card against it. |
+| [`2026-11-08-north-star.html`](2026-11-08-north-star.html) | The map (NS1–NS4): Agency OS north star, issue 1. Superseded by issue 2; kept as issued. |
+| [`2026-11-08-north-star-2.html`](2026-11-08-north-star-2.html) | North star issue 2, **current**: the map with every capability as a row (NS1), the inventory (§1A), the learning chain (NS1B), the expert layer (NS1C). Check every PR's card and row against it. |
 
 The Creative Lab rules and components the records use are in
 `docs/creative-lab/design-rules.md`.
