@@ -40,7 +40,7 @@ export type ScoreAd = {
   venue?: string | null;
   pageId: string | null;
   clientId: string;
-  vertical: string;
+  vertical: string | null;
   stage: CopyStage;
   voice: CopyVoice;
   spend: number;
@@ -261,9 +261,10 @@ export function scoreTemplates(ads: readonly ScoreAd[], k = COPY_SHRINK_K): Copy
       const group = groups.get(groupKey) ?? { key: line.key, field: line.field, stage: ad.stage, voice: ad.voice, scopes: new Map() };
       const scopes: [CopyScope, string][] = [
         ["client", ad.clientId],
-        ["vertical", ad.vertical],
         ["all", "all"],
       ];
+      const vertical = ad.vertical?.trim();
+      if (vertical) scopes.splice(1, 0, ["vertical", vertical]);
       for (const [scope, scopeId] of scopes) {
         if (!scopeId) continue;
         const bucketKey = `${scope}|${scopeId}`;

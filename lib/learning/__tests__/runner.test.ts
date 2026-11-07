@@ -11,6 +11,7 @@ import { CLIENTS, NOW, TAGS, fact } from "./fixtures.ts";
 function inputs(): LearningInputs {
   return {
     clients: CLIENTS,
+    shows: new Map(),
     archivedClientIds: new Set(["client-archived"]),
     facts: [
       fact(
@@ -107,6 +108,15 @@ describe("learning-refresh jobs", () => {
     assert.equal(result.preview?.tagPerformance.length, 3);
     assert.ok(calls.every((c) => !op(c, "upsert") && !op(c, "update") && !op(c, "delete") && !op(c, "insert")));
     assert.deepEqual(result.joinRates["client-a"], { adDays: 1, tagged: 1, byAdId: 0, byName: 1, rate: 1 });
+  });
+});
+
+describe("migration 208", () => {
+  it("adds events_n for distinct shows and does not rewrite the shrinkage n", () => {
+    const sql = readFileSync("supabase/migrations/208_tag_performance_events_n.sql", "utf8");
+    assert.match(sql, /add column if not exists events_n integer not null default 0/);
+    assert.match(sql, /Distinct real shows/);
+    assert.doesNotMatch(sql, /drop column/);
   });
 });
 

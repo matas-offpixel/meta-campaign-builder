@@ -183,7 +183,7 @@ export async function loadCopyLibrary(db: Db, facts: readonly LearningFact[], cl
       venue: event.venue_name,
       pageId: voice.pageId,
       clientId,
-      vertical: verticalOf.get(clientId) ?? "music",
+      vertical: verticalOf.get(clientId)?.trim() || null,
       stage,
       voice: voice.voice,
       spend: chosen.spend,

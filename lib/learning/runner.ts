@@ -30,7 +30,7 @@ import {
 } from "./joins.ts";
 import { computeCopyPerformance, loadCopyLibrary, scopeCounts, writeCopyPerformance, type CopyLibrary } from "./copy-performance.ts";
 import { passesCopyMinimum, type CopyPerformanceRow } from "./copy/score.ts";
-import { computeTagPerformance, writeTagPerformance, type TagPerformanceRow } from "./tag-performance.ts";
+import { computeTagPerformance, TAG_WINDOW_DAYS, windowStart, writeTagPerformance, type TagPerformanceRow } from "./tag-performance.ts";
 
 export function isLearningRefreshEnabled(env: Record<string, string | undefined>): boolean {
   return env.ENABLE_LEARNING_REFRESH === "1";
@@ -62,6 +62,12 @@ export type LearningRefreshResult =
       stageSources: Record<string, Record<StageSource, number>>;
       /** GBP spend per client, all ad-days and those with stage 'unknown'. */
       spend: Record<string, { total: number; unknown: number }>;
+      /** Ticket-sale result per client in the 90-day tag window. Initiate checkout when that is the promoted event, otherwise purchases. */
+      ticketSaleResults: Record<string, number>;
+      /** Purchases on those same ticket-sale ad-days. The result before initiate checkout was counted. */
+      ticketSalePurchases: Record<string, number>;
+      /** Initiate-checkout results on ticket-sale ad-days whose promoted event is INITIATED_CHECKOUT. */
+      ticketSaleCheckouts: Record<string, number>;
       currencyAssumed: string[];
       /** Dry run only: what the jobs computed. */
       preview?: {
@@ -104,6 +110,25 @@ function stageSourceCounts(facts: LearningInputs["facts"]): Record<string, Recor
     c[f.stageSource] += 1;
   }
   return out;
+}
+
+function ticketSaleResultCounts(
+  facts: LearningInputs["facts"],
+  since: string,
+): { results: Record<string, number>; purchases: Record<string, number>; checkouts: Record<string, number> } {
+  const results: Record<string, number> = {};
+  const purchases: Record<string, number> = {};
+  const checkouts: Record<string, number> = {};
+  for (const fact of facts) {
+    if (fact.stage !== "ticket_sale" || !fact.clientId || fact.row.date < since) continue;
+    const id = fact.clientId;
+    results[id] = (results[id] ?? 0) + (fact.result ?? 0);
+    purchases[id] = (purchases[id] ?? 0) + (Number(fact.row.purchases) || 0);
+    if ((fact.row.promoted_event ?? "").trim().toUpperCase() === "INITIATED_CHECKOUT") {
+      checkouts[id] = (checkouts[id] ?? 0) + (fact.result ?? 0);
+    }
+  }
+  return { results, purchases, checkouts };
 }
 
 function spendCounts(facts: LearningInputs["facts"]): Record<string, { total: number; unknown: number }> {
@@ -175,7 +200,7 @@ export async function runLearningRefresh(input: {
     };
   });
   jobs.tag_performance = await job("tag_performance", async () => {
-    tagRows = computeTagPerformance(inputs.facts, inputs.clients, inputs.tags, { now });
+    tagRows = computeTagPerformance(inputs.facts, inputs.clients, inputs.tags, { now, shows: inputs.shows });
     const scopes = { client: 0, vertical: 0, all: 0 };
     for (const r of tagRows) scopes[r.scope] += 1;
     if (dryRun) return { ok: true, rows: tagRows.length, detail: { ...scopes, dryRun } };
@@ -213,6 +238,7 @@ export async function runLearningRefresh(input: {
     return { ok: true, rows: written.written, detail: { ...scopes, droppedNameOnly: library.droppedNameOnly, staleDeleted: written.deleted } };
   });
 
+  const ticketSales = ticketSaleResultCounts(inputs.facts, windowStart(now, TAG_WINDOW_DAYS));
   const result: LearningRefreshResult = {
     ok: LEARNING_JOBS.every((name) => jobs[name].ok),
     dryRun,
@@ -223,6 +249,9 @@ export async function runLearningRefresh(input: {
     stages: stageCounts(inputs.facts),
     stageSources: stageSourceCounts(inputs.facts),
     spend: spendCounts(inputs.facts),
+    ticketSaleResults: ticketSales.results,
+    ticketSalePurchases: ticketSales.purchases,
+    ticketSaleCheckouts: ticketSales.checkouts,
     currencyAssumed: [...inputs.currency.assumed].sort(),
   };
   if (dryRun) {
