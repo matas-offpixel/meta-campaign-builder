@@ -233,6 +233,7 @@ export async function renderCaptionOnClip(
       outS,
       audio,
       cropFocusY: clip.crop_focus_y == null ? 0.5 : Number(clip.crop_focus_y),
+      cropFocusX: clip.crop_focus_x == null ? 0.5 : Number(clip.crop_focus_x),
       sourceWidth: meta.width,
       sourceHeight: meta.height,
       fps: meta.fps,

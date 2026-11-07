@@ -85,7 +85,7 @@ describe("renderCaptionOnClip", () => {
     const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d });
 
     assert.equal(result.renderMs, 1234);
-    assert.deepEqual([result.width, result.height, result.aspect], [720, 1280, "9:16"]);
+    assert.deepEqual([result.width, result.height, result.aspect], [1080, 1920, "9:16"]);
     assert.equal(result.durationSeconds, 19.7);
     assert.equal(seen[0].muted, false);
     assert.equal(seen[0].props.audio, "original");
@@ -129,7 +129,7 @@ describe("renderCaptionOnClip", () => {
       return { bytes: new Uint8Array([9]), renderMs: 50 };
     });
     const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d });
-    assert.deepEqual([result.width, result.height, result.aspect], [720, 1280, "9:16"]);
+    assert.deepEqual([result.width, result.height, result.aspect], [1080, 1920, "9:16"]);
     assert.equal(seen[0].props.audio, "original");
     assert.equal(seen[0].props.cropFocusY, 0.3);
     assert.equal(seen[0].muted, false);
@@ -198,7 +198,7 @@ describe("renderCaptionOnClip", () => {
       serveUrl: "https://serve.example/creative-lab",
       deps: {
         signUrl: async () => "https://signed.example/ugc1.mp4",
-        probe: async () => ({ width: 956, height: 718, fps: 30, durationInSeconds: 34.06 }),
+        probe: async () => ({ width: 1920, height: 1080, fps: 30, durationInSeconds: 34.06 }),
         upload: async () => {},
         lambda: {
           render: async (request) => {
@@ -222,7 +222,7 @@ describe("renderCaptionOnClip", () => {
     assert.equal(result.renderMs, 4321);
     assert.equal(result.durationSeconds, 30);
     assert.equal(result.estimatedCostUsd, 0.012);
-    assert.deepEqual([result.width, result.height], [402, 718]);
+    assert.deepEqual([result.width, result.height], [1080, 1920]);
     assert.equal(fake.tables.creative_lab_renders[0].status, "done");
     assert.equal(fake.tables.creative_lab_renders[0].creative_asset_id, result.creativeAssetId);
     assert.equal(fake.tables.creative_assets.some((asset) => asset.id === result.creativeAssetId), true);

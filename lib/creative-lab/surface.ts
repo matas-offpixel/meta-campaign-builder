@@ -455,12 +455,106 @@ export function postAge(postedAt: string | null | undefined, now: string | Date)
   return `${Math.round(days / 30)} months ago`;
 }
 
-/** At most one action per candidate tile, and at most one status line. */
-export function candidateTileState(row: CandidateForTile): { action: "add" | "request" | null; status: string | null } {
-  if (row.status === "skipped") return { action: null, status: `Skipped — ${row.reason?.trim() || "not usable"}` };
-  if (row.status === "requested") return { action: null, status: "Requested" };
-  if (row.status === "imported") return { action: null, status: "✓ Added" };
-  return { action: row.hasFile ? "add" : "request", status: null };
+export type CandidateTile = {
+  action: "add" | "request" | "import" | null;
+  status: string | null;
+  /** The status ends in a control that opens the eight frames. */
+  see: boolean;
+};
+
+/**
+ * At most one action per candidate tile, and at most one status line.
+ * A text check names the frames. A check the model would not settle is
+ * the sentence, and Import is the verb.
+ */
+export function candidateTileState(row: CandidateForTile & {
+  overlay?: { verdict: string; flagged: number } | null;
+}): CandidateTile {
+  if (row.overlay?.verdict === "check_by_eye") {
+    return { action: "import", status: "Couldn't check for text — look before you import", see: false };
+  }
+  if (row.overlay?.verdict === "text_overlay") {
+    return { action: null, status: `Skipped — text in ${row.overlay.flagged} of 8 frames`, see: true };
+  }
+  if (row.status === "skipped") return { action: null, status: `Skipped — ${row.reason?.trim() || "not usable"}`, see: false };
+  if (row.status === "requested") return { action: null, status: "Requested", see: false };
+  if (row.status === "imported") return { action: null, status: "✓ Added", see: false };
+  return { action: row.hasFile ? "add" : "request", status: null, see: false };
+}
+
+/** The 9:16 window on a wider or taller frame. `focus` is the horizontal centre, 0–1. */
+export function cropWindowBox(focus: number, width: number, height: number): {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  label: string;
+} {
+  const safe = Math.min(1, Math.max(0, Number.isFinite(focus) ? focus : 0.5));
+  const source = width > 0 && height > 0 ? width / height : 16 / 9;
+  const target = 9 / 16;
+  const known: [number, string][] = [[16 / 9, "16:9"], [4 / 3, "4:3"], [1, "1:1"], [4 / 5, "4:5"], [9 / 16, "9:16"]];
+  const named = known.find(([value]) => Math.abs(value - source) < 0.02)?.[1] ?? "wide";
+  const label = `${named} → 9:16`;
+  if (source >= target) {
+    const span = target / source;
+    return { left: (1 - span) * safe, top: 0, width: span, height: 1, label };
+  }
+  const span = source / target;
+  return { left: 0, top: (1 - span) / 2, width: 1, height: span, label };
+}
+
+function queueOrdinal(n: number): string {
+  if (n === 1) return "1st";
+  if (n === 2) return "2nd";
+  if (n === 3) return "3rd";
+  return `${n}th`;
+}
+
+/**
+ * The word on a render row. A row with no measured average still says
+ * what it is doing. It never leaves the bar to stand alone.
+ */
+export function renderRowWord(
+  row: { id: string; status: string; renderMs: number | null; updatedAt: string; error: string | null },
+  rows: readonly { id: string; status: string; renderMs: number | null }[],
+  now: string,
+): string {
+  if (row.status === "done") return "Ready";
+  if (row.status === "failed") return renderRefusalSentence(row.error) ?? "This render failed — try it again.";
+  const waiting = rows.filter((item) => item.status === "queued" || item.status === "rendering");
+  const index = waiting.findIndex((item) => item.id === row.id);
+  if (row.status === "queued") return `queued · ${queueOrdinal(Math.max(1, index + 1))}`;
+  const done = rows.map((item) => item.renderMs).filter((ms): ms is number => ms != null && ms > 0);
+  if (done.length === 0) return "rendering";
+  const mean = done.reduce((sum, ms) => sum + ms, 0) / done.length;
+  const elapsed = Math.max(0, Date.parse(now) - Date.parse(row.updatedAt || ""));
+  if (!Number.isFinite(elapsed)) return "rendering";
+  const remain = Math.max(1, Math.round((mean - elapsed) / 60_000));
+  return `~${remain} min`;
+}
+
+/** 0–1 fill for the row's bar. Finished is full. Queued is empty. */
+export function renderRowFraction(
+  row: { id: string; status: string; renderMs: number | null; updatedAt: string },
+  rows: readonly { renderMs: number | null }[],
+  now: string,
+): number {
+  if (row.status === "done") return 1;
+  if (row.status !== "rendering") return 0;
+  const done = rows.map((item) => item.renderMs).filter((ms): ms is number => ms != null && ms > 0);
+  if (done.length === 0) return 0;
+  const mean = done.reduce((sum, ms) => sum + ms, 0) / done.length;
+  const elapsed = Math.max(0, Date.parse(now) - Date.parse(row.updatedAt || ""));
+  if (!Number.isFinite(elapsed)) return 0;
+  return Math.min(0.95, elapsed / mean);
+}
+
+/** Native 9:16 says Add. Any other known shape says the crop will follow. */
+export function candidateAddLabel(aspect: string | null | undefined): "Add" | "Add · crop" {
+  const value = (aspect ?? "").trim();
+  if (!value || value === "9:16" || value === "unknown") return "Add";
+  return "Add · crop";
 }
 
 /** The deciding verdict for one clip or caption across a round's ads. */

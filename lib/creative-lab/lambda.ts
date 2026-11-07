@@ -150,6 +150,30 @@ export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl
   }
 }
 
+/**
+ * One still of eight frames. A still is a single Lambda invocation
+ * (2048 MB, eu-west-2), not the video fan-out. estimatedPrice is the
+ * call's own cost.
+ */
+export async function renderFrameSheetStill(input: { src: string; times: number[] }): Promise<{ url: string; estimatedCostUsd: number | null }> {
+  const { getFunctions, renderStillOnLambda } = await import("@remotion/lambda/client");
+  const functions = await getFunctions({ region: REMOTION_REGION, compatibleOnly: true });
+  const fn = pickLambdaFunction(functions);
+  if (!fn) throw new Error("No caption Lambda function is deployed.");
+  const output = await renderStillOnLambda({
+    region: REMOTION_REGION,
+    functionName: fn.functionName,
+    serveUrl: requireLambdaServeUrl(),
+    composition: "FrameSheet",
+    inputProps: { src: input.src, times: input.times, fps: 30 },
+    imageFormat: "jpeg",
+    privacy: "public",
+    frame: 0,
+  });
+  const price = output.estimatedPrice as { accruedSoFar?: number } | undefined;
+  return { url: output.url, estimatedCostUsd: price?.accruedSoFar ?? null };
+}
+
 export async function deleteLambdaRender(target: { bucketName: string; lambdaRenderId: string }): Promise<void> {
   const { deleteRender } = await import("@remotion/lambda/client");
   await deleteRender({ region: REMOTION_REGION, bucketName: target.bucketName, renderId: target.lambdaRenderId });

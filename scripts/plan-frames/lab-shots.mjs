@@ -7,7 +7,7 @@
  * shot, for state that lives only in the component (CL5's off cell).
  */
 
-export const LAB_FRAME_IDS = ["CL1", "CL2", "CL3", "CL4", "CL5", "CL6", "CL7"];
+export const LAB_FRAME_IDS = ["CL1", "CL2", "CL3", "CL4", "CL5", "CL6", "CL7", "CL8", "CL9", "CL10"];
 export const LAB_WIDTHS = [1280, 393];
 
 /**

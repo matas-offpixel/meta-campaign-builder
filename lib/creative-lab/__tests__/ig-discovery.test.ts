@@ -285,6 +285,29 @@ describe("findArtistClips", () => {
   });
 });
 
+describe("candidate thumbnails", () => {
+  it("stores the thumbnail bytes and never the thumbnail url", async () => {
+    const fake = seed();
+    const graph = read([post({ id: "reel-a", thumbnailUrl: "https://cdn.example/thumb.jpg", likes: 10 })]);
+    const bytes = new Uint8Array([1, 2, 3]);
+    graph.thumb = async () => ({ width: 720, height: 1280, bytes });
+    const stored: string[] = [];
+    await findArtistClips(fake as unknown as ServiceRoleDb, {
+      artistId: "artist-1",
+      now: NOW,
+      read: graph,
+      storeThumb: async (path) => {
+        stored.push(path);
+      },
+    });
+    assert.deepEqual(stored, ["creative-lab/ig/artist-1/reel-a.jpg"]);
+    const row = fake.tables.creative_lab_ig_candidates[0]!;
+    assert.equal(row.thumbnail_path, "creative-lab/ig/artist-1/reel-a.jpg");
+    assert.equal(JSON.stringify(row).includes("cdn.example"), false);
+    assert.equal("thumbnail_url" in row, false);
+  });
+});
+
 describe("requestArtistClip", () => {
   it("marks a listed clip requested", async () => {
     const fake = seed({

@@ -1730,6 +1730,7 @@ export type Database = {
           created_at: string
           creative_asset_id: string
           crop_focus_y: number
+          crop_focus_x: number
           event_id: string | null
           external_id: string | null
           fetched_at: string | null
@@ -1756,6 +1757,7 @@ export type Database = {
           created_at?: string
           creative_asset_id: string
           crop_focus_y?: number
+          crop_focus_x?: number
           event_id?: string | null
           external_id?: string | null
           fetched_at?: string | null
@@ -1782,6 +1784,7 @@ export type Database = {
           created_at?: string
           creative_asset_id?: string
           crop_focus_y?: number
+          crop_focus_x?: number
           event_id?: string | null
           external_id?: string | null
           fetched_at?: string | null
@@ -1878,6 +1881,11 @@ export type Database = {
           aspect: string | null
           thumb_height: number | null
           thumb_width: number | null
+          thumbnail_path: string | null
+          overlay_check: Json | null
+          asset_id: string | null
+          clip_id: string | null
+          checked_at: string | null
           status: string
           updated_at: string
           user_id: string
@@ -1904,6 +1912,11 @@ export type Database = {
           aspect?: string | null
           thumb_height?: number | null
           thumb_width?: number | null
+          thumbnail_path?: string | null
+          overlay_check?: Json | null
+          asset_id?: string | null
+          clip_id?: string | null
+          checked_at?: string | null
           status?: string
           updated_at?: string
           user_id: string
@@ -1930,6 +1943,11 @@ export type Database = {
           aspect?: string | null
           thumb_height?: number | null
           thumb_width?: number | null
+          thumbnail_path?: string | null
+          overlay_check?: Json | null
+          asset_id?: string | null
+          clip_id?: string | null
+          checked_at?: string | null
           status?: string
           updated_at?: string
           user_id?: string

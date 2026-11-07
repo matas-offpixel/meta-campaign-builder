@@ -87,6 +87,9 @@ function clip(row: Partial<Clip> & Pick<Clip, "id" | "artistId" | "artistName" |
     previewUrl: LAB_CLIP_916,
     hasFile: true,
     cleared: false,
+    audioMatch: false,
+    cropFocusX: 0.5,
+    cropOpen: false,
     renderError: null,
     judged: null,
     ...row,
@@ -205,6 +208,7 @@ function baseFields(overrides: Partial<CreativeLabCardData>): CreativeLabCardDat
     rounds: [],
     lineupRows: [],
     working: null,
+    renders: [],
     ...overrides,
   };
 }
@@ -258,11 +262,52 @@ const WORKING_ADS: WorkingAd[] = JUDGED_ADS.map((ad) => {
 
 // ── CL7: Ada North's Instagram, ranked by score.
 
+function candidate(row: Partial<Artist["igCandidates"][number]> & Pick<Artist["igCandidates"][number], "id" | "igMediaId">): Artist["igCandidates"][number] {
+  return {
+    permalink: null,
+    postedAt: null,
+    likes: null,
+    comments: null,
+    score: null,
+    aspect: null,
+    hasFile: false,
+    audioMatch: null,
+    status: "candidate",
+    reason: null,
+    thumbnailUrl: LAB_CLIP_916,
+    lengthSeconds: null,
+    overlayOpen: false,
+    overlay: null,
+    ...row,
+  };
+}
+
+/** Inside the 2 s fixture clip, so each still is a frame the file actually has. */
+const SKIPPED_FRAMES = [0.5, 0.7, 0.9, 1.1, 1.3, 1.5, 1.7, 1.9].map((t, index) => ({
+  t,
+  text: index === 2 || index === 3 || index === 5,
+  what: index === 2 || index === 3 || index === 5 ? "date" : "",
+}));
+
 const IG_CANDIDATES: Artist["igCandidates"] = [
-  { igMediaId: "ig-1", permalink: null, postedAt: "2026-10-29", likes: 1200, comments: 40, score: 0.9, aspect: "9:16", hasFile: false, audioMatch: true, status: "candidate", reason: null },
-  { igMediaId: "ig-2", permalink: null, postedAt: "2026-10-21", likes: 800, comments: 20, score: 0.6, aspect: "4:5", hasFile: false, audioMatch: null, status: "skipped", reason: "text overlay" },
-  { igMediaId: "ig-3", permalink: null, postedAt: "2026-10-12", likes: 400, comments: 10, score: 0.3, aspect: "landscape", hasFile: false, audioMatch: false, status: "requested", reason: null },
-  { igMediaId: "ig-4", permalink: null, postedAt: "2026-11-05", likes: 300, comments: 5, score: 0.2, aspect: "9:16", hasFile: true, audioMatch: true, status: "candidate", reason: null },
+  candidate({ id: "cand-1", igMediaId: "ig-1", postedAt: "2026-10-29", likes: 1200, comments: 40, score: 0.9, aspect: "9:16", hasFile: false, audioMatch: true, lengthSeconds: 18 }),
+  candidate({
+    id: "cand-2",
+    igMediaId: "ig-2",
+    postedAt: "2026-10-21",
+    likes: 800,
+    comments: 20,
+    score: 0.6,
+    aspect: "4:5",
+    hasFile: true,
+    status: "skipped",
+    reason: "Text burned into 3 of 8 frames",
+    lengthSeconds: 27,
+    thumbnailUrl: LAB_CLIP_916,
+    overlay: { verdict: "text_overlay", frames: SKIPPED_FRAMES, reason: "Text burned into 3 of 8 frames", flagged: 3 },
+  }),
+  candidate({ id: "cand-3", igMediaId: "ig-3", postedAt: "2026-10-12", likes: 400, comments: 10, score: 0.3, aspect: "landscape", status: "requested", audioMatch: false, thumbnailUrl: LAB_CLIP_169 }),
+  candidate({ id: "cand-4", igMediaId: "ig-4", postedAt: "2026-11-05", likes: 300, comments: 5, score: 0.2, aspect: "9:16", hasFile: true, audioMatch: true, lengthSeconds: 14 }),
 ];
 
 export const LAB_FRAME_FIXTURES: Record<LabFrameId, LabFrameFixture> = {
@@ -338,6 +383,50 @@ export const LAB_FRAME_FIXTURES: Record<LabFrameId, LabFrameFixture> = {
       lineupRows: LINEUP,
       artists: [{ ...ARTISTS[0]!, igCandidates: IG_CANDIDATES }, ARTISTS[1]!],
       clips: [C1],
+    }),
+  },
+  CL8: {
+    kind: "lab",
+    id: "CL8",
+    title: "Creative Lab — why a clip was skipped",
+    now: LAB_NOW,
+    lab: base({
+      facts: FACTS,
+      lineupRows: LINEUP,
+      artists: [{
+        ...ARTISTS[0]!,
+        igCandidates: IG_CANDIDATES.map((row) => row.id === "cand-2" ? { ...row, overlayOpen: true } : row),
+      }, ARTISTS[1]!],
+    }),
+  },
+  CL9: {
+    kind: "lab",
+    id: "CL9",
+    title: "Creative Lab — crop picker",
+    now: LAB_NOW,
+    lab: base({
+      facts: FACTS,
+      lineupRows: LINEUP,
+      artists: ARTISTS,
+      clips: [{ ...C2, clipNo: 3, cropOpen: true, cropFocusX: 0.5 }],
+    }),
+  },
+  CL10: {
+    kind: "lab",
+    id: "CL10",
+    title: "Creative Lab — render rows",
+    now: LAB_NOW,
+    lab: base({
+      facts: FACTS,
+      lineupRows: LINEUP,
+      artists: ARTISTS,
+      clips: [C1, C2],
+      captions: [CAP_LINEUP],
+      renders: [
+        { id: "render-1", clipId: C1.id, captionId: CAP_LINEUP.id, label: "Ada North #1 × lineup", status: "done", error: null, renderMs: 180000, updatedAt: LAB_NOW, previewUrl: LAB_CLIP_916, posterUrl: null, clipPreviewUrl: LAB_CLIP_916, lines: LINEUP_LINES, playing: true },
+        { id: "render-2", clipId: C2.id, captionId: CAP_LINEUP.id, label: "Bea Lowe #1 × lineup", status: "done", error: null, renderMs: 180000, updatedAt: LAB_NOW, previewUrl: null, posterUrl: null, clipPreviewUrl: LAB_CLIP_169, lines: [], playing: false },
+        { id: "render-3", clipId: C1.id, captionId: CAP_LINEUP.id, label: "Ada North #1 × lineup", status: "rendering", error: null, renderMs: null, updatedAt: "2026-11-06T11:58:12.000Z", previewUrl: null, posterUrl: null, clipPreviewUrl: LAB_CLIP_916, lines: [], playing: false },
+      ],
     }),
   },
 };

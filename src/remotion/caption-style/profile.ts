@@ -52,10 +52,6 @@ export const profile = profileJson as CaptionProfile;
 /** The validator's wrap width. One source: v1.json. */
 export const CHARS_PER_LINE = profile.charsPerLine;
 
-function evenDown(n: number): number {
-  return Math.floor(n / 2) * 2;
-}
-
 export type CaptionSize = "default" | "long";
 
 /** Type size for one variant. Does not consult longApproved: the render path refuses an unapproved long burn. */
@@ -121,35 +117,63 @@ export function styleVersion(): Promise<string> {
 
 export type FrameSize = { width: number; height: number };
 
-/**
- * Output size for a video. Always 9:16. A portrait source keeps its width.
- * A landscape source is centre-cropped to a 9:16 window at the source
- * height. Never upscales, and both sides are even for h264. The 4:5
- * rectangle is a safe area inside this frame, not a second output.
- */
-export function outputSize(sourceWidth: number, sourceHeight: number, aspect: CaptionAspect): FrameSize {
-  if (aspect !== "9:16") throw new Error("video renders are 9:16 only");
-  const width = evenDown(sourceWidth);
-  const height = evenDown(sourceHeight);
-  if (width < 2 || height < 2) throw new Error(`source ${sourceWidth}x${sourceHeight} is too small to render`);
-  if (sourceWidth > sourceHeight) {
-    const plateWidth = evenDown(height * (9 / 16));
-    if (plateWidth < 2) throw new Error(`source ${sourceWidth}x${sourceHeight} is too small to crop to 9:16`);
-    return { width: plateWidth, height };
-  }
-  return { width, height };
+/** Every clip is scaled to this after the 9:16 crop. */
+export const RENDER_WIDTH = 1080;
+export const RENDER_HEIGHT = 1920;
+
+/** A crop narrower than this is refused. The source is not upscaled into a sharp frame. */
+export const MIN_CROP_WIDTH_PX = 540;
+
+export const LOW_QUALITY_AFTER_CROP = "Too low quality after crop — find a sharper copy or ask the team";
+
+const NINE_BY_SIXTEEN = 9 / 16;
+
+function nearestEven(n: number): number {
+  return Math.max(2, Math.round(n / 2) * 2);
+}
+
+/** 0 is the left edge, 1 the right. Anything outside that, or not a number, is the centre. */
+export function clampFocus(value: number): number {
+  if (!Number.isFinite(value)) return 0.5;
+  return Math.min(1, Math.max(0, value));
 }
 
 export type CropWindow = { left: number; top: number; width: number; height: number };
 
 /**
- * The source rectangle the 9:16 output shows. A portrait source shows the
- * whole frame. A landscape source is a centre horizontal crop at the full
- * height. `cropFocusY` moves the safe rectangle, not this window.
+ * The source rectangle that becomes the 9:16 frame.
+ * A source already 9:16 (within 2%) is untouched.
+ * Wider than 9:16: the window is the full height and 9:16 wide, placed by
+ * cropFocusX. Taller: the window is the full width and 9:16 tall, centred.
+ * cropFocusY does not move this window.
  */
-export function cropWindow(sourceWidth: number, sourceHeight: number, output: FrameSize): CropWindow {
-  if (sourceWidth <= sourceHeight) return { left: 0, top: 0, width: sourceWidth, height: sourceHeight };
-  return { left: Math.max(0, (sourceWidth - output.width) / 2), top: 0, width: output.width, height: sourceHeight };
+export function cropWindow(sourceWidth: number, sourceHeight: number, cropFocusX = 0.5): CropWindow {
+  if (!(sourceWidth > 0) || !(sourceHeight > 0)) {
+    throw new Error(`source ${sourceWidth}x${sourceHeight} is too small to render`);
+  }
+  const ratio = sourceWidth / sourceHeight;
+  if (Math.abs(ratio - NINE_BY_SIXTEEN) / NINE_BY_SIXTEEN <= 0.02) {
+    return { left: 0, top: 0, width: sourceWidth, height: sourceHeight };
+  }
+  if (ratio > NINE_BY_SIXTEEN) {
+    const width = Math.min(sourceWidth, nearestEven(sourceHeight * NINE_BY_SIXTEEN));
+    const spare = Math.max(0, sourceWidth - width);
+    return { left: spare * clampFocus(cropFocusX), top: 0, width, height: sourceHeight };
+  }
+  const height = Math.min(sourceHeight, nearestEven(sourceWidth / NINE_BY_SIXTEEN));
+  const spare = Math.max(0, sourceHeight - height);
+  return { left: 0, top: spare / 2, width: sourceWidth, height };
+}
+
+/**
+ * Output size for a video. Always 1080×1920. The source is cropped to 9:16
+ * first, then scaled. Under 540 px wide after the crop is refused.
+ */
+export function outputSize(sourceWidth: number, sourceHeight: number, aspect: CaptionAspect, cropFocusX = 0.5): FrameSize {
+  if (aspect !== "9:16") throw new Error("video renders are 9:16 only");
+  const crop = cropWindow(sourceWidth, sourceHeight, cropFocusX);
+  if (crop.width < MIN_CROP_WIDTH_PX) throw new Error(LOW_QUALITY_AFTER_CROP);
+  return { width: RENDER_WIDTH, height: RENDER_HEIGHT };
 }
 
 export type CaptionLayout = {
@@ -190,9 +214,10 @@ export function captionLayout(
   aspect: CaptionAspect,
   cropFocusY: number,
   size: CaptionSize = "default",
+  cropFocusX = 0.5,
 ): CaptionLayout {
-  const output = outputSize(sourceWidth, sourceHeight, aspect);
-  const crop = cropWindow(sourceWidth, sourceHeight, output);
+  const output = outputSize(sourceWidth, sourceHeight, aspect, cropFocusX);
+  const crop = cropWindow(sourceWidth, sourceHeight, cropFocusX);
   const scale = output.width / crop.width;
   const insets = profile.safeZone["9:16"];
   const safeRect = safeRectangle(output, cropFocusY);

@@ -13,6 +13,7 @@ import {
   CaptionOnClip,
   type CaptionOnClipProps,
 } from "./compositions/CaptionOnClip";
+import { FrameSheet } from "./compositions/FrameSheet";
 import {
   captionLimits,
   outputSize,
@@ -99,7 +100,7 @@ function RemotionRoot() {
           if (!p.unapprovedProof && p.lines.length > limits.maxLines) throw new Error(`${p.lines.length} lines; at most ${limits.maxLines}`);
           const over = p.lines.find((line) => line.length > limits.charsPerLine);
           if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
-          const frame = outputSize(p.sourceWidth, p.sourceHeight, p.aspect);
+          const frame = outputSize(p.sourceWidth, p.sourceHeight, p.aspect, p.cropFocusX ?? 0.5);
           const inS = p.inS ?? 0;
           const outS = p.outS ?? p.durationInSeconds;
           const frames = p.plate === "black" ? 1 : Math.max(1, Math.round((outS - inS) * (p.fps || 30)));
@@ -110,6 +111,15 @@ function RemotionRoot() {
         height={1280}
         durationInFrames={30}
         defaultProps={captionDefaultProps}
+      />
+      <Composition
+        id="FrameSheet"
+        component={FrameSheet as unknown as FC<Record<string, unknown>>}
+        durationInFrames={1}
+        fps={30}
+        width={2160}
+        height={480}
+        defaultProps={{ src: "", times: [0.5, 1, 2, 3, 4, 5, 6, 7], fps: 30 }}
       />
     </>
   );
