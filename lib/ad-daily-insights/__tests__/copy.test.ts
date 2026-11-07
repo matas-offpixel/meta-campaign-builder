@@ -16,6 +16,7 @@ import {
   parseCreativeCopy,
   snapshotCopies,
 } from "../copy.ts";
+import { ID_LOOKUP_BATCH, ID_LOOKUP_URL_LIMIT, lookupInUrl, selectIn } from "../id-lookup.ts";
 
 const NOW = new Date("2026-11-07T02:30:00Z");
 const FRESH = "2026-11-01T00:00:00Z";
@@ -230,6 +231,57 @@ describe("ad copy killswitch", () => {
     assert.deepEqual(batches, [50, 1]);
     assert.equal(result.metaCalls, 3);
     assert.equal(result.outcomes?.[0].copyCalls, 2);
+  });
+});
+
+describe("ad copy id lookup", () => {
+  const origin = "https://zbtldbfjbhfvpksmdvnt.supabase.co";
+  const ids = Array.from({ length: 1000 }, (_, i) => String(i).padStart(18, "0"));
+
+  it("splits a 1,000-id lookup into ≤150-id queries and merges the rows", async () => {
+    const sizes: number[] = [];
+    const { rows, error } = await selectIn(async (chunk) => {
+      sizes.push(chunk.length);
+      assert.ok(chunk.length <= ID_LOOKUP_BATCH);
+      const url = lookupInUrl({
+        origin,
+        table: "ad_copy",
+        select: "meta_ad_id,source,fetched_at",
+        column: "meta_ad_id",
+        ids: chunk,
+      });
+      assert.ok(url.length < ID_LOOKUP_URL_LIMIT, `url length ${url.length}`);
+      return { data: chunk.map((id) => ({ meta_ad_id: id })), error: null };
+    }, ids);
+    assert.equal(error, null);
+    assert.deepEqual(sizes, [150, 150, 150, 150, 150, 150, 100]);
+    assert.equal(rows.length, 1000);
+    assert.deepEqual(rows.map((row) => row.meta_ad_id), ids);
+    const oneShot = lookupInUrl({
+      origin,
+      table: "ad_copy",
+      select: "meta_ad_id,source,fetched_at",
+      column: "meta_ad_id",
+      ids,
+    });
+    assert.ok(oneShot.length > ID_LOOKUP_URL_LIMIT);
+  });
+
+  it("a 50-row upsert body stays small", () => {
+    const body = JSON.stringify(Array.from({ length: 50 }, (_, i) => ({
+      meta_ad_id: String(i).padStart(18, "0"),
+      ad_account_id: "act_123456789012345",
+      creative_id: "123456789012345",
+      bodies: ["b".repeat(500), "c".repeat(200)],
+      titles: ["t".repeat(80)],
+      descriptions: ["d".repeat(200)],
+      link_caption: "Tickets",
+      call_to_action: "LEARN_MORE",
+      effective_object_story_id: "111_222",
+      source: "graph",
+      fetched_at: "2026-11-07T02:30:00.000Z",
+    })));
+    assert.ok(body.length < 200_000, `upsert body ${body.length}`);
   });
 });
 
