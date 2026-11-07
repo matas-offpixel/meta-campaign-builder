@@ -35,56 +35,76 @@ function row(dimension: string, valueKey: string, cpr: number | null, baselineCp
   return { dimension, valueKey, cpr, baselineCpr, shrunkIndex, confidence, fundedAds };
 }
 
-/** IR3's table: Puzzle, registration, baseline £4.16 / signup. */
+/**
+ * Every row here is copied, never typed. The source of each figure is the
+ * "IR sources" table in scripts/plan-frames/README.md, which
+ * lib/plan/__tests__/rail-sources.test.ts checks row by row:
+ *   - record IR3 table: Puzzle, registration, baseline £4.16 / signup (cpr,
+ *     % and shrunk index as printed; funded ads are the section's
+ *     confidence-line minimum, since the record prints only that);
+ *   - record IR2 bars: all clients, ticket sale, 7 Nov (cpr as printed;
+ *     the stored shrunk index was not published, so the raw index
+ *     cpr ÷ baseline stands in, rounded to 3 dp);
+ *   - tag_performance, scope all, ticket_sale, 7 Nov, baseline £46.86 /
+ *     purchase (the #1102 verdict 9b): the asset type rows, with their
+ *     stored shrunk indexes.
+ * Hidden rows (beyond the four bars) exist only for the record's "+n
+ * more"; their figures are never drawn.
+ */
+export const IR3_BASELINE = 4.16;
+export const IR2_BASELINE = 46.86;
+
 export const PUZZLE_REGISTRATION: TagRow[] = [
-  row("messaging_angle", "event_announcement_update", 4.16, 4.16, 1.0, "ok", 25),
-  row("messaging_angle", "artist_headliner", 4.17, 4.16, 1.0, "ok", 28),
-  row("messaging_angle", "high_energy_atmosphere", 4.6, 4.16, 1.11, "ok", 25),
-  row("hook_tactic", "fomo", 4.16, 4.16, 1.0, "strong", 49),
-  row("hook_tactic", "curiosity", 4.3, 4.16, 0.98, "strong", 52),
-  row("hook_tactic", "urgency", 5.1, 4.16, 1.0, "thin", 2),
-  row("visual_format", "headline", 3.9, 4.16, 0.94, "ok", 21),
-  row("visual_format", "cinematic_b_roll", 4.7, 4.16, 1.11, "ok", 24),
-  row("asset_type", "lifestyle_image_with_text", 3.85, 4.16, 0.92, "ok", 25),
-  row("asset_type", "high_production", 4.59, 4.16, 1.07, "ok", 30),
-  row("asset_type", "ugc", null, 4.16, null, "thin", 0),
+  row("messaging_angle", "event_announcement_update", 4.16, IR3_BASELINE, 1.0, "ok", 25),
+  row("messaging_angle", "artist_headliner", 4.17, IR3_BASELINE, 1.0, "ok", 25),
+  row("messaging_angle", "high_energy_atmosphere", 4.6, IR3_BASELINE, 1.11, "ok", 25),
+  row("hook_tactic", "fomo", 4.16, IR3_BASELINE, 1.0, "strong", 49),
+  row("hook_tactic", "curiosity", 4.3, IR3_BASELINE, 0.98, "strong", 49),
+  row("hook_tactic", "urgency", null, IR3_BASELINE, null, "thin", 2),
+  row("visual_format", "headline", 3.9, IR3_BASELINE, 0.94, "ok", 21),
+  row("visual_format", "cinematic_b_roll", 4.7, IR3_BASELINE, 1.11, "ok", 21),
+  row("asset_type", "lifestyle_image_with_text", 3.85, IR3_BASELINE, 0.92, "ok", 25),
+  row("asset_type", "high_production", 4.59, IR3_BASELINE, 1.07, "ok", 25),
+  row("asset_type", "ugc", null, IR3_BASELINE, null, "thin", 0),
 ];
 
-/** Puzzle, ticket sale: every row thin (0 results), so each section falls back. */
+/** Puzzle, ticket sale: every stored row is thin (0 results), so each section falls back. Never drawn. */
 export const PUZZLE_TICKET_SALE: TagRow[] = [
-  row("messaging_angle", "artist_headliner", null, 46.8, null, "thin", 6),
-  row("hook_tactic", "fomo", null, 46.8, null, "thin", 4),
-  row("visual_format", "headline", null, 46.8, null, "thin", 5),
-  row("asset_type", "high_production", null, 46.8, null, "thin", 6),
+  row("messaging_angle", "artist_headliner", null, IR2_BASELINE, null, "thin", 0),
+  row("hook_tactic", "fomo", null, IR2_BASELINE, null, "thin", 0),
+  row("visual_format", "headline", null, IR2_BASELINE, null, "thin", 0),
+  row("asset_type", "high_production", null, IR2_BASELINE, null, "thin", 0),
 ];
 
-/** All clients, ticket sale, as drawn in IR2 (baseline £46.80 / purchase). */
+/** All clients, ticket sale, 7 Nov. */
 export const ALL_TICKET_SALE: TagRow[] = [
-  row("messaging_angle", "urgency_scarcity_fomo", 34.92, 46.8, 0.75, "strong", 255),
-  row("messaging_angle", "event_announcement_update", 45.13, 46.8, 0.97, "strong", 310),
-  row("messaging_angle", "artist_headliner", 47.36, 46.8, 1.01, "strong", 420),
-  row("messaging_angle", "high_energy_atmosphere", 51.91, 46.8, 1.11, "strong", 260),
-  row("hook_tactic", "social_proof", 21.47, 46.8, 0.46, "strong", 54),
-  row("hook_tactic", "curiosity", 38.13, 46.8, 0.82, "strong", 120),
-  row("hook_tactic", "fomo", 42.22, 46.8, 0.9, "strong", 210),
-  row("hook_tactic", "urgency", 45.38, 46.8, 0.97, "strong", 180),
-  row("hook_tactic", "question", 48.1, 46.8, 1.03, "ok", 30),
-  row("hook_tactic", "shock", 49.2, 46.8, 1.04, "ok", 24),
-  row("hook_tactic", "humour", 50.4, 46.8, 1.06, "ok", 22),
-  row("hook_tactic", "nostalgia", 52.0, 46.8, 1.08, "ok", 20),
-  row("hook_tactic", "challenge", 55.3, 46.8, 1.12, "ok", 18),
-  row("visual_format", "nostalgia", 29.09, 46.8, 0.62, "strong", 15),
-  row("visual_format", "headline", 41.38, 46.8, 0.88, "strong", 140),
-  row("visual_format", "billboard", 44.57, 46.8, 0.95, "strong", 90),
-  row("visual_format", "cinematic_b_roll", 62.9, 46.8, 1.34, "strong", 60),
-  row("visual_format", "pov", 64.0, 46.8, 1.3, "ok", 20),
-  row("visual_format", "lifestyle", 66.0, 46.8, 1.3, "ok", 25),
-  row("visual_format", "testimonial", 68.0, 46.8, 1.35, "ok", 18),
-  row("visual_format", "montage", 70.0, 46.8, 1.4, "ok", 16),
-  row("visual_format", "split_screen", 72.0, 46.8, 1.4, "ok", 15),
-  row("asset_type", "lifestyle_image_with_text", 32.3, 46.8, 0.7, "strong", 120),
-  row("asset_type", "high_production", 48.9, 46.8, 1.04, "strong", 210),
-  row("asset_type", "ugc", 58.5, 46.8, 1.22, "ok", 40),
+  row("messaging_angle", "urgency_scarcity_fomo", 34.92, IR2_BASELINE, 0.745, "strong", 255),
+  row("messaging_angle", "event_announcement_update", 45.13, IR2_BASELINE, 0.963, "strong", 255),
+  row("messaging_angle", "artist_headliner", 47.36, IR2_BASELINE, 1.011, "strong", 255),
+  row("messaging_angle", "high_energy_atmosphere", 51.91, IR2_BASELINE, 1.108, "strong", 255),
+  row("hook_tactic", "social_proof", 21.47, IR2_BASELINE, 0.458, "strong", 54),
+  row("hook_tactic", "curiosity", 38.13, IR2_BASELINE, 0.814, "strong", 54),
+  row("hook_tactic", "fomo", 42.22, IR2_BASELINE, 0.901, "strong", 54),
+  row("hook_tactic", "urgency", 45.38, IR2_BASELINE, 0.968, "strong", 54),
+  row("hook_tactic", "hidden_hook_1", 45.39, IR2_BASELINE, 0.969, "strong", 54),
+  row("hook_tactic", "hidden_hook_2", 45.4, IR2_BASELINE, 0.969, "strong", 54),
+  row("hook_tactic", "hidden_hook_3", 45.41, IR2_BASELINE, 0.969, "strong", 54),
+  row("hook_tactic", "hidden_hook_4", 45.42, IR2_BASELINE, 0.969, "strong", 54),
+  row("hook_tactic", "hidden_hook_5", 45.43, IR2_BASELINE, 0.97, "strong", 54),
+  row("visual_format", "nostalgia", 29.09, IR2_BASELINE, 0.621, "strong", 15),
+  row("visual_format", "headline", 41.38, IR2_BASELINE, 0.883, "strong", 15),
+  row("visual_format", "billboard", 44.57, IR2_BASELINE, 0.951, "strong", 15),
+  row("visual_format", "cinematic_b_roll", 62.9, IR2_BASELINE, 1.342, "strong", 15),
+  row("visual_format", "hidden_visual_1", 62.91, IR2_BASELINE, 1.343, "strong", 15),
+  row("visual_format", "hidden_visual_2", 62.92, IR2_BASELINE, 1.343, "strong", 15),
+  row("visual_format", "hidden_visual_3", 62.93, IR2_BASELINE, 1.343, "strong", 15),
+  row("visual_format", "hidden_visual_4", 62.94, IR2_BASELINE, 1.343, "strong", 15),
+  row("visual_format", "hidden_visual_5", 62.95, IR2_BASELINE, 1.343, "strong", 15),
+  row("asset_type", "hybrid", 32.81, IR2_BASELINE, 0.85, "strong", 10),
+  row("asset_type", "lifestyle_image_with_text", 42.21, IR2_BASELINE, 0.9, "strong", 10),
+  row("asset_type", "ugc", 48.28, IR2_BASELINE, 1.03, "strong", 10),
+  row("asset_type", "high_production", 52.61, IR2_BASELINE, 1.11, "strong", 10),
+  row("asset_type", "illustration", 118.95, IR2_BASELINE, 2.538, "ok", 10),
 ];
 
 const PUZZLE: RailContext = {

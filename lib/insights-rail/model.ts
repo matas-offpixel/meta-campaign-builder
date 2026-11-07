@@ -286,7 +286,9 @@ export function buildSection(args: {
   const best = byShrunk[0]!;
   const runnerUp = byShrunk[1] ?? null;
   const bestTone = barTone(best.shrunkIndex, best.confidence);
-  const clear = runnerUp == null || (runnerUp.shrunkIndex ?? 9) - (best.shrunkIndex ?? 9) >= CLEAR_WINNER_GAP;
+  // The gap is read at 3 dp, so 0.90 − 0.85 is the margin and not a float hair under it.
+  const gap = runnerUp == null ? Infinity : Math.round(((runnerUp.shrunkIndex ?? 9) - (best.shrunkIndex ?? 9)) * 1000) / 1000;
+  const clear = gap >= CLEAR_WINNER_GAP;
   let result: InsightSection["result"];
   let winnerKey: string | null = null;
   if (bestTone === "olive" && clear) {

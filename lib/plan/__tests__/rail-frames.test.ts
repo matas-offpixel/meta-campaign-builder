@@ -64,12 +64,15 @@ describe("Insights rail frame catalog (IR)", () => {
       assert.equal(section.lock, true);
     }
     const [angle, hook, visual, asset] = tags;
-    assert.equal(asset!.result?.text, "Lifestyle image with text costs 31% less than usual.");
+    assert.equal(asset!.result?.text, "Hybrid costs 30% less than usual.");
     assert.deepEqual(asset!.bars.map((bar) => [bar.label, bar.cpr, bar.note, bar.tone]), [
-      ["Lifestyle image with text", 32.3, "31% under", "olive"],
-      ["High production", 48.9, "4% over", "ink"],
-      ["UGC", 58.5, "25% over", "brick"],
+      ["Hybrid", 32.81, "30% under", "olive"],
+      ["Lifestyle image with text", 42.21, "10% under", "olive"],
+      ["UGC", 48.28, "3% over", "ink"],
+      ["High production", 52.61, "12% over", "brick"],
     ]);
+    assert.equal(asset!.more, 1);
+    assert.equal(asset!.confidence, "strong · 10+ funded ads · 90 days · all clients · +1 more");
     assert.equal(angle!.result?.text, "Urgency / scarcity costs 25% less than usual.");
     assert.deepEqual(angle!.bars.map((bar) => [bar.label, bar.cpr, bar.note]), [
       ["Urgency / scarcity", 34.92, "25% under"],
