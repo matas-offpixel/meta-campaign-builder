@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1111
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1111
 - **Branch:** `cursor/creative-lab-m4b`
 
 ## Summary
