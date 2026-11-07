@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+
+import { profile } from "../../../src/remotion/caption-style/profile.ts";
 
 import {
   adPairingName,
   candidateTileState,
   cantRunReason,
+  CAPTION_BOX_WIDTH_PCT,
+  captionBoxInsets,
   captionCopy,
   clipStripLines,
   clipStripState,
@@ -207,5 +212,20 @@ describe("creative lab surface", () => {
     assert.deepEqual(candidateTileState({ ...rows[0]!, hasFile: true }), { action: "add", status: null });
     assert.deepEqual(candidateTileState(rows[1]!), { action: null, status: "Skipped — text overlay" });
     assert.deepEqual(candidateTileState({ ...rows[0]!, status: "requested" }), { action: null, status: "Requested" });
+  });
+
+  it("builds the caption box from the profile's centre, so a profile change moves the preview with the render", () => {
+    assert.deepEqual(captionBoxInsets(0.493), { left: 7.3, right: 8.7 });
+    assert.deepEqual(captionBoxInsets(profile.horizontalCenterPctOfWidth), { left: 7.3, right: 8.7 });
+    assert.deepEqual(captionBoxInsets(0.5), { left: 8, right: 8 });
+    const moved = captionBoxInsets(0.52);
+    assert.deepEqual(moved, { left: 10, right: 6 });
+    assert.equal(Math.round((100 - moved.left - moved.right) * 1000) / 1000, CAPTION_BOX_WIDTH_PCT);
+    const overlay = readFileSync(new URL("../../../components/dashboard/events/creative-lab/caption-overlay.tsx", import.meta.url), "utf8");
+    assert.match(overlay, /captionBoxInsets\(profile\.horizontalCenterPctOfWidth\)/);
+    assert.equal((overlay.match(/left: `\$\{box\.left\}%`/g) ?? []).length, 2, "text box and compact marker both use the profile box");
+    assert.doesNotMatch(overlay, /(left|right)-\[\d+%\]/, "no typed insets");
+    const lambda = readFileSync(new URL("../../../src/remotion/caption-style/profile.ts", import.meta.url), "utf8");
+    assert.match(lambda, /profile\.horizontalCenterPctOfWidth/);
   });
 });

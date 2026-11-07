@@ -470,3 +470,19 @@ export function itemVerdict(verdicts: readonly (string | null)[]): string | null
   }
   return null;
 }
+
+/** The caption box is this share of the frame width (the 4:5 safe area's text column). */
+export const CAPTION_BOX_WIDTH_PCT = 84;
+
+/**
+ * Left and right insets, in % of the frame width, for a caption box
+ * CAPTION_BOX_WIDTH_PCT wide centred on the profile's horizontal centre
+ * (0.493 in v1.json → 7.3% / 8.7%). The preview reads the same profile
+ * value as the Lambda render, so a profile change moves both together.
+ */
+export function captionBoxInsets(horizontalCenterPctOfWidth: number, widthPct = CAPTION_BOX_WIDTH_PCT): { left: number; right: number } {
+  const centre = horizontalCenterPctOfWidth * 100;
+  const half = widthPct / 2;
+  const round = (value: number) => Math.round(value * 1000) / 1000;
+  return { left: round(centre - half), right: round(100 - centre - half) };
+}

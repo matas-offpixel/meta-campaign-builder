@@ -3,6 +3,7 @@
 import localFont from "next/font/local";
 
 import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
+import { captionBoxInsets } from "@/lib/creative-lab/surface";
 import { profile } from "../../../../src/remotion/caption-style/profile";
 
 const tiktokSans = localFont({
@@ -12,6 +13,7 @@ const tiktokSans = localFont({
 });
 
 const variation = `"opsz" 36, "slnt" 0, "wdth" ${profile.fontWidth}, "wght" ${profile.fontWeight}`;
+const box = captionBoxInsets(profile.horizontalCenterPctOfWidth);
 
 /**
  * The locked caption on a 9:16 frame. The block's centre is the measured
@@ -54,16 +56,19 @@ export function CaptionOverlay({
       {compact ? (
         <span
           aria-hidden
-          className="absolute right-[8%] left-[8%] h-0.5 -translate-y-1/2 bg-white"
-          style={{ top: `${profile.verticalCenterPctOfSourceHeight * 100}%`, outline: `1px solid ${profile.stroke}` }}
+          className="absolute h-0.5 -translate-y-1/2 bg-white"
+          style={{ left: `${box.left}%`, right: `${box.right}%`, top: `${profile.verticalCenterPctOfSourceHeight * 100}%`, outline: `1px solid ${profile.stroke}` }}
         />
       ) : shown.length ? (
-        // The safe-area box: 8% in from each side, 84% of the frame. Lines
+        // The safe-area box: 84% of the frame, centred on the profile's
+        // horizontal centre (captionBoxInsets). Lines
         // break only where the validator broke them; nothing wraps here.
         <p
           data-caption-lines={shown.length}
-          className={`${tiktokSans.className} pointer-events-none absolute right-[8%] left-[8%] -translate-y-1/2 text-center whitespace-pre`}
+          className={`${tiktokSans.className} pointer-events-none absolute -translate-y-1/2 text-center whitespace-pre`}
           style={{
+            left: `${box.left}%`,
+            right: `${box.right}%`,
             top: `${profile.verticalCenterPctOfSourceHeight * 100}%`,
             fontSize: `${profile.fontSizePctOfWidth * 100}cqw`,
             fontWeight: profile.fontWeight,
