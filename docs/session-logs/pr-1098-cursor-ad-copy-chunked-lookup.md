@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1098
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1098
 - **Branch:** `cursor/ad-copy-chunked-lookup`
 
 ## Summary
