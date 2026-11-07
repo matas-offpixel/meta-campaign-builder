@@ -234,6 +234,20 @@ describe("learning joins: stage", () => {
     assert.equal(resultOf("ticket_sale", row), 2);
     assert.equal(resultOf("unknown", row), null);
   });
+
+  it("ticket_sale counts initiate checkout when that is the ad set's promoted event, and does not add the alias", () => {
+    const row = {
+      registrations: 9,
+      purchases: 0,
+      promoted_event: "INITIATED_CHECKOUT",
+      actions: [
+        { action_type: "offsite_conversion.fb_pixel_initiate_checkout", value: "4" },
+        { action_type: "initiate_checkout", value: "4" },
+      ],
+    };
+    assert.equal(resultOf("ticket_sale", row), 4);
+    assert.equal(resultOf("registration", row), 9);
+  });
 });
 
 describe("learning joins: currency and interest keys", () => {

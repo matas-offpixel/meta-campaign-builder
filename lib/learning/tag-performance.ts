@@ -17,6 +17,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { THIN_MIN_AD_SET_SPEND_GBP } from "../analysis/interest-performance.ts";
+import { rollAd } from "./copy/shows.ts";
 import type { CreativeTag, LearningClient, LearningFact, Stage } from "./joins.ts";
 import { choosePool, confidenceOf, shrinkIndex, type Confidence, type PoolRow } from "./shrink.ts";
 
@@ -39,6 +40,8 @@ export type TagPerformanceRow = {
   landing_page_views: number;
   video_plays_3s: number;
   results: number;
+  /** Distinct real shows behind the ads. Cancelled and undated events are not shows. */
+  events_n: number;
   cpr: number | null;
   ctr: number | null;
   baseline_cpr: number | null;
@@ -59,6 +62,7 @@ type AdStage = {
   lpv: number;
   plays3s: number;
   results: number;
+  showId: string | null;
   tagIds: Set<string>;
 };
 
@@ -71,8 +75,8 @@ function round(value: number, places: number): number {
   return Math.round(value * f) / f;
 }
 
-function adStages(facts: readonly LearningFact[], since: string): AdStage[] {
-  const byKey = new Map<string, AdStage>();
+function adStages(facts: readonly LearningFact[], since: string, shows: ReadonlyMap<string, string>): AdStage[] {
+  const byKey = new Map<string, AdStage & { parts: { eventId: string; spend: number; results: number }[] }>();
   for (const f of facts) {
     if (!f.clientId || !f.tagIds.length || f.row.date < since) continue;
     const key = `${f.row.meta_ad_id}|${f.stage}`;
@@ -85,7 +89,9 @@ function adStages(facts: readonly LearningFact[], since: string): AdStage[] {
       lpv: 0,
       plays3s: 0,
       results: 0,
+      showId: null,
       tagIds: new Set<string>(),
+      parts: [],
     };
     a.spend += f.spendGbp;
     a.impressions += Number(f.row.impressions) || 0;
@@ -93,10 +99,18 @@ function adStages(facts: readonly LearningFact[], since: string): AdStage[] {
     a.lpv += Number(f.row.landing_page_views) || 0;
     a.plays3s += Number(f.row.video_plays_3s) || 0;
     a.results += f.result ?? 0;
+    if (f.eventId) a.parts.push({ eventId: f.eventId, spend: f.spendGbp, results: f.result ?? 0 });
     for (const t of f.tagIds) a.tagIds.add(t);
     byKey.set(key, a);
   }
-  return [...byKey.values()];
+  return [...byKey.values()].map((ad) => {
+    const chosen = rollAd(ad.parts);
+    return { ...ad, showId: chosen ? (shows.get(chosen.eventId) ?? null) : null };
+  });
+}
+
+function showCount(ads: readonly AdStage[]): number {
+  return new Set(ads.map((ad) => ad.showId).filter((id): id is string => Boolean(id))).size;
 }
 
 type Bucket = { ads: AdStage[] };
@@ -105,19 +119,25 @@ export function computeTagPerformance(
   facts: readonly LearningFact[],
   clients: readonly LearningClient[],
   tags: ReadonlyMap<string, CreativeTag>,
-  opts: { now: Date; windowDays?: number },
+  opts: { now: Date; windowDays?: number; shows?: ReadonlyMap<string, string> },
 ): TagPerformanceRow[] {
   const windowDays = opts.windowDays ?? TAG_WINDOW_DAYS;
   const computedAt = opts.now.toISOString();
-  const vertical = new Map(clients.map((c) => [c.id, c.vertical]));
+  const vertical = new Map(clients.map((c) => [c.id, c.vertical?.trim() || null]));
   const scopesOf = (clientId: string): [TagScope, string][] => {
+    if (!vertical.has(clientId)) return [];
     const v = vertical.get(clientId);
-    return v ? [["client", clientId], ["vertical", v], ["all", "all"]] : [];
+    const scopes: [TagScope, string][] = [
+      ["client", clientId],
+      ["all", "all"],
+    ];
+    if (v) scopes.splice(1, 0, ["vertical", v]);
+    return scopes;
   };
 
   const scopeStage = new Map<string, Bucket>();
   const tagBuckets = new Map<string, Bucket & { scope: TagScope; scopeId: string; stage: Stage; tag: CreativeTag }>();
-  for (const ad of adStages(facts, windowStart(opts.now, windowDays))) {
+  for (const ad of adStages(facts, windowStart(opts.now, windowDays), opts.shows ?? new Map())) {
     for (const [scope, scopeId] of scopesOf(ad.clientId)) {
       const ssKey = `${scope}|${scopeId}|${ad.stage}`;
       (scopeStage.get(ssKey) ?? scopeStage.set(ssKey, { ads: [] }).get(ssKey)!).ads.push(ad);
@@ -171,6 +191,7 @@ export function computeTagPerformance(
       landing_page_views: sum((a) => a.lpv),
       video_plays_3s: sum((a) => a.plays3s),
       results,
+      events_n: showCount(b.ads),
       cpr: cpr == null ? null : round(cpr, 4),
       ctr: impressions > 0 ? round(linkClicks / impressions, 6) : null,
       baseline_cpr: base == null ? null : round(base, 4),

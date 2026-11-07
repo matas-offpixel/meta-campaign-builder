@@ -109,6 +109,32 @@ if (result.preview) {
   }
   const scoped = (scope: string) => tags.filter((t) => t.scope === scope);
   console.log(`tag_performance rows: client ${scoped("client").length}, vertical ${scoped("vertical").length}, all ${scoped("all").length}; thin ${tags.filter((t) => t.confidence === "thin").length}, ok ${tags.filter((t) => t.confidence === "ok").length}, strong ${tags.filter((t) => t.confidence === "strong").length}`);
+  console.log(`\n## Resolved verticals\n`);
+  for (const client of [...result.preview.clients].sort((a, b) => a.name.localeCompare(b.name))) {
+    console.log(`- ${client.name}: ${client.vertical ?? "(none)"}`);
+  }
+  console.log(`\n## Vertical rows\n`);
+  const verticalRows = new Map<string, number>();
+  for (const row of scoped("vertical")) verticalRows.set(row.scope_id, (verticalRows.get(row.scope_id) ?? 0) + 1);
+  if (!verticalRows.size) console.log("(none)");
+  for (const [vertical, count] of [...verticalRows.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    console.log(`- ${vertical}: ${count}`);
+  }
+  const keyOf = (row: { scope_id: string; dimension: string; value_key: string; stage: string }) =>
+    `${row.dimension}|${row.value_key}|${row.stage}`;
+  const music = scoped("vertical").filter((row) => row.scope_id === "music");
+  const allRows = scoped("all");
+  const same =
+    music.length === allRows.length &&
+    music.every((row) => {
+      const other = allRows.find((candidate) => keyOf(candidate) === keyOf(row));
+      return other != null && other.funded_ads === row.funded_ads && other.results === row.results && other.spend === row.spend;
+    });
+  console.log(`music rows equal all rows: ${same ? "yes" : "no"}`);
+  console.log(`\n## Ticket-sale results (90 days)\n`);
+  for (const client of [...result.preview.clients].sort((a, b) => a.name.localeCompare(b.name))) {
+    console.log(`- ${client.name}: before ${result.ticketSalePurchases[client.id] ?? 0} → after ${result.ticketSaleResults[client.id] ?? 0} (initiate checkout ${result.ticketSaleCheckouts[client.id] ?? 0})`);
+  }
 
   console.log(`\n## Funnel benchmarks (180 days, learned)\n`);
   console.log("| Client | Stage | Rate | n (impressions) | Confidence |");

@@ -35,17 +35,26 @@
  *      goal, so its other ads' result type is the ad set's objective.
  *      Recorded apart from 4 so the dry run shows how much rests on it.
  *   6. 'unknown', which is kept. Campaign names are never read for stage.
- * - Result: registrations in registration, purchases in ticket_sale, none
- *   in unknown.
+ * - Result: registrations in registration. In ticket_sale, initiate
+ *   checkout when the ad set's promoted_event is INITIATED_CHECKOUT
+ *   (the Lab judge's optimisation event; Skiddle reports that, not
+ *   Purchase), otherwise purchases. None in unknown.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { LEAD_ACTION_TYPES, PURCHASE_ACTION_TYPES, REGISTRATION_ACTION_TYPES } from "../ad-daily-insights/derive.ts";
+import {
+  firstPresentAction,
+  LEAD_ACTION_TYPES,
+  PURCHASE_ACTION_TYPES,
+  REGISTRATION_ACTION_TYPES,
+  type MetaActionRow,
+} from "../ad-daily-insights/derive.ts";
 import { phaseFromMetaObjective } from "../launched-ad-sets/snapshot.ts";
 import { dropArchivedClientRows, loadArchivedClientIds } from "../db/client-status.ts";
 import { clusterKey } from "../analysis/interest-performance.ts";
 import { loadAdContextIndex, resolveAdContext, type AdContextIndex, type AdContextSource } from "./ad-facts.ts";
+import { showOf } from "./copy/shows.ts";
 import { currencyResolver, type CurrencyResolver } from "./currency.ts";
 
 export type Stage = "registration" | "ticket_sale" | "unknown";
@@ -67,6 +76,8 @@ export type AdDayRow = {
   video_plays_p100: number;
   registrations: number;
   purchases: number;
+  /** Raw Meta actions. Ticket-sale initiate checkout is read from here. */
+  actions?: MetaActionRow[] | null;
   result_action_type?: string | null;
   campaign_objective?: string | null;
   optimization_goal?: string | null;
@@ -100,6 +111,11 @@ const TICKET_PHASES = new Set(["on_sale", "general_sale"]);
 
 const REGISTRATION_RESULT_TYPES = new Set<string>([...REGISTRATION_ACTION_TYPES, ...LEAD_ACTION_TYPES]);
 const TICKET_RESULT_TYPES = new Set<string>(PURCHASE_ACTION_TYPES);
+const INITIATE_CHECKOUT_ACTIONS = ["offsite_conversion.fb_pixel_initiate_checkout", "initiate_checkout"] as const;
+
+function isInitiateCheckout(promotedEvent: string | null | undefined): boolean {
+  return (promotedEvent ?? "").trim().toUpperCase() === "INITIATED_CHECKOUT";
+}
 
 export function resultTypeStage(resultActionType: string | null | undefined): Stage | null {
   const t = (resultActionType ?? "").trim();
@@ -193,9 +209,18 @@ export function stageOf(
   return { stage: "unknown", source: "unknown" };
 }
 
-export function resultOf(stage: Stage, row: Pick<AdDayRow, "registrations" | "purchases">): number | null {
+export function resultOf(
+  stage: Stage,
+  row: Pick<AdDayRow, "registrations" | "purchases" | "promoted_event" | "actions">,
+): number | null {
   if (stage === "registration") return Number(row.registrations) || 0;
-  if (stage === "ticket_sale") return Number(row.purchases) || 0;
+  if (stage === "ticket_sale") {
+    if (isInitiateCheckout(row.promoted_event)) {
+      const actions = Array.isArray(row.actions) ? row.actions : [];
+      return firstPresentAction(actions, INITIATE_CHECKOUT_ACTIONS)?.value ?? 0;
+    }
+    return Number(row.purchases) || 0;
+  }
   return null;
 }
 
@@ -349,7 +374,8 @@ async function loadAll<T>(db: Db, table: string, columns: string, filter?: (q: Q
 export type LearningClient = {
   id: string;
   name: string;
-  vertical: string;
+  /** clients.vertical. Null is not a vertical: the client stays out of vertical scope. */
+  vertical: string | null;
   userId: string | null;
 };
 
@@ -366,6 +392,8 @@ export type CreativeTag = { id: string; dimension: string; value_key: string; va
 export type LearningInputs = {
   /** Active (non-archived) clients. */
   clients: LearningClient[];
+  /** event id → show id, from the same show rule as copy_performance. */
+  shows: ReadonlyMap<string, string>;
   archivedClientIds: ReadonlySet<string>;
   /** Facts whose client is active. */
   facts: LearningFact[];
@@ -390,7 +418,7 @@ export function interestKeyOf(value: unknown): string {
 }
 
 const AD_DAY_COLUMNS =
-  "id, ad_account_id, meta_ad_id, meta_adset_id, date, ad_name, campaign_name, spend, impressions, reach, link_clicks, landing_page_views, video_plays_3s, video_plays_p100, registrations, purchases, result_action_type";
+  "id, ad_account_id, meta_ad_id, meta_adset_id, date, ad_name, campaign_name, spend, impressions, reach, link_clicks, landing_page_views, video_plays_3s, video_plays_p100, registrations, purchases, actions, result_action_type";
 const META_OBJECTIVE_COLUMNS = "campaign_objective, optimization_goal, promoted_event";
 
 export type LoadLearningOptions = {
@@ -409,11 +437,16 @@ export async function loadLearningInputs(db: Db, opts: LoadLearningOptions = {})
   const archivedClientIds = await loadArchivedClientIds(db);
   const [clients, events, adSets, assignments, tagRows, bmAccounts, adDays, context] = await Promise.all([
     loadAll<{ id: string; name: string; vertical: string | null; user_id: string | null }>(db, "clients", "id, name, vertical, user_id"),
-    loadAll<{ id: string; client_id: string | null; general_sale_at: string | null; presale_at: string | null }>(
-      db,
-      "events",
-      "id, client_id, general_sale_at, presale_at",
-    ),
+    loadAll<{
+      id: string;
+      client_id: string | null;
+      general_sale_at: string | null;
+      presale_at: string | null;
+      event_date: string | null;
+      venue_name: string | null;
+      venue_key: string | null;
+      status: string | null;
+    }>(db, "events", "id, client_id, general_sale_at, presale_at, event_date, venue_name, venue_key, status"),
     loadAll<LaunchedAdSetRow>(db, "launched_ad_sets", "id, meta_adset_id, client_id, event_id, phase_at_launch, interest_ids"),
     loadAll<TagAssignment>(db, "creative_tag_assignments", "id, event_id, creative_name, tag_id, meta_ad_id"),
     loadAll<CreativeTag>(db, "creative_tags", "id, dimension, value_key, value_label", (q) => q.not("dimension", "is", null)),
@@ -453,9 +486,19 @@ export async function loadLearningInputs(db: Db, opts: LoadLearningOptions = {})
     clients: dropArchivedClientRows(clients, archivedClientIds, (c) => c.id).map((c) => ({
       id: c.id,
       name: c.name,
-      vertical: c.vertical ?? "music",
+      vertical: c.vertical?.trim() || null,
       userId: c.user_id,
     })),
+    /** event id → show id. Cancelled and undated events are absent. */
+    shows: showOf(
+      events.map((event) => ({
+        id: event.id,
+        date: event.event_date,
+        venueName: event.venue_name,
+        venueKey: event.venue_key,
+        status: event.status,
+      })),
+    ),
     archivedClientIds,
     facts,
     dropped: { noClient: all.length - withClient.length, archived: withClient.length - facts.length },
