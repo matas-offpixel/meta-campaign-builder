@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1101
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1101
 - **Branch:** `cursor/learning-vertical-fix`
 
 ## Summary
