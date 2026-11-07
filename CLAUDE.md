@@ -194,6 +194,7 @@ SLACK_WEBHOOK_ADS_URGENT=
 SLACK_WEBHOOK_ADS_AUTOMATION=
 ENABLE_BUDGET_PACING_ALERTS=
 ENABLE_AD_DAILY_INSIGHTS=
+ENABLE_AD_COPY_CAPTURE=
 ENABLE_LEARNING_REFRESH=
 ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 REMOTION_AWS_ACCESS_KEY_ID=
@@ -482,6 +483,18 @@ REMOTION_LAMBDA_SERVE_URL=
 > backfill for older rows: `scripts/backfill-insights-objective.mts`
 > (dry-run by default, `--fetch` reads only, `--apply` writes). Campaign grain
 > is a SUM over `ad_daily_insights`.
+>
+> **`ENABLE_AD_COPY_CAPTURE`** must be exactly `"1"` to read ad copy inside
+> that same cron. Unset leaves the insights run unchanged and makes no
+> creative call. For each ad the run saw that has no `ad_copy` row, or a
+> row older than 30 days, it batches the ad's creative (body, title,
+> object story, every asset_feed_spec variant, effective_object_story_id,
+> call to action) at 50 ids a call and counts those calls in `meta_calls`.
+> A rate-limited account is skipped and reported. Snapshots and drafts
+> fill an ad Graph did not return, and never replace a `graph` row.
+> Read-only against Meta. Migration 206 is service-role only. Backfill:
+> `scripts/backfill-ad-copy.mts` (dry-run by default, `--apply` writes,
+> `--account` scopes it). Lab launch does not write copy yet.
 
 > **`ENABLE_LEARNING_REFRESH`** (learning loop B) must be exactly `"1"` to
 > activate `/api/cron/learning-refresh` (03:30 UTC, after ad-daily-insights).

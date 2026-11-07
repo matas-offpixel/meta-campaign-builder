@@ -13,6 +13,8 @@ import { loadArchivedClientIds, logSkippedArchivedClients } from "../db/client-s
 import { metaObjectiveNeedsPromotedEvent } from "../launched-ad-sets/snapshot.ts";
 import { normalizeAdAccountId } from "../meta/ad-account.ts";
 import { createPromotedEventLookup } from "./adset-meta.ts";
+import { captureAccountCopy, type SeenAd } from "./copy-capture.ts";
+import { isAdCopyCaptureEnabled } from "./copy.ts";
 import { deriveAdDailyInsight, type AdDailyInsightRow } from "./derive.ts";
 import {
   fetchAdAccountInsightsAdaptive,
@@ -28,9 +30,10 @@ const PAGE = 1000;
 export type AccountOutcome = {
   adAccountId: string;
   status: AccountFetchStatus | "write_error";
-  /** Insights calls plus ad set promoted_object calls. */
+  /** Insights calls, ad set promoted_object calls, and copy reads. */
   calls: number;
   adsetCalls: number;
+  copyCalls?: number;
   pages: number;
   rows: number;
   error?: string;
@@ -186,10 +189,12 @@ export async function runAdDailyInsights(deps: {
   );
   let metaCalls = 0;
   let rowsWritten = 0;
+  const copyOn = isAdCopyCaptureEnabled(deps.env);
   for (const adAccountId of loaded.accounts) {
     let written = 0;
     let adsetCalls = 0;
     let adsetError: string | undefined;
+    const seen = new Map<string, SeenAd>();
     const fetched = await fetchAdAccountInsightsAdaptive(
       deps.graphGet,
       adAccountId,
@@ -203,6 +208,9 @@ export async function runAdDailyInsights(deps: {
           if (row) byKey.set(`${row.meta_ad_id}|${row.date}`, row);
         }
         const rows = [...byKey.values()];
+        for (const row of rows) {
+          if (!seen.has(row.meta_ad_id)) seen.set(row.meta_ad_id, { metaAdId: row.meta_ad_id, adName: row.ad_name });
+        }
         if (rows.length === 0) return null;
         const lookup = await promotedEvents.resolve(
           rows
@@ -221,16 +229,43 @@ export async function runAdDailyInsights(deps: {
         return writeError;
       },
     );
-    metaCalls += fetched.calls + adsetCalls;
+    let copyCalls = 0;
+    let copyError: string | undefined;
+    let status = fetched.status;
+    const copyStopped = fetched.status === "rate_limited" || fetched.status === "auth_error";
+    if (copyOn && !copyStopped && seen.size > 0) {
+      const copy = await captureAccountCopy({
+        db: deps.db,
+        multiGet: deps.multiGet ?? (async () => {
+          throw new Error("copy reads go through graphMultiGetByIds");
+        }),
+        adAccountId,
+        ads: [...seen.values()],
+        now,
+      });
+      copyCalls = copy.calls;
+      if (copy.status === "rate_limited" || copy.status === "auth_error") {
+        status = copy.status;
+        copyError = copy.error;
+      } else if (copy.status === "error" && status === "ok") {
+        status = "error";
+        copyError = copy.error;
+      } else if (copy.error && !copy.skippedReason) {
+        copyError = copy.error;
+      }
+      if (copyError) console.error(`[ad-copy] ${adAccountId} ${copy.status} after ${copy.calls} calls: ${copyError}`);
+    }
+    metaCalls += fetched.calls + adsetCalls + copyCalls;
     rowsWritten += written;
     const outcome: AccountOutcome = {
       adAccountId,
-      status: fetched.status,
-      calls: fetched.calls + adsetCalls,
+      status,
+      calls: fetched.calls + adsetCalls + copyCalls,
       adsetCalls,
+      ...(copyCalls > 0 ? { copyCalls } : {}),
       pages: fetched.pages,
       rows: written,
-      ...(fetched.error ? { error: fetched.error } : {}),
+      ...(fetched.error ? { error: fetched.error } : copyError ? { error: copyError } : {}),
       ...(adsetError ? { adsetError } : {}),
       ...(fetched.windowSplit ? { windowSplit: fetched.windowSplit } : {}),
     };
