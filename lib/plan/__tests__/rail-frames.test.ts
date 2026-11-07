@@ -57,13 +57,19 @@ describe("Insights rail frame catalog (IR)", () => {
     const { context, data } = RAIL_FRAME_FIXTURES.IR2;
     assert.equal(context.stage, "ticket_sale");
     const tags = data.sections.filter((section) => section.id !== "lab");
-    assert.deepEqual(tags.map((section) => section.id), ["messaging_angle", "hook_tactic", "visual_format"]);
+    assert.deepEqual(tags.map((section) => section.id), ["messaging_angle", "hook_tactic", "visual_format", "asset_type"]);
     for (const section of tags) {
       assert.equal(section.scope, "all", section.id);
       assert.equal(section.fallback, "Puzzle has no ticket sales attributed to its ads in the last 90 days. Showing all clients.");
       assert.equal(section.lock, true);
     }
-    const [angle, hook, visual] = tags;
+    const [angle, hook, visual, asset] = tags;
+    assert.equal(asset!.result?.text, "Lifestyle image with text costs 31% less than usual.");
+    assert.deepEqual(asset!.bars.map((bar) => [bar.label, bar.cpr, bar.note, bar.tone]), [
+      ["Lifestyle image with text", 32.3, "31% under", "olive"],
+      ["High production", 48.9, "4% over", "ink"],
+      ["UGC", 58.5, "25% over", "brick"],
+    ]);
     assert.equal(angle!.result?.text, "Urgency / scarcity costs 25% less than usual.");
     assert.deepEqual(angle!.bars.map((bar) => [bar.label, bar.cpr, bar.note]), [
       ["Urgency / scarcity", 34.92, "25% under"],
@@ -83,7 +89,10 @@ describe("Insights rail frame catalog (IR)", () => {
 
   it("IR3: Puzzle's own rows, two 'No clear winner' sections and two thin rows (H4)", () => {
     const { data } = RAIL_FRAME_FIXTURES.IR3;
-    const [angle, hook, visual] = data.sections.filter((section) => section.id !== "lab");
+    const [angle, hook, visual, asset] = data.sections.filter((section) => section.id !== "lab");
+    assert.equal(asset!.result?.text, "Lifestyle image with text costs 7% less than usual.");
+    assert.deepEqual(asset!.thin.map((row) => [row.label, row.fundedAds]), [["UGC", 0]]);
+    assert.equal(data.sections.at(-1)!.id, "lab");
     assert.equal(angle!.scope, "client");
     assert.equal(angle!.scopeLabel, "Puzzle");
     assert.equal(angle!.fallback, null);

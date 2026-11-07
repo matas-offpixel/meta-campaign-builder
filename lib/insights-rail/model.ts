@@ -345,9 +345,13 @@ function scopeHeader(scope: RailScope, clientName: string | null): string {
   return SCOPE_LABELS[scope];
 }
 
-/** The sections a surface leads with (H4), as dimensions. Lab and copy are added around them. */
+/**
+ * The sections a surface leads with (H4), as dimensions. Lab and copy are
+ * added around them. The event page runs caption angle, hook, visual
+ * format, asset type, then the Lab (the #1102 verdict's ruling).
+ */
 export const SURFACE_DIMENSIONS: Record<RailSurface, string[]> = {
-  event: ["messaging_angle", "hook_tactic", "visual_format"],
+  event: ["messaging_angle", "hook_tactic", "visual_format", "asset_type"],
   campaign: ["messaging_angle", "visual_format", "asset_type"],
   audience: [],
   page: ["messaging_angle", "hook_tactic", "visual_format"],

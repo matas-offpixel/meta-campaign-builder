@@ -334,11 +334,12 @@ function Section({ section }: { section: InsightSection }) {
       {section.confidence ? <p className="mt-1.5 font-mono text-[10.5px] text-muted-foreground">{section.confidence}</p> : null}
       {section.lock ? <p className="mt-1.5 text-[11px] text-muted-foreground">{LOCK_LINE}</p> : null}
       {section.action ? (
-        <p className="mt-2 flex items-center gap-2">
-          <button type="button" className="rounded-md bg-foreground px-3 py-1 text-xs font-semibold text-background" onClick={() => dispatchUseAngle(section.action!.angle)}>
+        // The button never wraps; the note wraps beside it, or drops below (9a).
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <button type="button" className="shrink-0 rounded-md bg-foreground px-3 py-1 text-xs font-semibold whitespace-nowrap text-background" onClick={() => dispatchUseAngle(section.action!.angle)}>
             {section.action.label}
           </button>
-          {section.action.note ? <span className="text-[11px] text-muted-foreground">{section.action.note}</span> : null}
+          {section.action.note ? <span className="min-w-0 text-[11px] text-muted-foreground">{section.action.note}</span> : null}
         </p>
       ) : null}
     </section>

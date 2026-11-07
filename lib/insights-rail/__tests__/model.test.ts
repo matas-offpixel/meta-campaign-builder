@@ -87,7 +87,11 @@ describe("insights rail model", () => {
 
   it("IR3: no clear winner between level angles; Headline and Lifestyle win; thin rows draw no bar", () => {
     const rail = buildRail({ context: PUZZLE, scope: "client", stage: "registration", rows: { client: IR3 } });
-    const [angle, hook, visual] = rail.sections.filter((section) => section.id !== "lab");
+    const tags = rail.sections.filter((section) => section.id !== "lab");
+    assert.deepEqual(tags.map((section) => section.id), ["messaging_angle", "hook_tactic", "visual_format", "asset_type"]);
+    const [angle, hook, visual, eventAsset] = tags;
+    assert.equal(eventAsset!.result?.text, "Lifestyle image with text costs 7% less than usual.");
+    assert.equal(eventAsset!.confidence, "ok · 25+ funded ads · 90 days · this client");
     assert.equal(angle!.result?.text, "No clear winner between Event announcement and Artist / headliner.");
     assert.equal(angle!.result?.winner, false);
     assert.deepEqual(angle!.bars.map((bar) => [bar.label, bar.note, bar.tone]), [

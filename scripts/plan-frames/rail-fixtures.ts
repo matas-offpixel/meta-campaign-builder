@@ -55,6 +55,7 @@ export const PUZZLE_TICKET_SALE: TagRow[] = [
   row("messaging_angle", "artist_headliner", null, 46.8, null, "thin", 6),
   row("hook_tactic", "fomo", null, 46.8, null, "thin", 4),
   row("visual_format", "headline", null, 46.8, null, "thin", 5),
+  row("asset_type", "high_production", null, 46.8, null, "thin", 6),
 ];
 
 /** All clients, ticket sale, as drawn in IR2 (baseline £46.80 / purchase). */
@@ -81,6 +82,9 @@ export const ALL_TICKET_SALE: TagRow[] = [
   row("visual_format", "testimonial", 68.0, 46.8, 1.35, "ok", 18),
   row("visual_format", "montage", 70.0, 46.8, 1.4, "ok", 16),
   row("visual_format", "split_screen", 72.0, 46.8, 1.4, "ok", 15),
+  row("asset_type", "lifestyle_image_with_text", 32.3, 46.8, 0.7, "strong", 120),
+  row("asset_type", "high_production", 48.9, 46.8, 1.04, "strong", 210),
+  row("asset_type", "ugc", 58.5, 46.8, 1.22, "ok", 40),
 ];
 
 const PUZZLE: RailContext = {
