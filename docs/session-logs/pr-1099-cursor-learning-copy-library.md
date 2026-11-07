@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1099
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1099
 - **Branch:** `cursor/learning-copy-library`
 
 ## Summary
