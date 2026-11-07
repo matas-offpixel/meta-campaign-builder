@@ -532,24 +532,6 @@ CREATE TABLE IF NOT EXISTS "event_code_lifetime_meta_cache" (
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS "event_funnel_overrides" (
-  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
-  "client_id" uuid NOT NULL,
-  "event_id" uuid,
-  "event_code" text,
-  "tofu_to_mofu_rate" numeric,
-  "mofu_to_bofu_rate" numeric,
-  "bofu_to_reg_rate" numeric DEFAULT 0.1827,
-  "reg_to_sale_rate" numeric DEFAULT 0.51,
-  "organic_lift_rate" numeric DEFAULT 0.57,
-  "cost_per_reach" numeric,
-  "cost_per_lpv" numeric,
-  "cost_per_reg" numeric DEFAULT 1.00,
-  "sellout_target_override" integer,
-  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
-  "updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS "event_funnel_targets" (
   "id" uuid DEFAULT gen_random_uuid() NOT NULL,
   "user_id" uuid NOT NULL,
@@ -1144,9 +1126,6 @@ CREATE UNIQUE INDEX event_daily_rollups_event_date_unique ON public.event_daily_
 CREATE UNIQUE INDEX event_daily_rollups_pkey ON public.event_daily_rollups USING btree (id);
 CREATE INDEX event_code_lifetime_meta_cache_fetched_at_idx ON public.event_code_lifetime_meta_cache USING btree (fetched_at DESC);
 CREATE UNIQUE INDEX event_code_lifetime_meta_cache_pkey ON public.event_code_lifetime_meta_cache USING btree (client_id, event_code);
-CREATE INDEX event_funnel_overrides_client_idx ON public.event_funnel_overrides USING btree (client_id);
-CREATE UNIQUE INDEX event_funnel_overrides_pkey ON public.event_funnel_overrides USING btree (id);
-CREATE UNIQUE INDEX event_funnel_overrides_scope_unique_idx ON public.event_funnel_overrides USING btree (client_id, COALESCE((event_id)::text, event_code));
 CREATE UNIQUE INDEX event_funnel_targets_client_id_scope_type_scope_value_key ON public.event_funnel_targets USING btree (client_id, scope_type, scope_value);
 CREATE UNIQUE INDEX event_funnel_targets_pkey ON public.event_funnel_targets USING btree (id);
 CREATE INDEX idx_event_funnel_targets_client ON public.event_funnel_targets USING btree (client_id);

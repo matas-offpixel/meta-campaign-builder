@@ -56,6 +56,9 @@ describe("client funnel benchmarks", () => {
     assert.match(sql, /create table if not exists client_funnel_benchmarks/);
     assert.match(sql, /'seed', 'learned', 'manually-overridden'/);
     assert.doesNotMatch(sql, /tofu_to_mofu_rate/);
+    // Reads migration 158, a historical file. The match is that migration's
+    // comment, which names the table 060 created. Migration 209 drops the
+    // table; this assertion stays.
     assert.match(sql, /event_funnel_overrides/);
   });
 });

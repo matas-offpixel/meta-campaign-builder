@@ -26,6 +26,15 @@ describe("migration 209 retires the unread stores", () => {
     );
   });
 
+  it("schema and generated types no longer describe either table", () => {
+    const schema = readFileSync("supabase/schema.sql", "utf8");
+    const types = readFileSync("lib/db/database.types.ts", "utf8");
+    for (const text of [schema, types]) {
+      assert.doesNotMatch(text, /event_funnel_overrides/);
+      assert.doesNotMatch(text, /campaign_daily_insights/);
+    }
+  });
+
   it("stops claiming a Funnel Planner shell read the override table", () => {
     const claude = readFileSync("CLAUDE.md", "utf8");
     assert.doesNotMatch(claude, /Funnel Planner UI shell/);

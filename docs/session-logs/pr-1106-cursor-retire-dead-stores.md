@@ -16,6 +16,7 @@
 - deleted `lib/dashboard/funnel-aggregations.ts` and its test
 - `CLAUDE.md`
 - `lib/dashboard/__tests__/retired-stores-209.test.ts`
+- `supabase/schema.sql`, `lib/db/database.types.ts`
 
 ## Validation
 
@@ -24,4 +25,4 @@
 
 ## Notes
 
-`lib/dashboard/__tests__/client-funnel-benchmarks.test.ts` still matches the name `event_funnel_overrides` inside migration 158, which distinguishes the live benchmark table from 060. `schema.sql` and `lib/db/database.types.ts` still describe `event_funnel_overrides`. Neither was edited.
+`lib/dashboard/__tests__/client-funnel-benchmarks.test.ts` still matches the name `event_funnel_overrides` inside migration 158, a historical file. `schema.sql` and `lib/db/database.types.ts` no longer describe either dropped table. `campaign_daily_insights` was already absent from both.
