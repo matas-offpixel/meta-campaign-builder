@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Off/Pixel deck — the rules, by family, with their records — 8 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6; --tt:#6E5A9E; --ig:#B0607A; --sp:#3D7A52;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:0 0 6px}
+h3{font-size:13px;font-weight:600;margin:18px 0 6px}
+p{margin:0 0 10px;max-width:92ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.muted{color:var(--ink-3)}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 18px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+table.t td.src{font:600 10px var(--mono);color:var(--ink-3);white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:var(--olive)}.chip.warn{color:var(--ochre);border-color:var(--ochre)}.chip.bad{color:var(--brick);border-color:var(--brick)}.chip.dash{border-style:dashed;color:var(--ink-3)}
+.page{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px 32px;margin:26px 0;page-break-after:always;break-after:page}
+.page .pg{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;border-bottom:1px solid var(--border-strong);padding-bottom:8px}
+.page .pg .n{font:700 11px var(--mono);color:var(--ink-3)}
+.page table.t{background:var(--edit)}
+.toc{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 22px;font-size:12.5px;margin:12px 0 0}
+.toc a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--border-strong)}
+.toc .n{font:700 10px var(--mono);color:var(--ink-3);margin-right:8px}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:6px;border:1px solid var(--border-strong)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media print{body{background:#fff}.page{border:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · THE DECK — ONE RULES DOCUMENT FOR THE THREE-WAY SPLIT · 8 NOVEMBER 2026 · ISSUE 1</div>
+<h1>The Off/Pixel deck — the rules, by family, with the record each came from</h1>
+<p class="lead">The single document the three-way split works from: the design thread owns the rules and judges renders, Claude Design draws, Cursor builds. One page per rule family; every rule carries its id and the record it came from. <b>Nothing is ruled here.</b> The deck cites. Where a row is condensed from a long ruling, the record's own text rules; where two records disagree, the row is on the <i>Open rulings</i> page, not resolved. Records never change after merge, so a page here changes only when a new record lands and a new issue of the deck is cut.</p>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px"><li><b>Issue 1 · 8 Nov 2026.</b> Consolidates design-rules.md 1–14 and its named components; the standing rulings from the Creative Lab records (F1–F5, pass 2, pass 3), the Insights rail (R1–R16), the asset bank (A1'–A11, A7–A10), the overlay templates (O1–O17, #1112) and quote mode (Q1–Q9, its record filed alongside); the tokens; widths; limits and minimums per component; open rulings; what is superseded.</li></ul></div>
+
+<h2 style="margin-top:28px">Contents</h2>
+<div class="toc">
+<a href="#p1"><span class="n">1</span>How to use the deck</a>
+<a href="#p2"><span class="n">2</span>Tokens, type, widths</a>
+<a href="#p3"><span class="n">3</span>The fourteen rules</a>
+<a href="#p4"><span class="n">4</span>Named components</a>
+<a href="#p5"><span class="n">5</span>Creative Lab — standing rulings</a>
+<a href="#p6"><span class="n">6</span>Insights rail R1–R16</a>
+<a href="#p7"><span class="n">7</span>Asset bank A1'–A11</a>
+<a href="#p8"><span class="n">8</span>Overlay templates O1–O17</a>
+<a href="#p9"><span class="n">9</span>Quote mode Q1–Q9</a>
+<a href="#p10"><span class="n">10</span>Limits and minimums</a>
+<a href="#p11"><span class="n">11</span>Open rulings</a>
+<a href="#p12"><span class="n">12</span>Superseded, and the sources</a>
+</div>
+
+<!-- ============ PAGE 1 ============ -->
+<section class="page" id="p1"><div class="pg"><h2>1 · How to use the deck</h2><span class="n">PAGE 1 OF 12</span></div>
+<div class="split">
+<div>
+<h3>Who does what</h3>
+<table class="t">
+<tr><th>Role</th><th>Does</th><th>Never</th><th></th></tr>
+<tr><td>Design thread</td><td>Rules on words and layout, writes the record, judges every render PASS / FAIL per item against it.</td><td>Writes product code; passes anything it hasn't seen rendered.</td><td class="src">README · Roles</td></tr>
+<tr><td>Claude Design</td><td>Draws: frames at the deck's widths from a record's rulings and components.</td><td>Rules. A rule change, a new word or a conflict goes to the design thread first; a pure drawing fix comes here.</td><td class="src">thread practice</td></tr>
+<tr><td>Cursor / Claude Code</td><td>Builds on a branch against the record; hands back PR, head SHA, CI run, artifacts.</td><td>Applies migrations; judges its own pixels.</td><td class="src">README · Roles</td></tr>
+</table>
+<h3>How to cite</h3>
+<p class="lead">Point at a rule by its id and family — <code>rule 6</code>, <code>R13</code>, <code>A5'</code>, <code>O11</code>, <code>Q4</code> — and at a component by its name in page 4. A build prompt names the frame and the component and says only what differs. If a screen needs something no component covers, stop and ask for a frame; don't invent one in words (design-rules.md, "How to use this in a prompt").</p>
+</div>
+<div>
+<h3>What the deck is not</h3>
+<ul class="notes">
+<li>Not a record. It rules nothing; it has no frames; it is never the acceptance for a build. The acceptance is the record the rule came from.</li>
+<li>Not the latest word on live state (campaign data, what's built, what's merged). That lives in the north star (issue 2) and the PRs.</li>
+<li>Not verbatim everywhere. Long rulings are condensed; the record's row rules where wording differs. Short rules and every number are as written.</li>
+</ul>
+<h3>Reading a row</h3>
+<table class="t">
+<tr><th>Id</th><th>The rule</th><th>Source</th></tr>
+<tr><td>R13</td><td>The rule, condensed or verbatim.</td><td class="src">rail-2 · R13</td></tr>
+</table>
+<p class="lead">Source keys: <code>rules</code> design-rules.md · <code>F</code> 2026-11-06-creative-lab-f1-f5 · <code>pass-2</code> / <code>pass-3</code> the two Lab passes · <code>rail</code> / <code>rail-2</code> the Insights rail issues · <code>bank</code> / <code>bank-2</code> the asset bank issues · <code>overlay</code> 2026-11-08-overlay-templates (#1112, merged) · <code>quote</code> 2026-11-08-creative-lab-quote-mode · <code>README</code> docs/design-record/README.md. Full paths on page 12.</p>
+</div>
+</div>
+</section>
+
+<!-- ============ PAGE 2 ============ -->
+<section class="page" id="p2"><div class="pg"><h2>2 · Tokens, type, widths</h2><span class="n">PAGE 2 OF 12</span></div>
+<div class="split">
+<div>
+<h3>Colour tokens — the only ones (rule 10)</h3>
+<table class="t">
+<tr><th>Token</th><th>Value</th><th>Use</th><th>Source</th></tr>
+<tr><td><span class="sw" style="background:#F0C9A8"></span>sand</td><td>#F0C9A8</td><td>page ground</td><td class="src">F · pass-2</td></tr>
+<tr><td><span class="sw" style="background:#e8d4c0"></span>card</td><td>#e8d4c0</td><td>cards, panels, tables</td><td class="src">F · pass-2</td></tr>
+<tr><td><span class="sw" style="background:#f6ebe0"></span>edit</td><td>#f6ebe0</td><td>the edit surface; the highlighted strip cell; inputs</td><td class="src">rules 10 · F</td></tr>
+<tr><td><span class="sw" style="background:#1e1810"></span>ink</td><td>#1e1810</td><td>text, solid buttons, the ink outline chip</td><td class="src">F</td></tr>
+<tr><td><span class="sw" style="background:#4a3d30"></span>ink-2</td><td>#4a3d30</td><td>secondary text; piece cards' plate</td><td class="src">records' CSS</td></tr>
+<tr><td><span class="sw" style="background:#7A6A5C"></span>ink-3</td><td>#7A6A5C</td><td>kickers, muted text, dashed "later"</td><td class="src">records' CSS</td></tr>
+<tr><td>border · border-strong · muted</td><td>ink at 10 % · 18 % · 6 %</td><td>hairlines, control borders, table heads</td><td class="src">records' CSS</td></tr>
+<tr><td><span class="sw" style="background:#5F6B2A"></span>olive</td><td>#5F6B2A</td><td>a number under the client's own band; winner; cleared; fits</td><td class="src">rules 10</td></tr>
+<tr><td><span class="sw" style="background:#A86B12"></span>ochre</td><td>#A86B12</td><td>held; a fallback line; stale; "entered, not derived"</td><td class="src">rules 10 · bank</td></tr>
+<tr><td><span class="sw" style="background:#9B3B28"></span>brick</td><td>#9B3B28</td><td>over the band; loser; can't run; can't shorten; the show on a timeline</td><td class="src">rules 10 · bank-2</td></tr>
+<tr><td><span class="sw" style="background:#5B7FA6"></span>meta-blue</td><td>#5B7FA6</td><td>names Meta; content-led pushes on the calendar</td><td class="src">rules 10 · bank</td></tr>
+<tr><td><span class="sw" style="background:#6E5A9E"></span>tt · <span class="sw" style="background:#B0607A"></span>ig · <span class="sw" style="background:#3D7A52"></span>sp</td><td>#6E5A9E · #B0607A · #3D7A52</td><td>platform tints: TikTok, Instagram, Spotify — to name a platform, never to judge</td><td class="src">records' CSS · rules 10</td></tr>
+</table>
+<p class="lead">The olive / ochre / brick hexes in every record are close approximations; the build uses the app's existing semantic tokens (F). Colour never carries meaning alone — a word or shape goes with it (rule 10).</p>
+</div>
+<div>
+<h3>Kit tokens — the artwork's, not the UI's</h3>
+<table class="t">
+<tr><th>Kit</th><th>Token</th><th>Value</th><th>Source</th></tr>
+<tr><td>Puzzle (floating)</td><td>face</td><td>Bootzy Condensed TM Regular, caps, white; no stroke; shadow straight down 0.007 W, blur ≈ 0.009 W, 25 %</td><td class="src">overlay · O6</td></tr>
+<tr><td>Puzzle</td><td>kit-red</td><td>#FE3232 (254, 50, 50) — the kit's second colour; never a UI token, never meaning in the UI</td><td class="src">overlay · O12</td></tr>
+<tr><td>Junction 2 (frame)</td><td>face A · face B</td><td>an extended heavy grotesque (caps) · a monospace (caps) — named and licensed by H8 (e), owed</td><td class="src">overlay · O15</td></tr>
+<tr><td>Junction 2</td><td>second colour · scrim</td><td>owed · black, left → right, ≈ 55 % → 0</td><td class="src">overlay · O15, O16</td></tr>
+<tr><td>UGC caption</td><td>rule 13</td><td>TikTok Sans 400, width 120, white, black stroke ≈ 1 % W</td><td class="src">rules 13 · pass-3</td></tr>
+<tr><td>UGC quote</td><td>Q2</td><td>TikTok Sans 700 / 400, white, no stroke</td><td class="src">quote · Q2</td></tr>
+</table>
+<h3>Type</h3>
+<table class="t">
+<tr><th>Element</th><th>Value</th><th>Source</th></tr>
+<tr><td>Body</td><td>system type, 14 px / 1.5; "numbers are the hierarchy"</td><td class="src">F</td></tr>
+<tr><td>Kicker</td><td>mono, 9 px, 700, letter-spacing .16 em, uppercase, ink-3</td><td class="src">records' CSS</td></tr>
+<tr><td>Strip count</td><td>22 px tabular; state line 12 px</td><td class="src">F · Strip</td></tr>
+<tr><td>Round total</td><td>20 px ("{n} ads")</td><td class="src">F · Round</td></tr>
+<tr><td>Keeping cost</td><td>13 px + "/ signup · {results}"</td><td class="src">F · Clip tile</td></tr>
+<tr><td>Numbers</td><td>the biggest text in their cell; always a unit and a comparison</td><td class="src">rules 6</td></tr>
+</table>
+<h3>Widths</h3>
+<table class="t">
+<tr><th>Surface</th><th>Widths</th><th>Source</th></tr>
+<tr><td>Creative Lab (and every Lab component)</td><td>1280 and 393</td><td class="src">README · rules 9</td></tr>
+<tr><td>Operator surfaces</td><td>1176 and 768; 393 also for /admin and /l/</td><td class="src">README · Widths</td></tr>
+<tr><td>Insights rail breakpoints</td><td>≥ 1200 pushes the page (−360 px); 768–1199 a drawer; 393 a bottom sheet</td><td class="src">rail · R1</td></tr>
+<tr><td>Artwork masters</td><td>9:16 at 1080×1920; 4:5 is the centre crop; 1:1 the 4:5 at 0.8×</td><td class="src">overlay · O1</td></tr>
+</table>
+</div>
+</div>
+</section>
+
+<!-- ============ PAGE 3 ============ -->
+<section class="page" id="p3"><div class="pg"><h2>3 · The fourteen rules — design-rules.md, as written</h2><span class="n">PAGE 3 OF 12</span></div>
+<p class="lead">These go into every Cursor prompt that touches the Creative Lab, the asset bank, the campaign drawer or any Off Pixel tool next to them. Verbatim from <code>docs/creative-lab/design-rules.md</code> (pass 2 C, rule 13 and 14 from pass 3).</p>
+<table class="t">
+<tr><th>#</th><th>Rule</th><th>Source</th></tr>
+<tr><td>1 States before fields</td><td>Each section opens on what's true — a count, a chip, a preview — and the inputs that change it are behind <code>Edit</code>, <code>⋯</code> or a sheet. A section that opens on an empty form is wrong.</td><td class="src">rules 1 · pass-2 C</td></tr>
+<tr><td>2 Previews first</td><td>Anything that becomes an ad is shown as the ad: a clip as its first frame, a caption as a feed post, a render as a playable 9:16 preview, a warning as its artwork. Never a filename or a line of text standing in for it.</td><td class="src">rules 2</td></tr>
+<tr><td>3 At most 3 inputs</td><td>At most 3 inputs visible per section before the user presses Edit or Add. A search or @ field counts as one input. Inputs are labelled; there are no unlabelled selects.</td><td class="src">rules 3</td></tr>
+<tr><td>4 One primary action</td><td>One primary action per row or card. Everything else goes in <code>⋯</code>. The primary action is a verb on the thing (<code>Find clips</code>, <code>Approve</code>, <code>Use this crop</code>), never "Go" or "Submit".</td><td class="src">rules 4</td></tr>
+<tr><td>5 No raw IDs</td><td>No raw IDs, hashes, file IDs, field names or reference strings on screen. No <code>events.status (…)</code>, no Drive IDs, no <code>proposed · long · passed</code>, no <code>/</code> line markers. Long provenance text (rights emails, notes) lives on hover or in Edit, never on the tile.</td><td class="src">rules 5</td></tr>
+<tr><td>6 Unit and comparison</td><td>Numbers carry a unit and a comparison. <code>£0.44 / signup</code>, <code>vs £0.58 in round 1</code>, <code>998 of 1,400 sold</code>. A number with no unit or no comparison isn't finished. Numbers are the biggest text in their cell.</td><td class="src">rules 6</td></tr>
+<tr><td>7 Errors</td><td>Errors are one plain sentence saying what to fix. "Needs a city this artist has played — add it to their row." Passed checks draw nothing. A refusal names the fix ("find a sharper copy or ask the team").</td><td class="src">rules 7</td></tr>
+<tr><td>8 Empty states</td><td>Empty states say what unlocks them. "Approve at least 1 caption to propose round 1." Never "No rounds." and never an empty chart. "No clear winner" is a result and is drawn as one.</td><td class="src">rules 8</td></tr>
+<tr><td>9 393</td><td>Every component defines its 393 behaviour: what stacks, what scrolls sideways, what moves into a sheet, what drops to its own line. No horizontal page scroll; native selects are replaced by sheets.</td><td class="src">rules 9</td></tr>
+<tr><td>10 Colour tokens only</td><td>Sand, card, edit, ink, ink-2, ink-3, border; olive / ochre / brick to judge a number against the client's own band; platform tints to name a platform. No new hex values. Colour never carries meaning alone — a word or shape goes with it.</td><td class="src">rules 10</td></tr>
+<tr><td>11 Never fabricate scarcity</td><td>A ticket warning shows the ticket count that makes it true, its source and when it was read. If the data doesn't support it, it's locked.</td><td class="src">rules 11</td></tr>
+<tr><td>12 Cross-client data is Matas-only</td><td>Other clients' names, and anything drawn from their results, show only on his account (🔒 line). Clients see their own tier.</td><td class="src">rules 12</td></tr>
+<tr><td>13 The locked caption style</td><td>Captions on UGC use the locked caption style. TikTok Sans, weight 400, width 120, white fill with a black stroke outside the letters, no shadow, no box. Centred; the block's centre sits about 36 % down the 9:16 frame (measured 35.5 %), inside the 4:5 safe area (about 30 % down a 4:5 crop). Play controls go in the bottom corner, never over the text. One component everywhere a caption sits on a clip. Size 5.1 % of frame width, line height 1.05, stroke ≈ 1 % W, lines wrap at ≈ 80 % W. Reference <code>docs/creative-lab/ugc1-side-by-side.png</code>.</td><td class="src">rules 13 · pass-3 table</td></tr>
+<tr><td>14 Artwork assets come from the artwork</td><td>Lineup overlays, artist cards, ticket warnings and key-moment pushes are built from the designer's open artwork file (PSD) and the campaign's own font files, changing only the text layers the designer made. Never the caption style, never a fallback font. If a font is missing, that text can't be edited until it's uploaded. Copy that's too long is shortened, never set smaller; if it can't be shortened, it's flagged and can't be approved. <span class="chip warn">open · page 11</span> the "never set smaller" clause against overlay O3 / O8.</td><td class="src">rules 14 · pass-3</td></tr>
+</table>
+</section>
+
+<!-- ============ PAGE 4 ============ -->
+<section class="page" id="p4"><div class="pg"><h2>4 · Named components — point at these by name</h2><span class="n">PAGE 4 OF 12</span></div>
+<p class="lead">At rest · one action · 393. The design-rules.md table plus the rows the later records added or changed; the source column says which. A build prompt says "the clip tile", never a new design.</p>
+<table class="t">
+<tr><th>Component</th><th>At rest</th><th>Primary action</th><th>393</th><th>Source</th></tr>
+<tr><td>Strip</td><td>4 cells: kicker · big count · state line; the step needing you highlighted (edit surface, 3 px ink underline); <code>Next:</code> sentence + one button. Precedence for "next": rights waiting on a clip you'd run → captions waiting → round proposable → "Round {n} is running."</td><td>the button (scrolls)</td><td>one row, shorter state words</td><td class="src">rules · F</td></tr>
+<tr><td>Artist row</td><td>drag · 40 px photo · name + ★ · handle dots · rights chip · clip count</td><td>one (<code>Find clips</code> / <code>Add Instagram</code> / <code>Clear for artist channels</code>) + <code>⋯</code></td><td>rows stack, action on its own line</td><td class="src">rules · F · pass-3 A2</td></tr>
+<tr><td>Artist card (hover / ⓘ)</td><td>photo · handles · played with you · genres · checked-on date · Open in Spotify. Top tracks, popularity, followers struck (Spotify no longer returns them).</td><td>none</td><td>a bottom sheet</td><td class="src">rules · pass-2 A10</td></tr>
+<tr><td>Rights chip</td><td><code>Promoter page only</code> (ink outline) / <code>✓ Cleared — artist channels too</code> (olive) + who, when; note on hover or in Edit</td><td><code>Clear for artist channels</code></td><td>same chip</td><td class="src">rules · pass-2 B1 · pass-3 A2</td></tr>
+<tr><td>Clip tile</td><td>9:16 first frame · source badge · length · name · one status (cost + verdict / Untested / reason) · scrubber along the bottom spanning only the part that runs (first 30 s at most)</td><td>tap = play; <code>⋯</code></td><td>2 across; New / Can't run scroll sideways</td><td class="src">rules · F</td></tr>
+<tr><td>Candidate tile</td><td>rank · frame · ♥ / 💬 · age · aspect; skipped tiles at 55 % with the reason</td><td><code>Add</code> (or <code>Add · crop</code>) → progress → <code>✓ Added</code></td><td>2 across</td><td class="src">rules · F · pass-2 B2</td></tr>
+<tr><td>Crop picker</td><td>widest frame with the 9:16 window, shaded outside; 6-frame strip; the focus point is dragged, stored, never typed</td><td><code>Use this crop</code></td><td>full width, button full width</td><td class="src">rules · pass-2 B2</td></tr>
+<tr><td>Render row</td><td>mini frame · pairing · progress · ready / time left / queue place</td><td>tap ready = play</td><td>the 9:16 preview beside a progress line</td><td class="src">rules</td></tr>
+<tr><td>Feed-post caption</td><td>the caption as a feed ad with its clip and the stage's CTA; angle · clip under it; in quote mode: <code>quote</code> · source · pairing · rights chips</td><td>✓ (approve); ✎ ✕ secondary, 30 px buttons</td><td>one at a time</td><td class="src">rules · pass-3 A5 · quote</td></tr>
+<tr><td>Proven chip</td><td>the line · 4-bar strength · won n of m (events, not ads; qualifies after 2+ events); ◆ marks a reused line</td><td>tap = use it</td><td>stacked</td><td class="src">rules · pass-2 B3a</td></tr>
+<tr><td>Round matrix</td><td>captions across, clips down, one cell per ad; <code>{n} ads</code> + reason when off; cells on by default, tap off</td><td><code>Propose round {n}</code></td><td>a list of pairings, then <code>+n more</code></td><td class="src">rules · F</td></tr>
+<tr><td>Rounds timeline</td><td>columns per round; kept carries across, killed struck through with its verdict, new dashed</td><td>none</td><td>rounds stacked, newest first</td><td class="src">rules · pass-2 B4</td></tr>
+<tr><td>Insight chip / bars</td><td>scope toggle · one bar per option (cost per result) · winner olive · confidence line</td><td>scope toggle</td><td>label above the bars</td><td class="src">rules · pass-2 B3b</td></tr>
+<tr><td>Verdict chip</td><td><code>Winner</code> olive fill · <code>Loser</code> brick fill · <code>Holding</code> ink outline · <code>Untested</code> dashed · <code>Held</code> ochre</td><td>none</td><td>same</td><td class="src">rules · F</td></tr>
+<tr><td>Delta chip</td><td>▲ / ▼ + what changed, or a sparkline + before → after; at most five, the rest behind +n</td><td>none</td><td>2 chips + <code>+n</code></td><td class="src">rules · pass-2 B3c</td></tr>
+<tr><td>Asset board</td><td>asset types × formats; cell = thumb / thumb ✓ / held ochre / locked dashed (count to go) / <code>+ needs …</code> dashed / proposed ochre; ticket-warning rows are ladder rows per release; "from artwork" badge on artwork rows</td><td><code>Make the missing {n}</code> (true-and-makeable only)</td><td>2 formats at a time, swipe</td><td class="src">rules · bank A9 · bank-2 · pass-3 B7d</td></tr>
+<tr><td>Approval card</td><td>artwork preview · the claim · the trigger (source, time, rung used) · when it runs · formats · PSD slot; states held (ochre), locked (dashed, what unlocks it), back to held (brick line saying what moved)</td><td><code>Approve</code> (<code>Not now</code> secondary); none while locked</td><td>preview left, words right, buttons on their own row</td><td class="src">rules · bank · bank-2 A6'</td></tr>
+<tr><td>Proposal card</td><td>artwork preview · "Proposes: push {claim}" · the read in mono (source, time, per release) · trigger → claim · when it runs; first line "Client message, {date}:" when no reader</td><td><code>Approve</code> / <code>Correct</code> (opens the state control inline)</td><td>preview left, words right, buttons on their own row</td><td class="src">bank-2 A4'</td></tr>
+<tr><td>Release timeline</td><td>one line: a dot per release, name · date above; its ladder under it (done · next · later); today and the next payday marked; the show in brick; price and capacity only when known</td><td>Edit releases (a sheet)</td><td>same line, scrolls sideways inside its panel</td><td class="src">bank-2 A2'</td></tr>
+<tr><td>State control</td><td>five segments per release: not yet · on sale · selling fast · final X · sold out; past segments muted; saves with date, name, source; <code>add a count</code> chip beside it</td><td>one tap</td><td>same, short labels (fast / final / out)</td><td class="src">bank-2 A3'</td></tr>
+<tr><td>Sold bars</td><td>only when a count and a capacity exist; bar = capacity filled to sold, entry date, dashed next-warning tick, 14 × 32 px handle</td><td>drag or tap the bar</td><td>bars stack full width</td><td class="src">bank A3 · bank-2</td></tr>
+<tr><td>Claim ladder</td><td>two columns, trigger → claim, one row per rung; editable; <code>Reset to default</code></td><td>edit a cell</td><td>stacked pairs</td><td class="src">bank-2 A5'</td></tr>
+<tr><td>Payday calendar</td><td>weeks Mon–Sun; the 18-day window shaded; payday (last Friday) outlined; ticket pushes brick, content-led meta-blue; a moved payday says why on the day</td><td>tap a day = its pushes</td><td>a list by week</td><td class="src">rules · bank A7, A8</td></tr>
+<tr><td>Caption overlay</td><td>the clip's frame with the native text: mode caption (rule 13) or quote (Q2); play bottom-left, scrubber along the bottom, time bottom-right</td><td>tap = play</td><td>same, scaled; words on the label at cell size</td><td class="src">rules · pass-3 · quote Q6</td></tr>
+<tr><td>Brand kit</td><td>the artwork with editable text dashed; text slots (name · text · font · max characters); locked layers as chips naming the smart object; fonts uploaded / missing; kind floating · frame; the kit's one-line note</td><td><code>Upload font</code> on a missing-font slot, <code>Replace</code> for the file</td><td>artwork on top, slots below</td><td class="src">rules · pass-3 B7a · overlay O5, O14, O17</td></tr>
+<tr><td>Variant proposal</td><td>asset type chips (dashed until the ticket data allows them) · the number that makes it true · before → after copy · fit meter · original + 9:16 / 4:5 / 1:1 previews with the template's name</td><td><code>Approve</code> (<code>Edit the copy</code> secondary); none while a slot overflows</td><td>proposal on top, formats swipe</td><td class="src">rules · pass-3 B7b · overlay</td></tr>
+<tr><td>Fit meter</td><td>bar against the slot's limit (solid line); olive fits, brick over; "17 of 18"; on T1 / T2 the step reached ("step 1 of 2 · 2 lines"); on a quote, lines</td><td>none</td><td>same</td><td class="src">rules · overlay O8 · quote Q3</td></tr>
+<tr><td>T1 artist clip · T2 standalone message · T3 lineup artwork</td><td>the three overlay templates; kit-relative; slots per kit; see page 8</td><td>—</td><td>previews 2 across; formats swipe</td><td class="src">overlay O3–O5, O10</td></tr>
+<tr><td>Piece library · Slot picker · Frame kit · Safe rect</td><td>see page 8 (O11–O17)</td><td>—</td><td>shelves stack, pieces scroll; bottom sheet</td><td class="src">overlay</td></tr>
+<tr><td>Insights rail</td><td>collapsed tab (34 px, "Insights ‹"); open: header (title, context line, scope + stage toggles, lock line), then sections</td><td>none (the tab toggles)</td><td>header pill → 86 % bottom sheet</td><td class="src">rules · rail R1, R2, R11</td></tr>
+<tr><td>Insight section</td><td>kicker + scope used · result sentence · ≤ 4 bars (cost per result, baseline tick, olive / ink / brick by the <b>stored</b> shrunk index), label above each bar · rows by stored index ascending, ties by funded ads desc; "+n more" counts non-thin rows not drawn; thin rows never take a slot · confidence line, funded count = the minimum of the drawn rows · optional fallback line (ochre) · optional 🔒 line · <b>from Meta ads</b> kicker variant with <b>· Meta</b> on the confidence line</td><td><code>Use {angle}</code> only when the winner maps to the generator</td><td>same, inside the sheet</td><td class="src">rules · rail R6–R8 · rail-2 R12–R14</td></tr>
+<tr><td>Platform-unit section</td><td>the same bars in the platform's own unit (£ / click, % 2-s views), baseline tick at the client's blended figure, "level" within ±5 %; for a rate higher is better; thin rows "Not enough data yet: £n spent, n clicks"</td><td>none</td><td>same, inside the sheet</td><td class="src">rail-2 R14</td></tr>
+<tr><td>Cluster row</td><td>name · £ / signup · % vs its clients' usual (1 − cprIndex) · funded ad sets · clients · confidence; four draw; thin clusters share one line; "n not tried yet · show"</td><td><code>Add cluster</code> (counts once; builder shows <code>added from Insights</code>)</td><td>same, meta line shortened</td><td class="src">rules · rail R9 · rail-2</td></tr>
+<tr><td>Borrowed-learnings line</td><td>one ochre line above sections borrowed from another platform, naming it and that the costs are its costs</td><td>none</td><td>same</td><td class="src">rail-2 R14</td></tr>
+<tr><td>Creative thumb row</td><td>4 thumbs (4:5), each with £ / result and % vs the client's usual</td><td>tap = open the ad</td><td>2 across, swipe</td><td class="src">rules · rail</td></tr>
+<tr><td>Generator (captions)</td><td>labelled segmented controls: Mode (Caption · Quote) · Angle · Stage (defaults to the event's) · How many (1 / 3 / 5) · Pair with; quote mode: Artist · Source with the words; no unlabelled selects; the chosen segment filled ink</td><td><code>Write {n}</code> · quote mode <code>Use these words</code></td><td>How many and Stage behind More</td><td class="src">F · pass-3 A4 · quote Q5</td></tr>
+</table>
+</section>
+
+<!-- ============ PAGE 5 ============ -->
+<section class="page" id="p5"><div class="pg"><h2>5 · Creative Lab — standing rulings from F1–F5, pass 2 and pass 3</h2><span class="n">PAGE 5 OF 12</span></div>
+<p class="lead">The Lab records number frames (F1–F5, A, B1–B7), not rules. The <code>L</code> ids are the deck's index; the source column is the record's own heading. Pass 2 part A is superseded by pass 3 A; pass 2 part B stands with every caption preview redrawn to rule 13.</p>
+<table class="t">
+<tr><th>#</th><th>Ruling</th><th>Source</th></tr>
+<tr><td>L1 Order</td><td>Creative Lab = strip · lineup · clips · captions · round. Ticketing and Tickets sold are out of the Lab (Ticketing tab; Reporting). The payday countdown lives in the event header.</td><td class="src">F · hand-back Order</td></tr>
+<tr><td>L2 What's working</td><td>Drawn only when at least one round has a verdict; at most two facts, client-scoped first (the angle comparison when both sides ran in the same rounds; the current winning clip). Never a 0 % or an empty sentence.</td><td class="src">F · F1</td></tr>
+<tr><td>L3 Lineup is the rows</td><td>Artists entered once by @-tag (library first, then Spotify); ⋮⋮ draw order; ★ headliner; no separate lineup, headliner or name field. Edit holds played-before, starting caption, artist voice and its Page, clip folder. A Spotify-only pick creates a library artist.</td><td class="src">F · F2, @-tag</td></tr>
+<tr><td>L4 Spotify context</td><td>Photo, genres, checked-on date and played-before from your own events; top tracks, popularity and followers are struck, not left as empty boxes. "Spotify isn't answering — try again later", never empty boxes.</td><td class="src">pass-2 A10 · F</td></tr>
+<tr><td>L5 Rights</td><td>Any artist's clips can run from the promoter's Page. Clearance only unlocks the artist's own channels (their Page or Instagram as the ad identity, and captions in the artist's voice). Chip states: <code>Promoter page only</code> (ink outline, nothing blocked) and <code>✓ Cleared — artist channels too</code> (olive) with who and when, recorded automatically; an optional note on hover or in Edit. Held artist-voice captions carry an ochre Held chip and the one sentence that unlocks them; they never enter a round and the count leaves them out. A Spark code clears one post only.</td><td class="src">pass-2 B1, B6 · pass-3 A2</td></tr>
+<tr><td>L6 Clips</td><td>A grid in three groups — Keeping (cost per result + verdict), New (Untested), Can't run (dashed brick, the reason in words). Every tile is the clip's first frame (poster at ≈ 1 s on import); the source is a badge; Keeping stays hidden until a round has run. No cost shows as —, never £0.00. Rights text on hover, never on the tile.</td><td class="src">F · F3 · pass-3 A3</td></tr>
+<tr><td>L7 Find clips</td><td>Per artist with an IG handle: ranks the last 30 reels by likes + comments; skipped tiles stay visible at 55 % with the reason (text overlay; no file → request from team drafts the ask). Without a handle the row's action is Add Instagram.</td><td class="src">F · Find clips</td></tr>
+<tr><td>L8 Import and quality</td><td>Crop picker on wide clips (the widest moment, the 9:16 window dragged, six moments shown); native 9:16 skips it. Too low quality is decided after the crop, by resolution; the refusal says what fixes it. The 8-frame text check shows on request, flagged frames outlined brick, <i>Import anyway</i> exists. Renders: one row each, progress and queue place; done = the 9:16 plays with the caption burned in.</td><td class="src">pass-2 B2</td></tr>
+<tr><td>L9 Captions as the ad</td><td>Each caption renders as a feed post: page avatar + name + Sponsored, copy with real line breaks (never a <code>/</code>), the paired clip's frame, the CTA bar by stage (Sign up while collecting, Get tickets on sale). A passed check draws nothing; a failed one is one brick sentence. ✓ approves, ✕ rejects, ✎ edits in place (30 px buttons). Best clip picks a runnable clip.</td><td class="src">F · F4 · pass-3 A5</td></tr>
+<tr><td>L10 The round</td><td>Approved captions across, usable clips down, one cell = one ad, all on by default, tap off. Total "{n} ads" with {clips} × {captions}, {off} left out. A clip that can't run never appears. While the round can't be proposed the button says why. Proposing keeps today's step; verdicts feed what's working.</td><td class="src">F · F5</td></tr>
+<tr><td>L11 Learning layer</td><td>Three pieces: proven lines in the writer (a line qualifies after winning at 2+ events; ◆ marks reuse), the insights panel (scope order this client → vertical → everyone; bars are cost per result, shorter wins, winner olive, "No clear winner" drawn as near-equal bars with a dashed noise band), and "since last round" (from verdicts, never typed; ≤ 5 chips; falling cost olive, rising brick). Other clients' names only on Matas's account.</td><td class="src">pass-2 B3a–c</td></tr>
+<tr><td>L12 Rounds over time</td><td>Each round a column: kept carries across, killed ends struck through with its verdict, new enters dashed. Round 2's plan is written from round 1's verdicts.</td><td class="src">pass-2 B4</td></tr>
+<tr><td>L13 Spark posts</td><td>Boosted as they are: no caption overlay, no crop, never paired with a caption; a TikTok badge and the code state on the tile; its own row in the round with one "boosted as is" cell. An expired code shows the reason and who to ask and drops out of the count.</td><td class="src">pass-2 B6</td></tr>
+<tr><td>L14 Rule 13 table</td><td>The caption's measured values: 5.1 % W, line 1.05, stroke ≈ 1 % W, block centre 35.5 % H (≈ 30 % of a 4:5), ≈ 43 % of the frame wide; controls bottom-left / bottom / bottom-right; never a bold system font, a drop shadow, a centred play icon, or text over the middle. At cell size the words go on the label.</td><td class="src">pass-3 · rule 13 table</td></tr>
+<tr><td>L15 Brand kit</td><td>One kit per event or campaign. Layers are detected, not configured: every text layer a slot (name from the layer, checked by content, font, max characters before overflow); image, shape and logo layers locked; a text layer can be locked with one tap; a slot whose font isn't uploaded stays visible but faded and names the file.</td><td class="src">pass-3 B7a</td></tr>
+<tr><td>L16 Make a variant</td><td>Asset types the ticket data doesn't support are dashed and say when they unlock. The proposal names the layer that changes, before → after, the fit meter, and the number that makes it true; previews at 9:16 / 4:5 / 1:1 beside the untouched original; "No 9:16 artboard in the file — ask the designer" rather than a stretched guess. (Overlay O1 narrows the 1:1 to the 4:5 at 0.8× for T1 / T2; T3 keeps this rule.)</td><td class="src">pass-3 B7b · overlay O1, O5</td></tr>
+<tr><td>L17 Shorten, never shrink (PSD)</td><td>The designer's type size and box are fixed. Too-long copy is shortened and the proposal says what was dropped and where it still lives (ochre); if it can't be shortened without losing meaning it's flagged brick with one action and no Approve. The fit meter is the same everywhere.</td><td class="src">pass-3 B7c · rule 14</td></tr>
+<tr><td>L18 Words struck</td><td>Never on screen: <code>recorded, not approved (PENDING: …)</code> · <code>Rights ref</code> · <code>lineup · proposed · long · passed</code> · "Headliners, in draw order" · the Allowed dates textarea · "No rounds." · "Choose file No file chosen" · raw per-clip rights strings · <code>events.status (…)</code>.</td><td class="src">F · Words struck · pass-2 A4</td></tr>
+</table>
+</section>
+
+<!-- ============ PAGE 6 ============ -->
+<section class="page" id="p6"><div class="pg"><h2>6 · Insights rail — R1–R16</h2><span class="n">PAGE 6 OF 12</span></div>
+<table class="t">
+<tr><th>#</th><th>Ruling</th><th>Source</th></tr>
+<tr><td>R1 Placement</td><td>A right-hand rail on every page under the operator layout. At ≥ 1200 px it pushes the page (the content column narrows by 360 px); it never overlays. 768–1199: a drawer over the content, below the page header. 393: a bottom sheet.</td><td class="src">rail · R1</td></tr>
+<tr><td>R2 Rest state</td><td>Collapsed by default: a 34 px tab down the right edge reading Insights with a ‹. State remembered per user in the browser (<code>localStorage</code>, key <code>op.insightsRail</code>); one state for every page.</td><td class="src">rail · R2</td></tr>
+<tr><td>R3 Never on client pages</td><td>Mounted by the operator layout only; never on <code>/admin/[clientSlug]</code>, <code>/share/*</code> or <code>/l/*</code>; no client-facing component imports it. CI checks by DOM (IR0).</td><td class="src">rail · R3</td></tr>
+<tr><td>R4 Context</td><td>Each page declares {surface, clientId?, eventId?, stage?, objective?}. Stage defaults from the page: on sale → Ticket sale; announced or registration → Signup; the campaign drawer → its objective's stage; no client → All clients.</td><td class="src">rail · R4</td></tr>
+<tr><td>R5 Scope</td><td>This client · Vertical · All clients; default This client. A section with no strong or ok row at that scope falls back alone to the next scope with one ochre line saying why; never silently mixes scopes. Vertical and All carry "🔒 Across clients · Matas only". Vertical ships disabled until the rollup filters by <code>clients.vertical</code>.</td><td class="src">rail · R5, IR3</td></tr>
+<tr><td>R6 Bars</td><td>One bar per option, length = cost per result, dashed tick at the scope's baseline; label "£3.85 / signup · 8% under". Colour reads shrunk_index: olive ≤ 0.95 (ok or strong only), brick ≥ 1.10, else ink. Thin rows draw no bar: "Not enough data yet: n funded ads". Four bars at most, then "+n more".</td><td class="src">rail · R6</td></tr>
+<tr><td>R7 Result line</td><td>One sentence above the bars. Best ok/strong beats the runner-up by ≥ 0.05 index and is olive → "{Option} costs {n}% less than usual." Else "No clear winner between {A} and {B}." All thin → "Not enough data yet."</td><td class="src">rail · R7</td></tr>
+<tr><td>R8 Confidence line</td><td>Mono, under every section: {strong|ok} · {funded ads} funded ads · 90 days · {scope}; the weakest shown — the minimum of the drawn rows (R12d).</td><td class="src">rail · R8 · rail-2 R12</td></tr>
+<tr><td>R9 One action</td><td>On the event page a winning angle that maps to the generator (artist_headliner → Lineup, urgency_scarcity_fomo → Scarcity, pov → POV) gets <code>Use {angle}</code>: scrolls to Captions, pre-selects, never generates. Scarcity still needs the ticket data (rule 11); the generator enforces it. Audience builder: <code>Add cluster</code>. Everything else read-only.</td><td class="src">rail · R9</td></tr>
+<tr><td>R10 Names</td><td>No raw keys (rule 5): a label map ships with the rail; an unmapped key shows Title Case and logs a warning.</td><td class="src">rail · R10</td></tr>
+<tr><td>R11 393</td><td>Collapsed: an Insights pill in the page header row, never floating. Open: a bottom sheet at 86 % height with a scrim, closed by swipe-down or ✕; same section layout.</td><td class="src">rail · R11</td></tr>
+<tr><td>R12 Build-1 corrections</td><td>(a) Event-page sections: caption angle, hook, visual format, asset type, creatives, Lab. (b) Colour reads the stored shrunk_index, never cpr ÷ baseline. (c) "+n more" counts the non-thin rows not drawn. (d) The confidence line's funded count is the minimum of the drawn rows.</td><td class="src">rail-2 · R12</td></tr>
+<tr><td>R13 Row order</td><td>Non-thin rows sort by stored shrunk_index ascending; the first four draw; the rest are "+n more"; thin rows never take a slot; ties by funded ads descending.</td><td class="src">rail-2 · R13</td></tr>
+<tr><td>R14 What TikTok may borrow</td><td>Mechanism learnings carry across platforms; costs do not. A TikTok surface may show the client's Meta angle, hook and visual-format sections with the kicker "from Meta ads" and one ochre line above the group; bars keep Meta's £ and %. Asset type does not carry. The drawer's own section uses TikTok's units (£ / click, 2-s view rate) by age and gender, this client only, baseline tick at the blended figure; a rate reads higher-is-better (olive ≥ 1.05, brick ≤ 0.95). No TikTok section says "signup" or "ticket" until conversions are stored. No <code>Use {angle}</code> on TikTok.</td><td class="src">rail-2 · R14, IR8</td></tr>
+<tr><td>R15 Lookalikes and retargeting</td><td>Empty state names its unlock (verbatim in the record). When filled: one bar per audience source, cost per result and % vs usual, R6–R8 rules, action <code>Use audience</code>.</td><td class="src">rail-2 · R15</td></tr>
+<tr><td>R16 Not shown</td><td>TikTok interest categories and region are not drawn until they carry a per-row result. A section that would only show a pro-rata split is omitted, not faked.</td><td class="src">rail-2 · R16 · rail H10</td></tr>
+</table>
+<p class="lead">Thresholds in use: olive ≤ 0.95 / brick ≥ 1.10 on a cost index (R6); "level" within ±5 % on a platform unit (R14, invented there); the TikTok thin thresholds accepted on #1110 — 20 clicks, £10, 1,000 impressions — are a build ruling to be written into the next rail issue, not yet in a record. <span class="chip warn">open · page 11</span></p>
+</section>
+
+<!-- ============ PAGE 7 ============ -->
+<section class="page" id="p7"><div class="pg"><h2>7 · Asset bank — A1'–A6', A7–A10, A11</h2><span class="n">PAGE 7 OF 12</span></div>
+<p class="lead">Issue 2 replaces issue 1's A1–A5 and H1–H4; A7–A10 stand as issued with A7's wording change. Rules 6, 8, 11 and 14 apply throughout.</p>
+<table class="t">
+<tr><th>#</th><th>Ruling</th><th>Source</th></tr>
+<tr><td>A1' A release</td><td>A name, two times and a state: name, community time, list time, state (not yet · on sale · selling fast · final X · sold out). Price, capacity and a count are optional and shown only when known. No community time = public. <code>events.presale_at</code> = the first release's community time; <code>general_sale_at</code> = the general-sale release's list time; derived, never typed twice.</td><td class="src">bank-2 · A1'</td></tr>
+<tr><td>A2' The timeline carries the ladder</td><td>One horizontal line, today and the next payday marked; under each release its ladder (done · next · later). The state is the rung it's on. No fixed set of assets per event; the ladder is per release and per client.</td><td class="src">bank-2 · A2'</td></tr>
+<tr><td>A3' Sold entry is a state, one gesture</td><td>Tap a segment; saves with date, name and source. A count is an optional chip that never blocks the state. Never a form. The panel's big number is the number of releases on sale or selling fast unless every release has a count. A backwards move asks once.</td><td class="src">bank-2 · A3'</td></tr>
+<tr><td>A4' The vendor read proposes; Matas corrects</td><td>Mon / Wed / Fri 09:00 the tool reads the ticket page per release and proposes the next rung for each release that moved, as a proposal card (what was read, what it proposes, Approve / Correct; Correct opens the state control inline and becomes his entry). A client message does the same by hand. The reader is to be proved; the card is the same either way.</td><td class="src">bank-2 · A4'</td></tr>
+<tr><td>A5' The claim ladder</td><td>Trigger → claim, per client, seeded with Matas's default: actual 50 % → "75% sold"; 60 → 80; 70 → 90; 80 → 95; 90 → "99%" or "final X". States only: on sale (day 0) → "{release} live / selling fast"; selling fast 7+ days → "{release} 90% sold out" or "final X" (client's choice); final X → "final X"; sold out → "sold out". A claim never runs above its trigger; the trigger is recorded on the approval.</td><td class="src">bank-2 · A5'</td></tr>
+<tr><td>A6' Approve, with the trigger on the card</td><td>Every proposed claim is an approval card with the trigger (read or entry, source, time) and when it runs. Approve → Scheduled → Live. Unmet trigger = locked, says what unlocks it. A trigger that moves after approval sends the claim back to Held with one sentence and a Today row. Nothing runs without Approve.</td><td class="src">bank-2 · A6'</td></tr>
+<tr><td>A7 Timing</td><td>Ticket warnings run inside the payday window (code: Thursday before the last Friday, 18 days); content-led pushes mid-month. "{release} live" runs at the release time whatever the calendar says. Price rise on {date} runs from 4 days before to the date; if that overlaps a window it starts on the window's first day.</td><td class="src">bank · A7 · bank-2 A7–A10</td></tr>
+<tr><td>A8 Payday exceptions</td><td>Last Friday a bank holiday or 24–26 December → the previous working day, and the calendar says why on the day. No other movement.</td><td class="src">bank · A8</td></tr>
+<tr><td>A9 The board tells the truth</td><td>Every ticket-warning cell is one of: thumbnail · thumbnail ✓ · held (ochre) · locked (dashed, with what unlocks it) · <code>+ needs …</code> (dashed: no PSD, no font, no artwork) · proposed (ochre, issue 2). "Make the missing n" makes only true-and-makeable cells.</td><td class="src">bank · A9 · bank-2</td></tr>
+<tr><td>A10 393</td><td>The timeline stays one line and scrolls sideways; sold bars stack full width, 32 px handle; approval cards preview left, words right, buttons on their own row; the calendar a list by week; the board two formats at a time.</td><td class="src">bank · A10</td></tr>
+<tr><td>A11 The ladder and the validator</td><td><b>Proposal awaiting Matas:</b> an approved warning is a promoter claim with its trigger recorded; the caption validator accepts a caption that repeats an approved, live claim's words for that release while it's live; everything else stays strict. <span class="chip warn">open · page 11</span></td><td class="src">bank-2 · A11</td></tr>
+<tr><td>A4 Freshness (issue 1, standing)</td><td>Every entry carries its date; ochre after 3 days with "update?"; claims that depend on a stale state lock after 7 days.</td><td class="src">bank A4 · bank-2 H3'</td></tr>
+</table>
+<p class="lead">Queued for the next asset-bank issue, recorded in the overlay record and not yet ruled: the release-ends rung (accepted), the sold-out roll-call rung (O12, trigger ≥ 2 sold_out and 1 on sale, preferred over a % rung), sales velocity, price-rise-by-date, countdown + %, offers entered not derived (with the marker on the approval card), lineup addition.</p>
+</section>
+
+<!-- ============ PAGE 8 ============ -->
+<section class="page" id="p8"><div class="pg"><h2>8 · Overlay templates — O1–O17 (#1112, merged)</h2><span class="n">PAGE 8 OF 12</span></div>
+<table class="t">
+<tr><th>#</th><th>Ruling</th><th>Source</th></tr>
+<tr><td>O1 One master, one rectangle</td><td>Composed at 9:16, 1080×1920. The 4:5 rectangle (y 285–1635, 14.84 % in) is the information rectangle; every slot inside it; the 4:5 is a pure centre crop. The 1:1 is not a crop: the 4:5 arrangement at 0.8×, background extended. Three files per asset.</td><td class="src">overlay · O1</td></tr>
+<tr><td>O2 Positions and sizes</td><td>Vertical position as a fraction of the target rectangle; size as cap height as a fraction of 9:16 frame height (same px in 9:16 and 4:5, 0.8× in 1:1); widths as a max fraction of W; nothing closer than 7 % W to a side edge; every value a ratio rendered at output size, never pixel-copied.</td><td class="src">overlay · O2</td></tr>
+<tr><td>O3 T1 artist clip</td><td>Floating kit: artist (cap 0.1146 H in 0.1750–0.2891 H; steps down at the face's own width to fit 80 % W, floor 6 % H, then two lines; never condensed or scaled horizontally), details (0.3036–0.4391 H, 0.328 W), claim (optional, cap 0.039 H at 0.7536–0.7927 H, ≤ 0.80 W; a registered piece lands where its canvas puts it). Middle 0.44–0.70 H carries no text. Between rungs only the CTA changes.</td><td class="src">overlay · O3</td></tr>
+<tr><td>O4 T2 standalone message</td><td>Claim centred on the rect's centre, cap 6 % H, pitch 8.75 % H, ≤ 86 % W; a number token at 1.5× only when it is the message on its own line; ≤ 2 lines + a qualifier at 0.6×; lineup or partners top-right (cap 2.6 % H); details bottom-left (2.66 % H); logo bottom-right (15 % W); corner inset 14.3 % W.</td><td class="src">overlay · O4</td></tr>
+<tr><td>O5 T3 lineup artwork</td><td>The PSD unchanged except its live text layers, each a slot named by its layer; style runs kept by role; locked pixels as chips naming the smart object; "ask the designer once". Rule 14 whole: shorten, never shrink.</td><td class="src">overlay · O5</td></tr>
+<tr><td>O6 Type and edge</td><td>The kit's faces on the font path, or the designer's pixels when an artwork-face piece exists. No stroke on T1 or T2; the floating kit's edge is a 1 px AA edge and a shadow straight down (0.007 W, blur ≈ 0.009 W, 25 %), once. T3 draws the PSD's effects. The UGC caption's stroke never applies to an artwork overlay.</td><td class="src">overlay · O6 · audit</td></tr>
+<tr><td>O7 Claim words</td><td>From the ladder, in caps, the release named verbatim, never a number the trigger didn't supply; a price only on a price rung.</td><td class="src">overlay · O7</td></tr>
+<tr><td>O8 Too long</td><td>T1 and T2 slots step, never a third line: T1 claim 4 % H one line (≤ 36 chars) → two lines → 3.4 % H (≤ 2 × 42); T2 claim 6 % H (≤ 2 × 30) → 5.2 % H (≤ 2 × 34). Then a fixed drop order (TICKETS → NOW → the number form), then flagged, no Approve. T3 never steps.</td><td class="src">overlay · O8</td></tr>
+<tr><td>O9 Lineup and partners</td><td>The typed lineup rows in their order ("&amp; MORE" when more TBA) or partner logos; never typed on the asset.</td><td class="src">overlay · O9</td></tr>
+<tr><td>O10 One component per template</td><td>T1, T2, T3 are three components. A new asset type is a T1 or T2 with its claim set until a record says otherwise.</td><td class="src">overlay · O10</td></tr>
+<tr><td>O11 Pieces and the font path</td><td>Each slot is filled by (a) a designer-exported piece from the event's piece library (three shelves: names · info · CTA) when one exists and its face matches, else (b) the font path, the primary renderer. Neither → "+ needs the piece"; "render with {face}" only when licensed and H8 has passed. A piece is placed by its ink box, scaled uniformly to the slot's cap height, never by canvas, never stretched; a registered piece as-is.</td><td class="src">overlay · O11</td></tr>
+<tr><td>O12 Sold-out roll-call and kit red</td><td>Two-line CTA: line 1 in kit red, the sold_out releases joined "A, B &amp; C RELEASE SOLD OUT"; line 2 white, the live release's claim. Trigger ≥ 2 sold_out and 1 on sale; generated from event_releases; preferred over a plain %. kit-red #FE3232 is the kit's colour, never a UI token.</td><td class="src">overlay · O12</td></tr>
+<tr><td>O13 Face match</td><td>Glyph aspect measured at import against the kit's reference; chip <span class="chip ok">artwork face ✓</span> or <span class="chip warn">other face</span>; other-face pieces are never auto-picked.</td><td class="src">overlay · O13</td></tr>
+<tr><td>O14 Kits per client, two kinds</td><td>T1 / T2 are kit-relative: the app fixes the three layers, the rect and the ladder; the kit fixes the slots. Floating kit (Puzzle); frame kit (Junction 2: the info layer is the chrome and never moves). A new kind of kit is a new row before any template is built from it.</td><td class="src">overlay · O14</td></tr>
+<tr><td>O15 The frame kit (J2), measured</td><td>Faces A (extended heavy grotesque) and B (mono); chrome boxes (logo x 0.075–0.345 W, y 0.138–0.221; pill x 0.675–0.944 W, y 0.142–0.161; info block x 0.081–0.340 W, y 0.705–0.773; URL y 0.789–0.794 right); margin 0.075–0.083 W; headliner 0.286–0.322; ALONGSIDE: 0.340–0.431; claim block 0.444–0.639 (two 2-line) or 0.456–0.572 (one 3-line); secondary 0.528–0.582; qualifier under in face B. Faces' names, licences and the second colour owed.</td><td class="src">overlay · O15 · J2 audit</td></tr>
+<tr><td>O16 Backgrounds</td><td>Artist photo, crowd, or the kit's plain gradient; the background never carries text. J2's baked scrim (black, left → right, ≈ 55 % → 0) belongs to the overlay, not the background.</td><td class="src">overlay · O16</td></tr>
+<tr><td>O17 Breaches reproduced</td><td>A frame kit is reproduced as the designer set it, breaches included, with a one-line note on the kit; the Lab never corrects a client's chrome. A face on one reference only is off-kit: never on the font path; a designer piece in it is placed as-is.</td><td class="src">overlay · O17</td></tr>
+</table>
+</section>
+
+<!-- ============ PAGE 9 ============ -->
+<section class="page" id="p9"><div class="pg"><h2>9 · Quote mode — Q1–Q9 (record filed with this deck)</h2><span class="n">PAGE 9 OF 12</span></div>
+<table class="t">
+<tr><th>#</th><th>Ruling</th><th>Source</th></tr>
+<tr><td>Q1 What a quote is</td><td>The artist's own words, first person, as the native text. Sources: a press kit line, a real post (URL; words picked from its text), or typed by Matas with where. Stored verbatim with the source; the Lab never writes, rewrites or paraphrases; cuts only at a sentence boundary; the source is a chip, never a URL on the tile.</td><td class="src">quote · Q1</td></tr>
+<tr><td>Q2 The quote style</td><td>TikTok Sans 700 (default) or 400; white; no stroke, shadow or box; centred (0.499–0.506 W); block centre 0.28 H (0.187 of a 4:5); cap 0.0135 H; pitch 0.030 H; static; emoji inline; no quote marks, no attribution on the clip.</td><td class="src">quote · Q2 · audit</td></tr>
+<tr><td>Q3 Lines</td><td>Wrap at 70 % W; at most four lines; the fit meter counts lines; over → ask for a shorter passage, never shrink, never edit.</td><td class="src">quote · Q3</td></tr>
+<tr><td>Q4 Rights</td><td>Artist-voice: runs only when the chip reads ✓ Cleared — artist channels too (L5); otherwise Held with the one sentence and the chip's action beside it, no ✓, never in a round. A Spark code doesn't clear it.</td><td class="src">quote · Q4 · pass-2 B1</td></tr>
+<tr><td>Q5 The writer</td><td>Mode (Caption · Quote) first; quote mode: Artist · Source with the words; Pair with behind More; three inputs; button <i>Use these words</i>; no Write, angle or proven chips.</td><td class="src">quote · Q5</td></tr>
+<tr><td>Q6 One component, two modes</td><td>The caption overlay gains <code>mode</code>; controls shared; everywhere a caption sits a quote can sit; words on the label at cell size.</td><td class="src">quote · Q6</td></tr>
+<tr><td>Q7 Emoji</td><td>Inline, as written, platform-rendered; an emoji-only quote is refused.</td><td class="src">quote · Q7</td></tr>
+<tr><td>Q8 The validator</td><td>caption-facts.ts runs on quotes; scarcity words need the data (rule 11). Open: an artist's own scarcity words on the artist's channels. <span class="chip warn">open · page 11</span></td><td class="src">quote · Q8</td></tr>
+<tr><td>Q9 393</td><td>Mode + Artist one row, Source its own, words full width; one post at a time; held card stacked with the action full width.</td><td class="src">quote · Q9</td></tr>
+</table>
+</section>
+
+<!-- ============ PAGE 10 ============ -->
+<section class="page" id="p10"><div class="pg"><h2>10 · Limits and minimums, per component</h2><span class="n">PAGE 10 OF 12</span></div>
+<div class="split">
+<div>
+<table class="t">
+<tr><th>Component</th><th>Limit / minimum</th><th>Source</th></tr>
+<tr><td>Any section</td><td>≤ 3 inputs visible before Edit / Add</td><td class="src">rules 3</td></tr>
+<tr><td>Any row or card</td><td>1 primary action; the rest in ⋯</td><td class="src">rules 4</td></tr>
+<tr><td>Strip</td><td>4 cells, one row at 393; count 22 px, state 12 px, underline 3 px</td><td class="src">F</td></tr>
+<tr><td>Artist row</td><td>photo 40 px; one action + ⋯</td><td class="src">F</td></tr>
+<tr><td>Clip tile</td><td>5 across at 1280, 2 at 393; scrubber spans the first 30 s at most; skipped candidates at 55 %</td><td class="src">F · rules</td></tr>
+<tr><td>Find clips</td><td>the last 30 reels, ranked by likes + comments</td><td class="src">F</td></tr>
+<tr><td>Crop picker / text check</td><td>6-frame strip; 8 frames checked</td><td class="src">pass-2 B2</td></tr>
+<tr><td>Generator</td><td>How many 1 / 3 / 5; Stage defaults to the event's; chosen segment filled ink</td><td class="src">F · pass-3 A4</td></tr>
+<tr><td>Caption card</td><td>✎ ✕ ✓ as 30 px buttons</td><td class="src">pass-3 A5</td></tr>
+<tr><td>Caption overlay</td><td>5.1 % W; line 1.05; stroke ≈ 1 % W; centre 35.5 % H; wrap ≈ 80 % W; nothing over the middle 70 %</td><td class="src">pass-3</td></tr>
+<tr><td>Quote overlay</td><td>cap 0.0135 H; pitch 0.030 H; centre 0.28 H; wrap 70 % W; ≤ 4 lines</td><td class="src">quote Q2, Q3</td></tr>
+<tr><td>Round (393)</td><td>the first three pairings, then "+n more · {off} off"</td><td class="src">F</td></tr>
+<tr><td>Proven chip</td><td>qualifies after winning at ≥ 2 events</td><td class="src">pass-2 B3a</td></tr>
+<tr><td>Delta chips</td><td>≤ 5, the rest behind +n</td><td class="src">pass-2 B3c</td></tr>
+<tr><td>What's working</td><td>≤ 2 facts; none before a verdict</td><td class="src">F</td></tr>
+</table>
+</div>
+<div>
+<table class="t">
+<tr><th>Component</th><th>Limit / minimum</th><th>Source</th></tr>
+<tr><td>Insights rail</td><td>tab 34 px; open 360 px; pushes at ≥ 1200; drawer 768–1199; sheet 86 % at 393</td><td class="src">rail R1, R2, R11</td></tr>
+<tr><td>Insight section</td><td>≤ 4 bars, then "+n more"; olive ≤ 0.95 (ok / strong), brick ≥ 1.10; winner margin ≥ 0.05; 90-day window</td><td class="src">rail R6, R7</td></tr>
+<tr><td>Platform-unit section</td><td>"level" within ±5 %; rate olive ≥ 1.05, brick ≤ 0.95</td><td class="src">rail-2 R14</td></tr>
+<tr><td>Cluster row</td><td>4 draw; thin clusters one line; untried behind "show"</td><td class="src">rail-2 IR5</td></tr>
+<tr><td>State control</td><td>5 segments; a backwards move asks once</td><td class="src">bank-2 A3'</td></tr>
+<tr><td>Freshness</td><td>ochre after 3 days; dependent claims lock after 7</td><td class="src">bank A4</td></tr>
+<tr><td>Sold bars</td><td>handle 14 × 32 px</td><td class="src">bank · A10</td></tr>
+<tr><td>Vendor read</td><td>Mon / Wed / Fri 09:00</td><td class="src">bank-2 A4'</td></tr>
+<tr><td>Payday window</td><td>18 days: the Thursday before the last Friday to the Monday 17 days later; price rise from 4 days before</td><td class="src">bank A7</td></tr>
+<tr><td>Asset board</td><td>2 formats at a time at 393</td><td class="src">bank A10</td></tr>
+<tr><td>Overlay master</td><td>1080×1920; 4:5 rect 14.84 % in; 1:1 rect 21.875 % in, built at 0.8×; side margin ≥ 7 % W</td><td class="src">overlay O1, O2</td></tr>
+<tr><td>T1 slots</td><td>artist cap 0.1146 H, floor 6 % H, ≤ 80 % W; claim 0.039 H, ≤ 36 chars one line, ≤ 2 × 42 at 3.4 % H</td><td class="src">overlay O3, O8</td></tr>
+<tr><td>T2 slots</td><td>claim 6 % H, ≤ 86 % W, ≤ 2 lines + qualifier 0.6×, number 1.5× alone on its line; lineup ≤ 6 lines; inset 14.3 % W</td><td class="src">overlay O4, O8</td></tr>
+<tr><td>Pieces</td><td>WhatsApp / Bird header image 1080×1350 or 1080×1440, &lt; 1 MB (D2C); piece ink box at alpha &gt; 200</td><td class="src">D2C handover · overlay</td></tr>
+<tr><td>Frame kit (J2)</td><td>margin 0.075–0.083 W; face B cap 0.0091 H; ALONGSIDE: up to 6 names</td><td class="src">overlay O15</td></tr>
+</table>
+</div>
+</div>
+</section>
+
+<!-- ============ PAGE 11 ============ -->
+<section class="page" id="p11"><div class="pg"><h2>11 · Open rulings — where two sources disagree, or a ruling is owed</h2><span class="n">PAGE 11 OF 12</span></div>
+<p class="lead">Nothing on this page is decided by the deck. Each row names the two sources, what differs, and who rules. A row leaves this page only when a record rules it.</p>
+<table class="t">
+<tr><th>#</th><th>The disagreement</th><th>Sources</th><th>Rules it</th></tr>
+<tr><td>X1 "never set smaller"</td><td>Rule 14 says too-long copy is shortened, <i>never set smaller</i>. Overlay O3 / O8 (with Matas's pre-merge letterfit correction) let T1 and T2 slots step the size down at the face's own width before going to two lines; O8 keeps "T3 never steps". design-rules.md 14 has not been amended to say the clause is the PSD's (T3's). #1112 merged without a design-rules.md change. Proposed: amend rule 14's sentence to "…shortened, never set smaller on the PSD's own text layers; T1 / T2 step per O8".</td><td class="src">rules 14 · overlay O3, O8</td><td>design thread, a design-rules.md change on its own docs PR</td></tr>
+<tr><td>X2 A11 — the ladder and the validator</td><td>caption-facts.ts: "final" / "last" only when one tier left and it's the highest-priced; "under N" only when remaining &lt; N; "sold out" only when a tier has none. The claim ladder pushes "90% sold out" at an actual 70 %. A11 proposes the validator accepts a caption that repeats a live approved claim for that release; else strict.</td><td class="src">bank-2 A11 · bank data note</td><td>Matas (yes / no before H4' is built)</td></tr>
+<tr><td>X3 Q8 — an artist's own scarcity words</td><td>Rule 11 and caption-facts.ts are channel-blind. A quote is verbatim and sourced. Whether "last tickets" said by the artist may run on the artist's channels without the ticket data. Proposed: no.</td><td class="src">quote Q8 · rules 11</td><td>Matas</td></tr>
+<tr><td>X4 Rail frame width</td><td>README: operator surfaces are shot at 1176 and 768; the Lab at 1280 and 393. The rail sits on operator pages but its IR frames are drawn and baselined at 1280 and 393, and R1's breakpoints are 1200 / 768–1199 / 393. frames:check passes at 1280. Which width the rail's CI frames should use on non-Lab pages is not written down.</td><td class="src">README · Widths · rail R1, IR series</td><td>design thread, next rail issue</td></tr>
+<tr><td>X5 TikTok thin thresholds</td><td>Accepted on #1110's verdict — 20 clicks, £10, 1,000 impressions — and a raw-index stand-in for IR2; the Curiosity stand-in index on IR3 must read 1.03. None of this is in a record yet.</td><td class="src">#1110 verdict · rail-2</td><td>design thread, next rail issue's changelog</td></tr>
+<tr><td>X6 Kit colours and rule 10</td><td>Rule 10: "no new hex values". O12 names kit-red #FE3232 and J2 will carry a second colour. O12 says a kit colour is the artwork's, never a UI token and never meaning in the UI — consistent in intent, but rule 10's sentence doesn't yet say "UI tokens". Proposed: one clause in rule 10.</td><td class="src">rules 10 · overlay O12</td><td>design thread, with X1</td></tr>
+<tr><td>X7 Phase 3 autoresponder (D2C, not design)</td><td>Standard or per-event — inherited from the Electric handover, to be raised at each brief intake. Listed so the deck is complete; it is the D2C thread's.</td><td class="src">CIRQLIN kickoff §3</td><td>Matas, per client</td></tr>
+<tr><td>X8 Owed measurements</td><td>Not disagreements, but holes a build would fill with a guess: Bootzy's cap ratio, licence and the PSD's layer effects (H8 b, c, e); J2's two face names, licences and second colour; the J2 edge on type; TikTok Sans's cap ratio for the quote conversion (0.70 assumed).</td><td class="src">overlay H8, O15 · quote</td><td>Claude Code audits</td></tr>
+</table>
+</section>
+
+<!-- ============ PAGE 12 ============ -->
+<section class="page" id="p12"><div class="pg"><h2>12 · Superseded — don't cite these — and the sources</h2><span class="n">PAGE 12 OF 12</span></div>
+<div class="split">
+<div>
+<h3>Superseded</h3>
+<table class="t">
+<tr><th>Was</th><th>Now</th><th>By</th></tr>
+<tr><td>F2 rights: an uncleared artist's clip "can't go into a round"</td><td>Any artist's clips run from the promoter's Page; clearance gates the artist's channels only</td><td class="src">pass-2 B1</td></tr>
+<tr><td>Pass 2 part A (review of the cancelled duplicate event)</td><td>Pass 3 part A (the real event)</td><td class="src">pass-3</td></tr>
+<tr><td>Pass 3's first caption draft: 6.6 % and line 1.14</td><td>5.1 % and 1.05, measured</td><td class="src">pass-3 table</td></tr>
+<tr><td>Spotify card: top tracks, popularity, followers</td><td>Struck; photo, genres, checked-on, played-before</td><td class="src">pass-2 A10</td></tr>
+<tr><td>Asset bank issue 1 A1–A5, H1–H4 (capacity bars, six fixed warnings, truth conditions)</td><td>A1'–A6', H1'–H4' (states, the ladder, the vendor read)</td><td class="src">bank-2</td></tr>
+<tr><td>Rail issue 1 IR2 baseline (Billboard olive, Cinematic B-roll fourth) and H4 without asset type</td><td>R12 / R13: stored index, POV fourth, "+3 more", asset type on the event page</td><td class="src">rail-2</td></tr>
+<tr><td>North star issue 1</td><td>North star issue 2 (current)</td><td class="src">README</td></tr>
+<tr><td>Overlay record's first readings: a ~3 px stroke; estimated T1 boxes; J2 placeholder ratios</td><td>No stroke; the audit's ratios; J2 measured</td><td class="src">overlay changelog</td></tr>
+<tr><td>Old brand-prefix naming for D2C events (k26-…, j26-…)</td><td>{Brand}-{City}-{dd.mm.yy} going forward; in-flight names kept</td><td class="src">D2C handover</td></tr>
+</table>
+</div>
+<div>
+<h3>Sources</h3>
+<table class="t">
+<tr><th>Key</th><th>Record</th><th>PR</th></tr>
+<tr><td>rules</td><td><code>docs/creative-lab/design-rules.md</code></td><td class="src">main</td></tr>
+<tr><td>F</td><td><code>2026-11-06-creative-lab-f1-f5.html</code></td><td class="src">merged</td></tr>
+<tr><td>pass-2</td><td><code>2026-11-06-creative-lab-pass-2.html</code></td><td class="src">merged</td></tr>
+<tr><td>pass-3</td><td><code>2026-11-06-creative-lab-pass-3.html</code></td><td class="src">merged · #1092 build</td></tr>
+<tr><td>rail</td><td><code>2026-11-07-insights-rail.html</code></td><td class="src">merged · #1102 build</td></tr>
+<tr><td>rail-2</td><td><code>2026-11-08-insights-rail-2.html</code></td><td class="src">merged · #1110 build</td></tr>
+<tr><td>bank</td><td><code>2026-11-08-asset-bank.html</code></td><td class="src">#1107</td></tr>
+<tr><td>bank-2</td><td><code>2026-11-08-asset-bank-2.html</code></td><td class="src">#1109</td></tr>
+<tr><td>overlay</td><td><code>2026-11-08-overlay-templates.html</code> + its image folder</td><td class="src">#1112 · merged</td></tr>
+<tr><td>quote</td><td><code>2026-11-08-creative-lab-quote-mode.html</code></td><td class="src">filed with this deck</td></tr>
+<tr><td>north star</td><td><code>2026-11-08-north-star-2.html</code> (live state, capabilities; not rules)</td><td class="src">merged</td></tr>
+<tr><td>README</td><td><code>docs/design-record/README.md</code> (the loop, roles, widths, templates)</td><td class="src">main</td></tr>
+<tr><td>D2C</td><td>the two handovers in the CIRQLIN kickoff (D2C rules; cited only where an artwork limit crosses into design)</td><td class="src">project</td></tr>
+</table>
+<h3>Cutting the next issue</h3>
+<p class="lead">When a record merges: add its rulings to the family page with their ids, move anything it supersedes to this page, close or add rows on page 11, and bump the issue in the changelog. A rule's wording in the deck never drifts from the record's: if the condensed row is wrong, fix the row, not the rule.</p>
+</div>
+</div>
+</section>
+
+</div>
+</body>
+</html>
