@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1105
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1105
 - **Branch:** `cursor/ops-truth`
 
 ## Summary
