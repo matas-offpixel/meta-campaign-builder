@@ -1,7 +1,11 @@
 "use client";
 
+import { useEffect } from "react";
+
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { seedAddedClusters } from "@/components/insights-rail/add-cluster";
+import { AddedClustersFromInsights } from "@/components/insights-rail/added-clusters";
 import { InsightsPill } from "@/components/insights-rail/insights-pill";
 import { InsightsRail } from "@/components/insights-rail/insights-rail";
 import { InsightsRailProvider } from "@/components/insights-rail/rail-context";
@@ -12,12 +16,31 @@ import type { RailFrameFixture } from "@/scripts/plan-frames/rail-fixtures";
  * An IR frame: the operator layout's shape (page column + rail) on a
  * fixture, with the rail's data given instead of fetched. The event page
  * is its header with the pill and the Creative Lab card; the canvas is
- * the plan-frames canvas. Rail-only frames put the ready mark on the
- * rail, as the record draws them.
+ * the plan-frames canvas; the audience builder is its header, the
+ * interests the rail added (IR5) and a placeholder card. Rail-only frames
+ * put the ready mark on the rail, as the record draws them.
  */
 export function InsightsRailFrameMount({ fixture }: { fixture: RailFrameFixture }) {
+  const added = fixture.page.kind === "audience" ? fixture.page.added : null;
+  useEffect(() => {
+    if (added) seedAddedClusters(added);
+  }, [added]);
   const page =
-    fixture.page.kind === "event" ? (
+    fixture.page.kind === "audience" ? (
+      <>
+        <PageHeader title={`Audience builder · ${fixture.context.clientName ?? ""}`} description={`${fixture.page.stageLabel} · ${fixture.page.draftCount} audiences in this draft`} actions={<InsightsPill />} />
+        <main className="flex-1 px-6 py-6">
+          <div className="mx-auto max-w-6xl space-y-4">
+            <AddedClustersFromInsights />
+            <div aria-hidden className="h-[220px] rounded-md border border-border bg-card p-4">
+              <div className="my-1.5 h-2.5 w-3/5 rounded bg-muted" />
+              <div className="my-1.5 h-2.5 w-[70%] rounded bg-muted" />
+              <div className="my-1.5 h-2.5 w-[35%] rounded bg-muted" />
+            </div>
+          </div>
+        </main>
+      </>
+    ) : fixture.page.kind === "event" ? (
       <>
         <PageHeader
           title={fixture.page.lab.eventName}

@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
+import { addClusterFromInsights } from "@/components/insights-rail/add-cluster";
+import { useAddedClusters } from "@/components/insights-rail/use-added-clusters";
 import { useInsightsRail } from "@/components/insights-rail/rail-context";
 import { dispatchUseAngle } from "@/components/insights-rail/use-angle";
 import {
   LOCK_LINE,
   SCOPE_LABELS,
   STAGE_LABELS,
-  money,
   thinLine,
   type InsightSection,
   type RailContext,
@@ -76,7 +77,7 @@ function query(context: RailContext, scope: RailScope, stage: RailStage): string
  * The Insights rail (R1–R11). Mounted once, by the operator layout. At
  * ≥1200 it is a column beside the page and pushes it; at 768–1199 a
  * drawer below the page header; below 768 a bottom sheet opened from the
- * header pill. Everything it draws comes from lib/insights/model.
+ * header pill. Everything it draws comes from lib/insights-rail/model.
  */
 export function InsightsRail() {
   const { operator, context: declared, open, setOpen, fixture } = useInsightsRail();
@@ -86,7 +87,9 @@ export function InsightsRail() {
 
   // The toggles belong to the page they were set on: a new page resets them.
   const [pick, setPick] = useState<{ key: string; scope: RailScope; stage: RailStage } | null>(null);
-  const scope = pick?.key === contextKey ? pick.scope : context.clientId ? "client" : "all";
+  // The audience builder opens on the client's vertical (IR5): cluster verticals are the clusters' own column.
+  const restScope: RailScope = context.surface === "audience_builder" && context.verticalId ? "vertical" : context.clientId ? "client" : "all";
+  const scope = pick?.key === contextKey ? pick.scope : restScope;
   const stage = pick?.key === contextKey ? pick.stage : context.stage;
   const setScope = (next: RailScope) => setPick({ key: contextKey, scope: next, stage });
   const setStage = (next: RailStage) => setPick({ key: contextKey, scope, stage: next });
@@ -224,7 +227,7 @@ function Seg<T extends string>({
 }
 
 function contextLine(context: RailContext, stage: RailStage): string {
-  if (context.surface === "campaign") {
+  if (context.surface === "campaign" || context.surface === "tiktok_campaign" || context.surface === "audience_builder") {
     return [context.title, context.clientName, STAGE_LABELS[stage], context.objective].filter(Boolean).join(" · ");
   }
   const state = context.stage === "ticket_sale" ? "on sale" : STAGE_LABELS[stage];
@@ -270,7 +273,12 @@ function Panel({
             value={scope}
             options={[
               { id: "client" as RailScope, label: SCOPE_LABELS.client, disabled: !context.clientId, title: context.clientId ? undefined : "This page has no client" },
-              { id: "vertical" as RailScope, label: SCOPE_LABELS.vertical, disabled: Boolean(verticalOff), title: verticalOff ?? undefined },
+              {
+                id: "vertical" as RailScope,
+                label: !verticalOff && context.verticalId && !sheet ? `${SCOPE_LABELS.vertical} · ${context.verticalId}` : SCOPE_LABELS.vertical,
+                disabled: Boolean(verticalOff),
+                title: verticalOff ?? undefined,
+              },
               { id: "all" as RailScope, label: sheet ? "All" : SCOPE_LABELS.all },
             ]}
             onChange={onScope}
@@ -292,8 +300,11 @@ function Panel({
 const TONE = { olive: "bg-success", brick: "bg-destructive", ink: "bg-foreground/70" } as const;
 
 function Section({ section }: { section: InsightSection }) {
+  const [showUntried, setShowUntried] = useState(false);
+  const addedClusters = useAddedClusters();
   return (
     <section data-insight-section={section.id} className="border-b border-border py-3 last:border-b-0">
+      {section.borrowed ? <p data-borrowed-line className="mb-2.5 text-[11.5px] text-warning-foreground">{section.borrowed}</p> : null}
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <span className="text-[9px] font-bold tracking-[.16em] text-foreground/80 uppercase">{section.kicker}</span>
         {section.scopeLabel ? <span className="text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">{section.scopeLabel}</span> : null}
@@ -313,15 +324,59 @@ function Section({ section }: { section: InsightSection }) {
                 ) : null}
               </span>
               <span className="text-right font-mono text-[10.5px] whitespace-nowrap tabular-nums">
-                {money(bar.cpr)} <small className="text-muted-foreground">· {bar.note}</small>
+                {bar.valueText} <small className="text-muted-foreground">· {bar.note}</small>
               </span>
             </li>
           ))}
           {section.thin.map((row) => (
             <li key={row.key} className="text-[11px] text-muted-foreground">
               <span className="block">{row.label}</span>
-              <span className="block">{thinLine(row.fundedAds)}</span>
+              <span className="block">{row.line ?? thinLine(row.fundedAds)}</span>
             </li>
+          ))}
+        </ul>
+      ) : null}
+      {section.clusters.length ? (
+        <ul className="flex flex-col">
+          {section.clusters.map((cluster) => {
+            const added = addedClusters.some((entry) => entry.id === cluster.id);
+            return (
+              <li key={cluster.id} data-cluster-row className="grid grid-cols-[1fr_auto] items-center gap-x-2.5 gap-y-0.5 border-t border-border py-1.5 text-xs first:border-t-0">
+                <span className="min-w-0 truncate">{cluster.name}</span>
+                <button
+                  type="button"
+                  disabled={added}
+                  className="row-span-2 h-6 shrink-0 rounded-md border border-border-strong px-2 text-[11.5px] font-semibold whitespace-nowrap disabled:text-muted-foreground"
+                  onClick={() => void addClusterFromInsights(cluster)}
+                >
+                  {added ? "Added" : "Add cluster"}
+                </button>
+                <span className="col-start-1 font-mono text-[10.5px] text-muted-foreground">{cluster.line}</span>
+              </li>
+            );
+          })}
+          {section.clusterThin ? (
+            <li className="grid grid-cols-[1fr_auto] gap-y-0.5 border-t border-border py-1.5 text-xs text-muted-foreground">
+              <span className="min-w-0">{section.clusterThin.names}</span>
+              <span />
+              <span className="col-start-1 font-mono text-[10.5px]">{section.clusterThin.note}</span>
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
+      {section.untried ? (
+        <p className="mt-1.5 font-mono text-[10.5px] text-muted-foreground">
+          {section.untried.count} clusters not tried yet ·{" "}
+          <button type="button" className="underline-offset-2 hover:underline" aria-expanded={showUntried} onClick={() => setShowUntried((open) => !open)}>
+            {showUntried ? "hide" : "show"}
+          </button>
+          {section.picked != null ? <span className="max-md:hidden"> · picked {section.picked} time{section.picked === 1 ? "" : "s"} so far</span> : null}
+        </p>
+      ) : null}
+      {section.untried && showUntried ? (
+        <ul className="mt-1 flex flex-col gap-0.5 text-[11.5px] text-foreground/80">
+          {section.untried.names.map((name) => (
+            <li key={name}>{name}</li>
           ))}
         </ul>
       ) : null}

@@ -25,7 +25,7 @@ export default async function NewAudiencePage({ params, searchParams }: Props) {
   const [clientRes, eventsRes] = await Promise.all([
     supabase
       .from("clients")
-      .select("id, name, slug, meta_ad_account_id")
+      .select("id, name, slug, meta_ad_account_id, vertical")
       .eq("id", clientId)
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -44,6 +44,7 @@ export default async function NewAudiencePage({ params, searchParams }: Props) {
     name: string;
     slug: string | null;
     meta_ad_account_id: string | null;
+    vertical?: string | null;
   };
   const events = ((eventsRes.data ?? []) as {
     id: string;
@@ -73,6 +74,7 @@ export default async function NewAudiencePage({ params, searchParams }: Props) {
               slug: client.slug,
               metaAdAccountId: client.meta_ad_account_id,
             }}
+            clientVertical={typeof client.vertical === "string" && client.vertical ? client.vertical : null}
             events={events}
             initialEventId={sp.event_id}
             initialPresetBundle={initialPresetBundle}

@@ -3,22 +3,33 @@ import { describe, it } from "node:test";
 
 import {
   EMPTY_LAB,
+  EMPTY_LOOKALIKES,
+  FROM_META,
   VERTICAL_OFF,
   barTone,
+  borrowedLine,
+  buildClusterSection,
   buildLabSection,
   buildRail,
   buildSection,
+  buildTikTokSections,
+  clusterLine,
   fallbackLine,
   generatorAngleFor,
   pctVsBaseline,
   pctWord,
   scopeChain,
   stageForEventStatus,
+  stageForFunnelStage,
   stageForTargetUnit,
   thinLine,
+  tiktokAgeLabel,
+  tiktokGenderLabel,
   valueLabel,
+  type ClusterRow,
   type RailContext,
   type TagRow,
+  type TikTokRow,
 } from "../model.ts";
 
 const PUZZLE: RailContext = {
@@ -40,7 +51,7 @@ function row(dimension: string, valueKey: string, cpr: number | null, baseline: 
 /** IR3's table: Puzzle, registration, baseline £4.16 / signup. */
 const IR3: TagRow[] = [
   row("messaging_angle", "event_announcement_update", 4.16, 4.16, 1.0, "ok", 25),
-  row("messaging_angle", "artist_headliner", 4.17, 4.16, 1.0, "ok", 28),
+  row("messaging_angle", "artist_headliner", 4.17, 4.16, 1.0, "ok", 25),
   row("messaging_angle", "high_energy_atmosphere", 4.6, 4.16, 1.11, "ok", 25),
   row("visual_format", "headline", 3.9, 4.16, 0.94, "ok", 21),
   row("visual_format", "cinematic_b_roll", 4.7, 4.16, 1.11, "ok", 24),
@@ -48,7 +59,7 @@ const IR3: TagRow[] = [
   row("asset_type", "high_production", 4.59, 4.16, 1.07, "ok", 30),
   row("asset_type", "ugc", null, 4.16, null, "thin", 0),
   row("hook_tactic", "fomo", 4.16, 4.16, 1.0, "strong", 49),
-  row("hook_tactic", "curiosity", 4.3, 4.16, 0.98, "strong", 52),
+  row("hook_tactic", "curiosity", 4.3, 4.16, 1.03, "strong", 52),
   row("hook_tactic", "urgency", 5.1, 4.16, 1.0, "thin", 2),
 ];
 
@@ -101,7 +112,9 @@ describe("insights rail model", () => {
     ]);
     assert.equal(angle!.confidence, "ok · 25+ funded ads · 90 days · this client · £ / signup");
     assert.equal(angle!.action, null);
+    // R13: rows sort by stored shrunk index; FOMO (1.0) draws before Curiosity (1.03, the raw stand-in).
     assert.equal(hook!.result?.text, "No clear winner between FOMO and Curiosity.");
+    assert.deepEqual(hook!.bars.map((bar) => bar.label), ["FOMO", "Curiosity"]);
     assert.deepEqual(hook!.thin, [{ key: "urgency", label: "Urgency", fundedAds: 2 }]);
     assert.equal(hook!.confidence, "strong · 49+ funded ads · 90 days · this client");
     assert.equal(visual!.result?.text, "Headline costs 6% less than usual.");
@@ -141,6 +154,7 @@ describe("insights rail model", () => {
     assert.equal(angle.result?.text, "Urgency / scarcity costs 25% less than usual.");
     assert.equal(angle.bars.length, 4);
     assert.equal(angle.more, 1);
+    // R12d: the funded count is the minimum of the drawn rows (255, 300, 400, 260), not the first row's.
     assert.equal(angle.confidence, "strong · 255+ funded ads · 90 days · all clients · £ / purchase · +1 more");
     assert.deepEqual(angle.action, { kind: "use_angle", angle: "scarcity", label: "Use Scarcity", note: "needs the ticket count that makes it true" });
     assert.deepEqual(scopeChain("client", true), ["client", "all"]);
@@ -194,5 +208,169 @@ describe("insights rail model", () => {
     assert.equal(generatorAngleFor("visual_format", "headline"), null);
     const noWinner = buildSection({ dimension: "messaging_angle", rows: IR3, stage: "registration", scope: "client", firstSection: true });
     assert.equal(noWinner?.action, null);
+  });
+
+  it("R13: non-thin rows sort by stored shrunk index, four draw, '+n more' counts the rest, funded is the drawn minimum (R12)", () => {
+    const rows: TagRow[] = [
+      row("visual_format", "listicle", 72.25, 46.86, 1.413, "strong", 15),
+      row("visual_format", "billboard", 44.57, 46.86, 0.964, "strong", 27),
+      row("visual_format", "cinematic_b_roll", 62.9, 46.86, 1.33, "strong", 15),
+      row("visual_format", "nostalgia", 29.09, 46.86, 0.773, "strong", 15),
+      row("visual_format", "pov", 57.57, 46.86, 1.186, "strong", 43),
+      row("visual_format", "headline", 41.38, 46.86, 0.886, "strong", 396),
+      row("visual_format", "celebrity", 66.77, 46.86, 1.324, "strong", 15),
+      row("visual_format", "offer_first_banner", null, 46.86, null, "thin", 3),
+    ];
+    const built = buildSection({ dimension: "visual_format", rows, stage: "ticket_sale", scope: "all", firstSection: false })!;
+    assert.deepEqual(built.bars.map((bar) => [bar.label, bar.note, bar.tone]), [
+      ["Nostalgia", "38% under", "olive"],
+      ["Headline", "12% under", "olive"],
+      ["Billboard", "5% under", "ink"],
+      ["POV", "23% over", "brick"],
+    ]);
+    assert.equal(built.more, 3);
+    assert.equal(built.confidence, "strong · 15+ funded ads · 90 days · all clients · +3 more");
+    assert.deepEqual(built.thin, [{ key: "offer_first_banner", label: "Offer-first banner", fundedAds: 3 }]);
+    // Ties break by funded ads descending.
+    const tied: TagRow[] = [
+      row("asset_type", "ugc", 48, 46.86, 1.0, "strong", 10),
+      row("asset_type", "hybrid", 47, 46.86, 1.0, "strong", 40),
+    ];
+    const tie = buildSection({ dimension: "asset_type", rows: tied, stage: "ticket_sale", scope: "all", firstSection: false })!;
+    assert.deepEqual(tie.bars.map((bar) => bar.key), ["hybrid", "ugc"]);
+    // Colour is the stored index, never cpr ÷ baseline: a cheap row with a high stored index is ink.
+    const cheapButShrunk = buildSection({ dimension: "x", rows: [row("x", "a", 30, 46.86, 1.0, "strong", 10)], stage: "ticket_sale", scope: "all", firstSection: false })!;
+    assert.equal(cheapButShrunk.bars[0]!.tone, "ink");
+    assert.equal(cheapButShrunk.bars[0]!.note, "36% under");
+  });
+
+  it("IR5: clusters sort by cprIndex, % is 1 − cprIndex, thin clusters share a line, untried and picked are library facts (R15)", () => {
+    const c = (name: string, cpr: number | null, cprIndex: number | null, funded: number, clients: number, confidence: ClusterRow["confidence"], useCount: number, tried: boolean): ClusterRow => ({
+      id: name,
+      name,
+      interests: [],
+      cpr,
+      cprIndex,
+      fundedAdSets: funded,
+      clients,
+      confidence,
+      useCount,
+      tried,
+    });
+    const vertical = [
+      c("Electronic music", 2.13, 0.98, 4, 1, "ok", 0, true),
+      c("Disc Genre", 1.06, 0.59, 8, 2, "ok", 0, true),
+      c("Melodic Techno", 1.44, 0.77, 1, 1, "thin", 0, true),
+      c("Latest iPhone users", 2.0, 0.92, 3, 1, "ok", 0, true),
+      c("Fashion", 2.22, 0.9, 2, 2, "thin", 0, true),
+      c("Music festivals", 0.98, 0.67, 3, 2, "ok", 0, true),
+      c("Deep house", null, null, 0, 0, "thin", 0, false),
+      c("Artists — EDM", null, null, 0, 0, "thin", 2, false),
+    ];
+    const all = [...vertical, c("Arsenal", null, null, 0, 0, "thin", 0, false), c("Artists — Metal", null, null, 0, 0, "thin", 1, false)];
+    const client = all.map((row) => ({ ...row, cpr: null, cprIndex: null, fundedAdSets: 0, clients: 0, confidence: "thin" as const, tried: false }));
+    const section = buildClusterSection({ rows: { client, vertical, all }, scope: "vertical", stage: "registration", clientName: "Puzzle", verticalId: "music", verticalOff: false });
+    assert.equal(section.scopeLabel, "music · signup");
+    assert.equal(section.result?.text, "Disc Genre costs 41% less than its clients' usual.");
+    assert.deepEqual(section.clusters.map((row) => row.name), ["Disc Genre", "Music festivals", "Latest iPhone users", "Electronic music"]);
+    assert.equal(section.clusters[0]!.line, "£1.06 / signup · 41% under · 8 funded ad sets · 2 clients · ok");
+    assert.equal(section.clusters[1]!.line, "£0.98 / signup · 33% under · 3 funded ad sets · 2 clients · ok");
+    assert.equal(section.clusters[3]!.line, "£2.13 / signup · 2% under · 4 funded ad sets · 1 client · ok");
+    assert.deepEqual(section.clusterThin, { names: "Melodic Techno, Fashion", note: "Not enough data yet: 1–2 funded ad sets each" });
+    assert.deepEqual(section.untried, { count: 4, names: ["Arsenal", "Artists — EDM", "Artists — Metal", "Deep house"] });
+    assert.equal(section.picked, 3);
+    assert.equal(section.lock, true);
+    assert.equal(section.fallback, null);
+    assert.equal(clusterLine(c("x", 2.0, 1.0, 1, 1, "ok", 0, true), "ticket_sale"), "£2.00 / purchase · level · 1 funded ad set · 1 client · ok");
+    // Puzzle's own scope is empty, so the client scope falls back to the vertical and says why.
+    const fromClient = buildClusterSection({ rows: { client, vertical, all }, scope: "client", stage: "registration", clientName: "Puzzle", verticalId: "music", verticalOff: false });
+    assert.equal(fromClient.scope, "vertical");
+    assert.equal(fromClient.fallback, "Puzzle has no signups attributed to its ads in the last 90 days. Showing its vertical.");
+    // The whole rail on the audience builder: clusters, then the R15 sentence; Vertical stays on.
+    const rail = buildRail({ context: { ...PUZZLE, surface: "audience_builder", title: "Audience builder" }, scope: "vertical", stage: "registration", rows: {}, clusters: { client, vertical, all } });
+    assert.deepEqual(rail.sections.map((section) => section.id), ["interest_clusters", "lookalikes"]);
+    assert.equal(rail.sections[1]!.empty, EMPTY_LOOKALIKES);
+    assert.equal(rail.verticalDisabledReason, null);
+    assert.equal(stageForFunnelStage("retargeting"), "ticket_sale");
+    assert.equal(stageForFunnelStage("top_of_funnel"), "registration");
+  });
+
+  it("IR8: TikTok's own units — blended baseline, level band, higher-is-better for a rate, the thin threshold (R14)", () => {
+    const rows: TikTokRow[] = [
+      { dimension: "age", value: "AGE_18_24", spend: 66.3, clicks: 134, impressions: 35857, views2s: 3317 },
+      { dimension: "age", value: "AGE_25_34", spend: 35.57, clicks: 71, impressions: 16558, views2s: 1654 },
+      { dimension: "age", value: "AGE_35_44", spend: 6.69, clicks: 13, impressions: 2704, views2s: 385 },
+      { dimension: "age", value: "NONE", spend: 0, clicks: 0, impressions: 1, views2s: 0 },
+      { dimension: "gender", value: "FEMALE", spend: 61.54, clicks: 128, impressions: 31257, views2s: 2861 },
+      { dimension: "gender", value: "MALE", spend: 47, clicks: 90, impressions: 23854, views2s: 2494 },
+    ];
+    const [clicks, watches] = buildTikTokSections(rows, "Puzzle");
+    assert.equal(clicks!.kicker, "Who clicks on TikTok");
+    assert.equal(clicks!.scopeLabel, "Puzzle · 90 days");
+    assert.equal(clicks!.result?.text, "No clear winner between 18–24 and 25–34.");
+    assert.deepEqual(clicks!.bars.map((bar) => [bar.label, bar.valueText, bar.note, bar.tone]), [
+      ["18–24 · 9.3% watch past 2 s", "£0.49 / click", "level", "ink"],
+      ["25–34 · 10.0% watch past 2 s", "£0.50 / click", "level", "ink"],
+    ]);
+    assert.deepEqual(clicks!.thin, [{ key: "AGE_35_44", label: "35–44", fundedAds: 13, line: "Not enough data yet: £7 spent, 13 clicks" }]);
+    assert.equal(clicks!.confidence, "ok · £109 spent · 218 clicks · 90 days · Puzzle · TikTok");
+    assert.equal(watches!.kicker, "Who watches");
+    assert.equal(watches!.result?.text, "Men watch past 2 s 8% more than usual.");
+    assert.deepEqual(watches!.bars.map((bar) => [bar.label, bar.valueText, bar.note, bar.tone]), [
+      ["Men", "10.5%", "8% over", "olive"],
+      ["Women", "9.2%", "6% under", "brick"],
+    ]);
+    assert.equal(watches!.confidence, "ok · 2-s views ÷ impressions · 55,111 impressions · 90 days · Puzzle · TikTok");
+    for (const section of [clicks!, watches!]) {
+      for (const text of [section.result?.text, section.confidence, ...section.bars.map((bar) => bar.label)]) assert.doesNotMatch(text ?? "", /signup|ticket/i);
+    }
+    // A cheaper age wins when it is olive and clear; a wide level band reads level.
+    const cheap = buildTikTokSections([
+      { dimension: "age", value: "AGE_18_24", spend: 40, clicks: 100, impressions: 20000, views2s: 2000 },
+      { dimension: "age", value: "AGE_25_34", spend: 80, clicks: 100, impressions: 20000, views2s: 2000 },
+    ], "Puzzle")[0]!;
+    assert.equal(cheap.result?.text, "18–24 costs 33% less than usual.");
+    assert.deepEqual(cheap.bars.map((bar) => [bar.note, bar.tone]), [["33% under", "olive"], ["33% over", "brick"]]);
+    assert.equal(buildTikTokSections([], "Puzzle")[0]!.empty, "Not enough data yet: no TikTok breakdowns for Puzzle in the last 90 days.");
+    // A gender row under 1,000 impressions is thin; the blended figure still counts it.
+    const thinGender = buildTikTokSections([
+      { dimension: "gender", value: "FEMALE", spend: 50, clicks: 100, impressions: 20000, views2s: 2000 },
+      { dimension: "gender", value: "MALE", spend: 2, clicks: 3, impressions: 999, views2s: 150 },
+    ], "Puzzle")[1]!;
+    assert.deepEqual(thinGender.bars.map((bar) => bar.label), ["Women"]);
+    assert.deepEqual(thinGender.thin, [{ key: "MALE", label: "Men", fundedAds: 999, line: "Not enough data yet: 999 impressions" }]);
+    assert.equal(thinGender.confidence, "ok · 2-s views ÷ impressions · 20,999 impressions · 90 days · Puzzle · TikTok");
+    const okGender = buildTikTokSections([
+      { dimension: "gender", value: "FEMALE", spend: 50, clicks: 100, impressions: 20000, views2s: 2000 },
+      { dimension: "gender", value: "MALE", spend: 2, clicks: 3, impressions: 1000, views2s: 150 },
+    ], "Puzzle")[1]!;
+    assert.deepEqual(okGender.bars.map((bar) => bar.label), ["Men", "Women"]);
+    assert.equal(okGender.thin.length, 0);
+    assert.equal(tiktokAgeLabel("AGE_55_100"), "55–100");
+    assert.equal(tiktokAgeLabel("AGE_55+"), "55+");
+    assert.equal(tiktokGenderLabel("FEMALE"), "Women");
+  });
+
+  it("the TikTok drawer borrows Meta's mechanisms, labelled, with no asset type and no Use action (R14, R16)", () => {
+    const tiktok: TikTokRow[] = [{ dimension: "age", value: "AGE_18_24", spend: 66.3, clicks: 134, impressions: 35857, views2s: 3317 }];
+    const rail = buildRail({ context: { ...PUZZLE, surface: "tiktok_campaign", title: "New TikTok campaign" }, scope: "client", stage: "registration", rows: { client: IR3 }, tiktok });
+    assert.deepEqual(rail.sections.map((section) => section.id), ["tiktok_clicks", "tiktok_watches", "messaging_angle", "hook_tactic", "visual_format"]);
+    assert.equal(rail.sections.length, 5);
+    const [, , angle, hook, visual] = rail.sections;
+    assert.equal(angle!.borrowed, borrowedLine("Puzzle"));
+    assert.equal(angle!.borrowed, "TikTok ads aren't tagged yet. These angles, hooks and formats come from Puzzle's Meta ads; the costs are Meta costs.");
+    assert.equal(hook!.borrowed, null);
+    assert.equal(visual!.borrowed, null);
+    for (const section of [angle!, hook!, visual!]) {
+      assert.equal(section.scopeLabel, FROM_META);
+      assert.match(section.confidence!, / · Puzzle · (£ \/ signup · )?Meta$/);
+      assert.equal(section.action, null);
+    }
+    assert.equal(visual!.result?.text, "Headline costs 6% less than usual.");
+    assert.equal(visual!.bars[0]!.valueText, "£3.90");
+    // Only the TikTok surface carries the borrowed line.
+    const event = buildRail({ context: PUZZLE, scope: "client", stage: "registration", rows: { client: IR3 } });
+    assert.ok(event.sections.every((section) => section.borrowed === null));
+    assert.ok(!event.sections.some((section) => section.confidence?.endsWith("Meta")));
   });
 });

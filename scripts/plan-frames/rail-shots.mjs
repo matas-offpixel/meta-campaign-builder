@@ -9,8 +9,10 @@ export const RAIL_FRAME_WIDTHS = {
   IR2: [1280, 393],
   IR3: [1280],
   IR4: [1280, 393],
+  IR5: [1280, 393],
   IR6: [1280],
   IR7: [393],
+  IR8: [1280, 393],
 };
 
 export const RAIL_GUARD_PATHS = ["/admin/fixture-client", "/share/report/fixture-token", "/l/fixture-client/fixture-event"];
