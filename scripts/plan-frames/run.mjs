@@ -119,7 +119,8 @@ function compare(baseline, current) {
  * The runner only watches. Every CL fixture clip starts at 0, so its
  * poster is 0.5 s in; a video still at 0 s means the component missed
  * its poster seek (the hydration race), and the shot fails instead of
- * hiding it.
+ * hiding it. Once every video sits on its poster, it waits for each to
+ * present a frame (1 s cap: one already presented won't fire again).
  */
 async function settleLab(page, shotId) {
   // next/font's "<family> Fallback" faces point at a local() system font
@@ -147,7 +148,18 @@ async function settleLab(page, shotId) {
     );
     throw new Error(`${shotId}: video never reached its poster: ${stuck.join("; ")}`);
   }
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.evaluate(async () => {
+    const videos = [...document.querySelectorAll("video")].filter((node) => node.getClientRects().length > 0);
+    await Promise.all(
+      videos.map((node) =>
+        Promise.race([
+          new Promise((resolve) => node.requestVideoFrameCallback(() => resolve(null))),
+          new Promise((resolve) => setTimeout(resolve, 1000)),
+        ]),
+      ),
+    );
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
 }
 
 async function main() {
@@ -189,6 +201,12 @@ async function main() {
         await page.waitForSelector(`[data-frame-ready="${shot.frame}"]`, { timeout: 15_000 });
         if (shot.lab) {
           if (shot.before) await shot.before(page, shot.width);
+          // Chromium does not reliably paint a video frame below the
+          // viewport, so a Lab shot's viewport is as tall as the frame.
+          const tall = await page
+            .locator(`[data-frame-ready="${shot.frame}"]`)
+            .evaluate((node) => Math.ceil(node.getBoundingClientRect().height));
+          await page.setViewportSize({ width: shot.width, height: Math.max(900, tall) });
           await settleLab(page, shot.id);
         } else {
           await page.evaluate(
