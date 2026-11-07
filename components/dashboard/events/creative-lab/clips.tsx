@@ -8,6 +8,7 @@ import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { CropPicker } from "@/components/dashboard/events/creative-lab/crop-picker";
 import { RenderRows } from "@/components/dashboard/events/creative-lab/render-rows";
 import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
+import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
 import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { overlayPanelLine, overlaySkipLine } from "@/lib/creative-lab/overlay-check";
 import {
@@ -211,7 +212,7 @@ function ClipFrame({ src, poster, hasFile, name, inS, outS }: { src: string | nu
 function Poster({ url }: { url: string | null }) {
   if (!url) return <div className="aspect-[9/16] w-full rounded bg-foreground/80" />;
   if (/\.(webm|mp4)(\?|$)/i.test(url)) {
-    return <video src={url} muted playsInline preload="metadata" className="aspect-[9/16] w-full rounded object-cover" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.5; }} />;
+    return <PosterVideo src={url} at={0.5} className="aspect-[9/16] w-full rounded object-cover" />;
   }
   return <img src={url} alt="" className="aspect-[9/16] w-full rounded object-cover" />;
 }

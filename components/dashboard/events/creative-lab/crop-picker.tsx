@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
 
 const STRIP = [0.5, 2, 4, 6, 8, 10];
 
@@ -42,13 +43,13 @@ export function CropPicker({
           window.addEventListener("pointerup", up);
         }}
       >
-        {src ? <video src={src} muted playsInline preload="metadata" className="h-full w-full object-cover" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.5; }} /> : null}
+        {src ? <PosterVideo src={src} at={0.5} className="h-full w-full object-cover" /> : null}
         <div className="pointer-events-none absolute inset-y-0 border-2 border-white" style={{ left, width: "31.6%" }} />
       </div>
       <div className="flex gap-1 overflow-x-auto">
         {STRIP.map((time) => (
           <div key={time} className="relative h-16 w-10 shrink-0 overflow-hidden rounded bg-black">
-            {src ? <video src={src} muted playsInline preload="metadata" className="h-full w-full object-cover" onLoadedMetadata={(event) => { event.currentTarget.currentTime = time; }} /> : null}
+            {src ? <PosterVideo src={src} at={time} className="h-full w-full object-cover" /> : null}
             <div className="pointer-events-none absolute inset-y-0 border border-white" style={{ left, width: "31.6%" }} />
           </div>
         ))}
