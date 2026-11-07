@@ -17,7 +17,7 @@ describe("Creative Lab frame catalog (CL)", () => {
   it("the runner shoots every CL id at 1280 and 393", () => {
     assert.deepEqual([...SHOT_IDS], [...LAB_FRAME_IDS]);
     assert.deepEqual([...LAB_WIDTHS], [...LAB_FRAME_WIDTHS]);
-    assert.equal(LAB_SHOTS.length, 14);
+    assert.equal(LAB_SHOTS.length, 20);
     assert.ok(LAB_SHOTS.every((shot: { id: string; frame: string; width: number }) => shot.id === `${shot.frame}-${shot.width}`));
   });
 

@@ -4,6 +4,7 @@
  * A thumbnail is read in memory for its pixel size, then discarded.
  */
 
+import { igThumbObjectPath } from "./ig-import.ts";
 import type { ServiceRoleDb } from "./load.ts";
 
 const WINDOW_DAYS = 365;
@@ -47,7 +48,7 @@ export type IgRead = {
   media(igUserId: string, maxPosts: number): Promise<{ ok: true; posts: IgPost[] } | { ok: false; message: string }>;
   discovery(businessId: string, username: string, maxPosts: number): Promise<{ ok: true; followers: number | null; posts: IgPost[] } | { ok: false; message: string }>;
   copyright(mediaId: string): Promise<boolean | null>;
-  thumb?(url: string): Promise<{ width: number; height: number } | null>;
+  thumb?(url: string): Promise<{ width: number; height: number; bytes?: Uint8Array } | null>;
 };
 
 export type IgCandidate = {
@@ -247,8 +248,9 @@ function slideThumb(post: IgPost): string | null {
 async function measureThumbs(
   posts: IgPost[],
   exclude: ReadonlySet<string>,
-  thumb: (url: string) => Promise<{ width: number; height: number } | null>,
-): Promise<void> {
+  thumb: (url: string) => Promise<{ width: number; height: number; bytes?: Uint8Array } | null>,
+): Promise<Map<string, Uint8Array>> {
+  const stored = new Map<string, Uint8Array>();
   const jobs = posts.filter((post) => {
     const unit = carouselUnit(post);
     if (!unit || !slideThumb(post)) return false;
@@ -265,12 +267,14 @@ async function measureThumbs(
       if (!size) continue;
       post.thumbWidth = size.width;
       post.thumbHeight = size.height;
+      if (size.bytes) stored.set(post.id, size.bytes);
     }
   }
   await Promise.all(Array.from({ length: Math.min(8, jobs.length) }, () => worker()));
+  return stored;
 }
 
-export async function readThumbSize(url: string): Promise<{ width: number; height: number } | null> {
+export async function readThumbSize(url: string): Promise<{ width: number; height: number; bytes: Uint8Array } | null> {
   if (!url.startsWith("https://")) return null;
   try {
     const res = await fetch(url, { cache: "no-store", redirect: "follow", signal: AbortSignal.timeout(8000) });
@@ -278,18 +282,16 @@ export async function readThumbSize(url: string): Promise<{ width: number; heigh
     const reader = res.body.getReader();
     const chunks: Uint8Array[] = [];
     let total = 0;
-    while (total < 262144) {
+    while (total < 1_500_000) {
       const { done, value } = await reader.read();
       if (done || !value) break;
       chunks.push(value);
       total += value.byteLength;
-      const size = imageHeaderSize(concatBytes(chunks, total));
-      if (size) {
-        await reader.cancel().catch(() => undefined);
-        return size;
-      }
     }
-    return imageHeaderSize(concatBytes(chunks, total));
+    await reader.cancel().catch(() => undefined);
+    const bytes = concatBytes(chunks, total);
+    const size = imageHeaderSize(bytes);
+    return size ? { ...size, bytes } : null;
   } catch {
     return null;
   }
@@ -386,6 +388,16 @@ async function readCopyright(token: string, mediaId: string): Promise<boolean | 
   return typeof info?.status?.matches_found === "boolean" ? info.status.matches_found : null;
 }
 
+/** The file URL is read at import and never written down. */
+export async function readOwnMediaUrl(db: ServiceRoleDb, userId: string, igMediaId: string): Promise<string> {
+  const token = await loadToken(db, userId);
+  const res = await graphGet(token, igMediaId, { fields: "media_url" });
+  if (!res.ok) throw new Error(res.message);
+  const url = text(res.json, "media_url");
+  if (!url.startsWith("https://")) throw new Error("Instagram did not return a file.");
+  return url;
+}
+
 async function loadToken(db: ServiceRoleDb, userId: string): Promise<string> {
   const res = await db.from("user_facebook_tokens").select("*").eq("user_id", userId).maybeSingle();
   if (res.error) throw new IgDiscoveryError("no_token", "Connect Facebook in Account Setup.");
@@ -412,9 +424,16 @@ async function writeArtist(db: ServiceRoleDb, artistId: string, userId: string, 
   return updated.error ? plainIgMessage(updated.error.message) : null;
 }
 
+async function storeThumbBytes(db: ServiceRoleDb, path: string, bytes: Uint8Array): Promise<void> {
+  const storage = (db as unknown as { storage?: { from: (bucket: string) => { upload: (path: string, body: Uint8Array, options: { contentType: string; upsert: boolean }) => Promise<{ error: { message: string } | null }> } } }).storage;
+  if (!storage) return;
+  const saved = await storage.from("creative-thumbnails").upload(path, bytes, { contentType: "image/jpeg", upsert: true });
+  if (saved.error) throw new Error(saved.error.message);
+}
+
 export async function findArtistClips(
   db: ServiceRoleDb,
-  args: { artistId: string; now?: Date; read?: IgRead },
+  args: { artistId: string; now?: Date; read?: IgRead; storeThumb?: (path: string, bytes: Uint8Array) => Promise<void> },
 ): Promise<IgFindResult> {
   const now = args.now ?? new Date();
   const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
@@ -511,8 +530,21 @@ export async function findArtistClips(
     }
   }
 
-  if (read.thumb) await measureThumbs(posts, exclude, read.thumb);
+  const thumbBytes = read.thumb ? await measureThumbs(posts, exclude, read.thumb) : new Map<string, Uint8Array>();
   const ranked = rankIgPosts(posts, { now, followers, exclude, limit: TOP_N });
+  const thumbPaths = new Map<string, string>();
+  const store = args.storeThumb ?? ((path: string, bytes: Uint8Array) => storeThumbBytes(db, path, bytes));
+  for (const row of ranked) {
+    const bytes = thumbBytes.get(row.igMediaId);
+    if (!bytes) continue;
+    const path = igThumbObjectPath(args.artistId, row.igMediaId);
+    try {
+      await store(path, bytes);
+      thumbPaths.set(row.igMediaId, path);
+    } catch {
+      // The listing still saves. The next run stores the thumbnail.
+    }
+  }
   const candidates: IgCandidate[] = [];
   for (const row of ranked) {
     const audioMatch = source === "own_edge" ? await read.copyright(row.igMediaId) : null;
@@ -550,9 +582,45 @@ export async function findArtistClips(
         status: "candidate",
         reason: null,
         fetched_at: now.toISOString(),
+        ...(thumbPaths.get(row.igMediaId) ? { thumbnail_path: thumbPaths.get(row.igMediaId) } : {}),
       })),
       { onConflict: "artist_id,ig_media_id" },
     );
+    if (saved.error && /thumbnail_path/i.test(saved.error.message)) {
+      const retry = await db.from("creative_lab_ig_candidates").upsert(
+        candidates.map((row) => ({
+          user_id: userId,
+          artist_id: args.artistId,
+          ig_media_id: row.igMediaId,
+          slide_ids: row.slideIds,
+          permalink: row.permalink,
+          media_type: row.mediaType,
+          media_product_type: row.mediaProductType,
+          posted_at: row.postedAt,
+          likes: row.likes,
+          comments: row.comments,
+          followers_at_fetch: row.followersAtFetch,
+          score: row.score,
+          aspect: row.aspect,
+          thumb_width: row.thumbWidth,
+          thumb_height: row.thumbHeight,
+          has_file: row.hasFile,
+          file_source: row.fileSource,
+          audio_match: row.audioMatch,
+          status: "candidate",
+          reason: null,
+          fetched_at: now.toISOString(),
+        })),
+        { onConflict: "artist_id,ig_media_id" },
+      );
+      if (!retry.error) {
+        const patch: Row = { ig_synced_at: now.toISOString(), ig_last_error: null };
+        if (username) patch.ig_username = username;
+        const writeError = await writeArtist(db, args.artistId, userId, patch);
+        if (writeError) return { candidates: [], error: writeError, source };
+        return { candidates, error: null, source };
+      }
+    }
     if (saved.error) {
       const message = /does not exist|schema cache/i.test(saved.error.message)
         ? "Instagram clips can't be listed until the database update is applied."

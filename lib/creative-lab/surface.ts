@@ -463,6 +463,13 @@ export function candidateTileState(row: CandidateForTile): { action: "add" | "re
   return { action: row.hasFile ? "add" : "request", status: null };
 }
 
+/** Native 9:16 says Add. Any other known shape says the crop will follow. */
+export function candidateAddLabel(aspect: string | null | undefined): "Add" | "Add · crop" {
+  const value = (aspect ?? "").trim();
+  if (!value || value === "9:16" || value === "unknown") return "Add";
+  return "Add · crop";
+}
+
 /** The deciding verdict for one clip or caption across a round's ads. */
 export function itemVerdict(verdicts: readonly (string | null)[]): string | null {
   for (const verdict of ["winner", "loser", "flagged", "untested", "thin"]) {

@@ -2,17 +2,19 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import reference from "../../../src/remotion/caption-style/reference/reference.json" with { type: "json" };
-import { CHARS_PER_LINE, boxInsideRect, captionInsideSafeRect, captionLayout, captionLineStrokes, hashProfile, lineFits, outputSize, profile, styleVersion } from "../../../src/remotion/caption-style/profile.ts";
+import { CHARS_PER_LINE, LOW_QUALITY_AFTER_CROP, boxInsideRect, captionInsideSafeRect, captionLayout, captionLineStrokes, cropWindow, hashProfile, lineFits, outputSize, profile, styleVersion } from "../../../src/remotion/caption-style/profile.ts";
 
 const sourceY = profile.verticalCenterPctOfSourceHeight * 1280;
 
 describe("caption layout", () => {
-  it("9:16 matches the source and sizes the type from the width", () => {
+  it("9:16 is uncropped and scaled to 1080×1920", () => {
     const layout = captionLayout(720, 1280, "9:16", 0.5);
-    assert.deepEqual(layout.output, { width: 720, height: 1280 });
-    assert.ok(Math.abs(layout.fontPx - 37) < 0.01, `font ${layout.fontPx}`);
+    assert.deepEqual(layout.output, { width: 1080, height: 1920 });
+    assert.deepEqual(layout.crop, { left: 0, top: 0, width: 720, height: 1280 });
+    assert.ok(Math.abs(layout.scale - 1080 / 720) < 0.0001);
+    assert.ok(Math.abs(layout.fontPx - profile.fontSizePctOfWidth * 1080) < 0.01, `font ${layout.fontPx}`);
     assert.equal(layout.crop.top, 0);
-    assert.ok(Math.abs(layout.centerY - sourceY) < 0.01);
+    assert.ok(Math.abs(layout.centerY - sourceY * layout.scale) < 0.01);
   });
 
   it("the centred safe rectangle is the profile's 4:5 window", () => {
@@ -52,22 +54,45 @@ describe("caption layout", () => {
     assert.ok(centre > 0.34 && centre < 0.37, `block centre ${centre}`);
   });
 
-  it("a 1080 source stays 1080 and a 720 source is never upscaled", () => {
+  it("every source outputs 1080×1920", () => {
     assert.deepEqual(outputSize(1080, 1920, "9:16"), { width: 1080, height: 1920 });
-    assert.equal(outputSize(720, 1280, "9:16").width, 720);
+    assert.deepEqual(outputSize(720, 1280, "9:16"), { width: 1080, height: 1920 });
     assert.throws(() => outputSize(1080, 1920, "4:5"), /9:16 only/);
   });
 
-  it("rounds an odd source down to even dimensions", () => {
-    assert.deepEqual(outputSize(721, 1281, "9:16"), { width: 720, height: 1280 });
+  it("crops each aspect to a 9:16 window and scales it", () => {
+    assert.deepEqual(cropWindow(1080, 1920, 0.5), { left: 0, top: 0, width: 1080, height: 1920 });
+    const fourFive = cropWindow(1080, 1350, 0.5);
+    assert.equal(fourFive.height, 1350);
+    assert.equal(fourFive.width, 760);
+    assert.equal(fourFive.left, (1080 - 760) / 2);
+    const square = cropWindow(1080, 1080, 0.5);
+    assert.deepEqual(square, { left: (1080 - 608) / 2, top: 0, width: 608, height: 1080 });
+    const wide = cropWindow(1920, 1080, 0.5);
+    assert.deepEqual(wide, { left: (1920 - 608) / 2, top: 0, width: 608, height: 1080 });
+    const fourThree = cropWindow(1440, 1080, 0.5);
+    assert.equal(fourThree.width, 608);
+    assert.equal(fourThree.height, 1080);
+    const tall = cropWindow(1080, 2400, 0.5);
+    assert.deepEqual(tall, { left: 0, top: (2400 - 1920) / 2, width: 1080, height: 1920 });
+    const fitted = captionLayout(1920, 1080, "9:16", 0.5, "default", 0.5);
+    assert.deepEqual(fitted.output, { width: 1080, height: 1920 });
+    assert.equal(fitted.crop.width, 608);
+    assert.ok(Math.abs(fitted.scale - 1080 / 608) < 0.0001);
   });
 
-  it("a wide original is centre-cropped to 9:16", () => {
-    const vertical = captionLayout(956, 718, "9:16", 0.5);
-    assert.deepEqual(vertical.output, { width: 402, height: 718 });
-    assert.equal(vertical.scale, 1);
-    assert.equal(vertical.crop.left, (956 - 402) / 2);
-    assert.equal(vertical.crop.top, 0);
+  it("places a 16:9 window by focus and clamps 0 and 1", () => {
+    assert.equal(cropWindow(1920, 1080, 0).left, 0);
+    assert.equal(cropWindow(1920, 1080, 0.5).left, (1920 - 608) / 2);
+    assert.equal(cropWindow(1920, 1080, 1).left, 1920 - 608);
+    assert.equal(cropWindow(1920, 1080, -2).left, 0);
+    assert.equal(cropWindow(1920, 1080, 4).left, 1920 - 608);
+  });
+
+  it("refuses a crop under 540 px wide", () => {
+    const small = cropWindow(800, 450, 0.5);
+    assert.ok(small.width < 540);
+    assert.throws(() => outputSize(800, 450, "9:16"), (err: unknown) => err instanceof Error && err.message === LOW_QUALITY_AFTER_CROP);
   });
 
   it("strokes every line from the profile", () => {
@@ -80,14 +105,14 @@ describe("caption layout", () => {
       assert.ok(Math.abs(stroke.widthPx - expected) < 0.001);
       assert.equal(stroke.drawnPx, stroke.widthPx * 2);
     }
-    assert.ok(Math.abs(expected - 2) < 0.01, `outside edge ${expected}px at 720 wide`);
+    assert.ok(Math.abs(expected - 2 * (1080 / 720)) < 0.01, `outside edge ${expected}px at 1080 wide`);
   });
 
   it("a line wider than the safe zone does not fit", () => {
     const layout = captionLayout(720, 1280, "9:16", 0.5);
     assert.equal(lineFits(300, layout), true);
     assert.equal(lineFits(layout.safeWidth + 1, layout), false);
-    assert.ok(layout.safeWidth < 720);
+    assert.ok(layout.safeWidth < 1080);
   });
 
   it("reads the wrap width from v1.json and hashes the profile stably", async () => {

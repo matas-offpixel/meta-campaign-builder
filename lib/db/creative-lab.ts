@@ -15,6 +15,31 @@ import { isCaptionStyle } from "../creative-lab/tags.ts";
 
 type Row = Record<string, unknown>;
 
+function publicThumbUrl(path: string): string | null {
+  if (!path) return null;
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+  if (!base) return null;
+  return `${base}/storage/v1/object/public/creative-thumbnails/${path}`;
+}
+
+function overlayOf(value: unknown): { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as { verdict?: unknown; frames?: unknown; reason?: unknown; flagged?: unknown };
+  if (typeof row.verdict !== "string") return null;
+  const frames = Array.isArray(row.frames)
+    ? row.frames.map((frame) => {
+        const item = frame as { t?: unknown; text?: unknown; what?: unknown };
+        return { t: Number(item.t) || 0, text: item.text === true, what: String(item.what ?? "") };
+      })
+    : [];
+  return {
+    verdict: row.verdict,
+    frames,
+    reason: String(row.reason ?? ""),
+    flagged: Number(row.flagged) || frames.filter((frame) => frame.text).length,
+  };
+}
+
 export type LabLineupRow = {
   artistId: string;
   name: string;
@@ -101,6 +126,7 @@ export type CreativeLabCardData = {
     clipFolderLastError: string | null;
     igLastError: string | null;
     igCandidates: {
+      id: string;
       igMediaId: string;
       permalink: string | null;
       postedAt: string | null;
@@ -112,6 +138,10 @@ export type CreativeLabCardData = {
       audioMatch: boolean | null;
       status: string;
       reason: string | null;
+      thumbnailUrl: string | null;
+      lengthSeconds: number | null;
+      overlayOpen: boolean;
+      overlay: { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null;
     }[];
     rights: RightsState;
     rightsLabel: string;
@@ -138,6 +168,23 @@ export type CreativeLabCardData = {
     cleared: boolean;
     renderError: string | null;
     judged: { verdict: string | null; cost: number | null; results: number | null; metric: string | null; roundNo: number } | null;
+    audioMatch: boolean | null;
+    cropFocusX: number;
+    cropOpen: boolean;
+  }[];
+  renders: {
+    id: string;
+    clipId: string;
+    captionId: string;
+    label: string;
+    status: string;
+    error: string | null;
+    renderMs: number | null;
+    updatedAt: string;
+    previewUrl: string | null;
+    posterUrl: string | null;
+    lines: string[];
+    playing: boolean;
   }[];
   assets: { id: string; filename: string; durationSeconds: number | null; thumbnailUrl: string | null }[];
   clientEvents: { id: string; name: string; eventDate: string | null }[];
@@ -353,9 +400,10 @@ export async function loadCreativeLabCard(
       igLastError: text(row, "ig_last_error") || null,
       igCandidates: candidateRows
         .filter((candidate) => text(candidate, "artist_id") === text(row, "id"))
-        .filter((candidate) => ["candidate", "requested", "skipped"].includes(text(candidate, "status")))
+        .filter((candidate) => ["candidate", "requested", "skipped", "imported"].includes(text(candidate, "status")))
         .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
         .map((candidate) => ({
+          id: text(candidate, "id"),
           igMediaId: text(candidate, "ig_media_id"),
           permalink: text(candidate, "permalink") || null,
           postedAt: text(candidate, "posted_at").slice(0, 10) || null,
@@ -367,6 +415,10 @@ export async function loadCreativeLabCard(
           audioMatch: candidate.audio_match === true ? true : candidate.audio_match === false ? false : null,
           status: text(candidate, "status"),
           reason: text(candidate, "reason") || null,
+          thumbnailUrl: publicThumbUrl(text(candidate, "thumbnail_path")),
+          lengthSeconds: null,
+          overlayOpen: ["text_overlay", "check_by_eye"].includes(overlayOf(candidate.overlay_check)?.verdict ?? ""),
+          overlay: overlayOf(candidate.overlay_check),
         })),
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
@@ -418,6 +470,9 @@ export async function loadCreativeLabCard(
         hasFile: Boolean(text(asset, "storage_path")),
         artistName: text(artist, "name"),
         cleared: Boolean(artist?.approved_at),
+        audioMatch: row.audio_match === true ? true : row.audio_match === false ? false : null,
+        cropFocusX: row.crop_focus_x == null ? 0.5 : Number(row.crop_focus_x),
+        cropOpen: false,
         renderError,
         judged: judged
           ? {
@@ -428,6 +483,26 @@ export async function loadCreativeLabCard(
               roundNo: Number(rounds.find((round) => text(round, "id") === text(judged, "round_id"))?.round_no) || 0,
             }
           : null,
+      };
+    }),
+    renders: renderRows.map((row) => {
+      const clip = clipRows.find((item) => text(item, "id") === text(row, "clip_id"));
+      const artist = artists.find((item) => text(item, "id") === text(clip ?? null, "artist_id"));
+      const caption = captions.find((item) => text(item, "id") === text(row, "caption_id"));
+      const asset = assetOf.get(text(row, "creative_asset_id"));
+      return {
+        id: text(row, "id"),
+        clipId: text(row, "clip_id"),
+        captionId: text(row, "caption_id"),
+        label: `${text(artist, "name") || "Clip"} #${clip?.clip_no ?? ""} × ${text(caption, "style").replaceAll("_", " ")}`.trim(),
+        status: text(row, "status"),
+        error: text(row, "error") || null,
+        renderMs: row.render_ms == null ? null : Number(row.render_ms),
+        updatedAt: String(row.updated_at ?? row.created_at ?? ""),
+        previewUrl: text(asset, "public_url") || null,
+        posterUrl: text(asset, "thumbnail_url") || null,
+        lines: [],
+        playing: false,
       };
     }),
     assets: videos.map((row) => ({

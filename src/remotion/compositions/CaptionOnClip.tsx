@@ -17,6 +17,8 @@ export type CaptionOnClipProps = {
   replacementAudioUrl?: string;
   /** 0–1, the vertical centre of the 4:5 safe rectangle inside the 9:16 frame. 0.5 is centred. */
   cropFocusY: number;
+  /** 0–1, horizontal centre of the 9:16 window on a source wider than 9:16. 0.5 is centred. */
+  cropFocusX?: number;
   sourceWidth: number;
   sourceHeight: number;
   fps: number;
@@ -72,8 +74,8 @@ function measureLine(line: string, fontPx: number, fontWidth: number): number {
 export function CaptionOnClip(props: CaptionOnClipProps) {
   const size = props.size ?? "default";
   const layout = useMemo(
-    () => captionLayout(props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, size),
-    [props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, size],
+    () => captionLayout(props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, size, props.cropFocusX ?? 0.5),
+    [props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, props.cropFocusX, size],
   );
   const { fontPx, safeWidth } = layout;
   const fontWidth = profile.fontWidth;

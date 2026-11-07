@@ -5,14 +5,19 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
+import { CropPicker } from "@/components/dashboard/events/creative-lab/crop-picker";
+import { RenderRows } from "@/components/dashboard/events/creative-lab/render-rows";
 import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
 import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
+import { overlayPanelLine, overlaySkipLine } from "@/lib/creative-lab/overlay-check";
 import {
+  candidateAddLabel,
   candidateTileState,
   cantRunReason,
   clipBucket,
   durationLabel,
   groupClips,
+  isNative9x16,
   metricUnit,
   money,
   postAge,
@@ -101,9 +106,9 @@ export function LabClips({
         <h3 className="font-medium">Clips</h3>
         <span className="text-muted-foreground">{groups.keeping.length + groups.fresh.length} usable · {groups.cant.length} can&apos;t run</span>
       </div>
-      <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} wide />
-      <ClipGroup title="New" hint="untested" clips={groups.fresh} />
-      <ClipGroup title="Can't run" clips={groups.cant} />
+      <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} wide onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="New" hint="untested" clips={groups.fresh} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="Can't run" clips={groups.cant} onCrop={() => undefined} />
       <label
         className="block rounded border border-dashed border-border bg-card p-4 text-center text-muted-foreground"
         onDragOver={(event) => event.preventDefault()}
@@ -122,6 +127,7 @@ export function LabClips({
         </Button>
       ))}
       <FindClips lab={lab} busy={busy} onSave={onSave} />
+      <RenderRows rows={lab.renders} now={lab.now} />
     </section>
   );
 }
@@ -131,11 +137,13 @@ function ClipGroup({
   hint,
   clips,
   wide,
+  onCrop,
 }: {
   title: string;
   hint?: string;
   clips: CreativeLabCardData["clips"];
   wide?: boolean;
+  onCrop: (clipId: string, focus: number) => void;
 }) {
   if (clips.length === 0) return null;
   return (
@@ -153,6 +161,10 @@ function ClipGroup({
                 <span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span>
               </p>
               <p className="text-xs">{clip.artistName} #{clip.clipNo}</p>
+              {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
+              {clip.sourceWidth && clip.sourceHeight && !isNative9x16(clip.sourceWidth, clip.sourceHeight) ? (
+                clip.cropOpen ? <CropPicker src={clip.previewUrl} focus={clip.cropFocusX} onSave={(focus) => onCrop(clip.id, focus)} /> : <p className="text-xs text-muted-foreground">Crop to 9:16</p>
+              ) : null}
               {reason ? <p className="text-xs text-destructive">{reason}</p> : (
                 <div className="mt-1 space-y-1 text-xs">
                   <VerdictChip verdict={verdict} />
@@ -196,36 +208,81 @@ function ClipFrame({ src, poster, hasFile, name, inS, outS }: { src: string | nu
   return <div className="flex aspect-[9/16] w-full items-center justify-center rounded border border-border bg-card text-sm">{initials(name)}</div>;
 }
 
-/** Candidate tiles (design rules): rank · frame · ♥ / 💬 · age · aspect; one action or one status line. */
+function Poster({ url }: { url: string | null }) {
+  if (!url) return <div className="aspect-[9/16] w-full rounded bg-foreground/80" />;
+  if (/\.(webm|mp4)(\?|$)/i.test(url)) {
+    return <video src={url} muted playsInline preload="metadata" className="aspect-[9/16] w-full rounded object-cover" />;
+  }
+  return <img src={url} alt="" className="aspect-[9/16] w-full rounded object-cover" />;
+}
+
+/** Candidate tiles: thumbnail, length, likes, comments, age, aspect, one action. */
 function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: boolean; onSave: Save }) {
+  const router = useRouter();
+  const [importing, setImporting] = useState<string | null>(null);
   const groups = lab.artists
     .map((artist) => ({ artist, rows: rankCandidates(artist.igCandidates) }))
     .filter((group) => group.rows.length > 0);
   if (groups.length === 0) return null;
+
+  async function add(id: string, anyway: boolean) {
+    setImporting(id);
+    try {
+      await fetch(`/api/creative-lab/candidates/${id}/import`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ anyway }),
+      });
+      router.refresh();
+    } finally {
+      setImporting(null);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <h3 className="font-medium">Find clips on Instagram</h3>
       {groups.map(({ artist, rows }) => (
         <div key={artist.id} className="space-y-2">
-          <p className="text-muted-foreground">{artist.name} · best first</p>
+          <p className="text-muted-foreground">{artist.name} · best first · likes, comments and how recent · native 9:16 first</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {rows.map((clip) => {
               const state = candidateTileState(clip);
               const age = postAge(clip.postedAt, lab.now);
+              const flagged = clip.overlay?.verdict === "text_overlay";
+              const review = clip.overlay?.verdict === "check_by_eye";
+              const status = flagged && clip.overlay
+                ? overlaySkipLine(clip.overlay.flagged)
+                : clip.reason?.includes("Too low quality")
+                  ? clip.reason
+                  : state.status;
               return (
                 <article key={clip.igMediaId} className="rounded border border-border p-2">
-                  <div className="relative flex aspect-[9/16] w-full items-end rounded bg-foreground/80 p-1 text-xs text-background">
-                    <span className="absolute top-1 left-1 rounded bg-background px-1 font-medium tabular-nums text-foreground">{clip.rank}</span>
-                    {clip.permalink ? <a className="underline" href={clip.permalink}>Open post</a> : null}
+                  <div className="relative">
+                    <Poster url={clip.thumbnailUrl} />
+                    <span className="absolute top-1 left-1 rounded bg-background px-1 text-xs font-medium tabular-nums text-foreground">{clip.rank}</span>
+                    {clip.lengthSeconds != null ? <span className="absolute bottom-1 left-1 text-xs text-white">▶ {durationLabel(clip.lengthSeconds)}</span> : null}
                   </div>
                   <p className="mt-1 text-xs tabular-nums">♥ {clip.likes == null ? "—" : clip.likes.toLocaleString("en-GB")} · 💬 {(clip.comments ?? 0).toLocaleString("en-GB")}</p>
                   <p className="text-xs text-muted-foreground">{[age, clip.aspect || "aspect unknown"].filter(Boolean).join(" · ")}</p>
                   {state.action === "request" ? (
                     <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap px-1" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
                   ) : state.action === "add" ? (
-                    <Button type="button" size="sm" className="mt-1 w-full" disabled title="coming in M4b">Add</Button>
+                    <Button type="button" size="sm" className="mt-1 w-full" disabled={busy || importing === clip.id} onClick={() => void add(clip.id, false)}>{importing === clip.id ? "Importing…" : candidateAddLabel(clip.aspect)}</Button>
                   ) : null}
-                  {state.status ? <p className="mt-1 text-xs text-muted-foreground">{state.status}</p> : null}
+                  {status ? <p className="mt-1 text-xs text-muted-foreground">{status}</p> : null}
+                  {clip.overlayOpen && clip.overlay ? (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs">Why #{clip.rank} was skipped</p>
+                      <div className="flex gap-1 overflow-x-auto">
+                        {clip.overlay.frames.map((frame) => (
+                          <div key={frame.t} className={`flex h-12 w-8 shrink-0 items-end justify-center rounded bg-black text-[10px] text-white ${frame.text ? "outline outline-2 outline-destructive" : ""}`}>{frame.text ? "Aa" : ""}</div>
+                        ))}
+                      </div>
+                      <p className="text-xs">{flagged ? overlayPanelLine(clip.overlay.flagged) : "Looks clean?"}</p>
+                      <Button type="button" size="sm" className="w-full" disabled={busy} onClick={() => void add(clip.id, true)}>{review ? "Looks clean? Import" : "Import anyway"}</Button>
+                    </div>
+                  ) : null}
                 </article>
               );
             })}

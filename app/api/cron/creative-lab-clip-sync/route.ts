@@ -1,8 +1,9 @@
 /**
  * GET /api/cron/creative-lab-clip-sync
  *
- * 03:45 UTC. Imports new clips from each approved artist's folder.
- * At most 10 new files per artist. No Meta calls. Auth is the cron bearer.
+ * 03:45 UTC. Imports new clips from each artist's folder, and lists
+ * Instagram when the artist has a handle. Download and import run only
+ * when CREATIVE_LAB_IG_AUTO_IMPORT is exactly "1". No Meta writes.
  *
  * A cron_runs row is written only when something was imported or failed.
  * A quiet night is not a heartbeat.
@@ -49,7 +50,7 @@ export const GET = withCronRunLog(
       }
     },
     rows: (body) => Number(body.imported ?? 0),
-    detail: (body) => ({ failed: body.failed ?? 0, skippedArchived: body.skippedArchived ?? 0, artists: body.artists ?? 0 }),
+    detail: (body) => ({ failed: body.failed ?? 0, skippedArchived: body.skippedArchived ?? 0, artists: body.artists ?? 0, instagram: body.instagram ?? null }),
     recordWhen: (body, status) => {
       if (status >= 400 || body.ok === false) return true;
       return clipSyncShouldRecord({ imported: Number(body.imported ?? 0), failed: Number(body.failed ?? 0) });

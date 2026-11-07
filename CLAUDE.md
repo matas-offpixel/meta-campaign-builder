@@ -168,6 +168,7 @@ D2C_TOKEN_KEY=
 D2C_BRIEF_PARSER_MODEL=
 CREATIVE_LAB_WRITER_MODEL=
 CREATIVE_LAB_LAUNCH_ENABLED=
+CREATIVE_LAB_IG_AUTO_IMPORT=
 BIRD_API_BASE=
 FEATURE_D2C_LIVE=
 LANDING_PAGES_TOKEN_KEY=
@@ -555,6 +556,9 @@ REMOTION_LAMBDA_SERVE_URL=
 >   with "Lab launches are switched off". When it is on, every ad is still
 >   created paused (`createPaused: true`). Set it on Vercel only after M3b
 >   merges. This PR does not set it.
+> - `CREATIVE_LAB_IG_AUTO_IMPORT` — nightly Instagram import
+>   (`/api/cron/creative-lab-clip-sync`). Must be exactly `"1"`. Unset means
+>   the cron only lists clips; the Add button works either way.
 > - `BIRD_API_BASE` — base URL for the Bird.com API client
 >   (`lib/d2c/bird/client.ts`). Defaults to `https://api.bird.com` when unset.
 > - `FEATURE_D2C_LIVE` — master live-send gate. When unset/`false` (default) every

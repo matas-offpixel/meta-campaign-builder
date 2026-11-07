@@ -49,7 +49,10 @@ The runner fails a CL shot if any declared font face has not loaded.
 | CL4 | As CL3, primary text empty | The muted slot "No primary text yet — ✎ to add" in place of the primary text |
 | CL5 | Round 1 proposed | 2 approved captions (Lineup, POV) × 3 clips = 6 pairings. The runner clicks Ada North #1 × POV off, so the line reads "5 ads · 3 × 2, 1 left out". "Round 1 · draft" lists those 5 pairings as "{artist} #{n} × {angle}", all Ready. Strip: Round 1 draft. No round has run, so there is no timeline |
 | CL6 | Round 1 judged on signups | Ada North #1 × Lineup: Winner (olive), £0.50 / signup · 40 signups = £20.00. Bea Lowe #1 × POV: "cost 1.5× the usual" (brick), £0.75 / signup · 20 signups = £15.00 (0.75 ÷ 0.50 = 1.5). Ada North #2 × Lineup: Untested (dashed). Keeping 2, New 1. What's working: "Lineup captions beat POV by 33% on Off Pixel Fixtures" ((0.75 − 0.50) ÷ 0.75 = 33.3%) and "Ada North clip #1 is the current winner". Next: "Round 1 is judged. Propose round 2." Timeline: "Round 1 · judged · £0.58 / signup" (£35 ÷ 60 = £0.583) lists its ads with chip and cost: "Ada North #1 × Lineup" Winner £0.50 / signup · 40 signups; "Bea Lowe #1 × POV" struck through, "cost 1.5× the usual" £0.75 / signup · 20 signups; "Ada North #2 × Lineup" Untested. "Round 2 · plan": Ada North #1, Ada North #2 and Lineup · "Ada North Bea Lowe", all Kept. There is no separate "Ran in round 1" list. Matrix "2 ads · 2 × 1, 0 left out", button "Propose round 2". Strip: Round 1 judged |
-| CL7 | Instagram candidates for Ada North | Once, under "Find clips on Instagram", ranked 1–4 by score: 1 ♥ 1,200 · 💬 40 · 8 days ago · 9:16, Request from team; 2 ♥ 800 · 💬 20 · 2 weeks ago · 4:5, "Skipped — text overlay"; 3 ♥ 400 · 💬 10 · 4 weeks ago · landscape, "Requested"; 4 ♥ 300 · 💬 5 · 1 day ago · 9:16, Add. Ages count from the fixture's now (6 Nov 2026) |
+| CL7 | Instagram candidates for Ada North | Once, under "Find clips on Instagram", ranked 1–4. Posters are the VP9 fixture clips. 1 ▶ 0:18 · ♥ 1,200 · 💬 40 · 8 days ago · 9:16, Request from team; 2 ▶ 0:27 · ♥ 800 · 💬 20 · 2 weeks ago · 4:5, "Skipped — text overlay"; 3 ♥ 400 · 💬 10 · 4 weeks ago · landscape, Requested; 4 ▶ 0:14 · ♥ 300 · 💬 5 · 1 day ago · 9:16, Add. Ages count from the fixture's now (6 Nov 2026). Lengths are fixture-only: Instagram's listing does not return duration |
+| CL8 | Why #1 was skipped | 8 frames, frames 3, 4 and 6 marked Aa, "Text burned into 3 of 8 frames — it would read as someone else's ad.", Import anyway |
+| CL9 | Crop picker on Bea Lowe's landscape clip | "Crop to 9:16 · drag the window", a 16:9 frame with the bright window, a filmstrip of 6 frames, "The window follows across every frame; check the strip for heads cut off.", Use this crop |
+| CL10 | Render rows | "2 of 3 ready". The first row plays the 9:16 preview with "Ada North Bea Lowe / 12 December / Fixture Hall". The second is Ready. The third is rendering at ~1 min (average of the two finished renders is 3 min, 108 s already elapsed) |
 
 ### Captions
 
@@ -67,9 +70,9 @@ that none is wider than the box; a mismatch fails the shot.
 
 ### Known gaps
 
-- CL7: candidate frames are a placeholder box. Candidates store no
-  thumbnail (`media_url` is never stored and there is no thumbnail
-  column), so a real frame needs one stored at discovery.
+- CL7 lengths (▶ 0:18 and the rest) are drawn for the frame only.
+  Discovery does not store a duration. The thumbnail URL is never
+  stored; the tile reads the object in creative-thumbnails.
 - Add on a candidate stays disabled until M4b.
 
 ### Poster frames
