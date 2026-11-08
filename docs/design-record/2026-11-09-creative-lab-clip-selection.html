@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative Lab — clip selection, and the words that say how a clip becomes an ad — 9 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6; --ig:#B0607A;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:0}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.muted{color:var(--ink-3)}.mono{font-family:var(--mono)}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:420px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.quote{border-left:3px solid var(--border-strong);padding:4px 14px;margin:10px 0 14px;font-size:13px;color:var(--ink-2);max-width:86ch}
+
+/* surfaces */
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+.panel{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.sec-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:0 0 8px}
+.hnote{font-size:12px;color:var(--ink-2);margin-top:3px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn.dis{opacity:.45}
+.btn.busy{opacity:.6;cursor:progress}
+.btn.sm{height:24px;padding:0 9px;font-size:11.5px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:var(--olive)}.chip.warn{color:var(--ochre);border-color:var(--ochre)}.chip.dash{border-style:dashed;color:var(--ink-3)}
+.icon{display:inline-flex;width:30px;height:30px;border-radius:6px;border:1px solid var(--border-strong);align-items:center;justify-content:center;font-size:13px}
+.icon.yes{color:var(--olive);border-color:var(--olive)}
+
+/* selection bar */
+.selbar{display:flex;align-items:baseline;gap:10px;margin:0 0 10px;font-size:12.5px}
+.selbar .cnt b{font:600 16px var(--sans);font-variant-numeric:tabular-nums}
+.selbar .lnk{color:var(--ink);text-decoration:underline;text-underline-offset:3px;font-weight:600}
+.selbar .lnk.off{color:var(--ink-3);text-decoration:none;font-weight:400}
+
+/* clip tiles */
+.grp-h{display:flex;align-items:baseline;gap:10px;margin:12px 0 8px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.tile{background:var(--edit);border-radius:8px;overflow:hidden;border:1px solid var(--border);position:relative}
+.tile.picked{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+.thumb{aspect-ratio:9/16;max-height:180px;width:100%;position:relative}
+.thumb .dur{position:absolute;right:6px;bottom:6px;font:600 10px var(--mono);color:#fff;background:rgba(0,0,0,.45);padding:1px 5px;border-radius:4px}
+.thumb .src{position:absolute;left:6px;top:6px;width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;font:700 9px var(--mono);color:#fff;background:var(--ig)}
+.thumb .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.75);font-size:20px}
+.tick{position:absolute;right:6px;top:6px;width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.92);background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;font:800 12px/1 var(--sans);color:#fff}
+.tick.on{background:var(--ink);border-color:#fff}
+.tmeta{padding:7px 8px 8px;font-size:11.5px}
+.tmeta .t1{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tile.cant{opacity:.7;border-style:dashed;border-color:var(--brick)}
+.reason{font-size:11px;color:var(--brick);margin-top:4px;line-height:1.35}
+.g1{background:linear-gradient(160deg,#4a3a2a,#a07a4a)}.g2{background:linear-gradient(160deg,#3a2a24,#8a5a3a)}.g3{background:linear-gradient(160deg,#2a3a3a,#4a7a7a)}
+.g4{background:linear-gradient(160deg,#2a2a36,#5a4a7a)}.g5{background:linear-gradient(160deg,#3a2a3a,#8a5a8a)}.g6{background:linear-gradient(160deg,#2a2a2a,#6a5a4a)}
+.g7{background:linear-gradient(160deg,#5a3a2a,#c08a5a)}.g8{background:linear-gradient(160deg,#3a3a2a,#7a7a4a)}.g9{background:linear-gradient(160deg,#2a3a2a,#5a8a5a)}.gx{background:linear-gradient(160deg,#3a3a3a,#6a6a6a)}
+
+/* generator + feed posts */
+.ctl{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.fld{display:flex;flex-direction:column;gap:4px}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden;height:28px}
+.seg span{padding:0 10px;display:inline-flex;align-items:center;font:600 12px var(--sans);color:var(--ink-2);border-right:1px solid var(--border-strong);white-space:nowrap}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.sel{height:28px;padding:0 10px;border:1px solid var(--border-strong);border-radius:6px;display:inline-flex;align-items:center;gap:8px;font:12px var(--sans);background:var(--edit);min-width:110px}
+.sel i{font-style:normal;color:var(--ink-3);margin-left:auto}
+.ads{display:grid;grid-template-columns:repeat(3,300px);gap:16px;margin-top:14px}
+.ad{background:#fff;border-radius:10px;overflow:hidden;border:1px solid var(--border);color:#1c1e21;font-family:var(--sans)}
+.ad-h{display:flex;gap:8px;align-items:center;padding:8px 10px}
+.ad-h .av{width:26px;height:26px;border-radius:50%;background:#2a2a2a}
+.ad-h b{font-size:12px;display:block;line-height:1.1}.ad-h small{font-size:10.5px;color:#65676b}
+.ad-copy{padding:0 10px 8px;font-size:12px}
+.ad-media{aspect-ratio:4/5;position:relative;container-type:inline-size;overflow:hidden}
+.cap{position:absolute;left:10%;right:10%;top:29.4%;transform:translateY(-50%);text-align:center;font-family:"TikTok Sans",system-ui,sans-serif;font-weight:400;font-stretch:120%;font-size:5.1cqw;line-height:1.05;color:#fff;-webkit-text-stroke:1cqw #000;paint-order:stroke fill;white-space:pre-line}
+.ad-cta{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:#f0f2f5;font-size:11px}
+.ad-cta span{border-radius:6px;padding:4px 9px;font-weight:600;background:#e4e6eb}
+.adfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 2px 0;font-size:11.5px;color:var(--ink-2)}
+.acts{display:flex;gap:6px}
+.strip4{display:flex;gap:10px;margin-top:10px;align-items:flex-start}
+.mframe{width:120px;flex:none}
+.mframe .ad-media{border-radius:6px}
+.mframe small{display:block;font:10.5px var(--mono);color:var(--ink-3);margin-top:4px}
+
+/* round */
+.mx{display:grid;gap:8px}
+.mx .hd{font:700 9px/1.3 var(--mono);letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase;align-self:end}
+.cell{background:var(--edit);border:1px solid var(--border);border-radius:6px;padding:6px;font-size:11px;display:flex;gap:6px;align-items:center;min-height:54px}
+.cell .mini{width:26px;height:44px;border-radius:3px;flex:none}
+.cell.off{border-style:dashed;background:transparent;color:var(--ink-3)}
+.roundbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
+.big{font:600 20px var(--sans);font-variant-numeric:tabular-nums}
+.notsel{font-size:12px;color:var(--ink-2);margin-top:8px}
+
+/* pending */
+.prog{height:4px;border-radius:2px;background:var(--muted);overflow:hidden;margin-top:6px}
+.prog i{display:block;height:100%;width:45%;background:var(--ink-2)}
+.pend{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.pend .panel{margin:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · CREATIVE LAB · CLIP SELECTION AND THE WORDS GAP · 9 NOVEMBER 2026 · ISSUE 1</div>
+<h1>Creative Lab — clip selection, and the words that say how a clip becomes an ad</h1>
+<p class="lead">From Matas's first live run, two things. <b>Selection:</b> every usable clip goes into every test today; he needs to choose which go in — all, none, or a hand-picked set — and have that choice drive the previews, the round and the renders. <b>Words:</b> nothing on the Lab says a clip becomes an ad only when a round pairs it with an approved caption. This record rules a selection state on the clip tile, the Clips header that controls it, the generator's <i>Pair with</i> reading it, the round matrix narrowed to it, the two header notes, and the three pending states Claude Code is adding. Frames at 1280 and 393. Every value not read from the code or named by Matas is under <i>Invented</i>.</p>
+<div class="quote">"clips 1, 2, 5, 7 with caption variations and overlays, not always all of them" — Matas, first live run</div>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px"><li><b>Issue 1 · 9 Nov 2026.</b> Rulings S1–S12: selection on the clip tile (the tick), the Clips header's count and Select all · None, the default and how new clips join, persistence per event, <i>Pair with</i> as Selected clips · Best of selected · Each selected, the round from the selection with the per-pairing knock-out kept, renders only for on cells, the two header notes, the pending states Finding… · Importing… · Writing…. Frames CLS1–CLS4. Hand-back HS1–HS8.</li></ul></div>
+
+<h2>Data note — what is there today</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there</th><th>What it sets here</th></tr>
+<tr><td>F3 · Clip tile (design-rules.md)</td><td>9:16 first frame · source badge top-left · length bottom-right · name · one status. <b>Primary action: tap = play</b>; <code>⋯</code> for the rest. 5 across at 1280, 2 at 393. Can't run: dashed brick with the reason.</td><td>S1: the brief said "tap to select", but the tile's tap is play and rule 4 allows one primary action. Selection gets its own target — the tick — and play stays where it is.</td></tr>
+<tr><td><code>lib/creative-lab/propose.ts</code></td><td><code>proposeRound</code> builds a round for <b>one artist</b> from <code>creative_lab_clips</code> where <code>artist_id</code> = the round's artist, drops clips over the length limit (<code>usable</code>), and pairs every remaining clip with the approved captions. Nothing narrows the clips.</td><td>S7: the round reads the selection; it stays per artist as the code builds it.</td></tr>
+<tr><td><code>components/…/creative-lab/captions.tsx</code></td><td><i>Pair with</i> is <code>Best clip · Each new clip</code> (<code>each: boolean</code>); <code>clipId</code> is the lead clip or null.</td><td>S6: three options, all reading the selection.</td></tr>
+<tr><td>F5 · Round matrix</td><td>Approved captions across, usable clips down, one cell per ad, all on by default, tap a cell off; "{n} ads · {clips} × {captions}, {off} left out"; the button says why when off.</td><td>S7: rows are the selected clips only; the knock-out stays.</td></tr>
+<tr><td>F1 · Strip</td><td>Next precedence: rights waiting → captions waiting → round proposable → "Round {n} is running."</td><td>S10: the Next line stays as it is.</td></tr>
+<tr><td>Claude Code (in flight)</td><td>Pending labels on three actions: Find clips → <b>Finding…</b>, Add on a candidate → <b>Importing…</b>, Write {n} → <b>Writing…</b>.</td><td>S11: carried here as the component's busy state.</td></tr>
+</table>
+
+<h2>S · Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>S1 The tick</td><td>Every usable clip tile carries a <b>selection tick</b>: a 22 px circle on the frame's top-right corner (6 px inset), white ring on a dark wash when not selected, filled ink with a white ✓ when selected; the selected tile also takes a 2 px ink outline. <b>Tapping the tick</b> toggles selection; tapping the frame still plays (F3, rule 4: one primary action). The hit area is 32 px at 393. A tile is never dimmed for being unselected — dimming already means "skipped" (candidates at 55 %) and "can't run". Colour never alone (rule 10): the ✓ is the signal, the outline repeats it.</td></tr>
+<tr><td>S2 What can be selected</td><td>Usable clips only: New and Keeping (and a Spark post, which keeps its own "boosted as is" row in the round, L13). A <b>Can't run</b> tile has no tick, is never selected and is not in the count. A clip that becomes Can't run while selected leaves the selection, and the header says so once ("Enzo #3 left the selection — too long").</td></tr>
+<tr><td>S3 The Clips header</td><td>Under the title, the S9 note. Then one line: <b>"{n} of {m} selected"</b> ({n} bold, {m} = usable clips) and two text actions, <b>Select all · None</b>; the one that would change nothing is muted (at all selected, "Select all" is muted). They are secondary to the header's primary action (Find clips on Instagram) and are not inputs (rule 3 unchanged). At 393 the count line sits under the note, the actions at its right.</td></tr>
+<tr><td>S4 Default, and new clips</td><td>Default: <b>all usable clips selected</b>. The event's selection has two modes: <i>all</i> (never narrowed, or Select all pressed) — every usable clip is selected, including clips imported later; <i>chosen</i> (any tick or None pressed) — exactly the ticked clips. In <i>chosen</i>, a newly imported clip arrives <b>unselected</b> and the count line adds "· 1 new, not selected" until it is ticked or the line is dismissed. Select all returns to <i>all</i>.</td></tr>
+<tr><td>S5 Persistence</td><td>Per event, server-side, for everyone who opens the event — not per browser. Saved on each tap with who and when (rule 5: never on screen). A round that ran keeps the clips it ran with; changing the selection never edits a past round.</td></tr>
+<tr><td>S6 Pair with</td><td>The generator's <i>Pair with</i> becomes <b>Selected clips · Best of selected · Each selected</b>, all reading the selection, never the whole grid. <b>Selected clips</b>: one preview per caption, the captions spread across the selected clips in display order (caption 1 on the first, caption 2 on the second, wrapping). <b>Best of selected</b>: one preview per caption, all on the selected clip with the lowest cost per result in the client's band; before any round has run, the first selected clip. <b>Each selected</b>: every caption on every selected clip, grouped per caption, the clips scrolling sideways; the line above says "{captions} × {clips} = {n} previews". Default: <b>Best of selected</b> (parity with today's Best clip). These are previews, not ads (S9).</td></tr>
+<tr><td>S6b None selected</td><td>The writer still writes (captions don't need a clip). Previews draw the caption on a plain plate with one sentence: "No clip selected — select clips to see the captions on them." <i>Pair with</i> stays visible.</td></tr>
+<tr><td>S7 The round</td><td>The matrix's rows are the <b>selected usable clips of the round's artist</b> (the round stays per artist, as <code>proposeRound</code> builds it); columns are the approved captions; every cell starts on and <b>can still be tapped off</b> (F5's knock-out, kept). Unselected clips do not appear, not even as off rows. The round bar reads <b>"{n} ads · {clips} × {captions}, {off} left out"</b> as before, then <b>"· {k} of {artist}'s {m} clips not selected"</b>, and under the matrix one muted line names them, up to five then "+n" ("Not selected: Enzo #3, Enzo #4, Enzo #6 · change on Clips"). A round-2 plan that keeps a winner the selection has dropped says so in one ochre line ("Enzo #2, round 1's winner, is not selected") — the selection wins.</td></tr>
+<tr><td>S7b Nothing to pair</td><td>No selected clip for the round's artist: the button is off with "Select at least 1 clip to propose round {n}." No approved caption: F5's sentence stands. Both missing: the clip sentence first.</td></tr>
+<tr><td>S8 Renders</td><td>A render runs only for an <b>on cell of a proposed round</b>. Unselecting a clip never deletes a render that exists; it only keeps the clip out of the next round. Generate's previews are drawn in the browser and are never renders.</td></tr>
+<tr><td>S9 The words</td><td>Two one-line notes, verbatim, muted ink-2 under the section titles. Clips: <b>"Selected clips become ads when a round pairs them with an approved caption"</b>. Captions: <b>"✓ a caption, then Propose round 1 renders it on the selected clips"</b>, with "round 1" following the next round's number ("Propose round 2" once round 1 has run). No full stops added. The notes never change with state and are not dismissible.</td></tr>
+<tr><td>S10 The strip</td><td>The Next line stays exactly as F1 ruled. The strip's Clips cell keeps its count ({m} usable); its state line reads <b>"{n} selected"</b> when the event is in <i>chosen</i> mode, and as today in <i>all</i>.</td></tr>
+<tr><td>S11 Pending states</td><td>One busy state for an action button: the label becomes the action's present participle with an ellipsis — <b>Finding…</b> (Find clips, on the Clips header and the artist row), <b>Importing…</b> (Add on a candidate tile, with the tile's progress bar under it, then ✓ Added), <b>Writing…</b> (Write {n}). The button keeps its idle width, is disabled at 60 %, and nothing else in the section locks: ticks, Select all · None and other tiles stay usable. No spinner glyph without the word. On failure the label returns and one sentence under the control says what to do (rule 7).</td></tr>
+<tr><td>S12 393</td><td>Ticks at 22 px with a 32 px hit area; the count line under the note; the grid 2 across with all usable tiles in it (no sideways group hides a tick); <i>Pair with</i> stays visible (Mode · Angle · Pair with are the three inputs; How many and Stage behind More); the matrix is the list of pairings, first three then "+n more · {off} off", the round bar's not-selected count on its own line.</td></tr>
+</table>
+
+<!-- ===================== CLS1 ===================== -->
+<h2>CLS1 · The clip tiles with a selection, and the Clips header (1280 and 393)</h2>
+<p class="lead">Puzzle 4th Birthday before round 1: nine usable clips and one that can't run. Matas has ticked the first, second, fifth and seventh — his "clips 1, 2, 5, 7".</p>
+<div class="frame">
+<figure><figcaption>CLS1-1280 · the note under Clips · "4 of 9 selected" with Select all · None · ticks top-right, filled on the four selected · Can't run has no tick</figcaption>
+<div class="vp" style="width:1280px;padding:18px">
+<div class="panel">
+  <div class="sec-h"><div><h3>Clips</h3><div class="hnote">Selected clips become ads when a round pairs them with an approved caption</div></div><span><span class="btn">Find clips on Instagram</span> <span class="btn ghost">+ Upload</span></span></div>
+  <div class="selbar"><span class="cnt"><b>4</b> of 9 selected</span><span class="lnk">Select all</span><span class="muted">·</span><span class="lnk">None</span></div>
+  <div class="grp-h"><span class="k">New · 9</span><span class="muted" style="font-size:12px">untested</span></div>
+  <div class="grid">
+    <div class="tile picked"><div class="thumb g1"><span class="src">IG</span><span class="tick on">✓</span><span class="play">▶</span><span class="dur">0:21</span></div><div class="tmeta"><div class="t1"><span>Enzo #1</span><span class="chip dash">Untested</span></div></div></div>
+    <div class="tile picked"><div class="thumb g2"><span class="src">IG</span><span class="tick on">✓</span><span class="play">▶</span><span class="dur">0:19</span></div><div class="tmeta"><div class="t1"><span>Enzo #2</span><span class="chip dash">Untested</span></div></div></div>
+    <div class="tile"><div class="thumb g3"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span><span class="dur">0:22</span></div><div class="tmeta"><div class="t1"><span>Enzo #3</span><span class="chip dash">Untested</span></div></div></div>
+    <div class="tile"><div class="thumb g4"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span><span class="dur">0:21</span></div><div class="tmeta"><div class="t1"><span>Enzo #4</span><span class="chip dash">Untested</span></div></div></div>
+    <div class="tile picked"><div class="thumb g5"><span class="src">IG</span><span class="tick on">✓</span><span class="play">▶</span><span class="dur">0:15</span></div><div class="tmeta"><div class="t1"><span>Enzo #5</span><span class="chip dash">Untested</span></div></div></div>
+    <div class="tile"><div class="thumb g6"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span><span class="dur">0:27</span></div><div class="tmeta"><div class="t1"><span>Enzo #6</span><span class="chip dash">Untested</span></div></div></div>
+    <div class="tile picked"><div class="thumb g7"><span class="src">IG</span><span class="tick on">✓</span><span class="play">▶</span><span class="dur">0:18</span></div><div class="tmeta"><div class="t1"><span>Enzo #7</span><span class="chip dash">Untested</span></div></div></div>
+    <div class="tile"><div class="thumb g8"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span><span class="dur">0:24</span></div><div class="tmeta"><div class="t1"><span>Luke Dean #1</span><span class="chip dash">Untested</span></div></div></div>
+    <div class="tile"><div class="thumb g9"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span><span class="dur">0:20</span></div><div class="tmeta"><div class="t1"><span>Reeshy #1</span><span class="chip dash">Untested</span></div></div></div>
+  </div>
+  <div class="grp-h"><span class="k">Can't run · 1</span></div>
+  <div class="grid">
+    <div class="tile cant"><div class="thumb gx"><span class="src">IG</span><span class="play">▶</span><span class="dur">0:16</span></div><div class="tmeta"><div class="t1"><span>Benji King #1</span></div><div class="reason">Too low after the crop — 540 px wide. Find a sharper copy or ask the team.</div></div></div>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>CLS1-393 · the count line under the note · two across, every usable tile in the grid · the tick's hit area 32 px</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+<div class="panel" style="padding:12px">
+  <div class="sec-h"><div><h3>Clips</h3><div class="hnote">Selected clips become ads when a round pairs them with an approved caption</div></div><span class="btn sm">Find on Instagram</span></div>
+  <div class="selbar" style="justify-content:space-between"><span class="cnt"><b>4</b> of 9 selected</span><span><span class="lnk">Select all</span> <span class="muted">·</span> <span class="lnk">None</span></span></div>
+  <div class="grid" style="grid-template-columns:repeat(2,1fr);gap:8px">
+    <div class="tile picked"><div class="thumb g1" style="max-height:150px"><span class="src">IG</span><span class="tick on">✓</span><span class="play">▶</span></div><div class="tmeta">Enzo #1</div></div>
+    <div class="tile picked"><div class="thumb g2" style="max-height:150px"><span class="src">IG</span><span class="tick on">✓</span><span class="play">▶</span></div><div class="tmeta">Enzo #2</div></div>
+    <div class="tile"><div class="thumb g3" style="max-height:150px"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span></div><div class="tmeta">Enzo #3</div></div>
+    <div class="tile"><div class="thumb g4" style="max-height:150px"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span></div><div class="tmeta">Enzo #4</div></div>
+    <div class="tile picked"><div class="thumb g5" style="max-height:150px"><span class="src">IG</span><span class="tick on">✓</span><span class="play">▶</span></div><div class="tmeta">Enzo #5</div></div>
+    <div class="tile"><div class="thumb g6" style="max-height:150px"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span></div><div class="tmeta">Enzo #6</div></div>
+    <div class="tile picked"><div class="thumb g7" style="max-height:150px"><span class="src">IG</span><span class="tick on">✓</span><span class="play">▶</span></div><div class="tmeta">Enzo #7</div></div>
+    <div class="tile"><div class="thumb g8" style="max-height:150px"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span></div><div class="tmeta">Luke Dean #1</div></div>
+    <div class="tile"><div class="thumb g9" style="max-height:150px"><span class="src">IG</span><span class="tick"></span><span class="play">▶</span></div><div class="tmeta">Reeshy #1</div></div>
+    <div class="tile cant"><div class="thumb gx" style="max-height:150px"><span class="src">IG</span><span class="play">▶</span></div><div class="tmeta">Benji King #1<div class="reason">Too low after the crop</div></div></div>
+  </div>
+</div>
+</div></figure>
+</div>
+<p class="lead">The tick sits where nothing else does: the source badge owns the top-left, the length the bottom-right, the play glyph the middle. An unselected tile looks exactly like a tile today plus an empty ring — it isn't greyed, because grey already means skipped or can't run. The count is the hierarchy; Select all and None are words, not buttons, because Find clips is the header's one action.</p>
+
+<!-- ===================== CLS2 ===================== -->
+<h2>CLS2 · Generate reads the selection — Pair with (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLS2-1280 · the Captions note · Pair with: Selected clips · Best of selected · Each selected · "Selected clips" spreads the three captions across Enzo #1, #2, #5 · below, "Each selected" for one caption</figcaption>
+<div class="vp" style="width:1280px;padding:18px">
+<div class="panel">
+  <div class="sec-h"><div><h3>Captions</h3><div class="hnote">✓ a caption, then Propose round 1 renders it on the selected clips</div></div><span class="muted" style="font-size:12px">Stage: on sale · CTA Get tickets</span></div>
+  <div class="ctl">
+    <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+    <div class="fld"><span class="k">Angle</span><span class="seg"><span class="on">Lineup</span><span>Artist, first person</span><span>POV</span><span>Scarcity</span></span></div>
+    <div class="fld"><span class="k">Stage</span><span class="sel">On sale<i>▾</i></span></div>
+    <div class="fld"><span class="k">How many</span><span class="seg"><span>1</span><span class="on">3</span><span>5</span></span></div>
+    <div class="fld"><span class="k">Pair with</span><span class="seg"><span class="on">Selected clips</span><span>Best of selected</span><span>Each selected</span></span></div>
+    <div class="fld" style="margin-left:auto"><span class="btn solid">Write 3</span></div>
+  </div>
+  <div class="ads">
+    <div><div class="ad"><div class="ad-h"><span class="av"></span><div><b>Puzzle</b><small>Sponsored</small></div></div><div class="ad-copy">Who's coming?</div><div class="ad-media g1"><div class="cap">Enzo Siragusa, Luke Dean
+&amp; Reeshy at Circuit.</div></div><div class="ad-cta"><b>Puzzle 4th Birthday</b><span>Get tickets</span></div></div>
+      <div class="adfoot"><span>Lineup · Enzo #1</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div></div>
+    <div><div class="ad"><div class="ad-h"><span class="av"></span><div><b>Puzzle</b><small>Sponsored</small></div></div><div class="ad-copy">Who's coming?</div><div class="ad-media g2"><div class="cap">Puzzle turns 4 with
+Enzo Siragusa,
+Luke Dean &amp; Reeshy.</div></div><div class="ad-cta"><b>Puzzle 4th Birthday</b><span>Get tickets</span></div></div>
+      <div class="adfoot"><span>Lineup · Enzo #2</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div></div>
+    <div><div class="ad"><div class="ad-h"><span class="av"></span><div><b>Puzzle</b><small>Sponsored</small></div></div><div class="ad-copy">Who's grabbing a ticket?</div><div class="ad-media g5"><div class="cap">Enzo Siragusa, Luke Dean,
+Reeshy &amp; more.
+27 December.</div></div><div class="ad-cta"><b>Puzzle 4th Birthday</b><span>Get tickets</span></div></div>
+      <div class="adfoot"><span>Lineup · Enzo #5</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div></div>
+  </div>
+</div>
+<div class="panel">
+  <div class="sec-h"><div><span class="k">Pair with · Each selected</span></div><span class="muted" style="font-size:12px">3 captions × 4 clips = 12 previews</span></div>
+  <div style="font-size:12px;color:var(--ink-2)">Caption 1 · Lineup</div>
+  <div class="strip4">
+    <div class="mframe"><div class="ad-media g1"><div class="cap">Enzo Siragusa, Luke Dean
+&amp; Reeshy at Circuit.</div></div><small>Enzo #1</small></div>
+    <div class="mframe"><div class="ad-media g2"><div class="cap">Enzo Siragusa, Luke Dean
+&amp; Reeshy at Circuit.</div></div><small>Enzo #2</small></div>
+    <div class="mframe"><div class="ad-media g5"><div class="cap">Enzo Siragusa, Luke Dean
+&amp; Reeshy at Circuit.</div></div><small>Enzo #5</small></div>
+    <div class="mframe"><div class="ad-media g7"><div class="cap">Enzo Siragusa, Luke Dean
+&amp; Reeshy at Circuit.</div></div><small>Enzo #7</small></div>
+    <div style="align-self:center;font-size:12px;color:var(--ink-3);margin-left:8px">Caption 2 · Caption 3 below, each on the same four clips</div>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>CLS2-393 · Mode · Angle · Pair with visible, How many and Stage behind More · the note under Captions · one post at a time</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+<div class="panel" style="padding:12px">
+  <div class="sec-h"><div><h3>Captions</h3><div class="hnote">✓ a caption, then Propose round 1 renders it on the selected clips</div></div></div>
+  <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+    <div class="fld" style="flex:1;min-width:0"><span class="k">Angle</span><span class="sel" style="min-width:0">Lineup<i>▾</i></span></div>
+  </div>
+  <div class="fld" style="margin-top:10px"><span class="k">Pair with</span><span class="seg"><span class="on">Selected clips</span><span>Best of selected</span><span>Each selected</span></span></div>
+  <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><span class="btn solid" style="flex:1">Write 3</span><span class="btn sm">More ▾</span></div>
+  <div class="ad" style="margin-top:12px"><div class="ad-h"><span class="av"></span><div><b>Puzzle</b><small>Sponsored</small></div></div><div class="ad-copy">Who's coming?</div><div class="ad-media g1"><div class="cap">Enzo Siragusa, Luke Dean
+&amp; Reeshy at Circuit.</div></div><div class="ad-cta"><b>Puzzle 4th Birthday</b><span>Get tickets</span></div></div>
+  <div class="adfoot"><span>Lineup · Enzo #1 · 1 of 3</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div>
+</div>
+</div></figure>
+</div>
+<p class="lead">The generator never looks past the selection. With <i>Selected clips</i> the three captions land on three different selected clips, so one Write shows the selection's range; <i>Best of selected</i> puts all three on one clip; <i>Each selected</i> shows the full cross, grouped per caption, and says how many previews that is before drawing them. Unselected clips (Enzo #3, #4, #6, Luke Dean, Reeshy) appear nowhere here.</p>
+
+<!-- ===================== CLS3 ===================== -->
+<h2>CLS3 · The round, narrowed to the selection (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLS3-1280 · Enzo Siragusa's round 1 · rows = his four selected clips · columns = the three approved captions · one pairing knocked out · "11 ads · 4 clips × 3 captions, 1 left out · 3 of Enzo Siragusa's 7 clips not selected" · below, the no-selection state</figcaption>
+<div class="vp" style="width:1280px;padding:18px">
+<div class="panel">
+  <div class="sec-h"><h3>Round 1 · Enzo Siragusa</h3><span class="muted" style="font-size:12px">the selected clips × the approved captions</span></div>
+  <div class="mx" style="grid-template-columns:150px repeat(3,1fr)">
+    <span></span><span class="hd">Lineup · "at Circuit"</span><span class="hd">Lineup · "turns 4"</span><span class="hd">Lineup · "&amp; more"</span>
+    <span class="hd" style="align-self:center">Enzo #1</span>
+    <div class="cell"><span class="mini g1"></span>New</div><div class="cell"><span class="mini g1"></span>New</div><div class="cell"><span class="mini g1"></span>New</div>
+    <span class="hd" style="align-self:center">Enzo #2</span>
+    <div class="cell"><span class="mini g2"></span>New</div><div class="cell"><span class="mini g2"></span>New</div><div class="cell off">Off — tap to include</div>
+    <span class="hd" style="align-self:center">Enzo #5</span>
+    <div class="cell"><span class="mini g5"></span>New</div><div class="cell"><span class="mini g5"></span>New</div><div class="cell"><span class="mini g5"></span>New</div>
+    <span class="hd" style="align-self:center">Enzo #7</span>
+    <div class="cell"><span class="mini g7"></span>New</div><div class="cell"><span class="mini g7"></span>New</div><div class="cell"><span class="mini g7"></span>New</div>
+  </div>
+  <div class="notsel">Not selected: Enzo #3, Enzo #4, Enzo #6 · <u>change on Clips</u></div>
+  <div class="roundbar">
+    <div><span class="big">11 ads</span> <span class="muted" style="font-size:12.5px">4 clips × 3 captions, 1 left out · 3 of Enzo Siragusa's 7 clips not selected</span></div>
+    <span class="btn solid">Propose round 1</span>
+  </div>
+</div>
+<div class="panel">
+  <div class="sec-h"><h3>Round 1 · Enzo Siragusa</h3><span class="muted" style="font-size:12px">after None on Clips</span></div>
+  <div class="roundbar" style="margin-top:0"><span><span class="big">—</span> <span class="muted" style="font-size:12.5px">Select at least 1 clip to propose round 1.</span></span><span class="btn solid dis">Propose round 1</span></div>
+</div>
+</div></figure>
+<figure><figcaption>CLS3-393 · the list of pairings, first three then "+8 more · 1 off" · the not-selected count on its own line</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+<div class="panel" style="padding:12px">
+  <div class="sec-h"><h3>Round 1 · Enzo Siragusa</h3></div>
+  <div class="mx" style="grid-template-columns:1fr">
+    <div class="cell"><span class="mini g1"></span><div>Enzo #1 × "at Circuit"</div></div>
+    <div class="cell"><span class="mini g1"></span><div>Enzo #1 × "turns 4"</div></div>
+    <div class="cell"><span class="mini g1"></span><div>Enzo #1 × "&amp; more"</div></div>
+    <div class="cell off">+ 8 more · 1 off</div>
+  </div>
+  <div class="roundbar" style="flex-direction:column;align-items:stretch;gap:4px">
+    <span class="big">11 ads</span>
+    <span class="muted" style="font-size:12px">4 clips × 3 captions, 1 left out</span>
+    <span class="muted" style="font-size:12px">3 of Enzo Siragusa's 7 clips not selected · <u>change on Clips</u></span>
+    <span class="btn solid" style="margin-top:8px">Propose round 1</span>
+  </div>
+</div>
+</div></figure>
+</div>
+<p class="lead">The round is still one artist's, as <code>proposeRound</code> builds it; the selection decides its rows. Twelve pairings, one knocked out, eleven ads — the knock-out is per pairing exactly as F5 drew it, so "Enzo #2 with these two captions but not that one" is still one tap. What's missing is named, not hidden: the three unselected Enzo clips are listed under the matrix and counted on the bar.</p>
+
+<!-- ===================== CLS4 ===================== -->
+<h2>CLS4 · Pending states — Finding… · Importing… · Writing… (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLS4-1280 · the three busy buttons · width kept, disabled at 60 %, no spinner · the rest of each section stays usable</figcaption>
+<div class="vp" style="width:1280px;padding:18px">
+<div class="pend">
+  <div class="panel">
+    <div class="sec-h"><div><h3>Clips</h3><div class="hnote">Selected clips become ads when a round pairs them with an approved caption</div></div><span class="btn busy" style="min-width:172px">Finding…</span></div>
+    <div class="selbar"><span class="cnt"><b>4</b> of 9 selected</span><span class="lnk">Select all</span><span class="muted">·</span><span class="lnk">None</span></div>
+    <div class="muted" style="font-size:12px">Ticks and Select all · None still work while Instagram is read.</div>
+  </div>
+  <div class="panel">
+    <div class="sec-h"><h3>Find clips on Instagram · @enzosiragusa</h3></div>
+    <div class="grid" style="grid-template-columns:repeat(2,150px)">
+      <div class="tile"><div class="thumb g7" style="max-height:170px"><span class="play">▶</span><span class="dur">0:18</span></div><div class="tmeta"><div class="t1"><span class="mono">♥ 4,210 · 💬 186</span></div><span class="btn sm busy" style="margin-top:6px;min-width:64px">Importing…</span><div class="prog"><i></i></div></div></div>
+      <div class="tile"><div class="thumb g6" style="max-height:170px"><span class="play">▶</span><span class="dur">0:27</span></div><div class="tmeta"><div class="t1"><span class="mono">♥ 3,980 · 💬 141</span></div><span class="btn sm" style="margin-top:6px">Add</span></div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sec-h"><div><h3>Captions</h3><div class="hnote">✓ a caption, then Propose round 1 renders it on the selected clips</div></div></div>
+    <div class="ctl"><div class="fld"><span class="k">Angle</span><span class="sel">Lineup<i>▾</i></span></div><div class="fld" style="margin-left:auto"><span class="btn solid busy" style="min-width:76px">Writing…</span></div></div>
+    <div class="muted" style="font-size:12px;margin-top:10px">On failure the label returns and one sentence says what to do.</div>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>CLS4-393 · the same three, stacked</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+  <div class="panel" style="padding:12px"><div class="sec-h"><div><h3>Clips</h3><div class="hnote">Selected clips become ads when a round pairs them with an approved caption</div></div><span class="btn sm busy" style="min-width:116px">Finding…</span></div><div class="selbar" style="justify-content:space-between;margin:0"><span class="cnt"><b>4</b> of 9 selected</span><span><span class="lnk">Select all</span> · <span class="lnk">None</span></span></div></div>
+  <div class="panel" style="padding:12px"><div class="grid" style="grid-template-columns:repeat(2,1fr);gap:8px">
+    <div class="tile"><div class="thumb g7" style="max-height:130px"><span class="play">▶</span></div><div class="tmeta"><span class="mono">♥ 4,210</span><br><span class="btn sm busy" style="margin-top:6px;width:100%">Importing…</span><div class="prog"><i></i></div></div></div>
+    <div class="tile"><div class="thumb g6" style="max-height:130px"><span class="play">▶</span></div><div class="tmeta"><span class="mono">♥ 3,980</span><br><span class="btn sm" style="margin-top:6px;width:100%">Add</span></div></div>
+  </div></div>
+  <div class="panel" style="padding:12px"><div style="display:flex;gap:8px;align-items:center"><span class="btn solid busy" style="flex:1">Writing…</span><span class="btn sm">More ▾</span></div></div>
+</div></figure>
+</div>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th><th>393</th></tr>
+<tr><td>Clip tile</td><td>Gains the selection tick (top-right of the frame, 22 px, empty ring / filled ink ✓) and the selected outline. Tapping the tick toggles; tapping the frame plays (unchanged). Can't run: no tick. Never dimmed for being unselected.</td><td>2 across, all usable tiles in the grid; tick hit area 32 px</td></tr>
+<tr><td>Clips header (section)</td><td>The note line; the count "{n} of {m} selected" with Select all · None (the no-op one muted); "· 1 new, not selected" in chosen mode.</td><td>count line under the note, actions at its right</td></tr>
+<tr><td>Generator (captions)</td><td><i>Pair with</i>: Selected clips · Best of selected · Each selected, default Best of selected; "{captions} × {clips} = {n} previews" above Each selected; the no-clip sentence on a plain plate.</td><td>Mode · Angle · Pair with visible; How many and Stage behind More</td></tr>
+<tr><td>Round matrix</td><td>Rows = the round artist's selected usable clips; per-cell knock-out kept; the bar adds "· {k} of {artist}'s {m} clips not selected"; one muted "Not selected: …" line; the ochre line when a kept winner was unselected; "Select at least 1 clip to propose round {n}."</td><td>pairings list; the not-selected count on its own line</td></tr>
+<tr><td>Strip</td><td>Clips cell state line "{n} selected" in chosen mode. Next line unchanged.</td><td>same, shorter words</td></tr>
+<tr><td>Action button · busy (new state)</td><td>Label → "Finding…" / "Importing…" / "Writing…"; idle width kept; disabled at 60 %; no spinner without the word; failure returns the label and adds the rule-7 sentence.</td><td>same</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HS1 Selection rows</td><td>New table <code>creative_lab_clip_selections</code> (event_id, clip_id, selected boolean, set_by, set_at; unique (event_id, clip_id); RLS as creative_lab_clips) and <code>events.clip_selection_mode</code> text <code>all | chosen</code>, default <code>all</code>. Effective selection = every usable clip when <code>all</code>; else the rows with selected = true whose clip is still usable. A tick in <code>all</code> mode writes rows for every usable clip and flips to <code>chosen</code>; Select all flips back to <code>all</code>; None writes every row false in <code>chosen</code>.</td><td>new migration</td><td>unit: new clip in <code>all</code> → selected; in <code>chosen</code> → not; a clip that turns Can't run leaves the effective set; the count equals the effective set's size</td></tr>
+<tr><td>HS2 Tile and header</td><td>The tick, the outline and the header line as drawn; tick toggles via one PATCH per tap, optimistic, reverted with the rule-7 sentence on failure; the "1 new, not selected" line; the "left the selection" line.</td><td>HS1</td><td>CLS1-1280 / -393 as drawn: "4 of 9 selected", ticks on Enzo #1, #2, #5, #7, no tick on Benji King #1</td></tr>
+<tr><td>HS3 Pair with</td><td><code>CaptionGenerator.each: boolean</code> becomes <code>pair: "spread" | "best" | "each"</code>; previews read the effective selection only; best = lowest cost per result among selected clips with a verdict, else the first selected in display order; each groups per caption with the count line; none selected → the plain plate and its sentence. The writer call is unchanged.</td><td>captions.tsx; quote.ts (the type)</td><td>CLS2 both widths; unit: spread with 3 captions and clips [1,2,5,7] pairs 1→1, 2→2, 3→5</td></tr>
+<tr><td>HS4 The round</td><td><code>proposeRound</code> takes the effective selection: <code>clips</code> = the artist's usable clips ∩ the selection, in display order; the knock-out list unchanged; returns the not-selected names for the bar; refuses with "Select at least 1 clip to propose round {n}." when empty (a new <code>RoundBuildError</code> code, <code>no_selected_clips</code>); the kept-winner ochre line from the round plan.</td><td>propose.ts; HS1</td><td>CLS3 both widths: 11 ads, 4 × 3 − 1; unit: an unselected clip never appears in pairs; empty selection → no_selected_clips</td></tr>
+<tr><td>HS5 Renders</td><td>Renders are queued only from the on cells of a proposed round (assert, no new path); unselecting never deletes a render.</td><td>render-queue.ts</td><td>unit: a proposed round with one off cell queues 11 renders</td></tr>
+<tr><td>HS6 The words</td><td>The two notes verbatim; the Captions note's round number from the next round; the strip's Clips state line in chosen mode.</td><td>—</td><td>words match exactly; "Propose round 2" after round 1 has run</td></tr>
+<tr><td>HS7 Busy state</td><td>One busy state for the three actions (Claude Code's change) as S11: label, width, 60 %, no spinner, nothing else locked, the rule-7 sentence on failure.</td><td>—</td><td>CLS4 both widths</td></tr>
+<tr><td>HS8 CI frames</td><td>CLS1–CLS4 added to the CL series (ids CLS so <code>only=CLS</code> doesn't reshoot CL or CLQ). Fixture: Puzzle 4th Birthday before round 1, nine usable clips (Enzo #1–#7, Luke Dean #1, Reeshy #1) and Benji King #1 Can't run; selection chosen = Enzo #1, #2, #5, #7; three approved Lineup captions (the placeholders below); one knocked-out pairing (Enzo #2 × "&amp; more").</td><td>the CL fixture</td><td>frames:check on CLS1 ×2, CLS2 ×2, CLS3 ×2, CLS4 ×2; CL1–CL10 and CLQ1–CLQ4 unchanged</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The tick's placement and size (top-right of the frame, 22 px, 6 px inset; 32 px hit area at 393) and the 2 px ink outline on a selected tile.</li>
+<li>The count wording "4 of 9 selected", "Select all · None", "· 1 new, not selected", "Enzo #3 left the selection — too long", and the strip's "{n} selected".</li>
+<li>The meanings of the three <i>Pair with</i> options (spread, best, each), the default (Best of selected), the "{captions} × {clips} = {n} previews" line and the no-clip sentence. The three labels are Matas's.</li>
+<li>The two selection modes (all / chosen) and how a new clip joins each; the "Not selected: … · change on Clips" line and the round bar's "{k} of {artist}'s {m} clips not selected"; the kept-winner ochre line; "Select at least 1 clip to propose round {n}."</li>
+<li>The busy state's shape (width kept, 60 %, no spinner). The three words Finding… / Importing… / Writing… are Claude Code's.</li>
+<li>The fixture: nine clips with Enzo #1–#7 (Puzzle's real lineup has fewer Enzo clips today), Benji King #1's Can't-run reason, the three caption lines and their primary text. Placeholders; the two header notes are Matas's words verbatim.</li>
+</ul>
+
+<h2>Frames for CI (CL series, additions)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>CLS1</td><td>1280, 393</td><td>Clips with the note, "4 of 9 selected", Select all · None, ticks on Enzo #1, #2, #5, #7, Benji King #1 Can't run with no tick</td></tr>
+<tr><td>CLS2</td><td>1280, 393</td><td>Captions with the note; Pair with = Selected clips, three Lineup captions on Enzo #1, #2, #5; at 1280 the Each selected panel for caption 1 on the four selected clips</td></tr>
+<tr><td>CLS3</td><td>1280, 393</td><td>Round 1 · Enzo Siragusa: four selected clips × three captions, Enzo #2 × "&amp; more" off, 11 ads, 3 not selected; at 1280 the no-selection panel</td></tr>
+<tr><td>CLS4</td><td>1280, 393</td><td>Finding… on the Clips header, Importing… on a candidate with its bar, Writing… on Write 3</td></tr>
+</table>
+
+</div>
+</body>
+</html>
