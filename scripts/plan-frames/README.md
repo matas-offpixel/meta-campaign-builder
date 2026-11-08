@@ -61,20 +61,20 @@ Puzzle 4th Birthday, today 7 Nov 2026, show 27 Dec, payday Fri 27 Nov, 50 days. 
 
 | Id | What to check |
 |---|---|
-| AB1 | The timeline and the five-segment control. Big number 2 of 4 on sale · 2 sold out. 393 scrolls the line inside the panel and shortens fast / final / out |
+| AB1 | Dots sit on one line. Early bird: live done, sold out done. 2nd release: live → 90% sold out → sold out, all done. General sale and 3rd release show a dashed final X. The 3rd release's next rung is "90% · next read Mon" in ochre. Today sits above the release labels. Show · 27 Dec is one line. The state control is one bordered control: past segments muted, the current one filled ink. Big number 2 of 4 on sale · 2 sold out. 393 scrolls the line and shortens the control to fast / final / out |
 | AB2 | Four cards at 1280 (proposal, approved live, locked final X, back to held). 393 shows the proposal and the locked card. Artwork slots read "+ needs the piece" |
-| AB3 | 23 Nov – 27 Dec. Window shaded where `isInPaydayWindow` is true: Thu 26 Nov through Sun 13 Dec (18 days). 24 Dec reads "moved · 25th is Christmas". "Last day at £26" is gone |
-| AB4 | Header 15 approved · 1 proposed · 3 locked · 5 missing. The button's action makes nothing: every missing cell needs a piece |
-| AB5 | Eight rungs, Puzzle's 5-day override and the % line. The roll-call is a line under the table, not a ninth row |
+| AB3 | 23 Nov – 27 Dec. Window shaded where `isInPaydayWindow` is true: Thu 26 Nov through Sun 13 Dec (18 days). 27 Nov and 24 Dec are outlined. Ticket pushes are brick, content-led pushes are meta-blue, and the legend has those swatches. 24 Dec reads "moved · 25th is Christmas". The 393 list includes Sat 28 and every other push on the grid. "Last day at £26" is gone |
+| AB4 | Header 15 approved · 1 proposed · 3 locked · 5 missing. Made cells carry a thumbnail, approved cells add ✓, held is ochre-outlined, proposed is ochre, locked and "+ needs …" are dashed. Row sub-lines include "sold out · ladder done" and "proposed · Mon read". The button's action makes nothing |
+| AB5 | Eight rungs at both widths, Puzzle's 5-day override and the % line. 393 stacks each trigger over its claim, full width. No roll-call line |
 
 Flagged against the drawings:
 
 - AB2's first line is "Client message, Wed 4 Nov:" (the vendor reader is not in this PR). The record's figure says "Skiddle read Wed 4 Nov 09:00".
-- Artwork is a dashed "+ needs the piece". The figures use a filled caption; the overlay templates are not built, and this PR does not render.
-- AB3's record says the window runs to Monday 14 Dec. The code's 18th day is Sunday 13 Dec, so 14 Dec is not shaded.
-- There is no platform-tint token, so a content-led day uses the same ink as the other days and is named in the label.
+- Artwork slots are a dashed "+ needs the piece". The figures use a filled caption; the overlay templates are not built, and this PR does not render.
+- A made board cell uses the record's thumbnail gradient. There is no piece to show.
+- AB3's record says the window runs to Monday 14 Dec. The code's 18th day is Sunday 13 Dec, so 14 Dec is not shaded. The verdict keeps the code.
+- Content-led marks use the deck's meta-blue (`#5B7FA6`).
 - AB4's visible cells do not add up to 15 approved. The header is the record's count.
-- AB5's roll-call line is from the build, not a row in the figure.
 - AB1's "Skiddle read" lines are the figure's provenance. Nothing fetches Skiddle.
 
 ### Captions

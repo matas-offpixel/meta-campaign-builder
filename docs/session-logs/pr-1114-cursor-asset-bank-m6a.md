@@ -29,3 +29,5 @@ Creative Lab M6-A: a release has a state, the claim ladder says what that state 
 ## Notes
 
 Nothing was written to production. The backfill runs only when Matas applies 211. A count writes `tier_channel_sales` only when a capacity is known and a channel named `manual` already exists.
+
+Design verdict on `91dd297` failed 5 of 10. The follow-up puts the dots on the line, fills the current state in ink, outlines both paydays, draws the six board states, drops the roll-call footnote, and stacks all eight ladder rungs at 393.

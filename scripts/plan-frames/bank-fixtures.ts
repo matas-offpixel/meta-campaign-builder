@@ -18,10 +18,9 @@ export const AB1_ROWS: ReleaseRow[] = [
     shortTimeline: "Early bird · 21 Oct",
     left: "8%",
     rungs: [
-      { text: "live", short: "sold out", status: "done" },
+      { text: "live", short: "live", status: "done" },
       { text: "sold out", short: "sold out", status: "done" },
     ],
-    narrowRungs: [{ text: "sold out", short: "sold out", status: "done" }],
   },
   {
     id: "second",
@@ -35,13 +34,10 @@ export const AB1_ROWS: ReleaseRow[] = [
     timelineLabel: "2nd release · 29 Oct 11:30 / 12:00",
     shortTimeline: "2nd · 29 Oct",
     left: "30%",
+    low: true,
     rungs: [
-      { text: "live", short: "90%", status: "done" },
-      { text: "90% sold out", short: "sold out", status: "done" },
-      { text: "sold out", short: "sold out", status: "done" },
-    ],
-    narrowRungs: [
-      { text: "90%", short: "90%", status: "done" },
+      { text: "live", short: "live", status: "done" },
+      { text: "90% sold out", short: "90%", status: "done" },
       { text: "sold out", short: "sold out", status: "done" },
     ],
   },
@@ -62,10 +58,6 @@ export const AB1_ROWS: ReleaseRow[] = [
       { text: "90%", short: "90%", status: "later" },
       { text: "final X", short: "final X", status: "later" },
     ],
-    narrowRungs: [
-      { text: "live", short: "live", status: "done" },
-      { text: "90%", short: "90%", status: "later" },
-    ],
   },
   {
     id: "third",
@@ -79,14 +71,11 @@ export const AB1_ROWS: ReleaseRow[] = [
     timelineLabel: "3rd release · 6 Nov 11:30 / 12:00",
     shortTimeline: "3rd · 6 Nov",
     left: "62%",
+    low: true,
     rungs: [
       { text: "live · selling fast", short: "live", status: "done" },
-      { text: "90% · next read Mon", short: "90%", status: "next" },
+      { text: "90% · next read Mon", short: "90% · next read Mon", status: "next" },
       { text: "final X", short: "final X", status: "later" },
-    ],
-    narrowRungs: [
-      { text: "live", short: "live", status: "done" },
-      { text: "90%", short: "90%", status: "next" },
     ],
   },
 ];

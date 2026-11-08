@@ -10,6 +10,13 @@ import { RELEASE_STATES, type ReleaseState } from "@/lib/releases/types";
 const FULL = ["not yet", "on sale", "selling fast", "final X", "sold out"];
 const SHORT = ["not yet", "on sale", "fast", "final", "out"];
 
+/** Sentence case, as the records draw a panel title. The mono kicker stays for column labels. */
+const PANEL_TITLE = "text-[13px] font-semibold tracking-normal";
+const KICKER = "font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground";
+
+/** Deck token for a content-led push. Not a new colour. */
+const META_BLUE = "#5B7FA6";
+
 export type RungMark = { text: string; short: string; status: "done" | "next" | "later" };
 
 export type ReleaseRow = {
@@ -27,8 +34,9 @@ export type ReleaseRow = {
   timelineLabel: string;
   shortTimeline: string;
   left: string;
+  /** Lower ladder band, so a long rung row clears the one above it. */
+  low?: boolean;
   rungs: RungMark[];
-  narrowRungs?: RungMark[];
 };
 
 export type ClaimLine = { text: string; chip: string; tone: "ok" | "warn" | "dash" };
@@ -73,7 +81,7 @@ export function ReleasesPanel({
     <div className="space-y-3">
       <section className="rounded-md border border-border bg-card p-4">
         <div className="mb-3 flex items-baseline justify-between gap-2">
-          <h3 className="font-heading text-sm tracking-wide">
+          <h3 className={PANEL_TITLE}>
             <span className="sm:hidden">Releases · {rows.length}</span>
             <span className="hidden sm:inline">Releases</span>
           </h3>
@@ -88,50 +96,7 @@ export function ReleasesPanel({
         {editing ? <EditSheet rows={rows} onClose={() => setEditing(false)} /> : null}
         <div className="overflow-hidden">
           <div className="overflow-x-auto">
-            <div className="relative h-40 min-w-[760px] sm:min-w-0">
-              <div className="absolute left-0 right-0 top-[52px] h-px bg-border" />
-              {rows.map((row) => (
-                <div key={row.id} className="absolute top-0 -translate-x-1/2 text-center" style={{ left: row.left }}>
-                  <div className="max-w-[140px] text-[11px] leading-tight">
-                    <span className="hidden sm:inline">{row.timelineLabel}</span>
-                    <span className="sm:hidden">{row.shortTimeline}</span>
-                  </div>
-                  <div className="mx-auto mt-1 h-2.5 w-2.5 rounded-full bg-foreground" />
-                  <div className="mt-3 flex justify-center gap-1 text-[10px]">
-                    {(row.narrowRungs ?? row.rungs).map((rung, index) => (
-                      <span key={rung.text} className="hidden sm:contents">
-                        {index > 0 ? <span className="text-muted-foreground">→</span> : null}
-                        <RungPill rung={rung} />
-                      </span>
-                    ))}
-                    {(row.narrowRungs ?? row.rungs).map((rung, index) => (
-                      <span key={`${rung.short}-${index}`} className="sm:hidden">
-                        {index > 0 ? <span className="text-muted-foreground">→</span> : null}
-                        <RungPill rung={{ ...rung, text: rung.short }} />
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <div className="absolute top-0 -translate-x-1/2 text-center text-warning" style={{ left: "66%" }}>
-                <div className="text-[11px]">
-                  <span className="hidden sm:inline">{todayLabel}</span>
-                  <span className="sm:hidden">{todayShort}</span>
-                </div>
-                <div className="mx-auto mt-1 h-4 w-0.5 rounded bg-warning" />
-              </div>
-              <div className="absolute top-0 -translate-x-1/2 text-center" style={{ left: "86%" }}>
-                <div className="text-[11px]">
-                  <span className="hidden sm:inline">Payday · Fri 27 Nov</span>
-                  <span className="sm:hidden">Payday 27 Nov</span>
-                </div>
-                <div className="mx-auto mt-1 h-2.5 w-2.5 rounded-full border-2 border-foreground bg-transparent" />
-              </div>
-              <div className="absolute top-0 hidden -translate-x-1/2 text-center sm:block" style={{ left: "98%" }}>
-                <div className="text-[11px] text-destructive">Show · 27 Dec</div>
-                <div className="mx-auto mt-1 h-2.5 w-2.5 rounded-full bg-destructive" />
-              </div>
-            </div>
+            <Timeline rows={rows} todayLabel={todayLabel} todayShort={todayShort} />
           </div>
           <p className="mt-1 text-[10px] text-muted-foreground sm:hidden">scrolls sideways →</p>
         </div>
@@ -141,7 +106,7 @@ export function ReleasesPanel({
       <div className="grid gap-3 sm:grid-cols-[1.7fr_1fr]">
         <section className="rounded-md border border-border bg-card p-4">
           <div className="mb-3 flex items-baseline justify-between gap-2">
-            <h3 className="font-heading text-sm tracking-wide">Where each release is</h3>
+            <h3 className={PANEL_TITLE}>Where each release is</h3>
             <p>
               <span className="font-heading text-2xl">{headline}</span>{" "}
               <span className="text-xs text-muted-foreground">
@@ -160,7 +125,7 @@ export function ReleasesPanel({
                     <span className="hidden sm:inline">{row.when}</span>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-1">
+                <div className="inline-flex max-w-full overflow-hidden rounded-full border border-border-strong text-[10px] font-semibold whitespace-nowrap">
                   {RELEASE_STATES.map((state, index) => {
                     const on = state === row.state;
                     const past = RELEASE_STATES.indexOf(state) < RELEASE_STATES.indexOf(row.state);
@@ -168,7 +133,7 @@ export function ReleasesPanel({
                       <button
                         key={state}
                         type="button"
-                        className={`rounded px-1.5 py-0.5 text-[11px] ${on ? "bg-foreground text-background" : past ? "text-success" : "text-muted-foreground"}`}
+                        className={`border-r border-border px-1.5 py-1 last:border-r-0 ${on ? "bg-foreground text-background" : past ? "text-muted-foreground" : "text-foreground/80"}`}
                         onClick={async () => {
                           if (!onState) return;
                           const result = await onState(row.id, state, ask === `${row.id}:${state}`);
@@ -227,7 +192,7 @@ export function ReleasesPanel({
         </section>
         <section className="hidden rounded-md border border-border bg-card p-4 sm:block">
           <div className="mb-3 flex items-baseline justify-between">
-            <h3 className="font-heading text-sm tracking-wide">Claims</h3>
+            <h3 className={PANEL_TITLE}>Claims</h3>
             <span className="text-[11px] text-muted-foreground">{claimSummary}</span>
           </div>
           <ul className="space-y-1.5 text-xs">
@@ -245,14 +210,78 @@ export function ReleasesPanel({
   );
 }
 
+/** The line is one element. Labels hang off it, so a second line never moves a dot. */
+function Timeline({ rows, todayLabel, todayShort }: { rows: ReleaseRow[]; todayLabel: string; todayShort: string }) {
+  return (
+    <div className="relative h-48 min-w-[760px] sm:min-w-0">
+      <div className="absolute top-20 right-0 left-0 h-0.5 bg-border-strong" />
+      {rows.map((row) => (
+        <ReleaseMark key={row.id} row={row} />
+      ))}
+      <div className="absolute top-20 h-4 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-sm bg-warning" style={{ left: "66%" }} />
+      <div className="absolute top-0 w-max -translate-x-1/2 text-[10.5px] font-semibold whitespace-nowrap text-warning" style={{ left: "66%" }}>
+        <span className="hidden sm:inline">{todayLabel}</span>
+        <span className="sm:hidden">{todayShort}</span>
+      </div>
+      <div className="absolute top-20 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-foreground bg-transparent" style={{ left: "86%" }} />
+      <div className="absolute top-9 w-max -translate-x-1/2 text-center text-[10.5px] leading-tight font-semibold" style={{ left: "86%" }}>
+        <span className="block whitespace-nowrap">Payday</span>
+        <span className="block whitespace-nowrap font-normal">
+          <span className="hidden sm:inline">Fri 27 Nov</span>
+          <span className="sm:hidden">27 Nov</span>
+        </span>
+      </div>
+      <div className="absolute top-20 hidden h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-destructive sm:block" style={{ left: "98%" }} />
+      <div className="absolute top-9 hidden w-max -translate-x-full text-[10.5px] font-semibold whitespace-nowrap text-destructive sm:block" style={{ left: "98%" }}>
+        Show · 27 Dec
+      </div>
+    </div>
+  );
+}
+
+function ReleaseMark({ row }: { row: ReleaseRow }) {
+  const [name, date] = splitTimeline(row.timelineLabel);
+  const [shortName, shortDate] = splitTimeline(row.shortTimeline);
+  return (
+    <div className="absolute top-20 h-0 w-0 -translate-x-1/2" style={{ left: row.left }}>
+      <div className="absolute top-0 left-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
+      <div className="absolute bottom-3 left-1/2 w-max -translate-x-1/2 text-center text-[10.5px] leading-tight font-semibold">
+        <span className="hidden whitespace-nowrap sm:block">{name}</span>
+        {date ? <span className="hidden whitespace-nowrap font-normal text-foreground/80 sm:block">{date}</span> : null}
+        <span className="whitespace-nowrap sm:hidden">{shortName}</span>
+        {shortDate ? <span className="block whitespace-nowrap font-normal text-foreground/80 sm:hidden">{shortDate}</span> : null}
+      </div>
+      <div className={`absolute left-1/2 flex w-max -translate-x-1/2 items-center gap-1 text-[9.5px] ${row.low ? "top-10" : "top-3"}`}>
+        {row.rungs.map((rung, index) => (
+          <span key={rung.text} className="flex items-center gap-1">
+            {index > 0 ? <span className="text-muted-foreground">→</span> : null}
+            <RungPill rung={rung} />
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function splitTimeline(label: string): [string, string] {
+  const cut = label.indexOf(" · ");
+  if (cut < 0) return [label, ""];
+  return [label.slice(0, cut), label.slice(cut + 3)];
+}
+
 function RungPill({ rung }: { rung: RungMark }) {
   const cls =
     rung.status === "done"
-      ? "rounded bg-success px-1 text-white"
+      ? "inline-flex h-[18px] items-center rounded border border-success bg-success px-1.5 whitespace-nowrap text-white"
       : rung.status === "next"
-        ? "rounded border border-warning px-1 text-warning"
-        : "rounded border border-dashed border-border px-1 text-muted-foreground";
-  return <span className={cls}>{rung.text}</span>;
+        ? "inline-flex h-[18px] items-center rounded border border-warning bg-card px-1.5 whitespace-nowrap text-warning"
+        : "inline-flex h-[18px] items-center rounded border border-dashed border-border-strong px-1.5 whitespace-nowrap text-muted-foreground";
+  return (
+    <span className={cls}>
+      <span className="hidden sm:inline">{rung.text}</span>
+      <span className="sm:hidden">{rung.short}</span>
+    </span>
+  );
 }
 
 function EditSheet({ rows, onClose }: { rows: ReleaseRow[]; onClose: () => void }) {
@@ -389,16 +418,18 @@ export function ClaimCards({
   );
 }
 
-const CALENDAR: { ymd: string; day: string; lines?: string[]; kind?: "ticket" | "content" | "payday" | "show" }[] = [
+type PushMark = "ticket" | "content" | "payday";
+
+const CALENDAR: { ymd: string; day: string; lines?: { text: string; mark?: PushMark }[]; show?: boolean }[] = [
   { ymd: "2026-11-23", day: "23" },
   { ymd: "2026-11-24", day: "24" },
   { ymd: "2026-11-25", day: "25" },
   { ymd: "2026-11-26", day: "26" },
-  { ymd: "2026-11-27", day: "27", lines: ["Payday", "Payday push · 3rd release 90% sold out"], kind: "payday" },
-  { ymd: "2026-11-28", day: "28", lines: ["3rd release 90% sold out"], kind: "ticket" },
+  { ymd: "2026-11-27", day: "27", lines: [{ text: "Payday" }, { text: "Payday push · 3rd release 90% sold out", mark: "ticket" }] },
+  { ymd: "2026-11-28", day: "28", lines: [{ text: "3rd release 90% sold out", mark: "ticket" }] },
   { ymd: "2026-11-29", day: "29" },
   { ymd: "2026-11-30", day: "30" },
-  { ymd: "2026-12-01", day: "1 Dec", lines: ["3rd release live 12:00"], kind: "ticket" },
+  { ymd: "2026-12-01", day: "1 Dec", lines: [{ text: "3rd release live 12:00", mark: "ticket" }] },
   { ymd: "2026-12-02", day: "2" },
   { ymd: "2026-12-03", day: "3" },
   { ymd: "2026-12-04", day: "4" },
@@ -412,41 +443,58 @@ const CALENDAR: { ymd: string; day: string; lines?: string[]; kind?: "ticket" | 
   { ymd: "2026-12-12", day: "12" },
   { ymd: "2026-12-13", day: "13" },
   { ymd: "2026-12-14", day: "14" },
-  { ymd: "2026-12-15", day: "15", lines: ["Artist cards"], kind: "content" },
-  { ymd: "2026-12-16", day: "16", lines: ["UGC · Enzo"], kind: "content" },
-  { ymd: "2026-12-17", day: "17", lines: ["Experience"], kind: "content" },
+  { ymd: "2026-12-15", day: "15", lines: [{ text: "Artist cards", mark: "content" }] },
+  { ymd: "2026-12-16", day: "16", lines: [{ text: "UGC · Enzo", mark: "content" }] },
+  { ymd: "2026-12-17", day: "17", lines: [{ text: "Experience", mark: "content" }] },
   { ymd: "2026-12-18", day: "18" },
   { ymd: "2026-12-19", day: "19" },
   { ymd: "2026-12-20", day: "20" },
   { ymd: "2026-12-21", day: "21" },
-  { ymd: "2026-12-22", day: "22", lines: ["Final X · 3rd release · if triggered"], kind: "ticket" },
+  { ymd: "2026-12-22", day: "22", lines: [{ text: "Final X · 3rd release · if triggered", mark: "ticket" }] },
   { ymd: "2026-12-23", day: "23" },
-  { ymd: "2026-12-24", day: "24", lines: ["Payday push", "moved · 25th is Christmas"], kind: "payday" },
-  { ymd: "2026-12-25", day: "25", lines: ["Payday · Christmas Day"] },
+  { ymd: "2026-12-24", day: "24", lines: [{ text: "Payday push", mark: "payday" }, { text: "moved · 25th is Christmas" }] },
+  { ymd: "2026-12-25", day: "25", lines: [{ text: "Payday · Christmas Day" }] },
   { ymd: "2026-12-26", day: "26" },
-  { ymd: "2026-12-27", day: "27", lines: ["Show"], kind: "show" },
+  { ymd: "2026-12-27", day: "27", lines: [{ text: "Show" }], show: true },
 ];
+
+function Swatch({ mark }: { mark: PushMark | "window" }) {
+  if (mark === "payday") return <span className="mr-1 inline-block h-1.5 w-1.5 rounded-sm border-2 border-foreground align-middle" />;
+  if (mark === "window") return <span className="mr-1 inline-block h-1.5 w-1.5 rounded-sm border border-border-strong bg-background align-middle" />;
+  if (mark === "ticket") return <span className="mr-1 inline-block h-1.5 w-1.5 rounded-sm bg-destructive align-middle" />;
+  return <span className="mr-1 inline-block h-1.5 w-1.5 rounded-sm align-middle" style={{ background: META_BLUE }} />;
+}
 
 export function PaydayCalendar() {
   const moved = paydayPush(2026, 12);
+  const payday = new Set(["2026-11-27", moved.day]);
   return (
     <section className="rounded-md border border-border bg-card p-4">
       <div className="mb-3 hidden items-baseline justify-between gap-2 sm:flex">
-        <h3 className="font-heading text-sm tracking-wide">Pushes · 23 Nov – 27 Dec</h3>
-        <p className="text-[11px] text-muted-foreground">ticket warning · content · payday · payday window</p>
+        <h3 className={PANEL_TITLE}>Pushes · 23 Nov – 27 Dec</h3>
+        <p className="text-[11px] text-muted-foreground">
+          <Swatch mark="ticket" />ticket warning <Swatch mark="content" />content-led <Swatch mark="payday" />payday <Swatch mark="window" />payday window
+        </p>
       </div>
       <div className="hidden sm:block">
         <div className="grid grid-cols-7 gap-1 text-[11px]">
           {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].map((day) => (
-            <div key={day} className="text-muted-foreground">{day}</div>
+            <div key={day} className={`${KICKER} text-center`}>{day}</div>
           ))}
           {CALENDAR.map((cell) => {
             const win = isInPaydayWindow(cell.ymd);
-            const reason = cell.ymd === moved.day ? moved.reason : null;
             return (
-              <div key={cell.ymd} className={`min-h-16 rounded p-1 ${cell.kind === "show" ? "bg-foreground text-background" : win ? "bg-muted" : ""} ${cell.ymd === "2026-12-25" ? "opacity-60" : ""}`}>
+              <div
+                key={cell.ymd}
+                className={`min-h-16 rounded p-1 ${cell.show ? "bg-foreground text-background" : win ? "bg-background" : ""} ${payday.has(cell.ymd) ? "outline outline-2 outline-foreground" : ""} ${cell.ymd === "2026-12-25" ? "opacity-60" : ""}`}
+              >
                 <div>{cell.day}</div>
-                {cell.lines?.map((line) => <div key={line}>{line === "moved · 25th is Christmas" && reason ? reason : line}</div>)}
+                {cell.lines?.map((line) => (
+                  <div key={line.text} className="text-[9.5px] leading-tight">
+                    {line.mark ? <Swatch mark={line.mark} /> : null}
+                    {line.text === "moved · 25th is Christmas" ? moved.reason : line.text}
+                  </div>
+                ))}
               </div>
             );
           })}
@@ -456,30 +504,34 @@ export function PaydayCalendar() {
         </p>
       </div>
       <div className="space-y-3 text-xs sm:hidden">
-        <p className="text-muted-foreground">Week of 23 Nov · payday window opens Thu</p>
-        <p className="font-medium">Fri 27 · Payday push + 3rd release 90% sold out</p>
-        <p>Tue 1 Dec · 3rd release live 12:00</p>
-        <p className="text-muted-foreground">Week of 14 Dec · mid-month</p>
-        <p>Tue 15 · Artist cards</p>
-        <p>Wed 16 · UGC · Enzo</p>
-        <p className="text-muted-foreground">Week of 21 Dec · show week</p>
-        <p>Tue 22 · Final X · 3rd release · if triggered</p>
-        <p className="font-medium">Thu 24 · Payday push (moved from Christmas Day)</p>
+        <p className={KICKER}>Week of 23 Nov · payday window opens Thu</p>
+        <p className="font-medium"><Swatch mark="ticket" />Fri 27 · Payday push + 3rd release 90% sold out</p>
+        <p><Swatch mark="ticket" />Sat 28 · 3rd release 90% sold out</p>
+        <p><Swatch mark="ticket" />Tue 1 Dec · 3rd release live 12:00</p>
+        <p className={KICKER}>Week of 14 Dec · mid-month</p>
+        <p><Swatch mark="content" />Tue 15 · Artist cards</p>
+        <p><Swatch mark="content" />Wed 16 · UGC · Enzo</p>
+        <p><Swatch mark="content" />Thu 17 · Experience</p>
+        <p className={KICKER}>Week of 21 Dec · show week</p>
+        <p><Swatch mark="ticket" />Tue 22 · Final X · 3rd release · if triggered</p>
+        <p className="font-medium"><Swatch mark="payday" />Thu 24 · Payday push (moved from Christmas Day)</p>
       </div>
     </section>
   );
 }
 
-const BOARD: { row: string; cells: { text: string; status: "approved" | "proposed" | "locked" | "missing" | "na" | "held" }[] }[] = [
-  { row: "Headliner UGC · promoter voice", cells: [{ text: "Enzo #2", status: "approved" }, { text: "—", status: "na" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
-  { row: "Headliner UGC · artist voice", cells: [{ text: "Held · Luke Dean not cleared", status: "held" }, { text: "—", status: "na" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
-  { row: "Artist card", cells: [{ text: "+ audio 15 s", status: "held" }, { text: "", status: "approved" }, { text: "", status: "approved" }, { text: "+ needs Reeshy's press shot", status: "missing" }] },
-  { row: "Lineup artwork edit", cells: [{ text: "+ needs the PSD", status: "missing" }, { text: "", status: "approved" }, { text: "", status: "approved" }, { text: "", status: "held" }] },
-  { row: "2nd release", cells: [{ text: "90% sold out", status: "approved" }, { text: "90% sold out", status: "approved" }, { text: "live", status: "approved" }, { text: "—", status: "na" }] },
-  { row: "3rd release · 90% sold out", cells: [{ text: "Proposed · approve", status: "proposed" }, { text: "Proposed · approve", status: "proposed" }, { text: "+ needs the PSD", status: "missing" }, { text: "—", status: "na" }] },
-  { row: "3rd release · final X", cells: [{ text: "Locked · day 1", status: "locked" }, { text: "Locked", status: "locked" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
-  { row: "General sale · 90%", cells: [{ text: "Locked · on sale, not fast", status: "locked" }, { text: "—", status: "na" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
-  { row: "Client promo / experience", cells: [{ text: "Venue walk-through", status: "approved" }, { text: "", status: "approved" }, { text: "+ needs client's edit", status: "missing" }, { text: "—", status: "na" }] },
+type CellStatus = "made" | "approved" | "held" | "proposed" | "locked" | "missing" | "na";
+
+const BOARD: { name: string; sub?: string; cells: { text: string; status: CellStatus }[] }[] = [
+  { name: "Headliner UGC · promoter voice", cells: [{ text: "Enzo #2", status: "approved" }, { text: "—", status: "na" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
+  { name: "Headliner UGC · artist voice", cells: [{ text: "Held · Luke Dean not cleared", status: "held" }, { text: "—", status: "na" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
+  { name: "Artist card", sub: "A–Z, press shot", cells: [{ text: "+ audio 15 s", status: "made" }, { text: "", status: "approved" }, { text: "", status: "approved" }, { text: "+ needs Reeshy's press shot", status: "missing" }] },
+  { name: "Lineup artwork edit", cells: [{ text: "+ needs the PSD", status: "missing" }, { text: "", status: "approved" }, { text: "", status: "approved" }, { text: "", status: "made" }] },
+  { name: "2nd release", sub: "sold out · ladder done", cells: [{ text: "90% sold out", status: "approved" }, { text: "90% sold out", status: "approved" }, { text: "live", status: "approved" }, { text: "—", status: "na" }] },
+  { name: "3rd release · 90% sold out", sub: "proposed · Mon read", cells: [{ text: "Proposed · approve", status: "proposed" }, { text: "Proposed · approve", status: "proposed" }, { text: "+ needs the PSD \"release\" slot", status: "missing" }, { text: "—", status: "na" }] },
+  { name: "3rd release · final X", sub: "needs final X or 90%+ count", cells: [{ text: "Locked · day 1", status: "locked" }, { text: "Locked", status: "locked" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
+  { name: "General sale · 90%", sub: "needs selling fast", cells: [{ text: "Locked · on sale, not fast", status: "locked" }, { text: "—", status: "na" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
+  { name: "Client promo / experience", cells: [{ text: "Venue walk-through", status: "approved" }, { text: "", status: "approved" }, { text: "+ needs client's edit", status: "missing" }, { text: "—", status: "na" }] },
 ];
 
 export function AssetBoard() {
@@ -488,7 +540,7 @@ export function AssetBoard() {
   return (
     <section className="rounded-md border border-border bg-card p-4">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-heading text-sm tracking-wide">Asset bank</h3>
+        <h3 className={PANEL_TITLE}>Asset bank</h3>
         <p className="text-xs">
           <span className="hidden sm:inline">15 approved · 1 proposed · 3 locked · 5 missing</span>
           <span className="sm:hidden">15 ✓ · 1 proposed · 3 locked · 5 missing</span>
@@ -505,15 +557,15 @@ export function AssetBoard() {
       {said ? <p className="mb-2 text-xs text-destructive">{said}</p> : null}
       <div className="hidden sm:grid sm:grid-cols-[1.4fr_repeat(4,1fr)] sm:gap-1 sm:text-[11px]">
         <span />
-        {heads.map((head) => <span key={head} className="text-muted-foreground">{head}</span>)}
+        {heads.map((head) => <span key={head} className={KICKER}>{head}</span>)}
         {BOARD.map((row) => (
-          <RowCells key={row.row} row={row.row} cells={row.cells} />
+          <RowCells key={row.name} name={row.name} sub={row.sub} cells={row.cells} />
         ))}
       </div>
       <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-1 text-[11px] sm:hidden">
         <span />
-        <span className="text-muted-foreground">9:16 video</span>
-        <span className="text-muted-foreground">4:5</span>
+        <span className={KICKER}>9:16 video</span>
+        <span className={KICKER}>4:5</span>
         <span>UGC · promoter</span>
         <Cell text="" status="approved" />
         <Cell text="—" status="na" />
@@ -532,27 +584,38 @@ export function AssetBoard() {
   );
 }
 
-function RowCells({ row, cells }: { row: string; cells: { text: string; status: "approved" | "proposed" | "locked" | "missing" | "na" | "held" }[] }) {
+function RowCells({ name, sub, cells }: { name: string; sub?: string; cells: { text: string; status: CellStatus }[] }) {
   return (
     <>
-      <span>{row}</span>
-      {cells.map((cell, index) => <Cell key={`${row}-${index}`} text={cell.text} status={cell.status} />)}
+      <span>
+        <span className="block text-xs font-semibold">{name}</span>
+        {sub ? <span className="block text-[10.5px] text-muted-foreground">{sub}</span> : null}
+      </span>
+      {cells.map((cell, index) => <Cell key={`${name}-${index}`} text={cell.text} status={cell.status} />)}
     </>
   );
 }
 
-function Cell({ text, status }: { text: string; status: "approved" | "proposed" | "locked" | "missing" | "na" | "held" }) {
-  const cls =
-    status === "approved"
-      ? "border-success"
+function Cell({ text, status }: { text: string; status: CellStatus }) {
+  const thumb = status === "made" || status === "approved";
+  const cls = thumb
+    ? "border-transparent text-white"
+    : status === "held"
+      ? "border-warning text-warning"
       : status === "proposed"
-        ? "border-warning text-warning"
-        : status === "locked"
-          ? "border-dashed text-muted-foreground"
-          : status === "missing"
-            ? "border-dashed text-muted-foreground"
-            : "text-muted-foreground";
-  return <div className={`min-h-10 rounded border border-border p-1 ${cls}`}>{text || (status === "na" ? "—" : "")}</div>;
+        ? "border-warning bg-warning/20 text-warning"
+        : status === "locked" || status === "missing"
+          ? "border-dashed border-border-strong text-muted-foreground"
+          : "border-transparent text-muted-foreground opacity-50";
+  return (
+    <div className={`relative flex min-h-16 items-center justify-center overflow-hidden rounded border p-1 text-center ${cls}`}>
+      {thumb ? <span className="absolute inset-0" style={{ background: "linear-gradient(160deg,#4a3a2a,#9a7a5a)" }} /> : null}
+      {status === "approved" ? (
+        <span className="absolute top-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-success text-[10px] font-bold text-white">✓</span>
+      ) : null}
+      {text && text !== "—" ? <span className="relative">{text}</span> : status === "na" ? "—" : null}
+    </div>
+  );
 }
 
 export type LadderRow = { trigger: string; detail?: string; claim: string; note?: string; narrow?: boolean };
@@ -576,7 +639,7 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
     <div className="grid gap-3 sm:grid-cols-[1.4fr_1fr]">
       <section className="rounded-md border border-border bg-card p-4">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="font-heading text-sm tracking-wide">Claim ladder</h3>
+          <h3 className={PANEL_TITLE}>Claim ladder</h3>
           <span className="text-[11px] text-muted-foreground">
             what a warning may say, by what&apos;s true
             <Button type="button" size="sm" variant="outline" className="ml-2" onClick={() => { setRows(seed); onReset?.(); }}>
@@ -584,19 +647,25 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
             </Button>
           </span>
         </div>
-        <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 gap-y-2 text-xs">
-          <div className="text-muted-foreground">Trigger · what&apos;s true</div>
-          <span />
-          <div className="hidden text-muted-foreground sm:block">Claim · what the asset says</div>
+        <div className="space-y-2 text-xs sm:grid sm:grid-cols-[1fr_1.5rem_1fr] sm:gap-2 sm:space-y-0">
+          <div className={`${KICKER} sm:col-span-1`}>
+            <span className="sm:hidden">Trigger → claim</span>
+            <span className="hidden sm:inline">Trigger · what&apos;s true</span>
+          </div>
+          <span className="hidden sm:block" />
+          <div className={`hidden sm:block ${KICKER}`}>Claim · what the asset says</div>
           {rows.map((row, index) => (
-            <div key={row.trigger} className={row.narrow ? "contents" : "hidden sm:contents"}>
-              <div>
+            <div key={row.trigger} className="flex flex-col gap-1 sm:contents">
+              <div className="rounded-md border border-border border-l-[3px] border-l-foreground/70 bg-background px-2.5 py-1.5">
                 <div>{row.trigger}</div>
-                {row.detail ? <div className="hidden text-[11px] text-muted-foreground sm:block">{row.detail}</div> : null}
+                {row.detail ? <div className="mt-0.5 hidden text-[10.5px] text-muted-foreground sm:block">{row.detail}</div> : null}
+              </div>
+              <span className="hidden text-center text-muted-foreground sm:block">→</span>
+              <button type="button" className="rounded-md border border-border border-l-[3px] border-l-warning bg-background px-2.5 py-1.5 text-left" onClick={() => live && setEdit(index)}>
                 {live && edit === index ? (
                   <input
                     aria-label={`Claim for ${row.trigger}`}
-                    className="mt-1 w-full rounded border border-border bg-background px-1"
+                    className="w-full rounded border border-border bg-card px-1"
                     defaultValue={row.claim}
                     onBlur={(event) => {
                       const claim = event.target.value;
@@ -604,26 +673,21 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
                       setEdit(null);
                     }}
                   />
-                ) : null}
-              </div>
-              <span className="hidden sm:inline">→</span>
-              <button type="button" className="text-left" onClick={() => live && setEdit(index)}>
-                <div>{row.claim}</div>
-                {row.note ? <div className="hidden text-[11px] text-muted-foreground sm:block">{row.note}</div> : null}
+                ) : (
+                  <div>{row.claim}</div>
+                )}
+                {row.note ? <div className="mt-0.5 hidden text-[10.5px] text-muted-foreground sm:block">{row.note}</div> : null}
               </button>
             </div>
           ))}
         </div>
         <p className="mt-3 text-[11px] text-muted-foreground">
           <span className="hidden sm:inline">edit a cell to change the ladder · every approved claim records which rung allowed it</span>
-          <span className="sm:hidden">tap a cell to edit · 4 of 8 rungs shown</span>
-        </p>
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Roll-call, when two releases are sold out and one is on sale: the sold-out names, then the live claim. Preferred when that is true. Not an extra rung on this table.
+          <span className="sm:hidden">tap a cell to edit</span>
         </p>
       </section>
       <section className="hidden rounded-md border border-border bg-card p-4 sm:block">
-        <h3 className="mb-2 font-heading text-sm tracking-wide">How Puzzle&apos;s warnings run</h3>
+        <h3 className={`mb-2 ${PANEL_TITLE}`}>How Puzzle&apos;s warnings run</h3>
         <div className="space-y-1.5 text-xs">
           <p><b>Read</b> Skiddle · Mon / Wed / Fri 09:00 <Chip tone="dash">reader to be proved</Chip></p>
           <p><b>Fallback</b> client message → Matas sets the state</p>
