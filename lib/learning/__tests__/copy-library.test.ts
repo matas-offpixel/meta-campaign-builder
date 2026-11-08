@@ -88,6 +88,67 @@ describe("copy normaliser", () => {
     const line = normaliseCopy("See you soon! 🔥", emptyDictionaries());
     assert.equal(line?.key, "see you soon");
   });
+
+  it("an event name that contains a claim word is one {event}, not a claim", () => {
+    const dict = emptyDictionaries({
+      eventName: "AZYR b2b Partiboi69",
+      venueCity: "Newcastle",
+      globalEvents: ["AZYR b2b Partiboi69"],
+      globalCities: ["Newcastle"],
+    });
+    const line = normaliseCopy("AZYR b2b Partiboi69 - A world exclusive coming to Newcastle.", dict);
+    assert.equal(line?.key, "{event} a world exclusive coming to {city}");
+    assert.deepEqual(line?.claims, []);
+    const real = normaliseCopy("A world exclusive b2b coming to Newcastle.", dict);
+    assert.equal(real?.key, "a world exclusive {b2b} coming to {city}");
+    assert.deepEqual(real?.claims, ["b2b"]);
+  });
+
+  it("an event name with a dash suffix matches by its first part", () => {
+    const dict = emptyDictionaries({ eventName: "Mall Grab - Sheffield", venueCity: "Sheffield", globalCities: ["Sheffield"] });
+    const line = normaliseCopy("Mall Grab makes his much anticipated return to Sheffield.", dict);
+    assert.equal(line?.key, "{event} makes his much anticipated return to {city}");
+    // The city inside the name is already {city} by the time the event is matched; the first part still carries it.
+    const whole = normaliseCopy("Mall Grab - Sheffield is on sale", dict);
+    assert.equal(whole?.key, "{event} {city} is on sale");
+  });
+
+  it("sentence punctuation with no space after it still separates words", () => {
+    const dict = emptyDictionaries({ venueCity: "Sheffield", globalCities: ["Sheffield"] });
+    const tight = normaliseCopy("Mall Grab returns to Sheffield.Tickets on sale now", dict);
+    const spaced = normaliseCopy("Mall Grab returns to Sheffield. Tickets on sale now", dict);
+    assert.equal(tight?.key, "mall grab returns to {city} tickets on sale now");
+    assert.equal(tight?.key, spaced?.key);
+    assert.equal(normaliseCopy("I'm back, line-up & set times!", emptyDictionaries())?.key, "im back lineup set times");
+  });
+
+  it("a time of day is {time}", () => {
+    assert.equal(normaliseCopy("Tickets on sale 5th August 12PM.", emptyDictionaries())?.key, "tickets on sale {date} {time}");
+    assert.equal(normaliseCopy("Pre-sale -12:00pm Friday 31st July", emptyDictionaries())?.key, "presale {time} {date}");
+    assert.equal(normaliseCopy("Presale at 10 am, Thursday 11th September.", emptyDictionaries())?.key, "presale at {time} {date}");
+    assert.equal(normaliseCopy("Final tickets go on presale 12:00, Tuesday 25th August.", emptyDictionaries())?.key, "final tickets go on presale {time} {date}");
+  });
+
+  it("a weekday or month on its own is {date}", () => {
+    assert.equal(normaliseCopy("Tickets on sale Friday 12pm.", emptyDictionaries())?.key, "tickets on sale {date} {time}");
+    assert.equal(normaliseCopy("Presale 12pm Wed 9th Sept.", emptyDictionaries())?.key, "presale {time} {date}");
+    assert.equal(normaliseCopy("Worakls returns to London this December.", emptyDictionaries())?.key, "worakls returns to london {date}");
+    assert.equal(normaliseCopy("Cant wait for NX Loves in October!", emptyDictionaries())?.key, "cant wait for nx loves {date}");
+    assert.equal(normaliseCopy("Back at NX this November. Tickets drop Tuesday.", emptyDictionaries())?.key, "back at nx {date} tickets drop {date}");
+    // Ordinary words that are also abbreviations stay words.
+    assert.equal(normaliseCopy("You may have sat in the sun on Mon", emptyDictionaries())?.key, "you may have sat in the sun on mon");
+  });
+
+  it("a run of date phrases is one {date}", () => {
+    assert.equal(normaliseCopy("Presale 12pm this Friday 28th August. Sign up.", emptyDictionaries())?.key, "presale {time} {date} sign up");
+    assert.equal(normaliseCopy("See you this Saturday, 24th October 2026", emptyDictionaries())?.key, "see you {date}");
+  });
+
+  it("hashtags are dropped and a phone number is {phone}", () => {
+    const line = normaliseCopy("Table reservations via +971 50 443 0933 #dhbdubai #deephousebible", emptyDictionaries());
+    assert.equal(line?.key, "table reservations via {phone}");
+    assert.equal(normaliseCopy("Doors 10pm-4am, 18+ only. 1st & 2nd release sold out", emptyDictionaries())?.key, "doors {time}{time} 18 only 1st 2nd release sold out");
+  });
 });
 
 function ad(overrides: Partial<ScoreAd> & Pick<ScoreAd, "metaAdId" | "eventId" | "spend" | "results">): ScoreAd {

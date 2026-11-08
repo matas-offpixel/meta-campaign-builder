@@ -1,12 +1,22 @@
 /**
  * Turn one ad line into a template another event can refill.
  *
- * The ad's own event is matched first (lineup, venue, city, event, client).
- * Global lists come after, in the same order: artist, venue, city,
- * series/event, promoter. A venue name that is really a city ("London")
- * is a city. A claim (final tickets, percent sold, b2b, debut, years,
- * opening) stays a named slot and is removed later when the target event
- * cannot support it.
+ * Order: generic slots (url, handle, phone, price, time, date; hashtags
+ * are dropped), then names, then claims. Names go before claims so an
+ * event called "AZYR b2b Partiboi69" is one {event}, not "azyr {b2b}
+ * partiboi69". The ad's own event is matched first (lineup, venue, city,
+ * event, client). Global lists come after, in the same order: artist,
+ * venue, city, series/event, promoter. An event name with a suffix after
+ * a dash, pipe or colon ("Mall Grab - Sheffield") also matches by its
+ * first part. A venue name that is really a city ("London") is a city.
+ * A claim (final tickets, percent sold, b2b, debut, years, opening)
+ * stays a named slot and is removed later when the target event cannot
+ * support it.
+ *
+ * A time of day ("12PM", "12:00", "10 am") is {time}. A weekday on its
+ * own or abbreviated ("Friday", "Wed"), a month with a lead word ("this
+ * December", "in October") or a full month name on its own is {date}, and
+ * a run of date slots ("this Friday 28th August") is one {date}.
  */
 
 export type ClaimSlot = "final_tickets" | "percent_sold" | "b2b" | "debut" | "years" | "opening";
@@ -36,7 +46,7 @@ export type ClaimFacts = {
 export type NormalisedCopy = {
   /** Placeholders kept, original casing outside them. */
   template: string;
-  /** Lower case, emoji and punctuation removed, placeholders kept. */
+  /** Lower case, emoji and punctuation removed (sentence punctuation becomes a space, so "Sheffield.Tickets" is two words), placeholders kept. */
   key: string;
   claims: ClaimSlot[];
 };
@@ -50,8 +60,13 @@ const CLAIM_FACT: Record<ClaimSlot, keyof ClaimFacts> = {
   opening: "opening",
 };
 
-const MONTHS = "january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec";
-const WEEKDAYS = "monday|tuesday|wednesday|thursday|friday|saturday|sunday";
+const MONTHS = "january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec";
+/** Full month names that are never ordinary words. "May" only counts with a day number or a lead word. */
+const MONTHS_ALONE = "january|february|march|april|june|july|august|september|october|november|december";
+const WEEKDAYS = "monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat|sun";
+/** A weekday on its own. The three-letter forms need a dot or a following time or day number, so "sat" the verb and "sun" stay words. */
+const WEEKDAYS_ALONE = "monday|tuesday|wednesday|thursday|friday|saturday|sunday|tues|weds|thurs|thur";
+const TIME = "\\d{1,2}(?::[0-5]\\d)?\\s*(?:am|pm)|\\d{1,2}:[0-5]\\d(?:\\s*(?:am|pm))?";
 
 const CLAIM_PATTERNS: { slot: ClaimSlot; pattern: RegExp }[] = [
   { slot: "final_tickets", pattern: /\bfinal\s+\d[\d,]*\s+tickets\b/gi },
@@ -137,15 +152,29 @@ function applyGenerics(text: string): string {
   let next = text;
   next = next.replace(/https?:\/\/\S+|www\.\S+/gi, "{url}");
   next = next.replace(/(^|[^\p{L}\p{N}])@[\p{L}\p{N}._]+/gu, "$1{handle}");
+  next = next.replace(/(^|[^\p{L}\p{N}])#[\p{L}\p{N}_]+/gu, "$1");
+  next = next.replace(/\+?\d[\d\s().-]{7,}\d/g, (match) => (match.replace(/\D/g, "").length >= 9 ? "{phone}" : match));
   next = next.replace(/£\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s*gbp\b/gi, "{price}");
+  next = next.replace(new RegExp(`\\b(?:${TIME})\\b`, "gi"), "{time}");
   const date = [
-    new RegExp(`\\bthis\\s+(?:${WEEKDAYS})\\b`, "gi"),
-    new RegExp(`\\b(?:${WEEKDAYS})\\s+\\d{1,2}(?:st|nd|rd|th)?(?:\\s+(?:of\\s+)?(?:${MONTHS}))?(?:\\s+\\d{4})?\\b`, "gi"),
+    new RegExp(`\\b(?:this|next|every)\\s+(?:${WEEKDAYS})\\b\\.?`, "gi"),
+    new RegExp(`\\b(?:${WEEKDAYS})\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:\\s+(?:of\\s+)?(?:${MONTHS}))?(?:\\s+\\d{4})?\\b`, "gi"),
     new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?(?:${MONTHS})(?:\\s+\\d{4})?\\b`, "gi"),
     /\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b/g,
+    new RegExp(`\\b(?:this|next|in|every|until|from|for)\\s+(?:${MONTHS})\\b`, "gi"),
+    new RegExp(`\\b(?:${MONTHS_ALONE})\\b`, "gi"),
+    new RegExp(`\\b(?:${WEEKDAYS_ALONE})\\b`, "gi"),
+    new RegExp(`\\b(?:mon|tue|wed|thu|fri|sat|sun)\\b(?=\\.|\\s+\\{time\\})`, "gi"),
   ];
   for (const pattern of date) next = next.replace(pattern, "{date}");
+  next = next.replace(/\{date\}(?:[\s,]+\{date\})+/g, "{date}");
   return next;
+}
+
+/** "Mall Grab - Sheffield" → ["Mall Grab - Sheffield", "Mall Grab"]. The whole name is tried first. */
+function eventNameParts(name: string): string[] {
+  const parts = name.split(/\s+[-–—|:]\s+|:\s+/).map((part) => part.trim()).filter((part) => part.length >= 3);
+  return parts.length > 1 ? [name, parts[0]!] : [name];
 }
 
 function replaceName(text: string, name: string, slot: string): string {
@@ -174,8 +203,7 @@ function citySet(dict: CopyDictionaries): string[] {
 export function normaliseCopy(text: string, dict: CopyDictionaries): NormalisedCopy | null {
   const raw = text.replace(/\s+/g, " ").trim();
   if (!raw) return null;
-  const claims = applyClaims(raw);
-  let next = applyGenerics(claims.text);
+  let next = applyGenerics(raw);
   const cities = citySet(dict);
   const venue = clean(dict.venueName);
   const eventArtists = dict.lineup.map((name) => name.trim()).filter(Boolean);
@@ -188,7 +216,12 @@ export function normaliseCopy(text: string, dict: CopyDictionaries): NormalisedC
   next = replaceAll(next, eventArtists, "{artist}");
   if (venue && !isCity(venue, cities)) next = replaceName(next, venue, "{venue}");
   if (clean(dict.venueCity)) next = replaceName(next, dict.venueCity!, "{city}");
-  if (eventName && !artistNames.has(eventName.toLowerCase())) next = replaceName(next, eventName, "{event}");
+  if (eventName && !artistNames.has(eventName.toLowerCase())) {
+    for (const part of eventNameParts(eventName)) {
+      if (isCity(part, cities) || artistNames.has(part.toLowerCase())) continue;
+      next = replaceName(next, part, "{event}");
+    }
+  }
   if (clientName && !artistNames.has(clientName.toLowerCase())) next = replaceName(next, clientName, "{promoter}");
 
   next = replaceAll(next, dict.globalArtists, "{artist}");
@@ -205,7 +238,8 @@ export function normaliseCopy(text: string, dict: CopyDictionaries): NormalisedC
   );
   next = replaceAll(next, dict.globalPromoters, "{promoter}");
 
-  next = next.replace(/\s+/g, " ").trim();
+  const claims = applyClaims(next);
+  next = claims.text.replace(/\s+/g, " ").trim();
   const key = templateKey(next);
   if (!key) return null;
   return { template: next, key, claims: claims.claims };
@@ -220,6 +254,7 @@ export function templateKey(template: string): string {
   const stripped = marked
     .toLowerCase()
     .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, "")
+    .replace(/[.!?,;:]/g, " ")
     .replace(/[^\p{L}\p{N}\s\u0000]/gu, "")
     .replace(/\s+/g, " ")
     .trim();
