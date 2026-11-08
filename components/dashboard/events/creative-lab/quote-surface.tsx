@@ -1,7 +1,15 @@
 "use client";
 
+import localFont from "next/font/local";
+
 import { postListChip, quoteLines, type ListedPost, type QuoteSource } from "@/lib/creative-lab/quote";
 import type { QuoteWeight } from "../../../../src/remotion/caption-style/quote-profile";
+
+const tiktokSans = localFont({
+  src: "../../../../src/remotion/fonts/TikTokSans[opsz,slnt,wdth,wght].ttf",
+  display: "swap",
+  adjustFontFallback: false,
+});
 
 const IG = "#B0607A";
 const META = "#5B7FA6";
@@ -205,13 +213,14 @@ function Plate({
         </>
       ) : null}
       <p
-        className="pointer-events-none absolute left-1/2 w-[70%] -translate-x-1/2 -translate-y-1/2 text-center text-white"
+        className={`pointer-events-none absolute left-1/2 w-[70%] -translate-x-1/2 -translate-y-1/2 text-center text-white ${marker ? tiktokSans.className : ""}`}
         style={{
           top: crop ? "18.7%" : "28%",
           fontWeight: weight,
           fontSize: crop ? "2.745cqh" : "1.93cqh",
           lineHeight: crop ? "4.267cqh" : "3cqh",
           whiteSpace: marker ? "pre" : "pre-line",
+          fontVariationSettings: marker ? `"opsz" 36, "slnt" 0, "wdth" 100, "wght" ${weight}` : undefined,
         }}
       >
         {marker ? quoteLines(words, weight).join("\n") : words}
