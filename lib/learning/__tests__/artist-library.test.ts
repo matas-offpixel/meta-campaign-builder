@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import { fakeDb, op } from "../../launched-ads/__tests__/fake-db.ts";
 import { confirmFromHits, spotifyConfirmer, type ArtistHit } from "../copy/artist-confirm.ts";
 import { capitalisedRuns, compoundParts, extractArtists, initialsOf, namesInCampaignName, preferredCasing, primarySource, segments, type ExtractionEvent, type ExtractionWorld } from "../copy/artist-extraction.ts";
-import { planArtistLibrary, writeArtistPlan, type ArtistPlan } from "../copy/artist-plan.ts";
+import { planArtistLibrary, storedCasing, writeArtistPlan, type ArtistPlan } from "../copy/artist-plan.ts";
 import { artistExtractionInputs, buildCopyLibrary, type CopySources } from "../copy-performance.ts";
 import { fact } from "./fixtures.ts";
 
@@ -136,6 +136,21 @@ describe("artist extraction: ad copy", () => {
     );
     assert.equal(reason(found, "Voyager"), "one word with no list or lineup verb around it");
     assert.equal(reason(found, "Jake"), "one word that only opens a sentence");
+    // Rule 3: "with" is not a lineup list, so "A Space With Purpose" never reaches Spotify; "and SUDIK" is one.
+    const purpose = extractArtists(
+      event({
+        eventCode: "IRWOHD",
+        eventName: "Brand Awareness (Always-On)",
+        venueName: "Ironworks",
+        venueCity: "London",
+        clientName: "IRONWORKS",
+        ads: [...ads("p", "A Space With Purpose\n\nDesigned by a selection of the best in their fields, Ironworks, London is almost ready to open its doors.", 12), ...ads("q", "Super excited to be back with a world exclusive AZYR b2b Partiboi69, with support from Sim0ne and SUDIK.", 40)],
+      }),
+      WORLD,
+    );
+    assert.equal(reason(purpose, "Purpose"), "one word with no list or lineup verb around it");
+    assert.ok(names(purpose).includes("SUDIK"));
+    assert.ok(names(purpose).includes("Sim0ne"));
     assert.ok(names(found).includes("Seth Troxler"));
     assert.ok(names(found).includes("Adam Ten"));
     assert.ok(names(found).includes("Jamie Jones"));
@@ -234,6 +249,15 @@ describe("artist extraction: ad copy", () => {
     assert.equal(preferredCasing(new Map([["CAMELPHAT", 9], ["CamelPhat", 2]])), "CamelPhat");
     assert.equal(preferredCasing(new Map([["HAAi", 3], ["Haai", 1]])), "HAAi");
   });
+
+  it("rule 4: the copy's casing is kept when Spotify differs only by case; a shouted name takes Spotify's", () => {
+    assert.equal(storedCasing("MiNNA", { name: "Minna" }), "MiNNA");
+    assert.equal(storedCasing("Job de Jong", { name: "Job De Jong" }), "Job de Jong");
+    assert.equal(storedCasing("sim0ne", { name: "Sim0ne" }), "sim0ne");
+    assert.equal(storedCasing("GROOVE ARMADA", { name: "Groove Armada" }), "Groove Armada");
+    assert.equal(storedCasing("SHDW", { name: "SHDW" }), "SHDW");
+    assert.equal(storedCasing("Saoirse", null), "Saoirse");
+  });
 });
 
 describe("artist extraction: campaign and ad-set names", () => {
@@ -283,13 +307,16 @@ describe("artist extraction: campaign and ad-set names", () => {
 describe("Spotify confirmation", () => {
   const hit = (name: string, followers: number | null, id = name.toLowerCase()): ArtistHit => ({ id, name, followers, popularity: 10, genres: [], imageUrl: null });
 
-  it("an exact name with a follower is a yes; several exact names → the most followed; no exact name or no followers is a no", () => {
-    assert.deepEqual(confirmFromHits("Saoirse", [hit("Saoirse", 12000), hit("Saoirse Ronan", 5)]), { kind: "yes", hit: hit("Saoirse", 12000) });
-    const several = confirmFromHits("King", [hit("King", 3, "a"), hit("KING", 900, "b")]);
-    assert.equal(several.kind, "yes");
-    assert.equal(several.kind === "yes" ? several.hit.id : null, "b");
-    assert.deepEqual(confirmFromHits("Groove Armad", [hit("Groove Armada", 500000)]), { kind: "no", reason: "no exact name" });
-    assert.deepEqual(confirmFromHits("Studio A", [hit("Studio A", 0)]), { kind: "no", reason: "no followers" });
+  it("rule 1: an exact name is a yes with no follower test — Spotify sends no follower counts to this app", () => {
+    assert.deepEqual(confirmFromHits("Saoirse", [hit("Saoirse", null), hit("Saoirse Ronan", null)]), { kind: "yes", hit: hit("Saoirse", null), exact: [hit("Saoirse", null)] });
+    assert.deepEqual(confirmFromHits("saoirse", [hit("Saoirse", 0)]), { kind: "yes", hit: hit("Saoirse", 0), exact: [hit("Saoirse", 0)] });
+    assert.deepEqual(confirmFromHits("Groove Armad", [hit("Groove Armada", null)]), { kind: "no", reason: "no exact name" });
+    assert.deepEqual(confirmFromHits("", [hit("Saoirse", null)]), { kind: "no", reason: "no exact name" });
+  });
+
+  it("rule 2: several exact names confirm the act with no id, and the hits are kept as candidates", () => {
+    const several = confirmFromHits("Jamie Jones", [hit("Jamie Jones", null, "a"), hit("Jamie Jones", null, "b"), hit("Jamie Jones Trio", null, "c")]);
+    assert.deepEqual(several, { kind: "yes", hit: null, exact: [hit("Jamie Jones", null, "a"), hit("Jamie Jones", null, "b")] });
   });
 
   it("no credentials → no confirmer; with credentials one token and one search per name, cached", async () => {
@@ -339,8 +366,8 @@ describe("artist plan", () => {
       maxSearches: 10,
       confirm: async (name) => {
         asked.push(name);
-        if (name === "Saoirse") return { kind: "yes", hit: SAOIRSE };
-        if (name === "Fur") return { kind: "yes", hit: { ...SAOIRSE, id: "sp-fur", name: "Fur" } };
+        if (name === "Saoirse") return { kind: "yes", hit: SAOIRSE, exact: [SAOIRSE] };
+        if (name === "Fur") return { kind: "yes", hit: { ...SAOIRSE, id: "sp-fur", name: "Fur" }, exact: [{ ...SAOIRSE, id: "sp-fur", name: "Fur" }] };
         return { kind: "no", reason: "no exact name" };
       },
     });
@@ -361,6 +388,17 @@ describe("artist plan", () => {
       [["Luke Dean", "art-luke", null], ["Fur", null, "sp-fur"], ["Saoirse", null, "sp-saoirse"]],
     );
     assert.equal(plan.searches, 5);
+    // Rule 2 in the plan: several exact names → no id, candidates kept for the Lab.
+    const twoJamies = [{ ...SAOIRSE, id: "jj-a", name: "Jamie Jones" }, { ...SAOIRSE, id: "jj-b", name: "Jamie Jones" }];
+    const ambiguous = await planArtistLibrary({
+      events: [event({ ads: ads("j", "Jamie Jones joins the bill.") })],
+      world: WORLD,
+      existing: [],
+      maxSearches: 10,
+      confirm: async () => ({ kind: "yes", hit: null, exact: twoJamies }),
+    });
+    assert.deepEqual(ambiguous.artists.map((artist) => [artist.name, artist.spotify, artist.candidates.map((hit) => hit.id)]), [["Jamie Jones", null, ["jj-a", "jj-b"]]]);
+    assert.deepEqual(ambiguous.links.map((link) => link.via), ["spotify"]);
     assert.equal(plan.counts.confirmed, 2);
     assert.equal(plan.counts.spotifyNo, 1);
   });
@@ -380,7 +418,7 @@ describe("artist plan", () => {
       maxSearches: 1,
       confirm: async () => {
         calls += 1;
-        return { kind: "yes", hit: SAOIRSE };
+        return { kind: "yes", hit: SAOIRSE, exact: [SAOIRSE] };
       },
     });
     assert.equal(calls, 1);
@@ -390,14 +428,16 @@ describe("artist plan", () => {
   it("writes new artists with the Spotify id, sets a missing id on an existing row, never replaces one, and inserts links after the existing billing order", async () => {
     const plan: ArtistPlan = {
       artists: [
-        { name: "Saoirse", existingId: null, spotify: SAOIRSE, via: "spotify" },
-        { name: "Enzo Siragusa", existingId: "art-enzo", spotify: { ...SAOIRSE, id: "sp-enzo", name: "Enzo Siragusa" }, via: "spotify" },
-        { name: "Luke Dean", existingId: "art-luke", spotify: null, via: "lineup" },
+        { name: "Saoirse", existingId: null, spotify: SAOIRSE, candidates: [], via: "spotify" },
+        { name: "Enzo Siragusa", existingId: "art-enzo", spotify: { ...SAOIRSE, id: "sp-enzo", name: "Enzo Siragusa" }, candidates: [], via: "spotify" },
+        { name: "Luke Dean", existingId: "art-luke", spotify: null, candidates: [], via: "lineup" },
+        { name: "Jamie Jones", existingId: null, spotify: null, candidates: [{ ...SAOIRSE, id: "jj-a", name: "Jamie Jones" }, { ...SAOIRSE, id: "jj-b", name: "Jamie Jones" }], via: "spotify" },
       ],
       links: [
         { eventId: "e1", name: "Saoirse", source: "ad_copy", isHeadliner: false, via: "spotify", ads: 3 },
         { eventId: "e1", name: "Luke Dean", source: "lineup", isHeadliner: false, via: "lineup", ads: 0 },
         { eventId: "e1", name: "Enzo Siragusa", source: "lineup", isHeadliner: true, via: "spotify", ads: 0 },
+        { eventId: "e1", name: "Jamie Jones", source: "ad_copy", isHeadliner: false, via: "spotify", ads: 4 },
       ],
       events: [],
       lineups: new Map(),
@@ -405,8 +445,9 @@ describe("artist plan", () => {
       counts: { events: 1, candidates: 3, confirmed: 2, known: 0, lineup: 1, assumed: 0, spotifyNo: 0, unconfirmed: 0, rejected: 0 },
       spotify: "configured",
     };
+    let inserts = 0;
     const { db, calls } = fakeDb((call) => {
-      if (call.table === "artists" && op(call, "insert")) return { data: { id: "art-new" }, error: null };
+      if (call.table === "artists" && op(call, "insert")) return { data: { id: `art-new-${++inserts}` }, error: null };
       return { error: null };
     });
     const written = await writeArtistPlan(db, plan, {
@@ -415,13 +456,19 @@ describe("artist plan", () => {
       existingLinks: [{ event_id: "e1", artist_id: "art-enzo" }],
       existing,
     });
-    assert.deepEqual(written, { artistsCreated: 1, spotifyIdsSet: 1, links: 2, skippedLinks: 1 });
-    const inserted = calls.find((c) => c.table === "artists" && op(c, "insert"))!;
-    const row = op(inserted, "insert")![0] as Record<string, unknown>;
+    assert.deepEqual(written, { artistsCreated: 2, spotifyIdsSet: 1, links: 3, skippedLinks: 1 });
+    const inserted = calls.filter((c) => c.table === "artists" && op(c, "insert"));
+    const row = op(inserted[0]!, "insert")![0] as Record<string, unknown>;
     assert.equal(row.user_id, "op");
     assert.equal(row.name, "Saoirse");
     assert.equal(row.spotify_id, "sp-saoirse");
     assert.deepEqual(row.genres, ["house"]);
+    const several = op(inserted[1]!, "insert")![0] as Record<string, unknown>;
+    assert.equal(several.name, "Jamie Jones");
+    assert.equal("spotify_id" in several, false, "several exact names → spotify_id stays null");
+    const profile = several.profile_jsonb as { spotify_lookup: string; spotify_candidates: { spotifyId: string }[] };
+    assert.equal(profile.spotify_lookup, "several");
+    assert.deepEqual(profile.spotify_candidates.map((c) => c.spotifyId), ["jj-a", "jj-b"]);
     const updated = calls.filter((c) => c.table === "artists" && op(c, "update"));
     assert.equal(updated.length, 1, "Luke Dean already has a Spotify id: no update");
     assert.deepEqual(op(updated[0]!, "eq"), ["id", "art-enzo"]);
@@ -429,7 +476,7 @@ describe("artist plan", () => {
     const links = calls.find((c) => c.table === "event_artists" && op(c, "insert"))!;
     assert.deepEqual(
       (op(links, "insert")![0] as Record<string, unknown>[]).map((r) => [r.artist_id, r.billing_order, r.source, r.is_headliner]),
-      [["art-new", 2, "ad_copy", false], ["art-luke", 3, "lineup", false]],
+      [["art-new-1", 2, "ad_copy", false], ["art-luke", 3, "lineup", false], ["art-new-2", 4, "ad_copy", false]],
     );
     assert.ok(calls.every((c) => !op(c, "delete")), "never deletes a Lab row");
   });

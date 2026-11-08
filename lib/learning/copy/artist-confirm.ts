@@ -1,7 +1,10 @@
 /**
- * Is this name an artist? Spotify says. An exact-name artist hit with
- * at least one follower is a yes (spotify-match.ts decides what exact
- * means; several exact hits → the most followed). No credentials → every
+ * Is this name an artist? Spotify says. An exact-name artist hit is a yes
+ * (spotify-match.ts decides what exact means). Spotify no longer returns
+ * follower counts, popularity or genres to this app, so there is no
+ * follower test. One exact hit carries its id; several exact hits confirm
+ * the name but carry no id — the row is written with spotify_id null and
+ * the hits as candidates, and the Lab picks later. No credentials → every
  * answer is "unavailable", and the caller writes nothing that needed one.
  *
  * Client-credentials flow, public data only. lib/enrichment/spotify.ts
@@ -21,21 +24,18 @@ export type ArtistHit = {
 };
 
 export type Confirmation =
-  | { kind: "yes"; hit: ArtistHit }
-  | { kind: "no"; reason: "no exact name" | "no followers" }
+  /** `hit` is the one exact Spotify artist; null when several share the name (they are `exact`). */
+  | { kind: "yes"; hit: ArtistHit | null; exact: ArtistHit[] }
+  | { kind: "no"; reason: "no exact name" }
   | { kind: "unavailable"; reason: string };
 
 export type ArtistConfirmer = (name: string) => Promise<Confirmation>;
 
-export const MIN_FOLLOWERS = 1;
-
 export function confirmFromHits(name: string, hits: readonly ArtistHit[]): Confirmation {
   const match = spotifyNameMatch(name, hits);
   if (match.kind === "none") return { kind: "no", reason: "no exact name" };
-  const exact = match.kind === "one" ? [match.match] : match.matches;
-  const followed = exact.filter((hit) => (hit.followers ?? 0) >= MIN_FOLLOWERS).sort((a, b) => (b.followers ?? 0) - (a.followers ?? 0));
-  if (!followed.length) return { kind: "no", reason: "no followers" };
-  return { kind: "yes", hit: followed[0]! };
+  if (match.kind === "one") return { kind: "yes", hit: match.match, exact: [match.match] };
+  return { kind: "yes", hit: null, exact: match.matches };
 }
 
 type Fetch = typeof fetch;

@@ -531,9 +531,15 @@ REMOTION_LAMBDA_SERVE_URL=
 > the Lab lineup facts, the event's own ad copy (capitalised runs in ≥ 3 ads,
 > not the venue / city / client / a date or ad word; "b2b", "& more",
 > "friends", "residents" split or end a run) and campaign / ad-set names,
-> confirms each on Spotify (exact name, ≥ 1 follower; "X & Y" unknown → X
-> and Y), and writes `artists` + `event_artists` with `source = lineup |
-> ad_copy | campaign_name` (migration 212; Lab rows are `lab`). At most 100
+> confirms each on Spotify (an exact name is a yes — Spotify returns no
+> follower counts, popularity or genres to this app, so there is no follower
+> test; several exact names confirm the act with `spotify_id` null and the
+> hits in `profile_jsonb.spotify_candidates` for the Lab to pick; "X & Y"
+> unknown → X and Y; a one-word name needs a lineup list, a lineup verb, a
+> campaign name or the event's own name before Spotify is asked; the copy's
+> casing is kept unless it only shouts the name), and writes `artists` +
+> `event_artists` with `source = lineup | ad_copy | campaign_name`
+> (migration 212; Lab rows are `lab`). At most 100
 > searches a night. It never changes a Lab-written row, a Spotify id already
 > set, or an existing link; `saveLabLineup` still replaces an event's rows
 > when the operator saves the Lab lineup. `copy_performance` reads the names

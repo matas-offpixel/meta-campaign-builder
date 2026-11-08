@@ -5,7 +5,11 @@
  * or writes a database; writeArtistPlan does the writes.
  *
  * A Lab lineup name or a name already in the library is linked as is.
- * Any other candidate is linked only when Spotify confirms it. With no
+ * Any other candidate is linked only when Spotify confirms it (an exact
+ * name; no follower test). Several exact Spotify names confirm the act
+ * but the row gets spotify_id null and the hits as candidates for the
+ * Lab to pick. The copy's own casing is kept ("MiNNA", "D.O.D") unless
+ * the copy only shouts it ("GROOVE ARMADA"), then Spotify's. With no
  * confirmer the candidate stays unconfirmed and nothing is written for
  * it, unless `assumeConfirmed` (dry runs only) counts a copy-backed one
  * as a yes to show the ceiling; a name only a campaign name carries is
@@ -38,7 +42,10 @@ export type PlannedArtist = {
   name: string;
   /** Library row to reuse; null means insert. */
   existingId: string | null;
+  /** The one exact Spotify artist. Null when none or several. */
   spotify: ArtistHit | null;
+  /** Several exact Spotify names: written as profile_jsonb.spotify_candidates for the Lab to pick. */
+  candidates: ArtistHit[];
   via: AcceptedVia;
 };
 
@@ -94,7 +101,7 @@ export async function planArtistLibrary(args: PlanArgs): Promise<ArtistPlan> {
   const lineups = new Map<string, string[]>();
   let searches = 0;
   const counts = { events: 0, candidates: 0, confirmed: 0, known: 0, lineup: 0, assumed: 0, spotifyNo: 0, unconfirmed: 0, rejected: 0 };
-  const verdicts = new Map<string, { kind: "yes"; hit: ArtistHit } | { kind: "no"; reason: string } | { kind: "unavailable" }>();
+  const verdicts = new Map<string, { kind: "yes"; hit: ArtistHit | null; exact: ArtistHit[] } | { kind: "no"; reason: string } | { kind: "unavailable" }>();
 
   const ask = async (name: string) => {
     const key = nameKey(name);
@@ -108,15 +115,22 @@ export async function planArtistLibrary(args: PlanArgs): Promise<ArtistPlan> {
     return verdict;
   };
 
-  const plan = (eventId: string, candidate: Candidate, via: AcceptedVia, hit: ArtistHit | null, name = candidate.name): PlannedLink => {
+  const plan = (eventId: string, candidate: Candidate, via: AcceptedVia, hit: ArtistHit | null, name = candidate.name, exact: ArtistHit[] = []): PlannedLink => {
     const key = nameKey(name);
     const existing = existingByKey.get(key) ?? null;
-    const stored = hit?.name ?? existing?.name ?? name;
+    const stored = existing?.name ?? storedCasing(name, hit ?? exact[0] ?? null);
     const have = artists.get(key);
     if (!have) {
-      artists.set(key, { name: stored, existingId: existing?.id ?? null, spotify: existing?.spotify_id ? null : hit, via });
+      artists.set(key, {
+        name: stored,
+        existingId: existing?.id ?? null,
+        spotify: existing?.spotify_id ? null : hit,
+        candidates: existing?.spotify_id || hit ? [] : exact,
+        via,
+      });
     } else if (!have.spotify && hit && !existing?.spotify_id) {
       have.spotify = hit;
+      have.candidates = [];
     }
     const link: PlannedLink = { eventId, name: stored, source: primarySource(candidate), isHeadliner: candidate.isHeadliner, via, ads: candidate.ads };
     links.push(link);
@@ -157,7 +171,7 @@ export async function planArtistLibrary(args: PlanArgs): Promise<ArtistPlan> {
       const verdict = await ask(candidate.name);
       if (verdict.kind === "yes") {
         counts.confirmed += 1;
-        report.accepted.push(plan(event.eventId, candidate, "spotify", verdict.hit));
+        report.accepted.push(plan(event.eventId, candidate, "spotify", verdict.hit, candidate.name, verdict.exact));
         continue;
       }
       if (verdict.kind === "no") {
@@ -167,7 +181,7 @@ export async function planArtistLibrary(args: PlanArgs): Promise<ArtistPlan> {
           if (partVerdict.kind === "yes") {
             anyPart = true;
             counts.confirmed += 1;
-            report.accepted.push(plan(event.eventId, { ...candidate, isHeadliner: false }, "spotify", partVerdict.hit, part));
+            report.accepted.push(plan(event.eventId, { ...candidate, isHeadliner: false }, "spotify", partVerdict.hit, part, partVerdict.exact));
           }
         }
         if (!anyPart) {
@@ -195,6 +209,18 @@ export async function planArtistLibrary(args: PlanArgs): Promise<ArtistPlan> {
     counts,
     spotify: args.confirm ? "configured" : "missing",
   };
+}
+
+function allCaps(value: string): boolean {
+  return value === value.toUpperCase() && value !== value.toLowerCase();
+}
+
+/** The copy's casing, unless the copy only shouts the name and Spotify does not. */
+export function storedCasing(copyName: string, spotify: { name: string } | null): string {
+  const copy = copyName.trim();
+  const theirs = spotify?.name.trim() ?? "";
+  if (!theirs || theirs.toLowerCase() !== copy.toLowerCase()) return copy;
+  return allCaps(copy) && !allCaps(theirs) ? theirs : copy;
 }
 
 type Db = Pick<SupabaseClient, "from">;
@@ -236,11 +262,19 @@ export async function writeArtistPlan(
       }
       continue;
     }
+    const several = !artist.spotify && artist.candidates.length > 1;
     const row: Record<string, unknown> = {
       user_id: args.userId,
       name: artist.name,
       genres: artist.spotify?.genres ?? [],
-      profile_jsonb: { source: "artist-library-backfill", spotify_lookup: artist.spotify ? "one" : "pending", via: artist.via },
+      profile_jsonb: {
+        source: "artist-library-backfill",
+        spotify_lookup: artist.spotify ? "one" : several ? "several" : "pending",
+        via: artist.via,
+        ...(several
+          ? { spotify_candidates: artist.candidates.map((hit) => ({ spotifyId: hit.id, name: hit.name, imageUrl: hit.imageUrl, genres: hit.genres })) }
+          : {}),
+      },
     };
     if (artist.spotify) {
       row.spotify_id = artist.spotify.id;
