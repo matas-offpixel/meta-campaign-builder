@@ -25,11 +25,20 @@ async function cl5OffCell(page, width) {
 }
 
 /**
+ * A pending button's spinner turns, so two runs would catch it at two
+ * angles (one pixel apart). The shot draws it at rest.
+ */
+async function freezeSpinners(page) {
+  await page.addStyleTag({ content: '[aria-busy="true"] .animate-spin { animation: none !important; }' });
+}
+
+/**
  * CL2: Find clips on two rows. Ada North's request is held open, so her
  * row reads "Finding…" and "reading @adanorth's posts". Bea Lowe's answers
  * with the route's own refusal, so her row shows that one sentence.
  */
 async function cl2FindClips(page) {
+  await freezeSpinners(page);
   await page.route("**/api/creative-lab/artists/lab-ada/find-clips", () => {});
   await page.route("**/api/creative-lab/artists/lab-bea/find-clips", (route) =>
     route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Connect Facebook in Account Setup.", code: "no_token" }) }),
@@ -43,6 +52,7 @@ async function cl2FindClips(page) {
 
 /** CL7: the one Add tile (#4) with its import held open, so it reads "Importing…". */
 async function cl7Importing(page) {
+  await freezeSpinners(page);
   await page.route("**/api/creative-lab/candidates/cand-4/import", () => {});
   const tile = page.locator('[data-candidate="cand-4"]');
   await tile.getByRole("button", { name: "Add" }).click();
