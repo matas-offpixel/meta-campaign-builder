@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
@@ -18,6 +19,7 @@ import {
   clipBucket,
   durationLabel,
   groupClips,
+  importErrorSentence,
   isNative9x16,
   metricUnit,
   money,
@@ -227,10 +229,21 @@ function Poster({ url }: { url: string | null }) {
   return <img src={url} alt="" className="aspect-[9/16] w-full rounded object-cover" />;
 }
 
+/** The button's words while a candidate imports: the spinner and "Importing…". */
+function Importing() {
+  return (
+    <>
+      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+      Importing…
+    </>
+  );
+}
+
 /** Candidate tiles: thumbnail, length, likes, comments, age, aspect, one action. */
 function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: boolean; onSave: Save }) {
   const router = useRouter();
   const [importing, setImporting] = useState<string | null>(null);
+  const [failed, setFailed] = useState<Record<string, string>>({});
   const groups = lab.artists
     .map((artist) => ({ artist, rows: rankCandidates(artist.igCandidates) }))
     .filter((group) => group.rows.length > 0);
@@ -238,15 +251,28 @@ function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: bool
   const [openId, setOpenId] = useState<string | null>(opened);
   if (groups.length === 0) return null;
 
+  /** Download, check and register one candidate. The tile says "Importing…" until it resolves, and one sentence if it fails. */
   async function add(id: string, anyway: boolean) {
     setImporting(id);
+    setFailed((current) => {
+      const rest = { ...current };
+      delete rest[id];
+      return rest;
+    });
     try {
-      await fetch(`/api/creative-lab/candidates/${id}/import`, {
+      const res = await fetch(`/api/creative-lab/candidates/${id}/import`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ anyway }),
       });
+      const json = (await res.json().catch(() => ({}))) as { error?: unknown };
+      if (!res.ok) {
+        setFailed((current) => ({ ...current, [id]: importErrorSentence(json.error) }));
+        return;
+      }
       router.refresh();
+    } catch {
+      setFailed((current) => ({ ...current, [id]: importErrorSentence(null) }));
     } finally {
       setImporting(null);
     }
@@ -266,8 +292,10 @@ function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: bool
                 const age = postAge(clip.postedAt, lab.now);
                 const dimmed = clip.status === "skipped" || clip.status === "requested";
                 const quality = clip.reason?.includes("Too low quality") ? clip.reason : null;
+                const pending = importing === clip.id;
+                const error = failed[clip.id] ?? null;
                 return (
-                  <article key={clip.igMediaId} className={`rounded border border-border p-2 ${dimmed ? "opacity-[0.55]" : ""}`}>
+                  <article key={clip.igMediaId} data-candidate={clip.id} className={`rounded border border-border p-2 ${dimmed ? "opacity-[0.55]" : ""}`}>
                     <div className="relative">
                       <Poster url={clip.thumbnailUrl} />
                       <span className="absolute top-1 left-1 rounded bg-background px-1 text-xs font-medium tabular-nums text-foreground">{clip.rank}</span>
@@ -278,10 +306,11 @@ function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: bool
                     {state.action === "request" ? (
                       <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap px-1" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
                     ) : state.action === "add" ? (
-                      <Button type="button" size="sm" className="mt-1 w-full" disabled={busy || importing === clip.id} onClick={() => void add(clip.id, false)}>{importing === clip.id ? "Importing…" : candidateAddLabel(clip.aspect)}</Button>
+                      <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap" disabled={busy || pending} aria-busy={pending} onClick={() => void add(clip.id, false)}>{pending ? <Importing /> : candidateAddLabel(clip.aspect)}</Button>
                     ) : state.action === "import" ? (
-                      <Button type="button" size="sm" className="mt-1 w-full" disabled={busy || importing === clip.id} onClick={() => void add(clip.id, true)}>Import</Button>
+                      <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap" disabled={busy || pending} aria-busy={pending} onClick={() => void add(clip.id, true)}>{pending ? <Importing /> : "Import"}</Button>
                     ) : null}
+                    {error ? <p data-import-error className="mt-1 text-xs text-destructive" role="alert">{error}</p> : null}
                     {quality ? <p className="mt-1 text-xs text-destructive">{quality}</p> : state.see ? (
                       <p className="mt-1 text-xs text-destructive">
                         {state.status} · <button type="button" className="underline" onClick={() => setOpenId(clip.id)}>see</button>
@@ -307,8 +336,11 @@ function FindClips({ lab, busy, onSave }: { lab: CreativeLabCardData; busy: bool
                 </div>
                 <p className="text-xs">
                   {overlayPanelLine(open.overlay.flagged)}{" "}
-                  <button type="button" className="underline" disabled={busy} onClick={() => void add(open.id, true)}>Import anyway</button>
+                  <button type="button" className="inline-flex items-center gap-1 underline" disabled={busy || importing === open.id} aria-busy={importing === open.id} onClick={() => void add(open.id, true)}>
+                    {importing === open.id ? <Importing /> : "Import anyway"}
+                  </button>
                 </p>
+                {failed[open.id] ? <p className="text-xs text-destructive" role="alert">{failed[open.id]}</p> : null}
               </section>
             ) : null}
           </div>

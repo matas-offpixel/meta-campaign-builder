@@ -2,13 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { LabLineupRow } from "@/lib/db/creative-lab";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { artistPrimaryAction, clearedOn, showClearForArtistChannels, type LibrarySuggestion, type SpotifySuggestion } from "@/lib/creative-lab/lineup";
+import { findClipsErrorSentence, findClipsReadingLine } from "@/lib/creative-lab/surface";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
+
+/** Find clips on one lineup row: reading Instagram, or the one sentence it failed with. */
+type FindState = { state: "finding" } | { state: "error"; message: string };
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
@@ -45,10 +50,45 @@ export function LabLineup({
   const [open, setOpen] = useState<string | null>(null);
   const [card, setCard] = useState<string | null>(null);
   const [pick, setPick] = useState<string | null>(null);
+  const [finding, setFinding] = useState<Record<string, FindState>>({});
 
   useEffect(() => {
     setOrder(rows);
   }, [rows]);
+
+  function setFind(artistId: string, next: FindState | null) {
+    setFinding((current) => {
+      const rest = { ...current };
+      delete rest[artistId];
+      return next ? { ...rest, [artistId]: next } : rest;
+    });
+  }
+
+  /** Make the Lab artist if the row has none, then read the artist's Instagram. The row says so until it resolves. */
+  async function findClips(row: LabLineupRow, artist: CreativeLabCardData["artists"][number] | undefined) {
+    setFind(row.artistId, { state: "finding" });
+    try {
+      let labId = artist?.id ?? null;
+      if (!labId) {
+        const made = await onSave({ action: "labArtist", libraryArtistId: row.artistId, name: row.name });
+        labId = made?.ok ? String(made.json.artistId ?? "") || null : null;
+      }
+      if (!labId) {
+        setFind(row.artistId, { state: "error", message: findClipsErrorSentence(null, row.instagramHandle) });
+        return;
+      }
+      const res = await fetch(`/api/creative-lab/artists/${labId}/find-clips`, { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as { error?: unknown };
+      if (!res.ok) {
+        setFind(row.artistId, { state: "error", message: findClipsErrorSentence(json.error, row.instagramHandle) });
+        return;
+      }
+      setFind(row.artistId, null);
+      router.refresh();
+    } catch {
+      setFind(row.artistId, { state: "error", message: findClipsErrorSentence(null, row.instagramHandle) });
+    }
+  }
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -161,6 +201,7 @@ export function LabLineup({
       <ul className="space-y-2">
         {order.map((row) => {
           const artist = artists.find((item) => item.id === row.labArtistId);
+          const find = finding[row.artistId] ?? null;
           return (
             <li
               key={row.artistId}
@@ -191,6 +232,11 @@ export function LabLineup({
                     {row.name}
                   </button>
                   {handles(row) ? <p className="text-muted-foreground">{handles(row)}</p> : <p className="text-muted-foreground">no Instagram yet</p>}
+                  {find?.state === "finding" ? (
+                    <p data-find-state="finding" className="text-muted-foreground" role="status">{findClipsReadingLine(row.instagramHandle)}</p>
+                  ) : find?.state === "error" ? (
+                    <p data-find-state="error" className="text-destructive" role="alert">{find.message}</p>
+                  ) : null}
                   <Rights row={row} busy={busy} onSave={onSave} />
                   <p className="tabular-nums text-muted-foreground">{row.clipCount} {row.clipCount === 1 ? "clip" : "clips"}</p>
                   {!row.spotifyId && row.spotifyCandidates.length > 1 ? (
@@ -198,7 +244,7 @@ export function LabLineup({
                   ) : null}
                 </div>
                 <div className="flex w-full items-center gap-2 sm:w-auto">
-                  <RowAction row={row} artist={artist} busy={busy} onSave={onSave} onEdit={() => setOpen(row.artistId)} onFound={() => router.refresh()} />
+                  <RowAction row={row} busy={busy} finding={find?.state === "finding"} onEdit={() => setOpen(row.artistId)} onFind={() => void findClips(row, artist)} />
                   <details className="relative">
                     <summary className="cursor-pointer list-none">⋯</summary>
                     <div className="absolute right-0 z-10 mt-1 w-64 rounded border border-border bg-card p-2">
@@ -275,37 +321,29 @@ function Rights({ row, busy, onSave }: { row: LabLineupRow; busy: boolean; onSav
 
 function RowAction({
   row,
-  artist,
   busy,
-  onSave,
+  finding,
   onEdit,
-  onFound,
+  onFind,
 }: {
   row: LabLineupRow;
-  artist: CreativeLabCardData["artists"][number] | undefined;
   busy: boolean;
-  onSave: Save;
+  finding: boolean;
   onEdit: () => void;
-  onFound: () => void;
+  onFind: () => void;
 }) {
   const action = artistPrimaryAction(row);
   if (action === "add_instagram") return <Button type="button" disabled={busy} onClick={onEdit}>Add Instagram</Button>;
   return (
-    <Button
-      type="button"
-      disabled={busy}
-      onClick={async () => {
-        let labId = artist?.id ?? null;
-        if (!labId) {
-          const made = await onSave({ action: "labArtist", libraryArtistId: row.artistId, name: row.name });
-          labId = made?.ok ? String(made.json.artistId ?? "") || null : null;
-        }
-        if (!labId) return;
-        await fetch(`/api/creative-lab/artists/${labId}/find-clips`, { method: "POST" });
-        onFound();
-      }}
-    >
-      Find clips
+    <Button type="button" disabled={busy || finding} aria-busy={finding} onClick={onFind}>
+      {finding ? (
+        <>
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          Finding…
+        </>
+      ) : (
+        "Find clips"
+      )}
     </Button>
   );
 }

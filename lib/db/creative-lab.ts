@@ -8,7 +8,7 @@ import { validateCaption, type EventFacts } from "../creative-lab/caption-facts.
 import { labLaunchesEnabled } from "../creative-lab/killswitch.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
 import { artistKey, playedBefore, spotifyCandidatesOf } from "../creative-lab/lineup.ts";
-import { clipWindow, currentRenderError } from "../creative-lab/surface.ts";
+import { clipWindow, currentRenderError, renderRoundOpen } from "../creative-lab/surface.ts";
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { quoteLines, validateQuote } from "../creative-lab/quote.ts";
@@ -203,6 +203,8 @@ export type CreativeLabCardData = {
     clipPreviewUrl: string | null;
     lines: string[];
     playing: boolean;
+    /** Every round holding this render is still draft or rendering (or it is in none), so a failed render can be tried again from its row. */
+    roundOpen: boolean;
   }[];
   assets: { id: string; filename: string; durationSeconds: number | null; thumbnailUrl: string | null }[];
   clientEvents: { id: string; name: string; eventDate: string | null }[];
@@ -548,6 +550,11 @@ export async function loadCreativeLabCard(
         clipPreviewUrl: text(clipAsset, "public_url") || text(clipAsset, "thumbnail_url") || null,
         lines: [],
         playing: false,
+        roundOpen: renderRoundOpen(
+          adRows
+            .filter((ad) => text(ad, "render_id") === text(row, "id"))
+            .map((ad) => text(rounds.find((round) => text(round, "id") === text(ad, "round_id")) ?? null, "status")),
+        ),
       };
     }),
     assets: videos.map((row) => ({

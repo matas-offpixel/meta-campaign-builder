@@ -8,7 +8,7 @@ import { LAB_CLIP_169, LAB_CLIP_916, LAB_FRAME_FIXTURES, getLabFrame } from "../
 import { LAB_FRAME_IDS as SHOT_IDS, LAB_SHOTS, LAB_WIDTHS } from "../../../scripts/plan-frames/lab-shots.mjs";
 import { evidenceIndex } from "../../../scripts/plan-frames/evidence.mjs";
 import { changedBaselines, guardLine } from "../../../scripts/ci/design-pass-guard.mjs";
-import { roundMatrix } from "../../creative-lab/surface.ts";
+import { renderFailureLine, renderRowWord, roundMatrix, visibleRenderRows } from "../../creative-lab/surface.ts";
 import { nextRoundView } from "../../creative-lab/round-next.ts";
 import { validateCaption, type EventFacts } from "../../creative-lab/caption-facts.ts";
 import { isCaptionStyle } from "../../creative-lab/tags.ts";
@@ -19,6 +19,28 @@ describe("Creative Lab frame catalog (CL)", () => {
     assert.deepEqual([...LAB_WIDTHS], [...LAB_FRAME_WIDTHS]);
     assert.equal(LAB_SHOTS.length, 20);
     assert.ok(LAB_SHOTS.every((shot: { id: string; frame: string; width: number }) => shot.id === `${shot.frame}-${shot.width}`));
+  });
+
+  it("CL2 and CL7 draw the pending and error states through held routes; CL10 lists a failed row and hides a superseded one", () => {
+    const withBefore = (LAB_SHOTS as { frame: string; before: unknown }[]).filter((shot) => shot.before).map((shot) => shot.frame);
+    assert.deepEqual([...new Set(withBefore)], ["CL2", "CL5", "CL7"]);
+    const shots = readFileSync(new URL("../../../scripts/plan-frames/lab-shots.mjs", import.meta.url), "utf8");
+    assert.match(shots, /lab-ada\/find-clips", \(\) => \{\}\)/);
+    assert.match(shots, /Connect Facebook in Account Setup\./);
+    assert.match(shots, /candidates\/cand-4\/import", \(\) => \{\}\)/);
+    const renders = LAB_FRAME_FIXTURES.CL10.lab.renders;
+    const shown = visibleRenderRows(renders);
+    assert.equal(renders.length, 5);
+    assert.deepEqual(shown.map((row) => row.id), ["render-1", "render-2", "render-3", "render-4"]);
+    const failed = shown.find((row) => row.status === "failed")!;
+    assert.equal(renderRowWord(failed, shown, LAB_FRAME_FIXTURES.CL10.now), "The renderer failed — try it again.");
+    // Its round is still open, so CL10 draws "try it again" as the link.
+    assert.equal(failed.roundOpen, true);
+    assert.deepEqual(renderFailureLine(renderRowWord(failed, shown, LAB_FRAME_FIXTURES.CL10.now), failed.roundOpen), {
+      lead: "The renderer failed — ",
+      link: "try it again",
+      tail: ".",
+    });
   });
 
   it("every id has a lab fixture with launches off", () => {

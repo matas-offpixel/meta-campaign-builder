@@ -157,7 +157,17 @@ export function clipBucket(clip: ClipForGroup): ClipBucket {
   return "keeping";
 }
 
-/** One sentence that says what to fix. A raw render error is never returned. */
+/**
+ * One sentence that says what to fix. A raw render error is never returned.
+ *
+ * The classes, in the order they are tested: the clip's frame, the caption's
+ * length, lines or style, the render timing out (the queue's `timeout` or
+ * Lambda's "timed out"), the renderer itself (Remotion Lambda), the clip's
+ * own file (missing, or its signed url or probe failing), a bare network
+ * "fetch failed" (the renderer, since it names no file), the finished file
+ * not saving, and replaced audio. A superseded row is an old path, not a
+ * refusal.
+ */
 export function renderRefusalSentence(error: string | null | undefined): string | null {
   const value = (error ?? "").trim();
   if (!value || isSupersededRender(value)) return null;
@@ -168,12 +178,88 @@ export function renderRefusalSentence(error: string | null | undefined): string 
   if (lower.includes("does not fit") || lower.includes("too long") || lower.includes("exceeds") || lower.includes("at most") || lower.includes("not approved")) {
     return "This caption is too long — shorten it.";
   }
+  if (lower.includes("caption lines are missing")) return "This caption has no lines — generate it again.";
   if (lower.includes("style_version") || lower.includes("old style")) return "This caption is on an old style — generate it again.";
+  if (lower.includes("timeout") || lower.includes("timed out")) return "The render timed out — try it again.";
+  if (lower.includes("lambda") || lower.includes("remotion")) return "The renderer failed — try it again.";
   if (lower.includes("no source") || lower.includes("no file")) return "This clip has no file — import it again.";
-  if (lower.includes("timeout")) return "The render timed out — try it again.";
+  if (lower.includes("signed url") || lower.includes("probe") || lower.includes("clip fetch") || lower.startsWith("mp4 ")) {
+    return "This clip's file couldn't be read — import it again.";
+  }
+  // Node's bare "fetch failed" is a network error anywhere in the run, so it can't blame the clip.
+  if (lower.includes("fetch failed")) return "The renderer failed — try it again.";
+  if (lower.includes("storage upload")) return "The finished render didn't save — try it again.";
   if (lower.includes("replaced audio") || lower.includes("no track")) return "This clip's new audio has no track yet — add the track.";
   if (value.includes(" — ") && !value.includes(":") && value.length <= 140) return value;
   return "This render was refused — find a sharper copy or ask the team.";
+}
+
+/** The failed-render sentences a person can retry from the row. "import it again" and "generate it again" are fixed elsewhere. */
+const RETRY_SENTENCES = new Set([
+  "The renderer failed — try it again.",
+  "The render timed out — try it again.",
+  "The finished render didn't save — try it again.",
+]);
+const RETRY_TAIL = " — try it again.";
+
+/** True when the render failed for a reason a fresh try can fix. */
+export function renderRetryable(error: string | null | undefined): boolean {
+  const sentence = renderRefusalSentence(error);
+  return sentence != null && RETRY_SENTENCES.has(sentence);
+}
+
+/**
+ * A render can be tried again while every round it sits in is still being
+ * built (draft or rendering), or when it is in no round. Once a round is
+ * approved, rejected, launched or judged, the round is proposed again instead.
+ */
+export function renderRoundOpen(roundStatuses: readonly string[]): boolean {
+  return roundStatuses.length === 0 || roundStatuses.some((status) => status === "draft" || status === "rendering");
+}
+
+/**
+ * The failed row's sentence, split so "try it again" can be the link itself.
+ * With the round past rendering the sentence ends "— propose the round again"
+ * and has no link. Other sentences come back whole.
+ */
+export function renderFailureLine(sentence: string, roundOpen: boolean): { lead: string; link: string | null; tail: string } {
+  if (!RETRY_SENTENCES.has(sentence)) return { lead: sentence, link: null, tail: "" };
+  const head = sentence.slice(0, -RETRY_TAIL.length);
+  if (!roundOpen) return { lead: `${head} — propose the round again.`, link: null, tail: "" };
+  return { lead: `${head} — `, link: "try it again", tail: "." };
+}
+
+/** The render rows the clip section lists. A superseded row is kept for the record and not shown. */
+export function visibleRenderRows<T extends { status: string; error: string | null }>(rows: readonly T[]): T[] {
+  return rows.filter(
+    (row) => (row.status === "queued" || row.status === "rendering" || row.status === "done" || row.status === "failed") && !isSupersededRender(row.error),
+  );
+}
+
+/** The line under a lineup row's name while Find clips reads Instagram. */
+export function findClipsReadingLine(handle: string | null | undefined): string {
+  const clean = (handle ?? "").trim().replace(/^@/, "");
+  return clean ? `reading @${clean}'s posts` : "reading their posts";
+}
+
+/** A route's error when it is already one sentence a person can act on; otherwise null. */
+function sentenceOf(error: unknown): string | null {
+  const value = typeof error === "string" ? error.trim() : "";
+  if (!value || value.length > 140) return null;
+  if (!/[.?!]$/.test(value)) return null;
+  if (/[:{}<>]|\b(?:error|exception|undefined|null)\b/i.test(value.replace(/[.?!]$/, ""))) return null;
+  return value;
+}
+
+/** The sentence on a lineup row when Find clips fails. */
+export function findClipsErrorSentence(error: unknown, handle: string | null | undefined): string {
+  const clean = (handle ?? "").trim().replace(/^@/, "");
+  return sentenceOf(error) ?? `Couldn't read ${clean ? `@${clean}'s` : "the"} posts — try Find clips again.`;
+}
+
+/** The sentence on a candidate tile when Add or Import fails. */
+export function importErrorSentence(error: unknown): string {
+  return sentenceOf(error) ?? "This clip didn't import — try again.";
 }
 
 export function cantRunReason(clip: ClipForGroup): string | null {
