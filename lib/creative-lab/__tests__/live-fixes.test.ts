@@ -38,13 +38,22 @@ describe("render failure sentences (defect 2)", () => {
     assert.equal(renderRefusalSentence("Lambda render timed out"), "The render timed out — try it again.");
     assert.equal(renderRefusalSentence("timeout"), "The render timed out — try it again.");
     assert.equal(renderRefusalSentence("signed url for videos/a.mp4: Object not found"), "This clip's file couldn't be read — import it again.");
-    assert.equal(renderRefusalSentence("fetch failed"), "This clip's file couldn't be read — import it again.");
+    assert.equal(renderRefusalSentence("clip fetch failed (404)"), "This clip's file couldn't be read — import it again.");
+    assert.equal(renderRefusalSentence("mp4 has no moov atom"), "This clip's file couldn't be read — import it again.");
     assert.equal(renderRefusalSentence("clip has no source asset"), "This clip has no file — import it again.");
     assert.equal(renderRefusalSentence("storage upload: The resource already exists"), "The finished render didn't save — try it again.");
     assert.equal(renderRefusalSentence("caption lines are missing"), "This caption has no lines — generate it again.");
     // The text check on the caption still reads as the caption being too long.
     assert.equal(renderRefusalSentence('"FIXTURE HALL TONIGHT" exceeds 18 characters'), "This caption is too long — shorten it.");
     assert.equal(renderRefusalSentence("aspect '4:5' with kind 'video' is not rendered"), "This clip isn't vertical — use a 9:16 file.");
+  });
+
+  it("bare fetch failed is a network error, so it reads as the renderer, not the clip", () => {
+    assert.equal(renderRefusalSentence("fetch failed"), "The renderer failed — try it again.");
+    assert.equal(renderRefusalSentence("TypeError: fetch failed"), "The renderer failed — try it again.");
+    // Tied to the clip's file, it still blames the file.
+    assert.equal(renderRefusalSentence("signed url for videos/a.mp4: fetch failed"), "This clip's file couldn't be read — import it again.");
+    assert.equal(renderRefusalSentence("clip fetch failed (403)"), "This clip's file couldn't be read — import it again.");
   });
 
   it("a superseded row is not a refusal and is not listed", () => {
@@ -126,7 +135,8 @@ describe("Find clips, Add and Import pending and error states (defect 1)", () =>
   it("render rows list only visible rows and put a failed row's sentence under its label", () => {
     const src = read("components/dashboard/events/creative-lab/render-rows.tsx");
     assert.match(src, /visibleRenderRows\(rows\)/);
-    assert.match(src, /failed \? \(\s*<p className="mt-0\.5 text-xs text-destructive">\{label\}<\/p>/);
+    assert.match(src, /failed \? \(\s*<FailureLine/);
+    assert.match(src, /<p data-render-failure className="mt-0\.5 text-xs text-destructive">/);
   });
 
   it("does not touch the four files Cursor is editing today", () => {

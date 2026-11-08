@@ -8,7 +8,7 @@ import { LAB_CLIP_169, LAB_CLIP_916, LAB_FRAME_FIXTURES, getLabFrame } from "../
 import { LAB_FRAME_IDS as SHOT_IDS, LAB_SHOTS, LAB_WIDTHS } from "../../../scripts/plan-frames/lab-shots.mjs";
 import { evidenceIndex } from "../../../scripts/plan-frames/evidence.mjs";
 import { changedBaselines, guardLine } from "../../../scripts/ci/design-pass-guard.mjs";
-import { renderRowWord, roundMatrix, visibleRenderRows } from "../../creative-lab/surface.ts";
+import { renderFailureLine, renderRowWord, roundMatrix, visibleRenderRows } from "../../creative-lab/surface.ts";
 import { nextRoundView } from "../../creative-lab/round-next.ts";
 import { validateCaption, type EventFacts } from "../../creative-lab/caption-facts.ts";
 import { isCaptionStyle } from "../../creative-lab/tags.ts";
@@ -34,6 +34,13 @@ describe("Creative Lab frame catalog (CL)", () => {
     assert.deepEqual(shown.map((row) => row.id), ["render-1", "render-2", "render-3", "render-4"]);
     const failed = shown.find((row) => row.status === "failed")!;
     assert.equal(renderRowWord(failed, shown, LAB_FRAME_FIXTURES.CL10.now), "The renderer failed — try it again.");
+    // Its round is still open, so CL10 draws "try it again" as the link.
+    assert.equal(failed.roundOpen, true);
+    assert.deepEqual(renderFailureLine(renderRowWord(failed, shown, LAB_FRAME_FIXTURES.CL10.now), failed.roundOpen), {
+      lead: "The renderer failed — ",
+      link: "try it again",
+      tail: ".",
+    });
   });
 
   it("every id has a lab fixture with launches off", () => {

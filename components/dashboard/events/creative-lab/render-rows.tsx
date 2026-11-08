@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
-import { renderRowFraction, renderRowWord, visibleRenderRows } from "@/lib/creative-lab/surface";
+import { renderFailureLine, renderRowFraction, renderRowWord, visibleRenderRows } from "@/lib/creative-lab/surface";
 
 type Render = CreativeLabCardData["renders"][number];
 
@@ -11,9 +14,37 @@ type Render = CreativeLabCardData["renders"][number];
  * One row per render. The finished one plays beside the rows, not in the
  * mini frame. A superseded render (an old path kept for the record) is not
  * listed. A failed row says what went wrong in one sentence under its label.
+ * When a fresh try can fix it and its round is still being built, "try it
+ * again" is the link: it re-queues that one render.
  */
 export function RenderRows({ rows, now }: { rows: readonly Render[]; now: string }) {
+  const router = useRouter();
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const [refused, setRefused] = useState<Record<string, string>>({});
   const shown = visibleRenderRows(rows);
+
+  async function retry(id: string) {
+    setRetrying(id);
+    setRefused((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    try {
+      const res = await fetch(`/api/creative-lab/renders/${id}/retry`, { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setRefused((current) => ({ ...current, [id]: json.error || "The queue didn't take this render — reload the page." }));
+        return;
+      }
+      router.refresh();
+    } catch {
+      setRefused((current) => ({ ...current, [id]: "The queue didn't take this render — reload the page." }));
+    } finally {
+      setRetrying(null);
+    }
+  }
+
   if (shown.length === 0) return null;
   const ready = shown.filter((row) => row.status === "done").length;
   const playing = shown.find((row) => row.status === "done" && row.playing) ?? null;
@@ -35,7 +66,12 @@ export function RenderRows({ rows, now }: { rows: readonly Render[]; now: string
                 <div className="min-w-0">
                   <p className="truncate text-sm">{row.label}</p>
                   {failed ? (
-                    <p className="mt-0.5 text-xs text-destructive">{label}</p>
+                    <FailureLine
+                      sentence={refused[row.id] ?? label}
+                      roundOpen={row.roundOpen && !refused[row.id]}
+                      busy={retrying === row.id}
+                      onRetry={() => void retry(row.id)}
+                    />
                   ) : (
                     <div className="mt-1 h-1.5 overflow-hidden rounded bg-muted">
                       <div className={`h-full ${done ? "bg-success" : "bg-foreground"}`} style={{ width: `${Math.round(fraction * 100)}%` }} />
@@ -60,5 +96,27 @@ export function RenderRows({ rows, now }: { rows: readonly Render[]; now: string
         ) : null}
       </div>
     </div>
+  );
+}
+
+function FailureLine({ sentence, roundOpen, busy, onRetry }: { sentence: string; roundOpen: boolean; busy: boolean; onRetry: () => void }) {
+  const line = renderFailureLine(sentence, roundOpen);
+  return (
+    <p data-render-failure className="mt-0.5 text-xs text-destructive">
+      {line.lead}
+      {line.link ? (
+        <button
+          type="button"
+          data-render-retry
+          aria-busy={busy || undefined}
+          disabled={busy}
+          onClick={onRetry}
+          className="underline underline-offset-2 hover:no-underline disabled:opacity-60"
+        >
+          {line.link}
+        </button>
+      ) : null}
+      {line.tail}
+    </p>
   );
 }

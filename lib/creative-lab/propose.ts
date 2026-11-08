@@ -15,7 +15,7 @@ import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { assertArtistCleared, buildAdName, createRound, type LabArtist } from "./rounds.ts";
-import { clipWindow } from "./surface.ts";
+import { clipWindow, renderRefusalSentence, renderRetryable, renderRoundOpen } from "./surface.ts";
 import type { CaptionStyle } from "./tags.ts";
 
 export const MAX_ADS_PER_AD_SET = 50;
@@ -580,6 +580,74 @@ async function pairsFromPlan(
     }
   }
   return pairs;
+}
+
+/** A retry the route refuses: the status code and one sentence for the row. */
+export class RenderRetryError extends Error {
+  readonly status: 404 | 409;
+  constructor(status: 404 | 409, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/**
+ * Try one failed render again from its row. The owner's render only; it must
+ * have failed for a reason a fresh try can fix (the renderer, a timeout, the
+ * finished file not saving), and every round holding it must still be draft
+ * or rendering. It goes back through queueRender, so the same row is
+ * re-queued with the next attempt number. Its round ads go back to pending so
+ * the finished render reaches them, and a settled draft round reads as
+ * rendering again until the queue settles it. No other render, ad or round
+ * is touched.
+ */
+export async function retryRender(db: ServiceRoleDb, args: { renderId: string; userId: string }): Promise<{ renderId: string }> {
+  const res = await db.from("creative_lab_renders").select("*").eq("id", args.renderId).maybeSingle();
+  if (res.error) throw new Error(`creative_lab_renders: ${res.error.message}`);
+  const render = res.data as Row | null;
+  if (!render || render.user_id !== args.userId) throw new RenderRetryError(404, "This render isn't on your Lab — reload the page.");
+  if (render.status !== "failed") throw new RenderRetryError(409, "This render isn't failed any more — reload the page.");
+  const error = typeof render.error === "string" ? render.error : null;
+  if (!renderRetryable(error)) {
+    throw new RenderRetryError(409, renderRefusalSentence(error) ?? "This render can't be tried again — propose the round again.");
+  }
+  if (render.aspect !== "9:16") throw new RenderRetryError(409, "This render is an old size — propose the round again.");
+
+  const ads = (await list(db, "creative_lab_round_ads", "render_id", args.renderId)).filter((ad) => ad.user_id === args.userId);
+  const roundIds = [...new Set(ads.map((ad) => String(ad.round_id)))];
+  const roundsRes = roundIds.length
+    ? await db.from("creative_lab_rounds").select("id, status").in("id", roundIds)
+    : { data: [] as Row[], error: null };
+  if (roundsRes.error) throw new Error(`creative_lab_rounds: ${roundsRes.error.message}`);
+  const rounds = (roundsRes.data ?? []) as Row[];
+  if (!renderRoundOpen(rounds.map((round) => String(round.status)))) {
+    throw new RenderRetryError(409, "This round has moved on — propose the round again.");
+  }
+
+  const queued = await queueRender(db, {
+    userId: args.userId,
+    clipId: String(render.clip_id),
+    captionId: String(render.caption_id),
+    styleVersion: String(render.style_version),
+  });
+  if (queued.id !== args.renderId) throw new Error(`render retry queued ${queued.id}, not ${args.renderId}`);
+
+  const open = rounds.filter((round) => round.status === "draft" || round.status === "rendering");
+  for (const round of open) {
+    const adUpdate = await db
+      .from("creative_lab_round_ads")
+      .update({ launch_state: "pending", launch_error: null })
+      .eq("render_id", args.renderId)
+      .eq("round_id", round.id)
+      .eq("launch_state", "render_failed")
+      .select("id");
+    if (adUpdate.error) throw new Error(`creative_lab_round_ads retry: ${adUpdate.error.message}`);
+    if (round.status === "draft" && (adUpdate.data ?? []).length > 0) {
+      const roundUpdate = await db.from("creative_lab_rounds").update({ status: "rendering" }).eq("id", round.id).eq("status", "draft");
+      if (roundUpdate.error) throw new Error(`creative_lab_rounds retry: ${roundUpdate.error.message}`);
+    }
+  }
+  return { renderId: args.renderId };
 }
 
 async function queueRender(

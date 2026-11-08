@@ -163,9 +163,10 @@ export function clipBucket(clip: ClipForGroup): ClipBucket {
  * The classes, in the order they are tested: the clip's frame, the caption's
  * length, lines or style, the render timing out (the queue's `timeout` or
  * Lambda's "timed out"), the renderer itself (Remotion Lambda), the clip's
- * own file (missing, or the signed download or probe failing), the finished
- * file not saving, and replaced audio. A superseded row is an old path, not
- * a refusal.
+ * own file (missing, or its signed url or probe failing), a bare network
+ * "fetch failed" (the renderer, since it names no file), the finished file
+ * not saving, and replaced audio. A superseded row is an old path, not a
+ * refusal.
  */
 export function renderRefusalSentence(error: string | null | undefined): string | null {
   const value = (error ?? "").trim();
@@ -182,13 +183,50 @@ export function renderRefusalSentence(error: string | null | undefined): string 
   if (lower.includes("timeout") || lower.includes("timed out")) return "The render timed out — try it again.";
   if (lower.includes("lambda") || lower.includes("remotion")) return "The renderer failed — try it again.";
   if (lower.includes("no source") || lower.includes("no file")) return "This clip has no file — import it again.";
-  if (lower.includes("signed url") || lower.includes("download") || lower.includes("probe") || lower.includes("fetch failed")) {
+  if (lower.includes("signed url") || lower.includes("probe") || lower.includes("clip fetch") || lower.startsWith("mp4 ")) {
     return "This clip's file couldn't be read — import it again.";
   }
+  // Node's bare "fetch failed" is a network error anywhere in the run, so it can't blame the clip.
+  if (lower.includes("fetch failed")) return "The renderer failed — try it again.";
   if (lower.includes("storage upload")) return "The finished render didn't save — try it again.";
   if (lower.includes("replaced audio") || lower.includes("no track")) return "This clip's new audio has no track yet — add the track.";
   if (value.includes(" — ") && !value.includes(":") && value.length <= 140) return value;
   return "This render was refused — find a sharper copy or ask the team.";
+}
+
+/** The failed-render sentences a person can retry from the row. "import it again" and "generate it again" are fixed elsewhere. */
+const RETRY_SENTENCES = new Set([
+  "The renderer failed — try it again.",
+  "The render timed out — try it again.",
+  "The finished render didn't save — try it again.",
+]);
+const RETRY_TAIL = " — try it again.";
+
+/** True when the render failed for a reason a fresh try can fix. */
+export function renderRetryable(error: string | null | undefined): boolean {
+  const sentence = renderRefusalSentence(error);
+  return sentence != null && RETRY_SENTENCES.has(sentence);
+}
+
+/**
+ * A render can be tried again while every round it sits in is still being
+ * built (draft or rendering), or when it is in no round. Once a round is
+ * approved, rejected, launched or judged, the round is proposed again instead.
+ */
+export function renderRoundOpen(roundStatuses: readonly string[]): boolean {
+  return roundStatuses.length === 0 || roundStatuses.some((status) => status === "draft" || status === "rendering");
+}
+
+/**
+ * The failed row's sentence, split so "try it again" can be the link itself.
+ * With the round past rendering the sentence ends "— propose the round again"
+ * and has no link. Other sentences come back whole.
+ */
+export function renderFailureLine(sentence: string, roundOpen: boolean): { lead: string; link: string | null; tail: string } {
+  if (!RETRY_SENTENCES.has(sentence)) return { lead: sentence, link: null, tail: "" };
+  const head = sentence.slice(0, -RETRY_TAIL.length);
+  if (!roundOpen) return { lead: `${head} — propose the round again.`, link: null, tail: "" };
+  return { lead: `${head} — `, link: "try it again", tail: "." };
 }
 
 /** The render rows the clip section lists. A superseded row is kept for the record and not shown. */
