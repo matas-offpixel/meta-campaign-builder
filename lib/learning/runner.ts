@@ -1,13 +1,19 @@
 /**
  * Learning loop B — nightly learning refresh, DB-only, zero Meta calls.
  *
- * Loads facts once (lib/learning/joins.ts), then runs five jobs that
+ * Loads facts once (lib/learning/joins.ts), then runs six jobs that
  * each log their rows and fail alone:
  *   1. creative_scores           (lib/learning/creative-scores.ts)
  *   2. tag_performance           (lib/learning/tag-performance.ts)
  *   3. client_funnel_benchmarks  (lib/learning/funnel-benchmarks.ts)
  *   4. interest_clusters.live_evidence (lib/learning/interest-evidence.ts)
- *   5. copy_performance            (lib/learning/copy-performance.ts)
+ *   5. artist_library            (lib/learning/copy/artist-plan.ts): names
+ *      recovered from the last ARTIST_WINDOW_DAYS of ad copy, confirmed on
+ *      Spotify, into artists + event_artists. The only job that calls out,
+ *      and only to Spotify; never Meta. No credentials → nothing written
+ *      that needed them.
+ *   6. copy_performance          (lib/learning/copy-performance.ts), reading
+ *      the names job 5 is linking as if already linked.
  * `dryRun` computes everything and writes nothing.
  */
 
@@ -28,7 +34,19 @@ import {
   type Stage,
   type StageSource,
 } from "./joins.ts";
-import { computeCopyPerformance, loadCopyLibrary, scopeCounts, writeCopyPerformance, type CopyLibrary } from "./copy-performance.ts";
+import {
+  artistExtractionInputs,
+  buildCopyLibrary,
+  computeCopyPerformance,
+  existingLinks,
+  loadCopySources,
+  scopeCounts,
+  writeCopyPerformance,
+  type CopyLibrary,
+  type CopySources,
+} from "./copy-performance.ts";
+import { spotifyConfirmer, type ArtistConfirmer } from "./copy/artist-confirm.ts";
+import { planArtistLibrary, writeArtistPlan, type ArtistPlan } from "./copy/artist-plan.ts";
 import { passesCopyMinimum, type CopyPerformanceRow } from "./copy/score.ts";
 import { computeTagPerformance, TAG_WINDOW_DAYS, windowStart, writeTagPerformance, type TagPerformanceRow } from "./tag-performance.ts";
 
@@ -36,14 +54,26 @@ export function isLearningRefreshEnabled(env: Record<string, string | undefined>
   return env.ENABLE_LEARNING_REFRESH === "1";
 }
 
-export type LearningJobName = "creative_scores" | "tag_performance" | "client_funnel_benchmarks" | "interest_live_evidence" | "copy_performance";
+export type LearningJobName =
+  | "creative_scores"
+  | "tag_performance"
+  | "client_funnel_benchmarks"
+  | "interest_live_evidence"
+  | "artist_library"
+  | "copy_performance";
 export const LEARNING_JOBS: readonly LearningJobName[] = [
   "creative_scores",
   "tag_performance",
   "client_funnel_benchmarks",
   "interest_live_evidence",
+  "artist_library",
   "copy_performance",
 ];
+
+/** Nightly: only events with ad copy written in the last week are read for names. */
+export const ARTIST_WINDOW_DAYS = 7;
+/** Spotify searches one nightly run may spend. The rest wait for the next night. */
+export const ARTIST_MAX_SEARCHES = 100;
 
 export type JobOutcome = { ok: boolean; rows: number; detail?: Record<string, unknown>; error?: string };
 
@@ -98,6 +128,7 @@ export type LearningRefreshResult =
         liveEvidence: Record<string, LiveEvidence & { name: string }>;
         clients: LearningInputs["clients"];
         copyPerformance: CopyPerformanceRow[];
+        artistPlan: ArtistPlan | null;
       };
       error?: string;
     };
@@ -190,6 +221,8 @@ export async function runLearningRefresh(input: {
   inputs?: LearningInputs;
   /** Dry runs: see `LoadLearningOptions`. */
   load?: LoadLearningOptions;
+  /** Tests: the artist confirmer. Default: Spotify from `env`, or null when the credentials are not set. */
+  confirm?: ArtistConfirmer | null;
 }): Promise<LearningRefreshResult> {
   const dryRun = input.dryRun === true;
   if (!dryRun && !isLearningRefreshEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
@@ -207,6 +240,9 @@ export async function runLearningRefresh(input: {
   let liveEvidence: Map<string, LiveEvidence> = new Map();
   let clusterNames = new Map<string, string>();
   let copyRows: CopyPerformanceRow[] = [];
+  let copySources: CopySources | null = null;
+  let artistPlan: ArtistPlan | null = null;
+  const confirm = input.confirm === undefined ? spotifyConfirmer(input.env) : input.confirm;
 
   const jobs = {} as Record<LearningJobName, JobOutcome>;
   jobs.creative_scores = await job("creative_scores", async () => {
@@ -245,8 +281,25 @@ export async function runLearningRefresh(input: {
     const written = await writeLiveEvidence(input.db, liveEvidence, runAt);
     return { ok: true, rows: written.written, detail: { matched } };
   });
+  jobs.artist_library = await job("artist_library", async () => {
+    copySources = await loadCopySources(input.db);
+    const extraction = artistExtractionInputs(copySources, inputs.facts, inputs.clients, inputs.archivedClientIds, {
+      since: windowStart(now, ARTIST_WINDOW_DAYS),
+    });
+    artistPlan = await planArtistLibrary({ ...extraction, existing: copySources.artists, confirm, maxSearches: ARTIST_MAX_SEARCHES });
+    const detail = { ...artistPlan.counts, searches: artistPlan.searches, spotify: artistPlan.spotify, artists: artistPlan.artists.length };
+    if (dryRun) return { ok: true, rows: artistPlan.links.length, detail: { ...detail, dryRun } };
+    const written = await writeArtistPlan(input.db, artistPlan, {
+      userId: await operator(),
+      now: runAt,
+      existingLinks: existingLinks(copySources),
+      existing: copySources.artists,
+    });
+    return { ok: true, rows: written.links, detail: { ...detail, ...written } };
+  });
   jobs.copy_performance = await job("copy_performance", async () => {
-    const library: CopyLibrary = await loadCopyLibrary(input.db, inputs.facts, inputs.clients);
+    const sources = copySources ?? (await loadCopySources(input.db));
+    const library: CopyLibrary = buildCopyLibrary(sources, inputs.facts, inputs.clients, { extraLineups: artistPlan?.lineups });
     copyRows = computeCopyPerformance(library);
     const scopes = scopeCounts(copyRows);
     const detail = {
@@ -285,6 +338,7 @@ export async function runLearningRefresh(input: {
       ),
       clients: inputs.clients,
       copyPerformance: copyRows,
+      artistPlan,
     };
   }
   console.log(

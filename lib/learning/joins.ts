@@ -67,6 +67,8 @@ export type AdDayRow = {
   date: string;
   ad_name: string | null;
   campaign_name: string | null;
+  /** Snapshot of the ad set's name. Read by the artist library job. */
+  adset_name?: string | null;
   spend: number;
   impressions: number;
   reach: number;
@@ -418,7 +420,7 @@ export function interestKeyOf(value: unknown): string {
 }
 
 const AD_DAY_COLUMNS =
-  "id, ad_account_id, meta_ad_id, meta_adset_id, date, ad_name, campaign_name, spend, impressions, reach, link_clicks, landing_page_views, video_plays_3s, video_plays_p100, registrations, purchases, actions, result_action_type";
+  "id, ad_account_id, meta_ad_id, meta_adset_id, date, ad_name, adset_name, campaign_name, spend, impressions, reach, link_clicks, landing_page_views, video_plays_3s, video_plays_p100, registrations, purchases, actions, result_action_type";
 const META_OBJECTIVE_COLUMNS = "campaign_objective, optimization_goal, promoted_event";
 
 export type LoadLearningOptions = {
