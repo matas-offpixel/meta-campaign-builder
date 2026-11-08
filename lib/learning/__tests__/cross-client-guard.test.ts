@@ -2,7 +2,8 @@
  * Public surfaces must not reach the copy library. Modelled on the
  * client-status guard: follow @/ and relative imports from the share,
  * landing, client-admin and webhook trees, and fail if a reachable file
- * imports the cross-client module or names copy_performance or ad_copy.
+ * imports the cross-client module or names copy_performance,
+ * copy_features or ad_copy.
  * Every other importer of that module has to call requireOperator(.
  */
 
@@ -73,6 +74,7 @@ function namesCopyLibrary(src: string): boolean {
   return (
     /learning\/cross-client/.test(src) ||
     /\bcopy_performance\b/.test(src) ||
+    /\bcopy_features\b/.test(src) ||
     /(["'`])ad_copy\1/.test(src) ||
     /components\/insights-rail\//.test(src) ||
     /lib\/insights-rail\//.test(src) ||

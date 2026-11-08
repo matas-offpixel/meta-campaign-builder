@@ -233,7 +233,13 @@ function finish(key: string, field: CopyField, stage: CopyStage, voice: CopyVoic
   };
 }
 
-export function scoreTemplates(ads: readonly ScoreAd[], k = COPY_SHRINK_K): CopyPerformanceRow[] {
+export type ScoreOptions = {
+  /** Which keys to score. Default: every key that is not name-only. copy_features passes its own. */
+  keep?: (key: string) => boolean;
+};
+
+export function scoreTemplates(ads: readonly ScoreAd[], k = COPY_SHRINK_K, options: ScoreOptions = {}): CopyPerformanceRow[] {
+  const keep = options.keep ?? ((key: string) => !isNameOnlyTemplate(key));
   const eventBase = new Map<string, Baseline>();
   const clientBase = new Map<string, Baseline>();
   const add = (map: Map<string, Baseline>, key: string, ad: ScoreAd) => {
@@ -255,7 +261,7 @@ export function scoreTemplates(ads: readonly ScoreAd[], k = COPY_SHRINK_K): Copy
     const seen = new Set<string>();
     for (const line of ad.lines) {
       const id = `${line.field}|${line.key}`;
-      if (!line.key || isNameOnlyTemplate(line.key) || seen.has(id)) continue;
+      if (!line.key || !keep(line.key) || seen.has(id)) continue;
       seen.add(id);
       const groupKey = `${line.key}|${line.field}|${ad.stage}|${ad.voice}`;
       const group = groups.get(groupKey) ?? { key: line.key, field: line.field, stage: ad.stage, voice: ad.voice, scopes: new Map() };
