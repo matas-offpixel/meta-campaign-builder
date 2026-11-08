@@ -19,6 +19,8 @@
  *     "final" / "last" only when exactly one tier has stock and it is the
  *     highest-priced; "under N" only when remaining < N; "N left" only
  *     when remaining ≤ N; "sold out" only when a tier has none left.
+ *     A11: a phrase that is a live approved claim for this caption's
+ *     release is allowed. The rest of the caption stays on these rules.
  *   - wrap at the style profile's characters per line (v1.json; 18), at
  *     most 4 lines. An overlay that does not fit those 4 lines, or that
  *     is 73–96 characters, uses the long size (up to 5 × 24). Over 96,
@@ -71,6 +73,12 @@ export type EventFacts = {
   /** YYYY-MM-DD */
   allowedDates: string[];
   tiers: FactTier[];
+  /**
+   * A11. A live approved claim for `captionRelease` may be quoted.
+   * A claim that is not live, or that belongs to another release, changes nothing.
+   */
+  liveClaims?: { release: string; claim: string; live: boolean }[];
+  captionRelease?: string;
 };
 
 /** on_sale uses ticket CTAs. upcoming and signup use signup CTAs. */
@@ -270,6 +278,9 @@ export function canonicalFactsJson(facts: EventFacts): string {
       tiers: facts.tiers
         .map((t) => ({ name: t.name, price: t.price, remaining: t.remaining }))
         .sort((a, b) => a.name.localeCompare(b.name)),
+      ...(facts.liveClaims
+        ? { liveClaims: facts.liveClaims, captionRelease: facts.captionRelease ?? null }
+        : {}),
     }),
   );
 }
@@ -604,6 +615,18 @@ function checkPrices(text: string, facts: EventFacts): CaptionError[] {
   return errors;
 }
 
+/** Drop live-claim phrases for this release. What remains is still checked strictly. */
+function withoutLiveClaims(text: string, facts: EventFacts): string {
+  let rest = text;
+  for (const claim of facts.liveClaims ?? []) {
+    if (!claim.live) continue;
+    if (facts.captionRelease && claim.release !== facts.captionRelease) continue;
+    const escaped = claim.claim.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    rest = rest.replace(new RegExp(escaped, "ig"), " ");
+  }
+  return rest;
+}
+
 /** "last season" is a corpus shape, not a stock claim. "selling fast" and "% sold" are. */
 function scarcityClaim(text: string): boolean {
   if (/\b(final|left|remaining|sold\s+out|selling\s+fast)\b/i.test(text)) return true;
@@ -612,6 +635,7 @@ function scarcityClaim(text: string): boolean {
 }
 
 function checkScarcity(text: string, style: CaptionStyle, facts: EventFacts): CaptionError[] {
+  text = withoutLiveClaims(text, facts);
   if (style !== "scarcity" && !scarcityClaim(text)) return [];
   if (!facts.tiers.length) return [{ code: "scarcity_without_tiers", detail: "the event has no ticket tiers" }];
   if (facts.tiers.some((t) => t.remaining == null)) {

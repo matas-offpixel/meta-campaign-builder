@@ -27,6 +27,7 @@ import {
 } from "@/components/dashboard/events/event-detail-tabs";
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
 import { EventVenuePanel } from "@/components/dashboard/events/event-venue-panel";
+import { LiveReleases } from "@/components/dashboard/asset-bank/live";
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
 import { InsightsPill } from "@/components/insights-rail/insights-pill";
 import { InsightsPageContext } from "@/components/insights-rail/rail-context";
@@ -152,6 +153,8 @@ interface Props {
   /** Existing Google Ads plan id for the Reporting tab, when present. */
   initialGoogleAdsPlanId: string | null;
   lab: CreativeLabCardData | null;
+  /** Releases and the client's ladder. Null until migration 211 is applied. */
+  bank?: { eventId: string; releases: import("@/lib/releases/types").Release[]; ladder: import("@/lib/releases/types").LadderRung[] } | null;
 }
 
 /**
@@ -177,6 +180,7 @@ export function EventDetail({
   ticketTiers,
   initialGoogleAdsPlanId,
   lab,
+  bank = null,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
   // resolved here so the Tickets sold StatCard, the read-only panel
@@ -436,6 +440,9 @@ export function EventDetail({
           {/* ───── Overview ───── */}
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
+              {bank && bank.releases.length ? (
+                <LiveReleases eventId={bank.eventId} releases={bank.releases} ladder={bank.ladder} />
+              ) : null}
               {lab ? <CreativeLabCard lab={lab} /> : null}
               {!isBrand && event.client_id ? (
                 <p className="text-sm">

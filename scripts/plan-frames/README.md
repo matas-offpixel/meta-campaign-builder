@@ -10,6 +10,7 @@ write killswitch unset. The loop that uses these renders is in
 |---|---|---|---|
 | L, A, J, E | MML plan v2 | 1176 (L3, J2 also 768) | `fixtures.ts`, `builders.ts` |
 | CL | Creative Lab card on the event page | 1280 and 393 | `lab-fixtures.ts` |
+| AB | Asset bank on the event page, Today and the client Ticketing tab | 1280 and 393 | `bank-fixtures.ts`, `components/dashboard/asset-bank/` |
 | IR | Insights rail beside the event page and the MML canvas | per frame (record) | `rail-fixtures.ts` |
 
 ## Evidence pack
@@ -51,8 +52,30 @@ The runner fails a CL shot if any declared font face has not loaded.
 | CL6 | Round 1 judged on signups | Ada North #1 × Lineup: Winner (olive), £0.50 / signup · 40 signups = £20.00. Bea Lowe #1 × POV: "cost 1.5× the usual" (brick), £0.75 / signup · 20 signups = £15.00 (0.75 ÷ 0.50 = 1.5). Ada North #2 × Lineup: Untested (dashed). Keeping 2, New 1. What's working: "Lineup captions beat POV by 33% on Off Pixel Fixtures" ((0.75 − 0.50) ÷ 0.75 = 33.3%) and "Ada North clip #1 is the current winner". Next: "Round 1 is judged. Propose round 2." Timeline: "Round 1 · judged · £0.58 / signup" (£35 ÷ 60 = £0.583) lists its ads with chip and cost: "Ada North #1 × Lineup" Winner £0.50 / signup · 40 signups; "Bea Lowe #1 × POV" struck through, "cost 1.5× the usual" £0.75 / signup · 20 signups; "Ada North #2 × Lineup" Untested. "Round 2 · plan": Ada North #1, Ada North #2 and Lineup · "Ada North Bea Lowe", all Kept. There is no separate "Ran in round 1" list. Matrix "2 ads · 2 × 1, 0 left out", button "Propose round 2". Strip: Round 1 judged |
 | CL7 | Instagram candidates for Ada North | Once, under "Find clips on Instagram", ranked 1–4. The same four as CL8. Posters are the VP9 fixture clips. 1 ▶ 0:18 · ♥ 1,200 · 💬 40 · 8 days ago · 9:16, Request from team; 2 ▶ 0:27 · ♥ 800 · 💬 20 · 2 weeks ago · 4:5, at 55% opacity, "Skipped — text in 3 of 8 frames · see" (see is closed); 3 ♥ 400 · 💬 10 · 4 weeks ago · landscape, at 55% opacity, Requested; 4 ▶ 0:14 · ♥ 300 · 💬 5 · 1 day ago · 9:16, Add. Ages count from the fixture's now (6 Nov 2026). Lengths are fixture-only: Instagram's listing does not return duration |
 | CL8 | Why #2 was skipped | The same four candidates. #2 is open as a panel, not inside the tile: "Why #2 was skipped", "8 frames checked", eight frames of the fixture clip, frames 3, 4 and 6 marked Aa. "Text burned into 3 of 8 frames — it would read as someone else's ad." Import anyway is a text link under that sentence |
-| CL9 | Crop picker on the landscape fixture clip | A panel, "Crop #3 to 9:16", about 460 px wide at 1280 and full width at 393. Bea Lowe's 16:9 clip. The bright window sits at 0.5, shaded outside, with drag handles and "16:9 → 9:16". Six whole filmstrip frames show the same window. Use this crop is full width at 393 |
+| CL9 | Crop picker on the landscape fixture clip | A panel, "Crop #3 to 9:16", about 460 px wide at 1280 and full width at 393. Bea Lowe's 16:9 clip. The bright window sits at 0.5, shaded outside, with drag handles and "16:9 → 9:16". Six whole filmstrip frames show the same window. Use this crop stays on one line at 1280 (the help sentence wraps first) and is full width at 393 |
 | CL10 | Render rows | 2 of 3 ready. Each row's mini frame is that pairing's clip, including the Ready rows. Ready is an olive outline chip and the finished bars are olive. One row is at ~1 min. The finished render plays as a 9:16 preview beside the rows at 1280 and full width at 393, caption burned in |
+
+## AB series
+
+Puzzle 4th Birthday, today 7 Nov 2026, show 27 Dec, payday Fri 27 Nov, 50 days. Four release dates: 21 Oct; 29 Oct 11:30/12:00; 30 Oct 12:00; 6 Nov 11:30/12:00. States sold out · sold out · on sale · selling fast. No counts.
+
+| Id | What to check |
+|---|---|
+| AB1 | Dots sit on one line. Early bird: live done, sold out done. 2nd release: live → 90% sold out → sold out, all done. General sale and 3rd release show a dashed final X. The 3rd release's next rung is "90% · next read Mon" in ochre. Today sits above the release labels. Show · 27 Dec is one line. The state control is one bordered control: past segments muted, the current one filled ink. Big number 2 of 4 on sale · 2 sold out. 393 scrolls the line and shortens the control to fast / final / out |
+| AB2 | Four cards at 1280 (proposal, approved live, locked final X, back to held). 393 shows the proposal and the locked card. Artwork slots read "+ needs the piece" |
+| AB3 | 23 Nov – 27 Dec. Window shaded where `isInPaydayWindow` is true: Thu 26 Nov through Sun 13 Dec (18 days). 27 Nov and 24 Dec are outlined. Ticket pushes are brick, content-led pushes are meta-blue, and the legend has those swatches. 24 Dec reads "moved · 25th is Christmas". The 393 list includes Sat 28 and every other push on the grid. "Last day at £26" is gone |
+| AB4 | Header 15 approved · 1 proposed · 3 locked · 5 missing. Made cells carry a thumbnail, approved cells add ✓, held is ochre-outlined, proposed is ochre, locked and "+ needs …" are dashed. Row sub-lines include "sold out · ladder done" and "proposed · Mon read". The button's action makes nothing |
+| AB5 | Eight rungs at both widths, Puzzle's 5-day override and the % line. 393 stacks each trigger over its claim, full width. No roll-call line |
+
+Flagged against the drawings:
+
+- AB2's first line is "Client message, Wed 4 Nov:" (the vendor reader is not in this PR). The record's figure says "Skiddle read Wed 4 Nov 09:00".
+- Artwork slots are a dashed "+ needs the piece". The figures use a filled caption; the overlay templates are not built, and this PR does not render.
+- A made board cell uses the record's thumbnail gradient. There is no piece to show.
+- AB3's record says the window runs to Monday 14 Dec. The code's 18th day is Sunday 13 Dec, so 14 Dec is not shaded. The verdict keeps the code.
+- Content-led marks use the deck's meta-blue (`#5B7FA6`).
+- AB4's visible cells do not add up to 15 approved. The header is the record's count.
+- AB1's "Skiddle read" lines are the figure's provenance. Nothing fetches Skiddle.
 
 ### Captions
 

@@ -144,6 +144,15 @@ describe("creative lab captions: prices and scarcity", () => {
     ]);
   });
 
+  it("A11: '90% sold out' passes only while that claim is live for that release", () => {
+    const claim = { release: "2nd release", claim: "90% sold out", live: true };
+    const live = { ...P26, captionRelease: "2nd release", liveClaims: [claim] };
+    assert.deepEqual(codes("90% sold out", { facts: live }), []);
+    assert.deepEqual(codes("90% sold out", { facts: { ...live, liveClaims: [{ ...claim, live: false }] } }), ["scarcity_without_tiers"]);
+    assert.deepEqual(codes("90% sold out", { facts: { ...live, captionRelease: "3rd release" } }), ["scarcity_without_tiers"]);
+    assert.ok(codes("90% sold out. Final tickets.", { facts: live }).includes("scarcity_without_tiers"));
+  });
+
   it("'sold out' needs a tier with none left; style scarcity needs tiers whatever the words", () => {
     assert.deepEqual(codes("Tier 2 sold out", { facts: withTiers(two) }), ["sold_out_not_true"]);
     assert.deepEqual(codes("Tier 2 sold out", { facts: withTiers([{ ...two[0], remaining: 0 }, two[1]]) }), []);

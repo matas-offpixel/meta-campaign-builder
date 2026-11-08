@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { TodayDashboard } from "@/components/dashboard/today/today-dashboard";
+import { ClaimToday } from "@/components/dashboard/today/claim-today";
 import { ClientPacingAlerts } from "@/components/dashboard/today/client-pacing-alerts";
 
 export default function TodayPage() {
@@ -12,6 +13,11 @@ export default function TodayPage() {
       alertsSlot={
         <Suspense fallback={null}>
           <ClientPacingAlerts />
+        </Suspense>
+      }
+      claimSlot={
+        <Suspense fallback={null}>
+          <ClaimToday />
         </Suspense>
       }
     />
