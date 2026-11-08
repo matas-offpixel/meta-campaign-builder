@@ -443,7 +443,7 @@ export function EventDetail({
               {bank && bank.releases.length ? (
                 <LiveReleases eventId={bank.eventId} releases={bank.releases} ladder={bank.ladder} />
               ) : null}
-              {lab ? <CreativeLabCard lab={lab} /> : null}
+              {lab ? <CreativeLabCard lab={lab} quoteMode /> : null}
               {!isBrand && event.client_id ? (
                 <p className="text-sm">
                   <Link className="underline" href={`/clients/${event.client_id}?tab=ticketing`}>Ticketing</Link>

@@ -17,6 +17,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { fingerprintBytes, upsertRegisteredAsset } from "../creatives/asset-registry.ts";
 import type { CaptionOnClipProps } from "../../src/remotion/compositions/CaptionOnClip.tsx";
 import { captionLimits, outputSize, profile, styleVersion, type CaptionAspect, type CaptionSize } from "../../src/remotion/caption-style/profile.ts";
+import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
@@ -184,26 +185,34 @@ export async function renderCaptionOnClip(
   await patchRender(db, input.renderId, { status: "rendering", error: null });
   let pendingDelete: { lambda: NonNullable<RenderDeps["lambda"]>; handle: LambdaHandle } | null = null;
   try {
-    const [clip, caption, version] = await Promise.all([
+    const [clip, caption, captionVersion, quoteVersion] = await Promise.all([
       one(db, "creative_lab_clips", String(render.clip_id)),
       one(db, "creative_lab_captions", String(render.caption_id)),
       styleVersion(),
+      quoteStyleVersion(),
     ]);
     if (!clip) throw new Error("clip not found");
     if (!caption) throw new Error("caption not found");
     const loaded = loadLabRender({ aspect: render.aspect, kind: render.kind });
     if (loaded.kind !== "video") throw new Error("static renders are not written yet");
     const aspect = loaded.aspect;
+    const quote = caption.mode === "quote" || caption.style === "quote";
+    const version = quote ? quoteVersion : captionVersion;
     const size: CaptionSize = caption.size_variant === "long" ? "long" : "default";
-    if (size === "long" && !profile.longApproved) throw new Error("long caption size is not approved");
-    const limits = captionLimits(size);
     const lines = asLines(caption.lines);
-    if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
-    const over = lines.find((line) => line.length > limits.charsPerLine);
-    if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
+    if (quote) {
+      if (lines.length > 4) throw new Error(`${lines.length} lines; a quote is at most 4`);
+    } else {
+      if (size === "long" && !profile.longApproved) throw new Error("long caption size is not approved");
+      const limits = captionLimits(size);
+      if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
+      const over = lines.find((line) => line.length > limits.charsPerLine);
+      if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
+    }
     if (caption.style_version !== version || render.style_version !== version) {
       throw new Error(`style_version does not match the bundled profile ${version}`);
     }
+    const quoteWeight = caption.quote_weight === 400 ? 400 : 700;
     const audio = audioMode(String(clip.audio_status ?? "original"));
     if (audio === "replaced") throw new Error("replaced audio has no track on the clip yet");
 
@@ -240,6 +249,7 @@ export async function renderCaptionOnClip(
       durationInSeconds: meta.durationInSeconds,
       plate: "video",
       size,
+      ...(quote ? { mode: "quote" as const, weight: quoteWeight as 400 | 700 } : {}),
     };
     const request: CaptionRenderRequest = { props, muted: audio === "muted" };
     const frame = outputSize(meta.width, meta.height, aspect);

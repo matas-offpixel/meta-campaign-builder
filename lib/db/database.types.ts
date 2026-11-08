@@ -1658,6 +1658,7 @@ export type Database = {
       }
       creative_lab_captions: {
         Row: {
+          artist_id: string | null
           caption_no: number
           created_at: string
           declared_names: string[]
@@ -1666,7 +1667,12 @@ export type Database = {
           generated_by: string
           id: string
           lines: string[]
+          mode: string
           primary_text: string | null
+          quote_source: string | null
+          quote_source_note: string | null
+          quote_source_ref: string | null
+          quote_weight: number | null
           size_variant: string
           status: string
           style: string
@@ -1676,6 +1682,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          artist_id?: string | null
           caption_no: number
           created_at?: string
           declared_names?: string[]
@@ -1684,7 +1691,12 @@ export type Database = {
           generated_by: string
           id?: string
           lines: string[]
+          mode?: string
           primary_text?: string | null
+          quote_source?: string | null
+          quote_source_note?: string | null
+          quote_source_ref?: string | null
+          quote_weight?: number | null
           size_variant?: string
           status?: string
           style: string
@@ -1694,6 +1706,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          artist_id?: string | null
           caption_no?: number
           created_at?: string
           declared_names?: string[]
@@ -1702,7 +1715,12 @@ export type Database = {
           generated_by?: string
           id?: string
           lines?: string[]
+          mode?: string
           primary_text?: string | null
+          quote_source?: string | null
+          quote_source_note?: string | null
+          quote_source_ref?: string | null
+          quote_weight?: number | null
           size_variant?: string
           status?: string
           style?: string

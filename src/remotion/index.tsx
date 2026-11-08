@@ -21,6 +21,7 @@ import {
   styleVersion,
   type CaptionSize,
 } from "./caption-style/profile";
+import { quoteStyleVersion } from "./caption-style/quote-profile";
 
 const cityStaticDefaultProps: FourTfCityStaticProps = {
   city: "",
@@ -89,17 +90,22 @@ function RemotionRoot() {
         component={CaptionOnClip as unknown as FC<Record<string, unknown>>}
         calculateMetadata={async ({ props }) => {
           const p = props as unknown as CaptionOnClipProps;
-          const version = await styleVersion();
+          const quote = p.mode === "quote";
+          const version = quote ? await quoteStyleVersion() : await styleVersion();
           if (p.styleVersion && p.styleVersion !== version) {
             throw new Error(`styleVersion ${p.styleVersion} does not match the bundled profile ${version}`);
           }
           if (p.aspect !== "9:16") throw new Error("video renders are 9:16 only");
-          const size = (p.size ?? "default") as CaptionSize;
-          if (size === "long" && !profile.longApproved && !p.unapprovedProof) throw new Error("long caption size is not approved");
-          const limits = captionLimits(size);
-          if (!p.unapprovedProof && p.lines.length > limits.maxLines) throw new Error(`${p.lines.length} lines; at most ${limits.maxLines}`);
-          const over = p.lines.find((line) => line.length > limits.charsPerLine);
-          if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
+          if (!quote) {
+            const size = (p.size ?? "default") as CaptionSize;
+            if (size === "long" && !profile.longApproved && !p.unapprovedProof) throw new Error("long caption size is not approved");
+            const limits = captionLimits(size);
+            if (!p.unapprovedProof && p.lines.length > limits.maxLines) throw new Error(`${p.lines.length} lines; at most ${limits.maxLines}`);
+            const over = p.lines.find((line) => line.length > limits.charsPerLine);
+            if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
+          } else if (p.lines.length > 4) {
+            throw new Error(`${p.lines.length} lines; a quote is at most 4`);
+          }
           const frame = outputSize(p.sourceWidth, p.sourceHeight, p.aspect, p.cropFocusX ?? 0.5);
           const inS = p.inS ?? 0;
           const outS = p.outS ?? p.durationInSeconds;

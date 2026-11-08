@@ -5,6 +5,7 @@ import localFont from "next/font/local";
 import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { captionBoxInsets } from "@/lib/creative-lab/surface";
 import { profile } from "../../../../src/remotion/caption-style/profile";
+import { quoteProfile, type QuoteWeight } from "../../../../src/remotion/caption-style/quote-profile";
 
 const tiktokSans = localFont({
   src: "../../../../src/remotion/fonts/TikTokSans[opsz,slnt,wdth,wght].ttf",
@@ -28,6 +29,8 @@ export function CaptionOverlay({
   compact = false,
   inS = 0,
   outS = null,
+  mode = "caption",
+  weight = 700,
 }: {
   lines: readonly string[];
   src?: string | null;
@@ -35,13 +38,15 @@ export function CaptionOverlay({
   compact?: boolean;
   inS?: number;
   outS?: number | null;
+  mode?: "caption" | "quote";
+  weight?: QuoteWeight;
 }) {
   const { videoProps, rangeProps, playing, toggle } = useClipVideo(inS, outS);
   const shown = lines.map((line) => line.trim()).filter(Boolean);
   const stroke = `${profile.strokeWidthPctOfFontSize * 2}em`;
 
   return (
-    <div className="relative aspect-[9/16] w-full overflow-hidden bg-black" style={{ containerType: "inline-size" }}>
+    <div className="relative aspect-[9/16] w-full overflow-hidden bg-black" style={{ containerType: mode === "quote" ? "size" : "inline-size" }}>
       {src ? (
         <video
           {...videoProps}
@@ -53,7 +58,23 @@ export function CaptionOverlay({
           preload="metadata"
         />
       ) : null}
-      {compact ? (
+      {mode === "quote" && shown.length ? (
+        <p
+          className={`${tiktokSans.className} pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-center whitespace-pre-line`}
+          style={{
+            left: `${quoteProfile.horizontalCenterPctOfWidth * 100}%`,
+            top: `${quoteProfile.verticalCenterPctOfSourceHeight * 100}%`,
+            width: `${quoteProfile.wrapPctOfWidth * 100}%`,
+            fontSize: `${quoteProfile.fontSizePctOfHeight * 100}cqh`,
+            lineHeight: `${quoteProfile.pitchPctOfHeight * 100}cqh`,
+            fontWeight: weight,
+            fontVariationSettings: `"opsz" 36, "slnt" 0, "wdth" 100, "wght" ${weight}`,
+            color: quoteProfile.fill,
+          }}
+        >
+          {shown.join("\n")}
+        </p>
+      ) : compact ? (
         <span
           aria-hidden
           className="absolute h-0.5 -translate-y-1/2 bg-white"

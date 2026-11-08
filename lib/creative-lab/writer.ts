@@ -273,6 +273,7 @@ export async function generateCaptions(
   args: GenerateCaptionsArgs,
   deps: GenerateCaptionsDeps = {},
 ): Promise<WrittenCaption[]> {
+  if ((args.style as string) === "quote") throw new Error("Quote mode does not call the writer.");
   if (!isCaptionStyle(args.style)) throw new Error(`unknown caption style: ${args.style}`);
   if (!Number.isInteger(args.n) || args.n < 1 || args.n > MAX_CAPTIONS) {
     throw new Error(`n must be from 1 to ${MAX_CAPTIONS}`);

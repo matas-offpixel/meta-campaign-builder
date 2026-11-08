@@ -16,6 +16,7 @@ import {
   setLabArtistCleared,
   setLabCaptionStatus,
   editLabCaption,
+  storeLabQuote,
 } from "@/lib/creative-lab/card-write";
 import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
 import { isSpotifyConfigured, searchArtists } from "@/lib/enrichment/spotify";
@@ -77,6 +78,12 @@ type Body = {
   apply?: boolean;
   cleared?: boolean;
   igMediaId?: string;
+  words?: string;
+  quoteSource?: "press_kit" | "post" | "typed";
+  quoteSourceText?: string;
+  quoteSourceRef?: string;
+  quoteSourceNote?: string;
+  quoteWeight?: 400 | 700;
 };
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: string }> }): Promise<NextResponse> {
@@ -242,6 +249,25 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
           newAsset: body.newAsset,
         });
         return NextResponse.json({ ok: true });
+      case "useQuote": {
+        const source = body.quoteSource;
+        if (source !== "press_kit" && source !== "post" && source !== "typed") {
+          return NextResponse.json({ error: "Pick a press kit, a post, or type the words." }, { status: 400 });
+        }
+        const stored = await storeLabQuote(db, {
+          userId: user.id,
+          eventId,
+          artistId: body.artistId ?? "",
+          words: body.words ?? "",
+          source,
+          sourceText: body.quoteSourceText,
+          sourceRef: body.quoteSourceRef,
+          sourceNote: body.quoteSourceNote,
+          weight: body.quoteWeight,
+          primaryText: body.primaryText,
+        });
+        return NextResponse.json(stored);
+      }
       case "generate":
         return NextResponse.json({
           captions: await generateLabCaptions(db, {

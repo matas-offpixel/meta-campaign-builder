@@ -14,7 +14,9 @@ import { RoundRefusedError } from "./rounds.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { isCaptionStyle } from "./tags.ts";
 import { headlinerError } from "../db/creative-lab.ts";
-import { loadEventFacts, saleStageFromStatus, validateCaption } from "./caption-facts.ts";
+import { factsHash, loadEventFacts, saleStageFromStatus, validateCaption } from "./caption-facts.ts";
+import { quoteInsert, validateQuote, type QuoteSource } from "./quote.ts";
+import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import type { SaleStage } from "./caption-facts.ts";
 
 type Row = Record<string, unknown>;
@@ -249,13 +251,25 @@ export async function editLabCaption(
 ): Promise<{ ok: boolean; sentence: string | null }> {
   const rowRes = await db.from("creative_lab_captions").select("*").eq("id", args.captionId).eq("user_id", args.userId).maybeSingle();
   if (rowRes.error) throw new Error(rowRes.error.message);
-  const row = rowRes.data as { style?: string; style_version?: string; declared_names?: string[] } | null;
-  const style = String(row?.style ?? "");
+  const row = rowRes.data as Row | null;
+  const style = text(row, "style");
+  if (row && (text(row, "mode") === "quote" || style === "quote")) {
+    if (args.text.trim() !== text(row, "text")) {
+      return { ok: false, sentence: "The Lab doesn't rewrite a quote." };
+    }
+    const updated = await db
+      .from("creative_lab_captions")
+      .update({ primary_text: args.primaryText.trim() })
+      .eq("id", args.captionId)
+      .eq("user_id", args.userId);
+    if (updated.error) throw new Error(updated.error.message);
+    return { ok: true, sentence: null };
+  }
   if (!row || !isCaptionStyle(style)) throw new Error("No caption with that id.");
   const eventRes = await db.from("events").select("status").eq("id", args.eventId).maybeSingle();
   if (eventRes.error) throw new Error(eventRes.error.message);
   const facts = await loadEventFacts(db, args.eventId);
-  const check = validateCaption(args.text, style, row.declared_names ?? [], facts, { version: String(row.style_version ?? "") }, {
+  const check = validateCaption(args.text, style, (row.declared_names as string[] | undefined) ?? [], facts, { version: text(row, "style_version") }, {
     primaryText: args.primaryText,
     saleStage: saleStageFromStatus(text(eventRes.data as Row | null, "status")),
   });
@@ -312,4 +326,47 @@ export async function approveLabRound(db: ServiceRoleDb, args: { userId: string;
 
 export async function judgeLabCard(db: ServiceRoleDb, args: { userId: string; roundId: string; apply: boolean }) {
   return judgeLabRound(db, args);
+}
+
+export async function storeLabQuote(
+  db: ServiceRoleDb,
+  args: {
+    userId: string;
+    eventId: string;
+    artistId: string;
+    words: string;
+    source: QuoteSource;
+    sourceText?: string | null;
+    sourceRef?: string | null;
+    sourceNote?: string | null;
+    weight?: 400 | 700;
+    primaryText?: string;
+  },
+): Promise<{ ok: boolean; sentence: string | null }> {
+  const built = quoteInsert({
+    words: args.words,
+    source: args.source,
+    sourceText: args.sourceText,
+    sourceRef: args.sourceRef,
+    sourceNote: args.sourceNote,
+    weight: args.weight,
+    artistId: args.artistId,
+    primaryText: args.primaryText,
+  });
+  if (!built.ok) return { ok: false, sentence: built.sentence };
+  const facts = await loadEventFacts(db, args.eventId);
+  const check = validateQuote(built.row.text, facts);
+  const existing = await db.from("creative_lab_captions").select("caption_no").eq("event_id", args.eventId).eq("style", "quote");
+  if (existing.error) throw new Error(existing.error.message);
+  const next = Math.max(0, ...((existing.data ?? []) as Row[]).map((row) => Number(row.caption_no) || 0)) + 1;
+  const inserted = await db.from("creative_lab_captions").insert({
+    user_id: args.userId,
+    event_id: args.eventId,
+    caption_no: next,
+    facts_hash: factsHash(facts),
+    style_version: await quoteStyleVersion(),
+    ...built.row,
+  }).select("id").single();
+  if (inserted.error) throw new Error(inserted.error.message);
+  return { ok: check.ok, sentence: check.sentence };
 }

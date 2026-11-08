@@ -55,6 +55,31 @@ The runner fails a CL shot if any declared font face has not loaded.
 | CL9 | Crop picker on the landscape fixture clip | A panel, "Crop #3 to 9:16", about 460 px wide at 1280 and full width at 393. Bea Lowe's 16:9 clip. The bright window sits at 0.5, shaded outside, with drag handles and "16:9 → 9:16". Six whole filmstrip frames show the same window. Use this crop stays on one line at 1280 (the help sentence wraps first) and is full width at 393 |
 | CL10 | Render rows | 2 of 3 ready. Each row's mini frame is that pairing's clip, including the Ready rows. Ready is an olive outline chip and the finished bars are olive. One row is at ~1 min. The finished render plays as a 9:16 preview beside the rows at 1280 and full width at 393, caption burned in |
 
+## CLQ series
+
+Quote mode, from fixtures. No Supabase, Meta, Lambda or Anthropic. The
+words on the plates are the design record's stand-ins, not anything an
+artist said. `only=CLQ` shoots these and leaves CL1–CL10 alone.
+
+The 393 shot of CLQ3 stacks the caption plate and the 700 quote. The 400
+plate is on the 1280 frame only: one PNG cannot swipe. The record's
+annotation column beside CLQ2 and CLQ4 is not part of the component.
+The 4:5 rect is drawn at the profile's 14.58% (the record's label says
+14.84%). The plate is a gradient, not a clip. The Instagram dot is the
+record's `#B0607A` and the sponsored dot is the deck's meta blue
+`#5B7FA6`, used on these frames only. Horizontal centre 0.5025, font
+size 0.0193 H, the 70% wrap and the four-line cap are the record's
+invented figures. `quote_weight` and `artist_id` are columns the build
+list did not name: the weight is the per-quote toggle, and `artist_id`
+keeps the words on that artist's round.
+
+| Id | State | What to check by hand |
+|---|---|---|
+| CLQ1 | Captions generator in quote mode | Title "Captions". Mode Quote. Artist Enzo Siragusa, with "✓ artist channels" at 1280 and the name only at 393. Source "A post". The placeholder words. Chip "● @enzosiragusa · post, 12 Oct" at 1280 and "● @enzosiragusa · 12 Oct" at 393. "3 of 4 lines". Button "Use these words". At 393, More sits beside the button |
+| CLQ2 | Quote feed post, Enzo cleared | Copy "Enzo Siragusa on the 4th Birthday, 27 Dec at Circuit." Quote on the 4:5 plate, no stroke, no name. Chips: quote, the post chip, "Enzo · clip 3" (1280 only), "✓ Cleared — artist channels too · Matas, 6 Nov" at 1280 and "✓ artist channels · Matas, 6 Nov" at 393. ✎ ✕ ✓. Time 0:14. CTA Get tickets |
+| CLQ3 | Caption and quote on one clip | Caption plate, rule 13, centre marker "caption centre · 0.355 H", label "caption · rule 13 · unchanged". Quote plate, weight 700, marker "quote centre · 0.28 H", label "quote · Q2 · bold 700". 1280 also shows weight 400, "quote · Q2 · regular 400". Both plates mark the 4:5 rect. Time 0:14 |
+| CLQ4 | Luke Dean, promoter page only | Quote "Been waiting all year to play Circuit again. Bring the energy 👊". Held, the sentence "These are Luke Dean's own words, so they run only once he's cleared for his own channels.", action "Clear for artist channels", no ✓. 1280 shows the copy line and the chips (quote, typed · Matas, 8 Nov · "said at the Fuse call", Luke · clip 1, Promoter page only). 393 has no copy line; the chip and the sentence stack and the action is full width. Time 0:09 |
+
 ## AB series
 
 Puzzle 4th Birthday, today 7 Nov 2026, show 27 Dec, payday Fri 27 Nov, 50 days. Four release dates: 21 Oct; 29 Oct 11:30/12:00; 30 Oct 12:00; 6 Nov 11:30/12:00. States sold out · sold out · on sale · selling fast. No counts.
