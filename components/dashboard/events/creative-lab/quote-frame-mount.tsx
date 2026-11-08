@@ -1,5 +1,5 @@
 import { CaptionPlate, QuoteGenerator, QuotePlate, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
-import { heldQuoteSentence, postsForQuote } from "@/lib/creative-lab/quote";
+import { heldQuoteSentence, postsForQuote, quoteLines } from "@/lib/creative-lab/quote";
 
 const ENZO = "Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥";
 const SHORT = "Southampton, this one's going to be special.\nSee you on the 27th 🔥";
@@ -27,8 +27,9 @@ export function QuoteFrameMount({ id }: { id: string }) {
             chip="@enzosiragusa · post, 12 Oct"
             chipNarrow="@enzosiragusa · 12 Oct"
             picked="read from the post · 3 sentences picked of 4"
-            lineLabel="3 of 4 lines"
+            lineLabel={`${quoteLines(ENZO).length} of 4 lines`}
             pairNote="Pairs with Enzo's best clip (More to change). Nothing is written by the Lab: the words are the artist's, as posted, with the source kept."
+            handle="enzosiragusa"
             posts={postsForQuote([
               { permalink: "https://www.instagram.com/p/enzo27/", caption: ENZO, postedAt: "2026-10-12" },
               { permalink: "https://www.instagram.com/p/nocap/", caption: null, postedAt: "2026-10-02" },
@@ -57,12 +58,10 @@ export function QuoteFrameMount({ id }: { id: string }) {
         />
       ) : null}
       {id === "CLQ3" ? (
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <div className="flex items-start gap-4 overflow-x-auto">
           <CaptionPlate lines={["Southampton, this one's going to be special.", "See you on the 27th 🔥"]} marker="caption centre · 0.355 H" label="caption · rule 13 · unchanged" />
           <QuotePlate words={SHORT} weight={700} label="quote · Q2 · bold 700" />
-          <div className="hidden shrink-0 sm:block">
-            <QuotePlate words={SHORT} weight={400} label="quote · Q2 · regular 400" />
-          </div>
+          <QuotePlate words={SHORT} weight={400} label="quote · Q2 · regular 400" />
         </div>
       ) : null}
       {id === "CLQ4" ? (

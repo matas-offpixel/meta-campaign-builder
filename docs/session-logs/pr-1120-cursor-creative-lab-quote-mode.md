@@ -27,4 +27,4 @@ Quote mode stores an artist's own words as the native text. The generator stops 
 
 ## Notes
 
-`quote_weight` and `artist_id` are extra columns. Migration 214 also adds `creative_lab_ig_candidates.caption` and `caption_fetched_at`. Find clips stores the caption as Instagram returns it. A post with no caption is listed greyed. Not applied.
+`quote_weight` and `artist_id` are extra columns. Migration 214 also adds `creative_lab_ig_candidates.caption` and `caption_fetched_at`. Find clips stores the caption as Instagram returns it. A post with no caption is listed greyed. Quote lines wrap on TikTok Sans advances inside 0.70 W. Not applied.

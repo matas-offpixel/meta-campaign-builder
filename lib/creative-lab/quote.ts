@@ -5,13 +5,13 @@
  */
 
 import { validateCaption, type EventFacts } from "./caption-facts.ts";
+import { quoteLinesAt } from "../../src/remotion/caption-style/quote-measure.ts";
 import { quoteProfile, type QuoteWeight } from "../../src/remotion/caption-style/quote-profile.ts";
 
 export type QuoteSource = "press_kit" | "post" | "typed";
 export type QuoteMode = "caption" | "quote";
 
 export const QUOTE_MAX_LINES = quoteProfile.maxLines;
-export const QUOTE_CHARS_PER_LINE = quoteProfile.charsPerLine;
 
 const FACT_CODES = new Set([
   "scarcity_without_tiers",
@@ -47,28 +47,33 @@ export function returnToCaption(state: ModeSwitch): ModeSwitch {
   return { mode: "caption", generator: { ...state.snapshot }, snapshot: state.snapshot };
 }
 
-/** The record's sentence. "he's" is the wording it uses for every artist. */
-export function heldQuoteSentence(artistName: string): string {
-  return `These are ${artistName}'s own words, so they run only once he's cleared for his own channels.`;
+/**
+ * Subject and possessive for the held sentence. Reads a pronoun already
+ * stored on the artist (a string, or profile_jsonb.pronouns). Otherwise
+ * "they're" / "their".
+ */
+export function quotePronoun(value: unknown): { subject: string; possessive: string } {
+  const raw = typeof value === "string"
+    ? value
+    : value && typeof value === "object" && typeof (value as { pronouns?: unknown }).pronouns === "string"
+      ? (value as { pronouns: string }).pronouns
+      : value && typeof value === "object" && typeof (value as { pronoun?: unknown }).pronoun === "string"
+        ? (value as { pronoun: string }).pronoun
+        : "";
+  const head = raw.toLowerCase().split(/[/\s,]+/)[0] ?? "";
+  if (head === "he" || head === "him") return { subject: "he's", possessive: "his" };
+  if (head === "she" || head === "her") return { subject: "she's", possessive: "her" };
+  return { subject: "they're", possessive: "their" };
 }
 
-export function quoteLines(text: string): string[] {
-  const lines: string[] = [];
-  for (const raw of text.split("\n")) {
-    const words = raw.trim().split(/\s+/).filter(Boolean);
-    if (!words.length) continue;
-    let line = "";
-    for (const word of words) {
-      const next = line ? `${line} ${word}` : word;
-      if (next.length <= QUOTE_CHARS_PER_LINE) line = next;
-      else {
-        if (line) lines.push(line);
-        line = word;
-      }
-    }
-    if (line) lines.push(line);
-  }
-  return lines;
+export function heldQuoteSentence(artistName: string, pronouns?: unknown): string {
+  const { subject, possessive } = quotePronoun(pronouns);
+  return `These are ${artistName}'s own words, so they run only once ${subject} cleared for ${possessive} own channels.`;
+}
+
+/** Rendered lines at the quote's weight. The meter and the stored `lines` are this list. */
+export function quoteLines(text: string, weight: QuoteWeight = 700): string[] {
+  return quoteLinesAt(text, weight);
 }
 
 function sentences(text: string): string[] {
@@ -115,6 +120,14 @@ export type ListedPost = {
   offered: boolean;
   note: string | null;
 };
+
+/** The tile chip. The permalink is not part of it. */
+export function postListChip(handle: string | null | undefined, postedOn: string | null): string {
+  const name = (handle ?? "").replace(/^@/, "").trim();
+  const who = name ? `@${name}` : "a post";
+  const date = postDateLabel(postedOn);
+  return date ? `${who} · ${date}` : who;
+}
 
 export function postDateLabel(iso: string | null): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
@@ -184,12 +197,13 @@ export function acceptQuote(input: {
   words: string;
   source: QuoteSource;
   sourceText?: string | null;
+  weight?: QuoteWeight;
 }): AcceptQuote {
   const exactPost = input.source === "post" && input.sourceText != null && input.words === input.sourceText;
   const words = exactPost ? input.words : input.words.replace(/^\s+|\s+$/g, "");
   if (!words.trim()) return { ok: false, sentence: "These words are empty." };
   if (emojiOnly(words)) return { ok: false, sentence: "A quote that is only emoji is not used." };
-  const lines = quoteLines(words);
+  const lines = quoteLines(words, input.weight === 400 ? 400 : 700);
   if (lines.length > QUOTE_MAX_LINES) {
     return { ok: false, sentence: "This is five lines. Pick a shorter passage. The words are not changed." };
   }
@@ -241,7 +255,7 @@ export function quoteInsert(input: {
   artistId: string;
   primaryText?: string;
 }): { ok: true; row: QuoteInsert } | { ok: false; sentence: string } {
-  const accepted = acceptQuote(input);
+  const accepted = acceptQuote({ ...input, weight: input.weight });
   if (!accepted.ok) return accepted;
   if (input.source === "typed" && !input.sourceNote?.trim()) {
     return { ok: false, sentence: "Say where these words were said." };

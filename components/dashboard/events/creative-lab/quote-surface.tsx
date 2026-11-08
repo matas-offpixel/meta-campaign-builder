@@ -1,6 +1,6 @@
 "use client";
 
-import { postDateLabel, type ListedPost, type QuoteSource } from "@/lib/creative-lab/quote";
+import { postListChip, quoteLines, type ListedPost, type QuoteSource } from "@/lib/creative-lab/quote";
 import type { QuoteWeight } from "../../../../src/remotion/caption-style/quote-profile";
 
 const IG = "#B0607A";
@@ -39,29 +39,32 @@ export function Seg({
 
 export function PostList({
   posts,
+  handle,
   onPick,
 }: {
   posts: ListedPost[];
+  handle?: string | null;
   onPick?: (post: ListedPost) => void;
 }) {
   if (!posts.length) return <p className="text-sm text-muted-foreground">No posts listed for this artist.</p>;
   return (
     <ul className="space-y-1">
       {posts.map((post) => (
-        <li key={post.permalink}>
+        <li key={post.permalink} className={`flex items-start gap-2 rounded border border-border px-2 py-1 text-sm ${post.offered ? "bg-background text-foreground" : "bg-muted text-muted-foreground"}`}>
           <button
             type="button"
             disabled={!post.offered}
-            className={`w-full rounded border border-border px-2 py-1 text-left text-sm ${post.offered ? "bg-background text-foreground" : "cursor-not-allowed bg-muted text-muted-foreground"}`}
+            className={`min-w-0 flex-1 text-left ${post.offered ? "" : "cursor-not-allowed"}`}
             onClick={() => {
               if (post.offered && post.caption != null) onPick?.(post);
             }}
           >
             <span className="block text-xs">
-              <span style={{ color: IG }}>●</span> {post.permalink} · {postDateLabel(post.postedOn)}
+              <span style={{ color: IG }}>●</span> {postListChip(handle, post.postedOn)}
             </span>
             {post.offered ? <span className="mt-0.5 block whitespace-pre-line">{post.caption}</span> : <span className="mt-0.5 block">no caption on this post</span>}
           </button>
+          <a href={post.permalink} target="_blank" rel="noreferrer" aria-label="Open the post" className="shrink-0 text-xs text-muted-foreground">↗</a>
         </li>
       ))}
     </ul>
@@ -88,6 +91,7 @@ export function QuoteGenerator({
   onWhere,
   posts,
   onPickPost,
+  handle,
 }: {
   mode: "caption" | "quote";
   onMode?: (mode: "caption" | "quote") => void;
@@ -108,6 +112,7 @@ export function QuoteGenerator({
   onWhere?: (where: string) => void;
   posts?: ListedPost[];
   onPickPost?: (post: ListedPost) => void;
+  handle?: string | null;
 }) {
   const sources = [
     { id: "press_kit", label: "Press kit" },
@@ -133,7 +138,7 @@ export function QuoteGenerator({
       <div className="sm:hidden">
         <Seg label="Source" value={source} options={sources} onChange={(id) => onSource?.(id as QuoteSource)} />
       </div>
-      {source === "post" && posts ? <PostList posts={posts} onPick={onPickPost} /> : null}
+      {source === "post" && posts ? <PostList posts={posts} handle={handle} onPick={onPickPost} /> : null}
       <div className="grid gap-3 sm:grid-cols-[1fr_280px]">
         <div className="rounded border border-border bg-background p-3 text-sm">
           {onWords ? (
@@ -190,24 +195,26 @@ function Plate({
       <div className="absolute inset-0" style={{ background: "linear-gradient(160deg,#2a241c,#6a5a48)", filter: muted ? "saturate(.6)" : undefined }} />
       {!crop && marker ? (
         <>
-          <div className="pointer-events-none absolute inset-x-[8%] border border-dashed border-white/80" style={{ top: "14.58%", bottom: "14.59%" }}>
-            <i className="absolute right-1 top-0 text-[8px] not-italic text-white">4:5 rect · 14.58 %</i>
+          <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-white/80" style={{ top: "14.84%" }}>
+            <i className="absolute right-1 top-0 text-[8px] not-italic text-white">4:5 rect · 14.84 %</i>
           </div>
+          <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-white/80" style={{ bottom: "14.84%" }} />
           <div className="pointer-events-none absolute inset-x-0 border-t" style={{ top: marker.at, borderColor: "#ffd34a" }}>
             <i className="absolute right-1 -top-3 bg-black/60 px-1 text-[8px] not-italic" style={{ color: "#ffd34a" }}>{marker.label}</i>
           </div>
         </>
       ) : null}
       <p
-        className="pointer-events-none absolute left-1/2 w-[70%] -translate-x-1/2 -translate-y-1/2 text-center whitespace-pre-line text-white"
+        className="pointer-events-none absolute left-1/2 w-[70%] -translate-x-1/2 -translate-y-1/2 text-center text-white"
         style={{
           top: crop ? "18.7%" : "28%",
           fontWeight: weight,
           fontSize: crop ? "2.745cqh" : "1.93cqh",
           lineHeight: crop ? "4.267cqh" : "3cqh",
+          whiteSpace: marker ? "pre" : "pre-line",
         }}
       >
-        {words}
+        {marker ? quoteLines(words, weight).join("\n") : words}
       </p>
       <div className="absolute inset-x-2 bottom-2 flex items-center gap-2 text-white">
         <span className="text-xs">▶</span>
@@ -282,12 +289,14 @@ export function QuotePost({
       {held ? (
         <div className="mt-2 rounded border border-warning/40 bg-warning/10 p-2 text-sm">
           <span className="rounded bg-warning px-1.5 py-0.5 text-xs text-background">Held</span>
-          <b className="mt-1 block sm:mt-0 sm:ml-2 sm:inline">{held}</b>
-          <button type="button" className="mt-2 block w-full rounded border border-border bg-card px-2 py-1 text-sm sm:inline sm:w-auto">Clear for artist channels</button>
-          <span className="ml-2 hidden gap-1 align-middle opacity-40 sm:inline-flex">
-            <Icon label="Edit">✎</Icon>
-            <Icon label="Reject">✕</Icon>
-          </span>
+          <b className="mt-1 block sm:ml-2 sm:mt-0 sm:inline">{held}</b>
+          <div className="mt-2 flex items-center gap-2">
+            <button type="button" className="w-full rounded border border-border bg-card px-2 py-1 text-sm sm:w-auto">Clear for artist channels</button>
+            <span className="hidden items-center gap-1 opacity-40 sm:inline-flex">
+              <Icon label="Edit">✎</Icon>
+              <Icon label="Reject">✕</Icon>
+            </span>
+          </div>
         </div>
       ) : null}
     </article>
@@ -313,9 +322,10 @@ export function CaptionPlate({
     <figure className="w-[260px] shrink-0">
       <div className="relative aspect-[9/16] overflow-hidden bg-black" style={{ containerType: "size" }}>
         <div className="absolute inset-0" style={{ background: "linear-gradient(160deg,#2a241c,#6a5a48)" }} />
-        <div className="pointer-events-none absolute inset-x-[8%] border border-dashed border-white/80" style={{ top: "14.58%", bottom: "14.59%" }}>
-          <i className="absolute right-1 top-0 text-[8px] not-italic text-white">4:5 rect · 14.58 %</i>
+        <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-white/80" style={{ top: "14.84%" }}>
+          <i className="absolute right-1 top-0 text-[8px] not-italic text-white">4:5 rect · 14.84 %</i>
         </div>
+        <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-white/80" style={{ bottom: "14.84%" }} />
         <div className="pointer-events-none absolute inset-x-0 border-t" style={{ top: "35.5%", borderColor: "#ffd34a" }}>
           <i className="absolute right-1 -top-3 bg-black/60 px-1 text-[8px] not-italic" style={{ color: "#ffd34a" }}>{marker}</i>
         </div>

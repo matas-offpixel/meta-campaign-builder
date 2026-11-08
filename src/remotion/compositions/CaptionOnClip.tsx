@@ -3,6 +3,7 @@ import { AbsoluteFill, Audio, cancelRender, continueRender, delayRender, Offthre
 
 import tiktokSansUrl from "../fonts/TikTokSans[opsz,slnt,wdth,wght].ttf";
 import { captionInsideSafeRect, captionLayout, captionLimits, captionLineStrokes, profile, type CaptionAspect, type CaptionSize } from "../caption-style/profile";
+import { quoteTextEm, quoteWrapEm } from "../caption-style/quote-measure";
 import { quoteProfile, type QuoteWeight } from "../caption-style/quote-profile";
 
 export type CaptionAudio = "original" | "muted" | "replaced";
@@ -103,8 +104,11 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
       await document.fonts.ready;
       if (gone) return;
       if (props.mode === "quote") {
-        if (props.lines.length > quoteProfile.maxLines) {
-          cancelRender(new Error(`${props.lines.length} lines; a quote is at most ${quoteProfile.maxLines}`));
+        const weight: QuoteWeight = props.weight === 400 ? 400 : 700;
+        const limit = quoteWrapEm();
+        const tooWide = props.lines.find((line) => line.includes(" ") && quoteTextEm(line, weight) > limit + 1e-6);
+        if (props.lines.length > quoteProfile.maxLines || tooWide) {
+          cancelRender(new Error(tooWide ? `"${tooWide}" is wider than 0.70 of the frame` : `${props.lines.length} lines; a quote is at most ${quoteProfile.maxLines}`));
           return;
         }
         continueRender(measureHandle);
@@ -187,11 +191,12 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
             fontSize: layout.output.height * quoteProfile.fontSizePctOfHeight,
             lineHeight: quoteProfile.pitchPctOfHeight / quoteProfile.fontSizePctOfHeight,
             textAlign: "center",
-            whiteSpace: "pre-line",
             color: quoteProfile.fill,
           }}
         >
-          {props.lines.join("\n")}
+          {props.lines.map((line, index) => (
+            <div key={index} style={{ whiteSpace: "pre" }}>{line}</div>
+          ))}
         </div>
       ) : (
       <div

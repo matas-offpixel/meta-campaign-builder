@@ -129,6 +129,7 @@ export function LabCaptions({
           chip={sourceChip({ source, postedLabel: posts[0]?.postedOn ?? "", wide: true }).replace(/^●\s*/, "")}
           picked={null}
           lineLabel={`${quoteLines(words).length} of 4 lines`}
+          handle={artist?.igUsername}
           pairNote="Pairs with the artist's best clip (More to change). Nothing is written by the Lab."
           onUse={useWords}
           refusal={refusal}
@@ -200,7 +201,7 @@ function QuoteLive({
 }) {
   const artist = lab.artists.find((item) => item.id === caption.artistId) ?? lab.artists[0];
   const cleared = artist?.rights === "approved";
-  const held = cleared ? null : heldQuoteSentence(artist?.name ?? "this artist");
+  const held = cleared ? null : heldQuoteSentence(artist?.name ?? "this artist", artist?.pronouns);
   return (
     <div className="w-full shrink-0 snap-start sm:w-80">
       <QuotePost

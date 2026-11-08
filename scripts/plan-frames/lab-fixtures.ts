@@ -63,6 +63,8 @@ function artist(row: Partial<Artist> & Pick<Artist, "id" | "name">): Artist {
     clipSource: "file",
     clipFolderLastError: null,
     igLastError: null,
+    igUsername: null,
+    pronouns: null,
     igCandidates: [],
     rights: "missing",
     rightsLabel: "Promoter page only",

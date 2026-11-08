@@ -16,6 +16,14 @@ import { isCaptionStyle } from "../creative-lab/tags.ts";
 
 type Row = Record<string, unknown>;
 
+function pronounOn(profile: unknown): string | null {
+  if (!profile || typeof profile !== "object") return null;
+  const row = profile as { pronouns?: unknown; pronoun?: unknown };
+  if (typeof row.pronouns === "string" && row.pronouns.trim()) return row.pronouns.trim();
+  if (typeof row.pronoun === "string" && row.pronoun.trim()) return row.pronoun.trim();
+  return null;
+}
+
 function publicThumbUrl(path: string): string | null {
   if (!path) return null;
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
@@ -126,6 +134,9 @@ export type CreativeLabCardData = {
     clipSource: string;
     clipFolderLastError: string | null;
     igLastError: string | null;
+    igUsername: string | null;
+    /** From the library artist's profile when a pronoun is stored there. */
+    pronouns: string | null;
     igCandidates: {
       id: string;
       igMediaId: string;
@@ -408,6 +419,8 @@ export async function loadCreativeLabCard(
       clipSource: ["spark", "file", "instagram", "presskit"].includes(text(row, "clip_source")) ? text(row, "clip_source") : "file",
       clipFolderLastError: text(row, "clip_folder_last_error") || null,
       igLastError: text(row, "ig_last_error") || null,
+      igUsername: text(row, "ig_username") || null,
+      pronouns: pronounOn(libraryById.get(text(row, "artist_id"))?.profile_jsonb),
       igCandidates: candidateRows
         .filter((candidate) => text(candidate, "artist_id") === text(row, "id"))
         .filter((candidate) => ["candidate", "requested", "skipped", "imported"].includes(text(candidate, "status")))

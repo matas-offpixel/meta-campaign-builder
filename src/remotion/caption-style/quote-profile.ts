@@ -27,7 +27,6 @@ export type QuoteProfile = {
   verticalCenterInFourFive: number;
   wrapPctOfWidth: number;
   maxLines: number;
-  charsPerLine: number;
   emoji: "inline";
   quoteMarks: false;
   attribution: false;

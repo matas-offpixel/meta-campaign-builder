@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { quoteTextEm, quoteWrapEm } from "../../../src/remotion/caption-style/quote-measure.ts";
 import { generateCaptions } from "../writer.ts";
 import type { CaptionStyle } from "../tags.ts";
 import type { ServiceRoleDb } from "../load.ts";
@@ -13,6 +14,7 @@ import {
   postsForQuote,
   quoteInsert,
   quoteLines,
+  quotePronoun,
   returnToCaption,
   sourceChip,
   validateQuote,
@@ -89,10 +91,11 @@ describe("quote mode", () => {
     const rewritten = acceptQuote({ words: "One sentence. Two changed. Three sentence.", source: "post", sourceText: source });
     assert.equal(rewritten.ok, false);
     if (!rewritten.ok) assert.equal(rewritten.sentence, "The Lab doesn't rewrite a quote.");
-    const five = acceptQuote({ words: Array.from({ length: 5 }, () => "x".repeat(70)).join(" "), source: "typed" });
+    const fiveWords = Array.from({ length: 5 }, () => "x".repeat(70)).join(" ");
+    const five = acceptQuote({ words: fiveWords, source: "typed" });
     assert.equal(five.ok, false);
     if (!five.ok) assert.match(five.sentence, /five lines/);
-    assert.equal(quoteLines(Array.from({ length: 5 }, () => "x".repeat(70)).join(" ")).length, 5);
+    assert.equal(quoteLines(fiveWords).length, 5);
     const emoji = acceptQuote({ words: "🔥 👊", source: "typed" });
     assert.equal(emoji.ok, false);
   });
@@ -166,11 +169,37 @@ describe("quote mode", () => {
     );
   });
 
+  it("refuses a passage the font wraps to five lines, and the meter is that wrap", () => {
+    const bit = "records";
+    const words: string[] = [];
+    while (quoteLines(words.join(" ")).length < 5) words.push(bit);
+    const five = words.join(" ");
+    assert.equal(quoteLines(five).length, 5);
+    const refused = acceptQuote({ words: five, source: "typed" });
+    assert.equal(refused.ok, false);
+    if (!refused.ok) assert.match(refused.sentence, /five lines/);
+    const fitted = words.slice(0, -1).join(" ");
+    const lines = quoteLines(fitted);
+    assert.ok(lines.length <= 4);
+    assert.equal(lines.length, quoteLines(lines.join("\n")).length);
+    for (const line of lines) assert.ok(quoteTextEm(line, 700) <= quoteWrapEm() + 1e-9);
+    const enzo = "Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥";
+    const rendered = quoteLines(enzo);
+    assert.equal(rendered.length, 4);
+    assert.equal(rendered.length, quoteLines(rendered.join("\n")).length);
+    assert.match(rendered[rendered.length - 1] ?? "", /🔥/);
+  });
+
   it("uses the cleared-gate sentence", () => {
     assert.equal(
       heldQuoteSentence("Luke Dean"),
+      "These are Luke Dean's own words, so they run only once they're cleared for their own channels.",
+    );
+    assert.equal(
+      heldQuoteSentence("Luke Dean", "he/him"),
       "These are Luke Dean's own words, so they run only once he's cleared for his own channels.",
     );
+    assert.equal(quotePronoun({ pronouns: "she/her" }).subject, "she's");
     assert.match(sourceChip({ source: "post", handle: "enzosiragusa", postedLabel: "12 Oct", wide: true }), /@enzosiragusa · post, 12 Oct/);
     assert.equal(sourceChip({ source: "post", handle: "enzosiragusa", postedLabel: "12 Oct", wide: false }), "● @enzosiragusa · 12 Oct");
     assert.equal(sourceChip({ source: "press_kit", wide: true }), "press kit");
