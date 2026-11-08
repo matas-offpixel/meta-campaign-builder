@@ -8,6 +8,7 @@ import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-
 import { captionCopy, ctaForStage, feedHeadline, feedPostClip, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
+import { VoicePanel } from "@/components/dashboard/events/creative-lab/voice-panel";
 import { USE_ANGLE_EVENT } from "@/components/insights-rail/use-angle";
 import { acceptQuote, heldQuoteSentence, postsForQuote, quoteLines, sourceChip, type CaptionGenerator, type QuoteSource } from "@/lib/creative-lab/quote";
 
@@ -29,15 +30,23 @@ export function LabCaptions({
   busy,
   onSave,
   quoteMode = false,
+  initialAngle = "lineup",
+  initialArtistId,
+  initialVoiceOpen = false,
+  voiceContained = false,
 }: {
   lab: CreativeLabCardData;
   busy: boolean;
   onSave: Save;
   /** Off on the CL frames, so those shots stay as they were. The event page turns it on. */
   quoteMode?: boolean;
+  initialAngle?: (typeof ANGLES)[number];
+  initialArtistId?: string;
+  initialVoiceOpen?: boolean;
+  voiceContained?: boolean;
 }) {
   const stageDefault = saleStageFromStatus(lab.eventStatus);
-  const [angle, setAngle] = useState<(typeof ANGLES)[number]>("lineup");
+  const [angle, setAngle] = useState<(typeof ANGLES)[number]>(initialAngle);
   const [stage, setStage] = useState<SaleStage>(stageDefault);
 
   // The Insights rail's "Use {angle}" (R9): pre-select, never generate.
@@ -53,7 +62,7 @@ export function LabCaptions({
   const [each, setEach] = useState(false);
   const [mode, setMode] = useState<"caption" | "quote">("caption");
   const [snapshot, setSnapshot] = useState<CaptionGenerator>({ angle: "lineup", count: 3, each: false, stage: stageDefault });
-  const [artistId, setArtistId] = useState(lab.artists[0]?.id ?? "");
+  const [artistId, setArtistId] = useState(initialArtistId ?? lab.artists[0]?.id ?? "");
   const [source, setSource] = useState<QuoteSource>("post");
   const [words, setWords] = useState("");
   const [where, setWhere] = useState("");
@@ -175,6 +184,17 @@ export function LabCaptions({
         >
           Generate
         </Button>
+        {quoteMode ? (
+          <VoicePanel
+            lab={lab}
+            angle={angle}
+            artistId={artist?.id ?? ""}
+            busy={busy}
+            onSave={onSave}
+            initialOpen={initialVoiceOpen}
+            contained={voiceContained}
+          />
+        ) : null}
       </div>
       )}
       <div className="flex snap-x gap-3 overflow-x-auto">

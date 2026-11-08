@@ -23,6 +23,18 @@ import {
 } from "./caption-facts.ts";
 import { CORPUS } from "./corpus.ts";
 import type { ServiceRoleDb } from "./load.ts";
+import { loadStoredVoice, venueNamesForClient, voiceHashtagsEnabled, voicePageRef } from "./voice-store.ts";
+import {
+  appendVoice,
+  copiesVoice,
+  extractTraits,
+  fallbackSentence,
+  hasHashtag,
+  hasMention,
+  traitsReady,
+  voicePromptBlock,
+} from "./voice-traits.ts";
+import { shapeNoteFor as readShapeNote } from "./voice-shape.ts";
 import { isCaptionStyle, voiceForStyle, type CaptionStyle } from "./tags.ts";
 import { loadPastAppearances } from "./past.ts";
 import { loadUpcomingLineups, londonDay, nextThreeNames, type UpcomingShow } from "./upcoming.ts";
@@ -57,6 +69,8 @@ export type WrittenCaption = {
   declaredNames: string[];
   captionNo: number;
   ok: true;
+  /** Which shape the writer used. One line. */
+  shapeNote: string;
 };
 
 export type GenerateCaptionsArgs = {
@@ -78,6 +92,8 @@ export type GenerateCaptionsDeps = {
   model?: string;
   /** Dropped candidates, so a preview can show why. Does not change what is kept. */
   onReject?: (overlay: string, primary: string, errors: { code: string; detail: string }[]) => void;
+  /** The winning copy_features row, when the caller already has it. */
+  loadShape?: () => Promise<{ feature: string; value: string } | null>;
 };
 
 type PlaceholderValues = {
@@ -134,12 +150,13 @@ async function defaultAnthropic(): Promise<AnthropicLike> {
   return new Anthropic({ apiKey }) as unknown as AnthropicLike;
 }
 
-function systemPrompt(
+export function systemPrompt(
   style: CaptionStyle,
   facts: EventFacts,
   upcoming: readonly UpcomingShow[],
   stage: SaleStage,
   past: readonly { artist: string; venue: string }[],
+  voiceBlock: string | null = null,
 ): string {
   const examples = CORPUS[style].map((example, i) => `${i + 1}. Overlay: ${example.overlay}\n   Caption: ${example.primaryText}`).join("\n");
   const headliners = (facts.headliners ?? []).join(", ");
@@ -147,7 +164,7 @@ function systemPrompt(
   const cta = stage === "on_sale"
     ? `Tickets are on sale. The primary text is a ticket CTA in the example's shape: "Tickets on sale now", "Grab yours", or "Who's coming?". Do not write "sign up", "get on the list", "priority access", or "presale" in either layer. If an example caption is a signup line, keep the overlay shape and change the caption.`
     : `Tickets are not on sale. The primary text asks people to sign up. Do not write "ticket", "on sale", "grab yours", or "buy" in either layer.`;
-  return `You write one paid-social caption in the voice of the examples. Copy their sentence shapes. Voice: ${voiceForStyle(style)}. Style: ${style}. The overlay is one idea.
+  return appendVoice(`You write one paid-social caption in the voice of the examples. Copy their sentence shapes. Voice: ${voiceForStyle(style)}. Style: ${style}. The overlay is one idea.
 
 Shapes to mirror, with the tokens:
 - "{artist} at {venue} last season."
@@ -191,7 +208,7 @@ Never type a date, a venue, a city, an artist, a lineup or a Next list. Use thes
 Event: ${facts.eventName}. Sale stage: ${stage}. Upcoming shows: ${upcoming.map((show) => show.eventName).join(", ") || "none"}.
 
 Examples of this style only. Copy the shape, not the facts:
-${examples}`;
+${examples}`, voiceBlock);
 }
 
 type Row = Record<string, unknown>;
@@ -234,6 +251,27 @@ async function filmedShowTickets(db: ServiceRoleDb, clipId: string | undefined):
   if (snapRes.error) throw new Error(`ticket_sales_snapshots: ${snapRes.error.message}`);
   const snap = ((snapRes.data ?? []) as { tickets_sold?: number }[])[0];
   return snap?.tickets_sold == null ? null : Number(snap.tickets_sold);
+}
+
+async function promoterHandleOf(db: ServiceRoleDb, clientId: string): Promise<string> {
+  const res = await db.from("clients").select("instagram_handle").eq("id", clientId).maybeSingle();
+  if (res.error) return "page";
+  const handle = (res.data as { instagram_handle?: string | null } | null)?.instagram_handle?.trim().replace(/^@/, "") ?? "";
+  return handle || "page";
+}
+
+async function shapeNoteFor(
+  db: ServiceRoleDb,
+  deps: GenerateCaptionsDeps,
+  style: CaptionStyle,
+  stage: SaleStage,
+  clientId: string,
+): Promise<string> {
+  if (deps.loadShape) {
+    const { shapeLine } = await import("./voice-traits.ts");
+    return shapeLine(await deps.loadShape(), style);
+  }
+  return readShapeNote(db, style, stage, clientId);
 }
 
 async function emojiInPrimary(db: ServiceRoleDb, clientId: string, style: CaptionStyle): Promise<boolean> {
@@ -289,16 +327,19 @@ export async function generateCaptions(
   const stage = args.stageOverride ?? saleStageFromStatus(event.status);
 
   let artistName = "";
+  let artistIg = "";
   let playedCities: string[] = [];
   if (args.artistId) {
     const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
     if (artistRes.error) throw new Error(`creative_lab_artists: ${artistRes.error.message}`);
-    const artist = artistRes.data as { name?: string; played_cities?: unknown } | null;
+    const artist = artistRes.data as { name?: string; played_cities?: unknown; ig_username?: string | null } | null;
     artistName = artist?.name?.trim() ?? "";
+    artistIg = artist?.ig_username?.trim().replace(/^@/, "") ?? "";
     playedCities = Array.isArray(artist?.played_cities) ? artist.played_cities.map((city) => String(city).trim()).filter(Boolean) : [];
   }
 
-  const [upcoming, tickets, clipVenue, emojiOk, existing, version, past] = await Promise.all([
+  const page = voicePageRef(args.style, event.client_id, args.artistId ?? null);
+  const [upcoming, tickets, clipVenue, emojiOk, existing, version, past, voice, hashtagsOn, venues, promoterHandle] = await Promise.all([
     loadUpcomingLineups(db, event.client_id, londonDay(now)),
     filmedShowTickets(db, args.clipId),
     filmedVenue(db, args.clipId),
@@ -306,7 +347,27 @@ export async function generateCaptions(
     rowsOf(db, "creative_lab_captions", "event_id", args.eventId),
     styleVersion(),
     loadPastAppearances(db, event.client_id, londonDay(now), args.clipId),
+    page ? loadStoredVoice(db, page.pageKind, page.clientId, page.artistId) : Promise.resolve(null),
+    voiceHashtagsEnabled(db, event.client_id),
+    venueNamesForClient(db, event.client_id),
+    promoterHandleOf(db, event.client_id),
   ]);
+  const samples = voice?.samples ?? [];
+  const traits = traitsReady(samples.length) ? extractTraits(samples, venues) : null;
+  const shape = await shapeNoteFor(db, deps, args.style, stage, event.client_id);
+  const fellBack = !traits;
+  const shapeNote = fellBack
+    ? `${shape} ${fallbackSentence(voice?.error ? "unread" : samples.length === 0 ? "empty" : "floor")}`
+    : shape;
+  const handle = page?.pageKind === "artist" ? (artistIg || "artist") : promoterHandle;
+  const voiceBlock = voicePromptBlock({
+    handle,
+    pageKind: page?.pageKind ?? "promoter",
+    samples,
+    traits,
+    hashtagsEnabled: hashtagsOn,
+    shape,
+  });
   const values: PlaceholderValues = {
     venue: facts.venueName ?? "",
     city: facts.venueCity ?? "",
@@ -324,7 +385,7 @@ export async function generateCaptions(
     model,
     max_tokens: 2000,
     temperature: 0.7,
-    system: systemPrompt(args.style, facts, upcoming, stage, past),
+    system: systemPrompt(args.style, facts, upcoming, stage, past, voiceBlock),
     tools: [
       {
         name: TOOL_NAME,
@@ -368,6 +429,21 @@ export async function generateCaptions(
       continue;
     }
     if (stillHasPlaceholder(overlay) || stillHasPlaceholder(primary)) continue;
+    if (hasMention(overlay) || hasMention(primary)) {
+      deps.onReject?.(overlay, primary, [{ code: "voice_mention", detail: "mentions are read and never written" }]);
+      continue;
+    }
+    if ((!hashtagsOn && (hasHashtag(overlay) || hasHashtag(primary))) || (hashtagsOn && hasHashtag(overlay))) {
+      deps.onReject?.(overlay, primary, [{ code: "voice_hashtag", detail: "hashtags stay off unless the client's switch is on, and they never go on the overlay" }]);
+      continue;
+    }
+    if (traits) {
+      const signOff = traits.signOffs[0]?.line ?? null;
+      if (copiesVoice(overlay, primary, samples.map((sample) => sample.caption), signOff)) {
+        deps.onReject?.(overlay, primary, [{ code: "voice_copy", detail: "six consecutive words from a post" }]);
+        continue;
+      }
+    }
     const key = normaliseCaption(overlay);
     if (!key || seen.has(key)) continue;
     const check = validateCaption(overlay, args.style, candidate.declaredNames, facts, { version }, {
@@ -413,6 +489,7 @@ export async function generateCaptions(
       declaredNames: candidate.declaredNames,
       captionNo: Number(inserted.caption_no ?? captionNo),
       ok: true,
+      shapeNote,
     });
   }
   return kept;

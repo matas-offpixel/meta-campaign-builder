@@ -81,6 +81,32 @@ that artist's round.
 | CLQ3 | Caption and quote on one clip | One scrolling row of three plates at both widths: caption, quote 700, quote 400. At 393 the next plate peeks. Caption plate, rule 13, centre marker "caption centre · 0.355 H", label "caption · rule 13 · unchanged". Quote plates, markers "quote centre · 0.28 H", labels "quote · Q2 · bold 700" and "quote · Q2 · regular 400". Each plate's 4:5 rect is two full-width dashed lines at 14.84%, labelled "4:5 rect · 14.84 %". Time 0:14 |
 | CLQ4 | Luke Dean, promoter page only | Quote "Been waiting all year to play Circuit again. Bring the energy 👊". Held, the sentence "These are Luke Dean's own words, so they run only once they're cleared for their own channels." (no pronoun on the row), action "Clear for artist channels", no ✓. 1280 shows the copy line and the chips, then the sentence, then the action and ✎ ✕ at 40% on their own line. 393 has no copy line; the chip and the sentence stack and the action is full width. Time 0:09 |
 
+## CLV series
+
+Voice, from fixtures. No Supabase, Meta or Anthropic. `only=CLV` shoots
+these and leaves CL and CLQ alone. Captions are the placeholders in
+`docs/creative-lab/fixtures/voice-puzzle.json`. The four newest are the
+record's stand-ins. The other twenty are invented in the same register so
+`extractTraits` produces the sheet's counts: emoji 19 of 24, sign-off 9,
+venue Circuit 11 and Circuit Southampton 0, hashtags 3 trailing, no em dash,
+lineup 8, mentions 14, sentence case 24 of 24, median 7 words and about 140
+characters. The sentence range on the sheet is 2–12. The drawing's
+placeholder said 4–12; the verbatim line "Sold out." is two words, so the
+extractor's minimum is 2. The four exemplar weekdays are the record's
+labels (Thu 6 Nov, Sat 1 Nov, Thu 30 Oct, Fri 24 Oct), not the 2026 weekday
+of those dates. Enzo's chip says 30 posts as drawn; his captions are not
+on a sheet in these frames. The hashtag switch is client data, default
+off, and is not drawn on CLV2.
+
+Baselines: Ubuntu frames-baselines 42497321834 and 42497326107, matching, `only=CLV`.
+
+| Id | State | What to check by hand |
+|---|---|---|
+| CLV1 | Generator, caption mode | The real VoicePanel. Two strips at 1280: Lineup "Sounds like @puzzle · 24 posts"; Artist, first person "Sounds like @enzosiragusa · 30 posts". 393 is the puzzle chip full width, "24 posts" on the right, why line "Promoter voice · read today 09:12" |
+| CLV2 | Voice sheet | Traits from the fixture through the extractor, four exemplars verbatim, "+ 20 more", Read again. 393 is an 88% bottom sheet, fewer trait rows, two exemplars, "+ 22 more" |
+| CLV3 | Nothing read | Dashed House voice chip and "No posts read yet — Find clips reads them." Sheet empty state with Find clips. 393 stacks the sentence under the chip |
+| CLV4 | Can't be read, thin, no handle, stale | Luke Dean: "@lukedean can't be read: not a business or creator account." Reeshy: 2 posts, fewer than 8. Benji King: no Instagram on the row. Phill de Janeiro: Sounds like @philldejaneiro · 30 posts, read Fri 10 Oct. 393 is the can't-read chip only |
+
 ## AB series
 
 Puzzle 4th Birthday, today 7 Nov 2026, show 27 Dec, payday Fri 27 Nov, 50 days. Four release dates: 21 Oct; 29 Oct 11:30/12:00; 30 Oct 12:00; 6 Nov 11:30/12:00. States sold out · sold out · on sale · selling fast. No counts.

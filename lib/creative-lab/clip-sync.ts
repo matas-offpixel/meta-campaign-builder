@@ -6,7 +6,7 @@
 import { loadArchivedClientIds } from "../db/client-status.ts";
 import { importArtistClips, type ClipFolderListing, type ClipImportResult, type ClipProbe } from "./clip-intake.ts";
 import { fortnightRoom, igAutoImportEnabled, IG_AUTO_CHECKS_PER_RUN } from "./ig-auto.ts";
-import { findArtistClips } from "./ig-discovery.ts";
+import { findArtistClips, refreshRecentPromoterVoice } from "./ig-discovery.ts";
 import type { ServiceRoleDb } from "./load.ts";
 
 type Row = Record<string, unknown>;
@@ -83,6 +83,11 @@ export async function runClipSync(
   }
   const instagram = await instagramPass(db, artists, opts);
   imported += instagram.artists.reduce((sum, row) => sum + row.imported, 0);
+  try {
+    await refreshRecentPromoterVoice(db, opts.now);
+  } catch {
+    // The folder scan already finished. A voice read can wait for the next night.
+  }
   return { ok: true, imported, failed, skippedArchived, artists: considered, instagram };
 }
 

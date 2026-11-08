@@ -6,6 +6,8 @@
 
 import { igThumbObjectPath } from "./ig-import.ts";
 import type { ServiceRoleDb } from "./load.ts";
+import { saveVoiceSamples, venueNamesForClient, VOICE_REFRESH_DAYS } from "./voice-store.ts";
+import { VOICE_SAMPLE_CAP } from "./voice-traits.ts";
 
 const WINDOW_DAYS = 365;
 const HALF_LIFE_DAYS = 90;
@@ -413,6 +415,97 @@ async function loadToken(db: ServiceRoleDb, userId: string): Promise<string> {
   throw new IgDiscoveryError("no_token", "Connect Facebook in Account Setup.");
 }
 
+function voicePosts(posts: readonly IgPost[]) {
+  return posts.map((post) => ({
+    id: post.id,
+    permalink: post.permalink,
+    caption: post.caption,
+    postedAt: post.postedAt,
+    likes: post.likes,
+    comments: post.comments,
+  }));
+}
+
+async function rememberArtistVoice(
+  db: ServiceRoleDb,
+  args: { userId: string; artistId: string; clientId: string; posts: IgPost[]; now: Date },
+): Promise<void> {
+  try {
+    const venueNames = args.clientId ? await venueNamesForClient(db, args.clientId) : [];
+    await saveVoiceSamples(db, {
+      userId: args.userId,
+      pageKind: "artist",
+      clientId: args.clientId,
+      artistId: args.artistId,
+      posts: voicePosts(args.posts),
+      now: args.now,
+      venueNames,
+    });
+  } catch {
+    // The clip list still returns. The next Find clips writes the captions.
+  }
+}
+
+export async function readPromoterVoice(
+  db: ServiceRoleDb,
+  clientId: string,
+  opts: { now?: Date; read?: IgRead } = {},
+): Promise<{ sampleN: number; error: string | null }> {
+  const now = opts.now ?? new Date();
+  const clientRes = await db.from("clients").select("*").eq("id", clientId).maybeSingle();
+  if (clientRes.error) throw new Error(plainIgMessage(clientRes.error.message));
+  const client = clientRes.data as Row | null;
+  if (!client) throw new Error("No client with that id.");
+  const userId = text(client, "user_id");
+  const businessId = text(client, "instagram_business_id");
+  const fail = async (message: string) => {
+    const marked = await db.from("clients").update({ ig_last_error: message }).eq("id", clientId);
+    if (marked.error && !/ig_last_error|does not exist|schema cache/i.test(marked.error.message)) throw new Error(marked.error.message);
+    return { sampleN: 0, error: message };
+  };
+  if (!businessId) return fail("Add this client's Instagram business account.");
+  let read: IgRead;
+  try {
+    read = opts.read ?? (await defaultRead(db, userId));
+  } catch (err) {
+    const message = err instanceof Error ? plainIgMessage(err.message) : "Instagram could not be read.";
+    return fail(message);
+  }
+  const media = await read.media(businessId, VOICE_SAMPLE_CAP);
+  if (!media.ok) return fail(plainIgMessage(media.message));
+  const saved = await saveVoiceSamples(db, {
+    userId,
+    pageKind: "promoter",
+    clientId,
+    artistId: null,
+    posts: voicePosts(media.posts),
+    now,
+    venueNames: await venueNamesForClient(db, clientId),
+  });
+  const cleared = await db.from("clients").update({ ig_last_error: null }).eq("id", clientId);
+  if (cleared.error && !/ig_last_error|does not exist|schema cache/i.test(cleared.error.message)) throw new Error(cleared.error.message);
+  return { sampleN: saved.sampleN, error: null };
+}
+
+/** Pages whose captions were read in the last 30 days. One own-edge read each. */
+export async function refreshRecentPromoterVoice(db: ServiceRoleDb, now = new Date()): Promise<void> {
+  const since = new Date(now.getTime() - VOICE_REFRESH_DAYS * 86_400_000).toISOString();
+  const res = await db.from("voice_samples").select("client_id, fetched_at").eq("page_kind", "promoter").gte("fetched_at", since);
+  if (res.error) return;
+  const ids = new Set<string>();
+  for (const row of (res.data ?? []) as Row[]) {
+    const id = text(row, "client_id");
+    if (id) ids.add(id);
+  }
+  for (const id of ids) {
+    try {
+      await readPromoterVoice(db, id, { now });
+    } catch {
+      // One page stays as it was. The next night tries again.
+    }
+  }
+}
+
 async function defaultRead(db: ServiceRoleDb, userId: string): Promise<IgRead> {
   const token = await loadToken(db, userId);
   return {
@@ -540,6 +633,8 @@ export async function findArtistClips(
     followers = found.followers;
     source = "none";
   }
+
+  await rememberArtistVoice(db, { userId, artistId: args.artistId, clientId: text(artist, "client_id"), posts, now });
 
   const clipRes = await db.from("creative_lab_clips").select("*").eq("artist_id", args.artistId);
   if (clipRes.error) throw new Error(plainIgMessage(clipRes.error.message));
