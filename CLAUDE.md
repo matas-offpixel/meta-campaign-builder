@@ -508,9 +508,16 @@ REMOTION_LAMBDA_SERVE_URL=
 > → `adset_objective` (the majority of the ad set's result days) →
 > `unknown`; never campaign names) and tags
 > (`creative_tag_assignments` by `meta_ad_id`, else event + ad name), then
-> runs six independent jobs: `creative_scores`, `tag_performance`
+> runs seven independent jobs: `creative_scores`, `tag_performance`
 > (migration 186; client → vertical → all shrinkage, `lib/learning/shrink.ts`),
 > `artist_library`, `copy_performance` (migration 207; normalised ad copy, event-relative index, service-role only),
+> `copy_features` (migration 213; the same library re-keyed from words to
+> shape labels — opener, cta_kind, scarcity_kind, length_band,
+> emoji_count_band, has_lineup_list, has_date, has_price, line_count_band,
+> every value from a fixed list in `lib/learning/copy/features.ts`; same
+> maths as 207, n = shows; read through `topCopyFeatures` in
+> `lib/learning/cross-client/`, operator-only, and the public-surface guard
+> covers the table),
 > `client_funnel_benchmarks` (`learned`, never over `manually-overridden`)
 > and `interest_clusters.live_evidence` (never `evidence`). Archived clients
 > are excluded. Readers: `lib/learning/read.ts`. Check before enabling:

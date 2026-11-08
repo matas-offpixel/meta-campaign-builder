@@ -169,6 +169,28 @@ if (result.preview) {
     const slotted = copy.filter((row) => row.stage === stage && row.scope === "all" && row.template_key.includes("{")).length;
     console.log(`${stage} all-scope templates with a placeholder: ${slotted}`);
   }
+  const features = result.preview.copyFeatures;
+  console.log(`\n## Copy features (migration 213; scope all; same maths as the templates)\n`);
+  const featureAll = features.filter((row) => row.scope === "all");
+  console.log(`rows: client ${features.filter((r) => r.scope === "client").length}, vertical ${features.filter((r) => r.scope === "vertical").length}, all ${featureAll.length}`);
+  console.log("| feature | rows (all) | events_n ≥ 2 | minimum | proven |");
+  console.log("|---|---|---|---|---|");
+  for (const feature of [...new Set(featureAll.map((row) => row.feature))]) {
+    const rows = featureAll.filter((row) => row.feature === feature);
+    console.log(`| ${feature} | ${rows.length} | ${rows.filter((r) => r.events_n >= 2).length} | ${rows.filter((r) => passesCopyMinimum(r)).length} | ${rows.filter((r) => r.proven).length} |`);
+  }
+  console.log(`total: rows ${featureAll.length}, events_n ≥ 2 ${featureAll.filter((r) => r.events_n >= 2).length}, minimum ${featureAll.filter((r) => passesCopyMinimum(r)).length}, proven ${featureAll.filter((r) => r.proven).length}`);
+  for (const stage of ["ticket_sale", "registration"] as const) {
+    const top = featureAll
+      .filter((row) => row.stage === stage && row.index_vs_event != null && passesCopyMinimum(row))
+      .sort((a, b) => a.index_vs_event! - b.index_vs_event! || b.events_n - a.events_n)
+      .slice(0, 5);
+    console.log(`\n${stage} top ${top.length} (minimum-passing, lowest shrunk index first):`);
+    for (const row of top) {
+      console.log(`  ${row.feature}=${row.value} · ${row.field} · voice=${row.voice} · index=${row.index_vs_event} · shows=${row.events_n} · ads=${row.ads_n} · spend £${row.spend} · results ${row.results} · ${row.confidence}${row.proven ? " · PROVEN" : ""}`);
+    }
+  }
+
   const copyJob = result.jobs.copy_performance;
   console.log(`name-only templates dropped: ${String(copyJob.detail?.droppedNameOnly ?? "—")}`);
   const listed = copy.filter((item) => item.scope === "all" && (item.proven || passesCopyMinimum(item)));

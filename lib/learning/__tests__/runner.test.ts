@@ -91,12 +91,12 @@ describe("learning-refresh killswitch", () => {
   });
 
   it("no lib/learning module calls Meta", () => {
-    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan", "copy/artist-confirm"]) {
+    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan", "copy/artist-confirm", "copy-features", "copy/features"]) {
       const source = readFileSync(`lib/learning/${file}.ts`, "utf8");
       assert.doesNotMatch(source, /graph\.facebook|graphGet|from "\.\.\/meta\/client/, file);
     }
     // The one outbound call in lib/learning is Spotify, from artist-confirm only.
-    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan"]) {
+    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan", "copy-features", "copy/features"]) {
       assert.doesNotMatch(readFileSync(`lib/learning/${file}.ts`, "utf8"), /\bfetch\(/, file);
     }
   });
@@ -140,9 +140,10 @@ describe("learning-refresh jobs", () => {
     assert.equal(result.ok, true);
     assert.deepEqual(
       LEARNING_JOBS.map((n) => result.jobs[n].rows),
-      [2, 3, 2, 1, 0, 0],
+      [2, 3, 2, 1, 0, 0, 0],
     );
     assert.equal(result.jobs.artist_library.detail?.spotify, "missing");
+    assert.equal(result.preview?.copyFeatures.length, 0);
     assert.equal(result.preview?.tagPerformance.length, 3);
     assert.ok(calls.every((c) => !op(c, "upsert") && !op(c, "update") && !op(c, "delete") && !op(c, "insert")));
     assert.deepEqual(result.joinRates["client-a"], { adDays: 1, tagged: 1, byAdId: 0, byName: 1, rate: 1 });

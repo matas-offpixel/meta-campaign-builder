@@ -1,7 +1,7 @@
 /**
  * Learning loop B — nightly learning refresh, DB-only, zero Meta calls.
  *
- * Loads facts once (lib/learning/joins.ts), then runs six jobs that
+ * Loads facts once (lib/learning/joins.ts), then runs seven jobs that
  * each log their rows and fail alone:
  *   1. creative_scores           (lib/learning/creative-scores.ts)
  *   2. tag_performance           (lib/learning/tag-performance.ts)
@@ -14,6 +14,8 @@
  *      that needed them.
  *   6. copy_performance          (lib/learning/copy-performance.ts), reading
  *      the names job 5 is linking as if already linked.
+ *   7. copy_features             (lib/learning/copy-features.ts), the same
+ *      library re-keyed from words to shape labels
  * `dryRun` computes everything and writes nothing.
  */
 
@@ -34,6 +36,7 @@ import {
   type Stage,
   type StageSource,
 } from "./joins.ts";
+import { computeCopyFeatures, summariseCopyFeatures, writeCopyFeatures, type CopyFeatureRow } from "./copy-features.ts";
 import {
   artistExtractionInputs,
   buildCopyLibrary,
@@ -60,7 +63,8 @@ export type LearningJobName =
   | "client_funnel_benchmarks"
   | "interest_live_evidence"
   | "artist_library"
-  | "copy_performance";
+  | "copy_performance"
+  | "copy_features";
 export const LEARNING_JOBS: readonly LearningJobName[] = [
   "creative_scores",
   "tag_performance",
@@ -68,6 +72,7 @@ export const LEARNING_JOBS: readonly LearningJobName[] = [
   "interest_live_evidence",
   "artist_library",
   "copy_performance",
+  "copy_features",
 ];
 
 /** Nightly: only events with ad copy written in the last week are read for names. */
@@ -129,6 +134,7 @@ export type LearningRefreshResult =
         clients: LearningInputs["clients"];
         copyPerformance: CopyPerformanceRow[];
         artistPlan: ArtistPlan | null;
+        copyFeatures: CopyFeatureRow[];
       };
       error?: string;
     };
@@ -243,6 +249,8 @@ export async function runLearningRefresh(input: {
   let copySources: CopySources | null = null;
   let artistPlan: ArtistPlan | null = null;
   const confirm = input.confirm === undefined ? spotifyConfirmer(input.env) : input.confirm;
+  let copyLibrary: CopyLibrary | null = null;
+  let featureRows: CopyFeatureRow[] = [];
 
   const jobs = {} as Record<LearningJobName, JobOutcome>;
   jobs.creative_scores = await job("creative_scores", async () => {
@@ -300,6 +308,7 @@ export async function runLearningRefresh(input: {
   jobs.copy_performance = await job("copy_performance", async () => {
     const sources = copySources ?? (await loadCopySources(input.db));
     const library: CopyLibrary = buildCopyLibrary(sources, inputs.facts, inputs.clients, { extraLineups: artistPlan?.lineups });
+    copyLibrary = library;
     copyRows = computeCopyPerformance(library);
     const scopes = scopeCounts(copyRows);
     const detail = {
@@ -311,6 +320,16 @@ export async function runLearningRefresh(input: {
     if (dryRun) return { ok: true, rows: copyRows.length, detail: { ...detail, dryRun } };
     const written = await writeCopyPerformance(input.db, copyRows, runAt);
     return { ok: true, rows: written.written, detail: { ...scopes, droppedNameOnly: library.droppedNameOnly, staleDeleted: written.deleted } };
+  });
+  jobs.copy_features = await job("copy_features", async () => {
+    const library =
+      copyLibrary ?? buildCopyLibrary(copySources ?? (await loadCopySources(input.db)), inputs.facts, inputs.clients, { extraLineups: artistPlan?.lineups });
+    featureRows = computeCopyFeatures(library);
+    const summary = summariseCopyFeatures(featureRows);
+    const detail = { ...summary.scopes, recurring: summary.recurring, proven: summary.proven };
+    if (dryRun) return { ok: true, rows: featureRows.length, detail: { ...detail, dryRun } };
+    const written = await writeCopyFeatures(input.db, featureRows, runAt);
+    return { ok: true, rows: written.written, detail: { ...detail, staleDeleted: written.deleted } };
   });
 
   const ticketSales = ticketSaleResultCounts(inputs.facts, windowStart(now, TAG_WINDOW_DAYS));
@@ -339,6 +358,7 @@ export async function runLearningRefresh(input: {
       clients: inputs.clients,
       copyPerformance: copyRows,
       artistPlan,
+      copyFeatures: featureRows,
     };
   }
   console.log(
