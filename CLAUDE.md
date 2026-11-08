@@ -508,13 +508,35 @@ REMOTION_LAMBDA_SERVE_URL=
 > → `adset_objective` (the majority of the ad set's result days) →
 > `unknown`; never campaign names) and tags
 > (`creative_tag_assignments` by `meta_ad_id`, else event + ad name), then
-> runs five independent jobs: `creative_scores`, `tag_performance`
+> runs six independent jobs: `creative_scores`, `tag_performance`
 > (migration 186; client → vertical → all shrinkage, `lib/learning/shrink.ts`),
-> `copy_performance` (migration 207; normalised ad copy, event-relative index, service-role only),
+> `artist_library`, `copy_performance` (migration 207; normalised ad copy, event-relative index, service-role only),
 > `client_funnel_benchmarks` (`learned`, never over `manually-overridden`)
 > and `interest_clusters.live_evidence` (never `evidence`). Archived clients
 > are excluded. Readers: `lib/learning/read.ts`. Check before enabling:
 > `scripts/learning-refresh.mts --dry-run`.
+>
+> `artist_library` (`lib/learning/copy/artist-extraction.ts`, `artist-plan.ts`)
+> is the one job that calls out, and only to Spotify (`SPOTIFY_CLIENT_ID` /
+> `SPOTIFY_CLIENT_SECRET`; unset → every name that needed confirming stays
+> unconfirmed and nothing is written for it). It reads the events whose
+> `ad_copy` rows were written in the last 7 days, recovers artist names from
+> the Lab lineup facts, the event's own ad copy (capitalised runs in ≥ 3 ads,
+> not the venue / city / client / a date or ad word; "b2b", "& more",
+> "friends", "residents" split or end a run) and campaign / ad-set names,
+> confirms each on Spotify (exact name, ≥ 1 follower; "X & Y" unknown → X
+> and Y), and writes `artists` + `event_artists` with `source = lineup |
+> ad_copy | campaign_name` (migration 212; Lab rows are `lab`). At most 100
+> searches a night. It never changes a Lab-written row, a Spotify id already
+> set, or an existing link; `saveLabLineup` still replaces an event's rows
+> when the operator saves the Lab lineup. `copy_performance` reads the names
+> the job is linking the same night, so a support act becomes `{artist}` in
+> the template key. The normaliser already read `event_artists` for every
+> event; the library was 5 names before this. Backfill for every event with
+> copy: `scripts/backfill-artists.mts` (dry-run by default, `--apply` writes,
+> `--event CODE`, `--assume-confirmed` for the ceiling without Spotify,
+> `--json FILE`). It prints the templates before and after. Matas runs
+> `--apply` after merge, with the Spotify credentials in `.env.local`.
 
 > **`ENABLE_GOOGLE_ADS_DAILY_INSIGHTS`** must be exactly `"1"` to activate
 > `/api/cron/google-ads-daily-insights` (04:00 UTC). Unset = 200 with
