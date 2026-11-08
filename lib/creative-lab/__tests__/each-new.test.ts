@@ -63,8 +63,8 @@ describe("each new clip", () => {
       artistId: "enzo",
     }, { anthropic: claude() });
     assert.equal(result.notice, null);
-    assert.equal(result.captions.length, 1);
-    assert.equal(fake.tables.creative_lab_captions.find((row) => row.id === result.captions[0]?.id)?.clip_id, "clip-5");
+    assert.equal(result.captions.length, 2);
+    assert.ok(result.captions.every((caption) => fake.tables.creative_lab_captions.find((row) => row.id === caption.id)?.clip_id === "clip-5"));
   });
 
   it("says why when every usable Untested clip already has a preview", async () => {

@@ -35,7 +35,7 @@ const FACTS: EventFacts = {
   tiers: [],
 };
 
-const generator: CaptionGenerator = { angle: "scarcity", count: 5, each: true, stage: "on_sale" };
+const generator: CaptionGenerator = { angle: "scarcity", count: 5, pair: "each", stage: "on_sale" };
 
 describe("quote mode", () => {
   it("stores the words verbatim and keeps the source", () => {
@@ -116,7 +116,7 @@ describe("quote mode", () => {
 
   it("restores the caption generator when quote mode is left", () => {
     const left = leaveCaption({ mode: "caption", generator, snapshot: generator });
-    const drifted: CaptionGenerator = { angle: "lineup", count: 1, each: false, stage: "upcoming" };
+    const drifted: CaptionGenerator = { angle: "lineup", count: 1, pair: "best", stage: "upcoming" };
     const back = returnToCaption({ ...left, generator: drifted });
     assert.deepEqual(back.generator, generator);
     assert.equal(back.mode, "caption");

@@ -1748,6 +1748,33 @@ export type Database = {
           },
         ]
       }
+      creative_lab_clip_selections: {
+        Row: {
+          clip_id: string
+          event_id: string
+          selected: boolean
+          set_at: string
+          set_by: string | null
+          user_id: string
+        }
+        Insert: {
+          clip_id: string
+          event_id: string
+          selected: boolean
+          set_at?: string
+          set_by?: string | null
+          user_id: string
+        }
+        Update: {
+          clip_id?: string
+          event_id?: string
+          selected?: boolean
+          set_at?: string
+          set_by?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       creative_lab_clips: {
         Row: {
           artist_id: string
@@ -3628,6 +3655,7 @@ export type Database = {
           campaign_end_at: string | null
           capacity: number | null
           client_id: string
+          clip_selection_mode: string
           created_at: string
           event_code: string | null
           event_date: string | null
@@ -3677,6 +3705,7 @@ export type Database = {
           campaign_end_at?: string | null
           capacity?: number | null
           client_id: string
+          clip_selection_mode?: string
           created_at?: string
           event_code?: string | null
           event_date?: string | null
@@ -3726,6 +3755,7 @@ export type Database = {
           campaign_end_at?: string | null
           capacity?: number | null
           client_id?: string
+          clip_selection_mode?: string
           created_at?: string
           event_code?: string | null
           event_date?: string | null

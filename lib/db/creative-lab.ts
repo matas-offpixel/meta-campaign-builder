@@ -14,6 +14,7 @@ import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-l
 import { quoteLines, validateQuote } from "../creative-lab/quote.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
 import { loadCardVoice, type CardVoice } from "../creative-lab/voice-store.ts";
+import { loadClipSelection } from "../creative-lab/selection-store.ts";
 
 type Row = Record<string, unknown>;
 
@@ -240,6 +241,8 @@ export type CreativeLabCardData = {
   }[];
   lineupRows: LabLineupRow[];
   working: { angle: string | null; clip: string | null } | null;
+  /** Absent on a card read before migration 217: every usable clip is selected. */
+  clipSelection?: { mode: "all" | "chosen"; rows: { clipId: string; selected: boolean }[] };
 };
 
 export async function loadCreativeLabCard(
@@ -409,8 +412,11 @@ export async function loadCreativeLabCard(
       ).catch(() => null)
     : null;
 
+  const clipSelection = await loadClipSelection(db, args.eventId);
+
   return {
     eventId: args.eventId,
+    clipSelection: { mode: clipSelection.mode, rows: clipSelection.rows.map((row) => ({ clipId: row.clipId, selected: row.selected })) },
     clientId: args.clientId,
     eventName: args.eventName,
     eventDate: args.eventDate?.slice(0, 10) ?? null,

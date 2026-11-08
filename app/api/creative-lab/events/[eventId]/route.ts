@@ -18,6 +18,8 @@ import {
   editLabCaption,
   storeLabQuote,
 } from "@/lib/creative-lab/card-write";
+import { saveClipSelection } from "@/lib/creative-lab/selection-store";
+import type { PairMode } from "@/lib/creative-lab/selection";
 import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
 import { isSpotifyConfigured, searchArtists } from "@/lib/enrichment/spotify";
 import { findArtistClips, readPromoterVoice, requestArtistClip } from "@/lib/creative-lab/ig-discovery";
@@ -68,6 +70,9 @@ type Body = {
   n?: number;
   clipId?: string | null;
   each?: boolean;
+  pair?: PairMode;
+  mode?: "all" | "chosen";
+  rows?: { clipId?: string; selected?: boolean }[];
   stageOverride?: SaleStage | null;
   captionId?: string;
   overlay?: string;
@@ -280,16 +285,34 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
         return NextResponse.json(stored);
       }
       case "generate": {
+        const pair = body.pair === "spread" || body.pair === "best" || body.pair === "each" ? body.pair : undefined;
         const generated = await generateLabCaptions(db, {
           eventId,
           style: body.style ?? "",
           n: body.n ?? 1,
           clipId: body.clipId,
           each: body.each === true,
+          pair,
           stageOverride: body.stageOverride,
           artistId: body.artistId,
         });
         return NextResponse.json(generated);
+      }
+      case "setClipSelection": {
+        const mode = body.mode === "chosen" ? "chosen" : "all";
+        await saveClipSelection(db, {
+          userId: user.id,
+          eventId,
+          selection: {
+            mode,
+            rows: (body.rows ?? []).flatMap((row) => {
+              const clipId = String(row.clipId ?? "").trim();
+              if (!clipId) return [];
+              return [{ clipId, selected: row.selected === true }];
+            }),
+          },
+        });
+        return NextResponse.json({ ok: true });
       }
       case "setCaptionStatus":
         if (body.status !== "approved" && body.status !== "rejected") {

@@ -14,6 +14,8 @@ import { styleVersion } from "../../src/remotion/caption-style/profile.ts";
 import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
+import { noSelectedClipsSentence, selectedIdSet } from "./selection.ts";
+import { loadClipSelection } from "./selection-store.ts";
 import { assertArtistCleared, buildAdName, createRound, type LabArtist } from "./rounds.ts";
 import { clipWindow, renderRefusalSentence, renderRetryable, renderRoundOpen } from "./surface.ts";
 import type { CaptionStyle } from "./tags.ts";
@@ -31,6 +33,7 @@ export class RoundBuildError extends Error {
     | "no_objective"
     | "no_ad_set_name"
     | "no_clips"
+    | "no_selected_clips"
     | "ad_set_full"
     | "no_previous_target"
     | "ad_set_changed"
@@ -293,13 +296,22 @@ export async function proposeRound(
     .map((clip) => ({ ...clip, seconds: clipSeconds(clip, assets.get(String(clip.creative_asset_id))) }) as Clip)
     .sort((a, b) => Number(a.clip_no) - Number(b.clip_no));
   const skipped: { reason: string }[] = [];
-  const shortClips = usable(clips, skipped);
-  if (!shortClips.length) throw new RoundBuildError("no_clips", "no clips");
+  const usableClips = usable(clips, skipped);
+  const selection = await loadClipSelection(db, args.eventId);
+  const selectedIds = selectedIdSet(selection, usableClips.map((clip) => String(clip.id)));
+  const shortClips = usableClips.filter((clip) => selectedIds.has(String(clip.id)));
 
   const rounds = (await list(db, "creative_lab_rounds", "event_id", args.eventId))
     .filter((row) => row.artist_id === args.artistId)
     .sort((a, b) => Number(b.round_no) - Number(a.round_no));
   const previous = rounds[0] ?? null;
+  if (!shortClips.length) {
+    const roundNo = previous ? Number(previous.round_no) + 1 : 1;
+    throw new RoundBuildError(
+      usableClips.length ? "no_selected_clips" : "no_clips",
+      usableClips.length ? noSelectedClipsSentence(roundNo) : "no clips",
+    );
+  }
   const target = previous ? targetFromRound(previous) : await resolveTarget(db, args.adsetMetaId);
   if (previous && target.metaAdsetId !== args.adsetMetaId) {
     throw new RoundBuildError("ad_set_changed", `Round ${Number(previous.round_no) + 1} keeps ad set ${target.metaAdsetId}.`);
@@ -329,6 +341,9 @@ export async function proposeRound(
           retestOf: null,
         }))
     : null;
+  if (chosen && chosen.length === 0) {
+    throw new RoundBuildError("no_selected_clips", noSelectedClipsSentence(previous ? Number(previous.round_no) + 1 : 1));
+  }
   const pairs = chosen
     ?? (previous
       ? await pairsFromPlan(artist.name, cleared, previous, shortClips, approved, hasArtistVoice, tickets, skipped, maxAds, db)
@@ -594,8 +609,8 @@ export class RenderRetryError extends Error {
 /**
  * Try one failed render again from its row. The owner's render only; it must
  * have failed for a reason a fresh try can fix (the renderer, a timeout, the
- * finished file not saving), and every round holding it must still be draft
- * or rendering. It goes back through queueRender, so the same row is
+ * finished file not saving), and one round holding it must still be draft
+ * or rendering — a render in no round can be tried too. It goes back through queueRender, so the same row is
  * re-queued with the next attempt number. Its round ads go back to pending so
  * the finished render reaches them, and a settled draft round reads as
  * rendering again until the queue settles it. No other render, ad or round
