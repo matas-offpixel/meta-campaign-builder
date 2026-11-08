@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { quoteTextEm, quoteWrapEm } from "../../../src/remotion/caption-style/quote-measure.ts";
@@ -186,8 +187,16 @@ describe("quote mode", () => {
     const enzo = "Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥";
     const rendered = quoteLines(enzo);
     assert.equal(rendered.length, 4);
+    assert.equal(rendered[0], "Southampton, this one's going to be special.");
     assert.equal(rendered.length, quoteLines(rendered.join("\n")).length);
     assert.match(rendered[rendered.length - 1] ?? "", /🔥/);
+    const overlay = readFileSync("components/dashboard/events/creative-lab/caption-overlay.tsx", "utf8");
+    const surface = readFileSync("components/dashboard/events/creative-lab/quote-surface.tsx", "utf8");
+    const composition = readFileSync("src/remotion/compositions/CaptionOnClip.tsx", "utf8");
+    assert.match(surface, /lines=\{quoteLines\(words, weight\)\}/);
+    assert.match(overlay, /whiteSpace: "nowrap"/);
+    assert.doesNotMatch(overlay, /whitespace-pre-line/);
+    assert.match(composition, /whiteSpace: "nowrap"/);
   });
 
   it("uses the cleared-gate sentence", () => {

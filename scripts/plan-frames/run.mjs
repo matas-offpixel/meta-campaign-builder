@@ -70,6 +70,7 @@ const ONLY = (() => {
 })();
 const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS, ...BANK_SHOTS, ...QUOTE_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
 const RUN_GUARD = !ONLY || "IR0".startsWith(ONLY);
+const TIKTOK_SANS = path.join(ROOT, "src/remotion/fonts/TikTokSans[opsz,slnt,wdth,wght].ttf");
 
 function shotFile(id) {
   return path.join(OUT, `${id}.png`);
@@ -217,6 +218,23 @@ async function main() {
           viewport: { width: shot.width, height: 900 },
           deviceScaleFactor: 1,
         });
+        if (shot.id.startsWith("CLQ")) {
+          const fontBody = await readFile(TIKTOK_SANS);
+          await page.route("**/__frames/tiktok-sans.ttf", (route) =>
+            route.fulfill({ status: 200, contentType: "font/ttf", body: fontBody }),
+          );
+          await page.addInitScript(() => {
+            window.__tiktokSansReady = (async () => {
+              const res = await fetch("/__frames/tiktok-sans.ttf");
+              if (!res.ok) throw new Error(`TikTok Sans did not load (${res.status})`);
+              const face = new FontFace("TikTok Sans", await res.arrayBuffer(), { weight: "300 900", stretch: "75% 150%" });
+              const loaded = await face.load();
+              document.fonts.add(loaded);
+              await document.fonts.ready;
+              if (!document.fonts.check('700 16px "TikTok Sans"')) throw new Error("TikTok Sans did not load");
+            })();
+          });
+        }
         const res = await page.goto(`${BASE}/frames/${shot.frame}`, {
           waitUntil: "domcontentloaded",
           timeout: 30_000,
@@ -224,7 +242,50 @@ async function main() {
         if (!res || res.status() >= 400) {
           throw new Error(`${shot.id}: HTTP ${res?.status() ?? "no response"}`);
         }
-        await page.waitForSelector(`[data-frame-ready="${shot.frame}"]`, { timeout: 15_000 });
+        if (shot.id.startsWith("CLQ")) {
+          const missing = page.getByText("TikTok Sans did not load");
+          const ready = page.locator(`[data-frame-ready="${shot.frame}"]`);
+          const which = await Promise.race([
+            ready.waitFor({ timeout: 15_000 }).then(() => "ready"),
+            missing.waitFor({ timeout: 15_000 }).then(() => "missing"),
+          ]);
+          if (which === "missing") {
+            throw new Error(`${shot.id}: TikTok Sans did not load. This shot is not a baseline.`);
+          }
+        } else {
+          await page.waitForSelector(`[data-frame-ready="${shot.frame}"]`, { timeout: 15_000 });
+        }
+        if (shot.frame === "CLQ2") {
+          const probe = await page.evaluate(() => {
+            const lines = [...document.querySelectorAll("[data-quote-line]")];
+            const first = lines[0];
+            const style = first ? getComputedStyle(first) : null;
+            const fontSize = style ? Number.parseFloat(style.fontSize) : 0;
+            return {
+              count: lines.length,
+              first: first?.textContent ?? "",
+              last: lines.at(-1)?.textContent ?? "",
+              width: first ? first.getBoundingClientRect().width : 0,
+              fontSize,
+              em: Number(first?.getAttribute("data-quote-em") ?? "0"),
+              family: style?.fontFamily ?? "",
+              whiteSpace: style?.whiteSpace ?? "",
+            };
+          });
+          const expected = probe.em * probe.fontSize;
+          const delta = expected > 0 ? Math.abs(probe.width - expected) / expected : 1;
+          console.log(
+            `${shot.id} lines=${probe.count} first=${JSON.stringify(probe.first)} ${probe.width.toFixed(2)}px vs ${expected.toFixed(2)}px (${(delta * 100).toFixed(2)}%) ${probe.family} ${probe.whiteSpace}`,
+          );
+          if (probe.count !== 4 || !probe.last.includes("🔥") || probe.whiteSpace !== "nowrap") {
+            throw new Error(`${shot.id}: quote rendered ${probe.count} lines, last ${JSON.stringify(probe.last)}. Not a baseline.`);
+          }
+          if (delta > 0.02) {
+            throw new Error(
+              `${shot.id}: first line is ${probe.width.toFixed(1)}px, ${(delta * 100).toFixed(1)}% from the TikTok Sans advance of ${JSON.stringify(probe.first)}. Face ${probe.family}. Not a baseline.`,
+            );
+          }
+        }
         if (shot.lab) {
           if (shot.before) await shot.before(page, shot.width);
           // Chromium does not reliably paint a video frame below the

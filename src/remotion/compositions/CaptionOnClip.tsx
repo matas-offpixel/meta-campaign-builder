@@ -195,7 +195,7 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
           }}
         >
           {props.lines.map((line, index) => (
-            <div key={index} style={{ whiteSpace: "pre" }}>{line}</div>
+            <div key={index} style={{ whiteSpace: "nowrap", fontKerning: "none" }}>{line}</div>
           ))}
         </div>
       ) : (

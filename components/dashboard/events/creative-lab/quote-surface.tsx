@@ -2,6 +2,7 @@
 
 import localFont from "next/font/local";
 
+import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { postListChip, quoteLines, type ListedPost, type QuoteSource } from "@/lib/creative-lab/quote";
 import type { QuoteWeight } from "../../../../src/remotion/caption-style/quote-profile";
 
@@ -180,6 +181,28 @@ export function QuoteGenerator({
   );
 }
 
+function CentreMark({ at, label, clear }: { at: string; label: string; clear: string }) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 z-10 border-t" style={{ top: at, borderColor: "#ffd34a" }}>
+      <i
+        className="absolute not-italic"
+        style={{
+          right: 3,
+          top: `calc(-11px - ${clear})`,
+          font: "600 7px ui-monospace, monospace",
+          color: "#ffd34a",
+          background: "rgba(0,0,0,.55)",
+          padding: "1px 3px",
+          borderRadius: 2,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </i>
+    </div>
+  );
+}
+
 function Plate({
   words,
   time,
@@ -207,23 +230,24 @@ function Plate({
             <i className="absolute right-1 top-0 text-[8px] not-italic text-white">4:5 rect · 14.84 %</i>
           </div>
           <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-white/80" style={{ bottom: "14.84%" }} />
-          <div className="pointer-events-none absolute inset-x-0 border-t" style={{ top: marker.at, borderColor: "#ffd34a" }}>
-            <i className="absolute right-1 -top-3 bg-black/60 px-1 text-[8px] not-italic" style={{ color: "#ffd34a" }}>{marker.label}</i>
-          </div>
+          <CentreMark at={marker.at} label={marker.label} clear="3cqh" />
         </>
       ) : null}
       <p
-        className={`pointer-events-none absolute left-1/2 w-[70%] -translate-x-1/2 -translate-y-1/2 text-center text-white ${marker ? tiktokSans.className : ""}`}
+        className={`${tiktokSans.className} pointer-events-none absolute left-1/2 w-[70%] -translate-x-1/2 -translate-y-1/2 text-center text-white`}
         style={{
           top: crop ? "18.7%" : "28%",
+          fontFamily: `"TikTok Sans", ${tiktokSans.style.fontFamily}`,
           fontWeight: weight,
           fontSize: crop ? "2.745cqh" : "1.93cqh",
           lineHeight: crop ? "4.267cqh" : "3cqh",
-          whiteSpace: marker ? "pre" : "pre-line",
-          fontVariationSettings: marker ? `"opsz" 36, "slnt" 0, "wdth" 100, "wght" ${weight}` : undefined,
+          fontKerning: "none",
+          fontVariationSettings: `"opsz" 36, "slnt" 0, "wdth" 100, "wght" ${weight}`,
         }}
       >
-        {marker ? quoteLines(words, weight).join("\n") : words}
+        {quoteLines(words, weight).map((line, index) => (
+          <span key={index} className="block" style={{ whiteSpace: "nowrap", width: "fit-content", marginInline: "auto" }}>{line}</span>
+        ))}
       </p>
       <div className="absolute inset-x-2 bottom-2 flex items-center gap-2 text-white">
         <span className="text-xs">▶</span>
@@ -246,6 +270,7 @@ export function QuotePost({
   held,
   muted = false,
   copyOnNarrow = true,
+  weight = 700,
 }: {
   page: string;
   copy: string | null;
@@ -258,6 +283,7 @@ export function QuotePost({
   held: string | null;
   muted?: boolean;
   copyOnNarrow?: boolean;
+  weight?: QuoteWeight;
 }) {
   return (
     <article className={`w-full max-w-[360px] ${muted ? "opacity-[.92]" : ""}`}>
@@ -270,7 +296,7 @@ export function QuotePost({
           </span>
         </div>
         {copy ? <p className={`px-3 py-2 text-sm ${copyOnNarrow ? "" : "hidden sm:block"}`}>{copy}</p> : null}
-        <Plate words={words} time={time} crop muted={muted} />
+        <CaptionOverlay mode="quote" weight={weight} crop time={time} muted={muted} lines={quoteLines(words, weight)} />
         <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2">
           <p className="min-w-0 text-sm font-medium">{headline}<br /><span className="font-normal text-muted-foreground">{sub}</span></p>
           <span className="inline-flex shrink-0 rounded bg-foreground px-3 py-1.5 text-sm text-background">{cta}</span>
@@ -335,9 +361,7 @@ export function CaptionPlate({
           <i className="absolute right-1 top-0 text-[8px] not-italic text-white">4:5 rect · 14.84 %</i>
         </div>
         <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-white/80" style={{ bottom: "14.84%" }} />
-        <div className="pointer-events-none absolute inset-x-0 border-t" style={{ top: "35.5%", borderColor: "#ffd34a" }}>
-          <i className="absolute right-1 -top-3 bg-black/60 px-1 text-[8px] not-italic" style={{ color: "#ffd34a" }}>{marker}</i>
-        </div>
+        <CentreMark at="35.5%" label={marker} clear="5.4cqw" />
         <p
           className="pointer-events-none absolute top-[35.5%] left-[8%] right-[8%] -translate-y-1/2 text-center whitespace-pre-line text-white"
           style={{

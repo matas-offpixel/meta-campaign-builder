@@ -213,6 +213,7 @@ function QuoteLive({
         sub=""
         cta="Get tickets"
         muted={!cleared}
+        weight={caption.quoteWeight === 400 ? 400 : 700}
         held={held}
         chips={[
           { text: "quote" },

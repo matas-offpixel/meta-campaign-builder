@@ -5,6 +5,7 @@ import localFont from "next/font/local";
 import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { captionBoxInsets } from "@/lib/creative-lab/surface";
 import { profile } from "../../../../src/remotion/caption-style/profile";
+import { quoteTextEm } from "../../../../src/remotion/caption-style/quote-measure";
 import { quoteProfile, type QuoteWeight } from "../../../../src/remotion/caption-style/quote-profile";
 
 const tiktokSans = localFont({
@@ -31,6 +32,9 @@ export function CaptionOverlay({
   outS = null,
   mode = "caption",
   weight = 700,
+  crop = false,
+  time = null,
+  muted = false,
 }: {
   lines: readonly string[];
   src?: string | null;
@@ -40,13 +44,23 @@ export function CaptionOverlay({
   outS?: number | null;
   mode?: "caption" | "quote";
   weight?: QuoteWeight;
+  /** Feed crop. The 9:16 centre 0.28 H reads as 0.187 of this 4:5. */
+  crop?: boolean;
+  time?: string | null;
+  muted?: boolean;
 }) {
   const { videoProps, rangeProps, playing, toggle } = useClipVideo(inS, outS);
   const shown = lines.map((line) => line.trim()).filter(Boolean);
   const stroke = `${profile.strokeWidthPctOfFontSize * 2}em`;
+  const quoteCrop = mode === "quote" && crop;
+  // Same width: a 4:5 frame is this fraction of the 9:16 height.
+  const heightRatio = (5 / 4) / (16 / 9);
+  const quoteSize = (quoteCrop ? quoteProfile.fontSizePctOfHeight / heightRatio : quoteProfile.fontSizePctOfHeight) * 100;
+  const quotePitch = (quoteCrop ? quoteProfile.pitchPctOfHeight / heightRatio : quoteProfile.pitchPctOfHeight) * 100;
+  const quoteTop = (quoteCrop ? quoteProfile.verticalCenterInFourFive : quoteProfile.verticalCenterPctOfSourceHeight) * 100;
 
   return (
-    <div className="relative aspect-[9/16] w-full overflow-hidden bg-black" style={{ containerType: mode === "quote" ? "size" : "inline-size" }}>
+    <div className={`relative w-full overflow-hidden bg-black ${quoteCrop ? "aspect-[4/5]" : "aspect-[9/16]"}`} style={{ containerType: mode === "quote" ? "size" : "inline-size" }}>
       {src ? (
         <video
           {...videoProps}
@@ -57,22 +71,36 @@ export function CaptionOverlay({
           playsInline
           preload="metadata"
         />
+      ) : mode === "quote" ? (
+        <div className="absolute inset-0" style={{ background: "linear-gradient(160deg,#2a241c,#6a5a48)", filter: muted ? "saturate(.6)" : undefined }} />
       ) : null}
       {mode === "quote" && shown.length ? (
         <p
-          className={`${tiktokSans.className} pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-center whitespace-pre-line`}
+          className={`${tiktokSans.className} pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-center`}
           style={{
             left: `${quoteProfile.horizontalCenterPctOfWidth * 100}%`,
-            top: `${quoteProfile.verticalCenterPctOfSourceHeight * 100}%`,
+            top: `${quoteTop}%`,
             width: `${quoteProfile.wrapPctOfWidth * 100}%`,
-            fontSize: `${quoteProfile.fontSizePctOfHeight * 100}cqh`,
-            lineHeight: `${quoteProfile.pitchPctOfHeight * 100}cqh`,
+            fontFamily: `"TikTok Sans", ${tiktokSans.style.fontFamily}`,
+            fontSize: `${quoteSize}cqh`,
+            lineHeight: `${quotePitch}cqh`,
             fontWeight: weight,
+            fontKerning: "none",
             fontVariationSettings: `"opsz" 36, "slnt" 0, "wdth" 100, "wght" ${weight}`,
             color: quoteProfile.fill,
           }}
         >
-          {shown.join("\n")}
+          {shown.map((line, index) => (
+            <span
+              key={index}
+              data-quote-line=""
+              data-quote-em={index === 0 ? quoteTextEm(line, weight) : undefined}
+              className="block"
+              style={{ whiteSpace: "nowrap", width: "fit-content", marginInline: "auto" }}
+            >
+              {line}
+            </span>
+          ))}
         </p>
       ) : compact ? (
         <span
@@ -106,7 +134,13 @@ export function CaptionOverlay({
           ))}
         </p>
       ) : null}
-      {src && !compact ? (
+      {mode === "quote" && !src ? (
+        <div className="absolute inset-x-2 bottom-2 flex items-center gap-2 text-white">
+          <span className="text-xs">▶</span>
+          <span className="h-0.5 flex-1 bg-white/80" />
+          {time ? <span className="text-[10px]">{time}</span> : null}
+        </div>
+      ) : src && !compact ? (
         <div className="absolute inset-x-2 bottom-2 flex items-center gap-2">
           <button type="button" className="h-7 w-7 shrink-0 text-left text-white" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
             {playing ? "❚❚" : "▶"}

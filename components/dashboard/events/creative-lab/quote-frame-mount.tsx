@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 import { CaptionPlate, QuoteGenerator, QuotePlate, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
 import { heldQuoteSentence, postsForQuote, quoteLines } from "@/lib/creative-lab/quote";
 
@@ -10,8 +14,28 @@ const LUKE = "Been waiting all year to play Circuit again. Bring the energy 👊
  * The words are the record's stand-ins, not anything an artist said.
  */
 export function QuoteFrameMount({ id }: { id: string }) {
+  const [font, setFont] = useState<"wait" | "ready" | "missing">("wait");
+  useEffect(() => {
+    const pending = (window as unknown as { __tiktokSansReady?: Promise<unknown> }).__tiktokSansReady;
+    let gone = false;
+    const done = pending ?? Promise.reject(new Error("TikTok Sans did not load"));
+    done.then(
+      () => {
+        if (!gone) setFont("ready");
+      },
+      () => {
+        if (!gone) setFont("missing");
+      },
+    );
+    return () => {
+      gone = true;
+    };
+  }, []);
+  if (font === "missing") {
+    return <div className="bg-background p-4 text-sm text-foreground">TikTok Sans did not load. This shot is not a baseline.</div>;
+  }
   return (
-    <div data-frame-ready={id} className="bg-background p-3 text-foreground sm:p-4">
+    <div data-frame-ready={font === "ready" ? id : undefined} className="bg-background p-3 text-foreground sm:p-4">
       {id === "CLQ1" ? (
         <section className="space-y-2">
           <div className="flex items-baseline justify-between">
