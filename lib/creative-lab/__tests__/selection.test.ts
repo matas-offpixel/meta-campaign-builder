@@ -11,6 +11,7 @@ import {
   CLIPS_NOTE,
   clipSelectionStrip,
   effectiveSelection,
+  eachPreviewClips,
   eachPreviewLine,
   newUnselectedCount,
   noSelectedClipsSentence,
@@ -25,7 +26,7 @@ import {
   winnerNotSelected,
   type ClipSelection,
 } from "../selection.ts";
-import { NO_NEW_CLIPS, roundMatrix } from "../surface.ts";
+import { roundMatrix } from "../surface.ts";
 import { fakeDb } from "./fake-db.ts";
 
 type Clip = {
@@ -91,7 +92,10 @@ describe("clip selection", () => {
     ];
     assert.equal(bestOfSelected(priced)?.id, "e2");
     assert.equal(bestOfSelected([clip("e1", 1), clip("e5", 5)])?.id, "e1");
-    assert.equal(eachPreviewLine(3, 4), "3 × 4 = 12 previews");
+    assert.equal(eachPreviewLine(3, 4), "3 captions × 4 clips = 12 previews");
+    const four = ["e1", "e2", "e5", "e7"].map((id) => ({ id }));
+    assert.equal(eachPreviewLine(3, eachPreviewClips(four).length), "3 captions × 4 clips = 12 previews");
+    assert.equal(eachPreviewLine(3, eachPreviewClips(four, new Set(["e7"])).length), "3 captions × 3 clips = 9 previews");
   });
 
   it("narrows the matrix to the selection and still knocks a pairing out", () => {
@@ -129,10 +133,15 @@ describe("clip selection", () => {
     const source = readFileSync(new URL("../../../components/dashboard/events/creative-lab/captions.tsx", import.meta.url), "utf8");
     assert.match(source, /angle === "artist_first_person"/);
     assert.match(source, /Artist/);
+    assert.match(source, /✓ artist channels/);
+    assert.match(source, /Promoter page only/);
+    assert.match(source, /bg-foreground text-background/);
     assert.match(source, /OFF_CARD_CLIP/);
     assert.match(source, /Each selected/);
+    assert.match(source, /eachPreviewClips\(selected\)/);
     const round = readFileSync(new URL("../../../components/dashboard/events/creative-lab/round.tsx", import.meta.url), "utf8");
     assert.match(round, /renderPairs\(matrix\.cells\)/);
+    assert.match(round, /href="#lab-clips"/);
   });
 });
 
@@ -151,13 +160,14 @@ describe("each selected", () => {
       ],
       creative_lab_captions: [{ id: "cap", event_id: "event-1", clip_id: "seen", status: "proposed" }],
     });
-    const result = await generateLabCaptions(previewed as unknown as ServiceRoleDb, {
-      eventId: "event-1",
-      style: "lineup",
-      n: 3,
-      pair: "each",
-    });
-    assert.equal(result.notice, NO_NEW_CLIPS);
-    assert.equal(result.captions.length, 0);
+    await assert.rejects(
+      () => generateLabCaptions(previewed as unknown as ServiceRoleDb, {
+        eventId: "event-1",
+        style: "lineup",
+        n: 3,
+        pair: "each",
+      }),
+      (err: unknown) => err instanceof Error && !err.message.includes("No new clips"),
+    );
   });
 });

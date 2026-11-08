@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
 import { HeldLabel } from "@/components/dashboard/events/creative-lab/held-label";
-import { captionsNote, eachPreviewLine, effectiveSelection, emptySelection, NO_CLIP_SELECTED, OFF_CARD_CLIP, previewPlate, type PairMode } from "@/lib/creative-lab/selection";
+import { captionsNote, eachPreviewClips, eachPreviewLine, effectiveSelection, emptySelection, NO_CLIP_SELECTED, OFF_CARD_CLIP, previewPlate, type PairMode } from "@/lib/creative-lab/selection";
 import { captionCopy, captionPreviewClip, ctaForStage, feedHeadline, generateButtonLabel, generateFailureSentence, roundHasRun, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
@@ -124,6 +125,7 @@ export function LabCaptions({
   const visible = lab.captions.filter((caption) => caption.status !== "rejected");
   const selection = lab.clipSelection ?? emptySelection();
   const selected = effectiveSelection(selection, lab.clips);
+  const plates = eachPreviewClips(selected);
   const ran = lab.rounds.filter((round) => roundHasRun(round.status));
   const roundNo = (ran.at(-1)?.roundNo ?? 0) + 1;
 
@@ -176,11 +178,26 @@ export function LabCaptions({
         {quoteMode ? <Control label="Mode" value={mode} options={[{ id: "caption", label: "Caption" }, { id: "quote", label: "Quote" }]} onChange={chooseMode} /> : null}
         <Control label="Angle" value={angle} options={ANGLES.map((id) => ({ id, label: styleLabel(id) }))} onChange={setAngle} />
         {angle === "artist_first_person" ? (
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="text-muted-foreground">Artist</span>
-            {lab.artists.map((item) => (
-              <button key={item.id} type="button" aria-pressed={item.id === artist?.id} className="rounded border border-border px-2 py-1 text-sm" onClick={() => setArtistId(item.id)}>{item.name}</button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-20 text-muted-foreground">Artist</span>
+            <div className="flex flex-wrap items-center gap-1">
+              {lab.artists.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={item.id === artist?.id}
+                  className={`rounded px-2 py-1 text-sm ${item.id === artist?.id ? "bg-foreground text-background" : "border border-border bg-transparent"}`}
+                  onClick={() => setArtistId(item.id)}
+                >
+                  {item.name}
+                </button>
+              ))}
+              {artist ? (
+                <span className={artist.rights === "approved" ? "rounded border border-success px-1.5 py-0.5 text-xs text-success" : "rounded border border-foreground px-1.5 py-0.5 text-xs"}>
+                  {artist.rights === "approved" ? "✓ artist channels" : "Promoter page only"}
+                </span>
+              ) : null}
+            </div>
           </div>
         ) : null}
         <div className="sm:hidden">
@@ -192,7 +209,7 @@ export function LabCaptions({
         <div className="hidden sm:block">
           <Counts count={count} setCount={setCount} stage={stage} setStage={setStage} />
         </div>
-        {pair === "each" ? <p className="tabular-nums text-muted-foreground">{eachPreviewLine(count, selected.length)}</p> : null}
+        {pair === "each" ? <p className="tabular-nums text-muted-foreground">{eachPreviewLine(count, plates.length)}</p> : null}
         <Control
           label="Pair with"
           value={pair}
@@ -222,7 +239,11 @@ export function LabCaptions({
             }).then((result) => setNotice(noticeAfterGenerate(result))).catch(() => setNotice(generateFailureSentence(null))).finally(() => setWriting(false));
           }}
         >
-          <HeldLabel idle={generateButtonLabel(false, count)} pending={generateButtonLabel(true, count)} active={writing} />
+          <HeldLabel
+            idle={generateButtonLabel(false, count)}
+            pending={<><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />{generateButtonLabel(true, count)}</>}
+            active={writing}
+          />
         </Button>
         {notice ? <p className="text-sm">{notice}</p> : null}
         {quoteMode ? (
@@ -238,6 +259,24 @@ export function LabCaptions({
         ) : null}
       </div>
       )}
+      {pair === "each" ? (
+        <div className="space-y-4">
+          {visible.map((caption) => (
+            caption.mode === "quote" ? (
+              <QuoteLive key={caption.id} lab={lab} caption={caption} page={page} />
+            ) : (
+              <div key={caption.id} className="space-y-2">
+                <p className="text-xs text-muted-foreground">{styleLabel(caption.style)}</p>
+                <div className="flex snap-x gap-3 overflow-x-auto">
+                  {(plates.length > 0 ? plates : [null]).map((clip) => (
+                    <FeedPost key={clip?.id ?? "none"} lab={lab} caption={caption} page={page} stage={stageDefault} busy={busy} onSave={onSave} clipOverride={clip} />
+                  ))}
+                </div>
+              </div>
+            )
+          ))}
+        </div>
+      ) : (
       <div className="flex snap-x gap-3 overflow-x-auto">
         {visible.map((caption) => (
           caption.mode === "quote" ? (
@@ -247,6 +286,7 @@ export function LabCaptions({
           )
         ))}
       </div>
+      )}
     </section>
   );
 }
@@ -344,6 +384,7 @@ function FeedPost({
   stage,
   busy,
   onSave,
+  clipOverride,
 }: {
   lab: CreativeLabCardData;
   caption: CreativeLabCardData["captions"][number];
@@ -351,6 +392,8 @@ function FeedPost({
   stage: SaleStage;
   busy: boolean;
   onSave: Save;
+  /** Each selected draws this caption on a chosen clip. */
+  clipOverride?: CreativeLabCardData["clips"][number] | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [focusPrimary, setFocusPrimary] = useState(false);
@@ -359,12 +402,14 @@ function FeedPost({
   const primaryField = useRef<HTMLTextAreaElement>(null);
   const selection = lab.clipSelection ?? emptySelection();
   const selected = effectiveSelection(selection, lab.clips);
-  const plate = previewPlate(caption.clipId, lab.clips, selected.length);
-  const clip = plate !== "clip"
-    ? null
-    : caption.clipId
-      ? captionPreviewClip(lab.clips, caption.clipId)
-      : captionPreviewClip(selected.length ? selected : lab.clips, null);
+  const plate = clipOverride !== undefined ? (clipOverride ? "clip" : previewPlate(null, lab.clips, selected.length)) : previewPlate(caption.clipId, lab.clips, selected.length);
+  const clip = clipOverride !== undefined
+    ? clipOverride
+    : plate !== "clip"
+      ? null
+      : caption.clipId
+        ? captionPreviewClip(lab.clips, caption.clipId)
+        : captionPreviewClip(selected.length ? selected : lab.clips, null);
   function discardEdits() {
     setOverlay(captionCopy(caption.lines));
     setPrimary(caption.primaryText);

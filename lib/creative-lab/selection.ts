@@ -32,7 +32,12 @@ export function noSelectedClipsSentence(roundNo: number): string {
 }
 
 export function eachPreviewLine(captions: number, clips: number): string {
-  return `${captions} × ${clips} = ${captions * clips} previews`;
+  return `${captions} captions × ${clips} clips = ${captions * clips} previews`;
+}
+
+/** The clips Each selected actually draws. A skipped clip drops out of the count. */
+export function eachPreviewClips<T extends { id: string }>(selected: readonly T[], skipped: ReadonlySet<string> = new Set()): T[] {
+  return selected.filter((clip) => !skipped.has(clip.id));
 }
 
 export function emptySelection(): ClipSelection {

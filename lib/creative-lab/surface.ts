@@ -55,6 +55,9 @@ export const NO_NEW_CLIPS = "No new clips since the last generate — Pair with 
 /** Shown when Generate fails, or finishes without writing a caption. */
 export const CAPTIONS_NOT_WRITTEN = "The captions didn't write — try again.";
 
+/** Every candidate the writer returned was already stored on this event. */
+export const LINES_ALREADY_ON_EVENT = "Every line it wrote is already on this event — change the angle and write again";
+
 /** The sentence under Generate when the request fails. A raw error is not shown. */
 export function generateFailureSentence(error: unknown): string {
   return sentenceOf(error) ?? CAPTIONS_NOT_WRITTEN;

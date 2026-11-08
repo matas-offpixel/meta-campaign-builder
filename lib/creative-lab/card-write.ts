@@ -16,7 +16,7 @@ import { isCaptionStyle } from "./tags.ts";
 import { artistKey } from "./lineup.ts";
 import { bestOfSelected, effectiveSelection, NO_CLIP_SELECTED, spreadClipIds, type PairMode } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
-import { CAPTIONS_NOT_WRITTEN, clipsForEachNew, currentRenderError, NO_NEW_CLIPS, playableClipSeconds } from "./surface.ts";
+import { CAPTIONS_NOT_WRITTEN, currentRenderError, LINES_ALREADY_ON_EVENT, playableClipSeconds } from "./surface.ts";
 import { headlinerError } from "../db/creative-lab.ts";
 import { factsHash, loadEventFacts, saleStageFromStatus, validateCaption } from "./caption-facts.ts";
 import { quoteInsert, validateQuote, type QuoteSource } from "./quote.ts";
@@ -373,33 +373,43 @@ export async function generateLabCaptions(
   const loaded = await clipsAwaitingPreview(db, args.eventId);
   const selection = loaded.selection;
   const selected = effectiveSelection(selection, loaded.clips);
-  const write = (clipId?: string, n = args.n) => generateCaptions(db, {
-    eventId: args.eventId,
-    style,
-    n,
-    clipId,
-    stageOverride: args.stageOverride || undefined,
-    artistId: args.artistId || undefined,
-  }, deps);
+  const write = async (clipId?: string, n = args.n) => {
+    try {
+      return { captions: await generateCaptions(db, {
+        eventId: args.eventId,
+        style,
+        n,
+        clipId,
+        stageOverride: args.stageOverride || undefined,
+        artistId: args.artistId || undefined,
+      }, deps), notice: null as string | null };
+    } catch (err) {
+      if (err instanceof Error && err.message === LINES_ALREADY_ON_EVENT) {
+        return { captions: [], notice: LINES_ALREADY_ON_EVENT };
+      }
+      throw err;
+    }
+  };
   if (selected.length === 0) {
-    return withCaptionNotice(await write(undefined, args.n), NO_CLIP_SELECTED);
+    const written = await write(undefined, args.n);
+    return withCaptionNotice(written.captions, written.notice ?? NO_CLIP_SELECTED);
   }
   if (pair === "each") {
-    const targets = clipsForEachNew(selected, loaded.paired);
-    if (targets.length === 0) return { captions: [], notice: NO_NEW_CLIPS };
-    const captions = [];
-    for (const clip of targets) captions.push(...await write(clip.id, args.n));
-    return withCaptionNotice(captions, null);
+    const written = await write(undefined, args.n);
+    return withCaptionNotice(written.captions, written.notice);
   }
   if (pair === "spread") {
     const captions = [];
     for (const clipId of spreadClipIds(args.n, selected.map((clip) => clip.id))) {
-      captions.push(...await write(clipId, 1));
+      const written = await write(clipId, 1);
+      if (written.notice && captions.length === 0) return written;
+      captions.push(...written.captions);
     }
     return withCaptionNotice(captions, null);
   }
   const best = bestOfSelected(selected);
-  return withCaptionNotice(await write(best?.id, args.n), null);
+  const written = await write(best?.id, args.n);
+  return withCaptionNotice(written.captions, written.notice);
 }
 
 export async function editLabCaption(

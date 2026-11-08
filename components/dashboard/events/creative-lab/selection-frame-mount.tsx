@@ -88,7 +88,11 @@ function lab(extra: Partial<CreativeLabCardData> = {}): CreativeLabCardData {
     adSets: [{ metaAdSetId: "set-1", adAccountId: "act", name: "Ad set", status: "recorded", adCount: 0, cap: 50 }],
     adAccountId: null,
     rounds: [],
-    lineupRows: [],
+    lineupRows: [
+      lineupRow("enzo", "Enzo Siragusa", "enzosiragusa"),
+      lineupRow("luke-1", "Luke Dean", "lukedean"),
+      lineupRow("reeshy-1", "Reeshy", "reeshy"),
+    ],
     working: null,
     clipSelection: {
       mode: "chosen",
@@ -100,9 +104,31 @@ function lab(extra: Partial<CreativeLabCardData> = {}): CreativeLabCardData {
 
 const captions = [
   { id: "at", style: "lineup", status: "approved", lines: ["at Circuit"], primaryText: "Who's coming?", sizeVariant: "short", validatorOk: true, validatorDetail: "", awaitingLong: false, clipId: "enzo-1" },
-  { id: "turns", style: "lineup", status: "approved", lines: ["turns 4"], primaryText: "Who's coming?", sizeVariant: "short", validatorOk: true, validatorDetail: "", awaitingLong: false, clipId: "enzo-1" },
-  { id: "more", style: "lineup", status: "approved", lines: ["& more"], primaryText: "Who's coming?", sizeVariant: "short", validatorOk: true, validatorDetail: "", awaitingLong: false, clipId: "enzo-1" },
+  { id: "turns", style: "lineup", status: "approved", lines: ["turns 4"], primaryText: "Who's coming?", sizeVariant: "short", validatorOk: true, validatorDetail: "", awaitingLong: false, clipId: "enzo-2" },
+  { id: "more", style: "lineup", status: "approved", lines: ["& more"], primaryText: "Who's grabbing a ticket?", sizeVariant: "short", validatorOk: true, validatorDetail: "", awaitingLong: false, clipId: "enzo-5" },
 ];
+
+function lineupRow(id: string, name: string, handle: string): CreativeLabCardData["lineupRows"][number] {
+  return {
+    artistId: `lib-${id}`,
+    name,
+    isHeadliner: true,
+    imageUrl: null,
+    instagramHandle: handle,
+    tiktokHandle: null,
+    spotifyId: null,
+    metaPageId: null,
+    genres: [],
+    enrichedAt: null,
+    playedBefore: [],
+    labArtistId: id,
+    clearedAt: "2026-11-01",
+    clearedBy: null,
+    rightsNote: null,
+    clipCount: 0,
+    spotifyCandidates: [],
+  };
+}
 
 function candidate(id: string, likes: number): CreativeLabCardData["artists"][number]["igCandidates"][number] {
   return {
@@ -135,10 +161,10 @@ export function SelectionFrameMount({ id }: { id: string }) {
     );
   }
   if (id === "CLS2") {
-    const card = lab({ captions: captions.slice(0, 1) });
+    const card = lab({ captions });
     return (
       <div data-frame-ready={id} className="space-y-4 bg-background p-4 text-foreground">
-        <LabCaptions lab={card} busy={false} onSave={quiet} />
+        <LabCaptions lab={card} busy={false} onSave={quiet} initialPair="spread" />
         <div className="max-[700px]:hidden">
           <LabCaptions lab={card} busy={false} onSave={quiet} initialPair="each" />
         </div>
@@ -147,8 +173,19 @@ export function SelectionFrameMount({ id }: { id: string }) {
   }
   if (id === "CLS3") {
     return (
-      <div data-frame-ready={id} className="bg-background p-4 text-foreground">
+      <div data-frame-ready={id} className="space-y-4 bg-background p-4 text-foreground">
         <LabRound lab={lab({ captions })} busy={false} onSave={quiet} onLaunch={async () => undefined} initialOff={["enzo-2:more"]} />
+        <div className="max-[700px]:hidden">
+          <LabRound
+            lab={lab({
+              captions,
+              clipSelection: { mode: "chosen", rows: usable.map((clip) => ({ clipId: clip.id, selected: false })) },
+            })}
+            busy={false}
+            onSave={quiet}
+            onLaunch={async () => undefined}
+          />
+        </div>
       </div>
     );
   }

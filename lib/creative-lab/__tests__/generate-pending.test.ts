@@ -13,7 +13,7 @@ describe("Generate's pending label", () => {
     assert.match(source, /disabled=\{busy \|\| writing\}/);
     assert.match(source, /generateButtonLabel\(true, count\)/);
     assert.equal(source.includes("generateButtonLabel(busy)"), false);
-    assert.equal(source.includes("Loader2"), false);
+    assert.match(source, /Loader2 className="h-3\.5 w-3\.5 animate-spin"/);
     const click = source.slice(source.indexOf('action: "generate"') - 400, source.indexOf('action: "generate"') + 500);
     assert.match(click, /setWriting\(true\)/);
     assert.match(click, /\.finally\(\(\) => setWriting\(false\)\)/);

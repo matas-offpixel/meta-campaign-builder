@@ -32,6 +32,7 @@ import {
   durationLabel,
   groupClips,
   findClipsErrorSentence,
+  findClipsReadingLine,
   importErrorSentence,
   isNative9x16,
   metricUnit,
@@ -89,7 +90,9 @@ export function LabClips({
   const groups = groupClips(lab.clips);
   const router = useRouter();
   const [working, setWorking] = useState(false);
+  const findable = lab.lineupRows.filter((row) => row.labArtistId && row.instagramHandle);
   const [finding, setFinding] = useState(pendingFind);
+  const [readingHandle, setReadingHandle] = useState<string | null>(pendingFind ? findable[0]?.instagramHandle ?? null : null);
   const [findError, setFindError] = useState<string | null>(null);
   const stored = lab.clipSelection ?? emptySelection();
   const [override, setOverride] = useState<ClipSelection | null>(null);
@@ -112,20 +115,24 @@ export function LabClips({
   }
 
   async function findClips() {
-    const artist = lab.artists.find((row) => row.igUsername) ?? lab.artists[0];
-    if (!artist) {
-      onError("Add an artist before finding clips.");
-      return;
-    }
+    if (findable.length === 0) return;
     setFindError(null);
     setFinding(true);
+    let handle = findable[0]?.instagramHandle ?? null;
     try {
-      const res = await fetch(`/api/creative-lab/artists/${artist.id}/find-clips`, { method: "POST" });
-      const json = (await res.json().catch(() => ({}))) as { error?: unknown };
-      if (!res.ok) setFindError(findClipsErrorSentence(json.error, artist.igUsername));
-      else router.refresh();
+      for (const row of findable) {
+        handle = row.instagramHandle;
+        setReadingHandle(handle);
+        const res = await fetch(`/api/creative-lab/artists/${row.labArtistId}/find-clips`, { method: "POST" });
+        const json = (await res.json().catch(() => ({}))) as { error?: unknown };
+        if (!res.ok) {
+          setFindError(findClipsErrorSentence(json.error, handle));
+          return;
+        }
+      }
+      router.refresh();
     } catch {
-      setFindError(findClipsErrorSentence(null, artist.igUsername));
+      setFindError(findClipsErrorSentence(null, handle));
     } finally {
       setFinding(false);
     }
@@ -172,28 +179,30 @@ export function LabClips({
           <h3 className="font-medium">Clips</h3>
           <p className="text-muted-foreground">{CLIPS_NOTE}</p>
         </div>
-        <Button type="button" disabled={finding} onClick={() => void findClips()}>
+        <Button type="button" disabled={finding || lab.lineupRows.length === 0} onClick={() => void findClips()}>
           <HeldLabel
             idle={<><span className="max-[700px]:hidden">Find clips on Instagram</span><span className="hidden max-[700px]:inline">Find on Instagram</span></>}
-            pending="Finding…"
+            pending={<Finding />}
             active={finding}
           />
         </Button>
       </div>
-      <div className="flex items-baseline justify-between gap-2">
-        <p>
-          <span className="font-medium">{counts.n}</span> of {counts.m} selected
-          {counts.fresh > 0 ? <span className="text-muted-foreground"> · {counts.fresh} new, not selected</span> : null}
-        </p>
-        <p>
-          <button type="button" className={counts.n === counts.m ? "text-muted-foreground" : "underline"} disabled={counts.n === counts.m} onClick={() => void applySelection(selectionAfterAll())}>Select all</button>
-          {" · "}
-          <button type="button" className={counts.n === 0 ? "text-muted-foreground" : "underline"} disabled={counts.n === 0} onClick={() => void applySelection(selectionAfterNone(usableIds))}>None</button>
-        </p>
-      </div>
+      {counts.m > 0 ? (
+        <div className="flex items-baseline justify-between gap-2">
+          <p>
+            <span className="font-bold">{counts.n}</span> of {counts.m} selected
+            {counts.fresh > 0 ? <span className="text-muted-foreground"> · {counts.fresh} new, not selected</span> : null}
+          </p>
+          <p>
+            <button type="button" className={counts.n === counts.m ? "text-muted-foreground" : "underline"} disabled={counts.n === counts.m} onClick={() => void applySelection(selectionAfterAll())}>Select all</button>
+            {" · "}
+            <button type="button" className={counts.n === 0 ? "text-muted-foreground" : "underline"} disabled={counts.n === 0} onClick={() => void applySelection(selectionAfterNone(usableIds))}>None</button>
+          </p>
+        </div>
+      ) : null}
       {left ? <p className="text-sm">{left}</p> : null}
-      {finding ? <p className="text-sm text-muted-foreground">Ticks and Select all · None still work while Instagram is read.</p> : null}
-      {findError ? <p className="text-sm">{findError}</p> : null}
+      {finding && findable.length > 0 ? <p className="text-sm text-muted-foreground">{findClipsReadingLine(readingHandle)}</p> : null}
+      {findError ? <p className="text-sm text-destructive">{findError}</p> : null}
       {showTiles ? <>
       <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} wide selected={selected} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
       <ClipGroup title="New" hint="untested" clips={groups.fresh} selected={selected} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
@@ -301,7 +310,12 @@ function ClipTick({ on, onToggle }: { on: boolean; onToggle: () => void }) {
         onToggle();
       }}
     >
-      <span className={`flex h-[22px] w-[22px] items-center justify-center rounded-full text-xs ${on ? "bg-foreground text-background" : "border-2 border-white bg-black/40 text-transparent"}`}>✓</span>
+      <span
+        className={`flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 text-[12px] font-bold leading-none ${on ? "border-foreground bg-foreground" : "bg-black/40"}`}
+        style={on ? { color: "#ffffff" } : { borderColor: "#ffffff", color: "transparent" }}
+      >
+        ✓
+      </span>
     </button>
   );
 }
@@ -345,6 +359,16 @@ function Poster({ url }: { url: string | null }) {
     return <PosterVideo src={url} at={0.5} className="aspect-[9/16] w-full rounded object-cover" />;
   }
   return <img src={url} alt="" className="aspect-[9/16] w-full rounded object-cover" />;
+}
+
+/** The button's words while Instagram is read: the spinner and "Finding…". */
+function Finding() {
+  return (
+    <>
+      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+      Finding…
+    </>
+  );
 }
 
 /** The button's words while a candidate imports: the spinner and "Importing…". */

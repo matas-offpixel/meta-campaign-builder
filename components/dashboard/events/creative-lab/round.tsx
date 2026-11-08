@@ -134,12 +134,12 @@ export function LabRound({
             })}
             {moreOn > 0 || matrix.off > 0 ? <li className="text-muted-foreground">+ {moreOn} more · {matrix.off} off</li> : null}
           </ul>
-          {missingLine ? <p className="hidden text-sm text-muted-foreground sm:block">{missingLine}</p> : null}
+          {missingLine ? <p className="hidden text-sm text-muted-foreground sm:block">{clipsLink(missingLine)}</p> : null}
           <p className="tabular-nums hidden sm:block">{roundBar(matrix.on, clips.length, captions.length, matrix.off)}{gap ? ` · ${gap}` : ""}</p>
           <div className="space-y-1 sm:hidden">
             <p className="font-medium tabular-nums">{matrix.on} ads</p>
             <p className="text-muted-foreground">{clips.length} clips × {captions.length} captions, {matrix.off} left out</p>
-            {gap ? <p className="text-muted-foreground">{gap} · change on Clips</p> : null}
+            {gap ? <p className="text-muted-foreground">{clipsLink(`${gap} · change on Clips`)}</p> : null}
           </div>
         </>
       ) : null}
@@ -184,6 +184,19 @@ export function LabRound({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function clipsLink(text: string) {
+  const mark = "change on Clips";
+  const at = text.lastIndexOf(mark);
+  if (at < 0) return text;
+  return (
+    <>
+      {text.slice(0, at)}
+      <a href="#lab-clips" className="underline">{mark}</a>
+      {text.slice(at + mark.length)}
+    </>
   );
 }
 

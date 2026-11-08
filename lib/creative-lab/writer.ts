@@ -37,6 +37,7 @@ import {
 import { shapeNoteFor as readShapeNote } from "./voice-shape.ts";
 import { isCaptionStyle, voiceForStyle, type CaptionStyle } from "./tags.ts";
 import { loadPastAppearances } from "./past.ts";
+import { LINES_ALREADY_ON_EVENT } from "./surface.ts";
 import { loadUpcomingLineups, londonDay, nextThreeNames, type UpcomingShow } from "./upcoming.ts";
 
 export const WRITER_MODEL = process.env.CREATIVE_LAB_WRITER_MODEL?.trim() || "claude-opus-4-6";
@@ -425,7 +426,9 @@ export async function generateCaptions(
   });
 
   const kept: WrittenCaption[] = [];
-  for (const candidate of toolInput(response.content)) {
+  const candidates = toolInput(response.content);
+  let duplicates = 0;
+  for (const candidate of candidates) {
     if (kept.length >= args.n) break;
     const overlay = substitutePlaceholders(candidate.overlay, values).trim();
     const primary = substitutePlaceholders(candidate.primaryText, values).trim();
@@ -450,7 +453,10 @@ export async function generateCaptions(
       }
     }
     const key = normaliseCaption(overlay);
-    if (!key || seen.has(key)) continue;
+    if (!key || seen.has(key)) {
+      if (key && seen.has(key)) duplicates += 1;
+      continue;
+    }
     const check = validateCaption(overlay, args.style, candidate.declaredNames, facts, { version }, {
       extraNames,
       crowdTicketsSold: tickets,
@@ -497,6 +503,9 @@ export async function generateCaptions(
       ok: true,
       shapeNote,
     });
+  }
+  if (kept.length === 0 && candidates.length > 0 && duplicates === candidates.length) {
+    throw new Error(LINES_ALREADY_ON_EVENT);
   }
   return kept;
 }
