@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { generateLabCaptions } from "../card-write.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { saveClipSelection } from "../selection-store.ts";
 import {
@@ -139,35 +138,17 @@ describe("clip selection", () => {
     assert.match(source, /OFF_CARD_CLIP/);
     assert.match(source, /Each selected/);
     assert.match(source, /eachPreviewClips\(selected\)/);
+    assert.match(source, /eachPreviewLine\(crossed\.length, plates\.length\)/);
+    assert.match(source, /actions=\{index === 0\}/);
+    assert.match(source, /writtenCaptionIds/);
+    const clips = readFileSync(new URL("../../../components/dashboard/events/creative-lab/clips.tsx", import.meta.url), "utf8");
+    assert.match(clips, /disabled=\{finding \|\| findable\.length === 0\}/);
+    assert.match(clips, /text-on-media/);
+    assert.match(clips, /border-on-media/);
+    assert.equal(clips.includes("#ffffff"), false);
     const round = readFileSync(new URL("../../../components/dashboard/events/creative-lab/round.tsx", import.meta.url), "utf8");
     assert.match(round, /renderPairs\(matrix\.cells\)/);
     assert.match(round, /href="#lab-clips"/);
   });
 });
 
-describe("each selected", () => {
-  it("skips a clip that already has a preview and a window past 30s", async () => {
-    const previewed = fakeDb({
-      events: [{ id: "event-1", client_id: "client-1", clip_selection_mode: "all" }],
-      creative_lab_artists: [{ id: "enzo", client_id: "client-1", name: "Enzo Siragusa", approved_at: "2026-11-01" }],
-      creative_lab_clips: [
-        { id: "seen", artist_id: "enzo", clip_no: 1, in_s: 0, out_s: 18, creative_asset_id: "a1" },
-        { id: "long", artist_id: "enzo", clip_no: 2, in_s: 0, out_s: 31, creative_asset_id: "a2" },
-      ],
-      creative_assets: [
-        { id: "a1", duration_seconds: 18 },
-        { id: "a2", duration_seconds: 31 },
-      ],
-      creative_lab_captions: [{ id: "cap", event_id: "event-1", clip_id: "seen", status: "proposed" }],
-    });
-    await assert.rejects(
-      () => generateLabCaptions(previewed as unknown as ServiceRoleDb, {
-        eventId: "event-1",
-        style: "lineup",
-        n: 3,
-        pair: "each",
-      }),
-      (err: unknown) => err instanceof Error && !err.message.includes("No new clips"),
-    );
-  });
-});

@@ -30,6 +30,16 @@ function noticeAfterGenerate(result: { ok: boolean; json: Record<string, unknown
   return typeof sentence === "string" && sentence.trim() ? sentence : null;
 }
 
+/** The ids this write stored. Null when the request failed, so an older cross stays. */
+function writtenCaptionIds(result: { ok: boolean; json: Record<string, unknown> } | undefined): string[] | null {
+  if (!result?.ok || !Array.isArray(result.json.captions)) return null;
+  return result.json.captions.flatMap((row) => {
+    if (!row || typeof row !== "object" || !("id" in row)) return [];
+    const id = (row as { id?: unknown }).id;
+    return typeof id === "string" && id ? [id] : [];
+  });
+}
+
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
 }
@@ -45,6 +55,7 @@ export function LabCaptions({
   voiceContained = false,
   pendingWrite = false,
   initialPair = "best",
+  initialWrittenIds,
 }: {
   lab: CreativeLabCardData;
   busy: boolean;
@@ -58,6 +69,8 @@ export function LabCaptions({
   /** Frame only: the Write button is already in flight. */
   pendingWrite?: boolean;
   initialPair?: PairMode;
+  /** Frame only: the captions the last write returned, so Each selected can draw them. */
+  initialWrittenIds?: readonly string[];
 }) {
   const stageDefault = saleStageFromStatus(lab.eventStatus);
   const [angle, setAngle] = useState<(typeof ANGLES)[number]>(initialAngle);
@@ -74,6 +87,7 @@ export function LabCaptions({
   }, []);
   const [count, setCount] = useState<1 | 3 | 5>(3);
   const [pair, setPair] = useState<PairMode>(initialPair);
+  const [writtenIds, setWrittenIds] = useState<readonly string[] | null>(initialWrittenIds ?? null);
   const [writing, setWriting] = useState(pendingWrite);
   const [notice, setNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<"caption" | "quote">("caption");
@@ -126,6 +140,11 @@ export function LabCaptions({
   const selection = lab.clipSelection ?? emptySelection();
   const selected = effectiveSelection(selection, lab.clips);
   const plates = eachPreviewClips(selected);
+  const written = new Map(visible.map((caption) => [caption.id, caption]));
+  const crossed = (writtenIds ?? []).flatMap((id) => {
+    const caption = written.get(id);
+    return caption && caption.mode !== "quote" ? [caption] : [];
+  });
   const ran = lab.rounds.filter((round) => roundHasRun(round.status));
   const roundNo = (ran.at(-1)?.roundNo ?? 0) + 1;
 
@@ -209,7 +228,7 @@ export function LabCaptions({
         <div className="hidden sm:block">
           <Counts count={count} setCount={setCount} stage={stage} setStage={setStage} />
         </div>
-        {pair === "each" ? <p className="tabular-nums text-muted-foreground">{eachPreviewLine(count, plates.length)}</p> : null}
+        {pair === "each" ? <p className="tabular-nums text-muted-foreground">{eachPreviewLine(crossed.length, plates.length)}</p> : null}
         <Control
           label="Pair with"
           value={pair}
@@ -236,7 +255,7 @@ export function LabCaptions({
               pair,
               artistId: angle === "artist_first_person" ? artist?.id ?? null : null,
               stageOverride: stage,
-            }).then((result) => setNotice(noticeAfterGenerate(result))).catch(() => setNotice(generateFailureSentence(null))).finally(() => setWriting(false));
+            }).then((result) => { setNotice(noticeAfterGenerate(result)); const ids = writtenCaptionIds(result); if (ids) setWrittenIds(ids); }).catch(() => setNotice(generateFailureSentence(null))).finally(() => setWriting(false));
           }}
         >
           <HeldLabel
@@ -261,19 +280,15 @@ export function LabCaptions({
       )}
       {pair === "each" ? (
         <div className="space-y-4">
-          {visible.map((caption) => (
-            caption.mode === "quote" ? (
-              <QuoteLive key={caption.id} lab={lab} caption={caption} page={page} />
-            ) : (
+          {crossed.map((caption) => (
               <div key={caption.id} className="space-y-2">
                 <p className="text-xs text-muted-foreground">{styleLabel(caption.style)}</p>
                 <div className="flex snap-x gap-3 overflow-x-auto">
-                  {(plates.length > 0 ? plates : [null]).map((clip) => (
-                    <FeedPost key={clip?.id ?? "none"} lab={lab} caption={caption} page={page} stage={stageDefault} busy={busy} onSave={onSave} clipOverride={clip} />
+                  {(plates.length > 0 ? plates : [null]).map((clip, index) => (
+                    <FeedPost key={clip?.id ?? "none"} lab={lab} caption={caption} page={page} stage={stageDefault} busy={busy} onSave={onSave} clipOverride={clip} actions={index === 0} />
                   ))}
                 </div>
               </div>
-            )
           ))}
         </div>
       ) : (
@@ -385,6 +400,7 @@ function FeedPost({
   busy,
   onSave,
   clipOverride,
+  actions = true,
 }: {
   lab: CreativeLabCardData;
   caption: CreativeLabCardData["captions"][number];
@@ -394,6 +410,8 @@ function FeedPost({
   onSave: Save;
   /** Each selected draws this caption on a chosen clip. */
   clipOverride?: CreativeLabCardData["clips"][number] | null;
+  /** ✎ ✕ ✓ belong to the caption, so only the first preview of a cross shows them. */
+  actions?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [focusPrimary, setFocusPrimary] = useState(false);
@@ -439,7 +457,7 @@ function FeedPost({
       </div>
       {caption.primaryText.trim() ? (
         <p className="px-3 py-2 text-sm">{caption.primaryText}</p>
-      ) : (
+      ) : actions ? (
         <button
           type="button"
           className="block w-full px-3 py-2 text-left text-sm text-muted-foreground"
@@ -452,6 +470,8 @@ function FeedPost({
         >
           No primary text yet — ✎ to add
         </button>
+      ) : (
+        <p className="px-3 py-2 text-sm text-muted-foreground">No primary text yet</p>
       )}
       {plate === "missing" ? (
         <p className="px-3 py-6 text-sm">{OFF_CARD_CLIP}</p>
@@ -468,7 +488,7 @@ function FeedPost({
       <p className="px-3 pb-2 text-xs text-muted-foreground">{styleLabel(caption.style)}{clip ? ` · ${clip.artistName} #${clip.clipNo}` : ""}</p>
       {held ? <p className="px-3 pb-2 text-sm">{held}</p> : null}
       {caption.validatorDetail ? <p className="px-3 pb-2 text-sm text-destructive">{caption.validatorDetail}</p> : null}
-      {editing ? (
+      {actions && editing ? (
         <form
           className="space-y-2 p-3"
           onSubmit={(event) => {
@@ -489,7 +509,7 @@ function FeedPost({
             <Button type="button" variant="outline" onClick={discardEdits}>Cancel</Button>
           </div>
         </form>
-      ) : (
+      ) : actions ? (
         <div className="flex items-center gap-2 p-2">
           <button type="button" aria-label="Edit" className="h-8 w-8 rounded border border-border" onClick={() => { setOverlay(captionCopy(caption.lines)); setPrimary(caption.primaryText); setFocusPrimary(!caption.primaryText.trim()); setEditing(true); }}>✎</button>
           <button type="button" aria-label="Reject" className="h-8 w-8 rounded border border-border" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "rejected" })}>✕</button>
@@ -497,7 +517,7 @@ function FeedPost({
             <button type="button" aria-label="Approve" className="h-8 w-8 rounded bg-foreground text-background" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "approved" })}>✓</button>
           )}
         </div>
-      )}
+      ) : null}
     </article>
   );
 }

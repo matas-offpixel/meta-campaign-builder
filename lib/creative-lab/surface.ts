@@ -49,9 +49,6 @@ export type JudgedClip = {
 /** A file longer than this plays its first 30 seconds. The folder import stores the same window. */
 export const CLIP_TRIM_SECONDS = 30;
 
-/** Shown when Pair with "Each selected" has nothing left to write. */
-export const NO_NEW_CLIPS = "No new clips since the last generate — Pair with Best of selected, or import one";
-
 /** Shown when Generate fails, or finishes without writing a caption. */
 export const CAPTIONS_NOT_WRITTEN = "The captions didn't write — try again.";
 

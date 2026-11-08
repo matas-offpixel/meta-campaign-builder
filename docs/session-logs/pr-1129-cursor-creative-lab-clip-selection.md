@@ -37,4 +37,6 @@ Generate on Puzzle 4th Birthday (`a092aca8-7d9d-4ccd-9eb8-1ada0a62d3d8`), read-o
 
 Rebase frames, Ubuntu, head `3f68550a64672d03a5b5b8d8d7727d9a4304e186`. `only=CL` runs 42520372258 and 42520375492. Byte-identical except CL5-1280 (83 px, 0.0017%) and CLS4-1280 / CLS4-393 (0 px over the 0.1 threshold). Committed from 42520372258: CL2–CL10 at both widths, CLS4 at both widths. CL1, CLV and CLQ matched git. `only=IR` runs 42520379169 and 42520382719 match byte for byte. Committed from 42520379169: IR1-1280, IR2-1280, IR7-393.
 
+The tick's white is `--on-media`. Each selected draws only the captions the latest write returned, with ✎ ✕ ✓ on the first preview of each. Find clips is disabled when no lineup artist has a handle. `NO_NEW_CLIPS` is gone.
+
 Verdict frames, Ubuntu, head `89b74c4ce857dbef6b7e62d48e87f576e558c560`. `only=CL` runs 42525861102 and 42525863531. Byte-identical except CL5-1280 (83 px, 0.0017%) and CLS4-1280 (0 px over the 0.1 threshold). Committed from 42525861102: CL1–CL10 at both widths, CLS1–CLS4 at both widths, CLV1 at both widths, CLV2-1280, CLV3 and CLV4 at both widths. CLQ matched git. `only=IR` runs 42525865582 and 42525868065 match byte for byte. Committed from 42525865582: IR1-1280, IR2-1280.

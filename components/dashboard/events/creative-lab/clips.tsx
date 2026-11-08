@@ -115,7 +115,6 @@ export function LabClips({
   }
 
   async function findClips() {
-    if (findable.length === 0) return;
     setFindError(null);
     setFinding(true);
     let handle = findable[0]?.instagramHandle ?? null;
@@ -179,7 +178,7 @@ export function LabClips({
           <h3 className="font-medium">Clips</h3>
           <p className="text-muted-foreground">{CLIPS_NOTE}</p>
         </div>
-        <Button type="button" disabled={finding || lab.lineupRows.length === 0} onClick={() => void findClips()}>
+        <Button type="button" disabled={finding || findable.length === 0} onClick={() => void findClips()}>
           <HeldLabel
             idle={<><span className="max-[700px]:hidden">Find clips on Instagram</span><span className="hidden max-[700px]:inline">Find on Instagram</span></>}
             pending={<Finding />}
@@ -311,8 +310,7 @@ function ClipTick({ on, onToggle }: { on: boolean; onToggle: () => void }) {
       }}
     >
       <span
-        className={`flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 text-[12px] font-bold leading-none ${on ? "border-foreground bg-foreground" : "bg-black/40"}`}
-        style={on ? { color: "#ffffff" } : { borderColor: "#ffffff", color: "transparent" }}
+        className={`flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 text-[12px] font-bold leading-none ${on ? "border-foreground bg-foreground text-on-media" : "border-on-media bg-black/40 text-transparent"}`}
       >
         ✓
       </span>

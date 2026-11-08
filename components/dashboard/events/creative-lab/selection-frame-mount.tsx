@@ -166,7 +166,7 @@ export function SelectionFrameMount({ id }: { id: string }) {
       <div data-frame-ready={id} className="space-y-4 bg-background p-4 text-foreground">
         <LabCaptions lab={card} busy={false} onSave={quiet} initialPair="spread" />
         <div className="max-[700px]:hidden">
-          <LabCaptions lab={card} busy={false} onSave={quiet} initialPair="each" />
+          <LabCaptions lab={card} busy={false} onSave={quiet} initialPair="each" initialWrittenIds={captions.map((caption) => caption.id)} />
         </div>
       </div>
     );
