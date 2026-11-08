@@ -34,6 +34,7 @@ import type { ClientReportCard } from "@/lib/client-reports/access";
 import { RefreshAllSpendButton } from "./refresh-all-spend-button";
 import { NewEventKindModal } from "./new-event-kind-modal";
 import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
+import { LiveLadder } from "@/components/dashboard/asset-bank/live";
 import { TicketingConnectionsPanel } from "@/components/dashboard/clients/ticketing-connections-panel";
 import { D2CConnectionsPanel } from "@/components/dashboard/clients/d2c-connections-panel";
 import { D2CTemplateEditor } from "@/components/dashboard/clients/d2c-template-editor";
@@ -131,6 +132,8 @@ interface Props {
    * Eventbrite slot of the integrations pill on the Overview tab.
    */
   ticketingConnections: SafeTicketingConnection[];
+  /** Null until migration 211 is applied. */
+  ladder?: import("@/lib/releases/types").LadderRung[] | null;
   ticketingLinkDiscoveryStats: TicketingLinkDiscoveryStats;
   /**
    * Subset of event_ticketing_links that have a non-null external_api_base
@@ -225,6 +228,7 @@ export function ClientDetail({
   initialReports = [],
   latestSnapshots,
   ticketingConnections,
+  ladder = null,
   ticketingLinkDiscoveryStats,
   ticketingCustomApiBaseLinks,
   d2cConnections,
@@ -707,6 +711,7 @@ export function ClientDetail({
           </TabPanel>
 
           <TabPanel active={activeTab === "ticketing"}>
+            {ladder && ladder.length ? <LiveLadder rungs={ladder} /> : null}
             <TicketingConnectionsPanel
               clientId={client.id}
               initial={ticketingConnections}

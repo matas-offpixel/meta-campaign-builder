@@ -42,8 +42,8 @@ export function CropPicker({
         ))}
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-muted-foreground">The window follows across every frame; check the strip for heads cut off.</p>
-        <Button type="button" size="sm" className="w-full sm:w-auto" onClick={() => onSave(value)}>Use this crop</Button>
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">The window follows across every frame; check the strip for heads cut off.</p>
+        <Button type="button" size="sm" className="w-full shrink-0 whitespace-nowrap sm:w-auto" onClick={() => onSave(value)}>Use this crop</Button>
       </div>
     </section>
   );

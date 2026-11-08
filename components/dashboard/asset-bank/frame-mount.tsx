@@ -1,0 +1,54 @@
+import { AssetBoard, ClaimCards, ClaimLadder, PaydayCalendar, ReleasesPanel } from "@/components/dashboard/asset-bank/surface";
+import { AB1_CLAIMS, AB1_ROWS } from "@/scripts/plan-frames/bank-fixtures";
+
+/** An AB frame. Fixture only: nothing here fetches. */
+export function AssetBankFrameMount({ id }: { id: string }) {
+  return (
+    <div data-frame-ready={id} className="bg-background px-4 py-4 text-foreground">
+      {id === "AB1" ? (
+        <div>
+          <p className="text-lg font-medium">Puzzle 4th Birthday</p>
+          <p className="mb-3 text-xs text-muted-foreground">
+            <span className="hidden sm:inline">Puzzle · on sale · Next payday Friday 27 Nov · 50 days to the event</span>
+            <span className="sm:hidden">on sale · payday Fri 27 Nov · 50 days</span>
+          </p>
+          <ReleasesPanel
+            kicker="Puzzle 4th Birthday"
+            place="Sun 27 Dec · Circuit & Engine Rooms"
+            headline="2"
+            headlineRest="of 4 on sale · 2 sold out"
+            narrowRest="of 4 on sale"
+            rows={AB1_ROWS}
+            claims={AB1_CLAIMS}
+            claimSummary="1 proposed · 2 later · 3 done"
+            footnote="tap a state to set it · the read checks Skiddle Mon / Wed / Fri 09:00 · last read Fri 6 Nov 09:00"
+            narrowFootnote="tap a state · read Mon / Wed / Fri"
+          />
+        </div>
+      ) : null}
+      {id === "AB2" ? <ClaimCards /> : null}
+      {id === "AB3" ? <PaydayCalendar /> : null}
+      {id === "AB4" ? <AssetBoard /> : null}
+      {id === "AB5" ? (
+        <div>
+          <p className="text-lg font-medium">
+            <span className="hidden sm:inline">Puzzle</span>
+            <span className="sm:hidden">Puzzle · claim ladder</span>
+          </p>
+          <p className="mb-3 text-xs text-muted-foreground">
+            <span className="hidden sm:inline">promoter · music · Southampton</span>
+            <span className="sm:hidden">what a warning may say, by what&apos;s true</span>
+          </p>
+          <p className="mb-3 hidden gap-4 border-b border-border pb-1 text-xs text-muted-foreground sm:flex">
+            <span>Overview</span>
+            <span>Events 5</span>
+            <span className="border-b-2 border-foreground text-foreground">Ticketing</span>
+            <span>D2C</span>
+            <span>Campaigns</span>
+          </p>
+          <ClaimLadder />
+        </div>
+      ) : null}
+    </div>
+  );
+}

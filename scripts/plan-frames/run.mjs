@@ -31,6 +31,7 @@ import { PNG } from "pngjs";
 
 import { classifyShot, missingBaselineLine } from "./baseline.mjs";
 import { evidenceIndex } from "./evidence.mjs";
+import { BANK_SHOTS } from "./bank-shots.mjs";
 import { LAB_SHOTS } from "./lab-shots.mjs";
 import { RAIL_GUARD_PATHS, RAIL_SHOTS } from "./rail-shots.mjs";
 
@@ -66,7 +67,7 @@ const ONLY = (() => {
   const at = process.argv.indexOf("--only");
   return at >= 0 ? process.argv[at + 1] ?? "" : "";
 })();
-const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
+const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS, ...BANK_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
 const RUN_GUARD = !ONLY || "IR0".startsWith(ONLY);
 
 function shotFile(id) {

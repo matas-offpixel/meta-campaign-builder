@@ -11,6 +11,7 @@ import { getShareForClient } from "@/lib/db/report-shares";
 import { listOwnedClientReports } from "@/lib/db/client-reports";
 import { listLatestSnapshotsForClient } from "@/lib/db/client-snapshots-server";
 import { listConnectionsForUser } from "@/lib/db/ticketing";
+import { loadClientLadder } from "@/lib/db/releases";
 import {
   listD2CConnectionsForUser,
   listD2CTemplatesForUser,
@@ -232,6 +233,11 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     },
   ];
 
+  const ladder = await loadClientLadder(supabase, id).catch((err) => {
+    console.error("[client detail] claim ladder", err);
+    return null;
+  });
+
   const initialTab: ClientTab =
     tab && ALLOWED_TABS.has(tab) ? (tab as ClientTab) : "overview";
 
@@ -256,6 +262,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       portal={portal.ok ? portal : null}
       hasTaggedEvents={hasTaggedEvents}
       campaignsData={campaignsData}
+      ladder={ladder}
       optimisationPresets={optimisationPresets}
       optimisationObjectivesInUse={objectivesInUse}
     />
