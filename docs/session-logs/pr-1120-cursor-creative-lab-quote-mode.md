@@ -4,8 +4,8 @@ Copy to `docs/session-logs/pr-{number}-{branch-slug}.md` (use `pr-pending-{branc
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1120
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1120
 - **Branch:** `cursor/creative-lab-quote-mode`
 
 ## Summary
