@@ -13,9 +13,10 @@
  * mentions in passing ("Last weekend, Eric Prydz delivered …") is not on
  * the lineup: a copy-only name needs a list ("with X, Y and more"), a
  * lineup verb ("X joins …") or a tenth of the event's ads. A one-word run
- * ("Voyager", "Jake") is a name only in a list or with a lineup verb, a
- * campaign or ad-set name that carries it, the event's own name, or a
- * library row. "& more",
+ * ("Voyager", "Jake", "Purpose") is a name only in a lineup list (a comma
+ * or an "and" / "&" / "b2b" beside it), with a lineup verb, in a campaign
+ * or ad-set name, as the event's own name, or already in the library;
+ * Spotify is not asked otherwise. "& more",
  * "and friends", "residents" and "b2b" end a run, so "AZYR b2b
  * Partiboi69" is two names.
  *
@@ -118,8 +119,11 @@ const LINEUP_VERBS = new Set([
   "joins", "join", "joining", "takes", "take", "headline", "headlines", "headlining", "presents", "lands", "land", "returns", "return", "plays", "play", "closes", "close", "opens", "open", "makes", "make", "brings", "bring", "b2b", "x", "vs", "&", "and", "live", "at",
 ]);
 
-/** Words before a run that put it in a list: "with X, Y and more". */
-const LIST_LEADS = new Set(["with", "featuring", "feat", "feat.", "ft", "ft.", "plus", "&", "and", "b2b", "x", "vs", "alongside", "joining", "including"]);
+/**
+ * Words before a run that make it one item of a lineup list: "Sim0ne and
+ * SUDIK", "feat. Saoirse". "with" is not one: "A Space With Purpose".
+ */
+const LIST_LEADS = new Set(["featuring", "feat", "feat.", "ft", "ft.", "plus", "&", "and", "b2b", "x", "vs", "alongside"]);
 
 /** Two to four capitals or digits: DHB, IPC, CDW, but also SHDW. The event's, client's and venue's own initials are never names; another needs a list or a lineup verb. */
 const ABBREVIATION = /^[A-Z0-9]{2,4}$/;
