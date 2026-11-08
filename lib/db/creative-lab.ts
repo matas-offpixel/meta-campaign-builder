@@ -216,6 +216,7 @@ export type CreativeLabCardData = {
     validatorOk: boolean;
     validatorDetail: string;
     awaitingLong: boolean;
+    clipId?: string | null;
     mode?: "caption" | "quote";
     quoteSource?: "press_kit" | "post" | "typed" | null;
     quoteSourceRef?: string | null;
@@ -590,6 +591,7 @@ export async function loadCreativeLabCard(
             quoteSourceNote: text(row, "quote_source_note") || null,
             quoteWeight,
             artistId: text(row, "artist_id") || null,
+            clipId: text(row, "clip_id") || null,
           };
         }
         const check = facts && isCaptionStyle(style)
@@ -606,6 +608,7 @@ export async function loadCreativeLabCard(
           validatorDetail: check ? failedCheckSentence(check.ok, check.errors.map((error) => error.detail)) ?? "" : "No event facts.",
           awaitingLong: sizeVariant === "long" && !profile.longApproved,
           mode,
+          clipId: text(row, "clip_id") || null,
         };
       }),
     adSets: adSets.map((row) => ({

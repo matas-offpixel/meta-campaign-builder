@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
 import { captionCopy, ctaForStage, feedHeadline, feedPostClip, styleLabel } from "@/lib/creative-lab/surface";
@@ -60,6 +61,7 @@ export function LabCaptions({
   }, []);
   const [count, setCount] = useState<1 | 3 | 5>(3);
   const [each, setEach] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<"caption" | "quote">("caption");
   const [snapshot, setSnapshot] = useState<CaptionGenerator>({ angle: "lineup", count: 3, each: false, stage: stageDefault });
   const [artistId, setArtistId] = useState(initialArtistId ?? lab.artists[0]?.id ?? "");
@@ -169,21 +171,32 @@ export function LabCaptions({
           label="Pair with"
           value={each ? "each" : "best"}
           options={[{ id: "best", label: "Best clip" }, { id: "each", label: "Each new clip" }]}
-          onChange={(value) => setEach(value === "each")}
+          onChange={(value) => {
+            setEach(value === "each");
+            setNotice(null);
+          }}
         />
         <Button
           type="button"
           disabled={busy}
-          onClick={() => onSave({
-            action: "generate",
-            style: angle,
-            n: count,
-            clipId: each ? null : lead?.id ?? null,
-            stageOverride: stage,
-          })}
+          onClick={() => {
+            setNotice(null);
+            void onSave({
+              action: "generate",
+              style: angle,
+              n: count,
+              each,
+              clipId: each ? null : lead?.id ?? null,
+              stageOverride: stage,
+            }).then((result) => {
+              const sentence = result?.json.notice;
+              setNotice(typeof sentence === "string" && sentence ? sentence : null);
+            });
+          }}
         >
-          Generate
+          {busy ? (<><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Writing…</>) : "Generate"}
         </Button>
+        {notice ? <p className="text-sm">{notice}</p> : null}
         {quoteMode ? (
           <VoicePanel
             lab={lab}
@@ -316,7 +329,7 @@ function FeedPost({
   const [overlay, setOverlay] = useState(captionCopy(caption.lines));
   const [primary, setPrimary] = useState(caption.primaryText);
   const primaryField = useRef<HTMLTextAreaElement>(null);
-  const clip = feedPostClip(lab.clips);
+  const clip = caption.clipId ? lab.clips.find((item) => item.id === caption.clipId) ?? null : feedPostClip(lab.clips);
   function discardEdits() {
     setOverlay(captionCopy(caption.lines));
     setPrimary(caption.primaryText);

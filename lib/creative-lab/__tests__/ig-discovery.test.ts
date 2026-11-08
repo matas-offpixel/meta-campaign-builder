@@ -340,6 +340,40 @@ describe("candidate thumbnails", () => {
     assert.equal(JSON.stringify(row).includes("cdn.example"), false);
     assert.equal("thumbnail_url" in row, false);
   });
+
+  it("stores a carousel slide thumbnail from the child, and the next find fills a row that had none", async () => {
+    const fake = seed({
+      creative_lab_ig_candidates: [{
+        artist_id: "artist-1",
+        ig_media_id: "slide-video",
+        status: "candidate",
+        thumbnail_path: null,
+      }],
+    });
+    const album = post({
+      id: "album",
+      mediaType: "CAROUSEL_ALBUM",
+      mediaProductType: "FEED",
+      thumbnailUrl: null,
+      likes: 40,
+      children: [
+        { id: "slide-cover", mediaType: "IMAGE", thumbnailUrl: "https://cdn.example/slide-cover.jpg" },
+        { id: "slide-video", mediaType: "VIDEO", thumbnailUrl: null },
+      ],
+    });
+    const graph = read([album]);
+    const fetched: string[] = [];
+    graph.thumb = async (url: string) => {
+      fetched.push(url);
+      return { width: 1080, height: 1350, bytes: new Uint8Array([9]) };
+    };
+    await findArtistClips(fake as unknown as ServiceRoleDb, { artistId: "artist-1", now: NOW, read: graph });
+    assert.deepEqual(fetched, ["https://cdn.example/slide-cover.jpg"]);
+    const row = fake.tables.creative_lab_ig_candidates.find((item) => item.ig_media_id === "slide-video");
+    assert.equal(row?.thumbnail_path, "creative-lab/ig/artist-1/slide-video.jpg");
+    assert.equal(row?.aspect, "4:5");
+    assert.equal(JSON.stringify(row).includes("cdn.example"), false);
+  });
 });
 
 describe("requestArtistClip", () => {

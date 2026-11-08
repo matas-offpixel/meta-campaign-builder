@@ -67,6 +67,7 @@ type Body = {
   style?: string;
   n?: number;
   clipId?: string | null;
+  each?: boolean;
   stageOverride?: SaleStage | null;
   captionId?: string;
   overlay?: string;
@@ -278,17 +279,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
         });
         return NextResponse.json(stored);
       }
-      case "generate":
-        return NextResponse.json({
-          captions: await generateLabCaptions(db, {
-            eventId,
-            style: body.style ?? "",
-            n: body.n ?? 1,
-            clipId: body.clipId,
-            stageOverride: body.stageOverride,
-            artistId: body.artistId,
-          }),
+      case "generate": {
+        const generated = await generateLabCaptions(db, {
+          eventId,
+          style: body.style ?? "",
+          n: body.n ?? 1,
+          clipId: body.clipId,
+          each: body.each === true,
+          stageOverride: body.stageOverride,
+          artistId: body.artistId,
         });
+        return NextResponse.json(generated);
+      }
       case "setCaptionStatus":
         if (body.status !== "approved" && body.status !== "rejected") {
           return NextResponse.json({ error: "Status must be approved or rejected." }, { status: 400 });

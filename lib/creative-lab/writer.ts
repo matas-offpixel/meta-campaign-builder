@@ -298,6 +298,11 @@ async function insertCaption(db: ServiceRoleDb, row: Row): Promise<Row> {
     return { row: { ...payload, ...(res.data as Row) }, error: null };
   };
   let written = await write(row);
+  if (written.error && /clip_id/i.test(written.error) && "clip_id" in row) {
+    const rest = { ...row };
+    delete rest.clip_id;
+    written = await write(rest);
+  }
   if (written.error && isUniqueClash(written.error)) {
     const captionNo = await nextCaptionNo(db, String(row.event_id), row.style as CaptionStyle);
     written = await write({ ...row, caption_no: captionNo });
@@ -478,6 +483,7 @@ export async function generateCaptions(
       generated_by: model,
       status: "proposed",
       facts_hash: factsHash(facts),
+      ...(args.clipId ? { clip_id: args.clipId } : {}),
     });
     kept.push({
       id: String(inserted.id),

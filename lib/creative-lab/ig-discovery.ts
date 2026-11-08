@@ -14,7 +14,7 @@ const HALF_LIFE_DAYS = 90;
 const TOP_N = 8;
 const MAX_POSTS = 150;
 
-/** Own-edge and Business Discovery fields. media_url is deliberately absent. thumbnail_url is read and not stored. */
+/** Own-edge and Business Discovery fields. media_url is deliberately absent. thumbnail_url is read and stored as bytes, never as a URL. */
 export const IG_MEDIA_FIELDS =
   "id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count,thumbnail_url,children{media_type,id,thumbnail_url}";
 
@@ -243,12 +243,22 @@ function jpegSize(bytes: Uint8Array): { width: number; height: number } | null {
   return null;
 }
 
-function slideThumb(post: IgPost): string | null {
+/**
+ * The JPEG to store for a candidate. A carousel's parent thumbnail_url is
+ * usually empty; the slide's is on children. The bytes are keyed by the
+ * same id rankIgPosts stores (the first video slide), so the next Find
+ * clips writes thumbnail_path onto the row that had none.
+ */
+export function candidateThumb(post: IgPost): { mediaId: string; url: string } | null {
+  const unit = carouselUnit(post);
+  if (!unit) return null;
   if (post.mediaType === "CAROUSEL_ALBUM") {
-    const slide = post.children.find((child) => child.mediaType === "VIDEO" && child.id);
-    return slide?.thumbnailUrl || null;
+    const slide = post.children.find((item) => item.id === unit.id);
+    const cover = post.children.find((item) => item.thumbnailUrl);
+    const url = slide?.thumbnailUrl || cover?.thumbnailUrl || post.thumbnailUrl;
+    return url ? { mediaId: unit.id, url } : null;
   }
-  return post.thumbnailUrl;
+  return post.thumbnailUrl ? { mediaId: unit.id, url: post.thumbnailUrl } : null;
 }
 
 async function measureThumbs(
@@ -258,8 +268,9 @@ async function measureThumbs(
 ): Promise<Map<string, Uint8Array>> {
   const stored = new Map<string, Uint8Array>();
   const jobs = posts.filter((post) => {
+    const target = candidateThumb(post);
     const unit = carouselUnit(post);
-    if (!unit || !slideThumb(post)) return false;
+    if (!target || !unit) return false;
     return ![unit.id, ...unit.slideIds].some((id) => exclude.has(id));
   });
   let cursor = 0;
@@ -267,13 +278,13 @@ async function measureThumbs(
     while (cursor < jobs.length) {
       const post = jobs[cursor];
       cursor += 1;
-      const url = post ? slideThumb(post) : null;
-      if (!post || !url) continue;
-      const size = await thumb(url);
+      const target = post ? candidateThumb(post) : null;
+      if (!post || !target) continue;
+      const size = await thumb(target.url);
       if (!size) continue;
       post.thumbWidth = size.width;
       post.thumbHeight = size.height;
-      if (size.bytes) stored.set(post.id, size.bytes);
+      if (size.bytes) stored.set(target.mediaId, size.bytes);
     }
   }
   await Promise.all(Array.from({ length: Math.min(8, jobs.length) }, () => worker()));
