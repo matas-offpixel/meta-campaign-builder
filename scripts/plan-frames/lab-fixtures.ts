@@ -415,6 +415,8 @@ export const LAB_FRAME_FIXTURES: Record<LabFrameId, LabFrameFixture> = {
       clips: [{ ...C2, clipNo: 3, cropOpen: true, cropFocusX: 0.5 }],
     }),
   },
+  // CL10 also carries a failed row (Lambda's own error, which reads as one
+  // sentence) and a superseded row (an old 4:5 path) that is not listed.
   CL10: {
     kind: "lab",
     id: "CL10",
@@ -430,6 +432,8 @@ export const LAB_FRAME_FIXTURES: Record<LabFrameId, LabFrameFixture> = {
         { id: "render-1", clipId: C1.id, captionId: CAP_LINEUP.id, label: "Ada North #1 × lineup", status: "done", error: null, renderMs: 180000, updatedAt: LAB_NOW, previewUrl: LAB_CLIP_916, posterUrl: null, clipPreviewUrl: LAB_CLIP_916, lines: LINEUP_LINES, playing: true },
         { id: "render-2", clipId: C2.id, captionId: CAP_LINEUP.id, label: "Bea Lowe #1 × lineup", status: "done", error: null, renderMs: 180000, updatedAt: LAB_NOW, previewUrl: null, posterUrl: null, clipPreviewUrl: LAB_CLIP_169, lines: [], playing: false },
         { id: "render-3", clipId: C1.id, captionId: CAP_LINEUP.id, label: "Ada North #1 × lineup", status: "rendering", error: null, renderMs: null, updatedAt: "2026-11-06T11:58:12.000Z", previewUrl: null, posterUrl: null, clipPreviewUrl: LAB_CLIP_916, lines: [], playing: false },
+        { id: "render-4", clipId: C2.id, captionId: CAP_POV.id, label: "Bea Lowe #1 × pov", status: "failed", error: "Lambda render failed", renderMs: 41000, updatedAt: "2026-11-06T11:40:00.000Z", previewUrl: null, posterUrl: null, clipPreviewUrl: LAB_CLIP_169, lines: [], playing: false },
+        { id: "render-0", clipId: C1.id, captionId: CAP_LINEUP.id, label: "Ada North #1 × lineup", status: "failed", error: "superseded: 9:16 only", renderMs: 165910, updatedAt: "2026-11-05T23:16:47.000Z", previewUrl: null, posterUrl: null, clipPreviewUrl: LAB_CLIP_916, lines: [], playing: false },
       ],
     }),
   },

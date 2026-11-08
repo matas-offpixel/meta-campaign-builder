@@ -157,7 +157,16 @@ export function clipBucket(clip: ClipForGroup): ClipBucket {
   return "keeping";
 }
 
-/** One sentence that says what to fix. A raw render error is never returned. */
+/**
+ * One sentence that says what to fix. A raw render error is never returned.
+ *
+ * The classes, in the order they are tested: the clip's frame, the caption's
+ * length, lines or style, the render timing out (the queue's `timeout` or
+ * Lambda's "timed out"), the renderer itself (Remotion Lambda), the clip's
+ * own file (missing, or the signed download or probe failing), the finished
+ * file not saving, and replaced audio. A superseded row is an old path, not
+ * a refusal.
+ */
 export function renderRefusalSentence(error: string | null | undefined): string | null {
   const value = (error ?? "").trim();
   if (!value || isSupersededRender(value)) return null;
@@ -168,12 +177,51 @@ export function renderRefusalSentence(error: string | null | undefined): string 
   if (lower.includes("does not fit") || lower.includes("too long") || lower.includes("exceeds") || lower.includes("at most") || lower.includes("not approved")) {
     return "This caption is too long — shorten it.";
   }
+  if (lower.includes("caption lines are missing")) return "This caption has no lines — generate it again.";
   if (lower.includes("style_version") || lower.includes("old style")) return "This caption is on an old style — generate it again.";
+  if (lower.includes("timeout") || lower.includes("timed out")) return "The render timed out — try it again.";
+  if (lower.includes("lambda") || lower.includes("remotion")) return "The renderer failed — try it again.";
   if (lower.includes("no source") || lower.includes("no file")) return "This clip has no file — import it again.";
-  if (lower.includes("timeout")) return "The render timed out — try it again.";
+  if (lower.includes("signed url") || lower.includes("download") || lower.includes("probe") || lower.includes("fetch failed")) {
+    return "This clip's file couldn't be read — import it again.";
+  }
+  if (lower.includes("storage upload")) return "The finished render didn't save — try it again.";
   if (lower.includes("replaced audio") || lower.includes("no track")) return "This clip's new audio has no track yet — add the track.";
   if (value.includes(" — ") && !value.includes(":") && value.length <= 140) return value;
   return "This render was refused — find a sharper copy or ask the team.";
+}
+
+/** The render rows the clip section lists. A superseded row is kept for the record and not shown. */
+export function visibleRenderRows<T extends { status: string; error: string | null }>(rows: readonly T[]): T[] {
+  return rows.filter(
+    (row) => (row.status === "queued" || row.status === "rendering" || row.status === "done" || row.status === "failed") && !isSupersededRender(row.error),
+  );
+}
+
+/** The line under a lineup row's name while Find clips reads Instagram. */
+export function findClipsReadingLine(handle: string | null | undefined): string {
+  const clean = (handle ?? "").trim().replace(/^@/, "");
+  return clean ? `reading @${clean}'s posts` : "reading their posts";
+}
+
+/** A route's error when it is already one sentence a person can act on; otherwise null. */
+function sentenceOf(error: unknown): string | null {
+  const value = typeof error === "string" ? error.trim() : "";
+  if (!value || value.length > 140) return null;
+  if (!/[.?!]$/.test(value)) return null;
+  if (/[:{}<>]|\b(?:error|exception|undefined|null)\b/i.test(value.replace(/[.?!]$/, ""))) return null;
+  return value;
+}
+
+/** The sentence on a lineup row when Find clips fails. */
+export function findClipsErrorSentence(error: unknown, handle: string | null | undefined): string {
+  const clean = (handle ?? "").trim().replace(/^@/, "");
+  return sentenceOf(error) ?? `Couldn't read ${clean ? `@${clean}'s` : "the"} posts — try Find clips again.`;
+}
+
+/** The sentence on a candidate tile when Add or Import fails. */
+export function importErrorSentence(error: unknown): string {
+  return sentenceOf(error) ?? "This clip didn't import — try again.";
 }
 
 export function cantRunReason(clip: ClipForGroup): string | null {
