@@ -160,6 +160,7 @@ DROPBOX_APP_KEY=
 DROPBOX_APP_SECRET=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
+GOOGLE_DRIVE_EXPORT_DRIVE_ID=
 ENABLE_MULTI_PLACEMENT_ASSETS=
 MAILCHIMP_WEBHOOK_SECRET=
 CIRQLIN_PARTNER_READ_SECRET=
@@ -297,6 +298,21 @@ REMOTION_LAMBDA_SERVE_URL=
 > and the Mailchimp leg still writes. **`CIRQLIN_API_BASE`** defaults to
 > `https://app.cirqlin.com`. Join key is `events.mailchimp_tag` ↔ Cirqlin
 > `pages.crm_base_tag`. Counts only — no PII.
+
+> **`GOOGLE_DRIVE_EXPORT_DRIVE_ID`** — the Shared Drive "Off / Pixel"
+> (`0AGzNNGLxNV_kUk9PVA`) that holds every client's and event's folder tree
+> (`lib/drive/tree.ts`, S18 of `docs/design-record/2026-11-09-creative-lab-clip-selection.html`).
+> The export runs as the service account in `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`
+> (`offpixel-sheets-reader@off-pixel-dashboard.iam.gserviceaccount.com`, a Content
+> manager on the drive, scope `drive`, `supportsAllDrives` on every call). Content
+> managers cannot delete permanently; the export never deletes. Unset → the
+> `/api/cron/creative-lab-drive-tick` cron (every 5 min) returns 200 with
+> `skippedReason`. The tick makes trees for clients and events created from
+> 9 Nov 2026, renames on a rename or re-date, makes the on-sale `w/c {d Mon}`
+> folder (payday-week Monday and a fortnight later, from `lib/creative-lab/payday.ts`),
+> marks cancelled events, files approved round renders (`drive_status`, migration
+> 217) and marks judged winners. Launch reads Storage, never Drive. Older events:
+> `scripts/backfill-drive-tree.mts` (dry-run by default, `--apply`, `--event CODE`).
 
 > **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**
 > are **not required for the Asset Queue** (as of `cc/asset-queue-public-sheet-fetch`). The scrape

@@ -120,6 +120,10 @@
     {
       "path": "/api/cron/creative-lab-render-tick",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/creative-lab-drive-tick",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
