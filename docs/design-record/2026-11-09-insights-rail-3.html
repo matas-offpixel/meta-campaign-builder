@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Insights rail — issue 3 — best copy shapes, the #1110 rulings, the CI width — 9 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6; --tt:#6E5A9E;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:22px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:52px 0 8px}
+h3{font-size:13px;font-weight:600;margin:22px 0 6px}
+p{margin:0 0 10px;max-width:84ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{white-space:nowrap;font-weight:600}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.tan{background:#c4a882;border-color:#c4a882}
+.btn.sm{height:24px;padding:0 9px;font-size:11.5px}
+.chip{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px;border-radius:4px;font:600 10.5px/1 var(--sans);white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.chip.lose{background:var(--brick);color:#fff;border-color:var(--brick)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.muted{color:var(--ink-3)}
+.mono{font-family:var(--mono)}
+/* app shell */
+.app{display:flex;height:100%}
+.nav{width:172px;flex:none;background:#e3d1bf;border-right:1px solid var(--border);padding:14px 12px;font-size:12px;color:var(--ink-2)}
+.nav b{display:block;font:700 12px var(--sans);color:var(--ink);letter-spacing:.04em}
+.nav .it{padding:5px 8px;border-radius:5px;margin:2px 0}.nav .it.on{background:var(--muted);color:var(--ink)}
+.main{flex:1;min-width:0;padding:16px 22px;overflow:hidden}
+.ehead{display:flex;justify-content:space-between;align-items:flex-start;margin:0 0 10px}
+.ehead h4{margin:0;font:700 17px/1.1 var(--sans);letter-spacing:.02em}
+.tabs{display:flex;gap:18px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--border-strong);margin:8px 0 12px}
+.tabs span{padding:6px 0}.tabs span.on{color:var(--ink);border-bottom:2px solid var(--ink)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin:0 0 10px}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;font-size:11px}
+.strip div{padding:8px 4px;border-radius:5px}.strip .n{font:600 19px/1.1 var(--sans)}
+.strip .now{background:var(--ink);color:var(--sand)}
+.row{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;background:rgba(255,255,255,.12)}
+.ph{height:10px;border-radius:3px;background:var(--muted);margin:5px 0}
+.tiles{display:flex;gap:8px}.tiles i{flex:1;aspect-ratio:9/16;max-height:120px;border-radius:5px;background:linear-gradient(160deg,#2a1d2a,#6a3b4a 55%,#1a1214)}
+/* rail */
+.rail{width:360px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;font-size:12.5px}
+.rail .rh{padding:12px 14px 10px;border-bottom:1px solid var(--border);background:var(--edit);position:sticky;top:0}
+.rail .rh .top{display:flex;justify-content:space-between;align-items:center}
+.rail .rh .top b{font-size:14px}
+.rail .ctx{font-size:11.5px;color:var(--ink-3);margin:2px 0 8px}
+.rail .body{padding:4px 14px 14px;overflow:hidden}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:99px;overflow:hidden;font-size:11.5px}
+.seg span{padding:3px 10px;border-right:1px solid var(--border)}.seg span:last-child{border-right:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.seg span.off{color:var(--ink-3);opacity:.6}
+.toggles{display:flex;gap:6px;flex-wrap:wrap}
+.lock{font-size:11px;color:var(--ink-3);margin-top:6px}
+.isec{padding:12px 0 10px;border-bottom:1px solid var(--border)}
+.isec:last-child{border-bottom:0}
+.isec .h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:0 0 6px}
+.isec .h .k{color:var(--ink-2)}
+.res{font-size:12.5px;font-weight:600;margin:0 0 6px}
+.res.none{font-weight:500;color:var(--ink-2)}
+.bars{display:flex;flex-direction:column;gap:5px}
+.br{display:grid;grid-template-columns:1fr 122px;gap:3px 10px;align-items:center;font-size:11.5px}
+.br .lab{grid-column:1 / -1}
+.br .lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.br .tr{height:8px;border-radius:4px;background:var(--muted);position:relative}
+.br .tr i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--ink-2)}
+.br .tr i.w{background:var(--olive)}.br .tr i.b{background:var(--brick)}
+.br .tr s{position:absolute;top:-3px;bottom:-3px;border-left:1.5px dashed var(--ink-3)}
+.br .v{font:10.5px var(--mono);text-align:right;white-space:nowrap}
+.br .v small{color:var(--ink-3)}
+.br.thin .tr{background:transparent;border:1px dashed var(--border-strong)}
+.br.thin .lab,.br.thin .v{color:var(--ink-3)}
+.br.thin .tr{display:none}.br.thin .v{grid-column:1 / -1;text-align:left;font-family:var(--sans);font-size:11px;white-space:normal}
+
+.conf{font:10.5px var(--mono);color:var(--ink-3);margin-top:6px}
+.act{margin-top:8px;display:flex;align-items:center;gap:8px}
+.empty{font-size:12px;color:var(--ink-2);background:var(--muted);border-radius:6px;padding:8px 10px}
+.fall{font-size:11.5px;color:var(--ochre);margin:0 0 6px}
+.thumbs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.thumbs div{font:10.5px/1.3 var(--mono)}
+.thumbs i{display:block;aspect-ratio:4/5;border-radius:4px;margin-bottom:3px;background:linear-gradient(160deg,#141018,#5a3048 55%,#c06a58)}
+.thumbs div:nth-child(2) i{background:linear-gradient(160deg,#101828,#2a3a6a 55%,#8a6ad0)}
+.thumbs div:nth-child(3) i{background:linear-gradient(160deg,#1a1410,#6b4a36 55%,#d0a060)}
+.thumbs div:nth-child(4) i{background:linear-gradient(160deg,#0e1612,#2a5040 55%,#80c0a0)}
+.cl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--border);font-size:12px}
+.cl:first-child{border-top:0}
+.cl small{grid-column:1;font:10.5px var(--mono);color:var(--ink-3)}
+.cl .btn{grid-row:1 / span 2;grid-column:2}
+.tab{width:34px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;align-items:center;padding-top:14px;gap:10px}
+.tab span{writing-mode:vertical-rl;font:600 12px var(--sans);letter-spacing:.06em;color:var(--ink-2)}
+.tab em{font-style:normal;font-size:13px;color:var(--ink-2)}
+/* 393 */
+.phone{width:393px;height:852px;position:relative;overflow:hidden;background:var(--sand)}
+.phone .pg{padding:12px 14px;font-size:12px}
+.phone .scrim{position:absolute;inset:0;background:rgba(30,24,16,.35)}
+.sheet{position:absolute;left:0;right:0;bottom:0;height:86%;background:var(--edit);border-radius:14px 14px 0 0;box-shadow:0 -8px 24px rgba(30,24,16,.18);display:flex;flex-direction:column}
+.sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--border-strong);margin:8px auto 2px}
+.sheet .rh{padding:6px 16px 10px;border-bottom:1px solid var(--border)}
+.sheet .body{padding:0 16px;overflow:hidden}
+.notes{font-size:12.5px;color:var(--ink-2)}
+.notes li{margin:0 0 6px;max-width:96ch}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--border-strong);border-radius:99px;font:600 11.5px var(--sans);background:var(--edit)}
+
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · INSIGHTS RAIL · ISSUE 3 · 9 NOVEMBER 2026</div>
+<h1>Insights rail — issue 3: best copy shapes, the #1110 rulings on record, the rail's CI width</h1>
+<p class="lead">Extends <code>2026-11-07-insights-rail.html</code> (issue 1, R1–R11) and <code>2026-11-08-insights-rail-2.html</code> (issue 2, R12–R16). Both stand as issued. This issue writes down three things ruled on #1110's verdict that no record carried, corrects one row of issue 1's IR3 table, rules the rail's CI width (the deck's open ruling X4), and replaces IR4's <i>Best lines</i> and <i>Proven elsewhere</i> with one section, <b>Best copy shapes</b>, fed by <code>copy_features</code> (migration 213, #1117). Figures in IR4 are the expected shape of tonight's first run; every number not named in Matas's brief is a placeholder and marked.</p>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px"><li><b>Issue 3 · 9 Nov 2026.</b> R17 TikTok thin thresholds and the fixture stand-in rule (from the #1110 verdict); R18 IR3 corrected (Curiosity 1.03); R19 the rail's CI widths and the drawer frame (X4); R20 Best copy shapes replaces Best lines + Proven elsewhere; R21 one population, one finding; R22 verbatim lines stay empty with their sentence; R23 words. IR4 redrawn, IR9 new. Hand-back H16–H20.</li>
+<li><b>Issue 2 · 8 Nov 2026.</b> R12–R16, IR2c, IR5, IR8. Built as #1110.</li>
+<li><b>Issue 1 · 7 Nov 2026.</b> R1–R11, IR0–IR7. Built as #1102.</li></ul></div>
+
+<h2>Data note — what changed since issue 2</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there</th><th>What it means for issue 3</th></tr>
+<tr><td>#1110 verdict (8 Nov)</td><td>Accepted on the review, not in a record: a TikTok platform-unit row is thin under 20 clicks, £10 spent or 1,000 impressions; the IR2 fixture draws a raw index where no stored shrunk index exists; IR3's Curiosity row must read 1.03.</td><td>R17 and R18 put them on record so the next build has something to be judged against.</td></tr>
+<tr><td>README · Widths vs the IR series</td><td>Operator surfaces are shot at 1176 and 768; the Lab at 1280 and 393. Every IR frame was drawn and baselined at 1280 / 393, and R1's breakpoints are ≥ 1200 push · 768–1199 drawer · 393 sheet. At 1176 the rail is a drawer.</td><td>R19: the rail keeps 1280 / 393 as its frame widths (the push state and the sheet); the drawer state gets its own frame at 1176 (IR9), because that is the width operator surfaces are shot at and a state no frame has shown.</td></tr>
+<tr><td><code>copy_features</code> (migration 213, #1117)</td><td>One row per feature value and stage and scope: opener, CTA kind, scarcity kind, length band, emoji band, lineup list, date, price, line count — each with the same shrunk index, baseline, and <code>shows</code> and <code>ads</code> counts as tag_performance. First real run tonight; expected ≈ 18 proven at scope All. Two named by Matas: "4+ line bodies in promoter voice" 0.75 over 3 shows / 27 ads on ticket sale; "artist-voice undated titles" 0.65 over 7 shows / 141 ads on registration.</td><td>R20: Best copy shapes, one section in IR4's place for Best lines + Proven elsewhere. The rows are features, not lines, so nothing verbatim is reused — the writer is told the shape.</td></tr>
+<tr><td>Rows that share a population</td><td>Several feature values are often the same ads seen several ways (every 4+ line body in the set is also promoter voice, also dated, also carries a price). Their shows + ads sets are identical.</td><td>R21: identical show + ad sets collapse to one line with its facets listed. Four rows about 27 ads is one finding, not four.</td></tr>
+<tr><td><code>copy_performance</code></td><td>Still 0 proven lines: no verbatim line has run in two shows.</td><td>R22: the verbatim lines stay empty with a sentence that says that, under the shapes. The writer's proven chips (pass 2 B3a) stay empty with the same sentence.</td></tr>
+</table>
+
+<h2>R · Rulings added in issue 3</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>R17 TikTok thin, and fixture stand-ins</td><td>A platform-unit row (R14) is <b>thin</b> under any of: 20 clicks, £10 spent, 1,000 impressions, in the 90-day window; thin rows draw no bar and read "Not enough data yet: £n spent, n clicks" (as R14). Accepted on #1110, now the rule. Separately: a <b>fixture</b> may carry a raw index where no stored shrunk index exists for that row, and the frame draws it — the build never does; colour and order read the stored index (R12b, R13), and a fixture row with a stand-in is marked <code>raw</code> in the fixture file so a reviewer can see it.</td></tr>
+<tr><td>R18 IR3 corrected</td><td>Issue 1's IR3 table has FOMO / Curiosity at 4.16 / 4.30, "level / 3% over", shrunk 1.00 / <s>0.98</s>. A cost 3 % over its baseline cannot index below 1: the row reads <b>1.00 / 1.03</b>, both ink, still "No clear winner". The frame was right; the table was wrong. Issue 1 is not edited; this row supersedes it.</td></tr>
+<tr><td>R19 The rail's CI widths</td><td>The rail's own frames are shot at <b>1280 and 393</b> wherever the rail is drawn: 1280 is the push state (R1, ≥ 1200) and 393 the sheet (R11). Operator surfaces are shot at 1176 and 768 (README), and at both the rail is the <b>drawer</b> (768–1199). The drawer is a real state no frame has shown, so it gets its own frame, <b>IR9-1176</b>: the rail open as a drawer over the content, below the page header, header buttons reachable. Every existing IR baseline stands at its width. A new operator surface that carries the rail is reviewed on IR9's state at 1176, not on a 1280 push frame. The deck's X4 closes with this row.</td></tr>
+<tr><td>R20 Best copy shapes</td><td>In campaign creation (IR4) <i>Best lines</i> and <i>Proven elsewhere</i> are replaced by one section, <b>Best copy shapes</b>, first in the rail. A row is a feature value from <code>copy_features</code> at the drawer's stage and the chosen scope: its label (R23), a bar by stored shrunk index with the baseline tick at 1.00, the value "0.75 · 25% under", and a sub-line "3 shows · 27 ads". R6–R8 and R13 apply (olive ≤ 0.95 ok/strong, brick ≥ 1.10, four rows, "+n more", result sentence, confidence line). <b>Thin</b> is under 2 shows or under 10 ads (Invented); thin rows read "Not enough data yet: n shows". The confidence line reads <code>{strong|ok} · {ads}+ ads · {shows}+ shows · 90 days · {scope}</code> with the minimum of the drawn rows. The result sentence names the shape: "4+ line bodies cost 25% less than usual." Scope defaults as R5; at All clients the 🔒 line shows.</td></tr>
+<tr><td>R21 One population, one finding</td><td>Rows whose <b>shows and ads sets are identical</b> are one population read several ways, and draw as <b>one line</b>: the strongest-named facet as the label, the others listed after it in ink-3 — "4+ lines <span class="muted">· promoter voice · dated · a price</span>", one bar, one value, one sub-line. The collapsed row counts once toward the four and once in "+n more". Rows that share some ads but not the whole set stay separate. Identity is on the stored sets (the same <code>ad_ids</code>), never on counts alone: two features with 27 ads each are not the same 27 unless they are.</td></tr>
+<tr><td>R22 Verbatim lines</td><td>Under the shapes, a second section <b>Copy lines</b> stays empty with one sentence while <code>copy_performance</code> has no proven line: "No line has run in two shows yet. Lines appear here, as chips you can drop into the copy, once one does." The writer's proven chips (pass 2 B3a) carry the same sentence in their place. When a line qualifies (won at 2+ events), the section fills as issue 1's IR4 described, with <code>Use line</code>.</td></tr>
+<tr><td>R23 Words</td><td>Feature keys never show (rule 5). The label map ships with the section: <code>opener</code> → "Opener: {value}" · <code>cta_kind</code> → "{value} CTA" · <code>scarcity_kind</code> → "{value} scarcity" · <code>length_band</code> → "{band} body" · <code>emoji_band</code> → "{band} emoji" · <code>lineup_list</code> → "lineup listed" / "no lineup" · <code>date</code> → "dated" / "undated" · <code>price</code> → "a price" / "no price" · <code>line_count</code> → "{n}+ lines". Voice is a facet of the opener's source: "promoter voice" / "artist voice". A shape's one action is <code>Use shape</code> only where it maps to a generator control (artist voice → Angle "Artist, first person"; lineup listed → Angle "Lineup"); otherwise none. It pre-sets, never generates.</td></tr>
+</table>
+
+<h2>IR3 · the corrected row (issue 1's table, superseded by R18)</h2>
+<table class="t" style="max-width:760px">
+<tr><th>Option</th><th>£ / signup</th><th>vs £4.16</th><th>shrunk</th><th>colour</th></tr>
+<tr><td>FOMO / Curiosity</td><td>4.16 / 4.30</td><td>level / 3% over</td><td>1.00 / <b>1.03</b> (was 0.98)</td><td>ink · no clear winner</td></tr>
+</table>
+
+<!-- ===================== IR4 ===================== -->
+<h2>IR4 · Campaign creation — Best copy shapes, expected from tonight's run (1280 and 393)</h2>
+<p class="lead">The two rows Matas named are drawn with their real figures; the rest of the section's rows and the "+n more" count are placeholders for the expected ≈ 18. The first row is R21: four features that are the same 27 ads, collapsed to one line with its facets. Copy lines stays empty under R22.</p>
+<div class="frame"><figure><figcaption>IR4-1280 · rail beside the Meta drawer · Best copy shapes first · the collapsed line · Copy lines empty</figcaption>
+<div class="vp" style="width:1280px;height:820px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it">Events</div><div class="it on">MML</div><div class="it">Meta</div><div class="it">Audience Builder</div></div>
+  <div class="main" style="display:flex;gap:14px">
+    <div style="flex:1"><div class="k" style="margin-bottom:8px">MML canvas · Puzzle 4th Birthday</div><div class="card" style="height:300px"><div class="ph" style="width:50%"></div><div class="ph" style="width:70%"></div><div class="ph" style="width:40%"></div></div></div>
+    <div class="card" style="width:330px;flex:none;background:var(--edit)"><b style="font-size:13px">New Meta campaign</b><div class="muted" style="font-size:11.5px;margin-bottom:10px">Signup · Leads objective</div>
+      <div class="k">Primary text</div><div class="ph" style="height:56px;background:#fff8"></div><div class="k" style="margin-top:8px">Headline</div><div class="ph" style="height:24px;background:#fff8"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px"><span class="btn sm solid">Create campaign</span></div></div>
+  </div>
+  <div class="rail">
+    <div class="rh"><div class="top"><b>Insights</b><span class="muted">›</span></div><div class="ctx">New Meta campaign · Puzzle · Signup · Leads</div>
+      <div class="toggles"><span class="seg"><span>This client</span><span class="off">Vertical</span><span class="on">All clients</span></span><span class="seg"><span class="on">Signup</span><span>Ticket sale</span></span></div></div>
+    <div class="body">
+      <div class="isec"><div class="h"><span class="k">Best copy shapes</span><span class="k">All clients</span></div>
+        <div class="fall">Puzzle has no copy shape with enough shows yet. Showing all clients.</div>
+        <div class="res">4+ line bodies cost 25% less than usual.</div>
+        <div class="bars">
+          <div class="br"><span class="lab">4+ lines <span class="muted">· promoter voice · dated · a price</span></span><span class="tr"><i class="w" style="width:48%"></i><s style="left:64%"></s></span><span class="v">0.75 <small>· 25% under</small></span><span class="lab muted" style="font:10.5px var(--mono)">3 shows · 27 ads · ticket sale</span></div>
+          <div class="br"><span class="lab">Opener: artist name <span class="muted">· artist voice · undated</span></span><span class="tr"><i class="w" style="width:42%"></i><s style="left:64%"></s></span><span class="v">0.65 <small>· 35% under</small></span><span class="lab muted" style="font:10.5px var(--mono)">7 shows · 141 ads · registration</span></div>
+          <div class="br"><span class="lab">1 emoji <span class="muted">· placeholder</span></span><span class="tr"><i style="width:60%"></i><s style="left:64%"></s></span><span class="v">0.94 <small>· 6% under</small></span><span class="lab muted" style="font:10.5px var(--mono)">4 shows · 38 ads</span></div>
+          <div class="br"><span class="lab">Urgency scarcity <span class="muted">· placeholder</span></span><span class="tr"><i class="b" style="width:74%"></i><s style="left:64%"></s></span><span class="v">1.16 <small>· 16% over</small></span><span class="lab muted" style="font:10.5px var(--mono)">3 shows · 22 ads</span></div>
+        </div>
+        <div class="conf">ok · 22+ ads · 3+ shows · 90 days · All clients · +14 more</div>
+        <div class="lock">🔒 Across clients · Matas only</div>
+        <div class="act"><span class="btn sm">Use shape</span><span class="muted" style="font-size:11px">artist voice → Angle: Artist, first person</span></div></div>
+      <div class="isec"><div class="h"><span class="k">Copy lines</span></div>
+        <div class="empty">No line has run in two shows yet. Lines appear here, as chips you can drop into the copy, once one does.</div></div>
+      <div class="isec"><div class="h"><span class="k">Caption angle</span><span class="k">Puzzle</span></div>
+        <div class="res none">No clear winner between Artist / headliner and Event announcement.</div><div class="conf">ok · 25+ funded ads · 90 days · Puzzle</div></div>
+      <div class="isec"><div class="h"><span class="k">Visual format</span><span class="k">Puzzle</span></div>
+        <div class="res">Headline costs 6% less than usual.</div>
+        <div class="bars"><div class="br"><span class="lab">Headline</span><span class="tr"><i class="w" style="width:59%"></i><s style="left:63%"></s></span><span class="v">£3.90 <small>· 6% under</small></span></div></div></div>
+
+    </div></div>
+</div></div></figure>
+<figure><figcaption>IR4-393 · sheet over the drawer · shapes first</figcaption>
+<div class="vp" style="width:393px"><div class="phone"><div class="pg"><b>New Meta campaign</b><div class="muted">Signup · Leads</div></div><div class="scrim"></div>
+  <div class="sheet"><div class="grab"></div><div class="rh"><div style="display:flex;justify-content:space-between"><b>Insights</b><span class="muted">✕</span></div>
+    <div class="ctx" style="font-size:11.5px;color:var(--ink-3);margin:2px 0 8px">Puzzle · Signup · Leads</div><div class="toggles"><span class="seg"><span>This client</span><span class="off">Vertical</span><span class="on">All</span></span></div></div>
+    <div class="body"><div class="isec"><div class="h"><span class="k">Best copy shapes</span><span class="k">All</span></div>
+      <div class="res">4+ line bodies cost 25% less than usual.</div>
+      <div class="bars"><div class="br"><span class="lab">4+ lines <span class="muted">· promoter voice · dated · a price</span></span><span class="tr"><i class="w" style="width:48%"></i><s style="left:64%"></s></span><span class="v">0.75 <small>· 25% under</small></span><span class="lab muted" style="font:10.5px var(--mono)">3 shows · 27 ads</span></div>
+      <div class="br"><span class="lab">Opener: artist name <span class="muted">· artist voice · undated</span></span><span class="tr"><i class="w" style="width:42%"></i><s style="left:64%"></s></span><span class="v">0.65 <small>· 35% under</small></span><span class="lab muted" style="font:10.5px var(--mono)">7 shows · 141 ads</span></div></div>
+      <div class="conf">ok · 22+ ads · 3+ shows · 90 days · All · +16 more</div><div class="lock">🔒 Across clients · Matas only</div></div>
+    <div class="isec"><div class="h"><span class="k">Copy lines</span></div><div class="empty">No line has run in two shows yet. Lines appear here, as chips you can drop into the copy, once one does.</div></div>
+    </div>
+  </div></div></div></figure></div>
+<p class="lead">Copy leads in campaign creation, as issue 1 ruled; what changed is that it leads with shapes the writer can follow rather than lines it can reuse, because no line has yet run in two shows. The first line is one finding about 27 ads, not four findings; the scope is All clients because Puzzle alone has no ok row (R5), so the 🔒 line shows. <code>Use shape</code> appears only on the row that maps to a generator control.</p>
+
+<!-- ===================== IR9 ===================== -->
+<h2>IR9 · The drawer — the rail on an operator surface at 1176 (R19)</h2>
+<div class="frame"><figure><figcaption>IR9-1176 · Today · the rail open as a drawer over the content, below the header · header buttons reachable · content width unchanged</figcaption>
+<div class="vp" style="width:1176px;height:720px"><div class="app" style="position:relative">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it on">Today</div><div class="it">Events</div><div class="it">Clients</div><div class="it">MML</div></div>
+  <div class="main">
+    <div class="ehead"><div><h4>Today · Sun 8 Nov</h4><div class="muted" style="font-size:11.5px">3 to approve · 2 reads due · 1 held</div></div><div style="display:flex;gap:8px;align-items:center"><span class="pill">Insights ›</span><span class="btn sm solid">Approve all 3</span></div></div>
+    <div class="card"><div class="k" style="margin-bottom:6px">To approve</div><div class="row"><span>Puzzle · 3rd release 90% sold out · proposed from Mon read</span><span class="btn sm">Approve</span></div><div class="row"><span>Puzzle · artist card · Reeshy</span><span class="btn sm">Approve</span></div><div class="row"><span>NX Loves · EED presale reminder</span><span class="btn sm">Approve</span></div></div>
+    <div class="card"><div class="k" style="margin-bottom:6px">Reads due</div><div class="ph" style="width:60%"></div><div class="ph" style="width:45%"></div></div>
+    <div class="card"><div class="k" style="margin-bottom:6px">Held</div><div class="ph" style="width:50%"></div></div>
+  </div>
+  <div style="position:absolute;left:172px;right:0;top:58px;bottom:0;background:rgba(30,24,16,.25)"></div>
+  <div class="rail" style="position:absolute;right:0;top:58px;bottom:0;box-shadow:-8px 0 24px rgba(30,24,16,.18)">
+    <div class="rh"><div class="top"><b>Insights</b><span class="muted">›</span></div><div class="ctx">Today · All clients · Signup</div>
+      <div class="toggles"><span class="seg"><span class="off">This client</span><span class="off">Vertical</span><span class="on">All clients</span></span><span class="seg"><span class="on">Signup</span><span>Ticket sale</span></span></div><div class="lock">🔒 Across clients · Matas only</div></div>
+    <div class="body">
+      <div class="isec"><div class="h"><span class="k">Caption angle</span><span class="k">All clients</span></div><div class="res">Urgency / scarcity costs 24% less than usual.</div>
+        <div class="bars"><div class="br"><span class="lab">Urgency / scarcity</span><span class="tr"><i class="w" style="width:48%"></i><s style="left:63%"></s></span><span class="v">0.755 <small>· 24% under</small></span></div><div class="br"><span class="lab">Event announcement</span><span class="tr"><i style="width:61%"></i><s style="left:63%"></s></span><span class="v">0.964 <small>· 4% under</small></span></div></div>
+        <div class="conf">strong · 225+ funded ads · 90 days · All clients</div></div>
+      <div class="isec"><div class="h"><span class="k">Best copy shapes</span><span class="k">All clients</span></div><div class="res">4+ line bodies cost 25% less than usual.</div><div class="conf">ok · 22+ ads · 3+ shows · 90 days · All clients · +17 more</div></div>
+    </div></div>
+</div></div></figure></div>
+<p class="lead">At 1176 the rail is R1's drawer: it opens over the content below the page header, the header's own buttons stay reachable, and a scrim sits under it. The content does not narrow. This is the state operator surfaces are judged in; the push state stays the 1280 frames'.</p>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Insight section</td><td>Add the <b>shape</b> variant: rows are copy_features values with a bar by stored shrunk index (tick at 1.00), value "index · % under/over", sub-line "n shows · n ads"; identical show + ad sets collapse to one line with facets in ink-3 (R21); thin under 2 shows or 10 ads; confidence line in ads+ and shows+; action <code>Use shape</code> where it maps (R23).</td></tr>
+<tr><td>Insights rail</td><td>Add the drawer state to the component line: 768–1199 a drawer over the content below the header, with a scrim; frame IR9 at 1176.</td></tr>
+<tr><td>Proven chip</td><td>Empty state sentence per R22 until a line qualifies.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance (frame)</th></tr>
+<tr><td>H16 TikTok thin</td><td>R17 thresholds in the platform-unit section's thin test; fixture rows with a raw index carry <code>raw: true</code> and the fixture README says so.</td><td>tiktok_breakdown_snapshots; rail-fixtures.ts</td><td>unit test: 19 clicks / £10 / 1,000 → thin; 20 / £9.99 / 1,000 → thin; 20 / £10 / 999 → thin; 20 / £10 / 1,000 → drawn</td></tr>
+<tr><td>H17 Drawer frame</td><td>IR9-1176 added to the IR series on an operator surface (Today) with the rail open as a drawer; no other baseline changes.</td><td>—</td><td>IR9-1176 as drawn: content column unchanged in width, header buttons visible above the drawer</td></tr>
+<tr><td>H18 Best copy shapes</td><td>IR4 rebuilt: one section from <code>copy_features</code> at the drawer's stage and scope; R20 rows, R21 collapse on identical ad-id sets, R23 labels; <code>Use shape</code> pre-sets the generator where mapped; the section is omitted, not faked, until the first run has rows (as H10).</td><td>copy_features (migration 213); tonight's run</td><td>IR4-1280 / IR4-393 re-baselined from a fixture copying the first run's top rows, the two named rows at 0.75 (3 / 27) and 0.65 (7 / 141); the collapsed line shows four facets</td></tr>
+<tr><td>H19 Copy lines</td><td>The empty section and the writer's proven-chip slot carry the R22 sentence verbatim; fills from copy_performance when a line has won at 2+ events.</td><td>copy_performance</td><td>words match exactly; a fixture with one proven line shows the chip and <code>Use line</code></td></tr>
+<tr><td>H20 IR3 table</td><td>No build: the rail-fixtures.ts row for Curiosity carries 1.03, and rail-sources.test.ts guards that a % over baseline never indexes below 1.00.</td><td>rail-fixtures.ts</td><td>test passes; IR3-1280 unchanged</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The shape thin thresholds (2 shows, 10 ads) and the "+n more" count in IR4 (the ≈ 18 expected rows minus four drawn). Tonight's run sets the real rows; the two named figures are Matas's.</li>
+<li>The facets collapsed into the first IR4 line (promoter voice · dated · a price) beyond "4+ lines": placeholders for the identical-set case; the build collapses whatever is actually identical.</li>
+<li>The R23 label strings, and which shapes map to a generator control (artist voice, lineup listed).</li>
+<li>The R22 sentence, word for word.</li>
+<li>IR9's Today page content is a stand-in for the real Today surface; it sets nothing about that page.</li>
+</ul>
+
+<h2>Frames for CI (additions and re-baselines)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>IR4</td><td>1280, 393</td><td>re-baselined: Best copy shapes from the copy_features fixture (two named rows + collapsed line + "+n more"), Copy lines empty with the R22 sentence, then the creative sections as issue 1</td></tr>
+<tr><td>IR9</td><td>1176</td><td>Today surface, rail open as a drawer (R19)</td></tr>
+<tr><td>IR3</td><td>1280</td><td>unchanged; the fixture row reads 1.03</td></tr>
+</table>
+
+</div>
+
+</body>
+</html>
