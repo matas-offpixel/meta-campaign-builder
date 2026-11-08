@@ -6,10 +6,11 @@ import { PUZZLE_SAMPLES, PUZZLE_VENUES } from "@/lib/creative-lab/voice-fixtures
 import type { CardVoice, CardVoicePage } from "@/lib/creative-lab/voice-store";
 import { LabCaptions } from "./captions";
 
-const NOW = "2026-11-08T09:12:00.000Z";
+const NOW = "2026-11-10T09:12:00.000Z";
 const READ_TODAY = NOW;
 const ENZO_READ = "2026-11-06T12:00:00.000Z";
-const STALE_READ = "2025-10-10T12:00:00.000Z";
+/** 10 Oct is a Saturday. The frame clock is 10 Nov so this read is past 30 days. */
+const STALE_READ = "2026-10-10T12:00:00.000Z";
 
 function page(args: {
   handle: string | null;

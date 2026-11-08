@@ -21,7 +21,6 @@ import {
 import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
 import { isSpotifyConfigured, searchArtists } from "@/lib/enrichment/spotify";
 import { findArtistClips, readPromoterVoice, requestArtistClip } from "@/lib/creative-lab/ig-discovery";
-import { setVoiceHashtags } from "@/lib/creative-lab/voice-store";
 import type { SaleStage } from "@/lib/creative-lab/caption-facts";
 import { addSpotifyToLineup, applySpotifyCandidate, enrichLibraryArtists, labArtistForLibrary, saveLabLineup, tagSuggestions } from "@/lib/creative-lab/lineup";
 import type { ServiceRoleDb } from "@/lib/creative-lab/load";
@@ -86,7 +85,6 @@ type Body = {
   quoteSourceNote?: string;
   quoteWeight?: 400 | 700;
   pageKind?: "promoter" | "artist";
-  hashtags?: boolean;
 };
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: string }> }): Promise<NextResponse> {
@@ -119,11 +117,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
           return NextResponse.json({ ok: !found.error, error: found.error, sampleN: found.candidates.length });
         }
         return NextResponse.json({ ok: true, ...(await readPromoterVoice(db, event.client_id)) });
-      }
-      case "voiceHashtags": {
-        if (!event.client_id) return NextResponse.json({ error: "This event has no client." }, { status: 400 });
-        await setVoiceHashtags(db, event.client_id, body.hashtags === true);
-        return NextResponse.json({ ok: true });
       }
       case "saveFacts":
         await saveLabFacts(db, {

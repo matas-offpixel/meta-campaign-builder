@@ -154,17 +154,6 @@ export function LabCaptions({
         </div>
       ) : (
       <div className="space-y-2 rounded border border-border bg-card p-3">
-        {quoteMode && voiceContained ? (
-          <VoicePanel
-            lab={lab}
-            angle={angle}
-            artistId={artist?.id ?? ""}
-            busy={busy}
-            onSave={onSave}
-            initialOpen={initialVoiceOpen}
-            contained={voiceContained}
-          />
-        ) : null}
         {quoteMode ? <Control label="Mode" value={mode} options={[{ id: "caption", label: "Caption" }, { id: "quote", label: "Quote" }]} onChange={chooseMode} /> : null}
         <Control label="Angle" value={angle} options={ANGLES.map((id) => ({ id, label: styleLabel(id) }))} onChange={setAngle} />
         <div className="sm:hidden">
@@ -195,7 +184,7 @@ export function LabCaptions({
         >
           Generate
         </Button>
-        {quoteMode && !voiceContained ? (
+        {quoteMode ? (
           <VoicePanel
             lab={lab}
             angle={angle}

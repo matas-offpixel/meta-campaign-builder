@@ -510,7 +510,7 @@ export function voiceChipParts(args: { handle: string | null; sampleN: number; e
     return { name: `Sounds like @${args.handle}`, count: `· ${args.sampleN} posts`, countNarrow: `${args.sampleN} posts`, house: false, cant: false };
   }
   if (args.sampleN > 0 && args.handle) {
-    return { name: "House voice", count: `· @${args.handle} has ${args.sampleN} posts`, countNarrow: `Not enough posts yet · ${args.sampleN} of ${VOICE_FLOOR}`, house: true, cant: false };
+    return { name: "House voice", count: `· @${args.handle} has ${args.sampleN} posts`, countNarrow: `${args.sampleN} posts`, house: true, cant: false };
   }
   return { name: "House voice", count: "· no posts read yet", countNarrow: "not read", house: true, cant: false };
 }

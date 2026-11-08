@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { postedLabel } from "@/lib/creative-lab/voice-fixtures";
+import { quotePronoun } from "@/lib/creative-lab/quote";
 import type { CardVoicePage } from "@/lib/creative-lab/voice-store";
 import { VOICE_REFRESH_DAYS } from "@/lib/creative-lab/voice-store";
 import { traitRows, voiceChipParts, VOICE_FLOOR, NO_POSTS_READ } from "@/lib/creative-lab/voice-traits";
@@ -11,13 +12,19 @@ import { styleLabel } from "@/lib/creative-lab/surface";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
 
+const LONDON = "Europe/London";
+
+function londonDay(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: LONDON, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
 function clock(iso: string | null, now: string): { day: string; time: string; stale: boolean } | null {
   if (!iso) return null;
   const when = new Date(iso);
   const today = new Date(now);
   if (Number.isNaN(when.getTime())) return null;
-  const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }).format(when);
-  const same = when.toISOString().slice(0, 10) === today.toISOString().slice(0, 10);
+  const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: LONDON }).format(when);
+  const same = londonDay(when) === londonDay(today);
   const stale = today.getTime() - when.getTime() > VOICE_REFRESH_DAYS * 86_400_000;
   return { day: same ? "today" : postedLabel(iso), time, stale };
 }
@@ -58,15 +65,17 @@ export function VoicePanel({
   const read = when ? (when.day === "today" ? `${when.day} ${when.time}` : when.day) : "";
   const angleName = styleLabel(angle);
   const held = artistPage && artist != null && artist.rights !== "approved";
-  const whyWide = whyLine({ artistPage, handle, sampleN, error, read, angleName, artistName: artist?.name ?? "this artist", stale: when?.stale === true, held });
+  const pronouns = quotePronoun(artist?.pronouns);
+  const whyWide = whyLine({ artistPage, handle, sampleN, error, read, angleName, artistName: artist?.name ?? "this artist", stale: when?.stale === true, held, pronouns });
   const whyNarrow = artistPage ? whyWide : ready ? `Promoter voice · read ${read}` : whyWide;
   const header = ready && handle ? `Sounds like @${handle}` : "House voice";
+  const unread = `@${handle ?? "the page"} · not read yet`;
   const subWide = sampleN > 0
     ? `${sampleN} POSTS READ · ${read.toUpperCase()} · AGAIN ON FIND CLIPS AND NIGHTLY`
-    : `@${handle ?? "the page"} · NOT READ YET`;
+    : unread;
   const subNarrow = sampleN > 0
     ? `${sampleN} POSTS · ${read.toUpperCase()} · FIND CLIPS AND NIGHTLY`
-    : subWide;
+    : unread;
   const restWide = Math.max(0, exemplars.length - 4);
   const restNarrow = Math.max(0, exemplars.length - 2);
 
@@ -94,7 +103,7 @@ export function VoicePanel({
           <b className="text-sm">{header}</b>
           <button type="button" className="text-muted-foreground" onClick={() => setOpen(false)} aria-label="Close">✕</button>
         </div>
-        <div className="mt-1 font-mono text-[10.5px] tracking-wide text-muted-foreground uppercase">
+        <div className={`mt-1 font-mono text-[10.5px] tracking-wide text-muted-foreground ${sampleN > 0 ? "uppercase" : ""}`}>
           <span className="max-[700px]:hidden">{subWide}</span>
           <span className="hidden max-[700px]:inline">{subNarrow}</span>
         </div>
@@ -215,10 +224,13 @@ function whyLine(args: {
   artistName: string;
   stale: boolean;
   held: boolean;
+  pronouns: { subject: string; possessive: string };
 }): string {
+  const possessive = args.pronouns.possessive;
+  const owned = possessive.charAt(0).toUpperCase() + possessive.slice(1);
   if (args.artistPage && !args.handle) return `Add Instagram on ${args.artistName}'s row — the same action the row already has.`;
   if (args.error && args.sampleN < VOICE_FLOOR) {
-    const held = args.held ? " His captions will also be Held — he is Promoter page only." : "";
+    const held = args.held ? ` ${owned} captions will also be Held — ${args.pronouns.subject} Promoter page only.` : "";
     return `@${args.handle} can't be read: ${args.error}. Artist-voice captions use the house voice until it is.${held}`;
   }
   if (args.sampleN > 0 && args.sampleN < VOICE_FLOOR) {
@@ -226,7 +238,7 @@ function whyLine(args: {
   }
   if (args.sampleN >= VOICE_FLOOR && args.handle) {
     if (args.stale) return `Read ${args.read} · the nightly pass has not reached it since. The corpus still counts; the sheet says when it was read.`;
-    if (args.artistPage) return `Artist voice · his own posts, not the promoter's · read ${args.read} with Find clips`;
+    if (args.artistPage) return `Artist voice · ${possessive} own posts, not the promoter's · read ${args.read} with Find clips`;
     return `Promoter voice · every angle but Artist, first person · read ${args.read} · shape from ${args.angleName} · facts from the event`;
   }
   return NO_POSTS_READ;

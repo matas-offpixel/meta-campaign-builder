@@ -30,7 +30,8 @@ The caption writer takes its tone from the page's own Instagram captions. The se
 ## Notes
 
 - Traits are computed from the samples when they are written. There is no traits table. A promoter read error is `clients.ig_last_error`.
-- The hashtag switch is `clients.voice_hashtags_enabled`, on the client form, with the sentence "Hashtags in an ad's text link away from the ad." The sheet has no control.
+- The hashtag switch is `clients.voice_hashtags_enabled`, named "Hashtags in ad text" on the client form, with "Hashtags in an ad's text link away from the ad." under it. The Lab route does not set it.
+- The chip sits after Generate. Dates are Europe/London. An under-floor chip at 393 shows the count ("2 posts"). Pronouns come from the artist row; with none, the sentences say "their" / "they're". The frame clock is 10 Nov 2026 so the 10 Oct read is past 30 days and still labels "Sat 10 Oct".
 - With the switch off, a hashtag is rejected at any post count. An @mention is rejected either way. Exemplars keep their line breaks.
 - The event page passes `quoteMode`, so the chip mounts there. Caption frames do not pass it, so CL1–CL10 stay without the chip.
 - The three `fallbackSentence` lines are returned on the writer result and are not drawn.

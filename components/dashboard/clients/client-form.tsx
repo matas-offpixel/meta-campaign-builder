@@ -377,14 +377,18 @@ export function ClientForm({ mode, initial }: Props) {
             <p className="text-xs text-muted-foreground">
               Leading &ldquo;@&rdquo; is stripped on save.
             </p>
-            <label className="mt-2 flex items-start gap-2 text-sm">
+            <label className="mt-2 flex items-start gap-2 text-sm" htmlFor="client-voice-hashtags">
               <input
+                id="client-voice-hashtags"
                 type="checkbox"
                 className="mt-1"
                 checked={hashtagsInAds}
                 onChange={(event) => setHashtagsInAds(event.target.checked)}
               />
-              <span>Hashtags in an ad&apos;s text link away from the ad.</span>
+              <span>
+                <span className="font-medium">Hashtags in ad text</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">Hashtags in an ad&apos;s text link away from the ad.</span>
+              </span>
             </label>
           </div>
           <div className="flex flex-col gap-1.5">
