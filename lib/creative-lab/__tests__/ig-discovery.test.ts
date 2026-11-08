@@ -8,6 +8,7 @@ import {
   IG_MEDIA_FIELDS,
   igScore,
   imageHeaderSize,
+  parseIgPost,
   plainIgMessage,
   rankIgPosts,
   requestArtistClip,
@@ -27,6 +28,7 @@ function post(over: Partial<IgPost> & { id: string }): IgPost {
     mediaType: "VIDEO",
     mediaProductType: "REELS",
     permalink: `https://www.instagram.com/reel/${over.id}/`,
+    caption: null,
     postedAt: daysBefore(1),
     likes: 10,
     comments: 0,
@@ -206,6 +208,7 @@ describe("findArtistClips", () => {
     assert.equal(stored.some((row) => "media_url" in row), false);
     assert.equal(IG_MEDIA_FIELDS.includes("media_url"), false);
     assert.equal(IG_MEDIA_FIELDS.includes("thumbnail_url"), true);
+    assert.equal(IG_MEDIA_FIELDS.includes("caption"), true);
   });
 
   it("measures the first video slide and does not store the thumbnail url", async () => {
@@ -266,6 +269,37 @@ describe("findArtistClips", () => {
       "copyright:v7", "copyright:v6", "copyright:v5", "copyright:v4", "copyright:v3", "copyright:v2", "copyright:v1", "copyright:v0",
     ]);
     assert.equal(fake.tables.creative_lab_ig_candidates.find((row) => row.ig_media_id === "v8")?.status, "requested");
+  });
+
+  it("stores the caption verbatim from either edge and fills a null caption without changing a held status", async () => {
+    const caption = "See you on the 27th 🔥\n";
+    const parsed = parseIgPost({ id: "reel-a", media_type: "VIDEO", caption: `  ${caption}`, permalink: "https://www.instagram.com/reel/reel-a/" });
+    assert.equal(parsed.caption, `  ${caption}`);
+    const own = read([post({ id: "reel-a", caption, likes: 30 }), post({ id: "held-post", caption: "held words", likes: 1 })]);
+    const fake = seed({
+      creative_lab_ig_candidates: [{
+        id: "held",
+        artist_id: "artist-1",
+        ig_media_id: "held-post",
+        permalink: "https://www.instagram.com/reel/held-post/",
+        status: "requested",
+        caption: null,
+        score: 1,
+      }],
+    });
+    await findArtistClips(fake as unknown as ServiceRoleDb, { artistId: "artist-1", now: NOW, read: own });
+    const stored = fake.tables.creative_lab_ig_candidates.find((row) => row.ig_media_id === "reel-a");
+    assert.equal(stored?.caption, caption);
+    assert.equal(typeof stored?.caption_fetched_at, "string");
+    const held = fake.tables.creative_lab_ig_candidates.find((row) => row.ig_media_id === "held-post");
+    assert.equal(held?.status, "requested");
+    assert.equal(held?.caption, "held words");
+    const discovery = read([post({ id: "reel-b", caption })]);
+    discovery.media = async () => ({ ok: false, message: "own edge refused" });
+    const found = seed();
+    const result = await findArtistClips(found as unknown as ServiceRoleDb, { artistId: "artist-1", now: NOW, read: discovery });
+    assert.equal(result.source, "none");
+    assert.equal(found.tables.creative_lab_ig_candidates[0]?.caption, caption);
   });
 
   it("finds clips for an artist who is not ticked as cleared", async () => {

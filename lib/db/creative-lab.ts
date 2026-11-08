@@ -11,9 +11,18 @@ import { artistKey, playedBefore, spotifyCandidatesOf } from "../creative-lab/li
 import { clipWindow, currentRenderError } from "../creative-lab/surface.ts";
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
+import { quoteLines, validateQuote } from "../creative-lab/quote.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
 
 type Row = Record<string, unknown>;
+
+function pronounOn(profile: unknown): string | null {
+  if (!profile || typeof profile !== "object") return null;
+  const row = profile as { pronouns?: unknown; pronoun?: unknown };
+  if (typeof row.pronouns === "string" && row.pronouns.trim()) return row.pronouns.trim();
+  if (typeof row.pronoun === "string" && row.pronoun.trim()) return row.pronoun.trim();
+  return null;
+}
 
 function publicThumbUrl(path: string): string | null {
   if (!path) return null;
@@ -125,6 +134,9 @@ export type CreativeLabCardData = {
     clipSource: string;
     clipFolderLastError: string | null;
     igLastError: string | null;
+    igUsername: string | null;
+    /** From the library artist's profile when a pronoun is stored there. */
+    pronouns: string | null;
     igCandidates: {
       id: string;
       igMediaId: string;
@@ -142,9 +154,11 @@ export type CreativeLabCardData = {
       lengthSeconds: number | null;
       overlayOpen: boolean;
       overlay: { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null;
+      caption?: string | null;
     }[];
     rights: RightsState;
     rightsLabel: string;
+    approvedAt?: string | null;
   }[];
   clips: {
     id: string;
@@ -199,6 +213,12 @@ export type CreativeLabCardData = {
     validatorOk: boolean;
     validatorDetail: string;
     awaitingLong: boolean;
+    mode?: "caption" | "quote";
+    quoteSource?: "press_kit" | "post" | "typed" | null;
+    quoteSourceRef?: string | null;
+    quoteSourceNote?: string | null;
+    quoteWeight?: 400 | 700 | null;
+    artistId?: string | null;
   }[];
   adSets: { metaAdSetId: string; adAccountId: string; name: string; status: string; adCount: number; cap: 50 }[];
   adAccountId: string | null;
@@ -399,6 +419,8 @@ export async function loadCreativeLabCard(
       clipSource: ["spark", "file", "instagram", "presskit"].includes(text(row, "clip_source")) ? text(row, "clip_source") : "file",
       clipFolderLastError: text(row, "clip_folder_last_error") || null,
       igLastError: text(row, "ig_last_error") || null,
+      igUsername: text(row, "ig_username") || null,
+      pronouns: pronounOn(libraryById.get(text(row, "artist_id"))?.profile_jsonb),
       igCandidates: candidateRows
         .filter((candidate) => text(candidate, "artist_id") === text(row, "id"))
         .filter((candidate) => ["candidate", "requested", "skipped", "imported"].includes(text(candidate, "status")))
@@ -420,9 +442,11 @@ export async function loadCreativeLabCard(
           lengthSeconds: null,
           overlayOpen: false,
           overlay: overlayOf(candidate.overlay_check),
+          caption: typeof candidate.caption === "string" ? candidate.caption : null,
         })),
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
+      approvedAt: text(row, "approved_at") || null,
     })),
     clips: clipRows.map((row) => {
       const asset = assetOf.get(text(row, "creative_asset_id"));
@@ -526,6 +550,31 @@ export async function loadCreativeLabCard(
         const sizeVariant = text(row, "size_variant") || "default";
         const overlay = text(row, "text");
         const primary = text(row, "primary_text");
+        const mode = text(row, "mode") === "quote" || style === "quote" ? "quote" as const : "caption" as const;
+        const source = text(row, "quote_source");
+        const quoteSource = source === "press_kit" || source === "post" || source === "typed" ? source : null;
+        const quoteWeight = Number(row.quote_weight) === 400 ? 400 as const : Number(row.quote_weight) === 700 ? 700 as const : null;
+        if (mode === "quote") {
+          const check = facts ? validateQuote(overlay, facts) : null;
+          const stored = Array.isArray(row.lines) ? (row.lines as string[]).map((line) => String(line)) : quoteLines(overlay);
+          return {
+            id: text(row, "id"),
+            style,
+            status: text(row, "status"),
+            lines: stored.length ? stored : quoteLines(overlay),
+            primaryText: primary,
+            sizeVariant,
+            validatorOk: check?.ok ?? false,
+            validatorDetail: check ? (check.sentence ?? "") : "No event facts.",
+            awaitingLong: false,
+            mode,
+            quoteSource,
+            quoteSourceRef: text(row, "quote_source_ref") || null,
+            quoteSourceNote: text(row, "quote_source_note") || null,
+            quoteWeight,
+            artistId: text(row, "artist_id") || null,
+          };
+        }
         const check = facts && isCaptionStyle(style)
           ? validateCaption(overlay, style, (row.declared_names as string[] | undefined) ?? [], facts, { version: text(row, "style_version") }, { primaryText: primary })
           : null;
@@ -539,6 +588,7 @@ export async function loadCreativeLabCard(
           validatorOk: check?.ok ?? false,
           validatorDetail: check ? failedCheckSentence(check.ok, check.errors.map((error) => error.detail)) ?? "" : "No event facts.",
           awaitingLong: sizeVariant === "long" && !profile.longApproved,
+          mode,
         };
       }),
     adSets: adSets.map((row) => ({

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import reference from "../../../src/remotion/caption-style/reference/reference.json" with { type: "json" };
 import { CHARS_PER_LINE, LOW_QUALITY_AFTER_CROP, boxInsideRect, captionInsideSafeRect, captionLayout, captionLineStrokes, cropWindow, hashProfile, lineFits, outputSize, profile, styleVersion } from "../../../src/remotion/caption-style/profile.ts";
+import { quoteProfile, quoteStyleVersion } from "../../../src/remotion/caption-style/quote-profile.ts";
 
 const sourceY = profile.verticalCenterPctOfSourceHeight * 1280;
 
@@ -129,6 +130,38 @@ describe("caption layout", () => {
     assert.equal(await hashProfile(profile), await hashProfile({ ...profile, longApproved: false }));
     assert.equal(await styleVersion(), await styleVersion());
     assert.match(await styleVersion(), /^[0-9a-f]{64}$/);
+  });
+
+  it("rule 13 is unchanged and the quote profile is a second file", async () => {
+    assert.equal(profile.fontFamily, "TikTok Sans");
+    assert.equal(profile.fontWeight, 400);
+    assert.equal(profile.fontWidth, 120);
+    assert.equal(profile.fontSizePctOfWidth, 0.051389);
+    assert.equal(profile.fill, "#FFFFFF");
+    assert.equal(profile.stroke, "#000000");
+    assert.equal(profile.strokeWidthPctOfFontSize, 0.054054);
+    assert.equal(profile.lineHeight, 1.054);
+    assert.equal(profile.charsPerLine, 18);
+    assert.equal(profile.maxLines, 4);
+    assert.equal(profile.horizontalCenterPctOfWidth, 0.493);
+    assert.equal(profile.verticalCenterPctOfSourceHeight, 0.355469);
+    assert.equal(quoteProfile.fontFamily, "TikTok Sans");
+    assert.equal(quoteProfile.fontWeight, 700);
+    assert.equal(quoteProfile.altFontWeight, 400);
+    assert.equal(quoteProfile.fontWidth, 100);
+    assert.equal(quoteProfile.stroke, null);
+    assert.equal(quoteProfile.capPctOfHeight, 0.0135);
+    assert.equal(quoteProfile.fontSizePctOfHeight, 0.0193);
+    assert.equal(quoteProfile.pitchPctOfHeight, 0.03);
+    assert.equal(quoteProfile.verticalCenterPctOfSourceHeight, 0.28);
+    assert.equal(quoteProfile.verticalCenterInFourFive, 0.187);
+    assert.equal(quoteProfile.horizontalCenterMin, 0.499);
+    assert.equal(quoteProfile.horizontalCenterMax, 0.506);
+    assert.equal(quoteProfile.wrapPctOfWidth, 0.7);
+    assert.equal(quoteProfile.maxLines, 4);
+    assert.equal(quoteProfile.quoteMarks, false);
+    assert.equal(quoteProfile.attribution, false);
+    assert.notEqual(await quoteStyleVersion(), await styleVersion());
   });
 
   it("five long lines stay inside the 4:5 safe rectangle at the caption centre", () => {

@@ -88,6 +88,21 @@ describe("proposeRound", () => {
     assert.ok(result.skipped.some((row) => row.reason === "not cleared for Luke Dean's own channels"));
   });
 
+  it("a quote is skipped with the artist-voice reason until the artist is cleared", async () => {
+    const fake = withVoices();
+    fake.tables.creative_lab_captions = [
+      { id: "cap-line", event_id: EVENT, status: "approved", text: "Luke Dean joins", style: "lineup", caption_no: 1, style_version: "v1", created_at: "2026-11-04" },
+      { id: "cap-quote", event_id: EVENT, status: "approved", text: "See you at Circuit", style: "quote", mode: "quote", artist_id: ARTIST, caption_no: 1, style_version: "v1", created_at: "2026-11-06" },
+    ];
+    fake.tables.creative_lab_artists[0].approved_at = null;
+    fake.tables.creative_lab_artists[0].meta_page_id = "page-luke";
+    fake.tables.creative_lab_artists[0].instagram_actor_id = "ig-luke";
+    const result = await proposeRound(db(fake), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET });
+    assert.ok(result.skipped.some((row) => row.reason === "not cleared for Luke Dean's own channels"));
+    assert.equal(result.ads.some((ad) => ad.adName.includes("quote")), false);
+    assert.ok(result.ads.some((ad) => ad.adName.includes("lineup")));
+  });
+
   it("a cleared artist gets both voices", async () => {
     const fake = withVoices();
     fake.tables.creative_lab_artists[0].meta_page_id = "page-luke";

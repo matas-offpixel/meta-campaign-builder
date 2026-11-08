@@ -311,6 +311,7 @@ export async function proposeRound(
   ]);
   const approved = captionRows
     .filter((row) => row.status === "approved")
+    .filter((row) => row.mode !== "quote" && row.style !== "quote" || String(row.artist_id ?? "") === args.artistId)
     .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
   const cleared = Boolean(artist.approved_at);
   const hasArtistVoice = cleared && Boolean(String(artist.meta_page_id ?? "").trim() && String(artist.instagram_actor_id ?? "").trim());
@@ -410,6 +411,10 @@ export async function proposeRound(
 
 type Pair = { clipId: string; captionId: string; role: "control" | "challenger"; retestOf: string | null };
 
+function isQuote(caption: Caption): boolean {
+  return caption.mode === "quote" || caption.style === "quote";
+}
+
 function allowCaption(
   caption: Caption,
   artistName: string,
@@ -417,12 +422,17 @@ function allowCaption(
   hasArtistPage: boolean,
   skipped: { reason: string }[],
 ): boolean {
-  if (caption.style === "artist_first_person" && !cleared) {
+  const voice = caption.style === "artist_first_person" || isQuote(caption);
+  if (voice && !cleared) {
     skipped.push({ reason: `not cleared for ${artistName}'s own channels` });
     return false;
   }
   if (caption.style === "artist_first_person" && !hasArtistPage) {
     skipped.push({ reason: `caption ${caption.caption_no} is artist_first_person and the artist has no Page and Instagram account` });
+    return false;
+  }
+  if (isQuote(caption) && !hasArtistPage) {
+    skipped.push({ reason: `caption ${caption.caption_no} is a quote and the artist has no Page and Instagram account` });
     return false;
   }
   return true;
@@ -479,13 +489,13 @@ function pairsForFirstRound(
   let control: Caption | null = null;
   if (!starting) {
     skipped.push({ reason: "the artist's starting caption is not an approved caption" });
-  } else if (starting.style === "artist_first_person" && !cleared) {
+  } else if ((starting.style === "artist_first_person" || isQuote(starting)) && !cleared) {
     skipped.push({ reason: `needs clearance to run on ${artistName}'s channels` });
   } else if (allowCaption(starting, artistName, cleared, hasArtistPage, skipped)) {
     control = starting;
   }
   if (!control) {
-    control = approved.find((caption) => caption.style !== "artist_first_person") ?? null;
+    control = approved.find((caption) => caption.style !== "artist_first_person" && !isQuote(caption)) ?? null;
   }
   const pairs: Pair[] = [];
   const push = (clip: Clip, caption: Caption, role: Pair["role"]) => {

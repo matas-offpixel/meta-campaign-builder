@@ -71,6 +71,9 @@ describe("plan-v2 frame catalog", () => {
     assert.match(runner, /--local/);
     assert.match(runner, /CI truth/);
     assert.match(runner, /data-frame-ready/);
+    assert.match(runner, /TikTokSans\[opsz,slnt,wdth,wght\]\.ttf/);
+    assert.match(runner, /document\.fonts\.ready/);
+    assert.match(runner, /This shot is not a baseline/);
     assert.match(runner, /classifyShot/);
     assert.match(runner, /missingBaselineLine/);
     assert.doesNotMatch(runner, /UPDATE \|\| !existsSync/);
