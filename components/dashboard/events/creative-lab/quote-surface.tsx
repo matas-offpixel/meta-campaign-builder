@@ -361,7 +361,7 @@ export function CaptionPlate({
           <i className="absolute right-1 top-0 text-[8px] not-italic text-white">4:5 rect · 14.84 %</i>
         </div>
         <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-white/80" style={{ bottom: "14.84%" }} />
-        <CentreMark at="35.5%" label={marker} clear="5.4cqw" />
+        <CentreMark at="35.5%" label={marker} clear="9cqw" />
         <p
           className="pointer-events-none absolute top-[35.5%] left-[8%] right-[8%] -translate-y-1/2 text-center whitespace-pre-line text-white"
           style={{
