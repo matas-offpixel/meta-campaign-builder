@@ -25,7 +25,7 @@ The caption writer takes its tone from the page's own Instagram captions. The se
 
 - [x] `npm test`
 - [x] `npm run build`
-- [ ] frames:check on CLV1–CLV4
+- [ ] frames:check on CLV1–CLV4 (baselines 42501686368 and 42501694140)
 
 ## Notes
 
@@ -35,5 +35,5 @@ The caption writer takes its tone from the page's own Instagram captions. The se
 - The event page passes `quoteMode`, so the chip mounts there. Caption frames do not pass it, so CL1–CL10 stay without the chip.
 - The three `fallbackSentence` lines are returned on the writer result and are not drawn.
 - Migration 215 sha256 `846ed37ffaae4109e78493f69cc5c9e32a1ae1556046569e5516bb6c75ab6a71`. Not applied.
-- CLV1–CLV4 are reshot from two Ubuntu `frames-baselines` runs (`only=CLV`) after this fix.
+- CLV1–CLV4 at 1280 and 393 rewritten from matching Ubuntu runs 42501686368 and 42501694140 (`only=CLV`, head `da9b7bc`).
 
