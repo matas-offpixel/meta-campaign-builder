@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Creative Lab — clip selection, and the words that say how a clip becomes an ad — 9 Nov 2026</title>
+<title>Creative Lab — clip selection, the words that say how a clip becomes an ad, and exports to Drive — 9 Nov 2026</title>
 <style>
 :root{
   --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
@@ -116,6 +116,28 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 .prog i{display:block;height:100%;width:45%;background:var(--ink-2)}
 .pend{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .pend .panel{margin:0}
+
+/* exports */
+.ehead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin:0}
+.ehead h4{margin:0;font:700 18px/1.15 var(--sans)}
+.ehead .meta{font-size:12px;color:var(--ink-2);margin-top:3px}
+.ehead .links{display:flex;gap:14px;align-items:center;font-size:12.5px;white-space:nowrap}
+.ehead .links a{color:var(--ink);text-decoration:underline;text-underline-offset:3px;font-weight:600}
+.rrow{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:12px}
+.rrow:first-of-type{border-top:0}
+.rrow .mini{width:34px;height:60px;border-radius:4px}
+.rrow .nm{font-weight:600}
+.rrow .sub{font:10.5px var(--mono);color:var(--ink-3);margin-top:2px}
+.rrow .err{font-size:11.5px;color:var(--brick);margin-top:3px}
+.rrow .err u{color:var(--ink)}
+.indrive{display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:99px;border:1px solid var(--border-strong);font:600 9.5px/1 var(--mono);color:var(--ink-2);white-space:nowrap}
+.indrive:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--olive)}
+.path{font:11px var(--mono);color:var(--ink-2);background:var(--muted);border-radius:6px;padding:8px 10px;line-height:1.6;white-space:pre-wrap}
+.src-tabs{display:flex;gap:0;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden;height:28px;margin:0 0 10px;width:max-content}
+.src-tabs span{padding:0 12px;display:inline-flex;align-items:center;font:600 12px var(--sans);color:var(--ink-2);border-right:1px solid var(--border-strong)}
+.src-tabs span:last-child{border-right:0}
+.src-tabs span.on{background:var(--ink);color:var(--sand)}
+.lrow{display:grid;grid-template-columns:34px 1fr auto auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:12px}
 </style>
 </head>
 <body>
@@ -123,11 +145,12 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 
 <div class="k">OFF/PIXEL · DESIGN RECORD · CREATIVE LAB · CLIP SELECTION AND THE WORDS GAP · 9 NOVEMBER 2026 · ISSUE 1</div>
 <h1>Creative Lab — clip selection, and the words that say how a clip becomes an ad</h1>
-<p class="lead">From Matas's first live run, two things. <b>Selection:</b> every usable clip goes into every test today; he needs to choose which go in — all, none, or a hand-picked set — and have that choice drive the previews, the round and the renders. <b>Words:</b> nothing on the Lab says a clip becomes an ad only when a round pairs it with an approved caption. This record rules a selection state on the clip tile, the Clips header that controls it, the generator's <i>Pair with</i> reading it, the round matrix narrowed to it, the two header notes, and the three pending states Claude Code is adding. Frames at 1280 and 393. Every value not read from the code or named by Matas is under <i>Invented</i>.</p>
+<p class="lead">From Matas's first live run, two things. <b>Selection:</b> every usable clip goes into every test today; he needs to choose which go in — all, none, or a hand-picked set — and have that choice drive the previews, the round and the renders. <b>Words:</b> nothing on the Lab says a clip becomes an ad only when a round pairs it with an approved caption. This record rules a selection state on the clip tile, the Clips header that controls it, the generator's <i>Pair with</i> reading it, the round matrix narrowed to it, the two header notes, and the three pending states Claude Code is adding. <b>Exports</b> (added before the PR, Matas): every finished render is copied to the event's folder on the Off/Pixel Shared Drive, the event header links to it, render rows say when a copy is there, and the MML's ② Creatives intake lists this event's finished renders as a source. Frames at 1280 and 393. Every value not read from the code or named by Matas is under <i>Invented</i>.</p>
 <div class="quote">"clips 1, 2, 5, 7 with caption variations and overlays, not always all of them" — Matas, first live run</div>
 
 <div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
-<ul style="margin:0;padding-left:18px"><li><b>Issue 1 · 9 Nov 2026.</b> Rulings S1–S12: selection on the clip tile (the tick), the Clips header's count and Select all · None, the default and how new clips join, persistence per event, <i>Pair with</i> as Selected clips · Best of selected · Each selected, the round from the selection with the per-pairing knock-out kept, renders only for on cells, the two header notes, the pending states Finding… · Importing… · Writing…. Frames CLS1–CLS4. Hand-back HS1–HS8.</li></ul></div>
+<ul style="margin:0;padding-left:18px"><li><b>Issue 1, exports added before the PR · 9 Nov 2026 (Matas).</b> S13–S17: every finished render copied to Shared Drive "Off/Pixel Exports" by event and round, the file name (amended so two captions of one angle can't collide), "Drive folder ↗" on the event header, the "in Drive" mark and "Drive copy failed — retry" on render rows (never blocking launch), and "From the Lab" in the MML ② Creatives intake. Frames CLS5, CLS6. Hand-back HS9–HS12.</li>
+<li><b>Issue 1 · 9 Nov 2026.</b> Rulings S1–S12: selection on the clip tile (the tick), the Clips header's count and Select all · None, the default and how new clips join, persistence per event, <i>Pair with</i> as Selected clips · Best of selected · Each selected, the round from the selection with the per-pairing knock-out kept, renders only for on cells, the two header notes, the pending states Finding… · Importing… · Writing…. Frames CLS1–CLS4. Hand-back HS1–HS8.</li></ul></div>
 
 <h2>Data note — what is there today</h2>
 <table class="t">
@@ -137,6 +160,9 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 <tr><td><code>components/…/creative-lab/captions.tsx</code></td><td><i>Pair with</i> is <code>Best clip · Each new clip</code> (<code>each: boolean</code>); <code>clipId</code> is the lead clip or null.</td><td>S6: three options, all reading the selection.</td></tr>
 <tr><td>F5 · Round matrix</td><td>Approved captions across, usable clips down, one cell per ad, all on by default, tap a cell off; "{n} ads · {clips} × {captions}, {off} left out"; the button says why when off.</td><td>S7: rows are the selected clips only; the knock-out stays.</td></tr>
 <tr><td>F1 · Strip</td><td>Next precedence: rights waiting → captions waiting → round proposable → "Round {n} is running."</td><td>S10: the Next line stays as it is.</td></tr>
+<tr><td>Render row (design-rules.md) · <code>render-queue.ts</code></td><td>One row per render: mini frame · pairing · progress · ready / time left / queue place; tap ready = play. Renders land in the app's storage; nothing copies them anywhere else.</td><td>S13–S15: a copy to Drive on ready, marked on the row.</td></tr>
+<tr><td><code>clip-intake.ts</code> · <code>clip_folder_url</code></td><td>The Lab already <b>reads</b> Drive folders (an artist's clip folder, imported nightly). Nothing <b>writes</b> to Drive.</td><td>S13: the export needs write access to the Shared Drive — a dependency, HS9.</td></tr>
+<tr><td>MML ② Creatives (<code>lib/plan</code>, <code>campaign_plan_intake_assets</code>)</td><td>The plan's creative intake: assets come in, match groups pair the 4:5 and 9:16 of one creative, routing sends them to each platform.</td><td>S17: "From the Lab" joins the intake's sources; a picked render becomes an intake asset like an upload. The intake's existing sources are drawn as stand-ins (Upload · Drive) — this record changes none of them.</td></tr>
 <tr><td>Claude Code (in flight)</td><td>Pending labels on three actions: Find clips → <b>Finding…</b>, Add on a candidate → <b>Importing…</b>, Write {n} → <b>Writing…</b>.</td><td>S11: carried here as the component's busy state.</td></tr>
 </table>
 
@@ -156,7 +182,12 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 <tr><td>S9 The words</td><td>Two one-line notes, verbatim, muted ink-2 under the section titles. Clips: <b>"Selected clips become ads when a round pairs them with an approved caption"</b>. Captions: <b>"✓ a caption, then Propose round 1 renders it on the selected clips"</b>, with "round 1" following the next round's number ("Propose round 2" once round 1 has run). No full stops added. The notes never change with state and are not dismissible.</td></tr>
 <tr><td>S10 The strip</td><td>The Next line stays exactly as F1 ruled. The strip's Clips cell keeps its count ({m} usable); its state line reads <b>"{n} selected"</b> when the event is in <i>chosen</i> mode, and as today in <i>all</i>.</td></tr>
 <tr><td>S11 Pending states</td><td>One busy state for an action button: the label becomes the action's present participle with an ellipsis — <b>Finding…</b> (Find clips, on the Clips header and the artist row), <b>Importing…</b> (Add on a candidate tile, with the tile's progress bar under it, then ✓ Added), <b>Writing…</b> (Write {n}). The button keeps its idle width, is disabled at 60 %, and nothing else in the section locks: ticks, Select all · None and other tiles stay usable. No spinner glyph without the word. On failure the label returns and one sentence under the control says what to do (rule 7).</td></tr>
-<tr><td>S12 393</td><td>Ticks at 22 px with a 32 px hit area; the count line under the note; the grid 2 across with all usable tiles in it (no sideways group hides a tick); <i>Pair with</i> stays visible (Mode · Angle · Pair with are the three inputs; How many and Stage behind More); the matrix is the list of pairings, first three then "+n more · {off} off", the round bar's not-selected count on its own line.</td></tr>
+<tr><td>S12 393</td><td>Ticks at 22 px with a 32 px hit area; the count line under the note; the grid 2 across with all usable tiles in it (no sideways group hides a tick); <i>Pair with</i> stays visible (Mode · Angle · Pair with are the three inputs; How many and Stage behind More); the matrix is the list of pairings, first three then "+n more · {off} off", the round bar's not-selected count on its own line. Exports: "Drive folder ↗" drops under the event name beside View client; render rows keep the mark on their second line; From the Lab rows stack frame, name and Add, with round, length and the mark on one line under the name.</td></tr>
+<tr><td>S13 Exports — where</td><td>Every <b>finished</b> render (status ready) is copied to the event's folder on the Shared Drive <b>"Off/Pixel Exports"</b>: <code>Off/Pixel Exports / {Client} / {Event code} {Event name} / Creative Lab / Round {n}</code> — for Puzzle 4th Birthday, <code>Off/Pixel Exports / Puzzle / P26-BDAY Puzzle 4th Birthday / Creative Lab / Round 1</code>. Folders are created on the first copy that needs them. Client and event names as written on their records; the event code verbatim (never normalised). An event with no code uses its name alone. The Shared Drive is Off/Pixel's; nothing is shared with the client from here.</td></tr>
+<tr><td>S14 Exports — the file name</td><td>Matas's pattern <code>{event code}_{artist}-{clip n}_{angle}-{stage}_r{n}.mp4</code>, <b>amended</b>: three Lineup captions on Enzo #1 in round 1 would all be <code>P26-BDAY_enzo-siragusa-1_lineup-on-sale_r1.mp4</code>, so the angle carries the caption's number — <code>{event code}_{artist}-{clip n}_{angle}{caption n}-{stage}_r{n}.mp4</code> → <code>P26-BDAY_enzo-siragusa-1_lineup2-on-sale_r1.mp4</code>. Artist lower-case with hyphens (accents dropped, nothing else changed); angle the style key with hyphens (<code>lineup</code>, <code>artist-first-person</code>, <code>pov</code>, <code>scarcity</code>, <code>quote</code>); stage <code>signup</code> or <code>on-sale</code>; the event code verbatim. A re-render of the same pairing in the same round adds <code>_v2</code>, never overwrites.</td></tr>
+<tr><td>S15 Render rows</td><td>A finished row gains a small <b>"in Drive"</b> mark (olive dot + the words, ink outline) once the copy has landed; while copying, nothing extra is drawn. If the copy fails after its retries, the row says <b>"Drive copy failed — retry"</b> in brick, "retry" the link that re-queues it (rule 7). A failed or missing copy <b>never blocks</b> pairing, proposing or launch — the render in the app is the ad; the Drive file is a copy.</td></tr>
+<tr><td>S16 The event header</td><td><b>"Drive folder ↗"</b> sits next to <b>View client</b> on the event header, opening the event's folder (<code>{Event code} {Event name}</code>) in a new tab. It appears once the folder exists (the first copy); the header has no empty state for it. Operator pages only — never on a client page (as R3).</td></tr>
+<tr><td>S17 MML ② Creatives — From the Lab</td><td>The intake gains a source, <b>From the Lab</b>, listing <b>this event's finished renders</b>, newest round first, one row each: frame · pairing ("Enzo #1 × Lineup 'at Circuit'") · round · 9:16 · length · the "in Drive" mark when copied · <code>Add</code> (→ <code>✓ Added</code>). An added render becomes an intake asset like an upload, keeps its pairing as its name, and enters the match groups as the 9:16 of its creative. Renders of other events never appear. Empty: "No finished renders for this event yet — propose a round in the Creative Lab."</td></tr>
 </table>
 
 <!-- ===================== CLS1 ===================== -->
@@ -357,6 +388,68 @@ Reeshy &amp; more.
 </div></figure>
 </div>
 
+<!-- ===================== CLS5 ===================== -->
+<h2>CLS5 · Exports — the event header and the render rows (1280 and 393)</h2>
+<p class="lead">Round 1 is rendering. Every ready render is copied to the event's Drive folder and its row says "in Drive" once the copy lands. Enzo #2's copy failed after its retries: the row says so in one sentence with a retry, and Launch round 1 stays live — the render in the app is the ad.</p>
+<div class="frame">
+<figure><figcaption>CLS5-1280 · "Drive folder ↗" beside View client · render rows: two in Drive, one failed copy with retry, one ready and still copying (nothing extra drawn), one rendering · the file name under each finished pairing · Launch not blocked</figcaption>
+<div class="vp" style="width:1280px;padding:18px">
+<div class="panel"><div class="ehead"><div><h4>Puzzle 4th Birthday</h4><div class="meta">Puzzle · P26-BDAY · Sat 27 Dec · Circuit, Southampton</div></div><div class="links"><a>View client</a><a>Drive folder ↗</a></div></div></div>
+<div class="panel">
+  <div class="sec-h"><h3>Round 1 · Enzo Siragusa · renders</h3><span class="muted" style="font-size:12px">9 of 11 ready · 2 rendering</span></div>
+  <div class="rrow"><span class="mini g1"></span><div><div class="nm">Enzo #1 × Lineup "at Circuit"</div><div class="sub">P26-BDAY_enzo-siragusa-1_lineup1-on-sale_r1.mp4</div></div><span style="display:flex;gap:8px;align-items:center"><span class="indrive">in Drive</span><span class="muted">Ready · 0:18 ▶</span></span></div><div class="rrow"><span class="mini g1"></span><div><div class="nm">Enzo #1 × Lineup "turns 4"</div><div class="sub">P26-BDAY_enzo-siragusa-1_lineup2-on-sale_r1.mp4</div></div><span style="display:flex;gap:8px;align-items:center"><span class="indrive">in Drive</span><span class="muted">Ready · 0:18 ▶</span></span></div><div class="rrow"><span class="mini g2"></span><div><div class="nm">Enzo #2 × Lineup "at Circuit"</div><div class="sub">P26-BDAY_enzo-siragusa-2_lineup1-on-sale_r1.mp4</div><div class="err">Drive copy failed — <u>retry</u></div></div><span class="muted">Ready · 0:22 ▶</span></div><div class="rrow"><span class="mini g5"></span><div><div class="nm">Enzo #5 × Lineup "at Circuit"</div><div class="sub">P26-BDAY_enzo-siragusa-5_lineup1-on-sale_r1.mp4</div></div><span class="muted">Ready · 0:15 ▶</span></div><div class="rrow"><span class="mini g5"></span><div><div class="nm">Enzo #5 × Lineup "turns 4"</div><div class="sub">rendering</div></div><span class="muted" style="min-width:120px;text-align:right">40 s left<div class="prog"><i></i></div></span></div>
+  <div class="rrow" style="grid-template-columns:1fr auto"><span class="muted">+ 6 more — 5 ready, 1 rendering</span><span class="btn solid">Launch round 1</span></div>
+</div>
+<div class="panel" style="max-width:760px">
+  <div class="sec-h"><div><span class="k" style="font:600 11px var(--mono);color:var(--ink-3)">DRIVE SIDE · not app UI — what the copies create</span></div></div>
+  <div class="path">Shared Drive "Off/Pixel Exports"
+└ Puzzle
+  └ P26-BDAY Puzzle 4th Birthday
+    └ Creative Lab
+      └ Round 1
+        ├ P26-BDAY_enzo-siragusa-1_lineup1-on-sale_r1.mp4
+        └ P26-BDAY_enzo-siragusa-1_lineup2-on-sale_r1.mp4</div>
+</div>
+</div></figure>
+<figure><figcaption>CLS5-393 · the link drops under the event name beside View client · the mark on each row's second line · the failure sentence under it</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+<div class="panel" style="padding:12px"><div class="ehead" style="display:block"><h4>Puzzle 4th Birthday</h4><div class="meta">Puzzle · P26-BDAY · Sat 27 Dec</div><div class="links" style="margin-top:8px"><a>View client</a><a>Drive folder ↗</a></div></div></div>
+<div class="panel" style="padding:12px">
+  <div class="sec-h"><h3 style="font-size:15px">Round 1 · renders</h3><span class="muted" style="font-size:11.5px">9 of 11 ready</span></div>
+  <div class="rrow"><span class="mini g1"></span><div><div class="nm">Enzo #1 × "at Circuit"</div><div class="sub"><span class="indrive">in Drive</span></div></div><span class="muted">0:18 ▶</span></div><div class="rrow"><span class="mini g1"></span><div><div class="nm">Enzo #1 × "turns 4"</div><div class="sub"><span class="indrive">in Drive</span></div></div><span class="muted">0:18 ▶</span></div><div class="rrow"><span class="mini g2"></span><div><div class="nm">Enzo #2 × "at Circuit"</div><div class="sub">Ready</div><div class="err">Drive copy failed — <u>retry</u></div></div><span class="muted">0:22 ▶</span></div><div class="rrow"><span class="mini g5"></span><div><div class="nm">Enzo #5 × "at Circuit"</div><div class="sub">Ready</div></div><span class="muted">0:15 ▶</span></div><div class="rrow"><span class="mini g5"></span><div><div class="nm">Enzo #5 × "turns 4"</div><div class="sub">40 s left</div></div><span class="muted" style="width:70px"><div class="prog"><i></i></div></span></div>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:10px"><span class="muted" style="font-size:12px;flex:1">+ 6 more</span><span class="btn solid">Launch round 1</span></div>
+</div>
+</div></figure>
+</div>
+<p class="lead">The file name carries the caption's number after the angle (<code>lineup1</code>, <code>lineup2</code>) — without it, the three Lineup captions on Enzo #1 would share one name (S14).</p>
+
+<!-- ===================== CLS6 ===================== -->
+<h2>CLS6 · MML ② Creatives — the "From the Lab" source (1280 and 393)</h2>
+<p class="lead">In the event's plan, ② Creatives gains a third source beside the existing ones. It lists this event's finished renders, newest round first. Two are already added; Enzo #2 × "at Circuit" has no Drive copy and is addable all the same.</p>
+<div class="frame">
+<figure><figcaption>CLS6-1280 · source tabs, From the Lab on · four of round 1's finished renders · "in Drive" where copied · Add → ✓ Added · below, the empty state</figcaption>
+<div class="vp" style="width:1280px;padding:18px">
+<div class="panel">
+  <div class="sec-h"><div><h3>② Creatives</h3><div class="hnote">Puzzle 4th Birthday · 2 added from the Lab, each the 9:16 of its creative</div></div></div>
+  <div class="src-tabs"><span>Upload</span><span>Drive</span><span class="on">From the Lab</span></div>
+  <div class="lrow"><span class="mini g1" style="width:34px;height:60px;border-radius:4px"></span><div><div class="nm" style="font-weight:600">Enzo #1 × Lineup "at Circuit"</div><div class="sub" style="font:10.5px var(--mono);color:var(--ink-3);margin-top:2px">Round 1 · 9:16 · 0:18</div></div><span><span class="indrive">in Drive</span></span><span class="btn sm solid">✓ Added</span></div><div class="lrow"><span class="mini g1" style="width:34px;height:60px;border-radius:4px"></span><div><div class="nm" style="font-weight:600">Enzo #1 × Lineup "turns 4"</div><div class="sub" style="font:10.5px var(--mono);color:var(--ink-3);margin-top:2px">Round 1 · 9:16 · 0:18</div></div><span><span class="indrive">in Drive</span></span><span class="btn sm solid">✓ Added</span></div><div class="lrow"><span class="mini g2" style="width:34px;height:60px;border-radius:4px"></span><div><div class="nm" style="font-weight:600">Enzo #2 × Lineup "at Circuit"</div><div class="sub" style="font:10.5px var(--mono);color:var(--ink-3);margin-top:2px">Round 1 · 9:16 · 0:22</div></div><span></span><span class="btn sm">Add</span></div><div class="lrow"><span class="mini g5" style="width:34px;height:60px;border-radius:4px"></span><div><div class="nm" style="font-weight:600">Enzo #5 × Lineup "at Circuit"</div><div class="sub" style="font:10.5px var(--mono);color:var(--ink-3);margin-top:2px">Round 1 · 9:16 · 0:15</div></div><span></span><span class="btn sm">Add</span></div>
+  <div class="lrow" style="grid-template-columns:1fr"><span class="muted">+ 5 more finished renders · round 1</span></div>
+</div>
+<div class="panel" style="max-width:640px">
+  <div class="src-tabs"><span>Upload</span><span>Drive</span><span class="on">From the Lab</span></div>
+  <div class="muted" style="font-size:12.5px">No finished renders for this event yet — propose a round in the Creative Lab.</div>
+</div>
+</div></figure>
+<figure><figcaption>CLS6-393 · rows stack frame, name and Add · the mark on the meta line</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+<div class="panel" style="padding:12px">
+  <div class="sec-h"><div><h3>② Creatives</h3><div class="hnote">2 added from the Lab</div></div></div>
+  <div class="src-tabs"><span>Upload</span><span>Drive</span><span class="on">From the Lab</span></div>
+  <div class="lrow" style="grid-template-columns:34px 1fr auto"><span class="mini g1" style="width:34px;height:60px;border-radius:4px"></span><div><div style="font-weight:600">Enzo #1 × "at Circuit"</div><div style="font:10.5px var(--mono);color:var(--ink-3);margin-top:3px;display:flex;gap:6px;align-items:center">R1 · 0:18 <span class="indrive">in Drive</span></div></div><span class="btn sm solid">✓ Added</span></div><div class="lrow" style="grid-template-columns:34px 1fr auto"><span class="mini g1" style="width:34px;height:60px;border-radius:4px"></span><div><div style="font-weight:600">Enzo #1 × "turns 4"</div><div style="font:10.5px var(--mono);color:var(--ink-3);margin-top:3px;display:flex;gap:6px;align-items:center">R1 · 0:18 <span class="indrive">in Drive</span></div></div><span class="btn sm solid">✓ Added</span></div><div class="lrow" style="grid-template-columns:34px 1fr auto"><span class="mini g2" style="width:34px;height:60px;border-radius:4px"></span><div><div style="font-weight:600">Enzo #2 × "at Circuit"</div><div style="font:10.5px var(--mono);color:var(--ink-3);margin-top:3px;display:flex;gap:6px;align-items:center">R1 · 0:22</div></div><span class="btn sm">Add</span></div><div class="lrow" style="grid-template-columns:34px 1fr auto"><span class="mini g5" style="width:34px;height:60px;border-radius:4px"></span><div><div style="font-weight:600">Enzo #5 × "at Circuit"</div><div style="font:10.5px var(--mono);color:var(--ink-3);margin-top:3px;display:flex;gap:6px;align-items:center">R1 · 0:15</div></div><span class="btn sm">Add</span></div>
+</div>
+</div></figure>
+</div>
+
 <h2>Components (changes to design-rules.md)</h2>
 <table class="t">
 <tr><th>Component</th><th>Change</th><th>393</th></tr>
@@ -365,6 +458,9 @@ Reeshy &amp; more.
 <tr><td>Generator (captions)</td><td><i>Pair with</i>: Selected clips · Best of selected · Each selected, default Best of selected; "{captions} × {clips} = {n} previews" above Each selected; the no-clip sentence on a plain plate.</td><td>Mode · Angle · Pair with visible; How many and Stage behind More</td></tr>
 <tr><td>Round matrix</td><td>Rows = the round artist's selected usable clips; per-cell knock-out kept; the bar adds "· {k} of {artist}'s {m} clips not selected"; one muted "Not selected: …" line; the ochre line when a kept winner was unselected; "Select at least 1 clip to propose round {n}."</td><td>pairings list; the not-selected count on its own line</td></tr>
 <tr><td>Strip</td><td>Clips cell state line "{n} selected" in chosen mode. Next line unchanged.</td><td>same, shorter words</td></tr>
+<tr><td>Event header</td><td>"Drive folder ↗" beside View client, once the event's folder exists; operator pages only.</td><td>the links drop under the event name</td></tr>
+<tr><td>Render row</td><td>The file name under the pairing once ready (mono, ink-3); the "in Drive" mark (olive dot + words, outline chip) once copied; nothing while copying; "Drive copy failed — retry" in brick on failure, retry re-queues the copy. Launch never reads the copy state.</td><td>the mark or the state replaces the file name on the second line</td></tr>
+<tr><td>MML ② Creatives source</td><td>"From the Lab" beside the intake's sources: this event's finished renders, newest round first; frame · pairing · round · 9:16 · length · mark · Add / ✓ Added; the empty sentence.</td><td>frame · name · Add; round, length and mark on one line</td></tr>
 <tr><td>Action button · busy (new state)</td><td>Label → "Finding…" / "Importing…" / "Writing…"; idle width kept; disabled at 60 %; no spinner without the word; failure returns the label and adds the rule-7 sentence.</td><td>same</td></tr>
 </table>
 
@@ -379,6 +475,11 @@ Reeshy &amp; more.
 <tr><td>HS6 The words</td><td>The two notes verbatim; the Captions note's round number from the next round; the strip's Clips state line in chosen mode.</td><td>—</td><td>words match exactly; "Propose round 2" after round 1 has run</td></tr>
 <tr><td>HS7 Busy state</td><td>One busy state for the three actions (Claude Code's change) as S11: label, width, 60 %, no spinner, nothing else locked, the rule-7 sentence on failure.</td><td>—</td><td>CLS4 both widths</td></tr>
 <tr><td>HS8 CI frames</td><td>CLS1–CLS4 added to the CL series (ids CLS so <code>only=CLS</code> doesn't reshoot CL or CLQ). Fixture: Puzzle 4th Birthday before round 1, nine usable clips (Enzo #1–#7, Luke Dean #1, Reeshy #1) and Benji King #1 Can't run; selection chosen = Enzo #1, #2, #5, #7; three approved Lineup captions (the placeholders below); one knocked-out pairing (Enzo #2 × "&amp; more").</td><td>the CL fixture</td><td>frames:check on CLS1 ×2, CLS2 ×2, CLS3 ×2, CLS4 ×2; CL1–CL10 and CLQ1–CLQ4 unchanged</td></tr>
+<tr><td>HS9 Drive copy job</td><td>On a render reaching ready, enqueue a copy to the Shared Drive "Off/Pixel Exports": resolve or create <code>{Client} / {Event code} {Event name} / Creative Lab / Round {n}</code> (folder ids cached on the event and per round), upload the mp4 under the S14 name, <code>_v2</code>… on a name already present, never overwrite. Three retries with backoff, then failed. Needs a Drive identity with write access to that Shared Drive (the Lab only reads Drive today) — <b>Matas to provide; the design thread doesn't set credentials</b>. Runs off the render path: a slow or failed copy never delays the render's ready state, a round's proposal or launch.</td><td>render-queue.ts; a new export worker</td><td>unit: the S14 name for Enzo #1 × caption 2, on sale, round 1 = <code>P26-BDAY_enzo-siragusa-1_lineup2-on-sale_r1.mp4</code>; a second copy of that name → <code>…_r1_v2.mp4</code>; launch with a failed copy succeeds</td></tr>
+<tr><td>HS10 Columns</td><td><code>creative_lab_renders</code> gains <code>drive_status</code> text <code>pending | copied | failed</code> (null before ready), <code>drive_file_id</code>, <code>drive_file_name</code>, <code>drive_error</code>, <code>drive_copied_at</code>. <code>events</code> gains <code>drive_folder_id</code> (the event folder; null until the first copy) — the header link reads it.</td><td>new migration</td><td>unit: retry sets pending and re-enqueues; no column is read by launch</td></tr>
+<tr><td>HS11 Header and rows</td><td>"Drive folder ↗" when <code>drive_folder_id</code> is set, opening the folder in a new tab; the row's file name, mark and failure sentence as S15.</td><td>HS10</td><td>CLS5-1280 / -393 as drawn</td></tr>
+<tr><td>HS12 From the Lab</td><td>A third source in the ② Creatives intake: <code>creative_lab_renders</code> where event = the plan's event and status = ready, newest round first. Add creates a <code>campaign_plan_intake_assets</code> row from the render's file in the app's storage (never from the Drive copy), named by its pairing, placed as the 9:16 of its creative in the match groups; ✓ Added when one exists for that render. The intake's other sources unchanged.</td><td>lib/plan/asset-routing*.ts; campaign_plan_intake_assets</td><td>CLS6 both widths; unit: another event's renders never list; a render with drive_status failed lists and adds</td></tr>
+<tr><td>HS8b CI frames (exports)</td><td>CLS5, CLS6 added. Fixture adds the event code P26-BDAY, round 1 rendering (9 of 11 ready), Enzo #1 × captions 1 and 2 copied, Enzo #2 × caption 1 failed, Enzo #5 × caption 1 copying, Enzo #5 × caption 2 at 40 s left; in the plan, Enzo #1 × captions 1 and 2 added.</td><td>the CL fixture</td><td>frames:check on CLS5 ×2, CLS6 ×2; CLS1–CLS4 unchanged</td></tr>
 </table>
 
 <h2>Invented in this record</h2>
@@ -387,6 +488,10 @@ Reeshy &amp; more.
 <li>The count wording "4 of 9 selected", "Select all · None", "· 1 new, not selected", "Enzo #3 left the selection — too long", and the strip's "{n} selected".</li>
 <li>The meanings of the three <i>Pair with</i> options (spread, best, each), the default (Best of selected), the "{captions} × {clips} = {n} previews" line and the no-clip sentence. The three labels are Matas's.</li>
 <li>The two selection modes (all / chosen) and how a new clip joins each; the "Not selected: … · change on Clips" line and the round bar's "{k} of {artist}'s {m} clips not selected"; the kept-winner ochre line; "Select at least 1 clip to propose round {n}."</li>
+<li><b>Exports — folder naming:</b> the levels <code>{Client} / {Event code} {Event name} / Creative Lab / Round {n}</code> are Matas's; "Round 1" (not "R1" / "Round 01"), names as written on their records, the no-code fallback (name alone), creating folders on first need, and no client sharing from here are mine.</li>
+<li><b>Exports — file naming:</b> the pattern is Matas's; the caption number after the angle (<code>lineup2</code>), the slug rules (artist lower-case, hyphens, accents dropped; angle as the style key with hyphens; stage <code>signup</code> / <code>on-sale</code>), and <code>_v2</code> on a collision are mine.</li>
+<li>The "in Drive" mark's look, nothing drawn while copying, the file name on the row, three retries before failed, "Drive folder ↗" appearing only once the folder exists; "From the Lab"'s row contents, newest round first, adding from the app's file not the Drive copy, ✓ Added, and the empty sentence "No finished renders for this event yet — propose a round in the Creative Lab." The tab names Upload · Drive are stand-ins for the intake's existing sources. "Drive copy failed — retry", "in Drive", "Drive folder ↗" and "From the Lab" are Matas's words.</li>
+<li>The event code P26-BDAY, the date and venue line on the header — fixture placeholders.</li>
 <li>The busy state's shape (width kept, 60 %, no spinner). The three words Finding… / Importing… / Writing… are Claude Code's.</li>
 <li>The fixture: nine clips with Enzo #1–#7 (Puzzle's real lineup has fewer Enzo clips today), Benji King #1's Can't-run reason, the three caption lines and their primary text. Placeholders; the two header notes are Matas's words verbatim.</li>
 </ul>
@@ -398,6 +503,8 @@ Reeshy &amp; more.
 <tr><td>CLS2</td><td>1280, 393</td><td>Captions with the note; Pair with = Selected clips, three Lineup captions on Enzo #1, #2, #5; at 1280 the Each selected panel for caption 1 on the four selected clips</td></tr>
 <tr><td>CLS3</td><td>1280, 393</td><td>Round 1 · Enzo Siragusa: four selected clips × three captions, Enzo #2 × "&amp; more" off, 11 ads, 3 not selected; at 1280 the no-selection panel</td></tr>
 <tr><td>CLS4</td><td>1280, 393</td><td>Finding… on the Clips header, Importing… on a candidate with its bar, Writing… on Write 3</td></tr>
+<tr><td>CLS5</td><td>1280, 393</td><td>Event header with View client · Drive folder ↗; round 1 render rows: two in Drive, one "Drive copy failed — retry", one copying, one 40 s left; Launch round 1 enabled</td></tr>
+<tr><td>CLS6</td><td>1280, 393</td><td>MML ② Creatives, From the Lab on: four round-1 renders, two ✓ Added, marks on the copied ones; at 1280 the empty state</td></tr>
 </table>
 
 </div>
