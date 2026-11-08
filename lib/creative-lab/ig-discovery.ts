@@ -244,18 +244,17 @@ function jpegSize(bytes: Uint8Array): { width: number; height: number } | null {
 }
 
 /**
- * The JPEG to store for a candidate. A carousel's parent thumbnail_url is
- * usually empty; the slide's is on children. The bytes are keyed by the
- * same id rankIgPosts stores (the first video slide), so the next Find
- * clips writes thumbnail_path onto the row that had none.
+ * The JPEG to store for a candidate. The bytes are keyed by the same id
+ * rankIgPosts stores (the first video slide). A carousel uses that slide's
+ * own thumbnail. Another slide's picture, or the album cover, is left off
+ * so the tile stays dark rather than showing the wrong frame.
  */
 export function candidateThumb(post: IgPost): { mediaId: string; url: string } | null {
   const unit = carouselUnit(post);
   if (!unit) return null;
   if (post.mediaType === "CAROUSEL_ALBUM") {
     const slide = post.children.find((item) => item.id === unit.id);
-    const cover = post.children.find((item) => item.thumbnailUrl);
-    const url = slide?.thumbnailUrl || cover?.thumbnailUrl || post.thumbnailUrl;
+    const url = slide?.thumbnailUrl || null;
     return url ? { mediaId: unit.id, url } : null;
   }
   return post.thumbnailUrl ? { mediaId: unit.id, url: post.thumbnailUrl } : null;

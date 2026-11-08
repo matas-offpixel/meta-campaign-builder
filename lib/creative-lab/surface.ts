@@ -186,6 +186,20 @@ export function feedPostClip<T extends RankedClip>(clips: readonly T[]): T | nul
 }
 
 /**
+ * The clip a caption preview draws. A stored clip that is not on the card
+ * is a blank post. It is not replaced with the lead clip.
+ */
+export function captionPreviewClip<T extends RankedClip>(clips: readonly T[], clipId: string | null | undefined): T | null {
+  if (clipId) return clips.find((clip) => clip.id === clipId) ?? null;
+  return feedPostClip(clips);
+}
+
+/** Generate's words. The card's busy flag only disables the button. */
+export function generateButtonLabel(writing: boolean): "Writing…" | "Generate" {
+  return writing ? "Writing…" : "Generate";
+}
+
+/**
  * One preview per usable Untested clip that does not already have one.
  * Untested is the clip row's label: never judged, verdict untested, or thin.
  * durationSeconds is the playable window. An imported file longer than 30s

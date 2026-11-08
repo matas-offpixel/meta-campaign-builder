@@ -20,7 +20,9 @@ import {
   currentRenderError,
   failedCheckSentence,
   feedHeadline,
+  captionPreviewClip,
   feedPostClip,
+  generateButtonLabel,
   firstPairings,
   groupClips,
   money,
@@ -98,6 +100,11 @@ describe("creative lab surface", () => {
     assert.equal(feedPostClip([laterTwin, enzoVertical])?.id, "enzo-1");
     assert.equal(feedPostClip([lukeLandscape, tinyVertical]), null);
     assert.equal(feedPostClip([refused]), null);
+    assert.equal(captionPreviewClip([enzoVertical, lukeLandscape], "missing"), null);
+    assert.equal(captionPreviewClip([enzoVertical, lukeLandscape], "enzo-1")?.id, "enzo-1");
+    assert.equal(captionPreviewClip([enzoVertical, lukeLandscape], null)?.id, "enzo-1");
+    assert.equal(generateButtonLabel(false), "Generate");
+    assert.equal(generateButtonLabel(true), "Writing…");
     assert.equal(feedHeadline({ eventName: "Puzzle 4th Birthday", eventDate: "2026-12-27", venue: "Circuit & Engine Rooms" }), "Puzzle 4th Birthday · 27 December · Circuit & Engine Rooms");
     assert.deepEqual(clipStripLines(1), { line: "1 blocked", short: "1 blocked" });
     assert.deepEqual(clipStripLines(0), { line: "ready", short: "ready" });

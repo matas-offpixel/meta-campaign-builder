@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
-import { captionCopy, ctaForStage, feedHeadline, feedPostClip, styleLabel } from "@/lib/creative-lab/surface";
+import { captionCopy, captionPreviewClip, ctaForStage, feedHeadline, feedPostClip, generateButtonLabel, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
 import { VoicePanel } from "@/components/dashboard/events/creative-lab/voice-panel";
@@ -61,6 +61,7 @@ export function LabCaptions({
   }, []);
   const [count, setCount] = useState<1 | 3 | 5>(3);
   const [each, setEach] = useState(false);
+  const [writing, setWriting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<"caption" | "quote">("caption");
   const [snapshot, setSnapshot] = useState<CaptionGenerator>({ angle: "lineup", count: 3, each: false, stage: stageDefault });
@@ -181,6 +182,7 @@ export function LabCaptions({
           disabled={busy}
           onClick={() => {
             setNotice(null);
+            setWriting(true);
             void onSave({
               action: "generate",
               style: angle,
@@ -191,10 +193,10 @@ export function LabCaptions({
             }).then((result) => {
               const sentence = result?.json.notice;
               setNotice(typeof sentence === "string" && sentence ? sentence : null);
-            });
+            }).finally(() => setWriting(false));
           }}
         >
-          {busy ? (<><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Writing…</>) : "Generate"}
+          {generateButtonLabel(writing) === "Writing…" ? (<><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Writing…</>) : "Generate"}
         </Button>
         {notice ? <p className="text-sm">{notice}</p> : null}
         {quoteMode ? (
@@ -329,7 +331,7 @@ function FeedPost({
   const [overlay, setOverlay] = useState(captionCopy(caption.lines));
   const [primary, setPrimary] = useState(caption.primaryText);
   const primaryField = useRef<HTMLTextAreaElement>(null);
-  const clip = caption.clipId ? lab.clips.find((item) => item.id === caption.clipId) ?? null : feedPostClip(lab.clips);
+  const clip = captionPreviewClip(lab.clips, caption.clipId);
   function discardEdits() {
     setOverlay(captionCopy(caption.lines));
     setPrimary(caption.primaryText);
