@@ -73,12 +73,10 @@ export function LabCaptions({
     setMode("caption");
   }
   function useWords() {
-    const post = posts.find((item) => item.caption && words.trim() === item.caption.trim());
-    const accepted = acceptQuote({
-      words,
-      source,
-      sourceText: source === "post" ? post?.caption ?? words : source === "typed" ? null : words,
-    });
+    const post = posts.find((item) => item.offered && item.caption === words)
+      ?? posts.find((item) => item.offered && item.caption != null && words.trim() === item.caption.trim());
+    const sourceText = source === "post" ? (post?.caption ?? words) : source === "typed" ? null : words;
+    const accepted = acceptQuote({ words, source, sourceText });
     if (!accepted.ok) {
       setRefusal(accepted.sentence);
       return;
@@ -93,7 +91,7 @@ export function LabCaptions({
       artistId: artist?.id ?? "",
       words: accepted.text,
       quoteSource: source,
-      quoteSourceText: source === "typed" ? null : accepted.text,
+      quoteSourceText: source === "typed" ? null : sourceText,
       quoteSourceRef: source === "post" ? post?.permalink ?? null : null,
       quoteSourceNote: source === "typed" ? where.trim() : null,
     });
@@ -112,28 +110,6 @@ export function LabCaptions({
             <button key={item.id} type="button" aria-pressed={item.id === artist?.id} className="rounded border border-border px-2 py-1 text-sm" onClick={() => { setArtistId(item.id); setWords(""); }}>{item.name}</button>
           ))}
         </div>
-        {source === "post" ? (
-          <div className="flex flex-wrap gap-1">
-            {posts.length === 0 ? <p className="text-sm text-muted-foreground">No posts listed for this artist.</p> : posts.map((post) => (
-              <button
-                key={post.permalink}
-                type="button"
-                className="rounded border border-border px-2 py-1 text-sm"
-                onClick={() => {
-                  if (!post.caption) {
-                    setWords("");
-                    setRefusal("This post has no caption stored. The Lab does not fetch one.");
-                    return;
-                  }
-                  setWords(post.caption);
-                  setRefusal(null);
-                }}
-              >
-                {post.postedOn || "A post"}
-              </button>
-            ))}
-          </div>
-        ) : null}
         <QuoteGenerator
           mode="quote"
           onMode={chooseMode}
@@ -158,6 +134,12 @@ export function LabCaptions({
           refusal={refusal}
           where={where}
           onWhere={setWhere}
+          posts={posts}
+          onPickPost={(post) => {
+            if (!post.offered || post.caption == null) return;
+            setWords(post.caption);
+            setRefusal(null);
+          }}
         />
         </div>
       ) : (

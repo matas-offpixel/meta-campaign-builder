@@ -118,15 +118,45 @@ describe("quote mode", () => {
     assert.equal(back.mode, "caption");
   });
 
-  it("lists a stored post caption and skips a row with no text", () => {
+  it("lists a stored post caption and greys a post with none", () => {
     const posts = postsForQuote([
       { permalink: "https://instagram.com/p/one", caption: "As posted.", postedAt: "2026-10-12" },
       { permalink: "https://instagram.com/p/two", caption: null, postedAt: "2026-10-01" },
       { permalink: null, caption: "no link", postedAt: null },
     ]);
     assert.equal(posts.length, 2);
+    assert.equal(posts[0]?.offered, true);
     assert.equal(posts[0]?.caption, "As posted.");
+    assert.equal(posts[1]?.offered, false);
+    assert.equal(posts[1]?.note, "no caption on this post");
     assert.equal(posts[1]?.caption, null);
+  });
+
+  it("offers a captioned post, greys one without, and stores the caption byte for byte", () => {
+    const caption = "See you on the 27th 🔥\n";
+    const permalink = "https://www.instagram.com/p/enzo/";
+    const posts = postsForQuote([
+      { permalink: "https://www.instagram.com/p/old/", caption: null, postedAt: "2026-09-01" },
+      { permalink, caption, postedAt: "2026-10-12" },
+      { permalink: "https://www.instagram.com/p/blank/", caption: "   ", postedAt: "2026-10-02" },
+    ]);
+    assert.equal(posts[0]?.permalink, permalink);
+    assert.equal(posts[0]?.offered, true);
+    assert.equal(posts[0]?.caption, caption);
+    assert.equal(posts[1]?.offered, false);
+    assert.equal(posts[1]?.note, "no caption on this post");
+    assert.equal(posts[2]?.offered, false);
+    const stored = quoteInsert({
+      words: caption,
+      source: "post",
+      sourceText: caption,
+      sourceRef: permalink,
+      artistId: "artist-enzo",
+    });
+    assert.equal(stored.ok, true);
+    if (!stored.ok) return;
+    assert.equal(stored.row.text, caption);
+    assert.equal(stored.row.quote_source_ref, permalink);
   });
 
   it("does not call the writer", async () => {

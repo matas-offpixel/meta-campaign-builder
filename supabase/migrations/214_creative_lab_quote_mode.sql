@@ -75,3 +75,12 @@ comment on column creative_lab_captions.quote_weight is
   'HQ1. 700 or 400, the only weights a quote may use. Null on a caption. The build list omitted this column; the per-quote toggle needs it.';
 comment on column creative_lab_captions.artist_id is
   'The artist a quote belongs to, so it enters only that artist''s round. Null on a caption. Not in the build list; without it a quote would pair onto every artist on the event.';
+
+alter table creative_lab_ig_candidates
+  add column if not exists caption text,
+  add column if not exists caption_fetched_at timestamptz;
+
+comment on column creative_lab_ig_candidates.caption is
+  'The post caption as Instagram returns it, verbatim. Null until Find clips has read one. The Lab does not rewrite it.';
+comment on column creative_lab_ig_candidates.caption_fetched_at is
+  'When this row''s caption was last read from Instagram. A null caption is read again on the next Find clips.';

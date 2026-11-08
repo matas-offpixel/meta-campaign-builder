@@ -1880,6 +1880,8 @@ export type Database = {
         Row: {
           artist_id: string
           audio_match: boolean | null
+          caption: string | null
+          caption_fetched_at: string | null
           comments: number | null
           created_at: string
           fetched_at: string
@@ -1911,6 +1913,8 @@ export type Database = {
         Insert: {
           artist_id: string
           audio_match?: boolean | null
+          caption?: string | null
+          caption_fetched_at?: string | null
           comments?: number | null
           created_at?: string
           fetched_at?: string
@@ -1942,6 +1946,8 @@ export type Database = {
         Update: {
           artist_id?: string
           audio_match?: boolean | null
+          caption?: string | null
+          caption_fetched_at?: string | null
           comments?: number | null
           created_at?: string
           fetched_at?: string

@@ -429,7 +429,7 @@ export async function loadCreativeLabCard(
           lengthSeconds: null,
           overlayOpen: false,
           overlay: overlayOf(candidate.overlay_check),
-          caption: text(candidate, "caption") || null,
+          caption: typeof candidate.caption === "string" ? candidate.caption : null,
         })),
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),

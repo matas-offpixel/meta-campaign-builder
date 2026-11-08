@@ -1,6 +1,6 @@
 "use client";
 
-import type { QuoteSource } from "@/lib/creative-lab/quote";
+import { postDateLabel, type ListedPost, type QuoteSource } from "@/lib/creative-lab/quote";
 import type { QuoteWeight } from "../../../../src/remotion/caption-style/quote-profile";
 
 const IG = "#B0607A";
@@ -37,6 +37,37 @@ export function Seg({
   );
 }
 
+export function PostList({
+  posts,
+  onPick,
+}: {
+  posts: ListedPost[];
+  onPick?: (post: ListedPost) => void;
+}) {
+  if (!posts.length) return <p className="text-sm text-muted-foreground">No posts listed for this artist.</p>;
+  return (
+    <ul className="space-y-1">
+      {posts.map((post) => (
+        <li key={post.permalink}>
+          <button
+            type="button"
+            disabled={!post.offered}
+            className={`w-full rounded border border-border px-2 py-1 text-left text-sm ${post.offered ? "bg-background text-foreground" : "cursor-not-allowed bg-muted text-muted-foreground"}`}
+            onClick={() => {
+              if (post.offered && post.caption != null) onPick?.(post);
+            }}
+          >
+            <span className="block text-xs">
+              <span style={{ color: IG }}>●</span> {post.permalink} · {postDateLabel(post.postedOn)}
+            </span>
+            {post.offered ? <span className="mt-0.5 block whitespace-pre-line">{post.caption}</span> : <span className="mt-0.5 block">no caption on this post</span>}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function QuoteGenerator({
   mode,
   onMode,
@@ -55,6 +86,8 @@ export function QuoteGenerator({
   refusal,
   where,
   onWhere,
+  posts,
+  onPickPost,
 }: {
   mode: "caption" | "quote";
   onMode?: (mode: "caption" | "quote") => void;
@@ -73,6 +106,8 @@ export function QuoteGenerator({
   refusal?: string | null;
   where?: string;
   onWhere?: (where: string) => void;
+  posts?: ListedPost[];
+  onPickPost?: (post: ListedPost) => void;
 }) {
   const sources = [
     { id: "press_kit", label: "Press kit" },
@@ -98,6 +133,7 @@ export function QuoteGenerator({
       <div className="sm:hidden">
         <Seg label="Source" value={source} options={sources} onChange={(id) => onSource?.(id as QuoteSource)} />
       </div>
+      {source === "post" && posts ? <PostList posts={posts} onPick={onPickPost} /> : null}
       <div className="grid gap-3 sm:grid-cols-[1fr_280px]">
         <div className="rounded border border-border bg-background p-3 text-sm">
           {onWords ? (

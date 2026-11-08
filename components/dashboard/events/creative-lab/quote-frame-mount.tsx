@@ -1,5 +1,5 @@
 import { CaptionPlate, QuoteGenerator, QuotePlate, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
-import { heldQuoteSentence } from "@/lib/creative-lab/quote";
+import { heldQuoteSentence, postsForQuote } from "@/lib/creative-lab/quote";
 
 const ENZO = "Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥";
 const SHORT = "Southampton, this one's going to be special.\nSee you on the 27th 🔥";
@@ -29,6 +29,10 @@ export function QuoteFrameMount({ id }: { id: string }) {
             picked="read from the post · 3 sentences picked of 4"
             lineLabel="3 of 4 lines"
             pairNote="Pairs with Enzo's best clip (More to change). Nothing is written by the Lab: the words are the artist's, as posted, with the source kept."
+            posts={postsForQuote([
+              { permalink: "https://www.instagram.com/p/enzo27/", caption: ENZO, postedAt: "2026-10-12" },
+              { permalink: "https://www.instagram.com/p/nocap/", caption: null, postedAt: "2026-10-02" },
+            ])}
           />
         </section>
       ) : null}

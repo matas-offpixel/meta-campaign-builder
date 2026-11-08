@@ -103,26 +103,49 @@ export function isKitLineSlice(fileText: string, words: string): boolean {
   return lines.slice(first, first + picked.length).join("\n") === picked.join("\n");
 }
 
+export const NO_CAPTION = "no caption on this post";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 export type ListedPost = {
   permalink: string;
+  /** Instagram's caption, byte for byte. Null when the post has none. */
   caption: string | null;
   postedOn: string | null;
+  offered: boolean;
+  note: string | null;
 };
 
+export function postDateLabel(iso: string | null): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+  if (!match) return "";
+  const month = MONTHS[Number(match[2]) - 1];
+  const day = Number(match[3]);
+  if (!month || !day) return "";
+  return `${day} ${month}`;
+}
+
 /**
- * Posts the Lab has already listed. Caption text is read off the row
- * when a caption column is present. This does not fetch Instagram.
+ * The artist's listed posts, newest first. A caption is kept as stored.
+ * A post with no caption stays in the list, greyed. This does not fetch Instagram.
  */
 export function postsForQuote(
   rows: readonly { permalink?: string | null; caption?: string | null; postedAt?: string | null }[],
 ): ListedPost[] {
   return rows
     .filter((row) => (row.permalink ?? "").trim())
-    .map((row) => ({
-      permalink: (row.permalink ?? "").trim(),
-      caption: (row.caption ?? "").trim() || null,
-      postedOn: (row.postedAt ?? "").slice(0, 10) || null,
-    }));
+    .map((row) => {
+      const raw = typeof row.caption === "string" ? row.caption : null;
+      const offered = raw != null && raw.trim().length > 0;
+      return {
+        permalink: (row.permalink ?? "").trim(),
+        caption: offered ? raw : null,
+        postedOn: (row.postedAt ?? "").slice(0, 10) || null,
+        offered,
+        note: offered ? null : NO_CAPTION,
+      };
+    })
+    .sort((a, b) => (b.postedOn ?? "").localeCompare(a.postedOn ?? "") || a.permalink.localeCompare(b.permalink));
 }
 
 export function sourceChip(args: {
@@ -162,15 +185,16 @@ export function acceptQuote(input: {
   source: QuoteSource;
   sourceText?: string | null;
 }): AcceptQuote {
-  const words = input.words.replace(/^\s+|\s+$/g, "");
-  if (!words) return { ok: false, sentence: "These words are empty." };
+  const exactPost = input.source === "post" && input.sourceText != null && input.words === input.sourceText;
+  const words = exactPost ? input.words : input.words.replace(/^\s+|\s+$/g, "");
+  if (!words.trim()) return { ok: false, sentence: "These words are empty." };
   if (emojiOnly(words)) return { ok: false, sentence: "A quote that is only emoji is not used." };
   const lines = quoteLines(words);
   if (lines.length > QUOTE_MAX_LINES) {
     return { ok: false, sentence: "This is five lines. Pick a shorter passage. The words are not changed." };
   }
-  const sourceText = input.sourceText?.replace(/^\s+|\s+$/g, "") ?? "";
-  if (input.source !== "typed" && sourceText) {
+  const sourceText = exactPost ? input.words : (input.sourceText?.replace(/^\s+|\s+$/g, "") ?? "");
+  if (!exactPost && input.source !== "typed" && sourceText) {
     const slice = input.source === "press_kit" ? isKitLineSlice(sourceText, words) : isSentenceSlice(sourceText, words);
     if (!slice) return { ok: false, sentence: "The Lab doesn't rewrite a quote." };
   }

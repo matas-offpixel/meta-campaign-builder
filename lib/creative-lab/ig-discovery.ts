@@ -14,7 +14,7 @@ const MAX_POSTS = 150;
 
 /** Own-edge and Business Discovery fields. media_url is deliberately absent. thumbnail_url is read and not stored. */
 export const IG_MEDIA_FIELDS =
-  "id,media_type,media_product_type,permalink,timestamp,like_count,comments_count,thumbnail_url,children{media_type,id,thumbnail_url}";
+  "id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count,thumbnail_url,children{media_type,id,thumbnail_url}";
 
 type Row = Record<string, unknown>;
 
@@ -34,6 +34,8 @@ export type IgPost = {
   mediaType: string;
   mediaProductType: string | null;
   permalink: string | null;
+  /** Instagram's caption, verbatim. Null when the field was absent. */
+  caption: string | null;
   postedAt: string | null;
   likes: number | null;
   comments: number | null;
@@ -56,6 +58,7 @@ export type IgCandidate = {
   /** Other video slides of the same carousel, in order. Empty for a reel. */
   slideIds: string[];
   permalink: string | null;
+  caption: string | null;
   mediaType: string;
   mediaProductType: string | null;
   postedAt: string;
@@ -168,6 +171,7 @@ export function rankIgPosts(
       igMediaId: unit.id,
       slideIds: unit.slideIds,
       permalink: post.permalink,
+      caption: post.caption,
       mediaType: "VIDEO",
       mediaProductType: post.mediaProductType,
       postedAt: new Date(Date.parse(post.postedAt)).toISOString(),
@@ -318,6 +322,7 @@ export function parseIgPost(raw: Row): IgPost {
     mediaType: text(raw, "media_type"),
     mediaProductType: text(raw, "media_product_type") || null,
     permalink: text(raw, "permalink") || null,
+    caption: typeof raw.caption === "string" ? raw.caption : null,
     postedAt: text(raw, "timestamp") || null,
     likes: numberOrNull(raw.like_count),
     comments: numberOrNull(raw.comments_count),
@@ -431,6 +436,42 @@ async function storeThumbBytes(db: ServiceRoleDb, path: string, bytes: Uint8Arra
   if (saved.error) throw new Error(saved.error.message);
 }
 
+/** A row that already has no caption is written again from this fetch. Status is left as it is. */
+async function fillNullCaptions(db: ServiceRoleDb, artistId: string, posts: IgPost[], existing: Row[], now: Date): Promise<void> {
+  const byId = new Map<string, string>();
+  const byPermalink = new Map<string, string>();
+  for (const post of posts) {
+    if (typeof post.caption !== "string" || post.caption.length === 0) continue;
+    byId.set(post.id, post.caption);
+    for (const child of post.children) byId.set(child.id, post.caption);
+    if (post.permalink) byPermalink.set(post.permalink, post.caption);
+  }
+  for (const row of existing) {
+    if (typeof row.caption === "string" && row.caption.length > 0) continue;
+    const id = text(row, "ig_media_id");
+    let caption = id ? byId.get(id) : undefined;
+    if (caption == null) {
+      const permalink = text(row, "permalink");
+      if (permalink) caption = byPermalink.get(permalink);
+    }
+    if (caption == null && Array.isArray(row.slide_ids)) {
+      for (const slide of row.slide_ids) {
+        const hit = byId.get(String(slide).trim());
+        if (hit) {
+          caption = hit;
+          break;
+        }
+      }
+    }
+    if (!caption || !id) continue;
+    const updated = await db.from("creative_lab_ig_candidates").update({
+      caption,
+      caption_fetched_at: now.toISOString(),
+    }).eq("artist_id", artistId).eq("ig_media_id", id);
+    if (updated.error && /caption/i.test(updated.error.message)) return;
+  }
+}
+
 export async function findArtistClips(
   db: ServiceRoleDb,
   args: { artistId: string; now?: Date; read?: IgRead; storeThumb?: (path: string, bytes: Uint8Array) => Promise<void> },
@@ -530,6 +571,8 @@ export async function findArtistClips(
     }
   }
 
+  await fillNullCaptions(db, args.artistId, posts, (heldRes.data ?? []) as Row[], now);
+
   const thumbBytes = read.thumb ? await measureThumbs(posts, exclude, read.thumb) : new Map<string, Uint8Array>();
   const ranked = rankIgPosts(posts, { now, followers, exclude, limit: TOP_N });
   const thumbPaths = new Map<string, string>();
@@ -566,6 +609,8 @@ export async function findArtistClips(
         ig_media_id: row.igMediaId,
         slide_ids: row.slideIds,
         permalink: row.permalink,
+        caption: row.caption,
+        caption_fetched_at: now.toISOString(),
         media_type: row.mediaType,
         media_product_type: row.mediaProductType,
         posted_at: row.postedAt,
@@ -594,6 +639,8 @@ export async function findArtistClips(
           ig_media_id: row.igMediaId,
           slide_ids: row.slideIds,
           permalink: row.permalink,
+          caption: row.caption,
+          caption_fetched_at: now.toISOString(),
           media_type: row.mediaType,
           media_product_type: row.mediaProductType,
           posted_at: row.postedAt,
