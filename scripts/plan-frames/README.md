@@ -98,6 +98,8 @@ of those dates. Enzo's chip says 30 posts as drawn; his captions are not
 on a sheet in these frames. The hashtag switch is client data, default
 off, and is not drawn on CLV2.
 
+Baselines: Ubuntu frames-baselines 42497321834 and 42497326107, matching, `only=CLV`.
+
 | Id | State | What to check by hand |
 |---|---|---|
 | CLV1 | Generator, caption mode | Two strips at 1280: Lineup "Sounds like @puzzle · 24 posts" with the promoter why line; Artist, first person "Sounds like @enzosiragusa · 30 posts". 393 is the puzzle chip full width, "24 posts" on the right, why line "Promoter voice · read today 09:12" |

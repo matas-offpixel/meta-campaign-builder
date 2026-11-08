@@ -37,3 +37,5 @@ The caption writer takes its tone from the page's own Instagram captions. The se
 - Under 8 posts the live chip says "Not enough posts yet · n of 8". CLV4 draws the record's longer sentence for Reeshy.
 - Empty promoter state on the live chip says "No posts read yet — Read posts". CLV3 draws "No posts read yet — Find clips reads them."
 - A page that cannot be read stores `{ "error": "..." }` on `voice_traits` with `sample_n` 0. No `clients.ig_last_error` column.
+CLV1–CLV4 at 1280 and 393 rewritten from matching Ubuntu runs 42497321834 and 42497326107.
+
