@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
-import { postedLabel } from "@/lib/creative-lab/voice-fixtures";
+import { postedLabel } from "@/lib/creative-lab/posted-label";
 import { quotePronoun } from "@/lib/creative-lab/quote";
 import type { CardVoicePage } from "@/lib/creative-lab/voice-store";
 import { VOICE_REFRESH_DAYS } from "@/lib/creative-lab/voice-store";
