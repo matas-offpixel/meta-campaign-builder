@@ -39,6 +39,7 @@ event page / Creative Lab or `/admin` gets a record first.
 | [`2026-11-08-offpixel-deck.html`](2026-11-08-offpixel-deck.html) | The Off/Pixel deck: the rules by family with the record each came from — tokens, the fourteen rules, named components, Lab / rail / asset bank / overlay / quote rulings, limits and minimums, open rulings, superseded. Cites only; rules nothing. |
 | [`2026-11-09-insights-rail-3.html`](2026-11-09-insights-rail-3.html) | Insights rail issue 3: TikTok thin thresholds and fixture stand-ins (R17), IR3 corrected (R18), the rail's CI widths and the drawer frame IR9-1176 (R19), Best copy shapes from copy_features (R20–R23) — IR4 redrawn, IR9 new |
 | [`2026-11-09-asset-bank-3.html`](2026-11-09-asset-bank-3.html) | Asset bank issue 3: A11 ruled yes (A12), the window as the code's (A13), the roll-call rung (A14), four derived rungs (A15), offers entered not derived (A16), cancelled events hidden (A17), backfilled rows plain until touched (A18) — AB5, AB2 redrawn, AB1b new |
+| [`2026-11-09-offpixel-deck-2.html`](2026-11-09-offpixel-deck-2.html) | The Off/Pixel deck, issue 2, **current** (supersedes the issue 1 row above; kept as issued): rail-3 R17–R23, bank-3 A12–A18 and voice V1–V13 folded in; the writer's page holds quote and voice; copy learning is shapes, not lines; X2–X5 closed, X1 / X6 via #1122, X9 added. Cites only; rules nothing. |
 
 The Creative Lab rules and components the records use are in
 `docs/creative-lab/design-rules.md`.
