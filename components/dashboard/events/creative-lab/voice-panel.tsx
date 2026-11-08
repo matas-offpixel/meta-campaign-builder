@@ -55,7 +55,7 @@ export function VoicePanel({
   const narrowTraits = page?.traits ? traitRows(page.traits, "narrow") : [];
   const exemplars = page?.exemplars ?? [];
   const shown = exemplars.slice(0, 4);
-  const read = when ? `${when.day} ${when.time}` : "";
+  const read = when ? (when.day === "today" ? `${when.day} ${when.time}` : when.day) : "";
   const angleName = styleLabel(angle);
   const held = artistPage && artist != null && artist.rights !== "approved";
   const whyWide = whyLine({ artistPage, handle, sampleN, error, read, angleName, artistName: artist?.name ?? "this artist", stale: when?.stale === true, held });
@@ -150,7 +150,7 @@ export function VoicePanel({
           </div>
         )}
         <div className={`mt-2 flex items-center gap-2 ${sampleN > 0 ? "justify-end" : ""}`}>
-          <button type="button" className="h-6 rounded-md border border-border-strong px-2 text-[11.5px] font-semibold max-[700px]:w-full" disabled={busy} onClick={readAgain}>
+          <button type="button" className="h-6 shrink-0 whitespace-nowrap rounded-md border border-border-strong px-2 text-[11.5px] font-semibold max-[700px]:w-full" disabled={busy} onClick={readAgain}>
             {sampleN > 0 ? "Read again" : "Find clips"}
           </button>
           {sampleN === 0 ? <span className="text-[11.5px] text-muted-foreground max-[700px]:hidden">reads the page&apos;s reels and its last 30 captions in one call</span> : null}
