@@ -56,7 +56,7 @@ export function QuoteFrameMount({ id }: { id: string }) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
           <CaptionPlate lines={["Southampton, this one's going to be special.", "See you on the 27th 🔥"]} marker="caption centre · 0.355 H" label="caption · rule 13 · unchanged" />
           <QuotePlate words={SHORT} weight={700} label="quote · Q2 · bold 700" />
-          <div className="hidden sm:block">
+          <div className="hidden shrink-0 sm:block">
             <QuotePlate words={SHORT} weight={400} label="quote · Q2 · regular 400" />
           </div>
         </div>

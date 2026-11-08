@@ -274,7 +274,7 @@ export function CaptionPlate({
   label: string;
 }) {
   return (
-    <figure className="w-full max-w-[280px]">
+    <figure className="w-[260px] shrink-0">
       <div className="relative aspect-[9/16] overflow-hidden bg-black" style={{ containerType: "size" }}>
         <div className="absolute inset-0" style={{ background: "linear-gradient(160deg,#2a241c,#6a5a48)" }} />
         <div className="pointer-events-none absolute inset-x-[8%] border border-dashed border-white/80" style={{ top: "14.58%", bottom: "14.59%" }}>
@@ -284,7 +284,7 @@ export function CaptionPlate({
           <i className="absolute right-1 -top-3 bg-black/60 px-1 text-[8px] not-italic" style={{ color: "#ffd34a" }}>{marker}</i>
         </div>
         <p
-          className="pointer-events-none absolute top-[35.5%] left-[8%] right-[8%] -translate-y-1/2 text-center whitespace-pre text-white"
+          className="pointer-events-none absolute top-[35.5%] left-[8%] right-[8%] -translate-y-1/2 text-center whitespace-pre-line text-white"
           style={{
             fontWeight: 400,
             fontStretch: "120%",
@@ -317,7 +317,7 @@ export function QuotePlate({
   label: string;
 }) {
   return (
-    <figure className="w-full max-w-[280px]">
+    <figure className="w-[260px] shrink-0">
       <Plate words={words} time="0:14" crop={false} weight={weight} marker={{ at: "28%", label: "quote centre · 0.28 H" }} />
       <figcaption className="mt-1 text-center text-xs text-muted-foreground">{label}</figcaption>
     </figure>
