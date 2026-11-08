@@ -115,6 +115,41 @@ describe("instagram import", () => {
     assert.equal(result.steps.includes("check"), false);
   });
 
+  it("trims a 31.6s source to the first 30s on the clip", async () => {
+    const fake = seed({});
+    const result = await importIgCandidate(fake as unknown as ServiceRoleDb, {
+      candidateId: "cand-1",
+      userId: USER,
+      ...deps({ width: 1080, height: 1920, durationInSeconds: 31.6 }),
+    });
+    assert.equal(result.outcome, "imported");
+    const clip = fake.tables.creative_lab_clips[0]!;
+    assert.equal(clip.in_s, 0);
+    assert.equal(clip.out_s, 30);
+    assert.equal(fake.tables.creative_assets[0]?.duration_seconds, 31.6);
+  });
+
+  it("trims import-anyway from the asset duration when it does not probe again", async () => {
+    const fake = seed({
+      asset_id: "asset-1",
+      status: "skipped",
+      overlay_check: { verdict: "check_by_eye", frames: [], reason: "Check this one by eye.", flagged: 0 },
+    });
+    fake.tables.creative_assets.push({
+      id: "asset-1",
+      user_id: USER,
+      storage_path: "videos/creative-lab/artist-1/x.mp4",
+      duration_seconds: 31.625,
+    });
+    const called = deps({ width: 1080, height: 1920, durationInSeconds: 31.625 });
+    const result = await importIgCandidate(fake as unknown as ServiceRoleDb, { candidateId: "cand-1", userId: USER, anyway: true, ...called });
+    assert.equal(result.outcome, "imported");
+    assert.equal(called.steps.length, 0);
+    const clip = fake.tables.creative_lab_clips[0]!;
+    assert.equal(clip.in_s, 0);
+    assert.equal(clip.out_s, 30);
+  });
+
   it("imports anyway from the stored file without downloading or checking", async () => {
     const fake = seed({
       asset_id: "asset-1",

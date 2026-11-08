@@ -49,6 +49,9 @@ export type JudgedClip = {
 /** A file longer than this plays its first 30 seconds. The folder import stores the same window. */
 export const CLIP_TRIM_SECONDS = 30;
 
+/** Shown when Pair with "Each new clip" has nothing left to write. */
+export const NO_NEW_CLIPS = "No new clips since the last generate — Pair with Best clip, or import one";
+
 export type ClipForGroup = {
   id: string;
   artistId?: string;
@@ -180,6 +183,39 @@ export function cantRunReason(clip: ClipForGroup): string | null {
 /** The lead clip for the feed post and for Best clip. A refused clip, and a crop under 540 px, is never returned. */
 export function feedPostClip<T extends RankedClip>(clips: readonly T[]): T | null {
   return bestRunnableClip(clips);
+}
+
+/**
+ * The clip a caption preview draws. A stored clip that is not on the card
+ * is a blank post. It is not replaced with the lead clip.
+ */
+export function captionPreviewClip<T extends RankedClip>(clips: readonly T[], clipId: string | null | undefined): T | null {
+  if (clipId) return clips.find((clip) => clip.id === clipId) ?? null;
+  return feedPostClip(clips);
+}
+
+/** Generate's words. The card's busy flag only disables the button. */
+export function generateButtonLabel(writing: boolean): "Writing…" | "Generate" {
+  return writing ? "Writing…" : "Generate";
+}
+
+/**
+ * One preview per usable Untested clip that does not already have one.
+ * Untested is the clip row's label: never judged, verdict untested, or thin.
+ * durationSeconds is the playable window. An imported file longer than 30s
+ * plays as its first 30s, so that length is usable. A window that itself
+ * runs past 30s is not.
+ */
+export function clipsForEachNew<T extends ClipForGroup>(clips: readonly T[], alreadyPreviewed: ReadonlySet<string>): T[] {
+  return clips
+    .filter((clip) => {
+      if (alreadyPreviewed.has(clip.id)) return false;
+      if (clipBucket(clip) !== "new") return false;
+      const seconds = clip.durationSeconds;
+      if (seconds != null && seconds > CLIP_TRIM_SECONDS) return false;
+      return true;
+    })
+    .sort((a, b) => a.clipNo - b.clipNo);
 }
 
 export function groupClips<T extends ClipForGroup>(clips: readonly T[]): { keeping: T[]; fresh: T[]; cant: T[] } {

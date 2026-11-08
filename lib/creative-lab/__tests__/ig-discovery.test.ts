@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import type { ServiceRoleDb } from "../load.ts";
 import {
+  candidateThumb,
   classifyAspect,
   findArtistClips,
   IG_MEDIA_FIELDS,
@@ -339,6 +340,48 @@ describe("candidate thumbnails", () => {
     assert.equal(row.thumbnail_path, "creative-lab/ig/artist-1/reel-a.jpg");
     assert.equal(JSON.stringify(row).includes("cdn.example"), false);
     assert.equal("thumbnail_url" in row, false);
+  });
+
+  it("stores a carousel slide's own thumbnail and leaves the tile dark when that slide has none", async () => {
+    const coverOnly = post({
+      id: "album",
+      mediaType: "CAROUSEL_ALBUM",
+      mediaProductType: "FEED",
+      thumbnailUrl: "https://cdn.example/album-cover.jpg",
+      likes: 40,
+      children: [
+        { id: "slide-cover", mediaType: "IMAGE", thumbnailUrl: "https://cdn.example/slide-cover.jpg" },
+        { id: "slide-video", mediaType: "VIDEO", thumbnailUrl: null },
+      ],
+    });
+    assert.equal(candidateThumb(coverOnly), null);
+    const own = post({
+      ...coverOnly,
+      children: [
+        { id: "slide-cover", mediaType: "IMAGE", thumbnailUrl: "https://cdn.example/slide-cover.jpg" },
+        { id: "slide-video", mediaType: "VIDEO", thumbnailUrl: "https://cdn.example/slide-video.jpg" },
+      ],
+    });
+    assert.deepEqual(candidateThumb(own), { mediaId: "slide-video", url: "https://cdn.example/slide-video.jpg" });
+
+    const fake = seed({
+      creative_lab_ig_candidates: [{
+        artist_id: "artist-1",
+        ig_media_id: "slide-video",
+        status: "candidate",
+        thumbnail_path: null,
+      }],
+    });
+    const graph = read([coverOnly]);
+    const fetched: string[] = [];
+    graph.thumb = async (url: string) => {
+      fetched.push(url);
+      return { width: 1080, height: 1350, bytes: new Uint8Array([9]) };
+    };
+    await findArtistClips(fake as unknown as ServiceRoleDb, { artistId: "artist-1", now: NOW, read: graph });
+    assert.deepEqual(fetched, []);
+    const row = fake.tables.creative_lab_ig_candidates.find((item) => item.ig_media_id === "slide-video");
+    assert.equal(row?.thumbnail_path, null);
   });
 });
 

@@ -1666,6 +1666,7 @@ export type Database = {
         Row: {
           artist_id: string | null
           caption_no: number
+          clip_id: string | null
           created_at: string
           declared_names: string[]
           event_id: string
@@ -1690,6 +1691,7 @@ export type Database = {
         Insert: {
           artist_id?: string | null
           caption_no: number
+          clip_id?: string | null
           created_at?: string
           declared_names?: string[]
           event_id: string
@@ -1714,6 +1716,7 @@ export type Database = {
         Update: {
           artist_id?: string | null
           caption_no?: number
+          clip_id?: string | null
           created_at?: string
           declared_names?: string[]
           event_id?: string

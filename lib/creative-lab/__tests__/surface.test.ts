@@ -16,10 +16,13 @@ import {
   clipStripLines,
   clipStripState,
   clipWindow,
+  clipsForEachNew,
   currentRenderError,
   failedCheckSentence,
   feedHeadline,
+  captionPreviewClip,
   feedPostClip,
+  generateButtonLabel,
   firstPairings,
   groupClips,
   money,
@@ -97,6 +100,11 @@ describe("creative lab surface", () => {
     assert.equal(feedPostClip([laterTwin, enzoVertical])?.id, "enzo-1");
     assert.equal(feedPostClip([lukeLandscape, tinyVertical]), null);
     assert.equal(feedPostClip([refused]), null);
+    assert.equal(captionPreviewClip([enzoVertical, lukeLandscape], "missing"), null);
+    assert.equal(captionPreviewClip([enzoVertical, lukeLandscape], "enzo-1")?.id, "enzo-1");
+    assert.equal(captionPreviewClip([enzoVertical, lukeLandscape], null)?.id, "enzo-1");
+    assert.equal(generateButtonLabel(false), "Generate");
+    assert.equal(generateButtonLabel(true), "Writing…");
     assert.equal(feedHeadline({ eventName: "Puzzle 4th Birthday", eventDate: "2026-12-27", venue: "Circuit & Engine Rooms" }), "Puzzle 4th Birthday · 27 December · Circuit & Engine Rooms");
     assert.deepEqual(clipStripLines(1), { line: "1 blocked", short: "1 blocked" });
     assert.deepEqual(clipStripLines(0), { line: "ready", short: "ready" });
@@ -246,5 +254,30 @@ describe("creative lab surface", () => {
     assert.doesNotMatch(overlay, /(left|right)-\[\d+%\]/, "no typed insets");
     const lambda = readFileSync(new URL("../../../src/remotion/caption-style/profile.ts", import.meta.url), "utf8");
     assert.match(lambda, /profile\.horizontalCenterPctOfWidth/);
+  });
+
+  it("gives every usable Untested clip one preview and leaves a clip over 30s out", () => {
+    const fresh = (id: string, clipNo: number, seconds: number | null, verdict: string | null): ClipForGroup => ({
+      id,
+      artistName: "Enzo Siragusa",
+      clipNo,
+      cleared: true,
+      renderError: null,
+      durationSeconds: seconds,
+      judged: verdict == null ? null : { verdict, cost: null, results: null, metric: null, roundNo: 1 },
+    });
+    const imported = playableClipSeconds({ fileSeconds: 31.625, inS: null, outS: null });
+    assert.equal(imported, 30);
+    const clips = [
+      fresh("c1", 1, 21.7, null),
+      fresh("c4", 4, 21.7, "untested"),
+      fresh("c5", 5, imported, "untested"),
+      fresh("over", 7, 31.625, "untested"),
+      fresh("win", 2, 21.7, "winner"),
+      { ...fresh("bad", 6, 12, null), renderError: "video renders are 9:16 only" },
+    ];
+    assert.deepEqual(clipsForEachNew(clips, new Set()).map((clip) => clip.id), ["c1", "c4", "c5"]);
+    assert.deepEqual(clipsForEachNew(clips, new Set(["c1"])).map((clip) => clip.id), ["c4", "c5"]);
+    assert.deepEqual(clipsForEachNew(clips, new Set(["c1", "c4", "c5"])).map((clip) => clip.id), []);
   });
 });

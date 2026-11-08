@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 
 import type { ServiceRoleDb } from "../load.ts";
 import { saveVoiceSamples, voicePageRef } from "../voice-store.ts";
+import { postedLabel } from "../posted-label.ts";
 import { PUZZLE_SAMPLES, PUZZLE_VENUES, SIGN_OFF } from "../voice-fixtures.ts";
 import {
   appendVoice,
@@ -27,6 +28,13 @@ const drawn = JSON.parse(readFileSync(new URL("../../../docs/creative-lab/fixtur
   samples: { caption: string }[];
   venueNames: string[];
 };
+
+describe("posted label", () => {
+  it("uses the London calendar day", () => {
+    assert.equal(postedLabel("2026-10-10T12:00:00.000Z"), "Sat 10 Oct");
+    assert.equal(postedLabel(null), "");
+  });
+});
 
 describe("voice traits", () => {
   const traits = extractTraits(PUZZLE_SAMPLES, PUZZLE_VENUES);

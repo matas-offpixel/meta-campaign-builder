@@ -121,6 +121,22 @@ describe("generateCaptions", () => {
     assert.equal(fake.tables.creative_lab_captions.find((row) => row.id === written[0].id)?.style_version, await styleVersion());
   });
 
+  it("stores the clip the preview was written for", async () => {
+    const fake = eventDb();
+    const written = await generateCaptions(fake as unknown as ServiceRoleDb, {
+      eventId: EVENT,
+      artistId: "artist-1",
+      style: "lineup",
+      n: 1,
+      clipId: "clip-5",
+      now: new Date("2026-11-06T12:00:00Z"),
+    }, {
+      anthropic: claude([{ overlay: "{artist} at {venue}", primaryText: "You in?", declaredNames: ["Luke Dean"] }], []),
+    });
+    assert.equal(written.length, 1);
+    assert.equal(fake.tables.creative_lab_captions.find((row) => row.id === written[0].id)?.clip_id, "clip-5");
+  });
+
   it("does not write a generated caption that has no primary text", async () => {
     const fake = eventDb();
     const rejected: string[] = [];
