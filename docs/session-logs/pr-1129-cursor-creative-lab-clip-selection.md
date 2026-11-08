@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1129
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1129
 - **Branch:** `cursor/creative-lab-clip-selection`
 
 ## Summary
@@ -19,10 +19,10 @@ Creative Lab clip selection: a tick on each usable clip, persisted per event, an
 
 ## Validation
 
-- [ ] `npm test`
-- [ ] `npm run build`
+- [x] `npm test`
+- [x] `npm run build`
 - [ ] `frames:check`
 
 ## Notes
 
-PR #1125 (`cc/lab-live-fixes-1`) was still open, so Finding… and Importing… were built on main. Importing… reuses the candidate `importing` state. Generate keeps its own `writing` flag. Migration 217 is not applied.
+PR #1125 (`cc/lab-live-fixes-1`) was still open, so Finding… and Importing… were built on main. Importing… reuses the candidate `importing` state. Generate keeps its own `writing` flag. Migration 217 is not applied. sha256 `5f6368b223b34e8baf392940c7869b2b74ac601b979fa62415574be54dfd74a0`.

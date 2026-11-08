@@ -49,7 +49,8 @@ export function LabRound({
   const keptClips = new Set(next?.plan.clips.filter((item) => item.kind === "kept").map((item) => item.id) ?? []);
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set(initialOff));
   const matrix = roundMatrix({ clips, captions, excluded });
-  const narrow = firstPairings(matrix.cells.filter((cell) => cell.on));
+  const narrow = firstPairings(matrix.cells);
+  const moreOn = matrix.on - narrow.shown.filter((cell) => cell.on).length;
   const artistId = clips[0]?.artistId;
   const artistClips = artistId ? usable.filter((clip) => clip.artistId === artistId) : [];
   const missing = artistClips.filter((clip) => !selectedIds.has(clip.id));
@@ -131,7 +132,7 @@ export function LabRound({
                 </li>
               );
             })}
-            {narrow.more > 0 || matrix.off > 0 ? <li className="text-muted-foreground">+ {narrow.more} more · {matrix.off} off</li> : null}
+            {moreOn > 0 || matrix.off > 0 ? <li className="text-muted-foreground">+ {moreOn} more · {matrix.off} off</li> : null}
           </ul>
           {missingLine ? <p className="hidden text-sm text-muted-foreground sm:block">{missingLine}</p> : null}
           <p className="tabular-nums hidden sm:block">{roundBar(matrix.on, clips.length, captions.length, matrix.off)}{gap ? ` · ${gap}` : ""}</p>
