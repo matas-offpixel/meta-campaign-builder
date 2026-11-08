@@ -188,7 +188,9 @@ export function feedPostClip<T extends RankedClip>(clips: readonly T[]): T | nul
 /**
  * One preview per usable Untested clip that does not already have one.
  * Untested is the clip row's label: never judged, verdict untested, or thin.
- * A clip longer than 30s is the same refusal propose uses, so it is not usable.
+ * durationSeconds is the playable window. An imported file longer than 30s
+ * plays as its first 30s, so that length is usable. A window that itself
+ * runs past 30s is not.
  */
 export function clipsForEachNew<T extends ClipForGroup>(clips: readonly T[], alreadyPreviewed: ReadonlySet<string>): T[] {
   return clips

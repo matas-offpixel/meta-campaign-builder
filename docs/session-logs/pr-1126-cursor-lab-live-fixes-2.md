@@ -23,4 +23,4 @@ Each new clip writes one preview for every usable Untested clip and says why whe
 
 ## Notes
 
-Enzo #5 is 31.625s with the whole file stored as the window, so it is over the 30s usable cap and is not a preview. Clips 1–4 are usable and Untested; they each get one. The Generate button's resting label is still Generate, so caption frames are unchanged. CL7 at 1280 and 393 matched the committed frames on Ubuntu runs 42497733101 and 42497740637 (`only=CL7`), so those files were not rewritten. The thumbnail fix is the stored path on the next Find clips.
+Enzo #5's file is 31.625s and its in/out window was never stored, so the tile shows 0:30 from the display trim. Import anyway did not probe, so it wrote no window. It now reads the asset duration and stores the first 30s. Each new clip uses that playable length, so the clip is previewed. Existing imports do not need a backfill: an unset window already plays as the first 30s. The Generate button's resting label is still Generate. CL7 at 1280 and 393 matched Ubuntu runs 42497733101 and 42497740637, so those files were not rewritten.

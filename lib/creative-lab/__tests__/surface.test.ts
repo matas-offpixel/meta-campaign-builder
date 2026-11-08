@@ -259,15 +259,18 @@ describe("creative lab surface", () => {
       durationSeconds: seconds,
       judged: verdict == null ? null : { verdict, cost: null, results: null, metric: null, roundNo: 1 },
     });
+    const imported = playableClipSeconds({ fileSeconds: 31.625, inS: null, outS: null });
+    assert.equal(imported, 30);
     const clips = [
       fresh("c1", 1, 21.7, null),
       fresh("c4", 4, 21.7, "untested"),
-      fresh("c5", 5, 31.625, "untested"),
+      fresh("c5", 5, imported, "untested"),
+      fresh("over", 7, 31.625, "untested"),
       fresh("win", 2, 21.7, "winner"),
       { ...fresh("bad", 6, 12, null), renderError: "video renders are 9:16 only" },
     ];
-    assert.deepEqual(clipsForEachNew(clips, new Set()).map((clip) => clip.id), ["c1", "c4"]);
-    assert.deepEqual(clipsForEachNew(clips, new Set(["c1"])).map((clip) => clip.id), ["c4"]);
-    assert.deepEqual(clipsForEachNew(clips, new Set(["c1", "c4"])).map((clip) => clip.id), []);
+    assert.deepEqual(clipsForEachNew(clips, new Set()).map((clip) => clip.id), ["c1", "c4", "c5"]);
+    assert.deepEqual(clipsForEachNew(clips, new Set(["c1"])).map((clip) => clip.id), ["c4", "c5"]);
+    assert.deepEqual(clipsForEachNew(clips, new Set(["c1", "c4", "c5"])).map((clip) => clip.id), []);
   });
 });

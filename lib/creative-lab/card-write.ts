@@ -6,7 +6,7 @@
 
 import { recordStartingCaption, type StartingCaptionResult } from "./starting-caption.ts";
 import { ClipIntakeError, importArtistClips, type ClipImportResult } from "./clip-intake.ts";
-import { generateCaptions } from "./writer.ts";
+import { generateCaptions, type GenerateCaptionsDeps } from "./writer.ts";
 import { judgeLabRound } from "./judge-round.ts";
 import { approveRound } from "./launch.ts";
 import { proposeRound, RoundBuildError } from "./propose.ts";
@@ -310,6 +310,7 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
 export async function generateLabCaptions(
   db: ServiceRoleDb,
   args: { eventId: string; style: string; n: number; clipId?: string | null; stageOverride?: SaleStage | null; artistId?: string | null; each?: boolean },
+  deps?: GenerateCaptionsDeps,
 ): Promise<{ captions: Awaited<ReturnType<typeof generateCaptions>>; notice: string | null }> {
   if (!isCaptionStyle(args.style)) throw new Error("Unknown caption style.");
   if (args.each) {
@@ -324,9 +325,8 @@ export async function generateLabCaptions(
         clipId,
         stageOverride: args.stageOverride || undefined,
         artistId: args.artistId || undefined,
-      }));
+      }, deps));
     }
-    if (captions.length === 0) return { captions: [], notice: NO_NEW_CLIPS };
     return { captions, notice: null };
   }
   return {
@@ -337,7 +337,7 @@ export async function generateLabCaptions(
       clipId: args.clipId || undefined,
       stageOverride: args.stageOverride || undefined,
       artistId: args.artistId || undefined,
-    }),
+    }, deps),
     notice: null,
   };
 }

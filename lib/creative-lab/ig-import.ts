@@ -199,6 +199,15 @@ async function existingClipForHash(db: ServiceRoleDb, artistId: string, hash: st
   return clip ? text(clip, "id") : null;
 }
 
+/** The file's length. Import anyway does not probe again, so the registered asset is the source. */
+async function sourceDuration(db: ServiceRoleDb, assetId: string, given: number | null): Promise<number | null> {
+  if (given != null && Number.isFinite(given)) return given;
+  const asset = await db.from("creative_assets").select("duration_seconds").eq("id", assetId).maybeSingle();
+  if (asset.error || !asset.data) return null;
+  const value = Number((asset.data as Row).duration_seconds);
+  return Number.isFinite(value) ? value : null;
+}
+
 async function insertClip(
   db: ServiceRoleDb,
   args: { userId: string; artist: Row; candidate: Row; assetId: string; duration: number | null; check: OverlayCheck | null; now: Date },
@@ -207,7 +216,8 @@ async function insertClip(
   const clips = await db.from("creative_lab_clips").select("clip_no").eq("artist_id", artistId);
   if (clips.error) throw new Error(clips.error.message);
   const nextNo = Math.max(0, ...((clips.data ?? []) as Row[]).map((row) => Number(row.clip_no) || 0)) + 1;
-  const trimmed = args.duration != null && args.duration > TRIM_SECONDS;
+  const duration = await sourceDuration(db, args.assetId, args.duration);
+  const trimmed = duration != null && duration > TRIM_SECONDS;
   const inserted = await db.from("creative_lab_clips").insert({
     user_id: args.userId,
     artist_id: artistId,
