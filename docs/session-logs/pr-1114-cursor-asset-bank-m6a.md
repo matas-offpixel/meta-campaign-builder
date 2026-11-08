@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1114
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1114
 - **Branch:** `cursor/asset-bank-m6a`
 
 ## Summary
@@ -24,7 +24,7 @@ Creative Lab M6-A: a release has a state, the claim ladder says what that state 
 
 - [x] `npm test`
 - [x] `npm run build`
-- [ ] frames:check (baselines follow this commit)
+- [x] frames baselines committed (AB1–AB5, CL9-1280). design-pass stays red until the label.
 
 ## Notes
 
