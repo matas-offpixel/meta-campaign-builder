@@ -146,6 +146,10 @@ describe("clip selection", () => {
     assert.match(clips, /text-on-media/);
     assert.match(clips, /border-on-media/);
     assert.equal(clips.includes("#ffffff"), false);
+    const css = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8");
+    const reset = css.indexOf("* {\n  border-color: var(--border);");
+    const ring = css.indexOf(".border-on-media {\n  border-color: var(--on-media);");
+    assert.ok(reset !== -1 && ring > reset);
     const round = readFileSync(new URL("../../../components/dashboard/events/creative-lab/round.tsx", import.meta.url), "utf8");
     assert.match(round, /renderPairs\(matrix\.cells\)/);
     assert.match(round, /href="#lab-clips"/);

@@ -70,6 +70,11 @@ body {
   border-color: var(--border);
 }
 
+/* Unlayered, so it beats the reset above. A utility cannot. */
+.border-on-media {
+  border-color: var(--on-media);
+}
+
 input[type="text"],
 input[type="number"],
 input[type="date"],
