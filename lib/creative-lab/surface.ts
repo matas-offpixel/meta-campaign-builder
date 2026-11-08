@@ -52,6 +52,14 @@ export const CLIP_TRIM_SECONDS = 30;
 /** Shown when Pair with "Each selected" has nothing left to write. */
 export const NO_NEW_CLIPS = "No new clips since the last generate — Pair with Best of selected, or import one";
 
+/** Shown when Generate fails, or finishes without writing a caption. */
+export const CAPTIONS_NOT_WRITTEN = "The captions didn't write — try again.";
+
+/** The sentence under Generate when the request fails. A raw error is not shown. */
+export function generateFailureSentence(error: unknown): string {
+  return sentenceOf(error) ?? CAPTIONS_NOT_WRITTEN;
+}
+
 export type ClipForGroup = {
   id: string;
   artistId?: string;

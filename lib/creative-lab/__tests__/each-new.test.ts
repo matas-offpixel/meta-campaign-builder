@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { generateLabCaptions } from "../card-write.ts";
-import { NO_NEW_CLIPS } from "../surface.ts";
+import { CAPTIONS_NOT_WRITTEN, NO_NEW_CLIPS } from "../surface.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import type { AnthropicLike } from "../writer.ts";
 import { fakeDb } from "./fake-db.ts";
@@ -90,5 +90,101 @@ describe("each new clip", () => {
     });
     assert.equal(result.notice, NO_NEW_CLIPS);
     assert.equal(fake.writes.some((write) => write.table === "creative_lab_captions" && write.op === "insert"), false);
+  });
+
+  it("writes one preview per usable lineup clip when those clips have no filmed show", async () => {
+    const fake = fakeDb({
+      events: [{
+        id: EVENT,
+        client_id: "client-1",
+        user_id: "op",
+        name: "Puzzle 4th Birthday",
+        event_date: "2026-12-27",
+        venue_name: "Circuit",
+        venue_city: "Southampton",
+      }],
+      creative_lab_event_facts: [{ event_id: EVENT, lineup: ["Enzo Siragusa", "Luke Dean"], headliners: ["Luke Dean"], allowed_dates: ["2026-10-30"] }],
+      event_ticket_tiers: [],
+      artists: [
+        { id: "lib-enzo", name: "Enzo Siragusa" },
+        { id: "lib-luke", name: "Luke Dean" },
+        { id: "lib-other", name: "Reeshy" },
+      ],
+      event_artists: [
+        { event_id: EVENT, artist_id: "lib-enzo" },
+        { event_id: EVENT, artist_id: "lib-luke" },
+      ],
+      creative_lab_artists: [
+        { id: "enzo", client_id: "client-1", artist_id: "lib-enzo", name: "Enzo Siragusa", approved_at: "2026-11-01" },
+        { id: "luke", client_id: "client-1", artist_id: "lib-luke", name: "Luke Dean", approved_at: "2026-11-01" },
+        { id: "other", client_id: "client-1", artist_id: "lib-other", name: "Reeshy", approved_at: "2026-11-01" },
+      ],
+      creative_lab_clips: [
+        { id: "enzo-1", artist_id: "enzo", clip_no: 1, in_s: null, out_s: null, event_id: null, creative_asset_id: "a1" },
+        { id: "enzo-5", artist_id: "enzo", clip_no: 5, in_s: null, out_s: null, event_id: null, creative_asset_id: "a5" },
+        { id: "enzo-long", artist_id: "enzo", clip_no: 6, in_s: 0, out_s: 40, event_id: null, creative_asset_id: "along" },
+        { id: "luke-1", artist_id: "luke", clip_no: 1, in_s: null, out_s: null, event_id: EVENT, creative_asset_id: "aluke" },
+        { id: "off-bill", artist_id: "other", clip_no: 1, in_s: null, out_s: null, event_id: EVENT, creative_asset_id: "aother" },
+      ],
+      creative_assets: [
+        { id: "a1", duration_seconds: 21.7 },
+        { id: "a5", duration_seconds: 31.625 },
+        { id: "along", duration_seconds: 40 },
+        { id: "aluke", duration_seconds: 34.06 },
+        { id: "aother", duration_seconds: 12 },
+      ],
+      creative_lab_captions: [],
+    });
+    let written = 0;
+    const varied = {
+      messages: {
+        create: async () => {
+          written += 1;
+          return {
+            content: [{
+              type: "tool_use",
+              name: "submit_captions",
+              input: {
+                candidates: [
+                  { overlay: `Night ${written} with {artist} at {venue}`, primary_text: "Come through", declared_names: ["Luke Dean"] },
+                ],
+              },
+            }],
+          };
+        },
+      },
+    };
+    const result = await generateLabCaptions(fake as unknown as ServiceRoleDb, {
+      eventId: EVENT,
+      style: "lineup",
+      n: 1,
+      pair: "each",
+      artistId: "luke",
+    }, { anthropic: varied });
+    assert.equal(result.notice, null);
+    const clipIds = result.captions.map((caption) => fake.tables.creative_lab_captions.find((row) => row.id === caption.id)?.clip_id);
+    assert.deepEqual(clipIds.sort(), ["enzo-1", "enzo-5", "luke-1"]);
+  });
+
+  it("leaves a sentence when the selected clips produce no caption", async () => {
+    const fake = eventWithClip(
+      { id: "clip-1", artist_id: "enzo", clip_no: 1, in_s: null, out_s: null, event_id: null, creative_asset_id: "asset-1" },
+      { id: "asset-1", duration_seconds: 21.7 },
+    );
+    const silent = {
+      messages: {
+        create: async () => ({
+          content: [{ type: "tool_use", name: "submit_captions", input: { candidates: [] } }],
+        }),
+      },
+    };
+    const result = await generateLabCaptions(fake as unknown as ServiceRoleDb, {
+      eventId: EVENT,
+      style: "lineup",
+      n: 1,
+      pair: "each",
+    }, { anthropic: silent });
+    assert.equal(result.notice, CAPTIONS_NOT_WRITTEN);
+    assert.equal(result.captions.length, 0);
   });
 });

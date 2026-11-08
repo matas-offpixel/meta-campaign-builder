@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { generateButtonLabel } from "../surface.ts";
+import { generateButtonLabel, generateFailureSentence } from "../surface.ts";
 
 const source = readFileSync(new URL("../../../components/dashboard/events/creative-lab/captions.tsx", import.meta.url), "utf8");
 
@@ -18,5 +18,9 @@ describe("Generate's pending label", () => {
     assert.match(click, /setWriting\(true\)/);
     assert.match(click, /\.finally\(\(\) => setWriting\(false\)\)/);
     assert.equal(source.split("setWriting(true)").length - 1, 1);
+    assert.match(click, /\.catch\(\(\) =>/);
+    assert.match(source, /generateFailureSentence/);
+    assert.equal(generateFailureSentence("TypeError: Failed to fetch"), "The captions didn't write — try again.");
+    assert.equal(generateFailureSentence("Headliners aren't set."), "Headliners aren't set.");
   });
 });

@@ -13,9 +13,10 @@ import { proposeRound, RoundBuildError } from "./propose.ts";
 import { RoundRefusedError } from "./rounds.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { isCaptionStyle } from "./tags.ts";
+import { artistKey } from "./lineup.ts";
 import { bestOfSelected, effectiveSelection, NO_CLIP_SELECTED, spreadClipIds, type PairMode } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
-import { clipsForEachNew, currentRenderError, NO_NEW_CLIPS, playableClipSeconds } from "./surface.ts";
+import { CAPTIONS_NOT_WRITTEN, clipsForEachNew, currentRenderError, NO_NEW_CLIPS, playableClipSeconds } from "./surface.ts";
 import { headlinerError } from "../db/creative-lab.ts";
 import { factsHash, loadEventFacts, saleStageFromStatus, validateCaption } from "./caption-facts.ts";
 import { quoteInsert, validateQuote, type QuoteSource } from "./quote.ts";
@@ -251,9 +252,10 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
   const clientId = text(eventRes.data as Row | null, "client_id");
   const selection = await loadClipSelection(db, eventId);
   if (!clientId) return { clips: [], paired: new Set(), selection };
-  const artistsRes = await db.from("creative_lab_artists").select("id, name, approved_at").eq("client_id", clientId);
+  const artistsRes = await db.from("creative_lab_artists").select("id, name, artist_id, approved_at").eq("client_id", clientId);
   if (artistsRes.error) throw new Error(artistsRes.error.message);
-  const artists = (artistsRes.data ?? []) as Row[];
+  // The tiles are the lineup's clips. clips.event_id is the show a clip was filmed at, so it does not choose this set.
+  const artists = await lineupLabArtists(db, eventId, (artistsRes.data ?? []) as Row[]);
   const artistIds = artists.map((row) => text(row, "id")).filter(Boolean);
   if (artistIds.length === 0) return { clips: [], paired: new Set(), selection };
   const clipsRes = await db.from("creative_lab_clips").select("id, artist_id, clip_no, in_s, out_s, creative_asset_id").in("artist_id", artistIds);
@@ -329,6 +331,32 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
   return { clips, paired, selection };
 }
 
+/**
+ * Lab artists on this event's bill, matched the way the card matches a lineup
+ * row: library id, then name. No bill yet: every lab artist of the client,
+ * which is the same list the tiles use before a lineup is saved.
+ * A clip is never chosen because creative_lab_clips.event_id equals this event.
+ */
+async function lineupLabArtists(db: ServiceRoleDb, eventId: string, clientArtists: Row[]): Promise<Row[]> {
+  const rosterRes = await db.from("event_artists").select("artist_id").eq("event_id", eventId);
+  if (rosterRes.error) throw new Error(rosterRes.error.message);
+  const libraryIds = ((rosterRes.data ?? []) as Row[]).map((row) => text(row, "artist_id")).filter(Boolean);
+  if (libraryIds.length === 0) return clientArtists;
+  const libraryRes = await db.from("artists").select("id, name").in("id", libraryIds);
+  if (libraryRes.error) throw new Error(libraryRes.error.message);
+  const ids = new Set(libraryIds);
+  const names = new Set(((libraryRes.data ?? []) as Row[]).map((row) => artistKey(text(row, "name"))).filter(Boolean));
+  return clientArtists.filter((row) => ids.has(text(row, "artist_id")) || names.has(artistKey(text(row, "name"))));
+}
+
+function withCaptionNotice(
+  captions: Awaited<ReturnType<typeof generateCaptions>>,
+  notice: string | null,
+): { captions: Awaited<ReturnType<typeof generateCaptions>>; notice: string | null } {
+  if (captions.length === 0 && !notice) return { captions, notice: CAPTIONS_NOT_WRITTEN };
+  return { captions, notice };
+}
+
 function pairMode(args: { pair?: PairMode; each?: boolean }): PairMode {
   if (args.pair === "spread" || args.pair === "best" || args.pair === "each") return args.pair;
   return args.each ? "each" : "best";
@@ -354,24 +382,24 @@ export async function generateLabCaptions(
     artistId: args.artistId || undefined,
   }, deps);
   if (selected.length === 0) {
-    return { captions: await write(undefined, args.n), notice: NO_CLIP_SELECTED };
+    return withCaptionNotice(await write(undefined, args.n), NO_CLIP_SELECTED);
   }
   if (pair === "each") {
     const targets = clipsForEachNew(selected, loaded.paired);
     if (targets.length === 0) return { captions: [], notice: NO_NEW_CLIPS };
     const captions = [];
     for (const clip of targets) captions.push(...await write(clip.id, args.n));
-    return { captions, notice: null };
+    return withCaptionNotice(captions, null);
   }
   if (pair === "spread") {
     const captions = [];
     for (const clipId of spreadClipIds(args.n, selected.map((clip) => clip.id))) {
       captions.push(...await write(clipId, 1));
     }
-    return { captions, notice: null };
+    return withCaptionNotice(captions, null);
   }
   const best = bestOfSelected(selected);
-  return { captions: await write(best?.id, args.n), notice: null };
+  return withCaptionNotice(await write(best?.id, args.n), null);
 }
 
 export async function editLabCaption(

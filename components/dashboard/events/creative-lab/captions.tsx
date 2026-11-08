@@ -7,7 +7,7 @@ import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
 import { HeldLabel } from "@/components/dashboard/events/creative-lab/held-label";
 import { captionsNote, eachPreviewLine, effectiveSelection, emptySelection, NO_CLIP_SELECTED, OFF_CARD_CLIP, previewPlate, type PairMode } from "@/lib/creative-lab/selection";
-import { captionCopy, captionPreviewClip, ctaForStage, feedHeadline, generateButtonLabel, roundHasRun, styleLabel } from "@/lib/creative-lab/surface";
+import { captionCopy, captionPreviewClip, ctaForStage, feedHeadline, generateButtonLabel, generateFailureSentence, roundHasRun, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
 import { VoicePanel } from "@/components/dashboard/events/creative-lab/voice-panel";
@@ -22,6 +22,12 @@ const STAGES: { id: SaleStage; label: string }[] = [
   { id: "signup", label: "Presale" },
   { id: "on_sale", label: "On sale" },
 ];
+
+function noticeAfterGenerate(result: { ok: boolean; json: Record<string, unknown> } | undefined): string | null {
+  if (!result?.ok) return generateFailureSentence(result?.json.error ?? result?.json.refused);
+  const sentence = result.json.notice;
+  return typeof sentence === "string" && sentence.trim() ? sentence : null;
+}
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
@@ -213,10 +219,7 @@ export function LabCaptions({
               pair,
               artistId: angle === "artist_first_person" ? artist?.id ?? null : null,
               stageOverride: stage,
-            }).then((result) => {
-              const sentence = result?.json.notice;
-              setNotice(typeof sentence === "string" && sentence ? sentence : null);
-            }).finally(() => setWriting(false));
+            }).then((result) => setNotice(noticeAfterGenerate(result))).catch(() => setNotice(generateFailureSentence(null))).finally(() => setWriting(false));
           }}
         >
           <HeldLabel idle={generateButtonLabel(false, count)} pending={generateButtonLabel(true, count)} active={writing} />
