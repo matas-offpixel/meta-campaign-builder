@@ -1,9 +1,12 @@
 # Session log
 
+PR: https://github.com/matas-offpixel/meta-campaign-builder/pull/1124 (#1124)
+
+
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1124
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1124
 - **Branch:** `cursor/creative-lab-voice`
 
 ## Summary
