@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Asset bank (M6) — issue 3 — A11, the window, the roll-call, the ladder additions, cancelled, backfilled — 9 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.mono{font-family:var(--mono)}.muted{color:var(--ink-3)}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.sm{height:24px;padding:0 9px;font-size:11.5px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:var(--olive)}
+.chip.warn{color:var(--ochre);border-color:var(--ochre)}
+.chip.bad{color:var(--brick);border-color:var(--brick)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.chip.ink{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+/* app shell */
+.app{display:flex;height:100%}
+.nav{width:172px;flex:none;background:#e3d1bf;border-right:1px solid var(--border);padding:14px 12px;font-size:12px;color:var(--ink-2)}
+.nav b{display:block;font:700 12px var(--sans);color:var(--ink);letter-spacing:.04em;margin-bottom:6px}
+.nav .it{padding:4px 8px;border-radius:5px;margin:1px 0}.nav .it.on{background:var(--muted);color:var(--ink)}
+.main{flex:1;min-width:0;padding:16px 22px}
+.ttl{font:700 19px/1.1 var(--sans);letter-spacing:.03em;text-transform:uppercase}
+.sub{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.secrow{display:flex;justify-content:space-between;align-items:center}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin:0 0 10px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.sec-h h3{margin:0;font-size:13px;font-weight:600}
+.big{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.two{display:grid;grid-template-columns:1.25fr 1fr;gap:12px}
+/* release timeline */
+.tl{position:relative;padding:0 0 4px}
+.tl .axis{height:2px;background:var(--border-strong);margin:30px 0 0;position:relative}
+.tl .axis i{position:absolute;top:-4px;width:10px;height:10px;border-radius:50%;background:var(--ink);transform:translateX(-50%)}
+.tl .axis i.pay{background:transparent;border:2px solid var(--ink);width:12px;height:12px;top:-5px}
+.tl .axis i.now{background:var(--ochre)}
+.tl .axis em{position:absolute;top:-28px;transform:translateX(-50%);font:600 10.5px var(--sans);color:var(--ink-2);white-space:nowrap;font-style:normal}
+.tl .axis em.lo{top:10px}
+.rel{display:grid;grid-template-columns:150px 1fr 150px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:12px}
+.rel:first-child{border-top:0}
+.rel .nm{font-weight:600}.rel .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:11px}
+.rel .when{font:11px var(--mono);color:var(--ink-2)}
+.rel .when b{color:var(--ink)}
+.rel .st{text-align:right}
+/* sold bars */
+.sb{display:grid;grid-template-columns:150px 1fr 120px;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--border);font-size:12px}
+.sb:first-child{border-top:0}
+.sb .nm{font-weight:600}.sb .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:11px}
+.track{height:22px;border-radius:6px;background:var(--muted);position:relative}
+.track i{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:var(--ink-2)}
+.track i.full{background:var(--olive)}
+.track i.g{background:var(--border-strong)}
+.track .hd{position:absolute;top:-5px;width:14px;height:32px;border-radius:5px;background:var(--sand);border:2px solid var(--ink);transform:translateX(-50%);box-shadow:0 1px 3px rgba(30,24,16,.25)}
+.track .lbl{position:absolute;right:8px;top:0;bottom:0;display:flex;align-items:center;font:600 11px var(--mono);color:var(--ink)}
+.track .tick{position:absolute;top:-3px;bottom:-3px;border-left:1.5px dashed var(--ink-3)}
+.sb .v{font:11px var(--mono);text-align:right;color:var(--ink-2)}.sb .v b{display:block;font-size:13px;color:var(--ink)}
+.src{font:10.5px var(--mono);color:var(--ink-3);margin-top:8px}
+/* approval */
+.steps{display:flex;gap:0;font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.steps span{padding:4px 10px;border:1px solid var(--border-strong);color:var(--ink-3)}
+.steps span:first-child{border-radius:99px 0 0 99px}.steps span:last-child{border-radius:0 99px 99px 0}
+.steps span.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.steps span.done{color:var(--olive)}
+.appr{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center;background:var(--edit);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px}
+.appr.held{border-color:var(--ochre)}
+.appr.locked{opacity:.78}
+.ph9{width:120px;aspect-ratio:9/16;border-radius:12px;overflow:hidden;position:relative;background:linear-gradient(160deg,#3a2a24,#8a5a3a);border:3px solid #1e1810}
+.ph9 .cap{position:absolute;left:8px;right:8px;top:30%;color:#fff;font:700 10px/1.25 var(--sans);text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.prog{height:8px;border-radius:4px;background:var(--muted);overflow:hidden;position:relative}.prog i{display:block;height:100%;background:var(--ink)}
+.prog s{position:absolute;top:-2px;bottom:-2px;border-left:1.5px dashed var(--ink-3)}
+.acts{display:flex;gap:8px;flex-direction:column;align-items:stretch}
+/* calendar */
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:11px}
+.cal .d{height:50px;border-radius:5px;background:var(--edit);padding:3px 5px;position:relative}
+.cal .d.pay{outline:2px solid var(--ink)}
+.cal .d.win{background:var(--sand)}
+.cal .d small{display:block;font-size:9.5px;line-height:1.15;margin-top:2px}
+.cal .hd{font:700 9px/1 var(--mono);color:var(--ink-3);text-align:center}
+.pk{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:3px;vertical-align:middle}
+/* board */
+.board{display:grid;grid-template-columns:200px repeat(4,1fr);gap:6px;font-size:11.5px}
+.board .rh{font-weight:600;font-size:12px;align-self:center}
+.board .rh small{display:block;font-weight:400;color:var(--ink-3);font-size:10.5px}
+.board .ch{font:700 9px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);align-self:end}
+.bc{height:64px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:4px;position:relative;font-size:11px;text-align:center;padding:0 6px}
+.bc.ex{background:linear-gradient(160deg,#4a3a2a,#9a7a5a);color:#fff}
+.bc.ap::after{content:"✓";position:absolute;right:4px;top:3px;width:16px;height:16px;border-radius:50%;background:var(--olive);color:#fff;font:700 10px/16px var(--sans);text-align:center}
+.bc.miss{border:1px dashed var(--border-strong);color:var(--ink-3)}
+.bc.na{background:transparent;color:var(--ink-3);opacity:.5}
+.bc.wait{background:var(--edit);border:1px solid var(--ochre);color:var(--ochre)}
+.bc.lock{background:var(--edit);border:1px dashed var(--ink-3);color:var(--ink-3)}
+/* 393 */
+.phone{width:393px;position:relative;background:var(--sand);padding:12px 14px;font-size:12.5px}
+.phone .panel{padding:10px 12px}
+.phone .rel,.phone .sb{grid-template-columns:1fr;gap:4px}
+.phone .rel .st{text-align:left}
+.phone .sb .v{text-align:left}.phone .sb .v b{display:inline;margin-right:6px}
+.phone .board{grid-template-columns:96px repeat(2,1fr)}
+.phone .appr{grid-template-columns:80px 1fr}
+.phone .appr .acts{grid-column:1 / -1;flex-direction:row}
+.phone .ph9{width:80px}
+.inv{font-size:12.5px}
+
+/* issue 2 */
+.stc{display:inline-flex;border:1px solid var(--border-strong);border-radius:99px;overflow:hidden;font:600 10.5px var(--sans);white-space:nowrap}
+.stc span{padding:4px 7px;border-right:1px solid var(--border);color:var(--ink-2);font-size:10px}
+.stc span:last-child{border-right:0}
+.stc span.on{background:var(--ink);color:var(--sand)}
+.stc span.done{color:var(--ink-3)}
+.sr{display:grid;grid-template-columns:118px 1fr 168px;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--border);font-size:12px}
+.sr:first-child{border-top:0}
+.sr .nm{font-weight:600}.sr .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:11px}
+.sr .cnt{font:11px var(--mono);color:var(--ink-2);text-align:right}
+.sr .cnt b{display:block;font-size:12.5px;color:var(--ink)}
+.cntchip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:4px;border:1px dashed var(--border-strong);font:600 10.5px var(--sans);color:var(--ink-3)}
+.lad{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.rg{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:4px;font:600 9.5px var(--sans);white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.rg.done{background:var(--olive);color:#fff;border-color:var(--olive)}
+.rg.next{border-color:var(--ochre);color:var(--ochre);background:var(--edit)}
+.rg.fut{border-style:dashed;color:var(--ink-3)}
+.lad .ar{color:var(--ink-3);font-size:10px}
+.tl .axis .ld{position:absolute;top:22px;transform:none;white-space:nowrap}
+.tl .axis .ld.b{top:48px}
+.tl .axis .ld::before{content:"";position:absolute;left:-6px;top:-10px;width:1px;height:10px;background:var(--border-strong)}
+.cl2{display:grid;grid-template-columns:1fr 24px 1fr;gap:8px 10px;align-items:center;font-size:12px}
+.cl2 .h{font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.cl2 .c{background:var(--edit);border:1px solid var(--border);border-radius:6px;padding:7px 10px}
+.cl2 .c.trig{border-left:3px solid var(--ink-2)}
+.cl2 .c.claim{border-left:3px solid var(--ochre)}
+.cl2 .arr{text-align:center;color:var(--ink-3)}
+.cl2 .c small{display:block;color:var(--ink-3);font-size:10.5px;margin-top:2px}
+.prop{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center;background:var(--edit);border:1px solid var(--ochre);border-radius:10px;padding:12px;margin-bottom:10px}
+.read{font:11px var(--mono);color:var(--ink-2);background:var(--muted);border-radius:6px;padding:7px 9px;margin:6px 0}
+.read b{color:var(--ink)}
+.phone .sr{grid-template-columns:1fr;gap:4px}.phone .sr .cnt{text-align:left}.phone .sr .cnt b{display:inline;margin-right:6px}
+.phone .cl2{grid-template-columns:1fr}.phone .cl2 .arr{display:none}.phone .cl2 .h:nth-child(2){display:none}
+.phone .prop{grid-template-columns:80px 1fr}.phone .prop .acts{grid-column:1 / -1;flex-direction:row}
+
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.chip.warn{color:var(--ochre);border-color:var(--ochre)}
+.prop.m{grid-template-columns:70px 1fr !important;gap:10px}.prop.m .ph9{width:70px;border-width:2px}.prop.m .acts{grid-column:1 / -1;flex-direction:row}
+.cl1{display:flex;flex-direction:column;gap:4px;font-size:12px}.cl1 .c{background:var(--edit);border:1px solid var(--border);border-radius:6px;padding:7px 10px}.cl1 .c.trig{border-left:3px solid var(--ink-2)}.cl1 .c.claim{border-left:3px solid var(--ochre);margin-bottom:8px}.cl1 .c small{display:block;color:var(--ink-3);font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · ASSET BANK (M6) · ISSUE 3 · 9 NOVEMBER 2026</div>
+<h1>Asset bank — issue 3: A11 ruled, the window as the code's, the roll-call rung, the ladder additions, cancelled events, backfilled rows</h1>
+<p class="lead">Extends <code>2026-11-08-asset-bank.html</code> (issue 1) and <code>2026-11-08-asset-bank-2.html</code> (issue 2, built as #1114). Both stand except where a row below says otherwise. This issue writes down what the #1114 build settled (A11, the payday window's end), draws the sold-out roll-call rung the overlay record ruled (O12), adds the ladder rungs that record queued (sales velocity, price-increase date, countdown + %, lineup addition) and the offers that are entered rather than derived, hides cancelled events from the releases panel and Today, and says how a backfilled release reads until Matas touches it. Puzzle's real release dates are used; every count, price and offer figure is a placeholder and flagged.</p>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px"><li><b>Issue 3 · 9 Nov 2026.</b> A12 A11 ruled yes (the validator echoes a live approved claim); A13 the payday window ends on the code's day (Thu 26 Nov – Sun 13 Dec), correcting issue 1's AB3 figure; A14 the roll-call rung (O12) on the ladder and the proposal card; A15 four derived rungs added (sales velocity, price increase on a date + last chance, countdown + %, lineup addition); A16 offers are entered, not derived, with the marker on the card; A17 cancelled events hidden from the releases panel and Today; A18 backfilled rows read plain until touched. AB5 redrawn with the rungs; AB2 gains the roll-call proposal and an offer card; AB1 gains the backfilled state; AB3's baseline is the #1114 build. Hand-back H12–H17.</li>
+<li><b>Issue 2 · 8 Nov 2026.</b> A1'–A6', A11, AB1/AB2/AB4/AB5 redrawn. Built as #1114.</li>
+<li><b>Issue 1 · 8 Nov 2026.</b> Release timeline, sold bars, warnings, calendar, board. #1107.</li></ul></div>
+
+<h2>Data note — what changed since issue 2</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there</th><th>What it means for issue 3</th></tr>
+<tr><td>#1114 (merged)</td><td>A11 built as ruled: a caption "90% sold out" passes the validator only while that claim is live for that release. The calendar shades 26 Nov – 13 Dec from <code>isInPaydayWindow</code>; issue 1's AB3 drew 14 Dec.</td><td>A12 records the yes. A13 records the code's window; the AB3 baseline at 22088967 is the frame, issue 1's figure is superseded.</td></tr>
+<tr><td>Overlay templates record (#1112), O12 and the ladder-additions table</td><td>The sold-out roll-call: line 1 the sold_out releases joined "A, B &amp; C RELEASE SOLD OUT", line 2 the live release's claim; trigger ≥ 2 sold_out and 1 on sale; preferred over a plain %. Queued rungs: sales velocity (count delta over a window), price increase on a date with a last-chance qualifier, countdown + %, offers entered not derived (payment plan, group 4-for-3, early-entry price) with an "entered, not derived" marker, lineup addition "{artist} (just announced)".</td><td>A14–A16 rule them for the ladder and the cards; the overlay record's slots already carry them (qualifier line, number token).</td></tr>
+<tr><td><code>event_releases</code> backfill (#1114, H1')</td><td>Two rows per existing event (Presale, General sale), state from the dates, <code>state_source = entry</code>, no <code>state_set_by</code>: 139 not_yet / not_yet, 35 on_sale / on_sale, 8 mixed. Puzzle's four are Matas's.</td><td>A18: a backfilled state is a guess from dates, so it reads plain — no "set … by" line, no proposal from it — until Matas taps a segment.</td></tr>
+<tr><td><code>events.status</code></td><td>Cancelled events keep their releases and would propose claims; Puzzle 4th Birthday Part 1 (the cancelled duplicate from pass 2) is one.</td><td>A17: a cancelled event has no releases panel and no Today row; its ladder is kept, not shown.</td></tr>
+<tr><td>Counts</td><td>Where a provider sync exists the release carries a count per day (tier_channel_sales history); elsewhere a count is an entered chip.</td><td>Sales velocity (A15) needs two counts a window apart; without them the rung is locked and says so.</td></tr>
+</table>
+
+<h2>A · Rulings added in issue 3</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>A12 A11 — yes</td><td>An approved warning is a promoter claim with its trigger recorded. The caption validator accepts a caption that repeats an approved, <b>live</b> claim's words for that release ("90% sold out", "final 50") while the claim is live; everything else keeps the strict rule. Built in #1114 as H4' / H11; the test is the acceptance. The deck's X2 closes with this row.</td></tr>
+<tr><td>A13 The window is the code's</td><td>The payday window is <code>isInPaydayWindow</code>: 18 days inclusive from the Thursday before the last Friday — for November, <b>Thu 26 Nov – Sun 13 Dec</b>. Issue 1's AB3 figure shaded 14 Dec and its H6 acceptance named it; both are superseded by this row and by the AB3 baseline at 22088967. The calendar draws the code's rule and never redefines it (issue 1's data note stands).</td></tr>
+<tr><td>A14 The roll-call rung</td><td>A rung on every client's ladder, seeded. <b>Trigger:</b> two or more releases in state sold_out and exactly one on sale or selling fast. <b>Claim:</b> two lines — line 1 the sold_out releases in position order, joined with commas and "&amp;", the word RELEASE once at the end unless a release's name carries its own ("EARLY BIRD, 1ST, 2ND &amp; 3RD RELEASE SOLD OUT"); line 2 the live release's current claim from its own rung ("FINAL RELEASE RUNNING LOW", "FINAL 100 FINAL RELEASE TICKETS"). The words are generated from <code>event_releases</code>; the approval card shows both lines. <b>Preferred:</b> when its trigger is met the roll-call is proposed ahead of a plain % rung for the same release. Line 1 draws in the kit's second colour, line 2 white (O12); on the card the two lines read as two lines. Puzzle's four releases at sold out · sold out · on sale · selling fast meet the trigger only if one of the last two is not on sale — the fixture's state in AB2 is sold out · sold out · sold out · selling fast.</td></tr>
+<tr><td>A15 Four derived rungs</td><td>Added below the sold-out rung, seeded, each with its trigger column. <b>Sales velocity:</b> "1,000+ TICKETS SOLD IN THE LAST 2 WEEKS" — trigger: sold(now) − sold(now − window) ≥ threshold, window and threshold per client (defaults 14 days, 500 — Invented); needs two counts, locked without them, the card names the two reads. <b>Price increase on a date:</b> "PRICES RISE {DAY}" with the qualifier "LAST CHANCE AT £{n}" — trigger: the next release's list time within n days (default 4, as A7's price-rise window); the price only when the current release carries one, else the qualifier is dropped. <b>Countdown + %:</b> "LESS THAN 2 WEEKS TO GO" / "OVER 90% SOLD OUT" — trigger: days to show ≤ n and the % rung's trigger met (or the state rung that stands in for it); the two lines are the claim. <b>Lineup addition:</b> "{ARTIST} (JUST ANNOUNCED)" — trigger: a new row in the event's typed lineup since the last proposal; it refreshes the lineup slot (floating kit) and every headliner card's ALONGSIDE: list (frame kit) rather than making a new asset. A derived rung never carries a number its trigger didn't supply (rule 11, O7).</td></tr>
+<tr><td>A16 Offers — entered, not derived</td><td>Three offer claims exist and <b>no trigger makes them</b>: a payment plan ("£{n} TODAY · SPLIT THE REST IN {n}"), a group ticket ("4 FOR 3 · GROUP TICKETS"), an early-entry price ("£{n} EARLY ENTRY" with the qualifier "ARRIVE BEFORE {time}"). Matas enters an offer on the event (the <i>Offers</i> sheet: kind, the figures, the condition, from / until), and it becomes a proposal like any rung. Its approval card carries the marker <span class="chip warn">entered, not derived</span> beside the claim and names who entered it and when; the card has no trigger line because there is none. An offer is not scarcity: it never says sold, final, last or % and the validator treats its words as a price (£ must equal a tier or offer price). Offers are not on the ladder (they are not claims about truth) — they live on the event's Offers sheet and on the board as their own row.</td></tr>
+<tr><td>A17 Cancelled events</td><td>An event whose status is cancelled shows no releases panel, no ladder, no proposal card and no Today row; the board's ticket-warning rows read "cancelled · nothing to make". Its <code>event_releases</code> rows are kept (history), never deleted. Uncancelling restores the panel as it was. The page header already carries the status word (pass 2 A4); nothing else says it twice.</td></tr>
+<tr><td>A18 Backfilled rows read plain</td><td>A release row whose state came from the backfill (source entry, no <code>state_set_by</code>) draws its state control with the derived segment <b>outlined, not filled</b>, no "set {date} · {source}" line, and the sub-line "from the event's dates · tap to confirm". It makes <b>no proposal</b> and counts in no panel number until Matas taps a segment — the first tap saves his entry and the row reads like any other. The Puzzle rows are his already. The 174 backfilled events read this way until touched; Today does not list them.</td></tr>
+</table>
+
+<!-- ===================== AB5 ===================== -->
+<h2>AB5 · The claim ladder with the roll-call and the four derived rungs (1280 and 393) — redrawn</h2>
+<div class="frame"><figure><figcaption>AB5-1280 · Puzzle's ladder · the roll-call under sold out · four derived rungs · Offers in the right panel</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav" style="width:150px"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it on">Clients</div><div class="it">Events</div></div>
+  <div class="main">
+    <div class="secrow"><div><div class="ttl">Puzzle</div><div class="sub">promoter · music · Southampton</div></div><span class="btn">Edit</span></div>
+    <div class="tabs" style="display:flex;gap:18px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--border-strong);margin:10px 0 12px"><span>Overview</span><span>Events 5</span><span style="color:var(--ink);border-bottom:2px solid var(--ink);padding-bottom:6px">Ticketing</span><span>D2C</span><span>Campaigns</span></div>
+    <div class="two" style="grid-template-columns:1.4fr 1fr">
+      <div class="panel">
+        <div class="sec-h"><h3>Claim ladder</h3><span class="muted" style="font-size:11.5px">what a warning may say, by what's true · Puzzle's own · <span class="btn sm" style="margin-left:6px">Reset to default</span></span></div>
+        <div class="cl2">
+          <div class="h">Trigger · what's true</div><div></div><div class="h">Claim · what the asset says</div>
+          <div class="c trig">Release list time passed · state on sale</div><div class="arr">→</div><div class="c claim">"{release} live · selling fast"</div>
+          <div class="c trig">Selling fast for 5+ days, no count<small>Puzzle: 5 days (default 7)</small></div><div class="arr">→</div><div class="c claim">"{release} 90% sold out"</div>
+          <div class="c trig">Actual 50% · 60% · 70% · 80%<small>when a count and a capacity exist</small></div><div class="arr">→</div><div class="c claim">"75%" · "80%" · "90% sold out" · "95% sold"</div>
+          <div class="c trig">Actual 90% · or state final X · or the page shows remaining</div><div class="arr">→</div><div class="c claim">"99%" or "final X"<small>X from the page or the count, never typed</small></div>
+          <div class="c trig">State sold out</div><div class="arr">→</div><div class="c claim">"sold out"</div>
+          <div class="c trig" style="border-left-color:var(--brick)">2+ releases sold out · 1 on sale or selling fast<small>roll-call · preferred over the % rung</small></div><div class="arr">→</div><div class="c claim" style="border-left-color:var(--brick)">"{sold-out releases} RELEASE SOLD OUT" / "{live release's claim}"<small>two lines · the names from the releases, in order · line 2 is the live release's own rung</small></div>
+          <div class="c trig">Sold now − sold 14 days ago ≥ 500<small>sales velocity · needs two counts · window and count per client</small></div><div class="arr">→</div><div class="c claim">"{n}+ TICKETS SOLD IN THE LAST 2 WEEKS"</div>
+          <div class="c trig">Next release's list time within 4 days<small>price increase on a date</small></div><div class="arr">→</div><div class="c claim">"PRICES RISE {DAY}"<small>qualifier "LAST CHANCE AT £{n}" when the release has a price</small></div>
+          <div class="c trig">Days to show ≤ 14 · and the % rung's trigger met</div><div class="arr">→</div><div class="c claim">"LESS THAN 2 WEEKS TO GO" / "OVER 90% SOLD OUT"</div>
+          <div class="c trig">A new row in the typed lineup</div><div class="arr">→</div><div class="c claim">"{ARTIST} (JUST ANNOUNCED)"<small>refreshes the lineup slot and every ALONGSIDE: list</small></div>
+        </div>
+        <div class="src">edit a cell to change Puzzle's ladder · every approved claim records which rung allowed it · offers are not rungs: see Offers</div>
+      </div>
+      <div class="panel">
+        <div class="sec-h"><h3>How Puzzle's warnings run</h3></div>
+        <div style="font-size:12.5px;line-height:1.5">
+          <div><b>Read</b> Skiddle · Mon / Wed / Fri 09:00 <span class="chip dash">reader to be proved</span></div>
+          <div style="margin-top:6px"><b>Fallback</b> client message → Matas sets the state</div>
+          <div style="margin-top:6px"><b>Counts</b> entered chips; velocity needs two, a window apart</div>
+          <div style="margin-top:6px"><b>Offers</b> entered on the event, never derived — payment plan · group · early entry · <span class="chip warn">entered, not derived</span> on the card</div>
+          <div style="margin-top:6px"><b>Timing</b> payday window for % and final X claims; "{release} live" and the roll-call at the release time; price rise from 4 days before</div>
+          <div style="margin-top:6px"><b>Formats</b> 9:16 video · 4:5 · 1:1 — T1 / T2 per the overlay record; the roll-call in kit red over white</div>
+          <div style="margin-top:6px"><b>Approval</b> every claim, every time</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div></figure>
+<figure><figcaption>AB5-393 · stacked pairs · the roll-call pair with its two-line claim</figcaption>
+<div class="vp" style="width:393px;padding:14px">
+  <div class="ttl" style="font-size:16px">Puzzle · claim ladder</div><div class="sub" style="margin-bottom:10px">what a warning may say, by what's true</div>
+  <div class="panel" style="padding:12px">
+    <div class="cl1">
+      <div class="c trig">State sold out</div><div class="c claim">"sold out"</div>
+      <div class="c trig" style="border-left-color:var(--brick)">2+ releases sold out · 1 on sale<small>roll-call · preferred over %</small></div><div class="c claim" style="border-left-color:var(--brick)">"EARLY BIRD, 2ND &amp; 3RD RELEASE SOLD OUT" /<br>"FINAL RELEASE RUNNING LOW"</div>
+      <div class="c trig">Sold now − sold 14 days ago ≥ 500</div><div class="c claim">"{n}+ TICKETS SOLD IN THE LAST 2 WEEKS"</div>
+      <div class="c trig">Next release's list time within 4 days</div><div class="c claim">"PRICES RISE {DAY}" · "LAST CHANCE AT £{n}"</div>
+      <div class="c trig">Days to show ≤ 14 · % rung met</div><div class="c claim">"LESS THAN 2 WEEKS TO GO" / "OVER 90% SOLD OUT"</div>
+      <div class="c trig">A new row in the typed lineup</div><div class="c claim">"{ARTIST} (JUST ANNOUNCED)"</div>
+    </div>
+    <div class="src">tap a cell to edit · 13 rungs · offers are not rungs</div>
+  </div>
+</div></figure></div>
+<p class="lead">Puzzle's eight rungs from issue 2 stand; the roll-call sits under the sold-out rung with its two-line claim and "preferred" mark, and the four derived rungs follow with their triggers. Offers are not rows here: the ladder is claims about what's true, and an offer is a decision. The right panel gains the Offers line and the count rule.</p>
+
+<!-- ===================== AB2 ===================== -->
+<h2>AB2 · The roll-call proposal and an entered offer (1280 and 393) — two cards added</h2>
+<div class="frame"><figure><figcaption>AB2-1280 · the roll-call proposal (preferred over the % rung) · an entered offer with the marker and no trigger line</figcaption>
+<div class="vp" style="width:1280px;padding:20px">
+<div style="margin-bottom:10px" class="steps"><span class="done">✓ Read</span><span class="on">Propose</span><span>Approve</span><span>Scheduled</span><span>Live</span></div>
+<div class="prop">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap" style="font-size:9px"><span style="color:#FE3232">EARLY BIRD, 2ND &amp; 3RD<br>RELEASE SOLD OUT</span><br>FINAL RELEASE<br>RUNNING LOW</span></div>
+  <div>
+    <b style="font-size:14px">Proposes: push the roll-call</b> <span class="chip warn" style="margin-left:6px">proposed</span> <span class="chip" style="margin-left:4px">preferred over "90% sold out"</span>
+    <div class="read"><b>Skiddle read Mon 9 Nov 09:00:</b> early bird sold out · 2nd release sold out · 3rd release sold out · final release selling fast (on sale 3 days)</div>
+    <div style="font-size:12.5px"><span class="k">trigger</span> 3 releases sold out, 1 selling fast &nbsp;<span class="k">→ claim</span> line 1 "EARLY BIRD, 2ND &amp; 3RD RELEASE SOLD OUT" · line 2 "FINAL RELEASE RUNNING LOW" (the final release's own rung: live · selling fast)</div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Runs at the read, inside the window. Formats: 9:16 clip (T1), 4:5 and 1:1 statics (T2). Line 1 in kit red, line 2 white — the registered CTA piece if the designer supplies one, else the font path.</p>
+  </div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Correct</button></div>
+</div>
+<div class="prop">
+  <div class="ph9" style="background:linear-gradient(160deg,#1e1810,#3a3a4a)"><span class="cap" style="font-size:9px">£10 TODAY<br>SPLIT THE REST IN 3</span></div>
+  <div>
+    <b style="font-size:14px">Proposes: push "£10 today · split the rest in 3"</b> <span class="chip warn" style="margin-left:6px">entered, not derived</span>
+    <div style="font-size:12.5px;margin-top:6px"><span class="k">offer</span> payment plan · £10 today, 3 parts · until Fri 27 Nov &nbsp;<span class="k">entered by</span> Matas, Sun 8 Nov 14:10, from the Offers sheet</div>
+    <div style="font-size:12.5px;margin-top:4px"><span class="k">words</span> "£10 TODAY" / "SPLIT THE REST IN 3" · no scarcity words · £10 is a price the validator checks against the offer</div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">No read makes an offer true, so there is no trigger line. Runs mid-month as content-led (A7) unless Matas sets a window. Formats: 4:5 and 1:1 statics (T2, the number on its own line at 1.5×).</p>
+  </div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Edit the offer</button></div>
+</div>
+</div></figure>
+<figure><figcaption>AB2-393 · the same two cards · preview left, words right, buttons on their own row</figcaption>
+<div class="vp" style="width:393px;padding:14px">
+<div class="prop m"><div class="ph9" style="background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap" style="font-size:8px"><span style="color:#FE3232">EARLY BIRD, 2ND &amp; 3RD<br>RELEASE SOLD OUT</span><br>FINAL RELEASE<br>RUNNING LOW</span></div>
+  <div><b style="font-size:13px">Proposes: push the roll-call</b> <span class="chip warn">proposed</span><div style="font-size:12px;margin-top:4px"><span class="k">trigger</span> 3 sold out, 1 selling fast → two lines, the names from the releases</div><div class="muted" style="font-size:11.5px;margin-top:4px">preferred over "90% sold out"</div></div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Correct</button></div></div>
+<div class="prop m"><div class="ph9" style="background:linear-gradient(160deg,#1e1810,#3a3a4a)"><span class="cap" style="font-size:8px">£10 TODAY<br>SPLIT THE REST IN 3</span></div>
+  <div><b style="font-size:13px">"£10 today · split the rest in 3"</b> <span class="chip warn">entered, not derived</span><div style="font-size:12px;margin-top:4px"><span class="k">entered by</span> Matas, 8 Nov · until 27 Nov</div></div>
+  <div class="acts"><button class="btn solid">Approve</button><button class="btn">Edit the offer</button></div></div>
+</div></figure></div>
+<p class="lead">The roll-call card shows both lines as the asset will carry them and names the rung that allowed it; the preferred mark says why it came ahead of the % rung. The offer card has no trigger line — there is no read that makes an offer true — so it carries the <i>entered, not derived</i> marker, who entered it and when, and the figures Matas typed. Issue 2's four cards are unchanged.</p>
+
+<!-- ===================== AB1 ===================== -->
+<h2>AB1 · A backfilled event's rows, before Matas touches them (1280 and 393) — one state added</h2>
+<div class="frame"><figure><figcaption>AB1b-1280 · a backfilled event · two rows from the dates · derived segments outlined, no set-line · the panel counts nothing</figcaption>
+<div class="vp" style="width:1280px;padding:20px">
+<div class="panel" style="max-width:820px">
+  <div class="sec-h"><h3>Where each release is</h3><span><b style="font-size:20px">—</b> <span class="muted">nothing confirmed yet</span></span></div>
+  <div class="rel"><div><b>Presale</b><div class="muted" style="font-size:11px">from presale_at · Fri 20 Nov 18:00</div></div>
+    <div class="stc"><span style="outline:1.5px solid var(--ink-2);outline-offset:-1px;border-radius:99px 0 0 99px">not yet</span><span>on sale</span><span>selling fast</span><span>final X</span><span>sold out</span></div>
+    <div class="st"><div class="muted" style="font-size:11.5px">from the event's dates · tap to confirm</div></div></div>
+  <div class="rel"><div><b>General sale</b><div class="muted" style="font-size:11px">from general_sale_at · Sat 21 Nov 12:00</div></div>
+    <div class="stc"><span>not yet</span><span style="outline:1.5px solid var(--ink-2);outline-offset:-1px">on sale</span><span>selling fast</span><span>final X</span><span>sold out</span></div>
+    <div class="st"><div class="muted" style="font-size:11.5px">from the event's dates · tap to confirm</div></div></div>
+  <div class="src">backfilled from the event's two dates · no proposal until a state is confirmed · Today doesn't list this event</div>
+</div>
+</div></figure>
+<figure><figcaption>AB1b-393 · the same rows stacked</figcaption>
+<div class="vp" style="width:393px;padding:14px">
+<div class="panel" style="padding:12px">
+  <div class="sec-h"><h3>Where each release is</h3><span class="muted" style="font-size:11px">nothing confirmed</span></div>
+  <div style="margin:8px 0"><b>Presale</b><div class="muted" style="font-size:11px">Fri 20 Nov 18:00 · from the dates</div>
+    <div class="stc" style="margin-top:6px"><span style="outline:1.5px solid var(--ink-2);outline-offset:-1px">not yet</span><span>on sale</span><span>fast</span><span>final</span><span>out</span></div>
+    <div class="muted" style="font-size:11px;margin-top:4px">tap to confirm</div></div>
+  <div style="margin:8px 0"><b>General sale</b><div class="muted" style="font-size:11px">Sat 21 Nov 12:00 · from the dates</div>
+    <div class="stc" style="margin-top:6px"><span>not yet</span><span style="outline:1.5px solid var(--ink-2);outline-offset:-1px">on sale</span><span>fast</span><span>final</span><span>out</span></div>
+    <div class="muted" style="font-size:11px;margin-top:4px">tap to confirm</div></div>
+</div>
+</div></figure></div>
+<p class="lead">The derived segment is outlined, not filled; there is no "set … by" line; the sub-line says where the state came from and what to do; the panel's big number counts nothing until a tap. The first tap turns the row into his entry with today's date and his name, and the proposal path starts.</p>
+
+<h2>AB3 · the baseline</h2>
+<p class="lead">AB3-1280 and AB3-393 are the #1114 build at 22088967 — window 26 Nov – 13 Dec, payday outlined, brick and meta-blue marks with the words, the 28 Nov push in the 393 list. Not redrawn here; that baseline is the frame.</p>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Claim ladder</td><td>Add the roll-call rung (two-line claim, "preferred over %" mark) and the four derived rungs with trigger text; thresholds editable per client (velocity window and count, price-rise days, countdown days).</td></tr>
+<tr><td>Proposal card</td><td>Add the two-line claim for the roll-call; add the offer variant: no trigger line, the <span class="chip warn">entered, not derived</span> marker, "entered by {name}, {date}", the figures as typed.</td></tr>
+<tr><td>Offers sheet</td><td>New, on the event's Ticketing panel: kind (payment plan · group · early entry), figures, condition, from / until; one action <code>Propose</code>. 393: full-width sheet.</td></tr>
+<tr><td>State control</td><td>Add the backfilled state: derived segment outlined, no set-line, sub-line "from the event's dates · tap to confirm".</td></tr>
+<tr><td>Release timeline · Claims · Today</td><td>Not mounted on a cancelled event (A17); backfilled rows make no Today row (A18).</td></tr>
+<tr><td>Asset board</td><td>Offers as their own row ("Offer · payment plan"), cells as A9; cancelled events' warning rows read "cancelled · nothing to make".</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance (frame)</th></tr>
+<tr><td>H12 Roll-call</td><td>The rung in <code>client_claim_ladders</code> (trigger_kind <code>roll_call</code>), seeded; the words function from event_releases per A14 with a unit test per join case (two names, three, a release named "Final release"); the proposal ranks it above a % rung for the same release.</td><td>event_releases; client_claim_ladders</td><td>AB5-1280 row as drawn; AB2-1280 first card with the two lines verbatim for sold out · sold out · sold out · selling fast</td></tr>
+<tr><td>H13 Derived rungs</td><td>Four trigger kinds (<code>velocity</code>, <code>price_rise_date</code>, <code>countdown_pct</code>, <code>lineup_add</code>) with per-client thresholds; velocity reads two counts from tier_channel_sales history; lineup_add reads the event's artist rows and re-renders the lineup slot / ALONGSIDE: list rather than filing a new cell.</td><td>tier_channel_sales_daily_history; event artists</td><td>unit test per rung on the fixture; a velocity rung with one count is locked with "needs a second count"</td></tr>
+<tr><td>H14 Offers</td><td><code>event_offers</code> (event_id, kind, figures jsonb, condition, from_at, until_at, entered_by, entered_at); the Offers sheet; proposal and approval cards per A16 with the marker; the validator treats offer £ as a price; the board row.</td><td>new table</td><td>AB2-1280 second card as drawn; a typed offer with "final" in it is refused by the sheet with one sentence</td></tr>
+<tr><td>H15 Cancelled</td><td>The releases panel, Claims, proposals and Today rows are not mounted for status cancelled; the board rows read the A17 words; rows kept.</td><td>events.status</td><td>fixture: the cancelled duplicate event shows no panel and no Today row; its rows still exist</td></tr>
+<tr><td>H16 Backfilled</td><td>Rows with state_source entry and no state_set_by render per A18; make no proposal; count in no panel figure; the first tap writes the entry (H2').</td><td>event_releases</td><td>AB1-1280 / AB1-393 backfilled frames as drawn; after a tap the row matches issue 2's AB1</td></tr>
+<tr><td>H17 A11 and the window</td><td>No build — on record: A12 (test in #1114), A13 (AB3 baseline).</td><td>—</td><td>—</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The velocity defaults (14 days, 500 tickets), the price-rise days (4, borrowed from A7), the countdown days (14); all per-client cells.</li>
+<li>The offer figures in AB2 (£10 today · 3 parts; 4 for 3; £16.50 early entry before 4pm) and the offer card's wording; "entered by Matas, 8 Nov".</li>
+<li>The backfilled sub-line "from the event's dates · tap to confirm" and the outlined-segment drawing; the fixture event's name and dates in AB1 (a Fixture Night, not a client's).</li>
+<li>"cancelled · nothing to make" as the board's words.</li>
+<li>The AB2 roll-call fixture's state (3rd release sold out) — Puzzle's real state on 7 Nov was on sale · selling fast, which does not meet the trigger.</li>
+</ul>
+
+<h2>Frames for CI (AB series, issue 3)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>AB5</td><td>1280, 393</td><td>re-baselined: Puzzle's ladder, 8 rungs + roll-call + 4 derived, the Offers line in the right panel</td></tr>
+<tr><td>AB2</td><td>1280, 393</td><td>re-baselined: issue 2's four cards + the roll-call proposal (sold out · sold out · sold out · selling fast) + the payment-plan offer card with the marker</td></tr>
+<tr><td>AB1b</td><td>1280, 393</td><td>new: a backfilled event (two rows, Presale not_yet / General sale on_sale from the dates), untouched</td></tr>
+<tr><td>AB3</td><td>1280, 393</td><td>unchanged from 22088967</td></tr>
+</table>
+
+</div>
+
+</body>
+</html>
