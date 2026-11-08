@@ -21,7 +21,7 @@ Creative Lab clip selection: a tick on each usable clip, persisted per event, an
 
 - [x] `npm test`
 - [x] `npm run build`
-- [ ] `frames:check`
+- [x] `frames:check`
 
 ## Notes
 
@@ -36,3 +36,5 @@ The event-page rail frames mount the same card, so IR1-1280 and IR2-1280 grew. U
 Generate on Puzzle 4th Birthday (`a092aca8-7d9d-4ccd-9eb8-1ada0a62d3d8`), read-only against prod: `clipsAwaitingPreview` does not filter `clips.event_id`. It selects the six lineup clips (Enzo #1–#5 with `event_id` null, Luke #1 filmed at this show). None already have a caption, and the playable lengths are 21.7s ×4, 30s and 30s. The route had no production runtime errors and no runtime logs in the last day. The button cleared its notice and only put `json.notice` back, so a non-JSON failure, or a 200 that wrote nothing, left the generator blank. The set is now the lineup's lab artists — the rows the tiles show — and an empty or failed generate leaves "The captions didn't write — try again."
 
 Rebase frames, Ubuntu, head `3f68550a64672d03a5b5b8d8d7727d9a4304e186`. `only=CL` runs 42520372258 and 42520375492. Byte-identical except CL5-1280 (83 px, 0.0017%) and CLS4-1280 / CLS4-393 (0 px over the 0.1 threshold). Committed from 42520372258: CL2–CL10 at both widths, CLS4 at both widths. CL1, CLV and CLQ matched git. `only=IR` runs 42520379169 and 42520382719 match byte for byte. Committed from 42520379169: IR1-1280, IR2-1280, IR7-393.
+
+Verdict frames, Ubuntu, head `89b74c4ce857dbef6b7e62d48e87f576e558c560`. `only=CL` runs 42525861102 and 42525863531. Byte-identical except CL5-1280 (83 px, 0.0017%) and CLS4-1280 (0 px over the 0.1 threshold). Committed from 42525861102: CL1–CL10 at both widths, CLS1–CLS4 at both widths, CLV1 at both widths, CLV2-1280, CLV3 and CLV4 at both widths. CLQ matched git. `only=IR` runs 42525865582 and 42525868065 match byte for byte. Committed from 42525865582: IR1-1280, IR2-1280.
