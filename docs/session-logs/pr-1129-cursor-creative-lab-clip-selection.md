@@ -26,3 +26,5 @@ Creative Lab clip selection: a tick on each usable clip, persisted per event, an
 ## Notes
 
 PR #1125 (`cc/lab-live-fixes-1`) was still open, so Finding… and Importing… were built on main. Importing… reuses the candidate `importing` state. Generate keeps its own `writing` flag. Migration 217 is not applied. sha256 `5f6368b223b34e8baf392940c7869b2b74ac601b979fa62415574be54dfd74a0`.
+
+Frame baselines (Ubuntu, `only=CL`, head `80873538be7e15e0e65b4715b10b153b826c00f2`): runs 42514713069 and 42514718120. CLS1–CLS4 added. CL1–CL10 and CLV1–CLV4 rewritten (the caption header and Write button sit in the voice frames). CLQ1–CLQ4 matched git and were left. CL5-1280 differs by 83 pixels between the two runs (0.0017%, under the 0.2% gate); the committed file is from 42514713069.
