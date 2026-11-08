@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative Lab — voice: the writer learns tone from the page, not from a generic style — 9 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6; --ig:#B0607A;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:0 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.muted{color:var(--ink-3)}.mono{font-family:var(--mono)}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:360px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:var(--olive)}.chip.warn{color:var(--ochre);border-color:var(--ochre)}.chip.bad{color:var(--brick);border-color:var(--brick)}.chip.dash{border-style:dashed;color:var(--ink-3)}
+.chip.fill{background:var(--ochre);color:#fff;border-color:var(--ochre)}
+.quote{border-left:3px solid var(--border-strong);padding:4px 14px;margin:10px 0 14px;font-size:13px;color:var(--ink-2);max-width:86ch}
+
+/* viewport and UI */
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+.sec{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}.btn.sm{height:24px;padding:0 9px;font-size:11.5px}.btn.dis{opacity:.45}
+.ctl{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld .k{margin:0}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden;height:28px}
+.seg span{padding:0 11px;display:inline-flex;align-items:center;font:600 12px var(--sans);color:var(--ink-2);border-right:1px solid var(--border-strong)}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.sel{height:28px;padding:0 10px;border:1px solid var(--border-strong);border-radius:6px;display:inline-flex;align-items:center;gap:8px;font:12px var(--sans);background:var(--edit);min-width:120px}
+.sel i{font-style:normal;color:var(--ink-3);margin-left:auto}
+
+/* the voice chip */
+.vrow{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.vchip{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px 0 8px;border-radius:99px;border:1px solid var(--border-strong);background:var(--edit);font:600 12px var(--sans);color:var(--ink);white-space:nowrap}
+.vchip .dot{width:7px;height:7px;border-radius:50%;background:var(--ig);display:inline-block}
+.vchip .n{font:600 10.5px var(--mono);color:var(--ink-3)}
+.vchip .go{color:var(--ink-3);font-size:13px;margin-left:2px}
+.vchip.house{border-style:dashed;color:var(--ink-2)}
+.vchip.house .dot{background:var(--ink-3)}
+.vchip.house.cant .dot{background:var(--ochre)}
+.vwhy{font-size:11.5px;color:var(--ink-3)}
+.vwhy b{color:var(--ink-2);font-weight:600}
+
+/* the voice sheet */
+.vsheet{width:440px;background:var(--edit);border-left:1px solid var(--border-strong);box-shadow:-8px 0 24px rgba(30,24,16,.14);display:flex;flex-direction:column;font-size:12.5px}
+.vsheet .vh{padding:14px 16px 10px;border-bottom:1px solid var(--border)}
+.vsheet .vh .top{display:flex;justify-content:space-between;align-items:center}
+.vsheet .vh .top b{font-size:14px}
+.vsheet .vh .sub{font:10.5px var(--mono);color:var(--ink-3);margin-top:4px}
+.vsheet .vb{padding:6px 16px 16px;overflow:hidden}
+.vsec{padding:10px 0 12px;border-bottom:1px solid var(--border)}
+.vsec:last-child{border-bottom:0}
+.vsec .h{display:flex;justify-content:space-between;align-items:baseline;margin:0 0 6px}
+.tr{display:grid;grid-template-columns:92px 1fr 64px;gap:2px 10px;align-items:center;padding:4px 0;font-size:12px}
+.tr .l{font-weight:600;color:var(--ink-2);font-size:11.5px}
+.tr .v{color:var(--ink)}
+.tr .v small{color:var(--ink-3);font-size:11px}
+.tr .ev{font:10.5px var(--mono);color:var(--ink-3);text-align:right;white-space:nowrap}
+.tr .ev i{display:block;height:3px;border-radius:2px;background:var(--muted);margin-top:3px;position:relative}
+.tr .ev i:before{content:"";position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--ink-3);width:var(--w)}
+.tr.off .v,.tr.off .l{color:var(--ink-3)}
+.tr.off .v s{text-decoration:none;color:var(--ochre);font-size:11px}
+.ex{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:6px 0;background:rgba(255,255,255,.18);font-size:12px;line-height:1.4;white-space:pre-line}
+.ex .m{display:flex;gap:8px;align-items:center;font:10.5px var(--mono);color:var(--ink-3);margin-top:6px;white-space:normal}
+.ex .m .lk{margin-left:auto}
+.ex .m .pl{width:18px;height:18px;border:1px solid var(--border-strong);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:var(--ink-2)}
+.foot{font-size:11.5px;color:var(--ink-3);margin-top:8px}
+.empty{font-size:12px;color:var(--ink-2);background:var(--muted);border-radius:6px;padding:10px 12px}
+.cant{font-size:12px;color:var(--ink-2);background:var(--muted);border-radius:6px;padding:10px 12px;border-left:3px solid var(--ochre)}
+
+/* 393 */
+.phone{width:393px;height:852px;position:relative;overflow:hidden;background:var(--sand)}
+.phone .pg{padding:12px}
+.phone .scrim{position:absolute;inset:0;background:rgba(30,24,16,.35)}
+.bsheet{position:absolute;left:0;right:0;bottom:0;height:88%;background:var(--edit);border-radius:14px 14px 0 0;box-shadow:0 -8px 24px rgba(30,24,16,.18);display:flex;flex-direction:column;font-size:12.5px}
+.bsheet .grab{width:38px;height:4px;border-radius:2px;background:var(--border-strong);margin:8px auto 2px}
+.bsheet .vh{padding:6px 16px 10px;border-bottom:1px solid var(--border)}
+.bsheet .vh .top{display:flex;justify-content:space-between;align-items:center}
+.bsheet .vh .top b{font-size:14px}
+.bsheet .vh .sub{font:10.5px var(--mono);color:var(--ink-3);margin-top:4px}
+.bsheet .vb{padding:0 16px;overflow:hidden}
+.pre{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font:12px/1.5 var(--mono);white-space:pre-wrap;color:var(--ink-2);max-width:900px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · CREATIVE LAB · VOICE (THE WRITER'S CORPUS) · 9 NOVEMBER 2026 · ISSUE 1</div>
+<h1>Creative Lab — voice: the writer learns tone from the page, not from a generic style</h1>
+<p class="lead">The caption writer today shows every client the same seed examples (NX Loves and Junction 2 lines in <code>corpus.ts</code>) and asks the model to copy their shapes. That is why the output reads as one agency voice, and sometimes as a machine's. This record rules a <b>voice corpus</b>: per page — the client's promoter Instagram and each artist's Instagram — the page's own last N captions, read from the edge Find clips already reads, stored verbatim, and handed to the writer as exemplars of tone. The validator (<code>caption-facts.ts</code>, A11 as built) is untouched; <code>copy_features</code> still supplies the shape; the corpus supplies the voice. Frames at 1280 and 393; every value not read from the code or named by Matas is listed under <i>Invented</i>.</p>
+<div class="quote">"we should take learnings for suggestions from the artist or promoter IG profile captions to be more on brand and less generic / clearly AI written. Content needs to feel genuine and authentic to resonate." — Matas, 8 Nov 2026</div>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px"><li><b>Issue 1, amended before merge · 9 Nov 2026 (Matas).</b> Three proposals ruled: hashtags are read, not written, with the per-client switch off by default (V3); the recurring sign-off may close the primary text verbatim (V7); N = 30 posts per page and a floor of 8 exemplars (V1, V4). Q8 from the quote record ruled <b>no</b> — the validator stays channel-blind (V9); the deck's X3 closes there. The six-consecutive-words copy test and the trait list stay Invented until the first real run.</li>
+<li><b>Issue 1 · 9 Nov 2026.</b> The voice corpus: rulings V1–V13; the <i>Sounds like</i> chip on the generator (CLV1), the voice sheet with exemplars and the traits taken (CLV2), the empty state (CLV3), an artist whose feed can't be read or is empty (CLV4). Hand-back HV1–HV7: <code>voice_samples</code>, the prompt contract, the trait extractor, the CI frame with fixture captions.</li></ul></div>
+
+<h2>Data note — what is there today, read on 9 Nov</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there</th><th>What it sets here</th></tr>
+<tr><td><code>lib/creative-lab/writer.ts</code></td><td>One Claude call per <code>generateCaptions</code>, answered through the <code>submit_captions</code> tool. The system prompt shows <code>CORPUS[style]</code> — a fixed seed per style — and says "copy the shape, not the facts". Facts are tokens (<code>{artist} {venue} {city} {date} {lineup} {next3}</code>) substituted after. Overlay: no emoji, no <code>#</code>, not all capitals, 4 × 18 or 5 × 24, ≤ 96 characters. Primary text ≤ 125 characters, emoji allowed, per-client switch <code>creative_lab_style_settings.emoji_in_primary</code>. Candidates then pass <code>validateCaption</code> and a dedupe.</td><td>V3 (where the voice lands, per layer), V4 (the seed stays as the shape library), V7 (the dedupe gains the never-copy test), V9 (validator unchanged).</td></tr>
+<tr><td><code>lib/creative-lab/corpus.ts</code></td><td>Seed lines from <code>docs/creative-lab/caption-corpus-2026-11-06.md</code>: NX Loves and Junction 2 copy, one list per style, shown to every client.</td><td>The generic voice Matas named. V4 keeps it for shape; V1 adds the page's own voice beside it.</td></tr>
+<tr><td><code>lib/creative-lab/ig-discovery.ts</code></td><td><code>IG_MEDIA_FIELDS</code> = id, media_type, media_product_type, permalink, timestamp, like_count, comments_count, thumbnail_url, children. <b><code>caption</code> is not requested</b>; media_url is deliberately absent. Reads an artist's own edge (<code>instagram_actor_id</code>) or Business Discovery by <code>ig_username</code> through the client's <code>instagram_business_id</code>, up to 150 posts over 365 days; writes <code>creative_lab_ig_candidates</code>; stamps <code>ig_synced_at</code> / <code>ig_last_error</code> on the artist. The client's own page is used only as the Discovery actor — <b>its captions are never read</b>.</td><td>V2: one read, <code>caption</code> added to the field list; the promoter page gets the own-edge read it lacks. V6: refresh rides this call.</td></tr>
+<tr><td><code>lib/creative-lab/clip-sync.ts</code></td><td>Nightly: folder scan, then <code>instagramPass</code> runs <code>findArtistClips</code> for every artist with an <code>ig_username</code> whose client isn't archived.</td><td>V6: the nightly refresh is this pass; the promoter page joins it.</td></tr>
+<tr><td><code>lib/creative-lab/tags.ts</code></td><td><code>voiceForStyle</code>: <code>artist_first_person</code> is the artist's voice; every other style is the promoter's. No voice column.</td><td>V5: which page feeds which generation.</td></tr>
+<tr><td><code>copy_features</code> (rail issue 3, R20–R23)</td><td>Feature values with a shrunk index per stage and scope — "questions beat statements on registration" — and <code>Use shape</code> where a shape maps to a generator control.</td><td>V4: the shape block of the prompt comes from here; the corpus never does shape.</td></tr>
+<tr><td><code>caption-facts.ts</code> (A11, built in #1114; A12)</td><td>Facts, scarcity words against ticket data, the live-claim echo, the artist-voice checks (speaking artist, played cities).</td><td>V9: unchanged. Voice never relaxes a fact.</td></tr>
+<tr><td>Instagram Graph API</td><td>Business Discovery and the own media edge both return <code>caption</code> for a post. Discovery works for Business and Creator accounts only; a personal or private account returns Meta's error, which <code>plainIgMessage</code> already turns into a sentence.</td><td>V8: the can't-read state is that sentence.</td></tr>
+<tr><td>Quote mode (CLQ1–CLQ4)</td><td>The generator's first control is Mode; in quote mode nothing is written.</td><td>The chip lives in caption mode only; quote mode is untouched (V5).</td></tr>
+</table>
+
+<h2>V · Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>V1 What the corpus is</td><td>Per <b>page</b> — the client's promoter Instagram (<code>clients.instagram_business_id</code>) and each artist's Instagram (<code>creative_lab_artists</code>) — the page's own <b>last N captions</b>, N = 30 (ruled, Matas 9 Nov), by posted date. Each is stored <b>verbatim</b> with its permalink, posted date, likes and comments; nothing is trimmed, corrected or de-emojied. The corpus is exemplars of <b>tone</b>: how the page writes, not what it has written. Reels, images and carousels count alike; a post with no caption is skipped and does not count toward N.</td></tr>
+<tr><td>V2 Where it is read</td><td>The same media edge the Lab's discovery already reads: <code>caption</code> is added to <code>IG_MEDIA_FIELDS</code>, so the one call that ranks an artist's reels also carries their captions (own edge for an artist with <code>instagram_actor_id</code>; Business Discovery by <code>ig_username</code> otherwise). The promoter page gains the own-edge read it does not have today — <code>/{instagram_business_id}/media</code> with the same fields, through the same token. No new permission, no new token. <code>media_url</code> stays absent; a caption is public text the page published.</td></tr>
+<tr><td>V3 Where the voice lands</td><td>Both layers, with the overlay's own rules intact. The <b>overlay</b> (burned text) takes sentence length, case, punctuation habit, and how the page names the venue and the lineup. <b>Emoji, sign-offs and hashtags</b> are habits of the <b>primary text</b> only — the overlay has no emoji, no <code>#</code>, not all capitals, as today. Hashtags are read and shown as a trait but <b>not written into an ad</b> unless Matas turns it on per client (<code>creative_lab_style_settings.hashtags_in_primary</code>, default off — ruled, Matas 9 Nov): a hashtag in paid primary text is a link off the ad. Mentions (@) are read and never written.</td></tr>
+<tr><td>V4 Shape, voice, facts — three sources, one prompt</td><td>The prompt has three blocks and each has one owner. <b>Shape</b>: the style's seed examples (<code>corpus.ts</code>, unchanged) and, where the rail has a winner for the stage and scope (R20), the <code>copy_features</code> finding as the recommended angle — the generator's pre-set (R23), nothing more. <b>Voice</b>: the page's exemplars and the traits the extractor took from them (V11). <b>Facts</b>: the event record through the tokens, as today. The seed lines keep their job ("copy the shape, not the facts"); the exemplars take the job the seed lines were never meant to do. When the corpus has fewer than M = 8 exemplars (ruled, Matas 9 Nov), the voice block is omitted and the chip says so (V8); the prompt is then exactly today's.</td></tr>
+<tr><td>V5 Which page feeds which</td><td><code>voiceForStyle</code> decides: <code>artist_first_person</code> reads the <b>artist's</b> page (the artist picked on the generator, or the clip's artist); every other style reads the <b>promoter's</b>. Never both in one call; never another client's. Quote mode is untouched — a quote is the artist's own words and nothing is written.</td></tr>
+<tr><td>V6 Refresh</td><td>On <b>Find clips</b> (the same call, no second request) and <b>nightly</b> in clip-sync's Instagram pass, where the promoter page is added as one more read per client. New posts upsert on (page, ig_media_id); likes and comments update on every read; nothing is deleted — the prompt takes the N most recent by posted date. The sheet shows when the page was last read. A read error lands on the artist's <code>ig_last_error</code> (or a new <code>clients.ig_last_error</code>, Invented) and on the chip (V8).</td></tr>
+<tr><td>V7 Never lines to copy</td><td>Exemplars are tone. A candidate that repeats <b>six or more consecutive words</b> (Invented) of any exemplar is dropped by the writer's dedupe with code <code>voice_copy</code>, visible through <code>onReject</code> like any other drop. One exception, <b>ruled (Matas, 9 Nov)</b>: a <b>recurring sign-off</b> — the same closing line in 3 or more of the N posts — may close the primary text verbatim, because it is the page's own refrain and the page is the advertiser. On the artist's page the refrain is the artist's and takes the artist-channel gate as any artist-voice caption does (B1).</td></tr>
+<tr><td>V8 States — the chip always says which voice</td><td>One component, the <b>voice chip</b>, under the generator row, in caption mode: <span class="vchip" style="height:22px;font-size:11px"><span class="dot"></span>Sounds like @puzzle <span class="n">· 24 posts</span><span class="go">›</span></span> when the corpus has ≥ M exemplars; otherwise a dashed <b>House voice</b> chip with the reason: <i>No posts read yet — Find clips reads them</i> (Matas's sentence, verbatim) · <i>@handle has 5 posts, fewer than 8</i> · <i>@handle can't be read: not a business or creator account</i> (Meta's reason through <code>plainIgMessage</code>, rule 7) · <i>Add Instagram</i> (no handle; the artist row's own action). House voice is today's prompt, named, never a silent fallback. The chip opens the sheet (V10); its count is posts read, not posts on the page.</td></tr>
+<tr><td>V9 The validator is unchanged</td><td><code>caption-facts.ts</code> runs after the writer exactly as today, A11 included (A12): scarcity words need the ticket data or a live approved claim; dates, venue, lineup come from tokens; the artist-voice checks stand. An exemplar may carry a past fact ("27.12", "last 50") — the prompt's standing instruction (tokens, never a typed fact) and the validator catch it, as they catch the seed lines' facts today. Voice never relaxes a fact and a trait never introduces one. <b>Q8 ruled no (Matas, 9 Nov):</b> the validator is channel-blind — an artist's own scarcity words, quoted verbatim with their source, still need the ticket data (or a live approved claim) to run on the artist's channels; the quote is held with the validator's sentence as any caption is. The deck's X3 closes with this row.</td></tr>
+<tr><td>V10 The sheet</td><td>Opens from the chip, right side at 1280 (440 px), bottom sheet at 393. Header: the handle, posts read, when, and the cadence ("refreshed on Find clips and nightly"). Then <b>Traits the writer took</b> — each trait with its value and its evidence as <i>n of N</i> (V11), a trait that is read but not written marked so. Then <b>Exemplars</b> — the captions verbatim with date and likes, the permalink behind a ↗ (rule 5: no ids, no URL text). Footer: "Exemplars set the tone. No line is reused." One action: <b>Read again</b> (Find clips). Nothing on the sheet is editable; the corpus is read, never curated.</td></tr>
+<tr><td>V11 Traits</td><td>The extractor is a pure function, samples in → traits out, deterministic, with a count of N behind every trait (Invented list, flagged): post length (median characters, band), sentences per post, words per sentence (median and range), case habit (sentence · lower · caps share), emoji (set by frequency, posts carrying any, position lead · inline · trail), hashtags (posts carrying any, median count, trailing block or inline), mentions (posts carrying any), punctuation (exclamation and question share, em dash, ellipsis), line breaks (median lines), sign-off (a closing line recurring in ≥ 3), venue naming (the forms the venue appears in, by count — "Circuit" 11 · "Circuit Southampton" 0), lineup naming (separator: new line · "/" · "b2b" · comma; "& more" habit). The prompt receives the traits as sentences the model can follow, not as JSON (HV2).</td></tr>
+<tr><td>V12 Who sees what</td><td>A page's captions are public posts; the corpus is per page and never pooled. A client's promoter corpus shows to that client and to Matas; an artist's corpus shows wherever the artist row shows. Nothing from one client's page reaches another client's writer (rule 12 holds without a 🔒 line, because there is no cross-client read). Removing an artist row removes its samples (Invented: cascade).</td></tr>
+<tr><td>V13 393</td><td>The chip drops under the generator's <i>Write</i> row, full width, the count on the right. The sheet is a bottom sheet at 88 %: traits first, exemplars under them, <i>Read again</i> at the foot. The can't-read and empty sentences stack under the chip.</td></tr>
+</table>
+
+<!-- ===================== CLV1 ===================== -->
+<h2>CLV1 · The voice chip on the generator (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLV1-1280 · the captions generator in caption mode · the voice chip under the row · Angle Lineup reads the promoter page · Angle Artist, first person reads the artist's</figcaption>
+<div class="vp" style="width:1280px;padding:18px">
+  <div class="sec">
+    <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:12px">Stage: on sale · CTA Get tickets</span></div>
+    <div class="ctl">
+      <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+      <div class="fld"><span class="k">Angle</span><span class="seg"><span class="on">Lineup</span><span>Artist, first person</span><span>POV</span><span>Scarcity</span></span></div>
+      <div class="fld"><span class="k">Stage</span><span class="sel">On sale<i>▾</i></span></div>
+      <div class="fld"><span class="k">How many</span><span class="seg"><span>1</span><span class="on">3</span><span>5</span></span></div>
+      <div class="fld"><span class="k">Pair with</span><span class="seg"><span class="on">Best clip</span><span>Each new clip</span></span></div>
+      <div class="fld" style="margin-left:auto"><span class="btn solid">Write 3</span></div>
+    </div>
+    <div class="vrow"><span class="vchip"><span class="dot"></span>Sounds like @puzzle <span class="n">· 24 posts</span><span class="go">›</span></span><span class="vwhy"><b>Promoter voice</b> · every angle but Artist, first person · read today 09:12 · shape from Lineup · facts from the event</span></div>
+  </div>
+
+  <div class="sec" style="margin-top:14px">
+    <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:12px">Stage: on sale · CTA Get tickets</span></div>
+    <div class="ctl">
+      <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+      <div class="fld"><span class="k">Angle</span><span class="seg"><span>Lineup</span><span class="on">Artist, first person</span><span>POV</span><span>Scarcity</span></span></div>
+      <div class="fld"><span class="k">Artist</span><span class="sel">Enzo Siragusa <span class="chip ok" style="height:16px;font-size:8.5px">✓ artist channels</span><i>▾</i></span></div>
+      <div class="fld"><span class="k">How many</span><span class="seg"><span>1</span><span class="on">3</span><span>5</span></span></div>
+      <div class="fld" style="margin-left:auto;flex-direction:row;align-items:center;gap:8px"><span class="btn sm">More ▾</span><span class="btn solid">Write 3</span></div>
+    </div>
+    <div class="vrow"><span class="vchip"><span class="dot"></span>Sounds like @enzosiragusa <span class="n">· 30 posts</span><span class="go">›</span></span><span class="vwhy"><b>Artist voice</b> · his own posts, not the promoter's · read Thu 6 Nov with Find clips</span></div>
+  </div>
+</div></figure>
+<figure><figcaption>CLV1-393 · the chip full width under the Write row · the why line under it</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+  <div class="sec" style="padding:12px">
+    <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:11px">on sale</span></div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+      <div class="fld" style="flex:1;min-width:0"><span class="k">Angle</span><span class="sel" style="min-width:0">Lineup<i>▾</i></span></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><span class="btn solid" style="flex:1;justify-content:center">Write 3</span><span class="btn sm">More ▾</span></div>
+    <div class="vrow" style="margin-top:10px"><span class="vchip" style="width:100%"><span class="dot"></span>Sounds like @puzzle <span class="n" style="margin-left:auto">24 posts</span><span class="go">›</span></span></div>
+    <div class="vwhy" style="margin-top:6px"><b>Promoter voice</b> · read today 09:12</div>
+  </div>
+</div></figure>
+</div>
+<p class="lead">The chip is a statement, not an input (rule 3 is unchanged: the visible inputs are the generator's). It names the page the writer is about to sound like and how many of its posts it has read; the why line says which voice the current angle takes and where the other two blocks of the prompt come from. Switching the angle to <i>Artist, first person</i> switches the chip to the artist's page — nothing else on the row changes. The handle is read from the page, never typed.</p>
+
+<!-- ===================== CLV2 ===================== -->
+<h2>CLV2 · The voice sheet — exemplars and the traits the writer took (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLV2-1280 · the sheet beside the Lab · header with the read · traits with n of 24 · exemplars verbatim with date, likes and the permalink icon · one action</figcaption>
+<div class="vp" style="width:1280px;height:920px;display:flex">
+  <div style="flex:1;padding:18px;min-width:0">
+    <div class="sec" style="opacity:.55">
+      <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:12px">Stage: on sale · CTA Get tickets</span></div>
+      <div class="ctl">
+        <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+        <div class="fld"><span class="k">Angle</span><span class="seg"><span class="on">Lineup</span><span>Artist, first person</span><span>POV</span><span>Scarcity</span></span></div>
+        <div class="fld" style="margin-left:auto;flex-direction:row;align-items:center;gap:8px"><span class="btn sm">More ▾</span><span class="btn solid">Write 3</span></div>
+      </div>
+      <div class="vrow"><span class="vchip" style="border-color:var(--ink)"><span class="dot"></span>Sounds like @puzzle <span class="n">· 24 posts</span><span class="go">‹</span></span></div>
+    </div>
+  </div>
+  <div class="vsheet">
+    <div class="vh"><div class="top"><b>Sounds like @puzzle</b><span class="muted">✕</span></div><div class="sub">24 POSTS READ · TODAY 09:12 · AGAIN ON FIND CLIPS AND NIGHTLY</div></div>
+    <div class="vb">
+      <div class="vsec"><div class="h"><span class="k">Traits the writer took</span><span class="k">of 24</span></div>
+        <div class="tr"><span class="l">Length</span><span class="v">2–3 sentences · about 140 characters <small>· overlay keeps its own limits</small></span><span class="ev">median<i style="--w:70%"></i></span></div>
+        <div class="tr"><span class="l">Sentences</span><span class="v">short · 7 words <small>(4–12)</small></span><span class="ev">median<i style="--w:55%"></i></span></div>
+        <div class="tr"><span class="l">Case</span><span class="v">sentence case · never all caps</span><span class="ev">24 of 24<i style="--w:100%"></i></span></div>
+        <div class="tr"><span class="l">Emoji</span><span class="v">🖤 🔥 👀 · one per post, at the end of a line <small>· primary text only</small></span><span class="ev">19 of 24<i style="--w:79%"></i></span></div>
+        <div class="tr"><span class="l">Sign-off</span><span class="v">"See you on the floor 🖤" <small>· may close the primary text (V7)</small></span><span class="ev">9 of 24<i style="--w:37%"></i></span></div>
+        <div class="tr"><span class="l">Venue</span><span class="v">"Circuit" · never "Circuit Southampton"</span><span class="ev">11 of 24<i style="--w:46%"></i></span></div>
+        <div class="tr"><span class="l">Lineup</span><span class="v">names on their own lines · no "/" · "& more" when long</span><span class="ev">8 of 24<i style="--w:33%"></i></span></div>
+        <div class="tr"><span class="l">Punctuation</span><span class="v">full stops, few exclamations · no em dash</span><span class="ev">2 of 24 !<i style="--w:8%"></i></span></div>
+        <div class="tr off"><span class="l">Hashtags</span><span class="v">3 of 24 · trailing block <s>· read, not written into ads</s></span><span class="ev">3 of 24<i style="--w:12%"></i></span></div>
+        <div class="tr off"><span class="l">Mentions</span><span class="v">@ the artists in 14 of 24 <s>· read, not written</s></span><span class="ev">14 of 24<i style="--w:58%"></i></span></div>
+      </div>
+      <div class="vsec"><div class="h"><span class="k">Exemplars · newest first</span><span class="k">verbatim</span></div>
+        <div class="ex">Puzzle turns 4. Lineup drops Monday 👀
+Set your alarms<div class="m"><span>Thu 6 Nov</span><span class="lk">♥ 412</span><span class="pl">↗</span></div></div>
+        <div class="ex">Sold out. Thank you Southampton 🖤
+See you on the floor 🖤<div class="m"><span>Sat 1 Nov</span><span class="lk">♥ 688</span><span class="pl">↗</span></div></div>
+        <div class="ex">Last 50 for Saturday. Don't say we didn't tell you 🔥
+Link in bio<div class="m"><span>Thu 30 Oct</span><span class="lk">♥ 231</span><span class="pl">↗</span></div></div>
+        <div class="ex">Benji King opening the room from 10. Early birds get the best spot 👀<div class="m"><span>Fri 24 Oct</span><span class="lk">♥ 156</span><span class="pl">↗</span></div></div>
+        <div class="foot">+ 20 more · Exemplars set the tone. No line is reused.</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin:6px 0 10px"><span class="btn sm">Read again</span></div>
+    </div>
+  </div>
+</div></figure>
+<figure><figcaption>CLV2-393 · bottom sheet at 88 % · traits first · exemplars under · Read again at the foot</figcaption>
+<div class="vp" style="width:393px"><div class="phone"><div class="pg"><b>Captions</b><div class="muted" style="font-size:12px">on sale</div></div><div class="scrim"></div>
+  <div class="bsheet"><div class="grab"></div><div class="vh"><div class="top"><b>Sounds like @puzzle</b><span class="muted">✕</span></div><div class="sub">24 POSTS · TODAY 09:12 · FIND CLIPS AND NIGHTLY</div></div>
+    <div class="vb">
+      <div class="vsec"><div class="h"><span class="k">Traits the writer took</span><span class="k">of 24</span></div>
+        <div class="tr" style="grid-template-columns:78px 1fr 56px"><span class="l">Length</span><span class="v">2–3 sentences · ~140 chars</span><span class="ev">median</span></div>
+        <div class="tr" style="grid-template-columns:78px 1fr 56px"><span class="l">Sentences</span><span class="v">short · 7 words</span><span class="ev">median</span></div>
+        <div class="tr" style="grid-template-columns:78px 1fr 56px"><span class="l">Emoji</span><span class="v">🖤 🔥 👀 · end of line</span><span class="ev">19 of 24</span></div>
+        <div class="tr" style="grid-template-columns:78px 1fr 56px"><span class="l">Sign-off</span><span class="v">"See you on the floor 🖤"</span><span class="ev">9 of 24</span></div>
+        <div class="tr" style="grid-template-columns:78px 1fr 56px"><span class="l">Venue</span><span class="v">"Circuit"</span><span class="ev">11 of 24</span></div>
+        <div class="tr" style="grid-template-columns:78px 1fr 56px"><span class="l">Lineup</span><span class="v">own lines · no "/"</span><span class="ev">8 of 24</span></div>
+        <div class="tr off" style="grid-template-columns:78px 1fr 56px"><span class="l">Hashtags</span><span class="v">trailing <s>· not written</s></span><span class="ev">3 of 24</span></div>
+      </div>
+      <div class="vsec"><div class="h"><span class="k">Exemplars</span><span class="k">verbatim</span></div>
+        <div class="ex">Puzzle turns 4. Lineup drops Monday 👀
+Set your alarms<div class="m"><span>Thu 6 Nov</span><span class="lk">♥ 412</span><span class="pl">↗</span></div></div>
+        <div class="ex">Sold out. Thank you Southampton 🖤
+See you on the floor 🖤<div class="m"><span>Sat 1 Nov</span><span class="lk">♥ 688</span><span class="pl">↗</span></div></div>
+        <div class="foot">+ 22 more · No line is reused.</div>
+      </div>
+      <span class="btn sm" style="width:100%;justify-content:center;margin:6px 0 12px">Read again</span>
+    </div>
+  </div></div></div></figure>
+</div>
+<p class="lead">The sheet shows the writer's working, not a settings page. Every trait carries the count that justifies it, so a thin habit (two exclamations in twenty-four posts) reads as thin. Two traits are drawn with their value and a note that they are read and not written (V3): the hashtag block and the mentions. The exemplars are the posts as posted, dated, with likes, and the post itself behind the icon. There is nothing to edit here: the corpus is what the page wrote.</p>
+
+<!-- ===================== CLV3 ===================== -->
+<h2>CLV3 · The empty state — no posts read yet (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLV3-1280 · House voice chip, dashed · Matas's sentence · the sheet's empty state with the one action</figcaption>
+<div class="vp" style="width:1280px;height:300px;display:flex">
+  <div style="flex:1;padding:18px;min-width:0">
+    <div class="sec">
+      <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:12px">Stage: on sale · CTA Get tickets</span></div>
+      <div class="ctl">
+        <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+        <div class="fld"><span class="k">Angle</span><span class="seg"><span class="on">Lineup</span><span>Artist, first person</span><span>POV</span><span>Scarcity</span></span></div>
+        <div class="fld" style="margin-left:auto;flex-direction:row;align-items:center;gap:8px"><span class="btn sm">More ▾</span><span class="btn solid">Write 3</span></div>
+      </div>
+      <div class="vrow"><span class="vchip house"><span class="dot"></span>House voice <span class="n">· no posts read yet</span><span class="go">›</span></span><span class="vwhy">No posts read yet — Find clips reads them.</span></div>
+    </div>
+  </div>
+  <div class="vsheet">
+    <div class="vh"><div class="top"><b>House voice</b><span class="muted">✕</span></div><div class="sub">@puzzle · NOT READ YET</div></div>
+    <div class="vb">
+      <div class="vsec"><div class="empty">No posts read yet — Find clips reads them. Until then the writer uses the house voice: the style's seed examples and the event's facts.</div>
+        <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><span class="btn sm solid">Find clips</span><span class="muted" style="font-size:11.5px">reads the page's reels and its last 30 captions in one call</span></div></div>
+    </div>
+  </div>
+</div></figure>
+<figure><figcaption>CLV3-393 · the dashed chip · the sentence stacked under it</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+  <div class="sec" style="padding:12px">
+    <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:11px">on sale</span></div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+      <div class="fld" style="flex:1;min-width:0"><span class="k">Angle</span><span class="sel" style="min-width:0">Lineup<i>▾</i></span></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><span class="btn solid" style="flex:1;justify-content:center">Write 3</span><span class="btn sm">More ▾</span></div>
+    <div class="vrow" style="margin-top:10px"><span class="vchip house" style="width:100%"><span class="dot"></span>House voice<span class="n" style="margin-left:auto">not read</span><span class="go">›</span></span></div>
+    <div class="vwhy" style="margin-top:6px">No posts read yet — Find clips reads them.</div>
+  </div>
+</div></figure>
+</div>
+
+<!-- ===================== CLV4 ===================== -->
+<h2>CLV4 · An artist whose feed can't be read, or is empty (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLV4-1280 · Angle Artist, first person · Luke Dean · the chip names the reason in Meta's words through plainIgMessage · the writer falls back to the house voice, named · below, the empty-feed and no-handle variants of the same chip</figcaption>
+<div class="vp" style="width:1280px;padding:18px">
+  <div class="sec">
+    <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:12px">Stage: on sale · CTA Get tickets</span></div>
+    <div class="ctl">
+      <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+      <div class="fld"><span class="k">Angle</span><span class="seg"><span>Lineup</span><span class="on">Artist, first person</span><span>POV</span><span>Scarcity</span></span></div>
+      <div class="fld"><span class="k">Artist</span><span class="sel">Luke Dean <span class="chip" style="height:16px;font-size:8.5px">Promoter page only</span><i>▾</i></span></div>
+      <div class="fld"><span class="k">How many</span><span class="seg"><span>1</span><span class="on">3</span><span>5</span></span></div>
+      <div class="fld" style="margin-left:auto;flex-direction:row;align-items:center;gap:8px"><span class="btn sm">More ▾</span><span class="btn solid">Write 3</span></div>
+    </div>
+    <div class="vrow"><span class="vchip house cant"><span class="dot"></span>House voice <span class="n">· @lukedean can't be read</span><span class="go">›</span></span><span class="vwhy">@lukedean can't be read: not a business or creator account. Artist-voice captions use the house voice until it is. <b>His captions will also be Held</b> — he is Promoter page only (B1).</span></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:14px">
+    <div class="sec"><div class="k" style="margin-bottom:8px">Empty feed</div><span class="vchip house"><span class="dot"></span>House voice <span class="n">· @reeshy has 2 posts</span><span class="go">›</span></span><div class="vwhy" style="margin-top:8px">@reeshy has 2 posts, fewer than 8. The writer uses the house voice until there are more.</div></div>
+    <div class="sec"><div class="k" style="margin-bottom:8px">No handle</div><span class="vchip house"><span class="dot"></span>House voice <span class="n">· no Instagram on the row</span><span class="go">›</span></span><div class="vwhy" style="margin-top:8px">Add Instagram on Benji King's row — the same action the row already has.</div></div>
+    <div class="sec"><div class="k" style="margin-bottom:8px">Read, but stale</div><span class="vchip"><span class="dot"></span>Sounds like @philldejaneiro <span class="n">· 30 posts</span><span class="go">›</span></span><div class="vwhy" style="margin-top:8px">Read Fri 10 Oct · the nightly pass has not reached it since. The corpus still counts; the sheet says when it was read.</div></div>
+  </div>
+</div></figure>
+<figure><figcaption>CLV4-393 · the can't-read chip and its sentence stacked</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+  <div class="sec" style="padding:12px">
+    <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:11px">on sale</span></div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div class="fld"><span class="k">Mode</span><span class="seg"><span class="on">Caption</span><span>Quote</span></span></div>
+      <div class="fld" style="flex:1;min-width:0"><span class="k">Angle</span><span class="sel" style="min-width:0">Artist, first person<i>▾</i></span></div>
+    </div>
+    <div class="fld" style="margin-top:10px"><span class="k">Artist</span><span class="sel" style="min-width:0">Luke Dean<i>▾</i></span></div>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><span class="btn solid" style="flex:1;justify-content:center">Write 3</span><span class="btn sm">More ▾</span></div>
+    <div class="vrow" style="margin-top:10px"><span class="vchip house cant" style="width:100%"><span class="dot"></span>House voice<span class="n" style="margin-left:auto">can't be read</span><span class="go">›</span></span></div>
+    <div class="cant" style="margin-top:8px">@lukedean can't be read: not a business or creator account. Artist-voice captions use the house voice until it is.</div>
+  </div>
+</div></figure>
+</div>
+<p class="lead">Three failures, one component, each saying what unlocks it (rule 8): a private or personal account (Meta's reason, in a sentence), a feed with too few posts (the count and the floor), a row with no handle (the row's own action). None of them blocks writing — the house voice is today's writer — and none of them is silent. The stale case is not a failure: the corpus stands and the sheet dates it.</p>
+
+<h2>The prompt contract (HV2) — what goes in, what comes out</h2>
+<p class="lead">The writer's system prompt gains one block between the shape examples and the facts. It is prose the model can follow, generated from the traits, and then the exemplars verbatim. The facts block and the tool are unchanged; the output is still <code>submit_captions</code> candidates with the tokens in place.</p>
+<div class="pre">VOICE — @puzzle (promoter). These are the page's own recent posts. Write in this voice.
+Use them for tone only: never reuse a sentence or six consecutive words from any of them.
+Traits (of 24 posts):
+- Posts run 2–3 short sentences, about 140 characters; sentences average 7 words (4–12).
+- Sentence case; never all capitals.
+- Emoji: 🖤 🔥 👀, one per post, at the end of a line — in the primary text only; the overlay has none.
+- A recurring sign-off, "See you on the floor 🖤" (9 of 24), may close the primary text as written.
+- The venue is "Circuit", never "Circuit Southampton" — write {venue} and the record fills it.
+- Lineups go on their own lines, no "/", "& more" when long — write {lineup}.
+- Full stops; rarely an exclamation; no em dash.
+- The page uses hashtags and @mentions; do not write either.
+Exemplars, newest first:
+1. Puzzle turns 4. Lineup drops Monday 👀 / Set your alarms
+2. Sold out. Thank you Southampton 🖤 / See you on the floor 🖤
+3. Last 50 for Saturday. Don't say we didn't tell you 🔥 / Link in bio
+…
+Facts still come only from the tokens. Never type a date, a venue, a price or a lineup from an exemplar.</div>
+<p class="lead" style="margin-top:10px">Shape stays where it is: the style's seed examples and, where the rail has a winner, the angle pre-set. Facts stay where they are: the tokens and the validator. The voice block is the only addition, and it is omitted whole when the corpus is under the floor (V4).</p>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th><th>393</th></tr>
+<tr><td>Voice chip (new)</td><td>Under the generator row in caption mode. Two states: <i>Sounds like @handle · n posts ›</i> (solid outline, platform dot) when the page's corpus has ≥ 8 exemplars; <i>House voice · reason ›</i> (dashed) otherwise, the reason one of: no posts read yet · fewer than 8 · can't be read (Meta's reason in a sentence) · no Instagram on the row. Opens the voice sheet. Never an input; never absent in caption mode.</td><td>full width under the Write row; the sentence stacks under it</td></tr>
+<tr><td>Voice sheet (new)</td><td>Header (handle, posts read, when, cadence); <b>Traits the writer took</b> with <i>n of N</i> evidence, read-not-written traits marked; <b>Exemplars</b> verbatim with date, likes, permalink icon; footer sentence; one action, <i>Read again</i>. Empty state carries Matas's sentence and <i>Find clips</i>.</td><td>bottom sheet at 88 %</td></tr>
+<tr><td>Generator (captions)</td><td>Gains the chip row. Inputs unchanged. The why line names the voice the angle takes (promoter · artist) and the two other prompt sources.</td><td>as drawn</td></tr>
+<tr><td>Artist row</td><td>Unchanged; <i>Add Instagram</i> is reused as the no-handle reason's action.</td><td>same</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HV1 voice_samples</td><td>New table <code>voice_samples</code>: id, user_id, client_id, <code>artist_id</code> (null = the client's promoter page), <code>page_kind</code> (promoter · artist), <code>ig_user_id</code>, <code>ig_username</code>, <code>ig_media_id</code>, <code>caption</code> text verbatim, <code>permalink</code>, <code>posted_at</code>, <code>likes</code>, <code>comments</code>, <code>fetched_at</code>; unique (client_id, artist_id, ig_media_id); FK to creative_lab_artists on delete cascade; RLS as creative_lab_ig_candidates. No trait columns — traits are computed (HV3). Rows with an empty caption are not written.</td><td>new migration</td><td>a second read of the same post updates likes and fetched_at, inserts nothing; deleting the artist row deletes its samples; the client row's samples survive</td></tr>
+<tr><td>HV2 The prompt contract</td><td><code>writer.ts</code> gains <code>loadVoice(db, page)</code> → <code>{ handle, samples (N newest), traits }</code> and a <code>voiceBlock(traits, samples)</code> that renders the block above, as prose, between the shape examples and the facts; omitted when samples &lt; 8. The dedupe gains <code>voice_copy</code>: a candidate (overlay or primary) sharing six consecutive words with any sample is rejected via <code>onReject</code>; the recurring sign-off (≥ 3 of N) is exempt in the primary text only. <code>hashtags_in_primary</code> on <code>creative_lab_style_settings</code>, default false; hashtags and @mentions are never written while false. Validator call unchanged.</td><td>voice_samples; creative_lab_style_settings</td><td>unit: with 8 fixture samples the system prompt contains the block and the exemplars verbatim; with 7 it is byte-identical to today's; a candidate copying six words of a sample is rejected with code voice_copy; a primary text ending in the fixture sign-off passes; one ending in another sample's line fails</td></tr>
+<tr><td>HV3 The trait extractor</td><td><code>lib/creative-lab/voice-traits.ts</code>, pure: <code>extractTraits(samples: { caption, postedAt }[]) → VoiceTraits</code> with the V11 fields, each carrying <code>{ value, count, of }</code>; no I/O, no model call, deterministic; <code>describeTraits(traits) → string[]</code> renders the prose lines the prompt and the sheet share. Emoji by Unicode property, hashtags by <code>#\w</code>, mentions by <code>@\w</code>, sign-off = identical trimmed last line in ≥ 3 samples, venue forms from the client's venue names.</td><td>—</td><td>unit on the fixture captions: 19 of 24 emoji, sign-off found at 9, venue "Circuit" 11 / "Circuit Southampton" 0, hashtags 3, no em dash; same input twice → deep-equal output</td></tr>
+<tr><td>HV4 The read</td><td><code>caption</code> added to <code>IG_MEDIA_FIELDS</code>; <code>findArtistClips</code> upserts the artist's samples from the posts it already fetched (no second request); a new <code>readPromoterVoice(db, clientId)</code> reads <code>/{instagram_business_id}/media</code> with the same fields and upserts promoter samples; clip-sync's Instagram pass calls it once per non-archived client with an <code>instagram_business_id</code>. Errors land on <code>ig_last_error</code> (artist) / a new <code>clients.ig_last_error</code>, through <code>plainIgMessage</code>. media_url stays absent.</td><td>ig-discovery.ts; clip-sync.ts; clients</td><td>a Find clips run on the fixture writes ≤ 30 samples and the candidates in one Graph call per page; a Discovery error on a personal account writes the sentence and no samples</td></tr>
+<tr><td>HV5 Chip and sheet</td><td>The voice chip and sheet as drawn, in caption mode only; state from (samples count, last error, handle present); the sheet's traits from <code>describeTraits</code>; exemplars newest first with date, likes and the permalink behind ↗; <i>Read again</i> calls Find clips for an artist page and <code>readPromoterVoice</code> for the promoter page.</td><td>voice_samples; artist row; client row</td><td>CLV1–CLV4 at both widths as drawn; the chip's count equals the samples row count for that page</td></tr>
+<tr><td>HV6 CI frame and fixture</td><td>CLV1–CLV4 added to the CL series. Fixture: Puzzle 4th Birthday; promoter page <code>@puzzle</code> with the 24 fixture captions in <code>docs/creative-lab/fixtures/voice-puzzle.json</code> (the four drawn in CLV2 plus twenty more in the same register, all placeholders); Enzo Siragusa with 30 fixture captions; Luke Dean with <code>ig_last_error</code> "not a business or creator account"; Reeshy with 2; Benji King with no handle; Phill de Janeiro read 10 Oct.</td><td>the CL fixture</td><td>frames:check on CLV1 ×2, CLV2 ×2, CLV3 ×2, CLV4 ×2</td></tr>
+<tr><td>HV7 Settings</td><td><code>hashtags_in_primary</code> appears beside <code>emoji_in_primary</code> in the client's style settings, default off, with one sentence: "Hashtags in an ad's text link away from the ad."</td><td>creative_lab_style_settings</td><td>off by default on every existing client; the writer never emits <code>#</code> while off</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li><b>Every fixture caption</b> ("Puzzle turns 4. Lineup drops Monday 👀", "Sold out. Thank you Southampton 🖤", "Last 50 for Saturday…", "Benji King opening the room from 10…") is a placeholder written for the drawing. None is a post Puzzle or any artist made. The real corpus is read from the pages; the fixture uses these placeholders only.</li>
+<li>The handle <code>@puzzle</code> and the artist handles other than <code>@enzosiragusa</code>; the real handles are read from the pages (<code>ig_username</code>, and the username on the client's business account).</li>
+<li>The six-consecutive-words copy test and the ≥ 3 recurrence for a sign-off. (N = 30 and the floor of 8 were ruled before merge; no longer Invented.)</li>
+<li>Every trait value and count on the sheet (19 of 24 emoji, 9 of 24 sign-off, "Circuit" 11, 7-word sentences) — placeholders for the extractor's real output.</li>
+<li>The trait list itself (V11) and the prose lines of the voice block (HV2): proposed, to be judged on the first real run.</li>
+<li>The hashtags rule and the sign-off exception were proposed here and ruled before merge (changelog); the switch's sentence in HV7 is still the record's wording.</li>
+<li>The chip words: <i>Sounds like</i>, <i>House voice</i>, the reasons; the sheet's footer and the cadence line; the read-again action. Matas's empty-state sentence is his, verbatim.</li>
+<li><code>clients.ig_last_error</code> and the cascade on artist delete.</li>
+<li>The stale example (read 10 Oct) and its handling — the corpus stands, the sheet dates it; no staleness rule is set.</li>
+</ul>
+
+<h2>Frames for CI (CL series, additions)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>CLV1</td><td>1280, 393</td><td>captions generator, caption mode, Angle Lineup → "Sounds like @puzzle · 24 posts"; second strip Angle Artist, first person, Enzo → "Sounds like @enzosiragusa · 30 posts"</td></tr>
+<tr><td>CLV2</td><td>1280, 393</td><td>the voice sheet open on @puzzle: traits from the fixture captions through the extractor, four exemplars shown, "+ 20 more", Read again</td></tr>
+<tr><td>CLV3</td><td>1280, 393</td><td>a client with no samples: House voice chip, Matas's sentence, the sheet's empty state with Find clips</td></tr>
+<tr><td>CLV4</td><td>1280, 393</td><td>Angle Artist, first person, Luke Dean with the can't-read error; the three variant chips (Reeshy 2 posts, Benji King no handle, Phill de Janeiro read 10 Oct)</td></tr>
+</table>
+
+</div>
+</body>
+</html>
