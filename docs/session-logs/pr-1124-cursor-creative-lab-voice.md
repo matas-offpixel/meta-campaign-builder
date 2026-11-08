@@ -15,11 +15,11 @@ The caption writer takes its tone from the page's own Instagram captions. The se
 
 ## Scope / files
 
-- `supabase/migrations/215_creative_lab_voice.sql` — `voice_samples`, `voice_traits`, `clients.voice_hashtags_enabled`. Not applied.
+- `supabase/migrations/215_creative_lab_voice.sql` — `voice_samples` with foreign keys on `client_id` and `artist_id` (cascade). No `voice_traits` table. `clients.voice_hashtags_enabled` and `clients.ig_last_error`. Not applied.
 - `lib/creative-lab/voice-traits.ts`, `voice-store.ts`, `voice-fixtures.ts`
 - `lib/creative-lab/writer.ts` — voice block after the shape examples, omitted under 8 samples so today's prompt stays byte for byte
 - `lib/creative-lab/ig-discovery.ts` — artist captions saved from the Find clips read; promoter own-edge read; nightly refresh of promoter pages read in the last 30 days
-- Generator chip and sheet; CLV1–CLV4
+- `voice-panel.tsx` is the chip and the 440px / 88% sheet. CLV1–CLV4 mount it. The hashtag switch is on the client form.
 
 ## Validation
 
@@ -29,13 +29,11 @@ The caption writer takes its tone from the page's own Instagram captions. The se
 
 ## Notes
 
-- `user_id` is on both voice tables so owner RLS matches the Lab tables. `page_ref` has no foreign key: it points at either `clients.id` or `creative_lab_artists.id`.
-- The hashtag switch is `clients.voice_hashtags_enabled`, default false. The CLV2 drawing has no control, so the frames do not draw one. The live sheet has the switch.
-- The sheet's sentence range is 2–12. The drawing's placeholder said 4–12. "Sold out." is two words.
-- The four exemplar weekdays are the record's labels, not the 2026 weekday of those dates.
-- Enzo's chip says 30 posts as drawn. Those captions are not on a sheet in CLV1.
-- Under 8 posts the live chip says "Not enough posts yet · n of 8". CLV4 draws the record's longer sentence for Reeshy.
-- Empty promoter state on the live chip says "No posts read yet — Read posts". CLV3 draws "No posts read yet — Find clips reads them."
-- A page that cannot be read stores `{ "error": "..." }` on `voice_traits` with `sample_n` 0. No `clients.ig_last_error` column.
-CLV1–CLV4 at 1280 and 393 rewritten from matching Ubuntu runs 42497321834 and 42497326107.
+- Traits are computed from the samples when they are written. There is no traits table. A promoter read error is `clients.ig_last_error`.
+- The hashtag switch is `clients.voice_hashtags_enabled`, on the client form, with the sentence "Hashtags in an ad's text link away from the ad." The sheet has no control.
+- With the switch off, a hashtag is rejected at any post count. An @mention is rejected either way. Exemplars keep their line breaks.
+- The event page passes `quoteMode`, so the chip mounts there. Caption frames do not pass it, so CL1–CL10 stay without the chip.
+- The three `fallbackSentence` lines are returned on the writer result and are not drawn.
+- Migration 215 sha256 `846ed37ffaae4109e78493f69cc5c9e32a1ae1556046569e5516bb6c75ab6a71`. Not applied.
+- CLV1–CLV4 are reshot from two Ubuntu `frames-baselines` runs (`only=CLV`) after this fix.
 

@@ -30,15 +30,23 @@ export function LabCaptions({
   busy,
   onSave,
   quoteMode = false,
+  initialAngle = "lineup",
+  initialArtistId,
+  initialVoiceOpen = false,
+  voiceContained = false,
 }: {
   lab: CreativeLabCardData;
   busy: boolean;
   onSave: Save;
   /** Off on the CL frames, so those shots stay as they were. The event page turns it on. */
   quoteMode?: boolean;
+  initialAngle?: (typeof ANGLES)[number];
+  initialArtistId?: string;
+  initialVoiceOpen?: boolean;
+  voiceContained?: boolean;
 }) {
   const stageDefault = saleStageFromStatus(lab.eventStatus);
-  const [angle, setAngle] = useState<(typeof ANGLES)[number]>("lineup");
+  const [angle, setAngle] = useState<(typeof ANGLES)[number]>(initialAngle);
   const [stage, setStage] = useState<SaleStage>(stageDefault);
 
   // The Insights rail's "Use {angle}" (R9): pre-select, never generate.
@@ -54,7 +62,7 @@ export function LabCaptions({
   const [each, setEach] = useState(false);
   const [mode, setMode] = useState<"caption" | "quote">("caption");
   const [snapshot, setSnapshot] = useState<CaptionGenerator>({ angle: "lineup", count: 3, each: false, stage: stageDefault });
-  const [artistId, setArtistId] = useState(lab.artists[0]?.id ?? "");
+  const [artistId, setArtistId] = useState(initialArtistId ?? lab.artists[0]?.id ?? "");
   const [source, setSource] = useState<QuoteSource>("post");
   const [words, setWords] = useState("");
   const [where, setWhere] = useState("");
@@ -146,6 +154,17 @@ export function LabCaptions({
         </div>
       ) : (
       <div className="space-y-2 rounded border border-border bg-card p-3">
+        {quoteMode && voiceContained ? (
+          <VoicePanel
+            lab={lab}
+            angle={angle}
+            artistId={artist?.id ?? ""}
+            busy={busy}
+            onSave={onSave}
+            initialOpen={initialVoiceOpen}
+            contained={voiceContained}
+          />
+        ) : null}
         {quoteMode ? <Control label="Mode" value={mode} options={[{ id: "caption", label: "Caption" }, { id: "quote", label: "Quote" }]} onChange={chooseMode} /> : null}
         <Control label="Angle" value={angle} options={ANGLES.map((id) => ({ id, label: styleLabel(id) }))} onChange={setAngle} />
         <div className="sm:hidden">
@@ -176,7 +195,17 @@ export function LabCaptions({
         >
           Generate
         </Button>
-        {quoteMode ? <VoicePanel lab={lab} angle={angle} artistId={artist?.id ?? ""} busy={busy} onSave={onSave} /> : null}
+        {quoteMode && !voiceContained ? (
+          <VoicePanel
+            lab={lab}
+            angle={angle}
+            artistId={artist?.id ?? ""}
+            busy={busy}
+            onSave={onSave}
+            initialOpen={initialVoiceOpen}
+            contained={voiceContained}
+          />
+        ) : null}
       </div>
       )}
       <div className="flex snap-x gap-3 overflow-x-auto">

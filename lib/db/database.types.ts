@@ -1282,6 +1282,7 @@ export type Database = {
           id: string
           instagram_business_id: string | null
           instagram_handle: string | null
+          ig_last_error: string | null
           voice_hashtags_enabled: boolean
           last_probed_at: string | null
           mailchimp_account_id: string | null
@@ -1321,6 +1322,7 @@ export type Database = {
           id?: string
           instagram_business_id?: string | null
           instagram_handle?: string | null
+          ig_last_error?: string | null
           voice_hashtags_enabled?: boolean
           last_probed_at?: string | null
           mailchimp_account_id?: string | null
@@ -1360,6 +1362,7 @@ export type Database = {
           id?: string
           instagram_business_id?: string | null
           instagram_handle?: string | null
+          ig_last_error?: string | null
           voice_hashtags_enabled?: boolean
           last_probed_at?: string | null
           mailchimp_account_id?: string | null
@@ -2324,7 +2327,8 @@ export type Database = {
           id: string
           user_id: string
           page_kind: string
-          page_ref: string
+          client_id: string
+          artist_id: string | null
           ig_media_id: string
           permalink: string | null
           posted_at: string | null
@@ -2337,7 +2341,8 @@ export type Database = {
           id?: string
           user_id: string
           page_kind: string
-          page_ref: string
+          client_id: string
+          artist_id?: string | null
           ig_media_id: string
           permalink?: string | null
           posted_at?: string | null
@@ -2350,7 +2355,8 @@ export type Database = {
           id?: string
           user_id?: string
           page_kind?: string
-          page_ref?: string
+          client_id?: string
+          artist_id?: string | null
           ig_media_id?: string
           permalink?: string | null
           posted_at?: string | null
@@ -2359,37 +2365,22 @@ export type Database = {
           caption?: string
           fetched_at?: string
         }
-        Relationships: []
-      }
-      voice_traits: {
-        Row: {
-          id: string
-          user_id: string
-          page_kind: string
-          page_ref: string
-          sample_n: number
-          traits: Json
-          computed_at: string
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          page_kind: string
-          page_ref: string
-          sample_n: number
-          traits: Json
-          computed_at?: string
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          page_kind?: string
-          page_ref?: string
-          sample_n?: number
-          traits?: Json
-          computed_at?: string
-        }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "voice_samples_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voice_samples_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       creative_lab_style_settings: {
         Row: {

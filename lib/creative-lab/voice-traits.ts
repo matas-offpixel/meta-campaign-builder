@@ -39,6 +39,9 @@ export type TraitRow = {
   /** Bar width, 0–100. */
   bar: number;
   off?: boolean;
+  /** Struck note: read, and not written. */
+  note?: string;
+  hint?: string;
 };
 
 const EMOJI_G = /\p{Extended_Pictographic}/gu;
@@ -313,6 +316,7 @@ export function traitRows(traits: VoiceTraits, width: "wide" | "narrow" = "wide"
       value: width === "narrow" ? lengthNarrow : `${lengthWide}`,
       evidence: "median",
       bar: 70,
+      hint: width === "narrow" ? undefined : "· overlay keeps its own limits",
     },
     {
       label: "Sentences",
@@ -340,12 +344,14 @@ export function traitRows(traits: VoiceTraits, width: "wide" | "narrow" = "wide"
     value: width === "narrow"
       ? `${traits.emoji.set.slice(0, 3).join(" ")} · end of line`
       : `${traits.emoji.set.slice(0, 3).join(" ")} · ${one}${emojiWhere}`,
+    hint: width === "narrow" ? undefined : "· primary text only",
     evidence: `${traits.emoji.count} of ${of}`,
     bar: bar(traits.emoji.count),
   });
   rows.push({
     label: "Sign-off",
     value: signOff ? `"${signOff.line}"` : "None",
+    hint: width === "narrow" || !signOff ? undefined : "· may close the primary text",
     evidence: signOff ? `${signOff.count} of ${of}` : `0 of ${of}`,
     bar: signOff ? bar(signOff.count) : 0,
   });
@@ -379,6 +385,7 @@ export function traitRows(traits: VoiceTraits, width: "wide" | "narrow" = "wide"
     evidence: `${traits.hashtags.posts} of ${of}`,
     bar: bar(traits.hashtags.posts),
     off: true,
+    note: width === "narrow" ? "· not written" : "· read, not written into ads",
   });
   if (width === "wide") {
     rows.push({
@@ -387,6 +394,7 @@ export function traitRows(traits: VoiceTraits, width: "wide" | "narrow" = "wide"
       evidence: `${traits.mentions.posts} of ${of}`,
       bar: bar(traits.mentions.posts),
       off: true,
+      note: "· read, not written",
     });
   }
   return rows;
@@ -406,9 +414,9 @@ export function voicePromptBlock(args: {
 }): string | null {
   if (!traitsReady(args.samples.length) || !args.traits) return null;
   const traits = describeTraits(args.traits);
-  const exemplars = args.samples.slice(0, VOICE_SAMPLE_CAP).map((sample, index) => `${index + 1}. ${sample.caption.replaceAll("\n", " / ")}`);
+  const exemplars = args.samples.slice(0, VOICE_SAMPLE_CAP).map((sample, index) => `${index + 1}. ${sample.caption}`);
   const hashtags = args.hashtagsEnabled
-    ? "Hashtags may close the primary text only, in this page's habit. Do not put one on the overlay."
+    ? "Hashtags may close the primary text only, in this page's habit. Do not put one on the overlay. Do not write @mentions."
     : "The page uses hashtags and @mentions; do not write either.";
   return [
     `VOICE — @${args.handle} (${args.pageKind}). These are the page's own recent posts. Write in this voice.`,
@@ -469,6 +477,10 @@ export function hasHashtag(text: string): boolean {
   return HASHTAG.test(text);
 }
 
+export function hasMention(text: string): boolean {
+  return MENTION.test(text);
+}
+
 export function shapeLine(feature: { feature: string; value: string } | null, style: string): string {
   if (!feature) return `Shape: the ${style.replaceAll("_", " ")} seed examples.`;
   return `Shape: ${feature.feature.replaceAll("_", " ")} is ${feature.value.replaceAll("_", " ")}.`;
@@ -480,9 +492,32 @@ export function fallbackSentence(reason: "empty" | "floor" | "unread"): string {
   return "No posts read yet. The writer used the house voice: the style's seed examples.";
 }
 
-export function voiceChipLabel(args: { handle: string | null; sampleN: number; error: string | null }): string {
-  if (args.error && args.sampleN < VOICE_FLOOR) return args.error;
-  if (args.sampleN >= VOICE_FLOOR && args.handle) return `Sounds like @${args.handle} · ${args.sampleN} posts`;
-  if (args.sampleN > 0) return `Not enough posts yet · ${args.sampleN} of ${VOICE_FLOOR}`;
-  return "No posts read yet — Read posts";
+export function voiceChipParts(args: { handle: string | null; sampleN: number; error: string | null; artistPage: boolean }): {
+  name: string;
+  count: string;
+  countNarrow: string;
+  house: boolean;
+  cant: boolean;
+} {
+  if (args.artistPage && !args.handle) {
+    return { name: "House voice", count: "· no Instagram on the row", countNarrow: "Add Instagram", house: true, cant: false };
+  }
+  if (args.error && args.sampleN < VOICE_FLOOR) {
+    const handle = args.handle ?? "the page";
+    return { name: "House voice", count: `· @${handle} can't be read`, countNarrow: "can't be read", house: true, cant: true };
+  }
+  if (args.sampleN >= VOICE_FLOOR && args.handle && !args.error) {
+    return { name: `Sounds like @${args.handle}`, count: `· ${args.sampleN} posts`, countNarrow: `${args.sampleN} posts`, house: false, cant: false };
+  }
+  if (args.sampleN > 0 && args.handle) {
+    return { name: "House voice", count: `· @${args.handle} has ${args.sampleN} posts`, countNarrow: `Not enough posts yet · ${args.sampleN} of ${VOICE_FLOOR}`, house: true, cant: false };
+  }
+  return { name: "House voice", count: "· no posts read yet", countNarrow: "not read", house: true, cant: false };
 }
+
+export function voiceChipLabel(args: { handle: string | null; sampleN: number; error: string | null; artist?: boolean }): string {
+  const parts = voiceChipParts({ handle: args.handle, sampleN: args.sampleN, error: args.error, artistPage: args.artist === true });
+  return `${parts.name} ${parts.count}`.replace(/\s+/g, " ").trim();
+}
+
+export const NO_POSTS_READ = "No posts read yet — Find clips reads them.";

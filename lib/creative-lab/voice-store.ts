@@ -54,11 +54,11 @@ export async function saveVoiceSamples(
   args: {
     userId: string;
     pageKind: "promoter" | "artist";
-    pageRef: string;
+    clientId: string;
+    artistId: string | null;
     posts: readonly VoicePost[];
     now: Date;
     venueNames?: readonly string[];
-    error?: string | null;
   },
 ): Promise<{ sampleN: number; traits: VoiceTraits | null }> {
   const nowIso = args.now.toISOString();
@@ -68,7 +68,8 @@ export async function saveVoiceSamples(
       posts.map((post) => ({
         user_id: args.userId,
         page_kind: args.pageKind,
-        page_ref: args.pageRef,
+        client_id: args.clientId,
+        artist_id: args.artistId,
         ig_media_id: post.id,
         permalink: post.permalink,
         posted_at: post.postedAt,
@@ -77,7 +78,7 @@ export async function saveVoiceSamples(
         caption: post.caption,
         fetched_at: nowIso,
       })),
-      { onConflict: "page_kind,page_ref,ig_media_id" },
+      { onConflict: "client_id,artist_id,ig_media_id" },
     );
     if (saved.error) {
       if (missing(saved.error.message)) return { sampleN: 0, traits: null };
@@ -85,49 +86,29 @@ export async function saveVoiceSamples(
     }
   }
 
-  const loaded = await loadStoredVoice(db, args.pageKind, args.pageRef);
+  const loaded = await loadStoredVoice(db, args.pageKind, args.clientId, args.artistId);
   const samples = loaded.samples;
-  const error = args.error?.trim() || null;
-  if (error && samples.length === 0) {
-    await writeTraits(db, args, 0, { error }, nowIso);
-    return { sampleN: 0, traits: null };
-  }
   if (!traitsReady(samples.length)) return { sampleN: samples.length, traits: null };
   const traits = extractTraits(samples, args.venueNames ?? []);
-  await writeTraits(db, args, traits.sampleN, traits, nowIso);
   return { sampleN: traits.sampleN, traits };
 }
 
-async function writeTraits(
+export async function loadStoredVoice(
   db: ServiceRoleDb,
-  args: { userId: string; pageKind: "promoter" | "artist"; pageRef: string },
-  sampleN: number,
-  traits: VoiceTraits | { error: string },
-  nowIso: string,
-): Promise<void> {
-  const saved = await db.from("voice_traits").upsert(
-    {
-      user_id: args.userId,
-      page_kind: args.pageKind,
-      page_ref: args.pageRef,
-      sample_n: sampleN,
-      traits,
-      computed_at: nowIso,
-    },
-    { onConflict: "page_kind,page_ref" },
-  );
-  if (saved.error && !missing(saved.error.message)) throw new Error(saved.error.message);
-}
-
-export async function loadStoredVoice(db: ServiceRoleDb, pageKind: "promoter" | "artist", pageRef: string): Promise<StoredVoice> {
+  pageKind: "promoter" | "artist",
+  clientId: string,
+  artistId: string | null,
+): Promise<StoredVoice> {
   const empty: StoredVoice = { samples: [], traits: null, error: null, handle: null, hashtagsEnabled: false, fetchedAt: null };
-  const samplesRes = await db
+  let query = db
     .from("voice_samples")
     .select("*")
     .eq("page_kind", pageKind)
-    .eq("page_ref", pageRef)
+    .eq("client_id", clientId)
     .order("posted_at", { ascending: false })
     .limit(VOICE_SAMPLE_CAP);
+  query = artistId ? query.eq("artist_id", artistId) : query.eq("artist_id", null);
+  const samplesRes = await query;
   if (samplesRes.error) {
     if (missing(samplesRes.error.message)) return empty;
     throw new Error(samplesRes.error.message);
@@ -143,18 +124,7 @@ export async function loadStoredVoice(db: ServiceRoleDb, pageKind: "promoter" | 
     }))
     .filter((row) => row.caption.length > 0);
   const fetchedAt = rows.map((row) => text(row, "fetched_at")).filter(Boolean).sort().at(-1) ?? null;
-  const traitsRes = await db.from("voice_traits").select("*").eq("page_kind", pageKind).eq("page_ref", pageRef).maybeSingle();
-  if (traitsRes.error) {
-    if (missing(traitsRes.error.message)) return { ...empty, samples, fetchedAt };
-    throw new Error(traitsRes.error.message);
-  }
-  const traitsRow = traitsRes.data as Row | null;
-  const raw = traitsRow?.traits;
-  const error = raw && typeof raw === "object" && "error" in raw && typeof (raw as { error?: unknown }).error === "string"
-    ? (raw as { error: string }).error
-    : null;
-  const traits = raw && typeof raw === "object" && "sampleN" in raw ? raw as VoiceTraits : null;
-  return { samples, traits: traitsReady(samples.length) ? traits : null, error, handle: null, hashtagsEnabled: false, fetchedAt };
+  return { samples, traits: null, error: null, handle: null, hashtagsEnabled: false, fetchedAt };
 }
 
 export async function voiceHashtagsEnabled(db: ServiceRoleDb, clientId: string): Promise<boolean> {
@@ -181,9 +151,13 @@ export async function venueNamesForClient(db: ServiceRoleDb, clientId: string): 
 
 export const VOICE_REFRESH_DAYS = 30;
 
-export function voicePageRef(style: string, clientId: string, artistId: string | null): { pageKind: "promoter" | "artist"; pageRef: string } | null {
-  if (style === "artist_first_person") return artistId ? { pageKind: "artist", pageRef: artistId } : null;
-  return { pageKind: "promoter", pageRef: clientId };
+export function voicePageRef(
+  style: string,
+  clientId: string,
+  artistId: string | null,
+): { pageKind: "promoter" | "artist"; clientId: string; artistId: string | null } | null {
+  if (style === "artist_first_person") return artistId ? { pageKind: "artist", clientId, artistId } : null;
+  return { pageKind: "promoter", clientId, artistId: null };
 }
 
 export type CardVoicePage = {
@@ -209,16 +183,19 @@ export async function loadCardVoice(
   promoterHandle: string | null,
 ): Promise<CardVoice> {
   const hashtagsEnabled = await voiceHashtagsEnabled(db, clientId);
-  const promoter = await loadStoredVoice(db, "promoter", clientId);
+  const venues = await venueNamesForClient(db, clientId);
+  const promoterError = await promoterReadError(db, clientId);
+  const promoter = await loadStoredVoice(db, "promoter", clientId, null);
+  const taken = (samples: VoiceSample[]) => (traitsReady(samples.length) ? extractTraits(samples, venues) : null);
   const pages = await Promise.all(artists.map(async (artist) => {
-    const stored = await loadStoredVoice(db, "artist", artist.id);
+    const stored = await loadStoredVoice(db, "artist", clientId, artist.id);
     return {
       id: artist.id,
       handle: artist.handle,
       sampleN: stored.samples.length,
-      error: stored.error || (stored.samples.length === 0 ? artist.error : null),
+      error: stored.samples.length === 0 ? artist.error : null,
       fetchedAt: stored.fetchedAt,
-      traits: stored.traits,
+      traits: taken(stored.samples),
       exemplars: stored.samples,
     };
   }));
@@ -228,13 +205,20 @@ export async function loadCardVoice(
     promoter: {
       handle: promoterHandle,
       sampleN: promoter.samples.length,
-      error: promoter.error,
+      error: promoter.samples.length === 0 ? promoterError : null,
       fetchedAt: promoter.fetchedAt,
-      traits: promoter.traits,
+      traits: taken(promoter.samples),
       exemplars: promoter.samples,
     },
     artists: pages,
   };
+}
+
+async function promoterReadError(db: ServiceRoleDb, clientId: string): Promise<string | null> {
+  const res = await db.from("clients").select("ig_last_error").eq("id", clientId).maybeSingle();
+  if (res.error) return null;
+  const value = text(res.data as Row | null, "ig_last_error");
+  return value || null;
 }
 
 export { VOICE_FLOOR };

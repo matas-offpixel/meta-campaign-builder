@@ -30,6 +30,7 @@ import {
   extractTraits,
   fallbackSentence,
   hasHashtag,
+  hasMention,
   traitsReady,
   voicePromptBlock,
 } from "./voice-traits.ts";
@@ -346,13 +347,13 @@ export async function generateCaptions(
     rowsOf(db, "creative_lab_captions", "event_id", args.eventId),
     styleVersion(),
     loadPastAppearances(db, event.client_id, londonDay(now), args.clipId),
-    page ? loadStoredVoice(db, page.pageKind, page.pageRef) : Promise.resolve(null),
+    page ? loadStoredVoice(db, page.pageKind, page.clientId, page.artistId) : Promise.resolve(null),
     voiceHashtagsEnabled(db, event.client_id),
     venueNamesForClient(db, event.client_id),
     promoterHandleOf(db, event.client_id),
   ]);
   const samples = voice?.samples ?? [];
-  const traits = traitsReady(samples.length) ? (voice?.traits ?? extractTraits(samples, venues)) : null;
+  const traits = traitsReady(samples.length) ? extractTraits(samples, venues) : null;
   const shape = await shapeNoteFor(db, deps, args.style, stage, event.client_id);
   const fellBack = !traits;
   const shapeNote = fellBack
@@ -428,11 +429,15 @@ export async function generateCaptions(
       continue;
     }
     if (stillHasPlaceholder(overlay) || stillHasPlaceholder(primary)) continue;
+    if (hasMention(overlay) || hasMention(primary)) {
+      deps.onReject?.(overlay, primary, [{ code: "voice_mention", detail: "mentions are read and never written" }]);
+      continue;
+    }
+    if ((!hashtagsOn && (hasHashtag(overlay) || hasHashtag(primary))) || (hashtagsOn && hasHashtag(overlay))) {
+      deps.onReject?.(overlay, primary, [{ code: "voice_hashtag", detail: "hashtags stay off unless the client's switch is on, and they never go on the overlay" }]);
+      continue;
+    }
     if (traits) {
-      if ((!hashtagsOn && (hasHashtag(overlay) || hasHashtag(primary))) || (hashtagsOn && hasHashtag(overlay))) {
-        deps.onReject?.(overlay, primary, [{ code: "voice_hashtag", detail: "hashtags stay off unless the client's switch is on, and they never go on the overlay" }]);
-        continue;
-      }
       const signOff = traits.signOffs[0]?.line ?? null;
       if (copiesVoice(overlay, primary, samples.map((sample) => sample.caption), signOff)) {
         deps.onReject?.(overlay, primary, [{ code: "voice_copy", detail: "six consecutive words from a post" }]);

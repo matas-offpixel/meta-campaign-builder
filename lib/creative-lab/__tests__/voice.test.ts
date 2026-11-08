@@ -72,8 +72,12 @@ describe("voice traits", () => {
     assert.match(block ?? "", /do not write either/);
     const on = voicePromptBlock({ handle: "puzzle", pageKind: "promoter", samples: PUZZLE_SAMPLES, traits, hashtagsEnabled: true });
     assert.match(on ?? "", /Hashtags may close the primary text only/);
-    assert.equal(voiceChipLabel({ handle: "reeshy", sampleN: 2, error: null }), "Not enough posts yet · 2 of 8");
-    assert.equal(voiceChipLabel({ handle: null, sampleN: 0, error: null }), "No posts read yet — Read posts");
+    assert.match(on ?? "", /Do not write @mentions/);
+    assert.match(block ?? "", /👀\nSet your alarms/);
+    assert.doesNotMatch(block ?? "", / \/ /);
+    assert.equal(voiceChipLabel({ handle: "reeshy", sampleN: 2, error: null }), "House voice · @reeshy has 2 posts");
+    assert.equal(voiceChipLabel({ handle: null, sampleN: 0, error: null }), "House voice · no posts read yet");
+    assert.equal(voiceChipLabel({ handle: null, sampleN: 0, error: null, artist: true }), "House voice · no Instagram on the row");
   });
 
   it("drops six consecutive words and keeps a sign-off that closes the primary text", () => {
@@ -87,8 +91,8 @@ describe("voice traits", () => {
   });
 
   it("routes promoter and artist exemplars apart and falls back to the seed", () => {
-    assert.deepEqual(voicePageRef("lineup", "client-1", "artist-1"), { pageKind: "promoter", pageRef: "client-1" });
-    assert.deepEqual(voicePageRef("artist_first_person", "client-1", "artist-1"), { pageKind: "artist", pageRef: "artist-1" });
+    assert.deepEqual(voicePageRef("lineup", "client-1", "artist-1"), { pageKind: "promoter", clientId: "client-1", artistId: null });
+    assert.deepEqual(voicePageRef("artist_first_person", "client-1", "artist-1"), { pageKind: "artist", clientId: "client-1", artistId: "artist-1" });
     assert.equal(voicePageRef("artist_first_person", "client-1", null), null);
     assert.match(fallbackSentence("empty"), /house voice/);
     assert.match(shapeLine({ feature: "opener", value: "question" }, "lineup"), /Shape: opener is question/);
@@ -105,7 +109,8 @@ describe("voice store and writer", () => {
     const saved = await saveVoiceSamples(fake as unknown as ServiceRoleDb, {
       userId: "op",
       pageKind: "promoter",
-      pageRef: "client-puzzle",
+      clientId: "client-puzzle",
+      artistId: null,
       now: new Date("2026-11-08T09:12:00Z"),
       posts: [
         { id: "one", permalink: "https://www.instagram.com/p/one/", caption: "Hello room", postedAt: "2026-11-01T00:00:00Z", likes: 1, comments: 0 },
@@ -122,7 +127,8 @@ describe("voice store and writer", () => {
   it("puts the promoter exemplars in the prompt, states the shape, and refuses a hashtag while the switch is off", async () => {
     const captions = PUZZLE_SAMPLES.map((sample, index) => ({
       page_kind: "artist",
-      page_ref: "artist-1",
+      client_id: "client-puzzle",
+      artist_id: "artist-1",
       caption: sample.caption,
       posted_at: sample.postedAt,
       ig_media_id: `m${index}`,
@@ -135,7 +141,7 @@ describe("voice store and writer", () => {
       creative_lab_captions: [],
       creative_lab_clips: [],
       clients: [{ id: "client-puzzle", instagram_handle: "puzzle", voice_hashtags_enabled: false }],
-      voice_samples: captions.map((row) => ({ ...row, page_kind: "promoter", page_ref: "client-puzzle" })),
+      voice_samples: captions.map((row) => ({ ...row, page_kind: "promoter", artist_id: null })),
       events_venues: [],
     });
     const calls: Record<string, unknown>[] = [];
@@ -179,5 +185,54 @@ describe("voice store and writer", () => {
     assert.ok(rejected.includes("voice_hashtag"));
     assert.equal(written.length, 1);
     assert.match(written[0]?.shapeNote ?? "", /Shape: opener is question/);
+  });
+
+  it("rejects a hashtag under the floor when the switch is off, and an @mention either way", async () => {
+    const fake = fakeDb({
+      events: [{ id: "evt-day", client_id: "client-puzzle", user_id: "op", name: "Puzzle", event_date: "2026-12-27", venue_name: "Circuit", venue_city: "Southampton", status: "on_sale" }],
+      creative_lab_event_facts: [{ event_id: "evt-day", lineup: ["Luke Dean"], headliners: ["Luke Dean"], allowed_dates: ["2026-12-27"] }],
+      event_ticket_tiers: [],
+      creative_lab_artists: [{ id: "artist-1", name: "Luke Dean", ig_username: "lukedean" }],
+      creative_lab_captions: [],
+      creative_lab_clips: [],
+      clients: [{ id: "client-puzzle", instagram_handle: "puzzle", voice_hashtags_enabled: false }],
+      voice_samples: [
+        { page_kind: "promoter", client_id: "client-puzzle", artist_id: null, caption: "Hello room", posted_at: "2026-11-01T00:00:00Z", ig_media_id: "one" },
+        { page_kind: "promoter", client_id: "client-puzzle", artist_id: null, caption: "See you", posted_at: "2026-11-02T00:00:00Z", ig_media_id: "two" },
+      ],
+    });
+    const rejected: string[] = [];
+    const anthropic: AnthropicLike = {
+      messages: {
+        create: async () => ({
+          content: [{
+            type: "tool_use",
+            name: "submit_captions",
+            input: {
+              candidates: [
+                { overlay: "{artist} at {venue}", primary_text: "Come through #puzzle", declared_names: ["Luke Dean"] },
+                { overlay: "{artist} at {venue}", primary_text: "See you @lukedean", declared_names: ["Luke Dean"] },
+                { overlay: "{artist} at {venue}", primary_text: "You in?", declared_names: ["Luke Dean"] },
+              ],
+            },
+          }],
+        }),
+      },
+    };
+    const written = await generateCaptions(fake as unknown as ServiceRoleDb, {
+      eventId: "evt-day",
+      artistId: "artist-1",
+      style: "lineup",
+      n: 1,
+      now: new Date("2026-11-08T09:12:00Z"),
+    }, {
+      anthropic,
+      loadShape: async () => null,
+      onReject: (_overlay, _primary, errors) => rejected.push(errors.map((error) => error.code).join(",")),
+    });
+    assert.ok(rejected.includes("voice_hashtag"));
+    assert.ok(rejected.includes("voice_mention"));
+    assert.equal(written.length, 1);
+    assert.equal(fake.tables.voice_traits, undefined);
   });
 });

@@ -435,7 +435,8 @@ async function rememberArtistVoice(
     await saveVoiceSamples(db, {
       userId: args.userId,
       pageKind: "artist",
-      pageRef: args.artistId,
+      clientId: args.clientId,
+      artistId: args.artistId,
       posts: voicePosts(args.posts),
       now: args.now,
       venueNames,
@@ -458,7 +459,8 @@ export async function readPromoterVoice(
   const userId = text(client, "user_id");
   const businessId = text(client, "instagram_business_id");
   const fail = async (message: string) => {
-    await saveVoiceSamples(db, { userId, pageKind: "promoter", pageRef: clientId, posts: [], now, error: message });
+    const marked = await db.from("clients").update({ ig_last_error: message }).eq("id", clientId);
+    if (marked.error && !/ig_last_error|does not exist|schema cache/i.test(marked.error.message)) throw new Error(marked.error.message);
     return { sampleN: 0, error: message };
   };
   if (!businessId) return fail("Add this client's Instagram business account.");
@@ -474,22 +476,25 @@ export async function readPromoterVoice(
   const saved = await saveVoiceSamples(db, {
     userId,
     pageKind: "promoter",
-    pageRef: clientId,
+    clientId,
+    artistId: null,
     posts: voicePosts(media.posts),
     now,
     venueNames: await venueNamesForClient(db, clientId),
   });
+  const cleared = await db.from("clients").update({ ig_last_error: null }).eq("id", clientId);
+  if (cleared.error && !/ig_last_error|does not exist|schema cache/i.test(cleared.error.message)) throw new Error(cleared.error.message);
   return { sampleN: saved.sampleN, error: null };
 }
 
 /** Pages whose captions were read in the last 30 days. One own-edge read each. */
 export async function refreshRecentPromoterVoice(db: ServiceRoleDb, now = new Date()): Promise<void> {
   const since = new Date(now.getTime() - VOICE_REFRESH_DAYS * 86_400_000).toISOString();
-  const res = await db.from("voice_samples").select("page_ref, fetched_at").eq("page_kind", "promoter").gte("fetched_at", since);
+  const res = await db.from("voice_samples").select("client_id, fetched_at").eq("page_kind", "promoter").gte("fetched_at", since);
   if (res.error) return;
   const ids = new Set<string>();
   for (const row of (res.data ?? []) as Row[]) {
-    const id = text(row, "page_ref");
+    const id = text(row, "client_id");
     if (id) ids.add(id);
   }
   for (const id of ids) {

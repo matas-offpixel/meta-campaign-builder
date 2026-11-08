@@ -102,7 +102,7 @@ Baselines: Ubuntu frames-baselines 42497321834 and 42497326107, matching, `only=
 
 | Id | State | What to check by hand |
 |---|---|---|
-| CLV1 | Generator, caption mode | Two strips at 1280: Lineup "Sounds like @puzzle · 24 posts" with the promoter why line; Artist, first person "Sounds like @enzosiragusa · 30 posts". 393 is the puzzle chip full width, "24 posts" on the right, why line "Promoter voice · read today 09:12" |
+| CLV1 | Generator, caption mode | The real VoicePanel. Two strips at 1280: Lineup "Sounds like @puzzle · 24 posts"; Artist, first person "Sounds like @enzosiragusa · 30 posts". 393 is the puzzle chip full width, "24 posts" on the right, why line "Promoter voice · read today 09:12" |
 | CLV2 | Voice sheet | Traits from the fixture through the extractor, four exemplars verbatim, "+ 20 more", Read again. 393 is an 88% bottom sheet, fewer trait rows, two exemplars, "+ 22 more" |
 | CLV3 | Nothing read | Dashed House voice chip and "No posts read yet — Find clips reads them." Sheet empty state with Find clips. 393 stacks the sentence under the chip |
 | CLV4 | Can't be read, thin, no handle, stale | Luke Dean: "@lukedean can't be read: not a business or creator account." Reeshy: 2 posts, fewer than 8. Benji King: no Instagram on the row. Phill de Janeiro: Sounds like @philldejaneiro · 30 posts, read Fri 10 Oct. 393 is the can't-read chip only |

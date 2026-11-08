@@ -1,11 +1,13 @@
--- Creative Lab voice. A page's own captions, and the traits taken from them.
+-- Creative Lab voice. A page's own captions. Traits are computed from these
+-- rows at write time; there is no traits table.
 -- Written, not applied. Matas applies. No DDL from the branch.
 
 create table voice_samples (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
   page_kind text not null check (page_kind in ('promoter', 'artist')),
-  page_ref uuid not null,
+  client_id uuid not null references clients (id) on delete cascade,
+  artist_id uuid references creative_lab_artists (id) on delete cascade,
   ig_media_id text not null,
   permalink text,
   posted_at timestamptz,
@@ -13,19 +15,25 @@ create table voice_samples (
   comments integer,
   caption text not null,
   fetched_at timestamptz not null default now(),
-  unique (page_kind, page_ref, ig_media_id)
+  constraint voice_samples_page check (
+    (page_kind = 'promoter' and artist_id is null)
+    or (page_kind = 'artist' and artist_id is not null)
+  ),
+  constraint voice_samples_page_media unique nulls not distinct (client_id, artist_id, ig_media_id)
 );
 
 comment on table voice_samples is
-  'One Instagram caption, verbatim, for a promoter page (clients.id) or an artist page (creative_lab_artists.id). The writer''s tone. Migration 215.';
+  'One Instagram caption, verbatim, for a promoter page (artist_id null) or an artist page. The writer''s tone. Deleting the artist deletes that page''s rows. Deleting the client deletes both. Migration 215.';
 comment on column voice_samples.id is
   'Primary key.';
 comment on column voice_samples.user_id is
-  'Owner. The Lab tables key their policy on user_id, and this row follows that. The page itself is page_ref.';
+  'Owner. The Lab tables key their policy on user_id, and this row follows that.';
 comment on column voice_samples.page_kind is
   'promoter or artist. Promoter reads the client''s own Instagram. Artist reads that artist''s page.';
-comment on column voice_samples.page_ref is
-  'clients.id when page_kind is promoter. creative_lab_artists.id when page_kind is artist. No foreign key: the column points at one of two tables.';
+comment on column voice_samples.client_id is
+  'The client this page belongs to. Cascade: deleting the client deletes its samples.';
+comment on column voice_samples.artist_id is
+  'Null on the promoter page. The artist on an artist page. Cascade: deleting the artist deletes that page''s samples and leaves the promoter page.';
 comment on column voice_samples.ig_media_id is
   'Instagram media id. Unique with the page. Not shown in the product.';
 comment on column voice_samples.permalink is
@@ -37,46 +45,23 @@ comment on column voice_samples.likes is
 comment on column voice_samples.comments is
   'comments_count at the last read. Updated on every read.';
 comment on column voice_samples.caption is
-  'The caption verbatim. Empty captions are not written.';
+  'The caption verbatim, line breaks kept. Empty captions are not written.';
 comment on column voice_samples.fetched_at is
   'When this row was last read from Instagram.';
-
-create table voice_traits (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
-  page_kind text not null check (page_kind in ('promoter', 'artist')),
-  page_ref uuid not null,
-  sample_n integer not null,
-  traits jsonb not null,
-  computed_at timestamptz not null default now(),
-  unique (page_kind, page_ref)
-);
-
-comment on table voice_traits is
-  'One row per page. Traits the extractor took from that page''s voice_samples. Not written until 8 captions. Migration 215.';
-comment on column voice_traits.id is
-  'Primary key.';
-comment on column voice_traits.user_id is
-  'Owner. Same policy as voice_samples.';
-comment on column voice_traits.page_kind is
-  'promoter or artist. Matches voice_samples.page_kind.';
-comment on column voice_traits.page_ref is
-  'The same page as voice_samples.page_ref.';
-comment on column voice_traits.sample_n is
-  'How many captions the traits were computed from. Under 8, no traits row.';
-comment on column voice_traits.traits is
-  'Emoji set and rate, sign-off lines with counts, hashtag habit, sentence length, case habit, how the venue and the lineup are named, typical length band. A page that cannot be read stores { "error": "..." } and sample_n 0.';
-comment on column voice_traits.computed_at is
-  'When the traits were last computed.';
 
 alter table clients
   add column voice_hashtags_enabled boolean not null default false;
 
 comment on column clients.voice_hashtags_enabled is
-  'When true, the writer may put the page''s hashtag habit in the primary text. Default off: hashtags are read as a trait and not written. One switch for the client, not per style. Migration 215.';
+  'When true, the writer may put the page''s hashtag habit in the primary text. Default off: hashtags are read as a trait and not written. Mentions are never written. One switch for the client. Migration 215.';
+
+alter table clients
+  add column ig_last_error text;
+
+comment on column clients.ig_last_error is
+  'The last promoter-page read, in one sentence, or null when it succeeded. Not a trait. Migration 215.';
 
 alter table voice_samples enable row level security;
-alter table voice_traits enable row level security;
 
 create policy "Users can manage their own voice_samples"
   on voice_samples
@@ -84,10 +69,6 @@ create policy "Users can manage their own voice_samples"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
-create policy "Users can manage their own voice_traits"
-  on voice_traits
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
-create index voice_samples_fetched_at_idx on voice_samples (page_kind, fetched_at);
+create index voice_samples_promoter_fetched_idx
+  on voice_samples (client_id, fetched_at)
+  where page_kind = 'promoter';
