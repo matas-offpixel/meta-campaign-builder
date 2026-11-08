@@ -1282,6 +1282,7 @@ export type Database = {
           id: string
           instagram_business_id: string | null
           instagram_handle: string | null
+          voice_hashtags_enabled: boolean
           last_probed_at: string | null
           mailchimp_account_id: string | null
           mailchimp_audience_id: string | null
@@ -1320,6 +1321,7 @@ export type Database = {
           id?: string
           instagram_business_id?: string | null
           instagram_handle?: string | null
+          voice_hashtags_enabled?: boolean
           last_probed_at?: string | null
           mailchimp_account_id?: string | null
           mailchimp_audience_id?: string | null
@@ -1358,6 +1360,7 @@ export type Database = {
           id?: string
           instagram_business_id?: string | null
           instagram_handle?: string | null
+          voice_hashtags_enabled?: boolean
           last_probed_at?: string | null
           mailchimp_account_id?: string | null
           mailchimp_audience_id?: string | null
@@ -2315,6 +2318,78 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      voice_samples: {
+        Row: {
+          id: string
+          user_id: string
+          page_kind: string
+          page_ref: string
+          ig_media_id: string
+          permalink: string | null
+          posted_at: string | null
+          likes: number | null
+          comments: number | null
+          caption: string
+          fetched_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          page_kind: string
+          page_ref: string
+          ig_media_id: string
+          permalink?: string | null
+          posted_at?: string | null
+          likes?: number | null
+          comments?: number | null
+          caption: string
+          fetched_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          page_kind?: string
+          page_ref?: string
+          ig_media_id?: string
+          permalink?: string | null
+          posted_at?: string | null
+          likes?: number | null
+          comments?: number | null
+          caption?: string
+          fetched_at?: string
+        }
+        Relationships: []
+      }
+      voice_traits: {
+        Row: {
+          id: string
+          user_id: string
+          page_kind: string
+          page_ref: string
+          sample_n: number
+          traits: Json
+          computed_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          page_kind: string
+          page_ref: string
+          sample_n: number
+          traits: Json
+          computed_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          page_kind?: string
+          page_ref?: string
+          sample_n?: number
+          traits?: Json
+          computed_at?: string
+        }
+        Relationships: []
       }
       creative_lab_style_settings: {
         Row: {

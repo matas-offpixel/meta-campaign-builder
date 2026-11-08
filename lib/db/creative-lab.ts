@@ -13,6 +13,7 @@ import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { quoteLines, validateQuote } from "../creative-lab/quote.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
+import { loadCardVoice, type CardVoice } from "../creative-lab/voice-store.ts";
 
 type Row = Record<string, unknown>;
 
@@ -114,6 +115,8 @@ export type CreativeLabCardData = {
   venueName: string | null;
   eventStatus: string | null;
   clientName: string | null;
+  clientId: string | null;
+  voice: CardVoice | null;
   launchesEnabled: boolean;
   saleDatesMissing: boolean;
   longApproved: boolean;
@@ -267,7 +270,7 @@ export async function loadCreativeLabCard(
     rows(db, "event_artists", "event_id", args.eventId),
     rows(db, "event_artists", "user_id", args.userId),
     args.clientId
-      ? db.from("clients").select("meta_ad_account_id, name").eq("id", args.clientId).maybeSingle()
+      ? db.from("clients").select("meta_ad_account_id, name, instagram_handle").eq("id", args.clientId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     db.from("events").select("meta_ad_account_id").eq("id", args.eventId).maybeSingle(),
   ]);
@@ -390,14 +393,28 @@ export async function loadCreativeLabCard(
     };
   });
   const working = whatsWorking(workingAds, { clientName: clientName || "this client", eventId: args.eventId });
+  const voice = args.clientId
+    ? await loadCardVoice(
+        db,
+        args.clientId,
+        artists.map((row) => ({
+          id: text(row, "id"),
+          handle: text(row, "ig_username") || null,
+          error: text(row, "ig_last_error") || null,
+        })),
+        text(clientAccount.data as Row | null, "instagram_handle") || null,
+      ).catch(() => null)
+    : null;
 
   return {
     eventId: args.eventId,
+    clientId: args.clientId,
     eventName: args.eventName,
     eventDate: args.eventDate?.slice(0, 10) ?? null,
     venueName: args.venueName?.trim() || null,
     eventStatus: args.eventStatus,
     clientName,
+    voice,
     launchesEnabled: labLaunchesEnabled(),
     saleDatesMissing: !String(args.presaleAt ?? "").trim() && !String(args.generalSaleAt ?? "").trim(),
     longApproved: profile.longApproved,

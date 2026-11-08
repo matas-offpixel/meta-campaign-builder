@@ -8,6 +8,7 @@ import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-
 import { captionCopy, ctaForStage, feedHeadline, feedPostClip, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
+import { VoicePanel } from "@/components/dashboard/events/creative-lab/voice-panel";
 import { USE_ANGLE_EVENT } from "@/components/insights-rail/use-angle";
 import { acceptQuote, heldQuoteSentence, postsForQuote, quoteLines, sourceChip, type CaptionGenerator, type QuoteSource } from "@/lib/creative-lab/quote";
 
@@ -175,6 +176,7 @@ export function LabCaptions({
         >
           Generate
         </Button>
+        {quoteMode ? <VoicePanel lab={lab} angle={angle} artistId={artist?.id ?? ""} busy={busy} onSave={onSave} /> : null}
       </div>
       )}
       <div className="flex snap-x gap-3 overflow-x-auto">

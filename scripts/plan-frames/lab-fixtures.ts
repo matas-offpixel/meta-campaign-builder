@@ -193,6 +193,8 @@ function baseFields(overrides: Partial<CreativeLabCardData>): CreativeLabCardDat
     venueName: "Fixture Hall",
     eventStatus: "on_sale",
     clientName: CLIENT,
+    clientId: null,
+    voice: null,
     launchesEnabled: false,
     saleDatesMissing: false,
     longApproved: false,
