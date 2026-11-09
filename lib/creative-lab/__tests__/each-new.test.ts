@@ -50,7 +50,7 @@ function eventWithClip(clip: Record<string, unknown>, asset: Record<string, unkn
 }
 
 describe("each new clip", () => {
-  it("asks the writer once for Each selected and does not pin a clip", async () => {
+  it("refills once for Each selected when fewer than n are kept, and does not pin a clip", async () => {
     const fake = eventWithClip(
       { id: "clip-5", artist_id: "enzo", clip_no: 5, in_s: null, out_s: null, creative_asset_id: "asset-5" },
       { id: "asset-5", duration_seconds: 31.625 },
@@ -71,7 +71,7 @@ describe("each new clip", () => {
       each: true,
       artistId: "enzo",
     }, { anthropic: once });
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
     assert.equal(result.notice, null);
     assert.equal(result.captions.length, 2);
     assert.ok(result.captions.every((caption) => fake.tables.creative_lab_captions.find((row) => row.id === caption.id)?.clip_id == null));

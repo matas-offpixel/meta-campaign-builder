@@ -928,9 +928,9 @@ function checkFootage(text: string, facts: EventFacts, clipVenue: string | null 
 }
 
 function checkPickOne(text: string, facts: EventFacts, upcoming: readonly string[]): CaptionError[] {
-  const found = text.match(/\bpick one\s*:\s*(.+)$/i);
-  if (!found) return [];
-  const tail = found[1].trim();
+  const found = text.match(/\bpick one\s*:/i);
+  if (!found || found.index == null) return [];
+  const tail = text.slice(found.index + found[0].length).trim();
   if (/\bnext\s*:/i.test(tail)) {
     return [{ code: "pick_one", detail: `"Pick one:" cannot introduce a Next list` }];
   }
@@ -939,7 +939,8 @@ function checkPickOne(text: string, facts: EventFacts, upcoming: readonly string
     return [{ code: "pick_one", detail: `"Pick one:" needs 2 upcoming shows and this client has ${shows.length}` }];
   }
   const options = tail
-    .split(/\s*,\s*|\s+\bor\b\s+|\s+\band\b\s+/i)
+    .split(/\n+/)
+    .flatMap((line) => line.split(/\s*,\s*|\s+\bor\b\s+|\s+\band\b\s+/i))
     .map((option) => option.replace(/[.!?]+$/g, "").trim())
     .filter(Boolean);
   if (options.length < 2 || options.length > 3) {
@@ -1115,7 +1116,7 @@ export function validateCaption(
   errors.push(...checkVoice(trimmed, lines));
   errors.push(...checkSet(trimmed));
   errors.push(...checkFootage(trimmed, facts, options.clipVenueName));
-  errors.push(...checkPickOne(trimmed, facts, options.upcomingEvents ?? []));
+  errors.push(...checkPickOne(normalized, facts, options.upcomingEvents ?? []));
   errors.push(...checkPast(trimmed, facts, declared, options.pastAppearances, speaker, options.playedCities));
   if (options.saleStage) errors.push(...checkStage(trimmed, options.saleStage));
 

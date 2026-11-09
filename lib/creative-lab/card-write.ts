@@ -16,7 +16,7 @@ import { isCaptionStyle } from "./tags.ts";
 import { artistKey } from "./lineup.ts";
 import { bestOfSelected, effectiveSelection, NO_CLIP_SELECTED, spreadClipIds, type PairMode } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
-import { generateLogLine } from "./generate-log.ts";
+import { emptyYield, generateLogLine, noteReject, type GenerateYield } from "./generate-log.ts";
 import { CAPTIONS_NOT_WRITTEN, currentRenderError, LINES_ALREADY_ON_EVENT, playableClipSeconds } from "./surface.ts";
 import { headlinerError } from "../db/creative-lab.ts";
 import { factsHash, loadEventFacts, saleStageFromStatus, validateCaption } from "./caption-facts.ts";
@@ -425,14 +425,25 @@ export async function runLoggedGenerate(
 ): Promise<{ captions: Awaited<ReturnType<typeof generateCaptions>>; notice: string | null }> {
   const trace: GenerateTrace = { clips: null };
   const mode = pairMode(args);
+  const counted: GenerateYield = deps?.yield ?? emptyYield();
+  const priorReject = deps?.onReject;
+  const wrapped: GenerateCaptionsDeps = {
+    ...deps,
+    yield: counted,
+    onReject: (overlay, primary, errors) => {
+      noteReject(counted, errors);
+      priorReject?.(overlay, primary, errors);
+    },
+  };
   try {
-    const generated = await generateLabCaptions(db, args, deps, trace);
+    const generated = await generateLabCaptions(db, args, wrapped, trace);
     console.info(generateLogLine({
       eventId: args.eventId,
       mode,
       clips: trace.clips,
       writerResultCount: generated.captions.length,
       error: null,
+      yield: counted,
     }));
     return generated;
   } catch (err) {
@@ -442,6 +453,7 @@ export async function runLoggedGenerate(
       clips: trace.clips,
       writerResultCount: 0,
       error: err,
+      yield: counted,
     }));
     throw err;
   }
