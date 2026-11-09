@@ -26,7 +26,7 @@ This repo is worked on by two coding tools — Claude Code (terminal) and Cursor
 
 ## Review loop
 
-Visual changes run the review loop in `docs/design-record/README.md`: design record → build prompt → PR + CI evidence → return → design verdict → fix loop on the same branch → squash merge → migrate from `main` once the sha256 matches. Creative Lab rules and components: `docs/creative-lab/design-rules.md`.
+Visual changes run the review loop in `docs/design-record/README.md`: design record → build prompt → PR + CI evidence → return → design verdict → fix loop on the same branch → squash merge → live check → migrate from `main` once the sha256 matches. Live check — after the deploy is READY, the ops thread opens the changed feature on prod in Matas's Chrome, runs the real flow on a live event (no launches, no publishing, no spend beyond writer/render pennies), and reports PASS / FAIL with what it saw; a FAIL comes with the follow-up prompt for the builder. Creative Lab rules and components: `docs/creative-lab/design-rules.md`.
 
 Any new surface or changed words in the MML canvas, drawers, library, reports, event page / Creative Lab or `/admin` gets a design record in `docs/design-record/` first. Records are never edited after merge; a re-ruling gets a new record.
 

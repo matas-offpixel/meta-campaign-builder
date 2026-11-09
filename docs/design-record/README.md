@@ -71,12 +71,18 @@ The Creative Lab rules and components the records use are in
 6. **Fix loop.** On FAIL, the ops thread turns the failed items into a fix
    prompt for the **same branch**; the builder pushes; back to step 4. Only the
    failed items plus a no-regression check are re-judged.
-7. **Squash merge, then migrate.** On PASS: check `base.ref` is `main`,
-   squash-merge with the expected head SHA, then fetch the migration from
-   `main`, confirm its sha256 matches the return, check prerequisites in
-   production, apply it, and verify the objects exist and the live data reads
-   as the record predicted. Leftover design notes go to the queue in memory,
-   not into the merged PR.
+7. **Squash merge.** On PASS: check `base.ref` is `main` and squash-merge
+   with the expected head SHA.
+8. **Live check.** After the deploy is READY, the ops thread opens the
+   changed feature on prod in Matas's Chrome, runs the real flow on a live
+   event (no launches, no publishing, no spend beyond writer/render pennies),
+   and reports PASS / FAIL with what it saw; a FAIL comes with the follow-up
+   prompt for the builder.
+9. **Migrate from `main`.** Fetch the migration from `main`, confirm its
+   sha256 matches the return, check prerequisites in production, apply it,
+   and verify the objects exist and the live data reads as the record
+   predicted. Leftover design notes go to the queue in memory, not into the
+   merged PR.
 
 Baselines change only after PASS: a PR that rewrites `docs/frames/*.png` needs a
 design PASS naming those frames.
