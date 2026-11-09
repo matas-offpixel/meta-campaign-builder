@@ -147,25 +147,53 @@ export async function loadSalesHistory(db: SupabaseClient<Database>, eventId: st
   return (data ?? []).map((row) => ({ at: row.snapshot_date, sold: row.tickets_sold_total }));
 }
 
-/** Artist rows on the event. addedAt is when the row was added, and the name comes from artists. */
-export async function loadEventArtists(
-  db: SupabaseClient<Database>,
-  eventId: string,
-): Promise<{ name: string; addedAt: string }[]> {
-  const { data, error } = await db.from("event_artists").select("artist_id, created_at").eq("event_id", eventId);
+export type EventLineup = {
+  artists: { name: string; addedAt: string }[];
+  /** When a lineup_add claim was proposed or approved. Null until one exists. */
+  lastProposalAt: string | null;
+};
+
+function lineupClaim(row: { claim: string; trigger: unknown }): boolean {
+  if (row.claim.includes("(JUST ANNOUNCED)")) return true;
+  const trigger = row.trigger;
+  return typeof trigger === "object" && trigger != null && "kind" in trigger && (trigger as { kind?: string }).kind === "lineup_add";
+}
+
+/** Lab lineup rows, plus the latest lineup_add proposal or approval for the event. */
+export async function loadEventArtists(db: SupabaseClient<Database>, eventId: string): Promise<EventLineup> {
+  const { data, error } = await db.from("event_artists").select("artist_id, created_at, source").eq("event_id", eventId);
   if (error) {
-    if (missing(error)) return [];
+    if (missing(error)) return { artists: [], lastProposalAt: null };
     throw new Error(error.message);
   }
-  const links = data ?? [];
+  const links = (data ?? []).filter((link) => link.source === "lab");
   const ids = [...new Set(links.map((link) => link.artist_id))];
-  if (!ids.length) return [];
-  const { data: people, error: nameError } = await db.from("artists").select("id, name").in("id", ids);
-  if (nameError) throw new Error(nameError.message);
-  const names = new Map((people ?? []).map((person) => [person.id, person.name]));
-  return links
-    .map((link) => ({ name: names.get(link.artist_id) ?? "", addedAt: link.created_at }))
-    .filter((artist) => artist.name.length > 0);
+  const people = ids.length ? await db.from("artists").select("id, name").in("id", ids) : { data: [], error: null };
+  if (people.error) throw new Error(people.error.message);
+  const names = new Map((people.data ?? []).map((person) => [person.id, person.name]));
+  const warnings = await db.from("ticket_warnings").select("claim, created_at, approved_at, trigger").eq("event_id", eventId);
+  let lastProposalAt: string | null = null;
+  if (!warnings.error) {
+    let latest = Number.NEGATIVE_INFINITY;
+    for (const row of warnings.data ?? []) {
+      if (!lineupClaim(row)) continue;
+      for (const at of [row.approved_at, row.created_at]) {
+        const time = at ? Date.parse(at) : Number.NaN;
+        if (!Number.isNaN(time) && time > latest) {
+          latest = time;
+          lastProposalAt = new Date(time).toISOString();
+        }
+      }
+    }
+  } else if (!missing(warnings.error)) {
+    throw new Error(warnings.error.message);
+  }
+  return {
+    artists: links
+      .map((link) => ({ name: names.get(link.artist_id) ?? "", addedAt: link.created_at }))
+      .filter((artist) => artist.name.length > 0),
+    lastProposalAt,
+  };
 }
 
 export async function insertOffer(

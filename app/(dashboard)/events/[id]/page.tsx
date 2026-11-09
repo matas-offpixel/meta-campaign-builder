@@ -201,7 +201,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       const [ladder, counts, artists] = await Promise.all([
         event.client_id ? loadClientLadder(supabase, event.client_id).catch(() => []) : Promise.resolve([]),
         loadSalesHistory(supabase, event.id).catch(() => []),
-        loadEventArtists(supabase, event.id).catch(() => []),
+        loadEventArtists(supabase, event.id).catch(() => ({ artists: [], lastProposalAt: null })),
       ]);
       return {
         eventId: event.id,
@@ -209,7 +209,8 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
         ladder: ladder ?? [],
         counts,
         eventAt: event.event_date ?? null,
-        artists,
+        artists: artists.artists,
+        lastProposalAt: artists.lastProposalAt,
       };
     })
     .catch((err) => {

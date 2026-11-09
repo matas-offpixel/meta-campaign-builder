@@ -162,6 +162,7 @@ interface Props {
     counts: { at: string; sold: number }[];
     eventAt: string | null;
     artists: { name: string; addedAt: string }[];
+    lastProposalAt: string | null;
   } | null;
 }
 
@@ -457,6 +458,7 @@ export function EventDetail({
                   counts={bank.counts}
                   eventAt={bank.eventAt}
                   artists={bank.artists}
+                  lastProposalAt={bank.lastProposalAt}
                 />
               ) : null}
               {bank && event.status !== "cancelled" ? <OffersSheet eventId={bank.eventId} /> : null}

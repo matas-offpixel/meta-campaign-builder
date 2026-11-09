@@ -18,6 +18,7 @@ export function LiveReleases({
   counts = [],
   eventAt = null,
   artists = [],
+  lastProposalAt = null,
 }: {
   eventId: string;
   releases: Release[];
@@ -26,6 +27,7 @@ export function LiveReleases({
   counts?: { at: string; sold: number }[];
   eventAt?: string | null;
   artists?: { name: string; addedAt: string }[];
+  lastProposalAt?: string | null;
 }) {
   const [rows, setRows] = useState(releases);
   const used = completeLadder(ladder);
@@ -35,6 +37,7 @@ export function LiveReleases({
     nextListAt: nextReleaseListAt(rows, now),
     eventAt,
     artists,
+    lastProposalAt,
     sellingFastDays: sellingFastDays(used),
   };
   const view = rowsFromReleases(rows, used, now, context);

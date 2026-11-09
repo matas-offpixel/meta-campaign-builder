@@ -81,16 +81,28 @@ export function countdownRung(
   return { met: days >= 0 && days <= withinDays, claim };
 }
 
+const LINEUP_GAP_MS = 60_000;
+
 /**
  * A new typed lineup row since the last proposal refreshes the lineup slot
- * and every ALONGSIDE list. It does not file a new cell.
+ * and every ALONGSIDE list. It does not file a new cell. Only lab rows count.
+ * With no stored proposal, the baseline is the first lineup save (the earliest
+ * lab created_at). A row is new only when it is more than a minute after that.
  */
 export function lineupRung(
-  artists: readonly { name: string; addedAt: string }[],
+  artists: readonly { name: string; addedAt: string; source?: string }[],
   lastProposalAt: string | null,
 ): { met: boolean; claim: string | null; artist: string | null; newCell: false } {
-  const since = lastProposalAt ? Date.parse(lastProposalAt) : 0;
-  const added = artists.filter((artist) => Date.parse(artist.addedAt) > since);
+  const lab = artists.filter((artist) => (artist.source ?? "lab") === "lab" && artist.addedAt);
+  const earliest = lab.reduce<number | null>((min, artist) => {
+    const at = Date.parse(artist.addedAt);
+    if (Number.isNaN(at)) return min;
+    return min == null || at < min ? at : min;
+  }, null);
+  const baseline = lastProposalAt ? Date.parse(lastProposalAt) : earliest;
+  const added = baseline == null || Number.isNaN(baseline)
+    ? []
+    : lab.filter((artist) => Date.parse(artist.addedAt) - baseline > LINEUP_GAP_MS);
   const artist = added.reduce<(typeof artists)[number] | undefined>((latest, row) => {
     if (!latest || Date.parse(row.addedAt) > Date.parse(latest.addedAt)) return row;
     return latest;
