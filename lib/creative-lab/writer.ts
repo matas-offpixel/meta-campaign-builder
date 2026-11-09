@@ -399,6 +399,7 @@ export async function generateCaptions(
   if (eventRes.error) throw new Error(`events: ${eventRes.error.message}`);
   const event = eventRes.data as { client_id: string; user_id: string; status?: string | null } | null;
   if (!event) throw new Error(`no event ${args.eventId}`);
+  const ownerId = event.user_id;
   const stage = args.stageOverride ?? saleStageFromStatus(event.status);
 
   let artistName = "";
@@ -562,7 +563,7 @@ export async function generateCaptions(
       seen.add(key);
       const captionNo = await nextCaptionNo(db, args.eventId, args.style);
       const inserted = await insertCaption(db, {
-        user_id: event.user_id,
+        user_id: ownerId,
         event_id: args.eventId,
         style: args.style,
         caption_no: captionNo,
