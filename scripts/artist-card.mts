@@ -15,6 +15,10 @@
  * skipped and reported, never covered with a scrim. A passing card is written
  * as 9:16, 4:5 and 1:1.
  *
+ * Per photo the order is O21's: A (the photo, extended per O20 when it
+ * must be) if every rule passes, else B (the artist cut out onto the PSD's
+ * Background and panel, artist-card-cutout.ts) if the cut-out passes, else skip.
+ *
  * Default: writes PNGs and report.md to --out (default outputs/{CODE}/cards).
  * --apply also copies them into the event's Drive tree, routed by
  * cardFolderKey (on sale → 03 Creatives / 3 On sale / w/c … / Content),
@@ -32,7 +36,9 @@ import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import { cardFileName, cardFolderKey, INVENTED, renderCard, trimToInk, type CardFormat, type Piece, type RenderResult } from "../lib/creative-lab/artist-card.ts";
+import { CUTOUT_DISCLOSURE, chooseVariant, renderCutout, type CutoutResult } from "../lib/creative-lab/artist-card-cutout.ts";
 import { detectFaces, eyesMeasurable, faceGeometry, type FaceBox } from "../lib/creative-lab/face-detect.ts";
+import { segmentPerson } from "../lib/creative-lab/segment.ts";
 import { APP_ID_KEY, APP_TAG_KEY, driveFromEnv } from "../lib/drive/client.ts";
 import type { DriveDb } from "../lib/drive/db.ts";
 import { ensureEventKey } from "../lib/drive/folders.ts";
@@ -98,6 +104,16 @@ const info = await Promise.all(kit.pieces.filter((p) => p.role === "info").map(p
 const lockupRecord = kit.pieces.find((p) => p.role === "logo") ?? null;
 const lockup = lockupRecord ? await piece(lockupRecord) : null;
 
+// Variant B's backdrop: the PSD's own Background and taped-panel layers (psd-kit's manifest roles).
+type KitManifestFile = { roles: { role: string; ref: string }[]; layer_files: Record<string, string> };
+const kitManifest = JSON.parse(readFileSync(join(kitDir, "manifest.json"), "utf8")) as KitManifestFile;
+const layerFor = (role: string): Buffer | null => {
+  const ref = kitManifest.roles.find((r) => r.role === role)?.ref;
+  const file = ref != null ? kitManifest.layer_files[ref] : undefined;
+  return file ? readFileSync(join(kitDir, file)) : null;
+};
+const backdrop = { background: layerFor("background"), panel: layerFor("panel") };
+
 const lines: string[] = [];
 const say = (line = "") => {
   console.log(line);
@@ -116,14 +132,24 @@ async function download(storagePath: string): Promise<Buffer> {
   return Buffer.from(await file.data.arrayBuffer());
 }
 
-async function judge(photo: Buffer, artist: string): Promise<{ card: RenderResult; faces: FaceBox[] }> {
+type Judged = { variant: "A" | "B" | "skip"; a: RenderResult; b: CutoutResult | null; faces: FaceBox[] };
+
+/** A, then B when A fails (O21), then skip. */
+async function judge(photo: Buffer, artist: string): Promise<Judged> {
   const nameRecord = kit.pieces.find((p) => p.role === "name" && p.artist?.toLowerCase() === artist.toLowerCase());
   if (!nameRecord) fail(`${artist}: no name piece in ${kit.psd}`);
+  const name = await piece(nameRecord);
   const faces = await detectFaces(photo, { minConfidence: 0.3 });
   const geometry = faces.length ? ((await faceGeometry(photo, faces.slice(0, 1)))[0] ?? null) : null;
   const eyes = geometry ? eyesMeasurable(geometry) : undefined;
-  const card = await renderCard({ photo, face: geometry, eyes, subjects: countSubjects(faces), name: await piece(nameRecord), info, lockup });
-  return { card, faces };
+  const mask = await segmentPerson(photo);
+  const subjects = countSubjects(faces);
+  const a = await renderCard({ photo, face: geometry, eyes, subjects, mask, name, info, lockup });
+  let b: CutoutResult | null = null;
+  if (!a.pass && backdrop.background && backdrop.panel) {
+    b = await renderCutout({ photo, mask, face: geometry, eyes, subjects, name, info, lockup, background: backdrop.background, panel: backdrop.panel });
+  }
+  return { variant: chooseVariant(a, b), a, b, faces };
 }
 
 function ruleLine(card: RenderResult): string {
@@ -132,7 +158,17 @@ function ruleLine(card: RenderResult): string {
   const layout = card.layoutCheck.insideSafe && card.layoutCheck.insideTextBox ? "" : ` · LAYOUT: ${card.layoutCheck.outside.join(", ") || "text block outside 0.188–0.512 H"}`;
   const ext = card.extensionLabel ? ` · ${card.extensionLabel}` : " · no extension";
   const where = p ? `head ${p.headTop.toFixed(3)} (${card.headTopSource}) · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · scale ${p.scale.toFixed(3)}${ext}` : "no face";
-  return `${card.pass ? "PASS" : "FAIL"} · contrast ${(card.contrastShare * 100).toFixed(1)} % · ${where}${fails.length ? ` · fails ${fails.join("; ")}` : ""}${layout}`;
+  return `A ${card.pass ? "PASS" : "FAIL"} · contrast ${(card.contrastShare * 100).toFixed(1)} % · ${where}${fails.length ? ` · fails ${fails.join("; ")}` : ""}${layout}`;
+}
+
+function cutoutLine(b: CutoutResult | null): string {
+  if (!b) return "B not tried";
+  const p = b.plan;
+  const fails = b.rules.filter((r) => !r.pass).map((r) => `${r.rule}: ${r.detail}`);
+  const f = b.figures;
+  const where = p ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · scale ${p.scale.toFixed(3)}` : "not placed";
+  const mask = `face-box alpha min ${f.faceAlphaMin == null ? "–" : f.faceAlphaMin.toFixed(2)} · feather ${f.featherPx} px · halo ${f.haloShare == null ? "–" : (f.haloShare * 100).toFixed(2) + " %"} of ${f.haloBand} px · bottom row ${(f.bottomShare * 100).toFixed(1)} %`;
+  return `B ${b.pass ? "PASS" : "FAIL"} · contrast ${(b.contrastShare * 100).toFixed(1)} % · ${where} · ${mask}${fails.length ? ` · fails ${fails.join("; ")}` : ""}`;
 }
 
 function mkdirOut(): string {
@@ -163,8 +199,10 @@ if (scans.length) {
         say(`- ${asset.filename} (${asset.id}): logo, skipped`);
         continue;
       }
-      const { card, faces } = await judge(await download(String(asset.storage_path)), artist);
-      say(`- ${asset.filename} (${asset.id}): ${faces.length} face(s) · ${ruleLine(card)}`);
+      const j = await judge(await download(String(asset.storage_path)), artist);
+      say(`- ${asset.filename} (${asset.id}) → ${j.variant} · ${j.faces.length} face(s)`);
+      say(`    ${ruleLine(j.a)}`);
+      if (j.b) say(`    ${cutoutLine(j.b)}`);
     }
     say("");
   }
@@ -195,27 +233,30 @@ mkdirOut();
 for (const pick of picks) {
   const assetRes = await supabase.from("creative_assets").select("id, storage_path, filename").eq("id", pick.assetId).maybeSingle();
   if (assetRes.error || !assetRes.data) fail(`asset ${pick.assetId}: ${assetRes.error?.message ?? "not found"}`);
-  const { card, faces } = await judge(await download(String(assetRes.data.storage_path)), pick.artist);
-  say(`## ${pick.artist} · card ${pick.card} · ${assetRes.data.filename} (${pick.assetId})`);
-  say(`${faces.length} face(s) · ${ruleLine(card)}`);
-  for (const p of card.layout.all) {
-    say(`- ${p.label}: ${p.width}×${p.height} at ${p.left},${p.top} · scale ${p.scale.toFixed(3)}${p.stepped ? " · stepped to width" : ""}${p.belowFloor ? " · BELOW FLOOR" : ""}${p.short ? " · SHORT" : ""}`);
-  }
+  const j = await judge(await download(String(assetRes.data.storage_path)), pick.artist);
+  const card = j.a;
+  say(`## ${pick.artist} · card ${pick.card} · ${assetRes.data.filename} (${pick.assetId}) → variant ${j.variant}`);
+  say(`${j.faces.length} face(s) · ${ruleLine(card)}`);
+  if (j.b) say(cutoutLine(j.b));
   for (const [edge, st] of Object.entries(card.strips)) {
-    say(`- O20 ${edge} strip: detail stdev ${st.detailStdev.toFixed(2)} (max 4) · Sobel > 20 on ${(st.sobelShare * 100).toFixed(2)} % (max 2 %) · grain added at ${st.detailStdev.toFixed(2)}`);
+    say(`- O20 ${edge} strip: detail stdev ${st.detailStdev.toFixed(2)} (max 4) · normalised Sobel > 20 on ${(st.sobelShare * 100).toFixed(2)} % (max 2 %) · person mask ${st.maskPixels} px · grain added at ${st.detailStdev.toFixed(2)}`);
   }
-  if (card.squarePhotoScale > 0.8001) say(`- 1:1: the photo is too narrow to extend at the sides; drawn at ${card.squarePhotoScale.toFixed(3)}× the master's scale (not 0.8×), anchored on the eyes`);
-  if (card.squareShift) say(`- 1:1: the photo ran out; its window shifted ${card.squareShift} px (the text stays centred)`);
-  if (!card.pass) {
-    say("Skipped: fails a rule. Nothing written.");
+  if (j.variant === "A") {
+    if (card.squarePhotoScale > 0.8001) say(`- 1:1: the photo is too narrow to extend at the sides; drawn at ${card.squarePhotoScale.toFixed(3)}× the master's scale (not 0.8×), anchored on the eyes`);
+    if (card.squareShift) say(`- 1:1: the photo ran out; its window shifted ${card.squareShift} px (the text stays centred)`);
+  }
+  say(`Disclosure: ${j.variant === "A" ? card.extensionLabel || "(none: the photo covers the frame)" : j.variant === "B" ? CUTOUT_DISCLOSURE : "–"}`);
+  if (j.variant === "skip") {
+    say("Skipped: neither A nor B passes. Nothing written.");
     say("");
     continue;
   }
+  const chosen = j.variant === "A" ? { master: card.master, crop45: card.crop45, square: card.square } : { master: j.b!.master!, crop45: j.b!.crop45!, square: j.b!.square! };
   const slug = artistSlug(pick.artist);
   const outputs: { format: CardFormat; bytes: Buffer }[] = [
-    { format: "9x16", bytes: card.master },
-    { format: "4x5", bytes: card.crop45 },
-    { format: "1x1", bytes: card.square },
+    { format: "9x16", bytes: chosen.master },
+    { format: "4x5", bytes: chosen.crop45 },
+    { format: "1x1", bytes: chosen.square },
   ];
   for (const o of outputs) {
     const name = cardFileName({ eventCode: code, artistSlug: slug, pick: pick.card, stage, format: o.format, version });

@@ -42,6 +42,8 @@
  * never enlarged past their own pixels. No text is rendered here.
  */
 
+import { maskTouches, type PersonMask } from "./segment.ts";
+
 // ─── Slots ──────────────────────────────────────────────────────────────────
 
 export const MASTER = { width: 1080, height: 1920 } as const;
@@ -74,8 +76,8 @@ export const INVENTED = [
   "top of the head: measured on a plain backdrop (first 3 rows above the brows where 95 % of the face's width matches the photo's top edge within 40); otherwise estimated as brow − 0.6 × (chin − brow), calibrated by eye on Luke (cap), Enzo and Reeshy, erring high on hair",
   "the face is placed as large as the bands allow, eyes on the mid-point the bands leave free; the text box is the full width between the 76 px side insets",
   "one subject = one detected face at least 0.4× the main face's height (detector at 0.3 confidence)",
-  "O20 reading: the 31 px Gaussian is 31 taps (sigma 5); the Sobel is the 3×3 kernel on 0–255 luminance, unnormalised; the fill is blurred along the edge with sigma 6 px; the grain is monochrome Gaussian noise at the strip's detail stdev, seeded",
-  "O20 person mask: estimated (head from its top down; body as a column 1.8 face-box widths either side of the eyes), not segmented; hands outside that column are not seen by code",
+  "O20 reading: the fill is blurred along the edge with sigma 0.03 W (32 px); the grain is monochrome Gaussian noise at the strip's detail stdev, seeded",
+  "O20 person mask: MediaPipe Selfie (256²) refined by a guided filter on the photo at ≤ 2400 px, resampled to the source grid (segment.ts)",
   "O20 eyes measurable: detector confidence ≥ 0.5, both eye centroids inside the face box, ≥ 0.25 box widths apart, between brows and chin",
 ] as const;
 
@@ -308,22 +310,19 @@ export const O20 = {
   maxTop: 576,
   /** Per side, in the 9:16 and 4:5: 0.12 W. */
   maxSide: Math.round(0.12 * 1080),
-  /** The face box at least 0.25 W (270 px) wide. */
-  minFaceWidth: 0.25,
-  /**
-   * The person mask is estimated, not segmented: the head from its top down,
-   * and the body as a column 1.8 face-box widths either side of the eyes from
-   * the head's top to the bottom of the photo (shoulders, arms, hands at the
-   * sides). A side strip inside that column touches the person.
-   */
-  bodyHalfWidth: 1.8,
+  /** O19 amended: the face box at least 0.20 W (216 px at 1080). */
+  minFaceWidth: 0.2,
+  /** O20 amended: a strip fails when any person-mask pixel (alpha > 0.5, segment.ts) falls in it. */
+  maskThreshold: 0.5,
 } as const;
 
 /** "photo extended top by 319 px", "photo extended top by 319 px and sides by 40 px", "" when none. */
 export function extensionLabel(e: Extension): string {
   const parts: string[] = [];
   if (e.top > 0) parts.push(`top by ${e.top} px`);
-  if (e.left > 0 || e.right > 0) parts.push(e.left === e.right ? `sides by ${e.left} px` : `sides by ${e.left} px (left) / ${e.right} px (right)`);
+  if (e.left > 0 && e.right > 0) parts.push(e.left === e.right ? `sides by ${e.left} px` : `sides by ${e.left} px (left) / ${e.right} px (right)`);
+  else if (e.left > 0) parts.push(`left side by ${e.left} px`);
+  else if (e.right > 0) parts.push(`right side by ${e.right} px`);
   return parts.length ? `photo extended ${parts.join(" and ")}` : "";
 }
 
@@ -362,8 +361,10 @@ export function blurLum(lum: ArrayLike<number>, w: number, h: number, taps: numb
 export type StripStats = {
   /** Stdev of luminance minus its 31-tap Gaussian blur, 0–255. */
   detailStdev: number;
-  /** Share of pixels whose Sobel gradient magnitude is above 20 (3×3 Sobel on 0–255 luminance, interior pixels). */
+  /** Share of pixels whose normalised Sobel magnitude (raw 3×3 ÷ 8, 0–255 luminance, interior pixels) is above 20. */
   sobelShare: number;
+  /** Person-mask pixels (alpha > 0.5) in the strip; filled in by renderCard, 0 in stripStats. */
+  maskPixels: number;
   pass: boolean;
 };
 
@@ -386,11 +387,12 @@ export function stripStats(lum: ArrayLike<number>, w: number, h: number): StripS
       const gx = -p(-1, -1) - 2 * p(-1, 0) - p(-1, 1) + p(1, -1) + 2 * p(1, 0) + p(1, 1);
       const gy = -p(-1, -1) - 2 * p(0, -1) - p(1, -1) + p(-1, 1) + 2 * p(0, 1) + p(1, 1);
       total += 1;
-      if (Math.hypot(gx, gy) > O20.sobelThreshold) over += 1;
+      // O20 amended: the normalised kernel (raw 3×3 ÷ 8), magnitude in luminance levels per pixel.
+      if (Math.hypot(gx, gy) / 8 > O20.sobelThreshold) over += 1;
     }
   }
   const sobelShare = total ? over / total : 0;
-  return { detailStdev, sobelShare, pass: detailStdev <= O20.maxDetailStdev && sobelShare <= O20.maxSobelShare };
+  return { detailStdev, sobelShare, maskPixels: 0, pass: detailStdev <= O20.maxDetailStdev && sobelShare <= O20.maxSobelShare };
 }
 
 export type FaceForExtension = FaceLines & { box: { width: number } };
@@ -411,7 +413,8 @@ export type ExtCandidate = {
  * Every placement O20 allows, best first: the face bands met, never above
  * 1.0× source, the face box ≥ 0.25 W, the eyes centred, the bottom never
  * extended, the top ≤ 0.30 H with the head's top at least 0.05 H below the
- * top strip, each side ≤ 0.12 W with its strip clear of the body column.
+ * top strip, each side ≤ 0.12 W. The strips' plainness and the person mask
+ * are tested on the pixels (renderCard).
  * Order: no extension, then the larger face, then the smaller extension,
  * then the eyes nearest 0.61 H. The strip tests run on the pixels (renderCard).
  */
@@ -429,7 +432,7 @@ export function extensionCandidates(photo: Size, face: FaceForExtension, frame: 
     return [];
   }
   const out: ExtCandidate[] = [];
-  const rejected = { band: 0, bottom: 0, top: 0, sides: 0, headGap: 0, body: 0 };
+  const rejected = { band: 0, bottom: 0, top: 0, sides: 0, headGap: 0 };
   const steps = 60;
   for (let i = 0; i <= steps; i += 1) {
     const s = sHi - ((sHi - sLo) * i) / steps;
@@ -463,12 +466,6 @@ export function extensionCandidates(photo: Size, face: FaceForExtension, frame: 
         rejected.headGap += 1;
         continue;
       }
-      const bodyL = (face.eyeX - O20.bodyHalfWidth * face.box.width) * s;
-      const bodyR = (photo.width - face.eyeX - O20.bodyHalfWidth * face.box.width) * s;
-      if ((left > 0 && bodyL < O20.strip) || (right > 0 && bodyR < O20.strip)) {
-        rejected.body += 1;
-        continue;
-      }
       out.push({
         scale: s,
         eyes: e,
@@ -488,7 +485,6 @@ export function extensionCandidates(photo: Size, face: FaceForExtension, frame: 
       top: `the top would need more than ${O20.maxTop} px`,
       sides: `a side would need more than ${O20.maxSide} px`,
       headGap: `the head's top would be under ${O20.strip} px + 0.05 H below the top strip`,
-      body: "a side strip would touch the body column",
     };
     const worst = (Object.keys(rejected) as (keyof typeof rejected)[]).filter((k) => k !== "band" && rejected[k] > 0).sort((x, y) => rejected[y] - rejected[x])[0];
     why.blocker = worst ? names[worst] : names.band;
@@ -496,6 +492,14 @@ export function extensionCandidates(photo: Size, face: FaceForExtension, frame: 
   const total = (c: ExtCandidate) => c.extend.top + c.extend.left + c.extend.right;
   return out.sort((x, y) => Number(total(x) > 0) - Number(total(y) > 0) || y.scale - x.scale || total(x) - total(y) || Math.abs(x.eyes - 0.61) - Math.abs(y.eyes - 0.61));
 }
+
+/**
+ * The fill's blur along the edge, px (σ). Not set by O20 ("blurred"): 0.03 W,
+ * because a strip that is plain at the 31-tap scale can still change colour
+ * across its length (out-of-focus foliage), and a narrow blur stretches that
+ * into stripes.
+ */
+export const FILL_BLUR = Math.round(0.03 * 1080);
 
 /** A seeded normal sampler (mulberry32 + Box–Muller), so a re-render is identical. */
 export function gaussianNoise(seed: number): () => number {
@@ -551,7 +555,7 @@ export function extendCanvas(rgb: Uint8Array | Buffer, w: number, h: number, ext
       cols.push(c.map((v) => v / rows));
     }
     const full = [...Array(ext.left).fill(cols[0]), ...cols, ...Array(ext.right).fill(cols[w - 1])] as number[][];
-    topProfile = [0, 1, 2].map((ch) => blur1D(full.map((c) => c[ch]!), 6)).reduce<number[][]>((acc, chan, ch) => {
+    topProfile = [0, 1, 2].map((ch) => blur1D(full.map((c) => c[ch]!), FILL_BLUR)).reduce<number[][]>((acc, chan, ch) => {
       chan.forEach((v, x) => ((acc[x] ??= [0, 0, 0])[ch] = v));
       return acc;
     }, []);
@@ -570,7 +574,7 @@ export function extendCanvas(rgb: Uint8Array | Buffer, w: number, h: number, ext
     }
     const corner = topProfile.length ? topProfile[which === "left" ? ext.left : ext.left + w - 1]! : rowsColour[0]!;
     const full = [...Array(ext.top).fill(corner), ...rowsColour] as number[][];
-    const blurred = [0, 1, 2].map((ch) => blur1D(full.map((c) => c[ch]!), 6));
+    const blurred = [0, 1, 2].map((ch) => blur1D(full.map((c) => c[ch]!), FILL_BLUR));
     for (let y = 0; y < Hc; y += 1) {
       const c = [blurred[0]![y]!, blurred[1]![y]!, blurred[2]![y]!];
       for (let i = 0; i < n; i += 1) put(which === "left" ? i : ext.left + w + i, y, c, grain[which]);
@@ -696,10 +700,10 @@ export async function trimToInk(png: Buffer): Promise<{ png: Buffer; width: numb
   return { png: out, width, height };
 }
 
-type Transform = { k: number; dx: number; dy: number };
+export type Transform = { k: number; dx: number; dy: number };
 
 /** The text group on a transparent canvas, with the kit shadow once on the whole group. */
-async function textOverlay(pieces: readonly Piece[], placements: readonly Placement[], size: Size, t: Transform, shadow: { dy: number; blur: number; opacity: number }): Promise<Buffer> {
+export async function textOverlay(pieces: readonly Piece[], placements: readonly Placement[], size: Size, t: Transform, shadow: { dy: number; blur: number; opacity: number }): Promise<Buffer> {
   const sharp = await sharpLib();
   const layers: { input: Buffer; left: number; top: number }[] = [];
   for (let i = 0; i < pieces.length; i += 1) {
@@ -727,6 +731,8 @@ export type RenderInput = {
   eyes?: { ok: boolean; why: string };
   /** Faces counted for the one-subject rule. */
   subjects: number;
+  /** The photo's person mask (segment.ts); without it the strips' mask test cannot run and no extension is made. */
+  mask?: PersonMask;
   name: Piece;
   info: Piece[];
   lockup: Piece | null;
@@ -757,7 +763,7 @@ export type RenderResult = {
 };
 
 /** The 48 px strip along one edge of the placed photo, at output scale, as luminance. */
-async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate, "scale" | "left" | "top" | "extend">, edge: Edge, frame: Size): Promise<{ lum: Buffer; w: number; h: number } | null> {
+async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate, "scale" | "left" | "top" | "extend">, edge: Edge, frame: Size): Promise<{ lum: Buffer; w: number; h: number; source: Rect } | null> {
   const sharp = await sharpLib();
   const s = c.scale;
   const S = O20.strip;
@@ -768,8 +774,9 @@ async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate
     const x1 = Math.min(photo.width, Math.ceil(px1 / s));
     const w = Math.round(px1 - px0);
     if (w < 3 || x1 <= x0) return null;
-    const { data } = await sharp(rotated).extract({ left: x0, top: 0, width: x1 - x0, height: Math.min(photo.height, Math.ceil(S / s)) }).resize(w, S, { fit: "fill" }).greyscale().raw().toBuffer({ resolveWithObject: true });
-    return { lum: data, w, h: S };
+    const source = { left: x0, top: 0, width: x1 - x0, height: Math.min(photo.height, Math.ceil(S / s)) };
+    const { data } = await sharp(rotated).extract(source).resize(w, S, { fit: "fill" }).greyscale().raw().toBuffer({ resolveWithObject: true });
+    return { lum: data, w, h: S, source };
   }
   const py0 = Math.max(0, c.top - c.extend.top);
   const py1 = Math.min(photo.height * s, c.top + frame.height - c.extend.top);
@@ -779,8 +786,9 @@ async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate
   if (h < 3 || y1 <= y0) return null;
   const cols = Math.min(photo.width, Math.ceil(S / s));
   const left = edge === "left" ? 0 : photo.width - cols;
-  const { data } = await sharp(rotated).extract({ left, top: y0, width: cols, height: y1 - y0 }).resize(S, h, { fit: "fill" }).greyscale().raw().toBuffer({ resolveWithObject: true });
-  return { lum: data, w: S, h };
+  const source = { left, top: y0, width: cols, height: y1 - y0 };
+  const { data } = await sharp(rotated).extract(source).resize(S, h, { fit: "fill" }).greyscale().raw().toBuffer({ resolveWithObject: true });
+  return { lum: data, w: S, h, source };
 }
 
 /** Plan, judge and compose one card: 9:16 master, its 4:5 centre crop, and the 1:1 re-sit. */
@@ -811,7 +819,8 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
   if (face) {
     const p0 = planFaceCrop(photo, face, frame);
     plan = p0;
-    if (!placementOk(p0) && face.box) {
+    if (!placementOk(p0) && face.box && !input.mask) extensionNote = "no person mask, so no extension was tried";
+    if (!placementOk(p0) && face.box && input.mask) {
       const why = { blocker: "" };
       const candidates = extensionCandidates(photo, face as FaceForExtension, frame, why);
       const cache = new Map<string, StripStats | null>();
@@ -826,12 +835,21 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
           if (!cache.has(key)) {
             tested += 1;
             const strip = await stripLuminance(rotated, photo, c, edge, frame);
-            cache.set(key, strip ? stripStats(strip.lum, strip.w, strip.h) : null);
+            if (!strip) cache.set(key, null);
+            else {
+              const st = stripStats(strip.lum, strip.w, strip.h);
+              const maskPixels = input.mask ? maskTouches(input.mask, strip.source, O20.maskThreshold) : 0;
+              cache.set(key, { ...st, maskPixels, pass: st.pass && maskPixels === 0 });
+            }
           }
           const st = cache.get(key) ?? null;
           if (!st || !st.pass) {
             ok = false;
-            if (!firstFail) firstFail = st ? `${edge} strip detail ${st.detailStdev.toFixed(1)} (max ${O20.maxDetailStdev}), Sobel > ${O20.sobelThreshold} on ${(st.sobelShare * 100).toFixed(1)} % (max ${O20.maxSobelShare * 100} %) at scale ${c.scale.toFixed(3)}` : `${edge} strip not visible`;
+            if (!firstFail) {
+              firstFail = st
+                ? `${edge} strip detail ${st.detailStdev.toFixed(1)} (max ${O20.maxDetailStdev}), Sobel > ${O20.sobelThreshold} on ${(st.sobelShare * 100).toFixed(1)} % (max ${O20.maxSobelShare * 100} %), person mask ${st.maskPixels} px (max 0) at scale ${c.scale.toFixed(3)}`
+                : `${edge} strip not visible`;
+            }
             break;
           }
           got[edge] = st;

@@ -127,6 +127,15 @@ async function faceApi(): Promise<FaceApi> {
   return loaded;
 }
 
+/**
+ * The tfjs instance inside face-api's bundle, already on the CPU backend with
+ * the Node platform registered. It includes the graph-model converter, so the
+ * person segmenter (segment.ts) runs on it too: one tfjs, no second bundle.
+ */
+export async function faceApiTf(): Promise<unknown> {
+  return (await faceApi()).tf;
+}
+
 /** Every face in the image, largest first, in source pixels (EXIF rotation applied). */
 export async function detectFaces(image: Buffer, opts: { minConfidence?: number } = {}): Promise<FaceBox[]> {
   const sharp = (await import("sharp")).default;

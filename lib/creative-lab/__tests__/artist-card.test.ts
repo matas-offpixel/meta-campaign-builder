@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { eyesMeasurable } from "../face-detect.ts";
+import { maskTouches } from "../segment.ts";
 import {
   MASTER,
   NO_EXTENSION,
@@ -116,18 +117,40 @@ describe("O20 strip tests", () => {
   it("texture fails", () => {
     let seed = 7;
     const rand = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-    const lum = new Float64Array(w * h).map(() => 60 + rand() * 80);
+    const lum = new Float64Array(w * h).map(() => 60 + rand() * 160);
     const st = stripStats(lum, w, h);
     assert.ok(st.detailStdev > 4);
     assert.ok(st.sobelShare > 0.02);
     assert.equal(st.pass, false);
   });
 
-  it("one hard edge across a plain strip fails on the Sobel share alone", () => {
-    const lum = new Float64Array(w * h).map((_, i) => ((i % w) < w / 2 ? 40 : 200));
+  it("normalised Sobel (÷ 8): photo grain passes", () => {
+    // ±3 levels of noise on a flat wall: raw 3×3 magnitudes reach ~20, normalised ones stay near 2.
+    let seed = 11;
+    const rand = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    const lum = new Float64Array(w * h).map(() => 100 + (rand() - 0.5) * 6);
     const st = stripStats(lum, w, h);
-    // A single step is a few columns of the strip: the detail stdev stays moderate, the edge is what the Sobel test sees.
-    assert.ok(st.sobelShare > 0);
+    assert.equal(st.sobelShare, 0);
+    assert.equal(st.pass, true);
+  });
+
+  it("normalised Sobel: a hard line fails", () => {
+    // A 4 px bright line every 24 columns: steps of 160 levels, far over 20 per pixel.
+    const lum = new Float64Array(w * h).map((_, i) => ((i % w) % 24 < 4 ? 220 : 60));
+    const st = stripStats(lum, w, h);
+    assert.ok(st.sobelShare > 0.02, `sobel ${st.sobelShare}`);
+    assert.equal(st.pass, false);
+  });
+});
+
+describe("O20 person mask in a strip", () => {
+  it("any mask pixel above 0.5 inside the strip's source rectangle is counted", () => {
+    const mask = { width: 100, height: 60, alpha: new Float32Array(100 * 60) };
+    // The person's hair reaches row 2 at columns 40–49.
+    for (let y = 2; y < 60; y += 1) for (let x = 40; x < 50; x += 1) mask.alpha[y * 100 + x] = 0.9;
+    assert.equal(maskTouches(mask, { left: 0, top: 0, width: 100, height: 10 }), 80);
+    assert.equal(maskTouches(mask, { left: 0, top: 0, width: 30, height: 60 }), 0);
+    assert.equal(maskTouches(mask, { left: 0, top: 0, width: 100, height: 2 }), 0);
   });
 });
 
@@ -173,9 +196,13 @@ describe("O20 extension candidates", () => {
     assert.match(why.blocker, /head's top|top would need/);
   });
 
-  it("refuses a face box under 0.25 W at the largest size the bands allow", () => {
+  it("O19 amended: the floor is 0.20 W (216 px)", () => {
+    assert.equal(O20.minFaceWidth * 1080, 216);
+  });
+
+  it("refuses a face box under 0.20 W at the largest size the bands allow", () => {
     const why = { blocker: "" };
-    const list = extensionCandidates(photo, { ...face, box: { width: 300 } }, MASTER, why);
+    const list = extensionCandidates(photo, { ...face, box: { width: 200 } }, MASTER, why);
     assert.equal(list.length, 0);
     assert.match(why.blocker, /face box is \d+ px wide/);
   });
@@ -191,26 +218,30 @@ describe("O20 extension candidates", () => {
     assert.equal(extensionLabel({ top: 319, left: 0, right: 0 }), "photo extended top by 319 px");
     assert.equal(extensionLabel({ top: 0, left: 40, right: 40 }), "photo extended sides by 40 px");
     assert.equal(extensionLabel({ top: 300, left: 40, right: 12 }), "photo extended top by 300 px and sides by 40 px (left) / 12 px (right)");
+    assert.equal(extensionLabel({ top: 488, left: 0, right: 46 }), "photo extended top by 488 px and right side by 46 px");
   });
 });
 
 describe("O20 fill", () => {
   it("extends top and sides from the strip's own colours, never the bottom", () => {
+    // Blue top half, red bottom half; the fill is blurred along the edge (σ 32 px), so
+    // the side fill is checked well past that reach of the colour change.
     const w = 60;
-    const h = 100;
+    const h = 400;
     const rgb = new Uint8Array(w * h * 3);
-    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) rgb.set(y < 50 ? [10, 20, 200] : [250, 0, 0], (y * w + x) * 3);
+    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) rgb.set(y < 200 ? [10, 20, 200] : [250, 0, 0], (y * w + x) * 3);
     const out = extendCanvas(rgb, w, h, { top: 30, left: 10, right: 5 }, { top: 0, left: 0, right: 0 });
     assert.equal(out.width, 75);
-    assert.equal(out.height, 130);
-    // Top fill = the top strip's colour (blue), never the red lower half.
+    assert.equal(out.height, 430);
     const at = (x: number, y: number) => [...out.data.subarray((y * out.width + x) * 3, (y * out.width + x) * 3 + 3)];
+    // Top fill = the top strip's colour (blue), never the red lower half.
     assert.deepEqual(at(40, 0), [10, 20, 200]);
     // The photo sits at (10, 30) unchanged.
     assert.deepEqual(at(10, 30), [10, 20, 200]);
-    assert.deepEqual(at(10, 129), [250, 0, 0]);
-    // The side fill beside the red rows is the strip's own red.
-    assert.deepEqual(at(0, 129), [250, 0, 0]);
+    assert.deepEqual(at(10, 429), [250, 0, 0]);
+    // The side fill beside the red rows is the strip's own red; nothing below the photo.
+    assert.deepEqual(at(0, 429), [250, 0, 0]);
+    assert.deepEqual(at(74, 429), [250, 0, 0]);
   });
 
   it("adds grain at the measured strength, seeded", () => {
@@ -294,7 +325,8 @@ describe("photo rules", () => {
     assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: { ...good, headTop: 0.5 } }), ["face"]);
     assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: { ...good, eyes: 0.66 } }), ["face"]);
     assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: { ...good, chin: 0.78 } }), ["face"]);
-    assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: { ...good, faceWidthPx: 250 } }), ["face"]);
+    assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: { ...good, faceWidthPx: 215 } }), ["face"]);
+    assert.ok(judgePhoto({ contrastShare: 0, subjects: 1, plan: { ...good, faceWidthPx: 216 } }).every((r) => r.pass));
     assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: good, eyes: { ok: false, why: "face confidence 0.18 < 0.5" } }), ["eyes"]);
     assert.deepEqual(failed({ contrastShare: 0, subjects: 0, plan: null }), ["subject", "face"]);
   });
