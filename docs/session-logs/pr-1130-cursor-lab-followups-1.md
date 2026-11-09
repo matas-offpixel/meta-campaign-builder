@@ -50,3 +50,23 @@ Verdict frames, Ubuntu, head `1ad7c8e35f1e052c1c02e06bee93687cda566a18`. `only=C
 - CLS2b-1280, CLS2b-393: new. Each selected before a write, 4 clips, "3 captions × 4 clips = 12 previews", "Write to see these on the clips."
 
 Left, because they matched this head: CL1, CL2, CL8, CLQ, CLV, CLS2, CLS3-393, CLS4, and the other IR frames.
+
+Rebased onto main `cce6d1d` after #1133. The sound control stays the #1133 player. The border tokens and CLS2b stay. Conflicted rasters were reshot rather than picked from either side.
+
+Frames, Ubuntu, head `733872418098eeaa3dca30d777fab344cd09e67d`. `only=CL` runs 42676851484 and 42676858352. `only=CLS` runs 42676864164 and 42676870253. `only=IR` runs 42676877465 and 42676883087. `only=AB` runs 42676888561 and 42676893633. Committed from the first run of each pair. Pair px is the mismatched pixel count at threshold 0.1. Every pair is 0 except CL5-1280, which is 83 (ratio 0.000017, under 0.002). git px is the same count against main. CLS2b is new.
+
+- CL10-1280 pair 0 git 1344. CL10-393 pair 0 git 1346.
+- CL2-1280 pair 0 git 1104. CL2-393 pair 0 git 1104.
+- CL3-1280 pair 0 git 1108. CL3-393 pair 0 git 1110.
+- CL4-1280 pair 0 git 1108. CL4-393 pair 0 git 1110.
+- CL5-1280 pair 83 git 1108. CL5-393 pair 0 git 1110.
+- CL6-1280 pair 0 git 1110. CL6-393 pair 0 git 1110.
+- CL7-1280 pair 0 git 1106. CL7-393 pair 0 git 1107.
+- CL8-1280 pair 0 git 1104. CL8-393 pair 0 git 1104.
+- CL9-1280 pair 0 git 3631. CL9-393 pair 0 git 2669.
+- CLA1-1280 pair 0 git 122. CLA1-393 pair 0 git 124. CLA2-1280 pair 0 git 118. CLA2-393 pair 0 git 118. The tick ring paints `--on-media` and the Ready chip border paints. The sound control is the same pixels as main.
+- CLQ1-1280 pair 0 git 206. CLQ2-1280 pair 0 git 608. CLQ2-393 pair 0 git 430. CLQ3-1280 pair 0 git 994. CLQ3-393 pair 0 git 454.
+- CLS1-1280 pair 0 git 706. CLS1-393 pair 0 git 383. CLS2b-1280 pair 0 git new. CLS2b-393 pair 0 git new.
+- CLV1-1280 pair 0 git 250. CLV2-1280 pair 0 git 471. CLV3-1280 pair 0 git 206. CLV4-1280 pair 0 git 1028. CLV4-393 pair 0 git 280.
+- IR1-1280 pair 0 git 1106. IR2-1280 pair 0 git 1196. IR2-393 pair 0 git 38. IR3-1280 pair 0 git 34. IR4-1280 pair 0 git 384. IR4-393 pair 0 git 22. IR6-1280 pair 0 git 34. IR7-393 pair 0 git 552. IR8-1280 pair 0 git 401. IR8-393 pair 0 git 25.
+- AB1-1280 pair 0 git 988. AB2-1280 pair 0 git 6375. AB2-393 pair 0 git 1321. AB3-1280 pair 0 git 28. AB3-393 pair 0 git 14. AB4-1280 pair 0 git 1628. AB4-393 pair 0 git 598. AB5-1280 pair 0 git 1664. AB5-393 pair 0 git 1136.
