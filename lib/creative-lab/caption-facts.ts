@@ -25,8 +25,10 @@
  *     most 4 lines. An overlay that does not fit those 4 lines, or that
  *     is 73–96 characters, uses the long size (up to 5 × 24). Over 96,
  *     or a single word longer than that size's line, is rejected. A lineup name that fits on one line is not
- *     broken. Lines are balanced: no single-word line except the last.
- *     four_line must be exactly 4 lines.
+ *     broken. Lines are balanced: no single-word line except the last,
+ *     and "more", "&" and "w/" are never a line on their own. "& more"
+ *     stays one phrase. A "/" or "|" is not a separator, and an empty
+ *     line is refused. four_line must be exactly 4 lines.
  *   - layout (wrap, emoji, '#', all caps) applies to the overlay only.
  *     Overlay emoji are never allowed. Primary text may use emoji when
  *     the client's style setting says so, and is capped at 125 characters.
@@ -318,7 +320,28 @@ function atomsOf(paragraph: string, names: readonly string[], width: number): st
     atoms.push(tokens[i]);
     i += 1;
   }
-  return atoms;
+  return gluePhrases(atoms);
+}
+
+/** "& more" is one phrase. A wrap cannot park "more" on the next line. */
+function gluePhrases(atoms: string[]): string[] {
+  const glued: string[] = [];
+  for (let i = 0; i < atoms.length; i += 1) {
+    const next = atoms[i + 1];
+    if (atoms[i] === "&" && next && /^more$/i.test(next)) {
+      glued.push(`& ${next}`);
+      i += 1;
+      continue;
+    }
+    glued.push(atoms[i]);
+  }
+  return glued;
+}
+
+const LONE_SHORT = /^(?:more|&|w\/)$/i;
+
+function isLoneShort(line: string): boolean {
+  return LONE_SHORT.test(line.trim());
 }
 
 /**
@@ -342,7 +365,8 @@ function wrapAtoms(atoms: string[], width: number): string[] {
     for (let j = i; j < n; j += 1) {
       len = j === i ? atoms[j].length : len + 1 + atoms[j].length;
       if (len > width) break;
-      const slack = (width - len) ** 2 + (j === i && j !== n - 1 ? 10_000 : 0);
+      const line = atoms.slice(i, j + 1).join(" ");
+      const slack = (width - len) ** 2 + ((j === i && j !== n - 1) || isLoneShort(line) ? 10_000 : 0);
       // Equal cost keeps the longer line. A short line then falls to the end.
       if (cost[j + 1] + slack <= cost[i]) {
         cost[i] = cost[j + 1] + slack;
@@ -357,7 +381,46 @@ function wrapAtoms(atoms: string[], width: number): string[] {
     lines.push(atoms.slice(i, next).join(" "));
     i = next;
   }
-  return lines;
+  return rebalanceLone(lines, width);
+}
+
+/** A lone "more", "&" or "w/" takes a neighbour word so the line is not one token. */
+function rebalanceLone(lines: string[], width: number): string[] {
+  const out = lines.map((line) => line.trim()).filter(Boolean);
+  for (let i = 0; i < out.length; i += 1) {
+    if (!isLoneShort(out[i] ?? "")) continue;
+    const prev = out[i - 1];
+    if (prev) {
+      const words = prev.split(/\s+/);
+      if (words.length > 1) {
+        const moved = words[words.length - 1] ?? "";
+        const down = `${moved} ${out[i]}`.trim();
+        const stay = words.slice(0, -1).join(" ");
+        if (stay.length <= width && down.length <= width) {
+          out[i - 1] = stay;
+          out[i] = down;
+          continue;
+        }
+      }
+      const up = `${prev} ${out[i]}`.trim();
+      if (up.length <= width) {
+        out[i - 1] = up;
+        out.splice(i, 1);
+        i -= 1;
+        continue;
+      }
+    }
+    const next = out[i + 1];
+    if (!next) continue;
+    const words = next.split(/\s+/);
+    const down = `${out[i]} ${words[0] ?? ""}`.trim();
+    if (down.length > width) continue;
+    out[i] = down;
+    const rest = words.slice(1).join(" ");
+    if (rest) out[i + 1] = rest;
+    else out.splice(i + 1, 1);
+  }
+  return out;
 }
 
 const DATE_WEEKDAYS = "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday";
@@ -949,10 +1012,24 @@ function checkVoice(text: string, lines: string[]): CaptionError[] {
   return [];
 }
 
+/** A slash or pipe with space around it is a separator, not a word. "w/" stays a word. */
+function hasSeparator(text: string): boolean {
+  return text.includes("|") || /(^|\s)\/(\s|$)/.test(text);
+}
+
 function layoutErrors(text: string, lines: string[], maxLines: number, charsPerLine: number, style: CaptionStyle): CaptionError[] {
   const errors: CaptionError[] = [];
   const over = text.split(/\s+/).find((word) => word.length > charsPerLine);
   if (over) errors.push({ code: "word_too_long", detail: `"${over}" is longer than ${charsPerLine} characters` });
+  if (lines.some((line) => line.trim() === "")) {
+    errors.push({ code: "too_long", detail: `empty line; an overlay is at most ${maxLines} lines` });
+  }
+  if (lines.some((line) => isLoneShort(line))) {
+    errors.push({ code: "too_long", detail: `a short word is its own line; an overlay is at most ${maxLines} lines` });
+  }
+  if (hasSeparator(text) || lines.some((line) => hasSeparator(line))) {
+    errors.push({ code: "too_long", detail: `a line break is the only separator; an overlay is at most ${maxLines} lines` });
+  }
   if (style === "four_line" && lines.length !== 4) {
     errors.push({ code: "four_line", detail: `four_line needs exactly 4 lines and wrapped to ${lines.length}` });
   } else if (lines.length > maxLines) {
@@ -979,6 +1056,7 @@ export function validateCaption(
   // four_line uses the writer's line breaks. Every other style is reflowed,
   // so a newline cannot leave a one-word line in the middle.
   const trimmed = (style === "four_line" ? text : text.replace(/[\r\n]+/g, " ")).trim().replace(/[ \t]+/g, " ");
+  const blankLine = text.split(/\r?\n/).some((line) => line.trim() === "");
   const extra = options.extraNames ?? [];
   const speaker = style === "artist_first_person" ? options.speakingArtist?.trim() ?? "" : "";
   const declared = speaker && !declaredNames.some((name) => sameArtist(name, speaker)) ? [...declaredNames, speaker] : declaredNames;
@@ -998,6 +1076,7 @@ export function validateCaption(
   const sizeVariant = long ? "long" : "default";
 
   errors.push(...factErrors(trimmed, style, declared, facts, extra, options.crowdTicketsSold));
+  if (blankLine) errors.push({ code: "too_long", detail: `empty line; an overlay is at most ${maxLines} lines` });
   errors.push(...layoutErrors(trimmed, lines, maxLines, charsPerLine, style));
   errors.push(...checkBilling(trimmed, style, facts, options.allowSupportArtist));
   errors.push(...checkVoice(trimmed, lines));
