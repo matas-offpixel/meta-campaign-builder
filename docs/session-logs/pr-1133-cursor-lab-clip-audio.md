@@ -12,7 +12,7 @@ A sound control on the clip tile, the 9:16 render preview, and feed-post media. 
 
 ## Scope / files
 
-- `components/dashboard/events/creative-lab/use-clip-video.ts` — audible state, direct `video.muted`, exclusive unmute
+- `components/dashboard/events/creative-lab/use-clip-video.tsx` — audible state, direct `video.muted`, exclusive unmute
 - `lib/creative-lab/clip-audio.ts` — the page bus, the hide rule, the action label
 - `components/dashboard/events/creative-lab/clips.tsx` — the control on a tile that has a preview
 - `components/dashboard/events/creative-lab/caption-overlay.tsx` — the control on a non-compact player

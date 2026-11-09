@@ -37,7 +37,7 @@ test("unmuting one player mutes the others and leaves them playing", () => {
 });
 
 test("the player sets muted on the element, and a paused unmute starts it", () => {
-  const hook = readFileSync(new URL("../../../components/dashboard/events/creative-lab/use-clip-video.ts", import.meta.url), "utf8");
+  const hook = readFileSync(new URL("../../../components/dashboard/events/creative-lab/use-clip-video.tsx", import.meta.url), "utf8");
   assert.match(hook, /useState\(options\?\.initialAudible === true\)/);
   assert.match(hook, /node\.muted = muted/);
   assert.match(hook, /ref\.current\.muted = true/);
