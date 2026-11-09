@@ -270,6 +270,77 @@ describe("importPresskitVideos", () => {
     assert.equal((flagged.overlay_check as { verdict: string }).verdict, "clean");
   });
 
+  it("checks a 4K clip on its 1080 proxy at import, and the original stays the clip's asset", async () => {
+    const fake = db();
+    const calls: { src: string | null; times: number[] }[] = [];
+    const made: string[] = [];
+    await importPresskitVideos(fake as unknown as ServiceRoleDb, {
+      artistId: ARTIST,
+      folderUrl: PACK,
+      source: pack(LUKE_PACK),
+      upload: async () => undefined,
+      probe: (_bytes, name) => (name.includes("long") ? { width: 2160, height: 3840, durationInSeconds: 45 } : { width: 1080, height: 1920, durationInSeconds: 12 }),
+      renderProxy: async (_bytes, size) => {
+        made.push(`${size.width}x${size.height}`);
+        return Buffer.from("proxy");
+      },
+      sign: async (path) => `signed:${path}`,
+      judge: judge(calls),
+    });
+    assert.deepEqual(made, ["1080x1920"]);
+    const long = fake.tables.creative_lab_clips.find((clip) => clip.render_asset_id)!;
+    const proxy = fake.tables.creative_assets.find((asset) => asset.id === long.render_asset_id)!;
+    const original = fake.tables.creative_assets.find((asset) => asset.id === long.creative_asset_id)!;
+    assert.match(String(proxy.storage_path), /\/proxy-1080\//);
+    assert.ok(calls.some((call) => call.src === `signed:${proxy.storage_path}`));
+    assert.ok(!calls.some((call) => call.src === `signed:${original.storage_path}`));
+  });
+
+  it("backfills a proxy for an earlier 4K clip, checks it again on the proxy, and a re-run makes no second proxy", async () => {
+    const fake = db();
+    await importVideos(fake, pack(LUKE_PACK), []);
+    const long = fake.tables.creative_lab_clips.find((clip) => clip.clip_no === 2)!;
+    long.overlay_check = { verdict: "check_by_eye", frames: [], reason: "Check this one by eye.", flagged: 0 };
+    const originalPath = String(fake.tables.creative_assets.find((asset) => asset.id === long.creative_asset_id)!.storage_path);
+    const made: string[] = [];
+    const downloads: string[] = [];
+    const calls: { src: string | null; times: number[] }[] = [];
+    const run = () => importPresskitVideos(fake as unknown as ServiceRoleDb, {
+      artistId: ARTIST,
+      folderUrl: PACK,
+      source: pack(LUKE_PACK),
+      upload: async () => undefined,
+      probe,
+      renderProxy: async (_bytes, size) => {
+        made.push(`${size.width}x${size.height}`);
+        return Buffer.from("proxy");
+      },
+      backfill: {
+        probeUrl: async (url) => (url === `signed:${originalPath}` ? { width: 2160, height: 3840 } : { width: 1080, height: 1920 }),
+        download: async (path) => {
+          downloads.push(path);
+          return Buffer.from("4k original");
+        },
+      },
+      sign: async (path) => `signed:${path}`,
+      judge: judge(calls),
+    });
+    const first = await run();
+    assert.deepEqual(made, ["1080x1920"]);
+    assert.deepEqual(downloads, [originalPath]);
+    assert.deepEqual(first.proxied.map((row) => row.clipNo), [2]);
+    const proxyPath = String(fake.tables.creative_assets.find((asset) => asset.id === long.render_asset_id)!.storage_path);
+    assert.deepEqual(first.rechecked.map((row) => row.clipId), [long.id]);
+    assert.equal(calls.at(-1)?.src, `signed:${proxyPath}`);
+    assert.equal((long.overlay_check as { verdict: string }).verdict, "clean");
+
+    const second = await run();
+    assert.deepEqual(second.proxied, []);
+    assert.deepEqual(second.rechecked, []);
+    assert.equal(made.length, 1);
+    assert.equal(downloads.length, 1);
+  });
+
   it("leaves the artist's own folder link, sync state and clip_source as they were", async () => {
     const fake = db();
     await importVideos(fake, pack(LUKE_PACK), []);
