@@ -352,6 +352,28 @@ describe("derived rungs", () => {
     assert.equal(newestNotLast.artist, "ENZO SIRAGUSA");
   });
 
+  it("does not announce the original lineup, and does announce an artist saved later", () => {
+    const first = "2026-11-06T20:32:28Z";
+    const puzzle = ["Enzo Siragusa", "Luke Dean", "Reeshy", "Phill de Janeiro", "Benji King"].map((name) => ({
+      name,
+      addedAt: first,
+      source: "lab" as const,
+    }));
+    assert.equal(lineupRung(puzzle, null).met, false);
+    const later = lineupRung(
+      [...puzzle, { name: "Interplanetary Criminal", addedAt: "2026-11-07T20:32:28Z", source: "lab" }],
+      null,
+    );
+    assert.equal(later.met, true);
+    assert.equal(later.claim, "INTERPLANETARY CRIMINAL (JUST ANNOUNCED)");
+    assert.equal(lineupRung(puzzle, null).met, false);
+    const copied = lineupRung(
+      [...puzzle, { name: "A later name", addedAt: "2026-11-08T20:32:28Z", source: "ad_copy" }],
+      null,
+    );
+    assert.equal(copied.met, false);
+  });
+
   it("leaves a release's mark on its state rung when a derived rung is also met", () => {
     const row = release({
       name: "General sale",

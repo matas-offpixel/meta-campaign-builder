@@ -207,17 +207,32 @@ export async function saveLabLineup(
     slots.push({ artistId: slot.artistId, name, isHeadliner: slot.isHeadliner });
   }
   const facts = lineupFacts(slots);
-  const removed = await db.from("event_artists").delete().eq("event_id", args.eventId);
-  if (removed.error) throw new Error(removed.error.message);
+  const current = await rowsOf(db, "event_artists", "event_id", args.eventId);
+  const previous = new Map(current.map((row) => [text(row, "artist_id"), text(row, "created_at")]));
+  const keep = new Set(slots.map((slot) => slot.artistId));
+  for (const row of current) {
+    const artistId = text(row, "artist_id");
+    const source = text(row, "source");
+    const typed = source === "" || source === "lab";
+    if (!typed || keep.has(artistId)) continue;
+    const removed = await db.from("event_artists").delete().eq("id", text(row, "id"));
+    if (removed.error) throw new Error(removed.error.message);
+  }
   if (slots.length) {
-    const inserted = await db.from("event_artists").insert(
-      slots.map((slot, index) => ({
-        user_id: args.userId,
-        event_id: args.eventId,
-        artist_id: slot.artistId,
-        is_headliner: slot.isHeadliner,
-        billing_order: index + 1,
-      })),
+    const inserted = await db.from("event_artists").upsert(
+      slots.map((slot, index) => {
+        const createdAt = previous.get(slot.artistId);
+        return {
+          user_id: args.userId,
+          event_id: args.eventId,
+          artist_id: slot.artistId,
+          is_headliner: slot.isHeadliner,
+          billing_order: index + 1,
+          source: "lab",
+          ...(createdAt ? { created_at: createdAt } : {}),
+        };
+      }),
+      { onConflict: "event_id,artist_id" },
     );
     if (inserted.error) throw new Error(inserted.error.message);
   }
@@ -280,7 +295,12 @@ export async function addSpotifyToLineup(
     artistId = text(inserted.data as Row, "id");
   }
   const roster = await rowsOf(db, "event_artists", "event_id", args.eventId);
-  const ordered = roster.slice().sort((a, b) => (Number(a.billing_order) || 0) - (Number(b.billing_order) || 0));
+  const ordered = roster
+    .filter((row) => {
+      const source = text(row, "source");
+      return source === "" || source === "lab";
+    })
+    .sort((a, b) => (Number(a.billing_order) || 0) - (Number(b.billing_order) || 0));
   if (!ordered.some((row) => text(row, "artist_id") === artistId)) {
     await saveLabLineup(db, {
       userId: args.userId,

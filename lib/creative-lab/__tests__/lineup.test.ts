@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { lineupRung } from "../../releases/derived.ts";
 import { loadEventFacts } from "../caption-facts.ts";
 import {
   addSpotifyToLineup,
@@ -57,6 +58,44 @@ describe("creative lab lineup", () => {
     assert.deepEqual(stored?.lineup, facts.lineup);
     assert.deepEqual(stored?.headliners, facts.headliners);
     assert.deepEqual(stored?.allowed_dates, ["2026-10-30"]);
+  });
+
+  it("keeps created_at when the same lineup is saved again", async () => {
+    const at = "2026-11-06T20:32:28.000Z";
+    const db = fakeDb({
+      artists: [
+        { id: "enzo", user_id: USER, name: "Enzo Siragusa" },
+        { id: "luke", user_id: USER, name: "Luke Dean" },
+      ],
+      event_artists: [
+        { id: "row-enzo", event_id: EVENT, user_id: USER, artist_id: "enzo", billing_order: 1, is_headliner: true, source: "lab", created_at: at },
+        { id: "row-copy", event_id: EVENT, user_id: USER, artist_id: "copied", billing_order: 9, is_headliner: false, source: "ad_copy", created_at: "2026-11-08T20:32:28.000Z" },
+      ],
+      creative_lab_event_facts: [],
+    });
+    await saveLabLineup(db as unknown as ServiceRoleDb, {
+      userId: USER,
+      eventId: EVENT,
+      slots: [
+        { artistId: "enzo", isHeadliner: true },
+        { artistId: "luke", isHeadliner: false },
+      ],
+    });
+    const enzo = db.tables.event_artists.find((row) => row.artist_id === "enzo");
+    const luke = db.tables.event_artists.find((row) => row.artist_id === "luke");
+    const copied = db.tables.event_artists.find((row) => row.artist_id === "copied");
+    assert.equal(enzo?.created_at, at);
+    assert.equal(enzo?.source, "lab");
+    assert.equal(copied?.source, "ad_copy");
+    assert.equal(copied?.created_at, "2026-11-08T20:32:28.000Z");
+    const names = new Map([["enzo", "Enzo Siragusa"], ["luke", "Luke Dean"], ["copied", "Copied"]]);
+    const artists = db.tables.event_artists.map((row) => ({
+      name: names.get(String(row.artist_id)) ?? "",
+      addedAt: String(row.created_at),
+      source: String(row.source),
+    }));
+    assert.equal(lineupRung(artists, null).met, false);
+    assert.ok(luke);
   });
 
   it("marks an artist who is already on the lineup", () => {

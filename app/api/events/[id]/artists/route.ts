@@ -177,9 +177,10 @@ export async function DELETE(
 
 async function syncLineupFacts(userId: string, eventId: string) {
   const db = createServiceRoleClient();
-  const roster = await db.from("event_artists").select("artist_id, is_headliner, billing_order").eq("event_id", eventId);
+  const roster = await db.from("event_artists").select("artist_id, is_headliner, billing_order, source").eq("event_id", eventId);
   if (roster.error) throw new Error(roster.error.message);
   const slots = (roster.data ?? [])
+    .filter((row) => row.source === "lab")
     .slice()
     .sort((a, b) => (a.billing_order ?? 0) - (b.billing_order ?? 0))
     .map((row) => ({ artistId: row.artist_id, isHeadliner: row.is_headliner }));
