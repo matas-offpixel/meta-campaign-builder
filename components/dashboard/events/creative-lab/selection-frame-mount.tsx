@@ -171,6 +171,13 @@ export function SelectionFrameMount({ id }: { id: string }) {
       </div>
     );
   }
+  if (id === "CLS2b") {
+    return (
+      <div data-frame-ready={id} className="bg-background p-4 text-foreground">
+        <LabCaptions lab={lab()} busy={false} onSave={quiet} initialPair="each" />
+      </div>
+    );
+  }
   if (id === "CLS3") {
     return (
       <div data-frame-ready={id} className="space-y-4 bg-background p-4 text-foreground">

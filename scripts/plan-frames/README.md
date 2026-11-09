@@ -85,7 +85,9 @@ that artist's round.
 
 Clip selection, from fixtures. No Supabase, Meta or Anthropic. `only=CLS` shoots
 these and leaves CL, CLQ and CLV alone. CLS1 is the clip grid with a tick and
-"4 of 9 selected". CLS2 is Pair with, including Each selected at 1280. CLS3 is
+"4 of 9 selected". CLS2 is Pair with, including Each selected at 1280. CLS2b is
+Each selected before a write: 4 clips, "3 captions × 4 clips = 12 previews",
+and "Write to see these on the clips." CLS3 is
 the round matrix narrowed to the selection, one pairing knocked out. CLS4 is
 Finding…, Importing… and Writing… with the resting width held.
 

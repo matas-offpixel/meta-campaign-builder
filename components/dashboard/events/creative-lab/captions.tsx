@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
 import { HeldLabel } from "@/components/dashboard/events/creative-lab/held-label";
-import { captionsNote, eachPreviewClips, eachPreviewLine, effectiveSelection, emptySelection, NO_CLIP_SELECTED, OFF_CARD_CLIP, previewPlate, type PairMode } from "@/lib/creative-lab/selection";
+import { captionsNote, EACH_BEFORE_WRITE, eachPreviewClips, eachPreviewLine, effectiveSelection, emptySelection, NO_CLIP_SELECTED, OFF_CARD_CLIP, previewPlate, type PairMode } from "@/lib/creative-lab/selection";
 import { captionCopy, captionPreviewClip, ctaForStage, feedHeadline, generateButtonLabel, generateFailureSentence, roundHasRun, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
@@ -145,6 +145,8 @@ export function LabCaptions({
     const caption = written.get(id);
     return caption && caption.mode !== "quote" ? [caption] : [];
   });
+  const eachPending = writtenIds == null;
+  const eachCount = eachPending ? count : crossed.length;
   const ran = lab.rounds.filter((round) => roundHasRun(round.status));
   const roundNo = (ran.at(-1)?.roundNo ?? 0) + 1;
 
@@ -228,7 +230,7 @@ export function LabCaptions({
         <div className="hidden sm:block">
           <Counts count={count} setCount={setCount} stage={stage} setStage={setStage} />
         </div>
-        {pair === "each" ? <p className="tabular-nums text-muted-foreground">{eachPreviewLine(crossed.length, plates.length)}</p> : null}
+        {pair === "each" ? <p className="tabular-nums text-muted-foreground">{eachPreviewLine(eachCount, plates.length)}</p> : null}
         <Control
           label="Pair with"
           value={pair}
@@ -280,6 +282,7 @@ export function LabCaptions({
       )}
       {pair === "each" ? (
         <div className="space-y-4">
+          {eachPending ? <p className="text-sm text-muted-foreground">{plates.length === 0 ? NO_CLIP_SELECTED : EACH_BEFORE_WRITE}</p> : null}
           {crossed.map((caption) => (
               <div key={caption.id} className="space-y-2">
                 <p className="text-xs text-muted-foreground">{styleLabel(caption.style)}</p>
