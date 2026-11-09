@@ -201,10 +201,14 @@ export async function renderCaptionOnClip(
     const size: CaptionSize = caption.size_variant === "long" ? "long" : "default";
     const lines = asLines(caption.lines);
     if (quote) {
+      if (lines.some((line) => line.trim() === "")) throw new Error("empty line; a quote is at most 4");
       if (lines.length > 4) throw new Error(`${lines.length} lines; a quote is at most 4`);
     } else {
       if (size === "long" && !profile.longApproved) throw new Error("long caption size is not approved");
       const limits = captionLimits(size);
+      if (lines.some((line) => line.trim() === "")) throw new Error(`empty line; an overlay is at most ${limits.maxLines} lines`);
+      if (lines.some((line) => /^(?:more|&|w\/)$/i.test(line.trim()))) throw new Error(`a short word is its own line; an overlay is at most ${limits.maxLines} lines`);
+      if (lines.some((line) => line.includes("|") || /(^|\s)\/(\s|$)/.test(line))) throw new Error(`a line break is the only separator; an overlay is at most ${limits.maxLines} lines`);
       if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
       const over = lines.find((line) => line.length > limits.charsPerLine);
       if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);

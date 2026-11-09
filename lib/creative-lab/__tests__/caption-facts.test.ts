@@ -12,6 +12,9 @@ import {
   type EventFacts,
   type FactTier,
 } from "../caption-facts.ts";
+import { CORPUS } from "../corpus.ts";
+import { renderRefusalSentence } from "../surface.ts";
+import { systemPrompt } from "../writer.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import type { CaptionStyle } from "../tags.ts";
 import { fakeDb } from "./fake-db.ts";
@@ -497,5 +500,52 @@ describe("creative lab captions: claims the record does not hold", () => {
     const narrow = wrapCaption("Sunday 27 December at Circuit", 17);
     assert.ok(narrow.some((line) => line.includes("27 December")), narrow.join(" | "));
     assert.equal(narrow.some((line) => line.includes("Sunday 27 December")), false);
+  });
+});
+
+const PUZZLE_STORED = ["Puzzle 4th Birthday", "", "Enzo Siragusa,", "Luke Dean, Reeshy &", "more", "Southampton", "27 December"];
+const PUZZLE_SLASH = "Puzzle 4th Birthday / / Enzo Siragusa, / Luke Dean, Reeshy & / more / Southampton / 27 December";
+const PUZZLE_WORDS = "Puzzle 4th Birthday Enzo Siragusa, Luke Dean, Reeshy & more Southampton 27 December";
+
+describe("creative lab captions: Puzzle overlay lines", () => {
+  const puzzle: EventFacts = { ...P26, eventName: "Puzzle 4th Birthday", headliners: HEADLINERS };
+
+  it("keeps & more together and never leaves more, & or w/ alone", () => {
+    const lines = wrapCaption(PUZZLE_WORDS, 24, HEADLINERS);
+    assert.ok(lines.length <= 5, lines.join(" | "));
+    assert.ok(lines.every((line) => line.length <= 24), lines.join(" | "));
+    assert.equal(lines.some((line) => /^(more|&|w\/)$/i.test(line)), false);
+    assert.equal(lines.some((line) => line.startsWith("/")), false);
+    assert.ok(lines.some((line) => line.includes("& more")), lines.join(" | "));
+    const tight = wrapCaption("doors open w/ Puzzle tonight", 12, ["Puzzle"]);
+    assert.equal(tight.some((line) => /^(more|&|w\/)$/i.test(line)), false, tight.join(" | "));
+  });
+
+  it("refuses the stored Puzzle caption: a slash separator, an empty line, and more than 5 lines", () => {
+    const slash = validateCaption(PUZZLE_SLASH, "lineup", HEADLINERS, puzzle, STYLE);
+    const broken = validateCaption(PUZZLE_STORED.join("\n"), "lineup", HEADLINERS, puzzle, STYLE);
+    const sentence = "This caption is too long — shorten it.";
+    for (const check of [slash, broken]) {
+      assert.equal(check.ok, false);
+      assert.ok(check.errors.some((e) => e.code === "too_long"), check.errors.map((e) => e.detail).join("; "));
+      const detail = check.errors.find((e) => e.code === "too_long")?.detail ?? "";
+      assert.equal(renderRefusalSentence(detail), sentence, detail);
+    }
+    assert.ok(slash.errors.some((e) => /separator/.test(e.detail)));
+    assert.ok(broken.errors.some((e) => /empty line/.test(e.detail)));
+    assert.ok(broken.lines.filter((line) => line.trim()).length > 5 || broken.errors.some((e) => /at most/.test(e.detail)));
+    const six = validateCaption(Array.from({ length: 6 }, () => "abcdefghijklmnopqrst").join(" "), "lineup", [], puzzle, STYLE);
+    assert.ok(six.lines.length > 5, six.lines.join(" | "));
+    assert.ok(six.errors.some((e) => e.code === "too_long" && /at most/.test(e.detail)), six.errors.map((e) => e.detail).join("; "));
+    assert.equal(renderRefusalSentence(six.errors.find((e) => e.code === "too_long")?.detail), sentence);
+  });
+
+  it("tells the writer that a line break is the only separator", () => {
+    const prompt = systemPrompt("lineup", puzzle, [], "on_sale", []);
+    assert.match(prompt, /Line breaks are the only separator/);
+    assert.match(prompt, /Do not write "\/" or "\|"/);
+    assert.match(prompt, /do not write an empty line/);
+    for (const example of CORPUS.lineup) assert.equal(example.overlay.includes(" / "), false, example.overlay);
+    assert.equal(CORPUS.lineup.some((example) => example.overlay.includes("\n")), true);
   });
 });

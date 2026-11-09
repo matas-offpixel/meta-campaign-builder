@@ -16,8 +16,8 @@ export const CORPUS: Record<CaptionStyle, readonly CorpusExample[]> = {
     { overlay: "Kettama raising the roof at NX. Expect more of the same this season.", primaryText: "Who's in?" },
     { overlay: "Robbie Doherty is bringing a 3-hour set to NX.", primaryText: "Who's coming with?" },
     { overlay: "Rudimental are playing here 12 December.", primaryText: "Who's grabbing a ticket?" },
-    { overlay: "30 Years Of Adam Beyer / 10 Years Of Junction 2 / 1 Iconic Bridge Stage", primaryText: "Who's coming?" },
-    { overlay: "Adam Beyer / 30 Years Deep / London Open Air Special", primaryText: "Who's in?" },
+    { overlay: "30 Years Of Adam Beyer\n10 Years Of Junction 2\n1 Iconic Bridge Stage", primaryText: "Who's coming?" },
+    { overlay: "Adam Beyer\n30 Years Deep\nLondon Open Air Special", primaryText: "Who's in?" },
   ],
   question: [
     { overlay: "Everyone in this clip is coming back. Are you?", primaryText: "Tag your NX crew" },
