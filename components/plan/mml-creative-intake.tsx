@@ -131,11 +131,18 @@ export function MmlCreativeIntake({
   clientId,
   persisted,
   onLaunches,
+  fixture = null,
 }: {
   planId: string;
   clientId: string | null;
   persisted: boolean;
   onLaunches: (launches: CampaignPlan["launches"]) => void;
+  /** Frame only. The live intake leaves this unset and reads the plan. */
+  fixture?: {
+    eventName: string;
+    empty?: boolean;
+    rows: { id: string; pairing: string; narrowPairing: string; roundNo: number; length: string | null; inDrive: boolean; added: boolean }[];
+  } | null;
 }) {
   const [view, setView] = useState<IntakeView | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -161,9 +168,9 @@ export function MmlCreativeIntake({
   }, [planId]);
 
   useEffect(() => {
-    if (!persisted) return;
+    if (fixture || !persisted) return;
     void reload();
-  }, [persisted, reload]);
+  }, [persisted, reload, fixture]);
 
   const assets = view?.assets ?? [];
   const groups = view?.groups ?? [];
@@ -371,13 +378,13 @@ export function MmlCreativeIntake({
 
   return (
     <div data-mml-intake className="space-y-3">
-      <button type="button" className={`${VIZ_TYPE.body} underline`} onClick={() => void openLab()}>From the Lab</button>
-      {labOpen ? (
+      <button type="button" className={`${VIZ_TYPE.body} underline`} onClick={() => { if (!fixture) void openLab(); }}>From the Lab</button>
+      {fixture || labOpen ? (
         <LabSource
-          eventName={labRows[0]?.eventName ?? ""}
+          eventName={fixture?.eventName ?? labRows[0]?.eventName ?? ""}
           heading={false}
-          empty={labEmpty}
-          rows={labRows.map((row) => ({ ...row, narrowPairing: row.pairing }))}
+          empty={fixture ? Boolean(fixture.empty) : labEmpty}
+          rows={(fixture ? fixture.rows : labRows).map((row) => ({ ...row, narrowPairing: "narrowPairing" in row ? row.narrowPairing : row.pairing }))}
           onAdd={(id) => {
             void fetch(`/api/plan/${encodeURIComponent(planId)}/from-lab`, {
               method: "POST",

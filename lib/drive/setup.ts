@@ -7,7 +7,14 @@
 import { FOLDER_MIME, type DriveApi } from "./client.ts";
 import type { DriveDb } from "./db.ts";
 import { ensureEventTree, type ClientRow, type EventRow } from "./folders.ts";
-import { CANT_OPEN_FOLDER } from "./panel.ts";
+import { CANT_OPEN_FOLDER, CANCELLED_TREE, NO_CLIENT_TREE, TREE_NOT_MADE, archivedClientTree } from "./panel.ts";
+
+export function treeFailureSentence(skipped: string | null, clientName: string): string {
+  if (skipped === "no_client") return NO_CLIENT_TREE;
+  if (skipped === "archived_client") return archivedClientTree(clientName);
+  if (skipped === "cancelled") return CANCELLED_TREE;
+  return TREE_NOT_MADE;
+}
 
 export function parseDriveFolderId(link: string): string | null {
   const text = link.trim();
@@ -50,13 +57,13 @@ export async function linkEventFolder(db: DriveDb, drive: DriveApi, event: Event
   event.drive_folder_id = folderId;
   event.drive_folder_linked = true;
   const made = await ensureEventTree(db, drive, event, client);
-  if (!made.folderId) throw new Error(made.skipped ?? "the tree was not created");
+  if (!made.folderId) throw new Error(treeFailureSentence(made.skipped, client.name));
   return made.folderId;
 }
 
 /** The standard tree under the client folder (the client folder first, if it is missing). */
 export async function createEventTree(db: DriveDb, drive: DriveApi, event: EventRow, client: ClientRow): Promise<string> {
   const made = await ensureEventTree(db, drive, event, client);
-  if (!made.folderId) throw new Error(made.skipped ?? "the tree was not created");
+  if (!made.folderId) throw new Error(treeFailureSentence(made.skipped, client.name));
   return made.folderId;
 }

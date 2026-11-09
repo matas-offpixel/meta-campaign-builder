@@ -21,6 +21,7 @@ The operator event page and the MML intake can see the Drive export that already
 
 - [x] `node --test lib/drive/__tests__/panel.test.ts`
 - [x] frames CLS5–CLS9, two matching Ubuntu runs (pair 0; CLS1–CLS4 unchanged)
+- [ ] fix round 1: real header, render rows, intake, folder question, and asset board
 - [ ] `npm test` and `npm run build` on CI
 
 ## Notes

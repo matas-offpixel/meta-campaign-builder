@@ -3,6 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { driveFromEnv } from "@/lib/drive/client";
 import { eventFolderName, londonToday } from "@/lib/drive/tree";
 import {
+  EVENT_NOT_ON_ACCOUNT,
+  NO_CLIENT_TREE,
+  SIGN_IN_AGAIN,
+  UNREADABLE_REQUEST,
   artistFolderMissSentence,
   createTreePath,
   folderPlace,
@@ -18,11 +22,11 @@ async function owned(eventId: string) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: NextResponse.json({ ok: false, error: "Not signed in" }, { status: 401 }) };
+  if (!user) return { error: NextResponse.json({ ok: false, error: SIGN_IN_AGAIN }, { status: 401 }) };
   const db = createServiceRoleClient();
   const { data, error } = await db.from("events").select("*").eq("id", eventId).eq("user_id", user.id).maybeSingle();
   if (error) return { error: NextResponse.json({ ok: false, error: error.message }, { status: 500 }) };
-  if (!data) return { error: NextResponse.json({ ok: false, error: "No event with that id." }, { status: 404 }) };
+  if (!data) return { error: NextResponse.json({ ok: false, error: EVENT_NOT_ON_ACCOUNT }, { status: 404 }) };
   return { db, event: data, userId: user.id };
 }
 
@@ -99,12 +103,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const clientRow = event.client_id
     ? (await db.from("clients").select("id, name, status, drive_folder_id").eq("id", event.client_id).maybeSingle()).data
     : null;
-  if (!clientRow) return NextResponse.json({ ok: false, error: "No event with that id." }, { status: 404 });
+  if (!clientRow) return NextResponse.json({ ok: false, error: NO_CLIENT_TREE }, { status: 404 });
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json({ ok: false, error: "bad JSON" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: UNREADABLE_REQUEST }, { status: 400 });
   }
   try {
     if (body.action === "resolve") {
@@ -133,5 +137,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-  return NextResponse.json({ ok: false, error: "bad JSON" }, { status: 400 });
+  return NextResponse.json({ ok: false, error: UNREADABLE_REQUEST }, { status: 400 });
 }

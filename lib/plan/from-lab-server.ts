@@ -6,7 +6,7 @@
 import { upsertRegisteredAsset } from "../creatives/asset-registry.ts";
 import type { Database } from "../db/database.types.ts";
 import { attachIntakeAsset } from "./creative-intake-db.ts";
-import { finishedLabRenders } from "../drive/panel.ts";
+import { RENDER_NOT_ON_EVENT, RENDER_NOT_READY, finishedLabRenders } from "../drive/panel.ts";
 import { labRenderHash, pairingName } from "./from-lab.ts";
 import type { CampaignPlan } from "./types.ts";
 
@@ -104,15 +104,15 @@ export async function addLabRender(db: Db, plan: CampaignPlan, renderId: string)
   const eventId = plan.intent.eventId;
   const render = await db.from("creative_lab_renders").select("id, clip_id, status, creative_asset_id, user_id").eq("id", renderId).maybeSingle();
   if (render.error) return { ok: false, error: render.error.message };
-  if (!render.data || render.data.status !== "done") return { ok: false, error: "No render with that id." };
+  if (!render.data || render.data.status !== "done") return { ok: false, error: RENDER_NOT_ON_EVENT };
   const clip = await db.from("creative_lab_clips").select("id, event_id, artist_id, clip_no").eq("id", render.data.clip_id).maybeSingle();
   if (clip.error) return { ok: false, error: clip.error.message };
-  if (!clip.data || clip.data.event_id !== eventId) return { ok: false, error: "No render with that id." };
+  if (!clip.data || clip.data.event_id !== eventId) return { ok: false, error: RENDER_NOT_ON_EVENT };
   const asset = render.data.creative_asset_id
     ? await db.from("creative_assets").select("id, storage_path, storage_bucket, byte_size, duration_seconds, thumbnail_url").eq("id", render.data.creative_asset_id).maybeSingle()
     : { data: null, error: null };
   if (asset.error) return { ok: false, error: asset.error.message };
-  if (!asset.data?.storage_path) return { ok: false, error: "This render has no file in Storage yet." };
+  if (!asset.data?.storage_path) return { ok: false, error: RENDER_NOT_READY };
   const artist = await db.from("creative_lab_artists").select("name").eq("id", clip.data.artist_id).maybeSingle();
   const captionId = (await db.from("creative_lab_renders").select("caption_id").eq("id", renderId).maybeSingle()).data?.caption_id;
   const caption = captionId ? await db.from("creative_lab_captions").select("style").eq("id", captionId).maybeSingle() : { data: null };

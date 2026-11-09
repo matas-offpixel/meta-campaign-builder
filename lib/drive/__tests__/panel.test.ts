@@ -46,6 +46,7 @@ describe("drive panel", () => {
     assert.equal(asked.call, null);
     assert.equal(asked.phase, "asking");
     assert.equal(nextSharePhase("asking", "share").call, "share");
+    assert.equal(nextSharePhase("asking", "dismiss").call, null);
     assert.equal(nextSharePhase("idle", "stop").call, "stop");
   });
 

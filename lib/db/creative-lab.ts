@@ -213,6 +213,10 @@ export type CreativeLabCardData = {
     driveStatus?: string | null;
     driveFileName?: string | null;
     driveFileId?: string | null;
+    /** Frame only. The live row leaves these unset. */
+    durationSeconds?: number | null;
+    narrowLabel?: string | null;
+    thumbUrl?: string | null;
   }[];
   assets: { id: string; filename: string; durationSeconds: number | null; thumbnailUrl: string | null }[];
   clientEvents: { id: string; name: string; eventDate: string | null }[];

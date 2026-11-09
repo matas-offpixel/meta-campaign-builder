@@ -611,8 +611,44 @@ const BOARD: { name: string; sub?: string; cells: { text: string; status: CellSt
   { name: "Offer · payment plan", sub: "entered, not derived", cells: [{ text: "—", status: "na" }, { text: "£10 today", status: "proposed" }, { text: "£10 today", status: "proposed" }, { text: "—", status: "na" }] },
 ];
 
-export function AssetBoard() {
+export type DriveBoardRow = {
+  name: string;
+  sub?: string;
+  narrowName: string;
+  wideOnly?: boolean;
+  cells: { text: string; status: CellStatus; driveFileId?: string | null; dropFolder?: string | null; dropNarrow?: string | null; textNarrow?: string | null; hot?: boolean }[];
+};
+
+export function AssetBoard(props: { drive?: { summary: string; footnote: string; swipe: string; rows: DriveBoardRow[] } } = {}) {
   const [said, setSaid] = useState<string | null>(null);
+  if (props.drive) {
+    const heads = ["9:16 video", "4:5 static", "1:1 static", "9:16 static"];
+    return (
+      <section className="rounded-md border border-border bg-card p-4">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className={PANEL_TITLE}>Asset bank</h3>
+          {props.drive.summary ? <p className="text-xs hidden sm:block">{props.drive.summary}</p> : null}
+        </div>
+        <div className="hidden sm:grid sm:grid-cols-[1.4fr_repeat(4,1fr)] sm:gap-1 sm:text-[11px]">
+          <span />
+          {heads.map((head) => <span key={head} className={KICKER}>{head}</span>)}
+          {props.drive.rows.map((row) => (
+            <RowCells key={row.name} name={row.name} sub={row.sub} cells={row.cells} />
+          ))}
+        </div>
+        <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-1 text-[11px] sm:hidden">
+          <span />
+          <span className={KICKER}>9:16 video</span>
+          <span className={KICKER}>4:5</span>
+          {props.drive.rows.filter((row) => !row.wideOnly).map((row) => (
+            <RowCells key={row.narrowName} name={row.narrowName} cells={row.cells.slice(0, 2)} />
+          ))}
+        </div>
+        {props.drive.footnote ? <p className="mt-2 hidden text-[11.5px] text-muted-foreground sm:block">{props.drive.footnote}</p> : null}
+        <p className="mt-2 text-[10px] text-muted-foreground sm:hidden">{props.drive.swipe}</p>
+      </section>
+    );
+  }
   const heads = ["9:16 video", "4:5 static", "1:1 static", "9:16 static"];
   return (
     <section className="rounded-md border border-border bg-card p-4">
@@ -664,19 +700,21 @@ export function AssetBoard() {
   );
 }
 
-function RowCells({ name, sub, cells }: { name: string; sub?: string; cells: { text: string; status: CellStatus; driveFileId?: string | null; dropFolder?: string | null }[] }) {
+function RowCells({ name, sub, cells }: { name: string; sub?: string; cells: { text: string; status: CellStatus; driveFileId?: string | null; dropFolder?: string | null; dropNarrow?: string | null; textNarrow?: string | null; hot?: boolean }[] }) {
   return (
     <>
       <span>
         <span className="block text-xs font-semibold">{name}</span>
         {sub ? <span className="block text-[10.5px] text-muted-foreground">{sub}</span> : null}
       </span>
-      {cells.map((cell, index) => <Cell key={`${name}-${index}`} text={cell.text} status={cell.status} driveFileId={cell.driveFileId} dropFolder={cell.dropFolder} />)}
+      {cells.map((cell, index) => (
+        <Cell key={`${name}-${index}`} text={cell.text} status={cell.status} driveFileId={cell.driveFileId} dropFolder={cell.dropFolder} dropNarrow={cell.dropNarrow} textNarrow={cell.textNarrow} hot={cell.hot} />
+      ))}
     </>
   );
 }
 
-function Cell({ text, status, driveFileId, dropFolder }: { text: string; status: CellStatus; driveFileId?: string | null; dropFolder?: string | null }) {
+function Cell({ text, status, driveFileId, dropFolder, dropNarrow, textNarrow, hot }: { text: string; status: CellStatus; driveFileId?: string | null; dropFolder?: string | null; dropNarrow?: string | null; textNarrow?: string | null; hot?: boolean }) {
   const thumb = status === "made" || status === "approved";
   const cls = thumb
     ? "border-transparent text-white"
@@ -688,13 +726,23 @@ function Cell({ text, status, driveFileId, dropFolder }: { text: string; status:
           ? "border-dashed border-border-strong text-muted-foreground"
           : "border-transparent text-muted-foreground opacity-50";
   return (
-    <div className={`relative flex min-h-16 items-center justify-center overflow-hidden rounded border p-1 text-center ${cls}`}>
+    <div className={`relative flex min-h-16 items-center justify-center overflow-hidden rounded border p-1 text-center ${cls}${hot ? " sm:outline sm:outline-1 sm:outline-foreground" : ""}`}>
       {thumb ? <span className="absolute inset-0" style={{ background: "linear-gradient(160deg,#4a3a2a,#9a7a5a)" }} /> : null}
       {status === "approved" ? (
         <span className="absolute top-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-success text-[10px] font-bold text-white">✓</span>
       ) : null}
-      {text && text !== "—" ? <span className="relative">{text}</span> : status === "na" ? "—" : null}
-      {dropFolder ? <em className="relative block text-[10px]">{dropFolder}</em> : null}
+      {dropFolder ? (
+        <span className="relative block text-[10px] leading-tight">
+          <span className="hidden sm:block">{text} · {dropFolder}</span>
+          <span className="block sm:hidden">{text}</span>
+          <em className="block sm:hidden">{dropNarrow ?? dropFolder}</em>
+        </span>
+      ) : textNarrow ? (
+        <>
+          <span className="relative hidden sm:inline">{text}</span>
+          <span className="relative sm:hidden">{textNarrow}</span>
+        </>
+      ) : text && text !== "—" ? <span className={`relative${driveFileId ? " hidden sm:inline" : ""}`}>{text}</span> : status === "na" ? "—" : null}
       {driveFileId ? (
         <a href={driveFileUrl(driveFileId)} target="_blank" rel="noreferrer" className="absolute bottom-0.5 left-0.5 text-[10px] underline">
           <span className="hidden sm:inline">Drive ↗</span>

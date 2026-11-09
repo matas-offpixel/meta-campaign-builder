@@ -1,10 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { shareEventFolder, stopSharingEventFolder } from "@/lib/actions/drive-share";
 import {
+  UPLOAD_A_FILE,
   driveHeaderLabel,
   formatFileSize,
   nextSharePhase,
@@ -36,17 +38,149 @@ type View = {
   folderName: string;
 };
 
+export type DrivePreview = {
+  folderName: string;
+  place: string;
+  treePath: string;
+  shared: boolean;
+  clientName: string;
+  contactEmail: string | null;
+  rows: View["rows"];
+  openUrl: string | null;
+};
+
+export function DriveHeaderButton(props: {
+  eventId: string;
+  eventName: string;
+  hasFolder: boolean;
+  preview?: DrivePreview | null;
+  initialOpen?: boolean;
+  initialPhase?: SharePhase;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(Boolean(props.initialOpen));
+  const [view, setView] = useState<View | null>(props.preview ? previewView(props.eventName, props.preview) : null);
+  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<SharePhase>(props.initialPhase ?? "idle");
+
+  const load = useCallback(async () => {
+    if (props.preview) return;
+    const res = await fetch(`/api/events/${props.eventId}/drive`);
+    const json = (await res.json()) as View;
+    if (!res.ok || json.ok === false) {
+      setError(json.error ?? null);
+      return;
+    }
+    setView(json);
+  }, [props.eventId, props.preview]);
+
+  useEffect(() => {
+    if (!props.hasFolder || props.preview) return;
+    const timer = setTimeout(() => void load(), 0);
+    return () => clearTimeout(timer);
+  }, [load, props.hasFolder, props.preview]);
+
+  const client = view?.clientName || props.preview?.clientName || "";
+
+  async function onAsk() {
+    if (view?.shared || !client || phase === "asking") return;
+    setPhase(nextSharePhase(phase, "share").phase);
+  }
+
+  async function onConfirm() {
+    const next = nextSharePhase("asking", "share");
+    setPhase(next.phase);
+    if (next.call !== "share" || props.preview) return;
+    const result = await shareEventFolder({ eventId: props.eventId, email: view?.contactEmail ?? "" });
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    await load();
+    router.refresh();
+  }
+
+  async function onStop() {
+    const next = nextSharePhase(phase, "stop");
+    setPhase(next.phase);
+    if (next.call !== "stop" || props.preview) return;
+    const result = await stopSharingEventFolder({ eventId: props.eventId });
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    await load();
+    router.refresh();
+  }
+
+  return (
+    <div className="relative">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          if (!props.hasFolder) {
+            document.getElementById("event-drive")?.scrollIntoView({ block: "start" });
+            return;
+          }
+          setOpen((value) => !value);
+        }}
+      >
+        {driveHeaderLabel(props.hasFolder)}
+      </Button>
+      {open && view ? (
+        <>
+          <button type="button" aria-label="Close" className="fixed inset-0 z-30 hidden bg-black/30 max-[700px]:block" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-40 mt-1 w-[340px] max-[700px]:fixed max-[700px]:inset-x-0 max-[700px]:bottom-0 max-[700px]:top-auto max-[700px]:z-40 max-[700px]:mt-0 max-[700px]:w-auto">
+            <DrivePanel
+              folderName={view.folderName || props.eventName}
+              place={view.place}
+              rows={view.rows}
+              openUrl={view.openUrl}
+              stateLine={shareStateLine(client, view.shared)}
+              asking={phase === "asking" ? shareConfirm(client) : null}
+              onShare={() => void onAsk()}
+              onConfirm={() => void onConfirm()}
+              onCancel={() => setPhase(nextSharePhase(phase, "dismiss").phase)}
+              onStop={() => void onStop()}
+              error={error}
+            />
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function previewView(eventName: string, preview: DrivePreview): View {
+  return {
+    ok: true,
+    folderId: "frame",
+    place: preview.place,
+    treePath: preview.treePath,
+    shared: preview.shared,
+    contactEmail: preview.contactEmail,
+    clientName: preview.clientName,
+    misses: [],
+    rows: preview.rows,
+    openUrl: preview.openUrl,
+    today: "2026-11-17",
+    status: "on_sale",
+    eventDate: "2026-12-27",
+    folderName: preview.folderName || eventName,
+  };
+}
+
 export function DriveLive(props: {
   eventId: string;
   eventName: string;
   hasFolder: boolean;
-  open: boolean;
   artists: { id: string; name: string }[];
 }) {
   const router = useRouter();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [phase, setPhase] = useState<SharePhase>("idle");
   const [link, setLink] = useState("");
   const [resolved, setResolved] = useState<{ id: string; name: string; fileCount: number; place: string } | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -89,55 +223,11 @@ export function DriveLive(props: {
     }
   }
 
-  const client = view?.clientName || "";
-
-  async function onShare() {
-    if (view?.shared || !client) return;
-    const next = nextSharePhase(phase, "share");
-    setPhase(next.phase);
-    if (next.call !== "share") return;
-    const result = await shareEventFolder({ eventId: props.eventId, email: view?.contactEmail ?? "" });
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    await load();
-    router.refresh();
-  }
-
-  async function onStop() {
-    const next = nextSharePhase(phase, "stop");
-    setPhase(next.phase);
-    if (next.call !== "stop") return;
-    const result = await stopSharingEventFolder({ eventId: props.eventId });
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    await load();
-    router.refresh();
-  }
-
-  const folderName = view?.folderName || props.eventName;
-
   return (
     <div id="event-drive" className="space-y-3">
       {view?.misses.map((sentence) => (
         <p key={sentence} className="text-sm">{sentence}</p>
       ))}
-      {props.hasFolder && props.open && view ? (
-        <DrivePanel
-          folderName={folderName}
-          place={view.place}
-          rows={view.rows}
-          openUrl={view.openUrl}
-          stateLine={shareStateLine(client, view.shared)}
-          asking={phase === "asking" ? shareConfirm(client) : null}
-          onShare={() => void onShare()}
-          onStop={() => void onStop()}
-          error={error}
-        />
-      ) : null}
       {!props.hasFolder ? (
         <DriveSetup
           treePath={view?.treePath ?? ""}
@@ -177,21 +267,27 @@ export function DriveLive(props: {
         />
       ) : null}
       {props.hasFolder ? (
-        <input
-          type="file"
-          aria-label="Which folder?"
-          onChange={(event) => {
-            const picked = event.target.files?.[0];
-            event.target.value = "";
-            if (!picked || !view) return;
-            const next = preselectFolder(
-              { name: picked.name, artistId: props.artists.length === 1 ? props.artists[0]?.id : null },
-              { artists: props.artists, status: view.status, eventDate: view.eventDate, today: view.today },
-            );
-            setFile(picked);
-            setChoice(next);
-          }}
-        />
+        <>
+          <input
+            ref={fileRef}
+            type="file"
+            className="sr-only"
+            onChange={(event) => {
+              const picked = event.target.files?.[0];
+              event.target.value = "";
+              if (!picked || !view) return;
+              const next = preselectFolder(
+                { name: picked.name, artistId: props.artists.length === 1 ? props.artists[0]?.id : null },
+                { artists: props.artists, status: view.status, eventDate: view.eventDate, today: view.today },
+              );
+              setFile(picked);
+              setChoice(next);
+            }}
+          />
+          <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+            {UPLOAD_A_FILE}
+          </Button>
+        </>
       ) : null}
       {file && choice && view ? (
         <WhichFolder
@@ -222,6 +318,7 @@ export function DriveLive(props: {
           }}
         />
       ) : null}
+      {error && props.hasFolder ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }

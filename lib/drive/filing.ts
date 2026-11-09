@@ -12,6 +12,7 @@
  * filed again under the next free name.
  */
 
+import { RENDER_NOT_ON_EVENT } from "./panel.ts";
 import { APP_ID_KEY, APP_TAG_KEY, SHORTCUT_MIME, type DriveApi } from "./client.ts";
 import { rowById, rowsWhere, type DriveDb, type RowOf } from "./db.ts";
 import { ensureEventKey, emptyLog, type TreeLog } from "./folders.ts";
@@ -235,7 +236,7 @@ export async function retryDriveCopy(db: DriveDb, args: { renderId: string; user
   const res = await db.from("creative_lab_renders").select("*").eq("id", args.renderId).eq("user_id", args.userId).maybeSingle();
   if (res.error) throw new Error(`creative_lab_renders: ${res.error.message}`);
   const row = res.data as Pick<RenderRow, "drive_status"> | null;
-  if (!row) return { ok: false, error: "No render with that id." };
+  if (!row) return { ok: false, error: RENDER_NOT_ON_EVENT };
   if (row.drive_status !== "failed") return { ok: false, error: "This render's Drive copy has not failed." };
   const update = await db
     .from("creative_lab_renders")

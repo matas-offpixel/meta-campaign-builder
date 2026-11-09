@@ -26,7 +26,23 @@ export const DRIVE_HEADER = "Drive folder ↗";
 export const SETUP_HEADER = "Set up Drive";
 export const OPEN_IN_DRIVE = "Open in Drive ↗";
 export const SHARE_WITH_PROMOTER = "Share with promoter";
+export const SHARE = "Share";
 export const NOT_SHARED = "Not shared";
+export const UPLOAD_A_FILE = "Upload a file";
+export const SIGN_IN_AGAIN = "Sign in again.";
+export const UNREADABLE_REQUEST = "That request couldn't be read — reload the page and try again.";
+export const PLAN_NOT_ON_ACCOUNT = "That plan isn't on this account.";
+export const EVENT_NOT_ON_ACCOUNT = "That event isn't on this account.";
+export const RENDER_NOT_ON_EVENT = "That render isn't on this event.";
+export const RENDER_NOT_READY = "This render isn't ready to add yet — add it once its row reads Ready.";
+export const FOLDER_NOT_IN_TREE = "That folder isn't in this event's tree — choose another.";
+export const NO_CLIENT_TREE = "This event has no client, so there's no client folder for the tree — set the client first.";
+export const CANCELLED_TREE = "This event is cancelled, so no tree is made for it.";
+export const TREE_NOT_MADE = "The tree wasn't made — try again; if it fails twice, check the export account can add folders in Off / Pixel.";
+
+export function archivedClientTree(clientName: string): string {
+  return `${clientName} is archived, so no new folders are made for it.`;
+}
 export const IN_DRIVE = "in Drive";
 export const DRIVE_FAILED_LEAD = "Drive copy failed — ";
 export const DRIVE_RETRY = "retry";

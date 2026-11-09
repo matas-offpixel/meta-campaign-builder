@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { driveFromEnv } from "@/lib/drive/client";
 import { appKeepsFile, placeUploadedFile } from "@/lib/drive/place-upload";
+import { EVENT_NOT_ON_ACCOUNT, FOLDER_NOT_IN_TREE, NO_CLIENT_TREE, SIGN_IN_AGAIN } from "@/lib/drive/panel";
 import { ARTIST_CLIPS_KEY, EVENT_TREE, PRESS_KITS_KEY } from "@/lib/drive/tree";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -20,15 +21,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ ok: false, error: "Not signed in" }, { status: 401 });
+  if (!user) return NextResponse.json({ ok: false, error: SIGN_IN_AGAIN }, { status: 401 });
   const db = createServiceRoleClient();
   const { data: event, error } = await db.from("events").select("*").eq("id", id).eq("user_id", user.id).maybeSingle();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  if (!event) return NextResponse.json({ ok: false, error: "No event with that id." }, { status: 404 });
+  if (!event) return NextResponse.json({ ok: false, error: EVENT_NOT_ON_ACCOUNT }, { status: 404 });
   const client = event.client_id
     ? (await db.from("clients").select("id, name, status, drive_folder_id").eq("id", event.client_id).maybeSingle()).data
     : null;
-  if (!client) return NextResponse.json({ ok: false, error: "No event with that id." }, { status: 404 });
+  if (!client) return NextResponse.json({ ok: false, error: NO_CLIENT_TREE }, { status: 404 });
   const { drive } = driveFromEnv();
   if (!drive) return NextResponse.json({ ok: false, error: "The Drive export isn't set up on this deployment." }, { status: 503 });
   const form = await req.formData();
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const key = String(form.get("key") ?? "");
   const artistName = String(form.get("artistName") ?? "").trim() || null;
   if (!(file instanceof File) || !allowedKey(key)) {
-    return NextResponse.json({ ok: false, error: "Which folder?" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: FOLDER_NOT_IN_TREE }, { status: 400 });
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
   try {

@@ -6,21 +6,15 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Loader2,
-  Pencil,
-  Trash2,
   Megaphone,
-  ExternalLink,
   CheckCircle2,
   Circle,
   BarChart3,
   Plus,
-  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TabPanel } from "@/components/ui/tabs";
-import { PageHeader } from "@/components/dashboard/page-header";
 import { StatusPill } from "@/components/dashboard/_shared/status-pill";
-import { KindBadge } from "@/components/dashboard/_shared/kind-badge";
 import {
   EventDetailTabs,
   type EventTab,
@@ -30,11 +24,11 @@ import { EventVenuePanel } from "@/components/dashboard/events/event-venue-panel
 import { LiveReleases } from "@/components/dashboard/asset-bank/live";
 import { OffersSheet } from "@/components/dashboard/asset-bank/surface";
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
-import { InsightsPill } from "@/components/insights-rail/insights-pill";
 import { InsightsPageContext } from "@/components/insights-rail/rail-context";
 import { railLabFromCard } from "@/lib/insights-rail/lab-summary";
 import { stageForEventStatus } from "@/lib/insights-rail/model";
-import { DriveLive, driveLinkLabel } from "@/components/dashboard/events/drive/live";
+import { DriveLive } from "@/components/dashboard/events/drive/live";
+import { EventDetailHeader } from "@/components/dashboard/events/event-detail-header";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
@@ -73,7 +67,6 @@ import { EventInvoicingPanel } from "@/components/invoicing/event-invoicing-pane
 import {
   fmtDate,
   fmtDateTime,
-  fmtDaysUntilEvent,
   fmtShort,
 } from "@/lib/dashboard/format";
 
@@ -206,7 +199,6 @@ export function EventDetail({
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
-  const [driveOpen, setDriveOpen] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Optimistic mirror of event.favourite. Toggled instantly on click;
@@ -216,7 +208,6 @@ export function EventDetail({
   // Sample now once at mount via lazy initializer to keep the days-until
   // pill stable across re-renders + satisfy React 19 effect purity.
   const [now] = useState(() => new Date());
-  const daysUntil = fmtDaysUntilEvent(event.event_date, now);
   const [wiredCampaignCount, setWiredCampaignCount] = useState<number | null>(null);
 
   const [reportDatePreset, setReportDatePreset] =
@@ -315,118 +306,20 @@ export function EventDetail({
         objective={null}
         lab={railLabFromCard(lab)}
       />
-      <PageHeader
-        title={
-          <span className="inline-flex min-w-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={handleToggleFavourite}
-              disabled={favWorking}
-              aria-label={favourite ? "Unfavourite event" : "Favourite event"}
-              aria-pressed={favourite}
-              title={favourite ? "Unfavourite" : "Favourite"}
-              className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-            >
-              <Star
-                className={`h-4 w-4 ${
-                  favourite ? "fill-amber-400 text-amber-400" : ""
-                }`}
-              />
-            </button>
-            <span className="truncate">{event.name}</span>
-            <KindBadge kind={event.kind} />
-            {daysUntil && !isBrand && (
-              <span
-                className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal tracking-normal ${
-                  daysUntil.isPast
-                    ? "border-border text-muted-foreground"
-                    : "border-border-strong text-foreground"
-                }`}
-              >
-                {daysUntil.label}
-              </span>
-            )}
-            {linkedQuote && (
-              <Link
-                href={`/invoicing/quotes/${linkedQuote.id}`}
-                className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] font-normal tracking-normal text-muted-foreground hover:border-border-strong hover:text-foreground"
-                title="View originating quote"
-              >
-                From quote {linkedQuote.quote_number}
-              </Link>
-            )}
-          </span>
-        }
-        description={
-          [
-            event.client?.name
-              ? `${event.client.name} · ${event.status.replace("_", " ")}`
-              : event.status.replace("_", " "),
-            lab?.paydayLabel
-              ? `Next payday ${lab.paydayLabel}.${lab.daysToEvent == null ? "" : ` ${lab.daysToEvent} days to the event.`}`
-              : null,
-          ].filter(Boolean).join(" · ")
-        }
-        actions={
-          <>
-            <InsightsPill />
-            {event.client && (
-              <Link href={`/clients/${event.client.id}`}>
-                <Button variant="outline" size="sm">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  View client
-                </Button>
-              </Link>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (event.drive_folder_id) setDriveOpen((open) => !open);
-                else document.getElementById("event-drive")?.scrollIntoView({ block: "start" });
-              }}
-            >
-              {driveLinkLabel(Boolean(event.drive_folder_id))}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(`/events/${event.id}/edit`)}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </Button>
-            {confirmDelete ? (
-              <>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleDelete}
-                  disabled={working}
-                >
-                  Confirm delete
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirmDelete(false)}
-                  disabled={working}
-                >
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfirmDelete(true)}
-                disabled={working}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </>
-        }
+      <EventDetailHeader
+        event={event}
+        lab={lab}
+        linkedQuote={linkedQuote}
+        favourite={favourite}
+        favWorking={favWorking}
+        now={now}
+        confirmDelete={confirmDelete}
+        working={working}
+        onToggleFavourite={() => void handleToggleFavourite()}
+        onEdit={() => router.push(`/events/${event.id}/edit`)}
+        onAskDelete={() => setConfirmDelete(true)}
+        onCancelDelete={() => setConfirmDelete(false)}
+        onDelete={() => void handleDelete()}
       />
 
       <main className="flex-1 px-6 py-6">
@@ -505,7 +398,6 @@ export function EventDetail({
                 eventId={event.id}
                 eventName={event.name}
                 hasFolder={Boolean(event.drive_folder_id)}
-                open={driveOpen}
                 artists={(lab?.artists ?? []).map((artist) => ({ id: artist.id, name: artist.name }))}
               />
               <PlatformConfigCard
