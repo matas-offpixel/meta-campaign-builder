@@ -33,7 +33,9 @@ const nextConfig: NextConfig = {
     // The 1080 render proxy (lib/creative-lab/render-proxy.ts) spawns the
     // ffmpeg-static binary, which no import reaches, so Next cannot trace
     // it. Only the clip imports that can meet a 4K original carry it
-    // (79.8 MB unpacked on linux-x64, ffmpeg-static 5.3.0 / b6.1.1).
+    // (79.8 MB unpacked on linux-x64, ffmpeg-static 5.3.0 / b6.1.1). Its
+    // install script downloads that binary; npm 12 on Vercel runs it only
+    // because package.json allowScripts approves ffmpeg-static@5.3.0.
     "/api/cron/creative-lab-drive-pickup": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
     "/api/creative-lab/artists/[id]/import-clips": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
   },
