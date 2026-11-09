@@ -1,12 +1,6 @@
 -- Asset bank issue 3. Roll-call kind, four derived rungs, event_offers.
--- New enum values are appended, so this file can write them in the same transaction.
+-- The new claim_trigger_kind values are added in 221, which commits first.
 -- Applied by Matas from main after merge. This file removes nothing.
-
-alter type public.claim_trigger_kind add value if not exists 'roll_call';
-alter type public.claim_trigger_kind add value if not exists 'velocity';
-alter type public.claim_trigger_kind add value if not exists 'price_rise_date';
-alter type public.claim_trigger_kind add value if not exists 'countdown_pct';
-alter type public.claim_trigger_kind add value if not exists 'lineup_add';
 
 -- 211 seeded position 10 as kind state, value roll_call, options {"preferred":true}.
 -- A14 keeps preferred and changes the kind. The words still come from event_releases.

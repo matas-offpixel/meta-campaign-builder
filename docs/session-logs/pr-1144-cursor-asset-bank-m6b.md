@@ -12,8 +12,10 @@ Asset bank issue 3 (H12–H16). The roll-call is a `roll_call` rung whose two li
 
 ## Scope / files
 
-- `supabase/migrations/221_asset_bank_m6b.sql` — enum values, ladder rows, `event_offers`. Not applied.
-- sha256: `90d78a694d9c92be41ac07c563a7eeb454ea6f1f7e73194fb54ee7549991a79b`
+- `supabase/migrations/221_asset_bank_m6b_kinds.sql` — the five enum values only. Not applied.
+- `supabase/migrations/222_asset_bank_m6b.sql` — the roll-call update, rungs 11–14, `event_offers`. Not applied.
+- sha256 221: `aee79e9a48994ec0634fd8f1d6a0e8ec5742188baa06a1866f760e9815aba7f2`
+- sha256 222: `ec7c2e908495a7351dabd68008028f844d305fd3dca944f654e392c9fac14ef0`
 - `lib/releases/roll-call.ts`, `derived.ts`, `offers.ts`, `visibility.ts`
 - `lib/ticket-warnings/next-rung.ts`, `lib/releases/ladder.ts`
 - Frames: AB1b new. AB2, AB4 and AB5 reshot. AB1 and AB3 unchanged.
@@ -27,7 +29,7 @@ Asset bank issue 3 (H12–H16). The roll-call is a `roll_call` rung whose two li
 
 ## Notes
 
-Migration 221 is not applied. H17 needs no build. The ticket-vendor reader stays paused.
+Neither migration is applied. 221 only adds the enum values; 222 writes them after that transaction has committed. Generated types do not name the migration file, so they were not regenerated. No rendered file changed, so no frame moved. H17 needs no build. The ticket-vendor reader stays paused.
 
 Ubuntu pair, shot from `2587ad4`, threshold 0.1, every pair 0 pixels:
 
