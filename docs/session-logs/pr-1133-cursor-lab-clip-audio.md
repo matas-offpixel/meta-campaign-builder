@@ -26,7 +26,7 @@ A sound control on the clip tile, the 9:16 render preview, and feed-post media. 
 - [ ] `npx tsc --noEmit`
 - [x] `npm run build`
 - [x] `npm test`
-- [ ] `frames:check` — CLA1 and CLA2, plus the Lab and event-page frames the control moves
+- [ ] `frames:check` — overlay sound moved into the transport row; CL7 and CL9 did not move
 
 ## Notes
 
@@ -34,8 +34,35 @@ Migration: none. Compact players (round-matrix cells, the crop strip, candidate 
 
 Verdict on 9247901: the tile and the behaviour pass. On the caption-overlay player the control moves into the transport row, after the scrubber (`placement="inline"`). The tile stays bottom-left.
 
-Frames, Ubuntu, head fe11758. `only=CL` runs 42627372523 and 42627383283 (pair within 0.2%; CL5-1280 is 83 px, the rest 0). `only=IR` runs 42627393520 and 42627404229 (pair 0). Committed from the first of each pair.
+Frames, Ubuntu, head a059104. `only=CL` runs 42655047511 and 42655052572. `only=IR` runs 42655057607 and 42655062504. Committed from the first of each pair. Pixelmatch threshold 0.1.
 
-- CLA1 and CLA2, both widths: new. Tiles with the first unmuted; a feed post and a render preview, each muted.
-- CL3, CL4, CL5, CL6, CL7, CL9, CL10, both widths: the control on a tile or a preview.
-- IR1-1280 and IR2-1280: the event page's tiles carry the control. At 393 those pages are clipped before the tiles.
+| Frame | Pair px | Pair ratio | Git px |
+| --- | --- | --- | --- |
+| CLA1-1280 | 0 | 0 | 673 |
+| CLA1-393 | 0 | 0 | 1579 |
+| CLA2-1280 | 0 | 0 | 1915 |
+| CLA2-393 | 0 | 0 | 3251 |
+| CL3-1280 | 0 | 0 | 1194 |
+| CL3-393 | 0 | 0 | 1312 |
+| CL4-1280 | 0 | 0 | 1194 |
+| CL4-393 | 0 | 0 | 1312 |
+| CL5-1280 | 83 | 0.000017 | 2392 |
+| CL5-393 | 0 | 0 | 1312 |
+| CL6-1280 | 0 | 0 | 2392 |
+| CL6-393 | 0 | 0 | 1312 |
+| CL10-1280 | 0 | 0 | 1860 |
+| CL10-393 | 0 | 0 | 2632 |
+| IR1-1280 | 0 | 0 | 1194 |
+| IR2-1280 | 0 | 0 | 1194 |
+
+CL7-1280, CL7-393, CL9-1280, CL9-393: pair 0, git 0. Left.
+
+Verdict reshoot, what moved: on every caption-overlay player the sound control leaves the corner (it was covering Play) and sits at the right end of the row, ▶ · scrubber · sound. Tiles stay bottom-left.
+
+- CLA1, both widths: the render preview under the tiles. The four tiles do not move.
+- CLA2, both widths: the feed post and the render preview.
+- CL3, CL4, CL5, CL6, CL10, both widths: the preview player.
+- IR1-1280 and IR2-1280: the event page's preview player.
+- CL7 and CL9, both widths: unchanged.
+
+First shoot, head fe11758. `only=CL` runs 42627372523 and 42627383283. `only=IR` runs 42627393520 and 42627404229. That pass added the control. CL7 and CL9 moved then and not on this reshoot.
