@@ -136,7 +136,7 @@ describe("importArtistClips makes the proxy at import", () => {
     { sourceFileId: "f-hd", name: "LD.mp4", size: 8, bytes: Buffer.from("ten-80!!") },
   ];
   const listing = {
-    list: async () => files.map(({ bytes: _bytes, ...file }) => file),
+    list: async () => files.map((entry) => ({ sourceFileId: entry.sourceFileId, name: entry.name, size: entry.size })),
     download: async (_url: string, file: ClipFolderFile) => files.find((entry) => entry.sourceFileId === file.sourceFileId)!.bytes,
   };
   const probe = (bytes: Buffer) => (bytes.toString() === "four-k!!"
