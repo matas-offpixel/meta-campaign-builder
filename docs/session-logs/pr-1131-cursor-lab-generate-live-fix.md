@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1131
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1131
 - **Branch:** `cursor/lab-generate-live-fix`
 
 ## Summary
