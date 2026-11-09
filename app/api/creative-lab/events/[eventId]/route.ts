@@ -8,7 +8,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   addLabClip,
   approveLabRound,
-  generateLabCaptions,
+  runLoggedGenerate,
   judgeLabCard,
   proposeLabRound,
   saveLabArtist,
@@ -286,7 +286,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
       }
       case "generate": {
         const pair = body.pair === "spread" || body.pair === "best" || body.pair === "each" ? body.pair : undefined;
-        const generated = await generateLabCaptions(db, {
+        const generated = await runLoggedGenerate(db, {
           eventId,
           style: body.style ?? "",
           n: body.n ?? 1,

@@ -107,7 +107,10 @@ export async function loadStoredVoice(
     .eq("client_id", clientId)
     .order("posted_at", { ascending: false })
     .limit(VOICE_SAMPLE_CAP);
-  query = artistId ? query.eq("artist_id", artistId) : query.eq("artist_id", null);
+  // PostgREST turns `.eq(column, null)` into `column = 'null'`. On a uuid
+  // column that is `invalid input syntax for type uuid: "null"`, and the
+  // promoter page (artist_id is null) never loads.
+  query = artistId ? query.eq("artist_id", artistId) : query.is("artist_id", null);
   const samplesRes = await query;
   if (samplesRes.error) {
     if (missing(samplesRes.error.message)) return empty;
