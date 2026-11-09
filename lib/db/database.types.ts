@@ -1,7 +1,8 @@
 // Generated from the production schema (supabase gen types --project-id
-// zbtldbfjbhfvpksmdvnt), then migration 218 (drive export, not applied yet)
-// added by hand from its SQL. The two copy-library tables (migrations 207 and
-// 213) are left out on purpose: public routes import this file, and
+// zbtldbfjbhfvpksmdvnt; 218 applied), then migration 219 (Drive pickup and
+// share, not applied yet) added by hand from its SQL. The two copy-library
+// tables (migrations 207 and 213) are left out on purpose: public routes
+// import this file, and
 // lib/learning/__tests__/cross-client-guard.test.ts keeps their names out of
 // anything those routes can reach.
 
@@ -4957,6 +4958,63 @@ export type Database = {
           },
         ]
       }
+      drive_artist_folder_misses: {
+        Row: {
+          drive_folder_id: string
+          event_id: string
+          folder_name: string
+          id: string
+          seen_at: string
+        }
+        Insert: {
+          drive_folder_id: string
+          event_id: string
+          folder_name: string
+          id?: string
+          seen_at?: string
+        }
+        Update: {
+          drive_folder_id?: string
+          event_id?: string
+          folder_name?: string
+          id?: string
+          seen_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drive_artist_folder_misses_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "drive_artist_folder_misses_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drive_change_cursors: {
+        Row: {
+          drive_id: string
+          page_token: string
+          updated_at: string
+        }
+        Insert: {
+          drive_id: string
+          page_token: string
+          updated_at?: string
+        }
+        Update: {
+          drive_id?: string
+          page_token?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       drive_folders: {
         Row: {
           client_id: string
@@ -5002,6 +5060,64 @@ export type Database = {
           },
           {
             foreignKeyName: "drive_folders_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drive_kit_audit_files: {
+        Row: {
+          audited_at: string | null
+          client_id: string
+          drive_file_id: string
+          event_id: string | null
+          folder_key: string
+          id: string
+          mime_type: string | null
+          name: string
+          seen_at: string
+        }
+        Insert: {
+          audited_at?: string | null
+          client_id: string
+          drive_file_id: string
+          event_id?: string | null
+          folder_key: string
+          id?: string
+          mime_type?: string | null
+          name: string
+          seen_at?: string
+        }
+        Update: {
+          audited_at?: string | null
+          client_id?: string
+          drive_file_id?: string
+          event_id?: string | null
+          folder_key?: string
+          id?: string
+          mime_type?: string | null
+          name?: string
+          seen_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drive_kit_audit_files_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drive_kit_audit_files_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "drive_kit_audit_files_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
@@ -5845,6 +5961,7 @@ export type Database = {
           drive_share_permission_id: string | null
           drive_shared_at: string | null
           drive_shared_by: string | null
+          drive_shared_with: string | null
           event_code: string | null
           event_date: string | null
           event_start_at: string | null
@@ -5902,6 +6019,7 @@ export type Database = {
           drive_share_permission_id?: string | null
           drive_shared_at?: string | null
           drive_shared_by?: string | null
+          drive_shared_with?: string | null
           event_code?: string | null
           event_date?: string | null
           event_start_at?: string | null
@@ -5959,6 +6077,7 @@ export type Database = {
           drive_share_permission_id?: string | null
           drive_shared_at?: string | null
           drive_shared_by?: string | null
+          drive_shared_with?: string | null
           event_code?: string | null
           event_date?: string | null
           event_start_at?: string | null

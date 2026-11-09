@@ -12,6 +12,7 @@ import { isArchivedClientStatus } from "../db/client-status.ts";
 import type { DriveApi } from "./client.ts";
 import type { DriveDb, RowOf } from "./db.ts";
 import {
+  ARTIST_CLIPS_KEY,
   CLIENT_KEY,
   EVENT_KEY,
   EVENT_TREE,
@@ -232,6 +233,50 @@ export async function ensureEventKey(
     id = await ensureSpec(scope, link, parentId);
   }
   return id;
+}
+
+/** 02 Source / Artist clips / {artist}, keyed by the library artist id so a rename keeps the key. */
+export function artistClipsKey(libraryArtistId: string): FolderKey {
+  return `${ARTIST_CLIPS_KEY}/${libraryArtistId}`;
+}
+
+/**
+ * One Artist clips/{artist} folder per lineup artist, named as the lineup
+ * writes the name (S22 matches folder names exactly). Map-first: a folder the
+ * map already holds costs no Drive call; a renamed artist renames its folder.
+ * A removed artist's folder stays. Nothing for a cancelled event or an
+ * archived client, or before the event has a tree.
+ */
+export async function ensureArtistFolders(
+  db: DriveDb,
+  drive: DriveApi,
+  event: EventRow,
+  client: ClientRow,
+  artists: readonly { libraryArtistId: string; name: string }[],
+  log: TreeLog = emptyLog(),
+): Promise<string[]> {
+  if (isArchivedClientStatus(client.status) || isCancelled(event.status) || !event.drive_folder_id || !artists.length) return [];
+  const parentId = await ensureEventKey(db, drive, event, client, ARTIST_CLIPS_KEY, log);
+  const map = await loadMap(db, client.id, event.id);
+  const name = eventFolderName({ ...event, status: null });
+  const scope: Scope = {
+    db,
+    drive,
+    clientId: client.id,
+    eventId: event.id,
+    map,
+    log,
+    rootParentId: event.drive_folder_id,
+    label: (spec) => labelFor([client.name, name], spec),
+  };
+  const ids: string[] = [];
+  for (const artist of artists) {
+    const folderName = artist.name;
+    if (!folderName.trim()) continue;
+    const spec: FolderSpec = { key: artistClipsKey(artist.libraryArtistId), parent: ARTIST_CLIPS_KEY, name: folderName, level: "event" };
+    ids.push(await ensureSpec(scope, spec, parentId));
+  }
+  return ids;
 }
 
 /** w/c {d Mon} with UGC · Ticket warnings · Content (HS13). */

@@ -124,6 +124,26 @@ function dryDrive(real: DriveApi | null, driveId: string): DriveApi & { pathOf(i
       if (known && patch.name) known.name = patch.name;
       return { id: fileId, name: patch.name ?? known?.name ?? "", mimeType: "" };
     },
+    async getFile(fileId) {
+      if (made.has(fileId)) return made.get(fileId)!;
+      return real && !fileId.startsWith("new:") ? real.getFile(fileId) : null;
+    },
+    async download() {
+      return new Uint8Array();
+    },
+    // The backfill never reads the changes feed or shares; the dry run refuses rather than guess.
+    async startPageToken(): Promise<string> {
+      throw new Error("the backfill does not read the changes feed");
+    },
+    async listChanges(): Promise<never> {
+      throw new Error("the backfill does not read the changes feed");
+    },
+    async shareReader(): Promise<string> {
+      throw new Error("the backfill never shares");
+    },
+    async removePermission() {
+      throw new Error("the backfill never shares");
+    },
     pathOf(id) {
       const parts: string[] = [];
       for (let cursor: string | null = id; cursor && names.has(cursor); cursor = names.get(cursor)!.parent) parts.unshift(names.get(cursor)!.name);

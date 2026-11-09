@@ -154,6 +154,14 @@ export async function importArtistClips(
     upload?: (storagePath: string, bytes: Buffer, contentType: string) => Promise<void>;
     probe?: (bytes: Buffer, name: string) => ClipProbe | null;
     shareMessage?: () => string;
+    /**
+     * A folder other than the artist's own clip_folder_url (the Drive export's
+     * Artist clips/{artist}, read by lib/drive/pickup.ts). The artist's folder
+     * link and its synced/error state are then left as they are.
+     */
+    folderUrl?: string;
+    /** The event the clips were filed under. Null (the default) for the artist's own folder. */
+    eventId?: string | null;
   },
 ): Promise<ClipImportResult> {
   const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
@@ -162,7 +170,8 @@ export async function importArtistClips(
   if (!artist) throw new Error("No artist with that id.");
   const userId = text(artist, "user_id");
   const shareMessage = args.shareMessage ?? shareMessageFromConfig;
-  const folderUrl = text(artist, "clip_folder_url");
+  const ownFolder = !args.folderUrl;
+  const folderUrl = args.folderUrl ?? text(artist, "clip_folder_url");
   if (!folderUrl) {
     const message = "Add a Drive or Dropbox folder link first.";
     await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
@@ -180,7 +189,7 @@ export async function importArtistClips(
     listed = await listing.list(folderUrl);
   } catch (err) {
     const message = folderMessage(err, shareMessage);
-    await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
+    if (ownFolder) await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
     return { files: [], folderError: message };
   }
 
@@ -247,7 +256,7 @@ export async function importArtistClips(
         clip_no: nextNo,
         source,
         rights_ref: rightsRef,
-        event_id: null,
+        event_id: args.eventId ?? null,
         audio_status: "original",
         crop_focus_y: 0.5,
         source_file_id: file.sourceFileId,
@@ -272,6 +281,6 @@ export async function importArtistClips(
     }
   }
 
-  await writeFolderState(db, args.artistId, userId, { clip_folder_synced_at: now, clip_folder_last_error: null });
+  if (ownFolder) await writeFolderState(db, args.artistId, userId, { clip_folder_synced_at: now, clip_folder_last_error: null });
   return { files, folderError: null };
 }
