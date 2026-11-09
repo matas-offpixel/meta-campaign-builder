@@ -371,7 +371,7 @@ export function MmlCreativeIntake({
 
   return (
     <div data-mml-intake className="space-y-3">
-      <button type="button" className="text-sm underline" onClick={() => void openLab()}>From the Lab</button>
+      <button type="button" className={`${VIZ_TYPE.body} underline`} onClick={() => void openLab()}>From the Lab</button>
       {labOpen ? (
         <LabSource
           eventName={labRows[0]?.eventName ?? ""}
