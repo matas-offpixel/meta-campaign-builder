@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1145
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1145
 - **Branch:** `cursor/lineup-add-truth`
 
 ## Summary
