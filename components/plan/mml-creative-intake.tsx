@@ -19,6 +19,7 @@ import {
   CAMPAIGN_ASSETS_BUCKET,
   uploadFileToCampaignAssets,
 } from "@/lib/tiktok-wizard/campaign-asset-upload";
+import { LabSource } from "@/components/dashboard/events/drive/ui";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 interface IntakeAsset {
@@ -63,6 +64,34 @@ function formatDuration(seconds: number | null): string | null {
   if (seconds == null || !Number.isFinite(seconds)) return null;
   const total = Math.round(seconds);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function lengthSeconds(length: string | null): number | null {
+  if (!length) return null;
+  const [minutes, seconds] = length.split(":");
+  const whole = Number(minutes) * 60 + Number(seconds);
+  return Number.isFinite(whole) ? whole : null;
+}
+
+/** The two added rows are the 9:16 of their creative, named by the pairing. Live add uses the same name and bucket. */
+function addedAsNineSixteen(
+  rows: { id: string; pairing: string; length: string | null; added: boolean }[],
+): IntakeAsset[] {
+  return rows.filter((row) => row.added).map((row) => ({
+    id: `lab-${row.id}`,
+    filename: row.pairing,
+    mediaKind: "video",
+    width: 1080,
+    height: 1920,
+    durationSeconds: lengthSeconds(row.length),
+    detectedBucket: "9:16",
+    override: null,
+    bucket: "9:16",
+    reason: null,
+    thumbnailUrl: null,
+    groupId: null,
+    uploadError: null,
+  }));
 }
 
 function measureFile(file: File): Promise<{ width: number | null; height: number | null; durationSeconds: number | null }> {
@@ -130,11 +159,18 @@ export function MmlCreativeIntake({
   clientId,
   persisted,
   onLaunches,
+  fixture = null,
 }: {
   planId: string;
   clientId: string | null;
   persisted: boolean;
   onLaunches: (launches: CampaignPlan["launches"]) => void;
+  /** Frame only. The live intake leaves this unset and reads the plan. */
+  fixture?: {
+    eventName: string;
+    empty?: boolean;
+    rows: { id: string; pairing: string; narrowPairing: string; roundNo: number; length: string | null; inDrive: boolean; added: boolean }[];
+  } | null;
 }) {
   const [view, setView] = useState<IntakeView | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -143,6 +179,9 @@ export function MmlCreativeIntake({
   const [notes, setNotes] = useState<string[]>([]);
   const [progress, setProgress] = useState<string | null>(null);
   const [sendResults, setSendResults] = useState<IntakeSendReport[]>([]);
+  const [labOpen, setLabOpen] = useState(false);
+  const [labRows, setLabRows] = useState<{ id: string; pairing: string; roundNo: number; length: string | null; inDrive: boolean; added: boolean; eventName: string }[]>([]);
+  const [labEmpty, setLabEmpty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
@@ -157,11 +196,11 @@ export function MmlCreativeIntake({
   }, [planId]);
 
   useEffect(() => {
-    if (!persisted) return;
+    if (fixture || !persisted) return;
     void reload();
-  }, [persisted, reload]);
+  }, [persisted, reload, fixture]);
 
-  const assets = view?.assets ?? [];
+  const assets = fixture ? addedAsNineSixteen(fixture.rows) : (view?.assets ?? []);
   const groups = view?.groups ?? [];
   const selectedAssets = selected
     .map((id) => assets.find((asset) => asset.id === id))
@@ -344,8 +383,52 @@ export function MmlCreativeIntake({
     return <StatusLine className={`${VIZ_TYPE.label} text-muted-foreground`}>Save the MML before dropping files.</StatusLine>;
   }
 
+  async function openLab() {
+    setLabOpen(true);
+    const res = await fetch(`/api/plan/${encodeURIComponent(planId)}/from-lab`);
+    const json = (await res.json()) as { ok?: boolean; error?: string; eventName?: string; rows?: { id: string; pairing: string; roundNo: number; durationSeconds: number | null; driveStatus: string | null; added: boolean }[] };
+    if (!res.ok || json.ok === false) {
+      setError(json.error ?? null);
+      return;
+    }
+    const rows = json.rows ?? [];
+    setLabEmpty(rows.length === 0);
+    setLabRows(rows.map((row) => ({
+      id: row.id,
+      pairing: row.pairing,
+      roundNo: row.roundNo,
+      length: row.durationSeconds == null ? null : `${Math.floor(row.durationSeconds / 60)}:${String(Math.round(row.durationSeconds % 60)).padStart(2, "0")}`,
+      inDrive: row.driveStatus === "copied",
+      added: row.added,
+      eventName: json.eventName ?? "",
+    })));
+  }
+
   return (
     <div data-mml-intake className="space-y-3">
+      <button type="button" className={`${VIZ_TYPE.body} underline`} onClick={() => { if (!fixture) void openLab(); }}>From the Lab</button>
+      {fixture || labOpen ? (
+        <LabSource
+          eventName={fixture?.eventName ?? labRows[0]?.eventName ?? ""}
+          heading={false}
+          empty={fixture ? Boolean(fixture.empty) : labEmpty}
+          rows={(fixture ? fixture.rows : labRows).map((row) => ({ ...row, narrowPairing: "narrowPairing" in row ? row.narrowPairing : row.pairing }))}
+          onAdd={(id) => {
+            void fetch(`/api/plan/${encodeURIComponent(planId)}/from-lab`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ renderId: id }),
+            }).then(async (res) => {
+              const json = (await res.json()) as { error?: string; ok?: boolean };
+              if (!res.ok || json.ok === false) setError(json.error ?? null);
+              else {
+                await openLab();
+                await reload();
+              }
+            });
+          }}
+        />
+      ) : null}
       <div
         className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-border bg-card px-3 py-3"
         onDragOver={(event) => event.preventDefault()}
@@ -433,7 +516,7 @@ export function MmlCreativeIntake({
                       ) : (
                         <span className={`mb-1 block h-16 rounded bg-muted ${VIZ_TYPE.label}`} />
                       )}
-                      <span className={`block truncate ${VIZ_TYPE.body}`}>{asset.filename}</span>
+                      <span className={`block break-words ${VIZ_TYPE.body}`}>{asset.filename}</span>
                       <span className={`block text-muted-foreground ${VIZ_TYPE.label}`}>
                         {asset.mediaKind}
                         {formatDuration(asset.durationSeconds) ? ` · ${formatDuration(asset.durationSeconds)}` : ""}

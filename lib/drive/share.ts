@@ -8,13 +8,14 @@
 
 import { DriveApiError, type DriveApi } from "./client.ts";
 import { rowById, type DriveDb } from "./db.ts";
+import { EVENT_NOT_ON_ACCOUNT } from "./panel.ts";
 import { isCancelled } from "./tree.ts";
 
 export type ShareResult = { ok: true; sharedWith: string | null; sharedAt: string | null } | { ok: false; error: string };
 
 export const NO_FOLDER = "This event has no Drive folder yet — set up Drive first.";
 export const DRIVE_REFUSED = "Drive won't let the export account share — a Manager of Off / Pixel needs to allow it in the drive's sharing settings.";
-const NOT_YOURS = "No event with that id.";
+const NOT_YOURS = EVENT_NOT_ON_ACCOUNT;
 
 /** Drive's reasons for a share the drive's settings don't allow. */
 const REFUSALS = new Set([

@@ -241,7 +241,7 @@ describe("filing (S20, HS9)", () => {
     const render = row(db, "creative_lab_renders", "rd1");
     assert.match(String(render.drive_error), /503/);
     assert.equal(render.drive_next_attempt_at, null);
-    assert.deepEqual(await retryDriveCopy(db, { renderId: "rd1", userId: "someone-else" }), { ok: false, error: "No render with that id." });
+    assert.deepEqual(await retryDriveCopy(db, { renderId: "rd1", userId: "someone-else" }), { ok: false, error: "That render isn't on this event." });
     assert.deepEqual(await retryDriveCopy(db, { renderId: "rd1", userId: "u1" }), { ok: true });
     assert.equal(render.drive_status, "pending");
     assert.equal(render.drive_attempts, 0);
