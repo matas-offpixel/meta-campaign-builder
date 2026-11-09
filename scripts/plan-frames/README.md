@@ -89,6 +89,13 @@ these and leaves CL, CLQ and CLV alone. CLS1 is the clip grid with a tick and
 the round matrix narrowed to the selection, one pairing knocked out. CLS4 is
 Finding…, Importing… and Writing… with the resting width held.
 
+## CLA series
+
+Clip audio, from fixtures. No Supabase. `only=CLA` shoots these. CLA1 is the clip
+tiles, four with a preview, the first one unmuted (Volume2) and the rest muted
+(VolumeX). CLA2 is a feed post and a finished render preview, each with the
+muted toggle. The control sits 6 px from the left and 16 px up from the bottom.
+
 ## CLV series
 
 Voice, from fixtures. No Supabase, Meta or Anthropic. `only=CLV` shoots

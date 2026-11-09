@@ -187,6 +187,8 @@ export type CreativeLabCardData = {
     renderError: string | null;
     judged: { verdict: string | null; cost: number | null; results: number | null; metric: string | null; roundNo: number } | null;
     audioMatch: boolean | null;
+    /** False only when the clip row already records that the file has no audio. */
+    hasAudio?: boolean | null;
     cropFocusX: number;
     cropOpen: boolean;
   }[];
