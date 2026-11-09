@@ -44,7 +44,7 @@ export function EventDetailHeader(props: {
     event.client?.name ? `${event.client.name} · ${event.status.replace("_", " ")}` : event.status.replace("_", " "),
     lab?.paydayLabel ? `Next payday ${lab.paydayLabel}.${lab.daysToEvent == null ? "" : ` ${lab.daysToEvent} days to the event.`}` : null,
   ].filter(Boolean).join(" · ");
-  const label = "shrink-0 whitespace-nowrap";
+  const label = "shrink-0 whitespace-nowrap max-[700px]:px-2";
   return (
     <header className="border-b border-border bg-card px-6 py-4">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 max-[700px]:flex-col max-[700px]:items-stretch">
@@ -86,7 +86,7 @@ export function EventDetailHeader(props: {
           </h1>
           {description ? <p className="mt-0.5 text-xs text-muted-foreground max-[700px]:whitespace-nowrap">{description}</p> : null}
         </div>
-        <div className="flex items-center gap-2 max-[700px]:flex-wrap">
+        <div className="flex items-center gap-2 max-[700px]:flex-nowrap max-[700px]:gap-1">
           <InsightsPill />
           {event.client ? (
             <Link href={`/clients/${event.client.id}`} className={label}>

@@ -138,7 +138,7 @@ export function DriveHeaderButton(props: {
       <Button
         variant="outline"
         size="sm"
-        className="shrink-0 whitespace-nowrap"
+        className="shrink-0 whitespace-nowrap max-[700px]:px-2"
         onClick={() => {
           if (!props.hasFolder) {
             document.getElementById("event-drive")?.scrollIntoView({ block: "start" });
