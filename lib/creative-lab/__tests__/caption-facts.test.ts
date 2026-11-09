@@ -571,11 +571,84 @@ describe("creative lab captions: Puzzle overlay lines", () => {
     assert.deepEqual(four.lines, ["One two", "Three", "Four five", "Six seven"]);
   });
 
+  it("keeps a venue with & whole and glues & more to the name before it", async () => {
+    const db = fakeDb({
+      events: [{ id: "evt-rooms", name: "Puzzle 4th Birthday", event_date: "2026-12-27", venue_name: "Circuit & Engine Rooms", venue_city: "Southampton" }],
+      creative_lab_event_facts: [{
+        event_id: "evt-rooms",
+        lineup: ["Enzo Siragusa", "Luke Dean", "Reeshy"],
+        headliners: ["Enzo Siragusa", "Luke Dean", "Reeshy"],
+        allowed_dates: ["2026-12-27"],
+      }],
+      event_ticket_tiers: [],
+    });
+    const facts = await loadEventFacts(db as unknown as ServiceRoleDb, "evt-rooms");
+    assert.equal(facts.venueName, "Circuit & Engine Rooms");
+    const playing = validateCaption(
+      "Enzo Siragusa, Luke Dean, Reeshy & more are playing\nCircuit & Engine Rooms 27 December",
+      "lineup",
+      HEADLINERS,
+      facts,
+      STYLE,
+    );
+    assert.deepEqual(playing.lines, [
+      "Enzo Siragusa,",
+      "Luke Dean, Reeshy & more",
+      "are playing",
+      "Circuit & Engine Rooms",
+      "27 December",
+    ]);
+    assert.equal(playing.sizeVariant, "long");
+    assert.equal(playing.ok, true, playing.errors.map((e) => e.detail).join("; "));
+    const pov = validateCaption(
+      "POV:\nYou just found out\nEnzo Siragusa, Luke Dean, Reeshy & more are playing\nSouthampton",
+      "pov",
+      HEADLINERS,
+      facts,
+      STYLE,
+    );
+    assert.deepEqual(pov.lines, [
+      "POV: You just found out",
+      "Enzo Siragusa,",
+      "Luke Dean, Reeshy & more",
+      "are playing",
+      "Southampton",
+    ]);
+    assert.equal(pov.ok, true, pov.errors.map((e) => e.detail).join("; "));
+    const looks = validateCaption(
+      "This is what\nPuzzle 4th Birthday\nat Circuit & Engine Rooms looks like",
+      "lineup",
+      HEADLINERS,
+      facts,
+      STYLE,
+    );
+    assert.deepEqual(looks.lines, [
+      "This is what",
+      "Puzzle 4th Birthday",
+      "at",
+      "Circuit & Engine Rooms",
+      "looks like",
+    ]);
+    assert.equal(looks.ok, true, looks.errors.map((e) => e.detail).join("; "));
+    for (const check of [playing, pov, looks]) {
+      assert.ok(check.lines.every((line) => line.length <= 24), check.lines.join(" | "));
+      assert.equal(check.lines.some((line) => line === "Circuit & Engine" || line.startsWith("Rooms")), false, check.lines.join(" | "));
+      assert.equal(check.lines.some((line) => /^(&\s+more|more|&)$/i.test(line) || line.startsWith("& more")), false, check.lines.join(" | "));
+    }
+    const venueOnly = wrapCaption("See you at Circuit & Engine Rooms tonight", 24, ["Circuit & Engine Rooms"]);
+    assert.ok(venueOnly.some((line) => line === "Circuit & Engine Rooms"), venueOnly.join(" | "));
+    const tooWide = validateCaption("Circuit & Engine Rooms Annex", "lineup", [], { ...facts, venueName: "Circuit & Engine Rooms Annex" }, STYLE);
+    assert.equal(tooWide.ok, false);
+    assert.ok(tooWide.lines.some((line) => line.includes("Circuit & Engine Rooms Annex")), tooWide.lines.join(" | "));
+    assert.equal(renderRefusalSentence(tooWide.errors.find((e) => e.code === "too_long")?.detail), "This caption is too long — shorten it.");
+  });
+
   it("tells the writer that a line break is the only separator", () => {
     const prompt = systemPrompt("lineup", puzzle, [], "on_sale", []);
     assert.match(prompt, /Line breaks are the only separator/);
     assert.match(prompt, /Do not write "\/" or "\|"/);
     assert.match(prompt, /do not write an empty line/);
+    assert.match(prompt, /Each line is one phrase of at most 24 characters; put \{lineup\}, \{venue\} and \{date\} each on its own line/);
     for (const example of CORPUS.lineup) assert.equal(example.overlay.includes(" / "), false, example.overlay);
     assert.equal(CORPUS.lineup.some((example) => example.overlay.includes("\n")), true);
   });

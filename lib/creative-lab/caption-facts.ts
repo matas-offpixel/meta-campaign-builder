@@ -302,20 +302,29 @@ function tokenKey(raw: string): string {
   return core.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/['’]/g, "'");
 }
 
-/** Names that fit on one line become one atom, longest first, so a wrap cannot split them. */
+/** A punctuation token such as "&" stays, so a protected phrase still lines up with the caption. */
+function phraseKey(raw: string): string {
+  return tokenKey(raw) || raw.trim().toLowerCase();
+}
+
+/** Longest protected phrase that fits the width. A phrase that contains "&" stays one atom even when it is wider. */
 function atomsOf(paragraph: string, names: readonly string[], width: number): string[] {
   const tokens = paragraph.split(/\s+/).filter(Boolean);
   const phrases = names
-    .map((name) => name.split(/\s+/).map(tokenKey).filter(Boolean))
-    .filter((parts) => parts.length > 0)
+    .map((name) => name.split(/\s+/).filter(Boolean).map(phraseKey))
+    .filter((parts) => parts.some(Boolean))
     .sort((a, b) => b.length - a.length);
   const atoms: string[] = [];
   for (let i = 0; i < tokens.length; ) {
-    const hit = phrases.find((parts) => {
+    const matches = phrases.filter((parts) => {
       if (i + parts.length > tokens.length) return false;
-      if (!parts.every((part, j) => tokenKey(tokens[i + j] ?? "") === part)) return false;
-      return tokens.slice(i, i + parts.length).join(" ").length <= width;
+      return parts.every((part, j) => phraseKey(tokens[i + j] ?? "") === part);
     });
+    const span = (parts: string[]) => tokens.slice(i, i + parts.length).join(" ");
+    const fitting = matches.find((parts) => span(parts).length <= width);
+    // "&" is not a word. A phrase that holds one stays whole even when it is wider than the line.
+    const unsplittable = matches.find((parts) => parts.some((part) => !/\p{L}|\p{N}/u.test(part)));
+    const hit = fitting ?? unsplittable;
     if (hit) {
       atoms.push(tokens.slice(i, i + hit.length).join(" "));
       i += hit.length;
@@ -327,13 +336,14 @@ function atomsOf(paragraph: string, names: readonly string[], width: number): st
   return gluePhrases(atoms);
 }
 
-/** "& more" is one phrase. A wrap cannot park "more" on the next line. */
+/** "& more" joins the name before it. It does not join the words after it. */
 function gluePhrases(atoms: string[]): string[] {
   const glued: string[] = [];
   for (let i = 0; i < atoms.length; i += 1) {
-    const next = atoms[i + 1];
-    if (atoms[i] === "&" && next && /^more$/i.test(next)) {
-      glued.push(`& ${next}`);
+    const more = atoms[i + 1];
+    if (atoms[i] === "&" && more && /^more$/i.test(more)) {
+      const prev = glued.pop();
+      glued.push(prev ? `${prev} & ${more}` : `& ${more}`);
       i += 1;
       continue;
     }
@@ -1054,8 +1064,11 @@ function layoutErrors(text: string, lines: string[], maxLines: number, charsPerL
   if (lines.some((line) => line.trim() === "")) {
     errors.push({ code: "too_long", detail: `empty line; an overlay is at most ${maxLines} lines` });
   }
-  if (lines.some((line) => isLoneShort(line))) {
+  if (lines.some((line) => isLoneShort(line) || /^&\s+more\b/i.test(line.trim()))) {
     errors.push({ code: "too_long", detail: `a short word is its own line; an overlay is at most ${maxLines} lines` });
+  }
+  if (lines.some((line) => line.length > charsPerLine)) {
+    errors.push({ code: "too_long", detail: `a line is longer than ${charsPerLine} characters; an overlay is at most ${maxLines} lines` });
   }
   if (hasSeparator(text) || lines.some((line) => hasSeparator(line))) {
     errors.push({ code: "too_long", detail: `a line break is the only separator; an overlay is at most ${maxLines} lines` });
@@ -1103,7 +1116,8 @@ export function validateCaption(
   const protectedNames = [...facts.lineup, ...(facts.headliners ?? []), ...declared, ...extra, ...places];
   const defaultWidth = styleProfile.charsPerLine ?? CHARS_PER_LINE;
   const defaultLines = style === "four_line" ? [] : wrapCaption(shaped, defaultWidth, protectedNames);
-  const long = style !== "four_line" && (chars >= profile.long.minChars || defaultLines.length > (styleProfile.maxLines ?? DEFAULT_MAX_LINES));
+  const lineTooWide = defaultLines.some((line) => line.length > defaultWidth && line.includes(" "));
+  const long = style !== "four_line" && (chars >= profile.long.minChars || defaultLines.length > (styleProfile.maxLines ?? DEFAULT_MAX_LINES) || lineTooWide);
   const charsPerLine = long ? profile.long.charsPerLine : defaultWidth;
   const maxLines = long ? profile.long.maxLines : (styleProfile.maxLines ?? DEFAULT_MAX_LINES);
   const lines = long ? wrapCaption(shaped, charsPerLine, protectedNames) : style === "four_line" ? wrapCaption(shaped, charsPerLine, protectedNames) : defaultLines;
