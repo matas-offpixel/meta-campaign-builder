@@ -437,6 +437,36 @@ function rebalanceLone(lines: string[], width: number): string[] {
   return out;
 }
 
+const JOINING_WORDS = new Set(["at", "in", "on", "with", "for", "to", "of", "the", "and", "is", "are"]);
+
+/**
+ * A wrapped line that is only a joining word moves onto the line before it
+ * when that fits, including across a written break. Otherwise it moves onto
+ * the next line. A protected phrase stays whole because the word is already
+ * its own line.
+ */
+function liftJoiningWords(lines: string[], width: number): string[] {
+  const out = [...lines];
+  for (let i = 0; i < out.length - 1; i += 1) {
+    const word = out[i] ?? "";
+    if (!JOINING_WORDS.has(word.toLowerCase())) continue;
+    const prev = out[i - 1];
+    if (prev != null && `${prev} ${word}`.length <= width) {
+      out[i - 1] = `${prev} ${word}`;
+      out.splice(i, 1);
+      i -= 1;
+      continue;
+    }
+    const next = out[i + 1];
+    if (next != null && `${word} ${next}`.length <= width) {
+      out[i] = `${word} ${next}`;
+      out.splice(i + 1, 1);
+      i -= 1;
+    }
+  }
+  return out;
+}
+
 const DATE_WEEKDAYS = "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday";
 const DATE_MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December";
 const DATE_PHRASE = new RegExp(`\\b(?:(${DATE_WEEKDAYS})\\s+)?(\\d{1,2}(?:st|nd|rd|th)?)\\s+(${DATE_MONTHS})\\b`, "gi");
@@ -1120,7 +1150,8 @@ export function validateCaption(
   const long = style !== "four_line" && (chars >= profile.long.minChars || defaultLines.length > (styleProfile.maxLines ?? DEFAULT_MAX_LINES) || lineTooWide);
   const charsPerLine = long ? profile.long.charsPerLine : defaultWidth;
   const maxLines = long ? profile.long.maxLines : (styleProfile.maxLines ?? DEFAULT_MAX_LINES);
-  const lines = long ? wrapCaption(shaped, charsPerLine, protectedNames) : style === "four_line" ? wrapCaption(shaped, charsPerLine, protectedNames) : defaultLines;
+  const wrapped = long ? wrapCaption(shaped, charsPerLine, protectedNames) : style === "four_line" ? wrapCaption(shaped, charsPerLine, protectedNames) : defaultLines;
+  const lines = style === "four_line" ? wrapped : liftJoiningWords(wrapped, charsPerLine);
   const sizeVariant = long ? "long" : "default";
 
   errors.push(...factErrors(trimmed, style, declared, facts, extra, options.crowdTicketsSold));

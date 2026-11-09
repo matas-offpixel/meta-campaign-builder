@@ -624,8 +624,7 @@ describe("creative lab captions: Puzzle overlay lines", () => {
     );
     assert.deepEqual(looks.lines, [
       "This is what",
-      "Puzzle 4th Birthday",
-      "at",
+      "Puzzle 4th Birthday at",
       "Circuit & Engine Rooms",
       "looks like",
     ]);
