@@ -40,3 +40,13 @@ Frames, Ubuntu, head `e606c8c30303a682c3174c6f2713ba98b5550723`. `only=CL` runs 
 Left, because they matched git: CL1 both widths, CLS2 both widths, CLS3-393, CLS4 both widths, CLQ1-393, CLQ4 both widths, CLV1-393, CLV2-393, IR5 both widths, AB1-393.
 
 Verdict on e109d77: an On cell is `border-border`, a Kept chip is `border-border-strong`, Untested and New are dashed `border-border-strong`, and the plan column is dashed `border-border`. Holding stays ink. CLS2b is Each selected before a write.
+
+Verdict frames, Ubuntu, head `1ad7c8e35f1e052c1c02e06bee93687cda566a18`. `only=CL` runs 42623514410 and 42623519018. `only=IR` runs 42623523159 and 42623527202. Each pair is 0 px apart. Committed from the first run of each pair.
+
+- CL5-1280, CLS3-1280: an On cell's border is the faint border, not ink.
+- CL6-1280: the On cells, plus a Kept chip in border-strong and the plan column dashed in the faint border.
+- CL6-393: the Kept chip and the plan column. The matrix table is hidden at 393, so the On cells do not move.
+- CL3, CL4, CL10, both widths; CL5-393, CL7, CL9, both widths; CLS1, both widths; IR1-1280, IR2-1280: an Untested or New chip is dashed border-strong.
+- CLS2b-1280, CLS2b-393: new. Each selected before a write, 4 clips, "3 captions × 4 clips = 12 previews", "Write to see these on the clips."
+
+Left, because they matched this head: CL1, CL2, CL8, CLQ, CLV, CLS2, CLS3-393, CLS4, and the other IR frames.
