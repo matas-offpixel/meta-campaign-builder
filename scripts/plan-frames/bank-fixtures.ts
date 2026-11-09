@@ -88,3 +88,35 @@ export const AB1_CLAIMS: ClaimLine[] = [
   { text: "Final X · 3rd release", chip: "later · after 90%", tone: "dash" },
   { text: "General sale 90% sold out", chip: "later · needs selling fast", tone: "dash" },
 ];
+
+/** AB1b. Two rows from the dates, nobody has tapped them. */
+export const AB1B_ROWS: ReleaseRow[] = [
+  {
+    id: "presale",
+    name: "Presale",
+    when: "from presale_at · Fri 20 Nov 18:00",
+    shortWhen: "Fri 20 Nov 18:00 · from the dates",
+    state: "not_yet",
+    plain: true,
+    provenance: "from the event's dates · tap to confirm",
+    shortProvenance: "tap to confirm",
+    timelineLabel: "Presale",
+    shortTimeline: "Presale",
+    left: "8%",
+    rungs: [],
+  },
+  {
+    id: "general",
+    name: "General sale",
+    when: "from general_sale_at · Sat 21 Nov 12:00",
+    shortWhen: "Sat 21 Nov 12:00 · from the dates",
+    state: "on_sale",
+    plain: true,
+    provenance: "from the event's dates · tap to confirm",
+    shortProvenance: "tap to confirm",
+    timelineLabel: "General sale",
+    shortTimeline: "General sale",
+    left: "46%",
+    rungs: [],
+  },
+];

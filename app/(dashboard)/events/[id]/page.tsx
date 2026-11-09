@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
 import { loadCreativeLabCard } from "@/lib/db/creative-lab";
-import { loadClientLadder, loadEventReleases } from "@/lib/db/releases";
+import { loadClientLadder, loadEventArtists, loadEventReleases, loadSalesHistory } from "@/lib/db/releases";
 import { measureClipSources, signClipPreviews } from "@/lib/creative-lab/clip-preview";
 import { parseEventTab } from "@/lib/dashboard/format";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
@@ -198,8 +198,19 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
   const bank = await loadEventReleases(supabase, event.id)
     .then(async (releases) => {
       if (!releases) return null;
-      const ladder = event.client_id ? await loadClientLadder(supabase, event.client_id).catch(() => null) : [];
-      return { eventId: event.id, releases, ladder: ladder ?? [] };
+      const [ladder, counts, artists] = await Promise.all([
+        event.client_id ? loadClientLadder(supabase, event.client_id).catch(() => []) : Promise.resolve([]),
+        loadSalesHistory(supabase, event.id).catch(() => []),
+        loadEventArtists(supabase, event.id).catch(() => []),
+      ]);
+      return {
+        eventId: event.id,
+        releases,
+        ladder: ladder ?? [],
+        counts,
+        eventAt: event.event_date ?? null,
+        artists,
+      };
     })
     .catch((err) => {
       console.error("[EventDetailPage] releases failed:", err);

@@ -131,10 +131,12 @@ Puzzle 4th Birthday, today 7 Nov 2026, show 27 Dec, payday Fri 27 Nov, 50 days. 
 | Id | What to check |
 |---|---|
 | AB1 | Dots sit on one line. Early bird: live done, sold out done. 2nd release: live → 90% sold out → sold out, all done. General sale and 3rd release show a dashed final X. The 3rd release's next rung is "90% · next read Mon" in ochre. Today sits above the release labels. Show · 27 Dec is one line. The state control is one bordered control: past segments muted, the current one filled ink. Big number 2 of 4 on sale · 2 sold out. 393 scrolls the line and shortens the control to fast / final / out |
-| AB2 | Four cards at 1280 (proposal, approved live, locked final X, back to held). 393 shows the proposal and the locked card. Artwork slots read "+ needs the piece" |
+| AB2 | The roll-call proposal and the payment-plan offer, then issue 2's four cards. 393 shows the roll-call, the offer, the proposal and the locked card. The offer card has no trigger line. |
 | AB3 | 23 Nov – 27 Dec. Window shaded where `isInPaydayWindow` is true: Thu 26 Nov through Sun 13 Dec (18 days). 27 Nov and 24 Dec are outlined. Ticket pushes are brick, content-led pushes are meta-blue, and the legend has those swatches. 24 Dec reads "moved · 25th is Christmas". The 393 list includes Sat 28 and every other push on the grid. "Last day at £26" is gone |
 | AB4 | Header 15 approved · 1 proposed · 3 locked · 5 missing. Made cells carry a thumbnail, approved cells add ✓, held is ochre-outlined, proposed is ochre, locked and "+ needs …" are dashed. Row sub-lines include "sold out · ladder done" and "proposed · Mon read". The button's action makes nothing |
-| AB5 | Eight rungs at both widths, Puzzle's 5-day override and the % line. 393 stacks each trigger over its claim, full width. No roll-call line |
+| AB1b | A backfilled event. Two rows, Presale not yet and General sale on sale, outlined until a tap. |
+| AB5 | Puzzle's ladder: the eight rungs, the roll-call, and the four derived rungs. Offers are a line in the right panel, not a rung. 393 starts at sold out. |
+| AB6 | The Offers sheet, payment plan filled in (£10 today, 3 parts, until 27 Nov), and the same sheet refusing "final release". |
 
 Flagged against the drawings:
 
