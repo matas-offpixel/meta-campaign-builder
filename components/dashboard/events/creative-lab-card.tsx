@@ -24,7 +24,7 @@ async function post(eventId: string, body: Record<string, unknown>): Promise<{ o
 }
 
 
-export function CreativeLabCard({ lab, quoteMode = false }: { lab: CreativeLabCardData; quoteMode?: boolean }) {
+export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null }: { lab: CreativeLabCardData; quoteMode?: boolean; driveFolderId?: string | null }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -114,7 +114,7 @@ export function CreativeLabCard({ lab, quoteMode = false }: { lab: CreativeLabCa
         />
         {headlinerNote ? <p className="text-muted-foreground">{headlinerNote}</p> : null}
         <LabLineup eventId={lab.eventId} rows={lab.lineupRows} artists={lab.artists} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
-        <LabClips lab={lab} busy={busy} onSave={(body) => run(body)} onError={setError} />
+        <LabClips lab={lab} busy={busy} driveFolderId={driveFolderId} onSave={(body) => run(body)} onError={setError} />
         <LabCaptions lab={lab} busy={busy} quoteMode={quoteMode} onSave={(body) => run(body)} />
         <LabRound lab={lab} busy={busy} onSave={(body) => run(body)} onLaunch={launchRound} />
       </div>

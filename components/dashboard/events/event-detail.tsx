@@ -34,7 +34,7 @@ import { InsightsPill } from "@/components/insights-rail/insights-pill";
 import { InsightsPageContext } from "@/components/insights-rail/rail-context";
 import { railLabFromCard } from "@/lib/insights-rail/lab-summary";
 import { stageForEventStatus } from "@/lib/insights-rail/model";
-import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
+import { DriveLive, driveLinkLabel } from "@/components/dashboard/events/drive/live";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
@@ -206,6 +206,7 @@ export function EventDetail({
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
+  const [driveOpen, setDriveOpen] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Optimistic mirror of event.favourite. Toggled instantly on click;
@@ -380,6 +381,16 @@ export function EventDetail({
             <Button
               variant="outline"
               size="sm"
+              onClick={() => {
+                if (event.drive_folder_id) setDriveOpen((open) => !open);
+                else document.getElementById("event-drive")?.scrollIntoView({ block: "start" });
+              }}
+            >
+              {driveLinkLabel(Boolean(event.drive_folder_id))}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => router.push(`/events/${event.id}/edit`)}
             >
               <Pencil className="h-3.5 w-3.5" />
@@ -462,7 +473,7 @@ export function EventDetail({
                 />
               ) : null}
               {bank && event.status !== "cancelled" ? <OffersSheet eventId={bank.eventId} /> : null}
-              {lab ? <CreativeLabCard lab={lab} quoteMode /> : null}
+              {lab ? <CreativeLabCard lab={lab} quoteMode driveFolderId={event.drive_folder_id} /> : null}
               {!isBrand && event.client_id ? (
                 <p className="text-sm">
                   <Link className="underline" href={`/clients/${event.client_id}?tab=ticketing`}>Ticketing</Link>
@@ -490,12 +501,12 @@ export function EventDetail({
                 </>
               )}
               <LinksSection event={event} />
-              <GoogleDriveCard
+              <DriveLive
                 eventId={event.id}
                 eventName={event.name}
-                clientName={event.client?.name ?? null}
-                folderId={event.google_drive_folder_id ?? null}
-                folderUrl={event.google_drive_folder_url ?? null}
+                hasFolder={Boolean(event.drive_folder_id)}
+                open={driveOpen}
+                artists={(lab?.artists ?? []).map((artist) => ({ id: artist.id, name: artist.name }))}
               />
               <PlatformConfigCard
                 eventId={event.id}

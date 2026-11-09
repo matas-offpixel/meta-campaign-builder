@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent, type ReactNode } from "react";
 
+import { driveFileUrl } from "@/lib/drive/panel";
 import { Button } from "@/components/ui/button";
 import { isInPaydayWindow } from "@/lib/dashboard/pacing";
 import { offerRefusal, offerWords, type OfferFigures, type OfferKind } from "@/lib/releases/offers";
@@ -663,19 +664,19 @@ export function AssetBoard() {
   );
 }
 
-function RowCells({ name, sub, cells }: { name: string; sub?: string; cells: { text: string; status: CellStatus }[] }) {
+function RowCells({ name, sub, cells }: { name: string; sub?: string; cells: { text: string; status: CellStatus; driveFileId?: string | null; dropFolder?: string | null }[] }) {
   return (
     <>
       <span>
         <span className="block text-xs font-semibold">{name}</span>
         {sub ? <span className="block text-[10.5px] text-muted-foreground">{sub}</span> : null}
       </span>
-      {cells.map((cell, index) => <Cell key={`${name}-${index}`} text={cell.text} status={cell.status} />)}
+      {cells.map((cell, index) => <Cell key={`${name}-${index}`} text={cell.text} status={cell.status} driveFileId={cell.driveFileId} dropFolder={cell.dropFolder} />)}
     </>
   );
 }
 
-function Cell({ text, status }: { text: string; status: CellStatus }) {
+function Cell({ text, status, driveFileId, dropFolder }: { text: string; status: CellStatus; driveFileId?: string | null; dropFolder?: string | null }) {
   const thumb = status === "made" || status === "approved";
   const cls = thumb
     ? "border-transparent text-white"
@@ -693,6 +694,13 @@ function Cell({ text, status }: { text: string; status: CellStatus }) {
         <span className="absolute top-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-success text-[10px] font-bold text-white">✓</span>
       ) : null}
       {text && text !== "—" ? <span className="relative">{text}</span> : status === "na" ? "—" : null}
+      {dropFolder ? <em className="relative block text-[10px]">{dropFolder}</em> : null}
+      {driveFileId ? (
+        <a href={driveFileUrl(driveFileId)} target="_blank" rel="noreferrer" className="absolute bottom-0.5 left-0.5 text-[10px] underline">
+          <span className="hidden sm:inline">Drive ↗</span>
+          <span className="sm:hidden">↗</span>
+        </a>
+      ) : null}
     </div>
   );
 }

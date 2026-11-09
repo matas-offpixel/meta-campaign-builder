@@ -210,6 +210,9 @@ export type CreativeLabCardData = {
     playing: boolean;
     /** Every round holding this render is still draft or rendering (or it is in none), so a failed render can be tried again from its row. */
     roundOpen: boolean;
+    driveStatus?: string | null;
+    driveFileName?: string | null;
+    driveFileId?: string | null;
   }[];
   assets: { id: string; filename: string; durationSeconds: number | null; thumbnailUrl: string | null }[];
   clientEvents: { id: string; name: string; eventDate: string | null }[];
@@ -561,6 +564,9 @@ export async function loadCreativeLabCard(
         clipPreviewUrl: text(clipAsset, "public_url") || text(clipAsset, "thumbnail_url") || null,
         lines: [],
         playing: false,
+        driveStatus: text(row, "drive_status") || null,
+        driveFileName: text(row, "drive_file_name") || null,
+        driveFileId: text(row, "drive_file_id") || null,
         roundOpen: renderRoundOpen(
           adRows
             .filter((ad) => text(ad, "render_id") === text(row, "id"))

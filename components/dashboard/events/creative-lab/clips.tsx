@@ -42,6 +42,8 @@ import {
   resultsLabel,
   sourceBadge,
 } from "@/lib/creative-lab/surface";
+import { WhichFolder } from "@/components/dashboard/events/drive/ui";
+import { formatFileSize, preselectFolder, usualFolders, type FolderChoice } from "@/lib/drive/panel";
 import { uploadFileToCampaignAssets } from "@/lib/tiktok-wizard/campaign-asset-upload";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
@@ -73,6 +75,7 @@ export function LabClips({
   onSave,
   onError,
   intake = true,
+  driveFolderId = null,
   pendingFind = false,
   pendingImportId = null,
   showTiles = true,
@@ -83,6 +86,8 @@ export function LabClips({
   onSave: Save;
   onError: (message: string) => void;
   intake?: boolean;
+  /** When the event has a Drive folder, a clip asks which folder before it is stored. */
+  driveFolderId?: string | null;
   /** Frame only: Find clips is already in flight. */
   pendingFind?: boolean;
   pendingImportId?: string | null;
@@ -93,6 +98,8 @@ export function LabClips({
   const groups = groupClips(lab.clips);
   const router = useRouter();
   const [working, setWorking] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [folderChoice, setFolderChoice] = useState<FolderChoice | null>(null);
   const findable = lab.lineupRows.filter((row) => row.labArtistId && row.instagramHandle);
   const [finding, setFinding] = useState(pendingFind);
   const [readingHandle, setReadingHandle] = useState<string | null>(pendingFind ? findable[0]?.instagramHandle ?? null : null);
@@ -149,6 +156,15 @@ export function LabClips({
     const duration = await fileDuration(file);
     if (duration != null && duration > 30) {
       onError("Clips over 30 seconds are refused.");
+      return;
+    }
+    if (driveFolderId) {
+      const next = preselectFolder(
+        { name: file.name, fromClips: true, artistId: artist.id },
+        { artists: lab.artists.map((row) => ({ id: row.id, name: row.name })), status: lab.eventStatus, eventDate: lab.eventDate, today: lab.now.slice(0, 10) },
+      );
+      setPendingFile(file);
+      setFolderChoice(next);
       return;
     }
     setWorking(true);
@@ -224,6 +240,36 @@ export function LabClips({
             Drop a clip, or choose a file
             <input className="sr-only" type="file" accept="video/mp4,video/*" disabled={busy || working} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} />
           </label>
+          {pendingFile && folderChoice ? (
+            <WhichFolder
+              fileLabel={`${pendingFile.name} · ${formatFileSize(pendingFile.size)}`}
+              choices={usualFolders({ artists: lab.artists.map((row) => ({ id: row.id, name: row.name })), status: lab.eventStatus, eventDate: lab.eventDate, today: lab.now.slice(0, 10) }, folderChoice)}
+              selectedKey={folderChoice.key}
+              artists={lab.artists.map((row) => ({ id: row.id, name: row.name }))}
+              busy={working}
+              onSelect={setFolderChoice}
+              onCancel={() => { setPendingFile(null); setFolderChoice(null); }}
+              onUpload={() => {
+                const body = new FormData();
+                body.set("file", pendingFile);
+                body.set("key", folderChoice.key);
+                if (folderChoice.artistName) body.set("artistName", folderChoice.artistName);
+                setWorking(true);
+                void fetch(`/api/events/${lab.eventId}/drive/upload`, { method: "POST", body })
+                  .then(async (res) => {
+                    const json = (await res.json()) as { error?: string; ok?: boolean };
+                    if (!res.ok || json.ok === false) onError(json.error || "");
+                    else {
+                      setPendingFile(null);
+                      setFolderChoice(null);
+                      router.refresh();
+                    }
+                  })
+                  .catch((err) => onError(err instanceof Error ? err.message : ""))
+                  .finally(() => setWorking(false));
+              }}
+            />
+          ) : null}
           {folders.map((artist) => (
             <Button key={artist.id} type="button" disabled={busy} onClick={() => void fetch(`/api/creative-lab/artists/${artist.id}/import-clips`, { method: "POST" }).then(() => router.refresh())}>
               Import {artist.name} folder

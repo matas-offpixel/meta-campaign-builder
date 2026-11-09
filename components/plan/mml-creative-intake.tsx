@@ -19,6 +19,7 @@ import {
   CAMPAIGN_ASSETS_BUCKET,
   uploadFileToCampaignAssets,
 } from "@/lib/tiktok-wizard/campaign-asset-upload";
+import { LabSource } from "@/components/dashboard/events/drive/ui";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 interface IntakeAsset {
@@ -143,6 +144,9 @@ export function MmlCreativeIntake({
   const [notes, setNotes] = useState<string[]>([]);
   const [progress, setProgress] = useState<string | null>(null);
   const [sendResults, setSendResults] = useState<IntakeSendReport[]>([]);
+  const [labOpen, setLabOpen] = useState(false);
+  const [labRows, setLabRows] = useState<{ id: string; pairing: string; roundNo: number; length: string | null; inDrive: boolean; added: boolean; eventName: string }[]>([]);
+  const [labEmpty, setLabEmpty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
@@ -344,8 +348,52 @@ export function MmlCreativeIntake({
     return <StatusLine className={`${VIZ_TYPE.label} text-muted-foreground`}>Save the MML before dropping files.</StatusLine>;
   }
 
+  async function openLab() {
+    setLabOpen(true);
+    const res = await fetch(`/api/plan/${encodeURIComponent(planId)}/from-lab`);
+    const json = (await res.json()) as { ok?: boolean; error?: string; eventName?: string; rows?: { id: string; pairing: string; roundNo: number; durationSeconds: number | null; driveStatus: string | null; added: boolean }[] };
+    if (!res.ok || json.ok === false) {
+      setError(json.error ?? null);
+      return;
+    }
+    const rows = json.rows ?? [];
+    setLabEmpty(rows.length === 0);
+    setLabRows(rows.map((row) => ({
+      id: row.id,
+      pairing: row.pairing,
+      roundNo: row.roundNo,
+      length: row.durationSeconds == null ? null : `${Math.floor(row.durationSeconds / 60)}:${String(Math.round(row.durationSeconds % 60)).padStart(2, "0")}`,
+      inDrive: row.driveStatus === "copied",
+      added: row.added,
+      eventName: json.eventName ?? "",
+    })));
+  }
+
   return (
     <div data-mml-intake className="space-y-3">
+      <button type="button" className="text-sm underline" onClick={() => void openLab()}>From the Lab</button>
+      {labOpen ? (
+        <LabSource
+          eventName={labRows[0]?.eventName ?? ""}
+          heading={false}
+          empty={labEmpty}
+          rows={labRows.map((row) => ({ ...row, narrowPairing: row.pairing }))}
+          onAdd={(id) => {
+            void fetch(`/api/plan/${encodeURIComponent(planId)}/from-lab`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ renderId: id }),
+            }).then(async (res) => {
+              const json = (await res.json()) as { error?: string; ok?: boolean };
+              if (!res.ok || json.ok === false) setError(json.error ?? null);
+              else {
+                await openLab();
+                await reload();
+              }
+            });
+          }}
+        />
+      ) : null}
       <div
         className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-border bg-card px-3 py-3"
         onDragOver={(event) => event.preventDefault()}

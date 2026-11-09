@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
+import { DriveFailed, InDriveMark } from "@/components/dashboard/events/drive/ui";
 import { renderFailureLine, renderRowFraction, renderRowWord, visibleRenderRows } from "@/lib/creative-lab/surface";
 
 type Render = CreativeLabCardData["renders"][number];
@@ -22,6 +23,23 @@ export function RenderRows({ rows, now }: { rows: readonly Render[]; now: string
   const [retrying, setRetrying] = useState<string | null>(null);
   const [refused, setRefused] = useState<Record<string, string>>({});
   const shown = visibleRenderRows(rows);
+
+  async function retryDrive(id: string) {
+    setRetrying(id);
+    try {
+      const res = await fetch(`/api/creative-lab/renders/${id}/drive-retry`, { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setRefused((current) => ({ ...current, [id]: json.error || "" }));
+        return;
+      }
+      router.refresh();
+    } catch {
+      setRefused((current) => ({ ...current, [id]: "" }));
+    } finally {
+      setRetrying(null);
+    }
+  }
 
   async function retry(id: string) {
     setRetrying(id);
@@ -65,6 +83,10 @@ export function RenderRows({ rows, now }: { rows: readonly Render[]; now: string
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm">{row.label}</p>
+                  {row.driveFileName ? <p className="truncate text-[11px] text-muted-foreground max-[700px]:hidden">{row.driveFileName}</p> : null}
+                  {row.driveStatus === "copied" ? <InDriveMark /> : null}
+                  {row.driveStatus === "failed" ? <DriveFailed busy={retrying === row.id} onRetry={() => void retryDrive(row.id)} /> : null}
+                  {refused[row.id] ? <p className="text-xs text-destructive">{refused[row.id]}</p> : null}
                   {failed ? (
                     <FailureLine
                       sentence={refused[row.id] ?? label}
