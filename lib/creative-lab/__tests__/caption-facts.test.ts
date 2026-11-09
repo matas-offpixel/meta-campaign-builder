@@ -447,6 +447,17 @@ describe("creative lab captions: claims the record does not hold", () => {
     assert.ok(few.errors.some((e) => e.code === "pick_one" && /upcoming shows/.test(e.detail)));
   });
 
+  it("counts Pick one options across lines", () => {
+    const nights = ["Bristol", "Leeds", "Manchester", "Glasgow"];
+    const options = { upcomingEvents: nights, extraNames: nights };
+    const across = validateCaption("Pick one:\nBristol\nLeeds", "question", [], billed, STYLE, options);
+    assert.equal(across.ok, true, across.errors.map((e) => e.detail).join("; "));
+    const one = validateCaption("Pick one:\nBristol", "question", [], billed, STYLE, options);
+    assert.ok(one.errors.some((e) => e.code === "pick_one" && /has 1/.test(e.detail)), one.errors.map((e) => e.detail).join("; "));
+    const four = validateCaption("Pick one:\nBristol\nLeeds\nManchester\nGlasgow", "question", [], billed, STYLE, options);
+    assert.ok(four.errors.some((e) => e.code === "pick_one" && /has 4/.test(e.detail)), four.errors.map((e) => e.detail).join("; "));
+  });
+
   it("rejects a past appearance that the record does not hold", () => {
     const line = "Luke Dean at Circuit last season";
     const rejected = validateCaption(line, "whats_next", ["Luke Dean"], billed, STYLE);

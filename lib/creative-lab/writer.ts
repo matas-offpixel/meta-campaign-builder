@@ -1,5 +1,6 @@
 /**
- * Caption writer. One Claude call per generateCaptions.
+ * Caption writer. One Claude call per generateCaptions, and one refill
+ * when that call keeps fewer than n. Never a second refill.
  *
  * The model does not type dates, the venue, the lineup or a Next list.
  * It writes {venue}, {city}, {date}, {artist}, {lineup} and {next3}.
@@ -154,6 +155,17 @@ async function defaultAnthropic(): Promise<AnthropicLike> {
   return new Anthropic({ apiKey }) as unknown as AnthropicLike;
 }
 
+const TOKEN_KEYS = ["artist", "venue", "city", "date", "lineup", "next3"] as const;
+
+/** A missing values argument offers every token. Callers that know the record pass only the filled ones. */
+function offered(values: PlaceholderValues | null, key: keyof PlaceholderValues): boolean {
+  return values == null || Boolean(values[key].trim());
+}
+
+function tokenList(values: PlaceholderValues | null): string {
+  return TOKEN_KEYS.filter((key) => offered(values, key)).map((key) => `{${key}}`).join(" ");
+}
+
 export function systemPrompt(
   style: CaptionStyle,
   facts: EventFacts,
@@ -161,6 +173,7 @@ export function systemPrompt(
   stage: SaleStage,
   past: readonly { artist: string; venue: string }[],
   voiceBlock: string | null = null,
+  values: PlaceholderValues | null = null,
 ): string {
   const examples = CORPUS[style].map((example, i) => `${i + 1}. Overlay: ${example.overlay}\n   Caption: ${example.primaryText}`).join("\n");
   const headliners = (facts.headliners ?? []).join(", ");
@@ -168,19 +181,31 @@ export function systemPrompt(
   const cta = stage === "on_sale"
     ? `Tickets are on sale. The primary text is a ticket CTA in the example's shape: "Tickets on sale now", "Grab yours", or "Who's coming?". Do not write "sign up", "get on the list", "priority access", or "presale" in either layer. If an example caption is a signup line, keep the overlay shape and change the caption.`
     : `Tickets are not on sale. The primary text asks people to sign up. Do not write "ticket", "on sale", "grab yours", or "buy" in either layer.`;
+  const shapes = [
+    offered(values, "artist") && offered(values, "venue") ? `- "{artist} at {venue} last season."` : null,
+    `- "POV:"`,
+    `- "Pick one:"`,
+    `- "This is what … looks like"`,
+  ].filter((line): line is string => Boolean(line)).join("\n");
+  const footage = offered(values, "artist") && offered(values, "venue")
+    ? `Do not claim the footage was shot in the room. Never write "same room", "this room", "in here", "just dropped", "right now", or "this is {venue}". "{artist} at {venue}", "is playing {venue}" and "are taking over {venue}" are about the show, and those stay.`
+    : offered(values, "venue")
+      ? `Do not claim the footage was shot in the room. Never write "same room", "this room", "in here", "just dropped", "right now", or "this is {venue}". "is playing {venue}" and "are taking over {venue}" are about the show, and those stay.`
+      : `Do not claim the footage was shot in the room. Never write "same room", "this room", "in here", "just dropped", or "right now".`;
+  const tokens = tokenList(values);
+  const lineupNote = offered(values, "lineup") ? `{lineup} is the headliners, with "& more" when the bill has support. ` : "";
+  const nextFilled = offered(values, "next3") ? `{next3} is already filled. Write "Next: {next3}" when the style lists what is coming. ` : "";
+  const nextNames = offered(values, "next3") ? `{next3} names headliners of upcoming shows, not support.\n` : "";
   return appendVoice(`You write one paid-social caption in the voice of the examples. Copy their sentence shapes. Voice: ${voiceForStyle(style)}. Style: ${style}. The overlay is one idea.
 
 Shapes to mirror, with the tokens:
-- "{artist} at {venue} last season."
-- "POV:"
-- "Pick one:"
-- "This is what … looks like"
+${shapes}
 
 Do not write a generic ad. The overlay must not say "Sign up now", "Four years deep", "This one matters", or only that the brand turns a number.
 
 Do not copy a set time out of an example. Never write closing, closing out, opening, first track, last track, headlining, b2b, an hour set, all night long, or sunrise set. The record has no set times.
 
-Do not claim the footage was shot in the room. Never write "same room", "this room", "in here", "just dropped", "right now", or "this is {venue}". "{artist} at {venue}", "is playing {venue}" and "are taking over {venue}" are about the show, and those stay.
+${footage}
 
 ${past.length
     ? `A past appearance is allowed only for these, already on record: ${past.map((row) => `${row.artist} at ${row.venue}`).join("; ")}. Do not write any other "last season", "back at", "returns to", or "last year".`
@@ -197,17 +222,15 @@ ${cta}
 Headliners, in this order: ${headliners}.
 Support, never singled out: ${support.join(", ") || "none"}.
 For lineup, social_proof and whats_next, name headliners only, in that order. Support appears only inside a full lineup line, or as "& more".
-{next3} names headliners of upcoming shows, not support.
-
+${nextNames}
 Return only by calling ${TOOL_NAME}.
 
 The overlay is burned onto the video. Line breaks are the only separator. Do not write "/" or "|" in the overlay, and do not write an empty line. No emoji, no '#', not all capitals. Default size is 4 lines of 18 characters. An overlay that does not fit those 4 lines uses a smaller size, up to 5 lines of 24, and never more than 96 characters. Over 96 is useless. A name that fits on one line stays whole. four_line is exactly 4 lines.
 
 Primary text is at most 125 characters. Emoji are allowed there.
 
-Never type a date, a venue, a city, an artist, a lineup or a Next list. Use these tokens and nothing else for those facts:
-{artist} {venue} {city} {date} {lineup} {next3}
-{lineup} is the headliners, with "& more" when the bill has support. {next3} is already filled. Write "Next: {next3}" when the style lists what is coming. Do not add a fourth name.
+Never type a date, a venue, a city, an artist, a lineup or a Next list.${tokens ? ` Use these tokens and nothing else for those facts:\n${tokens}` : ""}
+${lineupNote}${nextFilled}Do not add a fourth name.
 
 Event: ${facts.eventName}. Sale stage: ${stage}. Upcoming shows: ${upcoming.map((show) => show.eventName).join(", ") || "none"}.
 
@@ -315,6 +338,49 @@ async function insertCaption(db: ServiceRoleDb, row: Row): Promise<Row> {
   return written.row;
 }
 
+const AVOID_LIMIT = 20;
+
+function stampOf(row: Row): number {
+  const at = Date.parse(String(row.created_at ?? ""));
+  return Number.isFinite(at) ? at : 0;
+}
+
+/** The 20 newest overlays of this style, normalised like the duplicate key. Just-kept lines count as newer. */
+function alreadyOnEvent(rows: readonly Row[], style: string, kept: readonly { text: string }[]): string[] {
+  const stored = rows
+    .filter((row) => row.style === style)
+    .map((row) => ({ key: normaliseCaption(String(row.text ?? "")), at: stampOf(row), no: Number(row.caption_no ?? 0) }))
+    .filter((row) => row.key)
+    .sort((a, b) => b.at - a.at || b.no - a.no);
+  const fresh = kept.map((caption) => normaliseCaption(caption.text)).filter(Boolean).reverse();
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  for (const key of [...fresh, ...stored.map((row) => row.key)]) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(key);
+    if (lines.length === AVOID_LIMIT) break;
+  }
+  return lines;
+}
+
+function requestMessage(args: {
+  count: number;
+  style: CaptionStyle;
+  eventName: string;
+  stage: SaleStage;
+  headliners: readonly string[];
+  upcoming: readonly string[];
+  avoid: readonly string[];
+}): string {
+  const pick = args.upcoming.length >= 2
+    ? `"Pick one:" is 2 or 3 different upcoming shows (${args.upcoming.join("; ")}), never artists on this bill, and never a Next list.`
+    : `Do not write "Pick one:".`;
+  const base = `Write ${args.count} different ${args.style} candidates for ${args.eventName}. Sale stage: ${args.stage}. Every candidate includes primary_text. Name these headliners only, in this order: ${args.headliners.join(", ")}. Use the tokens. Do not invent a date, a price, a venue, a set time, a past appearance, or where the footage was filmed. ${pick}`;
+  if (!args.avoid.length) return base;
+  return `${base}\nThese are already on the event and must not be repeated or lightly reworded.\n${args.avoid.join("\n")}`;
+}
+
 export async function generateCaptions(
   db: ServiceRoleDb,
   args: GenerateCaptionsArgs,
@@ -390,131 +456,150 @@ export async function generateCaptions(
 
   const anthropic = deps.anthropic ?? (await defaultAnthropic());
   const model = deps.model ?? WRITER_MODEL;
-  const response = await anthropic.messages.create({
-    model,
-    max_tokens: 2000,
-    temperature: 0.7,
-    system: systemPrompt(args.style, facts, upcoming, stage, past, voiceBlock),
-    tools: [
-      {
-        name: TOOL_NAME,
-        description: "Submit caption candidates. Overlay and primary text still contain the placeholder tokens.",
-        input_schema: {
-          type: "object",
-          properties: {
-            candidates: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  overlay: { type: "string" },
-                  primary_text: { type: "string" },
-                  declared_names: { type: "array", items: { type: "string" } },
-                },
-                required: ["overlay", "primary_text"],
+  const tools = [
+    {
+      name: TOOL_NAME,
+      description: "Submit caption candidates. Overlay and primary text still contain the placeholder tokens.",
+      input_schema: {
+        type: "object",
+        properties: {
+          candidates: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                overlay: { type: "string" },
+                primary_text: { type: "string" },
+                declared_names: { type: "array", items: { type: "string" } },
               },
+              required: ["overlay", "primary_text"],
             },
           },
-          required: ["candidates"],
         },
+        required: ["candidates"],
       },
-    ],
-    tool_choice: { type: "tool", name: TOOL_NAME },
-    messages: [
-      {
-        role: "user",
-        content: `Write ${args.n + 4} different ${args.style} candidates for ${facts.eventName}. Sale stage: ${stage}. Every candidate includes primary_text. Name these headliners only, in this order: ${(facts.headliners ?? []).join(", ")}. Use the tokens. Do not invent a date, a price, a venue, a set time, a past appearance, or where the footage was filmed. ${upcoming.length >= 2 ? `"Pick one:" is 2 or 3 different upcoming shows (${upcoming.map((show) => show.eventName).join("; ")}), never artists on this bill, and never a Next list.` : `Do not write "Pick one:".`}`,
-      },
-    ],
-  });
-
+    },
+  ];
   const kept: WrittenCaption[] = [];
-  const candidates = toolInput(response.content);
+  let returned = 0;
   let duplicates = 0;
-  for (const candidate of candidates) {
-    if (kept.length >= args.n) break;
-    const overlay = substitutePlaceholders(candidate.overlay, values).trim();
-    const primary = substitutePlaceholders(candidate.primaryText, values).trim();
-    if (!primary) {
-      deps.onReject?.(overlay, primary, [{ code: "primary_missing", detail: "a caption needs primary text" }]);
-      continue;
-    }
-    if (stillHasPlaceholder(overlay) || stillHasPlaceholder(primary)) {
-      deps.onReject?.(overlay, primary, [{ code: "placeholder", detail: "a token was left in" }]);
-      continue;
-    }
-    if (hasMention(overlay) || hasMention(primary)) {
-      deps.onReject?.(overlay, primary, [{ code: "voice_mention", detail: "mentions are read and never written" }]);
-      continue;
-    }
-    if ((!hashtagsOn && (hasHashtag(overlay) || hasHashtag(primary))) || (hashtagsOn && hasHashtag(overlay))) {
-      deps.onReject?.(overlay, primary, [{ code: "voice_hashtag", detail: "hashtags stay off unless the client's switch is on, and they never go on the overlay" }]);
-      continue;
-    }
-    if (traits) {
-      const signOff = traits.signOffs[0]?.line ?? null;
-      if (copiesVoice(overlay, primary, samples.map((sample) => sample.caption), signOff)) {
-        deps.onReject?.(overlay, primary, [{ code: "voice_copy", detail: "six consecutive words from a post" }]);
+
+  async function writeOnce(count: number): Promise<void> {
+    if (deps.yield) deps.yield.calls += 1;
+    const response = await anthropic.messages.create({
+      model,
+      max_tokens: 2000,
+      temperature: 0.7,
+      system: systemPrompt(args.style, facts, upcoming, stage, past, voiceBlock, values),
+      tools,
+      tool_choice: { type: "tool", name: TOOL_NAME },
+      messages: [
+        {
+          role: "user",
+          content: requestMessage({
+            count,
+            style: args.style,
+            eventName: facts.eventName,
+            stage,
+            headliners: facts.headliners ?? [],
+            upcoming: upcoming.map((show) => show.eventName),
+            avoid: alreadyOnEvent(existing, args.style, kept),
+          }),
+        },
+      ],
+    });
+    const candidates = toolInput(response.content);
+    returned += candidates.length;
+    let duplicatesThisCall = 0;
+    for (const candidate of candidates) {
+      if (kept.length >= args.n) break;
+      const overlay = substitutePlaceholders(candidate.overlay, values).trim();
+      const primary = substitutePlaceholders(candidate.primaryText, values).trim();
+      if (!primary) {
+        deps.onReject?.(overlay, primary, [{ code: "primary_missing", detail: "a caption needs primary text" }]);
         continue;
       }
+      if (stillHasPlaceholder(overlay) || stillHasPlaceholder(primary)) {
+        deps.onReject?.(overlay, primary, [{ code: "placeholder", detail: "a token was left in" }]);
+        continue;
+      }
+      if (hasMention(overlay) || hasMention(primary)) {
+        deps.onReject?.(overlay, primary, [{ code: "voice_mention", detail: "mentions are read and never written" }]);
+        continue;
+      }
+      if ((!hashtagsOn && (hasHashtag(overlay) || hasHashtag(primary))) || (hashtagsOn && hasHashtag(overlay))) {
+        deps.onReject?.(overlay, primary, [{ code: "voice_hashtag", detail: "hashtags stay off unless the client's switch is on, and they never go on the overlay" }]);
+        continue;
+      }
+      if (traits) {
+        const signOff = traits.signOffs[0]?.line ?? null;
+        if (copiesVoice(overlay, primary, samples.map((sample) => sample.caption), signOff)) {
+          deps.onReject?.(overlay, primary, [{ code: "voice_copy", detail: "six consecutive words from a post" }]);
+          continue;
+        }
+      }
+      const key = normaliseCaption(overlay);
+      if (!key || seen.has(key)) {
+        if (key && seen.has(key)) duplicatesThisCall += 1;
+        continue;
+      }
+      const check = validateCaption(overlay, args.style, candidate.declaredNames, facts, { version }, {
+        extraNames,
+        crowdTicketsSold: tickets,
+        primaryText: primary,
+        emojiInPrimary: emojiOk,
+        saleStage: stage,
+        clipVenueName: clipVenue,
+        upcomingEvents: upcoming.map((show) => show.eventName),
+        pastAppearances: past,
+        speakingArtist: args.style === "artist_first_person" ? artistName : null,
+        playedCities: args.style === "artist_first_person" ? playedCities : undefined,
+      });
+      if (!check.ok) {
+        deps.onReject?.(overlay, primary, check.errors);
+        continue;
+      }
+      seen.add(key);
+      const captionNo = await nextCaptionNo(db, args.eventId, args.style);
+      const inserted = await insertCaption(db, {
+        user_id: event.user_id,
+        event_id: args.eventId,
+        style: args.style,
+        caption_no: captionNo,
+        text: overlay,
+        lines: check.lines,
+        primary_text: primary,
+        declared_names: candidate.declaredNames,
+        size_variant: check.sizeVariant,
+        style_version: version,
+        generated_by: model,
+        status: "proposed",
+        facts_hash: factsHash(facts),
+        ...(args.clipId ? { clip_id: args.clipId } : {}),
+      });
+      kept.push({
+        id: String(inserted.id),
+        style: args.style,
+        text: overlay,
+        lines: check.lines,
+        primaryText: primary,
+        sizeVariant: check.sizeVariant,
+        declaredNames: candidate.declaredNames,
+        captionNo: Number(inserted.caption_no ?? captionNo),
+        ok: true,
+        shapeNote,
+      });
     }
-    const key = normaliseCaption(overlay);
-    if (!key || seen.has(key)) {
-      if (key && seen.has(key)) duplicates += 1;
-      continue;
+    duplicates += duplicatesThisCall;
+    if (deps.yield) {
+      deps.yield.candidates += candidates.length;
+      deps.yield.duplicates += duplicatesThisCall;
     }
-    const check = validateCaption(overlay, args.style, candidate.declaredNames, facts, { version }, {
-      extraNames,
-      crowdTicketsSold: tickets,
-      primaryText: primary,
-      emojiInPrimary: emojiOk,
-      saleStage: stage,
-      clipVenueName: clipVenue,
-      upcomingEvents: upcoming.map((show) => show.eventName),
-      pastAppearances: past,
-      speakingArtist: args.style === "artist_first_person" ? artistName : null,
-      playedCities: args.style === "artist_first_person" ? playedCities : undefined,
-    });
-    if (!check.ok) {
-      deps.onReject?.(overlay, primary, check.errors);
-      continue;
-    }
-    seen.add(key);
-    const captionNo = await nextCaptionNo(db, args.eventId, args.style);
-    const inserted = await insertCaption(db, {
-      user_id: event.user_id,
-      event_id: args.eventId,
-      style: args.style,
-      caption_no: captionNo,
-      text: overlay,
-      lines: check.lines,
-      primary_text: primary,
-      declared_names: candidate.declaredNames,
-      size_variant: check.sizeVariant,
-      style_version: version,
-      generated_by: model,
-      status: "proposed",
-      facts_hash: factsHash(facts),
-      ...(args.clipId ? { clip_id: args.clipId } : {}),
-    });
-    kept.push({
-      id: String(inserted.id),
-      style: args.style,
-      text: overlay,
-      lines: check.lines,
-      primaryText: primary,
-      sizeVariant: check.sizeVariant,
-      declaredNames: candidate.declaredNames,
-      captionNo: Number(inserted.caption_no ?? captionNo),
-      ok: true,
-      shapeNote,
-    });
   }
-  if (deps.yield) {
-    deps.yield.candidates += candidates.length;
-    deps.yield.duplicates += duplicates;
-  }
-  if (kept.length === 0 && candidates.length > 0 && duplicates === candidates.length) {
+
+  await writeOnce(args.n + 4);
+  if (kept.length < args.n) await writeOnce(args.n - kept.length + 4);
+  if (kept.length === 0 && returned > 0 && duplicates === returned) {
     throw new Error(LINES_ALREADY_ON_EVENT);
   }
   return kept;

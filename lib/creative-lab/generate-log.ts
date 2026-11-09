@@ -14,10 +14,12 @@ export type GenerateYield = {
   rejects: Record<string, number>;
   duplicates: number;
   candidates: number;
+  /** Writer calls in this Generate. One refill at most, so a single write is 1 or 2. */
+  calls: number;
 };
 
 export function emptyYield(): GenerateYield {
-  return { rejects: {}, duplicates: 0, candidates: 0 };
+  return { rejects: {}, duplicates: 0, candidates: 0, calls: 0 };
 }
 
 /** One count per code on a dropped candidate. The same code twice on one candidate counts once. */
@@ -48,5 +50,6 @@ export function generateLogLine(args: {
     rejects: counted.rejects,
     duplicates: counted.duplicates,
     candidates: counted.candidates,
+    calls: counted.calls,
   });
 }
