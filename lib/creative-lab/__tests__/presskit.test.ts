@@ -105,8 +105,9 @@ function judge(calls: { src: string | null; times: number[] }[], textIn: string[
   };
 }
 
-async function importVideos(fake: ReturnType<typeof db>, source: PresskitSource, calls: { src: string | null; times: number[] }[], textIn: string[] = []) {
+async function importVideos(fake: ReturnType<typeof db>, source: PresskitSource, calls: { src: string | null; times: number[] }[], textIn: string[] = [], recheckClipNos?: number[]) {
   return importPresskitVideos(fake as unknown as ServiceRoleDb, {
+    recheckClipNos,
     artistId: ARTIST,
     folderUrl: PACK,
     source,
@@ -254,6 +255,19 @@ describe("importPresskitVideos", () => {
     const run2 = await importVideos(fake, pack(LUKE_PACK), calls);
     assert.deepEqual(run2.rechecked.map((row) => row.clipId), [clip.id]);
     assert.equal((clip.overlay_check as { verdict: string }).verdict, "clean");
+  });
+
+  it("checks a named clip number again even though it holds a verdict, and only that one", async () => {
+    const fake = db();
+    const calls: { src: string | null; times: number[] }[] = [];
+    await importVideos(fake, pack(LUKE_PACK), calls, [".mov"]);
+    const clips = fake.tables.creative_lab_clips;
+    const flagged = clips.find((clip) => (clip.overlay_check as { verdict: string }).verdict === "text_overlay")!;
+    const before = calls.length;
+    const run2 = await importVideos(fake, pack(LUKE_PACK), calls, [], [Number(flagged.clip_no)]);
+    assert.equal(calls.length, before + 1);
+    assert.deepEqual(run2.rechecked.map((row) => row.clipId), [flagged.id]);
+    assert.equal((flagged.overlay_check as { verdict: string }).verdict, "clean");
   });
 
   it("leaves the artist's own folder link, sync state and clip_source as they were", async () => {

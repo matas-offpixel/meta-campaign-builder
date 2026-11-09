@@ -238,6 +238,8 @@ export async function importPresskitVideos(
     judge: OverlayJudge;
     upload?: (storagePath: string, bytes: Buffer, contentType: string) => Promise<void>;
     probe?: (bytes: Buffer, name: string) => ClipProbe | null;
+    /** Clip numbers to check again even though they hold a verdict (a prompt or schema change). */
+    recheckClipNos?: readonly number[];
   },
 ): Promise<{ files: VideoImportRow[]; folderError: string | null; rechecked: { clipId: string; check: OverlayCheck }[] }> {
   const exclude = args.exclude ?? DEFAULT_EXCLUDE;
@@ -259,7 +261,8 @@ export async function importPresskitVideos(
     },
   });
 
-  // A clip from an earlier run whose check never stored (the run stopped, or the check could not read the file).
+  // A clip from an earlier run whose check never stored (the run stopped, or the check could not read the file),
+  // and any clip number the operator named with --recheck.
   const rechecked: { clipId: string; check: OverlayCheck }[] = [];
   const pending = await db.from("creative_lab_clips").select("*").eq("artist_id", args.artistId).eq("source", PRESSKIT_SOURCE);
   if (pending.error) throw new Error(pending.error.message);
@@ -267,7 +270,8 @@ export async function importPresskitVideos(
     const id = String(row.id ?? "");
     if (!id || checks.has(id)) continue;
     const stored = row.overlay_check as OverlayCheck | null;
-    if (stored && stored.verdict && stored.verdict !== "check_by_eye") continue;
+    const forced = (args.recheckClipNos ?? []).includes(Number(row.clip_no));
+    if (!forced && stored && stored.verdict && stored.verdict !== "check_by_eye") continue;
     const asset = await db.from("creative_assets").select("storage_path, duration_seconds").eq("id", String(row.creative_asset_id ?? "")).maybeSingle();
     if (asset.error) throw new Error(asset.error.message);
     const storagePath = String((asset.data as Row | null)?.storage_path ?? "");

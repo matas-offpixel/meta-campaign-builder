@@ -1,6 +1,7 @@
 /**
  * Burned-in text check. Eight frames from one Lambda still, plus the
- * thumbnail. Scene text is not a rejection. The model being unsure, or
+ * thumbnail when there is one (a press kit has none). Scene text is not a
+ * rejection, and a frame's `text` is only text added in editing. The model being unsure, or
  * text only on the thumbnail, is check by eye.
  */
 
@@ -69,9 +70,13 @@ export function settleOverlayVerdict(input: {
   return { verdict: "clean", frames, reason: input.reason?.trim() || "No burned-in text.", flagged: 0 };
 }
 
+/** What `text` means on a frame. The schema and the prompt both say it, so a scene logo is never counted. */
+const FRAME_TEXT_RULE =
+  "true only for text added on top of the footage in editing: captions, titles, subtitles, lyric text, stickers, dates, venue or promo graphics, worded watermarks. Logos, signage, LED screens, clothing prints and equipment branding that are in the scene are never text: set false and name them in what.";
+
 export const OVERLAY_TOOL = {
   name: "overlay_verdict",
-  description: "Say whether added text is burned into the clip.",
+  description: "Say whether text was added on top of the clip in editing.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -81,10 +86,10 @@ export const OVERLAY_TOOL = {
         items: {
           type: "object",
           properties: {
-            t: { type: "number" },
-            text: { type: "boolean" },
-            what: { type: "string" },
-            thumbnail: { type: "boolean" },
+            t: { type: "number", description: "The frame time in seconds." },
+            text: { type: "boolean", description: FRAME_TEXT_RULE },
+            what: { type: "string", description: "What text, if any, is in this frame, added or in the scene." },
+            thumbnail: { type: "boolean", description: "True only for the thumbnail image, when one was sent." },
           },
           required: ["t", "text", "what"],
         },
@@ -96,14 +101,19 @@ export const OVERLAY_TOOL = {
   },
 };
 
-export const OVERLAY_PROMPT = [
-  "The first image is eight frames of one clip, left to right, at the times given.",
-  "The second image is the thumbnail.",
-  "Reject added captions, titles, subtitles, lyric text, promo or date or venue graphics, and watermarks that contain words.",
-  "Do not reject text that is part of the scene: club signage, LED screens, DJ booth branding, T-shirt prints.",
-  "Text on the thumbnail only is check_by_eye, not a rejection.",
-  "If you are unsure, set unsure true and verdict check_by_eye.",
-].join(" ");
+/** The prompt for the images actually sent: the frame sheet, and the thumbnail only when there is one. */
+export function overlayPrompt(args: { thumbnail: boolean }): string {
+  return [
+    args.thumbnail
+      ? "The first image is eight frames of one clip, left to right, at the times given. The second image is the thumbnail."
+      : "The image is eight frames of one clip, left to right, at the times given. There is no thumbnail.",
+    "Reject added captions, titles, subtitles, lyric text, stickers, promo or date or venue graphics, and watermarks that contain words.",
+    "Do not reject text that is part of the scene: club signage, LED screens, DJ booth and equipment branding, logos, T-shirt prints.",
+    `Per frame, text is ${FRAME_TEXT_RULE}`,
+    ...(args.thumbnail ? ["Text on the thumbnail only is check_by_eye, not a rejection."] : []),
+    "If you are unsure, set unsure true and verdict check_by_eye.",
+  ].join(" ");
+}
 
 export function overlaySkipLine(flagged: number): string {
   return `Skipped — text in ${flagged} of 8 frames`;
