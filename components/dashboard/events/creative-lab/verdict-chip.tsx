@@ -5,9 +5,9 @@ const TONE: Record<string, string> = {
   lose: "bg-destructive text-background",
   flag: "bg-destructive text-background",
   hold: "border border-foreground text-foreground",
-  dash: "border border-dashed border-foreground/40 text-muted-foreground",
-  kept: "border border-foreground text-foreground",
-  new: "border border-dashed border-foreground/40 text-foreground",
+  dash: "border border-dashed border-border-strong text-muted-foreground",
+  kept: "border border-border-strong text-foreground",
+  new: "border border-dashed border-border-strong text-foreground",
 };
 
 /**

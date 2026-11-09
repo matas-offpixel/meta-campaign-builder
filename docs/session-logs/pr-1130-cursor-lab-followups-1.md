@@ -38,3 +38,5 @@ Frames, Ubuntu, head `e606c8c30303a682c3174c6f2713ba98b5550723`. `only=CL` runs 
 - AB1-1280, AB2 both widths, AB3 both widths, AB4 both widths, AB5 both widths: a proposed, approved or warning chip paints ochre, olive or brick.
 
 Left, because they matched git: CL1 both widths, CLS2 both widths, CLS3-393, CLS4 both widths, CLQ1-393, CLQ4 both widths, CLV1-393, CLV2-393, IR5 both widths, AB1-393.
+
+Verdict on e109d77: an On cell is `border-border`, a Kept chip is `border-border-strong`, Untested and New are dashed `border-border-strong`, and the plan column is dashed `border-border`. Holding stays ink. CLS2b is Each selected before a write.

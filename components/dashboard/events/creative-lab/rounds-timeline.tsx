@@ -54,7 +54,7 @@ export function RoundsTimeline({ lab, rounds, next }: { lab: CreativeLabCardData
         );
       })}
       {next ? (
-        <div className="rounded border border-dashed border-foreground/40 p-2">
+        <div className="rounded border border-dashed border-border p-2">
           <p className="mb-2 text-xs tracking-wide text-muted-foreground uppercase">Round {next.roundNo} · plan</p>
           <ul className="space-y-1">
             {next.plan.clips.map((item) => {

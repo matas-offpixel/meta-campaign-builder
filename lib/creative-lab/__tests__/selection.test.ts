@@ -157,6 +157,18 @@ describe("clip selection", () => {
     const round = readFileSync(new URL("../../../components/dashboard/events/creative-lab/round.tsx", import.meta.url), "utf8");
     assert.match(round, /renderPairs\(matrix\.cells\)/);
     assert.match(round, /href="#lab-clips"/);
+    assert.match(round, /cell\?\.on \? "border-border bg-card"/);
+    const chips = readFileSync(new URL("../../../components/dashboard/events/creative-lab/verdict-chip.tsx", import.meta.url), "utf8");
+    assert.match(chips, /hold: "border border-foreground text-foreground"/);
+    assert.match(chips, /kept: "border border-border-strong text-foreground"/);
+    assert.match(chips, /dash: "border border-dashed border-border-strong text-muted-foreground"/);
+    assert.match(chips, /new: "border border-dashed border-border-strong text-foreground"/);
+    const timeline = readFileSync(new URL("../../../components/dashboard/events/creative-lab/rounds-timeline.tsx", import.meta.url), "utf8");
+    assert.match(timeline, /border-dashed border-border p-2/);
+    const mount = readFileSync(new URL("../../../components/dashboard/events/creative-lab/selection-frame-mount.tsx", import.meta.url), "utf8");
+    assert.match(mount, /id === "CLS2b"/);
+    assert.match(mount, /initialPair="each"/);
+    assert.equal(mount.includes('id === "CLS2b"') && mount.slice(mount.indexOf('id === "CLS2b"'), mount.indexOf('id === "CLS2b"') + 400).includes("initialWrittenIds"), false);
   });
 });
 
