@@ -18,8 +18,11 @@
  * Default: writes PNGs and report.md to --out (default outputs/{CODE}/cards).
  * --apply also copies them into the event's Drive tree, routed by
  * cardFolderKey (on sale → 03 Creatives / 3 On sale / w/c … / Content),
- * tagged so the pickup skips them, named with _v{--version} (default 1: no
- * suffix), and the next free _vN when that name is taken. Nothing is
+ * tagged so the pickup skips them. A photo that needs more room above or
+ * at the sides is extended per O20 (lib/creative-lab/artist-card.ts) and the
+ * card's line says "photo extended … by N px". Files are named with
+ * _v{--version} (default 1: no suffix), and the next free _vN when that
+ * name is taken. Nothing is
  * overwritten, trashed or deleted.
  */
 
@@ -29,7 +32,7 @@ import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import { cardFileName, cardFolderKey, INVENTED, renderCard, trimToInk, type CardFormat, type Piece, type RenderResult } from "../lib/creative-lab/artist-card.ts";
-import { detectFaces, faceGeometry, type FaceBox } from "../lib/creative-lab/face-detect.ts";
+import { detectFaces, eyesMeasurable, faceGeometry, type FaceBox } from "../lib/creative-lab/face-detect.ts";
 import { APP_ID_KEY, APP_TAG_KEY, driveFromEnv } from "../lib/drive/client.ts";
 import type { DriveDb } from "../lib/drive/db.ts";
 import { ensureEventKey } from "../lib/drive/folders.ts";
@@ -118,7 +121,8 @@ async function judge(photo: Buffer, artist: string): Promise<{ card: RenderResul
   if (!nameRecord) fail(`${artist}: no name piece in ${kit.psd}`);
   const faces = await detectFaces(photo, { minConfidence: 0.3 });
   const geometry = faces.length ? ((await faceGeometry(photo, faces.slice(0, 1)))[0] ?? null) : null;
-  const card = await renderCard({ photo, face: geometry, subjects: countSubjects(faces), name: await piece(nameRecord), info, lockup });
+  const eyes = geometry ? eyesMeasurable(geometry) : undefined;
+  const card = await renderCard({ photo, face: geometry, eyes, subjects: countSubjects(faces), name: await piece(nameRecord), info, lockup });
   return { card, faces };
 }
 
@@ -126,8 +130,8 @@ function ruleLine(card: RenderResult): string {
   const p = card.plan;
   const fails = card.rules.filter((r) => !r.pass).map((r) => `${r.rule}: ${r.detail}`);
   const layout = card.layoutCheck.insideSafe && card.layoutCheck.insideTextBox ? "" : ` · LAYOUT: ${card.layoutCheck.outside.join(", ") || "text block outside 0.188–0.512 H"}`;
-  const ext = p?.extendTop ? ` · extended above ${p.extendTop} px (edge stdev ${card.edgeStdev.toFixed(1)})` : "";
-  const where = p ? `head ${p.headTop.toFixed(3)} (${card.headTopSource}) · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · scale ${p.scale.toFixed(3)}${ext}` : "no face";
+  const ext = card.extensionLabel ? ` · ${card.extensionLabel}` : " · no extension";
+  const where = p ? `head ${p.headTop.toFixed(3)} (${card.headTopSource}) · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · scale ${p.scale.toFixed(3)}${ext}` : "no face";
   return `${card.pass ? "PASS" : "FAIL"} · contrast ${(card.contrastShare * 100).toFixed(1)} % · ${where}${fails.length ? ` · fails ${fails.join("; ")}` : ""}${layout}`;
 }
 
@@ -197,7 +201,9 @@ for (const pick of picks) {
   for (const p of card.layout.all) {
     say(`- ${p.label}: ${p.width}×${p.height} at ${p.left},${p.top} · scale ${p.scale.toFixed(3)}${p.stepped ? " · stepped to width" : ""}${p.belowFloor ? " · BELOW FLOOR" : ""}${p.short ? " · SHORT" : ""}`);
   }
-  if (card.plan?.extendTop) say(`- photo extended above by ${card.plan.extendTop} px from its own top edge (edge luminance stdev ${card.edgeStdev.toFixed(1)})`);
+  for (const [edge, st] of Object.entries(card.strips)) {
+    say(`- O20 ${edge} strip: detail stdev ${st.detailStdev.toFixed(2)} (max 4) · Sobel > 20 on ${(st.sobelShare * 100).toFixed(2)} % (max 2 %) · grain added at ${st.detailStdev.toFixed(2)}`);
+  }
   if (card.squarePhotoScale > 0.8001) say(`- 1:1: the photo is too narrow to extend at the sides; drawn at ${card.squarePhotoScale.toFixed(3)}× the master's scale (not 0.8×), anchored on the eyes`);
   if (card.squareShift) say(`- 1:1: the photo ran out; its window shifted ${card.squareShift} px (the text stays centred)`);
   if (!card.pass) {

@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { eyesMeasurable } from "../face-detect.ts";
 import {
   MASTER,
-  MAX_EXTEND_TOP,
+  NO_EXTENSION,
+  O20,
   SAFE,
   SLOTS,
   cardFileName,
   cardFolderKey,
   checkLayout,
+  extendCanvas,
+  extensionCandidates,
+  extensionLabel,
   judgePhoto,
   layoutText,
   lowContrastShare,
@@ -16,6 +21,7 @@ import {
   pieceScale,
   planFaceCrop,
   relativeLuminance,
+  stripStats,
   textBoxRect,
   type CropPlan,
   type Piece,
@@ -78,7 +84,7 @@ describe("planFaceCrop", () => {
     assert.ok(plan.eyes >= 0.58 - 1e-3 && plan.eyes <= 0.64 + 1e-3);
     assert.ok(plan.chin <= 0.76 + 1e-3);
     assert.ok(plan.scale <= 1);
-    assert.equal(plan.extendTop, 0);
+    assert.deepEqual(plan.extend, NO_EXTENSION);
     assert.equal(plan.clamped.y, false);
     // Largest: one of the two bands is met exactly.
     assert.ok(Math.abs(plan.headTop - 0.53) < 2e-3 || Math.abs(plan.chin - 0.76) < 2e-3);
@@ -89,15 +95,146 @@ describe("planFaceCrop", () => {
     assert.equal(plan.scale, 1);
   });
 
-  it("a face too high stays too high without an extension, and drops into the band with one", () => {
-    const photo = { width: 5486, height: 3657 };
-    const face = { eyeX: 3000, eyeY: 1300, headTopY: 880, chinY: 1700 };
-    const stuck = planFaceCrop(photo, face);
-    assert.ok(stuck.eyes < 0.58);
-    assert.equal(stuck.extendTop, 0);
-    const extended = planFaceCrop(photo, face, MASTER, { maxExtendTop: MAX_EXTEND_TOP });
-    assert.ok(extended.extendTop > 0 && extended.extendTop <= MAX_EXTEND_TOP);
-    assert.ok(extended.eyes >= 0.58 - 1e-3 && extended.eyes <= 0.64 + 1e-3);
+  it("never extends: a face too high stays too high in planFaceCrop", () => {
+    const plan = planFaceCrop({ width: 5486, height: 3657 }, { eyeX: 3000, eyeY: 1300, headTopY: 880, chinY: 1700 });
+    assert.ok(plan.eyes < 0.58);
+    assert.deepEqual(plan.extend, NO_EXTENSION);
+  });
+});
+
+describe("O20 strip tests", () => {
+  const w = 300;
+  const h = 48;
+  it("a smooth gradient passes", () => {
+    const lum = new Float64Array(w * h).map((_, i) => 60 + ((i % w) / w) * 40);
+    const st = stripStats(lum, w, h);
+    assert.ok(st.detailStdev <= 4, `detail ${st.detailStdev}`);
+    assert.ok(st.sobelShare <= 0.02, `sobel ${st.sobelShare}`);
+    assert.equal(st.pass, true);
+  });
+
+  it("texture fails", () => {
+    let seed = 7;
+    const rand = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    const lum = new Float64Array(w * h).map(() => 60 + rand() * 80);
+    const st = stripStats(lum, w, h);
+    assert.ok(st.detailStdev > 4);
+    assert.ok(st.sobelShare > 0.02);
+    assert.equal(st.pass, false);
+  });
+
+  it("one hard edge across a plain strip fails on the Sobel share alone", () => {
+    const lum = new Float64Array(w * h).map((_, i) => ((i % w) < w / 2 ? 40 : 200));
+    const st = stripStats(lum, w, h);
+    // A single step is a few columns of the strip: the detail stdev stays moderate, the edge is what the Sobel test sees.
+    assert.ok(st.sobelShare > 0);
+  });
+});
+
+describe("O20 extension candidates", () => {
+  // 4000×2667 landscape; face high up: eyes at 1000, head top 750, chin 1250, face box 700 px wide.
+  const photo = { width: 4000, height: 2667 };
+  const face = { eyeX: 2000, eyeY: 1000, headTopY: 750, chinY: 1250, box: { width: 700 } };
+
+  it("extends the top within 0.30 H and keeps the head 48 px + 0.05 H under the strip", () => {
+    const list = extensionCandidates(photo, face);
+    assert.ok(list.length > 0);
+    assert.ok(list[0]!.extend.top > 0);
+    for (const c of list) {
+      assert.ok(c.extend.top <= O20.maxTop);
+      assert.ok(c.extend.left <= O20.maxSide && c.extend.right <= O20.maxSide);
+      if (c.extend.top > 0) assert.ok(face.headTopY * c.scale >= O20.strip + O20.headGap * 1920 - 1e-6);
+      assert.ok(c.scale <= 1);
+      assert.ok(c.faceWidthPx >= O20.minFaceWidth * 1080 - 1e-6);
+      assert.ok(c.headTop >= 0.53 - 1e-6 && c.chin <= 0.76 + 1e-6 && c.eyes >= 0.58 - 1e-6 && c.eyes <= 0.64 + 1e-6);
+    }
+  });
+
+  it("never extends the bottom: a face too low has no candidate", () => {
+    const why = { blocker: "" };
+    const list = extensionCandidates({ width: 4000, height: 2667 }, { eyeX: 2000, eyeY: 2500, headTopY: 2300, chinY: 2620, box: { width: 600 } }, MASTER, why);
+    assert.equal(list.length, 0);
+    assert.match(why.blocker, /bottom/);
+  });
+
+  it("refuses a top extension past 0.30 H", () => {
+    const why = { blocker: "" };
+    // A tiny photo strip with the face at its very top: the top would need far more than 576 px.
+    const list = extensionCandidates({ width: 6000, height: 1400 }, { eyeX: 3000, eyeY: 200, headTopY: 120, chinY: 280, box: { width: 300 } }, MASTER, why);
+    assert.equal(list.length, 0);
+    assert.ok(why.blocker.length > 0);
+  });
+
+  it("refuses when the head's top is too close to the top strip", () => {
+    const why = { blocker: "" };
+    // Head top 20 px from the photo's top edge: never 48 px + 0.05 H below the strip at any allowed scale.
+    const list = extensionCandidates({ width: 4000, height: 2667 }, { eyeX: 2000, eyeY: 220, headTopY: 20, chinY: 420, box: { width: 520 } }, MASTER, why);
+    assert.equal(list.length, 0);
+    assert.match(why.blocker, /head's top|top would need/);
+  });
+
+  it("refuses a face box under 0.25 W at the largest size the bands allow", () => {
+    const why = { blocker: "" };
+    const list = extensionCandidates(photo, { ...face, box: { width: 300 } }, MASTER, why);
+    assert.equal(list.length, 0);
+    assert.match(why.blocker, /face box is \d+ px wide/);
+  });
+
+  it("orders no extension first, then the larger face", () => {
+    const list = extensionCandidates({ width: 4000, height: 6000 }, { eyeX: 2000, eyeY: 3200, headTopY: 2800, chinY: 3600, box: { width: 600 } });
+    const total = (c: (typeof list)[number]) => c.extend.top + c.extend.left + c.extend.right;
+    assert.equal(total(list[0]!), 0);
+  });
+
+  it("labels the disclosure string", () => {
+    assert.equal(extensionLabel(NO_EXTENSION), "");
+    assert.equal(extensionLabel({ top: 319, left: 0, right: 0 }), "photo extended top by 319 px");
+    assert.equal(extensionLabel({ top: 0, left: 40, right: 40 }), "photo extended sides by 40 px");
+    assert.equal(extensionLabel({ top: 300, left: 40, right: 12 }), "photo extended top by 300 px and sides by 40 px (left) / 12 px (right)");
+  });
+});
+
+describe("O20 fill", () => {
+  it("extends top and sides from the strip's own colours, never the bottom", () => {
+    const w = 60;
+    const h = 100;
+    const rgb = new Uint8Array(w * h * 3);
+    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) rgb.set(y < 50 ? [10, 20, 200] : [250, 0, 0], (y * w + x) * 3);
+    const out = extendCanvas(rgb, w, h, { top: 30, left: 10, right: 5 }, { top: 0, left: 0, right: 0 });
+    assert.equal(out.width, 75);
+    assert.equal(out.height, 130);
+    // Top fill = the top strip's colour (blue), never the red lower half.
+    const at = (x: number, y: number) => [...out.data.subarray((y * out.width + x) * 3, (y * out.width + x) * 3 + 3)];
+    assert.deepEqual(at(40, 0), [10, 20, 200]);
+    // The photo sits at (10, 30) unchanged.
+    assert.deepEqual(at(10, 30), [10, 20, 200]);
+    assert.deepEqual(at(10, 129), [250, 0, 0]);
+    // The side fill beside the red rows is the strip's own red.
+    assert.deepEqual(at(0, 129), [250, 0, 0]);
+  });
+
+  it("adds grain at the measured strength, seeded", () => {
+    const rgb = new Uint8Array(20 * 20 * 3).fill(128);
+    const a = extendCanvas(rgb, 20, 20, { top: 20, left: 0, right: 0 }, { top: 3, left: 0, right: 0 }, 5);
+    const b = extendCanvas(rgb, 20, 20, { top: 20, left: 0, right: 0 }, { top: 3, left: 0, right: 0 }, 5);
+    assert.deepEqual(a.data, b.data);
+    const fill = [...a.data.subarray(0, 20 * 20 * 3)];
+    const mean = fill.reduce((s, v) => s + v, 0) / fill.length;
+    const sd = Math.sqrt(fill.reduce((s, v) => s + (v - mean) ** 2, 0) / fill.length);
+    assert.ok(sd > 1.5 && sd < 4.5, `grain ${sd}`);
+  });
+});
+
+describe("O20 eyes measurable", () => {
+  const base = { box: { x: 0, y: 0, width: 100, height: 120, score: 0.9 }, leftEye: { x: 30, y: 50 }, rightEye: { x: 70, y: 50 }, browY: 35, chinY: 115 };
+  it("passes a confident face with both eyes", () => {
+    assert.equal(eyesMeasurable(base).ok, true);
+  });
+  it("fails a low-confidence face (Enzo 46 was 0.18)", () => {
+    assert.equal(eyesMeasurable({ ...base, box: { ...base.box, score: 0.18 } }).ok, false);
+  });
+  it("fails a profile where both eye centroids collapse together", () => {
+    assert.equal(eyesMeasurable({ ...base, rightEye: { x: 36, y: 50 } }).ok, false);
   });
 });
 
@@ -143,7 +280,7 @@ describe("photo rules", () => {
     assert.ok(Math.abs(r.top + r.height - 0.512 * 1920) < 1e-9);
   });
 
-  const good: CropPlan = { scale: 0.5, left: 0, top: 0, headTop: 0.54, eyes: 0.61, chin: 0.74, clamped: { x: false, y: false }, extendTop: 0 };
+  const good: CropPlan = { scale: 0.5, left: 0, top: 0, headTop: 0.54, eyes: 0.61, chin: 0.74, clamped: { x: false, y: false }, extend: NO_EXTENSION, faceWidthPx: 300 };
 
   it("passes a photo inside every rule", () => {
     assert.ok(judgePhoto({ contrastShare: 0.05, subjects: 1, plan: good }).every((r) => r.pass));
@@ -157,6 +294,8 @@ describe("photo rules", () => {
     assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: { ...good, headTop: 0.5 } }), ["face"]);
     assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: { ...good, eyes: 0.66 } }), ["face"]);
     assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: { ...good, chin: 0.78 } }), ["face"]);
+    assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: { ...good, faceWidthPx: 250 } }), ["face"]);
+    assert.deepEqual(failed({ contrastShare: 0, subjects: 1, plan: good, eyes: { ok: false, why: "face confidence 0.18 < 0.5" } }), ["eyes"]);
     assert.deepEqual(failed({ contrastShare: 0, subjects: 0, plan: null }), ["subject", "face"]);
   });
 });

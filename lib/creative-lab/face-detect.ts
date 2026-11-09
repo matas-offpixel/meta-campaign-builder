@@ -29,6 +29,9 @@ export type FaceGeometry = {
   box: FaceBox;
   eyeX: number;
   eyeY: number;
+  /** Centroids of landmarks 36–41 and 42–47. */
+  leftEye: { x: number; y: number };
+  rightEye: { x: number; y: number };
   browY: number;
   chinY: number;
   headTopY: number;
@@ -189,15 +192,36 @@ export async function faceGeometry(image: Buffer, boxes: readonly FaceBox[]): Pr
       const marks = await api.nets.faceLandmark68Net.detectLandmarks(tensor);
       const pts = marks.positions.map((p) => ({ x: left + (p.x * width) / LANDMARK_INPUT, y: top + (p.y * height) / LANDMARK_INPUT }));
       if (pts.length < 68) continue;
-      const eyes = pts.slice(36, 48);
-      const eyeX = eyes.reduce((sum, p) => sum + p.x, 0) / eyes.length;
-      const eyeY = eyes.reduce((sum, p) => sum + p.y, 0) / eyes.length;
+      const centroid = (list: { x: number; y: number }[]) => ({ x: list.reduce((sum, p) => sum + p.x, 0) / list.length, y: list.reduce((sum, p) => sum + p.y, 0) / list.length });
+      const leftEye = centroid(pts.slice(36, 42));
+      const rightEye = centroid(pts.slice(42, 48));
+      const eyeX = (leftEye.x + rightEye.x) / 2;
+      const eyeY = (leftEye.y + rightEye.y) / 2;
       const browY = Math.min(...pts.slice(17, 27).map((p) => p.y));
       const chinY = pts[8]!.y;
-      out.push({ box, eyeX, eyeY, browY, chinY, headTopY: browY - HEAD_ABOVE_BROW * (chinY - browY) });
+      out.push({ box, eyeX, eyeY, leftEye, rightEye, browY, chinY, headTopY: browY - HEAD_ABOVE_BROW * (chinY - browY) });
     } finally {
       tensor.dispose();
     }
   }
   return out;
+}
+
+/** Detector confidence a face needs before its landmarks count (O20 rule 7). */
+export const EYES_MIN_SCORE = 0.5;
+
+/**
+ * O20 rule 7: the eyes are measurable when the face was found with
+ * confidence ≥ 0.5 and both eye centroids sit inside its box, at least
+ * 0.25 box widths apart, below the brows and above the chin.
+ */
+export function eyesMeasurable(g: Pick<FaceGeometry, "box" | "leftEye" | "rightEye" | "browY" | "chinY">): { ok: boolean; why: string } {
+  const inBox = (p: { x: number; y: number }) => p.x >= g.box.x && p.x <= g.box.x + g.box.width && p.y >= g.box.y && p.y <= g.box.y + g.box.height;
+  const apart = Math.abs(g.rightEye.x - g.leftEye.x) / g.box.width;
+  const eyeY = (g.leftEye.y + g.rightEye.y) / 2;
+  if (g.box.score < EYES_MIN_SCORE) return { ok: false, why: `face confidence ${g.box.score.toFixed(2)} < ${EYES_MIN_SCORE}` };
+  if (!inBox(g.leftEye) || !inBox(g.rightEye)) return { ok: false, why: "an eye falls outside the face box" };
+  if (apart < 0.25) return { ok: false, why: `eyes ${apart.toFixed(2)} box widths apart (< 0.25): one eye not seen` };
+  if (!(eyeY > g.browY && eyeY < g.chinY)) return { ok: false, why: "eyes not between brows and chin" };
+  return { ok: true, why: `confidence ${g.box.score.toFixed(2)}, eyes ${apart.toFixed(2)} box widths apart` };
 }
