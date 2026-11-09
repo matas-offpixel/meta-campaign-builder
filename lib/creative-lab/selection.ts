@@ -21,6 +21,9 @@ export const CLIPS_NOTE = "Selected clips become ads when a round pairs them wit
 
 export const NO_CLIP_SELECTED = "No clip selected — select clips to see the captions on them.";
 
+/** Each selected, before the first write. The count above it is what Write will make. */
+export const EACH_BEFORE_WRITE = "Write to see these on the clips.";
+
 export const OFF_CARD_CLIP = "This preview's clip isn't on the event any more — write it again on a clip that is.";
 
 export function captionsNote(roundNo: number): string {

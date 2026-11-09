@@ -66,13 +66,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-* {
-  border-color: var(--border);
-}
-
-/* Unlayered, so it beats the reset above. A utility cannot. */
-.border-on-media {
-  border-color: var(--on-media);
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 }
 
 input[type="text"],

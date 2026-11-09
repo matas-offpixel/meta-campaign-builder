@@ -11,6 +11,7 @@ import {
   clipSelectionStrip,
   effectiveSelection,
   eachPreviewClips,
+  EACH_BEFORE_WRITE,
   eachPreviewLine,
   newUnselectedCount,
   noSelectedClipsSentence,
@@ -92,6 +93,7 @@ describe("clip selection", () => {
     assert.equal(bestOfSelected(priced)?.id, "e2");
     assert.equal(bestOfSelected([clip("e1", 1), clip("e5", 5)])?.id, "e1");
     assert.equal(eachPreviewLine(3, 4), "3 captions × 4 clips = 12 previews");
+    assert.equal(EACH_BEFORE_WRITE, "Write to see these on the clips.");
     const four = ["e1", "e2", "e5", "e7"].map((id) => ({ id }));
     assert.equal(eachPreviewLine(3, eachPreviewClips(four).length), "3 captions × 4 clips = 12 previews");
     assert.equal(eachPreviewLine(3, eachPreviewClips(four, new Set(["e7"])).length), "3 captions × 3 clips = 9 previews");
@@ -138,7 +140,9 @@ describe("clip selection", () => {
     assert.match(source, /OFF_CARD_CLIP/);
     assert.match(source, /Each selected/);
     assert.match(source, /eachPreviewClips\(selected\)/);
-    assert.match(source, /eachPreviewLine\(crossed\.length, plates\.length\)/);
+    assert.match(source, /eachPreviewLine\(eachCount, plates\.length\)/);
+    assert.match(source, /eachPending \? count : crossed\.length/);
+    assert.match(source, /EACH_BEFORE_WRITE/);
     assert.match(source, /actions=\{index === 0\}/);
     assert.match(source, /writtenCaptionIds/);
     const clips = readFileSync(new URL("../../../components/dashboard/events/creative-lab/clips.tsx", import.meta.url), "utf8");
@@ -147,9 +151,9 @@ describe("clip selection", () => {
     assert.match(clips, /border-on-media/);
     assert.equal(clips.includes("#ffffff"), false);
     const css = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8");
-    const reset = css.indexOf("* {\n  border-color: var(--border);");
-    const ring = css.indexOf(".border-on-media {\n  border-color: var(--on-media);");
-    assert.ok(reset !== -1 && ring > reset);
+    const layered = css.indexOf("@layer base {\n  * {\n    border-color: var(--border);\n  }\n}");
+    assert.ok(layered !== -1);
+    assert.equal(css.includes(".border-on-media {"), false);
     const round = readFileSync(new URL("../../../components/dashboard/events/creative-lab/round.tsx", import.meta.url), "utf8");
     assert.match(round, /renderPairs\(matrix\.cells\)/);
     assert.match(round, /href="#lab-clips"/);
