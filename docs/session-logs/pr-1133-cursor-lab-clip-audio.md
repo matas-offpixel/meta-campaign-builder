@@ -32,6 +32,8 @@ A sound control on the clip tile, the 9:16 render preview, and feed-post media. 
 
 Migration: none. Compact players (round-matrix cells, the crop strip, candidate tiles) do not get the control. Do not add the design-pass label.
 
+Verdict on 9247901: the tile and the behaviour pass. On the caption-overlay player the control moves into the transport row, after the scrubber (`placement="inline"`). The tile stays bottom-left.
+
 Frames, Ubuntu, head fe11758. `only=CL` runs 42627372523 and 42627383283 (pair within 0.2%; CL5-1280 is 83 px, the rest 0). `only=IR` runs 42627393520 and 42627404229 (pair 0). Committed from the first of each pair.
 
 - CLA1 and CLA2, both widths: new. Tiles with the first unmuted; a feed post and a render preview, each muted.

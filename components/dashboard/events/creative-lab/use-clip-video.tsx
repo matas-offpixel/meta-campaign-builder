@@ -8,13 +8,16 @@ import { posterTime, scrubWindow } from "@/lib/creative-lab/surface";
 
 export { showSoundToggle };
 
-export function ClipSound({ audible, onToggle }: { audible: boolean; onToggle: () => void }) {
+export function ClipSound({ audible, onToggle, placement = "corner" }: { audible: boolean; onToggle: () => void; placement?: "corner" | "inline" }) {
   const Icon = audible ? Volume2 : VolumeX;
+  const place = placement === "inline"
+    ? "flex h-8 w-8 shrink-0 items-center justify-center"
+    : "absolute bottom-4 left-1.5 z-10 flex h-8 w-8 items-center justify-center";
   return (
     <button
       type="button"
       aria-label={soundAction(audible)}
-      className="absolute bottom-4 left-1.5 z-10 flex h-8 w-8 items-center justify-center"
+      className={place}
       onClick={(event) => {
         event.stopPropagation();
         event.preventDefault();

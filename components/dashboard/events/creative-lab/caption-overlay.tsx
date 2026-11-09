@@ -144,15 +144,13 @@ export function CaptionOverlay({
           {time ? <span className="text-[10px]">{time}</span> : null}
         </div>
       ) : src && !compact ? (
-        <>
-          {showSoundToggle(hasAudio) ? <ClipSound audible={audible} onToggle={toggleSound} /> : null}
-          <div className="absolute inset-x-2 bottom-2 flex items-center gap-2">
-            <button type="button" className="h-7 w-7 shrink-0 text-left text-white" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
-              {playing ? "❚❚" : "▶"}
-            </button>
-            <input aria-label="Scrub" className="h-1 min-w-0 flex-1 accent-white" {...rangeProps} />
-          </div>
-        </>
+        <div className="absolute inset-x-2 bottom-2 flex items-center gap-2">
+          <button type="button" className="h-7 w-7 shrink-0 text-left text-white" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
+            {playing ? "❚❚" : "▶"}
+          </button>
+          <input aria-label="Scrub" className="h-1 min-w-0 flex-1 accent-white" {...rangeProps} />
+          {showSoundToggle(hasAudio) ? <ClipSound audible={audible} onToggle={toggleSound} placement="inline" /> : null}
+        </div>
       ) : null}
     </div>
   );

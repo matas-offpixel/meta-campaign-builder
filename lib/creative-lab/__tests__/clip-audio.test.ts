@@ -46,13 +46,16 @@ test("the player sets muted on the element, and a paused unmute starts it", () =
   assert.equal(hook.includes("localStorage"), false);
   assert.equal(hook.includes("aria-pressed"), false);
   const sound = hook.slice(hook.indexOf("export function ClipSound"), hook.indexOf("export function useClipVideo"));
-  assert.match(sound, /bottom-4 left-1\.5/);
-  assert.match(sound, /h-8 w-8/);
+  assert.match(sound, /absolute bottom-4 left-1\.5 z-10 flex h-8 w-8 items-center justify-center/);
   assert.match(sound, /h-\[22px\] w-\[22px\]/);
   assert.match(sound, /bg-black\/40/);
   assert.match(sound, /stopPropagation/);
   assert.match(sound, /VolumeX/);
   assert.match(sound, /Volume2/);
+  const inline = sound.slice(sound.indexOf('placement === "inline"'), sound.indexOf("absolute bottom-4"));
+  assert.match(inline, /flex h-8 w-8 shrink-0 items-center justify-center/);
+  assert.equal(inline.includes("absolute"), false);
+  assert.equal(inline.includes("z-10"), false);
 });
 
 test("CLA frames are registered at both widths", () => {
@@ -72,7 +75,13 @@ test("tiles, the render preview and the feed post carry the control; compact pla
   const frame = clips.slice(clips.indexOf("function ClipFrame"), clips.indexOf("function Poster"));
   assert.match(frame, /showSoundToggle\(hasAudio\)/);
   assert.equal(/<video[\s\S]*muted[\s\S]*playsInline/.test(frame), false);
-  const compact = overlay.slice(overlay.indexOf("src && !compact"));
-  assert.match(compact, /ClipSound/);
+  const player = overlay.slice(overlay.indexOf("src && !compact"));
+  const scrub = player.indexOf('aria-label="Scrub"');
+  const sound = player.indexOf("<ClipSound");
+  assert.ok(scrub > 0 && sound > scrub, "ClipSound sits in the transport row, after the scrubber");
+  assert.match(player.slice(sound, sound + 160), /placement="inline"/);
+  assert.equal(/<ClipSound[^>]*\babsolute\b/.test(player), false);
   assert.equal(overlay.slice(0, overlay.indexOf("src && !compact")).includes("<ClipSound"), false);
+  const frameSound = frame.slice(frame.indexOf("<ClipSound"), frame.indexOf("<ClipSound") + 120);
+  assert.equal(frameSound.includes("inline"), false);
 });
