@@ -40,6 +40,45 @@ export function InsightsRailFrameMount({ fixture }: { fixture: RailFrameFixture 
           </div>
         </main>
       </>
+    ) : fixture.page.kind === "today" ? (
+      <>
+        <PageHeader
+          title="Today · Sun 8 Nov"
+          description="3 to approve · 2 reads due · 1 held"
+          actions={
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-flex h-[26px] items-center rounded-full border border-border-strong bg-card px-2.5 text-[11.5px] font-semibold">Insights ›</span>
+              <button type="button" className="h-6 rounded-md bg-foreground px-2.5 text-[11.5px] font-semibold text-background">
+                Approve all 3
+              </button>
+            </span>
+          }
+        />
+        <main className="flex-1 px-6 py-4">
+          <div className="mx-auto max-w-6xl space-y-2.5">
+            <section className="rounded-md border border-border bg-card p-3">
+              <p className="mb-1.5 text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">To approve</p>
+              {["Puzzle · 3rd release 90% sold out · proposed from Mon read", "Puzzle · artist card · Reeshy", "NX Loves · EED presale reminder"].map((label) => (
+                <div key={label} className="my-1.5 flex items-center justify-between rounded-md border border-border px-2.5 py-2 text-[12px]">
+                  <span>{label}</span>
+                  <button type="button" className="h-6 rounded-md border border-border-strong px-2 text-[11.5px] font-semibold">
+                    Approve
+                  </button>
+                </div>
+              ))}
+            </section>
+            <section className="rounded-md border border-border bg-card p-3">
+              <p className="mb-1.5 text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">Reads due</p>
+              <div className="my-1.5 h-2.5 w-3/5 rounded bg-muted" />
+              <div className="my-1.5 h-2.5 w-[45%] rounded bg-muted" />
+            </section>
+            <section className="rounded-md border border-border bg-card p-3">
+              <p className="mb-1.5 text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">Held</p>
+              <div className="my-1.5 h-2.5 w-1/2 rounded bg-muted" />
+            </section>
+          </div>
+        </main>
+      </>
     ) : fixture.page.kind === "event" ? (
       <>
         <PageHeader

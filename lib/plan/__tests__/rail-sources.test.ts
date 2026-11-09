@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { ALL_TICKET_SALE, PUZZLE_REGISTRATION } from "../../../scripts/plan-frames/rail-fixtures.ts";
+
 /**
  * Every figure in an IR fixture row must be on the README's "IR sources"
  * table, on one line with its value key, so a typed figure cannot slip in.
@@ -66,5 +68,16 @@ describe("IR fixture sources", () => {
     for (const match of fixture.matchAll(ROW)) assert.match(match[4]!, /^IR[23]_BASELINE$/, match[0]);
     assert.match(fixture, /IR2_BASELINE = 46\.86/);
     assert.doesNotMatch(fixture, /46\.8\b(?!6)/);
+  });
+
+  it("a cost over its baseline never indexes below 1, and Curiosity's stand-in is marked raw (H20, R18)", () => {
+    const curiosity = PUZZLE_REGISTRATION.find((row) => row.dimension === "hook_tactic" && row.valueKey === "curiosity");
+    assert.equal(curiosity?.shrunkIndex, 1.03);
+    assert.equal(curiosity?.raw, true);
+    for (const row of [...PUZZLE_REGISTRATION, ...ALL_TICKET_SALE]) {
+      if (row.cpr != null && row.baselineCpr != null && row.baselineCpr > 0 && row.cpr > row.baselineCpr && row.shrunkIndex != null) {
+        assert.ok(row.shrunkIndex >= 1, `${row.dimension} ${row.valueKey} indexes ${row.shrunkIndex}`);
+      }
+    }
   });
 });

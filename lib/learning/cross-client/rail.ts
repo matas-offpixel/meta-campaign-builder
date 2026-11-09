@@ -13,6 +13,7 @@ import {
   type RailData,
   type RailScope,
   type RailStage,
+  type ShapeRow,
   type TagRow,
   type TagRowsByScope,
   type TikTokRow,
@@ -20,7 +21,7 @@ import {
 import type { LiveEvidence } from "../interest-evidence.ts";
 import type { TagPerformanceRow } from "../tag-performance.ts";
 import { OperatorContext } from "./context.ts";
-import { topTemplates } from "./read.ts";
+import { topCopyFeatures, topTemplates } from "./read.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -100,6 +101,44 @@ export async function railCopyLines(
     best: own.map(toCopyLine),
     proven: everyone.filter((row) => row.proven).slice(0, 5).map(toCopyLine),
   };
+}
+
+function toShape(row: { feature: string; value: string; voice: ShapeRow["voice"]; index_vs_event: number | null; events_n: number; ads_n: number; stage: ShapeRow["stage"]; ads_hash: string | null; confidence: ShapeRow["confidence"] }): ShapeRow | null {
+  if (row.index_vs_event == null) return null;
+  return {
+    feature: row.feature,
+    value: row.value,
+    voice: row.voice,
+    index: row.index_vs_event,
+    shows: row.events_n,
+    ads: row.ads_n,
+    stage: row.stage,
+    adsHash: row.ads_hash,
+    confidence: row.confidence,
+  };
+}
+
+/** Best copy shapes at the drawer's stage. A client with nothing drawable falls back to all (R5, R20). */
+async function railCopyShapes(
+  ctx: OperatorContext,
+  args: { clientId: string | null; stage: RailStage; scope: RailScope },
+  db?: Db,
+): Promise<{ rows: ShapeRow[]; scope: RailScope }> {
+  assertOperator(ctx);
+  const load = async (clientId: string | null): Promise<ShapeRow[]> => {
+    const rows = await topCopyFeatures(ctx, clientId ? { stage: args.stage, clientId } : { stage: args.stage }, db);
+    return rows.flatMap((row) => {
+      const shape = toShape(row);
+      return shape ? [shape] : [];
+    });
+  };
+  const drawable = (rows: readonly ShapeRow[]) => rows.some((row) => row.shows >= 2 && row.ads >= 10);
+  if (args.scope === "client" && args.clientId) {
+    const own = await load(args.clientId);
+    if (drawable(own)) return { rows: own, scope: "client" };
+    return { rows: await load(null), scope: "all" };
+  }
+  return { rows: await load(null), scope: "all" };
 }
 
 // ── Interest clusters (IR5) ─────────────────────────────────────────────
@@ -260,11 +299,12 @@ export async function railData(
 ): Promise<RailData> {
   assertOperator(ctx);
   const { context } = args;
-  const [rows, copy, clusters, tiktok] = await Promise.all([
+  const [rows, copy, shapes, clusters, tiktok] = await Promise.all([
     context.surface === "audience_builder" ? Promise.resolve({}) : railTagRows(ctx, { clientId: context.clientId, verticalId: context.verticalId, stage: args.stage }, db),
     context.surface === "campaign" ? railCopyLines(ctx, { clientId: context.clientId, stage: args.stage }, db) : Promise.resolve(null),
+    context.surface === "campaign" ? railCopyShapes(ctx, { clientId: context.clientId, stage: args.stage, scope: args.scope }, db) : Promise.resolve(null),
     context.surface === "audience_builder" ? railClusterRows(ctx, { clientId: context.clientId, verticalId: context.verticalId }, db) : Promise.resolve(null),
     context.surface === "tiktok_campaign" ? railTikTokRows(ctx, { clientId: context.clientId }, db) : Promise.resolve(null),
   ]);
-  return buildRail({ context, scope: args.scope, stage: args.stage, rows, copy, clusters, tiktok });
+  return buildRail({ context, scope: args.scope, stage: args.stage, rows, copy, shapes, clusters, tiktok });
 }

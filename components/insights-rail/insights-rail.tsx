@@ -191,10 +191,12 @@ function Drawer({ children, onClose }: { children: ReactNode; onClose: () => voi
     return header ? Math.ceil(header.getBoundingClientRect().bottom) : 0;
   });
   return (
-    <div className="fixed right-0 bottom-0 z-30 flex flex-col border-l border-border-strong bg-card shadow-md" style={{ top, width: RAIL_WIDTH }}>
-      <button type="button" aria-label="Close insights" className="sr-only" onClick={onClose} />
-      {children}
-    </div>
+    <>
+      <button type="button" aria-label="Close insights" className="fixed right-0 bottom-0 left-0 z-20 bg-foreground/25" style={{ top }} onClick={onClose} />
+      <div className="fixed right-0 bottom-0 z-30 flex flex-col border-l border-border-strong bg-card shadow-md" style={{ top, width: RAIL_WIDTH }}>
+        {children}
+      </div>
+    </>
   );
 }
 
@@ -226,7 +228,11 @@ function Seg<T extends string>({
   );
 }
 
-function contextLine(context: RailContext, stage: RailStage): string {
+function contextLine(context: RailContext, stage: RailStage, scope: RailScope): string {
+  if (context.surface === "page") {
+    const scopeWord = scope === "all" ? "All clients" : scope === "client" ? (context.clientName ?? "This client") : "Vertical";
+    return [context.title, scopeWord, STAGE_LABELS[stage]].filter(Boolean).join(" · ");
+  }
   if (context.surface === "campaign" || context.surface === "tiktok_campaign" || context.surface === "audience_builder") {
     return [context.title, context.clientName, STAGE_LABELS[stage], context.objective].filter(Boolean).join(" · ");
   }
@@ -267,7 +273,7 @@ function Panel({
             {sheet ? "✕" : "›"}
           </button>
         </div>
-        <p className="mt-0.5 mb-2 text-[11.5px] text-muted-foreground">{contextLine(context, stage)}</p>
+        <p className="mt-0.5 mb-2 text-[11.5px] text-muted-foreground">{contextLine(context, stage, scope)}</p>
         <div className="flex flex-wrap gap-1.5">
           <Seg
             value={scope}
@@ -307,16 +313,34 @@ function Section({ section }: { section: InsightSection }) {
       {section.borrowed ? <p data-borrowed-line className="mb-2.5 text-[11.5px] text-warning-foreground">{section.borrowed}</p> : null}
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <span className="text-[9px] font-bold tracking-[.16em] text-foreground/80 uppercase">{section.kicker}</span>
-        {section.scopeLabel ? <span className="text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">{section.scopeLabel}</span> : null}
+        {section.id === "copy-shapes" && section.scopeLabel === "All clients" ? (
+          <span className="text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">
+            <span className="max-[700px]:hidden">All clients</span>
+            <span className="min-[701px]:hidden">All</span>
+          </span>
+        ) : section.scopeLabel ? (
+          <span className="text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">{section.scopeLabel}</span>
+        ) : null}
       </div>
       {section.fallback ? <p className="mb-1.5 text-[11.5px] text-warning-foreground">{section.fallback}</p> : null}
       {section.empty ? <p className="rounded-md bg-muted px-2.5 py-2 text-xs text-foreground/80">{section.empty}</p> : null}
       {section.result ? <p className={`mb-1.5 ${section.result.winner ? "font-semibold" : "text-foreground/80"}`}>{section.result.text}</p> : null}
+      {section.chips?.map((chip) => (
+        <p key={chip.text} className="mt-1.5 flex items-center justify-between gap-2 text-[12px]">
+          <span className="min-w-0">{chip.text}</span>
+          <button type="button" className="h-6 shrink-0 rounded-md border border-border-strong px-2 text-[11.5px] font-semibold whitespace-nowrap">
+            {chip.action}
+          </button>
+        </p>
+      ))}
       {section.bars.length ? (
         <ul className="flex flex-col gap-1.5">
           {section.bars.map((bar) => (
             <li key={bar.key} className="grid grid-cols-[1fr_122px] items-center gap-x-2.5 gap-y-0.5 text-[11.5px]">
-              <span className="col-span-2 truncate">{bar.label}</span>
+              <span className={bar.facets ? "col-span-2" : "col-span-2 truncate"}>
+                {bar.label}
+                {bar.facets ? <span className="text-muted-foreground"> · {bar.facets}</span> : null}
+              </span>
               <span className="relative h-2 rounded bg-muted">
                 <i className={`absolute inset-y-0 left-0 rounded ${TONE[bar.tone]}`} style={{ width: `${Math.min(100, bar.width * 100)}%` }} />
                 {section.baselineAt != null ? (
@@ -326,6 +350,12 @@ function Section({ section }: { section: InsightSection }) {
               <span className="text-right font-mono text-[10.5px] whitespace-nowrap tabular-nums">
                 {bar.valueText} <small className="text-muted-foreground">· {bar.note}</small>
               </span>
+              {bar.detail ? (
+                <span className="col-span-2 font-mono text-[10.5px] text-muted-foreground">
+                  <span className="max-[700px]:hidden">{bar.detail}</span>
+                  {bar.detailNarrow ? <span className="min-[701px]:hidden">{bar.detailNarrow}</span> : null}
+                </span>
+              ) : null}
             </li>
           ))}
           {section.thin.map((row) => (

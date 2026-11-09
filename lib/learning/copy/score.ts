@@ -15,6 +15,8 @@
  * could never be proven.
  */
 
+import { createHash } from "node:crypto";
+
 export const COPY_SHRINK_K = 2;
 export const EVENT_BASELINE_MIN_RESULTS = 10;
 export const COPY_MIN_EVENTS = 2;
@@ -68,6 +70,11 @@ export type CopyPerformanceRow = {
   page_id: string | null;
   /** Event records behind the shows. Not stored. */
   shows?: CopyShow[];
+  /**
+   * sha256 of the sorted Meta ad ids behind the row. Not stored on
+   * copy_performance; copy_features copies it (R21).
+   */
+  ads_hash?: string;
 };
 
 export type CopyShow = {
@@ -230,7 +237,13 @@ function finish(key: string, field: CopyField, stage: CopyStage, voice: CopyVoic
     client_ids: [...bucket.clients].sort(),
     page_id: example.pageId,
     shows,
+    ads_hash: adsHash(bucket.ads),
   };
+}
+
+/** sha256 of the sorted Meta ad ids. Same ids, any order, one hash. */
+export function adsHash(ids: Iterable<string>): string {
+  return createHash("sha256").update([...ids].filter(Boolean).sort().join("\n")).digest("hex");
 }
 
 export type ScoreOptions = {

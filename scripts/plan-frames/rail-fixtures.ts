@@ -12,7 +12,7 @@
 import type { AddedCluster } from "../../components/insights-rail/add-cluster.ts";
 import type { CreativeLabCardData } from "../../lib/db/creative-lab.ts";
 import { railLabFromCard } from "../../lib/insights-rail/lab-summary.ts";
-import { buildRail, type ClusterRow, type ClusterRowsByScope, type RailContext, type RailData, type TagRow, type TagRowsByScope, type TikTokRow } from "../../lib/insights-rail/model.ts";
+import { buildRail, type ClusterRow, type ClusterRowsByScope, type RailContext, type RailData, type ShapeRow, type TagRow, type TagRowsByScope, type TikTokRow } from "../../lib/insights-rail/model.ts";
 import { getFrame } from "./fixtures.ts";
 import type { FrameFixture } from "./types.ts";
 import { LAB_FRAME_FIXTURES } from "./lab-fixtures.ts";
@@ -27,7 +27,8 @@ export type RailFrameFixture = {
   page:
     | { kind: "event"; lab: CreativeLabCardData }
     | { kind: "canvas"; plan: FrameFixture }
-    | { kind: "audience"; added: AddedCluster[]; stageLabel: string; draftCount: number };
+    | { kind: "audience"; added: AddedCluster[]; stageLabel: string; draftCount: number }
+    | { kind: "today" };
   /** Shoot the rail alone (IR3, IR6), as the record draws it. */
   railOnly: boolean;
   context: RailContext;
@@ -58,7 +59,7 @@ function row(dimension: string, valueKey: string, cpr: number | null, baselineCp
 export const IR3_BASELINE = 4.16;
 export const IR2_BASELINE = 46.86;
 
-export const PUZZLE_REGISTRATION: TagRow[] = [
+export const PUZZLE_REGISTRATION: TagRow[] = ([
   row("messaging_angle", "event_announcement_update", 4.16, IR3_BASELINE, 1.0, "ok", 25),
   row("messaging_angle", "artist_headliner", 4.17, IR3_BASELINE, 1.0, "ok", 25),
   row("messaging_angle", "high_energy_atmosphere", 4.6, IR3_BASELINE, 1.11, "ok", 25),
@@ -71,7 +72,7 @@ export const PUZZLE_REGISTRATION: TagRow[] = [
   row("asset_type", "lifestyle_image_with_text", 3.85, IR3_BASELINE, 0.92, "ok", 25),
   row("asset_type", "high_production", 4.59, IR3_BASELINE, 1.07, "ok", 25),
   row("asset_type", "ugc", null, IR3_BASELINE, null, "thin", 0),
-];
+] satisfies TagRow[]).map((entry) => (entry.dimension === "hook_tactic" && entry.valueKey === "curiosity" ? { ...entry, raw: true } : entry));
 
 /** Puzzle, ticket sale: every stored row is thin (0 results), so each section falls back. Never drawn. */
 export const PUZZLE_TICKET_SALE: TagRow[] = [
@@ -199,6 +200,47 @@ const PUZZLE: RailContext = {
 const TICKET_ROWS: TagRowsByScope = { client: PUZZLE_TICKET_SALE, all: ALL_TICKET_SALE };
 const SIGNUP_ROWS: TagRowsByScope = { client: PUZZLE_REGISTRATION, all: ALL_TICKET_SALE };
 
+function shape(
+  feature: string,
+  value: string,
+  voice: ShapeRow["voice"],
+  index: number,
+  shows: number,
+  ads: number,
+  stage: ShapeRow["stage"],
+  adsHash: string | null,
+): ShapeRow {
+  return { feature, value, voice, index, shows, ads, stage, adsHash, confidence: "ok" };
+}
+
+/**
+ * IR4's copy-features fixture (issue 3). The two named rows are Matas's
+ * figures; the other fourteen populations are the record's ≈ 18 minus the
+ * four drawn. Rows that share an adsHash collapse (R21).
+ */
+const COPY_SHAPES: ShapeRow[] = [
+  shape("line_count_band", "4_plus", "promoter", 0.75, 3, 27, "ticket_sale", "lines-27"),
+  shape("has_date", "yes", "promoter", 0.75, 3, 27, "ticket_sale", "lines-27"),
+  shape("has_price", "yes", "promoter", 0.75, 3, 27, "ticket_sale", "lines-27"),
+  shape("opener", "name_first", "artist", 0.65, 7, 141, "registration", "opener-141"),
+  shape("has_date", "no", "artist", 0.65, 7, 141, "registration", "opener-141"),
+  shape("emoji_count_band", "1_2", null, 0.94, 4, 38, "registration", "emoji-38"),
+  shape("scarcity_kind", "countdown", null, 1.16, 3, 22, "registration", "scarcity-22"),
+  ...Array.from({ length: 14 }, (_, index) => shape("length_band", "gt_200", null, 1.2 + index * 0.01, 5, 30, "registration", `more-${index}`)),
+];
+
+const TODAY: RailContext = {
+  surface: "page",
+  title: "Today",
+  clientId: null,
+  clientName: null,
+  verticalId: null,
+  eventId: null,
+  stage: "registration",
+  objective: null,
+  lab: null,
+};
+
 /** The event page beside the rail: the CL3 Lab (clips and one proposed caption), renamed to Puzzle. */
 function puzzlePage(): CreativeLabCardData {
   const base = LAB_FRAME_FIXTURES.CL3.lab;
@@ -300,12 +342,19 @@ export const RAIL_FRAME_FIXTURES: Record<RailFrameId, RailFrameFixture> = {
   IR4: {
     kind: "rail",
     id: "IR4",
-    title: "Campaign creation: copy first, both empty",
+    title: "Campaign creation: best copy shapes, copy lines empty",
     now: RAIL_NOW,
     page: { kind: "canvas", plan: canvasPlan() },
     railOnly: false,
     context: CAMPAIGN,
-    data: buildRail({ context: CAMPAIGN, scope: "client", stage: "registration", rows: SIGNUP_ROWS, copy: { best: [], proven: [] } }),
+    data: buildRail({
+      context: CAMPAIGN,
+      scope: "client",
+      stage: "registration",
+      rows: SIGNUP_ROWS,
+      copy: { best: [], proven: [] },
+      shapes: { rows: COPY_SHAPES, scope: "all" },
+    }),
     open: true,
   },
   IR5: {
@@ -350,6 +399,17 @@ export const RAIL_FRAME_FIXTURES: Record<RailFrameId, RailFrameFixture> = {
     railOnly: false,
     context: TIKTOK_CAMPAIGN,
     data: buildRail({ context: TIKTOK_CAMPAIGN, scope: "client", stage: "registration", rows: SIGNUP_ROWS, tiktok: PUZZLE_TIKTOK }),
+    open: true,
+  },
+  IR9: {
+    kind: "rail",
+    id: "IR9",
+    title: "Today at 1176: the rail open as a drawer under the header",
+    now: RAIL_NOW,
+    page: { kind: "today" },
+    railOnly: false,
+    context: TODAY,
+    data: buildRail({ context: TODAY, scope: "all", stage: "registration", rows: { all: ALL_TICKET_SALE }, shapes: { rows: COPY_SHAPES, scope: "all" } }),
     open: true,
   },
 };

@@ -1,6 +1,7 @@
 /**
  * The Insights rail, as data (docs/design-record/2026-11-07-insights-rail.html,
- * issue 2: 2026-11-08-insights-rail-2.html).
+ * issue 2: 2026-11-08-insights-rail-2.html, issue 3:
+ * 2026-11-09-insights-rail-3.html).
  *
  * Pure. Readers hand in tag_performance-shaped rows per scope, interest
  * cluster rows per scope and TikTok breakdown rows, and this module
@@ -48,6 +49,11 @@ export type TagRow = {
   baselineCpr: number | null;
   shrunkIndex: number | null;
   confidence: RailConfidence;
+  /**
+   * Fixture only (R17). A raw index stands in where no stored shrunk
+   * index exists. Colour and order never read this.
+   */
+  raw?: boolean;
 };
 
 export type TagRowsByScope = Partial<Record<RailScope, TagRow[]>>;
@@ -99,6 +105,12 @@ export type Bar = {
   tone: "olive" | "ink" | "brick";
   confidence: RailConfidence;
   fundedAds: number;
+  /** Facets after the label, in ink-3 (R21). Absent on a tag bar. */
+  facets?: string;
+  /** "3 shows · 27 ads · ticket sale". Absent on a tag bar. */
+  detail?: string;
+  /** The same sub-line without the stage, for the sheet. */
+  detailNarrow?: string;
 };
 
 export type ThinRow = { key: string; label: string; fundedAds: number; /** The sentence under the label when it is not the funded-ads one. */ line?: string };
@@ -146,6 +158,8 @@ export type InsightSection = {
   untried: { count: number; names: string[] } | null;
   /** "picked n times so far" (IR5). */
   picked: number | null;
+  /** A proven line and its Use line (R22). Absent until one qualifies. */
+  chips?: { text: string; action: string }[];
 };
 
 export type RailData = {
@@ -441,6 +455,8 @@ export const SURFACE_DIMENSIONS: Record<RailSurface, string[]> = {
 export const EMPTY_LAB = "No round judged yet. Approve a caption and propose round 1.";
 export const EMPTY_BEST_LINES = "Lines are scored overnight. None are scored yet, so the first examples arrive after tonight's run.";
 export const EMPTY_PROVEN = "No line is proven yet. Proven lines appear here as chips you can drop into the copy.";
+/** R22, word for word. */
+export const EMPTY_COPY_LINES = "No line has run in two shows yet. Lines appear here, as chips you can drop into the copy, once one does.";
 /** R15, word for word. */
 export const EMPTY_LOOKALIKES =
   "Not measured yet. Appears once results are stored per audience (source, lookalike range, cost per result), from the next nightly run after that job ships.";
@@ -454,6 +470,19 @@ export function borrowedLine(clientName: string | null): string {
 export const FROM_META = "from Meta ads";
 
 export type CopyLine = { text: string; cpr: number | null; indexVsEvent: number | null; eventsN: number; proven: boolean };
+
+/** One feature value (R20). adsHash null never collapses (R21). */
+export type ShapeRow = {
+  feature: string;
+  value: string;
+  voice: "promoter" | "artist" | "unknown" | null;
+  index: number;
+  shows: number;
+  ads: number;
+  stage: RailStage;
+  adsHash: string | null;
+  confidence: RailConfidence;
+};
 
 function emptySection(id: string, kicker: string, scopeLabel: string, empty: string | null, extra?: Partial<InsightSection>): InsightSection {
   return {
@@ -494,6 +523,8 @@ export function buildRail(args: {
   stage: RailStage;
   rows: TagRowsByScope;
   copy?: { best: CopyLine[]; proven: CopyLine[] } | null;
+  /** Feature rows for Best copy shapes (R20). Omitted when there are none. */
+  shapes?: { rows: ShapeRow[]; scope: RailScope } | null;
   clusters?: ClusterRowsByScope | null;
   tiktok?: TikTokRow[] | null;
   verticalOff?: boolean;
@@ -504,9 +535,12 @@ export function buildRail(args: {
   const sections: InsightSection[] = [];
   const clientName = args.context.clientName;
 
+  const shapes = args.shapes?.rows.length
+    ? buildShapeSection({ rows: args.shapes.rows, scope: args.shapes.scope, chosen: args.scope, clientName, stage: args.stage, surface })
+    : null;
   if (surface === "campaign") {
-    sections.push(copySection("best-lines", "Best lines", args.copy?.best ?? [], EMPTY_BEST_LINES));
-    sections.push(copySection("proven", "Proven elsewhere", args.copy?.proven ?? [], EMPTY_PROVEN));
+    if (shapes) sections.push(shapes);
+    sections.push(buildCopyLines(args.copy?.proven ?? []));
   }
 
   if (surface === "audience_builder") {
@@ -571,14 +605,192 @@ export function buildRail(args: {
   }
 
   if (labSection && labSection.empty) sections.push(labSection);
+  if (surface === "page" && shapes) sections.push(shapes);
 
   return { sections, verticalDisabledReason: verticalOff ? VERTICAL_OFF : null };
 }
 
-function copySection(id: string, kicker: string, lines: CopyLine[], empty: string): InsightSection {
-  return emptySection(id, kicker, "", lines.length ? null : empty, {
-    labRows: lines.slice(0, 3).map((line) => ({ name: line.text, verdict: line.proven ? "winner" : null })),
+function buildCopyLines(lines: readonly CopyLine[]): InsightSection {
+  const proven = lines.filter((line) => line.proven || line.eventsN >= 2);
+  if (!proven.length) return emptySection("copy-lines", "Copy lines", "", EMPTY_COPY_LINES);
+  return emptySection("copy-lines", "Copy lines", "", null, {
+    chips: proven.slice(0, 3).map((line) => ({ text: line.text, action: "Use line" })),
   });
+}
+
+/** Thin under 2 shows or under 10 ads (Invented in issue 3). */
+export const SHAPE_THIN_MIN_SHOWS = 2;
+export const SHAPE_THIN_MIN_ADS = 10;
+
+const SHAPE_RANK = ["line_count_band", "opener", "scarcity_kind", "length_band", "cta_kind", "emoji_count_band", "has_lineup_list", "has_date", "has_price"];
+
+const SHAPE_VALUE: Record<string, Record<string, string>> = {
+  opener: { question: "question", statement: "statement", imperative: "imperative", name_first: "artist name", number_first: "number" },
+  cta_kind: { sign_up: "Sign up", book_now: "Book now", tag_a_mate: "Tag a mate", link_in_bio: "Link in bio", none: "None" },
+  scarcity_kind: { final_x: "final tickets", pct_sold: "percent sold", price_rise: "price rise", countdown: "countdown", sold_out_rollcall: "sold out", none: "none" },
+  length_band: { le_60: "short", "61_120": "medium", "121_200": "long", gt_200: "longer" },
+  emoji_count_band: { "0": "no", "1_2": "1–2", "3_plus": "3+" },
+  line_count_band: { "1": "1", "2_3": "2", "4_plus": "4" },
+};
+
+function shapeRank(feature: string): number {
+  const at = SHAPE_RANK.indexOf(feature);
+  return at === -1 ? SHAPE_RANK.length : at;
+}
+
+/** R23. Feature keys never show. */
+export function shapeFacet(feature: string, value: string): string {
+  if (feature === "has_lineup_list") return value === "yes" ? "lineup listed" : "no lineup";
+  if (feature === "has_date") return value === "yes" ? "dated" : "undated";
+  if (feature === "has_price") return value === "yes" ? "a price" : "no price";
+  const word = SHAPE_VALUE[feature]?.[value] ?? value.replaceAll("_", " ");
+  if (feature === "opener") return `Opener: ${word}`;
+  if (feature === "cta_kind") return `${word} CTA`;
+  if (feature === "scarcity_kind") return `${word} scarcity`;
+  if (feature === "length_band") return `${word} body`;
+  if (feature === "emoji_count_band") return word === "no" ? "no emoji" : `${word} emoji`;
+  if (feature === "line_count_band") return `${word}+ lines`;
+  return word;
+}
+
+type CollapsedShape = {
+  key: string;
+  label: string;
+  facets: string;
+  index: number;
+  shows: number;
+  ads: number;
+  stage: RailStage;
+  confidence: RailConfidence;
+  voice: ShapeRow["voice"];
+  features: { feature: string; value: string }[];
+};
+
+function collapseOne(group: readonly ShapeRow[]): CollapsedShape {
+  const ordered = [...group].sort((a, b) => shapeRank(a.feature) - shapeRank(b.feature) || a.feature.localeCompare(b.feature));
+  const primary = ordered[0]!;
+  const voice = ordered.find((row) => row.voice === "promoter" || row.voice === "artist")?.voice ?? primary.voice;
+  const voiceFacet = voice === "promoter" ? "promoter voice" : voice === "artist" ? "artist voice" : null;
+  const rest = ordered.slice(1).map((row) => shapeFacet(row.feature, row.value));
+  return {
+    key: primary.adsHash ?? `${primary.feature}:${primary.value}:${primary.stage}`,
+    label: shapeFacet(primary.feature, primary.value),
+    facets: [voiceFacet, ...rest].filter((facet): facet is string => Boolean(facet)).join(" · "),
+    index: primary.index,
+    shows: primary.shows,
+    ads: primary.ads,
+    stage: primary.stage,
+    confidence: ordered.reduce<RailConfidence>((min, row) => (confRank(row.confidence) < confRank(min) ? row.confidence : min), "strong"),
+    voice,
+    features: ordered.map((row) => ({ feature: row.feature, value: row.value })),
+  };
+}
+
+/** Equal ads_hash is one line. A null hash never collapses. Equal counts with different hashes stay apart (R21). */
+export function collapseShapes(rows: readonly ShapeRow[]): CollapsedShape[] {
+  const byHash = new Map<string, ShapeRow[]>();
+  const alone: ShapeRow[][] = [];
+  for (const row of rows) {
+    if (!row.adsHash) {
+      alone.push([row]);
+      continue;
+    }
+    const group = byHash.get(row.adsHash);
+    if (group) group.push(row);
+    else byHash.set(row.adsHash, [row]);
+  }
+  return [...byHash.values(), ...alone].map((group) => collapseOne(group));
+}
+
+function shapeThin(row: CollapsedShape): boolean {
+  return row.shows < SHAPE_THIN_MIN_SHOWS || row.ads < SHAPE_THIN_MIN_ADS;
+}
+
+function shapeStage(stage: RailStage): string {
+  return stage === "ticket_sale" ? "ticket sale" : "registration";
+}
+
+function shapeResultName(group: CollapsedShape): { name: string; verb: "cost" | "costs" } {
+  if (group.features.some((row) => row.feature === "line_count_band" && row.value === "4_plus") && group.label === "4+ lines") {
+    return { name: "4+ line bodies", verb: "cost" };
+  }
+  return { name: group.label, verb: "costs" };
+}
+
+function shapeAction(drawn: readonly CollapsedShape[]): RailAction | null {
+  const mapped = drawn.find((group) => group.voice === "artist" || group.features.some((row) => row.feature === "has_lineup_list" && row.value === "yes"));
+  if (!mapped) return null;
+  if (mapped.voice === "artist") {
+    return { kind: "use_angle", angle: "artist_first_person", label: "Use shape", note: "artist voice → Angle: Artist, first person" };
+  }
+  return { kind: "use_angle", angle: "lineup", label: "Use shape", note: "lineup listed → Angle: Lineup" };
+}
+
+function buildShapeSection(args: {
+  rows: readonly ShapeRow[];
+  scope: RailScope;
+  chosen: RailScope;
+  clientName: string | null;
+  stage: RailStage;
+  surface: RailSurface;
+}): InsightSection | null {
+  const collapsed = collapseShapes(args.rows);
+  if (!collapsed.length) return null;
+  const confident = collapsed.filter((row) => !shapeThin(row)).sort((a, b) => a.index - b.index || b.ads - a.ads || a.label.localeCompare(b.label));
+  const thinRows = collapsed.filter((row) => shapeThin(row));
+  const shown = confident.slice(0, MAX_BARS);
+  const scale = Math.max(1, ...shown.map((row) => row.index), 1) * SCALE_HEADROOM;
+  const bars: Bar[] = shown.map((row) => {
+    const pct = Math.round((row.index - 1) * 100);
+    const counts = `${plural(row.shows, "show")} · ${plural(row.ads, "ad")}`;
+    return {
+      key: row.key,
+      label: row.label,
+      facets: row.facets || undefined,
+      cpr: row.index,
+      pct,
+      note: pctWord(pct),
+      valueText: row.index.toFixed(2),
+      width: row.index / scale,
+      tone: barTone(row.index, row.confidence),
+      confidence: row.confidence,
+      fundedAds: row.ads,
+      detail: `${counts} · ${shapeStage(row.stage)}`,
+      detailNarrow: counts,
+    };
+  });
+  const best = shown[0] ?? null;
+  const runnerUp = confident[1] ?? null;
+  const clear = best ? gapOf(best.index, runnerUp?.index) >= CLEAR_WINNER_GAP : false;
+  const named = best ? shapeResultName(best) : null;
+  const result = !best
+    ? null
+    : barTone(best.index, best.confidence) === "olive" && clear && named
+      ? { text: `${named.name} ${named.verb} ${-Math.round((best.index - 1) * 100)}% less than usual.`, winner: true }
+      : runnerUp
+        ? { text: `No clear winner between ${best.label} and ${runnerUp.label}.`, winner: false }
+        : { text: "No clear winner yet.", winner: false };
+  const more = Math.max(0, confident.length - shown.length);
+  const minAds = shown.length ? Math.min(...shown.map((row) => row.ads)) : 0;
+  const minShows = shown.length ? Math.min(...shown.map((row) => row.shows)) : 0;
+  const weakestConf = shown.reduce<RailConfidence>((min, row) => (confRank(row.confidence) < confRank(min) ? row.confidence : min), "strong");
+  const scopeWord = args.scope === "all" ? "All clients" : args.scope === "client" ? "this client" : "this vertical";
+  const parts = shown.length ? [weakestConf, `${minAds}+ ads`, `${minShows}+ shows`, "90 days", scopeWord] : [];
+  if (more) parts.push(`+${more} more`);
+  const who = args.clientName ?? "This client";
+  return {
+    ...emptySection("copy-shapes", "Best copy shapes", SCOPE_LABELS[args.scope], shown.length || thinRows.length ? null : "Not enough data yet."),
+    scope: args.scope,
+    fallback: args.scope !== args.chosen && args.scope === "all" ? `${who} has no copy shape with enough shows yet. Showing all clients.` : null,
+    result,
+    bars,
+    thin: thinRows.map((row) => ({ key: row.key, label: row.label, fundedAds: row.ads, line: `Not enough data yet: ${plural(row.shows, "show")}` })),
+    baselineAt: shown.length ? 1 / scale : null,
+    more,
+    confidence: parts.length ? parts.join(" · ") : null,
+    lock: args.scope !== "client",
+    action: args.surface === "campaign" ? shapeAction(shown) : null,
+  };
 }
 
 // ── Interest clusters (IR5) ─────────────────────────────────────────────
@@ -670,10 +882,14 @@ export function buildClusterSection(args: {
 
 /** Within ±5 % of the client's blended figure reads "level" (invented in issue 2). */
 export const LEVEL_BAND = 5;
-/** A TikTok row with fewer clicks or less spend than this is thin (a build-2 choice; the record names no threshold). */
+/** A platform-unit row is thin under any of these (R17). */
 export const TIKTOK_THIN_MIN_CLICKS = 20;
 export const TIKTOK_THIN_MIN_SPEND = 10;
 export const TIKTOK_THIN_MIN_IMPRESSIONS = 1000;
+
+export function tiktokPlatformThin(row: Pick<TikTokRow, "clicks" | "spend" | "impressions">): boolean {
+  return row.clicks < TIKTOK_THIN_MIN_CLICKS || row.spend < TIKTOK_THIN_MIN_SPEND || row.impressions < TIKTOK_THIN_MIN_IMPRESSIONS;
+}
 /** Strong at the learning loop's spend bar (lib/learning/shrink STRONG_MIN_SPEND_GBP). */
 export const TIKTOK_STRONG_SPEND = 500;
 
@@ -729,7 +945,7 @@ export function buildTikTokSections(rows: readonly TikTokRow[], clientName: stri
     clicks = emptySection("tiktok_clicks", "Who clicks on TikTok", scopeLabel, noTikTok(clientName));
   } else {
     const blended = spend / clickTotal;
-    const confident = ages.filter((row) => row.clicks >= TIKTOK_THIN_MIN_CLICKS && row.spend >= TIKTOK_THIN_MIN_SPEND);
+    const confident = ages.filter((row) => !tiktokPlatformThin(row));
     const thinRows = ages.filter((row) => !confident.includes(row));
     const indexed = confident
       .map((row) => ({ row, cpc: row.spend / row.clicks, index: row.spend / row.clicks / blended }))
@@ -784,7 +1000,7 @@ export function buildTikTokSections(rows: readonly TikTokRow[], clientName: stri
     watches = emptySection("tiktok_watches", "Who watches", scopeLabel, noTikTok(clientName));
   } else {
     const blended = views / impressions;
-    const confident = genders.filter((row) => row.impressions >= TIKTOK_THIN_MIN_IMPRESSIONS);
+    const confident = genders.filter((row) => !tiktokPlatformThin(row));
     const thinRows = genders.filter((row) => !confident.includes(row));
     const indexed = confident
       .map((row) => ({ row, rate: row.views2s / row.impressions, index: blended > 0 ? row.views2s / row.impressions / blended : 1 }))
@@ -826,7 +1042,7 @@ export function buildTikTokSections(rows: readonly TikTokRow[], clientName: stri
       bars,
       thin: thinRows
         .sort((a, b) => b.impressions - a.impressions)
-        .map((row) => ({ key: row.value, label: tiktokGenderLabel(row.value), fundedAds: row.impressions, line: `Not enough data yet: ${row.impressions.toLocaleString("en-GB")} impressions` })),
+        .map((row) => ({ key: row.value, label: tiktokGenderLabel(row.value), fundedAds: row.impressions, line: `Not enough data yet: £${Math.round(row.spend)} spent, ${plural(row.clicks, "click")}` })),
       baselineAt: blended / scale,
       more: Math.max(0, indexed.length - shown.length),
       confidence: [tiktokConfidence(spendAll), "2-s views ÷ impressions", `${impressions.toLocaleString("en-GB")} impressions`, ...tail].join(" · "),
