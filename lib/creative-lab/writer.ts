@@ -196,6 +196,17 @@ export function systemPrompt(
   const lineupNote = offered(values, "lineup") ? `{lineup} is the headliners, with "& more" when the bill has support. ` : "";
   const nextFilled = offered(values, "next3") ? `{next3} is already filled. Write "Next: {next3}" when the style lists what is coming. ` : "";
   const nextNames = offered(values, "next3") ? `{next3} names headliners of upcoming shows, not support.\n` : "";
+  const placeTokens = (["lineup", "venue", "date"] as const).filter((key) => offered(values, key));
+  const placeList = placeTokens.length === 0
+    ? ""
+    : placeTokens.length === 1
+      ? `{${placeTokens[0]}}`
+      : placeTokens.length === 2
+        ? `{${placeTokens[0]}} and {${placeTokens[1]}}`
+        : `{${placeTokens[0]}}, {${placeTokens[1]}} and {${placeTokens[2]}}`;
+  const phraseLine = placeList
+    ? `Each line is one phrase of at most 24 characters; put ${placeList} each on its own line.`
+    : "";
   return appendVoice(`You write one paid-social caption in the voice of the examples. Copy their sentence shapes. Voice: ${voiceForStyle(style)}. Style: ${style}. The overlay is one idea.
 
 Shapes to mirror, with the tokens:
@@ -226,6 +237,7 @@ ${nextNames}
 Return only by calling ${TOOL_NAME}.
 
 The overlay is burned onto the video. Line breaks are the only separator. Do not write "/" or "|" in the overlay, and do not write an empty line. No emoji, no '#', not all capitals. Default size is 4 lines of 18 characters. An overlay that does not fit those 4 lines uses a smaller size, up to 5 lines of 24, and never more than 96 characters. Over 96 is useless. A name that fits on one line stays whole. four_line is exactly 4 lines.
+${phraseLine}
 
 Primary text is at most 125 characters. Emoji are allowed there.
 
