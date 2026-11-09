@@ -50,6 +50,20 @@ export type ClipImportFile = {
   name: string;
   outcome: "imported" | "skipped" | "failed";
   reason: string | null;
+  /** Bytes as the folder listed them. */
+  size?: number;
+  /** Set when outcome is "imported". */
+  clipId?: string;
+};
+
+/** A clip this run inserted, handed to `onImported` before the next file starts. */
+export type ImportedClip = {
+  clipId: string;
+  name: string;
+  storagePath: string;
+  durationSeconds: number | null;
+  inS: number | null;
+  outS: number | null;
 };
 
 export type ClipImportResult = {
@@ -96,7 +110,11 @@ function folderMessage(err: unknown, shareMessage: () => string): string {
   return plain(err instanceof Error ? err.message : "Could not read the folder.");
 }
 
-async function defaultListing(): Promise<ClipFolderListing> {
+/**
+ * The Drive or Dropbox listing importArtistClips uses. `dropboxPath` lists one
+ * subfolder of a Dropbox share (and what is under it) instead of the whole share.
+ */
+export function clipFolderListing(options: { dropboxPath?: string } = {}): ClipFolderListing {
   return {
     async list(url: string) {
       if (isDriveFolderUrl(url)) {
@@ -109,7 +127,7 @@ async function defaultListing(): Promise<ClipFolderListing> {
         return files;
       }
       if (isDropboxFolderUrl(url)) {
-        const entries = await listDropboxFolderFiles(url);
+        const entries = await listDropboxFolderFiles(url, { path: options.dropboxPath });
         return entries.map((entry) => ({ sourceFileId: entry.path_lower, name: entry.name, size: entry.size }));
       }
       throw new ClipIntakeError("no_folder", "Paste a Drive or Dropbox folder link.");
@@ -162,6 +180,15 @@ export async function importArtistClips(
     folderUrl?: string;
     /** The event the clips were filed under. Null (the default) for the artist's own folder. */
     eventId?: string | null;
+    /**
+     * Leaves a listed file out before anything is downloaded. Returns the
+     * reason it is skipped, or null to keep it.
+     */
+    filter?: (file: ClipFolderFile) => string | null;
+    /** The clip's source. Defaults to the artist's clip_source. */
+    source?: string;
+    /** Runs after each clip row is inserted, before the next file. A throw is reported on that file, not the run. */
+    onImported?: (clip: ImportedClip) => Promise<string | null | void>;
   },
 ): Promise<ClipImportResult> {
   const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
@@ -178,8 +205,10 @@ export async function importArtistClips(
     throw new ClipIntakeError("no_folder", message);
   }
   const rightsRef = text(artist, "rights_doc_ref") || "Promoter page";
-  const source = CLIP_SOURCES.has(text(artist, "clip_source")) ? text(artist, "clip_source") : "file";
-  const listing = args.listing ?? (await defaultListing());
+  const source = args.source && CLIP_SOURCES.has(args.source)
+    ? args.source
+    : CLIP_SOURCES.has(text(artist, "clip_source")) ? text(artist, "clip_source") : "file";
+  const listing = args.listing ?? clipFolderListing();
   const upload = args.upload ?? ((storagePath: string, bytes: Buffer, type: string) => defaultUpload(db, storagePath, bytes, type));
   const probe = args.probe ?? ((bytes: Buffer) => defaultProbe(bytes));
   const now = (args.now ?? new Date()).toISOString();
@@ -196,11 +225,16 @@ export async function importArtistClips(
   const clipRes = await db.from("creative_lab_clips").select("*").eq("artist_id", args.artistId);
   if (clipRes.error) throw new Error(clipRes.error.message);
   const clips = (clipRes.data ?? []) as Row[];
-  const assetRes = await db.from("creative_assets").select("*").eq("user_id", userId);
-  if (assetRes.error) throw new Error(assetRes.error.message);
-  const assets = (assetRes.data ?? []) as Row[];
   const knownIds = new Set(clips.map((row) => text(row, "source_file_id")).filter(Boolean));
   const clipAssetIds = new Set(clips.map((row) => text(row, "creative_asset_id")).filter(Boolean));
+  // Only this artist's clip assets: a user's whole creative_assets table runs past PostgREST's 1,000-row cap.
+  const assets: Row[] = [];
+  const assetIds = [...clipAssetIds];
+  for (let i = 0; i < assetIds.length; i += 100) {
+    const assetRes = await db.from("creative_assets").select("*").eq("user_id", userId).in("id", assetIds.slice(i, i + 100));
+    if (assetRes.error) throw new Error(assetRes.error.message);
+    assets.push(...((assetRes.data ?? []) as Row[]));
+  }
   const knownHashes = new Set(
     assets.filter((row) => clipAssetIds.has(text(row, "id"))).map((row) => `${text(row, "content_hash")}:${Number(row.byte_size) || 0}`),
   );
@@ -211,13 +245,19 @@ export async function importArtistClips(
 
   for (const file of listed) {
     const name = file.name.trim() || "clip";
+    const size = file.size;
     const ext = extensionOf(name);
+    const filtered = args.filter ? args.filter(file) : null;
+    if (filtered) {
+      files.push({ name, size, outcome: "skipped", reason: filtered });
+      continue;
+    }
     if (!VIDEO_EXTENSIONS.has(ext)) {
-      files.push({ name, outcome: "skipped", reason: "not a video" });
+      files.push({ name, size, outcome: "skipped", reason: "not a video" });
       continue;
     }
     if (file.sourceFileId && knownIds.has(file.sourceFileId)) {
-      files.push({ name, outcome: "skipped", reason: "already imported" });
+      files.push({ name, size, outcome: "skipped", reason: "already imported" });
       continue;
     }
     if (imported >= cap) break;
@@ -226,7 +266,7 @@ export async function importArtistClips(
       const identity = fingerprintBytes(bytes);
       const hashKey = `${identity.contentHash}:${identity.byteSize}`;
       if (knownHashes.has(hashKey)) {
-        files.push({ name, outcome: "skipped", reason: "same video as a clip already imported" });
+        files.push({ name, size, outcome: "skipped", reason: "same video as a clip already imported" });
         continue;
       }
       const measured = probe(bytes, name);
@@ -262,10 +302,10 @@ export async function importArtistClips(
         source_file_id: file.sourceFileId,
         in_s: trimmed ? 0 : null,
         out_s: trimmed ? TRIM_SECONDS : null,
-      });
+      }).select("id");
       if (inserted.error) {
         if (/duplicate|unique/i.test(inserted.error.message)) {
-          files.push({ name, outcome: "skipped", reason: "already imported" });
+          files.push({ name, size, outcome: "skipped", reason: "already imported" });
           continue;
         }
         throw new Error(inserted.error.message);
@@ -274,10 +314,27 @@ export async function importArtistClips(
       knownHashes.add(hashKey);
       clipAssetIds.add(registered.asset.id);
       imported += 1;
-      files.push({ name, outcome: "imported", reason: trimmed ? "trimmed to 30 s" : null });
+      const clipId = text(((inserted.data ?? []) as Row[])[0], "id");
+      const notes: string[] = trimmed ? ["trimmed to 30 s"] : [];
+      if (args.onImported && clipId) {
+        try {
+          const note = await args.onImported({
+            clipId,
+            name,
+            storagePath,
+            durationSeconds: duration,
+            inS: trimmed ? 0 : null,
+            outS: trimmed ? TRIM_SECONDS : null,
+          });
+          if (note) notes.push(note);
+        } catch (err) {
+          notes.push(plain(err instanceof Error ? err.message : "The after-import step failed."));
+        }
+      }
+      files.push({ name, size, outcome: "imported", reason: notes.length ? notes.join("; ") : null, ...(clipId ? { clipId } : {}) });
     } catch (err) {
       if (err instanceof ClipIntakeError) throw err;
-      files.push({ name, outcome: "failed", reason: plain(err instanceof Error ? err.message : "Could not import this file.") });
+      files.push({ name, size, outcome: "failed", reason: plain(err instanceof Error ? err.message : "Could not import this file.") });
     }
   }
 

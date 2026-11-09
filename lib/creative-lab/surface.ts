@@ -69,6 +69,10 @@ export type ClipForGroup = {
   renderError: string | null;
   durationSeconds?: number | null;
   judged: JudgedClip | null;
+  /** The clip row's source: spark, file, instagram or presskit. */
+  source?: string;
+  /** The clip row's burned-in text verdict (overlay_check). */
+  overlay?: { verdict: string; flagged?: number } | null;
 };
 
 export type ClipBucket = "keeping" | "new" | "cant";
@@ -158,8 +162,19 @@ export function bestRunnableClip<T extends RankedClip>(clips: readonly T[]): T |
   return eligible[0] ?? null;
 }
 
+/**
+ * "Text burned into N of 8 frames" when the clip's own check found text.
+ * An Instagram clip with that verdict was imported anyway by the operator,
+ * so it is not refused.
+ */
+export function burnedInTextSentence(clip: Pick<ClipForGroup, "overlay" | "source">): string | null {
+  if (clip.overlay?.verdict !== "text_overlay" || clip.source === "instagram") return null;
+  return `Text burned into ${Number(clip.overlay.flagged) || 0} of 8 frames`;
+}
+
 export function clipBucket(clip: ClipForGroup): ClipBucket {
   if (renderRefusalSentence(clip.renderError)) return "cant";
+  if (burnedInTextSentence(clip)) return "cant";
   if (!clip.judged) return "new";
   if (clip.judged.verdict === "untested" || clip.judged.verdict === "thin") return "new";
   return "keeping";
@@ -271,7 +286,7 @@ export function importErrorSentence(error: unknown): string {
 }
 
 export function cantRunReason(clip: ClipForGroup): string | null {
-  return renderRefusalSentence(clip.renderError);
+  return renderRefusalSentence(clip.renderError) ?? burnedInTextSentence(clip);
 }
 
 /** The lead clip for the feed post and for Best clip. A refused clip, and a crop under 540 px, is never returned. */
