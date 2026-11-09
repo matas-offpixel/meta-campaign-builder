@@ -3,10 +3,11 @@ export type OfferKind = "payment_plan" | "group" | "early_entry";
 export type OfferFigures = { today?: number; parts?: number; price?: number; arrive?: string };
 
 /** One sentence. The Offers sheet shows this and does not propose. */
-export const OFFER_FINAL_REFUSAL = "An offer can't say final.";
+export const OFFER_REFUSAL = "An offer can't say sold, final, last or %.";
 
+/** Whole words sold, final and last, plus a % sign. "finale" is not "final". */
 export function offerRefusal(text: string): string | null {
-  if (/final/i.test(text)) return OFFER_FINAL_REFUSAL;
+  if (text.includes("%") || /(?:^|[^A-Za-z])(?:sold|final|last)(?![A-Za-z])/i.test(text)) return OFFER_REFUSAL;
   return null;
 }
 

@@ -1,7 +1,7 @@
 import { releaseHeadline } from "./entry.ts";
 import { isBackfilled, panelFigure } from "./visibility.ts";
 import type { LadderRung, Release, ReleaseState } from "./types.ts";
-import { nextRung } from "../ticket-warnings/next-rung.ts";
+import { nextRung, type DerivedContext } from "../ticket-warnings/next-rung.ts";
 
 type Row = {
   id: string;
@@ -27,7 +27,12 @@ function when(iso: string | null): string {
 }
 
 /** The event page's releases panel, from the saved rows. The frames use their own fixture. */
-export function rowsFromReleases(releases: readonly Release[], ladder: readonly LadderRung[], nowIso: string): {
+export function rowsFromReleases(
+  releases: readonly Release[],
+  ladder: readonly LadderRung[],
+  nowIso: string,
+  context: DerivedContext = {},
+): {
   rows: Row[];
   headline: string;
   headlineRest: string;
@@ -38,7 +43,7 @@ export function rowsFromReleases(releases: readonly Release[], ladder: readonly 
   const figure = panelFigure(releases);
   const rows = releases.map((release, index) => {
     const plain = isBackfilled(release);
-    const rung = plain ? null : nextRung(release, ladder, releases, nowIso);
+    const rung = plain ? null : nextRung(release, ladder, releases, nowIso, context);
     const watching = !plain && (release.state === "on_sale" || release.state === "selling_fast");
     return {
       id: release.id,

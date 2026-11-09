@@ -28,6 +28,7 @@ import {
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
 import { EventVenuePanel } from "@/components/dashboard/events/event-venue-panel";
 import { LiveReleases } from "@/components/dashboard/asset-bank/live";
+import { OffersSheet } from "@/components/dashboard/asset-bank/surface";
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
 import { InsightsPill } from "@/components/insights-rail/insights-pill";
 import { InsightsPageContext } from "@/components/insights-rail/rail-context";
@@ -154,7 +155,14 @@ interface Props {
   initialGoogleAdsPlanId: string | null;
   lab: CreativeLabCardData | null;
   /** Releases and the client's ladder. Null until migration 211 is applied. */
-  bank?: { eventId: string; releases: import("@/lib/releases/types").Release[]; ladder: import("@/lib/releases/types").LadderRung[] } | null;
+  bank?: {
+    eventId: string;
+    releases: import("@/lib/releases/types").Release[];
+    ladder: import("@/lib/releases/types").LadderRung[];
+    counts: { at: string; sold: number }[];
+    eventAt: string | null;
+    artists: { name: string; addedAt: string }[];
+  } | null;
 }
 
 /**
@@ -441,8 +449,17 @@ export function EventDetail({
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
               {bank && bank.releases.length ? (
-                <LiveReleases eventId={bank.eventId} releases={bank.releases} ladder={bank.ladder} status={event.status} />
+                <LiveReleases
+                  eventId={bank.eventId}
+                  releases={bank.releases}
+                  ladder={bank.ladder}
+                  status={event.status}
+                  counts={bank.counts}
+                  eventAt={bank.eventAt}
+                  artists={bank.artists}
+                />
               ) : null}
+              {bank && event.status !== "cancelled" ? <OffersSheet eventId={bank.eventId} /> : null}
               {lab ? <CreativeLabCard lab={lab} quoteMode /> : null}
               {!isBrand && event.client_id ? (
                 <p className="text-sm">

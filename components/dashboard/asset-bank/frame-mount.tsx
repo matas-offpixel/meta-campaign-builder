@@ -1,4 +1,4 @@
-import { AssetBoard, ClaimCards, ClaimLadder, PaydayCalendar, ReleasesPanel } from "@/components/dashboard/asset-bank/surface";
+import { AssetBoard, ClaimCards, ClaimLadder, OffersSheet, PaydayCalendar, ReleasesPanel } from "@/components/dashboard/asset-bank/surface";
 import { AB1_CLAIMS, AB1_ROWS, AB1B_ROWS } from "@/scripts/plan-frames/bank-fixtures";
 
 /** An AB frame. Fixture only: nothing here fetches. */
@@ -62,6 +62,12 @@ export function AssetBankFrameMount({ id }: { id: string }) {
             <span>Campaigns</span>
           </p>
           <ClaimLadder />
+        </div>
+      ) : null}
+      {id === "AB6" ? (
+        <div className="space-y-3">
+          <OffersSheet initial={{ kind: "payment_plan", today: "10", parts: "3", until: "2026-11-27" }} />
+          <OffersSheet initial={{ kind: "payment_plan", today: "10", parts: "3", condition: "final release" }} />
         </div>
       ) : null}
     </div>

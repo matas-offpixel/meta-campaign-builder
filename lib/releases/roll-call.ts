@@ -33,9 +33,9 @@ export function liveClaimLine(release: Pick<Release, "name" | "state" | "remaini
   return `${titled} RUNNING LOW`;
 }
 
-const LIVE = new Set(["on_sale", "selling_fast"]);
+const LIVE = new Set(["on_sale", "selling_fast", "final_x"]);
 
-/** Two or more sold out, and exactly one on sale or selling fast. */
+/** Two or more sold out, and exactly one on sale, selling fast, or final X. */
 export function rollCallWords(siblings: readonly Release[]): {
   met: boolean;
   line1: string;
@@ -49,9 +49,9 @@ export function rollCallWords(siblings: readonly Release[]): {
   const met = sold.length >= 2 && live.length === 1;
   const line1 = soldOutLine(sold.map((release) => release.name));
   const line2 = live.length === 1 ? liveClaimLine(live[0]!) : "";
-  const liveWord = live[0]?.state === "selling_fast" ? "selling fast" : "on sale";
+  const liveWord = live[0]?.state === "final_x" ? "final X" : live[0]?.state === "selling_fast" ? "selling fast" : "on sale";
   const because = met
     ? `${sold.length} sold out, 1 ${liveWord}`
-    : "needs two sold out and exactly one on sale or selling fast";
+    : "needs two sold out and exactly one on sale, selling fast, or final X";
   return { met, line1, line2, claim: line2 ? `${line1}\n${line2}` : line1, because };
 }

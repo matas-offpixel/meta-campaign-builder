@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "./database.types";
+import type { CountRead } from "../releases/derived";
+import type { OfferFigures, OfferKind } from "../releases/offers";
 import type { LadderRung, Release, ReleaseState, StateSource, TicketWarning, WarningState } from "../releases/types";
 import { todayListsEvent } from "../releases/visibility";
 
@@ -129,6 +131,70 @@ export function releaseUpdate(release: Release): Record<string, unknown> {
 export async function saveReleaseRow(db: SupabaseClient<Database>, release: Release): Promise<void> {
   const { error } = await loose(db).from("event_releases").update(releaseUpdate(release)).eq("id", release.id);
   if (error) throw new Error(error.message);
+}
+
+/** Counts for the velocity rung. An absent table reads as no counts, so the rung stays locked. */
+export async function loadSalesHistory(db: SupabaseClient<Database>, eventId: string): Promise<CountRead[]> {
+  const { data, error } = await db
+    .from("tier_channel_sales_daily_history")
+    .select("snapshot_date, tickets_sold_total")
+    .eq("event_id", eventId)
+    .order("snapshot_date");
+  if (error) {
+    if (missing(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []).map((row) => ({ at: row.snapshot_date, sold: row.tickets_sold_total }));
+}
+
+/** Artist rows on the event. addedAt is when the row was added, and the name comes from artists. */
+export async function loadEventArtists(
+  db: SupabaseClient<Database>,
+  eventId: string,
+): Promise<{ name: string; addedAt: string }[]> {
+  const { data, error } = await db.from("event_artists").select("artist_id, created_at").eq("event_id", eventId);
+  if (error) {
+    if (missing(error)) return [];
+    throw new Error(error.message);
+  }
+  const links = data ?? [];
+  const ids = [...new Set(links.map((link) => link.artist_id))];
+  if (!ids.length) return [];
+  const { data: people, error: nameError } = await db.from("artists").select("id, name").in("id", ids);
+  if (nameError) throw new Error(nameError.message);
+  const names = new Map((people ?? []).map((person) => [person.id, person.name]));
+  return links
+    .map((link) => ({ name: names.get(link.artist_id) ?? "", addedAt: link.created_at }))
+    .filter((artist) => artist.name.length > 0);
+}
+
+export async function insertOffer(
+  db: SupabaseClient<Database>,
+  row: {
+    userId: string;
+    eventId: string;
+    kind: OfferKind;
+    figures: OfferFigures;
+    condition: string | null;
+    fromAt: string | null;
+    untilAt: string | null;
+    enteredBy: string;
+  },
+): Promise<"ok" | "missing"> {
+  const { error } = await loose(db).from("event_offers").insert({
+    user_id: row.userId,
+    event_id: row.eventId,
+    kind: row.kind,
+    figures: { ...row.figures },
+    condition: row.condition,
+    from_at: row.fromAt,
+    until_at: row.untilAt,
+    entered_by: row.enteredBy,
+    entered_at: new Date().toISOString(),
+  });
+  if (missing(error)) return "missing";
+  if (error) throw new Error(error.message);
+  return "ok";
 }
 
 export async function insertWarning(db: SupabaseClient<Database>, row: Omit<TicketWarning, "id"> & { userId: string }): Promise<void> {

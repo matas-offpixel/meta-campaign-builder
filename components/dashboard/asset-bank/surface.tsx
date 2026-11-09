@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { isInPaydayWindow } from "@/lib/dashboard/pacing";
-import { offerRefusal } from "@/lib/releases/offers";
+import { offerRefusal, offerWords, type OfferFigures, type OfferKind } from "@/lib/releases/offers";
 import { paydayPush } from "@/lib/releases/windows";
 import { RELEASE_STATES, type ReleaseState } from "@/lib/releases/types";
 
@@ -113,13 +113,21 @@ export function ReleasesPanel({
         <section className="rounded-md border border-border bg-card p-4">
           <div className="mb-3 flex items-baseline justify-between gap-2">
             <h3 className={PANEL_TITLE}>Where each release is</h3>
-            <p>
-              <span className="font-heading text-2xl">{headline}</span>{" "}
-              <span className="text-xs text-muted-foreground">
-                <span className="sm:hidden">{narrowRest}</span>
-                <span className="hidden sm:inline">{headlineRest}</span>
-              </span>
-            </p>
+            {bare ? (
+              <p>
+                <span className="hidden font-heading text-2xl sm:inline">{headline}</span>
+                <span className="hidden text-xs text-muted-foreground sm:inline"> {headlineRest}</span>
+                <span className="text-xs text-muted-foreground sm:hidden">{narrowRest}</span>
+              </p>
+            ) : (
+              <p>
+                <span className="font-heading text-2xl">{headline}</span>{" "}
+                <span className="text-xs text-muted-foreground">
+                  <span className="sm:hidden">{narrowRest}</span>
+                  <span className="hidden sm:inline">{headlineRest}</span>
+                </span>
+              </p>
+            )}
           </div>
           <ul className="space-y-3">
             {rows.map((row) => (
@@ -131,16 +139,17 @@ export function ReleasesPanel({
                     <span className="hidden sm:inline">{row.when}</span>
                   </div>
                 </div>
-                <div className="inline-flex max-w-full overflow-hidden rounded-full border border-border-strong text-[10px] font-semibold whitespace-nowrap">
+                <div className={row.plain ? "inline-flex max-w-full rounded-full border border-border-strong text-[10px] font-semibold whitespace-nowrap" : "inline-flex max-w-full overflow-hidden rounded-full border border-border-strong text-[10px] font-semibold whitespace-nowrap"}>
                   {RELEASE_STATES.map((state, index) => {
                     const on = state === row.state;
                     const past = RELEASE_STATES.indexOf(state) < RELEASE_STATES.indexOf(row.state);
                     const outlined = Boolean(row.plain && on);
+                    const end = index === 0 ? "rounded-l-full" : index === RELEASE_STATES.length - 1 ? "rounded-r-full" : "";
                     return (
                       <button
                         key={state}
                         type="button"
-                        className={`border-r border-border px-1.5 py-1 last:border-r-0 ${outlined ? "text-foreground outline outline-[1.5px] outline-offset-[-1px] outline-foreground" : on ? "bg-foreground text-background" : past ? "text-muted-foreground" : "text-foreground/80"}`}
+                        className={outlined ? `border-r border-border px-1.5 py-1 last:border-r-0 text-foreground outline outline-[1.5px] outline-offset-[-1px] outline-foreground/70 ${end}` : `border-r border-border px-1.5 py-1 last:border-r-0 ${on ? "bg-foreground text-background" : past ? "text-muted-foreground" : "text-foreground/80"}`}
                         onClick={async () => {
                           if (!onState) return;
                           const result = await onState(row.id, state, ask === `${row.id}:${state}`);
@@ -192,10 +201,14 @@ export function ReleasesPanel({
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            <span className="sm:hidden">{narrowFootnote ?? footnote}</span>
-            <span className="hidden sm:inline">{footnote}</span>
-          </p>
+          {bare ? (
+            <p className="mt-3 hidden text-[11px] text-muted-foreground sm:block">{footnote}</p>
+          ) : (
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              <span className="sm:hidden">{narrowFootnote ?? footnote}</span>
+              <span className="hidden sm:inline">{footnote}</span>
+            </p>
+          )}
         </section>
         {bare ? null : <section className="hidden rounded-md border border-border bg-card p-4 sm:block">
           <div className="mb-3 flex items-baseline justify-between">
@@ -605,8 +618,8 @@ export function AssetBoard() {
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h3 className={PANEL_TITLE}>Asset bank</h3>
         <p className="text-xs">
-          <span className="hidden sm:inline">15 approved · 1 proposed · 3 locked · 5 missing</span>
-          <span className="sm:hidden">15 ✓ · 1 proposed · 3 locked · 5 missing</span>
+          <span className="hidden sm:inline">15 approved · 2 proposed · 3 locked · 5 missing</span>
+          <span className="sm:hidden">15 ✓ · 2 proposed · 3 locked · 5 missing</span>
           <Button
             type="button"
             size="sm"
@@ -809,31 +822,122 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
   );
 }
 
-/** Kind, figures, condition, from / until. A typed offer that says "final" is refused in one sentence. */
-export function OffersSheet({ onPropose }: { onPropose?: (text: string) => void }) {
-  const [text, setText] = useState("");
-  const refusal = offerRefusal(text);
+const FIELD = "mt-1 w-full rounded border border-border bg-background px-2 py-1";
+
+/** Kind, figures, condition, from / until. One action: Propose. Writes event_offers. */
+export function OffersSheet({
+  eventId,
+  initial,
+}: {
+  eventId?: string;
+  initial?: {
+    kind?: OfferKind;
+    today?: string;
+    parts?: string;
+    price?: string;
+    arrive?: string;
+    condition?: string;
+    from?: string;
+    until?: string;
+  };
+}) {
+  const [kind, setKind] = useState<OfferKind>(initial?.kind ?? "payment_plan");
+  const [today, setToday] = useState(initial?.today ?? "");
+  const [parts, setParts] = useState(initial?.parts ?? "");
+  const [price, setPrice] = useState(initial?.price ?? "");
+  const [arrive, setArrive] = useState(initial?.arrive ?? "");
+  const [condition, setCondition] = useState(initial?.condition ?? "");
+  const [from, setFrom] = useState(initial?.from ?? "");
+  const [until, setUntil] = useState(initial?.until ?? "");
+  const [said, setSaid] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const figures: OfferFigures = kind === "payment_plan"
+    ? { today: today === "" ? undefined : Number(today), parts: parts === "" ? undefined : Number(parts) }
+    : kind === "early_entry"
+      ? { price: price === "" ? undefined : Number(price), arrive: arrive || undefined }
+      : {};
+  const words = offerWords(kind, figures).card;
+  const refusal = offerRefusal([condition, words, arrive].filter(Boolean).join(" "));
+  const ready = kind === "group" || (kind === "payment_plan" ? today !== "" && parts !== "" : price !== "");
+
+  async function propose(event: FormEvent) {
+    event.preventDefault();
+    if (refusal || !ready || !eventId) return;
+    setBusy(true);
+    setSaid(null);
+    const res = await fetch(`/api/events/${eventId}/offers`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kind,
+        figures,
+        condition,
+        fromAt: from || null,
+        untilAt: until || null,
+      }),
+    });
+    const body = (await res.json()) as { error?: string };
+    setBusy(false);
+    setSaid(res.ok ? "Proposed." : (body.error ?? "Could not save the offer."));
+  }
+
   return (
-    <form
-      className="space-y-2 rounded-md border border-border bg-card p-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (refusal || !text.trim()) return;
-        onPropose?.(text);
-      }}
-    >
+    <form className="w-full space-y-2 rounded-md border border-border bg-card p-4" onSubmit={propose}>
       <h3 className={PANEL_TITLE}>Offers</h3>
       <label className="block text-xs">
-        Offer
-        <input
-          aria-label="Offer"
-          className="mt-1 w-full rounded border border-border bg-background px-2 py-1"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
+        Kind
+        <select aria-label="Kind" className={FIELD} value={kind} onChange={(event) => setKind(event.target.value as OfferKind)}>
+          <option value="payment_plan">payment plan</option>
+          <option value="group">group</option>
+          <option value="early_entry">early entry</option>
+        </select>
       </label>
+      <div className="text-xs">
+        <div>Figures</div>
+        {kind === "payment_plan" ? (
+          <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label>
+              Today £
+              <input aria-label="Today" inputMode="decimal" className={FIELD} value={today} onChange={(event) => setToday(event.target.value)} />
+            </label>
+            <label>
+              Parts
+              <input aria-label="Parts" inputMode="numeric" className={FIELD} value={parts} onChange={(event) => setParts(event.target.value)} />
+            </label>
+          </div>
+        ) : null}
+        {kind === "group" ? <p className="mt-1 text-muted-foreground">4 for 3</p> : null}
+        {kind === "early_entry" ? (
+          <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label>
+              Price £
+              <input aria-label="Price" inputMode="decimal" className={FIELD} value={price} onChange={(event) => setPrice(event.target.value)} />
+            </label>
+            <label>
+              Arrive before
+              <input aria-label="Arrive before" className={FIELD} value={arrive} onChange={(event) => setArrive(event.target.value)} />
+            </label>
+          </div>
+        ) : null}
+      </div>
+      <label className="block text-xs">
+        Condition
+        <input aria-label="Condition" className={FIELD} value={condition} onChange={(event) => setCondition(event.target.value)} />
+      </label>
+      <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+        <label>
+          From
+          <input aria-label="From" type="date" className={FIELD} value={from} onChange={(event) => setFrom(event.target.value)} />
+        </label>
+        <label>
+          Until
+          <input aria-label="Until" type="date" className={FIELD} value={until} onChange={(event) => setUntil(event.target.value)} />
+        </label>
+      </div>
       {refusal ? <p className="text-xs text-destructive">{refusal}</p> : null}
-      <Button type="submit" size="sm" disabled={Boolean(refusal) || !text.trim()}>
+      {said ? <p className="text-xs text-muted-foreground">{said}</p> : null}
+      <Button type="submit" size="sm" disabled={Boolean(refusal) || !ready || busy}>
         Propose
       </Button>
     </form>

@@ -29,7 +29,9 @@ Asset bank issue 3 (H12–H16). The roll-call is a `roll_call` rung whose two li
 
 ## Notes
 
-Neither migration is applied. 221 only adds the enum values; 222 writes them after that transaction has committed. Generated types do not name the migration file, so they were not regenerated. No rendered file changed, so no frame moved. H17 needs no build. The ticket-vendor reader stays paused.
+Neither migration is applied. 221 only adds the enum values; 222 writes them after that transaction has committed. Generated types do not name the migration file, so they were not regenerated. H17 needs no build. The ticket-vendor reader stays paused.
+
+Design fix, same branch. Final X counts as the live release for the roll-call. The live ladder shows the record's roll-call cell. Velocity shouts the measured change, rounded down to the nearest 100. The rise day is the weekday, or tomorrow. Countdown's percent half includes the selling-fast stand-in. Derived rungs are event proposals and do not take a release's mark. The lineup uses the artist with the latest added time. The event page passes sales history, the next list time, the show date and the artist rows. The Offers sheet is on the event page and writes event_offers. The board header counts that offer. A backfilled state is outlined in ink-2, and the 393 frame drops the dash and the footnote.
 
 Ubuntu pair, shot from `2587ad4`, threshold 0.1, every pair 0 pixels:
 
