@@ -306,10 +306,12 @@ describe("creative lab captions: names stay whole and lines balance", () => {
     assert.ok(lines.some((line) => line.includes("coming") && line.split(/\s+/).length > 1));
   });
 
-  it("reflows a newline so a one-word line cannot sit in the middle", () => {
+  it("keeps a written break, and a one-word line joins the next", () => {
     const out = validateCaption("Luke Dean closing\nout\nCircuit for our 4th birthday", "lineup", ["Luke Dean"], P26, STYLE);
+    assert.equal(out.lines[0], "Luke Dean closing");
     assert.equal(out.lines.includes("out"), false);
-    assert.ok(out.lines.every((line, i) => i === out.lines.length - 1 || line.trim().split(/\s+/).length > 1));
+    assert.ok(out.lines[1]?.startsWith("out "), out.lines.join(" | "));
+    assert.equal(out.lines.some((line) => line.includes("closing out")), false);
   });
 
   it("keeps Phill de Janeiro and Benji King whole", () => {
@@ -538,6 +540,24 @@ describe("creative lab captions: Puzzle overlay lines", () => {
     assert.ok(six.lines.length > 5, six.lines.join(" | "));
     assert.ok(six.errors.some((e) => e.code === "too_long" && /at most/.test(e.detail)), six.errors.map((e) => e.detail).join("; "));
     assert.equal(renderRefusalSentence(six.errors.find((e) => e.code === "too_long")?.detail), sentence);
+  });
+
+  it("keeps the writer's line breaks and wraps only inside a line", () => {
+    const rooms: EventFacts = { ...puzzle, venueName: "Circuit & Engine Rooms" };
+    const bill = validateCaption("Enzo Siragusa, Luke Dean, Reeshy & more\nCircuit & Engine Rooms\n27 December", "lineup", HEADLINERS, rooms, STYLE);
+    assert.deepEqual(bill.lines, ["Enzo Siragusa,", "Luke Dean, Reeshy & more", "Circuit & Engine Rooms", "27 December"]);
+    assert.equal(bill.sizeVariant, "long");
+    assert.equal(bill.ok, true, bill.errors.map((e) => e.detail).join("; "));
+    assert.ok(bill.lines.every((line) => line.length <= 24), bill.lines.join(" | "));
+    const birthday = validateCaption("Puzzle 4th Birthday\nEnzo Siragusa, Luke Dean, Reeshy & more\n27 December", "lineup", HEADLINERS, puzzle, STYLE);
+    assert.deepEqual(birthday.lines, ["Puzzle 4th Birthday", "Enzo Siragusa,", "Luke Dean, Reeshy & more", "27 December"]);
+    assert.equal(birthday.ok, true, birthday.errors.map((e) => e.detail).join("; "));
+    const pov = validateCaption("POV:\nYou just saw the\nPuzzle 4th Birthday\nlineup", "pov", [], puzzle, STYLE);
+    assert.deepEqual(pov.lines, ["POV: You just saw the", "Puzzle 4th Birthday", "lineup"]);
+    assert.equal(pov.sizeVariant, "long");
+    assert.equal(pov.ok, true, pov.errors.map((e) => e.detail).join("; "));
+    const four = validateCaption("One two\nThree\nFour five\nSix seven", "four_line", [], puzzle, STYLE);
+    assert.deepEqual(four.lines, ["One two", "Three", "Four five", "Six seven"]);
   });
 
   it("tells the writer that a line break is the only separator", () => {

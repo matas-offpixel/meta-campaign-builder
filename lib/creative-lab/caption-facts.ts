@@ -24,11 +24,15 @@
  *   - wrap at the style profile's characters per line (v1.json; 18), at
  *     most 4 lines. An overlay that does not fit those 4 lines, or that
  *     is 73–96 characters, uses the long size (up to 5 × 24). Over 96,
- *     or a single word longer than that size's line, is rejected. A lineup name that fits on one line is not
- *     broken. Lines are balanced: no single-word line except the last,
- *     and "more", "&" and "w/" are never a line on their own. "& more"
- *     stays one phrase. A "/" or "|" is not a separator, and an empty
- *     line is refused. four_line must be exactly 4 lines.
+ *     or a single word longer than that size's line, is rejected. The
+ *     writer's line breaks are phrase boundaries: each line wraps only
+ *     within itself. A one-word line that is not last joins the next
+ *     line. A lineup name, the event name, the venue, or a date that
+ *     fits on one line is not broken. Lines are balanced inside a
+ *     paragraph: no single-word line except the last, and "more", "&"
+ *     and "w/" are never a line on their own. "& more" stays one phrase.
+ *     A "/" or "|" is not a separator, and an empty line is refused.
+ *     four_line must be exactly 4 lines and keeps its own breaks.
  *   - layout (wrap, emoji, '#', all caps) applies to the overlay only.
  *     Overlay emoji are never allowed. Primary text may use emoji when
  *     the client's style setting says so, and is capped at 125 characters.
@@ -437,12 +441,37 @@ function datePhrases(text: string): string[] {
   return found;
 }
 
-/** Word wrap. `names` and dates that fit at this width move down whole. A word longer than the line stands alone. */
+/**
+ * A one-word written line that is not last joins the next line. The pair
+ * wraps as one paragraph. An empty line stays, so the validator can refuse it.
+ */
+function joinOneWordLines(text: string): string {
+  const parts = text.split(/\r?\n/);
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i += 1) {
+    const words = (parts[i] ?? "").trim().split(/\s+/).filter(Boolean);
+    const next = parts[i + 1];
+    if (words.length === 1 && next !== undefined && next.trim() !== "") {
+      parts[i + 1] = `${words[0]} ${next.trim()}`;
+      continue;
+    }
+    out.push((parts[i] ?? "").trim());
+  }
+  return out.join("\n");
+}
+
+/** Word wrap. Each written line wraps only within itself. `names` and dates that fit at this width move down whole. A word longer than the line stands alone. */
 export function wrapCaption(text: string, charsPerLine: number, names: readonly string[] = []): string[] {
   const lines: string[] = [];
   for (const paragraph of text.split(/\r?\n/)) {
-    const protectedPhrases = [...names, ...datePhrases(paragraph)];
-    lines.push(...wrapAtoms(atomsOf(paragraph, protectedPhrases, charsPerLine), charsPerLine));
+    const trimmed = paragraph.trim();
+    if (!trimmed) continue;
+    if (trimmed.length <= charsPerLine) {
+      lines.push(trimmed);
+      continue;
+    }
+    const protectedPhrases = [...names, ...datePhrases(trimmed)];
+    lines.push(...wrapAtoms(atomsOf(trimmed, protectedPhrases, charsPerLine), charsPerLine));
   }
   return lines;
 }
@@ -1053,10 +1082,13 @@ export function validateCaption(
   options: CaptionCheckOptions = {},
 ): CaptionValidation {
   const errors: CaptionError[] = [];
-  // four_line uses the writer's line breaks. Every other style is reflowed,
-  // so a newline cannot leave a one-word line in the middle.
-  const trimmed = (style === "four_line" ? text : text.replace(/[\r\n]+/g, " ")).trim().replace(/[ \t]+/g, " ");
+  // Written line breaks are phrase boundaries. A one-word line that is not
+  // last joins the next line. four_line keeps every break, including a
+  // one-word line in the middle.
+  const normalized = text.replace(/[ \t]+/g, " ").trim();
   const blankLine = text.split(/\r?\n/).some((line) => line.trim() === "");
+  const shaped = style === "four_line" ? normalized : joinOneWordLines(normalized);
+  const trimmed = shaped.replace(/\s+/g, " ").trim();
   const extra = options.extraNames ?? [];
   const speaker = style === "artist_first_person" ? options.speakingArtist?.trim() ?? "" : "";
   const declared = speaker && !declaredNames.some((name) => sameArtist(name, speaker)) ? [...declaredNames, speaker] : declaredNames;
@@ -1066,13 +1098,14 @@ export function validateCaption(
   if (chars > profile.long.maxChars) {
     errors.push({ code: "too_long", detail: `${chars} characters; an overlay is at most ${profile.long.maxChars}` });
   }
-  const protectedNames = [...facts.lineup, ...(facts.headliners ?? []), ...declared, ...extra];
+  const places = [facts.eventName, facts.venueName, facts.venueCity].filter((name): name is string => Boolean(name?.trim()));
+  const protectedNames = [...facts.lineup, ...(facts.headliners ?? []), ...declared, ...extra, ...places];
   const defaultWidth = styleProfile.charsPerLine ?? CHARS_PER_LINE;
-  const defaultLines = style === "four_line" ? [] : wrapCaption(trimmed, defaultWidth, protectedNames);
+  const defaultLines = style === "four_line" ? [] : wrapCaption(shaped, defaultWidth, protectedNames);
   const long = style !== "four_line" && (chars >= profile.long.minChars || defaultLines.length > (styleProfile.maxLines ?? DEFAULT_MAX_LINES));
   const charsPerLine = long ? profile.long.charsPerLine : defaultWidth;
   const maxLines = long ? profile.long.maxLines : (styleProfile.maxLines ?? DEFAULT_MAX_LINES);
-  const lines = long ? wrapCaption(trimmed, charsPerLine, protectedNames) : style === "four_line" ? wrapCaption(trimmed, charsPerLine, protectedNames) : defaultLines;
+  const lines = long ? wrapCaption(shaped, charsPerLine, protectedNames) : style === "four_line" ? wrapCaption(shaped, charsPerLine, protectedNames) : defaultLines;
   const sizeVariant = long ? "long" : "default";
 
   errors.push(...factErrors(trimmed, style, declared, facts, extra, options.crowdTicketsSold));
