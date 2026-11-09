@@ -1,6 +1,6 @@
 /**
  * Creates the client and event trees (S19, HS13) and keeps the folder map
- * (drive_folders, migration 217) in step with them.
+ * (drive_folders, migration 218) in step with them.
  *
  * Idempotent: the map is read first; a key the map doesn't have is looked
  * up in Drive by exact name under its parent before anything is created, so
@@ -10,6 +10,7 @@
 
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import type { DriveApi } from "./client.ts";
+import type { DriveDb, RowOf } from "./db.ts";
 import {
   CLIENT_KEY,
   EVENT_KEY,
@@ -24,24 +25,16 @@ import {
   type FolderSpec,
 } from "./tree.ts";
 
-/** Pick<SupabaseClient, "from"> without the generated types (migration 217 is not in database.types.ts yet). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- the supabase-js builder, untyped
-export type DriveDb = { from(table: string): any };
+export type { DriveDb } from "./db.ts";
 
-export type ClientRow = { id: string; name: string; status?: string | null; drive_folder_id?: string | null };
-export type EventRow = {
-  id: string;
-  client_id: string | null;
-  name: string;
-  event_code?: string | null;
-  event_date?: string | null;
-  status?: string | null;
-  drive_folder_id?: string | null;
-  drive_folder_linked?: boolean | null;
-  drive_cancel_marked_at?: string | null;
-};
+/** The client and event fields the tree reads and writes. */
+export type ClientRow = Pick<RowOf<"clients">, "id" | "name" | "status" | "drive_folder_id">;
+export type EventRow = Pick<
+  RowOf<"events">,
+  "id" | "client_id" | "name" | "event_code" | "event_date" | "status" | "drive_folder_id" | "drive_folder_linked" | "drive_cancel_marked_at"
+>;
 
-type MapRow = { client_id: string; event_id: string | null; key: string; name: string; drive_folder_id: string };
+type MapRow = Pick<RowOf<"drive_folders">, "client_id" | "event_id" | "key" | "name" | "drive_folder_id">;
 
 export type TreeLog = { created: string[]; found: string[]; renamed: string[] };
 

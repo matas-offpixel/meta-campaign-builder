@@ -13,7 +13,8 @@
  */
 
 import { APP_ID_KEY, APP_TAG_KEY, SHORTCUT_MIME, type DriveApi } from "./client.ts";
-import { ensureEventKey, type ClientRow, type DriveDb, type EventRow, emptyLog, type TreeLog } from "./folders.ts";
+import { rowById, rowsWhere, type DriveDb, type RowOf } from "./db.ts";
+import { ensureEventKey, emptyLog, type TreeLog } from "./folders.ts";
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import {
   WINNERS_KEY,
@@ -27,8 +28,7 @@ import {
   type FolderKey,
 } from "./tree.ts";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows of tables migration 217 adds columns to, not in database.types.ts yet
-type Row = Record<string, any>;
+export type RenderRow = RowOf<"creative_lab_renders">;
 
 export const RENDER_BUCKET = "campaign-assets";
 /** One try, then three retries with backoff (HS9). */
@@ -38,14 +38,14 @@ export const BACKOFF_MINUTES = [2, 10, 30] as const;
 export type StorageDownload = (bucket: string, path: string) => Promise<Uint8Array>;
 
 export type FilingContext = {
-  render: Row;
+  render: RenderRow;
   roundNo: number;
-  caption: Row;
-  clip: Row;
-  artist: Row;
-  event: EventRow & Row;
-  client: ClientRow & Row;
-  asset: Row;
+  caption: RowOf<"creative_lab_captions">;
+  clip: RowOf<"creative_lab_clips">;
+  artist: RowOf<"creative_lab_artists">;
+  event: RowOf<"events">;
+  client: RowOf<"clients">;
+  asset: RowOf<"creative_assets">;
 };
 
 export type FilingPlan = {
@@ -57,24 +57,6 @@ export type FilingPlan = {
   path: string;
   mimeType: string;
 };
-
-async function one(db: DriveDb, table: string, id: unknown): Promise<Row | null> {
-  if (id == null || id === "") return null;
-  const res = await db.from(table).select("*").eq("id", String(id)).maybeSingle();
-  if (res.error) throw new Error(`${table}: ${res.error.message}`);
-  return (res.data as Row | null) ?? null;
-}
-
-async function many(db: DriveDb, table: string, column: string, value: unknown): Promise<Row[]> {
-  const out: Row[] = [];
-  for (let from = 0; ; from += 1000) {
-    const res = await db.from(table).select("*").eq(column, value).range(from, from + 999);
-    if (res.error) throw new Error(`${table}: ${res.error.message}`);
-    const rows = (res.data ?? []) as Row[];
-    out.push(...rows);
-    if (rows.length < 1000) return out;
-  }
-}
 
 export type SkipReason =
   | "not_ready"
@@ -90,29 +72,29 @@ export type SkipReason =
   | "no_file";
 
 /** Everything a filing needs, or why this render is not filed (it then stays as it is). */
-export async function loadFilingContext(db: DriveDb, render: Row): Promise<FilingContext | { skip: SkipReason }> {
+export async function loadFilingContext(db: DriveDb, render: RenderRow): Promise<FilingContext | { skip: SkipReason }> {
   if (render.status !== "done") return { skip: "not_ready" };
-  const ads = await many(db, "creative_lab_round_ads", "render_id", render.id);
+  const ads = await rowsWhere(db, "creative_lab_round_ads", "render_id", render.id);
   if (!ads.length) return { skip: "not_in_a_round" };
-  const rounds = (await Promise.all([...new Set(ads.map((ad) => String(ad.round_id)))].map((id) => one(db, "creative_lab_rounds", id)))).filter(
-    (row): row is Row => Boolean(row),
+  const rounds = (await Promise.all([...new Set(ads.map((ad) => ad.round_id))].map((id) => rowById(db, "creative_lab_rounds", id)))).filter(
+    (row): row is RowOf<"creative_lab_rounds"> => Boolean(row),
   );
   if (!rounds.length) return { skip: "not_in_a_round" };
   const roundNo = Math.min(...rounds.map((round) => Number(round.round_no) || 1));
-  const caption = await one(db, "creative_lab_captions", render.caption_id);
+  const caption = await rowById(db, "creative_lab_captions", render.caption_id);
   if (!caption) return { skip: "no_caption" };
-  const clip = await one(db, "creative_lab_clips", render.clip_id);
+  const clip = await rowById(db, "creative_lab_clips", render.clip_id);
   if (!clip) return { skip: "no_clip" };
-  const artist = await one(db, "creative_lab_artists", clip.artist_id);
+  const artist = await rowById(db, "creative_lab_artists", clip.artist_id);
   if (!artist) return { skip: "no_artist" };
-  const event = (await one(db, "events", caption.event_id ?? rounds[0].event_id)) as (EventRow & Row) | null;
+  const event = await rowById(db, "events", caption.event_id ?? rounds[0].event_id);
   if (!event) return { skip: "no_event" };
-  const client = (await one(db, "clients", event.client_id)) as (ClientRow & Row) | null;
+  const client = await rowById(db, "clients", event.client_id);
   if (!client) return { skip: "no_client" };
   if (isArchivedClientStatus(client.status)) return { skip: "archived_client" };
   if (isCancelled(event.status)) return { skip: "cancelled" };
   if (!event.drive_folder_id) return { skip: "no_tree" };
-  const asset = await one(db, "creative_assets", render.creative_asset_id);
+  const asset = await rowById(db, "creative_assets", render.creative_asset_id);
   if (!asset?.storage_path) return { skip: "no_file" };
   return { render, roundNo, caption, clip, artist, event, client, asset };
 }
@@ -159,7 +141,7 @@ export function planFiling(ctx: FilingContext, today: string, calendar?: CycleCa
 }
 
 /** Renders the tick should try now: approved and not yet copied, a due retry, or a re-render since the copy. */
-export function wantsFiling(render: Row, now: Date): boolean {
+export function wantsFiling(render: Pick<RenderRow, "status" | "drive_status" | "drive_next_attempt_at" | "drive_render_attempt" | "attempt">, now: Date): boolean {
   if (render.status !== "done") return false;
   const status = render.drive_status ?? null;
   if (status === null) return true;
@@ -185,7 +167,7 @@ function shortError(err: unknown): string {
 export async function fileRender(
   db: DriveDb,
   drive: DriveApi,
-  render: Row,
+  render: RenderRow,
   deps: { download: StorageDownload; now: Date; today: string; calendar?: CycleCalendar; log?: TreeLog },
 ): Promise<FileResult> {
   const renderId = String(render.id);
@@ -252,7 +234,7 @@ export async function fileRender(
 export async function retryDriveCopy(db: DriveDb, args: { renderId: string; userId: string }): Promise<{ ok: true } | { ok: false; error: string }> {
   const res = await db.from("creative_lab_renders").select("*").eq("id", args.renderId).eq("user_id", args.userId).maybeSingle();
   if (res.error) throw new Error(`creative_lab_renders: ${res.error.message}`);
-  const row = res.data as Row | null;
+  const row = res.data as Pick<RenderRow, "drive_status"> | null;
   if (!row) return { ok: false, error: "No render with that id." };
   if (row.drive_status !== "failed") return { ok: false, error: "This render's Drive copy has not failed." };
   const update = await db
@@ -274,15 +256,15 @@ export type WinnerResult = { renderId: string; fileName: string; shortcutId: str
  * where it was filed. Idempotent: a renamed file is not renamed twice, and a
  * shortcut already pointing at the file is reused.
  */
-export async function markWinners(db: DriveDb, drive: DriveApi, round: Row, log: TreeLog = emptyLog()): Promise<WinnerResult[]> {
+export async function markWinners(db: DriveDb, drive: DriveApi, round: Pick<RowOf<"creative_lab_rounds">, "id" | "status" | "event_id">, log: TreeLog = emptyLog()): Promise<WinnerResult[]> {
   if (round.status !== "judged") return [];
-  const ads = (await many(db, "creative_lab_round_ads", "round_id", round.id)).filter((ad) => ad.verdict === "winner" && ad.render_id);
+  const ads = (await rowsWhere(db, "creative_lab_round_ads", "round_id", round.id)).filter((ad) => ad.verdict === "winner" && ad.render_id);
   const out: WinnerResult[] = [];
   for (const ad of ads) {
-    const render = await one(db, "creative_lab_renders", ad.render_id);
+    const render = await rowById(db, "creative_lab_renders", ad.render_id);
     if (!render || render.drive_status !== "copied" || !render.drive_file_id || render.drive_winner_shortcut_id) continue;
-    const event = (await one(db, "events", round.event_id)) as (EventRow & Row) | null;
-    const client = event ? ((await one(db, "clients", event.client_id)) as (ClientRow & Row) | null) : null;
+    const event = await rowById(db, "events", round.event_id);
+    const client = event ? await rowById(db, "clients", event.client_id) : null;
     if (!event || !client || isArchivedClientStatus(client.status) || isCancelled(event.status) || !event.drive_folder_id) continue;
     const name = winnerFileName(String(render.drive_file_name ?? ""));
     if (name !== render.drive_file_name) await drive.update(String(render.drive_file_id), { name });

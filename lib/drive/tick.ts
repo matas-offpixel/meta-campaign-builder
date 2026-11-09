@@ -13,31 +13,21 @@
  *   6. winners — judged rounds' winners (S21, HS19).
  *
  * Archived clients get nothing (S27). Writes only to Drive and to the
- * migration-217 columns; never to a render's status.
+ * migration-218 columns; never to a render's status.
  */
 
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import type { DriveApi } from "./client.ts";
 import { fileRender, markWinners, wantsFiling, type FileResult, type StorageDownload, type WinnerResult } from "./filing.ts";
-import { emptyLog, ensureClientTree, ensureCycleFolder, ensureEventTree, markCancelled, type ClientRow, type DriveDb, type EventRow, type TreeLog } from "./folders.ts";
+import { allRows, type DriveDb, type RowOf } from "./db.ts";
+import { emptyLog, ensureClientTree, ensureCycleFolder, ensureEventTree, markCancelled, type TreeLog } from "./folders.ts";
+
+export { allRows } from "./db.ts";
 import { cycleDue, isCancelled, londonToday, type CycleCalendar } from "./tree.ts";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows of tables migration 217 adds columns to, not in database.types.ts yet
-type Row = Record<string, any>;
 
 /** Clients and events created from this day get their tree automatically (the day this PR's migration is written). */
 export const AUTO_TREE_FROM = "2026-11-09T00:00:00Z";
-
-export async function allRows(db: DriveDb, table: string, columns = "*"): Promise<Row[]> {
-  const out: Row[] = [];
-  for (let from = 0; ; from += 1000) {
-    const res = await db.from(table).select(columns).range(from, from + 999);
-    if (res.error) throw new Error(`${table}: ${res.error.message}`);
-    const rows = (res.data ?? []) as Row[];
-    out.push(...rows);
-    if (rows.length < 1000) return out;
-  }
-}
 
 export type DriveTickResult = {
   ok: true;
@@ -52,12 +42,12 @@ export type DriveTickResult = {
   errors: string[];
 };
 
-export function onSaleFrom(event: Row): string | null {
+export function onSaleFrom(event: Pick<RowOf<"events">, "general_sale_at">): string | null {
   const at = event.general_sale_at ? String(event.general_sale_at) : null;
   return at ? londonToday(new Date(at)) : null;
 }
 
-export function isPast(event: Row, today: string): boolean {
+export function isPast(event: Pick<RowOf<"events">, "event_date">, today: string): boolean {
   const day = event.event_date ? String(event.event_date).slice(0, 10) : null;
   return Boolean(day && day < today);
 }
@@ -81,10 +71,10 @@ export async function runDriveTick(
     }
   };
 
-  const clients = (await allRows(db, "clients")) as (ClientRow & Row)[];
+  const clients = await allRows(db, "clients");
   const byId = new Map(clients.map((client) => [String(client.id), client]));
-  const events = (await allRows(db, "events")) as (EventRow & Row)[];
-  const live = (client: Row | undefined): client is ClientRow & Row => Boolean(client) && !isArchivedClientStatus(client!.status);
+  const events = await allRows(db, "events");
+  const live = (client: RowOf<"clients"> | undefined): client is RowOf<"clients"> => Boolean(client) && !isArchivedClientStatus(client!.status);
 
   // 1. trees for what was created since the cutover
   for (const client of clients) {

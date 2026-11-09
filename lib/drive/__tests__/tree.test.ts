@@ -45,6 +45,12 @@ describe("tree paths (S13, S18)", () => {
   });
 });
 
+// Ruling (Matas, 9 Nov 2026): production keeps the payday-led cycles from the
+// code's calendar — the Monday of payday week (last Friday of the month) and
+// the Monday a fortnight later (paydayCycleMondays): 26 Oct, 9 Nov, 23 Nov,
+// 7 Dec, 21 Dec 2026. HS13's worked example (2, 16, 30 Nov, 14 Dec) assumes a
+// strict fortnight from 2 Nov; it runs here with that calendar injected, as a
+// test of the cadence rules only. The record itself is not changed.
 describe("w/c cadence (HS13)", () => {
   it("on sale from 2 Nov, paydays fortnightly from 2 Nov: 2, 16, 30 Nov, 14 Dec, then show week from 21 Dec", () => {
     const due: string[] = [];

@@ -311,7 +311,7 @@ REMOTION_LAMBDA_SERVE_URL=
 > 9 Nov 2026, renames on a rename or re-date, makes the on-sale `w/c {d Mon}`
 > folder (payday-week Monday and a fortnight later, from `lib/creative-lab/payday.ts`),
 > marks cancelled events, files approved round renders (`drive_status`, migration
-> 217) and marks judged winners. Launch reads Storage, never Drive. Older events:
+> 218) and marks judged winners. Launch reads Storage, never Drive. Older events:
 > `scripts/backfill-drive-tree.mts` (dry-run by default, `--apply`, `--event CODE`).
 
 > **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**

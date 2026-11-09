@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { fakeDb, type FakeDb } from "../../creative-lab/__tests__/fake-db.ts";
+import type { DriveDb, RowOf, TableName } from "../db.ts";
 import { APP_TAG_KEY, SHORTCUT_MIME, loadExportServiceAccount } from "../client.ts";
 import { MAX_DRIVE_TRIES, fileRender, markWinners, retryDriveCopy } from "../filing.ts";
 import { ensureClientTree, ensureCycleFolder, ensureEventTree, markCancelled } from "../folders.ts";
@@ -14,8 +15,10 @@ const fortnightly = fortnightlyFrom("2026-11-02");
 const NOW = new Date("2026-11-17T10:00:00Z");
 const EVENT_PATH = "Puzzle / 2026-12-27 Puzzle 4th Birthday [P26-BDAY]";
 
-function seed(overrides: { client?: Record<string, unknown>; event?: Record<string, unknown> } = {}) {
-  return fakeDb({
+type TestDb = FakeDb & DriveDb;
+
+function seed(overrides: { client?: Record<string, unknown>; event?: Record<string, unknown> } = {}): TestDb {
+  const db = fakeDb({
     clients: [{ id: "c1", name: "Puzzle", status: "active", created_at: "2026-11-10T00:00:00Z", drive_folder_id: null, ...overrides.client }],
     events: [
       {
@@ -60,14 +63,15 @@ function seed(overrides: { client?: Record<string, unknown>; event?: Record<stri
       { id: "rd3", user_id: "u1", clip_id: "k1", caption_id: "cap1", aspect: "9:16", status: "done", attempt: 1, creative_asset_id: "as3", drive_status: null, drive_attempts: 0, created_at: "2026-11-17T09:02:00Z" },
     ],
   });
+  return db as unknown as TestDb;
 }
 
-const row = (db: FakeDb, table: string, id: string) => db.tables[table].find((r) => r.id === id)!;
+const row = <T extends TableName>(db: FakeDb, table: T, id: string) => db.tables[table].find((r) => r.id === id)! as unknown as RowOf<T>;
 const download = async () => new Uint8Array([1, 2, 3]);
 const deps = { download, now: NOW, today: "2026-11-17", calendar: fortnightly };
 
-async function withTree(db: FakeDb, drive: FakeDrive) {
-  await ensureEventTree(db, drive, row(db, "events", "e1") as never, row(db, "clients", "c1") as never);
+async function withTree(db: TestDb, drive: FakeDrive) {
+  await ensureEventTree(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"));
 }
 
 describe("trees (S19, HS13)", () => {
@@ -102,8 +106,8 @@ describe("trees (S19, HS13)", () => {
   it("an archived client gets nothing", async () => {
     const db = seed({ client: { status: "archived" } });
     const drive = fakeDrive();
-    assert.equal(await ensureClientTree(db, drive, row(db, "clients", "c1") as never), null);
-    const made = await ensureEventTree(db, drive, row(db, "events", "e1") as never, row(db, "clients", "c1") as never);
+    assert.equal(await ensureClientTree(db, drive, row(db, "clients", "c1")), null);
+    const made = await ensureEventTree(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"));
     assert.equal(made.skipped, "archived_client");
     assert.equal(drive.files.size, 0);
   });
@@ -111,7 +115,7 @@ describe("trees (S19, HS13)", () => {
   it("a cancelled event: no new tree; an existing folder is marked, nothing deleted", async () => {
     const db = seed({ event: { status: "cancelled" } });
     const drive = fakeDrive();
-    const made = await ensureEventTree(db, drive, row(db, "events", "e1") as never, row(db, "clients", "c1") as never);
+    const made = await ensureEventTree(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"));
     assert.equal(made.skipped, "cancelled");
     assert.equal(drive.files.size, 0);
 
@@ -121,11 +125,11 @@ describe("trees (S19, HS13)", () => {
     const size = liveDrive.files.size;
     const event = row(live, "events", "e1");
     event.status = "cancelled";
-    assert.equal(await markCancelled(live, liveDrive, event as never), true);
+    assert.equal(await markCancelled(live, liveDrive, event), true);
     assert.equal(liveDrive.files.get(String(event.drive_folder_id))!.name, "2026-12-27 Puzzle 4th Birthday [P26-BDAY] (cancelled)");
     assert.equal(liveDrive.files.size, size);
     assert.ok(event.drive_cancel_marked_at);
-    assert.equal(await markCancelled(live, liveDrive, event as never), false);
+    assert.equal(await markCancelled(live, liveDrive, event), false);
   });
 
   it("re-dated: the folder is renamed, its contents stay", async () => {
@@ -142,7 +146,7 @@ describe("trees (S19, HS13)", () => {
   it("a linked folder keeps its name and files; the tree is added inside it", async () => {
     const db = seed();
     const drive = fakeDrive();
-    await ensureClientTree(db, drive, row(db, "clients", "c1") as never);
+    await ensureClientTree(db, drive, row(db, "clients", "c1"));
     const linked = await drive.createFolder(String(row(db, "clients", "c1").drive_folder_id), "Puzzle Video");
     for (let i = 0; i < 46; i += 1) await drive.uploadFile({ parentId: linked.id, name: `clip-${i}.mp4`, mimeType: "video/mp4", bytes: new Uint8Array(), appProperties: {} });
     Object.assign(row(db, "events", "e1"), { drive_folder_id: linked.id, drive_folder_linked: true });
@@ -156,8 +160,8 @@ describe("trees (S19, HS13)", () => {
     const db = seed();
     const drive = fakeDrive();
     await withTree(db, drive);
-    await ensureCycleFolder(db, drive, row(db, "events", "e1") as never, row(db, "clients", "c1") as never, "2026-11-16");
-    await ensureCycleFolder(db, drive, row(db, "events", "e1") as never, row(db, "clients", "c1") as never, "2026-11-16");
+    await ensureCycleFolder(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), "2026-11-16");
+    await ensureCycleFolder(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), "2026-11-16");
     assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 3 On sale`), ["w/c 16 Nov"]);
     assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 3 On sale / w/c 16 Nov`), ["Content", "Ticket warnings", "UGC"]);
   });

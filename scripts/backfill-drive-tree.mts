@@ -11,21 +11,24 @@
  * on the Shared Drive (find-before-create) when the export account is
  * configured. Prints the folders it would create and the files it would
  * copy. Nothing is written to Supabase, Storage or Drive. --apply writes and
- * needs migration 217. --event CODE (repeatable) scopes it.
+ * needs migration 218. --event CODE (repeatable) scopes it.
  */
 
 import { createClient } from "@supabase/supabase-js";
+
+import type { Database } from "../lib/db/database.types.ts";
 
 import { fakeDb } from "../lib/creative-lab/__tests__/fake-db.ts";
 import { isArchivedClientStatus } from "../lib/db/client-status.ts";
 import { FOLDER_MIME, driveFromEnv, type DriveApi, type DriveFile } from "../lib/drive/client.ts";
 import { fileRender, loadFilingContext, planFiling, wantsFiling } from "../lib/drive/filing.ts";
-import { emptyLog, ensureCycleFolder, ensureEventTree, type DriveDb } from "../lib/drive/folders.ts";
-import { allRows, isPast, onSaleFrom } from "../lib/drive/tick.ts";
+import { allRows, type DriveDb, type RowOf, type TableName } from "../lib/drive/db.ts";
+import { emptyLog, ensureCycleFolder, ensureEventTree } from "../lib/drive/folders.ts";
+import { isPast, onSaleFrom } from "../lib/drive/tick.ts";
 import { cycleDue, isCancelled, londonToday } from "../lib/drive/tree.ts";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows of tables migration 217 adds columns to, not in database.types.ts yet
-type Row = Record<string, any>;
+/** The dry run's in-memory tables (fakeDb). */
+type Memory = { [K in TableName]?: RowOf<K>[] };
 
 const argv = process.argv.slice(2);
 const apply = argv.includes("--apply");
@@ -37,7 +40,7 @@ if (!url || !key) {
   console.error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
   process.exit(2);
 }
-const prod = createClient(url, key, { auth: { persistSession: false } });
+const prod: DriveDb & ReturnType<typeof createClient<Database>> = createClient<Database>(url, key, { auth: { persistSession: false } });
 const { drive: realDrive, reason } = driveFromEnv();
 if (apply && !realDrive) {
   console.error(`--apply needs the export drive: ${reason}`);
@@ -63,16 +66,16 @@ if (codes.length) {
 }
 
 /** The dry run's database: the prod rows in memory; writes stay in memory. */
-async function dryDb(): Promise<DriveDb> {
+async function dryDb(): Promise<{ db: DriveDb; tables: Memory }> {
   const eventIds = new Set(scoped.map((e) => String(e.id)));
   const captions = (await allRows(prod, "creative_lab_captions")).filter((c) => eventIds.has(String(c.event_id)));
   const captionIds = new Set(captions.map((c) => String(c.id)));
   const renders = (await allRows(prod, "creative_lab_renders")).filter((r) => captionIds.has(String(r.caption_id)));
-  let folders: Row[] = [];
+  let folders: RowOf<"drive_folders">[] = [];
   const probe = await prod.from("drive_folders").select("*").range(0, 999);
   if (!probe.error) folders = (await allRows(prod, "drive_folders")).filter((f) => !f.event_id || eventIds.has(String(f.event_id)));
-  else console.log(`(drive_folders not readable — migration 217 not applied: ${probe.error.message.slice(0, 80)})\n`);
-  return fakeDb({
+  else console.log(`(drive_folders not readable — migration 218 not applied: ${probe.error.message.slice(0, 80)})\n`);
+  const fake = fakeDb({
     clients,
     events: scoped,
     drive_folders: folders,
@@ -82,8 +85,9 @@ async function dryDb(): Promise<DriveDb> {
     creative_lab_rounds: await allRows(prod, "creative_lab_rounds"),
     creative_lab_clips: await allRows(prod, "creative_lab_clips"),
     creative_lab_artists: await allRows(prod, "creative_lab_artists"),
-    creative_assets: (await allRows(prod, "creative_assets", "id, storage_bucket, storage_path")).filter((a) => renders.some((r) => r.creative_asset_id === a.id)),
-  }) as DriveDb;
+    creative_assets: (await allRows(prod, "creative_assets")).filter((a) => renders.some((r) => r.creative_asset_id === a.id)),
+  });
+  return { db: fake as unknown as DriveDb, tables: fake.tables as unknown as Memory };
 }
 
 /** Real reads (when configured), simulated writes; remembers names for the printout. */
@@ -129,13 +133,12 @@ function dryDrive(real: DriveApi | null, driveId: string): DriveApi & { pathOf(i
 }
 
 const driveId = realDrive?.driveId ?? process.env.GOOGLE_DRIVE_EXPORT_DRIVE_ID ?? "OFF_PIXEL";
-const db: DriveDb = apply ? (prod as DriveDb) : await dryDb();
+const dry = apply ? null : await dryDb();
+const db: DriveDb = dry ? dry.db : prod;
 const drive = apply ? realDrive! : dryDrive(realDrive, driveId);
-/** The dry run's in-memory tables. */
-const memory = (store: DriveDb) => (store as unknown as { tables: Record<string, Row[]> }).tables;
 
-const dbEvents = apply ? scoped : (memory(db).events as Row[]);
-const dbClients = new Map((apply ? clients : (memory(db).clients as Row[])).map((c: Row) => [String(c.id), c]));
+const dbEvents = dry ? (dry.tables.events ?? []) : scoped;
+const dbClients = new Map((dry ? (dry.tables.clients ?? []) : clients).map((c) => [c.id, c]));
 
 let folderTotal = 0;
 let fileTotal = 0;
@@ -144,13 +147,13 @@ for (const event of dbEvents) {
   const log = emptyLog();
   console.log(`## ${event.event_code ?? "—"} · ${event.name} · ${event.event_date ?? "no date"} · ${event.status} · client ${client.name}`);
   try {
-    const tree = await ensureEventTree(db, drive, event as never, client as never, log);
+    const tree = await ensureEventTree(db, drive, event, client, log);
     if (!tree.folderId) {
       console.log(`  skipped: ${tree.skipped}\n`);
       continue;
     }
     const monday = cycleDue({ today, onSale: event.status === "on_sale", onSaleFrom: onSaleFrom(event), eventDate: event.event_date ?? null });
-    if (monday) await ensureCycleFolder(db, drive, event as never, client as never, monday, log);
+    if (monday) await ensureCycleFolder(db, drive, event, client, monday, log);
     console.log(`  folders to create: ${log.created.length}${log.found.length ? ` · already there: ${log.found.length}` : ""}`);
     for (const label of log.created) console.log(`    + Off / Pixel / ${label}`);
     for (const label of log.found) console.log(`    = Off / Pixel / ${label}`);
@@ -158,11 +161,11 @@ for (const event of dbEvents) {
     folderTotal += log.created.length;
 
     const captionIds = new Set(
-      ((apply ? await allRows(prod, "creative_lab_captions") : memory(db).creative_lab_captions) as Row[])
+      (dry ? (dry.tables.creative_lab_captions ?? []) : await allRows(prod, "creative_lab_captions"))
         .filter((c) => c.event_id === event.id)
         .map((c) => String(c.id)),
     );
-    const renders = ((apply ? await allRows(prod, "creative_lab_renders") : memory(db).creative_lab_renders) as Row[]).filter(
+    const renders = (dry ? (dry.tables.creative_lab_renders ?? []) : await allRows(prod, "creative_lab_renders")).filter(
       (r) => captionIds.has(String(r.caption_id)) && wantsFiling(r, now),
     );
     const doneTotal = renders.length;
