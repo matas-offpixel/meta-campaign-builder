@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1146
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1146
 - **Branch:** `cursor/drive-ui`
 
 ## Summary
@@ -20,9 +20,8 @@ The operator event page and the MML intake can see the Drive export that already
 ## Validation
 
 - [x] `node --test lib/drive/__tests__/panel.test.ts`
-- [ ] `npm test`
-- [ ] `npm run build`
-- [ ] frames CLS5–CLS9, two matching Ubuntu runs
+- [x] frames CLS5–CLS9, two matching Ubuntu runs (pair 0; CLS1–CLS4 unchanged)
+- [ ] `npm test` and `npm run build` on CI
 
 ## Notes
 
