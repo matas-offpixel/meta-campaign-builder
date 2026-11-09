@@ -6,7 +6,8 @@
  *      (S19). Older events get one from the backfill or "Set up Drive" (S24).
  *   2. upkeep — every event with a tree: renamed or re-dated → its folder is
  *      renamed (S19); folders missing from the map are added (a linked folder,
- *      S24). The map answers without a Drive call when nothing changed.
+ *      S24), and one Artist clips/{artist} folder per lineup artist (S22). The
+ *      map answers without a Drive call when nothing changed.
  *   3. cycles — an on-sale event's current w/c {d Mon} folder (S19, HS13).
  *   4. cancelled — the folder gains " (cancelled)"; nothing deleted (S27).
  *   5. filing — up to maxFiles approved renders (S20, HS9).
@@ -20,7 +21,8 @@ import { isArchivedClientStatus } from "../db/client-status.ts";
 import type { DriveApi } from "./client.ts";
 import { fileRender, markWinners, wantsFiling, type FileResult, type StorageDownload, type WinnerResult } from "./filing.ts";
 import { allRows, type DriveDb, type RowOf } from "./db.ts";
-import { emptyLog, ensureClientTree, ensureCycleFolder, ensureEventTree, markCancelled, type TreeLog } from "./folders.ts";
+import { emptyLog, ensureArtistFolders, ensureClientTree, ensureCycleFolder, ensureEventTree, markCancelled, type TreeLog } from "./folders.ts";
+import { loadLineupArtists } from "./lineup.ts";
 
 export { allRows } from "./db.ts";
 import { cycleDue, isCancelled, londonToday, type CycleCalendar } from "./tree.ts";
@@ -105,6 +107,8 @@ export async function runDriveTick(
     if (isPast(event, today)) continue;
     await attempt(`upkeep ${event.event_code ?? event.name}`, async () => {
       await ensureEventTree(db, drive, event, client, log);
+      // Artist clips/{artist} for each lineup artist (S22): made with the tree, and again when the lineup changes.
+      await ensureArtistFolders(db, drive, event, client, await loadLineupArtists(db, event.id), log);
     });
     const monday = cycleDue({ today, onSale: String(event.status ?? "") === "on_sale", onSaleFrom: onSaleFrom(event), eventDate: event.event_date ?? null, calendar: opts.calendar });
     if (monday) {

@@ -313,6 +313,14 @@ REMOTION_LAMBDA_SERVE_URL=
 > marks cancelled events, files approved round renders (`drive_status`, migration
 > 218) and marks judged winners. Launch reads Storage, never Drive. Older events:
 > `scripts/backfill-drive-tree.mts` (dry-run by default, `--apply`, `--event CODE`).
+> Drive → app is `/api/cron/creative-lab-drive-pickup` (every 15 min, `lib/drive/pickup.ts`):
+> the drive's changes feed from the token in `drive_change_cursors` (migration 219). New
+> clips in `02 Source / Artist clips / {artist}` (named exactly as the Lab lineup,
+> `event_artists.source = 'lab'`) go through the folder import as that artist's clip on
+> the event; new files in `01 Open files` / `_Brand kit` become `drive_kit_audit_files`
+> rows; the export's own files (appProperties tag) are skipped. Share with promoter is
+> `lib/actions/drive-share.ts` (`shareEventFolder` / `stopSharingEventFolder`): one view
+> permission on the event folder, never automatic.
 
 > **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**
 > are **not required for the Asset Queue** (as of `cc/asset-queue-public-sheet-fetch`). The scrape

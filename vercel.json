@@ -124,6 +124,10 @@
     {
       "path": "/api/cron/creative-lab-drive-tick",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/creative-lab-drive-pickup",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

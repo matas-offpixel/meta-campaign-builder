@@ -31,6 +31,19 @@ export type DriveFile = {
   parents?: string[];
   appProperties?: Record<string, string>;
   shortcutTargetId?: string | null;
+  trashed?: boolean;
+  size?: number | null;
+};
+
+/** One entry of the Shared Drive's changes feed (changes.list). */
+export type DriveChange = { fileId: string; removed: boolean; file: DriveFile | null };
+
+export type DriveChangePage = {
+  changes: DriveChange[];
+  /** More pages for this token: pass it back as the page token. */
+  nextPageToken: string | null;
+  /** The last page: store this and read from it next time. */
+  newStartPageToken: string | null;
 };
 
 export interface DriveApi {
@@ -41,6 +54,16 @@ export interface DriveApi {
   uploadFile(args: { parentId: string; name: string; mimeType: string; bytes: Uint8Array; appProperties: Record<string, string> }): Promise<DriveFile>;
   createShortcut(args: { parentId: string; name: string; targetId: string; appProperties: Record<string, string> }): Promise<DriveFile>;
   update(fileId: string, patch: { name?: string; description?: string }): Promise<DriveFile>;
+  /** One file's metadata, or null when it is gone or the account can't see it. */
+  getFile(fileId: string): Promise<DriveFile | null>;
+  download(fileId: string): Promise<Uint8Array>;
+  /** changes.getStartPageToken for the drive. */
+  startPageToken(): Promise<string>;
+  listChanges(pageToken: string): Promise<DriveChangePage>;
+  /** permissions.create role reader, type user. Returns the permission id. */
+  shareReader(fileId: string, email: string): Promise<string>;
+  /** permissions.delete. A permission already gone is not an error. */
+  removePermission(fileId: string, permissionId: string): Promise<void>;
 }
 
 export class DriveApiError extends Error {
@@ -113,7 +136,7 @@ function tokenSource(sa: ServiceAccount, fetchImpl: typeof fetch): () => Promise
 
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3";
-const FILE_FIELDS = "id,name,mimeType,parents,appProperties,shortcutDetails(targetId)";
+const FILE_FIELDS = "id,name,mimeType,parents,appProperties,shortcutDetails(targetId),trashed,size";
 
 function escapeQuery(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -128,6 +151,8 @@ function toFile(raw: Record<string, unknown>): DriveFile {
     parents: Array.isArray(raw.parents) ? (raw.parents as string[]) : undefined,
     appProperties: (raw.appProperties as Record<string, string> | undefined) ?? undefined,
     shortcutTargetId: shortcut?.targetId ?? null,
+    trashed: raw.trashed === true,
+    size: raw.size == null ? null : Number(raw.size),
   };
 }
 
@@ -237,6 +262,75 @@ export function restDriveApi(opts: { driveId: string; serviceAccount: ServiceAcc
         "update",
       );
       return toFile((await res.json()) as Record<string, unknown>);
+    },
+
+    async getFile(fileId) {
+      const res = await fetchImpl(`${API}/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=${encodeURIComponent(FILE_FIELDS)}`, {
+        headers: { Authorization: `Bearer ${await token()}` },
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) await fail(res, "get");
+      return toFile((await res.json()) as Record<string, unknown>);
+    },
+
+    async download(fileId) {
+      const res = await call(`${API}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {}, "download");
+      return new Uint8Array(await res.arrayBuffer());
+    },
+
+    async startPageToken() {
+      const params = new URLSearchParams({ driveId: opts.driveId, supportsAllDrives: "true" });
+      const res = await call(`${API}/changes/startPageToken?${params}`, {}, "start page token");
+      const body = (await res.json()) as { startPageToken?: string };
+      if (!body.startPageToken) throw new DriveApiError(500, "no_token", "Drive returned no start page token.");
+      return body.startPageToken;
+    },
+
+    async listChanges(pageToken) {
+      const params = new URLSearchParams({
+        pageToken,
+        driveId: opts.driveId,
+        includeItemsFromAllDrives: "true",
+        supportsAllDrives: "true",
+        includeRemoved: "true",
+        pageSize: "1000",
+        fields: `nextPageToken,newStartPageToken,changes(fileId,removed,file(${FILE_FIELDS}))`,
+      });
+      const res = await call(`${API}/changes?${params}`, {}, "list changes");
+      const body = (await res.json()) as {
+        changes?: { fileId?: string; removed?: boolean; file?: Record<string, unknown> }[];
+        nextPageToken?: string;
+        newStartPageToken?: string;
+      };
+      return {
+        changes: (body.changes ?? []).map((change) => ({
+          fileId: String(change.fileId ?? change.file?.id ?? ""),
+          removed: change.removed === true,
+          file: change.file ? toFile(change.file) : null,
+        })),
+        nextPageToken: body.nextPageToken ?? null,
+        newStartPageToken: body.newStartPageToken ?? null,
+      };
+    },
+
+    async shareReader(fileId, email) {
+      const res = await call(
+        `${API}/files/${encodeURIComponent(fileId)}/permissions?supportsAllDrives=true&sendNotificationEmail=true&fields=id`,
+        { method: "POST", headers: json, body: JSON.stringify({ role: "reader", type: "user", emailAddress: email }) },
+        "share",
+      );
+      const body = (await res.json()) as { id?: string };
+      if (!body.id) throw new DriveApiError(500, "no_permission", "Drive returned no permission id.");
+      return body.id;
+    },
+
+    async removePermission(fileId, permissionId) {
+      const res = await fetchImpl(
+        `${API}/files/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permissionId)}?supportsAllDrives=true`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${await token()}` } },
+      );
+      if (res.status === 404) return;
+      if (!res.ok) await fail(res, "stop sharing");
     },
   };
 }

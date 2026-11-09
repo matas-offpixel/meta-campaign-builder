@@ -1,11 +1,21 @@
 /** In-memory Shared Drive for the export tests. It has no delete: nothing in the export may delete. */
 
-import { FOLDER_MIME, SHORTCUT_MIME, type DriveApi, type DriveFile } from "../client.ts";
+import { DriveApiError, FOLDER_MIME, SHORTCUT_MIME, type DriveApi, type DriveChange, type DriveFile } from "../client.ts";
 
 export type FakeDrive = DriveApi & {
   files: Map<string, DriveFile & { bytes?: Uint8Array }>;
   calls: string[];
   failUploads: number;
+  /** Every write lands in the changes feed, like Drive's own. */
+  changeLog: DriveChange[];
+  /** Changes per changes.list page. */
+  pageSize: number;
+  permissions: Map<string, { fileId: string; email: string }>;
+  /** Next shareReader throws this. */
+  refuseShare: DriveApiError | null;
+  /** A file put in the drive by someone else (an operator dropping a clip). */
+  drop(parentId: string, name: string, opts?: { mimeType?: string; appProperties?: Record<string, string>; bytes?: Uint8Array }): DriveFile;
+  trash(fileId: string): void;
   pathOf(id: string): string;
   childrenNamed(path: string): string[];
 };
@@ -14,8 +24,10 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
   const files: FakeDrive["files"] = new Map();
   const calls: string[] = [];
   let next = 1;
+  const changeLog: DriveChange[] = [];
   const add = (file: DriveFile & { bytes?: Uint8Array }) => {
     files.set(file.id, file);
+    changeLog.push({ fileId: file.id, removed: false, file: { ...file } });
     return { ...file };
   };
   const self: FakeDrive = {
@@ -23,6 +35,51 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
     files,
     calls,
     failUploads: 0,
+    changeLog,
+    pageSize: 100,
+    permissions: new Map(),
+    refuseShare: null,
+    drop(parentId, name, opts = {}) {
+      return add({ id: `d${next++}`, name, mimeType: opts.mimeType ?? "video/mp4", parents: [parentId], appProperties: opts.appProperties, bytes: opts.bytes ?? new Uint8Array([9]), size: 1 });
+    },
+    trash(fileId) {
+      const file = files.get(fileId)!;
+      file.trashed = true;
+      changeLog.push({ fileId, removed: false, file: { ...file } });
+    },
+    async getFile(fileId) {
+      calls.push(`get ${fileId}`);
+      const file = files.get(fileId);
+      return file ? { ...file } : null;
+    },
+    async download(fileId) {
+      calls.push(`download ${fileId}`);
+      const file = files.get(fileId);
+      if (!file) throw new Error("Drive download failed: HTTP 404 notFound");
+      return file.bytes ?? new Uint8Array();
+    },
+    async startPageToken() {
+      calls.push("startPageToken");
+      return String(changeLog.length);
+    },
+    async listChanges(pageToken) {
+      calls.push(`changes ${pageToken}`);
+      const from = Number(pageToken);
+      const to = Math.min(from + self.pageSize, changeLog.length);
+      const more = to < changeLog.length;
+      return { changes: changeLog.slice(from, to), nextPageToken: more ? String(to) : null, newStartPageToken: more ? null : String(to) };
+    },
+    async shareReader(fileId, email) {
+      calls.push(`share ${fileId} ${email}`);
+      if (self.refuseShare) throw self.refuseShare;
+      const id = `p${next++}`;
+      self.permissions.set(id, { fileId, email });
+      return id;
+    },
+    async removePermission(fileId, permissionId) {
+      calls.push(`unshare ${fileId} ${permissionId}`);
+      self.permissions.delete(permissionId);
+    },
     async listChildren(parentId, opts = {}) {
       calls.push(`list ${parentId}`);
       return [...files.values()]
