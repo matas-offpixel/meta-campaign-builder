@@ -22,6 +22,7 @@ import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type
 import type { ServiceRoleDb } from "./load.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
+import { renderAssetId } from "./render-proxy.ts";
 
 export type { Probe };
 
@@ -220,7 +221,8 @@ export async function renderCaptionOnClip(
     const audio = audioMode(String(clip.audio_status ?? "original"));
     if (audio === "replaced") throw new Error("replaced audio has no track on the clip yet");
 
-    const source = await one(db, "creative_assets", String(clip.creative_asset_id));
+    // The 1080 render proxy when the original is 4K (migration 220), else the original.
+    const source = await one(db, "creative_assets", renderAssetId(clip));
     if (!source?.storage_path) throw new Error("clip has no source asset");
     const bucket = String(source.storage_bucket ?? BUCKET);
     const sign = input.deps?.signUrl ?? defaultSign;

@@ -16,6 +16,7 @@ import { uploadToStorageBucket } from "../clients/asset-queue/storage-upload.ts"
 import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset, type RegistryAspect } from "../creatives/asset-registry.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { probeMp4Bytes } from "./mp4-probe.ts";
+import { attachRenderProxy, type RenderProxyMaker } from "./render-proxy.ts";
 
 const BUCKET = "campaign-assets";
 const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "webm"]);
@@ -61,6 +62,8 @@ export type ImportedClip = {
   clipId: string;
   name: string;
   storagePath: string;
+  /** The 1080 render proxy's path when one was made, else null. Renders and the text check read it. */
+  renderStoragePath: string | null;
   durationSeconds: number | null;
   inS: number | null;
   outS: number | null;
@@ -189,6 +192,12 @@ export async function importArtistClips(
     source?: string;
     /** Runs after each clip row is inserted, before the next file. A throw is reported on that file, not the run. */
     onImported?: (clip: ImportedClip) => Promise<string | null | void>;
+    /**
+     * Makes the 1080 render proxy for an original whose 9:16 crop is larger
+     * than 1080×1920 (render-proxy.ts). Defaults to ffmpeg-static. false
+     * skips it. A failure leaves the clip imported on its original.
+     */
+    renderProxy?: RenderProxyMaker | false;
   },
 ): Promise<ClipImportResult> {
   const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
@@ -316,12 +325,35 @@ export async function importArtistClips(
       imported += 1;
       const clipId = text(((inserted.data ?? []) as Row[])[0], "id");
       const notes: string[] = trimmed ? ["trimmed to 30 s"] : [];
+      let renderStoragePath: string | null = null;
+      if (args.renderProxy !== false && clipId && measured) {
+        try {
+          const proxy = await attachRenderProxy(db, {
+            clipId,
+            userId,
+            artistId: args.artistId,
+            name,
+            original: bytes,
+            width: measured.width,
+            height: measured.height,
+            durationSeconds: duration,
+            make: args.renderProxy || undefined,
+            upload,
+          });
+          // No note on the file: the import's words are unchanged.
+          if (proxy) renderStoragePath = proxy.storagePath;
+        } catch (err) {
+          // The clip stays on its original; the import of this file still counts.
+          console.warn(JSON.stringify({ step: "render_proxy", clipId, errorClass: plain(err instanceof Error ? err.message : String(err)).slice(0, 160) }));
+        }
+      }
       if (args.onImported && clipId) {
         try {
           const note = await args.onImported({
             clipId,
             name,
             storagePath,
+            renderStoragePath,
             durationSeconds: duration,
             inS: trimmed ? 0 : null,
             outS: trimmed ? TRIM_SECONDS : null,

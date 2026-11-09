@@ -20,6 +20,12 @@
  *
  * --exclude takes /pattern/flags or a bare word (case-insensitive). Default /b2b/i.
  * --max N caps new files per kind (videos, images).
+ * A kept video whose 9:16 crop would be larger than 1080×1920 (4K) also gets a
+ * 1080 render proxy (ffmpeg-static, lib/creative-lab/render-proxy.ts), stored
+ * beside the original and linked on creative_lab_clips.render_asset_id
+ * (migration 220). Lab renders and the text check read the proxy. Each --apply
+ * with videos also proxies earlier press-kit clips that are 4K and have none
+ * (one download each), then checks them again on the proxy.
  * --recheck 16,17 runs the text check again on those clip numbers even when they
  * hold a verdict (after a prompt or schema change). Without it only clips that
  * are check by eye, or never stored a check, are checked again.
@@ -183,6 +189,14 @@ if (mode !== "images") {
     max,
     upload,
     recheckClipNos,
+    backfill: {
+      probeUrl: async (url) => (await import("../lib/creative-lab/mp4-probe.ts")).probeMp4Url(url),
+      download: async (storagePath) => {
+        const file = await supabase.storage.from("campaign-assets").download(storagePath);
+        if (file.error || !file.data) throw new Error(file.error?.message ?? "Could not download the original.");
+        return Buffer.from(await file.data.arrayBuffer());
+      },
+    },
     sign: async (storagePath) => (await supabase.storage.from("campaign-assets").createSignedUrl(storagePath, 60 * 30)).data?.signedUrl ?? null,
     judge: async (input) => {
       const judged = await judgeOverlay(input);
@@ -199,6 +213,7 @@ if (mode !== "images") {
     reason: file.reason,
     extra: file.overlay ? `${file.overlay.verdict} — ${file.overlay.reason}` : "",
   })));
+  for (const row of result.proxied) console.log(`Render proxy for clip ${row.clipNo} (${row.clipId}): ${row.width}×${row.height} at ${row.storagePath}`);
   for (const row of result.rechecked) console.log(`Rechecked clip ${row.clipId}: ${row.check.verdict} — ${row.check.reason}`);
   console.log(`\nLambda frame sheets: ~$${lambdaUsd.toFixed(4)}`);
 }

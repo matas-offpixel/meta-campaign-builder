@@ -24,6 +24,7 @@
     "@sparticuz/chromium": "^149.0.0",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.3",
+    "ffmpeg-static": "5.3.0",
     "google-ads-api": "^23.0.0",
     "google-auth-library": "^10.7.0",
     "googleapis": "^173.0.0",
@@ -59,5 +60,8 @@
     "tsx": "4.22.4",
     "typescript": "^5",
     "vitest": "^3.2.4"
+  },
+  "allowScripts": {
+    "ffmpeg-static@5.3.0": true
   }
 }

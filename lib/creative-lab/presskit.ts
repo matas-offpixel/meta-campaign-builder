@@ -31,6 +31,7 @@ import {
 } from "./clip-intake.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { frameSampleTimes, settleOverlayVerdict, type OverlayCheck, type OverlayFrame } from "./overlay-check.ts";
+import { attachRenderProxy, renderAssetId, renderProxySize, type RenderProxyMaker } from "./render-proxy.ts";
 
 type Row = Record<string, unknown>;
 
@@ -207,15 +208,16 @@ export type OverlayJudge = (input: { src: string | null; times: number[]; thumbn
 /**
  * The burned-in text check on one press-kit clip, stored on the clip's
  * overlay_check. The frames are sampled from the window the tile plays
- * (the first 30 s of a longer file). A press kit has no thumbnail.
+ * (the first 30 s of a longer file). A press kit has no thumbnail. It reads
+ * the 1080 render proxy when the clip has one (a 4K original fails on Lambda).
  */
 export async function checkClipOverlay(
   db: ServiceRoleDb,
-  clip: Pick<ImportedClip, "clipId" | "storagePath" | "durationSeconds" | "outS">,
+  clip: Pick<ImportedClip, "clipId" | "storagePath" | "durationSeconds" | "outS"> & { renderStoragePath?: string | null },
   deps: { sign: (storagePath: string) => Promise<string | null>; judge: OverlayJudge; now?: Date },
 ): Promise<OverlayCheck> {
   const seconds = clip.outS ?? (clip.durationSeconds != null ? Math.min(clip.durationSeconds, TRIM_SECONDS) : 8);
-  const src = await deps.sign(clip.storagePath);
+  const src = await deps.sign(clip.renderStoragePath || clip.storagePath);
   const raw = await deps.judge({ src, times: frameSampleTimes(seconds), thumbnail: null });
   const check = settleOverlayVerdict(raw);
   const updated = await db.from("creative_lab_clips").update({ overlay_check: check }).eq("id", clip.clipId);
@@ -240,8 +242,21 @@ export async function importPresskitVideos(
     probe?: (bytes: Buffer, name: string) => ClipProbe | null;
     /** Clip numbers to check again even though they hold a verdict (a prompt or schema change). */
     recheckClipNos?: readonly number[];
+    /** The 1080 render proxy maker (render-proxy.ts). Defaults to ffmpeg-static; false skips proxies. */
+    renderProxy?: RenderProxyMaker | false;
+    /**
+     * Proxies for clips imported before render proxies existed: each press-kit
+     * clip with no render_asset_id is probed, a 4K one is downloaded once and
+     * proxied, and then checked again on the proxy. Needs upload.
+     */
+    backfill?: { probeUrl: (url: string) => Promise<{ width: number; height: number }>; download: (storagePath: string) => Promise<Buffer> };
   },
-): Promise<{ files: VideoImportRow[]; folderError: string | null; rechecked: { clipId: string; check: OverlayCheck }[] }> {
+): Promise<{
+  files: VideoImportRow[];
+  folderError: string | null;
+  rechecked: { clipId: string; check: OverlayCheck }[];
+  proxied: { clipId: string; clipNo: number; width: number; height: number; storagePath: string }[];
+}> {
   const exclude = args.exclude ?? DEFAULT_EXCLUDE;
   const checks = new Map<string, OverlayCheck>();
   const result = await importArtistClips(db, {
@@ -254,6 +269,7 @@ export async function importPresskitVideos(
     maxNew: args.max,
     upload: args.upload,
     probe: args.probe,
+    renderProxy: args.renderProxy,
     onImported: async (clip) => {
       const check = await checkClipOverlay(db, clip, { sign: args.sign, judge: args.judge });
       checks.set(clip.clipId, check);
@@ -262,17 +278,53 @@ export async function importPresskitVideos(
   });
 
   // A clip from an earlier run whose check never stored (the run stopped, or the check could not read the file),
-  // and any clip number the operator named with --recheck.
+  // any clip number the operator named with --recheck, and any clip that just got its render proxy.
   const rechecked: { clipId: string; check: OverlayCheck }[] = [];
   const pending = await db.from("creative_lab_clips").select("*").eq("artist_id", args.artistId).eq("source", PRESSKIT_SOURCE);
   if (pending.error) throw new Error(pending.error.message);
-  for (const row of (pending.data ?? []) as Row[]) {
+  const rows = (pending.data ?? []) as Row[];
+
+  // A 4K clip from before render proxies: make its proxy now, then check it again on the proxy.
+  const proxied: { clipId: string; clipNo: number; width: number; height: number; storagePath: string }[] = [];
+  if (args.backfill && args.upload && args.renderProxy !== false) {
+    for (const row of rows) {
+      const id = String(row.id ?? "");
+      if (!id || checks.has(id) || (typeof row.render_asset_id === "string" && row.render_asset_id)) continue;
+      const original = await db.from("creative_assets").select("storage_path, duration_seconds, filename").eq("id", String(row.creative_asset_id ?? "")).maybeSingle();
+      if (original.error) throw new Error(original.error.message);
+      const storagePath = String((original.data as Row | null)?.storage_path ?? "");
+      if (!storagePath) continue;
+      const url = await args.sign(storagePath);
+      if (!url) continue;
+      const measured = await args.backfill.probeUrl(url);
+      if (!renderProxySize(measured.width, measured.height)) continue;
+      const duration = Number((original.data as Row | null)?.duration_seconds);
+      const proxy = await attachRenderProxy(db, {
+        clipId: id,
+        userId: String(row.user_id ?? ""),
+        artistId: args.artistId,
+        name: String((original.data as Row | null)?.filename ?? "clip.mp4"),
+        original: await args.backfill.download(storagePath),
+        width: measured.width,
+        height: measured.height,
+        durationSeconds: Number.isFinite(duration) ? duration : null,
+        make: args.renderProxy || undefined,
+        upload: args.upload,
+      });
+      if (!proxy) continue;
+      row.render_asset_id = proxy.assetId;
+      proxied.push({ clipId: id, clipNo: Number(row.clip_no), width: proxy.size.width, height: proxy.size.height, storagePath: proxy.storagePath });
+    }
+  }
+
+  for (const row of rows) {
     const id = String(row.id ?? "");
     if (!id || checks.has(id)) continue;
     const stored = row.overlay_check as OverlayCheck | null;
-    const forced = (args.recheckClipNos ?? []).includes(Number(row.clip_no));
+    const forced = (args.recheckClipNos ?? []).includes(Number(row.clip_no)) || proxied.some((item) => item.clipId === id);
     if (!forced && stored && stored.verdict && stored.verdict !== "check_by_eye") continue;
-    const asset = await db.from("creative_assets").select("storage_path, duration_seconds").eq("id", String(row.creative_asset_id ?? "")).maybeSingle();
+    // The proxy when the clip has one, else the original. Duration is the same either way.
+    const asset = await db.from("creative_assets").select("storage_path, duration_seconds").eq("id", renderAssetId(row)).maybeSingle();
     if (asset.error) throw new Error(asset.error.message);
     const storagePath = String((asset.data as Row | null)?.storage_path ?? "");
     if (!storagePath) continue;
@@ -290,6 +342,7 @@ export async function importPresskitVideos(
     files: result.files.map((file) => ({ ...file, overlay: file.clipId ? checks.get(file.clipId) ?? null : null })),
     folderError: result.folderError,
     rechecked,
+    proxied,
   };
 }
 
