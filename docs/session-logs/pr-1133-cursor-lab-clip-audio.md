@@ -24,10 +24,16 @@ A sound control on the clip tile, the 9:16 render preview, and feed-post media. 
 ## Validation
 
 - [ ] `npx tsc --noEmit`
-- [ ] `npm run build`
+- [x] `npm run build`
 - [x] `npm test`
-- [ ] `frames:check` — CLA1 and CLA2, plus any Lab or event-page frame the control moves
+- [ ] `frames:check` — CLA1 and CLA2, plus the Lab and event-page frames the control moves
 
 ## Notes
 
 Migration: none. Compact players (round-matrix cells, the crop strip, candidate tiles) do not get the control. Do not add the design-pass label.
+
+Frames, Ubuntu, head fe11758. `only=CL` runs 42627372523 and 42627383283 (pair within 0.2%; CL5-1280 is 83 px, the rest 0). `only=IR` runs 42627393520 and 42627404229 (pair 0). Committed from the first of each pair.
+
+- CLA1 and CLA2, both widths: new. Tiles with the first unmuted; a feed post and a render preview, each muted.
+- CL3, CL4, CL5, CL6, CL7, CL9, CL10, both widths: the control on a tile or a preview.
+- IR1-1280 and IR2-1280: the event page's tiles carry the control. At 393 those pages are clipped before the tiles.
