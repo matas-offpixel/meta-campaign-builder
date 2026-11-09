@@ -3,7 +3,8 @@
  *
  *   node --env-file=.env.local --experimental-strip-types scripts/import-presskit.mts \
  *     --artist <lab artist id> --folder '<dropbox folder url>' [--event <event id>] \
- *     [--exclude '/b2b/i'] [--videos-only | --images-only] [--max N] [--recheck 16,17] [--apply]
+ *     [--exclude '/b2b/i'] [--videos-only | --images-only] [--max N] [--recheck 16,17] [--apply] \
+ *     [--videos-folder NAME] [--press-folder NAME] [--logo-folder NAME]
  *
  * Dry run by default: lists Videos/, Press Pictures/ and Logo/ (metadata only)
  * and SELECTs from Supabase. Nothing is downloaded or written. It prints what
@@ -17,6 +18,11 @@
  *            The artist's own clip_folder_url and its synced/error state are left as they are.
  *   Images   Press Pictures/ and Logo/ → campaign-assets
  *            images/creative-lab/{artistId}/{sha256}.{ext} + a creative_assets row.
+ *
+ * Kits laid out differently: --videos-folder, --press-folder and --logo-folder
+ * name the real subfolder for Videos/, Press Pictures/ and Logo/. "/" is the
+ * shared folder's root (listed recursively); "none" means the kit has no such
+ * folder, so nothing is read for that kind.
  *
  * --exclude takes /pattern/flags or a bare word (case-insensitive). Default /b2b/i.
  * --max N caps new files per kind (videos, images).
@@ -67,6 +73,13 @@ const videosOnly = argv.includes("--videos-only");
 const imagesOnly = argv.includes("--images-only");
 const mode: PresskitMode = videosOnly ? "videos" : imagesOnly ? "images" : "all";
 const recheckArg = flag("--recheck");
+/** The kit's real subfolder for each folder name the import reads. */
+const folderOverride = new Map<string, string>(
+  ([["Videos", "--videos-folder"], ["Press Pictures", "--press-folder"], ["Logo", "--logo-folder"]] as const).flatMap(([name, option]) => {
+    const value = flag(option)?.trim();
+    return value ? [[name, value] as [string, string]] : [];
+  }),
+);
 const recheckClipNos = recheckArg ? recheckArg.split(",").map((part) => Number(part.trim())) : [];
 
 function fail(message: string): never {
@@ -93,7 +106,9 @@ const db = supabase as unknown as ServiceRoleDb;
 
 const source: PresskitSource = {
   async list(subfolder) {
-    const entries = await listDropboxFolderFiles(folderUrl, { path: subfolder });
+    const real = folderOverride.get(subfolder) ?? subfolder;
+    if (real.toLowerCase() === "none") return [];
+    const entries = await listDropboxFolderFiles(folderUrl, { path: real === "/" ? "" : real });
     return entries.map((entry) => ({ sourceFileId: entry.path_lower, name: entry.name, size: entry.size }));
   },
   async download(file) {
@@ -134,7 +149,9 @@ if (eventId) {
   console.log(`Event: ${String(event.data.name)} (${eventId}) · ${same ? "same client, so the clips show on its Lab" : "DIFFERENT client — the clips will not show on its Lab"}`);
   if (!same && apply) fail("The artist is not on this event's client. Nothing written.");
 }
-console.log(`Exclude: ${exclude} · mode: ${mode}${max ? ` · max ${max} per kind` : ""}\n`);
+console.log(`Exclude: ${exclude} · mode: ${mode}${max ? ` · max ${max} per kind` : ""}`);
+for (const [name, real] of folderOverride) console.log(`Folder: ${name}/ is read from ${real === "/" ? "the kit's root" : real.toLowerCase() === "none" ? "nowhere (none)" : `${real}/`}`);
+console.log("");
 
 function table(rows: { name: string; size: number; action: string; reason: string | null; extra?: string }[]): void {
   for (const row of rows) {
