@@ -137,6 +137,7 @@ describe("Puzzle generate", () => {
       clips: 2,
       writerResultCount: 1,
       error: null,
+      yield: { rejects: {}, duplicates: 0, candidates: 1 },
     }));
   });
 
@@ -153,11 +154,14 @@ describe("Puzzle generate", () => {
       console.info = original;
     }
     assert.equal(lines.length, 1);
-    const parsed = JSON.parse(lines[0]!) as { event: string; mode: string; clips: number | null; writerResultCount: number; errorClass: string };
+    const parsed = JSON.parse(lines[0]!) as { event: string; mode: string; clips: number | null; writerResultCount: number; errorClass: string; rejects: Record<string, number>; duplicates: number; candidates: number };
     assert.equal(parsed.event, EVENT);
     assert.equal(parsed.mode, "best");
     assert.equal(parsed.clips, null);
     assert.equal(parsed.writerResultCount, 0);
     assert.equal(parsed.errorClass, "Unknown caption style.");
+    assert.deepEqual(parsed.rejects, {});
+    assert.equal(parsed.duplicates, 0);
+    assert.equal(parsed.candidates, 0);
   });
 });

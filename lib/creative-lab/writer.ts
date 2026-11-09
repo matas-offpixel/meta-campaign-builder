@@ -22,6 +22,7 @@ import {
   type SaleStage,
 } from "./caption-facts.ts";
 import { CORPUS } from "./corpus.ts";
+import type { GenerateYield } from "./generate-log.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { loadStoredVoice, venueNamesForClient, voiceHashtagsEnabled, voicePageRef } from "./voice-store.ts";
 import {
@@ -93,6 +94,8 @@ export type GenerateCaptionsDeps = {
   model?: string;
   /** Dropped candidates, so a preview can show why. Does not change what is kept. */
   onReject?: (overlay: string, primary: string, errors: { code: string; detail: string }[]) => void;
+  /** Filled with drop counts. No caption text. */
+  yield?: GenerateYield;
   /** The winning copy_features row, when the caller already has it. */
   loadShape?: () => Promise<{ feature: string; value: string } | null>;
 };
@@ -436,7 +439,10 @@ export async function generateCaptions(
       deps.onReject?.(overlay, primary, [{ code: "primary_missing", detail: "a caption needs primary text" }]);
       continue;
     }
-    if (stillHasPlaceholder(overlay) || stillHasPlaceholder(primary)) continue;
+    if (stillHasPlaceholder(overlay) || stillHasPlaceholder(primary)) {
+      deps.onReject?.(overlay, primary, [{ code: "placeholder", detail: "a token was left in" }]);
+      continue;
+    }
     if (hasMention(overlay) || hasMention(primary)) {
       deps.onReject?.(overlay, primary, [{ code: "voice_mention", detail: "mentions are read and never written" }]);
       continue;
@@ -503,6 +509,10 @@ export async function generateCaptions(
       ok: true,
       shapeNote,
     });
+  }
+  if (deps.yield) {
+    deps.yield.candidates += candidates.length;
+    deps.yield.duplicates += duplicates;
   }
   if (kept.length === 0 && candidates.length > 0 && duplicates === candidates.length) {
     throw new Error(LINES_ALREADY_ON_EVENT);
