@@ -169,7 +169,8 @@ export type CreativeLabCardData = {
     artistId: string;
     clipNo: number;
     source: string;
-    overlay: { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null;
+    /** The clip row's burned-in text verdict. Absent on a fixture that does not check. */
+    overlay?: { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null;
     rightsRef: string;
     filmedEventId: string | null;
     durationSeconds: number | null;
