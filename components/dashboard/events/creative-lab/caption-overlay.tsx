@@ -2,7 +2,7 @@
 
 import localFont from "next/font/local";
 
-import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
+import { ClipSound, showSoundToggle, useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { captionBoxInsets } from "@/lib/creative-lab/surface";
 import { profile } from "../../../../src/remotion/caption-style/profile";
 import { quoteTextEm } from "../../../../src/remotion/caption-style/quote-measure";
@@ -35,6 +35,8 @@ export function CaptionOverlay({
   crop = false,
   time = null,
   muted = false,
+  hasAudio,
+  initialAudible = false,
 }: {
   lines: readonly string[];
   src?: string | null;
@@ -48,8 +50,10 @@ export function CaptionOverlay({
   crop?: boolean;
   time?: string | null;
   muted?: boolean;
+  hasAudio?: boolean | null;
+  initialAudible?: boolean;
 }) {
-  const { videoProps, rangeProps, playing, toggle } = useClipVideo(inS, outS);
+  const { videoProps, rangeProps, playing, toggle, audible, toggleSound } = useClipVideo(inS, outS, { initialAudible });
   const shown = lines.map((line) => line.trim()).filter(Boolean);
   const stroke = `${profile.strokeWidthPctOfFontSize * 2}em`;
   const quoteCrop = mode === "quote" && crop;
@@ -67,7 +71,6 @@ export function CaptionOverlay({
           className="h-full w-full object-cover"
           src={src}
           poster={poster ?? undefined}
-          muted
           playsInline
           preload="metadata"
         />
@@ -146,6 +149,7 @@ export function CaptionOverlay({
             {playing ? "❚❚" : "▶"}
           </button>
           <input aria-label="Scrub" className="h-1 min-w-0 flex-1 accent-white" {...rangeProps} />
+          {showSoundToggle(hasAudio) ? <ClipSound audible={audible} onToggle={toggleSound} placement="inline" /> : null}
         </div>
       ) : null}
     </div>

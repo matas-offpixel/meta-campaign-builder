@@ -392,7 +392,7 @@ function Control<T extends string>({
   );
 }
 
-function FeedPost({
+export function FeedPost({
   lab,
   caption,
   page,
@@ -477,7 +477,7 @@ function FeedPost({
         <p className="px-3 py-6 text-sm">{OFF_CARD_CLIP}</p>
       ) : (
         <>
-          <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} inS={clip?.inS ?? 0} outS={clip?.outS ?? null} />
+          <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} inS={clip?.inS ?? 0} outS={clip?.outS ?? null} hasAudio={clip?.hasAudio} />
           {plate === "none" ? <p className="px-3 py-2 text-sm">{NO_CLIP_SELECTED}</p> : null}
         </>
       )}

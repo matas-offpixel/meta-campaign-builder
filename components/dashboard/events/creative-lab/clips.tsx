@@ -22,7 +22,7 @@ import { CropPicker } from "@/components/dashboard/events/creative-lab/crop-pick
 import { RenderRows } from "@/components/dashboard/events/creative-lab/render-rows";
 import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
 import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
-import { useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
+import { ClipSound, showSoundToggle, useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { overlayPanelLine } from "@/lib/creative-lab/overlay-check";
 import {
   candidateAddLabel,
@@ -76,6 +76,7 @@ export function LabClips({
   pendingFind = false,
   pendingImportId = null,
   showTiles = true,
+  audibleClipId = null,
 }: {
   lab: CreativeLabCardData;
   busy: boolean;
@@ -86,6 +87,8 @@ export function LabClips({
   pendingFind?: boolean;
   pendingImportId?: string | null;
   showTiles?: boolean;
+  /** Frame only: this clip mounts with sound on. Nothing is stored. */
+  audibleClipId?: string | null;
 }) {
   const groups = groupClips(lab.clips);
   const router = useRouter();
@@ -203,9 +206,9 @@ export function LabClips({
       {finding && findable.length > 0 ? <p className="text-sm text-muted-foreground">{findClipsReadingLine(readingHandle)}</p> : null}
       {findError ? <p className="text-sm text-destructive">{findError}</p> : null}
       {showTiles ? <>
-      <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} wide selected={selected} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
-      <ClipGroup title="New" hint="untested" clips={groups.fresh} selected={selected} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
-      <ClipGroup title="Can't run" clips={groups.cant} onCrop={() => undefined} />
+      <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} wide selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="New" hint="untested" clips={groups.fresh} selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="Can't run" clips={groups.cant} audibleClipId={audibleClipId} onCrop={() => undefined} />
       </> : null}
       {intake ? (
         <>
@@ -240,6 +243,7 @@ function ClipGroup({
   clips,
   wide,
   selected,
+  audibleClipId,
   onToggle,
   onCrop,
 }: {
@@ -248,6 +252,7 @@ function ClipGroup({
   clips: CreativeLabCardData["clips"];
   wide?: boolean;
   selected?: ReadonlySet<string>;
+  audibleClipId?: string | null;
   onToggle?: (clipId: string) => void;
   onCrop: (clipId: string, focus: number) => void;
 }) {
@@ -262,7 +267,7 @@ function ClipGroup({
           const wideFrame = clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight);
           return (
             <article key={clip.id} className={`w-36 shrink-0 sm:w-auto ${selected?.has(clip.id) ? "rounded ring-2 ring-foreground" : ""} ${reason ? "rounded border border-dashed border-destructive p-1" : ""}`} title={clip.rightsRef}>
-              <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} ticked={onToggle ? selected?.has(clip.id) === true : undefined} onToggle={onToggle ? () => onToggle(clip.id) : undefined} />
+              <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} hasAudio={clip.hasAudio} initialAudible={clip.id === audibleClipId} ticked={onToggle ? selected?.has(clip.id) === true : undefined} onToggle={onToggle ? () => onToggle(clip.id) : undefined} />
               <p className="mt-1 flex justify-between text-xs">
                 <span>{sourceBadge(clip.source)}</span>
                 <span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span>
@@ -318,8 +323,8 @@ function ClipTick({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   );
 }
 
-function ClipFrame({ src, poster, hasFile, name, inS, outS, ticked, onToggle }: { src: string | null; poster: string | null; hasFile: boolean; name: string; inS: number; outS: number | null; ticked?: boolean; onToggle?: () => void }) {
-  const { videoProps, rangeProps } = useClipVideo(inS, outS);
+function ClipFrame({ src, poster, hasFile, name, inS, outS, hasAudio, initialAudible, ticked, onToggle }: { src: string | null; poster: string | null; hasFile: boolean; name: string; inS: number; outS: number | null; hasAudio?: boolean | null; initialAudible?: boolean; ticked?: boolean; onToggle?: () => void }) {
+  const { videoProps, rangeProps, audible, toggleSound } = useClipVideo(inS, outS, { initialAudible });
   const tick = onToggle ? <ClipTick on={ticked === true} onToggle={onToggle} /> : null;
   if (src) {
     return (
@@ -329,11 +334,11 @@ function ClipFrame({ src, poster, hasFile, name, inS, outS, ticked, onToggle }: 
           {...videoProps}
           src={src}
           poster={poster ?? undefined}
-          muted
           playsInline
           preload="metadata"
           className="aspect-[9/16] w-full rounded object-cover"
         />
+        {showSoundToggle(hasAudio) ? <ClipSound audible={audible} onToggle={toggleSound} /> : null}
         <input
           aria-label="Scrub"
           className="absolute inset-x-2 bottom-2 h-1 accent-white"
