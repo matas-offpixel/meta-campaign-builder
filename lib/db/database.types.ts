@@ -3460,6 +3460,7 @@ export type Database = {
           out_s: number | null
           overlay_check: Json | null
           permalink: string | null
+          render_asset_id: string | null
           rights_ref: string
           source: string
           source_file_id: string | null
@@ -3487,6 +3488,7 @@ export type Database = {
           out_s?: number | null
           overlay_check?: Json | null
           permalink?: string | null
+          render_asset_id?: string | null
           rights_ref: string
           source: string
           source_file_id?: string | null
@@ -3514,6 +3516,7 @@ export type Database = {
           out_s?: number | null
           overlay_check?: Json | null
           permalink?: string | null
+          render_asset_id?: string | null
           rights_ref?: string
           source?: string
           source_file_id?: string | null
@@ -3531,6 +3534,13 @@ export type Database = {
           {
             foreignKeyName: "creative_lab_clips_creative_asset_id_fkey"
             columns: ["creative_asset_id"]
+            isOneToOne: false
+            referencedRelation: "creative_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clips_render_asset_id_fkey"
+            columns: ["render_asset_id"]
             isOneToOne: false
             referencedRelation: "creative_assets"
             referencedColumns: ["id"]

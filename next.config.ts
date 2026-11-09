@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 import { MML_LEGACY_REDIRECTS } from "./lib/plan/mml-routes";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@remotion/renderer", "@remotion/bundler", "remotion", "undici"],
+  serverExternalPackages: ["@remotion/renderer", "@remotion/bundler", "remotion", "undici", "ffmpeg-static"],
   async redirects() {
     return MML_LEGACY_REDIRECTS.map((rule) => ({ ...rule }));
   },
@@ -30,6 +30,12 @@ const nextConfig: NextConfig = {
       // fonts, etc.). Without this Remotion fails to launch any browser.
       "./node_modules/@sparticuz/chromium/**/*",
     ],
+    // The 1080 render proxy (lib/creative-lab/render-proxy.ts) spawns the
+    // ffmpeg-static binary, which no import reaches, so Next cannot trace
+    // it. Only the clip imports that can meet a 4K original carry it
+    // (79.8 MB unpacked on linux-x64, ffmpeg-static 5.3.0 / b6.1.1).
+    "/api/cron/creative-lab-drive-pickup": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
+    "/api/creative-lab/artists/[id]/import-clips": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
   },
   experimental: {
     // Raise the default 1 MB body cap for Server Actions and the shared
