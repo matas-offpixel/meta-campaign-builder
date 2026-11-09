@@ -35,7 +35,7 @@ A concurrency quota of 10 or lower makes each caption render use one function. T
 
 `remotion.config.ts` inlines the caption font. Lambda's Chrome did not finish fetching the root-relative file. `bundle()` does not load that config, so the deploy script passes the override in `deploySite`'s `options`.
 
-Deployed 6 Nov 2026. The 240s function from 5 Nov is still in the account. Renders select the 480s function by timeout, so nothing should point at the old one. The serve URL did not change.
+Deployed 6 Nov 2026. Redeployed from `main` (8438049) on 9 Nov 2026, the same `creative-lab` site and serve URL: the 6 Nov site had no `FrameSheet` composition (added 7 Nov, #1111), so every burned-in text check stored check by eye, and its caption profile was older than main's. After the redeploy the bundle's caption `styleVersion` is `4a9ddd841764b7a5296f522081afc7af816fd6dabc87a0c869f43c55f94e69e5` and quote is `e50f3de2…`. Redeploy whenever `src/remotion/` changes. The 240s function from 5 Nov is still in the account. Renders select the 480s function by timeout, so nothing should point at the old one. The serve URL did not change.
 
 | | |
 |---|---|
@@ -43,7 +43,7 @@ Deployed 6 Nov 2026. The 240s function from 5 Nov is still in the account. Rende
 | Function | `remotion-render-4-0-471-mem2048mb-disk2048mb-480sec` |
 | Site | `creative-lab` |
 | Serve URL | `https://remotionlambda-euwest2-sm404lvpzi.s3.eu-west-2.amazonaws.com/sites/creative-lab/index.html` |
-| Concurrency | 10, so caption renders use one Lambda function |
+| Concurrency | 1000 on 9 Nov 2026 (10 on 6 Nov). Above 10, caption renders use Remotion's own chunking |
 
 ## Role policy
 
