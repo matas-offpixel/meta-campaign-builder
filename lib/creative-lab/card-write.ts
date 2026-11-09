@@ -16,6 +16,7 @@ import { isCaptionStyle } from "./tags.ts";
 import { artistKey } from "./lineup.ts";
 import { bestOfSelected, effectiveSelection, NO_CLIP_SELECTED, spreadClipIds, type PairMode } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
+import { generateLogLine } from "./generate-log.ts";
 import { CAPTIONS_NOT_WRITTEN, currentRenderError, LINES_ALREADY_ON_EVENT, playableClipSeconds } from "./surface.ts";
 import { headlinerError } from "../db/creative-lab.ts";
 import { factsHash, loadEventFacts, saleStageFromStatus, validateCaption } from "./caption-facts.ts";
@@ -362,10 +363,13 @@ function pairMode(args: { pair?: PairMode; each?: boolean }): PairMode {
   return args.each ? "each" : "best";
 }
 
+export type GenerateTrace = { clips: number | null };
+
 export async function generateLabCaptions(
   db: ServiceRoleDb,
   args: { eventId: string; style: string; n: number; clipId?: string | null; stageOverride?: SaleStage | null; artistId?: string | null; each?: boolean; pair?: PairMode },
   deps?: GenerateCaptionsDeps,
+  trace?: GenerateTrace,
 ): Promise<{ captions: Awaited<ReturnType<typeof generateCaptions>>; notice: string | null }> {
   if (!isCaptionStyle(args.style)) throw new Error("Unknown caption style.");
   const style = args.style;
@@ -373,6 +377,7 @@ export async function generateLabCaptions(
   const loaded = await clipsAwaitingPreview(db, args.eventId);
   const selection = loaded.selection;
   const selected = effectiveSelection(selection, loaded.clips);
+  if (trace) trace.clips = selected.length;
   const write = async (clipId?: string, n = args.n) => {
     try {
       return { captions: await generateCaptions(db, {
@@ -410,6 +415,36 @@ export async function generateLabCaptions(
   const best = bestOfSelected(selected);
   const written = await write(best?.id, args.n);
   return withCaptionNotice(written.captions, written.notice);
+}
+
+/** The generate route's call. One log line, including when the writer throws. */
+export async function runLoggedGenerate(
+  db: ServiceRoleDb,
+  args: { eventId: string; style: string; n: number; clipId?: string | null; stageOverride?: SaleStage | null; artistId?: string | null; each?: boolean; pair?: PairMode },
+  deps?: GenerateCaptionsDeps,
+): Promise<{ captions: Awaited<ReturnType<typeof generateCaptions>>; notice: string | null }> {
+  const trace: GenerateTrace = { clips: null };
+  const mode = pairMode(args);
+  try {
+    const generated = await generateLabCaptions(db, args, deps, trace);
+    console.info(generateLogLine({
+      eventId: args.eventId,
+      mode,
+      clips: trace.clips,
+      writerResultCount: generated.captions.length,
+      error: null,
+    }));
+    return generated;
+  } catch (err) {
+    console.info(generateLogLine({
+      eventId: args.eventId,
+      mode,
+      clips: trace.clips,
+      writerResultCount: 0,
+      error: err,
+    }));
+    throw err;
+  }
 }
 
 export async function editLabCaption(

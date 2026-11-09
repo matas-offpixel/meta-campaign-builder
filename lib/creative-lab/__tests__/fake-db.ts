@@ -63,6 +63,7 @@ export function fakeDb(seed: Record<string, Row[]>): FakeDb {
     const api = {
       select: () => api,
       eq: (column: string, value: unknown) => (filters.push((r) => r[column] === value), api),
+      is: (column: string, value: unknown) => (filters.push((r) => r[column] === value), api),
       in: (column: string, values: unknown[]) => (filters.push((r) => values.includes(r[column])), api),
       // Only `not(column, "is", null)` is used.
       not: (column: string) => (filters.push((r) => r[column] != null), api),
