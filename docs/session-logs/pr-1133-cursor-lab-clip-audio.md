@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 1133
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1133
 - **Branch:** `cursor/lab-clip-audio`
 
 ## Summary
@@ -25,7 +25,7 @@ A sound control on the clip tile, the 9:16 render preview, and feed-post media. 
 
 - [ ] `npx tsc --noEmit`
 - [ ] `npm run build`
-- [ ] `npm test`
+- [x] `npm test`
 - [ ] `frames:check` — CLA1 and CLA2, plus any Lab or event-page frame the control moves
 
 ## Notes
