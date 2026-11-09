@@ -81,6 +81,14 @@ that artist's round.
 | CLQ3 | Caption and quote on one clip | One scrolling row of three plates at both widths: caption, quote 700, quote 400. At 393 the next plate peeks. Caption plate, rule 13, centre marker "caption centre · 0.355 H", label "caption · rule 13 · unchanged". Quote plates, markers "quote centre · 0.28 H", labels "quote · Q2 · bold 700" and "quote · Q2 · regular 400". Each plate's 4:5 rect is two full-width dashed lines at 14.84%, labelled "4:5 rect · 14.84 %". Time 0:14 |
 | CLQ4 | Luke Dean, promoter page only | Quote "Been waiting all year to play Circuit again. Bring the energy 👊". Held, the sentence "These are Luke Dean's own words, so they run only once they're cleared for their own channels." (no pronoun on the row), action "Clear for artist channels", no ✓. 1280 shows the copy line and the chips, then the sentence, then the action and ✎ ✕ at 40% on their own line. 393 has no copy line; the chip and the sentence stack and the action is full width. Time 0:09 |
 
+## CLS series
+
+Clip selection, from fixtures. No Supabase, Meta or Anthropic. `only=CLS` shoots
+these and leaves CL, CLQ and CLV alone. CLS1 is the clip grid with a tick and
+"4 of 9 selected". CLS2 is Pair with, including Each selected at 1280. CLS3 is
+the round matrix narrowed to the selection, one pairing knocked out. CLS4 is
+Finding…, Importing… and Writing… with the resting width held.
+
 ## CLV series
 
 Voice, from fixtures. No Supabase, Meta or Anthropic. `only=CLV` shoots

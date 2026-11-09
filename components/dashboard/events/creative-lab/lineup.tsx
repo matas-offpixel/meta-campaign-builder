@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { HeldLabel } from "@/components/dashboard/events/creative-lab/held-label";
 import type { LabLineupRow } from "@/lib/db/creative-lab";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { artistPrimaryAction, clearedOn, showClearForArtistChannels, type LibrarySuggestion, type SpotifySuggestion } from "@/lib/creative-lab/lineup";
@@ -336,14 +337,16 @@ function RowAction({
   if (action === "add_instagram") return <Button type="button" disabled={busy} onClick={onEdit}>Add Instagram</Button>;
   return (
     <Button type="button" disabled={busy || finding} aria-busy={finding} onClick={onFind}>
-      {finding ? (
-        <>
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          Finding…
-        </>
-      ) : (
-        "Find clips"
-      )}
+      <HeldLabel
+        idle="Find clips"
+        pending={
+          <>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            Finding…
+          </>
+        }
+        active={finding}
+      />
     </Button>
   );
 }

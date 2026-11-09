@@ -49,8 +49,16 @@ export type JudgedClip = {
 /** A file longer than this plays its first 30 seconds. The folder import stores the same window. */
 export const CLIP_TRIM_SECONDS = 30;
 
-/** Shown when Pair with "Each new clip" has nothing left to write. */
-export const NO_NEW_CLIPS = "No new clips since the last generate — Pair with Best clip, or import one";
+/** Shown when Generate fails, or finishes without writing a caption. */
+export const CAPTIONS_NOT_WRITTEN = "The captions didn't write — try again.";
+
+/** Every candidate the writer returned was already stored on this event. */
+export const LINES_ALREADY_ON_EVENT = "Every line it wrote is already on this event — change the angle and write again";
+
+/** The sentence under Generate when the request fails. A raw error is not shown. */
+export function generateFailureSentence(error: unknown): string {
+  return sentenceOf(error) ?? CAPTIONS_NOT_WRITTEN;
+}
 
 export type ClipForGroup = {
   id: string;
@@ -209,9 +217,9 @@ export function renderRetryable(error: string | null | undefined): boolean {
 }
 
 /**
- * A render can be tried again while every round it sits in is still being
- * built (draft or rendering), or when it is in no round. Once a round is
- * approved, rejected, launched or judged, the round is proposed again instead.
+ * A render can be tried again when it sits in no round, or when one round
+ * it sits in is still being built (draft or rendering). A settled round does
+ * not block the retry while another round is still open.
  */
 export function renderRoundOpen(roundStatuses: readonly string[]): boolean {
   return roundStatuses.length === 0 || roundStatuses.some((status) => status === "draft" || status === "rendering");
@@ -273,7 +281,7 @@ export function feedPostClip<T extends RankedClip>(clips: readonly T[]): T | nul
 
 /**
  * The clip a caption preview draws. A stored clip that is not on the card
- * is a blank post. It is not replaced with the lead clip.
+ * is not replaced with the lead clip — the post says so instead.
  */
 export function captionPreviewClip<T extends RankedClip>(clips: readonly T[], clipId: string | null | undefined): T | null {
   if (clipId) return clips.find((clip) => clip.id === clipId) ?? null;
@@ -281,8 +289,8 @@ export function captionPreviewClip<T extends RankedClip>(clips: readonly T[], cl
 }
 
 /** Generate's words. The card's busy flag only disables the button. */
-export function generateButtonLabel(writing: boolean): "Writing…" | "Generate" {
-  return writing ? "Writing…" : "Generate";
+export function generateButtonLabel(writing: boolean, count = 3): string {
+  return writing ? "Writing…" : `Write ${count}`;
 }
 
 /**

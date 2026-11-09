@@ -20,6 +20,7 @@
   --warning: #b8923e;
   --warning-foreground: #6b4f12;
   --platform-ig: #B0607A;
+  --on-media: #ffffff;
   --ring: rgba(196, 168, 130, 0.40);
   --radius: 6px;
   --shadow-sm: 0 1px 2px 0 rgba(30, 24, 16, 0.04);
@@ -51,6 +52,7 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-platform-ig: var(--platform-ig);
+  --color-on-media: var(--on-media);
   --color-ring: var(--ring);
   --radius-base: var(--radius);
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -66,6 +68,11 @@ body {
 
 * {
   border-color: var(--border);
+}
+
+/* Unlayered, so it beats the reset above. A utility cannot. */
+.border-on-media {
+  border-color: var(--on-media);
 }
 
 input[type="text"],

@@ -10,7 +10,8 @@ import { LabRound } from "@/components/dashboard/events/creative-lab/round";
 import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { labNextStep } from "@/lib/creative-lab/lineup";
-import { clipBucket, clipStripState, roundStripState } from "@/lib/creative-lab/surface";
+import { clipSelectionStrip, effectiveSelection, emptySelection } from "@/lib/creative-lab/selection";
+import { clipBucket, roundStripState } from "@/lib/creative-lab/surface";
 
 async function post(eventId: string, body: Record<string, unknown>): Promise<{ ok: boolean; status: number; json: Record<string, unknown> }> {
   const res = await fetch(`/api/creative-lab/events/${eventId}`, {
@@ -75,7 +76,9 @@ export function CreativeLabCard({ lab, quoteMode = false }: { lab: CreativeLabCa
   });
   const working = lab.working;
   const cant = lab.clips.filter((clip) => clipBucket(clip) === "cant").length;
-  const clipLines = clipStripState(lab.clips.length, cant);
+  const selection = lab.clipSelection ?? emptySelection();
+  const usableCount = lab.clips.length - cant;
+  const clipLines = clipSelectionStrip(selection.mode, effectiveSelection(selection, lab.clips).length, cant, usableCount);
   const roundLines = roundStripState(newest?.status);
   const starred = lab.lineupRows.some((row) => row.isHeadliner);
   const headlinerNote = lab.lineupRows.length === 0
@@ -92,7 +95,7 @@ export function CreativeLabCard({ lab, quoteMode = false }: { lab: CreativeLabCa
         <LabStrip
           eventId={lab.eventId}
           lineup={lab.lineupRows.length}
-          clips={lab.clips.length}
+          clips={usableCount}
           captions={lab.captions.length}
           round={newest?.roundNo ?? null}
           next={next}

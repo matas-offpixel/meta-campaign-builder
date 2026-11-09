@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { nextRoundView } from "@/lib/creative-lab/round-next";
+import { effectiveSelection, emptySelection, noSelectedClipsSentence, notSelectedCount, notSelectedNames, renderPairs, roundBar, winnerNotSelected } from "@/lib/creative-lab/selection";
 import { adPairingName, firstPairings, groupClips, roundHasRun, roundMatrix, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { RoundsTimeline } from "@/components/dashboard/events/creative-lab/rounds-timeline";
@@ -17,29 +18,45 @@ export function LabRound({
   busy,
   onSave,
   onLaunch,
+  initialOff = [],
 }: {
   lab: CreativeLabCardData;
   busy: boolean;
   onSave: Save;
   onLaunch: (roundId: string) => Promise<void>;
+  /** Frame only: pairings that start knocked out, "clipId:captionId". */
+  initialOff?: readonly string[];
 }) {
   const groups = groupClips(lab.clips);
   const usable = [...groups.keeping, ...groups.fresh];
+  const selection = lab.clipSelection ?? emptySelection();
+  const selectedClips = effectiveSelection(selection, usable);
   const approved = lab.captions.filter((caption) => caption.status === "approved");
   const rounds = [...lab.rounds].sort((a, b) => a.roundNo - b.roundNo);
   const next = nextRoundView({
     rounds,
-    usableClipIds: usable.map((clip) => clip.id),
+    usableClipIds: selectedClips.map((clip) => clip.id),
     approvedCaptionIds: approved.map((caption) => caption.id),
   });
   const roundNo = next?.roundNo ?? (rounds.filter((round) => roundHasRun(round.status)).at(-1)?.roundNo ?? 0) + 1;
-  const clips = next ? next.plan.clips.map((item) => usable.find((clip) => clip.id === item.id)!).filter(Boolean) : usable;
+  const planned = next ? next.plan.clips.map((item) => usable.find((clip) => clip.id === item.id)!).filter(Boolean) : selectedClips;
+  const selectedIds = new Set(selectedClips.map((clip) => clip.id));
+  const droppedWinners = next
+    ? next.plan.clips.filter((item) => item.kind === "kept" && !selectedIds.has(item.id)).map((item) => usable.find((clip) => clip.id === item.id)).filter((clip): clip is NonNullable<typeof clip> => Boolean(clip))
+    : [];
+  const clips = planned.filter((clip) => selectedIds.has(clip.id));
   const captions = next ? next.plan.captions.map((item) => approved.find((caption) => caption.id === item.id)!).filter(Boolean) : approved;
   const keptClips = new Set(next?.plan.clips.filter((item) => item.kind === "kept").map((item) => item.id) ?? []);
-  const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set());
+  const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set(initialOff));
   const matrix = roundMatrix({ clips, captions, excluded });
   const narrow = firstPairings(matrix.cells);
-  const reason = proposeReason(lab, clips.length, captions.length, roundNo);
+  const moreOn = matrix.on - narrow.shown.filter((cell) => cell.on).length;
+  const artistId = clips[0]?.artistId;
+  const artistClips = artistId ? usable.filter((clip) => clip.artistId === artistId) : [];
+  const missing = artistClips.filter((clip) => !selectedIds.has(clip.id));
+  const gap = artistClips.length && missing.length ? notSelectedCount(artistClips[0]?.artistName ?? "This artist", missing.length, artistClips.length) : null;
+  const missingLine = notSelectedNames(missing.map((clip) => `${clip.artistName} #${clip.clipNo}`));
+  const reason = proposeReason(lab, clips.length, captions.length, roundNo, usable.length);
   const pending = rounds.filter((round) => round.status === "draft" || round.status === "approved" || round.status === "rendering");
   const ran = rounds.filter((round) => roundHasRun(round.status));
   const latest = pending.at(-1);
@@ -63,17 +80,20 @@ export function LabRound({
 
   return (
     <section id="lab-round" className="space-y-3">
-      <h3 className="font-medium">Round</h3>
+      <h3 className="font-medium">Round {roundNo}{clips[0] ? ` · ${clips[0].artistName}` : ""}</h3>
       {ran.length > 0 ? <RoundsTimeline lab={lab} rounds={ran} next={next} /> : null}
       {showMatrix ? (
         <>
-          {next ? <p className="text-sm">Round {roundNo} keeps round {next.judged.roundNo}&apos;s winners and anything still untested.</p> : null}
+          {next ? <p className="text-sm">Round {roundNo} keeps round {next.judged.roundNo}&apos;s winners and anything still untested.</p> : <p className="text-sm text-muted-foreground">the selected clips × the approved captions</p>}
+          {droppedWinners.map((clip) => (
+            <p key={clip.id} className="text-sm text-warning">{winnerNotSelected(`${clip.artistName} #${clip.clipNo}`, next?.judged.roundNo ?? roundNo - 1)}</p>
+          ))}
           <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-sm">
               <thead>
                 <tr>
                   <th />
-                  {captions.map((caption) => <th key={caption.id} className="px-2 text-left font-normal">{styleLabel(caption.style)}</th>)}
+                  {captions.map((caption) => <th key={caption.id} className="px-2 text-left font-normal">{captionHead(caption)}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -89,7 +109,7 @@ export function LabRound({
                         <td key={caption.id}>
                           <button type="button" className={`w-16 rounded border p-1 ${cell?.on ? "border-foreground bg-card" : "border-dashed border-border text-muted-foreground"}`} onClick={() => toggle(`${clip.id}:${caption.id}`)}>
                             <CaptionOverlay lines={[]} src={clip.previewUrl} poster={clip.thumbnailUrl} compact />
-                            <span className="mt-1 block text-xs">{cell?.on ? "On" : "Off"}</span>
+                            <span className="mt-1 block text-xs">{cell?.on ? "On" : "Off — tap to include"}</span>
                           </button>
                         </td>
                       );
@@ -107,14 +127,20 @@ export function LabRound({
                 <li key={`${cell.clipId}:${cell.captionId}`}>
                   <button type="button" className="flex items-center gap-2 text-left text-sm" onClick={() => toggle(`${cell.clipId}:${cell.captionId}`)}>
                     <span className="w-10 shrink-0"><CaptionOverlay lines={[]} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} compact /></span>
-                    <span>{adPairingName(clip, caption?.style)} · {cell.on ? "On" : "Off"}</span>
+                    <span>{pairingLabel(clip, caption)} · {cell.on ? "On" : "Off"}</span>
                   </button>
                 </li>
               );
             })}
-            {narrow.more > 0 ? <li className="text-muted-foreground">+ {narrow.more} more</li> : null}
+            {moreOn > 0 || matrix.off > 0 ? <li className="text-muted-foreground">+ {moreOn} more · {matrix.off} off</li> : null}
           </ul>
-          <p className="tabular-nums">{matrix.line}</p>
+          {missingLine ? <p className="hidden text-sm text-muted-foreground sm:block">{clipsLink(missingLine)}</p> : null}
+          <p className="tabular-nums hidden sm:block">{roundBar(matrix.on, clips.length, captions.length, matrix.off)}{gap ? ` · ${gap}` : ""}</p>
+          <div className="space-y-1 sm:hidden">
+            <p className="font-medium tabular-nums">{matrix.on} ads</p>
+            <p className="text-muted-foreground">{clips.length} clips × {captions.length} captions, {matrix.off} left out</p>
+            {gap ? <p className="text-muted-foreground">{clipsLink(`${gap} · change on Clips`)}</p> : null}
+          </div>
         </>
       ) : null}
       <div className="flex flex-wrap items-center gap-3">
@@ -124,7 +150,7 @@ export function LabRound({
             onClick={() => onSave({
               action: "propose",
               adsetMetaId: lab.adSets[0]?.metaAdSetId ?? "",
-              pairs: matrix.cells.filter((cell) => cell.on).map((cell) => ({ clipId: cell.clipId, captionId: cell.captionId })),
+              pairs: renderPairs(matrix.cells).map((cell) => ({ clipId: cell.clipId, captionId: cell.captionId })),
             })}
           >
             Propose round {roundNo}
@@ -161,9 +187,34 @@ export function LabRound({
   );
 }
 
-function proposeReason(lab: CreativeLabCardData, clips: number, captions: number, roundNo: number): string | null {
+function clipsLink(text: string) {
+  const mark = "change on Clips";
+  const at = text.lastIndexOf(mark);
+  if (at < 0) return text;
+  return (
+    <>
+      {text.slice(0, at)}
+      <a href="#lab-clips" className="underline">{mark}</a>
+      {text.slice(at + mark.length)}
+    </>
+  );
+}
+
+function proposeReason(lab: CreativeLabCardData, clips: number, captions: number, roundNo: number, usable: number): string | null {
+  if (clips === 0 && usable > 0) return noSelectedClipsSentence(roundNo);
   if (captions === 0) return `Approve at least 1 caption to propose round ${roundNo}.`;
   if (clips === 0) return "No usable clips.";
   if (lab.adSets.length === 0) return "No ad set on this event.";
   return null;
+}
+
+function captionHead(caption: { style: string; lines: string[] }): string {
+  const words = caption.lines[0]?.trim() ?? "";
+  return words && words.length <= 24 ? `${styleLabel(caption.style)} · "${words}"` : styleLabel(caption.style);
+}
+
+function pairingLabel(clip: { artistName: string; clipNo: number } | undefined, caption: { style: string; lines: string[] } | undefined): string {
+  const words = caption?.lines[0]?.trim() ?? "";
+  if (words && words.length <= 24) return `${clip ? `${clip.artistName} #${clip.clipNo}` : "Clip"} × "${words}"`;
+  return adPairingName(clip, caption?.style);
 }

@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { saleStageFromStatus, type SaleStage } from "@/lib/creative-lab/caption-facts";
-import { captionCopy, captionPreviewClip, ctaForStage, feedHeadline, feedPostClip, generateButtonLabel, styleLabel } from "@/lib/creative-lab/surface";
+import { HeldLabel } from "@/components/dashboard/events/creative-lab/held-label";
+import { captionsNote, eachPreviewClips, eachPreviewLine, effectiveSelection, emptySelection, NO_CLIP_SELECTED, OFF_CARD_CLIP, previewPlate, type PairMode } from "@/lib/creative-lab/selection";
+import { captionCopy, captionPreviewClip, ctaForStage, feedHeadline, generateButtonLabel, generateFailureSentence, roundHasRun, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
 import { VoicePanel } from "@/components/dashboard/events/creative-lab/voice-panel";
@@ -22,6 +24,22 @@ const STAGES: { id: SaleStage; label: string }[] = [
   { id: "on_sale", label: "On sale" },
 ];
 
+function noticeAfterGenerate(result: { ok: boolean; json: Record<string, unknown> } | undefined): string | null {
+  if (!result?.ok) return generateFailureSentence(result?.json.error ?? result?.json.refused);
+  const sentence = result.json.notice;
+  return typeof sentence === "string" && sentence.trim() ? sentence : null;
+}
+
+/** The ids this write stored. Null when the request failed, so an older cross stays. */
+function writtenCaptionIds(result: { ok: boolean; json: Record<string, unknown> } | undefined): string[] | null {
+  if (!result?.ok || !Array.isArray(result.json.captions)) return null;
+  return result.json.captions.flatMap((row) => {
+    if (!row || typeof row !== "object" || !("id" in row)) return [];
+    const id = (row as { id?: unknown }).id;
+    return typeof id === "string" && id ? [id] : [];
+  });
+}
+
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
 }
@@ -35,6 +53,9 @@ export function LabCaptions({
   initialArtistId,
   initialVoiceOpen = false,
   voiceContained = false,
+  pendingWrite = false,
+  initialPair = "best",
+  initialWrittenIds,
 }: {
   lab: CreativeLabCardData;
   busy: boolean;
@@ -45,6 +66,11 @@ export function LabCaptions({
   initialArtistId?: string;
   initialVoiceOpen?: boolean;
   voiceContained?: boolean;
+  /** Frame only: the Write button is already in flight. */
+  pendingWrite?: boolean;
+  initialPair?: PairMode;
+  /** Frame only: the captions the last write returned, so Each selected can draw them. */
+  initialWrittenIds?: readonly string[];
 }) {
   const stageDefault = saleStageFromStatus(lab.eventStatus);
   const [angle, setAngle] = useState<(typeof ANGLES)[number]>(initialAngle);
@@ -60,11 +86,12 @@ export function LabCaptions({
     return () => window.removeEventListener(USE_ANGLE_EVENT, onUse);
   }, []);
   const [count, setCount] = useState<1 | 3 | 5>(3);
-  const [each, setEach] = useState(false);
-  const [writing, setWriting] = useState(false);
+  const [pair, setPair] = useState<PairMode>(initialPair);
+  const [writtenIds, setWrittenIds] = useState<readonly string[] | null>(initialWrittenIds ?? null);
+  const [writing, setWriting] = useState(pendingWrite);
   const [notice, setNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<"caption" | "quote">("caption");
-  const [snapshot, setSnapshot] = useState<CaptionGenerator>({ angle: "lineup", count: 3, each: false, stage: stageDefault });
+  const [snapshot, setSnapshot] = useState<CaptionGenerator>({ angle: "lineup", count: 3, pair: "best", stage: stageDefault });
   const [artistId, setArtistId] = useState(initialArtistId ?? lab.artists[0]?.id ?? "");
   const [source, setSource] = useState<QuoteSource>("post");
   const [words, setWords] = useState("");
@@ -74,13 +101,13 @@ export function LabCaptions({
   const posts = postsForQuote((artist?.igCandidates ?? []).map((row) => ({ permalink: row.permalink, caption: row.caption, postedAt: row.postedAt })));
   function chooseMode(next: "caption" | "quote") {
     if (next === "quote") {
-      setSnapshot({ angle, count, each, stage });
+      setSnapshot({ angle, count, pair, stage });
       setMode("quote");
       return;
     }
     setAngle(snapshot.angle);
     setCount(snapshot.count);
-    setEach(snapshot.each);
+    setPair(snapshot.pair);
     setStage(snapshot.stage);
     setMode("caption");
   }
@@ -108,13 +135,23 @@ export function LabCaptions({
       quoteSourceNote: source === "typed" ? where.trim() : null,
     });
   }
-  const lead = feedPostClip(lab.clips);
   const page = lab.clientName || "Page";
   const visible = lab.captions.filter((caption) => caption.status !== "rejected");
+  const selection = lab.clipSelection ?? emptySelection();
+  const selected = effectiveSelection(selection, lab.clips);
+  const plates = eachPreviewClips(selected);
+  const written = new Map(visible.map((caption) => [caption.id, caption]));
+  const crossed = (writtenIds ?? []).flatMap((id) => {
+    const caption = written.get(id);
+    return caption && caption.mode !== "quote" ? [caption] : [];
+  });
+  const ran = lab.rounds.filter((round) => roundHasRun(round.status));
+  const roundNo = (ran.at(-1)?.roundNo ?? 0) + 1;
 
   return (
     <section id="lab-captions" className="space-y-4">
       <h3 className="font-medium">Captions</h3>
+      <p className="text-muted-foreground">{captionsNote(roundNo)}</p>
       {quoteMode && mode === "quote" ? (
         <div className="space-y-2">
         <div className="flex flex-wrap gap-1">
@@ -159,6 +196,29 @@ export function LabCaptions({
       <div className="space-y-2 rounded border border-border bg-card p-3">
         {quoteMode ? <Control label="Mode" value={mode} options={[{ id: "caption", label: "Caption" }, { id: "quote", label: "Quote" }]} onChange={chooseMode} /> : null}
         <Control label="Angle" value={angle} options={ANGLES.map((id) => ({ id, label: styleLabel(id) }))} onChange={setAngle} />
+        {angle === "artist_first_person" ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-20 text-muted-foreground">Artist</span>
+            <div className="flex flex-wrap items-center gap-1">
+              {lab.artists.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={item.id === artist?.id}
+                  className={`rounded px-2 py-1 text-sm ${item.id === artist?.id ? "bg-foreground text-background" : "border border-border bg-transparent"}`}
+                  onClick={() => setArtistId(item.id)}
+                >
+                  {item.name}
+                </button>
+              ))}
+              {artist ? (
+                <span className={artist.rights === "approved" ? "rounded border border-success px-1.5 py-0.5 text-xs text-success" : "rounded border border-foreground px-1.5 py-0.5 text-xs"}>
+                  {artist.rights === "approved" ? "✓ artist channels" : "Promoter page only"}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <div className="sm:hidden">
           <details>
             <summary>More</summary>
@@ -168,18 +228,23 @@ export function LabCaptions({
         <div className="hidden sm:block">
           <Counts count={count} setCount={setCount} stage={stage} setStage={setStage} />
         </div>
+        {pair === "each" ? <p className="tabular-nums text-muted-foreground">{eachPreviewLine(crossed.length, plates.length)}</p> : null}
         <Control
           label="Pair with"
-          value={each ? "each" : "best"}
-          options={[{ id: "best", label: "Best clip" }, { id: "each", label: "Each new clip" }]}
+          value={pair}
+          options={[
+            { id: "spread", label: "Selected clips" },
+            { id: "best", label: "Best of selected" },
+            { id: "each", label: "Each selected" },
+          ]}
           onChange={(value) => {
-            setEach(value === "each");
+            setPair(value);
             setNotice(null);
           }}
         />
         <Button
           type="button"
-          disabled={busy}
+          disabled={busy || writing}
           onClick={() => {
             setNotice(null);
             setWriting(true);
@@ -187,16 +252,17 @@ export function LabCaptions({
               action: "generate",
               style: angle,
               n: count,
-              each,
-              clipId: each ? null : lead?.id ?? null,
+              pair,
+              artistId: angle === "artist_first_person" ? artist?.id ?? null : null,
               stageOverride: stage,
-            }).then((result) => {
-              const sentence = result?.json.notice;
-              setNotice(typeof sentence === "string" && sentence ? sentence : null);
-            }).finally(() => setWriting(false));
+            }).then((result) => { setNotice(noticeAfterGenerate(result)); const ids = writtenCaptionIds(result); if (ids) setWrittenIds(ids); }).catch(() => setNotice(generateFailureSentence(null))).finally(() => setWriting(false));
           }}
         >
-          {generateButtonLabel(writing) === "Writing…" ? (<><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Writing…</>) : "Generate"}
+          <HeldLabel
+            idle={generateButtonLabel(false, count)}
+            pending={<><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />{generateButtonLabel(true, count)}</>}
+            active={writing}
+          />
         </Button>
         {notice ? <p className="text-sm">{notice}</p> : null}
         {quoteMode ? (
@@ -212,6 +278,20 @@ export function LabCaptions({
         ) : null}
       </div>
       )}
+      {pair === "each" ? (
+        <div className="space-y-4">
+          {crossed.map((caption) => (
+              <div key={caption.id} className="space-y-2">
+                <p className="text-xs text-muted-foreground">{styleLabel(caption.style)}</p>
+                <div className="flex snap-x gap-3 overflow-x-auto">
+                  {(plates.length > 0 ? plates : [null]).map((clip, index) => (
+                    <FeedPost key={clip?.id ?? "none"} lab={lab} caption={caption} page={page} stage={stageDefault} busy={busy} onSave={onSave} clipOverride={clip} actions={index === 0} />
+                  ))}
+                </div>
+              </div>
+          ))}
+        </div>
+      ) : (
       <div className="flex snap-x gap-3 overflow-x-auto">
         {visible.map((caption) => (
           caption.mode === "quote" ? (
@@ -221,6 +301,7 @@ export function LabCaptions({
           )
         ))}
       </div>
+      )}
     </section>
   );
 }
@@ -318,6 +399,8 @@ function FeedPost({
   stage,
   busy,
   onSave,
+  clipOverride,
+  actions = true,
 }: {
   lab: CreativeLabCardData;
   caption: CreativeLabCardData["captions"][number];
@@ -325,13 +408,26 @@ function FeedPost({
   stage: SaleStage;
   busy: boolean;
   onSave: Save;
+  /** Each selected draws this caption on a chosen clip. */
+  clipOverride?: CreativeLabCardData["clips"][number] | null;
+  /** ✎ ✕ ✓ belong to the caption, so only the first preview of a cross shows them. */
+  actions?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [focusPrimary, setFocusPrimary] = useState(false);
   const [overlay, setOverlay] = useState(captionCopy(caption.lines));
   const [primary, setPrimary] = useState(caption.primaryText);
   const primaryField = useRef<HTMLTextAreaElement>(null);
-  const clip = captionPreviewClip(lab.clips, caption.clipId);
+  const selection = lab.clipSelection ?? emptySelection();
+  const selected = effectiveSelection(selection, lab.clips);
+  const plate = clipOverride !== undefined ? (clipOverride ? "clip" : previewPlate(null, lab.clips, selected.length)) : previewPlate(caption.clipId, lab.clips, selected.length);
+  const clip = clipOverride !== undefined
+    ? clipOverride
+    : plate !== "clip"
+      ? null
+      : caption.clipId
+        ? captionPreviewClip(lab.clips, caption.clipId)
+        : captionPreviewClip(selected.length ? selected : lab.clips, null);
   function discardEdits() {
     setOverlay(captionCopy(caption.lines));
     setPrimary(caption.primaryText);
@@ -361,7 +457,7 @@ function FeedPost({
       </div>
       {caption.primaryText.trim() ? (
         <p className="px-3 py-2 text-sm">{caption.primaryText}</p>
-      ) : (
+      ) : actions ? (
         <button
           type="button"
           className="block w-full px-3 py-2 text-left text-sm text-muted-foreground"
@@ -374,8 +470,17 @@ function FeedPost({
         >
           No primary text yet — ✎ to add
         </button>
+      ) : (
+        <p className="px-3 py-2 text-sm text-muted-foreground">No primary text yet</p>
       )}
-      <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} inS={clip?.inS ?? 0} outS={clip?.outS ?? null} />
+      {plate === "missing" ? (
+        <p className="px-3 py-6 text-sm">{OFF_CARD_CLIP}</p>
+      ) : (
+        <>
+          <CaptionOverlay lines={copy.split("\n")} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} inS={clip?.inS ?? 0} outS={clip?.outS ?? null} />
+          {plate === "none" ? <p className="px-3 py-2 text-sm">{NO_CLIP_SELECTED}</p> : null}
+        </>
+      )}
       <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2">
         <p className="min-w-0 font-medium">{headline}</p>
         <span className="inline-flex min-w-28 shrink-0 items-center justify-center whitespace-nowrap rounded bg-foreground px-3 py-1.5 text-background">{ctaForStage(stage)}</span>
@@ -383,7 +488,7 @@ function FeedPost({
       <p className="px-3 pb-2 text-xs text-muted-foreground">{styleLabel(caption.style)}{clip ? ` · ${clip.artistName} #${clip.clipNo}` : ""}</p>
       {held ? <p className="px-3 pb-2 text-sm">{held}</p> : null}
       {caption.validatorDetail ? <p className="px-3 pb-2 text-sm text-destructive">{caption.validatorDetail}</p> : null}
-      {editing ? (
+      {actions && editing ? (
         <form
           className="space-y-2 p-3"
           onSubmit={(event) => {
@@ -404,7 +509,7 @@ function FeedPost({
             <Button type="button" variant="outline" onClick={discardEdits}>Cancel</Button>
           </div>
         </form>
-      ) : (
+      ) : actions ? (
         <div className="flex items-center gap-2 p-2">
           <button type="button" aria-label="Edit" className="h-8 w-8 rounded border border-border" onClick={() => { setOverlay(captionCopy(caption.lines)); setPrimary(caption.primaryText); setFocusPrimary(!caption.primaryText.trim()); setEditing(true); }}>✎</button>
           <button type="button" aria-label="Reject" className="h-8 w-8 rounded border border-border" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "rejected" })}>✕</button>
@@ -412,7 +517,7 @@ function FeedPost({
             <button type="button" aria-label="Approve" className="h-8 w-8 rounded bg-foreground text-background" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "approved" })}>✓</button>
           )}
         </div>
-      )}
+      ) : null}
     </article>
   );
 }

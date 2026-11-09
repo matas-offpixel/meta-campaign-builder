@@ -13,7 +13,10 @@ import { proposeRound, RoundBuildError } from "./propose.ts";
 import { RoundRefusedError } from "./rounds.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { isCaptionStyle } from "./tags.ts";
-import { clipsForEachNew, currentRenderError, NO_NEW_CLIPS, playableClipSeconds } from "./surface.ts";
+import { artistKey } from "./lineup.ts";
+import { bestOfSelected, effectiveSelection, NO_CLIP_SELECTED, spreadClipIds, type PairMode } from "./selection.ts";
+import { loadClipSelection } from "./selection-store.ts";
+import { CAPTIONS_NOT_WRITTEN, currentRenderError, LINES_ALREADY_ON_EVENT, playableClipSeconds } from "./surface.ts";
 import { headlinerError } from "../db/creative-lab.ts";
 import { factsHash, loadEventFacts, saleStageFromStatus, validateCaption } from "./caption-facts.ts";
 import { quoteInsert, validateQuote, type QuoteSource } from "./quote.ts";
@@ -231,20 +234,34 @@ export async function addLabClip(
   if (inserted.error) throw new Error(inserted.error.message);
 }
 
-async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise<string[]> {
+async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise<{
+  clips: {
+    id: string;
+    artistName: string;
+    clipNo: number;
+    cleared: boolean;
+    renderError: string | null;
+    durationSeconds: number | null;
+    judged: { verdict: string | null; cost: number | null; results: number | null; metric: string | null; roundNo: number } | null;
+  }[];
+  paired: Set<string>;
+  selection: Awaited<ReturnType<typeof loadClipSelection>>;
+}> {
   const eventRes = await db.from("events").select("client_id").eq("id", eventId).maybeSingle();
   if (eventRes.error) throw new Error(eventRes.error.message);
   const clientId = text(eventRes.data as Row | null, "client_id");
-  if (!clientId) return [];
-  const artistsRes = await db.from("creative_lab_artists").select("id, name, approved_at").eq("client_id", clientId);
+  const selection = await loadClipSelection(db, eventId);
+  if (!clientId) return { clips: [], paired: new Set(), selection };
+  const artistsRes = await db.from("creative_lab_artists").select("id, name, artist_id, approved_at").eq("client_id", clientId);
   if (artistsRes.error) throw new Error(artistsRes.error.message);
-  const artists = (artistsRes.data ?? []) as Row[];
+  // The tiles are the lineup's clips. clips.event_id is the show a clip was filmed at, so it does not choose this set.
+  const artists = await lineupLabArtists(db, eventId, (artistsRes.data ?? []) as Row[]);
   const artistIds = artists.map((row) => text(row, "id")).filter(Boolean);
-  if (artistIds.length === 0) return [];
+  if (artistIds.length === 0) return { clips: [], paired: new Set(), selection };
   const clipsRes = await db.from("creative_lab_clips").select("id, artist_id, clip_no, in_s, out_s, creative_asset_id").in("artist_id", artistIds);
   if (clipsRes.error) throw new Error(clipsRes.error.message);
   const clipRows = (clipsRes.data ?? []) as Row[];
-  if (clipRows.length === 0) return [];
+  if (clipRows.length === 0) return { clips: [], paired: new Set(), selection };
   const assetIds = [...new Set(clipRows.map((row) => text(row, "creative_asset_id")).filter(Boolean))];
   const assetsRes = assetIds.length
     ? await db.from("creative_assets").select("id, duration_seconds").in("id", assetIds)
@@ -301,45 +318,98 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
         inS: inS != null && Number.isFinite(inS) ? inS : null,
         outS: outS != null && Number.isFinite(outS) ? outS : null,
       }),
-      judged: judged ? { verdict: text(judged, "verdict") || null, cost: null, results: null, metric: null, roundNo: 0 } : null,
+      judged: judged ? {
+        verdict: text(judged, "verdict") || null,
+        cost: judged.verdict_cost_per_result == null || judged.verdict_cost_per_result === "" ? null : Number(judged.verdict_cost_per_result),
+        results: null,
+        metric: null,
+        roundNo: 0,
+      } : null,
     };
   });
-  return clipsForEachNew(clips, paired).map((clip) => clip.id);
+  clips.sort((a, b) => a.clipNo - b.clipNo || a.artistName.localeCompare(b.artistName));
+  return { clips, paired, selection };
+}
+
+/**
+ * Lab artists on this event's bill, matched the way the card matches a lineup
+ * row: library id, then name. No bill yet: every lab artist of the client,
+ * which is the same list the tiles use before a lineup is saved.
+ * A clip is never chosen because creative_lab_clips.event_id equals this event.
+ */
+async function lineupLabArtists(db: ServiceRoleDb, eventId: string, clientArtists: Row[]): Promise<Row[]> {
+  const rosterRes = await db.from("event_artists").select("artist_id").eq("event_id", eventId);
+  if (rosterRes.error) throw new Error(rosterRes.error.message);
+  const libraryIds = ((rosterRes.data ?? []) as Row[]).map((row) => text(row, "artist_id")).filter(Boolean);
+  if (libraryIds.length === 0) return clientArtists;
+  const libraryRes = await db.from("artists").select("id, name").in("id", libraryIds);
+  if (libraryRes.error) throw new Error(libraryRes.error.message);
+  const ids = new Set(libraryIds);
+  const names = new Set(((libraryRes.data ?? []) as Row[]).map((row) => artistKey(text(row, "name"))).filter(Boolean));
+  return clientArtists.filter((row) => ids.has(text(row, "artist_id")) || names.has(artistKey(text(row, "name"))));
+}
+
+function withCaptionNotice(
+  captions: Awaited<ReturnType<typeof generateCaptions>>,
+  notice: string | null,
+): { captions: Awaited<ReturnType<typeof generateCaptions>>; notice: string | null } {
+  if (captions.length === 0 && !notice) return { captions, notice: CAPTIONS_NOT_WRITTEN };
+  return { captions, notice };
+}
+
+function pairMode(args: { pair?: PairMode; each?: boolean }): PairMode {
+  if (args.pair === "spread" || args.pair === "best" || args.pair === "each") return args.pair;
+  return args.each ? "each" : "best";
 }
 
 export async function generateLabCaptions(
   db: ServiceRoleDb,
-  args: { eventId: string; style: string; n: number; clipId?: string | null; stageOverride?: SaleStage | null; artistId?: string | null; each?: boolean },
+  args: { eventId: string; style: string; n: number; clipId?: string | null; stageOverride?: SaleStage | null; artistId?: string | null; each?: boolean; pair?: PairMode },
   deps?: GenerateCaptionsDeps,
 ): Promise<{ captions: Awaited<ReturnType<typeof generateCaptions>>; notice: string | null }> {
   if (!isCaptionStyle(args.style)) throw new Error("Unknown caption style.");
-  if (args.each) {
-    const targets = await clipsAwaitingPreview(db, args.eventId);
-    if (targets.length === 0) return { captions: [], notice: NO_NEW_CLIPS };
-    const captions = [];
-    for (const clipId of targets) {
-      captions.push(...await generateCaptions(db, {
+  const style = args.style;
+  const pair = pairMode(args);
+  const loaded = await clipsAwaitingPreview(db, args.eventId);
+  const selection = loaded.selection;
+  const selected = effectiveSelection(selection, loaded.clips);
+  const write = async (clipId?: string, n = args.n) => {
+    try {
+      return { captions: await generateCaptions(db, {
         eventId: args.eventId,
-        style: args.style,
-        n: 1,
+        style,
+        n,
         clipId,
         stageOverride: args.stageOverride || undefined,
         artistId: args.artistId || undefined,
-      }, deps));
+      }, deps), notice: null as string | null };
+    } catch (err) {
+      if (err instanceof Error && err.message === LINES_ALREADY_ON_EVENT) {
+        return { captions: [], notice: LINES_ALREADY_ON_EVENT };
+      }
+      throw err;
     }
-    return { captions, notice: null };
-  }
-  return {
-    captions: await generateCaptions(db, {
-      eventId: args.eventId,
-      style: args.style,
-      n: args.n,
-      clipId: args.clipId || undefined,
-      stageOverride: args.stageOverride || undefined,
-      artistId: args.artistId || undefined,
-    }, deps),
-    notice: null,
   };
+  if (selected.length === 0) {
+    const written = await write(undefined, args.n);
+    return withCaptionNotice(written.captions, written.notice ?? NO_CLIP_SELECTED);
+  }
+  if (pair === "each") {
+    const written = await write(undefined, args.n);
+    return withCaptionNotice(written.captions, written.notice);
+  }
+  if (pair === "spread") {
+    const captions = [];
+    for (const clipId of spreadClipIds(args.n, selected.map((clip) => clip.id))) {
+      const written = await write(clipId, 1);
+      if (written.notice && captions.length === 0) return written;
+      captions.push(...written.captions);
+    }
+    return withCaptionNotice(captions, null);
+  }
+  const best = bestOfSelected(selected);
+  const written = await write(best?.id, args.n);
+  return withCaptionNotice(written.captions, written.notice);
 }
 
 export async function editLabCaption(
