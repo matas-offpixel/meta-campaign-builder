@@ -81,6 +81,26 @@ export function DriveHeaderButton(props: {
   }, [load, props.hasFolder, props.preview]);
 
   const client = view?.clientName || props.preview?.clientName || "";
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    function onPointer(event: MouseEvent) {
+      const root = rootRef.current;
+      if (!root || root.contains(event.target as Node)) return;
+      if (window.matchMedia("(max-width: 700px)").matches) return;
+      setOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [open]);
 
   async function onAsk() {
     if (view?.shared || !client || phase === "asking") return;
@@ -114,10 +134,11 @@ export function DriveHeaderButton(props: {
   }
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative shrink-0">
       <Button
         variant="outline"
         size="sm"
+        className="shrink-0 whitespace-nowrap"
         onClick={() => {
           if (!props.hasFolder) {
             document.getElementById("event-drive")?.scrollIntoView({ block: "start" });
@@ -131,13 +152,14 @@ export function DriveHeaderButton(props: {
       {open && view ? (
         <>
           <button type="button" aria-label="Close" className="fixed inset-0 z-30 hidden bg-black/30 max-[700px]:block" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-40 mt-1 w-[340px] max-[700px]:fixed max-[700px]:inset-x-0 max-[700px]:bottom-0 max-[700px]:top-auto max-[700px]:z-40 max-[700px]:mt-0 max-[700px]:w-auto">
+          <div role="dialog" aria-modal="true" aria-label={view.folderName || props.eventName} className="absolute right-0 top-full z-40 mt-1 w-[340px] max-[700px]:fixed max-[700px]:inset-x-0 max-[700px]:bottom-0 max-[700px]:top-auto max-[700px]:z-40 max-[700px]:mt-0 max-[700px]:w-auto">
             <DrivePanel
               folderName={view.folderName || props.eventName}
               place={view.place}
               rows={view.rows}
               openUrl={view.openUrl}
               stateLine={shareStateLine(client, view.shared)}
+              shared={view.shared}
               asking={phase === "asking" ? shareConfirm(client) : null}
               onShare={() => void onAsk()}
               onConfirm={() => void onConfirm()}

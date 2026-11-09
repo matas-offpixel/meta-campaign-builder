@@ -66,6 +66,34 @@ function formatDuration(seconds: number | null): string | null {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+function lengthSeconds(length: string | null): number | null {
+  if (!length) return null;
+  const [minutes, seconds] = length.split(":");
+  const whole = Number(minutes) * 60 + Number(seconds);
+  return Number.isFinite(whole) ? whole : null;
+}
+
+/** The two added rows are the 9:16 of their creative, named by the pairing. Live add uses the same name and bucket. */
+function addedAsNineSixteen(
+  rows: { id: string; pairing: string; length: string | null; added: boolean }[],
+): IntakeAsset[] {
+  return rows.filter((row) => row.added).map((row) => ({
+    id: `lab-${row.id}`,
+    filename: row.pairing,
+    mediaKind: "video",
+    width: 1080,
+    height: 1920,
+    durationSeconds: lengthSeconds(row.length),
+    detectedBucket: "9:16",
+    override: null,
+    bucket: "9:16",
+    reason: null,
+    thumbnailUrl: null,
+    groupId: null,
+    uploadError: null,
+  }));
+}
+
 function measureFile(file: File): Promise<{ width: number | null; height: number | null; durationSeconds: number | null }> {
   const url = URL.createObjectURL(file);
   if (file.type.startsWith("image/")) {
@@ -172,7 +200,7 @@ export function MmlCreativeIntake({
     void reload();
   }, [persisted, reload, fixture]);
 
-  const assets = view?.assets ?? [];
+  const assets = fixture ? addedAsNineSixteen(fixture.rows) : (view?.assets ?? []);
   const groups = view?.groups ?? [];
   const selectedAssets = selected
     .map((id) => assets.find((asset) => asset.id === id))
@@ -488,7 +516,7 @@ export function MmlCreativeIntake({
                       ) : (
                         <span className={`mb-1 block h-16 rounded bg-muted ${VIZ_TYPE.label}`} />
                       )}
-                      <span className={`block truncate ${VIZ_TYPE.body}`}>{asset.filename}</span>
+                      <span className={`block break-words ${VIZ_TYPE.body}`}>{asset.filename}</span>
                       <span className={`block text-muted-foreground ${VIZ_TYPE.label}`}>
                         {asset.mediaKind}
                         {formatDuration(asset.durationSeconds) ? ` · ${formatDuration(asset.durationSeconds)}` : ""}

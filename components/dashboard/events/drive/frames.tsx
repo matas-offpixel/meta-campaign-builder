@@ -151,8 +151,11 @@ export function DriveFrames({ id }: { id: string }) {
       { id: "4", pairing: "Enzo #5 × Lineup \"at Circuit\"", narrowPairing: "Enzo #5 × \"at Circuit\"", roundNo: 1, length: "0:15", inDrive: false, added: false },
     ];
     return (
-      <div data-frame-ready={id} className="bg-background p-4 text-foreground">
+      <div data-frame-ready={id} className="space-y-6 bg-background p-4 text-foreground">
         <MmlCreativeIntake planId="frame-plan" clientId={null} persisted onLaunches={() => undefined} fixture={{ eventName: "Puzzle 4th Birthday", rows }} />
+        <div className="max-[700px]:hidden">
+          <MmlCreativeIntake planId="frame-plan-empty" clientId={null} persisted onLaunches={() => undefined} fixture={{ eventName: "Puzzle 4th Birthday", rows: [], empty: true }} />
+        </div>
       </div>
     );
   }

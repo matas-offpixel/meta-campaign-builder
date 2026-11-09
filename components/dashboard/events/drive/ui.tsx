@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import {
   ANOTHER_FOLDER,
@@ -76,6 +76,7 @@ export function DrivePanel(props: {
   rows: { key: string; name: string; folderId: string | null; now: string | null; trailing: string }[];
   openUrl: string | null;
   stateLine: string;
+  shared?: boolean;
   asking: string | null;
   onShare?: () => void;
   onConfirm?: () => void;
@@ -118,9 +119,11 @@ export function DrivePanel(props: {
         ) : (
           <span />
         )}
-        <button type="button" className="rounded border border-border px-2 py-1 text-[12px]" onClick={props.onShare}>
-          {SHARE_WITH_PROMOTER}
-        </button>
+        {props.shared ? null : (
+          <button type="button" className="rounded border border-border px-2 py-1 text-[12px]" onClick={props.onShare}>
+            {SHARE_WITH_PROMOTER}
+          </button>
+        )}
       </div>
       {props.asking ? (
         <div className="mt-2">
@@ -219,19 +222,28 @@ export function WhichFolder(props: {
   busy?: boolean;
 }) {
   const group = useId();
+  const titleId = useId();
+  const onCancel = props.onCancel;
   const [another, setAnother] = useState(false);
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
   const [picking, setPicking] = useState<"artist" | "press" | null>(null);
   const selected = props.choices.find((choice) => choice.key === props.selectedKey) ?? props.choices[0];
   const importLine = selected?.artistName && selected.key.includes("artist-clips") ? clipImportLine(selected.artistName) : null;
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/30 p-6 max-[700px]:items-end max-[700px]:p-0">
-    <div className="w-full max-w-[540px] rounded-md border border-border bg-card p-4 shadow-sm max-[700px]:rounded-b-none">
-      <h4 className="font-medium">{WHICH_FOLDER}</h4>
+    <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="w-full max-w-[540px] rounded-md border border-border bg-card p-4 shadow-sm max-[700px]:rounded-b-none">
+      <h4 id={titleId} className="font-medium">{WHICH_FOLDER}</h4>
       <p className="mb-2 font-mono text-[11px] text-muted-foreground">{props.fileLabel}</p>
       <div className="max-[700px]:hidden">
         {props.choices.map((choice) => (
           <label key={choice.label} className="flex items-baseline gap-2 py-0.5 text-sm">
-            <input type="radio" name={group} checked={choice.key === props.selectedKey} onChange={() => props.onSelect(choice)} />
+            <input type="radio" name={group} className="accent-foreground" checked={choice.key === props.selectedKey} onChange={() => props.onSelect(choice)} />
             <span>
               {choice.label.includes(CHOOSE_ARTIST) ? (
                 <>
@@ -256,6 +268,7 @@ export function WhichFolder(props: {
                 <input
                   type="radio"
                   name={group}
+                  className="accent-foreground"
                   checked={choice.key === props.selectedKey}
                   onChange={() => props.onSelect({ key: choice.key, label: choice.label, artistId: null, artistName: null, likely: null })}
                 />
