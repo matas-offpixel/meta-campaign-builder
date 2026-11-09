@@ -3,7 +3,7 @@
  *
  *   node --env-file=.env.local --experimental-strip-types scripts/import-presskit.mts \
  *     --artist <lab artist id> --folder '<dropbox folder url>' [--event <event id>] \
- *     [--exclude '/b2b/i'] [--videos-only | --images-only] [--max N] [--apply]
+ *     [--exclude '/b2b/i'] [--videos-only | --images-only] [--max N] [--recheck 16,17] [--apply]
  *
  * Dry run by default: lists Videos/, Press Pictures/ and Logo/ (metadata only)
  * and SELECTs from Supabase. Nothing is downloaded or written. It prints what
@@ -20,6 +20,9 @@
  *
  * --exclude takes /pattern/flags or a bare word (case-insensitive). Default /b2b/i.
  * --max N caps new files per kind (videos, images).
+ * --recheck 16,17 runs the text check again on those clip numbers even when they
+ * hold a verdict (after a prompt or schema change). Without it only clips that
+ * are check by eye, or never stored a check, are checked again.
  * --event checks the artist's clips show on that event's Lab (same client). The
  * clips' own event_id stays null: a press-kit clip was not filmed at the show.
  *
@@ -57,6 +60,8 @@ const max = maxArg ? Number(maxArg) : undefined;
 const videosOnly = argv.includes("--videos-only");
 const imagesOnly = argv.includes("--images-only");
 const mode: PresskitMode = videosOnly ? "videos" : imagesOnly ? "images" : "all";
+const recheckArg = flag("--recheck");
+const recheckClipNos = recheckArg ? recheckArg.split(",").map((part) => Number(part.trim())) : [];
 
 function fail(message: string): never {
   console.error(message);
@@ -67,6 +72,7 @@ if (!artistId || !folderUrl) fail("--artist and --folder are required");
 if (!isDropboxFolderUrl(folderUrl)) fail("--folder must be a Dropbox shared folder link (/scl/fo/)");
 if (videosOnly && imagesOnly) fail("--videos-only and --images-only cannot both be set");
 if (max != null && !(Number.isInteger(max) && max > 0)) fail("--max takes a whole number above 0");
+if (recheckClipNos.some((n) => !(Number.isInteger(n) && n > 0))) fail("--recheck takes clip numbers, e.g. 16,17");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -176,6 +182,7 @@ if (mode !== "images") {
     exclude,
     max,
     upload,
+    recheckClipNos,
     sign: async (storagePath) => (await supabase.storage.from("campaign-assets").createSignedUrl(storagePath, 60 * 30)).data?.signedUrl ?? null,
     judge: async (input) => {
       const judged = await judgeOverlay(input);

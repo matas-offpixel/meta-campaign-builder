@@ -10,7 +10,7 @@
  * the deployed Lambda site had no FrameSheet composition.
  */
 
-import { OVERLAY_PROMPT, OVERLAY_TOOL, type OverlayFrame } from "./overlay-check.ts";
+import { OVERLAY_TOOL, overlayPrompt, type OverlayFrame } from "./overlay-check.ts";
 import { renderFrameSheetStill } from "./lambda.ts";
 
 export const OVERLAY_MODEL = "claude-sonnet-4-6";
@@ -91,7 +91,7 @@ export async function judgeOverlay(input: {
       : await defaultSheet(src, input.times);
     lambdaCostUsd = sheet.estimatedCostUsd;
     const images = input.thumbnail ? [sheet.bytes, input.thumbnail] : [sheet.bytes];
-    const asked = await step("model", () => (input.ask ? input.ask(images) : askSonnet(images, input.times)));
+    const asked = await step("model", () => (input.ask ? input.ask(images) : askSonnet(images, input.times, input.thumbnail != null)));
     return { ...asked, lambdaCostUsd };
   } catch (error) {
     const stage = error instanceof OverlayStepError ? error.stage : "sheet";
@@ -108,12 +108,12 @@ async function defaultSheet(src: string, times: number[]): Promise<{ bytes: Uint
   return { bytes: new Uint8Array(await res.arrayBuffer()), estimatedCostUsd: still.estimatedCostUsd };
 }
 
-async function askSonnet(images: Uint8Array[], times: number[]): Promise<{ verdict?: string; frames?: OverlayFrame[]; reason?: string; unsure?: boolean }> {
+async function askSonnet(images: Uint8Array[], times: number[], thumbnail: boolean): Promise<{ verdict?: string; frames?: OverlayFrame[]; reason?: string; unsure?: boolean }> {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set");
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic();
   const content: unknown[] = [
-    { type: "text", text: `${OVERLAY_PROMPT} Frame times, left to right: ${times.join(", ")}.` },
+    { type: "text", text: `${overlayPrompt({ thumbnail })} Frame times, left to right: ${times.join(", ")}.` },
     ...images.map((bytes) => ({
       type: "image",
       source: { type: "base64", media_type: "image/jpeg", data: Buffer.from(bytes).toString("base64") },
