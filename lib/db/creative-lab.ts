@@ -169,6 +169,8 @@ export type CreativeLabCardData = {
     artistId: string;
     clipNo: number;
     source: string;
+    /** The clip row's burned-in text verdict. Absent on a fixture that does not check. */
+    overlay?: { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null;
     rightsRef: string;
     filmedEventId: string | null;
     durationSeconds: number | null;
@@ -508,6 +510,7 @@ export async function loadCreativeLabCard(
         artistId: text(row, "artist_id"),
         clipNo: Number(row.clip_no),
         source: text(row, "source"),
+        overlay: overlayOf(row.overlay_check),
         rightsRef: text(row, "rights_ref"),
         filmedEventId: text(row, "event_id") || null,
         durationSeconds: seconds,
