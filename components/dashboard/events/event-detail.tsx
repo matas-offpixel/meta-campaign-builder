@@ -441,7 +441,7 @@ export function EventDetail({
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
               {bank && bank.releases.length ? (
-                <LiveReleases eventId={bank.eventId} releases={bank.releases} ladder={bank.ladder} />
+                <LiveReleases eventId={bank.eventId} releases={bank.releases} ladder={bank.ladder} status={event.status} />
               ) : null}
               {lab ? <CreativeLabCard lab={lab} quoteMode /> : null}
               {!isBrand && event.client_id ? (

@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { isInPaydayWindow } from "@/lib/dashboard/pacing";
+import { offerRefusal } from "@/lib/releases/offers";
 import { paydayPush } from "@/lib/releases/windows";
 import { RELEASE_STATES, type ReleaseState } from "@/lib/releases/types";
 
@@ -36,6 +37,8 @@ export type ReleaseRow = {
   left: string;
   /** Lower ladder band, so a long rung row clears the one above it. */
   low?: boolean;
+  /** Backfilled: the derived segment is outlined, and there is no set-line. */
+  plain?: boolean;
   rungs: RungMark[];
 };
 
@@ -56,6 +59,7 @@ export function ReleasesPanel({
   todayShort = "Today",
   onState,
   onCount,
+  bare = false,
 }: {
   kicker: string;
   place: string;
@@ -71,6 +75,8 @@ export function ReleasesPanel({
   todayShort?: string;
   onState?: (id: string, state: ReleaseState, confirmed: boolean) => Promise<{ ask: boolean } | void>;
   onCount?: (id: string, sold: number) => Promise<void>;
+  /** AB1b. The state panel only: no timeline, no claims. */
+  bare?: boolean;
 }) {
   const [ask, setAsk] = useState<string | null>(null);
   const [counting, setCounting] = useState<string | null>(null);
@@ -79,7 +85,7 @@ export function ReleasesPanel({
 
   return (
     <div className="space-y-3">
-      <section className="rounded-md border border-border bg-card p-4">
+      {bare ? null : <section className="rounded-md border border-border bg-card p-4">
         <div className="mb-3 flex items-baseline justify-between gap-2">
           <h3 className={PANEL_TITLE}>
             <span className="sm:hidden">Releases · {rows.length}</span>
@@ -101,9 +107,9 @@ export function ReleasesPanel({
           <p className="mt-1 text-[10px] text-muted-foreground sm:hidden">scrolls sideways →</p>
         </div>
         <p className="sr-only">{kicker}</p>
-      </section>
+      </section>}
 
-      <div className="grid gap-3 sm:grid-cols-[1.7fr_1fr]">
+      <div className={bare ? "" : "grid gap-3 sm:grid-cols-[1.7fr_1fr]"}>
         <section className="rounded-md border border-border bg-card p-4">
           <div className="mb-3 flex items-baseline justify-between gap-2">
             <h3 className={PANEL_TITLE}>Where each release is</h3>
@@ -129,11 +135,12 @@ export function ReleasesPanel({
                   {RELEASE_STATES.map((state, index) => {
                     const on = state === row.state;
                     const past = RELEASE_STATES.indexOf(state) < RELEASE_STATES.indexOf(row.state);
+                    const outlined = Boolean(row.plain && on);
                     return (
                       <button
                         key={state}
                         type="button"
-                        className={`border-r border-border px-1.5 py-1 last:border-r-0 ${on ? "bg-foreground text-background" : past ? "text-muted-foreground" : "text-foreground/80"}`}
+                        className={`border-r border-border px-1.5 py-1 last:border-r-0 ${outlined ? "text-foreground outline outline-[1.5px] outline-offset-[-1px] outline-foreground" : on ? "bg-foreground text-background" : past ? "text-muted-foreground" : "text-foreground/80"}`}
                         onClick={async () => {
                           if (!onState) return;
                           const result = await onState(row.id, state, ask === `${row.id}:${state}`);
@@ -148,7 +155,7 @@ export function ReleasesPanel({
                   })}
                 </div>
                 <div className="text-xs">
-                  <b>{FULL[RELEASE_STATES.indexOf(row.state)]}</b>
+                  {row.plain ? null : <b>{FULL[RELEASE_STATES.indexOf(row.state)]}</b>}
                   <div className="text-muted-foreground">
                     <span className="hidden sm:inline">{row.provenance}</span>
                     <span className="sm:hidden">{row.shortProvenance}</span>
@@ -190,7 +197,7 @@ export function ReleasesPanel({
             <span className="hidden sm:inline">{footnote}</span>
           </p>
         </section>
-        <section className="hidden rounded-md border border-border bg-card p-4 sm:block">
+        {bare ? null : <section className="hidden rounded-md border border-border bg-card p-4 sm:block">
           <div className="mb-3 flex items-baseline justify-between">
             <h3 className={PANEL_TITLE}>Claims</h3>
             <span className="text-[11px] text-muted-foreground">{claimSummary}</span>
@@ -204,7 +211,7 @@ export function ReleasesPanel({
             ))}
           </ul>
           <p className="mt-3 text-[11px] text-muted-foreground">claims come from the ladder · a claim never runs above its trigger</p>
-        </section>
+        </section>}
       </div>
     </div>
   );
@@ -335,6 +342,61 @@ export function ClaimCards({
         <span className="mx-2">Scheduled</span>
         <span>Live</span>
       </p>
+      <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-warning bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
+        <div className="flex h-28 w-16 shrink-0 flex-col items-center justify-center rounded px-0.5 text-center text-[8px] font-semibold leading-tight text-white" style={{ background: "linear-gradient(160deg,#1e1810,#5a3a2a)" }}>
+          <span style={{ color: "#FE3232" }}>EARLY BIRD, 2ND & 3RD<br />RELEASE SOLD OUT</span>
+          <span>FINAL RELEASE<br />RUNNING LOW</span>
+        </div>
+        <div>
+          <p className="text-sm font-medium">
+            Proposes: push the roll-call <Chip tone="warn">proposed</Chip>{" "}
+            <span className="hidden sm:inline"><Chip tone="dash">preferred over &quot;90% sold out&quot;</Chip></span>
+          </p>
+          <p className="mt-1 hidden font-mono text-xs sm:block">
+            <b>Skiddle read Mon 9 Nov 09:00:</b> early bird sold out · 2nd release sold out · 3rd release sold out · final release selling fast (on sale 3 days)
+          </p>
+          <p className="mt-1 hidden text-xs sm:block">
+            <span className="text-muted-foreground">trigger</span> 3 releases sold out, 1 selling fast{" "}
+            <span className="text-muted-foreground">→ claim</span> line 1 &quot;EARLY BIRD, 2ND &amp; 3RD RELEASE SOLD OUT&quot; · line 2 &quot;FINAL RELEASE RUNNING LOW&quot; (the final release&apos;s own rung: live · selling fast)
+          </p>
+          <p className="mt-1 text-xs sm:hidden">
+            <span className="text-muted-foreground">trigger</span> 3 sold out, 1 selling fast → two lines, the names from the releases
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground sm:hidden">preferred over &quot;90% sold out&quot;</p>
+          <p className="mt-1 hidden text-xs text-muted-foreground sm:block">Runs at the read, inside the window. Formats: 9:16 clip (T1), 4:5 and 1:1 statics (T2). Line 1 in kit red, line 2 white — the registered CTA piece if the designer supplies one, else the font path.</p>
+        </div>
+        <div className="col-span-2 flex gap-2 sm:col-span-1 sm:flex-col">
+          <Button type="button" size="sm">Approve</Button>
+          <Button type="button" size="sm" variant="outline">Correct</Button>
+        </div>
+      </article>
+      <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-warning bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
+        <div className="flex h-28 w-16 shrink-0 flex-col items-center justify-center rounded px-0.5 text-center text-[8px] font-semibold leading-tight text-white" style={{ background: "linear-gradient(160deg,#1e1810,#3a3a4a)" }}>
+          <span>£10 TODAY<br />SPLIT THE REST IN 3</span>
+        </div>
+        <div>
+          <p className="text-sm font-medium">
+            <span className="hidden sm:inline">Proposes: push &quot;£10 today · split the rest in 3&quot;</span>
+            <span className="sm:hidden">&quot;£10 today · split the rest in 3&quot;</span>{" "}
+            <Chip tone="warn">entered, not derived</Chip>
+          </p>
+          <p className="mt-1 hidden text-xs sm:block">
+            <span className="text-muted-foreground">offer</span> payment plan · £10 today, 3 parts · until Fri 27 Nov{" "}
+            <span className="text-muted-foreground">entered by</span> Matas, Sun 8 Nov 14:10, from the Offers sheet
+          </p>
+          <p className="mt-1 hidden text-xs sm:block">
+            <span className="text-muted-foreground">words</span> &quot;£10 TODAY&quot; / &quot;SPLIT THE REST IN 3&quot; · no scarcity words · £10 is a price the validator checks against the offer
+          </p>
+          <p className="mt-1 text-xs sm:hidden">
+            <span className="text-muted-foreground">entered by</span> Matas, 8 Nov · until 27 Nov
+          </p>
+          <p className="mt-1 hidden text-xs text-muted-foreground sm:block">No read makes an offer true, so there is no trigger line. Runs mid-month as content-led (A7) unless Matas sets a window. Formats: 4:5 and 1:1 statics (T2, the number on its own line at 1.5×).</p>
+        </div>
+        <div className="col-span-2 flex gap-2 sm:col-span-1 sm:flex-col">
+          <Button type="button" size="sm">Approve</Button>
+          <Button type="button" size="sm" variant="outline">Edit the offer</Button>
+        </div>
+      </article>
       <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-warning bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
         <Piece />
         <div>
@@ -532,6 +594,7 @@ const BOARD: { name: string; sub?: string; cells: { text: string; status: CellSt
   { name: "3rd release · final X", sub: "needs final X or 90%+ count", cells: [{ text: "Locked · day 1", status: "locked" }, { text: "Locked", status: "locked" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
   { name: "General sale · 90%", sub: "needs selling fast", cells: [{ text: "Locked · on sale, not fast", status: "locked" }, { text: "—", status: "na" }, { text: "—", status: "na" }, { text: "—", status: "na" }] },
   { name: "Client promo / experience", cells: [{ text: "Venue walk-through", status: "approved" }, { text: "", status: "approved" }, { text: "+ needs client's edit", status: "missing" }, { text: "—", status: "na" }] },
+  { name: "Offer · payment plan", sub: "entered, not derived", cells: [{ text: "—", status: "na" }, { text: "£10 today", status: "proposed" }, { text: "£10 today", status: "proposed" }, { text: "—", status: "na" }] },
 ];
 
 export function AssetBoard() {
@@ -578,6 +641,9 @@ export function AssetBoard() {
         <span>3rd · final X</span>
         <Cell text="Locked" status="locked" />
         <Cell text="Locked" status="locked" />
+        <span>Offer · plan</span>
+        <Cell text="—" status="na" />
+        <Cell text="£10 today" status="proposed" />
       </div>
       <p className="mt-2 text-[10px] text-muted-foreground sm:hidden">swipe for 1:1 and 9:16 static →</p>
     </section>
@@ -618,17 +684,50 @@ function Cell({ text, status }: { text: string; status: CellStatus }) {
   );
 }
 
-export type LadderRow = { trigger: string; detail?: string; claim: string; note?: string; narrow?: boolean };
+export type LadderRow = {
+  trigger: string;
+  detail?: string;
+  claim: string;
+  note?: string;
+  narrow?: boolean;
+  /** Hidden below the sm breakpoint. The 393 ladder starts at sold out. */
+  wide?: boolean;
+  accent?: boolean;
+  narrowTrigger?: string;
+  narrowDetail?: string;
+  narrowClaim?: string;
+};
 
 const LADDER: LadderRow[] = [
-  { trigger: "Release list time passed · state on sale", detail: "from the release time, or a read / entry", claim: "{release} live · selling fast", narrow: true },
-  { trigger: "Selling fast for 5+ days, no count", detail: "Puzzle: 5 days (default 7)", claim: "{release} 90% sold out", note: "Puzzle prefers the % line; \"final X\" is the other option", narrow: true },
-  { trigger: "Actual 50% sold", detail: "when a count and a capacity exist", claim: "\"75% sold\"" },
-  { trigger: "Actual 60%", claim: "\"80% sold\"" },
-  { trigger: "Actual 70%", claim: "\"90% sold out\"", narrow: true },
-  { trigger: "Actual 80%", claim: "\"95% sold\"" },
-  { trigger: "Actual 90% · or state final X · or the page shows remaining", claim: "\"99%\" or \"final X\"", note: "X = the remaining figure from the page or the count, never typed", narrow: true },
+  { trigger: "Release list time passed · state on sale", detail: "from the release time, or a read / entry", claim: "\"{release} live · selling fast\"", wide: true },
+  { trigger: "Selling fast for 5+ days, no count", detail: "Puzzle: 5 days (default 7)", claim: "\"{release} 90% sold out\"", wide: true },
+  { trigger: "Actual 50% · 60% · 70% · 80%", detail: "when a count and a capacity exist", claim: "\"75%\" · \"80%\" · \"90% sold out\" · \"95% sold\"", wide: true },
+  { trigger: "Actual 90% · or state final X · or the page shows remaining", claim: "\"99%\" or \"final X\"", note: "X from the page or the count, never typed", wide: true },
   { trigger: "State sold out", claim: "\"sold out\"" },
+  {
+    trigger: "2+ releases sold out · 1 on sale or selling fast",
+    narrowTrigger: "2+ releases sold out · 1 on sale",
+    detail: "roll-call · preferred over the % rung",
+    narrowDetail: "roll-call · preferred over %",
+    claim: "\"{sold-out releases} RELEASE SOLD OUT\" / \"{live release's claim}\"",
+    narrowClaim: "\"EARLY BIRD, 2ND & 3RD RELEASE SOLD OUT\" /\n\"FINAL RELEASE RUNNING LOW\"",
+    note: "two lines · the names from the releases, in order · line 2 is the live release's own rung",
+    accent: true,
+  },
+  { trigger: "Sold now − sold 14 days ago ≥ 500", detail: "sales velocity · needs two counts · window and count per client", claim: "\"{n}+ TICKETS SOLD IN THE LAST 2 WEEKS\"" },
+  {
+    trigger: "Next release's list time within 4 days",
+    detail: "price increase on a date",
+    claim: "\"PRICES RISE {DAY}\"",
+    note: "qualifier \"LAST CHANCE AT £{n}\" when the release has a price",
+    narrowClaim: "\"PRICES RISE {DAY}\" · \"LAST CHANCE AT £{n}\"",
+  },
+  {
+    trigger: "Days to show ≤ 14 · and the % rung's trigger met",
+    narrowTrigger: "Days to show ≤ 14 · % rung met",
+    claim: "\"LESS THAN 2 WEEKS TO GO\" / \"OVER 90% SOLD OUT\"",
+  },
+  { trigger: "A new row in the typed lineup", claim: "\"{ARTIST} (JUST ANNOUNCED)\"", note: "refreshes the lineup slot and every ALONGSIDE: list" },
 ];
 
 export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolean; initial?: LadderRow[]; resetTo?: LadderRow[]; onReset?: () => void }) {
@@ -641,7 +740,8 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h3 className={PANEL_TITLE}>Claim ladder</h3>
           <span className="text-[11px] text-muted-foreground">
-            what a warning may say, by what&apos;s true
+            <span className="hidden sm:inline">what a warning may say, by what&apos;s true · Puzzle&apos;s own</span>
+            <span className="sm:hidden">what a warning may say, by what&apos;s true</span>
             <Button type="button" size="sm" variant="outline" className="ml-2" onClick={() => { setRows(seed); onReset?.(); }}>
               Reset to default
             </Button>
@@ -655,13 +755,17 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
           <span className="hidden sm:block" />
           <div className={`hidden sm:block ${KICKER}`}>Claim · what the asset says</div>
           {rows.map((row, index) => (
-            <div key={row.trigger} className="flex flex-col gap-1 sm:contents">
-              <div className="rounded-md border border-border border-l-[3px] border-l-foreground/70 bg-background px-2.5 py-1.5">
-                <div>{row.trigger}</div>
+            <div key={row.trigger} className={row.wide ? "hidden sm:contents" : "flex flex-col gap-1 sm:contents"}>
+              <div className={`rounded-md border border-border border-l-[3px] bg-background px-2.5 py-1.5 ${row.accent ? "border-l-destructive" : "border-l-foreground/70"}`}>
+                <div>
+                  <span className="sm:hidden">{row.narrowTrigger ?? row.trigger}</span>
+                  <span className="hidden sm:inline">{row.trigger}</span>
+                </div>
+                {row.narrowDetail ? <div className="mt-0.5 text-[10.5px] text-muted-foreground sm:hidden">{row.narrowDetail}</div> : null}
                 {row.detail ? <div className="mt-0.5 hidden text-[10.5px] text-muted-foreground sm:block">{row.detail}</div> : null}
               </div>
               <span className="hidden text-center text-muted-foreground sm:block">→</span>
-              <button type="button" className="rounded-md border border-border border-l-[3px] border-l-warning bg-background px-2.5 py-1.5 text-left" onClick={() => live && setEdit(index)}>
+              <button type="button" className={`rounded-md border border-border border-l-[3px] bg-background px-2.5 py-1.5 text-left ${row.accent ? "border-l-destructive" : "border-l-warning"}`} onClick={() => live && setEdit(index)}>
                 {live && edit === index ? (
                   <input
                     aria-label={`Claim for ${row.trigger}`}
@@ -674,7 +778,10 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
                     }}
                   />
                 ) : (
-                  <div>{row.claim}</div>
+                  <div className="whitespace-pre-line">
+                    <span className="sm:hidden">{row.narrowClaim ?? row.claim}</span>
+                    <span className="hidden sm:inline">{row.claim}</span>
+                  </div>
                 )}
                 {row.note ? <div className="mt-0.5 hidden text-[10.5px] text-muted-foreground sm:block">{row.note}</div> : null}
               </button>
@@ -682,8 +789,8 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
           ))}
         </div>
         <p className="mt-3 text-[11px] text-muted-foreground">
-          <span className="hidden sm:inline">edit a cell to change the ladder · every approved claim records which rung allowed it</span>
-          <span className="sm:hidden">tap a cell to edit</span>
+          <span className="hidden sm:inline">edit a cell to change Puzzle&apos;s ladder · every approved claim records which rung allowed it · offers are not rungs: see Offers</span>
+          <span className="sm:hidden">tap a cell to edit · 13 rungs · offers are not rungs</span>
         </p>
       </section>
       <section className="hidden rounded-md border border-border bg-card p-4 sm:block">
@@ -691,11 +798,44 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
         <div className="space-y-1.5 text-xs">
           <p><b>Read</b> Skiddle · Mon / Wed / Fri 09:00 <Chip tone="dash">reader to be proved</Chip></p>
           <p><b>Fallback</b> client message → Matas sets the state</p>
-          <p><b>Timing</b> payday window for % and final X claims; &quot;{'{release}'} live&quot; at the release time</p>
-          <p><b>Formats</b> 9:16 video · 4:5 · 1:1. The piece is not in yet.</p>
+          <p><b>Counts</b> entered chips; velocity needs two, a window apart</p>
+          <p><b>Offers</b> entered on the event, never derived — payment plan · group · early entry <Chip tone="warn">entered, not derived</Chip> on the card</p>
+          <p><b>Timing</b> payday window for % and final X claims; &quot;{'{release}'} live&quot; and the roll-call at the release time; price rise from 4 days before</p>
+          <p><b>Formats</b> 9:16 video · 4:5 · 1:1 — T1 / T2 per the overlay record; the roll-call in kit red over white</p>
           <p><b>Approval</b> every claim, every time</p>
         </div>
       </section>
     </div>
+  );
+}
+
+/** Kind, figures, condition, from / until. A typed offer that says "final" is refused in one sentence. */
+export function OffersSheet({ onPropose }: { onPropose?: (text: string) => void }) {
+  const [text, setText] = useState("");
+  const refusal = offerRefusal(text);
+  return (
+    <form
+      className="space-y-2 rounded-md border border-border bg-card p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (refusal || !text.trim()) return;
+        onPropose?.(text);
+      }}
+    >
+      <h3 className={PANEL_TITLE}>Offers</h3>
+      <label className="block text-xs">
+        Offer
+        <input
+          aria-label="Offer"
+          className="mt-1 w-full rounded border border-border bg-background px-2 py-1"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+      </label>
+      {refusal ? <p className="text-xs text-destructive">{refusal}</p> : null}
+      <Button type="submit" size="sm" disabled={Boolean(refusal) || !text.trim()}>
+        Propose
+      </Button>
+    </form>
   );
 }

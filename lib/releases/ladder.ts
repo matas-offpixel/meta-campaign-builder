@@ -24,12 +24,51 @@ export function defaultLadder(): LadderRung[] {
     { position: 9, triggerKind: "state", triggerValue: "sold_out", claimTemplate: "sold out", options: {} },
     {
       position: 10,
-      triggerKind: "state",
+      triggerKind: "roll_call",
       triggerValue: "roll_call",
-      claimTemplate: "{sold} SOLD OUT\n{live}",
+      claimTemplate: "{sold} RELEASE SOLD OUT\n{live}",
       options: { preferred: true },
     },
+    {
+      position: 11,
+      triggerKind: "velocity",
+      triggerValue: "500",
+      claimTemplate: "{n}+ TICKETS SOLD IN THE LAST 2 WEEKS",
+      options: { windowDays: 14, threshold: 500 },
+    },
+    {
+      position: 12,
+      triggerKind: "price_rise_date",
+      triggerValue: "4",
+      claimTemplate: "PRICES RISE {DAY}",
+      options: { days: 4, alt: "LAST CHANCE AT £{n}" },
+    },
+    {
+      position: 13,
+      triggerKind: "countdown_pct",
+      triggerValue: "14",
+      claimTemplate: "LESS THAN 2 WEEKS TO GO\nOVER 90% SOLD OUT",
+      options: { days: 14 },
+    },
+    {
+      position: 14,
+      triggerKind: "lineup_add",
+      triggerValue: "lineup",
+      claimTemplate: "{ARTIST} (JUST ANNOUNCED)",
+      options: {},
+    },
   ];
+}
+
+/** A stored ladder from 211 still says kind state for the roll-call. Read it as roll_call, and add any derived rung the row set doesn't have yet. */
+export function completeLadder(stored: readonly LadderRung[] | null | undefined): LadderRung[] {
+  if (!stored?.length) return defaultLadder();
+  const normalized = stored.map((rung) =>
+    rung.triggerValue === "roll_call" ? { ...rung, triggerKind: "roll_call" as const } : rung,
+  );
+  const have = new Set(normalized.map((rung) => rung.triggerValue));
+  const extra = defaultLadder().filter((rung) => rung.position >= 11 && !have.has(rung.triggerValue));
+  return [...normalized, ...extra].sort((a, b) => a.position - b.position);
 }
 
 /** Puzzle's ladder, as AB5 draws it: 5 days, and the % line rather than final X. */

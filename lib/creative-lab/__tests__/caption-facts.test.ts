@@ -126,6 +126,12 @@ describe("creative lab captions: prices and scarcity", () => {
     assert.deepEqual(codes("Tickets £25"), ["price_not_in_facts"]);
   });
 
+  it("an offer's £ is a price", () => {
+    const facts = { ...withTiers(two), offerPrices: [10] };
+    assert.deepEqual(codes("£10 today", { facts }), []);
+    assert.deepEqual(codes("£12 today", { facts }), ["price_not_in_facts"]);
+  });
+
   it("'Final release' fails with two tiers in stock, passes with only the top tier left", () => {
     assert.deepEqual(codes("Final release on sale", { facts: withTiers(two) }), ["final_not_true"]);
     const onlyTop = withTiers([{ ...two[0], remaining: 0 }, two[1]]);

@@ -23,7 +23,16 @@ export type Release = {
   remaining: number | null;
 };
 
-export type TriggerKind = "count_pct" | "state_days" | "state" | "page_remaining";
+export type TriggerKind =
+  | "count_pct"
+  | "state_days"
+  | "state"
+  | "page_remaining"
+  | "roll_call"
+  | "velocity"
+  | "price_rise_date"
+  | "countdown_pct"
+  | "lineup_add";
 
 export type LadderWording = "percent" | "final_x";
 
@@ -37,6 +46,8 @@ export type LadderRung = {
     wording?: LadderWording;
     alt?: string;
     preferred?: boolean;
+    windowDays?: number;
+    threshold?: number;
   };
 };
 

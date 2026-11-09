@@ -1,4 +1,5 @@
 import { releaseHeadline } from "./entry.ts";
+import { isBackfilled, panelFigure } from "./visibility.ts";
 import type { LadderRung, Release, ReleaseState } from "./types.ts";
 import { nextRung } from "../ticket-warnings/next-rung.ts";
 
@@ -15,6 +16,7 @@ type Row = {
   shortTimeline: string;
   left: string;
   rungs: { text: string; short: string; status: "done" | "next" | "later" }[];
+  plain?: boolean;
 };
 
 function when(iso: string | null): string {
@@ -30,18 +32,23 @@ export function rowsFromReleases(releases: readonly Release[], ladder: readonly 
   headline: string;
   headlineRest: string;
 } {
-  const head = releaseHeadline(releases);
+  const confirmed = releases.filter((release) => !isBackfilled(release));
+  const plainPanel = releases.length > 0 && confirmed.length === 0;
+  const head = releaseHeadline(confirmed);
+  const figure = panelFigure(releases);
   const rows = releases.map((release, index) => {
-    const rung = nextRung(release, ladder, releases, nowIso);
-    const watching = release.state === "on_sale" || release.state === "selling_fast";
+    const plain = isBackfilled(release);
+    const rung = plain ? null : nextRung(release, ladder, releases, nowIso);
+    const watching = !plain && (release.state === "on_sale" || release.state === "selling_fast");
     return {
       id: release.id,
       name: release.name,
       when: when(release.listAt ?? release.communityAt),
       shortWhen: when(release.listAt ?? release.communityAt),
       state: release.state,
-      provenance: release.stateAt ? `set ${when(release.stateAt)}` : "not set",
-      shortProvenance: release.stateAt ? when(release.stateAt) : "not set",
+      plain,
+      provenance: plain ? "from the event's dates · tap to confirm" : release.stateAt ? `set ${when(release.stateAt)}` : "not set",
+      shortProvenance: plain ? "tap to confirm" : release.stateAt ? when(release.stateAt) : "not set",
       countChip: watching ? ("always" as const) : undefined,
       timelineLabel: `${release.name} · ${when(release.listAt ?? release.communityAt)}`,
       shortTimeline: release.name,
@@ -52,5 +59,9 @@ export function rowsFromReleases(releases: readonly Release[], ladder: readonly 
     };
   });
   const sold = head.sold != null ? ` · ${head.sold} sold` : head.soldOut ? ` · ${head.soldOut} sold out` : "";
-  return { rows, headline: String(head.onSale), headlineRest: `of ${head.total} on sale${sold}` };
+  return {
+    rows,
+    headline: plainPanel ? figure.headline : String(head.onSale),
+    headlineRest: plainPanel ? figure.rest : `of ${head.total} on sale${sold}`,
+  };
 }

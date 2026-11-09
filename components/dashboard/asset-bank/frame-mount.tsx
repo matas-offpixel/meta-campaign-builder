@@ -1,5 +1,5 @@
 import { AssetBoard, ClaimCards, ClaimLadder, PaydayCalendar, ReleasesPanel } from "@/components/dashboard/asset-bank/surface";
-import { AB1_CLAIMS, AB1_ROWS } from "@/scripts/plan-frames/bank-fixtures";
+import { AB1_CLAIMS, AB1_ROWS, AB1B_ROWS } from "@/scripts/plan-frames/bank-fixtures";
 
 /** An AB frame. Fixture only: nothing here fetches. */
 export function AssetBankFrameMount({ id }: { id: string }) {
@@ -25,6 +25,21 @@ export function AssetBankFrameMount({ id }: { id: string }) {
             narrowFootnote="tap a state · read Mon / Wed / Fri"
           />
         </div>
+      ) : null}
+      {id === "AB1b" ? (
+        <ReleasesPanel
+          bare
+          kicker="Fixture Night"
+          place=""
+          headline="—"
+          headlineRest="nothing confirmed yet"
+          narrowRest="nothing confirmed"
+          rows={AB1B_ROWS}
+          claims={[]}
+          claimSummary=""
+          footnote="backfilled from the event's two dates · no proposal until a state is confirmed · Today doesn't list this event"
+          narrowFootnote="from the event's dates · tap to confirm"
+        />
       ) : null}
       {id === "AB2" ? <ClaimCards /> : null}
       {id === "AB3" ? <PaydayCalendar /> : null}

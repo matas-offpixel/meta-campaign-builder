@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "./database.types";
 import type { LadderRung, Release, ReleaseState, StateSource, TicketWarning, WarningState } from "../releases/types";
+import { todayListsEvent } from "../releases/visibility";
 
 type Loose = {
   from: (table: string) => {
@@ -66,11 +67,43 @@ export async function loadClientLadder(db: SupabaseClient<Database>, clientId: s
   }));
 }
 
+async function hiddenTodayEventIds(db: SupabaseClient<Database>, userId: string): Promise<Set<string>> {
+  const hidden = new Set<string>();
+  const events = await loose(db).from("events").select("id, status").eq("user_id", userId).order("id");
+  if (!events.error) {
+    for (const row of events.data ?? []) {
+      if (row.status === "cancelled") hidden.add(String(row.id));
+    }
+  }
+  const releases = await loose(db)
+    .from("event_releases")
+    .select("event_id, state_source, state_set_by")
+    .eq("user_id", userId)
+    .order("event_id");
+  if (releases.error) return hidden;
+  const byEvent = new Map<string, { stateSource: string | null; stateSetBy: string | null }[]>();
+  for (const row of releases.data ?? []) {
+    const id = String(row.event_id);
+    const list = byEvent.get(id) ?? [];
+    list.push({
+      stateSource: (row.state_source as string | null) ?? null,
+      stateSetBy: (row.state_set_by as string | null) ?? null,
+    });
+    byEvent.set(id, list);
+  }
+  for (const [id, rows] of byEvent) {
+    if (!todayListsEvent("upcoming", rows)) hidden.add(id);
+  }
+  return hidden;
+}
+
 export async function loadClaimToday(db: SupabaseClient<Database>, userId: string): Promise<{ id: string; sentence: string }[] | null> {
-  const { data, error } = await loose(db).from("ticket_warnings").select("id, claim, state, why").eq("user_id", userId).order("updated_at");
+  const { data, error } = await loose(db).from("ticket_warnings").select("id, event_id, claim, state, why").eq("user_id", userId).order("updated_at");
   if (missing(error)) return null;
   if (error) throw new Error(error.message);
+  const hidden = await hiddenTodayEventIds(db, userId);
   return (data ?? [])
+    .filter((row) => !hidden.has(String(row.event_id)))
     .map((row) => {
       const state = row.state as WarningState;
       if (state === "held") return { id: String(row.id), sentence: `Proposed: ${String(row.claim)}` };

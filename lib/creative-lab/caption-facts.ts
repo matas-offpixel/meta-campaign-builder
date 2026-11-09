@@ -85,6 +85,8 @@ export type EventFacts = {
    */
   liveClaims?: { release: string; claim: string; live: boolean }[];
   captionRelease?: string;
+  /** A16. An offer's £ is a price, checked the same way as a tier price. */
+  offerPrices?: number[];
 };
 
 /** on_sale uses ticket CTAs. upcoming and signup use signup CTAs. */
@@ -737,11 +739,15 @@ function checkDates(text: string, facts: EventFacts): CaptionError[] {
 
 function checkPrices(text: string, facts: EventFacts): CaptionError[] {
   const errors: CaptionError[] = [];
-  const prices = facts.tiers.map((t) => t.price).filter((p): p is number => p != null);
+  const prices = [
+    ...facts.tiers.map((t) => t.price).filter((p): p is number => p != null),
+    ...(facts.offerPrices ?? []),
+  ];
+  const named = (facts.offerPrices ?? []).length > 0 ? "a tier or offer price" : "a tier price";
   for (const m of text.matchAll(/£\s?(\d{1,5}(?:[.,]\d{1,2})?)/g)) {
     const amount = Number(m[1].replace(",", "."));
     if (!prices.some((p) => Math.abs(p - amount) < 0.005)) {
-      errors.push({ code: "price_not_in_facts", detail: `${m[0]} is not a tier price` });
+      errors.push({ code: "price_not_in_facts", detail: `${m[0]} is not ${named}` });
     }
   }
   return errors;

@@ -1,5 +1,16 @@
+import { countdownRung, lineupRung, priceRiseRung, velocityRung, type CountRead } from "../releases/derived.ts";
+import { isBackfilled } from "../releases/visibility.ts";
+import { rollCallWords } from "../releases/roll-call.ts";
 import type { LadderRung, Release } from "../releases/types.ts";
 import { daysBetween } from "../releases/dates.ts";
+
+export type DerivedContext = {
+  counts?: readonly CountRead[];
+  nextListAt?: string | null;
+  eventAt?: string | null;
+  artists?: readonly { name: string; addedAt: string }[];
+  lastProposalAt?: string | null;
+};
 
 export type RungResult = {
   claim: string;
@@ -20,17 +31,25 @@ function fill(template: string, release: Release): string {
   return template.replaceAll("{release}", release.name);
 }
 
-function rollCall(siblings: readonly Release[]): { met: boolean; claim: string } {
-  const sold = siblings.filter((release) => release.state === "sold_out");
-  const live = siblings.find((release) => release.state === "on_sale");
-  const met = sold.length >= 2 && live != null;
-  const line1 = `${sold.map((release) => release.name).join(" · ")} SOLD OUT`;
-  const line2 = live ? `${live.name} live · selling fast` : "";
-  return { met, claim: line2 ? `${line1}\n${line2}` : line1 };
+function isRoll(rung: LadderRung): boolean {
+  return rung.triggerKind === "roll_call" || rung.triggerValue === "roll_call";
 }
 
-function claimText(rung: LadderRung, release: Release, siblings: readonly Release[]): string {
-  if (rung.triggerValue === "roll_call") return rollCall(siblings).claim;
+function claimText(rung: LadderRung, release: Release, siblings: readonly Release[], nowIso: string, context: DerivedContext): string {
+  if (isRoll(rung)) return rollCallWords(siblings).claim;
+  if (rung.triggerKind === "velocity") {
+    return velocityRung(context.counts ?? [], nowIso, rung.options.windowDays ?? 14, rung.options.threshold ?? Number(rung.triggerValue)).claim;
+  }
+  if (rung.triggerKind === "price_rise_date") {
+    return priceRiseRung(nowIso, context.nextListAt ?? null, release.price, rung.options.days ?? 4).claim ?? rung.claimTemplate;
+  }
+  if (rung.triggerKind === "countdown_pct") {
+    const pctMet = percent(release) != null && (percent(release) ?? 0) >= 90;
+    return countdownRung(nowIso, context.eventAt ?? null, pctMet || release.state === "final_x", rung.options.days ?? 14).claim;
+  }
+  if (rung.triggerKind === "lineup_add") {
+    return lineupRung(context.artists ?? [], context.lastProposalAt ?? null).claim ?? rung.claimTemplate;
+  }
   if (rung.triggerValue === "selling_fast" && rung.options.wording === "final_x" && rung.options.alt) {
     return fill(rung.options.alt, release);
   }
@@ -42,8 +61,18 @@ function claimText(rung: LadderRung, release: Release, siblings: readonly Releas
   return fill(rung.claimTemplate, release);
 }
 
-function met(rung: LadderRung, release: Release, siblings: readonly Release[], nowIso: string): boolean {
+function met(rung: LadderRung, release: Release, siblings: readonly Release[], nowIso: string, context: DerivedContext): boolean {
   const pct = percent(release);
+  if (rung.triggerKind === "velocity") {
+    return velocityRung(context.counts ?? [], nowIso, rung.options.windowDays ?? 14, rung.options.threshold ?? Number(rung.triggerValue)).met;
+  }
+  if (rung.triggerKind === "price_rise_date") {
+    return priceRiseRung(nowIso, context.nextListAt ?? null, release.price, rung.options.days ?? 4).met;
+  }
+  if (rung.triggerKind === "countdown_pct") {
+    return countdownRung(nowIso, context.eventAt ?? null, (pct != null && pct >= 90) || release.state === "final_x", rung.options.days ?? 14).met;
+  }
+  if (rung.triggerKind === "lineup_add") return lineupRung(context.artists ?? [], context.lastProposalAt ?? null).met;
   if (rung.triggerKind === "count_pct") return pct != null && pct >= Number(rung.triggerValue);
   if (rung.triggerKind === "page_remaining") {
     return release.remaining != null && release.remaining <= Number(rung.triggerValue);
@@ -57,12 +86,15 @@ function met(rung: LadderRung, release: Release, siblings: readonly Release[], n
   if (rung.triggerValue === "on_sale") return PAST_ON_SALE.has(release.state);
   if (rung.triggerValue === "final_x") return release.state === "final_x";
   if (rung.triggerValue === "sold_out") return release.state === "sold_out";
-  if (rung.triggerValue === "roll_call") return rollCall(siblings).met;
+  if (isRoll(rung)) return rollCallWords(siblings).met;
   return false;
 }
 
-function because(rung: LadderRung, release: Release, isMet: boolean): string {
-  if (rung.triggerValue === "roll_call") return isMet ? "two releases sold out and one on sale" : "needs two sold out and one on sale";
+function because(rung: LadderRung, release: Release, siblings: readonly Release[], isMet: boolean, nowIso: string, context: DerivedContext): string {
+  if (isRoll(rung)) return rollCallWords(siblings).because;
+  if (rung.triggerKind === "velocity") {
+    return velocityRung(context.counts ?? [], nowIso, rung.options.windowDays ?? 14, rung.options.threshold ?? Number(rung.triggerValue)).because;
+  }
   if (rung.triggerKind === "count_pct") return isMet ? `count at ${rung.triggerValue}%` : `needs a count at ${rung.triggerValue}%`;
   if (rung.triggerKind === "state_days") {
     const days = rung.options.days ?? 7;
@@ -85,25 +117,34 @@ export function nextRung(
   ladder: readonly LadderRung[],
   siblings: readonly Release[],
   nowIso: string,
+  context: DerivedContext = {},
 ): RungResult | null {
+  if (isBackfilled(release)) return null;
   const ordered = [...ladder].sort((a, b) => a.position - b.position);
   const evaluated = ordered.map((rung) => {
-    const isMet = met(rung, release, siblings, nowIso);
-    return { rung, isMet, claim: claimText(rung, release, siblings) };
+    const isMet = met(rung, release, siblings, nowIso, context);
+    return { rung, isMet, claim: claimText(rung, release, siblings, nowIso, context) };
   });
-  const roll = evaluated.find((row) => row.rung.triggerValue === "roll_call" && row.isMet && row.rung.options.preferred !== false);
-  if (roll && release.state === "on_sale") {
-    return { claim: roll.claim, triggerKind: roll.rung.triggerKind, triggerValue: roll.rung.triggerValue, met: true, because: because(roll.rung, release, true) };
+  const live = release.state === "on_sale" || release.state === "selling_fast";
+  const roll = evaluated.find((row) => isRoll(row.rung) && row.isMet && row.rung.options.preferred !== false);
+  if (roll && live) {
+    return {
+      claim: roll.claim,
+      triggerKind: roll.rung.triggerKind,
+      triggerValue: roll.rung.triggerValue,
+      met: true,
+      because: because(roll.rung, release, siblings, true, nowIso, context),
+    };
   }
-  const reached = evaluated.filter((row) => row.isMet && row.rung.triggerValue !== "roll_call");
-  const pick = reached.length ? reached[reached.length - 1] : evaluated.find((row) => row.rung.triggerValue !== "roll_call");
+  const reached = evaluated.filter((row) => row.isMet && !isRoll(row.rung));
+  const pick = reached.length ? reached[reached.length - 1] : evaluated.find((row) => !isRoll(row.rung));
   if (!pick) return null;
   return {
     claim: pick.claim,
     triggerKind: pick.rung.triggerKind,
     triggerValue: pick.rung.triggerValue,
     met: pick.isMet,
-    because: because(pick.rung, release, pick.isMet),
+    because: because(pick.rung, release, siblings, pick.isMet, nowIso, context),
   };
 }
 

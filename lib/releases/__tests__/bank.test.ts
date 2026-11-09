@@ -8,6 +8,10 @@ import { applyCount, applyState, freshness, releaseHeadline } from "../entry.ts"
 import { defaultLadder, puzzleLadder } from "../ladder.ts";
 import type { Release, TicketWarning } from "../types.ts";
 import { approveWarning, backToHeld, claimWindow, notNow, paydayPush, todaySentence } from "../windows.ts";
+import { countdownRung, lineupRung, priceRiseRung, velocityRung } from "../derived.ts";
+import { OFFER_FINAL_REFUSAL, OFFER_MARKER, OFFER_ON_LADDER, offerPrices, offerRefusal, offerWords } from "../offers.ts";
+import { liveClaimLine, soldOutLine } from "../roll-call.ts";
+import { isBackfilled, mountsReleases, panelFigure, todayListsEvent, warningCell } from "../visibility.ts";
 import { nextRung, proposalOnChange } from "../../ticket-warnings/next-rung.ts";
 
 const NOW = "2026-11-07T12:00:00Z";
@@ -143,8 +147,8 @@ describe("next rung", () => {
   it("each trigger kind on the fixture releases, including the roll-call", () => {
     const general = nextRung(puzzle[2]!, ladder, puzzle, NOW);
     assert.equal(general?.met, true);
-    assert.equal(general?.triggerValue, "roll_call");
-    assert.equal(general?.claim, "Early bird · 2nd release SOLD OUT\nGeneral sale live · selling fast");
+    assert.equal(general?.triggerValue, "on_sale");
+    assert.equal(general?.claim, "General sale live · selling fast");
 
     const third = nextRung(puzzle[3]!, ladder, puzzle, NOW);
     assert.equal(third?.claim, "3rd release live · selling fast");
@@ -211,6 +215,131 @@ describe("next rung", () => {
     assert.equal(proposalOnChange("2nd release live · selling fast", rung).propose, true);
     assert.equal(proposalOnChange("2nd release 90% sold out", rung).propose, false);
     assert.equal(proposalOnChange(null, { ...rung!, met: false }).propose, false);
+  });
+});
+
+describe("roll-call words", () => {
+  it("joins two names, three names, and a release named Final release", () => {
+    assert.equal(soldOutLine(["Early bird", "2nd release"]), "EARLY BIRD & 2ND RELEASE SOLD OUT");
+    assert.equal(soldOutLine(["Early bird", "2nd release", "3rd release"]), "EARLY BIRD, 2ND & 3RD RELEASE SOLD OUT");
+    assert.equal(soldOutLine(["Early bird", "Final release"]), "EARLY BIRD & FINAL RELEASE SOLD OUT");
+  });
+
+  it("ranks the roll-call above a % rung for the same release", () => {
+    const sold = (name: string, position: number) =>
+      release({ name, position, state: "sold_out", stateAt: "2026-11-01", stateSource: "client_message", stateSetBy: "matas" });
+    const final = release({
+      name: "Final release",
+      position: 4,
+      state: "selling_fast",
+      stateAt: "2026-11-06",
+      stateSource: "client_message",
+      stateSetBy: "matas",
+      sold: 95,
+      capacity: 100,
+    });
+    const siblings = [sold("Early bird", 1), sold("2nd release", 2), sold("3rd release", 3), final];
+    const rung = nextRung(final, puzzleLadder(), siblings, NOW);
+    assert.equal(rung?.triggerKind, "roll_call");
+    assert.equal(rung?.met, true);
+    assert.equal(rung?.claim, "EARLY BIRD, 2ND & 3RD RELEASE SOLD OUT\nFINAL RELEASE RUNNING LOW");
+    assert.equal(liveClaimLine({ ...final, state: "final_x", remaining: 100 }), "FINAL 100 FINAL RELEASE TICKETS");
+    const percent = nextRung({ ...final, state: "selling_fast" }, puzzleLadder().filter((row) => row.triggerKind !== "roll_call"), siblings, NOW);
+    assert.equal(percent?.triggerKind, "count_pct");
+    const seeded = defaultLadder().find((row) => row.position === 10);
+    assert.equal(seeded?.triggerKind, "roll_call");
+    assert.equal(seeded?.options.preferred, true);
+  });
+});
+
+describe("derived rungs", () => {
+  it("locks a velocity rung with one count", () => {
+    const one = velocityRung([{ at: "2026-11-07", sold: 1000 }], NOW);
+    assert.equal(one.locked, true);
+    assert.equal(one.met, false);
+    assert.equal(one.because, "needs a second count");
+    const two = velocityRung(
+      [
+        { at: "2026-10-24", sold: 400 },
+        { at: "2026-11-07", sold: 1000 },
+      ],
+      NOW,
+    );
+    assert.equal(two.locked, false);
+    assert.equal(two.met, true);
+    assert.equal(two.claim, "500+ TICKETS SOLD IN THE LAST 2 WEEKS");
+  });
+
+  it("says prices rise on the next list day, and drops the price when the release has none", () => {
+    const withPrice = priceRiseRung(NOW, "2026-11-10T12:00:00Z", 16.5, 4);
+    assert.equal(withPrice.met, true);
+    assert.equal(withPrice.claim, "PRICES RISE TUE 10 NOV\nLAST CHANCE AT £16.50");
+    const noPrice = priceRiseRung(NOW, "2026-11-10T12:00:00Z", null, 4);
+    assert.equal(noPrice.claim, "PRICES RISE TUE 10 NOV");
+    assert.equal(priceRiseRung(NOW, "2026-11-20T12:00:00Z", 10, 4).met, false);
+  });
+
+  it("needs the % rung as well as two weeks to the show", () => {
+    const met = countdownRung(NOW, "2026-11-18", true, 14);
+    assert.equal(met.met, true);
+    assert.equal(met.claim, "LESS THAN 2 WEEKS TO GO\nOVER 90% SOLD OUT");
+    assert.equal(countdownRung(NOW, "2026-11-18", false, 14).met, false);
+    assert.equal(countdownRung(NOW, "2026-12-27", true, 14).met, false);
+  });
+
+  it("refreshes the lineup slot instead of filing a new cell", () => {
+    const added = lineupRung(
+      [{ name: "Reeshy", addedAt: "2026-11-01" }, { name: "Enzo Siragusa", addedAt: "2026-11-08" }],
+      "2026-11-02",
+    );
+    assert.equal(added.met, true);
+    assert.equal(added.claim, "ENZO SIRAGUSA (JUST ANNOUNCED)");
+    assert.equal(added.newCell, false);
+    assert.equal(lineupRung([{ name: "Reeshy", addedAt: "2026-11-01" }], "2026-11-02").met, false);
+  });
+});
+
+describe("offers, cancelled, backfilled", () => {
+  it("refuses a typed offer that says final, in one sentence", () => {
+    assert.equal(offerRefusal("final release £10"), OFFER_FINAL_REFUSAL);
+    assert.equal(OFFER_FINAL_REFUSAL.endsWith("."), true);
+    assert.equal(OFFER_FINAL_REFUSAL.split(".").length, 2);
+    assert.equal(offerRefusal("£10 today, split the rest in 3"), null);
+    assert.equal(OFFER_ON_LADDER, false);
+    const words = offerWords("payment_plan", { today: 10, parts: 3 });
+    assert.deepEqual(words.lines, ["£10 TODAY", "SPLIT THE REST IN 3"]);
+    assert.equal(words.card, "£10 today · split the rest in 3");
+    assert.equal(OFFER_MARKER, "entered, not derived");
+    assert.deepEqual(offerPrices({ today: 10, parts: 3 }), [10]);
+  });
+
+  it("keeps a cancelled event's rows and mounts no panel and no Today row", () => {
+    const rows = [release({ name: "General sale", position: 1, state: "on_sale" })];
+    assert.equal(mountsReleases("cancelled"), false);
+    assert.equal(todayListsEvent("cancelled", rows), false);
+    assert.equal(warningCell("cancelled", "90% sold out"), "cancelled · nothing to make");
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.name, "General sale");
+  });
+
+  it("a backfilled row proposes nothing until the first tap", () => {
+    const row = release({
+      name: "Presale",
+      position: 1,
+      state: "not_yet",
+      stateSource: "entry",
+      stateSetBy: null,
+    });
+    assert.equal(isBackfilled(row), true);
+    assert.equal(nextRung(row, puzzleLadder(), [row], NOW), null);
+    assert.equal(proposalOnChange(null, null).propose, false);
+    assert.equal(panelFigure([row, { ...row, name: "General sale", state: "on_sale" }]).headline, "—");
+    const tapped = applyState(row, "not_yet", { at: NOW, source: "entry", user: "matas", confirmed: true });
+    assert.equal(isBackfilled(tapped.release), false);
+    assert.equal(tapped.release.stateSetBy, "matas");
+    assert.equal(tapped.release.stateSource, "entry");
+    assert.equal(todayListsEvent("on_sale", [row]), false);
+    assert.equal(todayListsEvent("on_sale", [tapped.release]), true);
   });
 });
 
