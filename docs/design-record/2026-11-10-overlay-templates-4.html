@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 4 — T2 claim statics: the slot on the panel, the roll-call's shortening, the invented values — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:420px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.ok{color:var(--olive);font-weight:600}.amend{color:var(--ochre);font-weight:600}.no{color:var(--brick);font-weight:600}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;width:270px;height:480px;border-radius:6px;overflow:hidden;background:#7d6f62;font:600 7px/1.2 var(--mono);color:#fff}
+.sch .band{position:absolute;left:0;right:0;top:71px;height:338px;border-top:1px dashed rgba(255,255,255,.8);border-bottom:1px dashed rgba(255,255,255,.8)}
+.sch .panel{position:absolute;background:#32322f;border:1px solid rgba(255,255,255,.35)}
+.sch .slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.sch .slot.wide{border-style:dashed;border-color:rgba(255,255,255,.55);color:rgba(255,255,255,.8)}
+.sch .c{position:absolute;border:1px solid rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center}
+.sch .lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 4 · 10 November 2026</p>
+<h1>Overlay templates — issue 4: T2 claim statics</h1>
+<p class="lead">Extends issues 1–3 (<code>2026-11-08-overlay-templates.html</code>, <code>-2</code>, <code>-3</code>). They stand except where a row below says otherwise. Claude Code's H26 drafts render T2, the standalone message, for Puzzle 4th Birthday (branch <code>cc/t2-claim-statics</code>, stacked on #1156; no PR yet). This issue answers the five questions the H26 review put and rules each value its code lists as invented (<code>T2_INVENTED</code> in <code>overlay-kits.ts</code>). The rulings were made from the review's figures and the branch's code; the draft sheet itself did not reach the design thread, so no render here is passed — the T2 build PR is judged against this record on its CI frames.</p>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 4 · 10 Nov 2026.</b> O26 the claim slot shrinks to the panel. O27 the roll-call is never shortened by the number form; a roll-call that doesn't fit at step 1 is flagged. O28 the line break never splits a release name, and a split never makes a number token. O29 the bands on T2. O30 no bare-ground T2. O31 the video questions go to issue 5, after the statics pass. The rest of <code>T2_INVENTED</code> is accepted as written (table). Hand-back H27–H30.</li>
+<li><b>Issue 3 · 10 Nov 2026.</b> O19 amended, O21 paused, O22–O25, H19–H25; amended before merge after the H25 drafts. Merged as #1155.</li>
+<li><b>Issue 2 · 10 Nov 2026.</b> #1151. <b>Issue 1 · 8 Nov 2026.</b> #1112.</li>
+</ul></div>
+
+<h2>Data note — what the H26 drafts measured</h2>
+<table class="t">
+<tr><th>Card</th><th>What the review reported</th><th>Ruled in</th></tr>
+<tr><td>(a) GENERAL SALE LIVE</td><td>Step 0, one line, widest 672 px of 929 (86 % W), claim box 2.4 %. Passes; watermarked "claim not approved".</td><td>—</td></tr>
+<tr><td>(b) Roll-call sample</td><td>Step 1, 821 px, claim box 2.0 %, red line 0.2 % (stays red). Passes.</td><td>O27 (its line 2 must read SELLING FAST, A21)</td></tr>
+<tr><td>(c) Longest record fixture</td><td>Too wide at states 00–02 (983–1,138 px); fits at state 03 with TICKETS dropped (890 px).</td><td>O26 — measured against the panel slot, it may need further drops</td></tr>
+<tr><td>(c) Six-release fixture (made up)</td><td>"can't shorten", no Approve.</td><td>O27</td></tr>
+<tr><td>(d) Card (a), bands off</td><td>Passes.</td><td>O29</td></tr>
+<tr><td>(e) Card (a) on bare paint, no panel</td><td>Details corner 31.2 % below 3:1 — fails.</td><td>O30</td></tr>
+<tr><td>Bands</td><td>Within 0.5 points of O25 at every stop, except one 4:5 / 1:1 sample at 18.4 %, a one-pixel sampling artefact.</td><td>O29</td></tr>
+</table>
+
+<h2>Rulings added in issue 4</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O26 The claim slot is the panel</td><td>On a kit whose T2 draws a panel (Puzzle's taped panel), the claim sits on the panel, so the slot is the panel, not 86 % W. A line that runs past the panel's edge changes ground mid-word and reads as a mistake.
+<ul>
+<li><b>Width:</b> each line within the panel's ink width less 0.04 W (43 px) on each side, and never wider than 86 % W.</li>
+<li><b>Height:</b> the claim block (first cap top to last baseline, qualifier included) within the panel's ink box less 0.02 H (38 px) top and bottom.</li>
+<li>The panel is measured by its ink box at its placed size, never its canvas (O11). In the 1:1 the panel and the slot are both at 0.8×.</li>
+<li>O8's steps and drops, the fit meter and "can't shorten" all measure against this slot; the meter's figure becomes "{widest} of {slot} px".</li>
+<li>The panel never grows or stretches to fit a claim (O11). A kit with no panel keeps O4's 86 % W.</li>
+<li>The claim box tested by O19 is this slot.</li>
+</ul></td></tr>
+<tr><td>O27 The roll-call's shortening</td><td>No — O8's number form was not meant for the roll-call. Line 1's single RELEASE is A14's shared noun for the list ("EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT"), so the number form never removes it.
+<ul>
+<li>Line 1 is never shortened. Line 2 takes O8's TICKETS and NOW drops; it takes the number form only while line 1 keeps RELEASE on the frame.</li>
+<li>Line 2 reads "{live release} SELLING FAST" at least (A21). <code>claim-slot.ts</code> on #1156 must follow the generator fixed on #1158; no RUNNING LOW anywhere.</li>
+<li>A roll-call that still doesn't fit at step 1 is flagged "can't shorten" and has no Approve on T2, like any claim (rule 14). It stays available on T1, where it has its own slot. It is not swapped for line 2 alone: that would be a different claim, and the ladder proposes claims, not the template.</li>
+</ul></td></tr>
+<tr><td>O28 Breaking a one-line claim</td><td>A one-line claim wider than the slot breaks onto two lines at the same step (accepted: T2's steps are two-line steps, O8). Two limits:
+<ul>
+<li>The break never falls inside a release name ("2ND RELEASE", "GENERAL SALE", "EARLY BIRD"); among the allowed breaks the one with the narrowest wider line wins.</li>
+<li>A split never makes a number token: "FINAL 50 / TICKETS" draws both lines at the step's cap. A number is enlarged only when the approved claim itself puts it on its own line (O4).</li>
+<li>Colour belongs to the claim, not the line: a "FINAL {n} TICKETS" claim is kit red on both lines when split.</li>
+</ul></td></tr>
+<tr><td>O29 The bands on T2</td><td>O25's scope left T2 to its own draft; H26 is that draft. T2 carries O25's bands unchanged, over the ground and panel, under all type and the lockup, so a T2 beside a T1 in one set reads as one kit. Card (d) shows T2 passes without them, so they are for consistency and the corners, not the claim. Matas judges them on the drafts with the artist card's (H25). The 18.4 % sample is accepted as the one-pixel artefact reported; H19's ±1 % acceptance is read on a 3 × 3 average, not a single pixel.</td></tr>
+<tr><td>O30 No bare-ground T2</td><td>Card (e) is dropped, not a template option. Without the panel the details corner fails at 31.2 % on Puzzle's paint, and a T2 option that fails its own corner test on the kit it was made for isn't one. A T2 on a panel kit always draws the panel. A kit that wants a panel-free message is a kit question for its designer, ruled when one asks.</td></tr>
+<tr><td>O31 The video questions</td><td>VIDEO-READINESS.md's ten questions go into overlay-templates issue 5, ruled after the T2 and artist-card statics pass — Matas's order is statics perfected before video. The file did not reach the design thread: send its ten questions with the issue-5 request.</td></tr>
+</table>
+
+<h2>T2_INVENTED — each value ruled</h2>
+<table class="t">
+<tr><th>Value (overlay-kits.ts)</th><th>Ruling</th></tr>
+<tr><td>Roll-call sizes on T2</td><td><span class="ok">Accepted.</span> Line 2 at the step's cap; line 1 at 0.625 of it (the PSD's 0.217 / 0.347); the gap 0.29 of line 2's cap (O23's 22 / 76). The same ratio as the artist card, so the roll-call is one lockup in every template.</td></tr>
+<tr><td>Two-line pitch</td><td><span class="ok">Accepted.</span> 8.75 % H is O4's own figure at step 0; at step 1 it scales with the cap (7.58 % H).</td></tr>
+<tr><td>Block centred on 0.50 H</td><td><span class="amend">Accepted, with O26:</span> the block (first cap top to last baseline, the qualifier included) is centred on 0.50 H, and also inside the panel slot.</td></tr>
+<tr><td>One-line claim breaks at the same step</td><td><span class="amend">Accepted, with O28's two limits.</span> A claim that comes with its own line break keeps it and is never re-broken.</td></tr>
+<tr><td>"FINAL {n} TICKETS" alone is red</td><td><span class="ok">Accepted</span> (the PSD's one-line red piece, O23); every other non-roll-call line white. Red on a split claim: O28.</td></tr>
+<tr><td>Number token</td><td><span class="ok">Accepted:</span> a line that is only a number, with an optional FINAL, currency sign or %. Never made by a split (O28).</td></tr>
+<tr><td>Drops are cumulative</td><td><span class="ok">Accepted.</span> Each drop applies to every line that has the word and stays dropped; both steps are retried after each. Roll-call exception: O27.</td></tr>
+<tr><td>Fit meter words</td><td><span class="amend">Accepted, with O26's figure:</span> "step {n} of 1 · {lines} line(s)", "· dropped {words}" after shortening, "{widest} of {slot} px · can't shorten" past the last drop.</td></tr>
+<tr><td>Claim box 0.07–0.93 W at ≤ 15 %</td><td><span class="amend">Amended:</span> the box is the O26 slot, not 0.07–0.93 W; the limit stays ≤ 15 % below 3:1 with the bands on. The red line's ink-box test is unchanged (≤ 25 % below 2:1, else white).</td></tr>
+<tr><td>Each corner tested at ≤ 10 %</td><td><span class="ok">Accepted:</span> lineup and details each on their own ink block padded 12 px, as O19's text box, bands on.</td></tr>
+<tr><td>Corners at 40 % W, stepping down together; tracking 5</td><td><span class="ok">Accepted.</span></td></tr>
+<tr><td>Details pitch 3.07 % H</td><td><span class="ok">Accepted</span> (the lineup's pitch-to-cap ratio at the details cap).</td></tr>
+<tr><td>Details: date then venue, time line left off</td><td><span class="ok">Accepted</span> — O4 gives two lines, date / venue. The live layer's words verbatim, coral on "&gt;" only.</td></tr>
+<tr><td>Logo at 15 % W</td><td><span class="ok">Accepted</span> — the figure is O4's; the piece is the lockup (wordmark + script, issue 2) by its ink box, centred on the details' centre line, right edge on the 14.3 % W inset.</td></tr>
+<tr><td>Ground and panel; the 1:1 panel at 0.8×</td><td><span class="ok">Accepted</span> — the STORY PSD's Background paint as the ground (re-covered in the 1:1), the taped panel at the PSD's position, 0.8× in the 1:1 as O1's re-sit.</td></tr>
+<tr><td>Bands carried onto T2 unchanged</td><td><span class="ok">Accepted</span> — O29.</td></tr>
+</table>
+
+<h2>T2a · The claim slot on the panel — schematic</h2>
+<p class="lead">Illustrative: the panel's real size and position come from the kit (the STORY PSD). Drawn at ¼ of the 1080 × 1920 master. The dashed box is O4's 86 % W; the solid box is O26's slot.</p>
+<div class="frame">
+<figure><figcaption>T2a-916 · claim slot = panel ink box − 0.04 W each side, − 0.02 H top and bottom · corners as O4</figcaption>
+<div class="sch">
+  <div class="band"></div>
+  <div class="panel" style="left:40px;top:180px;width:190px;height:120px"></div>
+  <div class="slot wide" style="left:19px;top:205px;width:232px;height:70px"><span style="position:absolute;top:-10px;left:2px">86 % W (O4)</span></div>
+  <div class="slot" style="left:51px;top:190px;width:168px;height:100px">CLAIM · O26 slot</div>
+  <div class="c" style="right:39px;top:105px;width:70px;height:30px">LINEUP</div>
+  <div class="c" style="left:39px;top:360px;width:70px;height:16px">DETAILS</div>
+  <div class="c" style="right:39px;top:361px;width:40px;height:14px">LOGO</div>
+  <span class="lbl" style="left:4px;top:74px">4:5 top</span>
+  <span class="lbl" style="left:4px;top:236px">0.50 H</span>
+  <div style="position:absolute;left:0;right:0;top:240px;border-top:1px dotted rgba(255,255,255,.6)"></div>
+</div></figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H27 Slot on the panel</td><td>O26 in <code>overlay-kits.ts</code> / <code>t2-message.ts</code>: the slot from the panel's ink box with the insets; steps, drops, meter and the O19 claim box against it; 0.8× in the 1:1; no panel → 86 % W.</td><td>the kit's panel piece</td><td>card (a) and (b) re-rendered; card (c) re-planned with the meter's new figure; no line beyond the slot in any format</td></tr>
+<tr><td>H28 Roll-call shortening</td><td>O27: line 1 never shortened; line 2's drops; the number form on line 2 only while line 1 keeps RELEASE; flagged past step 1. <code>claim-slot.ts</code> on #1156 resolves line 2 as #1158's generator (A21).</td><td>event_releases fixtures</td><td>unit tests: the six-release fixture is "can't shorten"; no state of any roll-call drops RELEASE from line 1; no RUNNING LOW</td></tr>
+<tr><td>H29 Line breaks</td><td>O28: no break inside a release name; a split never makes a number token; colour by claim.</td><td>—</td><td>unit tests: "FINAL 50 2ND RELEASE TICKETS" never breaks between 2ND and RELEASE; "FINAL 50 TICKETS" split draws both lines at the step's cap, red</td></tr>
+<tr><td>H30 Bands and no bare ground</td><td>O29 on T2; H19's acceptance read on a 3 × 3 average; card (e) and any bare-ground option removed.</td><td>—</td><td>band stops within ±1 % on 3 × 3 averages in all three formats</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>O26's insets: 0.04 W each side and 0.02 H top and bottom.</li>
+<li>O28's "no break inside a release name" and colour by claim; H30's 3 × 3 sampling.</li>
+<li>Everything accepted in the T2_INVENTED table stays invented in the sense of rule 11: no asset gives it. Matas judges the T2 drafts; his call on the bands and sizes goes into a later issue.</li>
+</ul>
+
+<h2>Frames</h2>
+<table class="t">
+<tr><th>Id</th><th>Formats</th><th>Source</th></tr>
+<tr><td>T2a</td><td>9:16 schematic</td><td>This record</td></tr>
+<tr><td>H26 drafts</td><td>9:16, 4:5, 1:1</td><td>Claude Code's notes folder <code>t2-claim-statics-2026-11-10/</code>; drafts, watermarked, never filed or exported until Matas passes them</td></tr>
+</table>
+<p class="lead">The T2 build PR brings CI frames from fixtures (cards a, b and c at 9:16, 4:5 and 1:1) and is judged against this record.</p>
+
+</div></body>
+</html>
