@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 6 — video overlays: T1 on a clip — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 6 · 10 November 2026</p>
+<h1>Overlay templates — issue 6: video overlays (T1 on a clip)</h1>
+<p class="lead">Extends issues 1–5. The statics are done — the artist card with its claim and bands (#1156) and T2 (#1163) — so, in Matas's order, video comes next: T1 (O3, the artist clip) on a moving clip. This issue rules the ten video questions (O31), fixes the seam method, logs O28 on T1 and gives T1's line break the event's own release names. One finding changes O3: its claim zone (0.7536–0.7927 H) sits under the platforms' own controls on Reels and TikTok, so on a clip the claim moves up. The 9:16 static's placement is left open for Matas.</p>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 6 · 10 Nov 2026.</b> O37 the claim's entrance. O38 the bands on video. O39 the face on clips, by time in the box. O40 contrast on clips, p95 per clip. O41 crop_focus_y moves the footage, not the type. O42 the 1:1 for clips is a crop. O43 the video safe area and the claim on a clip (O3's claim zone superseded for clips). O44 a caption and T1 never share a clip. O45 the kit-font licence. O46 dithering the bands. O47 the seam method. O48 O28 on T1 (logged from #1163) and the event's release names. T1v schematics and the timeline strip. Hand-back H36–H46.</li>
+<li><b>Issue 5 · 10 Nov 2026.</b> O32–O36. Merged as #1162.</li>
+</ul></div>
+
+<h2>Data note — the platforms' safe zones (read 10 Nov 2026)</h2>
+<table class="t">
+<tr><th>Platform</th><th>Keep free (9:16, 1080 × 1920)</th><th>Source</th></tr>
+<tr><td>Instagram / Facebook Reels</td><td>Top 14 % (269 px), bottom 35 % (672 px), sides 6 % (65 px). Two guides agree on the percentages; one gives the bottom as 20–35 % (the 20 % is the link sticker alone).</td><td><a href="https://adsuploader.com/blog/meta-ads-safe-zones">Adsuploader</a>, <a href="https://billo.app/blog/meta-ads-safe-zones/">Billo</a> (both citing Meta's help pages)</td></tr>
+<tr><td>TikTok In-Feed</td><td>Top 240 px, bottom 660 px, sides 120 px; the right side widens to 300 px from y 840 down (the engagement rail, an estimated buffer). Another guide gives smaller figures (top 150, bottom 350–400).</td><td><a href="https://adkit.so/tools/safe-zones/tiktok">AdKit</a>, <a href="https://www.trymypost.com/blog/tiktok-ad-specs-2026-safe-zones">TryMyPost</a></td></tr>
+<tr><td>O3's claim zone</td><td>0.7536–0.7927 H = y 1447–1522: inside Reels' bottom 35 % (from y 1248) and TikTok's bottom 660 px (from y 1260).</td><td>Overlay issue 1, from the Locklead CTA frames</td></tr>
+</table>
+<p class="lead">These are third-party guides, not the platforms' own pages; where they disagree, this record takes the larger margin. H44 checks the result in each platform's own ad preview before the first clip ships.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O37 The claim's entrance</td><td>
+<ul>
+<li>The name, the details, the lockup (where the template has one) and the bands are on from frame 0: the artist is the hook, and the first frame is often the thumbnail.</li>
+<li>The claim enters at <b>1.5 s</b> with a <b>0.25 s</b> opacity fade (linear, 0 → 100 %), no movement, and holds to the last frame. There is no exit; on a loop the restart hides it again until 1.5 s.</li>
+<li>Minimum on screen: <b>3.0 s</b>. A clip shorter than 4.75 s takes no claim: "Clip too short for a claim — needs 4.75 s". It can still run as T1 without one.</li>
+<li>A claim never changes mid-clip; between rungs only the claim changes, the cut stays (O3).</li>
+</ul></td></tr>
+<tr><td>O38 The bands on video</td><td>The bands enter with the clip at frame 0 and never move or change. The top band is O25's (full to 0.44 H, gone by 0.53 H). The bottom band follows the claim (O43): zero at 0.55 H, J2's fade to 20 % at 0.60 H, rising evenly to 30 % at 0.68 H and held to the bottom edge — so it also sits under the platforms' own caption and controls. 0.53–0.55 H is clear. In the 4:5 and 1:1 the bands are carried as the type is (O25).</td></tr>
+<tr><td>O39 The face on clips</td><td>Judged by time in the box, not a band: clips aren't cropped to a face.
+<ul>
+<li>Sampled at 5 frames a second. In each sample, the main face's box (faces under half its width don't count, O19) is tested against the top block (name and details) and the claim box, each padded 12 px.</li>
+<li>Limit: the face touches type in <b>no more than 10 %</b> of the samples while that type is on screen, and <b>never for more than 0.5 s in a row</b>.</li>
+<li>Over the limit, the crop (O41) is tried first; if no crop passes, the clip takes no T1: "Face in the type for {n} % of the claim's time — choose another crop or clip".</li>
+<li>Face size and the stills' face band (O18, O23) don't apply to clips.</li>
+</ul></td></tr>
+<tr><td>O40 Contrast on clips</td><td>O19's tests, per frame, on the same 5-a-second samples with the bands on and before any type; the clip's figure is the <b>95th percentile</b> (nearest rank) across the samples in which that type is on screen. Limits as on stills: the top block ≤ 10 % below 3:1, the claim box ≤ 15 % below 3:1, the red line's ink box ≤ 25 % below 2:1. The red fallback is decided <b>per clip</b>: if the red line fails, line 1 is white for the whole clip and never switches mid-clip; the approval line is the stills' ("claim line 1 in white — red unreadable on this photo", with "clip" for "photo").</td></tr>
+<tr><td>O41 crop_focus_y</td><td>The crop moves the footage, never the type. Slots, bands and the safe area are fixed to the output frame; <code>crop_focus_y</code> chooses where the footage sits under them, per format. The crop picker (B2) draws the top block, the claim box and the safe area on its preview, so the crop can be chosen to keep the face out of the type (O39). (This corrects the design thread's earlier leaning, given in chat, that the bands follow it.)</td></tr>
+<tr><td>O42 The 1:1 for clips</td><td>A crop: the footage covers 1080 × 1080, centred on the 1:1's own <code>crop_focus_y</code>, with the type at O1's 0.8× re-sit. No pillarbox, no blurred fill, no side extension — O20 extends stills, never video. No upscaling: a 1080-wide 9:16 source gives a 1080 × 1080 window.</td></tr>
+<tr><td>O43 The video safe area and the claim</td><td>
+<ul>
+<li><b>The 9:16 video safe area</b> is the larger margin of the two platforms: <b>x 120–960 (0.111–0.889 W), y 269–1248 (0.14–0.65 H)</b>. Every T1 type slot on a 9:16 clip sits inside it.</li>
+<li><b>O3's claim zone does not hold on clips.</b> On a clip the claim is <b>bottom-anchored on 0.65 H (y 1248)</b>: one line at O8's 4 % H (77 px) has its cap top at 0.610 H; two lines at 4 % H with O4's pitch ratio (0.0583 H) put line 1's cap top at 0.552 H; step 2 (3.4 % H) scales the same way. Width ≤ 840 px (0.778 W), centred.</li>
+<li>The top block keeps its static slots (O3, with O18's 76 px inset), all inside the safe area; the name and details also keep within 840 px.</li>
+<li>The middle, 0.44 H to the claim's top, carries no type (O3).</li>
+<li>TikTok's engagement rail: one guide widens the right margin to 300 px below y 840. A centred claim can't honour that and stay centred; H44's preview check decides whether it overlaps the icons.</li>
+<li><b>4:5 and 1:1 video</b> (feed placements, no Reels controls over the media) take the same arrangement, carried by the crop and the 0.8× re-sit (O1, O2): the claim's last line on 0.713 of the rectangle's height.</li>
+</ul></td></tr>
+<tr><td>O44 A caption and T1</td><td>A clip carries either a UGC caption (rule 13, the Lab's rounds) or T1's type (name, details, claim, from the asset board) — never both, with or without a claim. The caption's block sits at about 36 % H, inside T1's details block. Neither yields: they are two different ads.</td></tr>
+<tr><td>O45 The kit-font licence</td><td>O24 holds: kit type renders only in the kit's own faces, and <b>no server render (Lambda, or the CI runner) uses a face until its licence is recorded for that use</b>. Local drafts on Matas's machine are unchanged. Until Bootzy's licence is recorded, no T1 clip renders and T2's cards don't become CI frames (#1163's follow-up).
+<ul>
+<li><b>Per face, on the kit.</b> The Brand kit component's font row gains a licence line: "Licence · Add proof" until recorded.</li>
+<li><b>What counts as proof:</b> a document, not a typed statement — the licence certificate or EULA naming the uses, or the foundry's written confirmation (an email). Matas uploads it; it is filed in <code>{Client} / _Brand kit / Licences</code>.</li>
+<li><b>The uses ticked</b> with it, by Matas: server rendering (needed for Lambda and CI) and video ads (needed for T1 clips). Desktop-only licences usually exclude server rendering; the Lab doesn't judge the document's legal reach, Matas does.</li>
+<li>Recorded: "Licence recorded · server · video · {who}, {d Mon}". A kit whose face lacks a use holds the cards that need it: "Held — {face}: licence for server rendering not recorded".</li>
+</ul></td></tr>
+<tr><td>O46 Dithering the bands</td><td>The band layer is computed at 16 bits and dithered to 8 bits with a fixed blue-noise pattern (±0.5 level, the same pattern every frame, so it doesn't crawl), then encoded at H.264 CRF ≤ 18. Acceptance on the encoded file over a flat mid-grey test clip: across each fade, no step between adjacent rows' mean luma larger than 2 levels.</td></tr>
+<tr><td>O47 The seam method</td><td>O20 (c), the seam after an extension, measured: on the photo layer with the extension and the bands, before any type or lockup; per column, the mean colour of the 8 px rows either side of the join; ΔE is CIE76 on CIELAB from sRGB under D65 (<code>colour.ts</code>); the 95th percentile across columns by nearest rank; ≤ 2 passes. The build's figure is the one of record (Enzo 1: 1.45).</td></tr>
+<tr><td>O48 O28 on T1, and release names</td><td>O28's line-break limits apply to T1 (ruled on #1163, logged here): never inside a release name — any word followed by RELEASE, EARLY BIRD, GENERAL SALE, the event's own release names — and never between FINAL and its number. T1's <code>planClaim</code> passes the event's own release names (from <code>event_releases</code>) to the shared break rule, as T2 does, so a two-word name like "Early entry" holds together.</td></tr>
+</table>
+
+<div class="open"><b>Open, for Matas: the 9:16 static's placement.</b> The artist card's claim (0.736–0.812 H) and T2's lower corners sit inside Reels' bottom 35 %. That is fine where the 9:16 static runs in Stories, where the guides give the bottom margin as 14 % (one says Instagram Stories draws 35 %, like Reels). The recommendation: the 9:16 static runs in Stories placements, and the first one is checked in Ads Manager's Stories and Reels previews (H44). If it must run in Reels, the static needs the video claim position — a later issue.</div>
+
+<h2>T1v · T1 on a clip — schematics</h2>
+<p class="lead">At ¼ (9:16) and ⅕ (4:5, 1:1). Red hatch: the platforms' controls; dashed white: the safe area. Solid: the one-line claim; dashed: its two-line extent. The bands are O38's.</p>
+<div class="frame">
+<figure><figcaption>T1v-916 · safe area x 120–960, y 269–1248 · claim's last line on 0.65 H · bottom band from 0.55 H</figcaption>
+<div class="sch m916">
+  <div class="grad g916v"></div>
+  <div class="ui" style="top:0;height:67px"></div>
+  <div class="ui" style="top:312px;height:168px"></div>
+  <div class="uis" style="top:67px;height:245px;left:0;width:30px"></div>
+  <div class="uis" style="top:67px;height:245px;right:0;width:30px"></div>
+  <div class="safe" style="left:30px;top:67px;width:210px;height:245px"></div>
+  <div class="band" style="top:71px;height:338px"></div>
+  <div class="slot" style="left:30px;top:90px;width:210px;height:121px">TOP BLOCK · name + details (O3, O18)</div>
+  <div class="slot dash" style="left:45px;top:265px;width:180px;height:47px"></div>
+  <div class="slot" style="left:45px;top:293px;width:180px;height:19px">CLAIM · 4 % H</div>
+  <span class="lbl" style="left:34px;top:232px">face: time in the box (O39)</span>
+  <span class="lbl" style="left:4px;top:56px">top 14 %</span>
+  <span class="lbl" style="left:4px;top:318px">bottom 35 % · Reels / TikTok controls</span>
+  <span class="lbl" style="right:4px;top:300px">0.65 H</span>
+</div></figure>
+<figure><figcaption>T1v-45 · the 4:5 · the claim's last line on 0.713 of the rectangle</figcaption>
+<div class="sch m45">
+  <div class="grad g45v"></div>
+  <div class="slot" style="left:24px;top:15px;width:168px;height:97px">TOP BLOCK</div>
+  <div class="slot dash" style="left:36px;top:155px;width:144px;height:38px"></div>
+  <div class="slot" style="left:36px;top:177px;width:144px;height:16px">CLAIM</div>
+  <span class="lbl" style="right:4px;top:197px">0.713</span>
+</div></figure>
+<figure><figcaption>T1v-11 · the 1:1 · footage cropped, type at 0.8×</figcaption>
+<div class="sch m11">
+  <div class="grad g45v"></div>
+  <div class="slot" style="left:24px;top:12px;width:168px;height:78px">TOP BLOCK · 0.8×</div>
+  <div class="slot dash" style="left:36px;top:124px;width:144px;height:30px"></div>
+  <div class="slot" style="left:36px;top:142px;width:144px;height:12px">CLAIM</div>
+</div></figure>
+</div>
+
+<h3>T1v-timeline · a 12 s clip</h3>
+<div class="tl">
+  <span style="position:absolute;left:8px;top:6px">type and bands</span>
+  <div class="row" style="top:18px;left:0;width:600px;background:rgba(95,107,42,.45)"></div>
+  <span style="position:absolute;left:8px;top:38px">claim</span>
+  <div class="row" style="top:50px;left:75px;width:13px;background:linear-gradient(90deg,rgba(168,107,18,0),rgba(168,107,18,.9))"></div>
+  <div class="row" style="top:50px;left:88px;width:512px;background:rgba(168,107,18,.9)"></div>
+  <div class="row" style="top:50px;left:0;width:75px;border:1px dashed var(--border-strong);background:transparent"></div>
+  <span class="t" style="left:0">0 s · hook</span>
+  <span class="t" style="left:70px">1.5 s in</span>
+  <span class="t" style="left:118px">1.75 s on · ≥ 3 s on screen</span>
+  <span class="t" style="right:4px">12 s · holds to the end</span>
+</div>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>T1 artist clip (video)</td><td>Type inside the 9:16 video safe area; the claim bottom-anchored on 0.65 H, entering at 1.5 s over 0.25 s; the bands from frame 0 (bottom band from 0.55 H); face and contrast judged over the clip; 1:1 cropped; never with a UGC caption.</td></tr>
+<tr><td>Crop picker</td><td>Draws the top block, the claim box and the safe area on the preview for T1 clips.</td></tr>
+<tr><td>Brand kit</td><td>Each font row: "Licence · Add proof" → "Licence recorded · server · video · {who}, {d Mon}"; proof filed in <code>_Brand kit / Licences</code>.</td></tr>
+<tr><td>Approval card lines</td><td>"Clip too short for a claim — needs 4.75 s"; "Face in the type for {n} % of the claim's time — choose another crop or clip"; "claim line 1 in white — red unreadable on this clip"; "Held — {face}: licence for server rendering not recorded".</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H36 Entrance</td><td>O37: type and bands from frame 0; the claim's 1.5 s / 0.25 s fade; the 4.75 s minimum and its line.</td><td>clip duration</td><td>a 4.7 s clip has no claim; a 12 s clip's claim is at 0 % at 1.49 s and 100 % at 1.75 s</td></tr>
+<tr><td>H37 Video bands</td><td>O38's stops on the 9:16, carried into 4:5 and 1:1.</td><td>—</td><td>the stops within ±1 % on 3 × 3 averages (H30's reading) on a flat test clip</td></tr>
+<tr><td>H38 Face over time</td><td>O39 at 5 samples a second; the 10 % and 0.5 s limits; crop first, then the refusal line.</td><td>the face detector</td><td>a fixture clip with the face crossing the claim for 1 s is refused; the same clip passes on a lower crop</td></tr>
+<tr><td>H39 Contrast over time</td><td>O40's p95 per type box, per clip; the red decided once per clip.</td><td>—</td><td>a fixture clip whose red fails in 3 % of samples stays red; one failing in 10 % turns white for the whole clip</td></tr>
+<tr><td>H40 Crop</td><td>O41: the slots fixed to the frame; the crop picker's overlay; O42's 1:1 crop.</td><td>crop_focus_y per format</td><td>moving crop_focus_y moves no slot</td></tr>
+<tr><td>H41 Safe area and claim</td><td>O43's safe area and bottom-anchored claim; 840 px width; the 4:5 / 1:1 carry.</td><td>—</td><td>every type box inside x 120–960, y 269–1248 on the 9:16</td></tr>
+<tr><td>H42 Caption or T1</td><td>O44: a clip in a caption round can't take T1, and the reverse.</td><td>rounds, asset board</td><td>unit test: no render carries both</td></tr>
+<tr><td>H43 Font licence</td><td>O45: the licence line per face, the proof upload to _Brand kit / Licences, the two uses, the server-render gate on Lambda and CI.</td><td>kit fonts</td><td>with no licence recorded, a Lambda render of a T1 clip is held with the exact line</td></tr>
+<tr><td>H44 Preview check</td><td>The first T1 clip per kit, and the first 9:16 static, are checked in Meta's Reels and Stories previews and TikTok's In-Feed preview before they ship; screenshots attached to the approval.</td><td>—</td><td>no type under a control in any preview</td></tr>
+<tr><td>H45 Dither</td><td>O46.</td><td>—</td><td>on the encoded test clip, no row-to-row step over 2 levels across the fades</td></tr>
+<tr><td>H46 Seam and T1 names</td><td>O47's method in the extension report; O48's release names into T1's planClaim.</td><td>event_releases</td><td>unit test: with an "Early entry" release, a T1 split never falls between EARLY and ENTRY</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>1.5 s, 0.25 s, the 3.0 s minimum and 4.75 s; 5 samples a second; the 10 % and 0.5 s face limits; the 12 px padding.</li>
+<li>The video bottom band (0 at 0.55 H, 20 % at 0.60 H, 30 % at 0.68 H); the claim bottom on 0.65 H and the 840 px width; the 0.0583 H two-line pitch on T1 (O4's ratio).</li>
+<li>The licence words and folder; blue-noise ±0.5 level; CRF ≤ 18; the 2-level step.</li>
+<li>The safe area is taken from third-party guides (data note), the larger margin where they disagree.</li>
+</ul>
+
+<h2>Frames</h2>
+<table class="t">
+<tr><th>Id</th><th>Formats</th><th>Source</th></tr>
+<tr><td>T1v</td><td>9:16, 4:5, 1:1 + timeline</td><td>Schematics in this record</td></tr>
+<tr><td>T1 on clips</td><td>9:16, 4:5, 1:1</td><td>Drafts once built; CI frames once Bootzy's licence is recorded for server rendering (O45)</td></tr>
+</table>
+
+</div></body>
+</html>
