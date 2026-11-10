@@ -136,7 +136,7 @@ npm test and npm run build pass before every push. Never apply a migration. Retu
 ```
 Review #{PR} ({branch}) against docs/design-record/{record}.html.
 CI run {run id}, head {sha}. Zips attached:
-- {artist name} — {url}
+- {artifact name} — {url}
 - {artifact name} — {url}
 
 PASS or FAIL each item, naming the shot you judged it on:
