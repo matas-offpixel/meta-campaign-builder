@@ -8,7 +8,8 @@
  *   - O3: the claim box 0.7536–0.7927 H (cap 0.0391 H), centred, ≤ 0.80 W.
  *   - O12 roll-call, from Puzzle overlay.psd's CTA group (Bootzy, cap/em
  *     0.712): line 1 "EARLY BIRD, 1ST, 2nd & 3rd RELEASE SOLD OUT" #FE3232 at
- *     65.1 px, line 2 "FINAL RELEASE RUNNING LOW" white at 104.2 px; line 1's
+ *     65.1 px, line 2 white at 104.2 px (25 characters; the PSD's words
+ *     predate A21, so the generator's line 2 is used, never the PSD's); line 1's
  *     size is 0.625 of line 2's; the gap from line 1's baseline to line 2's
  *     cap top is 0.0160 H (0.409 of line 2's cap). Record O12 says line 1's
  *     cap is ≈ 0.022 H; the PSD gives 0.0241 H (65.1 px × 0.712).
@@ -59,6 +60,8 @@ export type ClaimPlan = {
   lines: ClaimLine[];
   /** O8 step reached (0, 1, 2), or "roll-call". */
   step: 0 | 1 | 2 | "roll-call";
+  /** O27: the drops line 2 of a roll-call took to fit, in order (empty when none). */
+  dropped?: string[];
   blockTop: number;
   blockBottom: number;
   /** The face band's chin limit with this claim. */
@@ -95,6 +98,47 @@ export function faceBandWithClaim(blockTop: number): FaceBand {
   return { ...SLOTS.face, chinMax: Math.min(CLAIM_SLOT.chinWithClaim, blockTop) };
 }
 
+// ─── O27: the roll-call's shortening (overlay-templates issue 4) ──────────
+
+/** O8's fixed shortening order. */
+export const DROP_ORDER = ["TICKETS", "NOW", "number form"] as const;
+export type Drop = (typeof DROP_ORDER)[number];
+
+/** The roll-call, H28: two lines whose first names what sold out (A14). */
+export function isRollCall(lines: readonly string[]): boolean {
+  return lines.length === 2 && /\bSOLD OUT\s*$/i.test(lines[0]!.trim());
+}
+
+function dropWord(line: string, word: string): string {
+  return line.replace(new RegExp(`(^|\\s)${word}(?=\\s|$)`, "gi"), " ").replace(/\s+/g, " ").trim();
+}
+
+/** "{X} RELEASE" → "{X}" (O8's number form). */
+function numberForm(line: string): string {
+  return line.replace(/\s+RELEASE\b/gi, "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * O27: the roll-call's states, in order — as approved, then line 2 with each of
+ * O8's drops applied cumulatively. Line 1 is never shortened, so its single
+ * RELEASE (A14's shared noun) always stays; line 2 takes the number form only
+ * while line 1 keeps RELEASE on the frame. A drop that changes nothing adds no
+ * state. Past the last state the claim can't shorten.
+ */
+export function rollCallStates(line1: string, line2: string): { line1: string; line2: string; dropped: Drop[] }[] {
+  const out: { line1: string; line2: string; dropped: Drop[] }[] = [{ line1, line2, dropped: [] }];
+  let cur = line2;
+  const dropped: Drop[] = [];
+  for (const d of DROP_ORDER) {
+    const next = d === "number form" ? (/\bRELEASE\b/i.test(line1) ? numberForm(cur) : cur) : dropWord(cur, d);
+    if (!next || next === cur) continue;
+    cur = next;
+    dropped.push(d);
+    out.push({ line1, line2: cur, dropped: [...dropped] });
+  }
+  return out;
+}
+
 function stack(texts: { text: string; color: string; cap: number }[], frame: Size): Omit<ClaimPlan, "step"> {
   // Bottom line in O3's box (baseline 0.7927 H); each line above sits one gap over the next line's cap top.
   const lines: ClaimLine[] = [];
@@ -125,10 +169,14 @@ export function planClaim(claim: ApprovedClaim, frame: Size = MASTER): ClaimPlan
     if (!line1 || !line2) return { blocker: "the roll-call needs both lines (O12)" };
     const cap2 = CLAIM_SLOT.cap;
     const cap1 = cap2 * CLAIM_SLOT.rollCall.line1SizeRatio;
-    const plan = stack([{ text: line1, color: KIT_RED, cap: cap1 }, { text: line2, color: KIT_WHITE, cap: cap2 }], frame);
-    const over = plan.lines.find((l) => l.estWidth > CLAIM_SLOT.maxWidth);
-    if (over) return { blocker: `roll-call line "${over.text}" is about ${over.estWidth.toFixed(2)} W at its size (max ${CLAIM_SLOT.maxWidth}); O12 has no smaller step` };
-    return { ...plan, step: "roll-call" };
+    // O12 has one size; O27: past it line 2 takes the drops, line 1 never shortens.
+    let widest = 0;
+    for (const st of rollCallStates(line1, line2)) {
+      const plan = stack([{ text: st.line1, color: KIT_RED, cap: cap1 }, { text: st.line2, color: KIT_WHITE, cap: cap2 }], frame);
+      widest = Math.max(...plan.lines.map((l) => l.estWidth));
+      if (plan.lines.every((l) => l.estWidth <= CLAIM_SLOT.maxWidth)) return { ...plan, step: "roll-call", dropped: st.dropped };
+    }
+    return { blocker: `roll-call is about ${widest.toFixed(2)} W at its size (max ${CLAIM_SLOT.maxWidth}) · can't shorten (O27: line 1 is never shortened)` };
   }
   const text = claim.text.trim().toUpperCase().replace(/\s+/g, " ");
   if (!text) return { blocker: "the claim is empty" };
@@ -238,7 +286,15 @@ export type CardClaimLine = {
 export function inKitCase(text: string, kitCase: "upper" | "as-approved" = CARD_CLAIM.kitCase): string {
   return kitCase === "upper" ? text.toUpperCase() : text;
 }
-export type CardClaimPlan = { kind: "two-line" | "final-tickets" | "one-line"; lines: CardClaimLine[]; k: number; blockTop: number; bottom: number };
+export type CardClaimPlan = {
+  kind: "two-line" | "final-tickets" | "one-line";
+  lines: CardClaimLine[];
+  k: number;
+  blockTop: number;
+  bottom: number;
+  /** O27: the drops a roll-call's line 2 took to stay above the floor (empty when none). */
+  dropped: Drop[];
+};
 
 /** A line's ink width (px) at a cap height, in the kit face; the caller measures (a rendered line, or a fake in tests). */
 export type MeasureLine = (text: string, capPx: number) => number;
@@ -268,9 +324,22 @@ export function planCardClaim(approved: string, measure: MeasureLine, kitCase: "
     base = [{ text: inKitCase(lines[0]!, kitCase), approvedText: lines[0]!, color: "white", capPx: c.oneLine.whiteCap }];
     floorK = c.oneLine.floor / c.oneLine.whiteCap;
   }
-  const widths = base.map((l) => measure(l.text, l.capPx));
-  const k = Math.min(1, ...widths.map((w) => (w > 0 ? c.maxWidth / w : 1)));
-  if (k < floorK - 1e-9) return { held: c.tooLong };
+  // O27: a roll-call that would fall below the floor tries line 2's drops in order; line 1 never shortens.
+  const states = isRollCall(lines)
+    ? rollCallStates(base[0]!.text, base[1]!.text).map((st) => ({ texts: [st.line1, st.line2], dropped: st.dropped }))
+    : [{ texts: base.map((l) => l.text), dropped: [] as Drop[] }];
+  let chosen: { texts: string[]; dropped: Drop[]; widths: number[]; k: number } | null = null;
+  for (const st of states) {
+    const widths = st.texts.map((t, i) => measure(t, base[i]!.capPx));
+    const k = Math.min(1, ...widths.map((w) => (w > 0 ? c.maxWidth / w : 1)));
+    if (k >= floorK - 1e-9) {
+      chosen = { ...st, widths, k };
+      break;
+    }
+  }
+  if (!chosen) return { held: c.tooLong };
+  const { widths, k } = chosen;
+  base = base.map((l, i) => ({ ...l, text: chosen!.texts[i]! }));
   // Bottom-anchored on y 1559; the 22 px gap steps with the lines (0.29 × line 2's cap).
   const out: CardClaimLine[] = [];
   let baseline: number = c.bottom;
@@ -280,7 +349,7 @@ export function planCardClaim(approved: string, measure: MeasureLine, kitCase: "
     out.unshift({ ...base[i]!, capPx, capTop, widthPx: widths[i]! * k });
     baseline = capTop - c.twoLine.gap * k;
   }
-  return { kind, lines: out, k, blockTop: out[0]!.capTop, bottom: c.bottom };
+  return { kind, lines: out, k, blockTop: out[0]!.capTop, bottom: c.bottom, dropped: chosen.dropped };
 }
 
 export type CardLinePiece = { png: Buffer; width: number; height: number; /** Row of the cap top inside png. */ capTopRow: number };

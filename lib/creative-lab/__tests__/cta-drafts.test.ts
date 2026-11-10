@@ -3,8 +3,9 @@ import { describe, it } from "node:test";
 
 import { CLAIM_FACE_BAND, CLAIM_LIMITS, NO_CLAIM_LIMITS, bandExtensionCandidates, bandPlacementOk, claimBoxRect, contrastRatio, lowContrastAgainst, redInkBox, redLineVerdict, subjectVerdict } from "../artist-card-claim.ts";
 import { RECT_45, relativeLuminance } from "../artist-card.ts";
-import { NotExportableError, SAMPLE_ROLL_CALL, WATERMARK, approvedClaim, assertExportable, watermarkFor, type WarningRow } from "../claim-approval.ts";
-import { CARD_CLAIM, inKitCase, planCardClaim, type CardClaimPlan } from "../claim-slot.ts";
+import { NotExportableError, SAMPLE_ROLL_CALL, SAMPLE_ROLL_CALL_RELEASES, WATERMARK, approvedClaim, assertExportable, watermarkFor, type WarningRow } from "../claim-approval.ts";
+import { CARD_CLAIM, DROP_ORDER, inKitCase, planCardClaim, planClaim, rollCallStates, type CardClaimPlan, type ClaimPlan } from "../claim-slot.ts";
+import { fixtureRelease as r, rollCallWords } from "../roll-call-words.ts";
 import { DEFAULT_GRADIENT_SHADOW, bandAlphaAt, renderGradientShadow } from "../overlay-gradient.ts";
 
 /** A fake measure: Bootzy-like width, 0.35 cap per character. */
@@ -47,7 +48,7 @@ describe("O23 claim slot on the artist card", () => {
   });
 
   it("too wide: every line steps down together, keeping the ratio and the bottom on 1559", () => {
-    const long = "EARLY BIRD, 1ST, 2ND, 3RD & 4TH RELEASE SOLD OUT\nFINAL RELEASE RUNNING VERY LOW NOW";
+    const long = "EARLY BIRD, 1ST, 2ND, 3RD & 4TH RELEASE SOLD OUT\nFINAL RELEASE SELLING VERY FAST NOW";
     const p = planCardClaim(long, measure) as CardClaimPlan;
     assert.ok(p.k < 1);
     assert.ok(Math.abs(p.lines[0]!.capPx / p.lines[1]!.capPx - 48 / 76) < 1e-9);
@@ -241,5 +242,78 @@ describe("the approved-claim gate and the watermark", () => {
     assert.equal(watermarkFor({ kind: "off" }), null);
     assert.throws(() => assertExportable({ watermark: WATERMARK.notApproved }), NotExportableError);
     assert.doesNotThrow(() => assertExportable({ watermark: null }));
+  });
+});
+
+describe("H28: the roll-call's line 2 and its shortening (A21, O27)", () => {
+  // Outputs of #1158's lib/releases/roll-call.ts at 63b275d on the same fixtures (run in its worktree).
+  const ladder = [
+    { position: 1, triggerKind: "state" as const, triggerValue: "on_sale", claimTemplate: "{release} live", options: {} },
+    { position: 2, triggerKind: "state_days" as const, triggerValue: "selling_fast", claimTemplate: "{release} selling fast", options: { days: 14 } },
+    { position: 3, triggerKind: "count_pct" as const, triggerValue: "75", claimTemplate: "{release} 75% sold", options: {} },
+    { position: 4, triggerKind: "count_pct" as const, triggerValue: "90", claimTemplate: "{release} 90% sold", options: { wording: "final_x" as const, alt: "final X" } },
+    { position: 5, triggerKind: "state" as const, triggerValue: "final_x", claimTemplate: "final {n}", options: {} },
+  ];
+  const now = "2026-11-10";
+  const two = [r(1, "Early bird", "sold_out"), r(2, "1st release", "sold_out")];
+
+  it("the sample is resolved from releases: line 2 is the live release at SELLING FAST, never lower", () => {
+    assert.equal(SAMPLE_ROLL_CALL, "EARLY BIRD, 1ST, 2ND & 3RD RELEASE SOLD OUT\nFINAL RELEASE SELLING FAST");
+    assert.equal(rollCallWords(SAMPLE_ROLL_CALL_RELEASES, { ladder, nowIso: now }).line2, "FINAL RELEASE SELLING FAST");
+  });
+
+  it("line 2 is the live release's furthest met rung, as #1158's generator gives it", () => {
+    const cases: [ReturnType<typeof r>, string, string][] = [
+      [r(3, "2nd release", "on_sale"), "2ND RELEASE SELLING FAST", "2ND RELEASE SELLING FAST"],
+      [r(3, "2nd release", "selling_fast", { stateAt: "2026-10-20" }), "2ND RELEASE SELLING FAST", "2ND RELEASE SELLING FAST"],
+      [r(3, "2nd release", "selling_fast", { capacity: 400, sold: 320 }), "2ND RELEASE SELLING FAST", "2ND RELEASE 75% SOLD"],
+      [r(3, "2nd release", "final_x", { remaining: 100 }), "FINAL 100 2ND RELEASE TICKETS", "FINAL 100 2ND RELEASE TICKETS"],
+    ];
+    for (const [live, plain, laddered] of cases) {
+      const w = rollCallWords([...two, live]);
+      assert.equal(w.line1, "EARLY BIRD & 1ST RELEASE SOLD OUT");
+      assert.equal(w.line2, plain);
+      assert.equal(rollCallWords([...two, live], { ladder, nowIso: now }).line2, laddered);
+    }
+  });
+
+  it("no RUNNING LOW anywhere: not in the sample, the generator's words, or any shortened state", () => {
+    const live = ["on_sale", "selling_fast", "final_x"] as const;
+    const all: string[] = [SAMPLE_ROLL_CALL];
+    for (const st of live) {
+      const w = rollCallWords([...two, r(3, "Final release", st, { remaining: 40 })], { ladder, nowIso: now });
+      all.push(w.claim, ...rollCallStates(w.line1, w.line2).flatMap((s) => [s.line1, s.line2]));
+    }
+    assert.ok(all.every((t) => !/running\s+low/i.test(t)), all.join(" | "));
+  });
+
+  it("O27: line 1 is never shortened and keeps RELEASE; line 2 takes TICKETS, NOW, then the number form", () => {
+    const line1 = "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT";
+    const states = rollCallStates(line1, "FINAL 100 3RD RELEASE TICKETS NOW");
+    assert.deepEqual(states.map((s) => s.line2), ["FINAL 100 3RD RELEASE TICKETS NOW", "FINAL 100 3RD RELEASE NOW", "FINAL 100 3RD RELEASE", "FINAL 100 3RD"]);
+    assert.deepEqual(states.map((s) => s.dropped), [[], ["TICKETS"], ["TICKETS", "NOW"], [...DROP_ORDER]]);
+    assert.ok(states.every((s) => s.line1 === line1 && /\bRELEASE\b/.test(s.line1)));
+    // Line 1 without RELEASE on the frame: line 2 never takes the number form.
+    assert.deepEqual(rollCallStates("EARLY BIRD & PRESALE SOLD OUT", "3RD RELEASE SELLING FAST").map((s) => s.line2), ["3RD RELEASE SELLING FAST"]);
+  });
+
+  it("O27 on the artist card: below the floor a roll-call takes line 2's drops before it is held; line 1 is never touched", () => {
+    const claim = "Early bird, 1st & 2nd release sold out\nFinal 100 3rd release tickets now selling";
+    // Line 2's width alone decides: as approved it is under the floor; without TICKETS it is over it.
+    const m = (t: string, cap: number) => (t.startsWith("EARLY") ? 100 : t.includes("TICKETS") ? 3000 : 1200) * (cap / 76);
+    const p = planCardClaim(claim, m) as CardClaimPlan;
+    assert.deepEqual(p.dropped, ["TICKETS"]);
+    assert.equal(p.lines[0]!.text, "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT");
+    assert.equal(p.lines[1]!.text, "FINAL 100 3RD RELEASE NOW SELLING");
+    assert.equal(p.lines[1]!.approvedText, "Final 100 3rd release tickets now selling");
+    const held = planCardClaim(claim, (t, cap) => (t.startsWith("EARLY") ? 5000 : 100) * (cap / 76));
+    assert.deepEqual(held, { held: CARD_CLAIM.tooLong });
+  });
+
+  it("the sample roll-call fits T1 and the card as approved", () => {
+    const [soldOut, live] = SAMPLE_ROLL_CALL.split("\n") as [string, string];
+    const t1 = planClaim({ kind: "roll-call", soldOut, live, approvedBy: "m", approvedAt: "2026-11-10" }) as ClaimPlan;
+    assert.deepEqual(t1.dropped, []);
+    assert.deepEqual((planCardClaim(SAMPLE_ROLL_CALL, measure) as CardClaimPlan).dropped, []);
   });
 });

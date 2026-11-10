@@ -46,7 +46,7 @@ import {
   type Size,
   type StripStats,
 } from "./artist-card.ts";
-import { CARD_CLAIM, KIT_RED, KIT_WHITE, inKitCase, planCardClaim, renderCardLine, type CardClaimPlan } from "./claim-slot.ts";
+import { CARD_CLAIM, KIT_RED, KIT_WHITE, inKitCase, isRollCall, planCardClaim, renderCardLine, rollCallStates, type CardClaimPlan } from "./claim-slot.ts";
 import { requireFont, type FontEntry } from "./kit-font.ts";
 import { renderGradientShadow, type GradientShadow } from "./overlay-gradient.ts";
 import { maskTouches, type PersonMask } from "./segment.ts";
@@ -463,6 +463,14 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
     for (let i = 0; i < Math.min(lines.length, baseCaps.length); i += 1) {
       const shown = inKitCase(lines[i]!);
       widths.set(`${shown}@${baseCaps[i]}`, await measure(shown, baseCaps[i]!));
+    }
+    // O27: a roll-call's line 2 may take drops; measure every state it can reach.
+    const shownLines = lines.map((l) => inKitCase(l));
+    if (isRollCall(shownLines)) {
+      for (const st of rollCallStates(shownLines[0]!, shownLines[1]!)) {
+        const key = `${st.line2}@${baseCaps[1]}`;
+        if (!widths.has(key)) widths.set(key, await measure(st.line2, baseCaps[1]!));
+      }
     }
     const planned = planCardClaim(input.claimText, (t, cap) => widths.get(`${t}@${cap}`) ?? 0);
     if ("held" in planned) return { ...base0, pass: false, placed: false, held: planned.held };

@@ -121,7 +121,7 @@ describe("kit fonts: the installed folder, indexed by name table", () => {
   });
 
   it("claim text is not rendered without the face", async () => {
-    const plan = planClaim({ kind: "claim", text: "Final release running low", approvedBy: "m", approvedAt: "2026-11-10" }) as ClaimPlan;
+    const plan = planClaim({ kind: "claim", text: "Final release selling fast", approvedBy: "m", approvedAt: "2026-11-10" }) as ClaimPlan;
     await assert.rejects(renderClaimLines(plan, []), (e: unknown) => e instanceof FontHeldError && /not installed/.test(e.message));
     await assert.rejects(renderClaimLines(plan, fakeIndex({ "Bootzy-Trial.otf": bootzy })), /trial font/);
   });
@@ -143,10 +143,10 @@ describe("T1 claim slot (O3, O8, O12)", () => {
   const ok = { approvedBy: "matas", approvedAt: "2026-11-10" };
 
   it("step 0: one line in O3's box, centred band, white", () => {
-    const p = planClaim({ kind: "claim", text: "final release running low", ...ok }) as ClaimPlan;
+    const p = planClaim({ kind: "claim", text: "final release selling fast", ...ok }) as ClaimPlan;
     assert.equal(p.step, 0);
     assert.equal(p.lines.length, 1);
-    assert.equal(p.lines[0]!.text, "FINAL RELEASE RUNNING LOW");
+    assert.equal(p.lines[0]!.text, "FINAL RELEASE SELLING FAST");
     assert.equal(p.lines[0]!.color, KIT_WHITE);
     assert.ok(Math.abs(p.lines[0]!.capTop - 0.7536) < 1e-9 && Math.abs(p.lines[0]!.baseline - 0.7927) < 1e-9);
     assert.equal(p.chinMax, 0.72);
@@ -172,8 +172,9 @@ describe("T1 claim slot (O3, O8, O12)", () => {
   });
 
   it("roll-call: line 1 kit red at 0.625 of line 2, line 2 white in O3's box; the chin moves above the block", () => {
-    const p = planClaim({ kind: "roll-call", soldOut: "Early bird, 1st, 2nd & 3rd release sold out", live: "Final release running low", ...ok }) as ClaimPlan;
+    const p = planClaim({ kind: "roll-call", soldOut: "Early bird, 1st, 2nd & 3rd release sold out", live: "Final release selling fast", ...ok }) as ClaimPlan;
     assert.equal(p.step, "roll-call");
+    assert.deepEqual(p.dropped, []);
     assert.equal(KIT_RED, "#FE3232");
     assert.deepEqual(p.lines.map((l) => l.color), [KIT_RED, KIT_WHITE]);
     assert.ok(Math.abs(p.lines[0]!.cap / p.lines[1]!.cap - 0.625) < 1e-9);
@@ -184,9 +185,20 @@ describe("T1 claim slot (O3, O8, O12)", () => {
     assert.ok(p.lines.every((l) => l.estWidth <= 0.8));
   });
 
+  it("O27 on T1: a roll-call too wide takes line 2's drops in order; line 1 is never shortened; past the last drop it can't shorten", () => {
+    const soldOut = "Early bird, 1st & 2nd release sold out";
+    // 33 characters × 0.35 × 0.0391 H × 1920 / 1080 = 0.803 W > 0.8; without TICKETS 25 characters, 0.608 W.
+    const p = planClaim({ kind: "roll-call", soldOut, live: "Final 100 3rd release tickets now", ...ok }) as ClaimPlan;
+    assert.deepEqual(p.dropped, ["TICKETS"]);
+    assert.deepEqual(p.lines.map((l) => l.text), ["EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT", "FINAL 100 3RD RELEASE NOW"]);
+    const never = planClaim({ kind: "roll-call", soldOut: "Early bird, 1st, 2nd, 3rd, 4th, 5th & 6th release sold out", live: "Final release selling fast", ...ok });
+    assert.ok("blocker" in never);
+    assert.match((never as { blocker: string }).blocker, /can't shorten/);
+  });
+
   it("width is estimated at 0.35 cap per character until the face renders it", () => {
-    // The measured line 2 (25 characters at 0.0396 H) spans 0.602 W; the estimate is not below it.
-    assert.ok(estimateWidth("FINAL RELEASE RUNNING LOW", 0.0396) >= 0.602);
+    // The PSD's measured line 2 (25 characters at 0.0396 H) spans 0.602 W; the estimate is not below it.
+    assert.ok(estimateWidth("X".repeat(25), 0.0396) >= 0.602);
   });
 
   it("the face band with a claim: chin ≤ 0.72 H, and the crop planner honours it", () => {

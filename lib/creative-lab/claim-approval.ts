@@ -5,6 +5,8 @@
  * claim the card is a draft: watermarked and not exportable.
  */
 
+import { fixtureRelease, rollCallWords } from "./roll-call-words.ts";
+
 export type WarningRow = {
   id: string;
   claim: string;
@@ -24,8 +26,24 @@ export const WATERMARK = {
   sample: "DRAFT · sample claim",
 } as const;
 
-/** The roll-call fixture for the sample draft (H25 (b)): the roll-call as O12 and issue 3 write it (the PSD keys "2nd & 3rd" in lower case under an All Caps style). Always "DRAFT · sample claim". */
-export const SAMPLE_ROLL_CALL = "EARLY BIRD, 1ST, 2ND & 3RD RELEASE SOLD OUT\nFINAL RELEASE RUNNING LOW";
+/**
+ * The release fixture behind the sample draft (H25 (b)): early bird, 1st, 2nd
+ * and 3rd release sold out, the final release selling fast.
+ */
+export const SAMPLE_ROLL_CALL_RELEASES = [
+  fixtureRelease(1, "Early bird", "sold_out"),
+  fixtureRelease(2, "1st release", "sold_out"),
+  fixtureRelease(3, "2nd release", "sold_out"),
+  fixtureRelease(4, "3rd release", "sold_out"),
+  fixtureRelease(5, "Final release", "selling_fast"),
+] as const;
+
+/**
+ * The sample roll-call, resolved from that fixture the way #1158's generator
+ * resolves it (A14, A21, H28): line 2 is the live release's furthest met rung,
+ * never lower than "{RELEASE} SELLING FAST". Always "DRAFT · sample claim".
+ */
+export const SAMPLE_ROLL_CALL = rollCallWords(SAMPLE_ROLL_CALL_RELEASES).claim;
 
 export type ClaimSource =
   | { kind: "approved"; id: string; claim: string; format: string | null; approvedAt: string }
