@@ -57,6 +57,7 @@ export function VoicePanel({
   const artist = lab.artists.find((item) => item.id === artistId) ?? lab.artists[0] ?? null;
   const voiceArtist = lab.voice?.artists.find((item) => item.id === artistId) ?? lab.voice?.artists[0] ?? null;
   const artistPage = angle === "artist_first_person";
+  const aboutArtist = angle === "artist";
   const page: CardVoicePage | null = artistPage ? voiceArtist : lab.voice?.promoter ?? null;
   const handle = page?.handle ?? null;
   const sampleN = page?.sampleN ?? 0;
@@ -72,8 +73,8 @@ export function VoicePanel({
   const angleName = styleLabel(angle);
   const held = artistPage && artist != null && artist.rights !== "approved";
   const pronouns = quotePronoun(artist?.pronouns);
-  const whyWide = whyLine({ artistPage, handle, sampleN, error, read, angleName, artistName: artist?.name ?? "this artist", stale: when?.stale === true, held, pronouns });
-  const whyNarrow = artistPage ? whyWide : ready ? `Promoter voice · read ${read}` : whyWide;
+  const whyWide = whyLine({ artistPage, aboutArtist, clientName: lab.clientName || "the promoter", handle, sampleN, error, read, angleName, artistName: artist?.name ?? "this artist", stale: when?.stale === true, held, pronouns });
+  const whyNarrow = artistPage || aboutArtist ? whyWide : ready ? `Promoter voice · read ${read}` : whyWide;
   const header = ready && handle ? `Sounds like @${handle}` : "House voice";
   const unread = `@${handle ?? "the page"} · not read yet`;
   const subWide = sampleN > 0
@@ -222,6 +223,8 @@ function TraitList({ rows, wide = false }: { rows: ReturnType<typeof traitRows>;
 
 function whyLine(args: {
   artistPage: boolean;
+  aboutArtist: boolean;
+  clientName: string;
   handle: string | null;
   sampleN: number;
   error: string | null;
@@ -241,6 +244,9 @@ function whyLine(args: {
   }
   if (args.sampleN > 0 && args.sampleN < VOICE_FLOOR) {
     return `@${args.handle} has ${args.sampleN} posts, fewer than ${VOICE_FLOOR}. The writer uses the house voice until there are more.`;
+  }
+  if (args.aboutArtist && !args.artistPage && args.sampleN >= VOICE_FLOOR && args.handle && !args.error && !args.stale) {
+    return `Sounds like @${args.handle} · Artist is written about ${args.artistName}, in ${args.clientName}'s voice · pairs with ${args.artistName}'s clips only`;
   }
   if (args.sampleN >= VOICE_FLOOR && args.handle) {
     if (args.stale) return `Read ${args.read} · the nightly pass has not reached it since. The corpus still counts; the sheet says when it was read.`;

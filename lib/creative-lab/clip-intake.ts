@@ -168,7 +168,9 @@ async function writeFolderState(db: ServiceRoleDb, artistId: string, userId: str
 export async function importArtistClips(
   db: ServiceRoleDb,
   args: {
-    artistId: string;
+    artistId?: string;
+    /** Venue & crowd, or an upload whose S23 answer is that folder. */
+    asPromoter?: { userId: string; rightsRef: string };
     maxNew?: number;
     now?: Date;
     listing?: ClipFolderListing;
@@ -200,7 +202,11 @@ export async function importArtistClips(
     renderProxy?: RenderProxyMaker | false;
   },
 ): Promise<ClipImportResult> {
-  const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
+  const promoter = args.asPromoter ?? null;
+  if (!promoter && !args.artistId) throw new Error("A clip needs an artist.");
+  const artistRes = promoter
+    ? { data: { user_id: promoter.userId, clip_folder_url: "", rights_doc_ref: promoter.rightsRef, clip_source: args.source ?? "file" } as Row, error: null }
+    : await db.from("creative_lab_artists").select("*").eq("id", args.artistId!).maybeSingle();
   if (artistRes.error) throw new Error(artistRes.error.message);
   const artist = artistRes.data as Row | null;
   if (!artist) throw new Error("No artist with that id.");
@@ -227,11 +233,13 @@ export async function importArtistClips(
     listed = await listing.list(folderUrl);
   } catch (err) {
     const message = folderMessage(err, shareMessage);
-    if (ownFolder) await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
+    if (ownFolder && args.artistId) await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
     return { files: [], folderError: message };
   }
 
-  const clipRes = await db.from("creative_lab_clips").select("*").eq("artist_id", args.artistId);
+  const clipRes = promoter && args.eventId
+    ? await db.from("creative_lab_clips").select("*").eq("shown_on_event_id", args.eventId).eq("owner", "promoter")
+    : await db.from("creative_lab_clips").select("*").eq("artist_id", args.artistId!);
   if (clipRes.error) throw new Error(clipRes.error.message);
   const clips = (clipRes.data ?? []) as Row[];
   const knownIds = new Set(clips.map((row) => text(row, "source_file_id")).filter(Boolean));
@@ -283,7 +291,7 @@ export async function importArtistClips(
       const aspect: RegistryAspect = measured
         ? snapRatio(measured.width, measured.height)
         : resolveRegistryAspect({ filename: name, probed: "other" });
-      const storagePath = `videos/creative-lab/${args.artistId}/${identity.contentHash}.${ext}`;
+      const storagePath = `videos/creative-lab/${promoter ? `promoter/${args.eventId ?? "event"}` : args.artistId}/${identity.contentHash}.${ext}`;
       await upload(storagePath, bytes, contentType(ext));
       const registered = await upsertRegisteredAsset(db, {
         userId,
@@ -300,7 +308,9 @@ export async function importArtistClips(
       nextNo += 1;
       const inserted = await db.from("creative_lab_clips").insert({
         user_id: userId,
-        artist_id: args.artistId,
+        artist_id: promoter ? null : args.artistId,
+        owner: promoter ? "promoter" : "artist",
+        shown_on_event_id: promoter ? args.eventId ?? null : null,
         creative_asset_id: registered.asset.id,
         clip_no: nextNo,
         source,

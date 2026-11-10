@@ -3,6 +3,8 @@
  * read the rows that are already stored. Nothing here calls Meta.
  */
 
+import { captionAllowsClip } from "./footage-owner.ts";
+
 export type VerdictChip = { label: string; tone: "win" | "lose" | "hold" | "flag" | "dash" };
 
 /** null is Holding only after a round was judged. Untested and thin stay Untested. */
@@ -398,6 +400,8 @@ export function styleLabel(style: string): string {
       return "Lineup";
     case "artist_first_person":
       return "Artist, first person";
+    case "artist":
+      return "Artist";
     case "pov":
       return "POV";
     case "scarcity":
@@ -410,13 +414,17 @@ export function styleLabel(style: string): string {
 export type MatrixCell = { clipId: string; captionId: string; on: boolean };
 
 export function roundMatrix(args: {
-  clips: readonly { id: string }[];
-  captions: readonly { id: string }[];
+  clips: readonly { id: string; owner?: "promoter" | "artist" | null; artistId?: string | null; featuredArtistIds?: readonly string[] }[];
+  captions: readonly { id: string; style?: string; mode?: string | null; artistId?: string | null; status?: string }[];
   excluded: ReadonlySet<string>;
 }): { cells: MatrixCell[]; on: number; off: number; line: string } {
   const cells: MatrixCell[] = [];
   for (const clip of args.clips) {
     for (const caption of args.captions) {
+      if (clip.owner && caption.style && !captionAllowsClip(
+        { id: caption.id, style: caption.style, mode: caption.mode, artistId: caption.artistId, status: caption.status },
+        { id: clip.id, owner: clip.owner, artistId: clip.artistId ?? null, featuredArtistIds: clip.featuredArtistIds ?? [] },
+      )) continue;
       const key = `${clip.id}:${caption.id}`;
       cells.push({ clipId: clip.id, captionId: caption.id, on: !args.excluded.has(key) });
     }

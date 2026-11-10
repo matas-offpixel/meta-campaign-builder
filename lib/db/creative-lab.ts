@@ -116,6 +116,7 @@ export type CreativeLabCardData = {
   venueName: string | null;
   eventStatus: string | null;
   clientName: string | null;
+  clientHandle?: string | null;
   clientId: string | null;
   voice: CardVoice | null;
   launchesEnabled: boolean;
@@ -185,6 +186,8 @@ export type CreativeLabCardData = {
     previewUrl: string | null;
     hasFile: boolean;
     artistName: string;
+    owner?: "promoter" | "artist";
+    featuredArtistIds?: string[];
     cleared: boolean;
     renderError: string | null;
     judged: { verdict: string | null; cost: number | null; results: number | null; metric: string | null; roundNo: number } | null;
@@ -295,8 +298,28 @@ export async function loadCreativeLabCard(
   if (eventAccount.error) throw new Error(`events: ${eventAccount.error.message}`);
   const adAccountId = text(clientAccount.data as Row | null, "meta_ad_account_id") || text(eventAccount.data as Row | null, "meta_ad_account_id") || null;
   const clientName = text(clientAccount.data as Row | null, "name") || null;
+  const clientHandle = text(clientAccount.data as Row | null, "instagram_handle") || null;
   const artistIds = new Set(artists.map((row) => text(row, "id")));
-  const clipRows = (await rows(db, "creative_lab_clips", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
+  const clipRows = (await rows(db, "creative_lab_clips", "user_id", args.userId)).filter((row) =>
+    artistIds.has(text(row, "artist_id")) || (text(row, "owner") === "promoter" && text(row, "shown_on_event_id") === args.eventId),
+  );
+  const featuresByClip = new Map<string, string[]>();
+  const featureRes = clipRows.length
+    ? await db.from("creative_lab_clip_features").select("clip_id, artist_id").in("clip_id", clipRows.map((row) => text(row, "id")))
+    : { data: [] as Row[], error: null };
+  if (featureRes.error) {
+    const code = "code" in featureRes.error ? featureRes.error.code : "";
+    if (code !== "42P01" && !/does not exist|schema cache/i.test(featureRes.error.message ?? "")) {
+      throw new Error(`creative_lab_clip_features: ${featureRes.error.message}`);
+    }
+  } else {
+    for (const row of (featureRes.data ?? []) as Row[]) {
+      const clipId = text(row, "clip_id");
+      const artistId = text(row, "artist_id");
+      if (!clipId || !artistId) continue;
+      featuresByClip.set(clipId, [...(featuresByClip.get(clipId) ?? []), artistId]);
+    }
+  }
   const renderRows = (await rows(db, "creative_lab_renders", "user_id", args.userId)).filter((row) => clipRows.some((clip) => text(clip, "id") === text(row, "clip_id")));
   const candidateRows = (await rowsIfPresent(db, "creative_lab_ig_candidates", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
   const roundIds = new Set(rounds.map((row) => text(row, "id")));
@@ -434,6 +457,7 @@ export async function loadCreativeLabCard(
     venueName: args.venueName?.trim() || null,
     eventStatus: args.eventStatus,
     clientName,
+    clientHandle,
     voice,
     launchesEnabled: labLaunchesEnabled(),
     saleDatesMissing: !String(args.presaleAt ?? "").trim() && !String(args.generalSaleAt ?? "").trim(),
@@ -531,7 +555,9 @@ export async function loadCreativeLabCard(
         storagePath: text(asset, "storage_path") || null,
         previewUrl: null,
         hasFile: Boolean(text(asset, "storage_path")),
-        artistName: text(artist, "name"),
+        artistName: text(artist, "name") || text(clientAccount.data as Row | null, "name") || "Clip",
+        owner: row.owner === "promoter" || row.owner === "artist" ? row.owner : undefined,
+        featuredArtistIds: featuresByClip.get(text(row, "id")) ?? [],
         cleared: Boolean(artist?.approved_at),
         audioMatch: row.audio_match === true ? true : row.audio_match === false ? false : null,
         cropFocusX: row.crop_focus_x == null ? 0.5 : Number(row.crop_focus_x),

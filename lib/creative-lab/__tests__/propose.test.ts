@@ -103,14 +103,14 @@ describe("proposeRound", () => {
     assert.ok(result.ads.some((ad) => ad.adName.includes("lineup")));
   });
 
-  it("a cleared artist gets both voices", async () => {
+  it("a cleared artist gets the promoter caption, and first person enters no new round", async () => {
     const fake = withVoices();
     fake.tables.creative_lab_artists[0].meta_page_id = "page-luke";
     fake.tables.creative_lab_artists[0].instagram_actor_id = "ig-luke";
     fake.tables.creative_lab_artists[0].rights_doc_ref = null;
     const result = await proposeRound(db(fake), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET });
     assert.ok(result.ads.some((ad) => ad.adName.includes("lineup")));
-    assert.ok(result.ads.some((ad) => ad.adName.includes("artist_first_person")));
+    assert.equal(result.ads.some((ad) => ad.adName.includes("artist_first_person")), false);
   });
 
   it("builds round 1 as the starting caption plus three challengers, and reuses a finished render", async () => {

@@ -16,6 +16,7 @@ import {
 } from "./folders.ts";
 import { loadLineupArtists } from "./lineup.ts";
 import { labArtistForLibrary } from "../creative-lab/lineup.ts";
+import { importArtistClips } from "../creative-lab/clip-intake.ts";
 import { folderImport } from "./pickup.ts";
 import { NO_FOLDER } from "./share.ts";
 import { ARTIST_CLIPS_KEY, PRESS_KITS_KEY } from "./tree.ts";
@@ -100,6 +101,20 @@ export async function placeUploadedFile(
       { onConflict: "event_id,drive_folder_id", ignoreDuplicates: true },
     );
     if (res.error) throw new Error(`drive_artist_folder_misses: ${res.error.message}`);
+  }
+  if (args.choice.key === "02/venue-crowd") {
+    const event = await rowById(db, "events", args.event.id);
+    await importArtistClips(db as never, {
+      asPromoter: { userId: event?.user_id || args.userId, rightsRef: "Venue & crowd" },
+      eventId: args.event.id,
+      maxNew: 1,
+      source: "file",
+      folderUrl: `drive-export:${file.id}`,
+      listing: {
+        list: async () => [{ sourceFileId: file.id, name: file.name, size: args.bytes.byteLength }],
+        download: async () => Buffer.from(args.bytes),
+      },
+    });
   }
   if (where.artistLibraryId && args.choice.artistName) {
     const event = await rowById(db, "events", args.event.id);

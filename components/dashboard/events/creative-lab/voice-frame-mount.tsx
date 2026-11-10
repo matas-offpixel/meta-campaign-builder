@@ -110,7 +110,7 @@ const lukeLab = lab({
   voice: {
     clientId: "frame-client",
     hashtagsEnabled: false,
-    promoter: page({ handle: "lukedean", samples: [], error: null, fetchedAt: null }),
+    promoter: puzzle,
     artists: [{ id: "luke", ...page({ handle: "lukedean", samples: [], error: "not a business or creator account", fetchedAt: null }) }],
   },
 });
@@ -136,11 +136,13 @@ function Strip({
   angle,
   artistId,
   open = false,
+  ownerAngles = false,
 }: {
   data: CreativeLabCardData;
-  angle: "lineup" | "artist_first_person";
+  angle: "lineup" | "artist_first_person" | "artist";
   artistId: string;
   open?: boolean;
+  ownerAngles?: boolean;
 }) {
   return (
     <LabCaptions
@@ -152,6 +154,7 @@ function Strip({
       initialArtistId={artistId}
       initialVoiceOpen={open}
       voiceContained
+      ownerAngles={ownerAngles}
     />
   );
 }
@@ -162,7 +165,7 @@ export function VoiceFrameMount({ id }: { id: string }) {
       <div data-frame-ready={id} className="relative bg-background p-4 max-[700px]:p-3">
         <div className="space-y-3 max-[700px]:hidden">
           <Strip data={puzzleLab} angle="lineup" artistId="enzo" />
-          <Strip data={enzoLab} angle="artist_first_person" artistId="enzo" />
+          <Strip data={enzoLab} angle="artist" artistId="enzo" ownerAngles />
         </div>
         <div className="hidden max-[700px]:block">
           <Strip data={puzzleLab} angle="lineup" artistId="enzo" />
@@ -194,16 +197,16 @@ export function VoiceFrameMount({ id }: { id: string }) {
   return (
     <div data-frame-ready={id} className="relative bg-background p-4 max-[700px]:p-3">
       <div className="max-[700px]:hidden">
-        <Strip data={lukeLab} angle="artist_first_person" artistId="luke" />
+        <Strip data={lukeLab} angle="artist" artistId="luke" ownerAngles />
         <p className="mt-4 font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase">Empty feed</p>
-        <Strip data={reeshyLab} angle="artist_first_person" artistId="reeshy" />
+        <Strip data={reeshyLab} angle="artist" artistId="reeshy" ownerAngles />
         <p className="mt-4 font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase">No handle</p>
-        <Strip data={benjiLab} angle="artist_first_person" artistId="benji" />
+        <Strip data={benjiLab} angle="artist" artistId="benji" ownerAngles />
         <p className="mt-4 font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase">Read, but stale</p>
-        <Strip data={phillLab} angle="artist_first_person" artistId="phill" />
+        <Strip data={phillLab} angle="artist" artistId="phill" ownerAngles />
       </div>
       <div className="hidden max-[700px]:block">
-        <Strip data={lukeLab} angle="artist_first_person" artistId="luke" />
+        <Strip data={lukeLab} angle="artist" artistId="luke" ownerAngles />
       </div>
     </div>
   );

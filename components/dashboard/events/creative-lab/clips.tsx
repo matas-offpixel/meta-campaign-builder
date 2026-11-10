@@ -42,6 +42,14 @@ import {
   resultsLabel,
   sourceBadge,
 } from "@/lib/creative-lab/surface";
+import {
+  artistHint,
+  emptyFootage,
+  featuringLine,
+  promoterHint,
+  promoterTileLabel,
+  toggleFeature,
+} from "@/lib/creative-lab/footage-owner";
 import { WhichFolder } from "@/components/dashboard/events/drive/ui";
 import { formatFileSize, preselectFolder, usualFolders, type FolderChoice } from "@/lib/drive/panel";
 import { uploadFileToCampaignAssets } from "@/lib/tiktok-wizard/campaign-asset-upload";
@@ -80,6 +88,7 @@ export function LabClips({
   pendingImportId = null,
   showTiles = true,
   audibleClipId = null,
+  layout = "status",
 }: {
   lab: CreativeLabCardData;
   busy: boolean;
@@ -94,6 +103,8 @@ export function LabClips({
   showTiles?: boolean;
   /** Frame only: this clip mounts with sound on. Nothing is stored. */
   audibleClipId?: string | null;
+  /** status keeps the Keeping / New / Can't run groups. owner groups by footage owner. */
+  layout?: "status" | "owner";
 }) {
   const groups = groupClips(lab.clips);
   const router = useRouter();
@@ -221,7 +232,14 @@ export function LabClips({
       {left ? <p className="text-sm">{left}</p> : null}
       {finding && findable.length > 0 ? <p className="text-sm text-muted-foreground">{findClipsReadingLine(readingHandle)}</p> : null}
       {findError ? <p className="text-sm text-destructive">{findError}</p> : null}
-      {showTiles ? <>
+      {showTiles && layout === "owner" ? (
+        <OwnerGroups
+          lab={lab}
+          selected={selected}
+          onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))}
+          onSave={onSave}
+        />
+      ) : showTiles ? <>
       <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} wide selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
       <ClipGroup title="New" hint="untested" clips={groups.fresh} selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
       <ClipGroup title="Can't run" clips={groups.cant} audibleClipId={audibleClipId} onCrop={() => undefined} />
@@ -280,6 +298,112 @@ export function LabClips({
       <FindClips lab={lab} busy={busy} onSave={onSave} pendingImportId={pendingImportId} />
       <RenderRows rows={lab.renders} now={lab.now} />
     </section>
+  );
+}
+
+function clipOwner(clip: CreativeLabCardData["clips"][number]): "promoter" | "artist" {
+  if (clip.owner === "promoter" || clip.owner === "artist") return clip.owner;
+  return clip.artistId ? "artist" : "promoter";
+}
+
+function OwnerGroups({
+  lab,
+  selected,
+  onToggle,
+  onSave,
+}: {
+  lab: CreativeLabCardData;
+  selected: ReadonlySet<string>;
+  onToggle: (clipId: string) => void;
+  onSave: Save;
+}) {
+  const client = lab.clientName || "Client";
+  const handle = lab.clientHandle || lab.voice?.promoter.handle || null;
+  const empty = emptyFootage(client, handle);
+  const promoter = lab.clips.filter((clip) => clipOwner(clip) === "promoter");
+  const [menu, setMenu] = useState<string | null>(null);
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="font-medium">{client} footage</p>
+        <p className="text-muted-foreground"><span className="max-[700px]:hidden">{promoterHint(false)}</span><span className="hidden max-[700px]:inline">{promoterHint(true)}</span></p>
+        {promoter.length === 0 ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-dashed border-border p-3 max-[700px]:flex-col max-[700px]:items-start">
+            <span>{empty.sentence}</span>
+            <Button type="button" onClick={() => void onSave(handle ? { action: "readVoice", pageKind: "promoter" } : { action: "readVoice", pageKind: "promoter" })}>{empty.action}</Button>
+            <span className="text-xs text-muted-foreground">{empty.drop}</span>
+          </div>
+        ) : (
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {promoter.map((clip) => {
+              const names = (clip.featuredArtistIds ?? []).map((id) => lab.artists.find((artist) => artist.id === id)?.name).filter((name): name is string => Boolean(name));
+              return (
+                <article key={clip.id} className={selected.has(clip.id) ? "rounded ring-2 ring-foreground" : ""}>
+                  <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={client} inS={clip.inS} outS={clip.outS} hasAudio={clip.hasAudio} ticked={selected.has(clip.id)} onToggle={() => onToggle(clip.id)} />
+                  <p className="mt-1 flex justify-between text-xs"><span>{sourceBadge(clip.source)}</span><span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span></p>
+                  <p className="text-xs">{promoterTileLabel(client, clip.clipNo, names)}</p>
+                  <button type="button" className="text-xs text-muted-foreground" onClick={() => setMenu(menu === clip.id ? null : clip.id)}>⋯</button>
+                  {menu === clip.id ? (
+                    <div className="mt-1 space-y-1 text-xs">
+                      <p>Whose footage is this?</p>
+                      <button type="button" onClick={() => void onSave({ action: "setClipOwner", clipId: clip.id, owner: "promoter", artistId: null })}>{client}&apos;s</button>
+                      {lab.artists.map((artist) => (
+                        <button key={artist.id} type="button" className="block" onClick={() => void onSave({ action: "setClipOwner", clipId: clip.id, owner: "artist", artistId: artist.id })}>{artist.name}&apos;s</button>
+                      ))}
+                      <p>Features…</p>
+                      {lab.artists.map((artist) => {
+                        const on = (clip.featuredArtistIds ?? []).includes(artist.id);
+                        return (
+                          <button
+                            key={`f-${artist.id}`}
+                            type="button"
+                            className="block"
+                            onClick={() => void onSave({ action: "setClipFeatures", clipId: clip.id, artistIds: toggleFeature(clip.featuredArtistIds ?? [], artist.id) })}
+                          >
+                            {on ? "✓ " : ""}{artist.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {lab.artists.map((artist) => {
+        const clips = lab.clips.filter((clip) => clipOwner(clip) === "artist" && clip.artistId === artist.id);
+        const featuring = promoter.filter((clip) => (clip.featuredArtistIds ?? []).includes(artist.id)).length;
+        if (clips.length === 0 && featuring === 0) return null;
+        return (
+          <div key={artist.id} className="owner-artist">
+            <p className="font-medium">{artist.name} footage</p>
+            <p className="text-muted-foreground"><span className="max-[700px]:hidden">{artistHint(artist.name, artist.pronouns, false)}</span><span className="hidden max-[700px]:inline">{artistHint(artist.name, artist.pronouns, true)}</span></p>
+            {featuring > 0 ? <p className="text-xs text-muted-foreground">{featuringLine(featuring, client, artist.name)}</p> : null}
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {clips.map((clip) => (
+                <article key={clip.id} className={selected.has(clip.id) ? "rounded ring-2 ring-foreground" : ""}>
+                  <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={artist.name} inS={clip.inS} outS={clip.outS} hasAudio={clip.hasAudio} ticked={selected.has(clip.id)} onToggle={() => onToggle(clip.id)} />
+                  <p className="mt-1 flex justify-between text-xs"><span>{sourceBadge(clip.source)}</span><span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span></p>
+                  <p className="text-xs">{artist.name.split(" ")[0]} #{clip.clipNo}</p>
+                  <button type="button" className="text-xs text-muted-foreground" onClick={() => setMenu(menu === clip.id ? null : clip.id)}>⋯</button>
+                  {menu === clip.id ? (
+                    <div className="mt-1 space-y-1 text-xs">
+                      <p>Whose footage is this?</p>
+                      <button type="button" onClick={() => void onSave({ action: "setClipOwner", clipId: clip.id, owner: "promoter", artistId: null })}>{client}&apos;s</button>
+                      {lab.artists.map((item) => (
+                        <button key={item.id} type="button" className="block" onClick={() => void onSave({ action: "setClipOwner", clipId: clip.id, owner: "artist", artistId: item.id })}>{item.name}&apos;s</button>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

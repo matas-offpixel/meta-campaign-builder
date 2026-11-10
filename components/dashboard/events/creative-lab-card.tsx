@@ -9,6 +9,7 @@ import { LabLineup } from "@/components/dashboard/events/creative-lab/lineup";
 import { LabRound } from "@/components/dashboard/events/creative-lab/round";
 import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
+import { nextFootageLine } from "@/lib/creative-lab/footage-owner";
 import { labNextStep } from "@/lib/creative-lab/lineup";
 import { clipSelectionStrip, effectiveSelection, emptySelection } from "@/lib/creative-lab/selection";
 import { clipBucket, roundStripState } from "@/lib/creative-lab/surface";
@@ -24,7 +25,7 @@ async function post(eventId: string, body: Record<string, unknown>): Promise<{ o
 }
 
 
-export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null }: { lab: CreativeLabCardData; quoteMode?: boolean; driveFolderId?: string | null }) {
+export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, presentation = "legacy" }: { lab: CreativeLabCardData; quoteMode?: boolean; driveFolderId?: string | null; presentation?: "legacy" | "owner" }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,7 +67,12 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null }
   const running = newest?.status === "launched" ? newest : null;
   const waiting = lab.captions.some((caption) => caption.status === "proposed");
   const approved = lab.captions.some((caption) => caption.status === "approved");
-  const next = labNextStep({
+  const waitingLineup = lab.captions.filter((caption) => caption.style === "lineup" && caption.status === "proposed").length;
+  const promoterSelected = (lab.clips ?? []).some((clip) => clip.owner === "promoter");
+  const gap = presentation === "owner" && waitingLineup > 0 && !promoterSelected
+    ? { text: nextFootageLine(lab.clientName || "the promoter", waitingLineup), verb: lab.clientHandle || lab.voice?.promoter.handle ? `Find clips on @${(lab.clientHandle || lab.voice?.promoter.handle || "").replace(/^@/, "")}` : `Add ${lab.clientName || "the client"}'s Instagram`, target: "lab-clips" as const }
+    : null;
+  const next = gap ?? labNextStep({
     lineupCount: lab.lineupRows.length,
     captionsWaiting: waiting,
     roundReady: approved && lab.clips.length > 0 && !running,
@@ -114,8 +120,8 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null }
         />
         {headlinerNote ? <p className="text-muted-foreground">{headlinerNote}</p> : null}
         <LabLineup eventId={lab.eventId} rows={lab.lineupRows} artists={lab.artists} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
-        <LabClips lab={lab} busy={busy} driveFolderId={driveFolderId} onSave={(body) => run(body)} onError={setError} />
-        <LabCaptions lab={lab} busy={busy} quoteMode={quoteMode} onSave={(body) => run(body)} />
+        <LabClips lab={lab} busy={busy} driveFolderId={driveFolderId} layout={presentation === "owner" ? "owner" : "status"} onSave={(body) => run(body)} onError={setError} />
+        <LabCaptions lab={lab} busy={busy} quoteMode={quoteMode} ownerAngles={presentation === "owner"} onSave={(body) => run(body)} />
         <LabRound lab={lab} busy={busy} onSave={(body) => run(body)} onLaunch={launchRound} />
       </div>
     </details>

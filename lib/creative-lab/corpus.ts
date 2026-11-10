@@ -45,6 +45,11 @@ export const CORPUS: Record<CaptionStyle, readonly CorpusExample[]> = {
     { overlay: "This is NX Loves. Next: Azyr b2b Partiboi69, Robbie Doherty, Rudimental & more", primaryText: "Which night are you coming to?" },
     { overlay: "Prospa at NX last season. This season: Interplanetary Criminal, Schak, East End Dubs and more.", primaryText: "Who's coming?" },
   ],
+  artist: [
+    { overlay: "Luke Dean set to bring this energy to Circuit to close out the year", primaryText: "Who's coming?" },
+    { overlay: "Enzo Siragusa is playing Circuit this Friday.", primaryText: "Who's in?" },
+    { overlay: "Luke Dean back at Circuit.", primaryText: "Who's grabbing a ticket?" },
+  ],
   artist_first_person: [
     { overlay: "London! Can't wait to be back in the capital for Junction 2 on July 26th", primaryText: "Who's coming with?" },
     { overlay: "London. See you under The Bridge. Junction 2, July 26th", primaryText: "Who's in?" },

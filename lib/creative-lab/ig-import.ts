@@ -8,6 +8,7 @@ import { snapRatio } from "../clients/asset-queue/aspect-detect.ts";
 import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset } from "../creatives/asset-registry.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { LOW_QUALITY_AFTER_CROP, cropWindow } from "../../src/remotion/caption-style/profile.ts";
+import { ownerFromImport } from "./footage-owner.ts";
 import { frameSampleTimes, settleOverlayVerdict, type OverlayCheck, type OverlayFrame } from "./overlay-check.ts";
 
 type Row = Record<string, unknown>;
@@ -213,14 +214,28 @@ async function insertClip(
   args: { userId: string; artist: Row; candidate: Row; assetId: string; duration: number | null; check: OverlayCheck | null; now: Date },
 ): Promise<string> {
   const artistId = text(args.artist, "id");
-  const clips = await db.from("creative_lab_clips").select("clip_no").eq("artist_id", artistId);
+  const clientId = text(args.artist, "client_id");
+  const client = clientId
+    ? await db.from("clients").select("instagram_handle").eq("id", clientId).maybeSingle()
+    : { data: null, error: null };
+  if (client.error) throw new Error(client.error.message);
+  const derived = ownerFromImport({
+    kind: "instagram",
+    handle: text(args.candidate, "username") || text(args.artist, "ig_username"),
+    clientHandle: text(client.data as Row | null, "instagram_handle"),
+    artistId,
+  });
+  const clips = derived.owner === "promoter"
+    ? await db.from("creative_lab_clips").select("clip_no").eq("owner", "promoter").is("artist_id", null)
+    : await db.from("creative_lab_clips").select("clip_no").eq("artist_id", artistId);
   if (clips.error) throw new Error(clips.error.message);
   const nextNo = Math.max(0, ...((clips.data ?? []) as Row[]).map((row) => Number(row.clip_no) || 0)) + 1;
   const duration = await sourceDuration(db, args.assetId, args.duration);
   const trimmed = duration != null && duration > TRIM_SECONDS;
   const inserted = await db.from("creative_lab_clips").insert({
     user_id: args.userId,
-    artist_id: artistId,
+    artist_id: derived.artistId,
+    owner: derived.owner,
     creative_asset_id: args.assetId,
     clip_no: nextNo,
     source: "instagram",

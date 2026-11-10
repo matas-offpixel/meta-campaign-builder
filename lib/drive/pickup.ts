@@ -73,6 +73,7 @@ type Located =
   | { kind: "kit"; row: MapRow }
   | { kind: "artist"; row: MapRow; libraryArtistId: string }
   | { kind: "artist_folder"; row: MapRow; folderId: string; folderName: string }
+  | { kind: "venue"; row: MapRow }
   | { kind: "elsewhere" };
 
 /** The default import: the existing folder import over a one-file listing of this Drive file. */
@@ -121,6 +122,7 @@ async function locate(file: DriveFile, index: ReadonlyMap<string, MapRow>, getFi
     const row = index.get(cursor);
     if (row) {
       if (row.key === "01" || row.key === BRAND_KIT_KEY) return { kind: "kit", row };
+      if (row.key === "02/venue-crowd") return { kind: "venue", row };
       if (row.key.startsWith(`${ARTIST_CLIPS_KEY}/`)) return { kind: "artist", row, libraryArtistId: row.key.slice(ARTIST_CLIPS_KEY.length + 1) };
       if (row.key === ARTIST_CLIPS_KEY && below) return { kind: "artist_folder", row, folderId: below.id, folderName: below.name };
       return { kind: "elsewhere" };
@@ -229,6 +231,23 @@ export async function runDrivePickup(
     }
 
     if (!event) return skip("elsewhere");
+    if (where.kind === "venue") {
+      const imported = await importArtistClips(db as unknown as ServiceRoleDb, {
+        asPromoter: { userId: event.user_id, rightsRef: "Venue & crowd" },
+        eventId: event.id,
+        maxNew: 1,
+        source: "file",
+        folderUrl: `drive-export:${file.id}`,
+        listing: {
+          list: async () => [{ sourceFileId: file.id, name: file.name, size: file.size ?? 0 }],
+          download: async () => Buffer.from(await drive.download(file.id)),
+        },
+      });
+      for (const row of imported.files) {
+        result.clips.push({ fileId: file.id, name: row.name, eventId: event.id, artist: "promoter", outcome: row.outcome, reason: row.reason });
+      }
+      return;
+    }
     const lineup = await lineupOf(event.id);
     let artist: LineupArtist | undefined;
     if (where.kind === "artist") {
