@@ -40,4 +40,4 @@ Round 3: the 10px / 12px above Proven elsewhere is the block's own padding, and 
 
 Round 4: that 10px is added, not taken from the line spacing. The label keeps 3px under its glyphs, so the line below stays 16px, and the wrapped voice line keeps a 13px row gap, so the chip-to-line gap stays 12px. CLV2-1280 grows by 6px and CLV3-1280 by 3px. Ubuntu pair 42820102839 / 42820114265.
 
-Round 5: those two wide gaps were still 3px short of the record, so the label keeps 6px under its glyphs and the wrapped line keeps a 16px row gap. CLV2-1280 grows by another 6px (1280×1046 → 1280×1052) and CLV3-1280 by another 3px (1280×523 → 1280×526). The 393 frames stay on the round-4 spacing. Ubuntu pair 42823927216 / 42823939216, both 0. CLV1, CLV4 and both 393 frames are unchanged.
+Round 5: those two wide gaps were still 3px short of the record, so the label keeps 6px under its glyphs and the wrapped line keeps a 16px row gap. CLV2-1280 grows by another 6px and CLV3-1280 by another 3px. The 393 frames stay on the round-4 spacing.
