@@ -3438,9 +3438,45 @@ export type Database = {
           },
         ]
       }
-      creative_lab_clips: {
+      creative_lab_clip_features: {
         Row: {
           artist_id: string
+          clip_id: string
+          set_at: string | null
+          set_by: string | null
+        }
+        Insert: {
+          artist_id: string
+          clip_id: string
+          set_at?: string | null
+          set_by?: string | null
+        }
+        Update: {
+          artist_id?: string
+          clip_id?: string
+          set_at?: string | null
+          set_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_clip_features_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clip_features_clip_id_fkey"
+            columns: ["clip_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_clips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_clips: {
+        Row: {
+          artist_id: string | null
           audio_match: boolean | null
           audio_status: string
           clip_no: number
@@ -3453,6 +3489,9 @@ export type Database = {
           fetched_at: string | null
           id: string
           ig_comments_count: number | null
+          owner: string | null
+          owner_set_at: string | null
+          owner_set_by: string | null
           ig_followers_at_fetch: number | null
           ig_like_count: number | null
           ig_posted_at: string | null
@@ -3464,11 +3503,12 @@ export type Database = {
           rights_ref: string
           source: string
           source_file_id: string | null
+          shown_on_event_id: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
-          artist_id: string
+          artist_id?: string | null
           audio_match?: boolean | null
           audio_status?: string
           clip_no: number
@@ -3487,16 +3527,20 @@ export type Database = {
           in_s?: number | null
           out_s?: number | null
           overlay_check?: Json | null
+          owner?: string | null
+          owner_set_at?: string | null
+          owner_set_by?: string | null
           permalink?: string | null
           render_asset_id?: string | null
           rights_ref: string
           source: string
           source_file_id?: string | null
+          shown_on_event_id?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
-          artist_id?: string
+          artist_id?: string | null
           audio_match?: boolean | null
           audio_status?: string
           clip_no?: number
@@ -3515,11 +3559,15 @@ export type Database = {
           in_s?: number | null
           out_s?: number | null
           overlay_check?: Json | null
+          owner?: string | null
+          owner_set_at?: string | null
+          owner_set_by?: string | null
           permalink?: string | null
           render_asset_id?: string | null
           rights_ref?: string
           source?: string
           source_file_id?: string | null
+          shown_on_event_id?: string | null
           updated_at?: string
           user_id?: string
         }

@@ -13,6 +13,7 @@ Promoter copy pairs only with the promoter's own footage, and an Artist caption 
 ## Scope / files
 
 - `supabase/migrations/226_creative_lab_footage_owner.sql` (written, not applied)
+- `lib/db/database.types.ts` — the new columns and `creative_lab_clip_features`, added by hand so the schema guard can see them
 - `lib/creative-lab/footage-owner.ts` and the import, pairing, and round paths
 - Creative Lab clips, captions, and the event page
 - `scripts/lab-unpair-crossed.mts`
