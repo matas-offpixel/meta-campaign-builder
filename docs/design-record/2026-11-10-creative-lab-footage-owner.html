@@ -77,6 +77,7 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 <div class="log"><b>Changelog</b>
 <ul>
 <li><b>Issue 1 · 10 Nov 2026.</b> W1 every clip has an owner, promoter or artist, derived at import. W2 the clips are grouped by owner. W3 angles by owner; the generated "Artist, first person" angle becomes "Artist", third person. W4 pairing never crosses owners. W5 the empty state and how promoter footage gets in. W6 the approved quote pairs only with its artist's own clips, on its cleared channels. W7 what happens to captions already proposed. CLW1–CLW3. Hand-back HW1–HW7.</li>
+<li><b>Issue 1, amended before merge · 10 Nov 2026 (Matas).</b> W3: "Artist, first person" stops being generated — now Matas's ruling, not the design thread's reading. W8 new: promoter footage that features one of the event's artists may also carry that artist's Artist caption and approved quote. W4 and W6 follow. HW8.</li>
 </ul></div>
 
 <h2>Data note — Puzzle 4th Birthday, read from production 10 Nov</h2>
@@ -104,11 +105,11 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 <ul>
 <li><b>Promoter footage</b> takes <b>Lineup, POV and Scarcity</b> (the rail's "Event announcement" maps to Lineup). These are about the night, so they need the night's footage.</li>
 <li><b>Artist footage</b> takes <b>Artist</b> — artist-focused, third person, in the promoter's voice ("Luke Dean set to bring this energy to Circuit to close out the year") — and that artist's <b>approved quote</b>, verbatim (quote mode, Q1–Q9).</li>
-<li><b>"Artist, first person" is no longer generated.</b> First-person words are the artist's own: they come approved and provided, through quote mode. The generator's Angle row becomes <b>Lineup · Artist · POV · Scarcity</b>, and Artist writes third person.</li>
+<li><b>"Artist, first person" is no longer generated</b> — Matas, 10 Nov: <i>"artist captions only approved captions from artist team"</i>. First-person words are the artist's own: they come approved and provided, through quote mode. The generator's Angle row becomes <b>Lineup · Artist · POV · Scarcity</b>, and Artist writes third person.</li>
 <li>Voice (V-rulings): every generated angle now reads the promoter's page — the promoter is the one speaking, including about the artist. The artist's own corpus is no longer a writer's source; it is kept, and the voice chip's sheet still shows it.</li>
 <li>An Artist caption names its artist; it is written for, and only pairs with, that artist (W4).</li>
 </ul></td></tr>
-<tr><td>W4 Pairing never crosses</td><td>A caption pairs only with clips its angle allows: Lineup, POV and Scarcity with promoter clips; an Artist caption or a quote with its own artist's clips. Pair with's three modes (S6) read only those: <b>Selected clips</b> spreads each caption across its allowed selected clips; <b>Best of selected</b> picks the best of its allowed selected clips; <b>Each selected</b> makes one preview per allowed pair, never a crossed one. A caption with no allowed clip selected gets no preview and one line in its place (W5). Rounds (S7) are per owner: the promoter's round has its selected promoter clips down and its Lineup / POV / Scarcity captions across; an artist's round has that artist's selected clips down and that artist's Artist captions and quote across. A crossed cell never exists, so it is never "off" and never counted.</td></tr>
+<tr><td>W4 Pairing never crosses</td><td>A caption pairs only with clips its angle allows: Lineup, POV and Scarcity with promoter clips; an Artist caption or a quote with its own artist's clips, and with promoter clips that feature that artist (W8). Pair with's three modes (S6) read only those: <b>Selected clips</b> spreads each caption across its allowed selected clips; <b>Best of selected</b> picks the best of its allowed selected clips; <b>Each selected</b> makes one preview per allowed pair, never a crossed one. A caption with no allowed clip selected gets no preview and one line in its place (W5). Rounds (S7) are per owner: the promoter's round has its selected promoter clips down and its Lineup / POV / Scarcity captions across; an artist's round has that artist's selected clips down and that artist's Artist captions and quote across. A crossed cell never exists, so it is never "off" and never counted.</td></tr>
 <tr><td>W5 No promoter footage</td><td>
 <ul>
 <li>The "{Client} footage" group opens on its empty state (rule 8), one sentence and one action: <b>"No Puzzle footage yet. Lineup, POV and Scarcity need it."</b> · <b>Find clips on @puzzle</b> (the existing Find clips on the client's handle; candidates arrive as candidate tiles and Add brings them in as promoter clips) · and the muted line "or drop them in 02 Source / Venue &amp; crowd" (the folder import, S22; a clip there imports as promoter footage).</li>
@@ -117,10 +118,10 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 <li>The strip's Next line (F1) points at the gap when no caption can be paired: "Add Puzzle footage — 20 Lineup captions are waiting for it."</li>
 <li>A client with no Instagram handle on file gets "Add {Client}'s Instagram" instead of Find clips, as the artist row does.</li>
 </ul></td></tr>
-<tr><td>W6 The approved quote</td><td>An artist's quote pairs only with that artist's own clips — never with promoter footage and never with another artist's (W4). It runs only on the channels it was cleared for:
+<tr><td>W6 The approved quote</td><td>An artist's quote pairs only with that artist's own clips and with promoter clips that feature that artist (W8) — never with other promoter footage and never with another artist's (W4). It runs only on the channels it was cleared for:
 <ul>
 <li>The quote's clearance (who on the artist's side approved it, and when, kept on hover per rule 5) may name channels. When it does, those channels are the limit. When it doesn't, the artist's rights chip decides, as Q4: "Promoter page only" holds it; "✓ Cleared — artist channels too" lets it run from the promoter's page and the artist's own.</li>
-<li>Luke Dean's quote (typed verbatim, approved by his team on 9 Nov, no channels named) pairs with his 21 clips and, with his chip at "✓ Cleared — artist channels too", may run from Puzzle's page and his own. Its feed post adds one line: "pairs with Luke Dean's clips only".</li>
+<li>Luke Dean's quote (typed verbatim, approved by his team on 9 Nov, no channels named) pairs with his 21 clips and, with his chip at "✓ Cleared — artist channels too", may run from Puzzle's page and his own. Its feed post adds one line: "pairs with Luke Dean's clips only" — or, once a Puzzle clip features him, "pairs with Luke Dean's clips and Puzzle clips that feature him".</li>
 <li>A quote is never edited, shortened or re-cased by the Lab (Q-rulings unchanged).</li>
 </ul></td></tr>
 <tr><td>W7 Captions already proposed</td><td>The caption is kept; the crossed pairing goes.
@@ -128,6 +129,19 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 <li>A proposed caption paired with a clip its angle doesn't allow is <b>unpaired</b>: the pairing is cleared, the caption stays proposed, and its card says once "Unpaired — Lineup needs Puzzle footage." On Puzzle 4th Birthday that is the 11 Lineup captions on Enzo's clips; they join the 9 already unpaired.</li>
 <li>Existing generated "Artist, first person" captions (none on this event) are <b>retired</b>: kept, not ✓-able, with "First-person words come from the artist — use Quote." A retired caption already ✓'d stays ✓'d but enters no new round.</li>
 <li>Nothing is hidden and nothing is deleted. A round that ran keeps every pairing it ran with (S5); a render that exists stays. Only new previews and rounds follow W4.</li>
+</ul></td></tr>
+</table>
+
+<h2>W8 · Promoter footage that features an artist (Matas, 10 Nov)</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>W8 Features {artist}</td><td>Promoter footage that shows one of the event's artists — Luke Dean on stage at a past Puzzle night — is still promoter footage, and it may <b>also</b> carry that artist's Artist caption and approved quote.
+<ul>
+<li><b>How it's marked.</b> By hand, never derived (no face recognition, as O22). A promoter tile's ⋯ gains <b>"Features…"</b>, listing the event's artists, each toggled on or off; more than one may be on (a back-to-back set). It saves with who and when (rule 5). An artist-owned clip has no Features choice — it is already that artist's.</li>
+<li><b>Where it sits.</b> In the "{Client} footage" group only — one tile, never duplicated. Its name gains the artist: "Puzzle #3 · Luke Dean". Each featured artist's group adds one muted line under its header: "and {n} Puzzle clip(s) that feature {artist}".</li>
+<li><b>What it carries.</b> The promoter angles (Lineup, POV, Scarcity), plus each featured artist's Artist captions and approved quote. Never another artist's.</li>
+<li><b>Rounds.</b> It can join both: the promoter's round and each featured artist's round, as a row in each, when it is selected (one tick, S1, for all of them). Each pairing exists once, so a render is made and counted once per pairing.</li>
+<li><b>Rights.</b> Still from the clip's source (W1): Puzzle footage runs from Puzzle's page. Featuring an artist adds no clearance and removes none. A pairing runs only on channels both its clip and its caption are cleared for — Luke Dean's quote on a Puzzle clip runs from Puzzle's page, and on his own channels only if the clip's rights allow it there too.</li>
 </ul></td></tr>
 </table>
 
@@ -242,6 +256,7 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 <tr><td>HW5 Empty state and Next</td><td>W5: the promoter group's empty state, Find clips on the client's handle (or Add {Client}'s Instagram), the Venue &amp; crowd import as promoter, the why line, the dashed feed post, the strip's Next line.</td><td>the client's handle; the Drive tree</td><td>CLW1, CLW3 as drawn for Puzzle 4th Birthday's data</td></tr>
 <tr><td>HW6 The quote</td><td>W6: a quote pairs only with its artist's clips; channels from its clearance if it names them, else the rights chip (Q4); the pairing line on the feed post.</td><td><code>creative_lab_captions</code> quote rows</td><td>Luke Dean's quote pairs with his 21 clips only and reads "pairs with Luke Dean's clips only"</td></tr>
 <tr><td>HW7 Existing captions</td><td>W7: unpair crossed proposed captions (one data fix, written, not applied); retire generated first-person captions; rounds and renders untouched.</td><td><code>creative_lab_captions</code></td><td>dry run: 11 Puzzle Lineup captions unpaired, 0 others changed; no row deleted</td></tr>
+<tr><td>HW8 Features {artist}</td><td>W8: a "features" list of event artists on promoter clips, set from ⋯ "Features…" with who and when; the tile name and the artist group's line; pairing and rounds per W4 and W8; rights from the source, a pairing only on channels both sides allow.</td><td><code>creative_lab_clips</code> (a features list)</td><td>unit tests on a fixture promoter clip featuring Luke Dean: it pairs with Lineup, Luke's Artist caption and his quote, never Enzo's; it is a row in the promoter round and in Luke's round; its rights are the source's. No frame: no such clip exists today</td></tr>
 </table>
 
 <h2>Invented in this record</h2>
@@ -249,8 +264,7 @@ table.t td:first-child{font-weight:600;white-space:nowrap}
 <li>Grouping as the owner's mark (no new badge); the group headers and their lines; "{Client} #{n}" for promoter tiles.</li>
 <li>"Whose footage is this?" and its two choices; the empty-state sentence, the why line, "Needs {Client} footage", "Unpaired — {angle} needs {Client} footage.", "First-person words come from the artist — use Quote.", "pairs with {artist}'s clips only", and the strip's Next sentence.</li>
 <li>Venue &amp; crowd as the promoter folder (the tree has no "Promoter" folder; S18 is not changed).</li>
-<li>Removing "Artist, first person" from generation follows from Matas's note that first-person captions come approved and provided; he can overrule it on this PR.</li>
-<li>Not ruled: promoter footage that features one of the event's artists (a previous Puzzle night with Luke Dean on stage). Today it is promoter-owned and takes only the promoter's angles; whether it may also carry that artist's Artist caption is Matas's call when such clips exist.</li>
+<li>W8's "Features…" choice, the tile name "{Client} #{n} · {artist}", the artist group's line, and "a pairing runs only on channels both sides allow".</li>
 </ul>
 
 <h2>Frames for CI</h2>
