@@ -35,7 +35,7 @@ import { DOUBLE_SPACE, doubleSpaceRun, photoT2Stamp, saveExperienceLine } from "
 import { detectFaces } from "../lib/creative-lab/face-detect.ts";
 import { fontsDir, indexFonts, resolveFont } from "../lib/creative-lab/kit-font.ts";
 import { releaseNamesOf } from "../lib/creative-lab/t1-video.ts";
-import { T2P_INVENTED, dataNoteChecks, dataNoteWord, photoDetails, photoGroundAllowed, type PhotoFormat } from "../lib/creative-lab/t2-photo.ts";
+import { T2P_DATA_NOTE, T2P_INVENTED, dataNoteChecks, dataNoteWord, photoDetails, photoGroundAllowed, type PhotoFormat } from "../lib/creative-lab/t2-photo.ts";
 import { renderPhotoStill, type PhotoStillResult } from "../lib/creative-lab/t2-photo-render.ts";
 
 const argv = process.argv.slice(2);
@@ -164,6 +164,9 @@ for (const v of versions) {
     say(`| ${v.id} | ${fmt} | ${r.report.crop ?? "–"} | ${r.report.scale?.toFixed(2) ?? "–"}× | ${s ? `+${s.top * 10} / +${s.centre * 10} / +${s.bottom * 10}` : "–"} | ${red} | ${r.report.layouts[fmt] ? dataNoteWord(dataNoteChecks(r.report.layouts[fmt]!)) : "–"} | ${r.held ?? `passes, "${stamp}"`} | ${r.images[fmt] ? name : "–"} |`);
   }
   for (const t of r.report.tried) say(`- ${v.id}: ${t}`);
+  // O91: the claim's width logged against Matas's example (582 px for STUDENT TICKETS SELLING FAST), not judged.
+  const claimLine = r.report.layouts["9:16"]?.block.lines.find((l) => l.role === "claim" && l.color === "white");
+  if (claimLine) say(`- ${v.id}: claim "${claimLine.text}" ${Math.round(claimLine.widthPx)} px wide at a ${Math.round(claimLine.capPx)} px cap, +25 (the example's claim: ${T2P_DATA_NOTE.claim.right - T2P_DATA_NOTE.claim.left} px at 54 px; O91 logs it, never fails on it)`);
 }
 say();
 say("## Invented (T2P_INVENTED)");

@@ -487,10 +487,31 @@ describe("issue 12 · H86 the data note (Matas's example, measured), to within 0
       within(l.widthPx, note.right - note.left, tolX * 2, `${l.text} width`);
       within(540, (note.left + note.right) / 2, tolX, `${l.text} centre`);
     });
-    // The claim is the one box that misses: the note's 582 px at a 54 px cap matches no Bootzy tracking (reported for design).
+    // O91: the claim stays Bootzy at +25. Its width is logged against the example's 582 px, not judged; its cap height and centring are.
     const claim = L.block.lines.find((l) => l.role === "claim")!;
-    assert.ok(Math.abs(claim.widthPx - (N.claim.right - N.claim.left)) > tolX * 2, `claim ${claim.widthPx}`);
-    assert.ok(claim.widthPx < N.claim.right - N.claim.left);
+    within(claim.capPx, N.claim.bottom - N.claim.top, tolY, "claim cap height");
+    within(540, (N.claim.left + N.claim.right) / 2, tolX, "claim centre");
+    assert.equal(T2P.tracking.claim, 25);
+    // O90: the date / venue lines at tracking 0, each line's cap top, baseline and text frame within 0.005 (checked above on the
+    // stand-in too). By ink they start at x 121 here and at 131 in the example: O86 places them by the text frame, side-bearing aside.
+    assert.equal(T2P.tracking.details, 0);
+    L.details.forEach((d, i) => {
+      within(d.capTop, N.details.capTops[i]!, tolY, `${d.text} top (Bootzy)`);
+      within(d.capTop + d.capPx, N.details.bottoms[i]!, tolY, `${d.text} bottom (Bootzy)`);
+      within(d.left, N.details.left, tolX, `${d.text} text frame (Bootzy)`);
+    });
+  });
+
+  it("O90: the poster-panel T2 keeps its +5 on the details; the photo ground sets them at 0", async () => {
+    const { PUZZLE_FLOATING_T2 } = await import("../overlay-kits.ts");
+    assert.equal(PUZZLE_FLOATING_T2.tracking.details, 5);
+    assert.equal(T2P.tracking.details, 0);
+    const seen: number[] = [];
+    planPhotoMaster(PUZZLE, "still", (text, cap, tracking) => {
+      if (text === "SUNDAY 27TH DECEMBER") seen.push(tracking);
+      return measure(text, cap);
+    });
+    assert.deepEqual([...new Set(seen)], [0]);
   });
 });
 

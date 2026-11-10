@@ -41,15 +41,15 @@ export const T2P = {
   /** O85: the experience line's last baseline to the claim's first cap top, as a share of the experience line's cap. */
   claimGap: 0.34,
   /**
-   * Tracking (thousandths of an em), read from the example's measured widths:
-   * the experience line and the lineup are set at 0 (Bootzy at 0 inks
-   * SOUTHAMPTON'S 481 px against the note's 475, BIGGEST HOUSE  PARTY 682
-   * against 677, CAM STOCKMAN 232 against 231; the kit's +25 / +5 miss).
-   * The details keep the kit's +5 (the note gives no width). The claim keeps
-   * the kit's +25: the note's 582 px for STUDENT TICKETS SELLING FAST at a
-   * 54 px cap matches no Bootzy tracking (453 at 0, 505 at +25) — reported.
+   * Tracking (thousandths of an em), ruled in issue 13: the experience line,
+   * the lineup (read from the example's widths: Bootzy at 0 inks SOUTHAMPTON'S
+   * 481 px against the note's 475, BIGGEST HOUSE  PARTY 682 against 677, CAM
+   * STOCKMAN 232 against 231) and, by O90, the date / venue lines at 0. The
+   * poster-panel T2 keeps the kit's +5 (overlay-kits.ts). O91: the claim stays
+   * Bootzy at +25; its width is logged against the example's 582 px, never
+   * judged (453 px at 0, 505 at +25 on STUDENT TICKETS SELLING FAST).
    */
-  tracking: { experience: 0, lineup: 0, details: 5, claim: 25 },
+  tracking: { experience: 0, lineup: 0, details: 0, claim: 25 },
   /** O85: the width limit on every 9:16, still or clip: x 120–960. */
   widthPx: 840,
   /** O87: the block's centre on a still. */
@@ -657,11 +657,11 @@ export function assignPhotoT2(existing: readonly TemplateUse[], next: TemplateUs
 
 // ─── Invented ───────────────────────────────────────────────────────────────
 
-export const T2P_INVENTED: readonly { value: string; ruling: "invented in a record" | "invented here" | "measured" }[] = [
+export const T2P_INVENTED: readonly { value: string; ruling: "invented in a record" | "invented here" | "measured" | "ruled" }[] = [
   { ruling: "measured", value: "issue 12 (O85–O87): every still size and position, from Matas's example on its 1080 × 1920 file (T2P_DATA_NOTE)" },
   { ruling: "invented in a record", value: "issue 12: the step sizes below step 0 (T2's ratios: 0.0485, 0.042 H); the clip's details on 0.65 H and the block between; the two-spaces ask and its words" },
   { ruling: "invented in a record", value: "issue 11 (still standing): the centre band and its 0.02 / 0.06 H; the 40-character limit, the writer's word bans and every new line; \"& MORE\" from the facts' flag" },
-  { ruling: "invented here", value: "tracking read from the example's widths: 0 on the experience line and the lineup; the details keep the kit's +5; the claim keeps +25 although the note's claim (582 px at a 54 px cap) matches no Bootzy tracking — for design" },
+  { ruling: "ruled", value: "issue 13: tracking 0 on the experience line, the lineup and the date / venue lines (O90); the claim Bootzy at +25, its width logged against the example's 582 px, not judged, its cap height and centring still checked (O91); the poster-panel T2 keeps +5" },
   { ruling: "invented here", value: "O88: one ask per save, naming the first run; Make it one turns every run in the line into one space; a line saved with Keep isn't asked about again" },
   { ruling: "invented here", value: "the break keeps the line's own spacing (a typed run of spaces stays in the line it falls in)" },
   { ruling: "invented here", value: "a typed or ladder-given break is kept on the experience line and the claim; a one-line claim too wide for the limit breaks at O28's most even break at the same step before any drop" },
