@@ -164,6 +164,42 @@ describe("instagram import", () => {
     assert.equal(called.steps.length, 0);
   });
 
+  it("imports a client's candidate as promoter footage for the event", async () => {
+    const fake = fakeDb({
+      creative_lab_ig_candidates: [{
+        id: "cand-1",
+        user_id: USER,
+        artist_id: null,
+        client_id: "client-puzzle",
+        username: "puzzleofficialuk",
+        ig_media_id: "media-1",
+        permalink: "https://www.instagram.com/reel/media-1/",
+        likes: 10,
+        comments: 2,
+        has_file: true,
+        file_source: "own_edge",
+        status: "candidate",
+        asset_id: null,
+        clip_id: null,
+        overlay_check: null,
+      }],
+      clients: [{ id: "client-puzzle", user_id: USER, instagram_handle: "puzzleofficialuk" }],
+      creative_lab_clips: [],
+      creative_assets: [],
+    });
+    const result = await importIgCandidate(fake as unknown as ServiceRoleDb, {
+      candidateId: "cand-1",
+      userId: USER,
+      eventId: "evt-puzzle",
+      ...deps({ width: 1080, height: 1920, durationInSeconds: 12 }),
+    });
+    assert.equal(result.outcome, "imported");
+    const clip = fake.tables.creative_lab_clips[0]!;
+    assert.equal(clip.owner, "promoter");
+    assert.equal(clip.artist_id, null);
+    assert.equal(clip.shown_on_event_id, "evt-puzzle");
+  });
+
   it("re-queues a finished render when the crop moves and leaves a running one", async () => {
     const fake = seed({});
     fake.tables.creative_lab_clips.push({ id: "clip-1", user_id: USER, crop_focus_x: 0.5 });

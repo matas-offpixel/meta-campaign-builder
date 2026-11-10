@@ -9,6 +9,9 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["components/library/__tests__/**/*.test.tsx"],
+    include: [
+      "components/library/__tests__/**/*.test.tsx",
+      "components/dashboard/events/creative-lab/__tests__/**/*.test.tsx",
+    ],
   },
 });

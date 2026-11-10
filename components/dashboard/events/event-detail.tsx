@@ -30,6 +30,7 @@ import { stageForEventStatus } from "@/lib/insights-rail/model";
 import { DriveLive } from "@/components/dashboard/events/drive/live";
 import { EventDetailHeader } from "@/components/dashboard/events/event-detail-header";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
+import { londonDayMonth } from "@/lib/releases/london";
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
 import { EventActivityPanel } from "@/components/dashboard/events/event-activity-panel";
@@ -147,6 +148,8 @@ interface Props {
   /** Existing Google Ads plan id for the Reporting tab, when present. */
   initialGoogleAdsPlanId: string | null;
   lab: CreativeLabCardData | null;
+  /** When the page was rendered. Dates on this page count from this, not the browser clock. */
+  nowIso: string;
   /** Releases and the client's ladder. Null until migration 211 is applied. */
   bank?: {
     eventId: string;
@@ -182,6 +185,7 @@ export function EventDetail({
   ticketTiers,
   initialGoogleAdsPlanId,
   lab,
+  nowIso,
   bank = null,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
@@ -205,9 +209,7 @@ export function EventDetail({
   // reverts on persist error so the UI never lies for long.
   const [favourite, setFavouriteLocal] = useState(event.favourite);
   const [favWorking, setFavWorking] = useState(false);
-  // Sample now once at mount via lazy initializer to keep the days-until
-  // pill stable across re-renders + satisfy React 19 effect purity.
-  const [now] = useState(() => new Date());
+  const now = new Date(nowIso);
   const [wiredCampaignCount, setWiredCampaignCount] = useState<number | null>(null);
 
   const [reportDatePreset, setReportDatePreset] =
@@ -358,6 +360,7 @@ export function EventDetail({
                   eventId={bank.eventId}
                   releases={bank.releases}
                   ladder={bank.ladder}
+                  now={nowIso}
                   status={event.status}
                   counts={bank.counts}
                   eventAt={bank.eventAt}
@@ -375,7 +378,7 @@ export function EventDetail({
               {isBrand ? (
                 <BrandCampaignSummary event={event} />
               ) : (
-                <MilestoneTimeline event={event} />
+                <MilestoneTimeline event={event} nowIso={nowIso} />
               )}
               <OverviewSection event={event} />
               {!isBrand && (
@@ -996,10 +999,8 @@ function NotesSection({ notes }: { notes: string }) {
 
 // ─── Milestone timeline ──────────────────────────────────────────────────────
 
-function MilestoneTimeline({ event }: { event: EventWithClient }) {
-  // useState lazy initializer is the React-sanctioned escape hatch for
-  // reading from Date on mount without breaking the purity rule.
-  const [now] = useState(() => Date.now());
+function MilestoneTimeline({ event, nowIso }: { event: EventWithClient; nowIso: string }) {
+  const now = new Date(nowIso).getTime();
 
   // Common shape: announcement is the only "go live" date and there's
   // no separate presale/GA window. Show General sale at announcement_at
@@ -1078,7 +1079,7 @@ function MilestoneTimeline({ event }: { event: EventWithClient }) {
                   item.date ? "text-foreground" : "text-muted-foreground/60"
                 }`}
               >
-                {item.iso ? fmtShort(item.iso) : "Not set"}
+                {item.iso ? londonDayMonth(item.iso) : "Not set"}
               </p>
               {item.sublabel && (
                 <p className="text-[10px] text-muted-foreground/80">
