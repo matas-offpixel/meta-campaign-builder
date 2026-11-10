@@ -211,7 +211,7 @@ async function main() {
     console.log(`waiting for ${BASE}/frames/L1`);
     await waitForServer(`${BASE}/frames/L1`);
     console.log("server up");
-    const browser = await chromium.launch({ timeout: 30_000 });
+    const browser = await chromium.launch({ timeout: 30_000, args: ["--lang=en-GB"] });
     try {
       for (const shot of FRAME_SHOTS) {
         const dest = shotFile(shot.id);

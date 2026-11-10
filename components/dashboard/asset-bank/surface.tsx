@@ -403,13 +403,13 @@ export function ClaimCards({
           </p>
           <p className="mt-1 hidden text-xs sm:block">
             <span className="text-muted-foreground">offer</span> payment plan · £10 today, 3 parts · until Fri 27 Nov{" "}
-            {entered ? <><span className="text-muted-foreground">entered by</span> {enteredBy}, {when.wide}, from the Offers sheet</> : null}
+            {entered && enteredBy ? <><span className="text-muted-foreground">entered by</span>{` ${enteredBy}, ${when.wide}, from the Offers sheet`}</> : null}
           </p>
           <p className="mt-1 hidden text-xs sm:block">
             <span className="text-muted-foreground">words</span> &quot;£10 TODAY&quot; / &quot;SPLIT THE REST IN 3&quot; · no scarcity words · £10 is a price the validator checks against the offer
           </p>
           <p className="mt-1 text-xs sm:hidden">
-            {entered ? <><span className="text-muted-foreground">entered by</span> {enteredBy}, {when.day} · until 27 Nov</> : null}
+            {entered && enteredBy ? <><span className="text-muted-foreground">entered by</span>{` ${enteredBy}, ${when.day} · until 27 Nov`}</> : null}
           </p>
           <p className="mt-1 hidden text-xs text-muted-foreground sm:block">No read makes an offer true, so there is no trigger line. Runs mid-month as content-led (A7) unless Matas sets a window. Formats: 4:5 and 1:1 statics (T2, the number on its own line at 1.5×).</p>
         </div>

@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1149
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1149
 - **Branch:** `cursor/design-queue-1`
 
 ## Summary
@@ -24,4 +24,4 @@ The 393 event header keeps an even gap between View client, Drive folder and Edi
 
 ## Notes
 
-The extra space on the 393 row was the View client link's padding (8px), sitting in the flex gap beside the Drive button. The offer card already read "entered by Matas, 8 Nov"; the line now comes from the operator's name and refuses a user id. AB5 shows the seed's rungs, including 7 days on selling fast, rather than the static Puzzle drawing.
+The extra space on the 393 row was the View client link's padding (8px), sitting in the flex gap beside the Drive button. The offer card already read "entered by Matas, 8 Nov"; the line now comes from the operator's name and refuses a user id. AB5 shows the seed's rungs, including 7 days on selling fast, rather than the static Puzzle drawing. The frame job generates en_GB.UTF-8; a page locale alone left the date input on mm/dd/yyyy.
