@@ -1,0 +1,27 @@
+# Session log
+
+## PR
+
+- **Number:** pending
+- **URL:** pending
+- **Branch:** `cursor/design-queue-1`
+
+## Summary
+
+The 393 event header keeps an even gap between View client, Drive folder and Edit. The frame runner uses en-GB so a date input reads dd/mm/yyyy. AB5 mounts the live ladder on the seed, and the offer card names the operator.
+
+## Scope / files
+
+- `components/dashboard/events/event-detail-header.tsx` — the View client link no longer adds its own padding
+- `scripts/plan-frames/run.mjs` — locale en-GB
+- `components/dashboard/asset-bank/frame-mount.tsx` — AB5 uses `LiveLadder` with `defaultLadder()`
+- `lib/releases/offers.ts` — the entered-by line, never a user id
+
+## Validation
+
+- [x] asset-bank tests
+- [ ] frames for the rows that move
+
+## Notes
+
+The extra space on the 393 row was the View client link's padding (8px), sitting in the flex gap beside the Drive button. The offer card already read "entered by Matas, 8 Nov"; the line now comes from the operator's name and refuses a user id. AB5 shows the seed's rungs, including 7 days on selling fast, rather than the static Puzzle drawing.

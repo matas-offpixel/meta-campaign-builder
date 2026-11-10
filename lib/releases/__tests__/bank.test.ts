@@ -9,7 +9,7 @@ import { defaultLadder, puzzleLadder } from "../ladder.ts";
 import type { Release, TicketWarning } from "../types.ts";
 import { approveWarning, backToHeld, claimWindow, notNow, paydayPush, todaySentence } from "../windows.ts";
 import { countdownRung, lineupRung, percentStandIn, priceRiseRung, velocityRung } from "../derived.ts";
-import { OFFER_MARKER, OFFER_ON_LADDER, OFFER_REFUSAL, offerPrices, offerRefusal, offerWords } from "../offers.ts";
+import { OFFER_MARKER, OFFER_ON_LADDER, OFFER_REFUSAL, enteredByLine, enteredByWhen, offerPrices, offerRefusal, offerWords, operatorDisplayName } from "../offers.ts";
 import { liveClaimLine, rollCallWords, soldOutLine } from "../roll-call.ts";
 import { isBackfilled, mountsReleases, panelFigure, todayListsEvent, warningCell } from "../visibility.ts";
 import { derivedProposals, nextRung, proposalOnChange } from "../../ticket-warnings/next-rung.ts";
@@ -414,6 +414,16 @@ describe("offers, cancelled, backfilled", () => {
     assert.equal(words.card, "£10 today · split the rest in 3");
     assert.equal(OFFER_MARKER, "entered, not derived");
     assert.deepEqual(offerPrices({ today: 10, parts: 3 }), [10]);
+  });
+
+  it("names the operator on the offer card and never the user id", () => {
+    const at = new Date("2026-11-08T14:10:00Z");
+    const id = "11111111-1111-1111-1111-111111111111";
+    assert.equal(enteredByLine("Matas", at), "entered by Matas, 8 Nov");
+    assert.equal(enteredByWhen(at).wide, "Sun 8 Nov 14:10");
+    assert.equal(enteredByLine(id, at), null);
+    assert.equal(operatorDisplayName({ id, user_metadata: { full_name: "Matas" } }), "Matas");
+    assert.equal(operatorDisplayName({ id, user_metadata: { name: id } }), null);
   });
 
   it("keeps a cancelled event's rows and mounts no panel and no Today row", () => {
