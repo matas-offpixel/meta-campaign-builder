@@ -58,7 +58,7 @@ export function rowsFromReleases(
       timelineLabel: `${release.name} · ${when(release.listAt ?? release.communityAt)}`,
       shortTimeline: release.name,
       left: `${8 + index * 16}%`,
-      rungs: rung
+      rungs: rung && !rung.ended
         ? [{ text: rung.claim, short: rung.claim, status: (rung.met ? "done" : "next") as "done" | "next" }]
         : [],
     };

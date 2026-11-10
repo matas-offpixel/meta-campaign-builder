@@ -8,8 +8,8 @@ import { rowsFromReleases } from "@/lib/releases/view";
 import { completeLadder, defaultLadder } from "@/lib/releases/ladder";
 import { presentLadder } from "@/lib/releases/present";
 import type { LadderRung, Release, ReleaseState } from "@/lib/releases/types";
-import { isBackfilled, mountsReleases } from "@/lib/releases/visibility";
-import { derivedProposals, nextRung, sellingFastDays, type DerivedContext } from "@/lib/ticket-warnings/next-rung";
+import { mountsReleases } from "@/lib/releases/visibility";
+import { claimPanel, derivedProposals, sellingFastDays, type DerivedContext, type RanRung } from "@/lib/ticket-warnings/next-rung";
 
 export function LiveReleases({
   eventId,
@@ -20,6 +20,7 @@ export function LiveReleases({
   eventAt = null,
   artists = [],
   lastProposalAt = null,
+  warnings = [],
 }: {
   eventId: string;
   releases: Release[];
@@ -29,6 +30,7 @@ export function LiveReleases({
   eventAt?: string | null;
   artists?: { name: string; addedAt: string }[];
   lastProposalAt?: string | null;
+  warnings?: RanRung[];
 }) {
   const [rows, setRows] = useState(releases);
   const used = completeLadder(ladder);
@@ -43,14 +45,12 @@ export function LiveReleases({
   };
   const view = rowsFromReleases(rows, used, now, context);
   const claims = [
-    ...rows.filter((release) => !isBackfilled(release)).map((release) => {
-      const rung = nextRung(release, used, rows, now, context);
-      return {
-        text: rung?.claim ?? release.name,
-        chip: rung?.met ? "met" : "later",
-        tone: (rung?.met ? "ok" : "dash") as "ok" | "dash",
-      };
-    }),
+    ...claimPanel(rows, used, now, context, warnings).map((row) => ({
+      text: row.text,
+      chip: row.chip,
+      tone: row.tone,
+      ...(row.needs ? { needs: row.needs } : {}),
+    })),
     ...derivedProposals(used, rows, now, context).map((proposal) => ({
       text: proposal.claim,
       chip: "proposed",

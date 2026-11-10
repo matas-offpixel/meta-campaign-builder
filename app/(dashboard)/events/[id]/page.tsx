@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
 import { loadCreativeLabCard } from "@/lib/db/creative-lab";
-import { loadClientLadder, loadEventArtists, loadEventReleases, loadSalesHistory } from "@/lib/db/releases";
+import { loadClientLadder, loadEventArtists, loadEventReleases, loadEventWarnings, loadSalesHistory } from "@/lib/db/releases";
 import { measureClipSources, signClipPreviews } from "@/lib/creative-lab/clip-preview";
 import { parseEventTab } from "@/lib/dashboard/format";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
@@ -198,10 +198,11 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
   const bank = await loadEventReleases(supabase, event.id)
     .then(async (releases) => {
       if (!releases) return null;
-      const [ladder, counts, artists] = await Promise.all([
+      const [ladder, counts, artists, warnings] = await Promise.all([
         event.client_id ? loadClientLadder(supabase, event.client_id).catch(() => []) : Promise.resolve([]),
         loadSalesHistory(supabase, event.id).catch(() => []),
         loadEventArtists(supabase, event.id).catch(() => ({ artists: [], lastProposalAt: null })),
+        loadEventWarnings(supabase, event.id).catch(() => []),
       ]);
       return {
         eventId: event.id,
@@ -211,6 +212,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
         eventAt: event.event_date ?? null,
         artists: artists.artists,
         lastProposalAt: artists.lastProposalAt,
+        warnings,
       };
     })
     .catch((err) => {

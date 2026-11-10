@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "./database.types";
 import type { CountRead } from "../releases/derived";
 import type { OfferFigures, OfferKind } from "../releases/offers";
+import type { RanRung } from "../ticket-warnings/next-rung";
 import type { LadderRung, Release, ReleaseState, StateSource, TicketWarning, WarningState } from "../releases/types";
 import { todayListsEvent } from "../releases/visibility";
 
@@ -46,6 +47,23 @@ function releaseFrom(row: Record<string, unknown>): Release {
     sold: row.sold == null ? null : Number(row.sold),
     remaining: row.remaining == null ? null : Number(row.remaining),
   };
+}
+
+/** Settled and open warnings for the claims panel. Empty when the table is not there yet. */
+export async function loadEventWarnings(db: SupabaseClient<Database>, eventId: string): Promise<RanRung[]> {
+  const { data, error } = await loose(db)
+    .from("ticket_warnings")
+    .select("release_id, claim, state, approved_at, runs_from")
+    .eq("event_id", eventId)
+    .order("created_at");
+  if (missing(error)) return [];
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    releaseId: (row.release_id as string | null) ?? null,
+    claim: String(row.claim),
+    state: String(row.state),
+    ranAt: (row.approved_at as string | null) ?? (row.runs_from as string | null) ?? null,
+  }));
 }
 
 /** Null when migration 211 is not applied yet. The page then draws nothing. */

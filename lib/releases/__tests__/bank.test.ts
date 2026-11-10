@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { isInPaydayWindow } from "../../dashboard/pacing.ts";
@@ -13,7 +14,7 @@ import { countdownRung, lineupRung, percentStandIn, priceRiseRung, velocityRung 
 import { OFFER_MARKER, OFFER_ON_LADDER, OFFER_REFUSAL, enteredByLine, enteredByWhen, offerPrices, offerRefusal, offerWords, operatorDisplayName } from "../offers.ts";
 import { liveClaimLine, rollCallWords, soldOutLine } from "../roll-call.ts";
 import { isBackfilled, mountsReleases, panelFigure, todayListsEvent, warningCell } from "../visibility.ts";
-import { derivedProposals, nextRung, proposalOnChange } from "../../ticket-warnings/next-rung.ts";
+import { claimPanel, derivedProposals, nextRung, proposalOnChange, rungHasEnded } from "../../ticket-warnings/next-rung.ts";
 
 const NOW = "2026-11-07T12:00:00Z";
 
@@ -308,7 +309,59 @@ describe("roll-call words", () => {
     assert.equal(proposalOnChange("anything else", live).propose, true);
     const ended = nextRung(presale, defaultLadder(), siblings, now);
     assert.equal(ended?.met, false);
+    assert.equal(ended?.ended, false);
+    assert.equal(ended?.claim, "Presale selling fast");
     assert.equal(proposalOnChange("Presale live", ended).propose, false);
+    const liveRung = defaultLadder().find((rung) => rung.triggerKind === "state" && rung.triggerValue === "on_sale");
+    assert.ok(liveRung);
+    assert.equal(rungHasEnded(liveRung, presale, siblings, now), true);
+    assert.equal(rungHasEnded(liveRung, general, siblings, now), false);
+    const onlyLive = defaultLadder().filter((rung) => rung.triggerKind === "state" && rung.triggerValue === "on_sale");
+    const stopped = nextRung(presale, onlyLive, siblings, now);
+    assert.equal(stopped?.ended, true);
+    assert.equal(stopped?.met, false);
+    assert.equal(stopped?.claim, "Presale live");
+  });
+
+  it("the claims panel skips an ended live rung and keeps one that already ran", () => {
+    const presale = release({
+      name: "Presale",
+      position: 1,
+      state: "on_sale",
+      listAt: "2026-10-21T12:00:00Z",
+      stateSource: "entry",
+      stateSetBy: "matas",
+    });
+    const general = release({
+      name: "General sale",
+      position: 2,
+      state: "on_sale",
+      listAt: "2026-10-30T12:00:00Z",
+      stateSource: "entry",
+      stateSetBy: "matas",
+    });
+    const siblings = [presale, general];
+    const now = "2026-11-10T12:00:00Z";
+    const rows = claimPanel(siblings, defaultLadder(), now);
+    assert.equal(rows.some((row) => row.text === "Presale live"), false);
+    assert.deepEqual(
+      rows.map((row) => ({ text: row.text, chip: row.chip, needs: row.needs, kind: row.kind })),
+      [
+        { text: "General sale live", chip: "met", needs: null, kind: "now" },
+        { text: "Presale selling fast", chip: "later", needs: "needs selling fast", kind: "later" },
+      ],
+    );
+    const ran = { releaseId: presale.id, claim: "Presale live", state: "done", ranAt: "2026-10-21T12:00:00Z" };
+    const before = { ...ran };
+    const kept = claimPanel(siblings, defaultLadder(), now, {}, [ran]);
+    assert.deepEqual(ran, before);
+    const done = kept.find((row) => row.text === "Presale live");
+    assert.equal(done?.kind, "done");
+    assert.equal(done?.chip, "ran 21 Oct");
+    assert.equal(kept.some((row) => row.kind === "later" && row.text === "Presale live"), false);
+    assert.equal(kept.find((row) => row.kind === "later")?.text, "Presale selling fast");
+    const card = readFileSync("components/dashboard/asset-bank/surface.tsx", "utf8");
+    assert.match(card, /rungHasEnded\(liveRung, AB2_PRESALE/);
   });
 
   it("a first release on sale does not meet selling fast with no earlier release", () => {
