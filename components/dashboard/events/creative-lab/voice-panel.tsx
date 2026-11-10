@@ -177,7 +177,7 @@ export function VoicePanel({
 
   return (
     <div className={contained && open ? "contents" : "space-y-2"}>
-      <div className={`relative z-[15] mt-2.5 flex flex-wrap items-center ${contained && open ? "gap-x-2.5 gap-y-[13px] max-[700px]:gap-2.5" : "gap-2.5"}`}>
+      <div className={`relative z-[15] mt-2.5 flex flex-wrap items-center ${contained && open ? "gap-x-2.5 gap-y-[16px] max-[700px]:gap-2.5" : "gap-2.5"}`}>
         <button
           type="button"
           className={`inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-semibold max-[700px]:w-full ${parts.house ? "border-dashed text-muted-foreground" : "border-border-strong text-foreground"} ${open ? "border-foreground" : ""}`}

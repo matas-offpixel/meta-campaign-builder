@@ -281,7 +281,7 @@ export function LabCaptions({
           />
         ) : null}
         <div className={`space-y-2 ${voiceOpen && voiceContained ? "min-[701px]:pt-2.5 max-[700px]:pt-3" : ""}`}>
-          <p className={`font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase ${voiceOpen && voiceContained ? "leading-none pb-[3px] max-[700px]:pb-0" : ""}`}>Proven elsewhere</p>
+          <p className={`font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase ${voiceOpen && voiceContained ? "leading-none pb-[6px] max-[700px]:pb-0" : ""}`}>Proven elsewhere</p>
           <p className="text-[11.5px] text-muted-foreground">{EMPTY_COPY_LINES}</p>
         </div>
         {notice ? <p className="text-sm">{notice}</p> : null}

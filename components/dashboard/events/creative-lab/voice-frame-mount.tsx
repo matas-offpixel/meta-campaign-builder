@@ -172,7 +172,7 @@ export function VoiceFrameMount({ id }: { id: string }) {
   }
   if (id === "CLV2") {
     return (
-      <div data-frame-ready={id} className="relative h-[1046px] overflow-hidden bg-background max-[700px]:h-[852px]">
+      <div data-frame-ready={id} className="relative h-[1052px] overflow-hidden bg-background max-[700px]:h-[852px]">
         <div className="p-4 max-[700px]:p-3 min-[701px]:pr-[440px]">
           <Strip data={puzzleLab} angle="lineup" artistId="enzo" open />
         </div>
@@ -181,7 +181,7 @@ export function VoiceFrameMount({ id }: { id: string }) {
   }
   if (id === "CLV3") {
     return (
-      <div data-frame-ready={id} className="relative bg-background min-[701px]:h-[523px] max-[700px]:min-h-0">
+      <div data-frame-ready={id} className="relative bg-background min-[701px]:h-[526px] max-[700px]:min-h-0">
         <div className="p-4 max-[700px]:hidden min-[701px]:pr-[440px]">
           <Strip data={emptyLab} angle="lineup" artistId="enzo" open />
         </div>
