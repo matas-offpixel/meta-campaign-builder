@@ -602,8 +602,14 @@ describe("approval, windows, the board", () => {
     assert.equal(rows[0]!.claim, "\"{release} live\"");
     assert.equal(rows[0]!.detail, "only the latest release that has gone live");
     assert.equal(rows[1]!.claim, "\"{release} selling fast\"");
-    assert.equal(rows[1]!.detail, "new · day 0 · 2+ earlier sold out → the roll-call is preferred");
+    assert.equal(rows[1]!.detail, "day 0 · 2+ earlier sold out → the roll-call is preferred");
+    assert.equal(rows[1]!.mark, "new");
     assert.equal(rows[3]!.detail, "when a count and a capacity exist");
+    assert.equal(ninety?.note, "\"final X {release} tickets\" is the other option");
+    assert.equal(
+      rows.find((row) => row.trigger.startsWith("2+ releases"))!.note,
+      "two lines · the names from the releases, in order · line 2 is the live release's highest met rung — never lower than selling fast",
+    );
     assert.equal(rows.find((row) => row.trigger.startsWith("2+ releases"))!.detail, "roll-call · preferred over the % rung and over rung 2");
     assert.equal(rows.find((row) => row.trigger.startsWith("Sold now"))!.detail, "sales velocity · needs two counts · window and count per client");
     assert.equal(rows.find((row) => row.trigger === "State final X")!.note, "X from the page or the count, never typed");
@@ -621,5 +627,16 @@ describe("approval, windows, the board", () => {
     const shown = presentLadder(custom, "Puzzle").find((row) => row.trigger.startsWith("Selling fast for"));
     assert.equal(shown?.trigger, "Selling fast for 5+ days, no count");
     assert.equal(shown?.detail, "Puzzle: 5 days (default 14)");
+  });
+
+  it("a client whose 90% window is not 14 days names that count under the main line", () => {
+    const custom = defaultLadder().map((rung) =>
+      rung.triggerKind === "state_days" && rung.triggerValue === "selling_fast"
+        ? { ...rung, options: { ...rung.options, days: 7 } }
+        : rung,
+    );
+    const shown = presentLadder(custom, "Innervisions").find((row) => row.trigger.startsWith("Selling fast for"));
+    assert.equal(shown?.trigger, "Selling fast for 7+ days, no count");
+    assert.equal(shown?.detail, "Innervisions: 7 days (default 14)");
   });
 });

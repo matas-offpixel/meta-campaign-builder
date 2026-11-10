@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { planHeldSplit, PRESALE_ENDED_WHY } from "../held-split.ts";
+import { applyEngineProposal, planHeldSplit, PRESALE_ENDED_WHY, rewriteHeldWarnings, type WarningRow } from "../held-split.ts";
 import { splitLadders, type StoredRung } from "../ladder-split.ts";
 
 function seedRungs(clientId: string, clientName: string, days = 14): StoredRung[] {
@@ -76,6 +76,8 @@ describe("migration 225", () => {
     assert.match(sql, /position = position \+ 100/);
     assert.match(sql, /position = position - 99/);
     assert.match(sql, /225: % left rung 1 unchanged/);
+    assert.match(sql, /225: % has no rung 1, left unchanged/);
+    assert.match(sql, /if rung1\.id is null then/);
     assert.doesNotMatch(sql, /delete /i);
     assert.doesNotMatch(sql, /drop /i);
   });
@@ -96,5 +98,59 @@ describe("held claims", () => {
     assert.equal(plan.presale.length, 1);
     assert.equal(plan.presale[0]?.state, "locked");
     assert.equal(plan.presale[0]?.why, PRESALE_ENDED_WHY);
+  });
+
+  it("a client with no rung 1 is named and its ladder is untouched", () => {
+    const rows = seedRungs("gap", "Gap").filter((row) => row.position !== 1);
+    const result = splitLadders(rows);
+    assert.deepEqual(result.notices, ["Gap"]);
+    assert.deepEqual(result.rows, rows);
+  });
+
+  it("the recompute and the engine leave a settled warning byte-identical", () => {
+    const settled = (state: string): WarningRow => ({
+      id: state,
+      claim: "3rd release live · selling fast",
+      state,
+      trigger: { source: "entry", because: "on sale" },
+      why: null,
+    });
+    const approved = settled("approved");
+    const scheduled = settled("scheduled");
+    const live = settled("live");
+    const done = settled("done");
+    const held = {
+      id: "held",
+      claim: "General sale live · selling fast",
+      state: "held",
+      trigger: { source: "entry", because: "on sale" },
+      why: null,
+    };
+    const presale = {
+      id: "presale",
+      claim: "Presale live · selling fast",
+      state: "held",
+      trigger: { source: "entry", because: "on sale" },
+      why: null,
+    };
+    const rows = [approved, scheduled, live, done, held, presale];
+    const rewritten = rewriteHeldWarnings(rows);
+    assert.equal(rewritten[0], approved);
+    assert.equal(rewritten[1], scheduled);
+    assert.equal(rewritten[2], live);
+    assert.equal(rewritten[3], done);
+    assert.equal(rewritten[4]?.claim, "General sale live");
+    assert.deepEqual(rewritten[4]?.trigger, { kind: "state", value: "on_sale", template: "{release} live" });
+    assert.equal(rewritten[5]?.state, "locked");
+    assert.equal(rewritten[5]?.why, PRESALE_ENDED_WHY);
+    const proposed = applyEngineProposal(rows, { claim: "3rd release selling fast", trigger: { kind: "state", value: "selling_fast" } });
+    assert.equal(proposed[0], approved);
+    assert.equal(proposed[1], scheduled);
+    assert.equal(proposed[2], live);
+    assert.equal(proposed[3], done);
+    assert.equal(proposed[4], held);
+    assert.equal(proposed[5], presale);
+    assert.equal(proposed[6]?.state, "held");
+    assert.equal(proposed[6]?.claim, "3rd release selling fast");
   });
 });

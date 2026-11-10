@@ -373,7 +373,7 @@ export function ClaimCards({
           </p>
           <p className="mt-1 hidden text-xs sm:block">
             <span className="text-muted-foreground">trigger</span> General sale list time Fri 30 Oct 12:00 passed, state on sale (set by Matas){" "}
-            <span className="text-muted-foreground">→ claim</span> rung 1 &quot;{"{release}"} live&quot;
+            <span className="text-muted-foreground">→ claim</span> {`rung 1 "{release} live"`}
           </p>
           <p className="mt-1 text-xs sm:hidden">
             <span className="text-muted-foreground">trigger</span> list time Fri 30 Oct 12:00 · on sale → rung 1
@@ -388,16 +388,20 @@ export function ClaimCards({
         </div>
       </article>
       <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-dashed border-border bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
-        <div className="flex h-28 w-16 shrink-0 flex-col items-center justify-center rounded px-0.5 text-center text-[8px] font-semibold leading-tight text-muted-foreground" style={{ background: "linear-gradient(160deg,#1e1810,#3a3a4a)" }}>
-          <span>PRESALE<br />LIVE</span>
+        <div className="flex h-28 w-16 shrink-0 flex-col items-center justify-center rounded px-0.5 text-center text-[8px] font-semibold leading-tight" style={{ background: "linear-gradient(160deg,#1e1810,#3a3a4a)" }}>
+          <span style={{ color: "rgba(255,255,255,0.45)" }}>PRESALE<br />LIVE</span>
         </div>
         <div>
           <p className="text-sm font-medium">
             &quot;Presale live&quot; <Chip tone="dash">locked</Chip>
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs text-destructive">
             Ended — General sale went live Fri 30 Oct, so the presale is no longer the release to push.
           </p>
+          <p className="mt-1 hidden text-xs sm:block">
+            {`rung 1 "{release} live" · only the latest release that has gone live`}
+          </p>
+          <p className="mt-1 text-xs sm:hidden">rung 1 · latest live release only</p>
         </div>
         <div className="col-span-2 sm:col-span-1">
           <Button type="button" size="sm" variant="outline">Correct</Button>
@@ -493,11 +497,11 @@ export function ClaimCards({
         <Piece />
         <div>
           <p className="text-sm font-medium">
-            3rd release selling fast <Chip tone="ok">approved · ran 6 Nov 12:00</Chip>
+            3rd release live · selling fast <Chip tone="ok">approved · ran 6 Nov 12:00</Chip>
           </p>
           <p className="mt-1 text-xs">
-            <span className="text-muted-foreground">trigger</span> state selling fast, day 0{" "}
-            <span className="text-muted-foreground">→ claim</span> &quot;3rd release selling fast&quot;
+            <span className="text-muted-foreground">trigger</span> 3rd release list time 6 Nov 12:00 passed, state on sale (set by Matas at 12:02){" "}
+            <span className="text-muted-foreground">→ claim</span> &quot;live · selling fast&quot;
           </p>
           <p className="mt-1 text-xs text-muted-foreground">Ran at the release time whatever the calendar said.</p>
         </div>
@@ -805,6 +809,7 @@ export type LadderRow = {
   detail?: string;
   claim: string;
   note?: string;
+  mark?: "new";
   narrow?: boolean;
   /** Hidden below the sm breakpoint. The 393 ladder starts at sold out. */
   wide?: boolean;
@@ -816,8 +821,8 @@ export type LadderRow = {
 
 const LADDER: LadderRow[] = [
   { trigger: "Release list time passed · state on sale", detail: "only the latest release that has gone live", claim: "\"{release} live\"", wide: true },
-  { trigger: "State selling fast · or on sale with every earlier release sold out", detail: "new · day 0 · 2+ earlier sold out → the roll-call is preferred", claim: "\"{release} selling fast\"", wide: true },
-  { trigger: "Selling fast for 14+ days, no count", detail: "the default", claim: "\"{release} 90% sold out\"", wide: true },
+  { trigger: "State selling fast · or on sale with every earlier release sold out", detail: "day 0 · 2+ earlier sold out → the roll-call is preferred", claim: "\"{release} selling fast\"", mark: "new", wide: true },
+  { trigger: "Selling fast for 14+ days, no count", detail: "the default", claim: "\"{release} 90% sold out\"", note: "\"final X {release} tickets\" is the other option", wide: true },
   { trigger: "Actual 50% · 60% · 70% · 80%", detail: "when a count and a capacity exist", claim: "\"75%\" · \"80%\" · \"90% sold out\" · \"95% sold\"", wide: true },
   { trigger: "Actual 90% · or state final X · or the page shows remaining", claim: "\"99%\" or \"final X\"", note: "X from the page or the count, never typed", wide: true },
   { trigger: "State sold out", claim: "\"sold out\"" },
@@ -828,7 +833,7 @@ const LADDER: LadderRow[] = [
     narrowDetail: "roll-call · preferred over rung 2",
     claim: "\"{sold-out releases} RELEASE SOLD OUT\" / \"{live release} SELLING FAST\"",
     narrowClaim: "\"EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\" /\n\"3RD RELEASE SELLING FAST\"",
-    note: "two lines · the names from the releases, in order · line 2 is the live release's own rung",
+    note: "two lines · the names from the releases, in order · line 2 is the live release's highest met rung — never lower than selling fast",
     accent: true,
   },
   { trigger: "Sold now − sold 14 days ago ≥ 500", detail: "sales velocity · needs two counts · window and count per client", claim: "\"{n}+ TICKETS SOLD IN THE LAST 2 WEEKS\"" },
@@ -877,6 +882,9 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
                 <div>
                   <span className="sm:hidden">{row.narrowTrigger ?? row.trigger}</span>
                   <span className="hidden sm:inline">{row.trigger}</span>
+                  {row.mark === "new" ? (
+                    <span className="ml-1.5 shrink-0 rounded border border-[#5F6B2A] px-1.5 py-0.5 text-[11px] text-[#5F6B2A]">new</span>
+                  ) : null}
                 </div>
                 {row.narrowDetail ? <div className="mt-0.5 text-[10.5px] text-muted-foreground sm:hidden">{row.narrowDetail}</div> : null}
                 {row.detail ? <div className="mt-0.5 hidden text-[10.5px] text-muted-foreground sm:block">{row.detail}</div> : null}

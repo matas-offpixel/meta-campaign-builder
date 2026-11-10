@@ -24,6 +24,11 @@ begin
     from public.client_claim_ladders
     where client_id = client.id and position = 1;
 
+    if rung1.id is null then
+      raise notice '225: % has no rung 1, left unchanged', client.name;
+      continue;
+    end if;
+
     select exists (
       select 1
       from public.client_claim_ladders l

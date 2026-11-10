@@ -7,6 +7,7 @@ export type PresentedRung = {
   detail?: string;
   narrowDetail?: string;
   note?: string;
+  mark?: "new";
   accent?: boolean;
 };
 
@@ -44,23 +45,25 @@ function withDetail(detail: string): Pick<PresentedRung, "detail" | "narrowDetai
 }
 
 /** The record's sub-lines, on the live rung they describe. Both widths show them. */
-function rungCopy(rung: LadderRung, clientName?: string): Pick<PresentedRung, "detail" | "narrowDetail" | "note" | "accent"> {
+function rungCopy(rung: LadderRung, clientName?: string): Pick<PresentedRung, "detail" | "narrowDetail" | "note" | "mark" | "accent"> {
   if (rung.triggerKind === "state" && rung.triggerValue === "on_sale") return withDetail("only the latest release that has gone live");
   if (rung.triggerKind === "state" && rung.triggerValue === "selling_fast") {
-    return withDetail("new · day 0 · 2+ earlier sold out → the roll-call is preferred");
+    return { ...withDetail("day 0 · 2+ earlier sold out → the roll-call is preferred"), mark: "new" };
   }
   if (rung.triggerKind === "state_days" && rung.triggerValue === "selling_fast") {
     const days = rung.options.days ?? SELLING_FAST_DEFAULT_DAYS;
-    if (days === SELLING_FAST_DEFAULT_DAYS) return withDetail("the default");
-    const who = clientName?.trim() || "This client";
-    return withDetail(`${who}: ${days} days (default ${SELLING_FAST_DEFAULT_DAYS})`);
+    const alt = rung.options.alt ?? "final X {release} tickets";
+    const daysLine = days === SELLING_FAST_DEFAULT_DAYS
+      ? withDetail("the default")
+      : withDetail(`${clientName?.trim() || "This client"}: ${days} days (default ${SELLING_FAST_DEFAULT_DAYS})`);
+    return { ...daysLine, note: `"${alt}" is the other option` };
   }
   if (rung.triggerKind === "count_pct" && rung.triggerValue === "50") return withDetail("when a count and a capacity exist");
   if (rung.triggerValue === "final_x") return { note: "X from the page or the count, never typed" };
   if (rung.triggerKind === "roll_call" || rung.triggerValue === "roll_call") {
     return {
       ...withDetail("roll-call · preferred over the % rung and over rung 2"),
-      note: "two lines · the names from the releases, in order · line 2 is the live release's own rung",
+      note: "two lines · the names from the releases, in order · line 2 is the live release's highest met rung — never lower than selling fast",
       accent: true,
     };
   }
