@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 1170
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1170
 - **Branch:** `cursor/promoter-candidates-show`
 
 ## Summary
