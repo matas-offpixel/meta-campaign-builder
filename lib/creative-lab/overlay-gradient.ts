@@ -193,15 +193,16 @@ export function gradientStops(g: { colorStops?: { color: { r: number; g: number;
 export type Knots = readonly (readonly [number, number])[];
 
 /**
- * Junction 2's measured fall (REF - J2 2026 Launch Ad Overlay 9x16.psd,
- * LEFT DARK LAYER, shown copy): a plateau over the first 0.716 of its run,
- * then 50 % of the maximum at 22 % of the fall, 10 % at 67 %, 0 at the end
- * (90 / 50 / 10 % at 0.521 / 0.567 / 0.659 W, end 0.728 W).
+ * O25's fade shape (overlay-templates issue 3): Junction 2's LEFT DARK LAYER
+ * mask (90 / 50 / 10 % at 0.521 / 0.567 / 0.659 W, end 0.728 W) normalised to
+ * the fade's length: 100 % → 90 % at 0.5 % of the fade, 50 % at 22.6 %, 10 %
+ * at 66.8 %, 0 at 100 %.
  */
 export const J2_FALL: Knots = [
   [0, 1],
-  [0.222, 0.5],
-  [0.669, 0.1],
+  [0.005, 0.9],
+  [0.226, 0.5],
+  [0.668, 0.1],
   [1, 0],
 ];
 
@@ -210,26 +211,34 @@ export const J2_FALL: Knots = [
  * `plateau` (fraction of H from that edge), then falling along `knots` to 0
  * at `extent`.
  */
-export type GradientBand = { edge: "top" | "bottom"; plateau: number; extent: number; opacity: number; color: string; knots: Knots };
+export type GradientBand = {
+  edge: "top" | "bottom";
+  plateau: number;
+  extent: number;
+  opacity: number;
+  color: string;
+  knots: Knots;
+  /** Inside the plateau, rising evenly from `opacity` at the plateau's inner edge to `ramp.opacity` at `ramp.at` (fraction of H from the frame edge), then holding it to the edge. */
+  ramp?: { opacity: number; at: number };
+};
 
 export type GradientShadow = { bands: GradientBand[]; blendMode: "normal" };
 
 /**
- * The overlay's gradient shadow (Matas, 10 Nov 2026): a top and a bottom band
- * at about 20 % behind the overlay text, so names hold on bright photos and
- * video. Measured: the shape (J2_FALL), the colour (black) and the blend mode
- * (normal) — J2's scrim, the only gradient in the three references. Chosen
- * (no reference has a top or bottom band): the opacity (Matas's 20 %) and the
- * extents, from the T1 slots. Top: full to 0.44 H (O3's details end at
- * 0.4391 H), gone by 0.53 H (the face band's head-top line). Bottom: full
- * from 0.70 H (above the roll-call block's top, 0.7132 H), gone by 0.64 H
- * (the eyes' lowest line), so neither band darkens the eyes.
+ * O25 gradient bands (issue 3, ruled as invented, for Matas to judge on the
+ * drafts): #000000, normal blend, full width, under all type, over the photo
+ * and any O20 extension. Top: 20 % to 0.44 H, J2's fade to 0 at 0.53 H.
+ * Bottom: 20 % at 0.70 H fading upward to 0 at 0.64 H; below 0.70 H rising
+ * evenly to 30 % at 0.78 H and 30 % to the bottom edge. Zero from 0.53 to
+ * 0.64 H (the head top and the eyes). The 4:5 crop and the 1:1 re-sit carry
+ * the 9:16 layer exactly as they carry the type.
  */
 export const DEFAULT_GRADIENT_SHADOW: GradientShadow = {
   blendMode: "normal",
   bands: [
     { edge: "top", plateau: 0.44, extent: 0.53, opacity: 0.2, color: "#000000", knots: J2_FALL },
-    { edge: "bottom", plateau: 0.3, extent: 0.36, opacity: 0.2, color: "#000000", knots: J2_FALL },
+    // Amended before #1155 merged: 20 % at 0.70 H rising evenly to 30 % at 0.78 H, 30 % to the bottom edge.
+    { edge: "bottom", plateau: 0.3, extent: 0.36, opacity: 0.2, color: "#000000", knots: J2_FALL, ramp: { opacity: 0.3, at: 0.22 } },
   ],
 };
 
@@ -248,7 +257,11 @@ export function knotAt(knots: Knots, t: number): number {
 export function bandAlphaAt(band: GradientBand, y: number, frameHeight: number): number {
   const d = band.edge === "top" ? (y + 0.5) / frameHeight : (frameHeight - y - 0.5) / frameHeight;
   if (d >= band.extent) return 0;
-  if (d <= band.plateau) return band.opacity;
+  if (d <= band.plateau) {
+    if (!band.ramp) return band.opacity;
+    if (d <= band.ramp.at) return band.ramp.opacity;
+    return band.opacity + ((band.ramp.opacity - band.opacity) * (band.plateau - d)) / Math.max(1e-9, band.plateau - band.ramp.at);
+  }
   return band.opacity * knotAt(band.knots, (d - band.plateau) / Math.max(1e-9, band.extent - band.plateau));
 }
 

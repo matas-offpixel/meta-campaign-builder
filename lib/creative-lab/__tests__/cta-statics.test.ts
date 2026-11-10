@@ -205,24 +205,26 @@ describe("T1 claim slot (O3, O8, O12)", () => {
 });
 
 describe("gradient shadow layer", () => {
-  it("measured shape: J2's fall, 50 % at 22 % and 10 % at 67 % of the fall", () => {
+  it("O25's fade shape: J2's mask, 90 % at 0.5 %, 50 % at 22.6 %, 10 % at 66.8 % of the fall", () => {
     assert.equal(knotAt(J2_FALL, 0), 1);
-    assert.ok(Math.abs(knotAt(J2_FALL, 0.222) - 0.5) < 1e-12);
-    assert.ok(Math.abs(knotAt(J2_FALL, 0.669) - 0.1) < 1e-12);
-    assert.equal(knotAt(J2_FALL, 1), 0);
+    assert.ok(Math.abs(knotAt(J2_FALL, 0.005) - 0.9) < 1e-12);
+    assert.ok(Math.abs(knotAt(J2_FALL, 0.226) - 0.5) < 1e-12);
+    assert.ok(Math.abs(knotAt(J2_FALL, 0.668) - 0.1) < 1e-12);
+    assert.ok(Math.abs(knotAt(J2_FALL, 1)) < 1e-12);
   });
 
-  it("the default: top and bottom bands, black, normal, 20 %", () => {
+  it("the default: top and bottom bands, black, normal, 20 % (the bottom rising to 30 %)", () => {
     const [top, bottom] = DEFAULT_GRADIENT_SHADOW.bands;
     assert.equal(DEFAULT_GRADIENT_SHADOW.blendMode, "normal");
     assert.deepEqual([top!.edge, top!.plateau, top!.extent, top!.opacity, top!.color], ["top", 0.44, 0.53, 0.2, "#000000"]);
     assert.deepEqual([bottom!.edge, bottom!.plateau, bottom!.extent, bottom!.opacity, bottom!.color], ["bottom", 0.3, 0.36, 0.2, "#000000"]);
+    assert.deepEqual(bottom!.ramp, { opacity: 0.3, at: 0.22 });
     // Neither band reaches the eyes (0.58–0.64 H).
     const H = 1920;
     for (let y = Math.ceil(0.58 * H); y < Math.floor(0.64 * H); y += 1) for (const b of DEFAULT_GRADIENT_SHADOW.bands) assert.equal(bandAlphaAt(b, y, H), 0);
   });
 
-  it("renders rows: 20 % black at the edges and through the plateaus, 0 in the middle", () => {
+  it("renders rows: 20 % black at the top, 30 % at the bottom, 0 in the middle", () => {
     const W = 4;
     const H = 1920;
     const px = renderGradientShadow(DEFAULT_GRADIENT_SHADOW, W, H);
@@ -230,11 +232,12 @@ describe("gradient shadow layer", () => {
     assert.equal(a(0), 51);
     assert.equal(a(Math.round(0.4 * H)), 51);
     assert.equal(a(Math.round(0.6 * H)), 0);
-    assert.equal(a(Math.round(0.8 * H)), 51);
-    assert.equal(a(H - 1), 51);
+    // The bottom band (amended): 30 % from 0.78 H to the bottom edge.
+    assert.equal(a(Math.round(0.8 * H)), 77);
+    assert.equal(a(H - 1), 77);
     assert.deepEqual([...px.subarray(0, 3)], [0, 0, 0]);
     // Half the band's opacity 22 % of the way through the top fall.
-    const yHalf = Math.round((0.44 + 0.222 * 0.09) * H);
+    const yHalf = Math.round((0.44 + 0.226 * 0.09) * H);
     assert.ok(Math.abs(a(yHalf) - 25.5) <= 1.5);
   });
 
