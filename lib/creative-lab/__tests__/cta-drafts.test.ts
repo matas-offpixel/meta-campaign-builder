@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { WATERMARK_STAMP, watermarkCorner, CLAIM_FACE_BAND, CLAIM_LIMITS, NO_CLAIM_LIMITS, bandExtensionCandidates, bandPlacementOk, claimBoxRect, contrastRatio, lowContrastAgainst, redInkBox, redLineVerdict, subjectVerdict } from "../artist-card-claim.ts";
 import { RECT_45, relativeLuminance } from "../artist-card.ts";
 import { NotExportableError, SAMPLE_ROLL_CALL, SAMPLE_ROLL_CALL_RELEASES, WATERMARK, fixtureRelease as r, approvedClaim, assertExportable, watermarkFor, type WarningRow } from "../claim-approval.ts";
-import { CARD_CLAIM, DROP_ORDER, inKitCase, planCardClaim, planClaim, rollCallStates, type CardClaimPlan, type ClaimPlan } from "../claim-slot.ts";
+import { CARD_CLAIM, DROP_ORDER, inKitCase, planCardClaim, planClaim, rollCallStates, splitTwo, type CardClaimPlan, type ClaimPlan } from "../claim-slot.ts";
 import { rollCallWords } from "../../releases/roll-call.ts";
 import { DEFAULT_GRADIENT_SHADOW, bandAlphaAt, renderGradientShadow } from "../overlay-gradient.ts";
 
@@ -310,6 +310,67 @@ describe("H28: the roll-call's line 2 and its shortening (A21, O27)", () => {
     assert.equal(p.lines[1]!.approvedText, "Final 100 3rd release tickets now selling");
     const held = planCardClaim(claim, (t, cap) => (t.startsWith("EARLY") ? 5000 : 100) * (cap / 76));
     assert.deepEqual(held, { held: CARD_CLAIM.tooLong });
+  });
+
+  it("O35 on T1: past step 2 a plain claim takes TICKETS, then NOW, then the ordinal number form, in that order, before it is refused", () => {
+    const text = "3rd release tickets now selling fast with final release up next at noon on friday";
+    const ok = { approvedBy: "m", approvedAt: "2026-11-10" };
+    const p = planClaim({ kind: "claim", text, ...ok }) as ClaimPlan;
+    assert.equal(p.step, 2);
+    assert.deepEqual(p.dropped, ["TICKETS", "NOW", "number form"]);
+    // O28 on T1 (design, #1163): the break never falls inside "FINAL RELEASE".
+    assert.deepEqual(p.lines.map((l) => l.text), ["3RD SELLING FAST WITH FINAL RELEASE", "UP NEXT AT NOON ON FRIDAY"]);
+    // No T1 split ever ends a line with FINAL when the next word is RELEASE or a number, wherever FINAL falls.
+    const filler = "TICKETS ON SALE NOW AT THE DOOR FOR THE LAST FEW DAYS OF THE YEAR".split(" ");
+    for (const tail of ["FINAL RELEASE", "FINAL 100", "FINAL £16.50"]) {
+      for (let k = 0; k <= filler.length; k += 1) {
+        const words = [...filler.slice(0, k), ...tail.split(" "), ...filler.slice(k)];
+        const two = splitTwo(words.join(" "));
+        if (!two) continue;
+        const next = two[1].split(" ")[0]!;
+        assert.ok(!(/\bFINAL$/.test(two[0]) && (next === "RELEASE" || /^[£$€]?\d/.test(next))), two.join(" | "));
+      }
+    }
+    const refused = planClaim({ kind: "claim", text: `${text} and saturday and sunday too`, ...ok });
+    assert.match((refused as { blocker: string }).blocker, /can't shorten/);
+  });
+
+  it("O35 on the artist card: below its floor a plain claim takes TICKETS, then NOW, then the number form, before it is held", () => {
+    const seen: string[] = [];
+    const m = (t: string, cap: number) => {
+      seen.push(t);
+      return (/TICKETS|\bNOW\b|3RD RELEASE/.test(t) ? 2400 : 1000) * (cap / 105);
+    };
+    const p = planCardClaim("3rd release tickets now, final release next", m) as CardClaimPlan;
+    assert.deepEqual(p.dropped, ["TICKETS", "NOW", "number form"]);
+    assert.equal(p.lines[0]!.text, "3RD, FINAL RELEASE NEXT");
+    assert.equal(p.lines[0]!.approvedText, "3rd release tickets now, final release next");
+    assert.deepEqual(seen, ["3RD RELEASE TICKETS NOW, FINAL RELEASE NEXT", "3RD RELEASE NOW, FINAL RELEASE NEXT", "3RD RELEASE, FINAL RELEASE NEXT", "3RD, FINAL RELEASE NEXT"]);
+    // Nothing left to drop: held.
+    assert.deepEqual(planCardClaim("3rd release tickets now, final release next", () => 5000), { held: CARD_CLAIM.tooLong });
+  });
+
+  it("O35 on T1: a plain claim past step 2 takes TICKETS, then NOW, before it can't shorten", () => {
+    // At step 2 (0.034 H) a line holds 37 characters in 0.8 W: the most even break gives 41 / 34 as approved, 33 / 34 without TICKETS.
+    const p = planClaim({ kind: "claim", text: "Final 100 3rd release tickets now selling fast across the whole city tonight", approvedBy: "m", approvedAt: "2026-11-10" }) as ClaimPlan;
+    assert.ok(!("blocker" in p));
+    assert.ok((p.dropped ?? []).length >= 1);
+    assert.equal(p.dropped![0], "TICKETS");
+    assert.ok(p.lines.every((l) => !/TICKETS/.test(l.text)));
+    const never = planClaim({ kind: "claim", text: "x ".repeat(60), approvedBy: "m", approvedAt: "2026-11-10" });
+    assert.match((never as { blocker: string }).blocker, /can't shorten/);
+  });
+
+  it("O35 on the artist card: a one-line claim below its floor drops TICKETS before it is held", () => {
+    const m = (t: string, cap: number) => (t.includes("TICKETS") ? 2400 : 1400) * (cap / 105);
+    const p = planCardClaim("Final 100 3rd release tickets now", m) as CardClaimPlan;
+    assert.deepEqual(p.dropped, ["TICKETS"]);
+    assert.equal(p.lines[0]!.text, "FINAL 100 3RD RELEASE NOW");
+    assert.equal(p.lines[0]!.approvedText, "Final 100 3rd release tickets now");
+    // The size steps come first: a claim that fits above the floor keeps every word.
+    const scaled = planCardClaim("Final 100 3rd release tickets now", (t, cap) => 1000 * (cap / 105)) as CardClaimPlan;
+    assert.deepEqual(scaled.dropped, []);
+    assert.ok(scaled.k < 1);
   });
 
   it("the sample roll-call fits T1 and the card as approved", () => {

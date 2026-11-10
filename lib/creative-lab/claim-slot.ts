@@ -75,13 +75,39 @@ export function estimateWidth(text: string, cap: number, frame: Size = MASTER): 
   return (text.length * CLAIM_SLOT.advancePerCap * cap * frame.height) / frame.width;
 }
 
-/** The two-line break with the most even halves, at a space. */
-export function splitTwo(text: string): [string, string] | null {
+/** Release names that are two words without RELEASE (O28's examples), beside every "{X} RELEASE". */
+export const TWO_WORD_RELEASE_NAMES = ["EARLY BIRD", "GENERAL SALE"] as const;
+
+const bare = (w: string) => w.replace(/[^\p{L}\p{N}&%£$€]/gu, "").toUpperCase();
+
+/**
+ * O28 / O34 (T2), and on T1 too (design, #1163): may a one-line claim break before word i? Never inside a release
+ * name: not before RELEASE ("2ND RELEASE", "FINAL RELEASE"), not inside "EARLY
+ * BIRD" or "GENERAL SALE", nor inside any of the event's own release names;
+ * and never between FINAL and its number.
+ */
+export function breakAllowed(words: readonly string[], i: number, releaseNames: readonly string[] = []): boolean {
+  if (bare(words[i]!) === "RELEASE") return false;
+  // O34: never between FINAL and its number ("FINAL 100").
+  if (bare(words[i - 1] ?? "") === "FINAL" && /^[£$€]?\d/.test(bare(words[i]!))) return false;
+  const names = [...TWO_WORD_RELEASE_NAMES, ...releaseNames.map((n) => n.trim().toUpperCase())].map((n) => n.split(/\s+/).map(bare)).filter((n) => n.length > 1);
+  const ws = words.map(bare);
+  for (const n of names) {
+    for (let start = Math.max(0, i - n.length + 1); start < i; start += 1) {
+      if (start + n.length <= ws.length && n.every((w, j) => ws[start + j] === w)) return false;
+    }
+  }
+  return true;
+}
+
+/** The two-line break with the most even halves, at a space, among O28's allowed breaks (T1 and T2 share the rule). */
+export function splitTwo(text: string, releaseNames: readonly string[] = []): [string, string] | null {
   const words = text.trim().split(/\s+/);
   if (words.length < 2) return null;
   let best: [string, string] | null = null;
   let diff = Infinity;
   for (let i = 1; i < words.length; i += 1) {
+    if (!breakAllowed(words, i, releaseNames)) continue;
     const a = words.slice(0, i).join(" ");
     const b = words.slice(i).join(" ");
     const d = Math.max(a.length, b.length);
@@ -116,6 +142,51 @@ function dropWord(line: string, word: string): string {
 /** O8's number form: "3RD RELEASE" → "3RD". Only an ordinal has a number form; "FINAL RELEASE" keeps its word. */
 export function numberForm(line: string): string {
   return line.replace(/\b(\d+(?:ST|ND|RD|TH))\s+RELEASE\b/gi, "$1").replace(/\s+/g, " ").trim();
+}
+
+const squash = (s: string) => s.replace(/\s+/g, " ").replace(/\s+,/g, ",").replace(/^,\s*/, "").replace(/\s+([,·&])\s*$/, "").replace(/,$/, "").trim();
+
+/**
+ * One O8 drop over every line of a claim that is not a roll-call, or null when
+ * it changes nothing. TICKETS and NOW go wherever they are; the number form
+ * ("3RD RELEASE" → "3RD", ordinals only) only while another RELEASE stays on
+ * the frame.
+ */
+export function applyDrop(lines: readonly string[], drop: Drop): string[] | null {
+  let out: string[];
+  if (drop === "TICKETS" || drop === "NOW") {
+    const re = new RegExp(`\\b${drop}\\b`, "gi");
+    out = lines.map((l) => squash(l.replace(re, " ")));
+  } else {
+    out = [...lines];
+    const re = /\b(\d+(?:ST|ND|RD|TH))\s+RELEASE\b/i;
+    for (let i = 0; i < out.length; i += 1) {
+      for (;;) {
+        const next = out[i]!.replace(re, "$1");
+        if (next === out[i]) break;
+        const trial = out.map((l, j) => (j === i ? next : l));
+        if (!trial.some((l) => /\bRELEASE\b/i.test(l))) break;
+        out[i] = next;
+      }
+    }
+  }
+  out = out.filter(Boolean);
+  return out.every((l, i) => l === lines[i]) && out.length === lines.length ? null : out;
+}
+
+/** O35: a claim's states after its last size step — as approved, then O8's drops cumulatively (not for a roll-call: rollCallStates). */
+export function plainDropStates(lines: readonly string[]): { lines: string[]; dropped: Drop[] }[] {
+  const out: { lines: string[]; dropped: Drop[] }[] = [{ lines: [...lines], dropped: [] }];
+  let cur = [...lines];
+  const dropped: Drop[] = [];
+  for (const d of DROP_ORDER) {
+    const next = applyDrop(cur, d);
+    if (!next) continue;
+    cur = next;
+    dropped.push(d);
+    out.push({ lines: [...cur], dropped: [...dropped] });
+  }
+  return out;
 }
 
 /**
@@ -178,17 +249,21 @@ export function planClaim(claim: ApprovedClaim, frame: Size = MASTER): ClaimPlan
     }
     return { blocker: `roll-call is about ${widest.toFixed(2)} W at its size (max ${CLAIM_SLOT.maxWidth}) · can't shorten (O27: line 1 is never shortened)` };
   }
-  const text = claim.text.trim().toUpperCase().replace(/\s+/g, " ");
-  if (!text) return { blocker: "the claim is empty" };
+  const approved = claim.text.trim().toUpperCase().replace(/\s+/g, " ");
+  if (!approved) return { blocker: "the claim is empty" };
   const [s0, s1, s2] = CLAIM_SLOT.steps;
-  if (text.length <= s0.maxChars && estimateWidth(text, s0.cap, frame) <= CLAIM_SLOT.maxWidth) return { ...stack([{ text, color: KIT_WHITE, cap: s0.cap }], frame), step: 0 };
-  const two = splitTwo(text);
-  if (two) {
-    for (const [i, s] of [[1, s1], [2, s2]] as const) {
-      if (two.every((t) => t.length <= s.maxChars && estimateWidth(t, s.cap, frame) <= CLAIM_SLOT.maxWidth)) return { ...stack(two.map((t) => ({ text: t, color: KIT_WHITE, cap: s.cap })), frame), step: i };
+  // O8's steps 0 → 2 on the words as approved; O35: past step 2, each drop in order, retrying the steps.
+  for (const st of plainDropStates([approved])) {
+    const text = st.lines.join(" ");
+    if (text.length <= s0.maxChars && estimateWidth(text, s0.cap, frame) <= CLAIM_SLOT.maxWidth) return { ...stack([{ text, color: KIT_WHITE, cap: s0.cap }], frame), step: 0, dropped: st.dropped };
+    const two = splitTwo(text);
+    if (two) {
+      for (const [i, s] of [[1, s1], [2, s2]] as const) {
+        if (two.every((t) => t.length <= s.maxChars && estimateWidth(t, s.cap, frame) <= CLAIM_SLOT.maxWidth)) return { ...stack(two.map((t) => ({ text: t, color: KIT_WHITE, cap: s.cap })), frame), step: i, dropped: st.dropped };
+      }
     }
   }
-  return { blocker: `"${text}" doesn't fit two lines at ${s2.cap} H (≤ ${s2.maxChars} characters and ${CLAIM_SLOT.maxWidth} W a line); shorten it per O8 before approval` };
+  return { blocker: `"${approved}" doesn't fit two lines at ${s2.cap} H (≤ ${s2.maxChars} characters and ${CLAIM_SLOT.maxWidth} W a line), even with TICKETS, NOW and the number form dropped · can't shorten` };
 }
 
 // ─── Rendering (font path) ──────────────────────────────────────────────────
@@ -324,10 +399,11 @@ export function planCardClaim(approved: string, measure: MeasureLine, kitCase: "
     base = [{ text: inKitCase(lines[0]!, kitCase), approvedText: lines[0]!, color: "white", capPx: c.oneLine.whiteCap }];
     floorK = c.oneLine.floor / c.oneLine.whiteCap;
   }
-  // O27: a roll-call that would fall below the floor tries line 2's drops in order; line 1 never shortens.
+  // O27 / O35: a claim that would fall below the floor tries the drops in order; a roll-call's line 1 never shortens.
+  // O35: after the floors, O8's drops — on a roll-call only line 2 (O27), otherwise every line; the line count never changes.
   const states = isRollCall(lines)
     ? rollCallStates(base[0]!.text, base[1]!.text).map((st) => ({ texts: [st.line1, st.line2], dropped: st.dropped }))
-    : [{ texts: base.map((l) => l.text), dropped: [] as Drop[] }];
+    : plainDropStates(base.map((l) => l.text)).filter((st) => st.lines.length === base.length).map((st) => ({ texts: st.lines, dropped: st.dropped }));
   let chosen: { texts: string[]; dropped: Drop[]; widths: number[]; k: number } | null = null;
   for (const st of states) {
     const widths = st.texts.map((t, i) => measure(t, base[i]!.capPx));
