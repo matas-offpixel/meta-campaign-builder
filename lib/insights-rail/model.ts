@@ -624,13 +624,33 @@ export const SHAPE_THIN_MIN_ADS = 10;
 
 const SHAPE_RANK = ["line_count_band", "opener", "scarcity_kind", "length_band", "cta_kind", "emoji_count_band", "has_lineup_list", "has_date", "has_price"];
 
-const SHAPE_VALUE: Record<string, Record<string, string>> = {
-  opener: { question: "question", statement: "statement", imperative: "imperative", name_first: "artist name", number_first: "number" },
-  cta_kind: { sign_up: "Sign up", book_now: "Book now", tag_a_mate: "Tag a mate", link_in_bio: "Link in bio", none: "None" },
-  scarcity_kind: { final_x: "final tickets", pct_sold: "percent sold", price_rise: "price rise", countdown: "countdown", sold_out_rollcall: "sold out", none: "none" },
-  length_band: { le_60: "short", "61_120": "medium", "121_200": "long", gt_200: "longer" },
-  emoji_count_band: { "0": "no", "1_2": "1–2", "3_plus": "3+" },
-  line_count_band: { "1": "1", "2_3": "2", "4_plus": "4" },
+/** Drawn phrases. A one-line body is the baseline, so it has no label. */
+const SHAPE_PHRASE: Record<string, Record<string, string | null>> = {
+  opener: {
+    question: "Opener: a question",
+    statement: "Opener: a statement",
+    imperative: "Opener: a command",
+    name_first: "Opener: artist name",
+    number_first: "Opener: a number",
+  },
+  cta_kind: {
+    sign_up: "Sign up CTA",
+    book_now: "Book now CTA",
+    tag_a_mate: "Tag a mate CTA",
+    link_in_bio: "Link in bio CTA",
+    none: "No CTA",
+  },
+  scarcity_kind: {
+    countdown: "Countdown scarcity",
+    final_x: "Final tickets scarcity",
+    price_rise: "Price rise scarcity",
+    sold_out_rollcall: "Sold out scarcity",
+    pct_sold: "% sold scarcity",
+    none: "No scarcity",
+  },
+  length_band: { le_60: "Short body", "61_120": "Medium body", "121_200": "Long body", gt_200: "Very long body" },
+  emoji_count_band: { "0": "No emoji", "1_2": "1–2 emoji", "3_plus": "3+ emoji" },
+  line_count_band: { "1": null, "2_3": "2+ lines", "4_plus": "4+ lines" },
 };
 
 function shapeRank(feature: string): number {
@@ -638,19 +658,14 @@ function shapeRank(feature: string): number {
   return at === -1 ? SHAPE_RANK.length : at;
 }
 
-/** R23. Feature keys never show. */
-export function shapeFacet(feature: string, value: string): string {
+/** R23. Feature keys never show. A one-line body is the baseline and is not a label. */
+export function shapeFacet(feature: string, value: string): string | null {
   if (feature === "has_lineup_list") return value === "yes" ? "lineup listed" : "no lineup";
   if (feature === "has_date") return value === "yes" ? "dated" : "undated";
   if (feature === "has_price") return value === "yes" ? "a price" : "no price";
-  const word = SHAPE_VALUE[feature]?.[value] ?? value.replaceAll("_", " ");
-  if (feature === "opener") return `Opener: ${word}`;
-  if (feature === "cta_kind") return `${word} CTA`;
-  if (feature === "scarcity_kind") return `${word} scarcity`;
-  if (feature === "length_band") return `${word} body`;
-  if (feature === "emoji_count_band") return word === "no" ? "no emoji" : `${word} emoji`;
-  if (feature === "line_count_band") return `${word}+ lines`;
-  return word;
+  const table = SHAPE_PHRASE[feature];
+  if (!table || !(value in table)) return null;
+  return table[value] ?? null;
 }
 
 type CollapsedShape = {
@@ -668,13 +683,17 @@ type CollapsedShape = {
 
 function collapseOne(group: readonly ShapeRow[]): CollapsedShape {
   const ordered = [...group].sort((a, b) => shapeRank(a.feature) - shapeRank(b.feature) || a.feature.localeCompare(b.feature));
-  const primary = ordered[0]!;
+  const labelled = ordered.flatMap((row) => {
+    const label = shapeFacet(row.feature, row.value);
+    return label ? [{ row, label }] : [];
+  });
+  const primary = labelled[0]?.row ?? ordered[0]!;
   const voice = ordered.find((row) => row.voice === "promoter" || row.voice === "artist")?.voice ?? primary.voice;
   const voiceFacet = voice === "promoter" ? "promoter voice" : voice === "artist" ? "artist voice" : null;
-  const rest = ordered.slice(1).map((row) => shapeFacet(row.feature, row.value));
+  const rest = labelled.slice(1).map((item) => item.label);
   return {
     key: primary.adsHash ?? `${primary.feature}:${primary.value}:${primary.stage}`,
-    label: shapeFacet(primary.feature, primary.value),
+    label: labelled[0]?.label ?? "",
     facets: [voiceFacet, ...rest].filter((facet): facet is string => Boolean(facet)).join(" · "),
     index: primary.index,
     shows: primary.shows,
@@ -699,7 +718,7 @@ export function collapseShapes(rows: readonly ShapeRow[]): CollapsedShape[] {
     if (group) group.push(row);
     else byHash.set(row.adsHash, [row]);
   }
-  return [...byHash.values(), ...alone].map((group) => collapseOne(group));
+  return [...byHash.values(), ...alone].map((group) => collapseOne(group)).filter((shape) => shape.label);
 }
 
 function shapeThin(row: CollapsedShape): boolean {
@@ -774,7 +793,7 @@ function buildShapeSection(args: {
   const minAds = shown.length ? Math.min(...shown.map((row) => row.ads)) : 0;
   const minShows = shown.length ? Math.min(...shown.map((row) => row.shows)) : 0;
   const weakestConf = shown.reduce<RailConfidence>((min, row) => (confRank(row.confidence) < confRank(min) ? row.confidence : min), "strong");
-  const scopeWord = args.scope === "all" ? "All clients" : args.scope === "client" ? "this client" : "this vertical";
+  const scopeWord = args.scope === "all" ? "all clients" : args.scope === "client" ? "this client" : "this vertical";
   const parts = shown.length ? [weakestConf, `${minAds}+ ads`, `${minShows}+ shows`, "90 days", scopeWord] : [];
   if (more) parts.push(`+${more} more`);
   const who = args.clientName ?? "This client";

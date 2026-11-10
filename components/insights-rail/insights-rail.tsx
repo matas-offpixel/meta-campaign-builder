@@ -164,7 +164,7 @@ export function InsightsRail() {
   if (layout === "drawer") {
     return (
       <aside data-insights-rail data-layout="drawer" className="relative shrink-0 border-l border-border-strong bg-card" style={{ width: TAB_WIDTH }}>
-        {tab}
+        {open ? null : tab}
         {open ? <Drawer onClose={() => setOpen(false)}>{panel}</Drawer> : null}
       </aside>
     );
@@ -314,10 +314,10 @@ function Section({ section }: { section: InsightSection }) {
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <span className="text-[9px] font-bold tracking-[.16em] text-foreground/80 uppercase">{section.kicker}</span>
         {section.id === "copy-shapes" && section.scopeLabel === "All clients" ? (
-          <span className="text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">
-            <span className="max-[700px]:hidden">All clients</span>
-            <span className="min-[701px]:hidden">All</span>
-          </span>
+          <>
+            <span className="text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase max-[700px]:hidden">All clients</span>
+            <span className="text-[9px] font-bold tracking-normal text-muted-foreground normal-case min-[701px]:hidden">all clients</span>
+          </>
         ) : section.scopeLabel ? (
           <span className="text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">{section.scopeLabel}</span>
         ) : null}

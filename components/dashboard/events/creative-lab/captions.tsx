@@ -199,7 +199,6 @@ export function LabCaptions({
       <div className="space-y-2 rounded border border-border bg-card p-3">
         {quoteMode ? <Control label="Mode" value={mode} options={[{ id: "caption", label: "Caption" }, { id: "quote", label: "Quote" }]} onChange={chooseMode} /> : null}
         <Control label="Angle" value={angle} options={ANGLES.map((id) => ({ id, label: styleLabel(id) }))} onChange={setAngle} />
-        <p className="text-[11.5px] text-muted-foreground">{EMPTY_COPY_LINES}</p>
         {angle === "artist_first_person" ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="w-20 text-muted-foreground">Artist</span>
@@ -268,6 +267,10 @@ export function LabCaptions({
             active={writing}
           />
         </Button>
+        <div className="space-y-2">
+          <p className="font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase">Proven elsewhere</p>
+          <p className="text-[11.5px] text-muted-foreground">{EMPTY_COPY_LINES}</p>
+        </div>
         {notice ? <p className="text-sm">{notice}</p> : null}
         {quoteMode ? (
           <VoicePanel

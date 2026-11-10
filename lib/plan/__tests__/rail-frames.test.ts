@@ -136,7 +136,9 @@ describe("Insights rail frame catalog (IR)", () => {
     assert.equal(shapes.bars[1]!.valueText, "0.75");
     assert.equal(shapes.bars[1]!.detail, "3 shows · 27 ads · ticket sale");
     assert.equal(shapes.result?.text, "Opener: artist name costs 35% less than usual.");
-    assert.equal(shapes.confidence, "ok · 22+ ads · 3+ shows · 90 days · All clients · +14 more");
+    assert.equal(shapes.bars[2]!.label, "1–2 emoji");
+    assert.equal(shapes.bars[3]!.label, "Countdown scarcity");
+    assert.equal(shapes.confidence, "ok · 22+ ads · 3+ shows · 90 days · all clients · +14 more");
     assert.equal(shapes.lock, true);
     assert.equal(shapes.action?.label, "Use shape");
     assert.equal(shapes.action?.note, "artist voice → Angle: Artist, first person");

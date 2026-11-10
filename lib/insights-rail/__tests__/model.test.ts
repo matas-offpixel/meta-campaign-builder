@@ -13,6 +13,7 @@ import {
   EMPTY_COPY_LINES,
   buildRail,
   collapseShapes,
+  shapeFacet,
   tiktokPlatformThin,
   buildSection,
   buildTikTokSections,
@@ -388,6 +389,30 @@ describe("insights rail model", () => {
     const thin = buildTikTokSections([{ dimension: "age", value: "AGE_18_24", spend: 10, clicks: 19, impressions: 1000, views2s: 100 }], "Puzzle")[0]!;
     assert.equal(thin.bars.length, 0);
     assert.equal(thin.thin[0]!.line, "Not enough data yet: £10 spent, 19 clicks");
+  });
+
+  it("R23: labels are capitalised phrases, and a one-line body is not a label", () => {
+    assert.equal(shapeFacet("cta_kind", "none"), "No CTA");
+    assert.equal(shapeFacet("cta_kind", "sign_up"), "Sign up CTA");
+    assert.equal(shapeFacet("scarcity_kind", "countdown"), "Countdown scarcity");
+    assert.equal(shapeFacet("scarcity_kind", "pct_sold"), "% sold scarcity");
+    assert.equal(shapeFacet("scarcity_kind", "none"), "No scarcity");
+    assert.equal(shapeFacet("length_band", "gt_200"), "Very long body");
+    assert.equal(shapeFacet("emoji_count_band", "0"), "No emoji");
+    assert.equal(shapeFacet("emoji_count_band", "1_2"), "1–2 emoji");
+    assert.equal(shapeFacet("opener", "imperative"), "Opener: a command");
+    assert.equal(shapeFacet("opener", "name_first"), "Opener: artist name");
+    assert.equal(shapeFacet("line_count_band", "1"), null);
+    assert.equal(shapeFacet("line_count_band", "2_3"), "2+ lines");
+    const row = (feature: string, value: string): ShapeRow => ({
+      feature, value, voice: null, index: 0.8, shows: 3, ads: 20, stage: "registration", adsHash: "base", confidence: "ok",
+    });
+    const dropped = collapseShapes([row("line_count_band", "1")]);
+    assert.equal(dropped.length, 0);
+    const kept = collapseShapes([row("line_count_band", "1"), row("opener", "question")]);
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0]!.label, "Opener: a question");
+    assert.equal(kept[0]!.facets, "");
   });
 
   it("R21: equal ads hashes collapse; equal counts with different hashes do not; a null hash never does", () => {
