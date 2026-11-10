@@ -293,6 +293,8 @@ describe("H28: the roll-call's line 2 and its shortening (A21, O27)", () => {
     assert.deepEqual(states.map((s) => s.line2), ["FINAL 100 3RD RELEASE TICKETS NOW", "FINAL 100 3RD RELEASE NOW", "FINAL 100 3RD RELEASE", "FINAL 100 3RD"]);
     assert.deepEqual(states.map((s) => s.dropped), [[], ["TICKETS"], ["TICKETS", "NOW"], [...DROP_ORDER]]);
     assert.ok(states.every((s) => s.line1 === line1 && /\bRELEASE\b/.test(s.line1)));
+    // Only an ordinal has a number form.
+    assert.deepEqual(rollCallStates(line1, "FINAL RELEASE SELLING FAST").map((s) => s.line2), ["FINAL RELEASE SELLING FAST"]);
     // Line 1 without RELEASE on the frame: line 2 never takes the number form.
     assert.deepEqual(rollCallStates("EARLY BIRD & PRESALE SOLD OUT", "3RD RELEASE SELLING FAST").map((s) => s.line2), ["3RD RELEASE SELLING FAST"]);
   });

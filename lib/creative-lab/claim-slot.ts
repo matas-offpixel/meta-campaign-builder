@@ -113,9 +113,9 @@ function dropWord(line: string, word: string): string {
   return line.replace(new RegExp(`(^|\\s)${word}(?=\\s|$)`, "gi"), " ").replace(/\s+/g, " ").trim();
 }
 
-/** "{X} RELEASE" → "{X}" (O8's number form). */
-function numberForm(line: string): string {
-  return line.replace(/\s+RELEASE\b/gi, "").replace(/\s+/g, " ").trim();
+/** O8's number form: "3RD RELEASE" → "3RD". Only an ordinal has a number form; "FINAL RELEASE" keeps its word. */
+export function numberForm(line: string): string {
+  return line.replace(/\b(\d+(?:ST|ND|RD|TH))\s+RELEASE\b/gi, "$1").replace(/\s+/g, " ").trim();
 }
 
 /**
