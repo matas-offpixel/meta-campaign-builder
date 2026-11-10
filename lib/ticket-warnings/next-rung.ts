@@ -98,7 +98,7 @@ function met(rung: LadderRung, release: Release, siblings: readonly Release[], n
     if (release.sold != null) return false;
     if (release.state !== "selling_fast" && release.state !== "final_x") return false;
     if (!release.stateAt) return false;
-    return daysBetween(release.stateAt, nowIso) >= (rung.options.days ?? 7);
+    return daysBetween(release.stateAt, nowIso) >= (rung.options.days ?? 14);
   }
   if (rung.triggerValue === "on_sale") return PAST_ON_SALE.has(release.state);
   if (rung.triggerValue === "final_x") return release.state === "final_x";
@@ -114,7 +114,7 @@ function because(rung: LadderRung, release: Release, siblings: readonly Release[
   }
   if (rung.triggerKind === "count_pct") return isMet ? `count at ${rung.triggerValue}%` : `needs a count at ${rung.triggerValue}%`;
   if (rung.triggerKind === "state_days") {
-    const days = rung.options.days ?? 7;
+    const days = rung.options.days ?? 14;
     return isMet ? `selling fast for ${days}+ days, no count` : `needs selling fast for ${days}+ days`;
   }
   if (rung.triggerValue === "final_x") return isMet ? "final X" : "needs the release at final X, or a count at 90%+";
@@ -169,7 +169,7 @@ export function nextRung(
 /** Days the selling-fast rung waits before it stands in for 90%. */
 export function sellingFastDays(ladder: readonly LadderRung[]): number | null {
   const rung = ladder.find((row) => row.triggerKind === "state_days" && row.triggerValue === "selling_fast");
-  return rung ? (rung.options.days ?? 7) : null;
+  return rung ? (rung.options.days ?? 14) : null;
 }
 
 /**

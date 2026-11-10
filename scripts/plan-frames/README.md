@@ -135,7 +135,7 @@ Puzzle 4th Birthday, today 7 Nov 2026, show 27 Dec, payday Fri 27 Nov, 50 days. 
 | AB3 | 23 Nov – 27 Dec. Window shaded where `isInPaydayWindow` is true: Thu 26 Nov through Sun 13 Dec (18 days). 27 Nov and 24 Dec are outlined. Ticket pushes are brick, content-led pushes are meta-blue, and the legend has those swatches. 24 Dec reads "moved · 25th is Christmas". The 393 list includes Sat 28 and every other push on the grid. "Last day at £26" is gone |
 | AB4 | Header 15 approved · 1 proposed · 3 locked · 5 missing. Made cells carry a thumbnail, approved cells add ✓, held is ochre-outlined, proposed is ochre, locked and "+ needs …" are dashed. Row sub-lines include "sold out · ladder done" and "proposed · Mon read". The button's action makes nothing |
 | AB1b | A backfilled event. Two rows, Presale not yet and General sale on sale, outlined until a tap. |
-| AB5 | Puzzle's ladder: the eight rungs, the roll-call, and the four derived rungs. Offers are a line in the right panel, not a rung. 393 starts at sold out. |
+| AB5 | Puzzle's ladder: the eight rungs, the roll-call, and the four derived rungs. Offers are a line in the right panel, not a rung. The 90% rung reads "Selling fast for 14+ days · default 14". |
 | AB6 | The Offers sheet, payment plan filled in (£10 today, 3 parts, until 27 Nov), and the same sheet refusing "final release". |
 
 Flagged against the drawings:

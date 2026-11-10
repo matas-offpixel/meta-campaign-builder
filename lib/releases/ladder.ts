@@ -2,8 +2,9 @@ import type { LadderRung } from "./types.ts";
 
 /**
  * Matas's seed. 70% says "90% sold". The 90% rung says "99% sold" unless the
- * client's wording is final X. Selling fast waits 7 days and says the % line
- * unless the client's wording is final X.
+ * client's wording is final X. Selling fast waits 14 days (artwork refreshes
+ * every 2 weeks) and says the % line unless the client's wording is final X.
+ * After the rung-1 split this row is position 3; until then it is position 2.
  */
 export function defaultLadder(): LadderRung[] {
   return [
@@ -13,7 +14,7 @@ export function defaultLadder(): LadderRung[] {
       triggerKind: "state_days",
       triggerValue: "selling_fast",
       claimTemplate: "{release} 90% sold out",
-      options: { days: 7, wording: "percent", alt: "final X {release} tickets" },
+      options: { days: 14, wording: "percent", alt: "final X {release} tickets" },
     },
     { position: 3, triggerKind: "count_pct", triggerValue: "50", claimTemplate: "75% sold", options: {} },
     { position: 4, triggerKind: "count_pct", triggerValue: "60", claimTemplate: "80% sold", options: {} },
@@ -71,12 +72,9 @@ export function completeLadder(stored: readonly LadderRung[] | null | undefined)
   return [...normalized, ...extra].sort((a, b) => a.position - b.position);
 }
 
-/** Puzzle's ladder, as AB5 draws it: 5 days, and the % line rather than final X. */
+/** Puzzle's 70% line says "90% sold out". The 90% rung is the default: 14 days, which AB5 draws. */
 export function puzzleLadder(): LadderRung[] {
   return defaultLadder().map((rung) => {
-    if (rung.triggerValue === "selling_fast") {
-      return { ...rung, options: { ...rung.options, days: 5, wording: "percent" } };
-    }
     if (rung.triggerValue === "70") return { ...rung, claimTemplate: "90% sold out" };
     return rung;
   });

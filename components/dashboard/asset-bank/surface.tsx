@@ -776,7 +776,7 @@ export type LadderRow = {
 
 const LADDER: LadderRow[] = [
   { trigger: "Release list time passed · state on sale", detail: "from the release time, or a read / entry", claim: "\"{release} live · selling fast\"", wide: true },
-  { trigger: "Selling fast for 5+ days, no count", detail: "Puzzle: 5 days (default 7)", claim: "\"{release} 90% sold out\"", wide: true },
+  { trigger: "Selling fast for 14+ days · default 14", claim: "\"{release} 90% sold out\"", wide: true },
   { trigger: "Actual 50% · 60% · 70% · 80%", detail: "when a count and a capacity exist", claim: "\"75%\" · \"80%\" · \"90% sold out\" · \"95% sold\"", wide: true },
   { trigger: "Actual 90% · or state final X · or the page shows remaining", claim: "\"99%\" or \"final X\"", note: "X from the page or the count, never typed", wide: true },
   { trigger: "State sold out", claim: "\"sold out\"" },
