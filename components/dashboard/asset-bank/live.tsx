@@ -93,8 +93,8 @@ export function LiveReleases({
   );
 }
 
-export function LiveLadder({ rungs }: { rungs: LadderRung[] }) {
-  const shown = presentLadder(completeLadder(rungs));
-  const seed = presentLadder(defaultLadder());
+export function LiveLadder({ rungs, clientName }: { rungs: LadderRung[]; clientName?: string }) {
+  const shown = presentLadder(completeLadder(rungs), clientName);
+  const seed = presentLadder(defaultLadder(), clientName);
   return <ClaimLadder live initial={shown.length ? shown : seed} resetTo={seed} />;
 }

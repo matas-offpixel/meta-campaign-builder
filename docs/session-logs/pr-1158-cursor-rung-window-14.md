@@ -8,23 +8,30 @@
 
 ## Summary
 
-The 90% rung waits 14 days, because artwork refreshes every two weeks. The seed and Reset to default use 14. Migration 224 moves a client's row from 7 to 14 only when it is still the 211 seed, and names anyone who edited it. The rung-1 split is a design record on main and is not in this branch; the update finds the rung by kind, value, template and options, so it is the same row at position 2 today and at position 3 after that split. H19: selling fast for 15 days proposes "90% sold out"; 13 days does not. AB5-1280 and AB5-393 are re-baselined because the row now reads "Selling fast for 14+ days · default 14". The Puzzle 5-day sub-line is gone, so both frames are 16px shorter. Design rules on that text in the verdict.
+The 90% rung waits 14 days, because artwork refreshes every two weeks. The seed and Reset to default are the 15-rung ladder: rung 1 is "{release} live", rung 2 is "{release} selling fast", and the 90% rung is position 3 at 14 days. Migration 224 moves a client's 90% row from 7 to 14 only when it is still the 211 seed. Migration 225 splits rung 1 only when position 1 is still that seed, shifts the later rows down one without deleting them, and names a client whose rung 1 was edited. A ladder that is already split is left alone. The 90% row's main line is "Selling fast for {n}+ days, no count". The line under it is "the default" when the client's days are 14, and "{client}: {n} days (default 14)" when they are not. AB5 and AB2 are re-baselined once for the split. Design rules on those frames.
 
 ## Scope / files
 
-- `lib/releases/ladder.ts` — seed and reset, days 14
-- `lib/releases/present.ts` — the default row's words
-- `lib/ticket-warnings/next-rung.ts` — the wait, when a row has no days of its own
-- `components/dashboard/asset-bank/surface.tsx` — the AB5 line
+- `lib/releases/ladder.ts` — fifteen rungs, days 14 at position 3
+- `lib/releases/present.ts` — the two-line 90% wording, and the new rung's words
+- `lib/releases/ladder-split.ts` — the split, checked without running SQL
+- `lib/releases/held-split.ts` — the two held claims
+- `lib/ticket-warnings/next-rung.ts` — rung 1 is the latest release that has gone live; line 2 never drops below selling fast
+- `scripts/ladder-split-recompute.mts` — dry run by default
+- `components/dashboard/asset-bank/surface.tsx` — AB2 cards and the static ladder
 - `supabase/migrations/224_selling_fast_fourteen_days.sql` — written, not applied
+- `supabase/migrations/225_rung_one_split.sql` — written, not applied
 - `lib/releases/__tests__/bank.test.ts`
+- `lib/releases/__tests__/ladder-split.test.ts`
+- `lib/creative-lab/__tests__/caption-facts.test.ts`
 
 ## Validation
 
-- [x] `node --conditions react-server --experimental-strip-types --test lib/releases/__tests__/bank.test.ts` — 28 passed
-- [x] AB5 Ubuntu pair 42825268452 / 42825278848, both 0 against each other. AB5-1280 1280×976 → 1280×960. AB5-393 393×1493 → 393×1477. Both now read "Selling fast for 14+ days · default 14".
+- [x] `node --conditions react-server --experimental-strip-types --test lib/releases/__tests__/bank.test.ts lib/releases/__tests__/ladder-split.test.ts` — passed
+- [x] H20 dry run, claims and counts only: held "General sale live · selling fast" → "General sale live": 1. held "Presale live · selling fast" → locked: 1. Why: Ended — General sale went live Fri 30 Oct, so the presale is no longer the release to push.
+- [ ] AB5 and AB2 Ubuntu pair, both 0. AB1, AB1b, AB3, AB4 unchanged.
 - [ ] CI green on the frame commit
 
 ## Notes
 
-On 10 Nov every client still read days 7, so the notice list should be empty and all 17 become 14. A second run changes nothing. 223 is left for the unmerged copy-features migration on `cursor/rail-3`.
+Until 225 is applied, a stored ladder still has the combined rung 1. The engine does not invent the new rung on top of that stored ladder, because position 2 would collide. Seed and Reset are the 15 rungs. 223 stays on `cursor/rail-3`. Neither migration is applied.

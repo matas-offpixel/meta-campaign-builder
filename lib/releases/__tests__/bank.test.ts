@@ -148,11 +148,11 @@ describe("next rung", () => {
   it("each trigger kind on the fixture releases, including the roll-call", () => {
     const general = nextRung(puzzle[2]!, ladder, puzzle, NOW);
     assert.equal(general?.met, true);
-    assert.equal(general?.triggerValue, "on_sale");
-    assert.equal(general?.claim, "General sale live · selling fast");
+    assert.equal(general?.triggerValue, "selling_fast");
+    assert.equal(general?.claim, "General sale selling fast");
 
     const third = nextRung(puzzle[3]!, ladder, puzzle, NOW);
-    assert.equal(third?.claim, "3rd release live · selling fast");
+    assert.equal(third?.claim, "3rd release selling fast");
     assert.equal(third?.met, true);
 
     const early = nextRung(puzzle[0]!, ladder, puzzle, NOW);
@@ -200,7 +200,8 @@ describe("next rung", () => {
     assert.equal(reset?.options.days, 14);
     const row = release({ name: "3rd release", position: 1, state: "selling_fast", stateAt: "2026-11-01" });
     const thirteen = nextRung(row, defaultLadder(), [row], "2026-11-14T00:00:00Z");
-    assert.equal(thirteen?.claim, "3rd release live · selling fast");
+    assert.equal(thirteen?.claim, "3rd release selling fast");
+    assert.notEqual(thirteen?.claim, "3rd release 90% sold out");
     const fifteen = nextRung(row, defaultLadder(), [row], "2026-11-16T00:00:00Z");
     assert.equal(fifteen?.claim, "3rd release 90% sold out");
     const alt = defaultLadder().map((rung) =>
@@ -217,7 +218,7 @@ describe("next rung", () => {
       [],
       "2026-11-13T09:00:00Z",
     );
-    assert.equal(proposalOnChange("2nd release live · selling fast", rung).propose, true);
+    assert.equal(proposalOnChange("2nd release selling fast", rung).propose, true);
     assert.equal(proposalOnChange("2nd release 90% sold out", rung).propose, false);
     assert.equal(proposalOnChange(null, { ...rung!, met: false }).propose, false);
   });
@@ -247,11 +248,11 @@ describe("roll-call words", () => {
     const rung = nextRung(final, puzzleLadder(), siblings, NOW);
     assert.equal(rung?.triggerKind, "roll_call");
     assert.equal(rung?.met, true);
-    assert.equal(rung?.claim, "EARLY BIRD, 2ND & 3RD RELEASE SOLD OUT\nFINAL RELEASE RUNNING LOW");
+    assert.equal(rung?.claim, "EARLY BIRD, 2ND & 3RD RELEASE SOLD OUT\n99% SOLD");
     assert.equal(liveClaimLine({ ...final, state: "final_x", remaining: 100 }), "FINAL 100 FINAL RELEASE TICKETS");
     const percent = nextRung({ ...final, state: "selling_fast" }, puzzleLadder().filter((row) => row.triggerKind !== "roll_call"), siblings, NOW);
     assert.equal(percent?.triggerKind, "count_pct");
-    const seeded = defaultLadder().find((row) => row.position === 10);
+    const seeded = defaultLadder().find((row) => row.triggerValue === "roll_call");
     assert.equal(seeded?.triggerKind, "roll_call");
     assert.equal(seeded?.options.preferred, true);
   });
@@ -280,6 +281,64 @@ describe("roll-call words", () => {
       release({ name: "General sale", position: 5, state: "on_sale", stateSource: "entry", stateSetBy: "matas" }),
     ];
     assert.equal(rollCallWords(bothLive).met, false);
+  });
+
+  it("only the latest release whose list time has passed proposes rung 1", () => {
+    const presale = release({
+      name: "Presale",
+      position: 1,
+      state: "on_sale",
+      listAt: "2026-10-21T12:00:00Z",
+      stateSource: "entry",
+      stateSetBy: "matas",
+    });
+    const general = release({
+      name: "General sale",
+      position: 2,
+      state: "on_sale",
+      listAt: "2026-10-30T12:00:00Z",
+      stateSource: "entry",
+      stateSetBy: "matas",
+    });
+    const siblings = [presale, general];
+    const now = "2026-11-10T12:00:00Z";
+    const live = nextRung(general, defaultLadder(), siblings, now);
+    assert.equal(live?.claim, "General sale live");
+    assert.equal(live?.met, true);
+    assert.equal(proposalOnChange("anything else", live).propose, true);
+    const ended = nextRung(presale, defaultLadder(), siblings, now);
+    assert.equal(ended?.met, false);
+    assert.equal(proposalOnChange("Presale live", ended).propose, false);
+  });
+
+  it("a first release on sale does not meet selling fast with no earlier release", () => {
+    const only = release({
+      name: "General sale",
+      position: 1,
+      state: "on_sale",
+      listAt: "2026-10-30T12:00:00Z",
+      stateSource: "entry",
+      stateSetBy: "matas",
+    });
+    const rung = nextRung(only, defaultLadder(), [only], NOW);
+    assert.equal(rung?.claim, "General sale live");
+    assert.equal(rung?.triggerValue, "on_sale");
+  });
+
+  it("the roll-call's second line is selling fast when the live release is only on sale", () => {
+    const sold = (name: string, position: number) =>
+      release({ name, position, state: "sold_out", stateAt: "2026-10-01", stateSource: "client_message", stateSetBy: "matas" });
+    const live = release({
+      name: "3rd release",
+      position: 4,
+      state: "on_sale",
+      listAt: "2026-11-06T12:00:00Z",
+      stateSource: "entry",
+      stateSetBy: "matas",
+    });
+    const siblings = [sold("Early bird", 1), sold("1st", 2), sold("2nd release", 3), live];
+    const rung = nextRung(live, defaultLadder(), siblings, NOW);
+    assert.equal(rung?.claim, "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\n3RD RELEASE SELLING FAST");
   });
 });
 
@@ -535,19 +594,32 @@ describe("approval, windows, the board", () => {
   });
 
   it("AB5 draws Puzzle's ladder with the record's sub-lines and a quoted claim on every rung", () => {
-    const rows = presentLadder(puzzleLadder());
-    assert.equal(rows.length, 14);
-    assert.equal(rows[1]!.trigger, "Selling fast for 14+ days · default 14");
-    assert.equal(rows[1]!.detail, undefined);
-    assert.equal(rows[0]!.detail, "from the release time, or a read / entry");
-    assert.equal(rows[2]!.detail, "when a count and a capacity exist");
-    assert.equal(rows.find((row) => row.trigger.startsWith("2+ releases"))!.detail, "roll-call · preferred over the % rung");
+    const rows = presentLadder(puzzleLadder(), "Puzzle");
+    assert.equal(rows.length, 15);
+    const ninety = rows.find((row) => row.trigger.startsWith("Selling fast for"));
+    assert.equal(ninety?.trigger, "Selling fast for 14+ days, no count");
+    assert.equal(ninety?.detail, "the default");
+    assert.equal(rows[0]!.claim, "\"{release} live\"");
+    assert.equal(rows[0]!.detail, "only the latest release that has gone live");
+    assert.equal(rows[1]!.claim, "\"{release} selling fast\"");
+    assert.equal(rows[1]!.detail, "new · day 0 · 2+ earlier sold out → the roll-call is preferred");
+    assert.equal(rows[3]!.detail, "when a count and a capacity exist");
+    assert.equal(rows.find((row) => row.trigger.startsWith("2+ releases"))!.detail, "roll-call · preferred over the % rung and over rung 2");
     assert.equal(rows.find((row) => row.trigger.startsWith("Sold now"))!.detail, "sales velocity · needs two counts · window and count per client");
     assert.equal(rows.find((row) => row.trigger === "State final X")!.note, "X from the page or the count, never typed");
     assert.equal(rows.find((row) => row.trigger.startsWith("Next release"))!.note, "qualifier \"LAST CHANCE AT £{n}\" when the release has a price");
     assert.equal(rows.at(-1)!.note, "refreshes the lineup slot and every ALONGSIDE: list");
     assert.ok(rows.every((row) => row.claim.includes("\"")));
-    assert.equal(presentLadder(defaultLadder())[1]!.trigger, "Selling fast for 14+ days · default 14");
-    assert.equal(presentLadder(defaultLadder())[1]!.detail, undefined);
+    const seeded = presentLadder(defaultLadder());
+    assert.equal(seeded[2]!.trigger, "Selling fast for 14+ days, no count");
+    assert.equal(seeded[2]!.detail, "the default");
+    const custom = defaultLadder().map((rung) =>
+      rung.triggerKind === "state_days" && rung.triggerValue === "selling_fast"
+        ? { ...rung, options: { ...rung.options, days: 5 } }
+        : rung,
+    );
+    const shown = presentLadder(custom, "Puzzle").find((row) => row.trigger.startsWith("Selling fast for"));
+    assert.equal(shown?.trigger, "Selling fast for 5+ days, no count");
+    assert.equal(shown?.detail, "Puzzle: 5 days (default 14)");
   });
 });

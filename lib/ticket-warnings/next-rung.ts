@@ -1,6 +1,6 @@
 import { countdownRung, lineupRung, percentStandIn, priceRiseRung, velocityRung, type CountRead } from "../releases/derived.ts";
 import { isBackfilled } from "../releases/visibility.ts";
-import { rollCallWords } from "../releases/roll-call.ts";
+import { liveClaimLine, rollCallWords } from "../releases/roll-call.ts";
 import type { LadderRung, Release } from "../releases/types.ts";
 import { daysBetween } from "../releases/dates.ts";
 
@@ -51,8 +51,36 @@ function countdownMet(release: Release, nowIso: string, context: DerivedContext)
   };
 }
 
-function claimText(rung: LadderRung, release: Release, siblings: readonly Release[], nowIso: string, context: DerivedContext): string {
-  if (isRoll(rung)) return rollCallWords(siblings).claim;
+function roster(release: Release, siblings: readonly Release[]): Release[] {
+  return siblings.some((row) => row.id === release.id) ? [...siblings] : [...siblings, release];
+}
+
+/** The latest release whose list time has passed. Rung 1 belongs to this one only. */
+function latestListed(rows: readonly Release[], nowIso: string): Release | null {
+  const now = Date.parse(nowIso);
+  const passed = rows.filter((row) => row.listAt != null && Date.parse(row.listAt) <= now);
+  if (!passed.length) return null;
+  return [...passed].sort((a, b) => Date.parse(b.listAt!) - Date.parse(a.listAt!) || b.position - a.position)[0]!;
+}
+
+function earlierAllSoldOut(release: Release, rows: readonly Release[]): boolean {
+  const earlier = rows.filter((row) => row.position < release.position);
+  return earlier.length > 0 && earlier.every((row) => row.state === "sold_out");
+}
+
+function shoutRelease(name: string, tail: string): string {
+  const upper = name.trim().toUpperCase();
+  const titled = /\bRELEASE\b/.test(upper) ? upper : `${upper} RELEASE`;
+  return `${titled} ${tail}`;
+}
+
+function claimText(rung: LadderRung, release: Release, siblings: readonly Release[], nowIso: string, context: DerivedContext, ladder: readonly LadderRung[]): string {
+  if (isRoll(rung)) {
+    const words = rollCallWords(siblings);
+    const live = siblings.filter((row) => row.state === "on_sale" || row.state === "selling_fast" || row.state === "final_x");
+    if (live.length !== 1) return words.claim;
+    return `${words.line1}\n${rollLine2(live[0]!, siblings, ladder, nowIso, context)}`;
+  }
   if (rung.triggerKind === "velocity") {
     return velocityRung(context.counts ?? [], nowIso, rung.options.windowDays ?? 14, rung.options.threshold ?? Number(rung.triggerValue)).claim;
   }
@@ -75,6 +103,23 @@ function claimText(rung: LadderRung, release: Release, siblings: readonly Releas
     return left != null ? `final ${left}` : "final X";
   }
   return fill(rung.claimTemplate, release);
+}
+
+/** Line 2 is the live release's highest met rung below sold out, and never lower than selling fast. */
+function rollLine2(release: Release, siblings: readonly Release[], ladder: readonly LadderRung[], nowIso: string, context: DerivedContext): string {
+  const reached = [...ladder]
+    .sort((a, b) => a.position - b.position)
+    .filter((rung) => {
+      if (isRoll(rung) || isDerived(rung)) return false;
+      if (rung.triggerKind === "state" && rung.triggerValue === "sold_out") return false;
+      return met(rung, release, siblings, nowIso, context);
+    });
+  const pick = reached[reached.length - 1];
+  if (!pick || (pick.triggerKind === "state" && (pick.triggerValue === "on_sale" || pick.triggerValue === "selling_fast"))) {
+    return shoutRelease(release.name, "SELLING FAST");
+  }
+  if (pick.triggerValue === "final_x") return liveClaimLine(release);
+  return claimText(pick, release, siblings, nowIso, context, ladder).toUpperCase();
 }
 
 function met(rung: LadderRung, release: Release, siblings: readonly Release[], nowIso: string, context: DerivedContext): boolean {
@@ -100,6 +145,16 @@ function met(rung: LadderRung, release: Release, siblings: readonly Release[], n
     if (!release.stateAt) return false;
     return daysBetween(release.stateAt, nowIso) >= (rung.options.days ?? 14);
   }
+  if (rung.triggerKind === "state" && rung.triggerValue === "on_sale") {
+    if (release.state !== "on_sale") return false;
+    const latest = latestListed(roster(release, siblings), nowIso);
+    return latest?.id === release.id;
+  }
+  if (rung.triggerKind === "state" && rung.triggerValue === "selling_fast") {
+    if (release.state === "selling_fast") return true;
+    if (release.state !== "on_sale") return false;
+    return earlierAllSoldOut(release, roster(release, siblings));
+  }
   if (rung.triggerValue === "on_sale") return PAST_ON_SALE.has(release.state);
   if (rung.triggerValue === "final_x") return release.state === "final_x";
   if (rung.triggerValue === "sold_out") return release.state === "sold_out";
@@ -116,6 +171,12 @@ function because(rung: LadderRung, release: Release, siblings: readonly Release[
   if (rung.triggerKind === "state_days") {
     const days = rung.options.days ?? 14;
     return isMet ? `selling fast for ${days}+ days, no count` : `needs selling fast for ${days}+ days`;
+  }
+  if (rung.triggerKind === "state" && rung.triggerValue === "selling_fast") {
+    return isMet ? "selling fast" : "needs selling fast, or every earlier release sold out";
+  }
+  if (rung.triggerKind === "state" && rung.triggerValue === "on_sale") {
+    return isMet ? "on sale" : "needs the latest release that has gone live";
   }
   if (rung.triggerValue === "final_x") return isMet ? "final X" : "needs the release at final X, or a count at 90%+";
   if (rung.triggerValue === "on_sale") return isMet ? "on sale" : "needs the list time";
@@ -141,7 +202,7 @@ export function nextRung(
   const ordered = [...ladder].sort((a, b) => a.position - b.position);
   const evaluated = ordered.map((rung) => {
     const isMet = met(rung, release, siblings, nowIso, context);
-    return { rung, isMet, claim: claimText(rung, release, siblings, nowIso, context) };
+    return { rung, isMet, claim: claimText(rung, release, siblings, nowIso, context, ladder) };
   });
   const live = release.state === "on_sale" || release.state === "selling_fast" || release.state === "final_x";
   const roll = evaluated.find((row) => isRoll(row.rung) && row.isMet && row.rung.options.preferred !== false);

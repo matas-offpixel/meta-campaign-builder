@@ -167,6 +167,18 @@ describe("creative lab captions: prices and scarcity", () => {
     assert.deepEqual(codes("Tier 2 sold out", { facts: withTiers([{ ...two[0], remaining: 0 }, two[1]]) }), []);
     assert.deepEqual(codes("Be quick", { style: "scarcity" }), ["scarcity_without_tiers"]);
   });
+
+  it("selling fast needs a live rung-2 claim for that release", () => {
+    assert.deepEqual(codes("selling fast"), ["scarcity_without_tiers"]);
+    const live = {
+      ...P26,
+      captionRelease: "3rd release",
+      liveClaims: [{ release: "3rd release", claim: "3rd release selling fast", live: true }],
+    };
+    assert.deepEqual(codes("3rd release selling fast", { facts: live }), []);
+    assert.deepEqual(codes("General sale live", { facts: { ...live, captionRelease: "General sale", liveClaims: [{ release: "General sale", claim: "General sale live", live: true }] } }), []);
+    assert.deepEqual(codes("selling fast", { facts: live }), ["scarcity_without_tiers"]);
+  });
 });
 
 describe("creative lab captions: form", () => {

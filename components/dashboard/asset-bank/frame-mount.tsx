@@ -63,7 +63,7 @@ export function AssetBankFrameMount({ id }: { id: string }) {
             <span>D2C</span>
             <span>Campaigns</span>
           </p>
-          <LiveLadder rungs={puzzleLadder()} />
+          <LiveLadder rungs={puzzleLadder()} clientName="Puzzle" />
         </div>
       ) : null}
       {id === "AB6" ? (

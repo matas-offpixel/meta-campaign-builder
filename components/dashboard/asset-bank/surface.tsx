@@ -365,25 +365,65 @@ export function ClaimCards({
       </p>
       <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-warning bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
         <div className="flex h-28 w-16 shrink-0 flex-col items-center justify-center rounded px-0.5 text-center text-[8px] font-semibold leading-tight text-white" style={{ background: "linear-gradient(160deg,#1e1810,#5a3a2a)" }}>
-          <span style={{ color: "#FE3232" }}>EARLY BIRD, 2ND & 3RD<br />RELEASE SOLD OUT</span>
-          <span>FINAL RELEASE<br />RUNNING LOW</span>
+          <span>GENERAL SALE<br />LIVE</span>
+        </div>
+        <div>
+          <p className="text-sm font-medium">
+            Proposes: push &quot;General sale live&quot; <Chip tone="warn">proposed</Chip>
+          </p>
+          <p className="mt-1 hidden text-xs sm:block">
+            <span className="text-muted-foreground">trigger</span> General sale list time Fri 30 Oct 12:00 passed, state on sale (set by Matas){" "}
+            <span className="text-muted-foreground">→ claim</span> rung 1 &quot;{"{release}"} live&quot;
+          </p>
+          <p className="mt-1 text-xs sm:hidden">
+            <span className="text-muted-foreground">trigger</span> list time Fri 30 Oct 12:00 · on sale → rung 1
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Went live 11 days ago. <span className="hidden sm:inline">Runs at the next slot you approve.</span>
+          </p>
+        </div>
+        <div className="col-span-2 flex gap-2 sm:col-span-1 sm:flex-col">
+          <Button type="button" size="sm">Approve</Button>
+          <Button type="button" size="sm" variant="outline">Correct</Button>
+        </div>
+      </article>
+      <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-dashed border-border bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
+        <div className="flex h-28 w-16 shrink-0 flex-col items-center justify-center rounded px-0.5 text-center text-[8px] font-semibold leading-tight text-muted-foreground" style={{ background: "linear-gradient(160deg,#1e1810,#3a3a4a)" }}>
+          <span>PRESALE<br />LIVE</span>
+        </div>
+        <div>
+          <p className="text-sm font-medium">
+            &quot;Presale live&quot; <Chip tone="dash">locked</Chip>
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ended — General sale went live Fri 30 Oct, so the presale is no longer the release to push.
+          </p>
+        </div>
+        <div className="col-span-2 sm:col-span-1">
+          <Button type="button" size="sm" variant="outline">Correct</Button>
+        </div>
+      </article>
+      <article className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-warning bg-card p-3 sm:grid-cols-[auto_1fr_auto]">
+        <div className="flex h-28 w-16 shrink-0 flex-col items-center justify-center rounded px-0.5 text-center text-[8px] font-semibold leading-tight text-white" style={{ background: "linear-gradient(160deg,#1e1810,#5a3a2a)" }}>
+          <span style={{ color: "#FE3232" }}>EARLY BIRD, 1ST &amp; 2ND<br />RELEASE SOLD OUT</span>
+          <span>3RD RELEASE<br />SELLING FAST</span>
         </div>
         <div>
           <p className="text-sm font-medium">
             Proposes: push the roll-call <Chip tone="warn">proposed</Chip>{" "}
-            <span className="hidden sm:inline"><Chip tone="dash">preferred over &quot;90% sold out&quot;</Chip></span>
+            <span className="hidden sm:inline"><Chip tone="dash">preferred over &quot;3rd release selling fast&quot;</Chip></span>
           </p>
           <p className="mt-1 hidden font-mono text-xs sm:block">
-            <b>Skiddle read Mon 9 Nov 09:00:</b> early bird sold out · 2nd release sold out · 3rd release sold out · final release selling fast (on sale 3 days)
+            <b>Skiddle read Mon 9 Nov 09:00:</b> early bird sold out · 1st release sold out · 2nd release sold out · 3rd release on sale
           </p>
           <p className="mt-1 hidden text-xs sm:block">
-            <span className="text-muted-foreground">trigger</span> 3 releases sold out, 1 selling fast{" "}
-            <span className="text-muted-foreground">→ claim</span> line 1 &quot;EARLY BIRD, 2ND &amp; 3RD RELEASE SOLD OUT&quot; · line 2 &quot;FINAL RELEASE RUNNING LOW&quot; (the final release&apos;s own rung: live · selling fast)
+            <span className="text-muted-foreground">trigger</span> 2+ sold out, exactly one live{" "}
+            <span className="text-muted-foreground">→ claim</span> line 1 &quot;EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT&quot; · line 2 &quot;3RD RELEASE SELLING FAST&quot;
           </p>
           <p className="mt-1 text-xs sm:hidden">
-            <span className="text-muted-foreground">trigger</span> 3 sold out, 1 selling fast → two lines, the names from the releases
+            <span className="text-muted-foreground">trigger</span> 2+ sold out · one live → the roll-call
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground sm:hidden">preferred over &quot;90% sold out&quot;</p>
+          <p className="mt-1 text-[11px] text-muted-foreground sm:hidden">preferred over &quot;3rd release selling fast&quot;</p>
           <p className="mt-1 hidden text-xs text-muted-foreground sm:block">Runs at the read, inside the window. Formats: 9:16 clip (T1), 4:5 and 1:1 statics (T2). Line 1 in kit red, line 2 white — the registered CTA piece if the designer supplies one, else the font path.</p>
         </div>
         <div className="col-span-2 flex gap-2 sm:col-span-1 sm:flex-col">
@@ -425,14 +465,14 @@ export function ClaimCards({
             Proposes: push &quot;2nd release 90% sold out&quot; <Chip tone="warn">proposed</Chip>
           </p>
           <p className="mt-1 font-mono text-xs">
-            <b>Client message, Wed 4 Nov:</b> 2nd release selling fast (on sale 6 days) · 3rd release not yet · early bird sold out
+            <b>Client message, Wed 4 Nov:</b> 2nd release selling fast for 15 days · 3rd release not yet · early bird sold out
           </p>
           <p className="mt-1 text-xs">
-            <span className="text-muted-foreground">trigger</span> selling fast for 6 days, no count on the page{" "}
-            <span className="text-muted-foreground">→ claim</span> &quot;90% sold out&quot; (Puzzle&apos;s ladder: selling fast 5+ days → 90%)
+            <span className="text-muted-foreground">trigger</span> selling fast for 15 days, no count on the page{" "}
+            <span className="text-muted-foreground">→ claim</span> &quot;90% sold out&quot; (Puzzle&apos;s ladder: selling fast 14+ days → 90%)
           </p>
           <p className="mt-1 hidden text-xs text-muted-foreground sm:block">Runs Thu 5 – Fri 6 Nov, before the 3rd release opens. Formats: 9:16 video, 4:5, 1:1.</p>
-          <p className="mt-1 text-[11px] text-muted-foreground sm:hidden">selling fast 6 days → 90% · runs Thu–Fri</p>
+          <p className="mt-1 text-[11px] text-muted-foreground sm:hidden">selling fast 15 days → 90% · runs Thu–Fri</p>
           {correcting ? (
             <div className="mt-2 flex flex-wrap gap-1">
               {RELEASE_STATES.map((state, index) => (
@@ -453,11 +493,11 @@ export function ClaimCards({
         <Piece />
         <div>
           <p className="text-sm font-medium">
-            3rd release live · selling fast <Chip tone="ok">approved · ran 6 Nov 12:00</Chip>
+            3rd release selling fast <Chip tone="ok">approved · ran 6 Nov 12:00</Chip>
           </p>
           <p className="mt-1 text-xs">
-            <span className="text-muted-foreground">trigger</span> 3rd release list time 6 Nov 12:00 passed, state on sale (set by Matas at 12:02){" "}
-            <span className="text-muted-foreground">→ claim</span> &quot;live · selling fast&quot;
+            <span className="text-muted-foreground">trigger</span> state selling fast, day 0{" "}
+            <span className="text-muted-foreground">→ claim</span> &quot;3rd release selling fast&quot;
           </p>
           <p className="mt-1 text-xs text-muted-foreground">Ran at the release time whatever the calendar said.</p>
         </div>
@@ -775,18 +815,19 @@ export type LadderRow = {
 };
 
 const LADDER: LadderRow[] = [
-  { trigger: "Release list time passed · state on sale", detail: "from the release time, or a read / entry", claim: "\"{release} live · selling fast\"", wide: true },
-  { trigger: "Selling fast for 14+ days · default 14", claim: "\"{release} 90% sold out\"", wide: true },
+  { trigger: "Release list time passed · state on sale", detail: "only the latest release that has gone live", claim: "\"{release} live\"", wide: true },
+  { trigger: "State selling fast · or on sale with every earlier release sold out", detail: "new · day 0 · 2+ earlier sold out → the roll-call is preferred", claim: "\"{release} selling fast\"", wide: true },
+  { trigger: "Selling fast for 14+ days, no count", detail: "the default", claim: "\"{release} 90% sold out\"", wide: true },
   { trigger: "Actual 50% · 60% · 70% · 80%", detail: "when a count and a capacity exist", claim: "\"75%\" · \"80%\" · \"90% sold out\" · \"95% sold\"", wide: true },
   { trigger: "Actual 90% · or state final X · or the page shows remaining", claim: "\"99%\" or \"final X\"", note: "X from the page or the count, never typed", wide: true },
   { trigger: "State sold out", claim: "\"sold out\"" },
   {
     trigger: "2+ releases sold out · 1 on sale or selling fast",
     narrowTrigger: "2+ releases sold out · 1 on sale",
-    detail: "roll-call · preferred over the % rung",
-    narrowDetail: "roll-call · preferred over %",
-    claim: "\"{sold-out releases} RELEASE SOLD OUT\" / \"{live release's claim}\"",
-    narrowClaim: "\"EARLY BIRD, 2ND & 3RD RELEASE SOLD OUT\" /\n\"FINAL RELEASE RUNNING LOW\"",
+    detail: "roll-call · preferred over the % rung and over rung 2",
+    narrowDetail: "roll-call · preferred over rung 2",
+    claim: "\"{sold-out releases} RELEASE SOLD OUT\" / \"{live release} SELLING FAST\"",
+    narrowClaim: "\"EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\" /\n\"3RD RELEASE SELLING FAST\"",
     note: "two lines · the names from the releases, in order · line 2 is the live release's own rung",
     accent: true,
   },

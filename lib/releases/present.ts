@@ -1,3 +1,4 @@
+import { SELLING_FAST_DEFAULT_DAYS } from "./ladder.ts";
 import type { LadderRung } from "./types.ts";
 
 export type PresentedRung = {
@@ -11,7 +12,7 @@ export type PresentedRung = {
 
 function claimCell(rung: LadderRung): string {
   if (rung.triggerKind === "roll_call" || rung.triggerValue === "roll_call") {
-    return "\"{sold-out releases} RELEASE SOLD OUT\" / \"{live release's claim}\"";
+    return "\"{sold-out releases} RELEASE SOLD OUT\" / \"{live release} SELLING FAST\"";
   }
   if (rung.triggerKind === "countdown_pct") return "\"LESS THAN 2 WEEKS TO GO\" / \"OVER 90% SOLD OUT\"";
   return `"${rung.claimTemplate}"`;
@@ -24,10 +25,12 @@ function triggerLabel(rung: LadderRung): string {
   if (rung.triggerKind === "countdown_pct") return `Days to show ≤ ${rung.options.days ?? 14} · and the % rung's trigger met`;
   if (rung.triggerKind === "lineup_add") return "A new row in the typed lineup";
   if (rung.triggerKind === "count_pct") return `Actual ${rung.triggerValue}% sold`;
-  if (rung.triggerValue === "on_sale") return "Release list time passed · state on sale";
-  if (rung.triggerValue === "selling_fast") {
-    const days = rung.options.days ?? 14;
-    if (days === 14) return "Selling fast for 14+ days · default 14";
+  if (rung.triggerKind === "state" && rung.triggerValue === "on_sale") return "Release list time passed · state on sale";
+  if (rung.triggerKind === "state" && rung.triggerValue === "selling_fast") {
+    return "State selling fast · or on sale with every earlier release sold out";
+  }
+  if (rung.triggerKind === "state_days" && rung.triggerValue === "selling_fast") {
+    const days = rung.options.days ?? SELLING_FAST_DEFAULT_DAYS;
     return `Selling fast for ${days}+ days, no count`;
   }
   if (rung.triggerValue === "final_x") return "State final X";
@@ -41,14 +44,22 @@ function withDetail(detail: string): Pick<PresentedRung, "detail" | "narrowDetai
 }
 
 /** The record's sub-lines, on the live rung they describe. Both widths show them. */
-function rungCopy(rung: LadderRung): Pick<PresentedRung, "detail" | "narrowDetail" | "note" | "accent"> {
-  if (rung.triggerValue === "on_sale") return withDetail("from the release time, or a read / entry");
-  if (rung.triggerValue === "selling_fast" && (rung.options.days ?? 14) === 5) return withDetail("Puzzle: 5 days (default 14)");
+function rungCopy(rung: LadderRung, clientName?: string): Pick<PresentedRung, "detail" | "narrowDetail" | "note" | "accent"> {
+  if (rung.triggerKind === "state" && rung.triggerValue === "on_sale") return withDetail("only the latest release that has gone live");
+  if (rung.triggerKind === "state" && rung.triggerValue === "selling_fast") {
+    return withDetail("new · day 0 · 2+ earlier sold out → the roll-call is preferred");
+  }
+  if (rung.triggerKind === "state_days" && rung.triggerValue === "selling_fast") {
+    const days = rung.options.days ?? SELLING_FAST_DEFAULT_DAYS;
+    if (days === SELLING_FAST_DEFAULT_DAYS) return withDetail("the default");
+    const who = clientName?.trim() || "This client";
+    return withDetail(`${who}: ${days} days (default ${SELLING_FAST_DEFAULT_DAYS})`);
+  }
   if (rung.triggerKind === "count_pct" && rung.triggerValue === "50") return withDetail("when a count and a capacity exist");
   if (rung.triggerValue === "final_x") return { note: "X from the page or the count, never typed" };
   if (rung.triggerKind === "roll_call" || rung.triggerValue === "roll_call") {
     return {
-      ...withDetail("roll-call · preferred over the % rung"),
+      ...withDetail("roll-call · preferred over the % rung and over rung 2"),
       note: "two lines · the names from the releases, in order · line 2 is the live release's own rung",
       accent: true,
     };
@@ -65,10 +76,10 @@ function rungCopy(rung: LadderRung): Pick<PresentedRung, "detail" | "narrowDetai
 }
 
 /** AB5's live ladder: Puzzle's wording, the record's sub-lines, every claim in quotes. */
-export function presentLadder(rungs: readonly LadderRung[]): PresentedRung[] {
+export function presentLadder(rungs: readonly LadderRung[], clientName?: string): PresentedRung[] {
   return rungs.map((rung) => ({
     trigger: triggerLabel(rung),
     claim: claimCell(rung),
-    ...rungCopy(rung),
+    ...rungCopy(rung, clientName),
   }));
 }
