@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 2 — PSD corrections, the artist card, photo rules, extension, the cut-out — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.mono{font-family:var(--mono)}.muted{color:var(--ink-3)}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:420px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:var(--olive)}
+.chip.warn{color:var(--ochre);border-color:var(--ochre)}
+.chip.bad{color:var(--brick);border-color:var(--brick)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.pending{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+/* schematic master: 1080×1920 at 1/4 = 270×480 */
+.m916{position:relative;width:270px;height:480px;background:linear-gradient(180deg,#5a4f45,#2e2924);border-radius:6px;overflow:hidden;font:600 8px/1.2 var(--mono);color:#fff}
+.m45{position:relative;width:216px;height:270px;background:linear-gradient(180deg,#5a4f45,#2e2924);border-radius:6px;overflow:hidden;font:600 7px/1.2 var(--mono);color:#fff}
+.m11{position:relative;width:216px;height:216px;background:linear-gradient(180deg,#5a4f45,#2e2924);border-radius:6px;overflow:hidden;font:600 7px/1.2 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.75);border-bottom:1px dashed rgba(255,255,255,.75)}
+.slot{position:absolute;border:1px solid rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.lock{border-color:#ff6876;color:#ff9aa4}
+.zone{position:absolute;left:0;right:0}
+.zone.txt{background:rgba(255,255,255,.07)}
+.zone.face{background:rgba(95,107,42,.35)}
+.zone.ext{background:repeating-linear-gradient(45deg,rgba(168,107,18,.35) 0 6px,rgba(168,107,18,.12) 6px 12px)}
+.line{position:absolute;left:0;right:0;border-top:1px solid}
+.lbl{position:absolute;right:4px;font:600 7px/1 var(--mono);color:#fff;opacity:.85}
+.head{position:absolute;left:50%;transform:translateX(-50%);border:1px dashed #cfe0a8;border-radius:50% 50% 45% 45%}
+.lnk a{color:var(--ink);font-family:var(--mono);font-size:11.5px}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 2 · 10 November 2026</p>
+<h1>Overlay templates — issue 2: the PSD corrected, the artist card, photo rules, extension, the cut-out</h1>
+<p class="lead">Extends <code>2026-11-08-overlay-templates.html</code> (issue 1, rulings O1–O17, hand-back H1–H12). Issue 1 stands except where a row below says otherwise. This issue records what the Puzzle 4th Birthday PSD audit and the #1147 artist-card prototype settled: the PSD's real layer structure, the artist card's slot table, the rules a photo must pass, when a photo may be extended, and the cut-out variant on a plain ground. Every rule here was ruled in the #1147 verdicts (rounds 1–4, 9–10 Nov) and is gathered here unchanged unless the row says it is new. The frames are the three variant-A cards that passed.</p>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 2 · 10 Nov 2026.</b> PSD corrections (§1): names and info are one live text layer, the smart object is a flat panel, the lockup is one pixel layer, no layer effects; O5, O6 (T3 reading), O12's colour note and the STORY audit row corrected. O18 the artist card (T1 + lockup, claim empty; 7 % W insets replace O3's slack; lockup by ink box). O19 the photo rules (contrast, one subject, no upscaling, 216 px face floor, eyes measurable, face-alpha share). O20 extension (top and sides; plain-strip tests; three colour tests; fill; limits; to B on failure). O21 the cut-out on a plain ground (B1 silhouette withdrawn; ground, matte, decontamination, light wrap, shadow, bounded unify, grain, fade, side cut, 1:1 offset) — <b>matte pending</b>. Frames AC1–AC3: Luke 1 _v3, Luke 2 _v3, Enzo 1 _v4. Hand-back H13–H18.</li>
+<li><b>Issue 1 · 8 Nov 2026.</b> T1–T3, O1–O17, OT1–OT7, H1–H12. Merged as #1112.</li>
+</ul></div>
+
+<h2>1 · PSD corrections</h2>
+<p class="lead">From the #1147 audit of <code>PUZZLE BIRTHDAY 1 STATIC.psd</code> (4911 × 6250) and <code>STORY.psd</code> (3375 × 6000) in the P26-BDAY folder 01 Open files. Issue 1 read the STORY file at 25 % and guessed at what sat inside the smart object; the audit read the layers.</p>
+<table class="t">
+<tr><th>What issue 1 said</th><th>What the PSD holds</th><th>What changes</th></tr>
+<tr><td>The live text layer is the lineup only (O5, STORY row)</td><td>One live text layer carries the names <i>and</i> the info lines (CIRCUIT &gt; SOUTHAMPTON / SUNDAY 27TH DECEMBER / 1PM &gt; 9:30PM). BootzyCondensedTM-Regular; names 644 pt, info 248 pt, tracking 5. Coral <code>#ff6876</code> on PART 1, "&amp;" and "&gt;".</td><td>T3 reads both runs by role (names run, info run, the coral runs). The date, venue and times are editable on T3 — O5's "locked · inside the smart object" and "ask the designer once" are withdrawn for this kit. T1 and the artist card take the info lines from this layer verbatim, coral on "&gt;" only.</td></tr>
+<tr><td>The smart object holds the panel, logo, script and the venue · date · time lines</td><td>The smart object (4th bday poster NEW) is a flat taped panel with no layers of its own.</td><td>The panel is one piece. Nothing inside it is a slot.</td></tr>
+<tr><td>A PUZZLE logo piece exists or can be cut</td><td>The PUZZLE wordmark and the "4th Birthday" script are one pixel layer, and they overlap.</td><td>There is no logo-only piece. The kit's lockup is that layer as one piece (O18). T2's logo slot uses it too until the designer supplies a wordmark alone.</td></tr>
+<tr><td>T3 draws whatever effects the PSD's text layer carries (O6)</td><td>The text layer has no layer effects.</td><td>Rendered text on T1, T2 and the artist card gets O6's shadow exactly once (0.007 W down, 0.009 W blur, 25 % black, no stroke). T3 draws none, as the file has none.</td></tr>
+<tr><td>Kit red <code>#FE3232</code> is also the PSD's PART 1, "&amp;" and "›" (O12)</td><td>The PSD's live text uses <code>#ff6876</code>. <code>#FE3232</code> was measured on the roll-call CTA piece.</td><td>Two kit colours, named apart: <b>coral</b> <code>#ff6876</code> (the PSD's text runs; the info "&gt;") and <b>kit red</b> <code>#FE3232</code> (the roll-call's line 1, as O12). Neither is a UI token (rule 10).</td></tr>
+</table>
+
+<h2>2 · Rulings added in issue 2</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O18 The artist card</td><td>An artist card is <b>T1 with the lockup slot added and the claim slot empty</b> (O10 amended: "a T1 with its claim set" becomes this). No PART 1, no lineup list, no CTA, no claim. On the floating kit the type stays at the top, as on the poster and the Locklead cards; a frame kit's own layout (Ironworks puts the name low) is that kit's, not this one's. Slots on the 1080 × 1920 master, the 4:5 rectangle being the band y 285–1635:
+<ul>
+<li><b>Insets.</b> Nothing sits closer than 76 px (7 % W) to the 4:5 rectangle's top or bottom edge — the side minimum of O2 applied to the top and bottom. This replaces O3's 0.027 H slack for every floating-kit T1.</li>
+<li><b>Lockup.</b> The kit's lockup piece, centred, placed by its <b>ink box</b> (O11): ink width 0.28 W (302 px), ink top at y 361 (0.188 H), height from the piece's own aspect (≈ 92 px at that width). The #1147 prototype placed the piece by its canvas (ink 269 × 82); the cards stand, the template build uses the ink box.</li>
+<li><b>Name.</b> Cap 0.1146 H (220 px), cap top 28 px under the lockup's ink (≈ y 482). O3's steps: down until it fits 80 % W, floor 6 % H, two lines below the floor, never condensed or scaled horizontally.</li>
+<li><b>Info.</b> The PSD's three lines, from the live layer, coral on "&gt;" only. Cap 0.031 H (60 px), pitch 0.043 H (83 px), first cap top 36 px under the name. The block ends near 0.51 H.</li>
+<li><b>Shadow.</b> O6 once on the whole text group, lockup included.</li>
+<li><b>Formats.</b> The 4:5 is a pure centre crop of the master — every element inside it with the 76 px insets. The 1:1 is O1's re-sit at 0.8× (lockup top 61, name and info at 0.8×), the photo extended at the sides (variant A) or the ground re-covered (variant B). Nothing below 0.812 H.</li>
+<li><b>Face band.</b> Top of the head at or below 0.53 H; the eyes between 0.58 and 0.64 H; the chin at or above 0.76 H. No face, head or hand inside the text box (0.188–0.512 H).</li>
+</ul></td></tr>
+<tr><td>O19 Photo rules</td><td>A photo is used as variant A only when every rule passes, each printed per card; a photo that fails is never covered with a scrim on the floating kit.
+<ul>
+<li><b>Contrast.</b> In the text box (0.188–0.512 H × 0.07–0.93 W), measured on the placed photo before any type: no more than 10 % of the pixels below 3:1 against white (WCAG relative luminance).</li>
+<li><b>One subject.</b> The face detector's count is printed and must be 1.</li>
+<li><b>No upscaling.</b> The crop is used at 1.0× source pixels or less (at least 1080 × 1920 of source for the 9:16).</li>
+<li><b>Face size.</b> The detector's face box is at least 0.20 W wide (216 px). (Ruled in round 2 to replace a 270 px floor that the face band made impossible: a face box is about half the head's height.)</li>
+<li><b>Eyes measurable.</b> Detector confidence 0.5 or more, both eye centres inside the face box, at least a quarter of its width apart. A photo whose eyes can't be found can't be checked against the face band and is out (a pure profile, Enzo 46).</li>
+<li><b>Face alpha (variant B, and the person mask in O20).</b> At least 99 % of the face box at alpha ≥ 0.9, and no pixel below 0.5 inside the inner 80 % of the box. A share rule, not a strict minimum: zeros in the box's outer border are allowed (Enzo 11 copy (2): 100.0 % share, minimum 0.00 at the corner).</li>
+<li><b>Order.</b> Variant A (the photo, extended per O20 if it needs it), then variant B (O21), then skip.</li>
+</ul></td></tr>
+<tr><td>O20 Extension</td><td>A placed photo may be extended where the face band or the format needs more than the source gives.
+<ul>
+<li><b>Edges.</b> The top and the sides only, never the bottom (it almost always cuts the body).</li>
+<li><b>The strip.</b> The 48 px strip along that edge of the placed photo, at output scale.</li>
+<li><b>Plain tests</b> (luminance, 0–255): the high-frequency residual — luminance minus a 31-tap Gaussian (σ 5) of itself — has a standard deviation of 4 or less; and no more than 2 % of the strip's pixels have a <b>normalised</b> Sobel magnitude (the raw 3 × 3 response ÷ 8, in levels per pixel) above 20.</li>
+<li><b>Colour tests</b> (CIELAB, on the strip after the 31-tap blur) — all three must pass:
+ (a) <b>column profile:</b> take each column's mean Lab along the strip's length; the largest ΔE between that profile and its own 31-tap blur is 3 or less — smooth gradients pass, foliage, brick and crowds fail;
+ (b) <b>drift across the strip:</b> per column, ΔE between the strip's outer 16 px and inner 16 px; the 95th percentile is 3 or less;
+ (c) <b>seam after fill:</b> on the rendered card, per column, ΔE between the 8 px either side of the join; the 95th percentile is 2 or less.</li>
+<li><b>Not through the subject.</b> A person-segmentation mask (alpha &gt; 0.5, computed at source resolution and placed with the photo) has no pixel in the strip. On the top edge the head's top is at least 0.05 H below the strip, and the extension ends at least 0.05 H above the head's top, so the face band is always real pixels. A column-around-the-eyes proxy is not a mask.</li>
+<li><b>Limits.</b> Top: up to 0.30 H (576 px). Sides: up to 0.12 W per side in 9:16 and 4:5; the 1:1 re-sit's side extension as O1.</li>
+<li><b>Fill.</b> Only the strip's own colours, stretched along the extension direction and blurred, with the strip's own grain (noise measured on the strip) added back. Never mirrored, cloned or generated.</li>
+<li><b>On failure</b> the photo goes to variant B, not to skip.</li>
+<li><b>Disclosure.</b> The card's approval line reads "photo extended {top / sides} by {n} px".</li>
+<li><b>Measured.</b> Enzo 1 _v4 passes: 540 px at the top (0.281 H), residual 2.15, Sobel 0.00 %, refilled from 48 px with grain. Reeshy 17 37 02 fails (b) at 19.98 — (a) read 1.07 — and its _v4 card showed the seam Matas rejected.</li>
+</ul></td></tr>
+<tr><td>O21 The cut-out on a plain ground — <span class="chip warn">matte pending</span></td><td>Variant B: the artist cut out of the photo and placed on a plain ground, the type in the same O18 slots. Matas's rule (10 Nov): when a background can't be blended, the cut-out goes on a plain ground; it must look photographed, not pasted. The paint-silhouette variant (B1 in the round-3 ruling) is <b>withdrawn</b> — "too harsh / too rigid" — and is not built.
+<ul>
+<li><b>Ground.</b> Flat charcoal <code>#32322f</code> (the taped panel's own colour; re-sample it from the smart object), or a soft radial lift: centred on the face's x at 0.60 H, radius 0.70 W (756 px), the centre the charcoal raised 8 L* (≈ <code>#454541</code>), <code>#1e1e1c</code> at the radius and beyond, smooth, no visible ring. Below 0.85 H the ground darkens linearly to 25 % black at the frame's bottom edge. Kit red and coral are not grounds (coral is 2.8:1 with white).</li>
+<li><b>The figure.</b> The photo's own pixels through the segmentation alpha. Nothing generated or inpainted.</li>
+<li><b>Matte edge.</b> Refined at source resolution (guided filter, radius 8). Feather 2–3 px on hair (the soft-alpha region) and 1–1.5 px on body edges, at output size.</li>
+<li><b>Colour decontamination.</b> For every pixel with 0.05 &lt; alpha &lt; 0.98, the foreground colour is solved against the local source background (the median of the alpha &lt; 0.05 pixels within 24 px). <b>Spill test:</b> in the 6 px band just inside the edge (alpha ≥ 0.5), at most 2 % of pixels within ΔE 12 of that local background. <b>No-halo test:</b> in the 4 px band just outside the edge, at most 2 % of pixels within ΔE 10 of the source's own background.</li>
+<li><b>Light wrap.</b> The ground behind, screen-blended into the figure's edge: 25 % at the edge falling to 0 at 6 px (8 px on hair).</li>
+<li><b>Shadow.</b> An ambient shadow from the figure's alpha — blur 0.04 W (43 px), offset 0.01 W (11 px) down, black at 30 %, multiplied onto the ground only — plus the ground's bottom darkening. O6 is not used on the figure; it stays on the type.</li>
+<li><b>Unify, bounded and printed per card.</b> Contrast change within ±10 %; saturation change between −15 % and 0; a white-balance shift toward the ground's neutral of ΔE 4 or less on the figure's mid-greys; the face box's median colour moves ΔE 3 or less; no relighting. One monochrome grain layer over the whole card (ground and figure, under the type): σ the photo's own measured luma noise, clamped to 2–5 levels, 1 px grain.</li>
+<li><b>Where the figure ends.</b> Bottom-anchored, or ending anywhere from 0.80 H to the frame's bottom with its lowest 0.12 H (230 px) faded to alpha 0 on a smoothstep, landing in the darkened ground. Never a hard horizontal cut inside the frame.</li>
+<li><b>Side cut.</b> Allowed when the photo's own edge cuts the person and that cut sits flush on the frame's matching side; the face's centre may then sit between 0.38 and 0.62 W (otherwise 0.45–0.55). The cut never shows as a line inside the frame; the head is never cut. <b>In the 1:1</b> the figure layer moves out by the re-sit offset (108 px) so the cut stays flush on the square's matching side; the lockup and type keep their 0.8× positions; the face's centre stays within 0.38–0.62 W of the square.</li>
+<li><b>Kept from O18–O19.</b> The slot table, the face band, the 216 px face box, the face-alpha share rule, no upscaling.</li>
+<li><b>Disclosure.</b> "artist cut out onto a plain ground".</li>
+</ul>
+<div class="pending"><b>Matte pending.</b> The current segmenter leaves a band of about 30 px of the photo's own background around hair, so no B card has passed the spill and no-halo tests yet. A matte evaluation is running. O21 stands as the rule the B build is judged against; its frame comes in a later issue, after a B card passes. Photos eligible to try once a matte passes: Reeshy 17 37 02 (re-made as a cut-out), 17 45 16 (side cut), 17 48 32 (1); Enzo 11 copy (2).</div></td></tr>
+</table>
+
+<h2>AC · The artist card — the slot table drawn at ¼ scale, and the three cards that pass</h2>
+<p class="lead">The schematics put every O18 slot and zone at its ratio: 4:5 band dashed white, the text box shaded light, the face band green, a top extension hatched ochre. Measured positions of the filed cards are in the table under them; the cards themselves are the Drive files linked there (variant A, all three formats).</p>
+<div class="frame">
+<figure><figcaption>AC0-916 · the master, 1080 × 1920 at ¼ · O18 slots · face band · extension limit</figcaption>
+<div class="m916">
+  <div class="zone ext" style="top:0;height:144px"></div>
+  <div class="band" style="top:71px;height:338px"></div>
+  <div class="zone txt" style="top:90px;height:156px"></div>
+  <div class="zone face" style="top:254px;height:111px"></div>
+  <div class="slot lock" style="top:90px;left:97px;width:76px;height:23px">LOCKUP · ink 0.28 W</div>
+  <div class="slot" style="top:120px;left:27px;width:216px;height:55px;font-size:10px">NAME · cap 0.1146 H</div>
+  <div class="slot" style="top:184px;left:75px;width:120px;height:15px">INFO 1 · cap 0.031 H</div>
+  <div class="slot" style="top:205px;left:75px;width:120px;height:15px">INFO 2</div>
+  <div class="slot" style="top:226px;left:75px;width:120px;height:15px">INFO 3</div>
+  <div class="head" style="top:254px;width:78px;height:111px"></div>
+  <div class="line" style="top:278px;border-color:#e8f2c8"></div><div class="line" style="top:307px;border-color:#e8f2c8"></div>
+  <div class="line" style="top:390px;border-color:#ff9aa4"></div>
+  <span class="lbl" style="top:3px">top extension ≤ 0.30 H</span>
+  <span class="lbl" style="top:74px">4:5 top · inset 76 px</span>
+  <span class="lbl" style="top:248px">text box ends 0.512 H</span>
+  <span class="lbl" style="top:281px">eyes 0.58–0.64 H</span>
+  <span class="lbl" style="top:367px">chin ≤ 0.76 H</span>
+  <span class="lbl" style="top:393px">nothing below 0.812 H</span>
+</div></figure>
+<figure><figcaption>AC0-45 · the 4:5, a pure centre crop (y 285–1635) at ⁴⁄₂₅</figcaption>
+<div class="m45">
+  <div class="zone txt" style="top:15px;height:125px"></div>
+  <div class="zone face" style="top:123px;height:89px"></div>
+  <div class="slot lock" style="top:15px;left:78px;width:60px;height:18px">LOCKUP</div>
+  <div class="slot" style="top:39px;left:22px;width:172px;height:44px;font-size:9px">NAME</div>
+  <div class="slot" style="top:91px;left:60px;width:96px;height:12px">INFO 1</div>
+  <div class="slot" style="top:108px;left:60px;width:96px;height:12px">INFO 2</div>
+  <div class="slot" style="top:124px;left:60px;width:96px;height:12px">INFO 3</div>
+  <div class="head" style="top:127px;width:62px;height:89px"></div>
+  <span class="lbl" style="top:3px">76 px inset</span>
+</div></figure>
+<figure><figcaption>AC0-11 · the 1:1, O1's re-sit at 0.8× · photo or ground extended at the sides</figcaption>
+<div class="m11">
+  <div class="zone txt" style="top:12px;height:100px"></div>
+  <div class="zone face" style="top:98px;height:71px"></div>
+  <div class="slot lock" style="top:12px;left:84px;width:48px;height:15px">LOCKUP</div>
+  <div class="slot" style="top:31px;left:39px;width:138px;height:35px;font-size:8px">NAME · 0.8×</div>
+  <div class="slot" style="top:73px;left:69px;width:78px;height:10px">INFO</div>
+  <div class="slot" style="top:86px;left:69px;width:78px;height:10px">INFO</div>
+  <div class="slot" style="top:99px;left:69px;width:78px;height:10px">INFO</div>
+  <div class="head" style="top:101px;width:50px;height:71px"></div>
+  <span class="lbl" style="top:3px">61 px</span>
+</div></figure>
+</div>
+
+<h3>AC1–AC3 · the filed cards (variant A)</h3>
+<table class="t">
+<tr><th>Frame</th><th>Card</th><th>Variant</th><th>Measured (9:16)</th><th>Files</th></tr>
+<tr><td>AC1</td><td>Luke Dean 1 · <code>_v3</code> · photo 19 17 46</td><td>A</td><td>lockup ink y 362–444, x 407–676 · name y 480–699 (cap 219) · info y 736–960 · head 0.530 · eyes 0.640 · chin 0.745 · text-box contrast 0.7 % · face box 278 px</td><td class="lnk"><a href="https://drive.google.com/file/d/1zmEIVh9kUhn4V_tNS-lr9KRko2-feoNi/view">9:16</a> · <a href="https://drive.google.com/file/d/119m6JJ1pK70hobdCXyORaqU7QYygTU2o/view">4:5</a> · <a href="https://drive.google.com/file/d/1uoV9ra5YVB-sC1mRLOtmO4Oaz_m08rGZ/view">1:1</a></td></tr>
+<tr><td>AC2</td><td>Luke Dean 2 · <code>_v3</code> · photo 13 59 01</td><td>A</td><td>head (cap) ≈ 0.54 · eyes ≈ 0.64 · chin ≈ 0.735 · text-box contrast 4.3 % (the busiest backdrop that passes: palm fronds behind the info) · face box 239 px</td><td class="lnk"><a href="https://drive.google.com/file/d/1ZckiDmvlTudGErdjyyW26A9CGwrsZzVp/view">9:16</a> · <a href="https://drive.google.com/file/d/1m0wBr3UeY3n6b8oKoehFVcIhqqYevuMf/view">4:5</a> · <a href="https://drive.google.com/file/d/1uHUC6jzkbWUDSr9uvx7KwANomkt-IPeZ/view">1:1</a></td></tr>
+<tr><td>AC3</td><td>Enzo Siragusa 1 · <code>_v4</code> · photo 33.1</td><td>A, extended</td><td>top extension 540 px (0.281 H) from a 48 px strip with grain · residual 2.15 · Sobel 0.00 % · name stepped to 0.80 W (x 108–971) · head 0.530 · eyes 0.640 · chin 0.745 · text-box contrast 0.2 % · face box 268 px · approval line "photo extended top by 540 px"</td><td class="lnk"><a href="https://drive.google.com/file/d/103d0AwRt0OzPzGJZNO3vS6W0vSnp3ayD/view">9:16</a> · <a href="https://drive.google.com/file/d/1IITDBgQcQ7X3ZZJeY1YS8zHcY0ZwZDnk/view">4:5</a> · <a href="https://drive.google.com/file/d/1eFP8L3G8TzU5wD6yZag7yXxIJCTgzvpo/view">1:1</a></td></tr>
+</table>
+<p class="lead">All three were rendered by the #1147 prototype and filed in 03 Creatives / 3 On sale / w/c 9 Nov / Content. Their lockups sit by the piece's canvas, not its ink box (O18's note); everything else is at the O18 positions. Rejected and kept in Drive, not frames: Enzo 2 (multiple exposure under the name), Reeshy 1 _v4 (the extension seam), Reeshy 1 _v5 (the paint silhouette, B1, withdrawn), Reeshy 2 (upscaled 1.3×). Reeshy has no card yet: her remaining photos fail contrast in A, and B waits on the matte.</p>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>T1 artist clip (floating kit)</td><td>Insets: 7 % W inside the 4:5 top and bottom (replaces 0.027 H slack). Rendered text takes O6 once; the PSD's text has no effects.</td></tr>
+<tr><td>Artist card (new, a T1)</td><td>T1 + the kit's lockup by ink box at the top; claim empty; info from the PSD's live layer; the O18 face band; variants A (photo, O19–O20) and B (cut-out, O21, matte pending); the approval line names an extension or a cut-out.</td></tr>
+<tr><td>T3 lineup artwork (Puzzle kit)</td><td>The live layer has two runs (names, info) and three coral runs; the date, venue and times are editable. The smart object is a flat panel piece.</td></tr>
+<tr><td>Brand kit (Puzzle)</td><td>Pieces: the lockup (wordmark + script, one layer), the taped panel, the Background paint layer. Colours: coral <code>#ff6876</code>, kit red <code>#FE3232</code>, panel charcoal <code>#32322f</code> (to re-sample).</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H13 PSD reader</td><td>Read the live text layer as runs by role (names, info, coral runs on PART 1 / &amp; / &gt;); the smart object as one panel piece; the lockup layer as one piece; record "no effects".</td><td>STATIC.psd, STORY.psd</td><td>unit test on both files' layer dump: one text layer, two runs, three coral runs, no effects</td></tr>
+<tr><td>H14 Artist-card composition</td><td>O18 as a still composition: lockup by ink box, name steps, info runs, insets, the 4:5 crop, the 1:1 re-sit; O6 once on the text group.</td><td>the kit; the event's facts</td><td>AC1–AC3 re-rendered with the lockup's ink at 302 px and everything else within 2 px of the table above</td></tr>
+<tr><td>H15 Photo gate</td><td>O19 tests, each printed per card with the photo name: contrast %, face count, scale, face-box px, eye confidence, head / eyes / chin.</td><td>the artist's photo folder</td><td>Enzo 2, Reeshy 2 and Enzo 46 refused with the rule each fails; AC1–AC3 pass</td></tr>
+<tr><td>H16 Extension</td><td>O20: the strip, the two plain tests, the three colour tests, the mask, the limits, the fill with grain, the approval line; failure routes to B.</td><td>segmentation mask</td><td>Enzo 1 passes with the figures above; Reeshy 17 37 02 fails (b)</td></tr>
+<tr><td>H17 Cut-out (matte pending)</td><td>O21 in full. Not judged to pass until the matte evaluation names a segmenter that clears the spill and no-halo tests on the eligible photos.</td><td>matte evaluation</td><td>a B frame in a later issue</td></tr>
+<tr><td>H18 Approval lines</td><td>"photo extended {top / sides} by {n} px"; "artist cut out onto a plain ground".</td><td>—</td><td>words match exactly</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The lockup's 0.28 W, the 28 / 36 px gaps, the info's 0.031 H cap and 0.043 H pitch, the 7 % W top and bottom insets.</li>
+<li>Every O19–O21 threshold: 10 % below 3:1; 216 px; eye confidence 0.5; the 99 % / 0.9 / 0.5 face-alpha rule; the 48 px strip; residual 4; normalised Sobel 20 / 2 %; ΔE 3 / 3 / 2; the 0.30 H and 0.12 W limits; the radial lift (0.60 H, 0.70 W, +8 L*); the 25 % bottom darkening from 0.85 H; light wrap 25 % over 6 / 8 px; the ambient shadow (0.04 W, 0.01 W, 30 %); the unify bounds; grain 2–5 levels; the 0.12 H fade; the 0.38–0.62 W side-cut range.</li>
+<li>The panel charcoal <code>#32322f</code> was sampled from a reference JPG of the PSD composite, not the PSD: re-sample it.</li>
+</ul>
+
+<h2>Frames</h2>
+<table class="t">
+<tr><th>Id</th><th>Formats</th><th>Source</th></tr>
+<tr><td>AC1</td><td>9:16, 4:5, 1:1</td><td>Luke Dean 1 _v3, variant A (Drive, links above)</td></tr>
+<tr><td>AC2</td><td>9:16, 4:5, 1:1</td><td>Luke Dean 2 _v3, variant A</td></tr>
+<tr><td>AC3</td><td>9:16, 4:5, 1:1</td><td>Enzo Siragusa 1 _v4, variant A extended</td></tr>
+<tr><td>— (B)</td><td>—</td><td>pending the matte; a later issue</td></tr>
+</table>
+<p class="lead">The cards are rendered by a script, not the app, so they are not CI baselines yet. When the Lab's artist-card template is built (H14), AC1–AC3 become CI frames from fixtures at 9:16, 4:5 and 1:1.</p>
+
+</div></body>
+</html>
