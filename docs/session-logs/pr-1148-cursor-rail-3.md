@@ -26,6 +26,7 @@ The campaign rail leads with Best copy shapes from copy_features, collapsed by a
 - [x] frames IR3, IR4, IR9 from two matching Ubuntu runs (IR pair 42724782279 / 42724790431; CL pair 42724797545 / 42724804814; CL5 re-pair 42725690535 / 42725699885)
 - [x] fail-round pair, both 0: IR 42799008506 / 42799014065, CL 42799018587 / 42799023023
 - [x] round 2 pair, both 0: IR 42802587713 / 42802591845, CLV 42802597983 / 42802604086
+- [x] round 3 pair, both 0: CLV 42807116024 / 42807124605. CLV2-393 did not move.
 
 ## Notes
 
