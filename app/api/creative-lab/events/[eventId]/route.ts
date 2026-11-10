@@ -24,7 +24,7 @@ import { saveClipSelection } from "@/lib/creative-lab/selection-store";
 import type { PairMode } from "@/lib/creative-lab/selection";
 import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
 import { isSpotifyConfigured, searchArtists } from "@/lib/enrichment/spotify";
-import { findArtistClips, readPromoterVoice, requestArtistClip } from "@/lib/creative-lab/ig-discovery";
+import { findArtistClips, findPromoterClips, readPromoterVoice, requestArtistClip } from "@/lib/creative-lab/ig-discovery";
 import type { SaleStage } from "@/lib/creative-lab/caption-facts";
 import { addSpotifyToLineup, applySpotifyCandidate, enrichLibraryArtists, labArtistForLibrary, saveLabLineup, tagSuggestions } from "@/lib/creative-lab/lineup";
 import type { ServiceRoleDb } from "@/lib/creative-lab/load";
@@ -128,6 +128,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
           return NextResponse.json({ ok: !found.error, error: found.error, sampleN: found.candidates.length });
         }
         return NextResponse.json({ ok: true, ...(await readPromoterVoice(db, event.client_id)) });
+      }
+      case "findPromoterClips": {
+        if (!event.client_id) return NextResponse.json({ error: "This event has no client." }, { status: 400 });
+        const found = await findPromoterClips(db, { clientId: event.client_id, userId: user.id });
+        return NextResponse.json({ ok: !found.error, error: found.error, sampleN: found.candidates.length });
       }
       case "saveFacts":
         await saveLabFacts(db, {

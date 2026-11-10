@@ -1,121 +1,190 @@
 "use client";
 
-import { artistHint, artistWhy, emptyFootage, needsFootageLabel, nextFootageLine, promoterHint, quotePairsLine, unpairedLine } from "@/lib/creative-lab/footage-owner";
+import type { CreativeLabCardData } from "@/lib/db/creative-lab";
+import { PUZZLE_SAMPLES, PUZZLE_VENUES } from "@/lib/creative-lab/voice-fixtures";
+import { extractTraits } from "@/lib/creative-lab/voice-traits";
+import type { CardVoice } from "@/lib/creative-lab/voice-store";
 
-const CLIENT = "Puzzle";
-const EMPTY = emptyFootage(CLIENT, "puzzle");
+import { labStripProps } from "@/components/dashboard/events/creative-lab-card";
+import { LabCaptions } from "./captions";
+import { LabClips } from "./clips";
+import { LabStrip } from "./strip";
 
-function Tile({ badge, length, name, ticked, status }: { badge: string; length: string; name: string; ticked?: boolean; status?: string }) {
-  return (
-    <article className="w-36">
-      <div className={`relative flex h-36 items-end justify-between rounded bg-muted p-1 ${ticked ? "ring-2 ring-foreground" : ""}`}>
-        <span className="rounded bg-card px-1 text-xs">{badge}</span>
-        <span className="text-xs tabular-nums">{ticked ? "✓ " : ""}{length}</span>
-      </div>
-      <p className="mt-1 text-xs">{name}</p>
-      {status ? <p className="text-xs text-muted-foreground">{status}</p> : null}
-    </article>
-  );
+const NOW = "2026-11-10T09:12:00.000Z";
+const ENZO = "enzo";
+const LUKE = "luke";
+
+function artist(id: string, name: string, handle: string) {
+  return {
+    id,
+    name,
+    rightsDocRef: null,
+    startingCaption: null,
+    metaPageId: null,
+    instagramActorId: null,
+    playedCities: [],
+    clipFolderUrl: null,
+    clipSource: "instagram",
+    clipFolderLastError: null,
+    igLastError: null,
+    igUsername: handle,
+    pronouns: id === LUKE ? "he/him" : null,
+    igCandidates: [],
+    rights: "approved" as const,
+    rightsLabel: "✓ Cleared — artist channels too",
+  };
 }
 
-function Clips() {
-  return (
-    <section className="space-y-4 p-4 text-sm max-[700px]:p-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="font-medium">Clips</h3>
-        <p className="max-[700px]:hidden">21 of 26 selected · Select all · None</p>
-      </div>
-      <p className="text-muted-foreground">Selected clips become ads when a round pairs them with an approved caption</p>
-      <p className="hidden text-xs text-muted-foreground max-[700px]:block">21 of 26 selected · Select all · None</p>
-      <div>
-        <p className="font-medium">{CLIENT} footage</p>
-        <p className="text-muted-foreground"><span className="max-[700px]:hidden">{promoterHint(false)}</span><span className="hidden max-[700px]:inline">{promoterHint(true)}</span></p>
-        <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-dashed border-border p-3 max-[700px]:flex-col max-[700px]:items-start">
-          <span>{EMPTY.sentence}</span>
-          <span className="rounded bg-foreground px-3 py-1.5 text-background">{EMPTY.action}</span>
-          <span className="text-xs text-muted-foreground">{EMPTY.drop}</span>
-        </div>
-      </div>
-      <div>
-        <p className="font-medium">Enzo Siragusa footage</p>
-        <p className="text-muted-foreground"><span className="max-[700px]:hidden">{artistHint("Enzo Siragusa", "he", false)}</span><span className="hidden max-[700px]:inline">{artistHint("Enzo Siragusa", "he", true)}</span></p>
-        <div className="mt-2 flex gap-2">
-          <Tile badge="IG" length="0:14" name="Enzo #1" ticked status="Untested" />
-          <Tile badge="IG" length="0:22" name="Enzo #2" ticked status="Untested" />
-          <div className="max-[700px]:hidden"><Tile badge="IG" length="0:18" name="Enzo #3" status="Untested" /></div>
-        </div>
-      </div>
-      <div className="max-[700px]:hidden">
-        <p className="font-medium">Luke Dean footage</p>
-        <p className="text-muted-foreground">{artistHint("Luke Dean", "he", false)}</p>
-        <div className="mt-2 flex gap-2">
-          <Tile badge="Kit" length="0:11" name="Luke #1" ticked status="Untested" />
-          <Tile badge="Kit" length="0:09" name="Luke #2" ticked status="Untested" />
-          <Tile badge="IG" length="0:16" name="Luke #21" ticked status="Untested" />
-        </div>
-      </div>
-    </section>
-  );
+function clip(id: string, artistId: string, name: string, clipNo: number, seconds: number, source: string): CreativeLabCardData["clips"][number] {
+  return {
+    id,
+    artistId,
+    clipNo,
+    source,
+    rightsRef: "frame",
+    filmedEventId: null,
+    durationSeconds: seconds,
+    inS: 0,
+    outS: seconds,
+    sourceWidth: 1080,
+    sourceHeight: 1920,
+    billingOrder: clipNo,
+    isHeadliner: true,
+    thumbnailUrl: null,
+    storagePath: null,
+    previewUrl: null,
+    hasFile: false,
+    artistName: name,
+    owner: "artist",
+    featuredArtistIds: [],
+    cleared: true,
+    renderError: null,
+    judged: null,
+    audioMatch: null,
+    hasAudio: true,
+    cropFocusX: 0.5,
+    cropOpen: false,
+  };
 }
 
-function Captions() {
-  return (
-    <section className="space-y-3 p-4 text-sm max-[700px]:p-3">
-      <h3 className="font-medium">Captions</h3>
-      <p className="text-muted-foreground">✓ a caption, then Propose round 1 renders it on the selected clips</p>
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="w-20 text-muted-foreground max-[700px]:hidden">Mode</span>
-        <span className="rounded bg-foreground px-2 py-1 text-background">Caption</span>
-        <span className="rounded border border-border px-2 py-1">Quote</span>
-      </div>
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="w-20 text-muted-foreground max-[700px]:hidden">Angle</span>
-        <span className="rounded border border-border px-2 py-1">Lineup</span>
-        <span className="rounded bg-foreground px-2 py-1 text-background">Artist</span>
-        <span className="rounded border border-border px-2 py-1">POV</span>
-        <span className="rounded border border-border px-2 py-1">Scarcity</span>
-        <span className="w-20 text-muted-foreground max-[700px]:hidden">Artist</span>
-        <span className="rounded border border-border px-2 py-1 max-[700px]:hidden">Luke Dean ▾</span>
-      </div>
-      <p className="text-muted-foreground"><span className="max-[700px]:hidden">Sounds like @puzzle · </span>{artistWhy("Luke Dean", CLIENT)}</p>
-      <div className="flex gap-3 max-[700px]:block">
-        <article className="w-72 max-[700px]:hidden">
-          <p>Luke Dean set to bring this energy to Circuit to close out the year</p>
-          <p className="mt-1 font-medium">Artist · Luke #1</p>
-          <p className="text-xs text-muted-foreground">third person · Puzzle&apos;s voice</p>
-        </article>
-        <article className="w-72">
-          <p className="rounded border border-dashed border-border px-3 py-6 text-center text-muted-foreground">{needsFootageLabel(CLIENT)}</p>
-          <p className="mt-1 font-medium">Lineup · unpaired</p>
-          <p className="text-xs text-muted-foreground">{unpairedLine("Lineup", CLIENT)}</p>
-        </article>
-        <article className="w-72 max-[700px]:hidden">
-          <p>Back in Southampton for this one…</p>
-          <p className="mt-1 font-medium">quote · Luke #2</p>
-          <p className="text-xs text-muted-foreground">{quotePairsLine("Luke Dean", CLIENT, "him", 0)} · <span className="text-success">✓ Cleared — artist channels too</span></p>
-        </article>
-      </div>
-    </section>
-  );
+const enzoClips = [14, 22, 18, 16, 20].map((seconds, index) => clip(`enzo-${index + 1}`, ENZO, "Enzo Siragusa", index + 1, seconds, "instagram"));
+const lukeClips = Array.from({ length: 21 }, (_, index) => {
+  const clipNo = index + 1;
+  const seconds = clipNo === 1 ? 11 : clipNo === 2 ? 9 : clipNo === 21 ? 16 : 12;
+  const source = clipNo === 21 ? "instagram" : "presskit";
+  return clip(`luke-${clipNo}`, LUKE, "Luke Dean", clipNo, seconds, source);
+});
+const clips = [...enzoClips, ...lukeClips];
+const unselected = new Set(["enzo-3", "enzo-4", "enzo-5", "luke-19", "luke-20"]);
+
+function caption(id: string, style: string, lines: string[], extra: Partial<CreativeLabCardData["captions"][number]> = {}): CreativeLabCardData["captions"][number] {
+  return {
+    id,
+    style,
+    status: "proposed",
+    lines,
+    primaryText: "",
+    sizeVariant: "short",
+    validatorOk: true,
+    validatorDetail: "",
+    awaitingLong: false,
+    ...extra,
+  };
 }
 
-function Strip() {
-  return (
-    <section className="p-4 text-sm max-[700px]:p-3">
-      <p className="flex items-center justify-between gap-3 max-[700px]:flex-col max-[700px]:items-start">
-        <span><b>Next:</b> {nextFootageLine(CLIENT, 20)}</span>
-        <span className="rounded bg-foreground px-3 py-1.5 text-background">{EMPTY.action}</span>
-      </p>
-    </section>
-  );
+const lineup = Array.from({ length: 20 }, (_, index) => caption(
+  `line-${index + 1}`,
+  "lineup",
+  index === 0 ? ["Luke Dean. At Circuit. 27 December."] : ["Puzzle turns 4. Lineup drops Monday."],
+));
+
+const voice: CardVoice = {
+  clientId: "frame-client",
+  hashtagsEnabled: false,
+  promoter: {
+    handle: "puzzle",
+    sampleN: PUZZLE_SAMPLES.length,
+    fetchedAt: NOW,
+    error: null,
+    traits: extractTraits(PUZZLE_SAMPLES, PUZZLE_VENUES),
+    exemplars: PUZZLE_SAMPLES,
+  },
+  artists: [],
+};
+
+function puzzle(): CreativeLabCardData {
+  return {
+    eventId: "frame-event",
+    clientId: "frame-client",
+    eventName: "Puzzle 4th Birthday",
+    eventDate: "2026-12-27",
+    venueName: "Circuit",
+    eventStatus: "on_sale",
+    clientName: "Puzzle",
+    clientHandle: "puzzle",
+    voice,
+    launchesEnabled: false,
+    saleDatesMissing: false,
+    longApproved: false,
+    paydayLabel: "",
+    daysToEvent: 47,
+    now: NOW,
+    facts: { lineup: ["Enzo Siragusa", "Luke Dean"], headliners: ["Luke Dean"], allowedDates: [] },
+    artists: [artist(ENZO, "Enzo Siragusa", "enzosiragusa"), artist(LUKE, "Luke Dean", "lukedean")],
+    clips,
+    renders: [],
+    assets: [],
+    clientEvents: [],
+    captions: [
+      caption("about-luke", "artist", ["Luke Dean. Back at Circuit for Puzzle's 4th birthday."], { clipId: "luke-1", artistId: LUKE }),
+      lineup[0]!,
+      caption("luke-quote", "quote", ["Back in Southampton for this one. The room, the people, the night. That's Puzzle."], {
+        mode: "quote",
+        artistId: LUKE,
+        quoteSource: "typed",
+        quoteSourceNote: "typed verbatim",
+        quoteWeight: 700,
+      }),
+      ...lineup.slice(1),
+    ],
+    adSets: [],
+    adAccountId: null,
+    rounds: [],
+    lineupRows: [
+      { artistId: "lib-enzo", name: "Enzo Siragusa", isHeadliner: false, imageUrl: null, instagramHandle: "enzosiragusa", tiktokHandle: null, spotifyId: null, metaPageId: null, genres: [], enrichedAt: null, playedBefore: [], labArtistId: ENZO, clearedAt: "2026-11-09", clearedBy: null, rightsNote: null, clipCount: 5, spotifyCandidates: [] },
+      { artistId: "lib-luke", name: "Luke Dean", isHeadliner: true, imageUrl: null, instagramHandle: "lukedean", tiktokHandle: null, spotifyId: null, metaPageId: null, genres: [], enrichedAt: null, playedBefore: [], labArtistId: LUKE, clearedAt: "2026-11-09", clearedBy: null, rightsNote: null, clipCount: 21, spotifyCandidates: [] },
+    ],
+    working: null,
+    clipSelection: {
+      mode: "chosen",
+      rows: clips.map((item) => ({ clipId: item.id, selected: !unselected.has(item.id) })),
+    },
+  };
+}
+
+function noop() {
+  return Promise.resolve({ ok: true, json: {} });
 }
 
 export function FootageFrameMount({ id }: { id: string }) {
+  const lab = puzzle();
+  if (id === "CLW1") {
+    return (
+      <div data-frame-ready={id} className="bg-background p-4 text-sm max-[700px]:p-3">
+        <LabClips lab={lab} busy={false} onSave={noop} onError={() => undefined} intake={false} layout="owner" />
+      </div>
+    );
+  }
+  if (id === "CLW2") {
+    return (
+      <div data-frame-ready={id} className="bg-background p-4 text-sm max-[700px]:p-3">
+        <LabCaptions lab={lab} busy={false} onSave={noop} quoteMode ownerAngles initialAngle="artist" initialArtistId={LUKE} />
+      </div>
+    );
+  }
   return (
-    <div data-frame-ready={id} className="bg-background text-foreground">
-      {id === "CLW1" ? <Clips /> : null}
-      {id === "CLW2" ? <Captions /> : null}
-      {id === "CLW3" ? <Strip /> : null}
+    <div data-frame-ready={id} className="bg-background p-4 text-sm max-[700px]:p-3">
+      <LabStrip {...labStripProps(lab, true)} />
     </div>
   );
 }

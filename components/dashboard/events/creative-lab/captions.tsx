@@ -364,19 +364,17 @@ function QuoteLive({
           { text: "quote" },
           { text: sourceChip({ source: caption.quoteSource ?? "typed", where: caption.quoteSourceNote, wide: true }) },
           ...(artist ? [{ text: artist.rights === "approved" ? artist.rightsLabel : "Promoter page only", ok: artist.rights === "approved" }] : []),
+          ...(ownerCopy && artist ? [{
+            text: quotePairsLine(
+              artist.name,
+              lab.clientName || "the promoter",
+              objectPronoun(artist.pronouns),
+              lab.clips.filter((clip) => clip.owner === "promoter" && (clip.featuredArtistIds ?? []).includes(artist.id)).length,
+            ),
+          }] : []),
         ]}
       />
       {caption.validatorDetail ? <p className="px-1 pt-2 text-sm text-destructive">{caption.validatorDetail}</p> : null}
-      {ownerCopy && artist ? (
-        <p className="px-1 pt-2 text-xs text-muted-foreground">
-          {quotePairsLine(
-            artist.name,
-            lab.clientName || "the promoter",
-            objectPronoun(artist.pronouns),
-            lab.clips.filter((clip) => clip.owner === "promoter" && (clip.featuredArtistIds ?? []).includes(artist.id)).length,
-          )}
-        </p>
-      ) : null}
     </div>
   );
 }

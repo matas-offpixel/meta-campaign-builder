@@ -9,7 +9,7 @@ import { LabLineup } from "@/components/dashboard/events/creative-lab/lineup";
 import { LabRound } from "@/components/dashboard/events/creative-lab/round";
 import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
-import { nextFootageLine } from "@/lib/creative-lab/footage-owner";
+import { ownerFootageGap } from "@/lib/creative-lab/footage-owner";
 import { labNextStep } from "@/lib/creative-lab/lineup";
 import { clipSelectionStrip, effectiveSelection, emptySelection } from "@/lib/creative-lab/selection";
 import { clipBucket, roundStripState } from "@/lib/creative-lab/surface";
@@ -24,6 +24,46 @@ async function post(eventId: string, body: Record<string, unknown>): Promise<{ o
   return { ok: res.ok, status: res.status, json };
 }
 
+
+export function labStripProps(lab: CreativeLabCardData, owner: boolean) {
+  const rounds = [...lab.rounds].sort((a, b) => a.roundNo - b.roundNo);
+  const newest = rounds.at(-1) ?? null;
+  const running = newest?.status === "launched" ? newest : null;
+  const waiting = lab.captions.some((caption) => caption.status === "proposed");
+  const approved = lab.captions.some((caption) => caption.status === "approved");
+  const next = ownerFootageGap(lab, owner) ?? labNextStep({
+    lineupCount: lab.lineupRows.length,
+    captionsWaiting: waiting,
+    roundReady: approved && lab.clips.length > 0 && !running,
+    runningRound: running?.roundNo ?? null,
+    clipCount: lab.clips.length,
+    judgedRound: newest?.status === "judged" ? newest.roundNo : null,
+  });
+  const cant = lab.clips.filter((clip) => clipBucket(clip) === "cant").length;
+  const selection = lab.clipSelection ?? emptySelection();
+  const clipLines = clipSelectionStrip(selection.mode, effectiveSelection(selection, lab.clips).length, cant, lab.clips.length - cant);
+  const roundLines = roundStripState(newest?.status);
+  return {
+    eventId: lab.eventId,
+    lineup: lab.lineupRows.length,
+    clips: lab.clips.length - cant,
+    captions: lab.captions.length,
+    round: newest?.roundNo ?? null,
+    next,
+    working: lab.working,
+    saleDatesMissing: lab.saleDatesMissing,
+    states: {
+      lineup: lab.lineupRows.length ? "on the bill" : "empty",
+      lineupShort: lab.lineupRows.length ? "on bill" : "empty",
+      clips: clipLines.line,
+      clipsShort: clipLines.short,
+      captions: waiting ? "need approval" : approved ? "approved" : "none yet",
+      captionsShort: waiting ? "waiting" : approved ? "approved" : "none",
+      round: roundLines.line,
+      roundShort: roundLines.short,
+    },
+  };
+}
 
 export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, presentation = "legacy" }: { lab: CreativeLabCardData; quoteMode?: boolean; driveFolderId?: string | null; presentation?: "legacy" | "owner" }) {
   const router = useRouter();
@@ -62,30 +102,7 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, 
     router.refresh();
   }
 
-  const rounds = [...lab.rounds].sort((a, b) => a.roundNo - b.roundNo);
-  const newest = rounds.at(-1) ?? null;
-  const running = newest?.status === "launched" ? newest : null;
-  const waiting = lab.captions.some((caption) => caption.status === "proposed");
-  const approved = lab.captions.some((caption) => caption.status === "approved");
-  const waitingLineup = lab.captions.filter((caption) => caption.style === "lineup" && caption.status === "proposed").length;
-  const promoterSelected = (lab.clips ?? []).some((clip) => clip.owner === "promoter");
-  const gap = presentation === "owner" && waitingLineup > 0 && !promoterSelected
-    ? { text: nextFootageLine(lab.clientName || "the promoter", waitingLineup), verb: lab.clientHandle || lab.voice?.promoter.handle ? `Find clips on @${(lab.clientHandle || lab.voice?.promoter.handle || "").replace(/^@/, "")}` : `Add ${lab.clientName || "the client"}'s Instagram`, target: "lab-clips" as const }
-    : null;
-  const next = gap ?? labNextStep({
-    lineupCount: lab.lineupRows.length,
-    captionsWaiting: waiting,
-    roundReady: approved && lab.clips.length > 0 && !running,
-    runningRound: running?.roundNo ?? null,
-    clipCount: lab.clips.length,
-    judgedRound: newest?.status === "judged" ? newest.roundNo : null,
-  });
-  const working = lab.working;
-  const cant = lab.clips.filter((clip) => clipBucket(clip) === "cant").length;
-  const selection = lab.clipSelection ?? emptySelection();
-  const usableCount = lab.clips.length - cant;
-  const clipLines = clipSelectionStrip(selection.mode, effectiveSelection(selection, lab.clips).length, cant, usableCount);
-  const roundLines = roundStripState(newest?.status);
+  const strip = labStripProps(lab, presentation === "owner");
   const starred = lab.lineupRows.some((row) => row.isHeadliner);
   const headlinerNote = lab.lineupRows.length === 0
     ? "Star the headliners once the lineup is in."
@@ -98,26 +115,7 @@ export function CreativeLabCard({ lab, quoteMode = false, driveFolderId = null, 
       <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Creative Lab</summary>
       <div className="space-y-6 border-t border-border px-4 py-4 text-sm">
         {error ? <p className="text-destructive">{error}</p> : null}
-        <LabStrip
-          eventId={lab.eventId}
-          lineup={lab.lineupRows.length}
-          clips={usableCount}
-          captions={lab.captions.length}
-          round={newest?.roundNo ?? null}
-          next={next}
-          working={working}
-          saleDatesMissing={lab.saleDatesMissing}
-          states={{
-            lineup: lab.lineupRows.length ? "on the bill" : "empty",
-            lineupShort: lab.lineupRows.length ? "on bill" : "empty",
-            clips: clipLines.line,
-            clipsShort: clipLines.short,
-            captions: waiting ? "need approval" : approved ? "approved" : "none yet",
-            captionsShort: waiting ? "waiting" : approved ? "approved" : "none",
-            round: roundLines.line,
-            roundShort: roundLines.short,
-          }}
-        />
+        <LabStrip {...strip} />
         {headlinerNote ? <p className="text-muted-foreground">{headlinerNote}</p> : null}
         <LabLineup eventId={lab.eventId} rows={lab.lineupRows} artists={lab.artists} adAccountId={lab.adAccountId} busy={busy} onSave={(body) => run(body)} />
         <LabClips lab={lab} busy={busy} driveFolderId={driveFolderId} layout={presentation === "owner" ? "owner" : "status"} onSave={(body) => run(body)} onError={setError} />

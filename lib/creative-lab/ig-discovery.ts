@@ -789,6 +789,126 @@ export async function findArtistClips(
   return { candidates, error: null, source };
 }
 
+/** List the client's own reels. Add imports each one as promoter footage. */
+export async function findPromoterClips(
+  db: ServiceRoleDb,
+  args: { clientId: string; userId: string; now?: Date; read?: IgRead },
+): Promise<IgFindResult> {
+  const now = args.now ?? new Date();
+  const clientRes = await db.from("clients").select("*").eq("id", args.clientId).eq("user_id", args.userId).maybeSingle();
+  if (clientRes.error) throw new Error(plainIgMessage(clientRes.error.message));
+  const client = clientRes.data as Row | null;
+  if (!client) throw new Error("No client with that id.");
+  const businessId = text(client, "instagram_business_id");
+  const handle = text(client, "instagram_handle").replace(/^@/, "");
+  const fail = async (message: string) => {
+    const marked = await db.from("clients").update({ ig_last_error: message }).eq("id", args.clientId);
+    if (marked.error && !/ig_last_error|does not exist|schema cache/i.test(marked.error.message)) throw new Error(marked.error.message);
+    return { candidates: [] as IgCandidate[], error: message, source: null };
+  };
+  if (!businessId || !handle) return fail("Add this client's Instagram business account.");
+  let read: IgRead;
+  try {
+    read = args.read ?? (await defaultRead(db, args.userId));
+  } catch (err) {
+    if (err instanceof IgDiscoveryError) return fail(err.message);
+    throw err;
+  }
+  const media = await read.media(businessId, MAX_POSTS);
+  if (!media.ok) return fail(plainIgMessage(media.message));
+  const posts = media.posts;
+  try {
+    const venueNames = await venueNamesForClient(db, args.clientId);
+    await saveVoiceSamples(db, {
+      userId: args.userId,
+      pageKind: "promoter",
+      clientId: args.clientId,
+      artistId: null,
+      posts: voicePosts(posts),
+      now,
+      venueNames,
+    });
+  } catch {
+    // The clip list still returns. The next Find clips writes the captions.
+  }
+  const heldRes = await db.from("creative_lab_ig_candidates").select("*").eq("client_id", args.clientId);
+  if (heldRes.error) {
+    const message = /does not exist|schema cache|client_id/i.test(heldRes.error.message)
+      ? "Instagram clips can't be listed until the database update is applied."
+      : plainIgMessage(heldRes.error.message);
+    return fail(message);
+  }
+  const clipRes = await db.from("creative_lab_clips").select("external_id, source_file_id").eq("user_id", args.userId).eq("owner", "promoter");
+  if (clipRes.error && !/owner|does not exist|schema cache/i.test(clipRes.error.message)) throw new Error(plainIgMessage(clipRes.error.message));
+  const exclude = new Set<string>();
+  for (const clip of (clipRes.data ?? []) as Row[]) {
+    const external = text(clip, "external_id");
+    const sourceFile = text(clip, "source_file_id");
+    if (external) exclude.add(external);
+    if (sourceFile) exclude.add(sourceFile);
+  }
+  for (const row of (heldRes.data ?? []) as Row[]) {
+    if (HELD.has(text(row, "status"))) {
+      const id = text(row, "ig_media_id");
+      if (id) exclude.add(id);
+    }
+  }
+  const profile = await read.profile(businessId);
+  const followers = profile.ok ? profile.followers : null;
+  const ranked = rankIgPosts(posts, { now, followers, exclude, limit: TOP_N });
+  const candidates: IgCandidate[] = [];
+  for (const row of ranked) {
+    candidates.push({
+      ...row,
+      followersAtFetch: followers,
+      hasFile: true,
+      fileSource: "own_edge",
+      audioMatch: await read.copyright(row.igMediaId),
+      status: "candidate",
+    });
+  }
+  if (candidates.length > 0) {
+    const saved = await db.from("creative_lab_ig_candidates").upsert(
+      candidates.map((row) => ({
+        user_id: args.userId,
+        artist_id: null,
+        client_id: args.clientId,
+        ig_media_id: row.igMediaId,
+        slide_ids: row.slideIds,
+        permalink: row.permalink,
+        caption: row.caption,
+        caption_fetched_at: now.toISOString(),
+        media_type: row.mediaType,
+        media_product_type: row.mediaProductType,
+        posted_at: row.postedAt,
+        likes: row.likes,
+        comments: row.comments,
+        followers_at_fetch: row.followersAtFetch,
+        score: row.score,
+        aspect: row.aspect,
+        thumb_width: row.thumbWidth,
+        thumb_height: row.thumbHeight,
+        has_file: row.hasFile,
+        file_source: row.fileSource,
+        audio_match: row.audioMatch,
+        status: "candidate",
+        reason: null,
+        fetched_at: now.toISOString(),
+      })),
+      { onConflict: "client_id,ig_media_id" },
+    );
+    if (saved.error) {
+      const message = /does not exist|schema cache|client_id|artist_id/i.test(saved.error.message)
+        ? "Instagram clips can't be listed until the database update is applied."
+        : plainIgMessage(saved.error.message);
+      return fail(message);
+    }
+  }
+  const cleared = await db.from("clients").update({ ig_last_error: null }).eq("id", args.clientId);
+  if (cleared.error && !/ig_last_error|does not exist|schema cache/i.test(cleared.error.message)) throw new Error(cleared.error.message);
+  return { candidates, error: null, source: "own_edge" };
+}
+
 export async function requestArtistClip(
   db: ServiceRoleDb,
   args: { userId: string; artistId: string; igMediaId: string },

@@ -89,6 +89,8 @@ async function main(): Promise<void> {
   console.log(`other unpaired: ${plan.otherUnpair}`);
   console.log(`first person retired: ${plan.retireIds.length}`);
   if (!apply) {
+    const retired = planRows.filter((row) => plan.retireIds.includes(row.id)).map((row) => row.eventName);
+    if (retired.length > 0) console.log(`retired events: ${retired.join(" | ")}`);
     console.log("dry run — nothing written");
     return;
   }

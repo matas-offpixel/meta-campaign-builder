@@ -8,6 +8,7 @@ import {
   emptyFootage,
   featuringLine,
   nextFootageLine,
+  ownerFootageGap,
   objectPronoun,
   ownerFromImport,
   pairingsForClip,
@@ -100,6 +101,16 @@ describe("footage owner", () => {
     assert.equal(emptyFootage("Puzzle", null).action, "Add Puzzle's Instagram");
     assert.equal(unpairedLine("Lineup", "Puzzle"), "Unpaired — Lineup needs Puzzle footage.");
     assert.equal(nextFootageLine("Puzzle", 20), "Add Puzzle footage — 20 Lineup captions are waiting for it.");
+    const waiting = (style: string, n: number) => Array.from({ length: n }, () => ({ style, status: "proposed" }));
+    const gap = ownerFootageGap({
+      clientName: "Puzzle",
+      clientHandle: "puzzle",
+      captions: [...waiting("lineup", 18), ...waiting("pov", 1), ...waiting("scarcity", 1)],
+      clips: [{ owner: "artist" }],
+      voice: null,
+    }, true);
+    assert.equal(gap?.text, "Add Puzzle footage — 20 captions are waiting for it.");
+    assert.equal(gap?.verb, "Find clips on @puzzle");
     assert.equal(quotePairsLine("Luke Dean", "Puzzle", "him", 0), "pairs with Luke Dean's clips only");
     assert.equal(quotePairsLine("Luke Dean", "Puzzle", objectPronoun("he/him"), 1), "pairs with Luke Dean's clips and Puzzle clips that feature him");
     assert.equal(featuringLine(1, "Puzzle", "Luke Dean"), "and 1 Puzzle clip that feature Luke Dean");
@@ -136,8 +147,35 @@ describe("footage owner", () => {
         clipArtistId: luke,
         featuredArtistIds: [],
       },
+      {
+        id: "start",
+        eventName: "Puzzle 4th Birthday",
+        style: "artist_first_person",
+        status: "proposed",
+        generatedBy: "starting_caption",
+        mode: "caption",
+        artistId: luke,
+        clipId: "clip-start",
+        clipOwner: "artist",
+        clipArtistId: luke,
+        featuredArtistIds: [],
+      },
+      {
+        id: "hand",
+        eventName: "Puzzle 4th Birthday",
+        style: "artist_first_person",
+        status: "proposed",
+        generatedBy: "manual",
+        mode: "caption",
+        artistId: luke,
+        clipId: "clip-hand",
+        clipOwner: "artist",
+        clipArtistId: luke,
+        featuredArtistIds: [],
+      },
     ]);
-    assert.equal(plan.retireIds.join(","), "fp");
+    assert.equal(plan.retireIds.join(","), "fp,start");
+    assert.equal(plan.retireIds.includes("hand"), false);
     assert.equal(plan.unpairIds.includes("other"), true);
     assert.equal(plan.puzzleLineup, 11);
   });

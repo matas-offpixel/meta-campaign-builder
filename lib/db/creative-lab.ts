@@ -26,6 +26,35 @@ function pronounOn(profile: unknown): string | null {
   return null;
 }
 
+function igCandidateCard(candidate: Row): LabIgCandidate {
+  return {
+    id: text(candidate, "id"),
+    igMediaId: text(candidate, "ig_media_id"),
+    permalink: text(candidate, "permalink") || null,
+    postedAt: text(candidate, "posted_at").slice(0, 10) || null,
+    likes: candidate.likes == null ? null : Number(candidate.likes),
+    comments: candidate.comments == null ? null : Number(candidate.comments),
+    score: candidate.score == null ? null : Number(candidate.score),
+    aspect: text(candidate, "aspect") || null,
+    hasFile: candidate.has_file === true,
+    audioMatch: candidate.audio_match === true ? true : candidate.audio_match === false ? false : null,
+    status: text(candidate, "status"),
+    reason: text(candidate, "reason") || null,
+    thumbnailUrl: publicThumbUrl(text(candidate, "thumbnail_path")),
+    lengthSeconds: null,
+    overlayOpen: false,
+    overlay: overlayOf(candidate.overlay_check),
+    caption: typeof candidate.caption === "string" ? candidate.caption : null,
+  };
+}
+
+function listedCandidates(rows: Row[]): LabIgCandidate[] {
+  return rows
+    .filter((candidate) => ["candidate", "requested", "skipped", "imported"].includes(text(candidate, "status")))
+    .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+    .map(igCandidateCard);
+}
+
 function publicThumbUrl(path: string): string | null {
   if (!path) return null;
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
@@ -109,6 +138,26 @@ export function headlinerError(lineup: readonly string[], headliners: readonly s
   return null;
 }
 
+export type LabIgCandidate = {
+  id: string;
+  igMediaId: string;
+  permalink: string | null;
+  postedAt: string | null;
+  likes: number | null;
+  comments: number | null;
+  score: number | null;
+  aspect: string | null;
+  hasFile: boolean;
+  audioMatch: boolean | null;
+  status: string;
+  reason: string | null;
+  thumbnailUrl: string | null;
+  lengthSeconds: number | null;
+  overlayOpen: boolean;
+  overlay: { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null;
+  caption?: string | null;
+};
+
 export type CreativeLabCardData = {
   eventId: string;
   eventName: string;
@@ -117,6 +166,8 @@ export type CreativeLabCardData = {
   eventStatus: string | null;
   clientName: string | null;
   clientHandle?: string | null;
+  /** Clips found on the client's own Instagram. Add imports them as promoter footage. */
+  promoterCandidates?: LabIgCandidate[];
   clientId: string | null;
   voice: CardVoice | null;
   launchesEnabled: boolean;
@@ -142,25 +193,7 @@ export type CreativeLabCardData = {
     igUsername: string | null;
     /** From the library artist's profile when a pronoun is stored there. */
     pronouns: string | null;
-    igCandidates: {
-      id: string;
-      igMediaId: string;
-      permalink: string | null;
-      postedAt: string | null;
-      likes: number | null;
-      comments: number | null;
-      score: number | null;
-      aspect: string | null;
-      hasFile: boolean;
-      audioMatch: boolean | null;
-      status: string;
-      reason: string | null;
-      thumbnailUrl: string | null;
-      lengthSeconds: number | null;
-      overlayOpen: boolean;
-      overlay: { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null;
-      caption?: string | null;
-    }[];
+    igCandidates: LabIgCandidate[];
     rights: RightsState;
     rightsLabel: string;
     approvedAt?: string | null;
@@ -458,6 +491,7 @@ export async function loadCreativeLabCard(
     eventStatus: args.eventStatus,
     clientName,
     clientHandle,
+    promoterCandidates: listedCandidates(candidateRows.filter((candidate) => text(candidate, "client_id") === (args.clientId ?? "") && !text(candidate, "artist_id"))),
     voice,
     launchesEnabled: labLaunchesEnabled(),
     saleDatesMissing: !String(args.presaleAt ?? "").trim() && !String(args.generalSaleAt ?? "").trim(),
@@ -482,29 +516,7 @@ export async function loadCreativeLabCard(
       igLastError: text(row, "ig_last_error") || null,
       igUsername: text(row, "ig_username") || null,
       pronouns: pronounOn(libraryById.get(text(row, "artist_id"))?.profile_jsonb),
-      igCandidates: candidateRows
-        .filter((candidate) => text(candidate, "artist_id") === text(row, "id"))
-        .filter((candidate) => ["candidate", "requested", "skipped", "imported"].includes(text(candidate, "status")))
-        .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
-        .map((candidate) => ({
-          id: text(candidate, "id"),
-          igMediaId: text(candidate, "ig_media_id"),
-          permalink: text(candidate, "permalink") || null,
-          postedAt: text(candidate, "posted_at").slice(0, 10) || null,
-          likes: candidate.likes == null ? null : Number(candidate.likes),
-          comments: candidate.comments == null ? null : Number(candidate.comments),
-          score: candidate.score == null ? null : Number(candidate.score),
-          aspect: text(candidate, "aspect") || null,
-          hasFile: candidate.has_file === true,
-          audioMatch: candidate.audio_match === true ? true : candidate.audio_match === false ? false : null,
-          status: text(candidate, "status"),
-          reason: text(candidate, "reason") || null,
-          thumbnailUrl: publicThumbUrl(text(candidate, "thumbnail_path")),
-          lengthSeconds: null,
-          overlayOpen: false,
-          overlay: overlayOf(candidate.overlay_check),
-          caption: typeof candidate.caption === "string" ? candidate.caption : null,
-        })),
+      igCandidates: listedCandidates(candidateRows.filter((candidate) => text(candidate, "artist_id") === text(row, "id"))),
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       approvedAt: text(row, "approved_at") || null,

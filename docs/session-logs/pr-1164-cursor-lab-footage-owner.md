@@ -22,8 +22,8 @@ Promoter copy pairs only with the promoter's own footage, and an Artist caption 
 ## Validation
 
 - [x] unit tests for owner, pairing, and propose
-- [x] dry run: 11 Puzzle Lineup captions unpaired, 0 others, 0 first-person retired
-- [x] Ubuntu pairs at 0 px: CLW, CLV1, CLV4
+- [x] dry run: 11 Puzzle Lineup captions unpaired, 0 others, 1 first-person retired (Puzzle 4th Birthday Part 1). Nothing written.
+- [ ] Ubuntu pairs for the design-fail frames
 - [ ] CI
 
 ## Notes

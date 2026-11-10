@@ -189,6 +189,41 @@ export function nextFootageLine(client: string, count: number, angle = "Lineup")
   return `Add ${client} footage — ${count} ${angle} ${word} waiting for it.`;
 }
 
+const GAP_STYLES = new Set(["lineup", "pov", "scarcity"]);
+const GAP_LABEL: Record<string, string> = { lineup: "Lineup", pov: "POV", scarcity: "Scarcity" };
+
+/** One style keeps its name. Mixed Lineup, POV and Scarcity stay in the count without naming one of them. */
+export function footageWaitingLine(client: string, count: number, angle: string | null): string {
+  if (angle) return nextFootageLine(client, count, angle);
+  const word = count === 1 ? "caption is" : "captions are";
+  return `Add ${client} footage — ${count} ${word} waiting for it.`;
+}
+
+/** The strip's Next line when promoter footage is missing. Lineup, POV and Scarcity all count. */
+export function ownerFootageGap(
+  lab: {
+    captions: readonly { style: string; status: string }[];
+    clips: readonly { owner?: string | null }[];
+    clientName: string | null;
+    clientHandle?: string | null;
+    voice?: { promoter: { handle: string | null } } | null;
+  },
+  owner: boolean,
+): { text: string; verb: string; target: "lab-clips" } | null {
+  if (!owner) return null;
+  const waiting = lab.captions.filter((caption) => GAP_STYLES.has(caption.style) && caption.status === "proposed");
+  if (waiting.length === 0 || lab.clips.some((clip) => clip.owner === "promoter")) return null;
+  const styles = [...new Set(waiting.map((caption) => caption.style))];
+  const angle = styles.length === 1 ? (GAP_LABEL[styles[0]!] ?? styles[0]!) : null;
+  const handle = (lab.clientHandle || lab.voice?.promoter.handle || "").replace(/^@/, "");
+  const client = lab.clientName || "the promoter";
+  return {
+    text: footageWaitingLine(client, waiting.length, angle),
+    verb: handle ? `Find clips on @${handle}` : `Add ${lab.clientName || "the client"}'s Instagram`,
+    target: "lab-clips",
+  };
+}
+
 export function quotePairsLine(artist: string, client: string, pronoun: string, featuring: number): string {
   if (featuring > 0) return `pairs with ${artist}'s clips and ${client} clips that feature ${pronoun}`;
   return `pairs with ${artist}'s clips only`;
@@ -244,8 +279,7 @@ export function planUnpair(rows: readonly CrossedRow[]): {
   const retireIds: string[] = [];
   for (const row of rows) {
     if (row.status === "retired") continue;
-    const generated = row.generatedBy != null && row.generatedBy !== "manual" && row.generatedBy !== "starting_caption";
-    if (row.status === "proposed" && row.style === "artist_first_person" && generated) retireIds.push(row.id);
+    if (row.status === "proposed" && row.style === "artist_first_person" && row.generatedBy !== "manual") retireIds.push(row.id);
     if (row.status !== "proposed" || !row.clipId || row.style === "artist_first_person") continue;
     const owner = row.clipOwner ?? (row.clipArtistId ? "artist" : "promoter");
     const allowed = captionAllowsClip(

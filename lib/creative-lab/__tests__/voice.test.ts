@@ -86,7 +86,8 @@ describe("voice traits", () => {
     assert.doesNotMatch(block ?? "", / \/ /);
     assert.equal(voiceChipLabel({ handle: "reeshy", sampleN: 2, error: null }), "House voice · @reeshy has 2 posts");
     assert.equal(voiceChipParts({ handle: "reeshy", sampleN: 2, error: null, artistPage: false }).countNarrow, "2 posts");
-    assert.equal(voiceChipLabel({ handle: null, sampleN: 0, error: null }), "House voice · no posts read yet");
+    assert.equal(voiceChipLabel({ handle: null, sampleN: 0, error: null }), "House voice · no Instagram on the client");
+    assert.equal(voiceChipLabel({ handle: "puzzle", sampleN: 0, error: null }), "House voice · no posts read yet");
     assert.equal(voiceChipLabel({ handle: null, sampleN: 0, error: null, artist: true }), "House voice · no Instagram on the row");
   });
 

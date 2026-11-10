@@ -3656,8 +3656,9 @@ export type Database = {
       }
       creative_lab_ig_candidates: {
         Row: {
-          artist_id: string
+          artist_id: string | null
           aspect: string | null
+          client_id: string | null
           asset_id: string | null
           audio_match: boolean | null
           caption: string | null
@@ -3689,8 +3690,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          artist_id: string
+          artist_id?: string | null
           aspect?: string | null
+          client_id?: string | null
           asset_id?: string | null
           audio_match?: boolean | null
           caption?: string | null
@@ -3722,8 +3724,9 @@ export type Database = {
           user_id: string
         }
         Update: {
-          artist_id?: string
+          artist_id?: string | null
           aspect?: string | null
+          client_id?: string | null
           asset_id?: string | null
           audio_match?: boolean | null
           caption?: string | null

@@ -110,21 +110,36 @@ const lukeLab = lab({
   voice: {
     clientId: "frame-client",
     hashtagsEnabled: false,
-    promoter: puzzle,
-    artists: [{ id: "luke", ...page({ handle: "lukedean", samples: [], error: "not a business or creator account", fetchedAt: null }) }],
+    promoter: page({ handle: "puzzle", samples: [], error: "not a business or creator account", fetchedAt: null }),
+    artists: [{ id: "luke", ...page({ handle: "lukedean", samples: [], error: null, fetchedAt: null }) }],
   },
 });
 const reeshyLab = lab({
   artists: [artist({ id: "reeshy", name: "Reeshy", handle: "reeshy" })],
-  voice: { clientId: "frame-client", hashtagsEnabled: false, promoter: puzzle, artists: [{ id: "reeshy", ...reeshy }] },
+  voice: {
+    clientId: "frame-client",
+    hashtagsEnabled: false,
+    promoter: page({ handle: "puzzle", samples: PUZZLE_SAMPLES.slice(0, 2), error: null, fetchedAt: READ_TODAY }),
+    artists: [{ id: "reeshy", ...reeshy }],
+  },
 });
 const benjiLab = lab({
   artists: [artist({ id: "benji", name: "Benji King", handle: null })],
-  voice: { clientId: "frame-client", hashtagsEnabled: false, promoter: puzzle, artists: [{ id: "benji", ...page({ handle: null, samples: [], error: null, fetchedAt: null }) }] },
+  voice: {
+    clientId: "frame-client",
+    hashtagsEnabled: false,
+    promoter: page({ handle: null, samples: [], error: null, fetchedAt: null }),
+    artists: [{ id: "benji", ...page({ handle: "benjiking", samples: [], error: null, fetchedAt: null }) }],
+  },
 });
 const phillLab = lab({
   artists: [artist({ id: "phill", name: "Phill De Janeiro", handle: "philldejaneiro" })],
-  voice: { clientId: "frame-client", hashtagsEnabled: false, promoter: puzzle, artists: [{ id: "phill", ...phill }] },
+  voice: {
+    clientId: "frame-client",
+    hashtagsEnabled: false,
+    promoter: page({ handle: "puzzle", samples: PUZZLE_SAMPLES, error: null, fetchedAt: STALE_READ }),
+    artists: [{ id: "phill", ...phill }],
+  },
 });
 
 function noop() {
@@ -164,11 +179,11 @@ export function VoiceFrameMount({ id }: { id: string }) {
     return (
       <div data-frame-ready={id} className="relative bg-background p-4 max-[700px]:p-3">
         <div className="space-y-3 max-[700px]:hidden">
-          <Strip data={puzzleLab} angle="lineup" artistId="enzo" />
+          <Strip data={puzzleLab} angle="lineup" artistId="enzo" ownerAngles />
           <Strip data={enzoLab} angle="artist" artistId="enzo" ownerAngles />
         </div>
         <div className="hidden max-[700px]:block">
-          <Strip data={puzzleLab} angle="lineup" artistId="enzo" />
+          <Strip data={puzzleLab} angle="lineup" artistId="enzo" ownerAngles />
         </div>
       </div>
     );
@@ -177,7 +192,7 @@ export function VoiceFrameMount({ id }: { id: string }) {
     return (
       <div data-frame-ready={id} className="relative h-[1046px] overflow-hidden bg-background max-[700px]:h-[852px]">
         <div className="p-4 max-[700px]:p-3 min-[701px]:pr-[440px]">
-          <Strip data={puzzleLab} angle="lineup" artistId="enzo" open />
+          <Strip data={puzzleLab} angle="lineup" artistId="enzo" open ownerAngles />
         </div>
       </div>
     );
@@ -186,10 +201,10 @@ export function VoiceFrameMount({ id }: { id: string }) {
     return (
       <div data-frame-ready={id} className="relative bg-background min-[701px]:h-[523px] max-[700px]:min-h-0">
         <div className="p-4 max-[700px]:hidden min-[701px]:pr-[440px]">
-          <Strip data={emptyLab} angle="lineup" artistId="enzo" open />
+          <Strip data={emptyLab} angle="lineup" artistId="enzo" open ownerAngles />
         </div>
         <div className="hidden p-3 max-[700px]:block">
-          <Strip data={emptyLab} angle="lineup" artistId="enzo" />
+          <Strip data={emptyLab} angle="lineup" artistId="enzo" ownerAngles />
         </div>
       </div>
     );
