@@ -21,6 +21,8 @@ import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
+import { checkFeather } from "../lib/creative-lab/red-backing.ts";
+import { backingRect } from "../lib/creative-lab/t1-video.ts";
 
 import { CLAIM_FACE_BAND, renderClaimCard, type ClaimCardResult } from "../lib/creative-lab/artist-card-claim.ts";
 import { O20, trimToInk, type Piece } from "../lib/creative-lab/artist-card.ts";
@@ -151,44 +153,16 @@ for (const job of jobs) {
   say(`claim ${job.claimText ? JSON.stringify(job.claimText) : "none"} · source ${srcLabel}${watermark ? ` · watermark "${watermark}"` : ""} · bands ${job.bands ? "on" : "off"}`);
   if (res.claim) say(`slot: ${res.claim.kind} · ${res.claim.lines.map((l) => `"${l.text}" ${l.color}${l.color === "red" && res.redLineWhite ? "→white" : ""} cap ${l.capPx.toFixed(1)} px top y ${l.capTop.toFixed(1)} width ${Math.round(l.widthPx)} px`).join(" · ")} · k ${res.claim.k.toFixed(3)}`);
   say(`contrast: text box ${pct(res.contrast.textBox)} · claim box ${pct(res.contrast.claimBox)} · red line ${pct(res.contrast.redLine)} below 2:1${res.approvalLines.length ? ` · approval line: ${res.approvalLines.join("; ")}` : ""}`);
-  // H66, measured on the card: the mean luma of each row across line 1's ink, from line 1's baseline to line 2's cap top.
+  // O70 (replaces H66's 6-level limit): the card's backing layer alone over flat mid-grey; the type's edge and shadow aren't in it.
   if (res.master && res.claim && res.claim.lines.length === 2 && res.redBacking != null) {
     const [l1, l2] = res.claim.lines as [(typeof res.claim.lines)[number], (typeof res.claim.lines)[number]];
-    const { data, info } = await sharp(res.master).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    const x0 = Math.round((info.width - l1.widthPx) / 2);
-    const x1 = Math.round((info.width + l1.widthPx) / 2);
-    const rowLuma = (y: number) => {
-      let sum = 0;
-      for (let x = x0; x < x1; x += 1) {
-        const i = (y * info.width + x) * info.channels;
-        sum += 0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!;
-      }
-      return sum / Math.max(1, x1 - x0);
-    };
-    const y0 = Math.ceil(l1.capTop + l1.capPx);
-    const y1 = Math.floor(l2.capTop);
-    let worst = 0;
-    let at = y0;
-    for (let y = y0; y < y1; y += 1) {
-      const d = Math.abs(rowLuma(y + 1) - rowLuma(y));
-      if (d > worst) {
-        worst = d;
-        at = y;
-      }
+    const meta = await sharp(res.master).metadata();
+    const frame = { width: meta.width!, height: meta.height! };
+    const box = backingRect(l1, frame.width, { below: l2.capTop });
+    for (const side of ["bottom", "top"] as const) {
+      const f = checkFeather(box, res.redBacking, side, frame);
+      say(`O70 feather (${side}): backing ${Math.round(res.redBacking * 100)} % · ${box.feather[side].toFixed(1)} px smoothstep · mean step ${f.meanStep.toFixed(2)}, largest ${f.maxStep.toFixed(2)} → ${f.ratio.toFixed(2)}× (limit 1.6) → ${f.ok ? "passes" : "fails"}`);
     }
-    // The feather alone: from the core's edge (line 1's baseline + a quarter of the gap, at most 0.5 cap) to line 2's cap top.
-    const core = Math.ceil(l1.capTop + l1.capPx + Math.min(0.5 * l1.capPx, 0.25 * (l2.capTop - (l1.capTop + l1.capPx))));
-    let fWorst = 0;
-    let fAt = core;
-    for (let y = core; y < y1; y += 1) {
-      const d = Math.abs(rowLuma(y + 1) - rowLuma(y));
-      if (d > fWorst) {
-        fWorst = d;
-        fAt = y;
-      }
-    }
-    const profile = Array.from({ length: y1 - y0 + 2 }, (_, i) => `${y0 + i}:${rowLuma(y0 + i).toFixed(0)}`).join(" ");
-    say(`H66 (O66): backing ${Math.round(res.redBacking * 100)} % · gap y ${y0}–${y1}. Whole gap, line 1's glyph edge and O6 shadow included: largest row-to-row step ${worst.toFixed(1)} levels at y ${at}. The feather alone (y ${core}–${y1}): ${fWorst.toFixed(1)} levels at y ${fAt} (limit 6) → ${fWorst <= 6 ? "passes" : "fails"}. Mean luma by row: ${profile}`);
   }
   say(`placement: ${p ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · scale ${p.scale.toFixed(3)}` : "–"} · ${res.extensionLabel || "no extension"}`);
   // O20's figures for every extended edge, each beside its limit (design checks them, not only "pass").

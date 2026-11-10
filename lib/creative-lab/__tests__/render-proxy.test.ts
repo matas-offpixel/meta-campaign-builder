@@ -66,6 +66,7 @@ describe("render proxy size", () => {
   it("scales with ffmpeg to the given size and keeps audio optional", () => {
     const args = ffmpegProxyArgs("in", "out.mp4", { width: 1080, height: 1920 });
     assert.ok(args.includes("scale=1080:1920:flags=lanczos,setsar=1"));
+    assert.ok(args.includes("16"));
     assert.ok(args.includes("0:a:0?"));
     assert.equal(args.at(-1), "out.mp4");
   });

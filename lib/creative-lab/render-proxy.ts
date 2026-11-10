@@ -68,14 +68,14 @@ export function proxyStoragePath(artistId: string, originalHash: string): string
   return `videos/creative-lab/${artistId}/proxy-1080/${originalHash}.mp4`;
 }
 
-/** H.264 High at CRF 18, a keyframe every second for seeking, AAC audio, moov first. */
+/** H.264 High at CRF 16 (O68's ceiling), Lanczos, a keyframe every second, the source's audio, moov first. */
 export function ffmpegProxyArgs(input: string, output: string, size: ProxySize): string[] {
   return [
     "-hide_banner", "-loglevel", "error", "-y",
     "-i", input,
     "-map", "0:v:0", "-map", "0:a:0?",
     "-vf", `scale=${size.width}:${size.height}:flags=lanczos,setsar=1`,
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-profile:v", "high", "-pix_fmt", "yuv420p",
     "-force_key_frames", "expr:gte(t,n_forced*1)",
     "-c:a", "aac", "-b:a", "256k",
     "-movflags", "+faststart",

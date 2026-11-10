@@ -8,7 +8,7 @@
  *
  *   node --env-file=.env.local --experimental-strip-types scripts/t1-video-drafts.mts \
  *     --event P26-BDAY --kit <the static PSD's kit folder> --out .scratch/drafts/t1-video-2026-11-10 \
- *     --clip '<clip id>' [--clip …] [--seconds 8] [--lambda]
+ *     --clip '<clip id>' [--clip …] [--seconds 8] [--lambda] [--local-from 2160] [--version v2-roll-call]
  *
  * --lambda (issue 7, O52/O53): the face comes from the private kit-fonts
  * bucket through a one-hour signed URL and its name is checked
@@ -80,8 +80,12 @@ import {
   type RedVerdict,
   type VideoClaimPlan,
   type VideoFormat,
+  arrangementsTried,
+  distinctCrops,
 } from "../lib/creative-lab/t1-video.ts";
-import { applyBacking, backingLayer } from "../lib/creative-lab/red-backing.ts";
+import { applyBacking, backingLayer, checkFeather, type FeatherCheck } from "../lib/creative-lab/red-backing.ts";
+import { renderSourcePath } from "../lib/creative-lab/render-source.ts";
+import { emptyTriedHeadings, triedSection } from "../lib/creative-lab/draft-report.ts";
 import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { MAX_KNEE_STEP, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
 import type { T1OnClipProps } from "../src/remotion/compositions/T1OnClip.tsx";
@@ -156,6 +160,13 @@ try {
   fail((e as Error).message);
 }
 const rollCall = versions.find((v) => v.id === "v2-roll-call")!;
+// --version ID (repeatable): draw only those versions (round 4: v2-roll-call only).
+const onlyVersions = many("--version");
+if (onlyVersions.length) {
+  const unknown = onlyVersions.filter((id) => !versions.some((v) => v.id === id));
+  if (unknown.length) fail(`unknown --version ${unknown.join(", ")}; versions are ${versions.map((v) => v.id).join(", ")}`);
+  versions = versions.filter((v) => onlyVersions.includes(v.id));
+}
 
 // The face: read in place locally, or (on --lambda) fetched per run from the private bucket and name-checked (O52).
 let faceTmp: { file: string; done: () => void } | null = null;
@@ -277,19 +288,24 @@ async function layer(pieces: Piece[], places: Placement[], fmt: VideoFormat): Pr
 }
 
 // ─── Per clip ────────────────────────────────────────────────────────────────
-type Row = { clip: string; artist: string; claimLabel: string; fmt: VideoFormat; arrangement: string; crop: number | null; scale: number | null; tried: string[]; faceLine: string; topShare: number; claimShare: number; runS: number; topP95: number | null; lockupP95: number | null; bottomP95: number | null; steps: string; redP95: number | null; red: string; claim: string; safe: boolean; file: string | null; result: string; renderedOn?: string };
+const readFrom: string[] = [];
+type Row = { clip: string; artist: string; claimLabel: string; fmt: VideoFormat; arrangement: string; crop: number | null; scale: number | null; tried: string[]; faceLine: string; topShare: number; claimShare: number; runS: number; topP95: number | null; lockupP95: number | null; bottomP95: number | null; steps: string; redP95: number | null; red: string; feather: FeatherCheck[]; claim: string; safe: boolean; file: string | null; result: string; renderedOn?: string };
 const table: Row[] = [];
 const contactRows: { label: string; file: string }[] = [];
 
 for (const clipId of clipIds) {
-  const c = await db.from("creative_lab_clips").select("id, artist_id, clip_no, creative_asset_id, crop_focus_y, crop_focus_x, in_s, out_s").eq("id", clipId).maybeSingle();
+  // select * so a render copy (O68, render-source.ts) is read when the import follow-up has added one. Read only.
+  const c = await db.from("creative_lab_clips").select("*").eq("id", clipId).maybeSingle();
   if (c.error || !c.data) fail(`clip ${clipId}`);
   const clip = c.data!;
   const art = await db.from("creative_lab_artists").select("name").eq("id", clip.artist_id).maybeSingle();
   const artist = String(art.data?.name ?? "?");
-  const asset = await db.from("creative_assets").select("storage_path").eq("id", clip.creative_asset_id).maybeSingle();
+  const asset = await db.from("creative_assets").select("*").eq("id", clip.creative_asset_id).maybeSingle();
   if (asset.error || !asset.data) fail(`asset for ${clipId}`);
-  const file = await db.storage.from("campaign-assets").download(String(asset.data!.storage_path));
+  // O68: the render copy when one is stored, else the source (no copy exists on main yet).
+  const source = renderSourcePath(asset.data as Record<string, unknown>, clip as Record<string, unknown>);
+  readFrom.push(`${clipId.slice(0, 8)}: ${source.copy ? "render copy" : "source"} (${source.path})`);
+  const file = await db.storage.from("campaign-assets").download(source.path);
   if (file.error || !file.data) fail(`download ${clipId}`);
   const slug = `${artist.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${clip.clip_no}`;
   const clipFile = `${slug}.mp4`;
@@ -338,12 +354,13 @@ for (const clipId of clipIds) {
       const small = formatTooSmall(src, fmt);
       if (small) {
         console.log(`${id}: ${small}`);
-        table.push({ clip: clipId.slice(0, 8), artist, claimLabel: job.label, fmt, arrangement: "–", crop: null, scale: null, tried: [], faceLine: small, topShare: 0, claimShare: 0, runS: 0, topP95: null, lockupP95: null, bottomP95: null, steps: "–", redP95: null, red: "–", claim: "–", safe: true, file: null, result: small });
+        table.push({ clip: clipId.slice(0, 8), artist, claimLabel: job.label, fmt, arrangement: "–", crop: null, scale: null, tried: [], faceLine: small, topShare: 0, claimShare: 0, runS: 0, topP95: null, lockupP95: null, bottomP95: null, steps: "–", redP95: null, red: "–", feather: [], claim: "–", safe: true, file: null, result: small });
         continue;
       }
       const cropX = Number(clip.crop_focus_x ?? 0.5);
       const own = Number(clip.crop_focus_y ?? 0.5);
-      const cands = [...new Set([own, 0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8].map((v) => Math.round(v * 100) / 100))];
+      // O73: candidates that give the same window are tried once.
+      const cands = distinctCrops(src, fmt, [...new Set([own, 0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8].map((v) => Math.round(v * 100) / 100))], cropX);
       const samplesFor = (cy: number): FaceSample[] => {
         const win = footageWindow(src, fmt, cy, cropX);
         const k = size.width / win.width;
@@ -361,9 +378,11 @@ for (const clipId of clipIds) {
       let tooBright: string | null = null;
       // O65: every crop × arrangement tried, with both figures.
       const tried: string[] = [];
+      const arrangementsSeen: ("A" | "B")[] = [];
       const pc = (v: number) => `${(v * 100).toFixed(1)} %`;
       search: for (const cy of cands) {
         for (const arr of ["A", "B"] as const) {
+          arrangementsSeen.push(arr);
           const l = planClipLayout({ lockup, name: namePiece, date: datePiece!, claim: claimPlan }, fmt, arr);
           const fv = judgeFaceOverTime(samplesFor(cy), { always: arr === "A" ? [l.boxes.top] : [l.boxes.top, l.boxes.date], claim: l.boxes.claim }, { frameWidth: size.width });
           if (!bestFace || Math.max(fv.topShare, fv.claimShare) < Math.max(bestFace.topShare, bestFace.claimShare)) bestFace = fv;
@@ -522,6 +541,10 @@ for (const clipId of clipIds) {
       }
       contactRows.push({ label: `${id} · ${layout.arrangement}${refused ? " · REFUSED (flagged preview)" : ""}`, file: out });
       const fv = chosen?.face ?? bestFace!;
+      // O70: the backing's feather, checked on the backing layer alone over flat mid-grey.
+      const feather: FeatherCheck[] = backing && red?.backing != null && l1
+        ? [checkFeather(backing, red.backing, "bottom", size), checkFeather(backing, red.backing, "top", size)]
+        : [];
       const redWord = !red ? "–" : red.white ? "white (whole clip)" : red.backing != null ? `red, backed ${Math.round(red.backing * 100)} %` : "red";
       const stepWord = chosen ? `top +${Math.round(steps.top * 100)} · bottom +${Math.round(steps.bottom * 100)}` : "–";
       console.log(`${id}: ${layout.arrangement} · crop ${cropY} · ${refused ?? "passes"} · steps ${stepWord} · red ${redWord}`);
@@ -531,7 +554,8 @@ for (const clipId of clipIds) {
         artist,
         claimLabel: job.label,
         fmt,
-        arrangement: chosen ? layout.arrangement : `(${layout.arrangement})`,
+        // O73: a refused row lists every arrangement tried.
+        arrangement: chosen ? layout.arrangement : arrangementsTried(arrangementsSeen),
         crop: chosen?.cy ?? null,
         scale: upscaleFactor(src, fmt, cropY, cropX),
         tried,
@@ -545,6 +569,7 @@ for (const clipId of clipIds) {
         steps: stepWord,
         redP95,
         red: redWord,
+        feather,
         claim: !job.text ? "no CTA" : !allowed.ok ? allowed.line : claimPlan ? `step ${claimPlan.step}${claimPlan.dropped.length ? ` · dropped ${claimPlan.dropped.join(", ")}` : ""} · ${Math.round(claimPlan.widest)} of 840 px` : (plan as { held: string }).held,
         safe,
         file: `${id}_DRAFT${refused ? "_REFUSED" : ""}.mp4`,
@@ -624,19 +649,20 @@ L.push(`The roll-call, from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.st
 L.push("| Clip | Version | Format | Arrangement | Crop | Scale (O63, ≤ 1.6×) | Face (O64): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | Rendered | File |");
 L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
 for (const r of table) L.push(`| ${r.artist} (${r.clip}) | ${r.claimLabel} | ${r.fmt} | ${r.arrangement} | ${r.crop ?? "–"} | ${r.scale == null ? "–" : `${r.scale.toFixed(2)}×`} | ${pct(r.topShare)} / ${pct(r.claimShare)} · ${r.runS.toFixed(1)} s | ${pct(r.topP95)} | ${pct(r.lockupP95)} | ${pct(r.bottomP95)} | ${r.steps} | ${pct(r.redP95)} → ${r.red} | ${r.claim} | ${r.safe ? "✓" : "✗"} | ${r.result} | ${r.renderedOn ?? "–"} | ${r.file ?? "–"} |`);
-L.push("", "## Every crop and arrangement tried (O65)");
-for (const r of table) {
-  if (!r.tried.length) continue;
-  L.push(`**${r.artist} (${r.clip}) · ${r.claimLabel} · ${r.fmt}**`);
-  for (const t of r.tried) L.push(`- ${t}`);
-  L.push("");
-}
-L.push("Scaling: on Lambda the footage is scaled by the browser's own filter, not Lanczos (O63 asks for Lanczos); the composition has no filter control, and a Lanczos pre-scale would be an encode to stored files, which this round doesn't make.");
+L.push("", ...triedSection(table.map((r) => ({ heading: `${r.artist} (${r.clip}) · ${r.claimLabel} · ${r.fmt}`, lines: r.tried }))));
+L.push("Scaling (O69): upscales up to 1.6× use the renderer's own filter; no upscaled copy is stored. Footage read from: " + readFrom.join(" · ") + ".");
+L.push("", "## The backing's feather (O70)");
+L.push("Each backed draft's backing layer alone over flat mid-grey, each row's mean level across the core's width, over the feather's rows only (the last core row to the first row at 0; the padding isn't read): the largest row-to-row step against the feather's mean step, the drop over the feather's length in rows (limit 1.6×; a smoothstep peaks at 1.5×).");
+for (const r of table) for (const f of r.feather) L.push(`- ${r.artist} (${r.clip}) · ${r.claimLabel} · ${r.fmt} · ${f.side}: ${f.rows} feather rows, mean step ${f.meanStep.toFixed(2)}, largest ${f.maxStep.toFixed(2)} → ${f.ratio.toFixed(2)}× → ${f.ok ? "passes" : "fails"}`);
+if (!table.some((r) => r.feather.length)) L.push("- No draft in this run took a backing.");
 L.push("", "## O46 on the encoded file");
 L.push(`A flat 0x808080 1080 × 1920 clip through T1OnClip with the bands only, H.264 CRF 18 (grey-test_bands_crf18.mp4), frame at 1 s. Largest step between adjacent rows' mean luma across the fades: ${fadeMax.toFixed(2)} levels (limit ${MAX_ROW_STEP}) → ${fadeMax <= MAX_ROW_STEP ? "passes" : "fails"}. At J2's two knees (rows ${greyKnees.join(", ")}, A's top and bottom bands): ${kneeSteps.map((k) => k.toFixed(2)).join(" / ")} levels (limit ${MAX_KNEE_STEP}, O55) → ${kneeSteps.every((k) => k <= MAX_KNEE_STEP) ? "passes" : "fails"}.`);
 L.push("", "## T1V_INVENTED and its rulings (issue 8, O62)");
 for (const i of T1V_INVENTED) L.push(`- **${i.ruling}**: ${i.value}`);
 L.push("", `Contact sheet: CONTACT-SHEET.png (frames at ${TIMES.join(" / ")} s).`);
+// H65: never write a tried section with a heading and nothing under it.
+const emptyTried = emptyTriedHeadings(L.join("\n"));
+if (emptyTried.length) fail(`report.md: no crop or arrangement listed under ${emptyTried.join("; ")}`);
 writeFileSync(join(outDir, "report.md"), L.join("\n") + "\n");
 server.close();
 if (lambda) {
