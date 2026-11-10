@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1153
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1153
 - **Branch:** `cursor/artist-card-lab`
 
 ## Summary
