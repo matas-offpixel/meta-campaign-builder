@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { MASTER, RECT_45, type Piece, type Rect } from "../artist-card.ts";
 import { SAMPLE_ROLL_CALL } from "../claim-approval.ts";
-import { backingAlphaAt } from "../red-backing.ts";
+import { applyBacking, backingAlphaAt } from "../red-backing.ts";
 import { planClaim, splitTwo, type ClaimPlan } from "../claim-slot.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -38,6 +38,9 @@ import {
   clipBands,
   countedFaces,
   formatTooSmall,
+  orderArtistClips,
+  T1V_SCALE,
+  upscaleFactor,
   planClipLayout,
   type ContrastSample,
   type FaceSample,
@@ -100,8 +103,8 @@ describe("H38 · O39 the face over time", () => {
     const v = judgeFaceOverTime(samplesAt(0), { always: [top], claim });
     assert.equal(v.ok, false);
     close(v.longestRunS, 1);
-    assert.equal(v.line, T1V_LINES.face(Math.round(v.claimShare * 100)));
-    assert.match(v.line!, /^Face in the type for \d+ % of the claim's time — choose another crop or clip$/);
+    // O65: the share is within 10 %, so the run refuses it, and the line gives the run.
+    assert.equal(v.line, "Face in the type for 1.0 s at a time — choose another crop or clip");
   });
 
   it("the same clip passes on a lower crop, which is tried before the clip is refused", () => {
@@ -484,7 +487,7 @@ describe("H55 · O56 the face on clips", () => {
     assert.equal(judgeFaceOverTime(ok, { always: [top], claim }).ok, true);
   });
 
-  it("crowd faces narrower than 0.06 W (65 px) don't count", () => {
+  it("crowd faces narrower than 0.08 W (86 px) don't count", () => {
     assert.deepEqual(countedFaces([{ left: 0, top: 0, width: 60, height: 60 }], 1080), []);
     const crowd: FaceSample[] = sampleTimes(12).map((tS) => ({ tS, faces: [{ left: 400, top: 300, width: 50, height: 50 }] }));
     assert.ok(judgeFaceOverTime(crowd, { always: [top], claim }).ok);
@@ -508,25 +511,41 @@ describe("H57 · O58 the red line stays red", () => {
     assert.deepEqual(chooseBacking([0.9, 0.8, 0.7, 0.3], "photo"), { backing: null, white: true, line: "claim line 1 in white — red unreadable on this photo" });
   });
 
-  it("the backing is line 1's ink box padded 0.5 cap and 1 cap at full opacity, feathered with J2 over 1 cap outside, cut at line 2 and 0.07–0.93 W", () => {
-    const b = backingRect({ capTop: 1000, capPx: 54, widthPx: 700 }, 1080, { bottom: 1070 });
-    close(b.rect.left, 1080 / 2 - 350 - 54);
-    close(b.rect.top, 973);
-    assert.equal(b.rect.top + b.rect.height, 1070);
-    assert.equal(b.feather, 54);
-    // Full across the padded box, edge to edge.
-    close(backingAlphaAt(Math.ceil(b.rect.left), 1020, b, 0.8), 0.8);
-    close(backingAlphaAt(540, 974, b, 0.8), 0.8);
-    // Fading outside it over one cap, gone past it.
-    const out = backingAlphaAt(Math.floor(b.rect.left) - 20, 1020, b, 0.8);
-    assert.ok(out > 0 && out < 0.8, String(out));
-    assert.equal(backingAlphaAt(Math.floor(b.rect.left) - 60, 1020, b, 0.8), 0);
-    // Cut hard at line 2: nothing below 1070.
-    assert.equal(backingAlphaAt(540, 1075, b, 0.8), 0);
-    const wide = backingRect({ capTop: 1000, capPx: 54, widthPx: 1000 }, 1080);
-    close(wide.rect.left, 0.07 * 1080);
-    close(wide.rect.left + wide.rect.width, 0.93 * 1080);
-    assert.equal(backingAlphaAt(70, 1020, wide, 0.8), 0);
+  it("O66: the card's 48 px line over a 22 px gap: 5.5 px of padding below, a 16.5 px feather to 0 at line 2's cap top; 24 + 48 px above with no type near", () => {
+    const line = { capTop: 1413, capPx: 48, widthPx: 602 };
+    const b = backingRect(line, 1080, { below: 1483 });
+    close(b.rect.top + b.rect.height, 1461 + 5.5);
+    close(b.feather.bottom, 16.5);
+    close(b.rect.top, 1413 - 24);
+    close(b.feather.top, 48);
+    close(b.rect.left, 540 - 301 - 48);
+    close(b.feather.left, 48);
+    // Full over the core, 0 exactly at line 2's cap top, nothing under line 2.
+    close(backingAlphaAt(540, 1440, b, 0.8), 0.8);
+    assert.equal(backingAlphaAt(540, 1483, b, 0.8), 0);
+    assert.equal(backingAlphaAt(540, 1490, b, 0.8), 0);
+    // A wide line at 0.07 W: the feather would be squeezed, so the padding shrinks first, never under 0.25 cap.
+    // An 840 px line (the widest claim) leaves 44.4 px to 0.07 W: padding 30.9, feather 13.5 (0.25 cap), ending at 0.07 W.
+    const wide = backingRect({ capTop: 1000, capPx: 54, widthPx: 840 }, 1080);
+    close(wide.feather.left, 0.25 * 54);
+    close(wide.rect.left - wide.feather.left, 0.07 * 1080);
+    assert.ok(120 - wide.rect.left >= 0.25 * 54 - 1e-6);
+  });
+
+  it("H66, measured: J2's fade from the core to 0 at line 2's cap top; its first rows step more than 6 levels (reported, a point for design)", () => {
+    const W = 1080;
+    const H = 1600;
+    const b = backingRect({ capTop: 1413, capPx: 48, widthPx: 602 }, W, { below: 1483 });
+    const step = (op: number, ground: number) => {
+      const out = applyBacking(Buffer.alloc(W * H * 3, ground), W, H, 3, b, op);
+      let worst = 0;
+      for (let y = 1461; y < 1483; y += 1) worst = Math.max(worst, Math.abs(out[(y + 1) * W * 3 + 540 * 3]! - out[y * W * 3 + 540 * 3]!));
+      return { worst, atCapTop: out[1483 * W * 3 + 540 * 3] };
+    };
+    const s40 = step(0.4, 128);
+    assert.equal(s40.atCapTop, 128);
+    // J2 loses 10 % of its opacity in its first 0.5 %: over a 16.5 px feather that is one row.
+    assert.ok(s40.worst > 6, String(s40.worst));
   });
 });
 
@@ -543,12 +562,49 @@ describe("H58 / H59 · O60 the sample claim is Puzzle's true claim", () => {
   });
 });
 
-describe("H61 · O62 no upscaling", () => {
-  it("a 720-wide clip makes no 4:5 or 1:1: the format is skipped with the line (the 9:16 is still made)", () => {
-    const src = { width: 720, height: 1280 };
-    assert.equal(formatTooSmall(src, "4:5"), "Clip too small for 4:5 — needs 1080 px wide");
-    assert.equal(formatTooSmall(src, "1:1"), "Clip too small for 1:1 — needs 1080 px wide");
-    assert.equal(formatTooSmall(src, "9:16"), null);
-    assert.equal(formatTooSmall({ width: 1080, height: 1920 }, "1:1"), null);
+describe("H63 · O63 footage resolution", () => {
+  it("up to 1.6× from a crop window at least 675 px wide, on every format the 9:16 included", () => {
+    const enzo = { width: 720, height: 1280 };
+    for (const f of ["9:16", "4:5", "1:1"] as const) {
+      assert.equal(formatTooSmall(enzo, f), null, f);
+      close(upscaleFactor(enzo, f), 1.5);
+    }
+    const luke1 = { width: 956, height: 718 };
+    assert.equal(formatTooSmall(luke1, "9:16"), "Clip too small for 9:16 — 404 px wide in the crop, needs 675");
+    assert.equal(formatTooSmall(luke1, "4:5"), "Clip too small for 4:5 — 574 px wide in the crop, needs 675");
+    assert.equal(formatTooSmall(luke1, "1:1"), null);
+    close(upscaleFactor(luke1, "1:1"), 1080 / 718);
+    const landscape = { width: 1920, height: 1080 };
+    assert.equal(formatTooSmall(landscape, "9:16"), "Clip too small for 9:16 — 608 px wide in the crop, needs 675");
+    assert.ok(upscaleFactor({ width: 2160, height: 3840 }, "9:16") < 1);
+    assert.equal(T1V_SCALE.maxUp, 1.6);
+    assert.ok(Math.abs(1080 / T1V_SCALE.minWindowPx - T1V_SCALE.maxUp) < 1e-9);
+  });
+
+  it("folder and press-kit clips are listed before Instagram clips within an artist's group", () => {
+    const listed = orderArtistClips([
+      { id: "a", source: "instagram", clipNo: 1 },
+      { id: "b", source: "presskit", clipNo: 3 },
+      { id: "c", source: "drive", clipNo: 2 },
+      { id: "d", source: "instagram", clipNo: 0 },
+    ]);
+    assert.deepEqual(listed.map((c) => c.id), ["c", "b", "d", "a"]);
+  });
+});
+
+describe("H64 / H65 · O64 the face floor, O65 the run line", () => {
+  const top: Rect = { left: 120, top: 278, width: 840, height: 336 };
+  const claim: Rect = { left: 120, top: 1171, width: 840, height: 77 };
+  it("a 0.061 W face (66 px at 1080) no longer counts; 0.08 W (86 px) does", () => {
+    assert.deepEqual(countedFaces([{ left: 0, top: 0, width: 66, height: 66 }], 1080), []);
+    assert.equal(countedFaces([{ left: 0, top: 0, width: 87, height: 87 }], 1080).length, 1);
+  });
+
+  it("a fixture refused on a 0.6 s run with a 5 % share reads the run", () => {
+    const s = sampleTimes(12).map((tS) => ({ tS, faces: [{ left: 400, top: tS >= 5 && tS < 5.6 ? 1100 : 1350, width: 240, height: 240 }] }));
+    const v = judgeFaceOverTime(s, { always: [top], claim });
+    assert.equal(v.ok, false);
+    assert.ok(v.claimShare <= 0.1);
+    assert.equal(v.line, "Face in the type for 0.6 s at a time — choose another crop or clip");
   });
 });

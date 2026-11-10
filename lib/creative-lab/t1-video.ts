@@ -30,7 +30,8 @@ export const T1V_LINES = {
   tooBright: (what: "name" | "claim") => `Too bright behind the ${what} — choose another clip`,
   bands: (n: number) => `bands +${n}`,
   backed: (pct: number) => `red line backed ${pct} %`,
-  tooSmall: (format: string) => `Clip too small for ${format} — needs 1080 px wide`,
+  tooSmall: (format: string, w: number) => `Clip too small for ${format} — ${Math.round(w)} px wide in the crop, needs 675`,
+  run: (t: number) => `Face in the type for ${t.toFixed(1)} s at a time — choose another crop or clip`,
 } as const;
 
 /** O37: does a clip of this length take a claim? It can still run as T1 without one. */
@@ -326,7 +327,7 @@ export function chooseStep(p95ByStep: readonly number[], limit: number): number 
 }
 
 /** O58: the red line's backing steps, after the band steps. */
-export const RED_BACKING = { steps: [0.4, 0.6, 0.8], padY: 0.5, padX: 1, feather: 1, minX: 0.07, maxX: 0.93 } as const;
+export const RED_BACKING = { steps: [0.4, 0.6, 0.8], padY: 0.5, padX: 1, feather: 1, minPad: 0.25, minFeather: 0.25, gapPad: 0.25, clearCaps: 1.5, minX: 0.07, maxX: 0.93 } as const;
 
 export type RedVerdict = { backing: number | null; white: boolean; line: string | null };
 
@@ -342,42 +343,83 @@ export function chooseBacking(p95ByBacking: readonly number[], what: "clip" | "p
   return { backing: null, white: true, line: `claim line 1 in white — red unreadable on this ${what}` };
 }
 
-export type BackingBox = { rect: Rect; bounds: Rect; feather: number };
+/** O66: the backing's full-opacity core, and how far J2's fade runs outward from each side of it to 0. */
+export type BackingBox = { rect: Rect; feather: { left: number; right: number; top: number; bottom: number } };
 
 /**
- * O58: the backing for line 1, format px. `rect` is its ink box padded 0.5 cap
- * above and below and 1 cap left and right, at full opacity; it fades to 0
- * over 1 cap outside that (`feather`), cut hard at `bounds`: 0.07–0.93 W, and
- * between the type above line 1 and line 2 below it, so it never sits under
- * any other type.
+ * O66 (amends O58): the backing for line 1, format px. The core is line 1's
+ * ink box padded 1 cap left and right; above and below, by the smaller of
+ * 0.5 cap and a quarter of the gap to the neighbouring type (line 2's cap top
+ * below, the type's baseline above), or 0.5 cap when no type is within 1.5
+ * cap. The feather runs outward, vertically over the smaller of 1 cap and
+ * what is left of the gap, so it reaches 0 exactly at the neighbour's ink;
+ * horizontally over 1 cap, ending at 0.07 / 0.93 W at the latest. Where that
+ * would squeeze the horizontal feather under 0.25 cap, the padding shrinks
+ * first, never under 0.25 cap. No hard edge, never under other type.
  */
-export function backingRect(line: { capTop: number; capPx: number; widthPx: number }, frameWidth: number, clamp: { top?: number; bottom?: number } = {}): BackingBox {
-  const bl = RED_BACKING.minX * frameWidth;
-  const br = RED_BACKING.maxX * frameWidth;
-  const bt = clamp.top ?? 0;
-  const bb = clamp.bottom ?? Infinity;
-  const left = Math.max(bl, (frameWidth - line.widthPx) / 2 - RED_BACKING.padX * line.capPx);
-  const right = Math.min(br, (frameWidth + line.widthPx) / 2 + RED_BACKING.padX * line.capPx);
-  const top = Math.max(bt, line.capTop - RED_BACKING.padY * line.capPx);
-  const bottom = Math.min(bb, line.capTop + line.capPx + RED_BACKING.padY * line.capPx);
-  return { rect: { left, top, width: right - left, height: bottom - top }, bounds: { left: bl, top: bt, width: br - bl, height: Math.min(bb, 1e6) - bt }, feather: RED_BACKING.feather * line.capPx };
+export function backingRect(line: { capTop: number; capPx: number; widthPx: number }, frameWidth: number, neighbours: { above?: number; below?: number } = {}): BackingBox {
+  const cap = line.capPx;
+  const ink = { left: (frameWidth - line.widthPx) / 2, right: (frameWidth + line.widthPx) / 2, top: line.capTop, bottom: line.capTop + cap };
+  const side = (room: number) => {
+    // room: from the ink's edge to 0.07 / 0.93 W.
+    let pad = RED_BACKING.padX * cap;
+    let feather = Math.min(RED_BACKING.feather * cap, room - pad);
+    if (feather < RED_BACKING.minFeather * cap) {
+      pad = Math.max(RED_BACKING.minPad * cap, room - RED_BACKING.minFeather * cap);
+      feather = Math.max(0, room - pad);
+    }
+    return { pad: Math.max(0, Math.min(pad, room)), feather: Math.max(0, feather) };
+  };
+  const vertical = (gap: number | undefined) => {
+    if (gap == null || gap >= RED_BACKING.clearCaps * cap) return { pad: RED_BACKING.padY * cap, feather: RED_BACKING.feather * cap };
+    const g = Math.max(0, gap);
+    const pad = Math.min(RED_BACKING.padY * cap, RED_BACKING.gapPad * g);
+    return { pad, feather: Math.min(RED_BACKING.feather * cap, g - pad) };
+  };
+  const l = side(ink.left - RED_BACKING.minX * frameWidth);
+  const r = side(RED_BACKING.maxX * frameWidth - ink.right);
+  const t = vertical(neighbours.above != null ? ink.top - neighbours.above : undefined);
+  const b = vertical(neighbours.below != null ? neighbours.below - ink.bottom : undefined);
+  const rect = { left: ink.left - l.pad, top: ink.top - t.pad, width: ink.right + r.pad - (ink.left - l.pad), height: ink.bottom + b.pad - (ink.top - t.pad) };
+  return { rect, feather: { left: l.feather, right: r.feather, top: t.feather, bottom: b.feather } };
+}
+
+/** O63 (amends O42 and O62, video only): footage may be scaled up to 1.6× from its crop window, with Lanczos. */
+export const T1V_SCALE = { maxUp: 1.6, minWindowPx: 675 } as const;
+
+/** O63: the crop window's scale to the output (above 1 is upscaling). */
+export function upscaleFactor(source: Size, format: VideoFormat, cropFocusY = 0.5, cropFocusX = 0.5): number {
+  return FORMAT_SIZE[format].width / footageWindow(source, format, cropFocusY, cropFocusX).width;
 }
 
 /**
- * O62: a 4:5 or 1:1 whose footage window is narrower than 1080 px is not made
- * (no upscaling; H61: "a 720-wide fixture makes no 4:5 or 1:1"). The 9:16 is
- * still made from a narrower source, scaled up, until design rules on it.
+ * O63, on every format the 9:16 included: a crop window under 675 px wide
+ * (more than 1.6× to 1080) makes no draft of that format. Stills are never
+ * upscaled (O19); this is for clips.
  */
 export function formatTooSmall(source: Size, format: VideoFormat): string | null {
-  if (format === "9:16") return null;
-  return footageWindow(source, format).width + 1e-9 < FORMAT_SIZE[format].width ? T1V_LINES.tooSmall(format) : null;
+  const w = footageWindow(source, format).width;
+  return w + 1e-9 < T1V_SCALE.minWindowPx ? T1V_LINES.tooSmall(format, w) : null;
 }
+
+export type ClipListing = { id: string; source: string; clipNo: number };
+
+/**
+ * O63's listing rule, for the Clips section and import: within one artist's
+ * group, folder and press-kit clips come before Instagram clips, each kind in
+ * its own clip order. The Lab doesn't match duplicates.
+ */
+export function orderArtistClips<T extends ClipListing>(clips: readonly T[]): T[] {
+  const rank = (s: string) => (s === "instagram" ? 1 : 0);
+  return [...clips].sort((a, b) => rank(a.source) - rank(b.source) || a.clipNo - b.clipNo);
+}
+
 
 // ─── O39: the face over time ────────────────────────────────────────────────
 
 export const T1V_FACE = {
-  /** O56: a face counts only at this share of W and wider (65 px on 1080); crowd faces don't. */
-  minWidth: 0.06,
+  /** O64 (amends O56): a face counts only at this share of the output's W and wider (86 px on 1080, 58 px on a 720 source). */
+  minWidth: 0.08,
   /** O56: only the upper part of its box is tested (brow to nose). */
   upper: 0.6,
   /** Samples a second. */
@@ -443,7 +485,9 @@ export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { alway
   const longestRunS = longest / fps;
   const ok = topShare <= T1V_FACE.maxShare + 1e-9 && claimShare <= T1V_FACE.maxShare + 1e-9 && longestRunS <= T1V_FACE.maxRunS + 1e-9;
   const pct = Math.round(Math.max(topShare, claimShare) * 100);
-  return { ok, topShare, claimShare, longestRunS, line: ok ? null : T1V_LINES.face(pct) };
+  // O65: refused on the run alone, the line gives the run; otherwise the share.
+  const shareOk = topShare <= T1V_FACE.maxShare + 1e-9 && claimShare <= T1V_FACE.maxShare + 1e-9;
+  return { ok, topShare, claimShare, longestRunS, line: ok ? null : shareOk ? T1V_LINES.run(longestRunS) : T1V_LINES.face(pct) };
 }
 
 /**
@@ -528,15 +572,15 @@ export function releaseNamesOf(rows: readonly { name: string | null; position?: 
 }
 
 /** Every value the T1 clip build chose, with its ruling (issue 8, O62). */
-export const T1V_INVENTED: readonly { value: string; ruling: "accepted" | "accepted, amended" | "rejected" | "new, not yet ruled" }[] = [
+export const T1V_INVENTED: readonly { value: string; ruling: "accepted" | "accepted, amended" | "rejected" | "superseded" | "invented in a record" }[] = [
   { ruling: "accepted", value: "the claim is 'on screen' for O39 and O40 from the first frame after 1.5 s" },
-  { ruling: "accepted, amended", value: "O39's counting (the top block over every sample, the claim after 1.5 s, the larger share, 0.2 s samples), under O56: the upper 60 % of each face at least 0.06 W wide and half the widest" },
+  { ruling: "accepted, amended", value: "O39's counting (the top block over every sample, the claim after 1.5 s, the larger share, 0.2 s samples), under O56 and O64: the upper 60 % of each face at least 0.08 W wide and half the widest" },
   { ruling: "accepted, amended", value: "the widest face as the main face; crops in order: the clip's crop_focus_y, 0.5, then ±0.1 outward, with A then B at each crop (O54, O56)" },
   { ruling: "accepted", value: "the roll-call on a clip: line 1 at 0.625 of line 2's cap, 0.29 of line 2's cap apart" },
   { ruling: "accepted", value: "a one-line claim breaks at the measured most-even break among O28's allowed breaks" },
   { ruling: "accepted", value: "the step-2 pitch scales with the cap: 0.0496 H" },
   { ruling: "accepted", value: "the 4:5 and 1:1 windows: the largest window of that shape at its crop_focus_y" },
-  { ruling: "rejected", value: "a source narrower than 1080 scaled up: such a clip doesn't make that format (O62)" },
+  { ruling: "superseded", value: "the scaling rule: O62 rejected upscaling; O63 allows up to 1.6× from a crop window at least 675 px wide, on every format" },
   { ruling: "accepted", value: "the type set by sharp and drawn as images (O52's delivery)" },
   { ruling: "accepted", value: "drafts muted and cut to 8 s (drafts only)" },
   { ruling: "accepted, amended", value: "the claim box 840 px wide, centred; the top block's box the lockup, name and date (A) or lockup and name (B); the lockup also tested alone (O61)" },
@@ -546,9 +590,10 @@ export const T1V_INVENTED: readonly { value: string; ruling: "accepted" | "accep
   { ruling: "accepted, amended", value: "the draft stamp in the first free corner, on the top layer, never touching the lockup's ink box" },
   { ruling: "accepted", value: "O52's path {client id}/{PostScript name}.{ext} in kit-fonts, a per-render signed URL to a temporary file" },
   { ruling: "accepted", value: "a name wider than 840 px scaled down about the centre, its top kept" },
-  { ruling: "new, not yet ruled", value: "O56: every counted face is tested (not the widest alone), each by its upper 60 %" },
-  { ruling: "new, not yet ruled", value: "O58: the backing is full across the padded box and feathered outward over 1 cap with J2's fade; it is cut hard where it would reach the type above line 1 or line 2 below it, and at 0.07–0.93 W" },
-  { ruling: "new, not yet ruled", value: "O58 on clips: the red line's p95 is re-read with the chosen band step, then each backing step, on the same samples" },
-  { ruling: "new, not yet ruled", value: "O62 applies to the 4:5 and 1:1 (H61); the 9:16 is still scaled up from a narrower source. All three draft clips are under 1080 wide (Luke 1 956 × 718, Enzo 1 and 2 720 × 1280), so they make 9:16s only, and Luke 1's 9:16 window is 404 px wide (2.7×)" },
-  { ruling: "new, not yet ruled", value: "with no claim (a clip under 4.75 s) the bottom band is anchored where a one-line claim would sit" },
+  { ruling: "accepted", value: "O56: every counted face is tested (not the widest alone), each by its upper 60 % (O67)" },
+  { ruling: "superseded", value: "the backing cut hard at type and at 0.07–0.93 W: O66's core and feather replace it" },
+  { ruling: "accepted", value: "O58 on clips: the red line's p95 re-read with the chosen band step, then each backing step, on the same samples (O67)" },
+  { ruling: "superseded", value: "O62 on the 4:5 and 1:1 only: O63 covers every format" },
+  { ruling: "accepted, amended", value: "with no claim, the bottom band anchored where a one-line claim would sit; in B the date stays above that line (O67)" },
+  { ruling: "invented in a record", value: "issue 9: 1.6× and 675 px; Lanczos; folder clips first; the 0.08 W floor; the run line's words; the backing's quarter-gap padding, feather to the neighbour's ink, the 0.25 cap minimums and H66's 6-level check" },
 ];

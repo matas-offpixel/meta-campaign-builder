@@ -20,6 +20,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
+import sharp from "sharp";
 
 import { CLAIM_FACE_BAND, renderClaimCard, type ClaimCardResult } from "../lib/creative-lab/artist-card-claim.ts";
 import { O20, trimToInk, type Piece } from "../lib/creative-lab/artist-card.ts";
@@ -150,6 +151,33 @@ for (const job of jobs) {
   say(`claim ${job.claimText ? JSON.stringify(job.claimText) : "none"} · source ${srcLabel}${watermark ? ` · watermark "${watermark}"` : ""} · bands ${job.bands ? "on" : "off"}`);
   if (res.claim) say(`slot: ${res.claim.kind} · ${res.claim.lines.map((l) => `"${l.text}" ${l.color}${l.color === "red" && res.redLineWhite ? "→white" : ""} cap ${l.capPx.toFixed(1)} px top y ${l.capTop.toFixed(1)} width ${Math.round(l.widthPx)} px`).join(" · ")} · k ${res.claim.k.toFixed(3)}`);
   say(`contrast: text box ${pct(res.contrast.textBox)} · claim box ${pct(res.contrast.claimBox)} · red line ${pct(res.contrast.redLine)} below 2:1${res.approvalLines.length ? ` · approval line: ${res.approvalLines.join("; ")}` : ""}`);
+  // H66, measured on the card: the mean luma of each row across line 1's ink, from line 1's baseline to line 2's cap top.
+  if (res.master && res.claim && res.claim.lines.length === 2 && res.redBacking != null) {
+    const [l1, l2] = res.claim.lines as [(typeof res.claim.lines)[number], (typeof res.claim.lines)[number]];
+    const { data, info } = await sharp(res.master).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const x0 = Math.round((info.width - l1.widthPx) / 2);
+    const x1 = Math.round((info.width + l1.widthPx) / 2);
+    const rowLuma = (y: number) => {
+      let sum = 0;
+      for (let x = x0; x < x1; x += 1) {
+        const i = (y * info.width + x) * info.channels;
+        sum += 0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!;
+      }
+      return sum / Math.max(1, x1 - x0);
+    };
+    const y0 = Math.ceil(l1.capTop + l1.capPx);
+    const y1 = Math.floor(l2.capTop);
+    let worst = 0;
+    let at = y0;
+    for (let y = y0; y < y1; y += 1) {
+      const d = Math.abs(rowLuma(y + 1) - rowLuma(y));
+      if (d > worst) {
+        worst = d;
+        at = y;
+      }
+    }
+    say(`H66 (O66): backing ${Math.round(res.redBacking * 100)} % · gap y ${y0}–${y1} · largest row-to-row step of mean luma across line 1's width ${worst.toFixed(1)} levels at y ${at} (limit 6) → ${worst <= 6 ? "passes" : "fails"}`);
+  }
   say(`placement: ${p ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · scale ${p.scale.toFixed(3)}` : "–"} · ${res.extensionLabel || "no extension"}`);
   // O20's figures for every extended edge, each beside its limit (design checks them, not only "pass").
   for (const x of res.extension) {

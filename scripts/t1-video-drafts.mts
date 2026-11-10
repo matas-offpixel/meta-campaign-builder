@@ -72,6 +72,7 @@ import {
   releaseNamesOf,
   sampleTimes,
   type BackingBox,
+  upscaleFactor,
   type ClipLayout,
   type FaceSample,
   type FaceVerdict,
@@ -266,7 +267,7 @@ async function layer(pieces: Piece[], places: Placement[], fmt: VideoFormat): Pr
 }
 
 // ─── Per clip ────────────────────────────────────────────────────────────────
-type Row = { clip: string; artist: string; claimLabel: string; fmt: VideoFormat; arrangement: string; crop: number | null; faceLine: string; topShare: number; claimShare: number; runS: number; topP95: number | null; lockupP95: number | null; bottomP95: number | null; steps: string; redP95: number | null; red: string; claim: string; safe: boolean; file: string | null; result: string };
+type Row = { clip: string; artist: string; claimLabel: string; fmt: VideoFormat; arrangement: string; crop: number | null; scale: number | null; tried: string[]; faceLine: string; topShare: number; claimShare: number; runS: number; topP95: number | null; lockupP95: number | null; bottomP95: number | null; steps: string; redP95: number | null; red: string; claim: string; safe: boolean; file: string | null; result: string };
 const table: Row[] = [];
 const contactRows: { label: string; file: string }[] = [];
 
@@ -327,7 +328,7 @@ for (const clipId of clipIds) {
       const small = formatTooSmall(src, fmt);
       if (small) {
         console.log(`${id}: ${small}`);
-        table.push({ clip: clipId.slice(0, 8), artist, claimLabel: job.label, fmt, arrangement: "–", crop: null, faceLine: small, topShare: 0, claimShare: 0, runS: 0, topP95: null, lockupP95: null, bottomP95: null, steps: "–", redP95: null, red: "–", claim: "–", safe: true, file: null, result: small });
+        table.push({ clip: clipId.slice(0, 8), artist, claimLabel: job.label, fmt, arrangement: "–", crop: null, scale: null, tried: [], faceLine: small, topShare: 0, claimShare: 0, runS: 0, topP95: null, lockupP95: null, bottomP95: null, steps: "–", redP95: null, red: "–", claim: "–", safe: true, file: null, result: small });
         continue;
       }
       const cropX = Number(clip.crop_focus_x ?? 0.5);
@@ -348,12 +349,19 @@ for (const clipId of clipIds) {
       let chosen: Pick | null = null;
       let bestFace: FaceVerdict | null = null;
       let tooBright: string | null = null;
+      // O65: every crop × arrangement tried, with both figures.
+      const tried: string[] = [];
+      const pc = (v: number) => `${(v * 100).toFixed(1)} %`;
       search: for (const cy of cands) {
         for (const arr of ["A", "B"] as const) {
           const l = planClipLayout({ lockup, name: namePiece, date: datePiece!, claim: claimPlan }, fmt, arr);
           const fv = judgeFaceOverTime(samplesFor(cy), { always: arr === "A" ? [l.boxes.top] : [l.boxes.top, l.boxes.date], claim: l.boxes.claim }, { frameWidth: size.width });
           if (!bestFace || Math.max(fv.topShare, fv.claimShare) < Math.max(bestFace.topShare, bestFace.claimShare)) bestFace = fv;
-          if (!fv.ok) continue;
+          const triedFace = `crop ${cy} · ${arr}: face ${pc(fv.topShare)} / ${pc(fv.claimShare)}, run ${fv.longestRunS.toFixed(1)} s`;
+          if (!fv.ok) {
+            tried.push(`${triedFace} → ${fv.line}`);
+            continue;
+          }
           // O57: the top block (and the lockup alone, O61) and the bottom block per band step, p95 over the samples.
           const tops: number[][] = T1C.bandSteps.map(() => []);
           const locks: number[][] = T1C.bandSteps.map(() => []);
@@ -374,12 +382,15 @@ for (const clipId of clipIds) {
           const bottomStep = chooseStep(botP, T1V_CONTRAST.claimBox);
           if (topStep < 0) {
             tooBright ??= T1V_LINES.tooBright("name");
+            tried.push(`${triedFace} → top p95 ${topP.map(pc).join(" / ")} at +0 / +10 / +20 → ${T1V_LINES.tooBright("name")}`);
             continue;
           }
           if (bottomStep == null) {
             tooBright ??= T1V_LINES.tooBright("claim");
+            tried.push(`${triedFace} → bottom p95 ${botP.map(pc).join(" / ")} at +0 / +10 / +20 → ${T1V_LINES.tooBright("claim")}`);
             continue;
           }
+          tried.push(`${triedFace} → passes (top +${Math.round(T1C.bandSteps[topStep]! * 100)}, bottom +${Math.round(T1C.bandSteps[bottomStep]! * 100)})`);
           chosen = { cy, layout: l, face: fv, topStep, bottomStep, p95: { top: topP[topStep]!, lockup: l.boxes.lockup ? lockP[topStep]! : null, bottom: botP[bottomStep]! } };
           break search;
         }
@@ -397,7 +408,9 @@ for (const clipId of clipIds) {
       let backing: BackingBox | null = null;
       const l1 = layout.claim[0];
       if (l1 && l1.color === "red") {
-        backing = backingRect(l1, size.width, { bottom: layout.claim[1] ? layout.claim[1].capTop - 1 : undefined, top: layout.arrangement === "B" ? layout.boxes.date.top + layout.boxes.date.height + 1 : undefined });
+        // O66: the neighbours are line 2's cap top below and the nearest type's baseline above (the date in B, else the top block).
+        const above = layout.arrangement === "B" ? layout.pieces.date.at.top + layout.pieces.date.piece.capPx * layout.pieces.date.at.scale : layout.boxes.top.top + layout.boxes.top.height;
+        backing = backingRect(l1, size.width, { below: layout.claim[1] ? layout.claim[1].capTop : undefined, above });
         const byStep: number[][] = [[], ...RED_BACKING.steps.map(() => [])];
         for (let i = 0; i < frames.length; i += 1) {
           if (!claimOn(times[i]!)) continue;
@@ -500,6 +513,8 @@ for (const clipId of clipIds) {
         fmt,
         arrangement: chosen ? layout.arrangement : `(${layout.arrangement})`,
         crop: chosen?.cy ?? null,
+        scale: upscaleFactor(src, fmt, cropY, cropX),
+        tried,
         faceLine: fv.ok ? "ok" : (fv.line ?? "refused"),
         topShare: fv.topShare,
         claimShare: fv.claimShare,
@@ -584,9 +599,17 @@ if (lambdaCosts.length) {
 }
 L.push(`Each clip: its first ${seconds} s from in_s, muted, H.264 CRF 18. Samples at ${T1V_FACE.fps} a second.`, "");
 L.push(`The roll-call, from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.state}`).join(" · ")}): "${rollCall.claim!.replace("\n", " / ")}".`, "");
-L.push("| Clip | Claim | Format | Arrangement | Crop | Face (O56): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | File |");
-L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
-for (const r of table) L.push(`| ${r.artist} (${r.clip}) | ${r.claimLabel} | ${r.fmt} | ${r.arrangement} | ${r.crop ?? "–"} | ${pct(r.topShare)} / ${pct(r.claimShare)} · ${r.runS.toFixed(1)} s | ${pct(r.topP95)} | ${pct(r.lockupP95)} | ${pct(r.bottomP95)} | ${r.steps} | ${pct(r.redP95)} → ${r.red} | ${r.claim} | ${r.safe ? "✓" : "✗"} | ${r.result} | ${r.file ?? "–"} |`);
+L.push("| Clip | Version | Format | Arrangement | Crop | Scale (O63, ≤ 1.6×) | Face (O64): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | File |");
+L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+for (const r of table) L.push(`| ${r.artist} (${r.clip}) | ${r.claimLabel} | ${r.fmt} | ${r.arrangement} | ${r.crop ?? "–"} | ${r.scale == null ? "–" : `${r.scale.toFixed(2)}×`} | ${pct(r.topShare)} / ${pct(r.claimShare)} · ${r.runS.toFixed(1)} s | ${pct(r.topP95)} | ${pct(r.lockupP95)} | ${pct(r.bottomP95)} | ${r.steps} | ${pct(r.redP95)} → ${r.red} | ${r.claim} | ${r.safe ? "✓" : "✗"} | ${r.result} | ${r.file ?? "–"} |`);
+L.push("", "## Every crop and arrangement tried (O65)");
+for (const r of table) {
+  if (!r.tried.length) continue;
+  L.push(`**${r.artist} (${r.clip}) · ${r.claimLabel} · ${r.fmt}**`);
+  for (const t of r.tried) L.push(`- ${t}`);
+  L.push("");
+}
+L.push("Scaling: on Lambda the footage is scaled by the browser's own filter, not Lanczos (O63 asks for Lanczos); the composition has no filter control, and a Lanczos pre-scale would be an encode to stored files, which this round doesn't make.");
 L.push("", "## O46 on the encoded file");
 L.push(`A flat 0x808080 1080 × 1920 clip through T1OnClip with the bands only, H.264 CRF 18 (grey-test_bands_crf18.mp4), frame at 1 s. Largest step between adjacent rows' mean luma across the fades: ${fadeMax.toFixed(2)} levels (limit ${MAX_ROW_STEP}) → ${fadeMax <= MAX_ROW_STEP ? "passes" : "fails"}. At J2's two knees (rows ${greyKnees.join(", ")}, A's top and bottom bands): ${kneeSteps.map((k) => k.toFixed(2)).join(" / ")} levels (limit ${MAX_KNEE_STEP}, O55) → ${kneeSteps.every((k) => k <= MAX_KNEE_STEP) ? "passes" : "fails"}.`);
 L.push("", "## T1V_INVENTED and its rulings (issue 8, O62)");

@@ -377,7 +377,7 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
       let word = v.red ? "red" : "";
       if (!v.red) {
         const next = layout!.lines[li + 1];
-        const bx = backingRect(ink, frame.width, { bottom: next ? next.capTop - 1 : undefined });
+        const bx = backingRect(ink, frame.width, { below: next ? next.capTop : undefined, above: planned.lineup.length ? Math.max(...planned.lineup.map((l) => l.capTop + l.capPx)) : undefined });
         const shares = RED_BACKING.steps.map((op) => redLineVerdict(applyBacking(raw.data, raw.info.width, raw.info.height, raw.info.channels, bx, op), raw.info.width, raw.info.channels, ink, frame).share);
         const verdict = chooseBacking([v.share, ...shares], "photo");
         if (verdict.backing != null) {
@@ -447,7 +447,8 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   const backingAt = async (size: Size, t: { k: number; dx: number; dy: number }) => {
     if (!backing) return null;
     const mv = (r: Rect): Rect => ({ left: r.left * t.k + t.dx, top: r.top * t.k + t.dy, width: r.width * t.k, height: r.height * t.k });
-    const b: BackingBox = { rect: mv(backing.box.rect), bounds: mv(backing.box.bounds), feather: backing.box.feather * t.k };
+    const f = backing.box.feather;
+    const b: BackingBox = { rect: mv(backing.box.rect), feather: { left: f.left * t.k, right: f.right * t.k, top: f.top * t.k, bottom: f.bottom * t.k } };
     return sharp(Buffer.from(backingLayer(size.width, size.height, b, backing.opacity)), { raw: { width: size.width, height: size.height, channels: 4 } }).png().toBuffer();
   };
   const backMaster = await backingAt(frame, { k: 1, dx: 0, dy: 0 });

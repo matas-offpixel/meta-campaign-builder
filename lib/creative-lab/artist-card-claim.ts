@@ -50,7 +50,7 @@ import { applyBacking, backingLayer } from "./red-backing.ts";
 import { RED_BACKING, backingRect, chooseBacking, type BackingBox } from "./t1-video.ts";
 
 const moveR = (r: Rect, t: { k: number; dx: number; dy: number }): Rect => ({ left: r.left * t.k + t.dx, top: r.top * t.k + t.dy, width: r.width * t.k, height: r.height * t.k });
-const moveBox = (b: BackingBox, t: { k: number; dx: number; dy: number }): BackingBox => ({ rect: moveR(b.rect, t), bounds: moveR(b.bounds, t), feather: b.feather * t.k });
+const moveBox = (b: BackingBox, t: { k: number; dx: number; dy: number }): BackingBox => ({ rect: moveR(b.rect, t), feather: { left: b.feather.left * t.k, right: b.feather.right * t.k, top: b.feather.top * t.k, bottom: b.feather.bottom * t.k } });
 import { CARD_CLAIM, KIT_RED, KIT_WHITE, inKitCase, isRollCall, planCardClaim, plainDropStates, renderCardLine, rollCallStates, type CardClaimPlan } from "./claim-slot.ts";
 import { requireFont, type FontEntry } from "./kit-font.ts";
 import { renderGradientShadow, type GradientShadow } from "./overlay-gradient.ts";
@@ -553,7 +553,8 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
         base0.contrast.redLine = v.share;
         if (!v.red) {
           const next = planned.lines[li + 1];
-          const box = backingRect(line, frame.width, { bottom: next ? next.capTop - 1 : undefined });
+          // O66: the gap below runs to line 2's cap top; nothing sits close above line 1 on the card.
+          const box = backingRect(line, frame.width, { below: next ? next.capTop : undefined });
           const shares = RED_BACKING.steps.map((op) => redLineVerdict(applyBacking(raw.data, raw.info.width, raw.info.height, raw.info.channels, box, op), raw.info.width, raw.info.channels, line, frame).share);
           const verdict = chooseBacking([v.share, ...shares], "photo");
           if (verdict.backing != null) {
