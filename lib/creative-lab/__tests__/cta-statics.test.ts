@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 
 import { SLOTS, planFaceCrop } from "../artist-card.ts";
 import { CLAIM_SLOT, KIT_RED, KIT_WHITE, estimateWidth, faceBandWithClaim, planClaim, renderClaimLines, splitTwo, type ClaimPlan } from "../claim-slot.ts";
-import { FontHeldError, SERVER_RENDER_ALLOWLIST, fontsDir, indexFonts, readFontFaces, requireFont, resolveFont, serverRenderAllowed, type FontEntry } from "../kit-font.ts";
+import { FontHeldError, fontsDir, indexFonts, readFontFaces, requireFont, resolveFont, type FontEntry } from "../kit-font.ts";
 import { DEFAULT_GRADIENT_SHADOW, J2_FALL, bandAlphaAt, effectiveAlpha, gradientDirection, gradientStops, knotAt, profiles, renderGradientShadow, summarizeProfile } from "../overlay-gradient.ts";
 
 /** A minimal sfnt: head (unitsPerEm), OS/2 v2 (cap height) and a Windows name table. */
@@ -112,16 +112,13 @@ describe("kit fonts: the installed folder, indexed by name table", () => {
     assert.throws(() => requireFont("DrukText-Heavy", byName), /trial font — not for client work/);
   });
 
-  it("server rendering is off for every face until its licence is recorded", () => {
-    assert.deepEqual([...SERVER_RENDER_ALLOWLIST], []);
-    assert.equal(serverRenderAllowed("BootzyCondensedTM-Regular"), false);
+  it("a provided face renders anywhere: there is no server-render hold (issue 7, O49)", () => {
     const ix = fakeIndex({ "Bootzy-Condensed-TM-Regular.otf": bootzy });
     assert.equal(requireFont("BootzyCondensedTM-Regular", ix).file, "Bootzy-Condensed-TM-Regular.otf");
-    assert.throws(() => requireFont("BootzyCondensedTM-Regular", ix, { server: true }), /server rendering is off/);
   });
 
   it("claim text is not rendered without the face", async () => {
-    const plan = planClaim({ kind: "claim", text: "Final release selling fast", approvedBy: "m", approvedAt: "2026-11-10" }) as ClaimPlan;
+    const plan = planClaim({ kind: "claim", text: "3rd release selling fast", approvedBy: "m", approvedAt: "2026-11-10" }) as ClaimPlan;
     await assert.rejects(renderClaimLines(plan, []), (e: unknown) => e instanceof FontHeldError && /not installed/.test(e.message));
     await assert.rejects(renderClaimLines(plan, fakeIndex({ "Bootzy-Trial.otf": bootzy })), /trial font/);
   });
@@ -143,10 +140,10 @@ describe("T1 claim slot (O3, O8, O12)", () => {
   const ok = { approvedBy: "matas", approvedAt: "2026-11-10" };
 
   it("step 0: one line in O3's box, centred band, white", () => {
-    const p = planClaim({ kind: "claim", text: "final release selling fast", ...ok }) as ClaimPlan;
+    const p = planClaim({ kind: "claim", text: "3rd release selling fast", ...ok }) as ClaimPlan;
     assert.equal(p.step, 0);
     assert.equal(p.lines.length, 1);
-    assert.equal(p.lines[0]!.text, "FINAL RELEASE SELLING FAST");
+    assert.equal(p.lines[0]!.text, "3RD RELEASE SELLING FAST");
     assert.equal(p.lines[0]!.color, KIT_WHITE);
     assert.ok(Math.abs(p.lines[0]!.capTop - 0.7536) < 1e-9 && Math.abs(p.lines[0]!.baseline - 0.7927) < 1e-9);
     assert.equal(p.chinMax, 0.72);
@@ -172,7 +169,7 @@ describe("T1 claim slot (O3, O8, O12)", () => {
   });
 
   it("roll-call: line 1 kit red at 0.625 of line 2, line 2 white in O3's box; the chin moves above the block", () => {
-    const p = planClaim({ kind: "roll-call", soldOut: "Early bird, 1st, 2nd & 3rd release sold out", live: "Final release selling fast", ...ok }) as ClaimPlan;
+    const p = planClaim({ kind: "roll-call", soldOut: "Early bird, 1st & 2nd release sold out", live: "3rd release selling fast", ...ok }) as ClaimPlan;
     assert.equal(p.step, "roll-call");
     assert.deepEqual(p.dropped, []);
     assert.equal(KIT_RED, "#FE3232");
@@ -191,7 +188,7 @@ describe("T1 claim slot (O3, O8, O12)", () => {
     const p = planClaim({ kind: "roll-call", soldOut, live: "Final 100 3rd release tickets now", ...ok }) as ClaimPlan;
     assert.deepEqual(p.dropped, ["TICKETS"]);
     assert.deepEqual(p.lines.map((l) => l.text), ["EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT", "FINAL 100 3RD RELEASE NOW"]);
-    const never = planClaim({ kind: "roll-call", soldOut: "Early bird, 1st, 2nd, 3rd, 4th, 5th & 6th release sold out", live: "Final release selling fast", ...ok });
+    const never = planClaim({ kind: "roll-call", soldOut: "Early bird, 1st, 2nd, 3rd, 4th, 5th & 6th release sold out", live: "7th release selling fast", ...ok });
     assert.ok("blocker" in never);
     assert.match((never as { blocker: string }).blocker, /can't shorten/);
   });

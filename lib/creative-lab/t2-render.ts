@@ -1,9 +1,9 @@
 /**
  * T2 standalone message, rendered locally (overlay-templates issue 1 O1, O4,
  * O6, O8, O12; issue 3 O19 amended, O23 case, O24 fonts, O25 bands). A sharp
- * still, not a Remotion composition: kit fonts may not render on Lambda until
- * Matas confirms each licence (O24; kit-font.ts SERVER_RENDER_ALLOWLIST is
- * empty), so this path only ever reads the face in place from FONTS_DIR.
+ * still, not a Remotion composition. It reads the kit face in place from
+ * FONTS_DIR; a provided face may render anywhere (issue 7, O49), delivered as
+ * t1-lambda.ts withKitFace does (O52).
  *
  * Layers, bottom to top: the ground (the kit's paint), the arrangement's panel
  * (always, on a panel kit: O30), O25's bands (O29), the type and the lockup under one O6 shadow, and the
@@ -29,6 +29,8 @@ import { CARD_CLAIM } from "./claim-slot.ts";
 import { requireFont, type FontEntry } from "./kit-font.ts";
 import { PUZZLE_FLOATING_T2, type T2Kit } from "./overlay-kits.ts";
 import { renderGradientShadow, type GradientShadow } from "./overlay-gradient.ts";
+import { applyBacking, backingLayer } from "./red-backing.ts";
+import { RED_BACKING, backingRect, chooseBacking, type BackingBox } from "./t1-video.ts";
 import { claimSlot, paperRect, planDetails, planLineup, planLogo, planT2Claim, slotRect, slotWidth, type CornerLine, type MeasureLine, type T2Layout, type T2Plan, type T2Slot } from "./t2-message.ts";
 
 async function sharpLib(): Promise<Sharp> {
@@ -206,6 +208,8 @@ export type T2Result = {
   lines: T2LineReport[];
   contrast: { claimBox: number | null; redLine: number | null; lineup: number | null; details: number | null };
   redLineWhite: boolean;
+  /** O58: the backing's opacity under the red line, when one was needed. */
+  redBacking: number | null;
   approvalLines: string[];
   rules: { rule: string; pass: boolean; detail: string }[];
   bandStops: { master: StopSample[]; crop45: StopSample[]; square: StopSample[] } | null;
@@ -300,7 +304,7 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   const sharp = await sharpFn();
   const kit = input.kit ?? PUZZLE_FLOATING_T2;
   const frame = MASTER;
-  const out: T2Result = { held: null, plan: null, drawn: null, layout: null, slot: null, panelInk: null, paperMatches: null, inSlot: null, lines: [], contrast: { claimBox: null, redLine: null, lineup: null, details: null }, redLineWhite: false, approvalLines: [], rules: [], bandStops: null, master: null, crop45: null, square: null, watermark: input.watermark };
+  const out: T2Result = { held: null, plan: null, drawn: null, layout: null, slot: null, panelInk: null, paperMatches: null, inSlot: null, lines: [], contrast: { claimBox: null, redLine: null, lineup: null, details: null }, redLineWhite: false, redBacking: null, approvalLines: [], rules: [], bandStops: null, master: null, crop45: null, square: null, watermark: input.watermark };
 
   // O24: the kit's face or nothing.
   let face: FontEntry;
@@ -318,21 +322,25 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   out.panelInk = g.panelInk;
   out.paperMatches = g.paperMatches;
 
-  // Plan with the face's own advances.
-  const planned = await withMeasure(face, (m) => {
+  // Plan with the face's own advances. With no claim (a no-CTA card), only the corners and the lockup are drawn.
+  const noClaim = !input.claim.trim();
+  const planned = await withMeasure(face, (m): { plan: T2Plan | null; idx: number | null; layout: T2Layout | null; lineup: CornerLine[]; details: CornerLine[] } => {
+    const lineup = planLineup(input.lineup, m, {}, kit, frame);
+    const details = planDetails(input.details, m, kit, frame);
+    if (noClaim) return { plan: null, idx: null, layout: null, lineup, details };
     const plan = planT2Claim({ approved: input.claim, qualifier: input.qualifier ?? null, releaseNames: input.releaseNames }, m, kit, frame, { exhaust: input.attempt != null, slot });
     const idx = input.attempt ?? plan.chosen;
     const a = idx != null ? plan.attempts[idx] : plan.attempts[plan.attempts.length - 1];
-    return { plan, idx: idx ?? (plan.attempts.length ? plan.attempts.length - 1 : null), layout: a?.layout ?? null, lineup: planLineup(input.lineup, m, {}, kit, frame), details: planDetails(input.details, m, kit, frame) };
+    return { plan, idx: idx ?? (plan.attempts.length ? plan.attempts.length - 1 : null), layout: a?.layout ?? null, lineup, details };
   });
   out.plan = planned.plan;
   out.drawn = planned.idx;
   out.layout = planned.layout;
-  if (!planned.layout) return { ...out, held: planned.plan.held ?? "no claim to draw" };
+  if (!noClaim && !planned.layout) return { ...out, held: planned.plan?.held ?? "no claim to draw" };
   const layout = planned.layout;
   // O34: a state that doesn't fit is drawn (cut at the slot) only as a draft or the flagged preview.
-  const fitsDrawn = planned.plan.attempts[planned.idx!]?.fits ?? false;
-  if (!fitsDrawn && !input.watermark) return { ...out, held: planned.plan.held ?? "this state doesn't fit the slot; only a draft may draw it" };
+  const fitsDrawn = noClaim || (planned.plan!.attempts[planned.idx!]?.fits ?? false);
+  if (!fitsDrawn && !input.watermark) return { ...out, held: planned.plan!.held ?? "this state doesn't fit the slot; only a draft may draw it" };
 
   const shown = g.master;
   const raw = await sharp(shown).removeAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -340,8 +348,8 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   // The claim: the box test on the O26 slot, the red line's ink-box test, then each line set at its size.
   const maxPx = slotWidth(slot);
   const box: Rect = slotRect(slot);
-  out.contrast.claimBox = lowContrastShare(raw.data, raw.info.width, raw.info.channels, box);
-  out.rules.push({ rule: "claimContrast", pass: out.contrast.claimBox <= CARD_CLAIM.claimBoxMax, detail: `${(out.contrast.claimBox * 100).toFixed(1)} % of the claim slot (${Math.round(box.width)} × ${Math.round(box.height)} px) below 3:1, bands ${input.bands ? "on" : "off"} (max ${CARD_CLAIM.claimBoxMax * 100} %)` });
+  out.contrast.claimBox = noClaim ? null : lowContrastShare(raw.data, raw.info.width, raw.info.channels, box);
+  if (!noClaim) out.rules.push({ rule: "claimContrast", pass: out.contrast.claimBox! <= CARD_CLAIM.claimBoxMax, detail: `${(out.contrast.claimBox! * 100).toFixed(1)} % of the claim slot (${Math.round(box.width)} × ${Math.round(box.height)} px) below 3:1, bands ${input.bands ? "on" : "off"} (max ${CARD_CLAIM.claimBoxMax * 100} %)` });
   const pieces: Piece[] = [];
   const places: Placement[] = [];
   const claimPlaces: Placement[] = [];
@@ -354,21 +362,37 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   // A draft of a state wider than the slot is cut at the slot's edges: no claim line runs past the slot (H27).
   const cutToSlot = async (s: SetLine): Promise<{ s: SetLine; left: number; cut: boolean }> => {
     const w = Math.floor(maxPx);
-    if (s.width <= w) return { s, left: layout.centreX - s.width / 2, cut: false };
+    if (s.width <= w) return { s, left: layout!.centreX - s.width / 2, cut: false };
     const from = Math.floor((s.width - w) / 2);
     return { s: { ...s, png: await sharp(s.png).extract({ left: from, top: 0, width: w, height: s.height }).png().toBuffer(), width: w }, left: Math.ceil(slot.left), cut: true };
   };
-  for (const line of layout.lines) {
+  let backing: { box: BackingBox; opacity: number } | null = null;
+  for (const [li, line] of (layout?.lines ?? []).entries()) {
     let colour = line.color === "red" ? kit.colours.kitRed : kit.colours.white;
     if (line.color === "red") {
-      const v = redLineVerdict(raw.data, raw.info.width, raw.info.channels, { capTop: line.capTop, capPx: line.capPx, widthPx: Math.min(line.widthPx, frame.width) }, frame);
+      const ink = { capTop: line.capTop, capPx: line.capPx, widthPx: Math.min(line.widthPx, frame.width) };
+      const v = redLineVerdict(raw.data, raw.info.width, raw.info.channels, ink, frame);
       out.contrast.redLine = v.share;
-      out.rules.push({ rule: "redLine", pass: true, detail: `${(v.share * 100).toFixed(1)} % of the red line's ink box (${Math.round(redInkBox({ capTop: line.capTop, capPx: line.capPx, widthPx: line.widthPx }, frame).width)} × ${Math.round(line.capPx + 2 * CARD_CLAIM.redInk.padY)} px) below 2:1 against #FE3232 (max 25 %) → ${v.red ? "red" : "white"}` });
+      // O58: the red line stays #FE3232: a backing under line 1 at 40 → 60 → 80 %, white only past 80 %.
+      let word = v.red ? "red" : "";
       if (!v.red) {
-        colour = kit.colours.white;
-        out.redLineWhite = true;
-        out.approvalLines.push(CARD_CLAIM.redToWhite);
+        const next = layout!.lines[li + 1];
+        const bx = backingRect(ink, frame.width, { below: next ? next.capTop : undefined, above: planned.lineup.length ? Math.max(...planned.lineup.map((l) => l.capTop + l.capPx)) : undefined });
+        const shares = RED_BACKING.steps.map((op) => redLineVerdict(applyBacking(raw.data, raw.info.width, raw.info.height, raw.info.channels, bx, op), raw.info.width, raw.info.channels, ink, frame).share);
+        const verdict = chooseBacking([v.share, ...shares], "photo");
+        if (verdict.backing != null) {
+          backing = { box: bx, opacity: verdict.backing };
+          out.redBacking = verdict.backing;
+          out.approvalLines.push(verdict.line!);
+          word = `red, backed ${Math.round(verdict.backing * 100)} % (${(shares[RED_BACKING.steps.indexOf(verdict.backing as 0.4 | 0.6 | 0.8)]! * 100).toFixed(1)} % with it)`;
+        } else {
+          colour = kit.colours.white;
+          out.redLineWhite = true;
+          out.approvalLines.push(CARD_CLAIM.redToWhite);
+          word = "white";
+        }
       }
+      out.rules.push({ rule: "redLine", pass: true, detail: `${(v.share * 100).toFixed(1)} % of the red line's ink box (${Math.round(redInkBox({ capTop: line.capTop, capPx: line.capPx, widthPx: line.widthPx }, frame).width)} × ${Math.round(line.capPx + 2 * CARD_CLAIM.redInk.padY)} px) below 2:1 against #FE3232 (max 25 %) → ${word}` });
     }
     const set = await setRuns([{ text: line.text, color: colour }], line.capPx, kit.tracking.claim, face);
     const c = await cutToSlot(set);
@@ -376,12 +400,15 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
     const at = await place(c.s, line.text, c.left, line.capTop);
     claimPlaces.push({ ...at, top: Math.round(line.capTop), height: Math.round(line.capPx) });
   }
-  const fit = out.lines.every((l) => l.fits);
-  const a = planned.plan.attempts[planned.idx!]!;
-  // The figure is the planned width from the face's own advances, the meter's number (the drawn ink can differ by a few px).
-  const widest = Math.round(Math.max(...a.widths));
-  const tall = !a.fitsHeight ? ` · block ${Math.round(layout.blockBottom - layout.blockTop)} of ${Math.round(slot.bottom - slot.top)} px tall` : "";
-  out.rules.push({ rule: "fit", pass: fit && a.fitsHeight && (input.attempt != null || planned.plan.canApprove), detail: `${input.attempt != null || planned.plan.canApprove ? `${describeAttempt(planned.plan, planned.idx!, kit)} · ${widest} of ${Math.round(maxPx)} px` : planned.plan.meter}${fit ? "" : " · over the slot (cut)"}${tall}` });
+  if (!noClaim && layout) {
+    const plan = planned.plan!;
+    const fit = out.lines.every((l) => l.fits);
+    const a = plan.attempts[planned.idx!]!;
+    // The figure is the planned width from the face's own advances, the meter's number (the drawn ink can differ by a few px).
+    const widest = Math.round(Math.max(...a.widths));
+    const tall = !a.fitsHeight ? ` · block ${Math.round(layout.blockBottom - layout.blockTop)} of ${Math.round(slot.bottom - slot.top)} px tall` : "";
+    out.rules.push({ rule: "fit", pass: fit && a.fitsHeight && (input.attempt != null || plan.canApprove), detail: `${input.attempt != null || plan.canApprove ? `${describeAttempt(plan, planned.idx!, kit)} · ${widest} of ${Math.round(maxPx)} px` : plan.meter}${fit ? "" : " · over the slot (cut)"}${tall}` });
+  }
 
   // Corners: lineup top-right, details bottom-left (coral ">"), logo bottom-right.
   const right = frame.width * (1 - kit.lineup.rightInset);
@@ -416,7 +443,16 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   // The draft stamp in a free corner of the 4:5 rectangle, off the claim, the corners and the lockup.
   const crop45Rect: Rect = { left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top };
   const wm = input.watermark ? await watermarkLayer(input.watermark, frame, face.path, face.family ?? "Bootzy Condensed TM", { avoid: places, within: crop45Rect }) : null;
-  out.master = await sharp(shown).composite([{ input: overlay, left: 0, top: 0 }, ...(wm ? [{ input: wm, left: 0, top: 0 }] : [])]).png().toBuffer();
+  // O58: the backing over the bands and under the type.
+  const backingAt = async (size: Size, t: { k: number; dx: number; dy: number }) => {
+    if (!backing) return null;
+    const mv = (r: Rect): Rect => ({ left: r.left * t.k + t.dx, top: r.top * t.k + t.dy, width: r.width * t.k, height: r.height * t.k });
+    const f = backing.box.feather;
+    const b: BackingBox = { rect: mv(backing.box.rect), feather: { left: f.left * t.k, right: f.right * t.k, top: f.top * t.k, bottom: f.bottom * t.k } };
+    return sharp(Buffer.from(backingLayer(size.width, size.height, b, backing.opacity)), { raw: { width: size.width, height: size.height, channels: 4 } }).png().toBuffer();
+  };
+  const backMaster = await backingAt(frame, { k: 1, dx: 0, dy: 0 });
+  out.master = await sharp(shown).composite([...(backMaster ? [{ input: backMaster, left: 0, top: 0 }] : []), { input: overlay, left: 0, top: 0 }, ...(wm ? [{ input: wm, left: 0, top: 0 }] : [])]).png().toBuffer();
   out.crop45 = await sharp(out.master).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).png().toBuffer();
 
   // 1:1 (O1): the 4:5 arrangement at 0.8×, the ground re-covered at full size.
@@ -436,12 +472,14 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
     crop45: inside((v) => ({ x: v.x, y: v.y - RECT_45.top }), { width: frame.width, height: RECT_45.bottom - RECT_45.top }),
     square: inside((v) => ({ x: v.x * k + dx, y: v.y * k + dy }), { width: side, height: side }),
   };
-  out.rules.push({ rule: "inSlot", pass: out.inSlot.master && out.inSlot.crop45 && out.inSlot.square, detail: `claim lines inside the slot · 9:16 ${out.inSlot.master ? "✓" : "✗"} · 4:5 ${out.inSlot.crop45 ? "✓" : "✗"} · 1:1 ${out.inSlot.square ? "✓" : "✗"}` });
+  if (!noClaim) out.rules.push({ rule: "inSlot", pass: out.inSlot.master && out.inSlot.crop45 && out.inSlot.square, detail: `claim lines inside the slot · 9:16 ${out.inSlot.master ? "✓" : "✗"} · 4:5 ${out.inSlot.crop45 ? "✓" : "✗"} · 1:1 ${out.inSlot.square ? "✓" : "✗"}` });
   const squareOverlay = await textOverlay(pieces, places, { width: side, height: side }, { k, dx, dy }, KIT_SHADOW);
   const squareAvoid = places.map((p) => ({ left: p.left * k + dx, top: p.top * k + dy, width: p.width * k, height: p.height * k }));
   const wmSquare = input.watermark ? await watermarkLayer(input.watermark, { width: side, height: side }, face.path, face.family ?? "Bootzy Condensed TM", { avoid: squareAvoid }) : null;
+  const backSquare = await backingAt({ width: side, height: side }, { k, dx, dy });
   out.square = await sharp(g.square)
     .composite([
+      ...(backSquare ? [{ input: backSquare, left: 0, top: 0 }] : []),
       { input: squareOverlay, left: 0, top: 0 },
       ...(wmSquare ? [{ input: wmSquare, left: 0, top: 0 }] : []),
     ])
@@ -454,7 +492,7 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
     const off = all.filter((x) => !x.ok);
     out.rules.push({ rule: "bandStops", pass: !off.length, detail: off.length ? `${off.length} stop(s) off by more than ±${STOP_TOLERANCE} (3 × 3 average): ${off.map((x) => `${x.at} → ${x.got} (O25 ${x.want})`).join(", ")}` : `all ${all.length} stops within ±${STOP_TOLERANCE} on 3 × 3 averages, three formats` });
   }
-  out.held = planned.plan.canApprove || input.attempt != null ? null : planned.plan.held;
+  out.held = noClaim || planned.plan!.canApprove || input.attempt != null ? null : planned.plan!.held;
   return out;
 }
 

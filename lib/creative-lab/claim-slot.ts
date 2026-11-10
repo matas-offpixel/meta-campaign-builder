@@ -7,7 +7,7 @@
  * Measured values (1080×1920, fractions of H):
  *   - O3: the claim box 0.7536–0.7927 H (cap 0.0391 H), centred, ≤ 0.80 W.
  *   - O12 roll-call, from Puzzle overlay.psd's CTA group (Bootzy, cap/em
- *     0.712): line 1 "EARLY BIRD, 1ST, 2nd & 3rd RELEASE SOLD OUT" #FE3232 at
+ *     0.712): line 1 (the PSD's own roll-call words) #FE3232 at
  *     65.1 px, line 2 white at 104.2 px (25 characters; the PSD's words
  *     predate A21, so the generator's line 2 is used, never the PSD's); line 1's
  *     size is 0.625 of line 2's; the gap from line 1's baseline to line 2's
@@ -51,7 +51,7 @@ export const CLAIM_SLOT = {
 } as const;
 
 export type ApprovedClaim =
-  | { kind: "claim"; text: string; approvedBy: string; approvedAt: string }
+  | { kind: "claim"; text: string; approvedBy: string; approvedAt: string; /** O48: the event's own release names (event_releases), which a line break never splits. */ releaseNames?: readonly string[] }
   | { kind: "roll-call"; soldOut: string; live: string; approvedBy: string; approvedAt: string };
 
 export type ClaimLine = { text: string; color: string; cap: number; capTop: number; baseline: number; estWidth: number };
@@ -256,7 +256,7 @@ export function planClaim(claim: ApprovedClaim, frame: Size = MASTER): ClaimPlan
   for (const st of plainDropStates([approved])) {
     const text = st.lines.join(" ");
     if (text.length <= s0.maxChars && estimateWidth(text, s0.cap, frame) <= CLAIM_SLOT.maxWidth) return { ...stack([{ text, color: KIT_WHITE, cap: s0.cap }], frame), step: 0, dropped: st.dropped };
-    const two = splitTwo(text);
+    const two = splitTwo(text, claim.releaseNames);
     if (two) {
       for (const [i, s] of [[1, s1], [2, s2]] as const) {
         if (two.every((t) => t.length <= s.maxChars && estimateWidth(t, s.cap, frame) <= CLAIM_SLOT.maxWidth)) return { ...stack(two.map((t) => ({ text: t, color: KIT_WHITE, cap: s.cap })), frame), step: i, dropped: st.dropped };
@@ -284,8 +284,8 @@ export type ClaimPiece = { png: Buffer; width: number; height: number; left: num
  * ink and centred, its cap top on the planned line; the caller adds O6's
  * shadow once on the text group.
  */
-export async function renderClaimLines(plan: ClaimPlan, index: readonly FontEntry[], opts: { server?: boolean; frame?: Size } = {}): Promise<ClaimPiece[]> {
-  const face = requireFont(CLAIM_FONT, index, { server: opts.server });
+export async function renderClaimLines(plan: ClaimPlan, index: readonly FontEntry[], opts: { frame?: Size } = {}): Promise<ClaimPiece[]> {
+  const face = requireFont(CLAIM_FONT, index);
   const frame = opts.frame ?? MASTER;
   const sharp = await sharpLib();
   const capPerEm = face.capHeight && face.unitsPerEm ? face.capHeight / face.unitsPerEm : null;

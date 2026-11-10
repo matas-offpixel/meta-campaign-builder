@@ -13,8 +13,8 @@
  *   - Never another face in its place.
  *   - Font files are read where they are installed and never copied,
  *     committed or uploaded (repo, Storage, Drive, Lambda).
- *   - Server rendering stays off for every face until its licence is recorded
- *     as allowing server use (SERVER_RENDER_ALLOWLIST, empty for now).
+ *   - A face the client provided renders everywhere, locally, on Lambda and
+ *     on CI (overlay templates issue 7, O49); there is no server-render hold.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -23,18 +23,6 @@ import { join } from "node:path";
 
 export function fontsDir(env: Record<string, string | undefined> = process.env): string {
   return env.FONTS_DIR?.trim() || join(homedir(), "Library", "Fonts");
-}
-
-/**
- * Faces whose licence Matas has recorded as allowing server-side rendering
- * (the Lambda). Empty: every face renders locally only.
- * TODO(H8): add a PostScript name here only after its licence check is on
- * record (overlay-templates issue 1, H8 (e)).
- */
-export const SERVER_RENDER_ALLOWLIST: readonly string[] = [];
-
-export function serverRenderAllowed(postscriptName: string): boolean {
-  return SERVER_RENDER_ALLOWLIST.includes(postscriptName);
 }
 
 export type FontFace = {
@@ -180,12 +168,9 @@ export class FontHeldError extends Error {
   }
 }
 
-/** The face for a render, or a hold. `server: true` also requires the licence allowlist. */
-export function requireFont(name: string, index: readonly FontEntry[], opts: { server?: boolean } = {}): FontEntry {
+/** The face for a render, or a hold (missing or trial). Never another face in its place. */
+export function requireFont(name: string, index: readonly FontEntry[]): FontEntry {
   const r = resolveFont(name, index);
   if (r.status !== "found") throw new FontHeldError(r.message, r);
-  if (opts.server && !serverRenderAllowed(r.entry.postscriptName ?? name)) {
-    throw new FontHeldError(`Claim held — ${name}: server rendering is off until its licence is recorded as allowing server use`, { status: "missing", message: `${name} not cleared for server rendering` });
-  }
   return r.entry;
 }

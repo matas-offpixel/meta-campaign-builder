@@ -7,13 +7,12 @@
  *   node --max-old-space-size=12288 --env-file=.env.local --experimental-strip-types scripts/cta-drafts.mts \
  *     --event P26-BDAY --kit outputs/P26-BDAY/kits/puzzle-birthday-1-static --out <notes folder> \
  *     --pick 'Luke Dean#1=<asset id>' --pick 'Luke Dean#2=<asset id>' --pick 'Enzo Siragusa#1=<asset id>' \
- *     [--sample 'Luke Dean#1'] [--bands-compare 'Luke Dean#1']
  *
- * (a) every pick with the event's approved claim, read live from
- *     ticket_warnings (select only); with none approved, the newest proposed
- *     claim is drawn and the card carries "DRAFT · claim not approved";
- * (b) --sample: a roll-call on that pick with fixture words, "DRAFT · sample claim";
- * (c) --bands-compare: that pick with no claim, bands on and off.
+ * Every pick in the round's two versions (Matas, 10 Nov; draft-versions.ts):
+ * v1, no CTA; v2, the selling-fast roll-call from the event's live tiers
+ * (event_releases, read only), stamped by its ticket_warnings row
+ * ("DRAFT · claim not approved" while held). "General sale live" is out of
+ * date and isn't drawn; the stress fixtures stay in the tests.
  * Fonts from FONTS_DIR (default ~/Library/Fonts), read in place.
  */
 
@@ -21,10 +20,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
+import sharp from "sharp";
 
 import { CLAIM_FACE_BAND, renderClaimCard, type ClaimCardResult } from "../lib/creative-lab/artist-card-claim.ts";
 import { O20, trimToInk, type Piece } from "../lib/creative-lab/artist-card.ts";
-import { SAMPLE_ROLL_CALL, approvedClaim, watermarkFor, type ClaimSource, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
+import { type WarningRow } from "../lib/creative-lab/claim-approval.ts";
+import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { detectFaces, eyesMeasurable, faceGeometry } from "../lib/creative-lab/face-detect.ts";
 import { fontsDir, indexFonts } from "../lib/creative-lab/kit-font.ts";
 import { DEFAULT_GRADIENT_SHADOW } from "../lib/creative-lab/overlay-gradient.ts";
@@ -40,8 +41,6 @@ const many = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [ar
 const code = flag("--event") ?? "";
 const kitDir = flag("--kit") ?? "";
 const outDir = flag("--out") ?? "";
-const sample = flag("--sample");
-const compare = flag("--bands-compare");
 const picks = many("--pick").map((p) => {
   const at = p.lastIndexOf("=");
   const [artist, n] = p.slice(0, at).split("#");
@@ -53,6 +52,7 @@ const fail = (m: string): never => {
 };
 if (!code || !kitDir || !outDir || !picks.length) fail("--event, --kit, --out and --pick are required");
 if (argv.includes("--apply")) fail("this script never files: drafts go to --out only");
+if (argv.includes("--sample") || argv.includes("--bands-compare")) fail("--sample and --bands-compare are gone: a round draws the two versions for every pick");
 
 type PieceRecord = { role: string; label: string; artist: string | null; file: string; cap_px: number };
 const kit = JSON.parse(readFileSync(join(kitDir, "pieces.json"), "utf8")) as { psd: string; pieces: PieceRecord[] };
@@ -72,8 +72,14 @@ const event = ev.data!;
 const tw = await supabase.from("ticket_warnings").select("id, claim, format, state, approved_by, approved_at, runs_from, runs_to, updated_at").eq("event_id", event.id).range(0, 999);
 if (tw.error) fail(`ticket_warnings: ${tw.error.message}`);
 const rows = (tw.data ?? []) as (WarningRow & { updated_at: string })[];
-const source = approvedClaim(rows, new Date());
-const proposed = [...rows].filter((r) => r.state === "held").sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0] ?? null;
+const er = await supabase.from("event_releases").select("*").eq("event_id", event.id).order("position").range(0, 99);
+if (er.error) fail(`event_releases: ${er.error.message}`);
+let versions: DraftVersion[] = [];
+try {
+  versions = draftVersions(((er.data ?? []) as Record<string, unknown>[]).map(releaseFromRow), rows);
+} catch (e) {
+  fail((e as Error).message);
+}
 
 const fonts = indexFonts(fontsDir());
 mkdirSync(outDir, { recursive: true });
@@ -83,7 +89,7 @@ const say = (s = "") => {
   lines.push(s);
 };
 say(`# Draft CTA cards · ${code} · ${event.name} · ${new Date().toISOString().slice(0, 16)}Z`);
-say(`Claim source: ${source.kind === "approved" ? `approved ticket_warnings ${source.id} "${source.claim}" (format ${source.format}, approved ${source.approvedAt})` : source.kind === "none" ? `none approved — ${source.why}; drawing the newest proposal${proposed ? ` "${proposed.claim}" (${proposed.id}, held)` : " (none)"} under "DRAFT · claim not approved"` : source.kind}`);
+say(`Versions: ${versions.map((v) => `${v.id} (${v.title}${v.claim ? `: "${v.claim.replace("\n", " / ")}", ${v.why}` : ""})`).join(" · ")}`);
 say(`Fonts: ${fontsDir()} (${fonts.length} faces indexed, read in place)`);
 say("");
 
@@ -95,18 +101,8 @@ async function download(id: string): Promise<{ bytes: Buffer; name: string }> {
   return { bytes: Buffer.from(await f.data!.arrayBuffer()), name: String(a.data!.filename) };
 }
 
-type Job = { pick: (typeof picks)[number]; label: string; claimText: string | null; claimSource: ClaimSource; bands: boolean };
-const jobs: Job[] = [];
-for (const p of picks) {
-  const text = source.kind === "approved" ? source.claim : proposed?.claim ?? null;
-  jobs.push({ pick: p, label: "a", claimText: text, claimSource: source, bands: true });
-}
-const pickBy = (key: string | undefined) => picks.find((p) => p.key === key || `${p.artist}#${p.card}` === key);
-if (sample && pickBy(sample)) jobs.push({ pick: pickBy(sample)!, label: "b-sample-roll-call", claimText: SAMPLE_ROLL_CALL, claimSource: { kind: "sample", claim: SAMPLE_ROLL_CALL }, bands: true });
-if (compare && pickBy(compare)) {
-  jobs.push({ pick: pickBy(compare)!, label: "c-no-claim-bands-on", claimText: null, claimSource: { kind: "off" }, bands: true });
-  jobs.push({ pick: pickBy(compare)!, label: "c-no-claim-bands-off", claimText: null, claimSource: { kind: "off" }, bands: false });
-}
+type Job = { pick: (typeof picks)[number]; label: string; claimText: string | null; watermark: string | null; why: string; bands: boolean };
+const jobs: Job[] = picks.flatMap((p) => versions.map((v) => ({ pick: p, label: v.id, claimText: v.claim, watermark: v.watermark, why: v.claim ? v.why : "no claim", bands: true })));
 
 const cache = new Map<string, Awaited<ReturnType<typeof prepare>>>();
 async function prepare(p: (typeof picks)[number]) {
@@ -125,7 +121,7 @@ const table: string[] = ["| card | photo | claim source | claim | text box | cla
 for (const job of jobs) {
   const prep = cache.get(job.pick.assetId) ?? (await prepare(job.pick));
   cache.set(job.pick.assetId, prep);
-  const watermark = watermarkFor(job.claimSource);
+  const watermark = job.watermark;
   const res: ClaimCardResult = await renderClaimCard({
     photo: prep.bytes,
     face: prep.geometry,
@@ -149,12 +145,51 @@ for (const job of jobs) {
     files.push(f);
   }
   const p = res.plan;
-  const srcLabel = job.claimSource.kind === "approved" ? `approved (${job.claimSource.id})` : job.claimSource.kind === "none" ? `not approved — proposal ${proposed?.id ?? "–"} (held)` : job.claimSource.kind === "sample" ? "sample (fixture)" : "no claim";
+  const srcLabel = job.why;
   const fails = res.rules.filter((r) => !r.pass).map((r) => `${r.rule}: ${r.detail}`);
   say(`## ${job.pick.artist} ${job.pick.card} · ${job.label} · ${prep.name}${res.held ? ` · HELD: ${res.held}` : ""}${!res.held && !res.placed ? " · not drawn: the face can't be placed in the claim's band" : ""}`);
   say(`claim ${job.claimText ? JSON.stringify(job.claimText) : "none"} · source ${srcLabel}${watermark ? ` · watermark "${watermark}"` : ""} · bands ${job.bands ? "on" : "off"}`);
   if (res.claim) say(`slot: ${res.claim.kind} · ${res.claim.lines.map((l) => `"${l.text}" ${l.color}${l.color === "red" && res.redLineWhite ? "→white" : ""} cap ${l.capPx.toFixed(1)} px top y ${l.capTop.toFixed(1)} width ${Math.round(l.widthPx)} px`).join(" · ")} · k ${res.claim.k.toFixed(3)}`);
   say(`contrast: text box ${pct(res.contrast.textBox)} · claim box ${pct(res.contrast.claimBox)} · red line ${pct(res.contrast.redLine)} below 2:1${res.approvalLines.length ? ` · approval line: ${res.approvalLines.join("; ")}` : ""}`);
+  // H66, measured on the card: the mean luma of each row across line 1's ink, from line 1's baseline to line 2's cap top.
+  if (res.master && res.claim && res.claim.lines.length === 2 && res.redBacking != null) {
+    const [l1, l2] = res.claim.lines as [(typeof res.claim.lines)[number], (typeof res.claim.lines)[number]];
+    const { data, info } = await sharp(res.master).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const x0 = Math.round((info.width - l1.widthPx) / 2);
+    const x1 = Math.round((info.width + l1.widthPx) / 2);
+    const rowLuma = (y: number) => {
+      let sum = 0;
+      for (let x = x0; x < x1; x += 1) {
+        const i = (y * info.width + x) * info.channels;
+        sum += 0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!;
+      }
+      return sum / Math.max(1, x1 - x0);
+    };
+    const y0 = Math.ceil(l1.capTop + l1.capPx);
+    const y1 = Math.floor(l2.capTop);
+    let worst = 0;
+    let at = y0;
+    for (let y = y0; y < y1; y += 1) {
+      const d = Math.abs(rowLuma(y + 1) - rowLuma(y));
+      if (d > worst) {
+        worst = d;
+        at = y;
+      }
+    }
+    // The feather alone: from the core's edge (line 1's baseline + a quarter of the gap, at most 0.5 cap) to line 2's cap top.
+    const core = Math.ceil(l1.capTop + l1.capPx + Math.min(0.5 * l1.capPx, 0.25 * (l2.capTop - (l1.capTop + l1.capPx))));
+    let fWorst = 0;
+    let fAt = core;
+    for (let y = core; y < y1; y += 1) {
+      const d = Math.abs(rowLuma(y + 1) - rowLuma(y));
+      if (d > fWorst) {
+        fWorst = d;
+        fAt = y;
+      }
+    }
+    const profile = Array.from({ length: y1 - y0 + 2 }, (_, i) => `${y0 + i}:${rowLuma(y0 + i).toFixed(0)}`).join(" ");
+    say(`H66 (O66): backing ${Math.round(res.redBacking * 100)} % · gap y ${y0}–${y1}. Whole gap, line 1's glyph edge and O6 shadow included: largest row-to-row step ${worst.toFixed(1)} levels at y ${at}. The feather alone (y ${core}–${y1}): ${fWorst.toFixed(1)} levels at y ${fAt} (limit 6) → ${fWorst <= 6 ? "passes" : "fails"}. Mean luma by row: ${profile}`);
+  }
   say(`placement: ${p ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · scale ${p.scale.toFixed(3)}` : "–"} · ${res.extensionLabel || "no extension"}`);
   // O20's figures for every extended edge, each beside its limit (design checks them, not only "pass").
   for (const x of res.extension) {

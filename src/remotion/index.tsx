@@ -14,6 +14,8 @@ import {
   type CaptionOnClipProps,
 } from "./compositions/CaptionOnClip";
 import { FrameSheet } from "./compositions/FrameSheet";
+import { T1OnClip, type T1OnClipProps } from "./compositions/T1OnClip";
+import { FORMAT_SIZE } from "../../lib/creative-lab/t1-video-frame";
 import {
   captionLimits,
   outputSize,
@@ -34,6 +36,20 @@ const cityStaticDefaultProps: FourTfCityStaticProps = {
 const photoReelDefaultProps: PhotoReelStaticProps = {
   photos: [],
   framesPerPhoto: 7,
+};
+
+const t1DefaultProps: T1OnClipProps = {
+  clipUrl: "",
+  format: "9:16",
+  sourceWidth: 1080,
+  sourceHeight: 1920,
+  cropFocusY: 0.5,
+  fps: 30,
+  durationInSeconds: 1,
+  muted: true,
+  bandsUrl: "",
+  topUrl: "",
+  claimUrl: null,
 };
 
 const captionDefaultProps: CaptionOnClipProps = {
@@ -117,6 +133,20 @@ function RemotionRoot() {
         height={1280}
         durationInFrames={30}
         defaultProps={captionDefaultProps}
+      />
+      <Composition
+        id="T1OnClip"
+        component={T1OnClip as unknown as FC<Record<string, unknown>>}
+        calculateMetadata={({ props }) => {
+          const p = props as unknown as T1OnClipProps;
+          const size = FORMAT_SIZE[p.format];
+          return { width: size.width, height: size.height, fps: p.fps || 30, durationInFrames: Math.max(1, Math.round(p.durationInSeconds * (p.fps || 30))) };
+        }}
+        fps={30}
+        width={1080}
+        height={1920}
+        durationInFrames={30}
+        defaultProps={t1DefaultProps as unknown as Record<string, unknown>}
       />
       <Composition
         id="FrameSheet"
