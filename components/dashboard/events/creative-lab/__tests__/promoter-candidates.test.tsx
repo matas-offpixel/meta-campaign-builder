@@ -89,4 +89,19 @@ describe("Puzzle footage candidates", () => {
     expect(screen.queryByText(/No Puzzle footage yet/)).toBeNull();
     expect(screen.queryByRole("heading", { name: "Find clips on Instagram" })).toBeNull();
   });
+
+  it("renders the stored thumbnail on the candidate tile", () => {
+    const thumb = "https://example.supabase.co/storage/v1/object/public/creative-thumbnails/creative-lab/ig/client-puzzle/reel-1.jpg";
+    const { container } = render(
+      <LabClips
+        lab={puzzle([{ ...candidate("reel-1", "media-1"), thumbnailUrl: thumb }])}
+        busy={false}
+        onSave={() => Promise.resolve({ ok: true, json: {} })}
+        onError={() => undefined}
+        intake={false}
+        layout="owner"
+      />,
+    );
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(thumb);
+  });
 });
