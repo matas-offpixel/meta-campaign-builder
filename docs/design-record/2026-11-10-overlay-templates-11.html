@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 11 — T2 on the promoter's own photos and footage — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.ph{background:radial-gradient(circle at 22% 18%,rgba(255,170,90,.55),transparent 18%),radial-gradient(circle at 78% 26%,rgba(120,150,255,.45),transparent 20%),radial-gradient(circle at 50% 62%,rgba(255,110,60,.35),transparent 26%),radial-gradient(circle at 15% 80%,rgba(255,200,120,.25),transparent 22%),linear-gradient(180deg,#2a1d18 0%,#3a2620 45%,#1c1310 100%)}
+.ph::after{content:"";position:absolute;left:0;right:0;bottom:0;height:40%;background:radial-gradient(circle at 50% 100%,rgba(8,5,4,.85) 0 11px,transparent 12px) bottom/26px 34px repeat-x,radial-gradient(circle at 50% 100%,rgba(8,5,4,.6) 0 9px,transparent 10px) 13px calc(100% - 22px)/26px 30px repeat-x,linear-gradient(180deg,transparent,rgba(8,5,4,.7))}
+.bt{position:absolute;inset:0;z-index:1}
+.tx{position:absolute;z-index:2;display:flex;color:#fff;font-family:Impact,"Arial Narrow","DejaVu Sans Condensed",sans-serif;font-weight:700;line-height:1;white-space:nowrap}
+.tx span{display:inline-block;transform:scaleX(.45)}
+.tx.r{justify-content:flex-end}.tx.r span{transform-origin:right center}
+.tx.c{justify-content:center}.tx.c span{transform-origin:center}
+.tx.l{justify-content:flex-start}.tx.l span{transform-origin:left center}
+.tx.red{color:#FE3232}
+.ui2{position:absolute;left:0;right:0;z-index:3;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.safe2{position:absolute;z-index:3;border:1px dashed #fff}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 11 · 10 November 2026</p>
+<h1>Overlay templates — issue 11: T2 on the promoter's own photos and footage</h1>
+<div class="lead"><p>Matas, 10 Nov, gave two answers. Another promoter's or venue's branding in the footage is fine: most artist footage has it. And T2 is fine with or without a claim. It is also the template for experience-led marketing: an event-led message set straight onto the promoter's own photos and clips, with no taped panel. This issue rules that second ground for T2: its experience line, positions, contrast, faces, resolution and timing. It also withdraws O72. Issues 1–10 stand except where a row says otherwise.</p>
+<p>Matas's example is a Puzzle 9:16 for Sat 17 Oct: a crowd photo, full-bleed, all Bootzy and white. The lineup is top right, the experience line centred, the claim under it, date and venue bottom left, and the wordmark bottom right. The example image didn't come through to the design thread. The frames below are drawn from its description at the T2 kit's own measures; H85 compares them with the example when it arrives.</p></div>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 11 · 10 Nov 2026.</b>
+<ul>
+<li>O75: O72 withdrawn.</li>
+<li>O76: T2's two grounds (supersedes O30 for promoter photos and footage).</li>
+<li>O77: the experience line's words.</li>
+<li>O78: the experience line's size, and the claim under it.</li>
+<li>O79: the other slots on the photo ground.</li>
+<li>O80: positions in 9:16, 4:5 and 1:1.</li>
+<li>O81: contrast.</li>
+<li>O82: faces and resolution.</li>
+<li>O83: on a clip.</li>
+<li>O84: issue 10's open items closed.</li>
+<li>T2p schematics; hand-back H76–H85.</li>
+</ul></li>
+<li><b>Issue 10 · 10 Nov 2026.</b> O68–O74. #1172.</li>
+</ul></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O75 O72 withdrawn</td><td>Matas, 10 Nov: another promoter's or venue's branding in the footage (SOLID GROOVES, SPACE, amnesia) is fine to use. O72 and H73 are withdrawn: nothing is detected, flagged or refused for it, and there is no "Another name in the footage" line.</td></tr>
+<tr><td>O76 T2's two grounds</td><td>
+<ul>
+<li><b>The panel ground</b> (issues 4–5): the kit's taped poster panel over its paint ground. It is unchanged.</li>
+<li><b>The photo ground</b> (this issue): the promoter's own photo or clip, full-bleed, with no panel. It is only for footage and photos whose owner is the promoter (W1), including promoter clips that feature an artist (W8). Artist-owned footage takes T1, never T2.</li>
+<li>This supersedes O30's "a T2 on a panel kit always draws the panel", for promoter photos and footage only. A bare colour ground is still never a T2.</li>
+<li>The crop moves the photo, never the type (O41).</li>
+</ul></td></tr>
+<tr><td>O77 The experience line's words</td><td>The headline slot carries the experience line: what the night is, not what's on sale. One line per event and ground, kept on the asset board beside the claims.
+<ul>
+<li><b>Typed:</b> Matas, or whoever runs the event, types it, and it is kept verbatim. The display is upper case, the kit's case (O23).</li>
+<li><b>Suggested:</b> "Suggest" has the Lab writer propose three in the promoter's voice (V-rulings: the promoter's corpus) from the event's facts only: city, venue, the night's name, the sound as the facts record has it, and the lineup.</li>
+<li>The writer never writes a number, a ranking or superlative ("biggest", "best", "No. 1", "only", "first"), or a sale or scarcity word. Those are the promoter's to type, or the ladder's to claim.</li>
+<li>Matas's "SOUTHAMPTON'S BIGGEST HOUSE PARTY" is a typed line.</li>
+<li><b>Approval:</b> it is ✓'d like a claim. Until then, a draft carries the stamp "DRAFT · experience line not approved" (O36).</li>
+<li><b>Limits:</b> two lines at most and 40 characters at most, with no emoji. A break typed into the line is kept. Otherwise the line breaks at the most even break among O28's allowed breaks. A line that doesn't fit two lines at the last size step can't be saved: "Too long for two lines — shorten the experience line". It is never shortened or re-worded by the Lab.</li>
+</ul></td></tr>
+<tr><td>O78 Size, and the claim under it</td><td>
+<ul>
+<li><b>Experience line:</b> T2's steps, cap 0.06 / 0.052 / 0.045 H. The two-line pitch is O4's 0.0875 H at step 0, scaled with the cap. The width limit is 0.86 W (0.07–0.93 W) on a still and 840 px on a 9:16 clip (O43). It is white and centred.</li>
+<li><b>The claim is optional.</b> When the event has one (approved, or held and stamped as T2's are), it sits under the experience line:
+<ul>
+<li>cap 0.55 of the experience line's cap at its step;</li>
+<li>0.025 H from the experience line's last baseline to the claim's first cap top, scaled with the step;</li>
+<li>the same width limit.</li>
+</ul></li>
+<li>A roll-call takes O23's sizes at that cap: line 1 kit red at 0.625, the gap 0.29. The tiers come from O59. O8's drops apply to the claim and never to the experience line.</li>
+<li><b>The block</b> is the experience line plus the claim. It is centred as a whole: on 0.50 H on a still, and between the lineup and the details on a clip (O80). With no claim, the block is the experience line alone.</li>
+<li>A photo-ground T2 needs an experience line or a claim. With neither: "Add an experience line or a claim".</li>
+</ul></td></tr>
+<tr><td>O79 The other slots</td><td>
+<ul>
+<li><b>Lineup:</b> top right, right-aligned. These are the T2 kit's measures: cap 0.026 H, pitch 0.03 H, at most 6 lines, at most 0.40 W, tracking +5. The names come from the event's facts in their order, verbatim, upper case.</li>
+<li>"&amp; MORE" is the last line only when the event's facts say more acts are to be announced. It is never added otherwise.</li>
+<li><b>Details:</b> bottom left, two lines, date then venue: cap 0.0266 H, pitch 0.0307 H, at most 0.40 W, coral on "&gt;" only. They are the kit's live layer verbatim where the event has one ("SUNDAY 27TH DECEMBER / CIRCUIT &gt; SOUTHAMPTON"); otherwise "{EEE} {d} {MMM}" and the venue's name ("SAT 17 OCT / CIRCUIT").</li>
+<li><b>Logo:</b> bottom right, 0.15 W wide by its ink box, centred on the details' centre line. It is the kit's lockup for that event where there is one, otherwise the wordmark piece.</li>
+<li>Every slot is white Bootzy (the kit's face, O24, O49), except the roll-call's red line and the coral "&gt;". There is no stroke and no shadow (O5).</li>
+</ul></td></tr>
+<tr><td>O80 Positions</td><td>Ratios of the 9:16 master (1080 × 1920).
+<ul>
+<li><b>9:16 still</b> (Stories; H44's preview check stands):
+<ul>
+<li>the lineup's right edge at 0.857 W and its first cap top at 0.219 H;</li>
+<li>the block centred on 0.50 H; with Matas's words (two lines at step 0 and a one-line claim) it runs 0.397–0.603 H;</li>
+<li>the details at the left inset 0.143 W, centred on 0.767 H;</li>
+<li>the logo's right edge at 0.857 W.</li>
+</ul></li>
+<li><b>9:16 clip</b> (Reels / TikTok): everything inside O43's safe area, x 120–960 and y 269–1248:
+<ul>
+<li>the lineup's right edge at 0.889 W and its first cap top at 0.15 H;</li>
+<li>the details' last baseline on 0.65 H at the left edge 0.111 W, and the logo's right edge at 0.889 W on the details' centre line;</li>
+<li>the block centred halfway between the lineup's last baseline and the details' first cap top (0.342–0.547 H with Matas's words).</li>
+</ul></li>
+<li><b>4:5:</b> the 9:16 still's 4:5 rectangle (O1), with the type at its 9:16 size. <b>1:1:</b> O1's 0.8× re-sit, at the same fractions. Clips in 4:5 and 1:1 take the same positions (feed: no controls over the media).</li>
+<li>The middle of the frame belongs to the block, so there is no face window on this template (O82).</li>
+</ul></td></tr>
+<tr><td>O81 Contrast</td><td>The photo is busy behind every slot, so the photo ground carries three bands, all O25's 20 % black and stepped per band, once per photo or clip, as O57.
+<ul>
+<li><b>Top band</b> behind the lineup, anchored as O55's top band: full to the lineup's last baseline + 0.02 H, then fading to 0 over 0.09 H.</li>
+<li><b>Centre band</b> behind the block: full from the block's first cap top − 0.02 H to its last baseline + 0.02 H, fading to 0 over 0.06 H on each side.</li>
+<li><b>Bottom band</b> behind the details and logo, anchored as O55's bottom band on the details' first cap top.</li>
+<li>All three use J2's fade, steps 20 → 30 → 40 % (the bottom band 20 / 30 → 30 / 40 → 40 / 50 %), and O46's dithering on clips.</li>
+<li><b>Limits</b> (O19, O40, O61): the lineup and the details ≤ 10 % below 3:1; the block box ≤ 15 % below 3:1; the logo ≤ 15 %; the roll-call's red line ≤ 25 % below 2:1, with O58's backing (O66's shape, O70's feather) before white. These are measured on the photo, or on the p95 sample on a clip.</li>
+<li>Past the last step: "Too busy behind the {lineup / experience line / details} — choose another photo or clip".</li>
+</ul></td></tr>
+<tr><td>O82 Faces and resolution</td><td>
+<ul>
+<li><b>Faces:</b> faces at least 0.08 W wide count (O64), tested by the upper 60 % of the box (O56) against every type box, each padded 12 px. Crowd faces below the floor are ignored, as on T1.</li>
+<li>On a still, a counted face may not touch type at all: the crop is tried first, else "Face in the type — choose another crop or photo". On a clip, O56's limits apply (10 % and 0.5 s), with O65's and O71's lines.</li>
+<li><b>Resolution:</b> a still is never upscaled (O19). The crop window must be at least the output's width, else "Photo too small for {format} — {w} px wide in the crop, needs 1080". A clip follows O63 (up to 1.6×), O68 (the render copy) and O69 (the filter).</li>
+</ul></td></tr>
+<tr><td>O83 On a clip</td><td>
+<ul>
+<li><b>Timing</b> (O37): the lineup, details, logo, all three bands and the experience line are on from frame 0. The experience line is this template's hook, as the name is T1's.</li>
+<li>The claim enters at 1.5 s with the 0.25 s fade and stays at least 3 s. A clip under 4.75 s runs without its claim.</li>
+<li><b>Safe area</b> on the 9:16: O43's, as O80 places it.</li>
+<li>A UGC caption and this template never share a clip (O44, as for T1).</li>
+</ul></td></tr>
+<tr><td>O84 Issue 10's open items</td><td>Both are closed by Matas's answers. Competitor branding: fine (O75). The no-claim T2 on the panel ground: fine as drawn in #1167's round 3, with the panel's middle left as paper. The panel ground may also carry an experience line in its claim slot (the paper, O32) at O78's sizes, with or without a claim.</td></tr>
+</table>
+
+<h2>T2p · the photo ground — schematics from Matas's example</h2>
+<p class="lead">At ¼ (9:16) and ⅕ (4:5, 1:1). The ground is a stand-in for Puzzle's crowd photo, and the type a condensed stand-in for Bootzy. On the clip, the red hatch is the platforms' controls and the dashed white line is the safe area. The bands are O81's, at step 0.</p>
+<div class="frame">
+<figure><figcaption>T2p-916 · still (Stories) · lineup top right · experience line centred on 0.50 H · claim under it · details bottom left, wordmark bottom right</figcaption>
+<div class="sch ph" style="width:270px;height:480px">
+  <div class="bt" style="background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.20) 4%,rgba(0,0,0,0.20) 8%,rgba(0,0,0,0.20) 12%,rgba(0,0,0,0.20) 16%,rgba(0,0,0,0.20) 20%,rgba(0,0,0,0.20) 24%,rgba(0,0,0,0.20) 28%,rgba(0,0,0,0.20) 32%,rgba(0,0,0,0.33) 36%,rgba(0,0,0,0.35) 40%,rgba(0,0,0,0.25) 44%,rgba(0,0,0,0.20) 48%,rgba(0,0,0,0.20) 52%,rgba(0,0,0,0.20) 56%,rgba(0,0,0,0.20) 60%,rgba(0,0,0,0.16) 64%,rgba(0,0,0,0.00) 68%,rgba(0,0,0,0.18) 72%,rgba(0,0,0,0.24) 76%,rgba(0,0,0,0.29) 80%,rgba(0,0,0,0.30) 84%,rgba(0,0,0,0.30) 88%,rgba(0,0,0,0.30) 92%,rgba(0,0,0,0.30) 96%,rgba(0,0,0,0.30) 100%)"></div>
+  <div class="tx r" style="left:121.0px;width:110.0px;top:102.7px;font-size:17.3px"><span>JAMBACK</span></div>
+  <div class="tx r" style="left:121.0px;width:110.0px;top:117.1px;font-size:17.3px"><span>MELLA DEE</span></div>
+  <div class="tx r" style="left:121.0px;width:110.0px;top:131.5px;font-size:17.3px"><span>CAM STOCKMAN</span></div>
+  <div class="tx r" style="left:121.0px;width:110.0px;top:145.9px;font-size:17.3px"><span>LI LI</span></div>
+  <div class="tx r" style="left:121.0px;width:110.0px;top:160.3px;font-size:17.3px"><span>&amp; MORE</span></div>
+  <div class="tx c" style="left:18.9px;width:232.2px;top:185.0px;font-size:40.0px"><span>SOUTHAMPTON'S</span></div>
+  <div class="tx c" style="left:18.9px;width:232.2px;top:227.0px;font-size:40.0px"><span>BIGGEST HOUSE PARTY</span></div>
+  <div class="tx c" style="left:18.9px;width:232.2px;top:270.5px;font-size:22.0px"><span>STUDENT TICKETS SELLING FAST</span></div>
+  <div class="tx l" style="left:38.6px;width:110.0px;top:352.0px;font-size:17.7px"><span>SAT 17 OCT</span></div>
+  <div class="tx l" style="left:38.6px;width:110.0px;top:366.6px;font-size:17.7px"><span>CIRCUIT</span></div>
+  <div class="tx r" style="left:171.0px;width:60.0px;top:361.1px;font-size:14.7px"><span>PUZZLE</span></div>
+</div></figure>
+<figure><figcaption>T2p-916-clip · Reels · everything inside x 120–960, y 269–1248 · the claim enters at 1.5 s</figcaption>
+<div class="sch ph" style="width:270px;height:480px">
+  <div class="bt" style="background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.20) 4%,rgba(0,0,0,0.20) 8%,rgba(0,0,0,0.20) 12%,rgba(0,0,0,0.20) 16%,rgba(0,0,0,0.20) 20%,rgba(0,0,0,0.20) 24%,rgba(0,0,0,0.23) 28%,rgba(0,0,0,0.36) 32%,rgba(0,0,0,0.28) 36%,rgba(0,0,0,0.20) 40%,rgba(0,0,0,0.20) 44%,rgba(0,0,0,0.20) 48%,rgba(0,0,0,0.20) 52%,rgba(0,0,0,0.29) 56%,rgba(0,0,0,0.29) 60%,rgba(0,0,0,0.27) 64%,rgba(0,0,0,0.30) 68%,rgba(0,0,0,0.30) 72%,rgba(0,0,0,0.30) 76%,rgba(0,0,0,0.30) 80%,rgba(0,0,0,0.30) 84%,rgba(0,0,0,0.30) 88%,rgba(0,0,0,0.30) 92%,rgba(0,0,0,0.30) 96%,rgba(0,0,0,0.30) 100%)"></div>
+  <div class="tx r" style="left:130.0px;width:110.0px;top:69.6px;font-size:17.3px"><span>JAMBACK</span></div>
+  <div class="tx r" style="left:130.0px;width:110.0px;top:84.0px;font-size:17.3px"><span>MELLA DEE</span></div>
+  <div class="tx r" style="left:130.0px;width:110.0px;top:98.4px;font-size:17.3px"><span>CAM STOCKMAN</span></div>
+  <div class="tx r" style="left:130.0px;width:110.0px;top:112.8px;font-size:17.3px"><span>LI LI</span></div>
+  <div class="tx r" style="left:130.0px;width:110.0px;top:127.2px;font-size:17.3px"><span>&amp; MORE</span></div>
+  <div class="tx c" style="left:30.0px;width:210.1px;top:158.6px;font-size:40.0px"><span>SOUTHAMPTON'S</span></div>
+  <div class="tx c" style="left:30.0px;width:210.1px;top:200.6px;font-size:40.0px"><span>BIGGEST HOUSE PARTY</span></div>
+  <div class="tx c" style="left:30.0px;width:210.1px;top:244.1px;font-size:22.0px"><span>STUDENT TICKETS SELLING FAST</span></div>
+  <div class="tx l" style="left:30.0px;width:110.0px;top:282.2px;font-size:17.7px"><span>SAT 17 OCT</span></div>
+  <div class="tx l" style="left:30.0px;width:110.0px;top:296.9px;font-size:17.7px"><span>CIRCUIT</span></div>
+  <div class="tx r" style="left:180.0px;width:60.0px;top:291.3px;font-size:14.7px"><span>PUZZLE</span></div>
+  <div class="ui2" style="top:0;height:67px"></div>
+  <div class="ui2" style="top:312px;height:168px"></div>
+  <div class="safe2" style="left:30px;top:67px;width:210px;height:245px"></div>
+  <span class="lbl" style="left:4px;top:318px;z-index:4">Reels / TikTok controls</span>
+  <span class="lbl" style="right:4px;top:300px;z-index:4">0.65 H</span>
+</div></figure>
+<figure><figcaption>T2p-45 · the 9:16 still’s 4:5 rectangle (O1)</figcaption>
+<div class="sch ph" style="width:216px;height:270px">
+  <div class="bt" style="background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.20) 4%,rgba(0,0,0,0.20) 8%,rgba(0,0,0,0.20) 12%,rgba(0,0,0,0.20) 16%,rgba(0,0,0,0.20) 20%,rgba(0,0,0,0.20) 24%,rgba(0,0,0,0.27) 28%,rgba(0,0,0,0.36) 32%,rgba(0,0,0,0.35) 36%,rgba(0,0,0,0.28) 40%,rgba(0,0,0,0.21) 44%,rgba(0,0,0,0.20) 48%,rgba(0,0,0,0.20) 52%,rgba(0,0,0,0.20) 56%,rgba(0,0,0,0.20) 60%,rgba(0,0,0,0.20) 64%,rgba(0,0,0,0.20) 68%,rgba(0,0,0,0.09) 72%,rgba(0,0,0,0.00) 76%,rgba(0,0,0,0.14) 80%,rgba(0,0,0,0.21) 84%,rgba(0,0,0,0.25) 88%,rgba(0,0,0,0.28) 92%,rgba(0,0,0,0.30) 96%,rgba(0,0,0,0.30) 100%)"></div>
+  <div class="tx r" style="left:95.1px;width:90.0px;top:25.2px;font-size:13.9px"><span>JAMBACK</span></div>
+  <div class="tx r" style="left:95.1px;width:90.0px;top:36.7px;font-size:13.9px"><span>MELLA DEE</span></div>
+  <div class="tx r" style="left:95.1px;width:90.0px;top:48.2px;font-size:13.9px"><span>CAM STOCKMAN</span></div>
+  <div class="tx r" style="left:95.1px;width:90.0px;top:59.7px;font-size:13.9px"><span>LI LI</span></div>
+  <div class="tx r" style="left:95.1px;width:90.0px;top:71.2px;font-size:13.9px"><span>&amp; MORE</span></div>
+  <div class="tx c" style="left:15.1px;width:185.8px;top:91.0px;font-size:32.0px"><span>SOUTHAMPTON'S</span></div>
+  <div class="tx c" style="left:15.1px;width:185.8px;top:124.6px;font-size:32.0px"><span>BIGGEST HOUSE PARTY</span></div>
+  <div class="tx c" style="left:15.1px;width:185.8px;top:159.4px;font-size:17.6px"><span>STUDENT TICKETS SELLING FAST</span></div>
+  <div class="tx l" style="left:30.9px;width:90.0px;top:224.6px;font-size:14.2px"><span>SAT 17 OCT</span></div>
+  <div class="tx l" style="left:30.9px;width:90.0px;top:236.3px;font-size:14.2px"><span>CIRCUIT</span></div>
+  <div class="tx r" style="left:135.1px;width:50.0px;top:231.9px;font-size:11.7px"><span>PUZZLE</span></div>
+</div></figure>
+<figure><figcaption>T2p-11 · 0.8× re-sit (O1), the same fractions</figcaption>
+<div class="sch ph" style="width:216px;height:216px">
+  <div class="bt" style="background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.20) 4%,rgba(0,0,0,0.20) 8%,rgba(0,0,0,0.20) 12%,rgba(0,0,0,0.20) 16%,rgba(0,0,0,0.20) 20%,rgba(0,0,0,0.20) 24%,rgba(0,0,0,0.27) 28%,rgba(0,0,0,0.36) 32%,rgba(0,0,0,0.35) 36%,rgba(0,0,0,0.28) 40%,rgba(0,0,0,0.21) 44%,rgba(0,0,0,0.20) 48%,rgba(0,0,0,0.20) 52%,rgba(0,0,0,0.20) 56%,rgba(0,0,0,0.20) 60%,rgba(0,0,0,0.20) 64%,rgba(0,0,0,0.20) 68%,rgba(0,0,0,0.09) 72%,rgba(0,0,0,0.00) 76%,rgba(0,0,0,0.14) 80%,rgba(0,0,0,0.21) 84%,rgba(0,0,0,0.25) 88%,rgba(0,0,0,0.28) 92%,rgba(0,0,0,0.30) 96%,rgba(0,0,0,0.30) 100%)"></div>
+  <div class="tx r" style="left:105.1px;width:80.0px;top:20.1px;font-size:11.1px"><span>JAMBACK</span></div>
+  <div class="tx r" style="left:105.1px;width:80.0px;top:29.3px;font-size:11.1px"><span>MELLA DEE</span></div>
+  <div class="tx r" style="left:105.1px;width:80.0px;top:38.6px;font-size:11.1px"><span>CAM STOCKMAN</span></div>
+  <div class="tx r" style="left:105.1px;width:80.0px;top:47.8px;font-size:11.1px"><span>LI LI</span></div>
+  <div class="tx r" style="left:105.1px;width:80.0px;top:57.0px;font-size:11.1px"><span>&amp; MORE</span></div>
+  <div class="tx c" style="left:15.1px;width:185.8px;top:72.8px;font-size:25.6px"><span>SOUTHAMPTON'S</span></div>
+  <div class="tx c" style="left:15.1px;width:185.8px;top:99.7px;font-size:25.6px"><span>BIGGEST HOUSE PARTY</span></div>
+  <div class="tx c" style="left:15.1px;width:185.8px;top:127.5px;font-size:14.1px"><span>STUDENT TICKETS SELLING FAST</span></div>
+  <div class="tx l" style="left:30.9px;width:80.0px;top:179.7px;font-size:11.3px"><span>SAT 17 OCT</span></div>
+  <div class="tx l" style="left:30.9px;width:80.0px;top:189.0px;font-size:11.3px"><span>CIRCUIT</span></div>
+  <div class="tx r" style="left:141.1px;width:44.0px;top:185.7px;font-size:9.4px"><span>PUZZLE</span></div>
+</div></figure>
+</div>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>T2 standalone message</td><td>Two grounds: the panel, and the promoter's photo or clip. On the photo: the experience line slot, the optional claim under it, the lineup, details and logo, three bands.</td></tr>
+<tr><td>Asset board</td><td>An "Experience line" row per event beside the claims: typed, or "Suggest" (three from the writer), ✓ to approve.</td></tr>
+<tr><td>Approval card lines</td><td>New: "DRAFT · experience line not approved"; "Too long for two lines — shorten the experience line"; "Add an experience line or a claim"; "Too busy behind the {lineup / experience line / details} — choose another photo or clip"; "Face in the type — choose another crop or photo"; "Photo too small for {format} — {w} px wide in the crop, needs 1080". Withdrawn: "Another name in the footage: {text} — check before approving".</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H76 O72 out</td><td>O75: no text detection for names, no flag, no line.</td><td>—</td><td>the phrase appears nowhere</td></tr>
+<tr><td>H77 Grounds</td><td>O76: the photo ground offered only for promoter-owned photos and clips.</td><td>creative_lab_clips.owner</td><td>unit test: an artist-owned clip can't take T2; a promoter clip featuring Luke can</td></tr>
+<tr><td>H78 Experience line</td><td>O77: typed or suggested, approval and stamp, limits and the line, the writer's no-superlative / no-number rule.</td><td>the event's facts, the promoter corpus</td><td>a suggestion test never returns a number or any of the listed superlatives; Matas's line saves verbatim and breaks as "SOUTHAMPTON'S / BIGGEST HOUSE PARTY"</td></tr>
+<tr><td>H79 Sizes</td><td>O78: steps, the claim under it, the roll-call, the block.</td><td>—</td><td>Matas's words fit at step 0 at 0.86 W and at 840 px</td></tr>
+<tr><td>H80 Slots</td><td>O79: lineup (with "&amp; MORE" only from the facts), details, logo.</td><td>creative_lab_event_facts, the kit</td><td>unit test: no "&amp; MORE" without the facts' flag</td></tr>
+<tr><td>H81 Positions</td><td>O80: still, clip, 4:5, 1:1.</td><td>—</td><td>every type box inside x 120–960, y 269–1248 on the 9:16 clip</td></tr>
+<tr><td>H82 Contrast</td><td>O81: three bands, their steps, the limits, the backing, the line.</td><td>—</td><td>H37's reading of all three bands on a flat test photo</td></tr>
+<tr><td>H83 Faces, resolution</td><td>O82.</td><td>the face detector, dimensions</td><td>a still with a 0.1 W face under the block is refused unless a crop clears it</td></tr>
+<tr><td>H84 Clips</td><td>O83: timing, safe area, the caption rule.</td><td>—</td><td>a 12 s clip's claim is at 0 % at 1.49 s and 100 % at 1.75 s; the experience line is on at frame 0</td></tr>
+<tr><td>H85 Drafts</td><td>Render Matas's example: the Puzzle 17 Oct crowd photo and a Puzzle crowd clip, with and without the claim, in all three formats; same contact sheet and report. Compare the 9:16 still against Matas's example and report each slot's position and size against his.</td><td>Puzzle's promoter photos and clips</td><td>judged by the design thread; any slot more than 0.01 H or 0.01 W from the example is re-ruled in a later issue</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The positions on the photo ground beyond the T2 kit's own (the clip's 0.15 H and 0.889 W; centring the block between the lineup and the details).</li>
+<li>The claim at 0.55 of the experience line's cap and the 0.025 H gap.</li>
+<li>The centre band and its 0.02 / 0.06 H.</li>
+<li>The 40-character limit, the writer's word bans, and every new line.</li>
+<li>"&amp; MORE" from the facts' flag.</li>
+</ul>
+
+<h2>Frames</h2>
+<table class="t">
+<tr><th>Id</th><th>Formats</th><th>Source</th></tr>
+<tr><td>T2p</td><td>9:16 still and clip, 4:5, 1:1</td><td>Schematics in this record, drawn from Matas's description</td></tr>
+<tr><td>T2 on the photo ground</td><td>9:16, 4:5, 1:1</td><td>H85's drafts; CI frames from a fixture photo once they pass</td></tr>
+</table>
+
+</div></body>
+</html>
