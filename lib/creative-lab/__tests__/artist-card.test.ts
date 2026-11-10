@@ -49,6 +49,7 @@ describe("slot table (fix round 1)", () => {
   it("lockup 0.28 W at y 361; name 28 px under it at cap 220; info 36 px under the name, cap 60, pitch 83", () => {
     const layout = layoutText({ lockup: LOCKUP, name: LUKE, info: INFO });
     assert.equal(layout.lockup!.width, 302);
+    assert.equal(layout.claim.text, null);
     assert.equal(layout.lockup!.top, 361);
     assert.equal(layout.lockup!.left, Math.round((1080 - 302) / 2));
     assert.equal(layout.name.top, layout.lockup!.top + layout.lockup!.height + 28);

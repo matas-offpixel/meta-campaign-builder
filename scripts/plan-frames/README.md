@@ -12,6 +12,7 @@ write killswitch unset. The loop that uses these renders is in
 | CL | Creative Lab card on the event page | 1280 and 393 | `lab-fixtures.ts` |
 | AB | Asset bank on the event page, Today and the client Ticketing tab | 1280 and 393 | `bank-fixtures.ts`, `components/dashboard/asset-bank/` |
 | IR | Insights rail beside the event page and the MML canvas | per frame (record) | `rail-fixtures.ts` |
+| ACG | Artist-card photo gate, variant A only | 1280 and 393 | `artist-card-frame-mount.tsx` |
 
 ## Evidence pack
 
