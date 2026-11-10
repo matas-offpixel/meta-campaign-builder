@@ -83,15 +83,17 @@ export type FeatherCheck = { side: "top" | "bottom"; rows: number; meanStep: num
 /**
  * O70's check: the backing layer rendered alone (its dithered 8-bit alpha,
  * as drawn) over flat mid-grey, each row's mean level across the core's
- * width, from one row past the type's ink to the feather's end. The grey
+ * width, over the feather's rows only: from the last row of the core to the
+ * first row the feather has reached 0. The padding between the type's ink
+ * and the core is flat and isn't read (#1174 fix round 1). The largest
+ * row-to-row step there must be at most 1.6 × the feather's mean step: the
+ * level measured across those rows, over the feather's length in rows. The grey
  * isn't rounded a second time: that rounding is the display's, the same for
- * any layer, and at a 2–3 level mean step it alone would add a 1-level step. The largest
- * row-to-row step must be at most 1.6 × the feather's mean step (the core's
- * level to the grey, over the feather's length). The type's own edge and
- * shadow are never in it: the layer has no type. A hard cut (no feather)
- * fails at any opacity.
+ * any layer, and at a 2–3 level mean step it alone would add a 1-level step.
+ * The type's edge and shadow are never in it: the layer has no type. A hard
+ * cut (no feather) fails at any opacity.
  */
-export function checkFeather(b: BackingBox, opacity: number, side: "top" | "bottom", ink: { top: number; bottom: number }, frame: { width: number; height: number }, grey = 128): FeatherCheck {
+export function checkFeather(b: BackingBox, opacity: number, side: "top" | "bottom", frame: { width: number; height: number }, grey = 128): FeatherCheck {
   const x0 = Math.max(0, Math.ceil(b.rect.left));
   const x1 = Math.min(frame.width, Math.floor(b.rect.left + b.rect.width));
   const level = (y: number) => {
@@ -100,24 +102,21 @@ export function checkFeather(b: BackingBox, opacity: number, side: "top" | "bott
     return sum / Math.max(1, x1 - x0);
   };
   const span = b.feather[side];
-  const total = grey * opacity;
-  if (span < 1) return { side, rows: 0, meanStep: 0, maxStep: total, ratio: Infinity, ok: total === 0 };
-  let maxStep = 0;
-  let rows = 0;
-  if (side === "bottom") {
-    const end = Math.min(frame.height - 1, Math.ceil(b.rect.top + b.rect.height + span));
-    for (let y = Math.ceil(ink.bottom) + 1; y < end; y += 1) {
-      maxStep = Math.max(maxStep, Math.abs(level(y + 1) - level(y)));
-      rows += 1;
-    }
-  } else {
-    const end = Math.max(0, Math.floor(b.rect.top - span));
-    for (let y = Math.floor(ink.top) - 1; y > end; y -= 1) {
-      maxStep = Math.max(maxStep, Math.abs(level(y - 1) - level(y)));
-      rows += 1;
-    }
+  if (span < 1) {
+    const total = grey * opacity;
+    return { side, rows: 0, meanStep: 0, maxStep: total, ratio: Infinity, ok: total === 0 };
   }
-  const meanStep = total / span;
+  // Rows by their centres: the last core row, then each feather row, to the first row at 0.
+  const edge = side === "bottom" ? b.rect.top + b.rect.height : b.rect.top;
+  const dir = side === "bottom" ? 1 : -1;
+  const first = side === "bottom" ? Math.floor(edge - 0.5) : Math.ceil(edge - 0.5);
+  const last = side === "bottom" ? Math.ceil(edge + span - 0.5) : Math.floor(edge - span - 0.5);
+  const steps: number[] = [];
+  for (let y = first; y !== last && y + dir >= 0 && y + dir < frame.height; y += dir) steps.push(Math.abs(level(y + dir) - level(y)));
+  // The mean step is the drop measured across those rows over the feather's length in rows: its own average slope.
+  // (Dividing by the count of row steps would add one step a feather never has, and fail every short smoothstep.)
+  const meanStep = steps.length ? Math.abs(level(first) - level(last)) / span : 0;
+  const maxStep = steps.length ? Math.max(...steps) : 0;
   const ratio = meanStep > 0 ? maxStep / meanStep : 0;
-  return { side, rows, meanStep, maxStep, ratio, ok: ratio <= FEATHER_STEP_RATIO + 1e-9 };
+  return { side, rows: steps.length, meanStep, maxStep, ratio, ok: ratio <= FEATHER_STEP_RATIO + 1e-9 };
 }

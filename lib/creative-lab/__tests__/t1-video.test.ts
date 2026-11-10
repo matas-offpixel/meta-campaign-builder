@@ -601,7 +601,6 @@ describe("H64 / H65 · O64 the face floor, O65 the run line", () => {
 describe("overlay templates issue 10 · H71 the feather (O70)", () => {
   const frame = { width: 1080, height: 1920 };
   const cardLine = { capTop: 1413, capPx: 48, widthPx: 602 };
-  const ink = { top: 1413, bottom: 1461 };
 
   it("the feather is a smoothstep from the core's opacity to 0", () => {
     assert.equal(featherAt(0), 1);
@@ -617,17 +616,17 @@ describe("overlay templates issue 10 · H71 the feather (O70)", () => {
     const b = backingRect(cardLine, 1080, { below: 1483 });
     close(b.feather.bottom, 16.5);
     for (const op of [0.4, 0.6, 0.8]) {
-      const f = checkFeather(b, op, "bottom", ink, frame);
+      const f = checkFeather(b, op, "bottom", frame);
       assert.ok(f.ok, `${op}: ${f.ratio}`);
       assert.ok(f.ratio <= FEATHER_STEP_RATIO && f.ratio > 1.3, String(f.ratio));
-      assert.ok(checkFeather(b, op, "top", ink, frame).ok);
+      assert.ok(checkFeather(b, op, "top", frame).ok);
     }
   });
 
   it("a hard cut fails at any opacity", () => {
     const b = backingRect(cardLine, 1080, { below: 1483 });
     const hard = { ...b, feather: { ...b.feather, bottom: 0 } };
-    for (const op of [0.4, 0.6, 0.8]) assert.equal(checkFeather(hard, op, "bottom", ink, frame).ok, false);
+    for (const op of [0.4, 0.6, 0.8]) assert.equal(checkFeather(hard, op, "bottom", frame).ok, false);
   });
 
   it("the type's edge isn't in the check: the layer alone is 0 at line 2's cap top and dithered from 16-bit", () => {
@@ -703,5 +702,38 @@ describe("overlay templates issue 10 · O68's render copy (read only), O69, O72"
     };
     for (const d of ["lib", "components", "app", "scripts"]) walk(join(process.cwd(), d));
     assert.deepEqual(hits, []);
+  });
+});
+
+describe("#1174 fix round 1 · the report's tried section (O65 / H65), the feather's rows", () => {
+  it("a heading with no line under it is caught, in both forms; the section the script writes passes", async () => {
+    const { TRIED_HEADING, emptyTriedHeadings, triedSection } = await import("../draft-report.ts");
+    const good = triedSection([
+      { heading: "Enzo Siragusa (710f043d) · v2-roll-call · 9:16", lines: ["crop 0.5 · A: face 42.5 % / 3.1 %, run 2.4 s → Face in the type", "crop 0.5 · B: face 25.0 % / 3.1 %, run 1.8 s → Face in the type"] },
+      { heading: "too small", lines: [] },
+    ]).join("\n");
+    assert.deepEqual(emptyTriedHeadings(good), []);
+    assert.doesNotMatch(good, /too small/);
+    assert.match(good, /### Enzo Siragusa \(710f043d\) · v2-roll-call · 9:16\n\n- crop 0\.5 · A: face 42\.5 % \/ 3\.1 %, run 2\.4 s/);
+    const bad = [TRIED_HEADING, "", "### Luke Dean (31ddb3b9) · v2-roll-call · 9:16", "", "### Enzo Siragusa · 4:5", "", "- crop 0.4 · B: face 0.0 % / 3.1 %, run 0.2 s → passes", "", "## The backing's feather (O70)", "- not a tried line"].join("\n");
+    assert.deepEqual(emptyTriedHeadings(bad), ["Luke Dean (31ddb3b9) · v2-roll-call · 9:16"]);
+    assert.deepEqual(emptyTriedHeadings([TRIED_HEADING, "**Luke Dean · 1:1**", "", "**Enzo · 1:1**", "- crop 0.5 · A: face 0 % / 0 %, run 0.0 s → passes"].join("\n")), ["Luke Dean · 1:1"]);
+  });
+
+  it("the drafts script builds its section with triedSection and refuses to write one with an empty heading", () => {
+    const src = readFileSync(join(process.cwd(), "scripts/t1-video-drafts.mts"), "utf8");
+    assert.match(src, /triedSection\(/);
+    assert.match(src, /emptyTriedHeadings\(/);
+    assert.doesNotMatch(src, /L\.push\(`\*\*\$\{r\.artist\}/);
+  });
+
+  it("the feather is read over its own rows, not the padding: the card's top side reads 49 rows, not 71", () => {
+    const b = backingRect({ capTop: 1413, capPx: 48, widthPx: 602 }, 1080, { below: 1483 });
+    const top = checkFeather(b, 0.4, "top", { width: 1080, height: 1920 });
+    assert.equal(top.rows, 49);
+    close(top.meanStep, (128 * 0.4) / 48, 0.05);
+    assert.ok(top.ok, String(top.ratio));
+    const bottom = checkFeather(b, 0.4, "bottom", { width: 1080, height: 1920 });
+    assert.equal(bottom.rows, 17);
   });
 });

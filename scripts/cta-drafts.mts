@@ -159,9 +159,8 @@ for (const job of jobs) {
     const meta = await sharp(res.master).metadata();
     const frame = { width: meta.width!, height: meta.height! };
     const box = backingRect(l1, frame.width, { below: l2.capTop });
-    const ink = { top: l1.capTop, bottom: l1.capTop + l1.capPx };
     for (const side of ["bottom", "top"] as const) {
-      const f = checkFeather(box, res.redBacking, side, ink, frame);
+      const f = checkFeather(box, res.redBacking, side, frame);
       say(`O70 feather (${side}): backing ${Math.round(res.redBacking * 100)} % · ${box.feather[side].toFixed(1)} px smoothstep · mean step ${f.meanStep.toFixed(2)}, largest ${f.maxStep.toFixed(2)} → ${f.ratio.toFixed(2)}× (limit 1.6) → ${f.ok ? "passes" : "fails"}`);
     }
   }

@@ -85,6 +85,7 @@ import {
 } from "../lib/creative-lab/t1-video.ts";
 import { applyBacking, backingLayer, checkFeather, type FeatherCheck } from "../lib/creative-lab/red-backing.ts";
 import { renderSourcePath } from "../lib/creative-lab/render-source.ts";
+import { emptyTriedHeadings, triedSection } from "../lib/creative-lab/draft-report.ts";
 import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { MAX_KNEE_STEP, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
 import type { T1OnClipProps } from "../src/remotion/compositions/T1OnClip.tsx";
@@ -542,7 +543,7 @@ for (const clipId of clipIds) {
       const fv = chosen?.face ?? bestFace!;
       // O70: the backing's feather, checked on the backing layer alone over flat mid-grey.
       const feather: FeatherCheck[] = backing && red?.backing != null && l1
-        ? [checkFeather(backing, red.backing, "bottom", { top: l1.capTop, bottom: l1.capTop + l1.capPx }, size), checkFeather(backing, red.backing, "top", { top: l1.capTop, bottom: l1.capTop + l1.capPx }, size)]
+        ? [checkFeather(backing, red.backing, "bottom", size), checkFeather(backing, red.backing, "top", size)]
         : [];
       const redWord = !red ? "–" : red.white ? "white (whole clip)" : red.backing != null ? `red, backed ${Math.round(red.backing * 100)} %` : "red";
       const stepWord = chosen ? `top +${Math.round(steps.top * 100)} · bottom +${Math.round(steps.bottom * 100)}` : "–";
@@ -648,23 +649,20 @@ L.push(`The roll-call, from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.st
 L.push("| Clip | Version | Format | Arrangement | Crop | Scale (O63, ≤ 1.6×) | Face (O64): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | Rendered | File |");
 L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
 for (const r of table) L.push(`| ${r.artist} (${r.clip}) | ${r.claimLabel} | ${r.fmt} | ${r.arrangement} | ${r.crop ?? "–"} | ${r.scale == null ? "–" : `${r.scale.toFixed(2)}×`} | ${pct(r.topShare)} / ${pct(r.claimShare)} · ${r.runS.toFixed(1)} s | ${pct(r.topP95)} | ${pct(r.lockupP95)} | ${pct(r.bottomP95)} | ${r.steps} | ${pct(r.redP95)} → ${r.red} | ${r.claim} | ${r.safe ? "✓" : "✗"} | ${r.result} | ${r.renderedOn ?? "–"} | ${r.file ?? "–"} |`);
-L.push("", "## Every crop and arrangement tried (O65)");
-for (const r of table) {
-  if (!r.tried.length) continue;
-  L.push(`**${r.artist} (${r.clip}) · ${r.claimLabel} · ${r.fmt}**`);
-  for (const t of r.tried) L.push(`- ${t}`);
-  L.push("");
-}
+L.push("", ...triedSection(table.map((r) => ({ heading: `${r.artist} (${r.clip}) · ${r.claimLabel} · ${r.fmt}`, lines: r.tried }))));
 L.push("Scaling (O69): upscales up to 1.6× use the renderer's own filter; no upscaled copy is stored. Footage read from: " + readFrom.join(" · ") + ".");
 L.push("", "## The backing's feather (O70)");
-L.push("Each backed draft's backing layer alone over flat mid-grey, read down the core's width from one row past line 1's ink to the feather's end: the largest row-to-row step against the feather's mean step (limit 1.6×; a smoothstep peaks at 1.5×).");
-for (const r of table) for (const f of r.feather) L.push(`- ${r.artist} (${r.clip}) · ${r.claimLabel} · ${r.fmt} · ${f.side}: ${f.rows} rows, mean step ${f.meanStep.toFixed(2)}, largest ${f.maxStep.toFixed(2)} → ${f.ratio.toFixed(2)}× → ${f.ok ? "passes" : "fails"}`);
+L.push("Each backed draft's backing layer alone over flat mid-grey, each row's mean level across the core's width, over the feather's rows only (the last core row to the first row at 0; the padding isn't read): the largest row-to-row step against the feather's mean step, the drop over the feather's length in rows (limit 1.6×; a smoothstep peaks at 1.5×).");
+for (const r of table) for (const f of r.feather) L.push(`- ${r.artist} (${r.clip}) · ${r.claimLabel} · ${r.fmt} · ${f.side}: ${f.rows} feather rows, mean step ${f.meanStep.toFixed(2)}, largest ${f.maxStep.toFixed(2)} → ${f.ratio.toFixed(2)}× → ${f.ok ? "passes" : "fails"}`);
 if (!table.some((r) => r.feather.length)) L.push("- No draft in this run took a backing.");
 L.push("", "## O46 on the encoded file");
 L.push(`A flat 0x808080 1080 × 1920 clip through T1OnClip with the bands only, H.264 CRF 18 (grey-test_bands_crf18.mp4), frame at 1 s. Largest step between adjacent rows' mean luma across the fades: ${fadeMax.toFixed(2)} levels (limit ${MAX_ROW_STEP}) → ${fadeMax <= MAX_ROW_STEP ? "passes" : "fails"}. At J2's two knees (rows ${greyKnees.join(", ")}, A's top and bottom bands): ${kneeSteps.map((k) => k.toFixed(2)).join(" / ")} levels (limit ${MAX_KNEE_STEP}, O55) → ${kneeSteps.every((k) => k <= MAX_KNEE_STEP) ? "passes" : "fails"}.`);
 L.push("", "## T1V_INVENTED and its rulings (issue 8, O62)");
 for (const i of T1V_INVENTED) L.push(`- **${i.ruling}**: ${i.value}`);
 L.push("", `Contact sheet: CONTACT-SHEET.png (frames at ${TIMES.join(" / ")} s).`);
+// H65: never write a tried section with a heading and nothing under it.
+const emptyTried = emptyTriedHeadings(L.join("\n"));
+if (emptyTried.length) fail(`report.md: no crop or arrangement listed under ${emptyTried.join("; ")}`);
 writeFileSync(join(outDir, "report.md"), L.join("\n") + "\n");
 server.close();
 if (lambda) {
