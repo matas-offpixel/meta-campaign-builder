@@ -31,7 +31,7 @@ With no handle it reads `PLACEHOLDER: a passing photo can come from the artist's
 ## Validation
 
 - [x] `node --conditions react-server --experimental-strip-types --test` on artist-card, artist-card-lab, psd-kit
-- [ ] frames pair `only=ACG`
+- [x] frames pair `only=ACG`, both 0: 42808884777 / 42808895343. New frames: ACG1-1280 (1280×166), ACG1-393 (393×186).
 - [ ] CI on the frames commit
 
 ## Notes
