@@ -9,9 +9,12 @@
  * the function. The mp4 is read with the S3 client from the progress
  * outKey, so this path does not load @remotion/renderer either.
  *
- * A new AWS account's Lambda concurrency quota is often 10. One render
- * fans out to a function per chunk, so a quota of 10 (or lower) renders
- * the whole clip in one function.
+ * One render fans out to a function per chunk. A quota of 10 or lower
+ * (a new AWS account's default) renders the whole clip in one function.
+ * eu-west-2 has 1000 since 10 Nov 2026: a caption render then uses at
+ * most MAX_FUNCTIONS_PER_CAPTION_RENDER functions, and the render tick
+ * starts at most MAX_LAB_RENDERS_AT_ONCE renders. A still is always one
+ * function. Measurements are in docs/REMOTION_LAMBDA_SETUP.md.
  */
 
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -39,12 +42,29 @@ const CONCURRENCY_QUOTA_CODE = "L-B99A9384";
 
 export type LambdaChunking = { framesPerLambda?: number; concurrencyPerLambda?: number; singleFunction: boolean };
 
-/** One function when the account cannot fan out. Remotion's own default otherwise. */
+/**
+ * 20 functions rendered a 26 s clip in 30 s for $0.0126. Remotion's
+ * default put it on 33 (24 s, $0.0150); 11 took 52 s for $0.0117.
+ */
+export const MAX_FUNCTIONS_PER_CAPTION_RENDER = 20;
+
+/** Remotion's own floor (bestFramesPerFunctionParam), so a 2 s clip stays on 3 functions. */
+export const MIN_FRAMES_PER_LAMBDA = 20;
+
+/**
+ * 4 renders x (20 + 1 orchestrator) = 84 functions, 8% of the quota. A
+ * default 8-ad round renders in two ticks instead of eight.
+ */
+export const MAX_LAB_RENDERS_AT_ONCE = 4;
+
+/** One function when the account cannot fan out. Otherwise at most MAX_FUNCTIONS_PER_CAPTION_RENDER chunks of at least MIN_FRAMES_PER_LAMBDA frames. */
 export function lambdaChunking(concurrencyLimit: number, frameCount: number): LambdaChunking {
+  const frames = Math.max(1, frameCount);
   if (concurrencyLimit <= 10) {
-    return { framesPerLambda: Math.max(1, frameCount), concurrencyPerLambda: 1, singleFunction: true };
+    return { framesPerLambda: frames, concurrencyPerLambda: 1, singleFunction: true };
   }
-  return { singleFunction: false };
+  const framesPerLambda = Math.max(MIN_FRAMES_PER_LAMBDA, Math.ceil(frames / MAX_FUNCTIONS_PER_CAPTION_RENDER));
+  return { framesPerLambda, singleFunction: false };
 }
 
 export function frameCount(props: CaptionRenderRequest["props"]): number {
@@ -93,14 +113,28 @@ async function downloadLambdaObject(bucket: string, key: string): Promise<Uint8A
   return new Uint8Array(await object.Body.transformToByteArray());
 }
 
+type LambdaClientModule = typeof import("@remotion/lambda/client");
+
+/** Test seams. Production loads @remotion/lambda/client, reads the quota and downloads from S3. */
+export type LambdaDeps = {
+  client?: Pick<LambdaClientModule, "getFunctions" | "renderMediaOnLambda" | "getRenderProgress" | "deleteRender" | "renderStillOnLambda">;
+  readConcurrencyLimit?: () => Promise<number>;
+  download?: (bucket: string, key: string) => Promise<Uint8Array>;
+  pollMs?: number;
+};
+
+async function lambdaClient(deps?: LambdaDeps): Promise<NonNullable<LambdaDeps["client"]>> {
+  return deps?.client ?? (await import("@remotion/lambda/client"));
+}
+
 /** Render, poll once through to the end, and download the mp4. Deletes a partial S3 render if the poll fails. */
-export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl: string): Promise<LambdaRenderOutput> {
-  const { getFunctions, renderMediaOnLambda, getRenderProgress, deleteRender } = await import("@remotion/lambda/client");
+export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl: string, deps?: LambdaDeps): Promise<LambdaRenderOutput> {
+  const { getFunctions, renderMediaOnLambda, getRenderProgress, deleteRender } = await lambdaClient(deps);
   const functions = await getFunctions({ region: REMOTION_REGION, compatibleOnly: true });
   const functionName = pickLambdaFunction(functions)?.functionName;
   if (!functionName) throw new Error("No 480s Remotion Lambda function in eu-west-2. Run scripts/remotion-lambda-deploy.mts.");
 
-  const limit = await readConcurrencyLimit();
+  const limit = await (deps?.readConcurrencyLimit ?? readConcurrencyLimit)();
   const chunking = lambdaChunking(limit, frameCount(req.props));
   const startedAt = Date.now();
   let started: Started | null = null;
@@ -125,7 +159,7 @@ export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl
     let progress = await getRenderProgress({ region: REMOTION_REGION, functionName, bucketName: output.bucketName, renderId: output.renderId });
     while (!progress.done && !progress.fatalErrorEncountered) {
       if (Date.now() > deadline) throw new Error("Lambda render timed out");
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, deps?.pollMs ?? 1000));
       progress = await getRenderProgress({ region: REMOTION_REGION, functionName, bucketName: output.bucketName, renderId: output.renderId });
     }
     if (progress.fatalErrorEncountered || !progress.done) {
@@ -133,7 +167,7 @@ export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl
     }
 
     if (!progress.outBucket || !progress.outKey) throw new Error("Lambda render finished without an output file");
-    const bytes = await downloadLambdaObject(progress.outBucket, progress.outKey);
+    const bytes = await (deps?.download ?? downloadLambdaObject)(progress.outBucket, progress.outKey);
     return {
       bytes,
       renderMs: Date.now() - startedAt,
@@ -152,11 +186,14 @@ export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl
 
 /**
  * One still of eight frames. A still is a single Lambda invocation
- * (2048 MB, eu-west-2), not the video fan-out. estimatedPrice is the
- * call's own cost.
+ * (2048 MB, eu-west-2), not the video fan-out, whatever the quota.
+ * estimatedPrice is the call's own cost.
  */
-export async function renderFrameSheetStill(input: { src: string; times: number[] }): Promise<{ url: string; estimatedCostUsd: number | null }> {
-  const { getFunctions, renderStillOnLambda } = await import("@remotion/lambda/client");
+export async function renderFrameSheetStill(
+  input: { src: string; times: number[] },
+  deps?: Pick<LambdaDeps, "client">,
+): Promise<{ url: string; estimatedCostUsd: number | null }> {
+  const { getFunctions, renderStillOnLambda } = await lambdaClient(deps);
   const functions = await getFunctions({ region: REMOTION_REGION, compatibleOnly: true });
   const fn = pickLambdaFunction(functions);
   if (!fn) throw new Error("No caption Lambda function is deployed.");
