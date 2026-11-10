@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 3 — the claim on the artist card, gradient bands, the Instagram fallback, fonts — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:420px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.warn{color:var(--ochre);border-color:var(--ochre)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.pending{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+/* schematics: master 1080×1920 at 1/4; 4:5 and 1:1 at 1/5 */
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px;font-size:8px}
+.m45{width:216px;height:270px}
+.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 64%,rgba(0,0,0,.02) 65.99%,rgba(0,0,0,.10) 68.64%,rgba(0,0,0,.18) 69.97%,rgba(0,0,0,.2) 70%,rgba(0,0,0,.3) 78%,rgba(0,0,0,.3) 100%)}
+.g45{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 69.91%,rgba(0,0,0,.02) 72.74%,rgba(0,0,0,.10) 76.51%,rgba(0,0,0,.18) 78.40%,rgba(0,0,0,.2) 78.44%,rgba(0,0,0,.3) 89.82%,rgba(0,0,0,.3) 100%)}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.8);border-bottom:1px dashed rgba(255,255,255,.8)}
+.slot{position:absolute;border:1px solid rgba(255,255,255,.95);display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.lock{border-color:#ff6876;color:#ffd0d4}
+.slot.red{border-color:#FE3232;color:#ffd0d0;background:rgba(254,50,50,.18)}
+.slot.white{background:rgba(255,255,255,.14)}
+.zone{position:absolute;left:0;right:0}
+.zone.face{background:rgba(95,107,42,.35)}
+.line{position:absolute;left:0;right:0;border-top:1px solid}
+.lbl{position:absolute;right:4px;font:600 7px/1 var(--mono);color:#fff}
+.lbl.l{left:4px;right:auto}
+.head{position:absolute;left:50%;transform:translateX(-50%);border:1px dashed #e8f2c8;border-radius:50% 50% 45% 45%}
+.ramp{display:flex;gap:28px;flex-wrap:wrap;margin:10px 0 18px}
+.ramp .bar{width:120px;height:480px;border-radius:6px;background:#fff;position:relative;overflow:hidden;border:1px solid var(--border-strong)}
+.ramp .bar .grad{background-blend-mode:normal}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 3 · 10 November 2026</p>
+<h1>Overlay templates — issue 3: the claim on the artist card, gradient bands, the Instagram fallback, fonts</h1>
+<p class="lead">Extends issue 1 (<code>2026-11-08-overlay-templates.html</code>, O1–O17) and issue 2 (<code>2026-11-10-overlay-templates-2.html</code>, O18–O21). Both stand except where a row below says otherwise. Matas's direction of 10 Nov: cut-outs paused; work from the press photos, and failing those, from the artist's own Instagram; CTA edits on statics come before video, so the artist card gains its claim; a gradient shadow behind the overlay text; the claim only in the kit's font. The numbers come from the #1154 measurements of <code>Puzzle overlay.psd</code>, <code>Puzzle overlay 2.psd</code> and <code>J2 2026 Launch Ad Overlay 9x16</code>, and the matte evaluation merged as #1152.</p>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 3 · 10 Nov 2026.</b> O21 paused (variant B not built). O19 amended (one subject counts faces ≥ ½ the main face; the kit gradient is not a scrim; contrast measured with the gradient on; the claim box and red-line tests). O22 the Instagram photo fallback, on the 6 Nov rights rule. O23 the claim slot on the artist card (replaces O3's claim position on the card; the roll-call keeps the PSD's size ratio; chin ≤ 0.72 H). O24 fonts: kit text only in the kit's own fonts; J2 held. O25 the gradient bands (invented, for Matas to judge on drafts). AC4 slot schematics. Hand-back H19–H25.</li>
+<li><b>Issue 3, amended before merge · 10 Nov 2026.</b> After the H25 drafts held every claim card: the claim-box limit to 15 %; the red line tested on its own ink box at 25 %; the bottom band rising to 30 % by 0.78 H; with a claim, a 200 px face floor and a top extension to 0.33 H; the claim in the kit's case; the line gap steps with the lines; the chin is the landmark; drafts stay in the notes folder.</li>
+<li><b>Issue 2 · 10 Nov 2026.</b> PSD corrections, O18–O21, AC1–AC3, H13–H18. Merged as #1151.</li>
+<li><b>Issue 1 · 8 Nov 2026.</b> T1–T3, O1–O17, OT1–OT7, H1–H12. Merged as #1112.</li>
+</ul></div>
+
+<h2>Data note — what was measured</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there</th><th>Used for</th></tr>
+<tr><td>J2 2026 Launch Ad Overlay 9x16 (#1154)</td><td>"LEFT DARK LAYER": <code>#000000</code> fill at 50.2 %, normal blend, gradient mask left → right — full strength to ≈ 0.52 W; 90 / 50 / 10 % at 0.521 / 0.567 / 0.659 W; ends 0.728 W. A hidden "DARK LAYER": flat <code>#000000</code> at 23.9 %, 0.111–0.876 H. No top or bottom band.</td><td>O25's fade shape (the mask's stops, normalised). J2's own cards keep the left layer (O24, O25).</td></tr>
+<tr><td>Puzzle overlay.psd (#1154)</td><td>34 layers, no gradient. The roll-call text: BootzyCondensedTM-Regular, tracking +25, all caps. Sizes against the 300 px name: line 1 <code>#FE3232</code> at 0.217, line 2 white at 0.347. Hidden one-line variants: "FINAL 50 TICKETS" and "FINAL 150 TICKETS" (red, 0.556), "SELL OUT IMMINENT" (white, 0.479).</td><td>O23 sizes, colours and tracking.</td></tr>
+<tr><td>Puzzle overlay 2.psd (#1154)</td><td>Flattened; nothing to read.</td><td>—</td></tr>
+<tr><td>Fonts (#1154)</td><td>Found: BootzyCondensedTM-Regular, GoodSans-Bold, AeroportMono. Missing: PPNeueMachina-Regular (J2's ↙).</td><td>O24.</td></tr>
+<tr><td>Matte evaluation (#1152)</td><td>Five mattes on six photos. Best: BiRefNet_lite with closed-form refinement. None gets more than one of the six through O21. Production still uses Selfie.</td><td>O21 paused.</td></tr>
+</table>
+<p class="lead">No reference has a top or bottom fade, so O25's extents and opacity are the builder's proposal, ruled here as invented. If Matas sends a reference with a real top or bottom fade, a later issue measures it and replaces O25's numbers.</p>
+
+<h2>Rulings added or amended in issue 3</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O21 Paused</td><td>Variant B (the cut-out on a plain ground) is <b>paused, not built</b>: cut-outs are rarely asked for, and #1152 found no matte that passes more than one photo in six. O21 stays on record as the rule a future B build is judged against; H17 is shelved. A photo that fails variant A is now skipped (O19's order becomes: press photos, then the Instagram fallback, each through A; then skip).</td></tr>
+<tr><td>O19 Amended</td><td>
+<ul>
+<li><b>One subject.</b> Only faces at least half the width of the largest face count; the count of those must be 1. A face of any size inside the text box or the claim box fails the photo. This lets live photos with a crowd pass.</li>
+<li><b>Scrim.</b> "No scrim" becomes "no scrim beyond the kit gradient" (O25). The gradient is fixed per kit; it is never darkened, widened or moved for a photo to make it pass.</li>
+<li><b>Contrast measured with the gradient on.</b> The text-box test (≤ 10 % of pixels below 3:1 against white) is measured on the placed photo with O25's bands applied, before any type — the test reads what ships.</li>
+<li><b>The claim box</b> (O23: 0.07–0.93 W, from the claim's cap top to 0.812 H) is tested with the bands on: ≤ <b>15 %</b> of pixels below 3:1 against white. Amended from 10 % after H25 (Luke 1 read 10.6 % and 10.7 %): the box runs the full 0.07–0.93 W while the claim's letters fill only part of it, so 15 % of the box is about the exposure that 10 % is in the text box.</li>
+<li><b>The red line.</b> Tested on the line's own ink box — its measured width plus 24 px each side, its cap height plus 12 px above and below — bands on: ≤ <b>25 %</b> of pixels below 2:1 against <code>#FE3232</code>. If it fails, that line renders white — the words never change — and the approval line reads "claim line 1 in white — red unreadable on this photo". Luke 1's red line failed at 35.7 % on full-width rows: not a near miss, and white is the right result there.</li>
+</ul></td></tr>
+<tr><td>O22 The Instagram photo fallback</td><td>When no press photo for the artist passes variant A, a still from the artist's own Instagram is tried, through A's gate unchanged.
+<ul>
+<li><b>Order.</b> Press photos provided first; then Instagram, newest first; the first photo that passes is used.</li>
+<li><b>Which posts.</b> Photo posts only, each image of a carousel counting as one. Not reels or video stills, not stories, not tagged posts, not reposts. A collab post counts only when the artist's handle is a co-author. Not flyers or graphics: a post whose detected text covers more than 2 % of the image is out. Posted within the last 24 months. At most the last 50 photo posts are read.</li>
+<li><b>How it's read.</b> The handle is the one on the artist record that the voice corpus reads (V-rulings), through the same Instagram discovery read. Nothing is scraped. An account that can't be read (not a business or creator account) skips the fallback.</li>
+<li><b>Rights — the 6 Nov ruling.</b> An artist's assets and feed photos may run from the promoter's Page without the artist's approval; approval is needed only to run on the artist's own channels. So: <b>from the promoter's Page</b> (e.g. Puzzle), no gate — the card runs like any other artist asset, including for an artist whose chip reads "Promoter page only". <b>From the artist's own channels</b>, the existing gate (B1, pass 2) applies with no new words: the rights chip must read "✓ Cleared — artist channels too"; otherwise that version is Held with the chip's action "Clear for artist channels" beside it, and clearing releases it without a rebuild (as CLQ4).</li>
+<li><b>The artist's own posts only</b>, and the photographer credit carried over: if the caption credits a photographer, the credit is copied verbatim onto the card.</li>
+<li><b>Identity.</b> No face recognition, ever. The person approving the card checks that it is the right artist.</li>
+<li><b>Size.</b> Instagram serves at most 1080 × 1350 (or 1440 × 1800). That covers the 4:5 and the 1:1 at 1.0×; the 9:16 needs about 570 px added at the top, which passes only when O20 does. If the 9:16 fails, the card ships as 4:5 and 1:1, and its approval line says "9:16 not made — photo too short".</li>
+<li><b>Disclosure.</b> "photo from @{handle}'s Instagram, {d Mon yyyy}", followed by " · photo by {credit}" when a credit was carried over.</li>
+</ul></td></tr>
+<tr><td>O23 The claim on the artist card</td><td>The artist card gains its claim: T1 with the claim slot filled. O18's "claim slot empty" is amended to: the claim is filled when the event has an approved ladder claim that is true now (A12 and the asset-bank ladder — A5', A14 the roll-call rung, A15, A16); with none, the card renders as O18 drew it.
+<ul>
+<li><b>Words.</b> Verbatim from the approved claim, with its line break; no edits, no claim without an approved rung behind it — no fabricated scarcity. A count ("FINAL 50 TICKETS") renders only when the approved rung carries that count. <b>Case is the kit's</b> (amended after H25): a kit whose own CTAs are all caps — Puzzle: every PSD CTA and the roll-call — renders the claim in capitals. That is display only: the approved words, as stored and compared, stay exactly as approved and are never case-folded. Capitals use the root locale, and the fit measures the line as rendered.</li>
+<li><b>This replaces O3 on the artist card.</b> The #1154 builder placed the claim per O3 (the roll-call's red line at 0.7132 H, a two-line claim from ≈ 0.6965 H), above the chin limit. On the artist card O23's positions replace O3's. T1 video clips keep O3.</li>
+<li><b>The top block</b> (lockup, name, info) is unchanged from O18.</li>
+<li><b>The face band.</b> Head top ≥ 0.53 H; eyes 0.58–0.64 H; chin <b>≤ 0.72 H</b> (was 0.76 H). With the 216 px face floor this needs head-top-to-chin ≥ 0.173 H (face box ≈ 0.65 × head-top-to-chin, measured on AC1–AC3). AC1–AC3 (chins 0.735–0.745 H) re-crop wider from source at ≈ 0.88×; where the source runs out, the sides extend per O20. Measured on the H25 drafts: Luke 2's face box is 211 px at the 0.72 H chin (the 221–246 px estimate was high); Enzo 1 needs 596 px of top extension. <b>Face floor with a claim: 200 px (0.185 W)</b>, amended after H25 — with the head top at 0.53 H and the chin at 0.72 H a face box can only reach ≈ 0.58–0.65 × 365 px = 211–237 px. Without a claim the floor stays 216 px. <b>Top extension with a claim: up to 0.33 H (634 px)</b>, amending O20's 0.30 H only when the 0.72 H chin forces it, and only when the strip passes every O20 test; the extension still ends ≥ 0.05 H above the head top. <b>The chin</b> is the detector's chin landmark (the lowest jaw point), not the bottom of its face box: the 31 px clearance and "no face in the claim box" use the face box clipped at that landmark.</li>
+<li><b>Sizes — the roll-call's own ratio.</b> The roll-call keeps the PSD's sizes relative to the name, taken against the full name cap 0.1146 H (220 px), not a stepped-down name: line 1 kit red <code>#FE3232</code> at 0.217 → cap <b>48 px</b>; line 2 white at 0.347 → cap <b>76 px</b>. Equal 63 px lines (the pre-ruling) are withdrawn. One-line claims take their piece's measured size and colour: the red "FINAL {n} TICKETS" at 0.556 → 122 px; the white "SELL OUT IMMINENT" at 0.479 → 105 px. A one-line claim with no piece in the kit is white at 0.479. Tracking +25 (the roll-call's, not the lineup's 5).</li>
+<li><b>Position (9:16 master).</b> The claim is bottom-anchored: its last line sits on 0.812 H (y 1559). Two-line: line 1 cap top y 1413 (0.736 H), 22 px gap, line 2 cap top y 1483 (0.772 H). That leaves 31 px under the 0.72 H chin. One-line: cap top y 1437 (red, 122 px) or y 1454 (white, 105 px). Centred, as the top block.</li>
+<li><b>Fit.</b> Each line within 80 % W (864 px). Too wide: all lines of the claim step down together, keeping their ratio, the bottom staying on 0.812 H. Floors: a two-line claim's line 1 ≥ 31 px (0.016 H, line 2 then 50 px); a one-line claim ≥ 50 px (0.026 H). Never condensed, never re-broken from two lines to three. The 22 px line gap steps with the lines (it stays 0.29 × line 2's cap). Below the floor the card is held: "Claim too long for the artist card".</li>
+<li><b>4:5.</b> A pure centre crop: the claim's last line ends 76 px above the 4:5's bottom edge, the same inset as the top.</li>
+<li><b>1:1.</b> O1's re-sit at 0.8×: two-line caps 38 px and 61 px, line 1 cap top y 902, line 2 y 958, the last line 61 px above the bottom.</li>
+<li><b>Shadow.</b> O6 once on the whole text group, the claim included.</li>
+<li><b>Contrast.</b> O19's claim-box and red-line tests, gradient on.</li>
+</ul></td></tr>
+<tr><td>O24 Fonts</td><td>Kit text renders only in the kit's own fonts. No stand-in, ever. For Puzzle the name, info and claim are BootzyCondensedTM-Regular (found, #1154): the claim is no longer held. A kit with a missing font holds every card that uses it, with "Held — {font name} not installed". J2 is held now: "Held — PP Neue Machina not installed" (its ↙). GoodSans-Bold and AeroportMono are found and stay with the kits that name them.</td></tr>
+<tr><td>O25 Gradient bands <span class="chip warn">invented · judge on drafts</span></td><td>Matas asked for a top and a bottom gradient shadow at about 20 % behind the overlay text, so names and claims hold on bright photos and video. No reference has one (data note), so these values are the builder's proposal, ruled as invented.
+<ul>
+<li><b>Layer.</b> <code>#000000</code>, normal blend, two bands at 20 % (the bottom one rising to 30 %), full width, under all type and the lockup, over the photo (and over any O20 extension).</li>
+<li><b>Top band.</b> Full strength from the top edge to 0.44 H, then J2's fade shape to nothing at 0.53 H.</li>
+<li><b>Bottom band.</b> 20 % at 0.70 H, fading upward to nothing at 0.64 H. Below 0.70 H it rises evenly to <b>30 % at 0.78 H</b> and holds 30 % to the bottom edge (amended after H25, so the claim sits on a stronger band: ≈ 24 % behind line 1, 29–30 % behind line 2).</li>
+<li><b>Fade shape.</b> J2's mask normalised to the fade's length: 100 % → 90 % at 0.5 % of the fade, 50 % at 22.6 %, 10 % at 66.8 %, 0 at 100 %. Opacity stops on the 9:16: top 20 % to 0.4400 H, 18 % at 0.4404, 10 % at 0.4603, 2 % at 0.5001, 0 at 0.5300; bottom 0 at 0.6400, 2 % at 0.6599, 10 % at 0.6864, 18 % at 0.6997, 20 % at 0.7000, 30 % at 0.7800 H and below.</li>
+<li><b>Never across the eyes.</b> Both bands are zero from 0.53 H to 0.64 H, which holds the whole eyes band and the head top. The lower face (0.64–0.72 H) takes up to 22.5 % from the bottom band: accepted for the drafts; Matas judges it.</li>
+<li><b>4:5 and 1:1 — the bands move with the type.</b> The bands serve the type, so they are carried exactly as the type is: the 4:5 crop and the 1:1's 0.8× re-sit (both run full width). Stops as fractions of the 4:5 and 1:1 height (the same in both, as 1350 × 0.8 = 1080): top 20 % to 0.4147, 18 % at 0.4153, 10 % at 0.4436, 2 % at 0.5001, 0 at 0.5427; bottom 0 at 0.6991, 2 % at 0.7274, 10 % at 0.7651, 18 % at 0.7840, 20 % at 0.7844, 30 % at 0.8982 and below. (This replaces the pre-ruling that anchored the bands to each format's own edges.)</li>
+<li><b>Scope.</b> The artist card and T1 on floating kits. T2 gets bands when its own draft is judged. Frame kits and T3 draw only what their own files hold — J2's cards keep their measured LEFT DARK LAYER, not these bands; its hidden DARK LAYER is not drawn.</li>
+<li><b>O6 stays</b> on the type, on top of the bands.</li>
+</ul></td></tr>
+</table>
+
+<h2>AC4 · The artist card with its claim and the bands — slot schematics</h2>
+<p class="lead">A mid-tone ground stands in for the photo so the 20 % bands show. Every slot, zone and stop is at its ratio. The two-line roll-call claim is drawn; the red line outline is kit red. Real draft cards come with H25.</p>
+<div class="frame">
+<figure><figcaption>AC4-916 · master 1080 × 1920 at ¼ · O23 claim · O25 bands (top band full above ▲ 0.44 H, bottom band full below ▼ 0.70 H) · chin ≤ 0.72 H</figcaption>
+<div class="sch m916">
+  <div class="grad g916"></div>
+  <div class="band" style="top:71px;height:338px"></div>
+  <div class="zone face" style="top:254px;height:92px"></div>
+  <div class="slot lock" style="top:90px;left:97px;width:76px;height:23px">LOCKUP</div>
+  <div class="slot" style="top:120px;left:27px;width:216px;height:55px;font-size:10px">NAME · cap 220</div>
+  <div class="slot" style="top:184px;left:75px;width:120px;height:15px">INFO 1</div>
+  <div class="slot" style="top:205px;left:75px;width:120px;height:15px">INFO 2</div>
+  <div class="slot" style="top:226px;left:75px;width:120px;height:15px">INFO 3</div>
+  <div class="head" style="top:254px;width:70px;height:92px"></div>
+  <div class="line" style="top:278px;border-color:#e8f2c8"></div><div class="line" style="top:307px;border-color:#e8f2c8"></div>
+  <div class="slot red" style="top:353px;left:42px;width:186px;height:12px">LINE 1 · KIT RED · 48</div>
+  <div class="slot white" style="top:371px;left:27px;width:216px;height:19px">LINE 2 · WHITE · 76</div>
+  <div class="line" style="top:390px;border-color:#ff9aa4"></div>
+  <span class="lbl" style="top:74px">4:5 top · inset 76</span>
+  <span class="lbl l" style="top:212px">▲ 0.44 H</span>
+  <span class="lbl l" style="top:256px">bands 0 · 0.53–0.64 H</span>
+  <span class="lbl" style="top:281px">eyes 0.58–0.64</span>
+  <span class="lbl l" style="top:337px">▼ 0.70 H</span>
+  <span class="lbl" style="top:338px">chin ≤ 0.72</span>
+  <span class="lbl" style="top:393px">claim ends 0.812 H</span>
+</div></figure>
+<figure><figcaption>AC4-45 · the 4:5, a pure centre crop, at ⅕ · bands carried</figcaption>
+<div class="sch m45">
+  <div class="grad g45"></div>
+  <div class="zone face" style="top:147px;height:73px"></div>
+  <div class="slot lock" style="top:15px;left:78px;width:60px;height:18px">LOCKUP</div>
+  <div class="slot" style="top:39px;left:22px;width:172px;height:44px;font-size:9px">NAME</div>
+  <div class="slot" style="top:91px;left:60px;width:96px;height:12px">INFO 1</div>
+  <div class="slot" style="top:107px;left:60px;width:96px;height:12px">INFO 2</div>
+  <div class="slot" style="top:124px;left:60px;width:96px;height:12px">INFO 3</div>
+  <div class="head" style="top:147px;width:56px;height:73px"></div>
+  <div class="slot red" style="top:226px;left:34px;width:148px;height:10px">LINE 1</div>
+  <div class="slot white" style="top:240px;left:22px;width:172px;height:15px">LINE 2</div>
+  <span class="lbl" style="top:258px">76 px inset</span>
+</div></figure>
+<figure><figcaption>AC4-11 · the 1:1, O1's re-sit at 0.8×, at ⅕ · bands carried, full width</figcaption>
+<div class="sch m11">
+  <div class="grad g45"></div>
+  <div class="zone face" style="top:117px;height:58px"></div>
+  <div class="slot lock" style="top:12px;left:84px;width:48px;height:15px">LOCKUP</div>
+  <div class="slot" style="top:31px;left:39px;width:138px;height:35px;font-size:8px">NAME · 0.8×</div>
+  <div class="slot" style="top:73px;left:69px;width:78px;height:10px">INFO</div>
+  <div class="slot" style="top:87px;left:69px;width:78px;height:10px">INFO</div>
+  <div class="slot" style="top:100px;left:69px;width:78px;height:10px">INFO</div>
+  <div class="head" style="top:117px;width:45px;height:58px"></div>
+  <div class="slot red" style="top:180px;left:48px;width:120px;height:8px">LINE 1</div>
+  <div class="slot white" style="top:192px;left:39px;width:138px;height:12px">LINE 2</div>
+  <span class="lbl" style="top:206px">61 px</span>
+</div></figure>
+</div>
+
+<h3>AC4-ramp · the two bands on white, 9:16 and 4:5 / 1:1</h3>
+<div class="ramp">
+  <figure><figcaption>9:16 · black, 20 % rising to 30 % · stops as O25</figcaption><div class="bar"><div class="grad g916"></div></div></figure>
+  <figure><figcaption>4:5 and 1:1 · carried stops</figcaption><div class="bar" style="height:300px"><div class="grad g45"></div></div></figure>
+</div>
+
+<h3>The claim slot in numbers</h3>
+<table class="t">
+<tr><th>Claim</th><th>Colour</th><th>Cap (9:16)</th><th>Cap top (9:16)</th><th>Last line on</th><th>1:1 caps</th><th>Floor</th></tr>
+<tr><td>Two-line roll-call, line 1</td><td>kit red <code>#FE3232</code></td><td>48 px (0.217 × 220)</td><td>y 1413 (0.736 H)</td><td>—</td><td>38 px · y 902</td><td>31 px</td></tr>
+<tr><td>Two-line roll-call, line 2</td><td>white</td><td>76 px (0.347 × 220)</td><td>y 1483 (0.772 H)</td><td>y 1559 (0.812 H)</td><td>61 px · y 958</td><td>50 px</td></tr>
+<tr><td>One line, "FINAL {n} TICKETS"</td><td>kit red</td><td>122 px (0.556 × 220)</td><td>y 1437</td><td>y 1559</td><td>98 px</td><td>50 px</td></tr>
+<tr><td>One line, "SELL OUT IMMINENT" or no piece</td><td>white</td><td>105 px (0.479 × 220)</td><td>y 1454</td><td>y 1559</td><td>84 px</td><td>50 px</td></tr>
+</table>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Artist card</td><td>Claim slot filled from an approved true rung (O23), bottom-anchored on 0.812 H; chin ≤ 0.72 H with a claim (0.76 H without); face floor 200 px with a claim (216 px without); top extension to 0.33 H with a claim; O25 bands; O19 tests with the bands on; variant B paused; Instagram fallback (O22).</td></tr>
+<tr><td>T1 artist clip (floating kit)</td><td>O25 bands. The claim keeps O3's position on clips.</td></tr>
+<tr><td>Brand kit (Puzzle)</td><td>Roll-call piece: tracking +25, line ratios 0.217 / 0.347, one-line pieces 0.556 red and 0.479 white; claims in capitals (the kit's case). Fonts present: BootzyCondensedTM-Regular.</td></tr>
+<tr><td>Brand kit (J2)</td><td>Held for PPNeueMachina-Regular. Its own LEFT DARK LAYER (measured) is its gradient.</td></tr>
+<tr><td>Approval card lines</td><td>"photo from @{handle}'s Instagram, {d Mon yyyy}" (+ " · photo by {credit}"); "9:16 not made — photo too short"; "claim line 1 in white — red unreadable on this photo"; "Claim too long for the artist card"; "Held — {font name} not installed".</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H19 Gradient bands</td><td>O25 as a layer on the artist card and T1: the stops on the 9:16, carried by the 4:5 crop and the 1:1 re-sit; under type, over photo and extension; J2 keeps its left layer.</td><td>—</td><td>sampled alpha at each listed stop within ±1 % of O25; zero alpha from 0.53 to 0.64 H</td></tr>
+<tr><td>H20 Photo gate, amended</td><td>O19 as amended: the one-subject width rule, the text-box test (10 %) and the claim-box test (15 %) with the bands on, the red-line test on its ink box (25 %) and its white fallback; each figure printed per card.</td><td>the photo folder</td><td>AC1–AC3 re-measured with the bands on; the printed figures match the card</td></tr>
+<tr><td>H21 The claim slot</td><td>O23: sizes from the full name cap, capitals per the kit, the bottom anchor, the fit steps (the gap with them) and floors, the chin landmark, the 200 px floor and 0.33 H extension with a claim, the 4:5 and 1:1 positions, the held line; T1 clips keep O3.</td><td>the event's approved rung</td><td>cap tops and heights within 2 px of the table; a too-long claim held with the exact words</td></tr>
+<tr><td>H22 Instagram fallback</td><td>O22: the discovery read, the post filters (photos, own, 24 months, last 50, text ≤ 2 %), newest first, A's gate, the rights by channel through the existing B1 gate, the credit, the disclosure line.</td><td>the artist record's handle</td><td>a reel, a flyer and a tagged post refused with the rule each fails; a promoter-Page card runs for a "Promoter page only" artist; its artist-channel version is Held with "Clear for artist channels"</td></tr>
+<tr><td>H23 Fonts</td><td>O24: a font check before render; a missing font holds the kit's cards with the exact line.</td><td>kit font folder</td><td>J2 cards held "Held — PP Neue Machina not installed"; Puzzle cards render in Bootzy</td></tr>
+<tr><td>H24 B paused</td><td>Variant B off; a photo failing A goes to the next photo, then skip. Selfie and the #1152 tooling stay in the repo, unused.</td><td>—</td><td>no B card is produced</td></tr>
+<tr><td>H25 Draft cards for Matas</td><td>Luke 1, Luke 2 and Enzo 1 re-cropped to chin ≤ 0.72 H, with the two-line claim and the bands, in all three formats, filed as drafts. The claim is the event's current approved rung; if none is approved, the drafts carry "DRAFT · claim not approved" and can't be exported.</td><td>P26-BDAY</td><td>Drafts stay in the notes folder — never filed to Content, never exported — until Matas passes them. Re-rendered on the amended values: Luke 1's claim card passes the 15 % claim box (its red line renders white unless the ink-box test passes); Luke 2 passes at 211 px; Enzo 1 passes if its 596 px strip passes O20. Matas judges the bands and the claim size; his call goes into a later issue.</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>O25 entirely: 20 %, the 0.44 / 0.53 H and 0.64 / 0.70 H extents (the builder's proposal), and applying J2's left-right mask shape top-to-bottom.</li>
+<li>O23: the 22 px gap between the claim's lines, the floors (31 px and 50 px), white for a one-line claim with no piece, the bottom anchor on 0.812 H.</li>
+<li>O19: the ½-width face rule, the red-line 2:1 test, its 25 % ink-box limit and white fallback, the 15 % claim-box limit.</li>
+<li>After H25: 30 % at 0.78 H, the 200 px face floor and the 0.33 H extension cap with a claim, capitals by the kit's case.</li>
+<li>O22: the 2 % text area, 24 months, the last 50 posts.</li>
+<li>The face box ≈ 0.65 × head-top-to-chin ratio is measured on AC1–AC3 only.</li>
+</ul>
+
+<h2>Frames</h2>
+<table class="t">
+<tr><th>Id</th><th>Formats</th><th>Source</th></tr>
+<tr><td>AC4</td><td>9:16, 4:5, 1:1 + ramp</td><td>Slot schematics in this record</td></tr>
+<tr><td>AC1–AC3</td><td>—</td><td>Issue 2, unchanged as filed; re-cropped versions come as H25 drafts</td></tr>
+</table>
+<p class="lead">Not CI baselines yet: the cards are rendered by a script, not the app. When the Lab's artist-card template is built (H14, H19, H21), AC1–AC4 become CI frames from fixtures.</p>
+
+</div></body>
+</html>
