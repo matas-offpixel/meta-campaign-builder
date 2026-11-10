@@ -38,4 +38,4 @@ Design fail round: the R22 sentence sits under the writer's Write button, labell
 
 Round 3: the 10px / 12px above Proven elsewhere is the block's own padding, and only while the contained voice sheet is open. A closed voice row and every non-voice frame keep the signed-off gap. The 18px from Write to the chip is unchanged. CLV2-393's open gap sits below the clip, so that frame does not move.
 
-Round 4: that 10px is added, not taken from the line spacing. The label keeps 3px under its glyphs, so the line below stays 16px, and the wrapped voice line keeps a 13px row gap, so the chip-to-line gap stays 12px. CLV2-1280 grows by 6px and CLV3-1280 by 3px.
+Round 4: that 10px is added, not taken from the line spacing. The label keeps 3px under its glyphs, so the line below stays 16px, and the wrapped voice line keeps a 13px row gap, so the chip-to-line gap stays 12px. CLV2-1280 grows by 6px and CLV3-1280 by 3px. Ubuntu pair 42820102839 / 42820114265.
