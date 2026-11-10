@@ -20,7 +20,7 @@ The 393 event header keeps an even gap between View client, Drive folder and Edi
 ## Validation
 
 - [x] asset-bank tests
-- [ ] frames for the rows that move
+- [x] frames AB 42728954711 / 42728958447 and CLS 42728963403 / 42728967569, pairs at 0
 
 ## Notes
 
