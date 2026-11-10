@@ -118,7 +118,7 @@ export function numberForm(line: string): string {
   return line.replace(/\b(\d+(?:ST|ND|RD|TH))\s+RELEASE\b/gi, "$1").replace(/\s+/g, " ").trim();
 }
 
-const squash = (s: string) => s.replace(/\s+/g, " ").replace(/\s+([,·&])\s*$/, "").trim();
+const squash = (s: string) => s.replace(/\s+/g, " ").replace(/\s+,/g, ",").replace(/^,\s*/, "").replace(/\s+([,·&])\s*$/, "").replace(/,$/, "").trim();
 
 /**
  * One O8 drop over every line of a claim that is not a roll-call, or null when

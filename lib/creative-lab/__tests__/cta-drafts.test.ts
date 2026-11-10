@@ -312,6 +312,32 @@ describe("H28: the roll-call's line 2 and its shortening (A21, O27)", () => {
     assert.deepEqual(held, { held: CARD_CLAIM.tooLong });
   });
 
+  it("O35 on T1: past step 2 a plain claim takes TICKETS, then NOW, then the ordinal number form, in that order, before it is refused", () => {
+    const text = "3rd release tickets now selling fast with the final release up next at noon on friday";
+    const ok = { approvedBy: "m", approvedAt: "2026-11-10" };
+    const p = planClaim({ kind: "claim", text, ...ok }) as ClaimPlan;
+    assert.equal(p.step, 2);
+    assert.deepEqual(p.dropped, ["TICKETS", "NOW", "number form"]);
+    assert.deepEqual(p.lines.map((l) => l.text), ["3RD SELLING FAST WITH THE FINAL", "RELEASE UP NEXT AT NOON ON FRIDAY"]);
+    const refused = planClaim({ kind: "claim", text: `${text} and saturday and sunday too`, ...ok });
+    assert.match((refused as { blocker: string }).blocker, /can't shorten/);
+  });
+
+  it("O35 on the artist card: below its floor a plain claim takes TICKETS, then NOW, then the number form, before it is held", () => {
+    const seen: string[] = [];
+    const m = (t: string, cap: number) => {
+      seen.push(t);
+      return (/TICKETS|\bNOW\b|3RD RELEASE/.test(t) ? 2400 : 1000) * (cap / 105);
+    };
+    const p = planCardClaim("3rd release tickets now, final release next", m) as CardClaimPlan;
+    assert.deepEqual(p.dropped, ["TICKETS", "NOW", "number form"]);
+    assert.equal(p.lines[0]!.text, "3RD, FINAL RELEASE NEXT");
+    assert.equal(p.lines[0]!.approvedText, "3rd release tickets now, final release next");
+    assert.deepEqual(seen, ["3RD RELEASE TICKETS NOW, FINAL RELEASE NEXT", "3RD RELEASE NOW, FINAL RELEASE NEXT", "3RD RELEASE, FINAL RELEASE NEXT", "3RD, FINAL RELEASE NEXT"]);
+    // Nothing left to drop: held.
+    assert.deepEqual(planCardClaim("3rd release tickets now, final release next", () => 5000), { held: CARD_CLAIM.tooLong });
+  });
+
   it("O35 on T1: a plain claim past step 2 takes TICKETS, then NOW, before it can't shorten", () => {
     // At step 2 (0.034 H) a line holds 37 characters in 0.8 W: the most even break gives 41 / 34 as approved, 33 / 34 without TICKETS.
     const p = planClaim({ kind: "claim", text: "Final 100 3rd release tickets now selling fast across the whole city tonight", approvedBy: "m", approvedAt: "2026-11-10" }) as ClaimPlan;

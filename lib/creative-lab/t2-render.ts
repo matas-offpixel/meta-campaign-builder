@@ -315,10 +315,11 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
     claimPlaces.push({ ...at, top: Math.round(line.capTop), height: Math.round(line.capPx) });
   }
   const fit = out.lines.every((l) => l.fits);
-  const widest = Math.max(...out.lines.map((l) => l.widthPx));
   const a = planned.plan.attempts[planned.idx!]!;
+  // The figure is the planned width from the face's own advances, the meter's number (the drawn ink can differ by a few px).
+  const widest = Math.round(Math.max(...a.widths));
   const tall = !a.fitsHeight ? ` · block ${Math.round(layout.blockBottom - layout.blockTop)} of ${Math.round(slot.bottom - slot.top)} px tall` : "";
-  out.rules.push({ rule: "fit", pass: fit && a.fitsHeight && (input.attempt != null || planned.plan.canApprove), detail: `${input.attempt != null || planned.plan.canApprove ? describeAttempt(planned.plan, planned.idx!, kit) : planned.plan.meter} · ${widest} of ${Math.round(maxPx)} px${fit ? "" : " · over the slot (cut)"}${tall}` });
+  out.rules.push({ rule: "fit", pass: fit && a.fitsHeight && (input.attempt != null || planned.plan.canApprove), detail: `${input.attempt != null || planned.plan.canApprove ? `${describeAttempt(planned.plan, planned.idx!, kit)} · ${widest} of ${Math.round(maxPx)} px` : planned.plan.meter}${fit ? "" : " · over the slot (cut)"}${tall}` });
 
   // Corners: lineup top-right, details bottom-left (coral ">"), logo bottom-right.
   const right = frame.width * (1 - kit.lineup.rightInset);

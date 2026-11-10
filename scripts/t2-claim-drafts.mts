@@ -190,14 +190,14 @@ if (slot0 && r0?.panelInk) {
 }
 say(`Event release names (event_releases, select only; O28's unbreakable names): ${eventReleaseNames.join(" · ") || (er.error ? `not read (${er.error.message})` : "none")}.`);
 say();
-say("| Card | Claim as drawn | Step | Widest of slot | Drops | Claim box (slot, ≤ 15 %) | Red line (ink box, ≤ 25 % below 2:1) | Lineup / details (≤ 10 %) | In slot 9:16 / 4:5 / 1:1 | Result |");
+say("| Card | Claim as drawn | Step | Widest of slot (planned, the meter's figure) | Drops | Claim box (slot, ≤ 15 %) | Red line (ink box, ≤ 25 % below 2:1) | Lineup / details (≤ 10 %) | In slot 9:16 / 4:5 / 1:1 | Result |");
 say("|---|---|---|---|---|---|---|---|---|---|");
 for (const c of cards) {
   const r = c.result;
   const red = r.contrast.redLine == null ? "–" : `${pct(r.contrast.redLine)} → ${r.redLineWhite ? "**white**" : "red"}`;
   const a = r.plan && r.drawn != null ? r.plan.attempts[r.drawn] : null;
   const step = a ? `${a.step} of ${PUZZLE_FLOATING_T2.claim.steps.length - 1} · ${a.lines.length} line${a.lines.length === 1 ? "" : "s"}${a.split ? " (broken)" : ""}` : "–";
-  const widest = r.lines.length ? `${Math.max(...r.lines.map((l) => l.widthPx))} of ${r.lines[0]!.maxPx} px${r.lines.some((l) => l.cut) ? " (over, drawn cut)" : ""}${a && !a.fitsHeight ? " · too tall" : ""}` : "–";
+  const widest = r.lines.length && a ? `${Math.round(Math.max(...a.widths))} of ${r.lines[0]!.maxPx} px${r.lines.some((l) => l.cut) ? " (over, drawn cut)" : ""}${a && !a.fitsHeight ? " · too tall" : ""}` : "–";
   const drops = a?.dropped.length ? a.dropped.join(", ") : "none";
   const ins = r.inSlot ? `${r.inSlot.master ? "✓" : "✗"} / ${r.inSlot.crop45 ? "✓" : "✗"} / ${r.inSlot.square ? "✓" : "✗"}` : "–";
   const flagged = r.plan && !r.plan.canApprove && !c.id.match(/-\d\d$/) ? `can't shorten (${r.plan.meter}), no Approve` : null;
