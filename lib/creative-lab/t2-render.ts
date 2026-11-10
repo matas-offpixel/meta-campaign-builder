@@ -131,14 +131,16 @@ export const STOP_TOLERANCE = 1;
 
 /**
  * The bands' alpha (%) at each stop: the 3 × 3 mean around the centre column
- * and the pixel row the stop falls in (H30). Two stops less than a pixel apart
+ * and the pixel row the stop falls in, floor(stop × H) (H30, ruled after
+ * issue 5); a stop exactly on a row boundary takes the row that starts there. Two stops less than a pixel apart
  * (O25's plateau edges: 0.44 / 0.4404 and 0.6997 / 0.7 H in the 9:16, 0.784 /
  * 0.7844 in the 4:5) share one reading, which passes when it lies between
  * their two values, ±1.
  */
 export function sampleStops(alpha: Uint8Array | Buffer, size: Size, channels: number, stops: readonly (readonly [number, number])[]): StopSample[] {
   const cx = Math.round(size.width / 2);
-  const rowOf = (f: number) => Math.min(size.height - 1, Math.max(0, Math.floor(f * size.height)));
+  // The row the exact stop falls in, floor(f × H); a stop on a row boundary takes the row that starts there (the epsilon absorbs float error, so 0.7 × 1920 is row 1344).
+  const rowOf = (f: number) => Math.min(size.height - 1, Math.max(0, Math.floor(f * size.height + 1e-9)));
   return stops.map(([at, want], i) => {
     const cy = rowOf(at);
     // A neighbour stop within one pixel row: the pair's range is the target.
@@ -222,6 +224,78 @@ const blockRect = (lines: readonly CornerLine[]): Rect => {
   return { left, top, width: right - left, height: bottom - top };
 };
 
+export type T2Ground = {
+  slot: T2Slot;
+  panelInk: PanelInk | null;
+  paperMatches: boolean | null;
+  /** 9:16 ground, panel and bands, no type. */
+  master: Buffer;
+  /** The 4:5 crop of it. */
+  crop45: Buffer;
+  /** The 1:1: the ground re-covered, the panel and bands at 0.8× (O1). */
+  square: Buffer;
+  /** Pieces the renderer composes type over. */
+  parts: { groundMaster: Buffer; panelMaster: Buffer | null; bandLayer: Buffer | null; groundSquare: Buffer; panelSquare: Buffer | null; squareBands: Buffer | null; square: { k: number; dx: number; dy: number; side: number } };
+  bandStops: { master: StopSample[]; crop45: StopSample[]; square: StopSample[] } | null;
+};
+
+/**
+ * T2 without any type (O24 allows it: no kit face is set): the ground, the
+ * panel and O25's bands in 9:16, 4:5 and 1:1, the O32 slot from the kit's
+ * stored paper, this render's paper measurement, and the bands' stops on
+ * 3 × 3 averages. renderStandaloneMessage draws its type over these parts.
+ */
+export async function composeT2Ground(input: Pick<T2Input, "ground" | "panel" | "bands" | "kit">): Promise<T2Ground | { held: string }> {
+  const sharp = await sharpFn();
+  const kit = input.kit ?? PUZZLE_FLOATING_T2;
+  const frame = MASTER;
+  // O30: a panel kit's T2 always draws the panel; there is no bare-ground option.
+  if (kit.panel && !input.panel) return { held: "T2 on this kit always draws its panel (O30)" };
+  if (!kit.panel && input.panel) return { held: "this kit's T2 has no panel" };
+  const panelMaster = input.panel ? await sharp(input.panel.png, { limitInputPixels: false }).resize(Math.round(input.panel.width), Math.round(input.panel.height), { fit: "fill" }).png().toBuffer() : null;
+  const panelInk = panelMaster ? await panelInkBox(panelMaster, input.panel!.left, input.panel!.top) : null;
+  // O32: the slot is the kit's stored paper box; this render's measurement is reported against it.
+  const paper = paperRect(kit);
+  if (kit.panel && !paper) return { held: "the kit has no paper box: measure it at the kit audit (O32)" };
+  const slot = claimSlot(paper, kit, frame);
+  const paperMatches = panelInk && paper ? (["left", "top", "width", "height"] as const).every((k) => Math.abs(panelInk.box[k] - paper[k]) <= 1) : null;
+
+  const groundMaster = await sharp(input.ground, { limitInputPixels: false }).resize(frame.width, frame.height, { fit: "cover" }).removeAlpha().png().toBuffer();
+  const under = panelMaster ? await sharp(groundMaster).composite([{ input: panelMaster, left: Math.round(input.panel!.left), top: Math.round(input.panel!.top) }]).png().toBuffer() : groundMaster;
+  const bandRaw = input.bands ? Buffer.from(renderGradientShadow(input.bands, frame.width, frame.height)) : null;
+  const bandLayer = bandRaw ? await sharp(bandRaw, { raw: { width: frame.width, height: frame.height, channels: 4 } }).png().toBuffer() : null;
+  const master = bandLayer ? await sharp(under).composite([{ input: bandLayer, left: 0, top: 0 }]).png().toBuffer() : under;
+  const crop45 = await sharp(master).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).png().toBuffer();
+
+  // 1:1 (O1): the 4:5 arrangement at 0.8×, the ground re-covered at full size.
+  const side = 1080;
+  const k = 0.8;
+  const dx = (side - frame.width * k) / 2;
+  const dy = -RECT_45.top * k;
+  const groundSquare = await sharp(groundMaster).extract({ left: 0, top: Math.round(frame.height / 2 - side / 2), width: side, height: side }).png().toBuffer();
+  const panelSquare = input.panel && panelMaster ? await sharp(panelMaster).resize(Math.round(input.panel.width * k), Math.round(input.panel.height * k), { fit: "fill" }).png().toBuffer() : null;
+  const squareBands = bandLayer ? await sharp(bandLayer).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).resize(side, side, { fit: "fill" }).png().toBuffer() : null;
+  const square = await sharp(groundSquare)
+    .composite([
+      ...(panelSquare ? [{ input: panelSquare, left: Math.round(input.panel!.left * k + dx), top: Math.round(input.panel!.top * k + dy) }] : []),
+      ...(squareBands ? [{ input: squareBands, left: 0, top: 0 }] : []),
+    ])
+    .png()
+    .toBuffer();
+
+  let bandStops: T2Ground["bandStops"] = null;
+  if (bandRaw && bandLayer && squareBands) {
+    const c45 = await sharp(bandLayer).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).raw().toBuffer({ resolveWithObject: true });
+    const sq = await sharp(squareBands).raw().toBuffer({ resolveWithObject: true });
+    bandStops = {
+      master: sampleStops(bandRaw, frame, 4, O25_STOPS.master),
+      crop45: sampleStops(c45.data, { width: c45.info.width, height: c45.info.height }, c45.info.channels, O25_STOPS.carried),
+      square: sampleStops(sq.data, { width: sq.info.width, height: sq.info.height }, sq.info.channels, O25_STOPS.carried),
+    };
+  }
+  return { slot, panelInk, paperMatches, master, crop45, square, parts: { groundMaster, panelMaster, bandLayer, groundSquare, panelSquare, squareBands, square: { k, dx, dy, side } }, bandStops };
+}
+
 export async function renderStandaloneMessage(input: T2Input): Promise<T2Result> {
   const sharp = await sharpFn();
   const kit = input.kit ?? PUZZLE_FLOATING_T2;
@@ -236,20 +310,13 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
     return { ...out, held: (e as Error).message.replace(/^Claim held — (.+) not installed$/, "Held — $1 not installed") };
   }
 
-  // O30: a panel kit's T2 always draws the panel; there is no bare-ground option.
-  if (kit.panel && !input.panel) return { ...out, held: "T2 on this kit always draws its panel (O30)" };
-  if (!kit.panel && input.panel) return { ...out, held: "this kit's T2 has no panel" };
-
-  // O26: the slot from the panel's ink box at its placed size.
-  const panelMaster = input.panel ? await sharp(input.panel.png, { limitInputPixels: false }).resize(Math.round(input.panel.width), Math.round(input.panel.height), { fit: "fill" }).png().toBuffer() : null;
-  const panelInk = panelMaster ? await panelInkBox(panelMaster, input.panel!.left, input.panel!.top) : null;
-  // O32: the slot is the kit's stored paper box; this render's measurement is reported against it.
-  const paper = paperRect(kit);
-  if (kit.panel && !paper) return { ...out, held: "the kit has no paper box: measure it at the kit audit (O32)" };
-  const slot = claimSlot(paper, kit, frame);
+  // Ground, panel and bands (O25, O30, O32), before any type.
+  const g = await composeT2Ground(input);
+  if ("held" in g) return { ...out, held: g.held };
+  const slot = g.slot;
   out.slot = slot;
-  out.panelInk = panelInk;
-  out.paperMatches = panelInk && paper ? (["left", "top", "width", "height"] as const).every((k) => Math.abs(panelInk.box[k] - paper[k]) <= 1) : null;
+  out.panelInk = g.panelInk;
+  out.paperMatches = g.paperMatches;
 
   // Plan with the face's own advances.
   const planned = await withMeasure(face, (m) => {
@@ -267,12 +334,7 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   const fitsDrawn = planned.plan.attempts[planned.idx!]?.fits ?? false;
   if (!fitsDrawn && !input.watermark) return { ...out, held: planned.plan.held ?? "this state doesn't fit the slot; only a draft may draw it" };
 
-  // Ground and arrangement, then the bands (O25), before any type.
-  const groundMaster = await sharp(input.ground, { limitInputPixels: false }).resize(frame.width, frame.height, { fit: "cover" }).removeAlpha().png().toBuffer();
-  const under = panelMaster ? await sharp(groundMaster).composite([{ input: panelMaster, left: Math.round(input.panel!.left), top: Math.round(input.panel!.top) }]).png().toBuffer() : groundMaster;
-  const bandRaw = input.bands ? Buffer.from(renderGradientShadow(input.bands, frame.width, frame.height)) : null;
-  const bandLayer = bandRaw ? await sharp(bandRaw, { raw: { width: frame.width, height: frame.height, channels: 4 } }).png().toBuffer() : null;
-  const shown = bandLayer ? await sharp(under).composite([{ input: bandLayer, left: 0, top: 0 }]).png().toBuffer() : under;
+  const shown = g.master;
   const raw = await sharp(shown).removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
   // The claim: the box test on the O26 slot, the red line's ink-box test, then each line set at its size.
@@ -358,10 +420,7 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   out.crop45 = await sharp(out.master).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).png().toBuffer();
 
   // 1:1 (O1): the 4:5 arrangement at 0.8×, the ground re-covered at full size.
-  const side = 1080;
-  const k = 0.8;
-  const dx = (side - frame.width * k) / 2;
-  const dy = -RECT_45.top * k;
+  const { k, dx, dy, side } = g.parts.square;
 
   // H27: every claim line inside the slot in each format, with the transform each format draws with.
   const inside = (t: (v: { x: number; y: number }) => { x: number; y: number }, size: Size) => {
@@ -378,30 +437,19 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
     square: inside((v) => ({ x: v.x * k + dx, y: v.y * k + dy }), { width: side, height: side }),
   };
   out.rules.push({ rule: "inSlot", pass: out.inSlot.master && out.inSlot.crop45 && out.inSlot.square, detail: `claim lines inside the slot · 9:16 ${out.inSlot.master ? "✓" : "✗"} · 4:5 ${out.inSlot.crop45 ? "✓" : "✗"} · 1:1 ${out.inSlot.square ? "✓" : "✗"}` });
-  const groundSquare = await sharp(groundMaster).extract({ left: 0, top: Math.round(frame.height / 2 - side / 2), width: side, height: side }).png().toBuffer();
-  const panelSquare = input.panel && panelMaster ? await sharp(panelMaster).resize(Math.round(input.panel.width * k), Math.round(input.panel.height * k), { fit: "fill" }).png().toBuffer() : null;
-  const squareBands = bandLayer ? await sharp(bandLayer).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).resize(side, side, { fit: "fill" }).png().toBuffer() : null;
   const squareOverlay = await textOverlay(pieces, places, { width: side, height: side }, { k, dx, dy }, KIT_SHADOW);
   const squareAvoid = places.map((p) => ({ left: p.left * k + dx, top: p.top * k + dy, width: p.width * k, height: p.height * k }));
   const wmSquare = input.watermark ? await watermarkLayer(input.watermark, { width: side, height: side }, face.path, face.family ?? "Bootzy Condensed TM", { avoid: squareAvoid }) : null;
-  out.square = await sharp(groundSquare)
+  out.square = await sharp(g.square)
     .composite([
-      ...(panelSquare ? [{ input: panelSquare, left: Math.round(input.panel!.left * k + dx), top: Math.round(input.panel!.top * k + dy) }] : []),
-      ...(squareBands ? [{ input: squareBands, left: 0, top: 0 }] : []),
       { input: squareOverlay, left: 0, top: 0 },
       ...(wmSquare ? [{ input: wmSquare, left: 0, top: 0 }] : []),
     ])
     .png()
     .toBuffer();
 
-  if (bandRaw && bandLayer) {
-    const c45 = await sharp(bandLayer).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).raw().toBuffer({ resolveWithObject: true });
-    const sq = await sharp(squareBands!).raw().toBuffer({ resolveWithObject: true });
-    out.bandStops = {
-      master: sampleStops(bandRaw, frame, 4, O25_STOPS.master),
-      crop45: sampleStops(c45.data, { width: c45.info.width, height: c45.info.height }, c45.info.channels, O25_STOPS.carried),
-      square: sampleStops(sq.data, { width: sq.info.width, height: sq.info.height }, sq.info.channels, O25_STOPS.carried),
-    };
+  if (g.bandStops) {
+    out.bandStops = g.bandStops;
     const all = [...out.bandStops.master, ...out.bandStops.crop45, ...out.bandStops.square];
     const off = all.filter((x) => !x.ok);
     out.rules.push({ rule: "bandStops", pass: !off.length, detail: off.length ? `${off.length} stop(s) off by more than ±${STOP_TOLERANCE} (3 × 3 average): ${off.map((x) => `${x.at} → ${x.got} (O25 ${x.want})`).join(", ")}` : `all ${all.length} stops within ±${STOP_TOLERANCE} on 3 × 3 averages, three formats` });

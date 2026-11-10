@@ -335,6 +335,20 @@ describe("H30: band stops on 3 × 3 averages", () => {
     assert.ok(s!.ok);
   });
 
+  it("the reading is centred on floor(stop × H); a stop exactly on a row boundary takes the row that starts there", () => {
+    const w = 5;
+    const h = 1920;
+    const a = new Uint8Array(w * h * 4);
+    // 0 above row 1344, 30 % from row 1344 down: 0.7 × 1920 = 1344 exactly.
+    for (let y = 1344; y < h; y += 1) for (let x = 0; x < w; x += 1) a[(y * w + x) * 4 + 3] = Math.round(0.3 * 255);
+    const [s] = sampleStops(a, { width: w, height: h }, 4, [[0.7, 20]]);
+    // Rows 1343, 1344, 1345 → 0, 30, 30 → 20 (row 1343 at the centre would read 10).
+    assert.ok(Math.abs(s!.got - 20) < 0.2, String(s!.got));
+    const [t] = sampleStops(a, { width: w, height: h }, 4, [[0.6999, 10]]);
+    // 0.6999 × 1920 = 1343.8 → row 1343: 0, 0, 30 → 10.
+    assert.ok(Math.abs(t!.got - 10) < 0.2, String(t!.got));
+  });
+
   it("two stops less than a pixel apart share a reading that passes between their values ±1; alone, a stop is held to ±1", () => {
     const w = 5;
     const h = 1350;

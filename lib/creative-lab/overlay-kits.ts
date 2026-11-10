@@ -128,5 +128,5 @@ export const T2_INVENTED: readonly { value: string; ruling: T2InventedRuling; by
   { ruling: "accepted", by: "issue 5 (O32)", value: "the paper box: each edge the median, over the rows (left, right) or columns (top, bottom) of the panel layer with ink, of where the ink starts and ends" },
   { ruling: "invented in a record", by: "issue 4 (O28, H30)", value: "no break inside a release name; colour by claim; band stops read on a 3 × 3 average" },
   { ruling: "invented in a record", by: "issue 5", value: "the 0.03 W and 0.02 H slot insets; step 2 at 4.5 % H and its pitch; the paper box as a kit-audit value; the draft stamp's place and words" },
-  { ruling: "new, not yet ruled", by: "H30 build", value: "the 3 × 3 average is centred on the frame's centre column and the pixel row the stop falls in" },
+  { ruling: "accepted", by: "design, #1163", value: "the 3 × 3 average is centred on the frame's centre column and on the pixel row the exact stop falls in, floor(stop × H); a stop exactly on a row boundary takes the row that starts there; two stops less than a pixel apart share one reading (O34)" },
 ];

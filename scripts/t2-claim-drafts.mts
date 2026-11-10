@@ -179,7 +179,7 @@ say();
 say(`ticket_warnings, read live (select only): ${rows.map((r) => `${r.id.slice(0, 8)} "${r.claim}" ${r.state}${r.approved_at ? " approved" : ""}`).join(" · ") || "no rows"}.`);
 say(`Card (a) words: ${rung1.why}.`);
 say(`Lineup (creative_lab_event_facts): ${lineup.join(" · ")}. Details (STORY PSD live layer): ${dateLine} / ${venueLine}.`);
-say(`Ground: ${manifest.psd} Background layer; panel "4th bday poster NEW" at the PSD's position (×${scale.toFixed(4)}); logo: the lockup layer. Fonts: ${fontsDir()}, read in place; local render only.`);
+say(`Ground: ${manifest.psd} Background layer; panel "4th bday poster NEW" at the PSD's position (×${scale.toFixed(4)}); logo: the lockup layer. Fonts: the kit face read in place from FONTS_DIR, never copied or committed; local render only.`);
 const slot0 = cards.find((c) => c.result.slot)?.result.slot;
 const r0 = cards.find((c) => c.result.panelInk)?.result;
 if (slot0 && r0?.panelInk) {
