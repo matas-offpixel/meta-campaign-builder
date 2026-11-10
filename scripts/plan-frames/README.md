@@ -131,7 +131,7 @@ The caption follows the footage's owner. `only=CLW` shoots CLW1–CLW3 and leave
 | Id | State | What to check by hand |
 |---|---|---|
 | CLW1 | Clips by owner | Puzzle footage first, empty, then Enzo and Luke. 393 stacks and shows Enzo #1 and #2 |
-| CLW2 | Generator | Angle row Lineup · Artist · POV · Scarcity. An unpaired Lineup post and Luke's quote line. 393 is the unpaired post |
+| CLW2 | Generator | Angle row Lineup · Artist · POV · Scarcity. The Artist caption is the writer's wrap (default 18, four lines: "Luke Dean. Back" / "at Circuit" / "for Puzzle's" / "4th birthday.") centred on Luke #1's clip. An unpaired Lineup post and Luke's quote line. 393 is the unpaired post |
 | CLW3 | Next | "Add Puzzle footage — 20 Lineup captions are waiting for it." 393 puts the button on its own line |
 
 ## AB series

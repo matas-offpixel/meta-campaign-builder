@@ -1,9 +1,11 @@
 "use client";
 
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
+import { wrapCaption } from "@/lib/creative-lab/caption-facts";
 import { PUZZLE_SAMPLES, PUZZLE_VENUES } from "@/lib/creative-lab/voice-fixtures";
 import { extractTraits } from "@/lib/creative-lab/voice-traits";
 import type { CardVoice } from "@/lib/creative-lab/voice-store";
+import { profile } from "../../../../src/remotion/caption-style/profile";
 
 import { labStripProps } from "@/components/dashboard/events/creative-lab-card";
 import { LabCaptions } from "./captions";
@@ -92,6 +94,20 @@ function caption(id: string, style: string, lines: string[], extra: Partial<Crea
   };
 }
 
+/** Same width choice as validateCaption: the style profile's line, then the long width when that does not fit. */
+function writerCaptionLines(text: string, names: readonly string[]): string[] {
+  const width = profile.charsPerLine;
+  const wrapped = wrapCaption(text, width, names);
+  const useLong =
+    text.trim().length >= profile.long.minChars
+    || wrapped.length > profile.maxLines
+    || wrapped.some((line) => line.length > width && line.includes(" "));
+  return useLong ? wrapCaption(text, profile.long.charsPerLine, names) : wrapped;
+}
+
+const ARTIST_CAPTION = "Luke Dean. Back at Circuit for Puzzle's 4th birthday.";
+const ARTIST_NAMES = ["Enzo Siragusa", "Luke Dean", "Puzzle 4th Birthday", "Circuit", "Southampton"];
+
 const lineup = Array.from({ length: 20 }, (_, index) => caption(
   `line-${index + 1}`,
   "lineup",
@@ -136,7 +152,7 @@ function puzzle(): CreativeLabCardData {
     assets: [],
     clientEvents: [],
     captions: [
-      caption("about-luke", "artist", ["Luke Dean. Back at Circuit for Puzzle's 4th birthday."], { clipId: "luke-1", artistId: LUKE }),
+      caption("about-luke", "artist", writerCaptionLines(ARTIST_CAPTION, ARTIST_NAMES), { clipId: "luke-1", artistId: LUKE, sizeVariant: "default" }),
       lineup[0]!,
       caption("luke-quote", "quote", ["Back in Southampton for this one. The room, the people, the night. That's Puzzle."], {
         mode: "quote",
@@ -176,9 +192,13 @@ export function FootageFrameMount({ id }: { id: string }) {
     );
   }
   if (id === "CLW2") {
+    const shown = {
+      ...lab,
+      clips: lab.clips.map((item) => (item.id === "luke-1" ? { ...item, previewUrl: "/frames/fixtures/clip-916.webm" } : item)),
+    };
     return (
       <div data-frame-ready={id} className="bg-background p-4 text-sm max-[700px]:p-3">
-        <LabCaptions lab={lab} busy={false} onSave={noop} quoteMode ownerAngles initialAngle="artist" initialArtistId={LUKE} />
+        <LabCaptions lab={shown} busy={false} onSave={noop} quoteMode ownerAngles initialAngle="artist" initialArtistId={LUKE} />
       </div>
     );
   }

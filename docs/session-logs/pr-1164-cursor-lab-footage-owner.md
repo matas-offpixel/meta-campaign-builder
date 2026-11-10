@@ -29,3 +29,5 @@ Promoter copy pairs only with the promoter's own footage, and an Artist caption 
 ## Notes
 
 Migration 226 is not applied. The dry run did not write. The design-pass label is not added. The design-pass check goes red because the frames changed.
+
+Fix round 2: CLW2's Artist caption is wrapped with `wrapCaption` and the caption style profile, the way the writer chooses the width, and Luke #1 plays the 9:16 fixture clip. CLW1 and CLW3 are unchanged. CL1–CL10 still shoot the legacy layout ("Artist, first person"); the event page only renders the owner layout. Rebaseline those, or remove the legacy path, in a later PR.
