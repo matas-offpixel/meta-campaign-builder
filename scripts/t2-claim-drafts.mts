@@ -29,7 +29,7 @@ import { trimToInk } from "../lib/creative-lab/artist-card.ts";
 import { WATERMARK, approvedClaim, assertExportable, fixtureRelease as rel, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { fontsDir, indexFonts } from "../lib/creative-lab/kit-font.ts";
 import { DEFAULT_GRADIENT_SHADOW } from "../lib/creative-lab/overlay-gradient.ts";
-import { T2_INVENTED } from "../lib/creative-lab/overlay-kits.ts";
+import { PUZZLE_FLOATING_T2, T2_INVENTED } from "../lib/creative-lab/overlay-kits.ts";
 import { rollCallWords } from "../lib/releases/roll-call.ts";
 import { describeAttempt, renderStandaloneMessage, type T2Input, type T2Result } from "../lib/creative-lab/t2-render.ts";
 
@@ -47,8 +47,7 @@ const kitDir = flag("--kit") ?? "";
 const outDir = flag("--out") ?? "";
 if (!code || !kitDir || !outDir) fail("--event, --kit and --out are required");
 if (argv.includes("--apply") || argv.includes("--export")) fail("this script never files or exports: drafts go to --out only");
-const panelBox = (flag("--panel-box") ?? "ink") as "ink" | "paper";
-if (panelBox !== "ink" && panelBox !== "paper") fail("--panel-box is ink or paper");
+if (argv.includes("--panel-box")) fail("--panel-box is gone: the slot is the kit's paper (O32)");
 
 /** The record's fixtures as event_releases, through the generator (asset bank 4 AB2 / A21; overlay templates O12). */
 const SOLD = (names: string[]) => names.map((n, i) => rel(i + 1, n, "sold_out"));
@@ -103,7 +102,7 @@ const rung1 =
 
 const fonts = indexFonts(fontsDir());
 mkdirSync(outDir, { recursive: true });
-const base: Omit<T2Input, "claim" | "watermark"> = { ground, panel, bands: DEFAULT_GRADIENT_SHADOW, lineup, details: [dateLine, venueLine], logo, fonts, panelBox };
+const base: Omit<T2Input, "claim" | "watermark"> = { ground, panel, bands: DEFAULT_GRADIENT_SHADOW, lineup, details: [dateLine, venueLine], logo, fonts };
 
 type Card = { id: string; title: string; source: string; result: T2Result; files: string[] };
 const cards: Card[] = [];
@@ -162,7 +161,10 @@ for (let i = 0; i < shown.length; i += 1) {
   const y = Math.floor(i / cols) * (H + LABEL + 16) + 16;
   tiles.push({ input: await sharp(c.result.master!).resize(W, H).png().toBuffer(), left: x, top: y });
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-  const label = await sharp({ text: { text: `<span foreground="#ffffff">${esc(c.id)}\n${esc(c.result.rules.find((r) => r.rule === "fit")?.detail ?? "")}</span>`, font: "Helvetica 13", width: W, rgba: true, dpi: 72 } }).png().toBuffer();
+  // O34: a state that doesn't fit shows its meter in brick.
+  const fitRule = c.result.rules.find((r) => r.rule === "fit");
+  const meterColour = fitRule && !fitRule.pass ? "#D0573F" : "#ffffff";
+  const label = await sharp({ text: { text: `<span foreground="#ffffff">${esc(c.id)}</span>\n<span foreground="${meterColour}">${esc(fitRule?.detail ?? "")}</span>`, font: "Helvetica 13", width: W, rgba: true, dpi: 72 } }).png().toBuffer();
   tiles.push({ input: label, left: x, top: y + H + 6 });
 }
 const sheet = await sharp({ create: { width: cols * (W + 16) + 16, height: rowsN * (H + LABEL + 16) + 16, channels: 3, background: "#1a1a1a" } }).composite(tiles).png().toBuffer();
@@ -183,9 +185,8 @@ const r0 = cards.find((c) => c.result.panelInk)?.result;
 if (slot0 && r0?.panelInk) {
   const b = r0.panelInk.box;
   const bb = r0.panelInk.bbox;
-  const alt = r0.slotOther!;
-  say(`Panel (master px): its ink box, every pixel with alpha > 8, spans x ${bb.left}–${bb.left + bb.width - 1}, y ${bb.top}–${bb.top + bb.height - 1}, the tape strips included; the paper (median row and column edges) spans x ${b.left}–${b.left + b.width - 1}, y ${b.top}–${b.top + b.height - 1}.`);
-  say(`Claim slot (O26, from the ${panelBox === "ink" ? "ink box, as O26 is written" : "paper, --panel-box paper"}): x ${Math.round(slot0.left)}–${Math.round(slot0.right)} (${Math.round(slot0.right - slot0.left)} px wide, centre ${Math.round((slot0.left + slot0.right) / 2)}), y ${Math.round(slot0.top)}–${Math.round(slot0.bottom)}; 1:1 at 0.8× (${Math.round((slot0.right - slot0.left) * 0.8)} px). From the ${panelBox === "ink" ? "paper" : "ink box"} it would be x ${Math.round(alt.left)}–${Math.round(alt.right)} (${Math.round(alt.right - alt.left)} px).`);
+  say(`Panel (master px): the kit's stored paper (O32) x ${PUZZLE_FLOATING_T2.paper!.left}–${PUZZLE_FLOATING_T2.paper!.right}, y ${PUZZLE_FLOATING_T2.paper!.top}–${PUZZLE_FLOATING_T2.paper!.bottom}; this render measured the paper at x ${b.left}–${b.left + b.width - 1}, y ${b.top}–${b.top + b.height - 1} (${r0.paperMatches ? "matches" : "**differs**"}); the ink box, tape included, is x ${bb.left}–${bb.left + bb.width - 1}, y ${bb.top}–${bb.top + bb.height - 1} (placing the piece only).`);
+  say(`Claim slot (O32): x ${Math.round(slot0.left)}–${Math.ceil(slot0.right) - 1} (${Math.round(slot0.right - slot0.left)} px wide, centre ${Math.round((slot0.left + slot0.right) / 2)}), y ${Math.round(slot0.top)}–${Math.ceil(slot0.bottom) - 1}; 1:1 at 0.8× (${Math.round((slot0.right - slot0.left) * 0.8)} px).`);
 }
 say(`Event release names (event_releases, select only; O28's unbreakable names): ${eventReleaseNames.join(" · ") || (er.error ? `not read (${er.error.message})` : "none")}.`);
 say();
@@ -195,7 +196,7 @@ for (const c of cards) {
   const r = c.result;
   const red = r.contrast.redLine == null ? "–" : `${pct(r.contrast.redLine)} → ${r.redLineWhite ? "**white**" : "red"}`;
   const a = r.plan && r.drawn != null ? r.plan.attempts[r.drawn] : null;
-  const step = a ? `${a.step} of 1 · ${a.lines.length} line${a.lines.length === 1 ? "" : "s"}${a.split ? " (broken)" : ""}` : "–";
+  const step = a ? `${a.step} of ${PUZZLE_FLOATING_T2.claim.steps.length - 1} · ${a.lines.length} line${a.lines.length === 1 ? "" : "s"}${a.split ? " (broken)" : ""}` : "–";
   const widest = r.lines.length ? `${Math.max(...r.lines.map((l) => l.widthPx))} of ${r.lines[0]!.maxPx} px${r.lines.some((l) => l.cut) ? " (over, drawn cut)" : ""}${a && !a.fitsHeight ? " · too tall" : ""}` : "–";
   const drops = a?.dropped.length ? a.dropped.join(", ") : "none";
   const ins = r.inSlot ? `${r.inSlot.master ? "✓" : "✗"} / ${r.inSlot.crop45 ? "✓" : "✗"} / ${r.inSlot.square ? "✓" : "✗"}` : "–";

@@ -46,7 +46,7 @@ import {
   type Size,
   type StripStats,
 } from "./artist-card.ts";
-import { CARD_CLAIM, KIT_RED, KIT_WHITE, inKitCase, isRollCall, planCardClaim, renderCardLine, rollCallStates, type CardClaimPlan } from "./claim-slot.ts";
+import { CARD_CLAIM, KIT_RED, KIT_WHITE, inKitCase, isRollCall, planCardClaim, plainDropStates, renderCardLine, rollCallStates, type CardClaimPlan } from "./claim-slot.ts";
 import { requireFont, type FontEntry } from "./kit-font.ts";
 import { renderGradientShadow, type GradientShadow } from "./overlay-gradient.ts";
 import { maskTouches, type PersonMask } from "./segment.ts";
@@ -520,6 +520,14 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
       for (const st of rollCallStates(shownLines[0]!, shownLines[1]!)) {
         const key = `${st.line2}@${baseCaps[1]}`;
         if (!widths.has(key)) widths.set(key, await measure(st.line2, baseCaps[1]!));
+      }
+    } else {
+      // O35: any other claim may take the drops on every line after the floors.
+      for (const st of plainDropStates(shownLines)) {
+        for (let i = 0; i < Math.min(st.lines.length, baseCaps.length); i += 1) {
+          const key = `${st.lines[i]}@${baseCaps[i]}`;
+          if (!widths.has(key)) widths.set(key, await measure(st.lines[i]!, baseCaps[i]!));
+        }
       }
     }
     const planned = planCardClaim(input.claimText, (t, cap) => widths.get(`${t}@${cap}`) ?? 0);

@@ -29,7 +29,7 @@ import { CARD_CLAIM } from "./claim-slot.ts";
 import { requireFont, type FontEntry } from "./kit-font.ts";
 import { PUZZLE_FLOATING_T2, type T2Kit } from "./overlay-kits.ts";
 import { renderGradientShadow, type GradientShadow } from "./overlay-gradient.ts";
-import { claimSlot, planDetails, planLineup, planLogo, planT2Claim, slotRect, slotWidth, type CornerLine, type MeasureLine, type T2Layout, type T2Plan, type T2Slot } from "./t2-message.ts";
+import { claimSlot, paperRect, planDetails, planLineup, planLogo, planT2Claim, slotRect, slotWidth, type CornerLine, type MeasureLine, type T2Layout, type T2Plan, type T2Slot } from "./t2-message.ts";
 
 async function sharpLib(): Promise<Sharp> {
   const m = await import("sharp");
@@ -181,8 +181,7 @@ export type T2Input = {
   attempt?: number;
   /** The event's release names, which a line break never splits (O28). */
   releaseNames?: readonly string[];
-  /** Which panel box makes the slot: "ink" (O26 as written: every pixel with alpha > 8) or "paper" (the median edges, without the tape strips). */
-  panelBox?: "ink" | "paper";
+
   kit?: T2Kit;
 };
 
@@ -196,12 +195,10 @@ export type T2Result = {
   layout: T2Layout | null;
   /** The O26 slot, master px. */
   slot: T2Slot | null;
-  /** The panel's ink: the paper (median edges) and every pixel's box. */
+  /** The panel measured on this render (the paper by median edges, and every pixel's box), to check the kit's stored paper (O32). */
   panelInk: PanelInk | null;
-  /** Which of the two made the slot. */
-  panelBox: "ink" | "paper";
-  /** The slot the other box would give, for the record. */
-  slotOther: T2Slot | null;
+  /** The stored paper box matches this render's measurement within 1 px. */
+  paperMatches: boolean | null;
   /** Every claim line inside the slot, per format (H27). */
   inSlot: { master: boolean; crop45: boolean; square: boolean } | null;
   lines: T2LineReport[];
@@ -229,7 +226,7 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   const sharp = await sharpFn();
   const kit = input.kit ?? PUZZLE_FLOATING_T2;
   const frame = MASTER;
-  const out: T2Result = { held: null, plan: null, drawn: null, layout: null, slot: null, panelInk: null, panelBox: "ink", slotOther: null, inSlot: null, lines: [], contrast: { claimBox: null, redLine: null, lineup: null, details: null }, redLineWhite: false, approvalLines: [], rules: [], bandStops: null, master: null, crop45: null, square: null, watermark: input.watermark };
+  const out: T2Result = { held: null, plan: null, drawn: null, layout: null, slot: null, panelInk: null, paperMatches: null, inSlot: null, lines: [], contrast: { claimBox: null, redLine: null, lineup: null, details: null }, redLineWhite: false, approvalLines: [], rules: [], bandStops: null, master: null, crop45: null, square: null, watermark: input.watermark };
 
   // O24: the kit's face or nothing.
   let face: FontEntry;
@@ -246,12 +243,13 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   // O26: the slot from the panel's ink box at its placed size.
   const panelMaster = input.panel ? await sharp(input.panel.png, { limitInputPixels: false }).resize(Math.round(input.panel.width), Math.round(input.panel.height), { fit: "fill" }).png().toBuffer() : null;
   const panelInk = panelMaster ? await panelInkBox(panelMaster, input.panel!.left, input.panel!.top) : null;
-  const mode = input.panelBox ?? "ink";
-  const slot = claimSlot(panelInk ? (mode === "paper" ? panelInk.box : panelInk.bbox) : null, kit, frame);
+  // O32: the slot is the kit's stored paper box; this render's measurement is reported against it.
+  const paper = paperRect(kit);
+  if (kit.panel && !paper) return { ...out, held: "the kit has no paper box: measure it at the kit audit (O32)" };
+  const slot = claimSlot(paper, kit, frame);
   out.slot = slot;
   out.panelInk = panelInk;
-  out.panelBox = mode;
-  out.slotOther = panelInk ? claimSlot(mode === "paper" ? panelInk.bbox : panelInk.box, kit, frame) : null;
+  out.paperMatches = panelInk && paper ? (["left", "top", "width", "height"] as const).every((k) => Math.abs(panelInk.box[k] - paper[k]) <= 1) : null;
 
   // Plan with the face's own advances.
   const planned = await withMeasure(face, (m) => {
@@ -265,6 +263,9 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   out.layout = planned.layout;
   if (!planned.layout) return { ...out, held: planned.plan.held ?? "no claim to draw" };
   const layout = planned.layout;
+  // O34: a state that doesn't fit is drawn (cut at the slot) only as a draft or the flagged preview.
+  const fitsDrawn = planned.plan.attempts[planned.idx!]?.fits ?? false;
+  if (!fitsDrawn && !input.watermark) return { ...out, held: planned.plan.held ?? "this state doesn't fit the slot; only a draft may draw it" };
 
   // Ground and arrangement, then the bands (O25), before any type.
   const groundMaster = await sharp(input.ground, { limitInputPixels: false }).resize(frame.width, frame.height, { fit: "cover" }).removeAlpha().png().toBuffer();
@@ -409,6 +410,11 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
 }
 
 export type PanelInk = { box: Rect; bbox: Rect };
+
+/** H8 / O32: the kit audit's paper measurement for a panel placed at (left, top). */
+export async function measurePaperBox(png: Buffer, left: number, top: number): Promise<PanelInk> {
+  return panelInkBox(png, left, top);
+}
 
 /**
  * The panel at its placed size, frame px. `bbox` is its ink box as O11 and O26

@@ -58,11 +58,18 @@ export type T2Slot = { left: number; right: number; top: number; bottom: number;
 export const slotWidth = (slot: T2Slot): number => slot.right - slot.left;
 export const slotRect = (slot: T2Slot): Rect => ({ left: slot.left, top: slot.top, width: slot.right - slot.left, height: slot.bottom - slot.top });
 
+/** O32: the kit's stored paper box as a rect (edges inclusive), or null on a kit with no panel. */
+export function paperRect(kit: T2Kit = PUZZLE_FLOATING_T2): Rect | null {
+  const p = kit.paper;
+  return p ? { left: p.left, top: p.top, width: p.right - p.left + 1, height: p.bottom - p.top + 1 } : null;
+}
+
 /**
- * O26. On a kit whose T2 draws a panel, the slot is the panel's ink box at its
- * placed size less 0.04 W each side and 0.02 H top and bottom, and never wider
- * than 86 % W (narrowed about the panel's centre). A kit with no panel keeps
- * O4's 86 % W, centred, the frame's full height.
+ * O32 (amends O26). On a kit whose T2 draws a panel, the slot is the panel's
+ * paper (the kit-audit value, never the ink box with its tape) less 0.03 W
+ * each side and 0.02 H top and bottom, and never wider than 86 % W (narrowed
+ * about the paper's centre). A kit with no panel keeps O4's 86 % W, centred,
+ * the frame's full height. Puzzle: x 126–938 (812 px), y 411–1510.
  */
 export function claimSlot(panelInk: Rect | null, kit: T2Kit = PUZZLE_FLOATING_T2, frame: Size = MASTER): T2Slot {
   const maxW = kit.claim.maxWidth * frame.width;
@@ -119,31 +126,9 @@ export function claimKind(lines: readonly string[]): T2ClaimKind {
   return lines.length === 2 && /\bSOLD OUT$/i.test(lines[0]!.trim()) ? "roll-call" : "plain";
 }
 
-const squash = (s: string) => s.replace(/\s+/g, " ").replace(/\s+([,·&])\s*$/, "").trim();
-
-/** One O8 drop over every line, or null when it changes nothing. */
-export function applyDrop(lines: readonly string[], drop: T2Kit["dropOrder"][number]): string[] | null {
-  let out: string[];
-  if (drop === "TICKETS" || drop === "NOW") {
-    const re = new RegExp(`\\b${drop}\\b`, "gi");
-    out = lines.map((l) => squash(l.replace(re, " ")));
-  } else {
-    // "3RD RELEASE" → "3RD", only while another RELEASE stays on the frame.
-    out = [...lines];
-    const re = /\b(\d+(?:ST|ND|RD|TH))\s+RELEASE\b/i;
-    for (let i = 0; i < out.length; i += 1) {
-      for (;;) {
-        const next = out[i]!.replace(re, "$1");
-        if (next === out[i]) break;
-        const trial = out.map((l, j) => (j === i ? next : l));
-        if (!trial.some((l) => /\bRELEASE\b/i.test(l))) break;
-        out[i] = next;
-      }
-    }
-  }
-  out = out.filter(Boolean);
-  return out.every((l, i) => l === lines[i]) && out.length === lines.length ? null : out;
-}
+/** One O8 drop over every line (claim-slot.ts, shared with T1 and the artist card). */
+export { applyDrop } from "./claim-slot.ts";
+import { applyDrop } from "./claim-slot.ts";
 
 /** Release names that are two words without RELEASE (O28's examples), beside every "{X} RELEASE". */
 export const TWO_WORD_RELEASE_NAMES = ["EARLY BIRD", "GENERAL SALE"] as const;
@@ -151,12 +136,15 @@ export const TWO_WORD_RELEASE_NAMES = ["EARLY BIRD", "GENERAL SALE"] as const;
 const bare = (w: string) => w.replace(/[^\p{L}\p{N}&%£$€]/gu, "").toUpperCase();
 
 /**
- * O28: may a one-line claim break before word i? Never inside a release name:
- * not before RELEASE ("2ND RELEASE", "FINAL RELEASE"), not inside "EARLY BIRD"
- * or "GENERAL SALE", nor inside any of the event's own release names.
+ * O28 / O34: may a one-line claim break before word i? Never inside a release
+ * name: not before RELEASE ("2ND RELEASE", "FINAL RELEASE"), not inside "EARLY
+ * BIRD" or "GENERAL SALE", nor inside any of the event's own release names;
+ * and never between FINAL and its number.
  */
 export function breakAllowed(words: readonly string[], i: number, releaseNames: readonly string[] = []): boolean {
   if (bare(words[i]!) === "RELEASE") return false;
+  // O34: never between FINAL and its number ("FINAL 100").
+  if (bare(words[i - 1] ?? "") === "FINAL" && /^[£$€]?\d/.test(bare(words[i]!))) return false;
   const names = [...TWO_WORD_RELEASE_NAMES, ...releaseNames.map((n) => n.trim().toUpperCase())].map((n) => n.split(/\s+/).map(bare)).filter((n) => n.length > 1);
   const ws = words.map(bare);
   for (const n of names) {
