@@ -29,9 +29,10 @@ function arg(name: string): string | undefined {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-const handle = arg("--handle")?.trim().replace(/^@/, "");
+const requested = arg("--handle")?.trim().replace(/^@/, "");
 const apply = process.argv.includes("--apply");
-if (!handle) throw new Error("Usage: --handle <instagram> [--apply]");
+if (!requested) throw new Error("Usage: --handle <instagram> [--apply]");
+const handle: string = requested;
 
 async function main() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
