@@ -5,7 +5,9 @@ import type { ServiceRoleDb } from "../load.ts";
 import {
   candidateThumb,
   classifyAspect,
+  fillMissingPromoterThumbs,
   findArtistClips,
+  findPromoterClips,
   IG_MEDIA_FIELDS,
   igScore,
   imageHeaderSize,
@@ -382,6 +384,95 @@ describe("candidate thumbnails", () => {
     assert.deepEqual(fetched, []);
     const row = fake.tables.creative_lab_ig_candidates.find((item) => item.ig_media_id === "slide-video");
     assert.equal(row?.thumbnail_path, null);
+  });
+});
+
+describe("promoter candidate thumbnails", () => {
+  const puzzle = {
+    id: "client-puzzle",
+    user_id: "op",
+    instagram_business_id: "178414000",
+    instagram_handle: "puzzleofficialuk",
+  };
+
+  it("stores a thumbnail path when the client's own clips are found", async () => {
+    const fake = seed({
+      clients: [puzzle],
+      creative_lab_ig_candidates: [{
+        id: "artist-row",
+        user_id: "op",
+        artist_id: "artist-1",
+        client_id: null,
+        ig_media_id: "artist-reel",
+        status: "candidate",
+        thumbnail_path: "creative-lab/ig/artist-1/artist-reel.jpg",
+      }],
+    });
+    const graph = read([post({ id: "reel-a", thumbnailUrl: "https://cdn.example/thumb.jpg", likes: 10 })]);
+    const bytes = new Uint8Array([1, 2, 3]);
+    graph.thumb = async () => ({ width: 720, height: 1280, bytes });
+    const stored: string[] = [];
+    await findPromoterClips(fake as unknown as ServiceRoleDb, {
+      clientId: "client-puzzle",
+      userId: "op",
+      now: NOW,
+      read: graph,
+      storeThumb: async (path) => {
+        stored.push(path);
+      },
+    });
+    assert.deepEqual(stored, ["creative-lab/ig/client-puzzle/reel-a.jpg"]);
+    const row = fake.tables.creative_lab_ig_candidates.find((item) => item.ig_media_id === "reel-a");
+    assert.equal(row?.thumbnail_path, "creative-lab/ig/client-puzzle/reel-a.jpg");
+    assert.equal(row?.artist_id, null);
+    assert.equal(row?.client_id, "client-puzzle");
+    assert.equal(JSON.stringify(row).includes("cdn.example"), false);
+    assert.equal(
+      fake.tables.creative_lab_ig_candidates.find((item) => item.id === "artist-row")?.thumbnail_path,
+      "creative-lab/ig/artist-1/artist-reel.jpg",
+    );
+  });
+
+  it("fills only this client's empty thumbnail paths, and a dry run writes nothing", async () => {
+    const fake = seed({
+      clients: [puzzle],
+      creative_lab_ig_candidates: [
+        { id: "p1", user_id: "op", artist_id: null, client_id: "client-puzzle", ig_media_id: "reel-a", status: "candidate", thumbnail_path: null },
+        { id: "kept", user_id: "op", artist_id: null, client_id: "client-puzzle", ig_media_id: "reel-kept", status: "candidate", thumbnail_path: "already.jpg" },
+        { id: "artist-row", user_id: "op", artist_id: "artist-1", client_id: "client-puzzle", ig_media_id: "artist-reel", status: "candidate", thumbnail_path: null },
+        { id: "other", user_id: "op", artist_id: null, client_id: "other-client", ig_media_id: "reel-b", status: "candidate", thumbnail_path: null },
+      ],
+    });
+    const graph = read([
+      post({ id: "reel-a", thumbnailUrl: "https://cdn.example/a.jpg", likes: 10 }),
+      post({ id: "reel-kept", thumbnailUrl: "https://cdn.example/kept.jpg", likes: 10 }),
+      post({ id: "artist-reel", thumbnailUrl: "https://cdn.example/artist.jpg", likes: 10 }),
+    ]);
+    graph.thumb = async () => ({ width: 720, height: 1280, bytes: new Uint8Array([4]) });
+    const dry = await fillMissingPromoterThumbs(fake as unknown as ServiceRoleDb, {
+      clientId: "client-puzzle",
+      userId: "op",
+      read: graph,
+      storeThumb: async () => undefined,
+    });
+    assert.deepEqual(dry.filled, [{ igMediaId: "reel-a", path: "creative-lab/ig/client-puzzle/reel-a.jpg" }]);
+    assert.equal(fake.tables.creative_lab_ig_candidates.find((row) => row.id === "p1")?.thumbnail_path, null);
+    const stored: string[] = [];
+    const applied = await fillMissingPromoterThumbs(fake as unknown as ServiceRoleDb, {
+      clientId: "client-puzzle",
+      userId: "op",
+      apply: true,
+      read: graph,
+      storeThumb: async (path) => {
+        stored.push(path);
+      },
+    });
+    assert.deepEqual(applied.filled, dry.filled);
+    assert.deepEqual(stored, ["creative-lab/ig/client-puzzle/reel-a.jpg"]);
+    assert.equal(fake.tables.creative_lab_ig_candidates.find((row) => row.id === "p1")?.thumbnail_path, "creative-lab/ig/client-puzzle/reel-a.jpg");
+    assert.equal(fake.tables.creative_lab_ig_candidates.find((row) => row.id === "kept")?.thumbnail_path, "already.jpg");
+    assert.equal(fake.tables.creative_lab_ig_candidates.find((row) => row.id === "artist-row")?.thumbnail_path, null);
+    assert.equal(fake.tables.creative_lab_ig_candidates.find((row) => row.id === "other")?.thumbnail_path, null);
   });
 });
 

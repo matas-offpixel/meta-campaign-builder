@@ -1,7 +1,7 @@
 /**
  * List an artist's best recent Instagram clips. Nothing is downloaded
  * and no clip row is written. media_url is never requested or stored.
- * A thumbnail is read in memory for its pixel size, then discarded.
+ * A thumbnail JPEG is stored in creative-thumbnails. The URL is never stored.
  */
 
 import { igThumbObjectPath } from "./ig-import.ts";
@@ -532,6 +532,28 @@ async function writeArtist(db: ServiceRoleDb, artistId: string, userId: string, 
   return updated.error ? plainIgMessage(updated.error.message) : null;
 }
 
+/** The same object key the artist listing uses: creative-thumbnails, keyed by owner then media id. */
+async function rememberThumbs(
+  ownerId: string,
+  rows: readonly { igMediaId: string }[],
+  bytes: ReadonlyMap<string, Uint8Array>,
+  store: (path: string, file: Uint8Array) => Promise<void>,
+): Promise<Map<string, string>> {
+  const paths = new Map<string, string>();
+  for (const row of rows) {
+    const file = bytes.get(row.igMediaId);
+    if (!file) continue;
+    const path = igThumbObjectPath(ownerId, row.igMediaId);
+    try {
+      await store(path, file);
+      paths.set(row.igMediaId, path);
+    } catch {
+      // The listing still saves. The next run stores the thumbnail.
+    }
+  }
+  return paths;
+}
+
 async function storeThumbBytes(db: ServiceRoleDb, path: string, bytes: Uint8Array): Promise<void> {
   const storage = (db as unknown as { storage?: { from: (bucket: string) => { upload: (path: string, body: Uint8Array, options: { contentType: string; upsert: boolean }) => Promise<{ error: { message: string } | null }> } } }).storage;
   if (!storage) return;
@@ -680,19 +702,8 @@ export async function findArtistClips(
 
   const thumbBytes = read.thumb ? await measureThumbs(posts, exclude, read.thumb) : new Map<string, Uint8Array>();
   const ranked = rankIgPosts(posts, { now, followers, exclude, limit: TOP_N });
-  const thumbPaths = new Map<string, string>();
   const store = args.storeThumb ?? ((path: string, bytes: Uint8Array) => storeThumbBytes(db, path, bytes));
-  for (const row of ranked) {
-    const bytes = thumbBytes.get(row.igMediaId);
-    if (!bytes) continue;
-    const path = igThumbObjectPath(args.artistId, row.igMediaId);
-    try {
-      await store(path, bytes);
-      thumbPaths.set(row.igMediaId, path);
-    } catch {
-      // The listing still saves. The next run stores the thumbnail.
-    }
-  }
+  const thumbPaths = await rememberThumbs(args.artistId, ranked, thumbBytes, store);
   const candidates: IgCandidate[] = [];
   for (const row of ranked) {
     const audioMatch = source === "own_edge" ? await read.copyright(row.igMediaId) : null;
@@ -792,7 +803,13 @@ export async function findArtistClips(
 /** List the client's own reels. Add imports each one as promoter footage. */
 export async function findPromoterClips(
   db: ServiceRoleDb,
-  args: { clientId: string; userId: string; now?: Date; read?: IgRead },
+  args: {
+    clientId: string;
+    userId: string;
+    now?: Date;
+    read?: IgRead;
+    storeThumb?: (path: string, bytes: Uint8Array) => Promise<void>;
+  },
 ): Promise<IgFindResult> {
   const now = args.now ?? new Date();
   const clientRes = await db.from("clients").select("*").eq("id", args.clientId).eq("user_id", args.userId).maybeSingle();
@@ -855,7 +872,10 @@ export async function findPromoterClips(
   }
   const profile = await read.profile(businessId);
   const followers = profile.ok ? profile.followers : null;
+  const thumbBytes = read.thumb ? await measureThumbs(posts, exclude, read.thumb) : new Map<string, Uint8Array>();
   const ranked = rankIgPosts(posts, { now, followers, exclude, limit: TOP_N });
+  const store = args.storeThumb ?? ((path: string, bytes: Uint8Array) => storeThumbBytes(db, path, bytes));
+  const thumbPaths = await rememberThumbs(args.clientId, ranked, thumbBytes, store);
   const candidates: IgCandidate[] = [];
   for (const row of ranked) {
     candidates.push({
@@ -894,6 +914,7 @@ export async function findPromoterClips(
         status: "candidate",
         reason: null,
         fetched_at: now.toISOString(),
+        ...(thumbPaths.get(row.igMediaId) ? { thumbnail_path: thumbPaths.get(row.igMediaId) } : {}),
       })),
       { onConflict: "client_id,ig_media_id" },
     );
@@ -907,6 +928,72 @@ export async function findPromoterClips(
   const cleared = await db.from("clients").update({ ig_last_error: null }).eq("id", args.clientId);
   if (cleared.error && !/ig_last_error|does not exist|schema cache/i.test(cleared.error.message)) throw new Error(cleared.error.message);
   return { candidates, error: null, source: "own_edge" };
+}
+
+/**
+ * Thumbnail paths for promoter candidates that were listed with none.
+ * Reads the client's own posts, stores a JPEG only for a row of this client
+ * whose thumbnail_path is empty, and updates that column alone.
+ * Dry when apply is false: nothing is uploaded and no row is written.
+ */
+export async function fillMissingPromoterThumbs(
+  db: ServiceRoleDb,
+  args: {
+    clientId: string;
+    userId: string;
+    apply?: boolean;
+    read?: IgRead;
+    storeThumb?: (path: string, bytes: Uint8Array) => Promise<void>;
+  },
+): Promise<{ filled: { igMediaId: string; path: string }[]; skipped: string[] }> {
+  const clientRes = await db.from("clients").select("id, user_id, instagram_business_id").eq("id", args.clientId).eq("user_id", args.userId).maybeSingle();
+  if (clientRes.error) throw new Error(plainIgMessage(clientRes.error.message));
+  const client = clientRes.data as Row | null;
+  if (!client) throw new Error("No client with that id.");
+  const businessId = text(client, "instagram_business_id");
+  if (!businessId) throw new Error("Add this client's Instagram business account.");
+  const listed = await db.from("creative_lab_ig_candidates").select("id, ig_media_id, thumbnail_path, artist_id, client_id").eq("client_id", args.clientId);
+  if (listed.error) throw new Error(plainIgMessage(listed.error.message));
+  const missing = ((listed.data ?? []) as Row[]).filter((row) => text(row, "client_id") === args.clientId && !text(row, "artist_id") && !text(row, "thumbnail_path") && text(row, "ig_media_id"));
+  if (missing.length === 0) return { filled: [], skipped: [] };
+  const wanted = new Set(missing.map((row) => text(row, "ig_media_id")));
+  let read: IgRead;
+  try {
+    read = args.read ?? (await defaultRead(db, args.userId));
+  } catch (err) {
+    if (err instanceof IgDiscoveryError) throw new Error(err.message);
+    throw err;
+  }
+  const media = await read.media(businessId, MAX_POSTS);
+  if (!media.ok) throw new Error(plainIgMessage(media.message));
+  const posts = media.posts.filter((post) => wanted.has(post.id) || post.children.some((child) => wanted.has(child.id)));
+  const thumbBytes = read.thumb ? await measureThumbs(posts, new Set(), read.thumb) : new Map<string, Uint8Array>();
+  const store = args.storeThumb ?? ((path: string, bytes: Uint8Array) => storeThumbBytes(db, path, bytes));
+  const filled: { igMediaId: string; path: string }[] = [];
+  const skipped: string[] = [];
+  for (const row of missing) {
+    const igMediaId = text(row, "ig_media_id");
+    const file = thumbBytes.get(igMediaId);
+    if (!file) {
+      skipped.push(igMediaId);
+      continue;
+    }
+    const path = igThumbObjectPath(args.clientId, igMediaId);
+    if (!args.apply) {
+      filled.push({ igMediaId, path });
+      continue;
+    }
+    await store(path, file);
+    const updated = await db
+      .from("creative_lab_ig_candidates")
+      .update({ thumbnail_path: path })
+      .eq("id", text(row, "id"))
+      .eq("client_id", args.clientId)
+      .is("artist_id", null);
+    if (updated.error) throw new Error(plainIgMessage(updated.error.message));
+    filled.push({ igMediaId, path });
+  }
+  return { filled, skipped };
 }
 
 export async function requestArtistClip(
