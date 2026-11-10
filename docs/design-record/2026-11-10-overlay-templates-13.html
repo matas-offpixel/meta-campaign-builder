@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 13 — tracking on the photo ground, the feather check — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 13 · 10 November 2026</p>
+<h1>Overlay templates — issue 13: tracking on the photo ground, the feather check</h1>
+<div class="lead"><p>#1177 builds issues 11 and 12 in real Bootzy. Matas's example fits Bootzy at tracking 0 in the experience line and the lineup. The claim doesn't fit at any honest tracking: "STUDENT TICKETS SELLING FAST" is 582 px wide at a 54 px cap in the example, while Bootzy Condensed sets it at 453 px at tracking 0 and 505 px at the kit's +25. Matching it would take about +63, or another face. #1174 also measured O70's feather check with the bands' dither, and asked whether that is right. This issue rules both. Issues 1–12 stand except where a row says otherwise.</p></div>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 13 · 10 Nov 2026.</b>
+<ul>
+<li>O90: tracking on the photo ground.</li>
+<li>O91: the claim's face and width on the photo ground.</li>
+<li>O92: the feather check as shipped (amends O70's check).</li>
+<li>Hand-back H89–H91.</li>
+</ul></li>
+<li><b>Issue 12 · 10 Nov 2026.</b> O85–O89. #1175.</li>
+</ul></div>
+
+<h2>Data note</h2>
+<table class="t">
+<tr><th>What</th><th>Measured</th><th>What it means</th></tr>
+<tr><td>Width per cap, Matas's example</td><td>"SOUTHAMPTON'S" 475 px at a 109 px cap: 0.335 cap per character. "CAM STOCKMAN" 231 px at a 53 px cap: 0.36. "STUDENT TICKETS SELLING FAST" 582 px at a 54 px cap: 0.385.</td><td>The claim is set about 28 % wider for its height than the experience line.</td></tr>
+<tr><td>Bootzy Condensed, #1177's reading</td><td>"SOUTHAMPTON'S" 481 px at tracking 0. The lineup fits at 0. The claim is 453 px at 0, 505 px at +25, and about +63 to reach 582.</td><td>The experience line and lineup match the face as it is. The claim's width came from something other than tracking.</td></tr>
+<tr><td>By eye, at equal cap height</td><td>The claim's letters are wider than the experience line's, with the same strokes and shapes, not just spaced further apart.</td><td>Likely a horizontal scale on the type layer, or a wider Bootzy cut, in Matas's file. The pixels can't say which.</td></tr>
+<tr><td>#1174's feather check</td><td>On the shipped backing (16-bit, dithered per O46), read as each row's mean across the core's width, over the feather's rows only: 1.50–1.55×. In plain 8-bit the same backings read 1.62×, and rounding alone accounts for the difference.</td><td>The check should read what ships.</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O90 Tracking on the photo ground</td><td>The experience line, the lineup and the details are all set at tracking 0 on the photo ground. That is Matas's example's own setting, read against the face. It replaces O79's +5 for the lineup and details on this ground. The panel ground keeps its live layer's +5 (issue 4).</td></tr>
+<tr><td>O91 The claim's face and width</td><td>The claim on the photo ground stays in the kit's face, Bootzy Condensed, at the kit's claim tracking of +25 (O23), with its cap at 0.50 of the experience line's (O85). Its width is whatever those words set at that size: 505 px for Matas's line, against the example's 582.
+<ul>
+<li><b>No horizontal scaling</b> of a kit face, ever. It distorts the strokes, and it is an effect (O5).</li>
+<li><b>No tracking</b> past the kit's +25 to chase a width.</li>
+<li>H86's 0.005 W check applies to the claim's centre and cap, not its width.</li>
+<li><b>Open, for Matas:</b> if the claim in his file is a wider Bootzy cut, or Bootzy at a horizontal scale, say which. A cut the client provides joins the kit (O51), and a later issue can give the claim that face. A horizontal scale stays out.</li>
+</ul></td></tr>
+<tr><td>O92 The feather check, as shipped</td><td>This amends O70's check; the curve, the 12 px minimum and the 1.6× limit stand. The check is made on the backing layer as it ships: computed at 16 bits and dithered per O46, read as each row's mean level across the core's width, over the feather's rows only, from the last core row to the first row at 0, with the padding not read. #1174's 1.50–1.55× passes. The build's measuring with the dither is accepted as T1V_INVENTED.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H89 Tracking</td><td>O90 on the photo ground; the panel ground unchanged.</td><td>the kit</td><td>the experience line, the lineup and the details each within 0.005 W of the data note's widths at tracking 0; the panel T2's frames are unchanged</td></tr>
+<tr><td>H90 Claim</td><td>O91: Bootzy Condensed at +25, no scaling; the width mismatch recorded, not failed.</td><td>—</td><td>the test asserts the claim's cap and centre, and logs its width against 582 px</td></tr>
+<tr><td>H91 Feather</td><td>O92's reading.</td><td>—</td><td>#1174's report method, kept</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>Nothing new is measured here. The tracking is read from the example, and the claim's +25 is the kit's.</li>
+</ul>
+
+<h2>Frames</h2>
+<p>None new.</p>
+
+</div></body>
+</html>
