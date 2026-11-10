@@ -36,4 +36,6 @@ R13 sorts cheapest first, so IR4's result names the 0.65 opener, not the figure'
 
 Design fail round: the R22 sentence sits under the writer's Write button, labelled Proven elsewhere. On a voice frame the chip comes first. The drawer hides its collapsed edge tab, and its border, while open. The 2–3 line band reads "2–3 lines". The sheet scope stays the caps label; lowercase "all clients" is the confidence line only.
 
-Round 3: the 10px / 12px above Proven elsewhere is the block's own padding, and only while the contained voice sheet is open, so the gap is measured from the chip line or the dashed chip. A closed voice row and every non-voice frame keep the signed-off gap. The 18px from Write to the chip is unchanged. CLV2-393's open gap sits below the clip, so that frame does not move.
+Round 3: the 10px / 12px above Proven elsewhere is the block's own padding, and only while the contained voice sheet is open. A closed voice row and every non-voice frame keep the signed-off gap. The 18px from Write to the chip is unchanged. CLV2-393's open gap sits below the clip, so that frame does not move.
+
+Round 4: that 10px is added, not taken from the line spacing. The label keeps 3px under its glyphs, so the line below stays 16px, and the wrapped voice line keeps a 13px row gap, so the chip-to-line gap stays 12px. CLV2-1280 grows by 6px and CLV3-1280 by 3px.
