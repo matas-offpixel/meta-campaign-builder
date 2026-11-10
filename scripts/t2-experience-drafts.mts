@@ -31,11 +31,11 @@ import sharp from "sharp";
 import { trimToInk } from "../lib/creative-lab/artist-card.ts";
 import { type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
-import { checkExperienceLine, photoT2Stamp } from "../lib/creative-lab/experience-line.ts";
+import { DOUBLE_SPACE, doubleSpaceRun, photoT2Stamp, saveExperienceLine } from "../lib/creative-lab/experience-line.ts";
 import { detectFaces } from "../lib/creative-lab/face-detect.ts";
 import { fontsDir, indexFonts, resolveFont } from "../lib/creative-lab/kit-font.ts";
 import { releaseNamesOf } from "../lib/creative-lab/t1-video.ts";
-import { T2P_INVENTED, photoDetails, photoGroundAllowed, type PhotoFormat } from "../lib/creative-lab/t2-photo.ts";
+import { T2P_INVENTED, dataNoteChecks, dataNoteWord, photoDetails, photoGroundAllowed, type PhotoFormat } from "../lib/creative-lab/t2-photo.ts";
 import { renderPhotoStill, type PhotoStillResult } from "../lib/creative-lab/t2-photo-render.ts";
 
 const argv = process.argv.slice(2);
@@ -54,9 +54,12 @@ const outDir = flag("--out") ?? "";
 const typed = flag("--experience") ?? "";
 if (!code || !kitDir || !outDir || !typed) fail("--event, --kit, --out and --experience are required");
 if (argv.includes("--apply") || argv.includes("--export") || argv.includes("--approve")) fail("this script never files, approves or exports: drafts go to --out only");
-const exp = checkExperienceLine(typed);
-if (!exp.ok) fail(exp.line);
-const experience = exp.ok ? exp.text : "";
+// O88: a run of two spaces is asked about once on save. For the drafts the answer is --spaces keep|one (default keep: kept as typed).
+const spaces = (flag("--spaces") ?? "keep") as "keep" | "one";
+const saved = saveExperienceLine(typed, { answer: spaces });
+if (saved.status === "refused") fail(saved.line);
+const experience = saved.status === "saved" ? saved.text : "";
+const askedSpaces = doubleSpaceRun(typed);
 
 // ─── Live reads, select only ───────────────────────────────────────────────
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
@@ -140,16 +143,16 @@ const L: string[] = [];
 const say = (s = "") => L.push(s);
 say(`# T2 on the photo ground · ${code} · ${event.name} · ${new Date().toISOString().slice(0, 16)}Z`);
 say();
-say(`Experience line (typed by Matas, kept verbatim; the writer's bans apply only to Suggest): "${experience}". Not approved: every draft is stamped.`);
+say(`Experience line (typed by Matas, kept verbatim; the writer's bans apply only to Suggest): "${experience}". Not approved: every draft is stamped.${askedSpaces ? ` O88 asked "${DOUBLE_SPACE.ask(askedSpaces.word)}" — answered ${spaces === "keep" ? DOUBLE_SPACE.keep : DOUBLE_SPACE.makeOne} (--spaces).` : ""}`);
 say(`Photo: creative_assets ${photoAsset} (${asset.data!.storage_path}). Photos carry no owner column yet: the operator states the promoter owns it (O76).`);
 say(`Lineup (creative_lab_event_facts): ${lineup.join(" · ")} · "& MORE": ${moreToAnnounce ? "the facts say more acts are coming" : "not drawn (the facts have no flag)"}. Details: ${details.join(" / ")}.`);
 say();
-say("| Version | Format | Crop | Scale | Band steps (top / centre / bottom) | Red line | Result | File |");
-say("|---|---|---|---|---|---|---|---|");
+say("| Version | Format | Crop | Scale | Band steps (top / centre / bottom) | Red line | Data note (H86, ±0.005 H / W) | Result | File |");
+say("|---|---|---|---|---|---|---|---|---|");
 const sheet: { label: string; file: string }[] = [];
 for (const v of versions) {
   const stamp = photoT2Stamp("held", v.claim ? (v.watermark ? "held" : "approved") : null);
-  const r: PhotoStillResult = await renderPhotoStill({ photo, slots: { experience, claim: v.claim, releaseNames, lineup, moreToAnnounce, details, logoInk: { width: logo.width, height: logo.height } }, face, logoPng: logo.png, stamp, faces, cropFocusY: [0.5, 0.4, 0.6, 0.3, 0.7] });
+  const r: PhotoStillResult = await renderPhotoStill({ photo, slots: { experience, claim: v.claim, releaseNames, lineup, moreToAnnounce, details, logo: { ink: { width: logo.width, height: logo.height }, kind: "lockup" } }, face, logoPng: logo.png, stamp, faces, cropFocusY: [0.5, 0.4, 0.6, 0.3, 0.7] });
   for (const fmt of ["9:16", "4:5", "1:1"] as PhotoFormat[]) {
     const name = `${v.id}_${fmt.replace(":", "x")}_DRAFT.png`;
     if (r.images[fmt]) {
@@ -158,7 +161,7 @@ for (const v of versions) {
     }
     const s = r.report.steps;
     const red = r.report.red ? `${(r.report.red.share * 100).toFixed(1)} % → ${r.report.red.verdict.white ? "white" : r.report.red.verdict.backing != null ? `red, backed ${Math.round(r.report.red.verdict.backing * 100)} %` : "red"}` : "–";
-    say(`| ${v.id} | ${fmt} | ${r.report.crop ?? "–"} | ${r.report.scale?.toFixed(2) ?? "–"}× | ${s ? `+${s.top * 10} / +${s.centre * 10} / +${s.bottom * 10}` : "–"} | ${red} | ${r.held ?? `passes, "${stamp}"`} | ${r.images[fmt] ? name : "–"} |`);
+    say(`| ${v.id} | ${fmt} | ${r.report.crop ?? "–"} | ${r.report.scale?.toFixed(2) ?? "–"}× | ${s ? `+${s.top * 10} / +${s.centre * 10} / +${s.bottom * 10}` : "–"} | ${red} | ${r.report.layouts[fmt] ? dataNoteWord(dataNoteChecks(r.report.layouts[fmt]!)) : "–"} | ${r.held ?? `passes, "${stamp}"`} | ${r.images[fmt] ? name : "–"} |`);
   }
   for (const t of r.report.tried) say(`- ${v.id}: ${t}`);
 }

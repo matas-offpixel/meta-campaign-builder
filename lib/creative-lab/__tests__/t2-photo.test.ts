@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { MASTER, type Rect } from "../artist-card.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { type Rect } from "../artist-card.ts";
 import {
   EXPERIENCE,
   EXPERIENCE_LINES,
   checkExperienceLine,
+  doubleSpaceRun,
+  saveExperienceLine,
   experienceDisplay,
   photoT2Stamp,
   storedExperienceLine,
@@ -19,7 +24,10 @@ import { fontsDir, indexFonts, resolveFont } from "../kit-font.ts";
 import { sampleTimes } from "../t1-video.ts";
 import {
   T2P,
+  T2P_DATA_NOTE,
   T2P_LINES,
+  dataNoteChecks,
+  dataNoteWord,
   VIDEO_SAFE,
   assignPhotoT2,
   captionTemplateConflicts,
@@ -55,7 +63,7 @@ const PUZZLE: PhotoSlotsInput = {
   lineup: ["Enzo Siragusa", "Luke Dean", "Reeshy", "Phill de Janeiro", "Benji King"],
   moreToAnnounce: false,
   details: ["SUNDAY 27TH DECEMBER", "CIRCUIT > SOUTHAMPTON"],
-  logoInk: { width: 400, height: 180 },
+  logo: { ink: { width: 400, height: 180 }, kind: "lockup" },
 };
 
 describe("H77 · O76 the grounds", () => {
@@ -77,7 +85,7 @@ describe("H78 · O77 the experience line", () => {
   });
 
   it("breaks as SOUTHAMPTON'S / BIGGEST HOUSE PARTY", () => {
-    const r = planPhotoBlock({ experience: MATAS, claim: null }, T2P.stillWidth * MASTER.width, measure);
+    const r = planPhotoBlock({ experience: MATAS, claim: null }, T2P.widthPx, measure);
     assert.ok(r.ok);
     assert.deepEqual(r.block.lines.map((l) => l.text), ["SOUTHAMPTON'S", "BIGGEST HOUSE PARTY"]);
   });
@@ -149,18 +157,18 @@ describe("H78 · O77 Suggest (a stubbed writer, no live call)", () => {
 });
 
 describe("H79 · O78 sizes, the claim under it, the block", () => {
-  it("the roll-call sits under the experience line at 0.55 of its cap, 0.025 H below, O23's sizes", () => {
-    const r = planPhotoBlock({ experience: MATAS, claim: ROLL_CALL }, 929, measure);
+  it("O85: the roll-call sits under the experience line at 0.50 of its cap, 0.34 of its cap below, O23's sizes", () => {
+    const r = planPhotoBlock({ experience: MATAS, claim: ROLL_CALL }, 840, measure);
     assert.ok(r.ok);
     const [e1, e2, c1, c2] = r.block.lines;
     assert.equal(r.block.step, 0);
-    close(e1!.capPx, 0.06 * 1920);
-    close(e2!.capTop - e1!.capTop, 0.0875 * 1920);
-    close(c2!.capPx, 0.55 * 0.06 * 1920);
+    close(e1!.capPx, 0.056 * 1920);
+    close(e2!.capTop - e1!.capTop, 1.4 * 0.056 * 1920);
+    close(c2!.capPx, 0.5 * 0.056 * 1920);
     close(c1!.capPx, c2!.capPx * (0.217 / 0.347));
     assert.equal(c1!.color, "red");
     assert.equal(c2!.color, "white");
-    close(c1!.capTop - (e2!.capTop + e2!.capPx), 0.025 * 1920);
+    close(c1!.capTop - (e2!.capTop + e2!.capPx), 0.34 * 0.056 * 1920);
     close(c2!.capTop - (c1!.capTop + c1!.capPx), (22 / 76) * c2!.capPx);
   });
 
@@ -179,11 +187,11 @@ describe("H79 · O78 sizes, the claim under it, the block", () => {
     assert.ok(claimOnly.block.lines.every((l) => l.role === "claim"));
   });
 
-  it("Matas's words fit at step 0 at 0.86 W and at 840 px (in Bootzy, when it's installed here)", async (t) => {
+  it("H86: Matas's words fit at step 0 within 840 px (in Bootzy, when it's installed here)", async (t) => {
     const ix = indexFonts(fontsDir());
     const r = resolveFont("BootzyCondensedTM-Regular", ix);
     if (r.status !== "found") return t.skip("Bootzy isn't installed on this machine");
-    for (const limit of [T2P.stillWidth * MASTER.width, T2P.clipWidthPx]) {
+    for (const limit of [T2P.widthPx]) {
       const plan: ReturnType<typeof planPhotoBlock> = await withMeasure(r.entry, (m) => planPhotoBlock({ experience: MATAS, claim: ROLL_CALL }, limit, m));
       assert.ok(plan.ok, JSON.stringify(plan));
       assert.equal(plan.block.step, 0, String(limit));
@@ -211,18 +219,26 @@ describe("H80 · O79 the other slots", () => {
     assert.deepEqual(photoDetails({ date: "2026-10-17", venue: "Circuit" }), ["SAT 17 OCT", "CIRCUIT"]);
   });
 
-  it("the lineup right-aligned on 0.857 W from 0.219 H, the details at 0.143 W on 0.767 H, the logo's right edge on 0.857 W (still)", () => {
+  it("O86 / O87 (still): the lineup right-aligned on 0.889 W from 0.207 H at 0.0276 / 0.0323 H; the details on 0.111 W, their last baseline on 0.793 H; the logo's ink on 0.889 W and on that baseline; the block on 0.535 H", () => {
     const m = planPhotoMaster(PUZZLE, "still", measure);
     assert.ok(m.ok);
     const L = m.layout;
-    for (const l of L.lineup) close(l.left + l.widthPx, 0.857 * 1080);
-    close(L.lineup[0]!.capTop, 0.219 * 1920);
-    for (const d of L.details) close(d.left, 0.143 * 1080);
-    close(L.boxes.details.top + L.boxes.details.height / 2, 0.767 * 1920);
-    close(L.logo.left + L.logo.width, 0.857 * 1080);
-    close(L.logo.width, 0.15 * 1080);
-    close(L.logo.top + L.logo.height / 2, 0.767 * 1920);
-    close((L.block.blockTop + L.block.blockBottom) / 2, 0.5 * 1920);
+    for (const l of L.lineup) close(l.left + l.widthPx, 0.889 * 1080);
+    close(L.lineup[0]!.capTop, 0.207 * 1920);
+    close(L.lineup[0]!.capPx, 0.0276 * 1920);
+    close(L.lineup[1]!.capTop - L.lineup[0]!.capTop, 0.0323 * 1920);
+    for (const d of L.details) close(d.left, 0.111 * 1080);
+    close(L.details[0]!.capPx, 0.028 * 1920);
+    close(L.details[1]!.capTop - L.details[0]!.capTop, 0.0328 * 1920);
+    const last = L.details.at(-1)!;
+    close(last.capTop + last.capPx, 0.793 * 1920);
+    close(L.logo.left + L.logo.width, 0.889 * 1080);
+    close(L.logo.width, 0.25 * 1080); // the kit's event lockup (O54)
+    close(L.logo.top + L.logo.height, 0.793 * 1920);
+    close((L.block.blockTop + L.block.blockBottom) / 2, 0.535 * 1920);
+    const wordmark = planPhotoMaster({ ...PUZZLE, logo: { ink: { width: 174, height: 22 }, kind: "wordmark" } }, "still", measure);
+    assert.ok(wordmark.ok);
+    close(wordmark.layout.logo.width, 0.161 * 1080);
   });
 });
 
@@ -233,12 +249,14 @@ describe("H81 · O80 positions", () => {
     const safe = photoClipSafe(m.layout);
     assert.ok(safe.ok, JSON.stringify(safe.outside));
     const L = m.layout;
-    close(L.lineup[0]!.capTop, 0.15 * 1920);
+    // O87: the lineup as on the still; the details' last baseline and the logo's ink bottom on 0.65 H.
+    close(L.lineup[0]!.capTop, 0.207 * 1920);
     for (const l of L.lineup) close(l.left + l.widthPx, 0.889 * 1080);
     const lastDetail = L.details.at(-1)!;
     close(lastDetail.capTop + lastDetail.capPx, 0.65 * 1920);
     close(L.details[0]!.left, 0.111 * 1080);
     close(L.logo.left + L.logo.width, 0.889 * 1080);
+    close(L.logo.top + L.logo.height, 0.65 * 1920);
     const lineupBaseline = L.boxes.lineup.top + L.boxes.lineup.height;
     close((L.block.blockTop + L.block.blockBottom) / 2, (lineupBaseline + L.boxes.details.top) / 2);
     assert.equal(VIDEO_SAFE.bottom, 1248);
@@ -390,5 +408,112 @@ describe("H82 · the still on a flat test photo (Bootzy, when it's installed her
     const small = await sharp({ create: { width: 720, height: 1280, channels: 3, background: { r: 90, g: 90, b: 90 } } }).png().toBuffer();
     const r = await renderPhotoStill({ photo: small, slots: PUZZLE, face: f, logoPng: await logo(), stamp: null, faces: [], cropFocusY: [0.5] });
     assert.equal(r.held, "Photo too small for 9:16 — 720 px wide in the crop, needs 1080");
+  });
+});
+
+describe("issue 12 · H86 the data note (Matas's example, measured), to within 0.005 H / W", () => {
+  const ex = T2P_DATA_NOTE.example;
+  const EXAMPLE: PhotoSlotsInput = { experience: ex.experience, claim: ex.claim, lineup: ex.lineup, moreToAnnounce: ex.moreToAnnounce, details: ex.details, logo: ex.logo };
+  const N = T2P_DATA_NOTE;
+  const tolY = 0.005 * 1920;
+  const tolX = 0.005 * 1080;
+  const within = (got: number, want: number, tol: number, what: string) => assert.ok(Math.abs(got - want) <= tol, `${what}: ${got.toFixed(1)} vs ${want} (±${tol})`);
+
+  it("every slot's anchor, in every still format and on Puzzle's own words", () => {
+    for (const input of [EXAMPLE, PUZZLE]) {
+      for (const f of ["9:16", "4:5", "1:1"] as const) {
+        const r = planPhotoLayout(input, "still", f, measure);
+        assert.ok(r.ok);
+        const checks = dataNoteChecks(r.layout);
+        assert.equal(checks.length, 7);
+        assert.deepEqual(checks.filter((c) => !c.ok), [], f);
+        assert.match(dataNoteWord(checks), /^✓ \(7 within ±0\.005\)$/);
+      }
+    }
+    const clip = planPhotoLayout(PUZZLE, "clip", "9:16", measure);
+    assert.ok(clip.ok);
+    assert.equal(dataNoteChecks(clip.layout).length, 4);
+    assert.ok(dataNoteChecks(clip.layout).every((c) => c.ok));
+  });
+
+  it("each ink box of the example's own words on the 9:16 still: cap tops and baselines", () => {
+    const r = planPhotoMaster(EXAMPLE, "still", measure);
+    assert.ok(r.ok);
+    const L = r.layout;
+    assert.deepEqual(L.lineup.map((l) => l.text), ["JAMBACK", "MELLA DEE", "CAM STOCKMAN", "LI LI", "& MORE"]);
+    L.lineup.forEach((l, i) => within(l.capTop, N.lineup.capTops[i]!, tolY, `lineup ${l.text} cap top`));
+    within(L.lineup.at(-1)!.capTop + L.lineup.at(-1)!.capPx, N.lineup.lastBaseline, tolY, "lineup last baseline");
+    within(L.lineup[0]!.capPx, N.lineup.cap, tolY, "lineup cap");
+    const exp = L.block.lines.filter((l) => l.role === "experience");
+    assert.deepEqual(exp.map((l) => l.text), ["SOUTHAMPTON'S", "BIGGEST HOUSE  PARTY"]);
+    exp.forEach((l, i) => {
+      within(l.capTop, N.experience.lines[i]!.top, tolY, `${l.text} top`);
+      within(l.capTop + l.capPx, N.experience.lines[i]!.bottom, tolY, `${l.text} bottom`);
+    });
+    const claim = L.block.lines.find((l) => l.role === "claim")!;
+    within(claim.capTop, N.claim.top, tolY, "claim top");
+    within(claim.capTop + claim.capPx, N.claim.bottom, tolY, "claim bottom");
+    within(L.block.blockTop, N.block.top, tolY, "block top");
+    within(L.block.blockBottom, N.block.bottom, tolY, "block bottom");
+    L.details.forEach((d, i) => {
+      within(d.capTop, N.details.capTops[i]!, tolY, `${d.text} top`);
+      within(d.capTop + d.capPx, N.details.bottoms[i]!, tolY, `${d.text} bottom`);
+      within(d.left, N.details.left, tolX, `${d.text} left`);
+    });
+    within(L.logo.left, N.logo.left, tolX, "logo left");
+    within(L.logo.left + L.logo.width, N.logo.right, tolX, "logo right");
+    within(L.logo.top, N.logo.top, tolY, "logo top");
+    within(L.logo.top + L.logo.height, N.logo.bottom, tolY, "logo bottom");
+    // The 4:5 rectangle's fractions (O87): 0.083, 0.42–0.68, 0.916.
+    const f = planPhotoLayout(EXAMPLE, "still", "4:5", measure);
+    assert.ok(f.ok);
+    close(f.layout.lineup[0]!.capTop / 1350, 0.083, 0.001);
+    close(f.layout.block.blockTop / 1350, 0.42, 0.005);
+    close(f.layout.block.blockBottom / 1350, 0.68, 0.005);
+    const last = f.layout.details.at(-1)!;
+    close((last.capTop + last.capPx) / 1350, 0.916, 0.002);
+  });
+
+  it("each line's width and centre in Bootzy (when it's installed here), side-bearing aside", async (t) => {
+    const r0 = resolveFont("BootzyCondensedTM-Regular", indexFonts(fontsDir()));
+    if (r0.status !== "found") return t.skip("Bootzy isn't installed on this machine");
+    const r: ReturnType<typeof planPhotoMaster> = await withMeasure(r0.entry, (m) => planPhotoMaster(EXAMPLE, "still", m));
+    assert.ok(r.ok);
+    const L = r.layout;
+    within(Math.max(...L.lineup.map((l) => l.widthPx)), N.lineup.widest, tolX, "lineup widest (CAM STOCKMAN)");
+    const exp = L.block.lines.filter((l) => l.role === "experience");
+    exp.forEach((l, i) => {
+      const note = N.experience.lines[i]!;
+      within(l.widthPx, note.right - note.left, tolX * 2, `${l.text} width`);
+      within(540, (note.left + note.right) / 2, tolX, `${l.text} centre`);
+    });
+    // The claim is the one box that misses: the note's 582 px at a 54 px cap matches no Bootzy tracking (reported for design).
+    const claim = L.block.lines.find((l) => l.role === "claim")!;
+    assert.ok(Math.abs(claim.widthPx - (N.claim.right - N.claim.left)) > tolX * 2, `claim ${claim.widthPx}`);
+    assert.ok(claim.widthPx < N.claim.right - N.claim.left);
+  });
+});
+
+describe("issue 12 · H87 two spaces (O88), O89 no lineup shadow", () => {
+  const TWO = "SOUTHAMPTON'S BIGGEST HOUSE  PARTY";
+  it("Matas's line asks once; Keep saves it as typed; Make it one touches nothing else", () => {
+    assert.deepEqual(saveExperienceLine(TWO), { status: "ask", line: "Two spaces after HOUSE — keep them?", options: ["Keep", "Make it one"] });
+    assert.deepEqual(saveExperienceLine(TWO, { answer: "keep" }), { status: "saved", text: TWO });
+    assert.deepEqual(saveExperienceLine(TWO, { keptBefore: TWO }), { status: "saved", text: TWO });
+    assert.deepEqual(saveExperienceLine(TWO, { answer: "one" }), { status: "saved", text: "SOUTHAMPTON'S BIGGEST HOUSE PARTY" });
+    assert.deepEqual(saveExperienceLine("SOUTHAMPTON'S BIGGEST HOUSE PARTY"), { status: "saved", text: "SOUTHAMPTON'S BIGGEST HOUSE PARTY" });
+    assert.deepEqual(saveExperienceLine("x".repeat(41)), { status: "refused", line: EXPERIENCE_LINES.tooLong });
+    assert.equal(doubleSpaceRun("A\nB  C")?.word, "B");
+  });
+
+  it("the break keeps the two spaces in the line they fall in", () => {
+    const r = planPhotoBlock({ experience: TWO, claim: null }, 840, measure);
+    assert.ok(r.ok);
+    assert.deepEqual(r.block.lines.map((l) => l.text), ["SOUTHAMPTON'S", "BIGGEST HOUSE  PARTY"]);
+  });
+
+  it("O89: the photo ground draws no shadow, stroke or glow under any type (O5)", () => {
+    const src = readFileSync(join(process.cwd(), "lib/creative-lab/t2-photo-render.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    assert.doesNotMatch(src, /KIT_SHADOW|textOverlay|shadow\s*:|blur\(|stroke/i);
   });
 });

@@ -208,16 +208,16 @@ export async function renderPhotoStill(input: PhotoStillInput): Promise<PhotoSti
     };
     for (const l of L.block.lines) {
       const colour = l.color === "red" && !red?.white ? kit.colours.kitRed : kit.colours.white;
-      const s = await setRuns([{ text: l.text, color: colour }], l.capPx, kit.tracking.claim, input.face);
+      const s = await setRuns([{ text: l.text, color: colour }], l.capPx, l.role === "experience" ? T2P.tracking.experience : T2P.tracking.claim, input.face);
       put(s, (L.size.width - s.width) / 2, l.capTop);
     }
     const right = Math.max(...L.lineup.map((l) => l.left + l.widthPx));
     for (const l of L.lineup) {
-      const s = await setRuns([{ text: l.text, color: kit.colours.white }], l.capPx, kit.tracking.lineup, input.face);
+      const s = await setRuns([{ text: l.text, color: kit.colours.white }], l.capPx, T2P.tracking.lineup, input.face);
       put(s, right - s.width, l.capTop);
     }
     for (const l of L.details) {
-      const s = await setRuns(l.runs.map((r) => ({ text: r.text, color: r.coral ? kit.colours.coral : kit.colours.white })), l.capPx, kit.tracking.details, input.face);
+      const s = await setRuns(l.runs.map((r) => ({ text: r.text, color: r.coral ? kit.colours.coral : kit.colours.white })), l.capPx, T2P.tracking.details, input.face);
       put(s, l.left, l.capTop);
     }
     const logo = await sharp(input.logoPng).resize(Math.round(L.logo.width), Math.round(L.logo.height), { fit: "fill" }).png().toBuffer();

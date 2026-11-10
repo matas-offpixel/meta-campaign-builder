@@ -172,3 +172,46 @@ export function photoT2Stamp(experience: ApprovalState, claim: ApprovalState): s
   if (claimHeld) return "DRAFT · claim not approved";
   return null;
 }
+
+// ─── O88: two spaces in a typed line ────────────────────────────────────────
+
+export const DOUBLE_SPACE = {
+  ask: (word: string) => `Two spaces after ${word} — keep them?`,
+  keep: "Keep",
+  makeOne: "Make it one",
+} as const;
+
+/** O88: the first run of two or more spaces inside a line (not the typed break), and the word before it. */
+export function doubleSpaceRun(text: string): { word: string; index: number } | null {
+  for (const line of storedExperienceLine(text).split("\n")) {
+    const m = /(\S+)( {2,})(?=\S)/u.exec(line);
+    if (m) return { word: m[1]!.toUpperCase(), index: m.index + m[1]!.length };
+  }
+  return null;
+}
+
+export type SaveAnswer = "keep" | "one";
+
+export type SaveResult =
+  | { status: "saved"; text: string }
+  | { status: "ask"; line: string; options: readonly [typeof DOUBLE_SPACE.keep, typeof DOUBLE_SPACE.makeOne] }
+  | { status: "refused"; line: string };
+
+/**
+ * O88 (amends O77's "kept verbatim"): saving a typed line. A run of two or
+ * more spaces is kept as typed, but asked about once: "Two spaces after
+ * {word} — keep them?", Keep or Make it one. Keep saves it as typed; Make it
+ * one turns each run into one space and touches nothing else. A line already
+ * kept with its runs (`keptBefore`) is never asked about again. The limits
+ * are checked first, on the line as typed.
+ */
+export function saveExperienceLine(text: string, opts: { answer?: SaveAnswer | null; keptBefore?: string | null } = {}): SaveResult {
+  const check = checkExperienceLine(text);
+  if (!check.ok) return { status: "refused", line: check.line };
+  const run = doubleSpaceRun(check.text);
+  if (!run) return { status: "saved", text: check.text };
+  if (opts.keptBefore != null && storedExperienceLine(opts.keptBefore) === check.text) return { status: "saved", text: check.text };
+  if (opts.answer === "keep") return { status: "saved", text: check.text };
+  if (opts.answer === "one") return { status: "saved", text: check.text.split("\n").map((l) => l.replace(/ {2,}/g, " ")).join("\n") };
+  return { status: "ask", line: DOUBLE_SPACE.ask(run.word), options: [DOUBLE_SPACE.keep, DOUBLE_SPACE.makeOne] };
+}

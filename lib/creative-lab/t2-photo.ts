@@ -11,6 +11,10 @@
  * pixels are drawn by t2-photo-render.ts (stills) and T1OnClip (clips: the
  * same layers — bands and type from frame 0, the claim fading in at 1.5 s).
  *
+ * Issue 12 (O85–O89) re-rules every size and position from Matas's
+ * example, measured on its 1080 × 1920 file (T2P_DATA_NOTE): those replace
+ * issue 11's panel-kit measures here. The lineup has no shadow (O89).
+ *
  * The panel ground (issues 4–5) is unchanged and lives in t2-render.ts.
  * Values no record gives are in T2P_INVENTED.
  */
@@ -21,24 +25,44 @@ import { checkExperienceLine, experienceDisplay, EXPERIENCE_LINES, typedLines } 
 import type { FootageOwner } from "./footage-owner.ts";
 import { J2_FALL, knotAt } from "./overlay-gradient.ts";
 import { PUZZLE_FLOATING_T2, type T2Kit } from "./overlay-kits.ts";
-import { bestSplit, claimKind, inCase, isFinalTickets, planDetails, planLineup, planLogo, type CornerLine, type MeasureLine } from "./t2-message.ts";
+import { bestSplit, breakAllowed, claimKind, inCase, isFinalTickets, type CornerLine, type MeasureLine } from "./t2-message.ts";
 import { FORMAT_SIZE, claimOpacity, footageWindow, type VideoFormat } from "./t1-video-frame.ts";
 import { T1V_FACE, VIDEO_SAFE, claimAllowed, countedFaces, formatTooSmall, insideVideoSafe, judgeFaceOverTime, upperFace, type FaceSample, type FaceVerdict } from "./t1-video.ts";
 
 export type PhotoGround = "still" | "clip";
 export type PhotoFormat = VideoFormat;
 
-/** Issue 11's measures (ratios of the 9:16 master unless px). */
+/** The photo ground's measures (ratios of the 9:16 master unless px): issue 12's, measured on Matas's example (O85–O87). */
 export const T2P = {
-  /** O78: the claim's cap as a share of the experience line's cap at its step. */
-  claimCap: 0.55,
-  /** O78: the experience line's last baseline to the claim's first cap top, at step 0; scaled with the step. */
-  claimGap: 0.025,
-  /** O78: the width limit on a still (0.07–0.93 W) and on a 9:16 clip (O43). */
-  stillWidth: 0.86,
-  clipWidthPx: 840,
-  /** O80, the 9:16 clip: the lineup's first cap top and right edge, the details' left edge and last baseline, the logo's right edge. */
-  clip: { lineupCapTop: 0.15, right: 0.889, left: 0.111, detailsBaseline: 0.65 },
+  /** O85: the experience line's steps (step 0 at the example's cap, then T2's step ratios); the two-line pitch 1.40 of the cap. */
+  experience: { steps: [0.056, 0.0485, 0.042], pitch: 1.4 },
+  /** O85: the claim's cap as a share of the experience line's cap at its step. */
+  claimCap: 0.5,
+  /** O85: the experience line's last baseline to the claim's first cap top, as a share of the experience line's cap. */
+  claimGap: 0.34,
+  /**
+   * Tracking (thousandths of an em), read from the example's measured widths:
+   * the experience line and the lineup are set at 0 (Bootzy at 0 inks
+   * SOUTHAMPTON'S 481 px against the note's 475, BIGGEST HOUSE  PARTY 682
+   * against 677, CAM STOCKMAN 232 against 231; the kit's +25 / +5 miss).
+   * The details keep the kit's +5 (the note gives no width). The claim keeps
+   * the kit's +25: the note's 582 px for STUDENT TICKETS SELLING FAST at a
+   * 54 px cap matches no Bootzy tracking (453 at 0, 505 at +25) — reported.
+   */
+  tracking: { experience: 0, lineup: 0, details: 5, claim: 25 },
+  /** O85: the width limit on every 9:16, still or clip: x 120–960. */
+  widthPx: 840,
+  /** O87: the block's centre on a still. */
+  stillCentre: 0.535,
+  /** O86 / O87: the sides are the video safe area's (O43), shared by the still and the clip. */
+  left: 0.111,
+  right: 0.889,
+  /** O86 / O87: the lineup, right-aligned on 0.889 W. */
+  lineup: { capTop: 0.207, cap: 0.0276, pitch: 0.0323, maxLines: 6, maxWidth: 0.4 },
+  /** O86 / O87: the details by the text frame on 0.111 W; the last baseline on 0.793 H (still) or 0.65 H (clip). */
+  details: { cap: 0.028, pitch: 0.0328, baselineStill: 0.793, baselineClip: 0.65, maxWidth: 0.4 },
+  /** O86: the logo by its ink box, right edge on 0.889 W, ink bottom on the details' last baseline: the wordmark at 0.161 W, or the event lockup at its own 0.25 W (O54). */
+  logo: { wordmark: 0.161, lockup: 0.25 },
   /** O1: the 1:1 re-sit. */
   square: { k: 0.8, side: 1080 },
   /** O81: the three bands (fractions of the 9:16 H, scaled with the format's k). */
@@ -53,6 +77,29 @@ export const T2P = {
   },
   /** O81's limits (O19, O40, O61): share of the box below 3:1 (the red line: below 2:1). */
   limits: { lineup: 0.1, details: 0.1, block: 0.15, logo: 0.15, red: 0.25 },
+} as const;
+
+/**
+ * Issue 12's data note: Matas's example (Puzzle, Sat 17 Oct, 9:16) measured
+ * on the 1080 × 1920 file, white ink rows and columns, px. Drafts are judged
+ * to within 0.005 H and 0.005 W of it (H86), side-bearing aside.
+ */
+export const T2P_DATA_NOTE = {
+  tolerance: { h: 0.005, w: 0.005 },
+  example: {
+    experience: "SOUTHAMPTON'S BIGGEST HOUSE  PARTY",
+    claim: "STUDENT TICKETS SELLING FAST",
+    lineup: ["JAMBACK", "MELLA DEE", "CAM STOCKMAN", "LI LI"],
+    moreToAnnounce: true,
+    details: ["SAT 17 OCT", "CIRCUIT"],
+    logo: { kind: "wordmark" as const, ink: { width: 174, height: 22 } },
+  },
+  lineup: { capTops: [397, 459, 520, 584, 646], cap: 54, lastBaseline: 700, right: 960, widest: 231 },
+  experience: { lines: [{ top: 852, bottom: 961, left: 299, right: 774 }, { top: 1003, bottom: 1110, left: 201, right: 878 }], centreX: 538.5 },
+  claim: { top: 1147, bottom: 1202, left: 249, right: 831 },
+  block: { top: 852, bottom: 1202 },
+  details: { capTops: [1405, 1468], bottoms: [1460, 1522], left: 120 },
+  logo: { top: 1493, bottom: 1515, left: 786, right: 960 },
 } as const;
 
 export const T2P_LINES = {
@@ -100,23 +147,46 @@ export type BlockInput = {
 
 type Fit = { lines: string[]; widths: number[] } | null;
 
-function fitLines(text: string, typed: boolean, capPx: number, limit: number, tracking: number, measure: MeasureLine, releaseNames: readonly string[]): Fit {
+/**
+ * O77 / O88: the most even of O28's allowed breaks, keeping the line's own
+ * spacing (a typed run of two spaces stays in whichever line it falls in).
+ */
+export function splitKeepingSpaces(line: string, capPx: number, tracking: number, measure: MeasureLine, releaseNames: readonly string[] = []): [string, string] | null {
+  const parts = line.trim().split(/(\s+)/);
+  const words = parts.filter((_, i) => i % 2 === 0);
+  if (words.length < 2) return null;
+  let best: [string, string] | null = null;
+  let widest = Infinity;
+  for (let i = 1; i < words.length; i += 1) {
+    if (!breakAllowed(words, i, releaseNames)) continue;
+    const a = parts.slice(0, 2 * i - 1).join("");
+    const b = parts.slice(2 * i).join("");
+    const w = Math.max(measure(a, capPx, tracking), measure(b, capPx, tracking));
+    if (w < widest) {
+      widest = w;
+      best = [a, b];
+    }
+  }
+  return best;
+}
+
+function fitLines(text: string, capPx: number, limit: number, tracking: number, measure: MeasureLine, releaseNames: readonly string[], keepSpaces: boolean): Fit {
   const given = text.split("\n").filter(Boolean);
   const fits = (ls: string[]) => {
     const widths = ls.map((l) => measure(l, capPx, tracking));
     return widths.every((w) => w <= limit + 1e-6) ? { lines: ls, widths } : null;
   };
-  if (given.length >= 2 || (typed && given.length > 1)) return given.length <= 2 ? fits(given) : null;
+  if (given.length >= 2) return given.length <= 2 ? fits(given) : null;
   const one = fits(given);
   if (one) return one;
-  const split = bestSplit(given[0]!, capPx, tracking, measure, releaseNames);
+  const split = keepSpaces ? splitKeepingSpaces(given[0]!, capPx, tracking, measure, releaseNames) : bestSplit(given[0]!, capPx, tracking, measure, releaseNames);
   return split ? fits(split) : null;
 }
 
 /**
- * O78: the experience line at T2's steps (cap 0.06 / 0.052 / 0.045 H, pitch
- * scaled from O4's 0.0875 H), white and centred, with the claim under it at
- * 0.55 of its cap and 0.025 H below its last baseline (scaled). A roll-call
+ * O85 (amends O78): the experience line at 0.056 / 0.0485 / 0.042 H, the
+ * two-line pitch 1.40 of the cap, white and centred, with the claim under it
+ * at 0.50 of its cap and 0.34 of its cap below its last baseline. A roll-call
  * takes O23's sizes at the claim's cap; O8's drops apply to the claim only.
  * The block's lines are placed from y = 0; `placeBlock` centres it.
  */
@@ -127,15 +197,15 @@ export function planPhotoBlock(input: BlockInput, limitPx: number, measure: Meas
   const claimLines0 = input.claim ? input.claim.split("\n").map((l) => inCase(l.trim(), kit)).filter(Boolean) : [];
   if (!expText && !claimLines0.length) return { ok: false, line: T2P_LINES.needOne };
   const names = input.releaseNames ?? [];
-  const steps = kit.claim.steps;
-  const step0 = steps[0]!;
-  const t = kit.tracking.claim;
+  const steps = T2P.experience.steps;
+  const t = T2P.tracking.claim;
+  const te = T2P.tracking.experience;
   let expEverFits = !expText;
   let claimWidest = 0;
   for (let s = 0; s < steps.length; s += 1) {
-    const C = steps[s]!.cap * frame.height;
-    const pitch = steps[s]!.pitch * frame.height;
-    const expFit = expText ? fitLines(typedLines(expText).join("\n"), true, C, limitPx, t, measure, names) : null;
+    const C = steps[s]! * frame.height;
+    const pitch = T2P.experience.pitch * C;
+    const expFit = expText ? fitLines(typedLines(expText).join("\n"), C, limitPx, te, measure, names, true) : null;
     if (expText && !expFit) continue;
     expEverFits = true;
     const out: Omit<BlockLine, "capTop">[] = (expFit?.lines ?? []).map((text, i) => ({ text, role: "experience", color: "white", capPx: C, widthPx: expFit!.widths[i]! }));
@@ -169,16 +239,16 @@ export function planPhotoBlock(input: BlockInput, limitPx: number, measure: Meas
             claimGaps = [0, kit.claim.rollCallGap * Cc];
           }
         } else {
-          const fit = fitLines(lines.join("\n"), lines.length > 1, Cc, limitPx, t, measure, names);
+          const fit = fitLines(lines.join("\n"), Cc, limitPx, t, measure, names, false);
           if (fit) {
             const red = lines.length === 1 && isFinalTickets(lines[0]!);
             placed = fit.lines.map((text, i) => ({ text, role: "claim" as const, color: red ? ("red" as const) : ("white" as const), capPx: Cc, widthPx: fit.widths[i]! }));
-            claimGaps = fit.lines.map((_, i) => (i === 0 ? 0 : (step0.pitch / step0.cap) * Cc - Cc));
+            claimGaps = fit.lines.map((_, i) => (i === 0 ? 0 : T2P.experience.pitch * Cc - Cc));
           } else claimWidest = Math.max(claimWidest, ...lines.map((l) => measure(l, Cc, t)));
         }
       }
       if (!placed) continue;
-      const gapToClaim = out.length ? T2P.claimGap * frame.height * (C / (step0.cap * frame.height)) : 0;
+      const gapToClaim = out.length ? T2P.claimGap * C : 0;
       for (const [i, p] of placed.entries()) {
         out.push(p);
         gaps.push(i === 0 ? gapToClaim : claimGaps[i]!);
@@ -212,8 +282,8 @@ export type PhotoSlotsInput = BlockInput & {
   moreToAnnounce: boolean;
   /** The details' two lines (photoDetails). */
   details: readonly string[];
-  /** The logo's ink box (the event's lockup, else the wordmark). */
-  logoInk: { width: number; height: number };
+  /** O86: the logo's ink box, and which it is: the kit's event lockup (0.25 W) or the wordmark (0.161 W). */
+  logo: { ink: { width: number; height: number }; kind: "lockup" | "wordmark" };
 };
 
 export type PhotoBoxes = { lineup: Rect; experience: Rect | null; claim: Rect | null; block: Rect; details: Rect; logo: Rect };
@@ -260,10 +330,45 @@ export function photoDetails(input: { liveLayer?: readonly string[] | null; date
 }
 
 /** O79: the lineup's lines. "& MORE" only from the facts' flag; never added to cut a long list (six names at most without it). */
-export function photoLineupNames(names: readonly string[], moreToAnnounce: boolean, kit: T2Kit = PUZZLE_FLOATING_T2): { names: string[]; more: boolean } {
+export function photoLineupNames(names: readonly string[], moreToAnnounce: boolean): { names: string[]; more: boolean } {
   const list = names.map((n) => n.trim()).filter(Boolean);
-  const max = kit.lineup.maxLines;
+  const max = T2P.lineup.maxLines;
   return moreToAnnounce ? { names: list.slice(0, max - 1), more: true } : { names: list.slice(0, max), more: false };
+}
+
+/** O86 / O87: the lineup, right-aligned on 0.889 W from 0.207 H, cap 0.0276 H, pitch 0.0323 H; stepped down together past 0.40 W. */
+export function planPhotoLineup(names: readonly string[], more: boolean, measure: MeasureLine, kit: T2Kit = PUZZLE_FLOATING_T2, frame: Size = MASTER): CornerLine[] {
+  const L = T2P.lineup;
+  const list = [...names.map((n) => inCase(n, kit)), ...(more ? [inCase("& more", kit)] : [])];
+  const cap0 = L.cap * frame.height;
+  const widths0 = list.map((t) => measure(t, cap0, T2P.tracking.lineup));
+  const k = Math.min(1, ...widths0.map((w) => (w > 0 ? (L.maxWidth * frame.width) / w : 1)));
+  const right = T2P.right * frame.width;
+  return list.map((text, i) => {
+    const w = widths0[i]! * k;
+    return { text, runs: [{ text, coral: false }], capPx: cap0 * k, capTop: L.capTop * frame.height + i * L.pitch * frame.height * k, left: right - w, widthPx: w };
+  });
+}
+
+/** O86 / O87: the details by the text frame on 0.111 W, cap 0.028 H, pitch 0.0328 H, the last baseline on the ground's line; coral on ">". */
+export function planPhotoDetails(lines: readonly string[], ground: PhotoGround, measure: MeasureLine, kit: T2Kit = PUZZLE_FLOATING_T2, frame: Size = MASTER): CornerLine[] {
+  const D = T2P.details;
+  const shown = lines.map((l) => inCase(l.trim(), kit)).filter(Boolean);
+  const cap0 = D.cap * frame.height;
+  const widths0 = shown.map((t) => measure(t, cap0, T2P.tracking.details));
+  const k = Math.min(1, ...widths0.map((w) => (w > 0 ? (D.maxWidth * frame.width) / w : 1)));
+  const cap = cap0 * k;
+  const pitch = D.pitch * frame.height * k;
+  const lastBaseline = (ground === "clip" ? D.baselineClip : D.baselineStill) * frame.height;
+  const top = lastBaseline - cap - (shown.length - 1) * pitch;
+  return shown.map((text, i) => ({ text, runs: text.split(/(>)/).filter(Boolean).map((t) => ({ text: t, coral: t === ">" })), capPx: cap, capTop: top + i * pitch, left: T2P.left * frame.width, widthPx: widths0[i]! * k }));
+}
+
+/** O86: the logo by its ink box, right edge on 0.889 W, ink bottom on the details' last baseline. */
+export function planPhotoLogo(logo: PhotoSlotsInput["logo"], detailsBaseline: number, frame: Size = MASTER): Rect {
+  const width = (logo.kind === "lockup" ? T2P.logo.lockup : T2P.logo.wordmark) * frame.width;
+  const height = (logo.ink.height / logo.ink.width) * width;
+  return { left: T2P.right * frame.width - width, top: detailsBaseline - height, width, height };
 }
 
 /** The 9:16 master layout on a ground: the still's (Stories) or the clip's (Reels / TikTok, O43's safe area). */
@@ -271,27 +376,16 @@ export function planPhotoMaster(input: PhotoSlotsInput, ground: PhotoGround, mea
   const frame = MASTER;
   const W = frame.width;
   const H = frame.height;
-  const k2: T2Kit =
-    ground === "clip"
-      ? { ...kit, lineup: { ...kit.lineup, capTop: T2P.clip.lineupCapTop, rightInset: 1 - T2P.clip.right }, details: { ...kit.details, leftInset: T2P.clip.left }, logo: { ...kit.logo, rightInset: 1 - T2P.clip.right } }
-      : kit;
-  const ln = photoLineupNames(input.lineup, input.moreToAnnounce, kit);
-  const lineup = planLineup(ln.names, measure, { more: ln.more }, k2, frame);
-  let details = planDetails(input.details, measure, k2, frame);
-  if (ground === "clip" && details.length) {
-    const last = details[details.length - 1]!;
-    const dy = T2P.clip.detailsBaseline * H - (last.capTop + last.capPx);
-    details = details.map((d) => ({ ...d, capTop: d.capTop + dy }));
-  }
+  const ln = photoLineupNames(input.lineup, input.moreToAnnounce);
+  const lineup = planPhotoLineup(ln.names, ln.more, measure, kit, frame);
+  const details = planPhotoDetails(input.details, ground, measure, kit, frame);
   const detailsBox = cornerRect(details);
-  const logo0 = planLogo(input.logoInk, k2, frame);
-  const detailsCentre = detailsBox.top + detailsBox.height / 2;
-  const logo = { ...logo0, top: detailsCentre - logo0.height / 2 };
-  const limit = ground === "clip" ? T2P.clipWidthPx : T2P.stillWidth * W;
-  const planned = planPhotoBlock(input, limit, measure, kit, frame);
+  const logo = planPhotoLogo(input.logo, detailsBox.top + detailsBox.height, frame);
+  const planned = planPhotoBlock(input, T2P.widthPx, measure, kit, frame);
   if (!planned.ok) return planned;
   const lineupBox = cornerRect(lineup);
-  const centreY = ground === "clip" ? (lineupBox.top + lineupBox.height + detailsBox.top) / 2 : kit.claim.centre * H;
+  // O87: on a still, 0.535 H; on a clip, between the lineup's last baseline and the details' first cap top.
+  const centreY = ground === "clip" ? (lineupBox.top + lineupBox.height + detailsBox.top) / 2 : T2P.stillCentre * H;
   const block = placeBlock(planned.block, centreY);
   const experience = blockRect(block.lines.filter((l) => l.role === "experience"), W);
   const claim = blockRect(block.lines.filter((l) => l.role === "claim"), W);
@@ -350,6 +444,52 @@ export function planPhotoLayout(input: PhotoSlotsInput, ground: PhotoGround, for
       boxes: { lineup: mapToFormat(b.lineup, format), experience: b.experience && mapToFormat(b.experience, format), claim: b.claim && mapToFormat(b.claim, format), block: mapToFormat(b.block, format), details: mapToFormat(b.details, format), logo: mapToFormat(b.logo, format) },
     },
   };
+}
+
+export type NoteCheck = { slot: string; axis: "x" | "y"; want: number; got: number; delta: number; limit: number; ok: boolean };
+
+/**
+ * H86: a layout's slots against issue 12's data note, to within 0.005 H and
+ * 0.005 W (scaled with the format's k). These are the anchors any draft
+ * shares with Matas's example whatever its words: the lineup's first cap top
+ * and right edge, the block's centre, the details' last baseline and left
+ * edge, the logo's right edge and ink bottom. On the 9:16 clip only those
+ * the clip shares with the still (the lineup and the sides) are checked:
+ * O87 moves its details, logo and block on purpose. Widths and each line's
+ * box depend on the words; the tests check them on the example's own words.
+ */
+export function dataNoteChecks(layout: PhotoLayout): NoteCheck[] {
+  const N = T2P_DATA_NOTE;
+  const f = layout.format;
+  const k = layout.k;
+  const limY = N.tolerance.h * MASTER.height * k;
+  const limX = N.tolerance.w * MASTER.width * k;
+  const y = (v: number) => mapToFormat({ left: 0, top: v, width: 0, height: 0 }, f).top;
+  const x = (v: number) => mapToFormat({ left: v, top: 0, width: 0, height: 0 }, f).left;
+  const out: NoteCheck[] = [];
+  const add = (slot: string, axis: "x" | "y", want: number, got: number) => {
+    const limit = axis === "y" ? limY : limX;
+    out.push({ slot, axis, want, got, delta: got - want, limit, ok: Math.abs(got - want) <= limit + 1e-6 });
+  };
+  const still = layout.ground === "still" || f !== "9:16";
+  add("lineup first cap top", "y", y(N.lineup.capTops[0]), layout.lineup[0]!.capTop);
+  add("lineup right edge", "x", x(N.lineup.right), Math.max(...layout.lineup.map((l) => l.left + l.widthPx)));
+  add("details left edge (text frame)", "x", x(N.details.left), layout.details[0]!.left);
+  add("logo right edge", "x", x(N.logo.right), layout.logo.left + layout.logo.width);
+  if (still) {
+    const last = layout.details[layout.details.length - 1]!;
+    add("block centre", "y", y((N.block.top + N.block.bottom) / 2), (layout.block.blockTop + layout.block.blockBottom) / 2);
+    add("details last baseline", "y", y(N.details.bottoms[1]), last.capTop + last.capPx);
+    add("logo ink bottom", "y", y(N.logo.bottom), layout.logo.top + layout.logo.height);
+  }
+  return out;
+}
+
+/** The report's word for a layout's data-note check: "✓ (7 within ±0.005)" or the slots off and by how much. */
+export function dataNoteWord(checks: readonly NoteCheck[]): string {
+  const off = checks.filter((c) => !c.ok);
+  if (!off.length) return `✓ (${checks.length} within ±0.005)`;
+  return `✗ ${off.map((c) => `${c.slot} ${c.delta > 0 ? "+" : ""}${Math.round(c.delta)} px (limit ${Math.round(c.limit)})`).join("; ")}`;
 }
 
 /** O80 / H81: every type box inside O43's safe area on the 9:16 clip. */
@@ -517,15 +657,20 @@ export function assignPhotoT2(existing: readonly TemplateUse[], next: TemplateUs
 
 // ─── Invented ───────────────────────────────────────────────────────────────
 
-export const T2P_INVENTED: readonly { value: string; ruling: "invented in a record" | "invented here" }[] = [
-  { ruling: "invented in a record", value: "issue 11: the clip's 0.15 H and 0.889 W; the block centred between the lineup and the details; the claim at 0.55 of the experience line's cap and the 0.025 H gap; the centre band and its 0.02 / 0.06 H; the 40-character limit, the writer's word bans and every new line; \"& MORE\" from the facts' flag" },
-  { ruling: "invented here", value: "the details' last baseline on 0.65 H sets the clip's details; the logo is centred on the details' actual centre line in both grounds" },
+export const T2P_INVENTED: readonly { value: string; ruling: "invented in a record" | "invented here" | "measured" }[] = [
+  { ruling: "measured", value: "issue 12 (O85–O87): every still size and position, from Matas's example on its 1080 × 1920 file (T2P_DATA_NOTE)" },
+  { ruling: "invented in a record", value: "issue 12: the step sizes below step 0 (T2's ratios: 0.0485, 0.042 H); the clip's details on 0.65 H and the block between; the two-spaces ask and its words" },
+  { ruling: "invented in a record", value: "issue 11 (still standing): the centre band and its 0.02 / 0.06 H; the 40-character limit, the writer's word bans and every new line; \"& MORE\" from the facts' flag" },
+  { ruling: "invented here", value: "tracking read from the example's widths: 0 on the experience line and the lineup; the details keep the kit's +5; the claim keeps +25 although the note's claim (582 px at a 54 px cap) matches no Bootzy tracking — for design" },
+  { ruling: "invented here", value: "O88: one ask per save, naming the first run; Make it one turns every run in the line into one space; a line saved with Keep isn't asked about again" },
+  { ruling: "invented here", value: "the break keeps the line's own spacing (a typed run of spaces stays in the line it falls in)" },
   { ruling: "invented here", value: "a typed or ladder-given break is kept on the experience line and the claim; a one-line claim too wide for the limit breaks at O28's most even break at the same step before any drop" },
   { ruling: "invented here", value: "the block steps down as one: a step is used only when the experience line and the claim (after O8's drops) both fit it; a claim that never fits reads \"claim {w} of {limit} px · can't shorten\"" },
-  { ruling: "invented here", value: "a plain two-line claim's pitch is O4's pitch-to-cap ratio (0.0875 / 0.06) at the claim's cap" },
+  { ruling: "invented here", value: "a plain two-line claim's pitch is the experience line's 1.40 of the cap" },
   { ruling: "invented here", value: "without the facts' flag, a lineup longer than six shows the first six and no \"& MORE\"; with it, the first five and \"& MORE\"" },
   { ruling: "invented here", value: "the band ladder raises only the band behind the failing slot (top: lineup; centre: block; bottom: details and logo) and names the first stuck slot" },
   { ruling: "invented here", value: "the 1:1 photo ground is the 9:16 still's centre square at full size (as the panel ground's 1:1 re-covers), the type at O1's 0.8× re-sit" },
+  { ruling: "invented here", value: "the data-note check's anchors (H86) for any words: the lineup's first cap top and right edge, the block's centre, the details' last baseline and left edge, the logo's right edge and ink bottom; the 9:16 clip checks only what it shares with the still" },
   { ruling: "invented here", value: "the words for O76's refusal (\"Artist footage takes T1 — …\"), O83's caption rule on T2 (\"A clip takes a UGC caption or T2, never both\"), the emoji line, the empty line, and the stamp when both are held (\"DRAFT · experience line and claim not approved\")" },
   { ruling: "invented here", value: "the writer's bans past the record's five: greatest, largest, ultimate, unrivalled, unmatched, unbeatable, finest, top, leading, legendary, iconic, world-class, most, any -est word; spelled numbers; and the sale words in experience-line.ts" },
 ];
