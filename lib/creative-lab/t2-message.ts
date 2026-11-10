@@ -9,9 +9,14 @@
  * face's own width (never condensed); past the last step O8's drop order
  * shortens the displayed words and the plan says what went; past the last
  * drop the claim is flagged "can't shorten" and has no Approve.
+ *
+ * Issue 4: the claim slot is the panel (O26), the roll-call shortens only its
+ * line 2 (O27), a break never splits a release name or makes a number token
+ * and colour belongs to the claim (O28).
  */
 
-import { MASTER, type Size } from "./artist-card.ts";
+import { MASTER, type Rect, type Size } from "./artist-card.ts";
+import { rollCallStates } from "./claim-slot.ts";
 import { PUZZLE_FLOATING_T2, type T2Kit } from "./overlay-kits.ts";
 
 /** A line's ink width (px) at a cap height and tracking, in the kit face. */
@@ -27,7 +32,12 @@ export type T2Attempt = {
   /** A one-line claim broken onto two lines at this step. */
   split: boolean;
   widths: number[];
+  /** Every line within the slot's width. */
+  fitsWidth: boolean;
+  /** The block (first cap top to last baseline) within the slot's height. */
+  fitsHeight: boolean;
   fits: boolean;
+  layout: T2Layout;
 };
 
 export type T2Line = {
@@ -40,7 +50,37 @@ export type T2Line = {
   numberToken: boolean;
 };
 
-export type T2Layout = { lines: T2Line[]; blockTop: number; blockBottom: number; capPx: number };
+export type T2Layout = { lines: T2Line[]; blockTop: number; blockBottom: number; capPx: number; /** Each line is centred on this x: the slot's centre. */ centreX: number };
+
+/** O26: the claim slot, master px. */
+export type T2Slot = { left: number; right: number; top: number; bottom: number; fromPanel: boolean };
+
+export const slotWidth = (slot: T2Slot): number => slot.right - slot.left;
+export const slotRect = (slot: T2Slot): Rect => ({ left: slot.left, top: slot.top, width: slot.right - slot.left, height: slot.bottom - slot.top });
+
+/**
+ * O26. On a kit whose T2 draws a panel, the slot is the panel's ink box at its
+ * placed size less 0.04 W each side and 0.02 H top and bottom, and never wider
+ * than 86 % W (narrowed about the panel's centre). A kit with no panel keeps
+ * O4's 86 % W, centred, the frame's full height.
+ */
+export function claimSlot(panelInk: Rect | null, kit: T2Kit = PUZZLE_FLOATING_T2, frame: Size = MASTER): T2Slot {
+  const maxW = kit.claim.maxWidth * frame.width;
+  if (!panelInk) {
+    const left = (frame.width - maxW) / 2;
+    return { left, right: left + maxW, top: 0, bottom: frame.height, fromPanel: false };
+  }
+  const ix = kit.claim.panelInset.x * frame.width;
+  const iy = kit.claim.panelInset.y * frame.height;
+  let left = panelInk.left + ix;
+  let right = panelInk.left + panelInk.width - ix;
+  if (right - left > maxW) {
+    const c = (left + right) / 2;
+    left = c - maxW / 2;
+    right = c + maxW / 2;
+  }
+  return { left, right, top: panelInk.top + iy, bottom: panelInk.top + panelInk.height - iy, fromPanel: true };
+}
 
 export type T2Plan = {
   kind: T2ClaimKind;
@@ -56,6 +96,8 @@ export type T2Plan = {
   held: string | null;
   /** Layout of the chosen attempt, else of the last one tried (drawn flagged). */
   layout: T2Layout | null;
+  /** The O26 slot every state was measured against. */
+  slot: T2Slot;
   maxWidthPx: number;
 };
 
@@ -68,6 +110,9 @@ export function inCase(text: string, kit: T2Kit = PUZZLE_FLOATING_T2): string {
 export function isNumberToken(line: string): boolean {
   return /^(FINAL\s+)?[£$€]?\d[\d,.]*%?$/i.test(line.trim());
 }
+
+/** "FINAL {n} TICKETS" alone: the kit's red one-line piece (O23). */
+export const isFinalTickets = (line: string): boolean => /^FINAL\s+\d[\d,]*\s+TICKETS$/i.test(line.trim());
 
 /** O12's two-line roll-call: line 1 names what sold out. */
 export function claimKind(lines: readonly string[]): T2ClaimKind {
@@ -100,13 +145,36 @@ export function applyDrop(lines: readonly string[], drop: T2Kit["dropOrder"][num
   return out.every((l, i) => l === lines[i]) && out.length === lines.length ? null : out;
 }
 
-/** The two-line break whose wider line is narrowest (measured). */
-export function bestSplit(line: string, capPx: number, tracking: number, measure: MeasureLine): [string, string] | null {
+/** Release names that are two words without RELEASE (O28's examples), beside every "{X} RELEASE". */
+export const TWO_WORD_RELEASE_NAMES = ["EARLY BIRD", "GENERAL SALE"] as const;
+
+const bare = (w: string) => w.replace(/[^\p{L}\p{N}&%£$€]/gu, "").toUpperCase();
+
+/**
+ * O28: may a one-line claim break before word i? Never inside a release name:
+ * not before RELEASE ("2ND RELEASE", "FINAL RELEASE"), not inside "EARLY BIRD"
+ * or "GENERAL SALE", nor inside any of the event's own release names.
+ */
+export function breakAllowed(words: readonly string[], i: number, releaseNames: readonly string[] = []): boolean {
+  if (bare(words[i]!) === "RELEASE") return false;
+  const names = [...TWO_WORD_RELEASE_NAMES, ...releaseNames.map((n) => n.trim().toUpperCase())].map((n) => n.split(/\s+/).map(bare)).filter((n) => n.length > 1);
+  const ws = words.map(bare);
+  for (const n of names) {
+    for (let start = Math.max(0, i - n.length + 1); start < i; start += 1) {
+      if (start + n.length <= ws.length && n.every((w, j) => ws[start + j] === w)) return false;
+    }
+  }
+  return true;
+}
+
+/** The two-line break whose wider line is narrowest (measured), among O28's allowed breaks. */
+export function bestSplit(line: string, capPx: number, tracking: number, measure: MeasureLine, releaseNames: readonly string[] = []): [string, string] | null {
   const words = line.trim().split(/\s+/);
   if (words.length < 2) return null;
   let best: [string, string] | null = null;
   let widest = Infinity;
   for (let i = 1; i < words.length; i += 1) {
+    if (!breakAllowed(words, i, releaseNames)) continue;
     const a = words.slice(0, i).join(" ");
     const b = words.slice(i).join(" ");
     const w = Math.max(measure(a, capPx, tracking), measure(b, capPx, tracking));
@@ -118,8 +186,17 @@ export function bestSplit(line: string, capPx: number, tracking: number, measure
   return best;
 }
 
+export type LayoutOpts = {
+  /** O28: the claim is red ("FINAL {n} TICKETS"): every line red, split or not. Default: one line that reads so. */
+  claimRed?: boolean;
+  /** O28: which lines are number tokens — only a line the approved claim itself gives the number. Default: each line that is one. */
+  tokens?: readonly boolean[];
+  /** Lines centre on this x (the slot's centre). Default: the frame's centre. */
+  centreX?: number;
+};
+
 /** Sizes, colours and cap tops for one state of the ladder, centred on the kit's claim centre. */
-export function layoutClaim(lines: readonly string[], kind: T2ClaimKind, step: number, measure: MeasureLine, qualifier: string | null = null, kit: T2Kit = PUZZLE_FLOATING_T2, frame: Size = MASTER): T2Layout {
+export function layoutClaim(lines: readonly string[], kind: T2ClaimKind, step: number, measure: MeasureLine, qualifier: string | null = null, kit: T2Kit = PUZZLE_FLOATING_T2, frame: Size = MASTER, opts: LayoutOpts = {}): T2Layout {
   const s = kit.claim.steps[step]!;
   const C = s.cap * frame.height;
   const gapPlain = (s.pitch - s.cap) * frame.height;
@@ -130,11 +207,11 @@ export function layoutClaim(lines: readonly string[], kind: T2ClaimKind, step: n
     drafts.push({ text: lines[0]!, color: "red", capPx: C * kit.claim.rollCallLine1, role: "claim", numberToken: false });
     drafts.push({ text: lines[1]!, color: "white", capPx: C, role: "claim", numberToken: false });
   } else {
-    for (const text of lines) {
-      const token = isNumberToken(text);
-      const red = lines.length === 1 && /^FINAL\s+\d+\s+TICKETS$/i.test(text);
+    const red = opts.claimRed ?? (lines.length === 1 && isFinalTickets(lines[0]!));
+    lines.forEach((text, i) => {
+      const token = opts.tokens ? !!opts.tokens[i] : isNumberToken(text);
       drafts.push({ text, color: red ? "red" : "white", capPx: token ? C * kit.claim.numberToken : C, role: "claim", numberToken: token });
-    }
+    });
   }
   if (qualifier) drafts.push({ text: qualifier, color: "white", capPx: C * kit.claim.qualifier, role: "qualifier", numberToken: false });
   const gaps = drafts.map((_, i) => (i === 0 ? 0 : kind === "roll-call" && i === 1 ? kit.claim.rollCallGap * C : gapPlain));
@@ -146,7 +223,7 @@ export function layoutClaim(lines: readonly string[], kind: T2ClaimKind, step: n
     y += d.capPx;
     return line;
   });
-  return { lines: out, blockTop: out[0]!.capTop, blockBottom: y, capPx: C };
+  return { lines: out, blockTop: out[0]!.capTop, blockBottom: y, capPx: C, centreX: opts.centreX ?? frame.width / 2 };
 }
 
 /** The meter's words for a fitting attempt (O8, OT4). */
@@ -157,59 +234,82 @@ export function meterFor(a: T2Attempt, kit: T2Kit = PUZZLE_FLOATING_T2): string 
 }
 
 /**
- * The whole O8 ladder for an approved claim on T2: each step, then each drop
- * with both steps again, until a state fits. Every state tried is returned so
- * a draft can show the ladder; `chosen` is the first that fits.
+ * The whole O8 ladder for an approved claim on T2, measured against the O26
+ * slot: each step, then each drop with both steps again, until a state fits.
+ * A roll-call shortens only its line 2 (O27, claim-slot.ts rollCallStates);
+ * line 1 is never touched. Every state tried is returned so a draft can show
+ * the ladder; `chosen` is the first that fits.
  */
-export function planT2Claim(input: { approved: string; qualifier?: string | null; kind?: T2ClaimKind }, measure: MeasureLine, kit: T2Kit = PUZZLE_FLOATING_T2, frame: Size = MASTER, opts: { exhaust?: boolean } = {}): T2Plan {
+export function planT2Claim(
+  input: { approved: string; qualifier?: string | null; kind?: T2ClaimKind; releaseNames?: readonly string[] },
+  measure: MeasureLine,
+  kit: T2Kit = PUZZLE_FLOATING_T2,
+  frame: Size = MASTER,
+  opts: { exhaust?: boolean; slot?: T2Slot } = {},
+): T2Plan {
   const approvedLines = input.approved.replace(/\r\n?/g, "\n").split("\n").map((l) => l.trim()).filter(Boolean);
-  const maxWidthPx = kit.claim.maxWidth * frame.width;
+  const slot = opts.slot ?? claimSlot(null, kit, frame);
+  const maxWidthPx = slotWidth(slot);
   const kind = input.kind ?? claimKind(approvedLines);
-  const base = { kind, approvedLines, attempts: [] as T2Attempt[], chosen: null, layout: null, maxWidthPx };
+  const base = { kind, approvedLines, attempts: [] as T2Attempt[], chosen: null, layout: null, slot, maxWidthPx };
   if (!approvedLines.length) return { ...base, meter: "no claim", canApprove: false, held: "no approved claim" };
   if (approvedLines.length > 2) return { ...base, meter: `${approvedLines.length} lines · can't shorten`, canApprove: false, held: "T2 takes two claim lines and a qualifier, never a third line" };
   const qualifier = input.qualifier ? inCase(input.qualifier, kit) : null;
-  const attempts: T2Attempt[] = [];
-  let chosen: number | null = null;
-  let chosenLayout: T2Layout | null = null;
-  let lastLayout: T2Layout | null = null;
-  let lines = approvedLines.map((l) => inCase(l, kit));
-  const dropped: string[] = [];
-  const stages: (T2Kit["dropOrder"][number] | null)[] = [null, ...kit.dropOrder];
-  for (const drop of stages) {
-    if (drop) {
+  const shownApproved = approvedLines.map((l) => inCase(l, kit));
+  // O28: colour belongs to the claim; a number is enlarged only where the approved claim puts it on its own line.
+  const claimRed = kind === "plain" && shownApproved.length === 1 && isFinalTickets(shownApproved[0]!);
+  const approvedTokens = shownApproved.map(isNumberToken);
+  const centreX = (slot.left + slot.right) / 2;
+
+  // The states past the steps: O27 for the roll-call (line 2 only), O8's cumulative drops otherwise.
+  const states: { lines: string[]; dropped: string[] }[] = [];
+  if (kind === "roll-call") {
+    for (const st of rollCallStates(shownApproved[0]!, shownApproved[1]!)) states.push({ lines: [st.line1, st.line2], dropped: [...st.dropped] });
+  } else {
+    let lines = shownApproved;
+    const dropped: string[] = [];
+    states.push({ lines, dropped: [] });
+    for (const drop of kit.dropOrder) {
       const next = applyDrop(lines, drop);
       if (!next) continue;
       lines = next;
       dropped.push(drop);
+      states.push({ lines, dropped: [...dropped] });
     }
+  }
+
+  const attempts: T2Attempt[] = [];
+  let chosen: number | null = null;
+  outer: for (const state of states) {
     for (let step = 0; step < kit.claim.steps.length; step += 1) {
       const C = kit.claim.steps[step]!.cap * frame.height;
-      const tries: { lines: string[]; split: boolean }[] = [{ lines, split: false }];
-      if (lines.length === 1) {
-        const sp = bestSplit(lines[0]!, C, kit.tracking.claim, measure);
+      const tries: { lines: string[]; split: boolean }[] = [{ lines: state.lines, split: false }];
+      if (state.lines.length === 1 && kind === "plain") {
+        const sp = bestSplit(state.lines[0]!, C, kit.tracking.claim, measure, input.releaseNames);
         if (sp) tries.push({ lines: sp, split: true });
       }
       for (const t of tries) {
-        const lay = layoutClaim(t.lines, t.lines.length === 2 && kind === "roll-call" ? "roll-call" : "plain", step, measure, qualifier, kit, frame);
+        const tokens = t.split || t.lines.length !== shownApproved.length ? t.lines.map(() => false) : approvedTokens;
+        const lay = layoutClaim(t.lines, kind === "roll-call" ? "roll-call" : "plain", step, measure, qualifier, kit, frame, { claimRed, tokens, centreX });
         const widths = lay.lines.map((l) => l.widthPx);
-        const fits = widths.every((w) => w <= maxWidthPx + 0.5);
-        attempts.push({ step, lines: t.lines, dropped: [...dropped], split: t.split, widths, fits });
-        lastLayout = lay;
+        const fitsWidth = widths.every((w) => w <= maxWidthPx + 0.5);
+        const fitsHeight = lay.blockTop >= slot.top - 0.5 && lay.blockBottom <= slot.bottom + 0.5;
+        const fits = fitsWidth && fitsHeight;
+        attempts.push({ step, lines: t.lines, dropped: state.dropped, split: t.split, widths, fitsWidth, fitsHeight, fits, layout: lay });
         if (fits && chosen == null) {
           chosen = attempts.length - 1;
-          chosenLayout = lay;
-          if (!opts.exhaust) break;
+          if (!opts.exhaust) break outer;
         }
       }
-      if (chosen != null && !opts.exhaust) break;
     }
-    if (chosen != null && !opts.exhaust) break;
   }
-  if (chosen != null) return { ...base, attempts, chosen, meter: meterFor(attempts[chosen]!, kit), canApprove: true, held: null, layout: chosenLayout };
+  if (chosen != null) return { ...base, attempts, chosen, meter: meterFor(attempts[chosen]!, kit), canApprove: true, held: null, layout: attempts[chosen]!.layout };
   const last = attempts[attempts.length - 1]!;
   const widest = Math.max(...last.widths);
-  return { ...base, attempts, chosen: null, meter: `${Math.round(widest)} of ${Math.round(maxWidthPx)} px · can't shorten`, canApprove: false, held: "can't shorten", layout: lastLayout };
+  const meter = last.fitsWidth
+    ? `${Math.round(last.layout.blockBottom - last.layout.blockTop)} of ${Math.round(slot.bottom - slot.top)} px tall · can't shorten`
+    : `${Math.round(widest)} of ${Math.round(maxWidthPx)} px · can't shorten`;
+  return { ...base, attempts, chosen: null, meter, canApprove: false, held: "can't shorten", layout: last.layout };
 }
 
 // ─── Corners (O4, O9) ───────────────────────────────────────────────────────

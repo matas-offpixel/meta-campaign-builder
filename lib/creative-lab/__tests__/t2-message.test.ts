@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { PUZZLE_FLOATING_T2 } from "../overlay-kits.ts";
-import { applyDrop, claimKind, inCase, isNumberToken, layoutClaim, planDetails, planLineup, planLogo, planT2Claim } from "../t2-message.ts";
+import { fixtureRelease as r, rollCallWords } from "../roll-call-words.ts";
+import { PUZZLE_FLOATING_T2, T2_INVENTED } from "../overlay-kits.ts";
+import { sampleStops } from "../t2-render.ts";
+import { applyDrop, bestSplit, breakAllowed, claimKind, claimSlot, inCase, isNumberToken, layoutClaim, planDetails, planLineup, planLogo, planT2Claim } from "../t2-message.ts";
 
 /** A fake measure: Bootzy-like width, 0.35 cap per character. */
 const measure = (text: string, cap: number) => text.length * 0.35 * cap;
@@ -14,6 +16,8 @@ describe("the floating kit's T2 table (O4, O8, O12)", () => {
     assert.deepEqual(k.claim.steps.map((s) => s.cap), [0.06, 0.052]);
     assert.equal(k.claim.steps[0]!.pitch, 0.0875);
     assert.equal(k.claim.maxWidth, 0.86);
+    assert.deepEqual(k.claim.panelInset, { x: 0.04, y: 0.02 });
+    assert.equal(k.panel, true);
     assert.equal(k.claim.centre, 0.5);
     assert.equal(k.claim.numberToken, 1.5);
     assert.equal(k.claim.qualifier, 0.6);
@@ -43,7 +47,6 @@ describe("T2 claim words", () => {
     assert.equal(applyDrop(["GENERAL SALE LIVE"], "TICKETS"), null);
     // The only RELEASE on the frame is kept.
     assert.equal(applyDrop(["3RD RELEASE SELLING FAST"], "number form"), null);
-    assert.deepEqual(applyDrop(["EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT", "3RD RELEASE SELLING FAST"], "number form"), ["EARLY BIRD, 1ST & 2ND SOLD OUT", "3RD RELEASE SELLING FAST"]);
   });
 
   it("claims display in the kit's case; the approved words are kept exactly", () => {
@@ -117,7 +120,8 @@ describe("the O8 ladder on T2", () => {
   });
 
   it("past the last step the words shorten in order, and the plan says what went", () => {
-    const p = planT2Claim({ approved: "Early bird, 1st, 2nd & 3rd release sold out\nFinal 100 final release tickets" }, (t, cap) => t.length * 0.4 * cap);
+    // Line 1 fits; line 2 is too wide until TICKETS goes.
+    const p = planT2Claim({ approved: "Early bird, 1st, 2nd & 3rd release sold out\nFinal 100 final release tickets" }, (t) => (t.startsWith("EARLY") ? 500 : t.includes("TICKETS") ? 1000 : 800));
     assert.match(p.meter, /^step [01] of 1 · 2 lines · dropped /);
     assert.ok(p.attempts[p.chosen!]!.dropped.length >= 1);
     assert.equal(p.attempts[p.chosen!]!.dropped[0], "TICKETS");
@@ -130,7 +134,8 @@ describe("the O8 ladder on T2", () => {
     assert.equal(p.canApprove, false);
     assert.equal(p.held, "can't shorten");
     assert.match(p.meter, / of 929 px · can't shorten$/);
-    assert.deepEqual(p.attempts[p.attempts.length - 1]!.dropped, ["TICKETS", "NOW", "number form"]);
+    // "FINAL RELEASE" has no number form, so line 2's last state drops TICKETS and NOW.
+    assert.deepEqual(p.attempts[p.attempts.length - 1]!.dropped, ["TICKETS", "NOW"]);
   });
 
   it("never a third line", () => {
@@ -174,5 +179,158 @@ describe("T2 corners (O4, O9)", () => {
     close(at.width, 162);
     close(at.top + at.height / 2, 0.767 * 1920);
     close(at.left + at.width, 1080 * (1 - 0.143));
+  });
+});
+
+// ─── Issue 4 (H27–H30) ──────────────────────────────────────────────────────
+
+/** The H26 fixtures, from releases through the generator (A14, A21). */
+const six = rollCallWords([
+  r(1, "Early bird", "sold_out"), r(2, "1st release", "sold_out"), r(3, "2nd release", "sold_out"), r(4, "3rd release", "sold_out"),
+  r(5, "4th release", "sold_out"), r(6, "5th release", "sold_out"), r(7, "6th release", "sold_out"), r(8, "Final release", "final_x", { remaining: 100 }),
+]).claim;
+const sample = rollCallWords([r(1, "Early bird", "sold_out"), r(2, "1st release", "sold_out"), r(3, "2nd release", "sold_out"), r(4, "3rd release", "selling_fast")]).claim;
+const longest = rollCallWords([r(1, "Early bird", "sold_out"), r(2, "1st release", "sold_out"), r(3, "2nd release", "sold_out"), r(4, "3rd release", "sold_out"), r(5, "Final release", "final_x", { remaining: 100 })]).claim;
+/** Puzzle's taped panel ink at its placed size, roughly (0.09–0.90 W). */
+const panelInk = { left: 97, top: 335, width: 875, height: 1246 };
+
+describe("O26: the claim slot is the panel", () => {
+  it("the panel's ink box less 0.04 W each side and 0.02 H top and bottom; never wider than 86 % W", () => {
+    const s = claimSlot(panelInk);
+    close(s.left, 97 + 0.04 * 1080);
+    close(s.right, 97 + 875 - 0.04 * 1080);
+    close(s.top, 335 + 0.02 * 1920);
+    close(s.bottom, 335 + 1246 - 0.02 * 1920);
+    assert.ok(s.fromPanel);
+    const wide = claimSlot({ left: 0, top: 0, width: 1080, height: 1920 });
+    close(wide.right - wide.left, 0.86 * 1080);
+    close((wide.left + wide.right) / 2, 540);
+  });
+
+  it("a kit with no panel keeps O4's 86 % W", () => {
+    const s = claimSlot(null);
+    close(s.right - s.left, 0.86 * 1080);
+    assert.equal(s.fromPanel, false);
+  });
+
+  it("steps, drops and the meter measure against the slot: \"{widest} of {slot} px\"", () => {
+    const slot = claimSlot(panelInk);
+    const w = Math.round(slot.right - slot.left);
+    const p = planT2Claim({ approved: six }, measure, PUZZLE_FLOATING_T2, undefined, { slot });
+    assert.equal(p.maxWidthPx, slot.right - slot.left);
+    assert.match(p.meter, new RegExp(` of ${w} px · can't shorten$`));
+    const ok = planT2Claim({ approved: "General sale live" }, measure, PUZZLE_FLOATING_T2, undefined, { slot });
+    assert.equal(ok.layout!.centreX, (slot.left + slot.right) / 2);
+    assert.ok(ok.attempts[ok.chosen!]!.widths.every((x) => x <= w));
+  });
+
+  it("a block taller than the slot doesn't fit, whatever its width", () => {
+    const short = { left: 0, top: 940, right: 1080, bottom: 980, fromPanel: true };
+    const p = planT2Claim({ approved: "General sale live" }, measure, PUZZLE_FLOATING_T2, undefined, { slot: short });
+    assert.equal(p.canApprove, false);
+    assert.match(p.meter, /px tall · can't shorten$/);
+  });
+});
+
+describe("O27: the roll-call on T2", () => {
+  it("the six-release fixture is \"can't shorten\" against the panel slot, and has no Approve", () => {
+    const p = planT2Claim({ approved: six }, measure, PUZZLE_FLOATING_T2, undefined, { slot: claimSlot(panelInk) });
+    assert.equal(p.kind, "roll-call");
+    assert.equal(p.held, "can't shorten");
+    assert.equal(p.canApprove, false);
+  });
+
+  it("no state of any roll-call drops RELEASE from line 1, and line 1 is never shortened", () => {
+    for (const claim of [sample, longest, six, "Early bird, 1st & 2nd release sold out\nFinal 100 3rd release tickets now"]) {
+      const p = planT2Claim({ approved: claim }, (t, cap) => t.length * 0.5 * cap, PUZZLE_FLOATING_T2, undefined, { exhaust: true, slot: claimSlot(panelInk) });
+      const line1 = inCase(claim.split("\n")[0]!);
+      assert.ok(p.attempts.length > 0);
+      for (const a of p.attempts) {
+        assert.equal(a.lines[0], line1);
+        assert.match(a.lines[0]!, /\bRELEASE\b/);
+        assert.ok(a.layout.lines.length === 2 && !a.split);
+      }
+    }
+  });
+
+  it("line 2 takes TICKETS, NOW, then the number form", () => {
+    const p = planT2Claim({ approved: "Early bird, 1st & 2nd release sold out\nFinal 100 3rd release tickets now" }, (t, cap) => t.length * 0.5 * cap, PUZZLE_FLOATING_T2, undefined, { exhaust: true });
+    const seen = [...new Set(p.attempts.map((a) => a.lines[1]))];
+    assert.deepEqual(seen, ["FINAL 100 3RD RELEASE TICKETS NOW", "FINAL 100 3RD RELEASE NOW", "FINAL 100 3RD RELEASE", "FINAL 100 3RD"]);
+  });
+
+  it("no RUNNING LOW anywhere: the fixtures, every state, the kit's notes", () => {
+    const words: string[] = [sample, longest, six];
+    for (const claim of words.slice()) {
+      for (const a of planT2Claim({ approved: claim }, measure, PUZZLE_FLOATING_T2, undefined, { exhaust: true }).attempts) words.push(...a.lines);
+    }
+    words.push(...T2_INVENTED.map((i) => i.value));
+    assert.ok(words.every((w) => !/running\s+low/i.test(w)));
+    assert.equal(sample, "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\n3RD RELEASE SELLING FAST");
+  });
+});
+
+describe("O28: breaking a one-line claim", () => {
+  it("\"FINAL 50 2ND RELEASE TICKETS\" never breaks between 2ND and RELEASE", () => {
+    const words = "FINAL 50 2ND RELEASE TICKETS".split(" ");
+    assert.equal(breakAllowed(words, 3), false);
+    // Widths that would make 2ND | RELEASE the most even break.
+    const m = (t: string) => ({ "FINAL 50 2ND": 500, "RELEASE TICKETS": 520, "FINAL 50": 300, "2ND RELEASE TICKETS": 700, "FINAL 50 2ND RELEASE": 650, TICKETS: 250, FINAL: 150, "50 2ND RELEASE TICKETS": 800 })[t] ?? 1000;
+    assert.deepEqual(bestSplit(words.join(" "), 100, 25, m), ["FINAL 50 2ND RELEASE", "TICKETS"]);
+    const p = planT2Claim({ approved: "Final 50 2nd release tickets" }, (t, cap) => t.length * 0.5 * cap, PUZZLE_FLOATING_T2, undefined, { exhaust: true });
+    for (const a of p.attempts.filter((x) => x.split)) assert.ok(!/\b2ND$/.test(a.lines[0]!) && !/^RELEASE\b/.test(a.lines[1]!), a.lines.join(" | "));
+  });
+
+  it("never inside EARLY BIRD, GENERAL SALE, or the event's own release names", () => {
+    assert.equal(breakAllowed("EARLY BIRD SELLING FAST".split(" "), 1), false);
+    assert.equal(breakAllowed("GENERAL SALE LIVE".split(" "), 1), false);
+    assert.equal(breakAllowed("GENERAL SALE LIVE".split(" "), 2), true);
+    assert.equal(breakAllowed("SUMMER PASS SELLING FAST".split(" "), 1, ["Summer pass"]), false);
+  });
+
+  it("a split \"FINAL 50 TICKETS\" draws both lines at the step's cap, in red, with no number token", () => {
+    // Too wide for one line at both steps, so it breaks.
+    const p = planT2Claim({ approved: "Final 50 tickets" }, (t, cap) => (t.includes(" ") && t.split(" ").length === 3 ? 2000 : t.length * 0.35 * cap), PUZZLE_FLOATING_T2);
+    const a = p.attempts[p.chosen!]!;
+    assert.ok(a.split);
+    assert.deepEqual(a.lines, ["FINAL 50", "TICKETS"]);
+    const C = PUZZLE_FLOATING_T2.claim.steps[a.step]!.cap * 1920;
+    for (const l of a.layout.lines) {
+      close(l.capPx, C);
+      assert.equal(l.color, "red");
+      assert.equal(l.numberToken, false);
+    }
+  });
+
+  it("a number the approved claim puts on its own line is still enlarged", () => {
+    const p = planT2Claim({ approved: "Final 100\n3rd release tickets" }, measure);
+    assert.ok(p.layout!.lines[0]!.numberToken);
+    close(p.layout!.lines[0]!.capPx, 1.5 * 0.06 * 1920);
+  });
+});
+
+describe("H30: band stops on 3 × 3 averages", () => {
+  it("a one-row step reads as the mean of the rows around it, within ±1 of either side", () => {
+    const w = 5;
+    const h = 10;
+    const a = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) a[(y * w + x) * 4 + 3] = y < 5 ? Math.round(0.18 * 255) : Math.round(0.2 * 255);
+    const [s] = sampleStops(a, { width: w, height: h }, 4, [[0.5, 20]]);
+    // Rows 4, 5, 6 → 18, 20, 20 → 19.3.
+    assert.ok(Math.abs(s!.got - 19.3) < 0.15, String(s!.got));
+    assert.ok(s!.ok);
+  });
+
+  it("two stops less than a pixel apart share a reading that passes between their values ±1; alone, a stop is held to ±1", () => {
+    const w = 5;
+    const h = 1350;
+    const a = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) a[(y * w + x) * 4 + 3] = y < 1059 ? Math.round(0.18 * 255) : Math.round(0.2 * 255);
+    const [s18, s20] = sampleStops(a, { width: w, height: h }, 4, [[0.784, 18], [0.7844, 20]]);
+    assert.equal(s18!.got, s20!.got);
+    assert.ok(s18!.ok && s20!.ok);
+    assert.deepEqual(s20!.pairedWith, [18]);
+    const [lone] = sampleStops(a, { width: w, height: h }, 4, [[0.7844, 20]]);
+    assert.equal(lone!.ok, false);
   });
 });
