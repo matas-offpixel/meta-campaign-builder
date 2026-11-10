@@ -30,3 +30,5 @@ Instagram import was still refusing a reel on the old crop line. Video import no
 ## Notes
 
 No migration. The render copy is the existing `creative_lab_clips.render_asset_id` (migration 220). Lambda already reads it. A landscape 4K copy is 3414 × 1920 rather than 3413, so the width stays even for H.264; the 9:16 window is still 1080. Stills are unchanged and still never upscale.
+
+Rule 3: `t1-video.ts` and `t1-video-frame.ts` are Claude Code's files. The import gate and the clip order now live in `lib/creative-lab/import-quality.ts`, which only reads those files.

@@ -9,7 +9,7 @@ import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset } from "
 import type { ServiceRoleDb } from "./load.ts";
 import { LOW_QUALITY_AFTER_CROP } from "../../src/remotion/caption-style/profile.ts";
 import { ownerFromImport } from "./footage-owner.ts";
-import { importQualityLine } from "./t1-video.ts";
+import { importQualityLine } from "./import-quality.ts";
 import { attachRenderProxy, type RenderProxyMaker } from "./render-proxy.ts";
 import { frameSampleTimes, settleOverlayVerdict, type OverlayCheck, type OverlayFrame } from "./overlay-check.ts";
 

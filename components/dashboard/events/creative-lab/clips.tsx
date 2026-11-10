@@ -24,7 +24,7 @@ import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-
 import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
 import { ClipSound, showSoundToggle, useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { overlayPanelLine } from "@/lib/creative-lab/overlay-check";
-import { orderArtistClips } from "@/lib/creative-lab/t1-video-frame";
+import { orderArtistClips } from "@/lib/creative-lab/import-quality";
 import {
   candidateAddLabel,
   candidateTileState,

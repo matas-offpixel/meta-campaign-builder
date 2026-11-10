@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { importIgCandidate, requeueClipOnFocusChange } from "../ig-import.ts";
 import type { ServiceRoleDb } from "../load.ts";
-import { importQualityLine } from "../t1-video.ts";
+import { importQualityLine } from "../import-quality.ts";
 import { footageWindow } from "../t1-video-frame.ts";
 import { fakeDb, type FakeDb } from "./fake-db.ts";
 
