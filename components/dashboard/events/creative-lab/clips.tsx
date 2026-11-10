@@ -385,7 +385,15 @@ function OwnerGroups({
               </div>
             ) : null}
             {candidates.length > 0 ? (
-              <CandidateTiles rows={candidates} artistId={lab.clientId || "promoter"} lab={lab} busy={finding} onSave={onSave} />
+              <div className="space-y-2">
+                {handle ? (
+                  <Button type="button" disabled={finding} onClick={onFind}>{empty.action}</Button>
+                ) : (
+                  <Button type="button" onClick={onAddHandle}>{empty.action}</Button>
+                )}
+                {findError ? <span className="text-xs text-destructive">{findError}</span> : null}
+                <CandidateTiles rows={candidates} artistId={lab.clientId || "promoter"} lab={lab} busy={finding} onSave={onSave} />
+              </div>
             ) : null}
           </div>
         )}

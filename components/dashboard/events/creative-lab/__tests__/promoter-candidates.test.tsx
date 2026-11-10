@@ -85,6 +85,7 @@ describe("Puzzle footage candidates", () => {
     const tiles = container.querySelectorAll("[data-candidate]");
     expect([...tiles].map((tile) => tile.getAttribute("data-candidate"))).toEqual(["reel-1", "reel-2"]);
     expect(screen.getAllByRole("button", { name: "Add" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Find clips on @puzzleofficialuk" })).toBeTruthy();
     expect(screen.queryByText(/No Puzzle footage yet/)).toBeNull();
     expect(screen.queryByRole("heading", { name: "Find clips on Instagram" })).toBeNull();
   });

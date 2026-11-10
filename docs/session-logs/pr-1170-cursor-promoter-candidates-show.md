@@ -25,4 +25,4 @@ Puzzle's Instagram reels were stored on the client and then dropped, because the
 
 ## Notes
 
-No migration. CLW1 stays the empty Puzzle group, so no frame moved. CLW1b was not added.
+No migration. CLW1 stays the empty Puzzle group. CLW1b is the same section with eight promoter candidates. The Find clips button stays above those tiles.

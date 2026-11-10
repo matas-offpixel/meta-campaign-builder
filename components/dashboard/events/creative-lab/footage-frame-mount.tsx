@@ -15,6 +15,31 @@ import { LabStrip } from "./strip";
 const NOW = "2026-11-10T09:12:00.000Z";
 const ENZO = "enzo";
 const LUKE = "luke";
+const POSTER_916 = "/frames/fixtures/clip-916.webm";
+const POSTER_169 = "/frames/fixtures/clip-169.webm";
+
+function promoterCandidate(n: number): NonNullable<CreativeLabCardData["promoterCandidates"]>[number] {
+  return {
+    id: `puzzle-reel-${n}`,
+    igMediaId: `puzzle-media-${n}`,
+    permalink: null,
+    postedAt: `2026-11-${String(10 - (n % 8)).padStart(2, "0")}`,
+    likes: 1400 - n * 120,
+    comments: 48 - n * 4,
+    score: 9 - n,
+    aspect: "9:16",
+    hasFile: true,
+    audioMatch: true,
+    status: "candidate",
+    reason: null,
+    thumbnailUrl: n % 2 === 0 ? POSTER_169 : POSTER_916,
+    lengthSeconds: 12 + n,
+    overlayOpen: false,
+    overlay: null,
+  };
+}
+
+const PUZZLE_CANDIDATES = [1, 2, 3, 4, 5, 6, 7, 8].map(promoterCandidate);
 
 function artist(id: string, name: string, handle: string) {
   return {
@@ -184,17 +209,18 @@ function noop() {
 
 export function FootageFrameMount({ id }: { id: string }) {
   const lab = puzzle();
-  if (id === "CLW1") {
+  if (id === "CLW1" || id === "CLW1b") {
+    const shown = id === "CLW1b" ? { ...lab, promoterCandidates: PUZZLE_CANDIDATES } : lab;
     return (
       <div data-frame-ready={id} className="bg-background p-4 text-sm max-[700px]:p-3">
-        <LabClips lab={lab} busy={false} onSave={noop} onError={() => undefined} intake={false} layout="owner" />
+        <LabClips lab={shown} busy={false} onSave={noop} onError={() => undefined} intake={false} layout="owner" />
       </div>
     );
   }
   if (id === "CLW2") {
     const shown = {
       ...lab,
-      clips: lab.clips.map((item) => (item.id === "luke-1" ? { ...item, previewUrl: "/frames/fixtures/clip-916.webm" } : item)),
+      clips: lab.clips.map((item) => (item.id === "luke-1" ? { ...item, previewUrl: POSTER_916 } : item)),
     };
     return (
       <div data-frame-ready={id} className="bg-background p-4 text-sm max-[700px]:p-3">
