@@ -3,8 +3,9 @@ import { describe, it } from "node:test";
 
 import { importIgCandidate, requeueClipOnFocusChange } from "../ig-import.ts";
 import type { ServiceRoleDb } from "../load.ts";
-import { importQualityLine } from "../import-quality.ts";
+import { importQualityLine, orderArtistClips } from "../import-quality.ts";
 import { footageWindow } from "../t1-video-frame.ts";
+import { orderArtistClips as orderFromRules, T1V_LINES, T1V_SCALE } from "../t1-video.ts";
 import { fakeDb, type FakeDb } from "./fake-db.ts";
 
 const USER = "op";
@@ -66,6 +67,20 @@ function deps(probe: { width: number; height: number; durationInSeconds: number 
 }
 
 describe("instagram import", () => {
+  it("reads the same refusal line and clip order as the resolution file", () => {
+    const source = { width: 600, height: 1067 };
+    const narrowest = Math.min(...(["9:16", "4:5", "1:1"] as const).map((format) => footageWindow(source, format).width));
+    assert.equal(T1V_SCALE.minWindowPx, 675);
+    assert.equal(importQualityLine(source), T1V_LINES.tooSmall("9:16", narrowest));
+    assert.equal(importQualityLine({ width: 720, height: 1280 }), null);
+    const clips = [
+      { id: "ig", source: "instagram", clipNo: 1 },
+      { id: "folder", source: "folder", clipNo: 2 },
+      { id: "press", source: "press_kit", clipNo: 3 },
+    ];
+    assert.deepEqual(orderArtistClips(clips), orderFromRules(clips));
+  });
+
   it("downloads, registers, checks, then writes a clip, and a second Add does nothing", async () => {
     const fake = seed({});
     const first = deps({ width: 1080, height: 1920, durationInSeconds: 12 });
