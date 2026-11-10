@@ -29,7 +29,7 @@ The 90% rung waits 14 days, because artwork refreshes every two weeks. The seed 
 
 - [x] `node --conditions react-server --experimental-strip-types --test lib/releases/__tests__/bank.test.ts lib/releases/__tests__/ladder-split.test.ts` — passed
 - [x] H20 dry run, claims and counts only: held "General sale live · selling fast" → "General sale live": 1. held "Presale live · selling fast" → locked: 1. Why: Ended — General sale went live Fri 30 Oct, so the presale is no longer the release to push.
-- [ ] AB5 and AB2 Ubuntu pair, both 0. AB1, AB1b, AB3, AB4 unchanged.
+- [x] AB Ubuntu pair 42830179869 / 42830190671, both 0 against each other. AB2-1280 1280×948 → 1280×1248. AB2-393 393×897 → 393×1301. AB5-1280 1280×960 → 1280×1060. AB5-393 393×1477 → 393×1611. AB5 reads "Selling fast for 14+ days, no count" with the sub-line "the default". AB1, AB1b, AB3, AB4 and AB6 are 0 against the previous frames.
 - [ ] CI green on the frame commit
 
 ## Notes
