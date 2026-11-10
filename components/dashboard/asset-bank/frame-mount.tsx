@@ -1,6 +1,6 @@
 import { LiveLadder } from "@/components/dashboard/asset-bank/live";
 import { AssetBoard, ClaimCards, OffersSheet, PaydayCalendar, ReleasesPanel } from "@/components/dashboard/asset-bank/surface";
-import { defaultLadder } from "@/lib/releases/ladder";
+import { puzzleLadder } from "@/lib/releases/ladder";
 import { AB1_CLAIMS, AB1_ROWS, AB1B_ROWS } from "@/scripts/plan-frames/bank-fixtures";
 
 /** An AB frame. Fixture only: nothing here fetches. */
@@ -63,7 +63,7 @@ export function AssetBankFrameMount({ id }: { id: string }) {
             <span>D2C</span>
             <span>Campaigns</span>
           </p>
-          <LiveLadder rungs={defaultLadder()} />
+          <LiveLadder rungs={puzzleLadder()} />
         </div>
       ) : null}
       {id === "AB6" ? (

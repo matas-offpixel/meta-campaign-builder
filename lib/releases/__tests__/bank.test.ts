@@ -6,6 +6,7 @@ import { boardCounts, makeMissing, type BoardCell } from "../board.ts";
 import { backfillReleases, deriveSaleDates } from "../dates.ts";
 import { applyCount, applyState, freshness, releaseHeadline } from "../entry.ts";
 import { defaultLadder, puzzleLadder } from "../ladder.ts";
+import { presentLadder } from "../present.ts";
 import type { Release, TicketWarning } from "../types.ts";
 import { approveWarning, backToHeld, claimWindow, notNow, paydayPush, todaySentence } from "../windows.ts";
 import { countdownRung, lineupRung, percentStandIn, priceRiseRung, velocityRung } from "../derived.ts";
@@ -527,5 +528,22 @@ describe("approval, windows, the board", () => {
     assert.deepEqual(makeMissing(cells), { made: 0, said: "Nothing to make. The missing cells need a piece." });
     const ready = [{ status: "missing" as const, makeable: true }, { status: "missing" as const, makeable: false }];
     assert.equal(makeMissing(ready).made, 1);
+  });
+
+  it("AB5 draws Puzzle's ladder with the record's sub-lines and a quoted claim on every rung", () => {
+    const rows = presentLadder(puzzleLadder());
+    assert.equal(rows.length, 14);
+    assert.equal(rows[1]!.trigger, "Selling fast for 5+ days, no count");
+    assert.equal(rows[1]!.detail, "Puzzle: 5 days (default 7)");
+    assert.equal(rows[0]!.detail, "from the release time, or a read / entry");
+    assert.equal(rows[2]!.detail, "when a count and a capacity exist");
+    assert.equal(rows.find((row) => row.trigger.startsWith("2+ releases"))!.detail, "roll-call · preferred over the % rung");
+    assert.equal(rows.find((row) => row.trigger.startsWith("Sold now"))!.detail, "sales velocity · needs two counts · window and count per client");
+    assert.equal(rows.find((row) => row.trigger === "State final X")!.note, "X from the page or the count, never typed");
+    assert.equal(rows.find((row) => row.trigger.startsWith("Next release"))!.note, "qualifier \"LAST CHANCE AT £{n}\" when the release has a price");
+    assert.equal(rows.at(-1)!.note, "refreshes the lineup slot and every ALONGSIDE: list");
+    assert.ok(rows.every((row) => row.claim.includes("\"")));
+    assert.equal(presentLadder(defaultLadder())[1]!.trigger, "Selling fast for 7+ days, no count");
+    assert.equal(presentLadder(defaultLadder())[1]!.detail, undefined);
   });
 });

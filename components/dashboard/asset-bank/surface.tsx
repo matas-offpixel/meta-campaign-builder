@@ -859,14 +859,14 @@ export function ClaimLadder({ live, initial, resetTo, onReset }: { live?: boolea
                     <span className="hidden sm:inline">{row.claim}</span>
                   </div>
                 )}
-                {row.note ? <div className="mt-0.5 hidden text-[10.5px] text-muted-foreground sm:block">{row.note}</div> : null}
+                {row.note ? <div className="mt-0.5 text-[10.5px] text-muted-foreground">{row.note}</div> : null}
               </button>
             </div>
           ))}
         </div>
         <p className="mt-3 text-[11px] text-muted-foreground">
           <span className="hidden sm:inline">edit a cell to change Puzzle&apos;s ladder · every approved claim records which rung allowed it · offers are not rungs: see Offers</span>
-          <span className="sm:hidden">tap a cell to edit · 13 rungs · offers are not rungs</span>
+          <span className="sm:hidden">tap a cell to edit · {rows.length} rungs · offers are not rungs</span>
         </p>
       </section>
       <section className="hidden rounded-md border border-border bg-card p-4 sm:block">
