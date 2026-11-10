@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 
 import { MASTER, RECT_45, type Piece, type Rect } from "../artist-card.ts";
 import { SAMPLE_ROLL_CALL } from "../claim-approval.ts";
-import { applyBacking, backingAlphaAt } from "../red-backing.ts";
+import { FEATHER_STEP_RATIO, applyBacking, backingAlphaAt, backingLayer, checkFeather, featherAt } from "../red-backing.ts";
+import { RENDER_COPY_FIELD, renderSourcePath } from "../render-source.ts";
 import { planClaim, splitTwo, type ClaimPlan } from "../claim-slot.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -31,7 +32,10 @@ import {
   releaseNamesOf,
   sampleTimes,
   typeTransform,
+  arrangementsTried,
   backingRect,
+  distinctCrops,
+  RED_BACKING,
   chooseBacking,
   chooseStep,
   clipBandStops,
@@ -532,21 +536,6 @@ describe("H57 · O58 the red line stays red", () => {
     assert.ok(120 - wide.rect.left >= 0.25 * 54 - 1e-6);
   });
 
-  it("H66, measured: J2's fade from the core to 0 at line 2's cap top; its first rows step more than 6 levels (reported, a point for design)", () => {
-    const W = 1080;
-    const H = 1600;
-    const b = backingRect({ capTop: 1413, capPx: 48, widthPx: 602 }, W, { below: 1483 });
-    const step = (op: number, ground: number) => {
-      const out = applyBacking(Buffer.alloc(W * H * 3, ground), W, H, 3, b, op);
-      let worst = 0;
-      for (let y = 1461; y < 1483; y += 1) worst = Math.max(worst, Math.abs(out[(y + 1) * W * 3 + 540 * 3]! - out[y * W * 3 + 540 * 3]!));
-      return { worst, atCapTop: out[1483 * W * 3 + 540 * 3] };
-    };
-    const s40 = step(0.4, 128);
-    assert.equal(s40.atCapTop, 128);
-    // J2 loses 10 % of its opacity in its first 0.5 %: over a 16.5 px feather that is one row.
-    assert.ok(s40.worst > 6, String(s40.worst));
-  });
 });
 
 describe("H58 / H59 · O60 the sample claim is Puzzle's true claim", () => {
@@ -606,5 +595,113 @@ describe("H64 / H65 · O64 the face floor, O65 the run line", () => {
     assert.equal(v.ok, false);
     assert.ok(v.claimShare <= 0.1);
     assert.equal(v.line, "Face in the type for 0.6 s at a time — choose another crop or clip");
+  });
+});
+
+describe("overlay templates issue 10 · H71 the feather (O70)", () => {
+  const frame = { width: 1080, height: 1920 };
+  const cardLine = { capTop: 1413, capPx: 48, widthPx: 602 };
+  const ink = { top: 1413, bottom: 1461 };
+
+  it("the feather is a smoothstep from the core's opacity to 0", () => {
+    assert.equal(featherAt(0), 1);
+    assert.equal(featherAt(1), 0);
+    close(featherAt(0.5), 0.5);
+    close(featherAt(0.25), 1 - (3 * 0.0625 - 2 * 0.015625));
+    const b = backingRect(cardLine, 1080, { below: 1483 });
+    const coreEnd = b.rect.top + b.rect.height;
+    close(backingAlphaAt(540, Math.floor(coreEnd + b.feather.bottom / 2 - 0.5), b, 0.8), 0.4, 0.05);
+  });
+
+  it("the card's backing passes at 40 %, and 80 % over the same 22 px gap passes", () => {
+    const b = backingRect(cardLine, 1080, { below: 1483 });
+    close(b.feather.bottom, 16.5);
+    for (const op of [0.4, 0.6, 0.8]) {
+      const f = checkFeather(b, op, "bottom", ink, frame);
+      assert.ok(f.ok, `${op}: ${f.ratio}`);
+      assert.ok(f.ratio <= FEATHER_STEP_RATIO && f.ratio > 1.3, String(f.ratio));
+      assert.ok(checkFeather(b, op, "top", ink, frame).ok);
+    }
+  });
+
+  it("a hard cut fails at any opacity", () => {
+    const b = backingRect(cardLine, 1080, { below: 1483 });
+    const hard = { ...b, feather: { ...b.feather, bottom: 0 } };
+    for (const op of [0.4, 0.6, 0.8]) assert.equal(checkFeather(hard, op, "bottom", ink, frame).ok, false);
+  });
+
+  it("the type's edge isn't in the check: the layer alone is 0 at line 2's cap top and dithered from 16-bit", () => {
+    const b = backingRect(cardLine, 1080, { below: 1483 });
+    const layer = backingLayer(1080, 1600, b, 0.4);
+    assert.equal(layer[(1483 * 1080 + 540) * 4 + 3], 0);
+    // Over the core, 40 % of 255 = 102 exactly, so the dither leaves it there.
+    assert.equal(layer[(1440 * 1080 + 540) * 4 + 3], 102);
+  });
+
+  it("never shorter than 12 px: a short gap gives up its padding first, down to 0", () => {
+    const line = { capTop: 1000, capPx: 54, widthPx: 600 };
+    const at14 = backingRect(line, 1080, { below: 1054 + 14 });
+    close(at14.feather.bottom, 12);
+    close(at14.rect.top + at14.rect.height, 1056);
+    const at10 = backingRect(line, 1080, { below: 1054 + 10 });
+    close(at10.rect.top + at10.rect.height, 1054);
+    close(at10.feather.bottom, 10);
+    // The card's gap holds 5.5 px of padding plus 16.5 px of feather.
+    assert.ok(backingRect(cardLine, 1080, { below: 1483 }).feather.bottom >= RED_BACKING.minFeatherPx);
+  });
+});
+
+describe("overlay templates issue 10 · H72 no-claim words (O71), H74 the search (O73)", () => {
+  const top: Rect = { left: 120, top: 278, width: 840, height: 336 };
+  it("a clip with no claim reads the clip's length, not the claim's time", () => {
+    const s = sampleTimes(8).map((tS) => ({ tS, faces: tS < 2 ? [{ left: 400, top: 300, width: 240, height: 240 }] : [] }));
+    const v = judgeFaceOverTime(s, { always: [top], claim: null });
+    assert.equal(v.ok, false);
+    assert.equal(v.line, "Face in the type for 25 % of the clip — choose another crop or clip");
+    assert.equal(T1V_LINES.face(25, true), "Face in the type for 25 % of the claim's time — choose another crop or clip");
+  });
+
+  it("the run line is the same with or without a claim", () => {
+    const s = sampleTimes(12).map((tS) => ({ tS, faces: tS >= 5 && tS < 5.6 ? [{ left: 400, top: 300, width: 240, height: 240 }] : [] }));
+    assert.equal(judgeFaceOverTime(s, { always: [top], claim: null }).line, "Face in the type for 0.6 s at a time — choose another crop or clip");
+  });
+
+  it("Enzo 1 (720 × 1280, exactly 9:16) tries one crop in the 9:16; a refused row reads \"A, B\"", () => {
+    const enzo = { width: 720, height: 1280 };
+    const cands = [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8];
+    assert.deepEqual(distinctCrops(enzo, "9:16", cands), [0.5]);
+    assert.ok(distinctCrops(enzo, "4:5", cands).length > 1);
+    assert.equal(arrangementsTried(["A", "B"]), "A, B");
+    assert.equal(arrangementsTried(["A", "B", "A", "B"]), "A, B");
+    assert.equal(arrangementsTried(["A"]), "A");
+  });
+});
+
+describe("overlay templates issue 10 · O68's render copy (read only), O69, O72", () => {
+  it("a render reads the stored render copy when there is one, else the source", () => {
+    assert.deepEqual(renderSourcePath({ storage_path: "a/clip.mp4" }), { path: "a/clip.mp4", copy: false });
+    assert.deepEqual(renderSourcePath({ storage_path: "a/clip.mp4", [RENDER_COPY_FIELD]: "a/clip.render.mp4" }), { path: "a/clip.render.mp4", copy: true });
+    assert.deepEqual(renderSourcePath({ storage_path: "a/clip.mp4" }, { [RENDER_COPY_FIELD]: "c/copy.mp4" }), { path: "c/copy.mp4", copy: true });
+    assert.deepEqual(renderSourcePath({ storage_path: "a/clip.mp4", [RENDER_COPY_FIELD]: "" }), { path: "a/clip.mp4", copy: false });
+    assert.throws(() => renderSourcePath({}));
+  });
+
+  it("O69: no upscaled copy is made — the render-source reader never writes, and the scale is the renderer's", () => {
+    const src = readFileSync(join(process.cwd(), "lib/creative-lab/render-source.ts"), "utf8");
+    assert.doesNotMatch(src, /\.upload\(|\.update\(|\.insert\(|ffmpeg/);
+  });
+
+  it("O72 is overruled (Matas, 10 Nov): no code flags, warns on or refuses another name in the footage", () => {
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const f of readdirSync(dir)) {
+        const p = join(dir, f);
+        if (statSync(p).isDirectory()) {
+          if (f !== "node_modules" && f !== "__tests__") walk(p);
+        } else if (/\.(ts|tsx|mts)$/.test(f) && /Another name in the footage/.test(readFileSync(p, "utf8"))) hits.push(p);
+      }
+    };
+    for (const d of ["lib", "components", "app", "scripts"]) walk(join(process.cwd(), d));
+    assert.deepEqual(hits, []);
   });
 });

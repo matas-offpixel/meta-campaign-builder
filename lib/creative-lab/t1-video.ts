@@ -24,7 +24,8 @@ export const MIN_CLAIM_CLIP_S = T1V_TIMING.claimInS + T1V_TIMING.fadeS + T1V_TIM
 
 export const T1V_LINES = {
   tooShort: "Clip too short for a claim — needs 4.75 s",
-  face: (pct: number) => `Face in the type for ${pct} % of the claim's time — choose another crop or clip`,
+  /** O71: with no claim, the share is over the clip's length. */
+  face: (pct: number, claim = true) => `Face in the type for ${pct} % of ${claim ? "the claim's time" : "the clip"} — choose another crop or clip`,
   redToWhite: "claim line 1 in white — red unreadable on this clip",
   captionAndT1: "A clip takes a UGC caption or T1, never both",
   tooBright: (what: "name" | "claim") => `Too bright behind the ${what} — choose another clip`,
@@ -327,7 +328,7 @@ export function chooseStep(p95ByStep: readonly number[], limit: number): number 
 }
 
 /** O58: the red line's backing steps, after the band steps. */
-export const RED_BACKING = { steps: [0.4, 0.6, 0.8], padY: 0.5, padX: 1, feather: 1, minPad: 0.25, minFeather: 0.25, gapPad: 0.25, clearCaps: 1.5, minX: 0.07, maxX: 0.93 } as const;
+export const RED_BACKING = { steps: [0.4, 0.6, 0.8], padY: 0.5, padX: 1, feather: 1, minPad: 0.25, minFeather: 0.25, minFeatherPx: 12, gapPad: 0.25, clearCaps: 1.5, minX: 0.07, maxX: 0.93 } as const;
 
 export type RedVerdict = { backing: number | null; white: boolean; line: string | null };
 
@@ -343,7 +344,7 @@ export function chooseBacking(p95ByBacking: readonly number[], what: "clip" | "p
   return { backing: null, white: true, line: `claim line 1 in white — red unreadable on this ${what}` };
 }
 
-/** O66: the backing's full-opacity core, and how far J2's fade runs outward from each side of it to 0. */
+/** O66 / O70: the backing's full-opacity core, and how far its smoothstep feather runs outward from each side of it to 0. */
 export type BackingBox = { rect: Rect; feather: { left: number; right: number; top: number; bottom: number } };
 
 /**
@@ -356,6 +357,9 @@ export type BackingBox = { rect: Rect; feather: { left: number; right: number; t
  * horizontally over 1 cap, ending at 0.07 / 0.93 W at the latest. Where that
  * would squeeze the horizontal feather under 0.25 cap, the padding shrinks
  * first, never under 0.25 cap. No hard edge, never under other type.
+ * O70: a feather is never shorter than 12 px. Where a gap can't hold the
+ * padding plus 12 px, the padding shrinks first, down to 0; a gap under
+ * 12 px is all feather.
  */
 export function backingRect(line: { capTop: number; capPx: number; widthPx: number }, frameWidth: number, neighbours: { above?: number; below?: number } = {}): BackingBox {
   const cap = line.capPx;
@@ -364,8 +368,9 @@ export function backingRect(line: { capTop: number; capPx: number; widthPx: numb
     // room: from the ink's edge to 0.07 / 0.93 W.
     let pad = RED_BACKING.padX * cap;
     let feather = Math.min(RED_BACKING.feather * cap, room - pad);
-    if (feather < RED_BACKING.minFeather * cap) {
-      pad = Math.max(RED_BACKING.minPad * cap, room - RED_BACKING.minFeather * cap);
+    const least = Math.max(RED_BACKING.minFeather * cap, RED_BACKING.minFeatherPx);
+    if (feather < least) {
+      pad = Math.max(RED_BACKING.minPad * cap, room - least);
       feather = Math.max(0, room - pad);
     }
     return { pad: Math.max(0, Math.min(pad, room)), feather: Math.max(0, feather) };
@@ -373,8 +378,9 @@ export function backingRect(line: { capTop: number; capPx: number; widthPx: numb
   const vertical = (gap: number | undefined) => {
     if (gap == null || gap >= RED_BACKING.clearCaps * cap) return { pad: RED_BACKING.padY * cap, feather: RED_BACKING.feather * cap };
     const g = Math.max(0, gap);
-    const pad = Math.min(RED_BACKING.padY * cap, RED_BACKING.gapPad * g);
-    return { pad, feather: Math.min(RED_BACKING.feather * cap, g - pad) };
+    let pad = Math.min(RED_BACKING.padY * cap, RED_BACKING.gapPad * g);
+    if (g - pad < RED_BACKING.minFeatherPx) pad = Math.max(0, g - RED_BACKING.minFeatherPx);
+    return { pad, feather: Math.min(Math.max(RED_BACKING.feather * cap, RED_BACKING.minFeatherPx), g - pad) };
   };
   const l = side(ink.left - RED_BACKING.minX * frameWidth);
   const r = side(RED_BACKING.maxX * frameWidth - ink.right);
@@ -384,7 +390,11 @@ export function backingRect(line: { capTop: number; capPx: number; widthPx: numb
   return { rect, feather: { left: l.feather, right: r.feather, top: t.feather, bottom: b.feather } };
 }
 
-/** O63 (amends O42 and O62, video only): footage may be scaled up to 1.6× from its crop window, with Lanczos. */
+/**
+ * O63 (amends O42 and O62, video only): footage may be scaled up to 1.6×
+ * from its crop window. O69 (issue 10): with the renderer's own filter, and
+ * no stored upscaled copy; Lanczos stays for O68's render-copy downscale.
+ */
 export const T1V_SCALE = { maxUp: 1.6, minWindowPx: 675 } as const;
 
 /** O63: the crop window's scale to the output (above 1 is upscaling). */
@@ -400,6 +410,29 @@ export function upscaleFactor(source: Size, format: VideoFormat, cropFocusY = 0.
 export function formatTooSmall(source: Size, format: VideoFormat): string | null {
   const w = footageWindow(source, format).width;
   return w + 1e-9 < T1V_SCALE.minWindowPx ? T1V_LINES.tooSmall(format, w) : null;
+}
+
+/**
+ * O73: crop candidates that give the same footage window (a source exactly
+ * the format's shape can't move) are tried once. Keeps the first of each
+ * window, in the given order.
+ */
+export function distinctCrops(source: Size, format: VideoFormat, candidates: readonly number[], cropFocusX = 0.5): number[] {
+  const seen = new Set<string>();
+  const out: number[] = [];
+  for (const cy of candidates) {
+    const w = footageWindow(source, format, cy, cropFocusX);
+    const key = `${Math.round(w.left)}:${Math.round(w.top)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(cy);
+  }
+  return out;
+}
+
+/** O73: a refused row's arrangement column lists every arrangement tried ("A, B"), not "(A)". */
+export function arrangementsTried(tried: readonly ("A" | "B")[]): string {
+  return [...new Set(tried)].sort().join(", ");
 }
 
 export type ClipListing = { id: string; source: string; clipNo: number };
@@ -487,7 +520,7 @@ export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { alway
   const pct = Math.round(Math.max(topShare, claimShare) * 100);
   // O65: refused on the run alone, the line gives the run; otherwise the share.
   const shareOk = topShare <= T1V_FACE.maxShare + 1e-9 && claimShare <= T1V_FACE.maxShare + 1e-9;
-  return { ok, topShare, claimShare, longestRunS, line: ok ? null : shareOk ? T1V_LINES.run(longestRunS) : T1V_LINES.face(pct) };
+  return { ok, topShare, claimShare, longestRunS, line: ok ? null : shareOk ? T1V_LINES.run(longestRunS) : T1V_LINES.face(pct, !!claim) };
 }
 
 /**
@@ -580,7 +613,7 @@ export const T1V_INVENTED: readonly { value: string; ruling: "accepted" | "accep
   { ruling: "accepted", value: "a one-line claim breaks at the measured most-even break among O28's allowed breaks" },
   { ruling: "accepted", value: "the step-2 pitch scales with the cap: 0.0496 H" },
   { ruling: "accepted", value: "the 4:5 and 1:1 windows: the largest window of that shape at its crop_focus_y" },
-  { ruling: "superseded", value: "the scaling rule: O62 rejected upscaling; O63 allows up to 1.6× from a crop window at least 675 px wide, on every format" },
+  { ruling: "superseded", value: "the scaling rule: O62 rejected upscaling; O63 allows up to 1.6× from a crop window at least 675 px wide, on every format; O69 drops Lanczos for those upscales" },
   { ruling: "accepted", value: "the type set by sharp and drawn as images (O52's delivery)" },
   { ruling: "accepted", value: "drafts muted and cut to 8 s (drafts only)" },
   { ruling: "accepted, amended", value: "the claim box 840 px wide, centred; the top block's box the lockup, name and date (A) or lockup and name (B); the lockup also tested alone (O61)" },
@@ -596,4 +629,7 @@ export const T1V_INVENTED: readonly { value: string; ruling: "accepted" | "accep
   { ruling: "superseded", value: "O62 on the 4:5 and 1:1 only: O63 covers every format" },
   { ruling: "accepted, amended", value: "with no claim, the bottom band anchored where a one-line claim would sit; in B the date stays above that line (O67)" },
   { ruling: "invented in a record", value: "issue 9: 1.6× and 675 px; Lanczos; folder clips first; the 0.08 W floor; the run line's words; the backing's quarter-gap padding, feather to the neighbour's ink, the 0.25 cap minimums and H66's 6-level check" },
+  { ruling: "invented in a record", value: "issue 10: the smoothstep feather, its 12 px minimum and the 1.6× step check (O70); the no-claim line (O71); trying identical windows once and \"A, B\" on refused rows (O73); the renderer's own filter up to 1.6× (O69). O72 is overruled by Matas (10 Nov): footage showing another promoter's or venue's branding is fine and never flagged" },
+  { ruling: "invented in a record", value: "while building issue 10: the backing layer dithered with the bands' blue noise (16 → 8 bit), and O70's check reading each row's mean level across the core's width, the grey not rounded a second time" },
+  { ruling: "invented in a record", value: "while building issue 10: the render copy is read from a render_copy_path field on the clip or its asset when one exists (render-source.ts); neither is on main yet, so every render reads the source" },
 ];
