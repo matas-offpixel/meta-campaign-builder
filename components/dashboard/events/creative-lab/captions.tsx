@@ -278,8 +278,8 @@ export function LabCaptions({
             contained={voiceContained}
           />
         ) : null}
-        <div className="space-y-2">
-          <p className="font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase">Proven elsewhere</p>
+        <div className={`space-y-2 ${quoteMode ? "min-[701px]:pt-2.5 max-[700px]:pt-3" : ""}`}>
+          <p className="font-mono text-[9px] font-bold leading-none tracking-[0.16em] text-muted-foreground uppercase">Proven elsewhere</p>
           <p className="text-[11.5px] text-muted-foreground">{EMPTY_COPY_LINES}</p>
         </div>
         {notice ? <p className="text-sm">{notice}</p> : null}

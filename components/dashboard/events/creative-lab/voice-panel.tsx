@@ -170,7 +170,7 @@ export function VoicePanel({
   ) : null;
 
   return (
-    <div className={contained && open ? "contents" : "space-y-2"}>
+    <div className={contained && open ? "contents" : "mb-0 flex flex-col"}>
       <div className="relative z-[15] mt-2.5 flex flex-wrap items-center gap-2.5">
         <button
           type="button"
@@ -183,9 +183,9 @@ export function VoicePanel({
           <span className="ml-auto hidden font-mono text-[10.5px] text-muted-foreground max-[700px]:inline">{parts.countNarrow}</span>
           <span className="text-muted-foreground" aria-hidden>{open ? "‹" : "›"}</span>
         </button>
-        <p className="text-[11.5px] text-muted-foreground max-[700px]:hidden">{whyWide}</p>
+        <p className="text-[11.5px] leading-none text-muted-foreground max-[700px]:hidden">{whyWide}</p>
       </div>
-      <p className="relative z-[15] mt-1.5 hidden text-[11.5px] text-muted-foreground max-[700px]:block">{whyNarrow}</p>
+      <p className="relative z-[15] mt-1.5 hidden text-[11.5px] leading-none text-muted-foreground max-[700px]:block">{whyNarrow}</p>
       {sheet}
     </div>
   );
