@@ -366,7 +366,7 @@ export function EventDetail({
                 />
               ) : null}
               {bank && event.status !== "cancelled" ? <OffersSheet eventId={bank.eventId} /> : null}
-              {lab ? <CreativeLabCard lab={lab} quoteMode driveFolderId={event.drive_folder_id} /> : null}
+              {lab ? <CreativeLabCard lab={lab} quoteMode presentation="owner" driveFolderId={event.drive_folder_id} /> : null}
               {!isBrand && event.client_id ? (
                 <p className="text-sm">
                   <Link className="underline" href={`/clients/${event.client_id}?tab=ticketing`}>Ticketing</Link>

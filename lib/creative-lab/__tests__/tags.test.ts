@@ -123,8 +123,13 @@ describe("creative lab tags: caption_style", () => {
 
   it("takes the voice from the style, and migration 200 lists every style", () => {
     assert.equal(voiceForStyle("artist_first_person"), "artist");
+    assert.equal(voiceForStyle("artist"), "promoter");
     assert.equal(voiceForStyle("lineup"), "promoter");
     const migration = readFileSync(new URL("../../../supabase/migrations/200_creative_lab_m3.sql", import.meta.url), "utf8");
-    for (const style of CAPTION_STYLES) assert.match(migration, new RegExp(`'${style}'`));
+    const owner = readFileSync(new URL("../../../supabase/migrations/226_creative_lab_footage_owner.sql", import.meta.url), "utf8");
+    for (const style of CAPTION_STYLES) {
+      if (style === "artist") assert.match(owner, /'artist'/);
+      else assert.match(migration, new RegExp(`'${style}'`));
+    }
   });
 });

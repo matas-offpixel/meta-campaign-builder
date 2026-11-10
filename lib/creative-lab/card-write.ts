@@ -14,6 +14,7 @@ import { RoundRefusedError } from "./rounds.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { isCaptionStyle } from "./tags.ts";
 import { artistKey } from "./lineup.ts";
+import { clipsForStyle, ownerFromImport, type FootageOwner } from "./footage-owner.ts";
 import { bestOfSelected, effectiveSelection, NO_CLIP_SELECTED, spreadClipIds, type PairMode } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
 import { emptyYield, generateLogLine, noteReject, type GenerateYield } from "./generate-log.ts";
@@ -171,6 +172,8 @@ export async function addLabClip(
     filmedEventId?: string | null;
     durationSeconds?: number | null;
     creativeAssetId?: string | null;
+    eventId?: string | null;
+    folderKey?: string | null;
     newAsset?: { filename: string; storagePath: string; contentHash: string; byteSize: number; durationSeconds?: number | null };
   },
 ): Promise<void> {
@@ -216,13 +219,18 @@ export async function addLabClip(
     }
   }
   if (!assetId) throw new Error("Pick a video or upload one.");
-  const clips = await db.from("creative_lab_clips").select("clip_no").eq("artist_id", args.artistId);
+  const derivedEarly = ownerFromImport({ kind: "upload", folderKey: args.folderKey ?? "", artistId: args.artistId });
+  const clips = derivedEarly.owner === "promoter" && args.eventId
+    ? await db.from("creative_lab_clips").select("clip_no").eq("shown_on_event_id", args.eventId).eq("owner", "promoter")
+    : await db.from("creative_lab_clips").select("clip_no").eq("artist_id", args.artistId);
   if (clips.error) throw new Error(clips.error.message);
   const next = Math.max(0, ...((clips.data ?? []) as Row[]).map((row) => Number(row.clip_no) || 0)) + 1;
   const links = (args.permalinks ?? []).map((link) => link.trim()).filter(Boolean);
   const rows = (links.length ? links : [null]).map((permalink, index) => ({
     user_id: args.userId,
-    artist_id: args.artistId,
+    artist_id: derivedEarly.artistId,
+    owner: derivedEarly.owner,
+    shown_on_event_id: derivedEarly.owner === "promoter" ? args.eventId ?? null : null,
     creative_asset_id: assetId,
     clip_no: next + index,
     source: args.source.trim(),
@@ -235,6 +243,51 @@ export async function addLabClip(
   if (inserted.error) throw new Error(inserted.error.message);
 }
 
+/** Whose footage is this. Rights are not in the update. */
+export async function saveClipOwner(
+  db: ServiceRoleDb,
+  args: { userId: string; clipId: string; owner: FootageOwner; artistId: string | null; who: string; when: string },
+): Promise<void> {
+  const updated = await db.from("creative_lab_clips").update({
+    owner: args.owner,
+    artist_id: args.owner === "promoter" ? null : args.artistId,
+    owner_set_by: args.who,
+    owner_set_at: args.when,
+  }).eq("id", args.clipId).eq("user_id", args.userId).select("id, rights_ref");
+  if (updated.error) throw new Error(updated.error.message);
+  if (!((updated.data ?? []) as unknown[]).length) throw new Error("No clip with that id.");
+}
+
+/** Features… on a promoter tile. Several artists. The clip stays the client's. */
+export async function saveClipFeatures(
+  db: ServiceRoleDb,
+  args: { userId: string; clipId: string; artistIds: string[]; who: string; when: string },
+): Promise<void> {
+  const clip = await db.from("creative_lab_clips").select("id, owner").eq("id", args.clipId).eq("user_id", args.userId).maybeSingle();
+  if (clip.error) throw new Error(clip.error.message);
+  if (!clip.data) throw new Error("No clip with that id.");
+  if ((clip.data as Row).owner !== "promoter") throw new Error("Only promoter footage can feature an artist.");
+  const existing = await db.from("creative_lab_clip_features").select("artist_id").eq("clip_id", args.clipId);
+  if (existing.error) throw new Error(existing.error.message);
+  const have = new Set(((existing.data ?? []) as Row[]).map((row) => text(row, "artist_id")));
+  const want = new Set(args.artistIds);
+  for (const artistId of have) {
+    if (want.has(artistId)) continue;
+    const removed = await db.from("creative_lab_clip_features").delete().eq("clip_id", args.clipId).eq("artist_id", artistId);
+    if (removed.error) throw new Error(removed.error.message);
+  }
+  for (const artistId of want) {
+    if (have.has(artistId)) continue;
+    const inserted = await db.from("creative_lab_clip_features").insert({
+      clip_id: args.clipId,
+      artist_id: artistId,
+      set_by: args.who,
+      set_at: args.when,
+    });
+    if (inserted.error) throw new Error(inserted.error.message);
+  }
+}
+
 async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise<{
   clips: {
     id: string;
@@ -244,6 +297,9 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
     renderError: string | null;
     durationSeconds: number | null;
     judged: { verdict: string | null; cost: number | null; results: number | null; metric: string | null; roundNo: number } | null;
+    owner: FootageOwner | null;
+    artistId: string | null;
+    featuredArtistIds: string[];
   }[];
   paired: Set<string>;
   selection: Awaited<ReturnType<typeof loadClipSelection>>;
@@ -304,11 +360,13 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
       .filter((ad) => text(ad, "verdict") || text(ad, "window_start") || ad.verdict_results != null || ad.verdict_cost_per_result != null)
       .sort((a, b) => Number(rounds.find((round) => text(round, "id") === text(b, "round_id"))?.round_no) - Number(rounds.find((round) => text(round, "id") === text(a, "round_id"))?.round_no));
     const judged = judgedAds[0];
+    const owner: FootageOwner | null = row.owner === "promoter" || row.owner === "artist" ? row.owner : null;
     return {
       id: text(row, "id"),
       artistName: text(artist, "name") || "Clip",
       clipNo: Number(row.clip_no) || 0,
       cleared: Boolean(artist?.approved_at),
+      owner,
       renderError: currentRenderError(clipRenders.map((render) => ({
         status: text(render, "status"),
         error: text(render, "error") || null,
@@ -319,6 +377,8 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
         inS: inS != null && Number.isFinite(inS) ? inS : null,
         outS: outS != null && Number.isFinite(outS) ? outS : null,
       }),
+      artistId: text(row, "artist_id") || null,
+      featuredArtistIds: [] as string[],
       judged: judged ? {
         verdict: text(judged, "verdict") || null,
         cost: judged.verdict_cost_per_result == null || judged.verdict_cost_per_result === "" ? null : Number(judged.verdict_cost_per_result),
@@ -328,6 +388,28 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
       } : null,
     };
   });
+  if (clipIds.length > 0) {
+    const owned = await db.from("creative_lab_clips").select("id, owner").in("id", clipIds);
+    if (!owned.error) {
+      const byId = new Map((owned.data ?? []).map((row) => [text(row as Row, "id"), (row as Row).owner]));
+      for (const clip of clips) {
+        const owner = byId.get(clip.id);
+        if (owner === "promoter" || owner === "artist") clip.owner = owner;
+      }
+    } else if (!/owner|does not exist|schema cache/i.test(owned.error.message)) {
+      throw new Error(owned.error.message);
+    }
+    const feats = await db.from("creative_lab_clip_features").select("clip_id, artist_id").in("clip_id", clipIds);
+    if (!feats.error) {
+      for (const row of (feats.data ?? []) as Row[]) {
+        const clip = clips.find((item) => item.id === text(row, "clip_id"));
+        const artistId = text(row, "artist_id");
+        if (clip && artistId) clip.featuredArtistIds.push(artistId);
+      }
+    } else if (!/does not exist|schema cache|creative_lab_clip_features/i.test(feats.error.message)) {
+      throw new Error(feats.error.message);
+    }
+  }
   clips.sort((a, b) => a.clipNo - b.clipNo || a.artistName.localeCompare(b.artistName));
   return { clips, paired, selection };
 }
@@ -371,12 +453,13 @@ export async function generateLabCaptions(
   deps?: GenerateCaptionsDeps,
   trace?: GenerateTrace,
 ): Promise<{ captions: Awaited<ReturnType<typeof generateCaptions>>; notice: string | null }> {
+  if (args.style === "artist_first_person") throw new Error("First-person words come from the artist — use Quote.");
   if (!isCaptionStyle(args.style)) throw new Error("Unknown caption style.");
   const style = args.style;
   const pair = pairMode(args);
   const loaded = await clipsAwaitingPreview(db, args.eventId);
   const selection = loaded.selection;
-  const selected = effectiveSelection(selection, loaded.clips);
+  const selected = clipsForStyle(style, args.artistId ?? null, effectiveSelection(selection, loaded.clips));
   if (trace) trace.clips = selected.length;
   const write = async (clipId?: string, n = args.n) => {
     try {

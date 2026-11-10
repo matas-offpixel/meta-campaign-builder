@@ -21,13 +21,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const body = (await req.json().catch(() => ({}))) as { anyway?: boolean };
+  const body = (await req.json().catch(() => ({}))) as { anyway?: boolean; eventId?: string };
   const db = createServiceRoleClient();
   try {
     const result = await importIgCandidate(db, {
       candidateId: id,
       userId: user.id,
       anyway: body.anyway === true,
+      eventId: typeof body.eventId === "string" ? body.eventId : null,
       mediaUrl: (mediaId) => readOwnMediaUrl(db, user.id, mediaId),
       download: async (url) => new Uint8Array(await (await fetch(url)).arrayBuffer()),
       upload: async (storagePath, bytes) => {

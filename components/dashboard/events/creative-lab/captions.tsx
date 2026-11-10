@@ -15,10 +15,17 @@ import { VoicePanel } from "@/components/dashboard/events/creative-lab/voice-pan
 import { USE_ANGLE_EVENT } from "@/components/insights-rail/use-angle";
 import { EMPTY_COPY_LINES } from "@/lib/insights-rail/model";
 import { acceptQuote, heldQuoteSentence, postsForQuote, quoteLines, sourceChip, type CaptionGenerator, type QuoteSource } from "@/lib/creative-lab/quote";
+import { artistWhy, footageWhy, needsFootageLabel, quotePairsLine, RETIRED_FIRST_PERSON, unpairedLine, objectPronoun } from "@/lib/creative-lab/footage-owner.ts";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
 
 const ANGLES = ["lineup", "artist_first_person", "pov", "scarcity"] as const;
+const OWNER_ANGLES = ["lineup", "artist", "pov", "scarcity"] as const;
+type Angle = CaptionGenerator["angle"];
+
+function isAngle(value: string): value is Angle {
+  return (ANGLES as readonly string[]).includes(value) || (OWNER_ANGLES as readonly string[]).includes(value);
+}
 const STAGES: { id: SaleStage; label: string }[] = [
   { id: "upcoming", label: "Teaser" },
   { id: "signup", label: "Presale" },
@@ -57,13 +64,14 @@ export function LabCaptions({
   pendingWrite = false,
   initialPair = "best",
   initialWrittenIds,
+  ownerAngles = false,
 }: {
   lab: CreativeLabCardData;
   busy: boolean;
   onSave: Save;
   /** Off on the CL frames, so those shots stay as they were. The event page turns it on. */
   quoteMode?: boolean;
-  initialAngle?: (typeof ANGLES)[number];
+  initialAngle?: string;
   initialArtistId?: string;
   initialVoiceOpen?: boolean;
   voiceContained?: boolean;
@@ -72,20 +80,23 @@ export function LabCaptions({
   initialPair?: PairMode;
   /** Frame only: the captions the last write returned, so Each selected can draw them. */
   initialWrittenIds?: readonly string[];
+  /** Lineup · Artist · POV · Scarcity. Off on the frames that still show Artist, first person. */
+  ownerAngles?: boolean;
 }) {
   const stageDefault = saleStageFromStatus(lab.eventStatus);
-  const [angle, setAngle] = useState<(typeof ANGLES)[number]>(initialAngle);
+  const angles = ownerAngles ? OWNER_ANGLES : ANGLES;
+  const [angle, setAngle] = useState<Angle>(isAngle(initialAngle) ? initialAngle : "lineup");
   const [stage, setStage] = useState<SaleStage>(stageDefault);
 
   // The Insights rail's "Use {angle}" (R9): pre-select, never generate.
   useEffect(() => {
     const onUse = (event: Event) => {
       const next = (event as CustomEvent<{ angle?: string }>).detail?.angle;
-      if (next && (ANGLES as readonly string[]).includes(next)) setAngle(next as (typeof ANGLES)[number]);
+      if (next && isAngle(next) && (angles as readonly string[]).includes(next)) setAngle(next);
     };
     window.addEventListener(USE_ANGLE_EVENT, onUse);
     return () => window.removeEventListener(USE_ANGLE_EVENT, onUse);
-  }, []);
+  }, [angles]);
   const [count, setCount] = useState<1 | 3 | 5>(3);
   const [pair, setPair] = useState<PairMode>(initialPair);
   const [writtenIds, setWrittenIds] = useState<readonly string[] | null>(initialWrittenIds ?? null);
@@ -199,8 +210,14 @@ export function LabCaptions({
       ) : (
       <div className="space-y-2 rounded border border-border bg-card p-3">
         {quoteMode ? <Control label="Mode" value={mode} options={[{ id: "caption", label: "Caption" }, { id: "quote", label: "Quote" }]} onChange={chooseMode} /> : null}
-        <Control label="Angle" value={angle} options={ANGLES.map((id) => ({ id, label: styleLabel(id) }))} onChange={setAngle} />
-        {angle === "artist_first_person" ? (
+        <Control label="Angle" value={angle} options={angles.map((id) => ({ id, label: styleLabel(id) }))} onChange={setAngle} />
+        {ownerAngles && (angle === "lineup" || angle === "pov" || angle === "scarcity") && !lab.clips.some((clip) => clip.owner === "promoter") ? (
+          <p className="text-sm text-muted-foreground">{footageWhy(styleLabel(angle), lab.clientName || "the promoter")}</p>
+        ) : null}
+        {ownerAngles && angle === "artist" && artist ? (
+          <p className="text-sm text-muted-foreground">{artistWhy(artist.name, lab.clientName || "the promoter")}</p>
+        ) : null}
+        {angle === "artist_first_person" || (ownerAngles && angle === "artist") ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="w-20 text-muted-foreground">Artist</span>
             <div className="flex flex-wrap items-center gap-1">
@@ -257,7 +274,7 @@ export function LabCaptions({
               style: angle,
               n: count,
               pair,
-              artistId: angle === "artist_first_person" ? artist?.id ?? null : null,
+              artistId: angle === "artist_first_person" || angle === "artist" ? artist?.id ?? null : null,
               stageOverride: stage,
             }).then((result) => { setNotice(noticeAfterGenerate(result)); const ids = writtenCaptionIds(result); if (ids) setWrittenIds(ids); }).catch(() => setNotice(generateFailureSentence(null))).finally(() => setWriting(false));
           }}
@@ -295,7 +312,7 @@ export function LabCaptions({
                 <p className="text-xs text-muted-foreground">{styleLabel(caption.style)}</p>
                 <div className="flex snap-x gap-3 overflow-x-auto">
                   {(plates.length > 0 ? plates : [null]).map((clip, index) => (
-                    <FeedPost key={clip?.id ?? "none"} lab={lab} caption={caption} page={page} stage={stageDefault} busy={busy} onSave={onSave} clipOverride={clip} actions={index === 0} />
+                    <FeedPost key={clip?.id ?? "none"} lab={lab} caption={caption} page={page} stage={stageDefault} busy={busy} onSave={onSave} clipOverride={clip} actions={index === 0} ownerCopy={ownerAngles} />
                   ))}
                 </div>
               </div>
@@ -305,9 +322,9 @@ export function LabCaptions({
       <div className="flex snap-x gap-3 overflow-x-auto">
         {visible.map((caption) => (
           caption.mode === "quote" ? (
-            <QuoteLive key={caption.id} lab={lab} caption={caption} page={page} />
+            <QuoteLive key={caption.id} lab={lab} caption={caption} page={page} ownerCopy={ownerAngles} />
           ) : (
-            <FeedPost key={caption.id} lab={lab} caption={caption} page={page} stage={stageDefault} busy={busy} onSave={onSave} />
+            <FeedPost key={caption.id} lab={lab} caption={caption} page={page} stage={stageDefault} busy={busy} onSave={onSave} ownerCopy={ownerAngles} />
           )
         ))}
       </div>
@@ -320,10 +337,12 @@ function QuoteLive({
   lab,
   caption,
   page,
+  ownerCopy = false,
 }: {
   lab: CreativeLabCardData;
   caption: CreativeLabCardData["captions"][number];
   page: string;
+  ownerCopy?: boolean;
 }) {
   const artist = lab.artists.find((item) => item.id === caption.artistId) ?? lab.artists[0];
   const cleared = artist?.rights === "approved";
@@ -345,6 +364,14 @@ function QuoteLive({
           { text: "quote" },
           { text: sourceChip({ source: caption.quoteSource ?? "typed", where: caption.quoteSourceNote, wide: true }) },
           ...(artist ? [{ text: artist.rights === "approved" ? artist.rightsLabel : "Promoter page only", ok: artist.rights === "approved" }] : []),
+          ...(ownerCopy && artist ? [{
+            text: quotePairsLine(
+              artist.name,
+              lab.clientName || "the promoter",
+              objectPronoun(artist.pronouns),
+              lab.clips.filter((clip) => clip.owner === "promoter" && (clip.featuredArtistIds ?? []).includes(artist.id)).length,
+            ),
+          }] : []),
         ]}
       />
       {caption.validatorDetail ? <p className="px-1 pt-2 text-sm text-destructive">{caption.validatorDetail}</p> : null}
@@ -411,6 +438,7 @@ export function FeedPost({
   onSave,
   clipOverride,
   actions = true,
+  ownerCopy = false,
 }: {
   lab: CreativeLabCardData;
   caption: CreativeLabCardData["captions"][number];
@@ -422,6 +450,7 @@ export function FeedPost({
   clipOverride?: CreativeLabCardData["clips"][number] | null;
   /** ✎ ✕ ✓ belong to the caption, so only the first preview of a cross shows them. */
   actions?: boolean;
+  ownerCopy?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [focusPrimary, setFocusPrimary] = useState(false);
@@ -453,6 +482,10 @@ export function FeedPost({
   }, [editing, focusPrimary]);
   const copy = captionCopy(caption.lines);
   const headline = feedHeadline({ eventName: lab.eventName, eventDate: lab.eventDate, venue: lab.venueName });
+  const client = lab.clientName || "the promoter";
+  const promoterAngles = caption.style === "lineup" || caption.style === "pov" || caption.style === "scarcity";
+  const needsFootage = ownerCopy && promoterAngles && !lab.clips.some((item) => item.owner === "promoter");
+  const retired = ownerCopy && caption.style === "artist_first_person";
   const held = caption.style === "artist_first_person" && !lab.artists.some((artist) => artist.rights === "approved")
     ? `Artist voice — runs once ${lab.artists[0]?.name ?? "this artist"} is cleared for their own channels.`
     : null;
@@ -483,7 +516,9 @@ export function FeedPost({
       ) : (
         <p className="px-3 py-2 text-sm text-muted-foreground">No primary text yet</p>
       )}
-      {plate === "missing" ? (
+      {needsFootage ? (
+        <p className="mx-3 my-2 rounded border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">{needsFootageLabel(client)}</p>
+      ) : plate === "missing" ? (
         <p className="px-3 py-6 text-sm">{OFF_CARD_CLIP}</p>
       ) : (
         <>
@@ -495,7 +530,9 @@ export function FeedPost({
         <p className="min-w-0 font-medium">{headline}</p>
         <span className="inline-flex min-w-28 shrink-0 items-center justify-center whitespace-nowrap rounded bg-foreground px-3 py-1.5 text-background">{ctaForStage(stage)}</span>
       </div>
-      <p className="px-3 pb-2 text-xs text-muted-foreground">{styleLabel(caption.style)}{clip ? ` · ${clip.artistName} #${clip.clipNo}` : ""}</p>
+      <p className="px-3 pb-2 text-xs text-muted-foreground">{styleLabel(caption.style)}{needsFootage ? " · unpaired" : clip ? ` · ${clip.artistName} #${clip.clipNo}` : ""}</p>
+      {needsFootage ? <p className="px-3 pb-2 text-xs text-muted-foreground">{unpairedLine(styleLabel(caption.style), client)}</p> : null}
+      {retired ? <p className="px-3 pb-2 text-xs text-muted-foreground">{RETIRED_FIRST_PERSON}</p> : null}
       {held ? <p className="px-3 pb-2 text-sm">{held}</p> : null}
       {caption.validatorDetail ? <p className="px-3 pb-2 text-sm text-destructive">{caption.validatorDetail}</p> : null}
       {actions && editing ? (
@@ -523,7 +560,7 @@ export function FeedPost({
         <div className="flex items-center gap-2 p-2">
           <button type="button" aria-label="Edit" className="h-8 w-8 rounded border border-border" onClick={() => { setOverlay(captionCopy(caption.lines)); setPrimary(caption.primaryText); setFocusPrimary(!caption.primaryText.trim()); setEditing(true); }}>✎</button>
           <button type="button" aria-label="Reject" className="h-8 w-8 rounded border border-border" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "rejected" })}>✕</button>
-          {held ? null : (
+          {held || retired ? null : (
             <button type="button" aria-label="Approve" className="h-8 w-8 rounded bg-foreground text-background" disabled={busy || caption.status !== "proposed"} onClick={() => onSave({ action: "setCaptionStatus", captionId: caption.id, status: "approved" })}>✓</button>
           )}
         </div>

@@ -12,6 +12,7 @@
 
 import { styleVersion } from "../../src/remotion/caption-style/profile.ts";
 import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
+import { captionAllowsClip } from "./footage-owner.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { noSelectedClipsSentence, selectedIdSet } from "./selection.ts";
@@ -300,6 +301,20 @@ export async function proposeRound(
   const selection = await loadClipSelection(db, args.eventId);
   const selectedIds = selectedIdSet(selection, usableClips.map((clip) => String(clip.id)));
   const shortClips = usableClips.filter((clip) => selectedIds.has(String(clip.id)));
+  const featureRows = await list(db, "creative_lab_clip_features", "artist_id", args.artistId);
+  const featureIds = featureRows.map((row) => String(row.clip_id ?? "")).filter(Boolean);
+  if (featureIds.length > 0) {
+    const extra = await db.from("creative_lab_clips").select("*").in("id", featureIds);
+    if (!extra.error) {
+      for (const row of (extra.data ?? []) as Row[]) {
+        if (row.owner !== "promoter") continue;
+        if (shortClips.some((clip) => clip.id === row.id)) continue;
+        const ticked = selection.mode === "all" || selection.rows.some((item) => item.clipId === String(row.id) && item.selected);
+        if (!ticked) continue;
+        shortClips.push({ ...row, seconds: clipSeconds(row, assets.get(String(row.creative_asset_id))) } as Clip);
+      }
+    }
+  }
 
   const rounds = (await list(db, "creative_lab_rounds", "event_id", args.eventId))
     .filter((row) => row.artist_id === args.artistId)
@@ -349,7 +364,34 @@ export async function proposeRound(
       ? await pairsFromPlan(artist.name, cleared, previous, shortClips, approved, hasArtistVoice, tickets, skipped, maxAds, db)
       : pairsForFirstRound(artist.name, artist.starting_caption ?? "", cleared, shortClips, approved, hasArtistVoice, tickets, skipped, maxAds));
 
-  const planned = await capSupport(db, args.eventId, args.artistId, artist.name, pairs, skipped);
+  const featured = new Map<string, string[]>();
+  for (const row of featureRows) {
+    const clipId = String(row.clip_id ?? "");
+    const artistId = String(row.artist_id ?? "");
+    if (!clipId || !artistId) continue;
+    featured.set(clipId, [...(featured.get(clipId) ?? []), artistId]);
+  }
+  const planned = (await capSupport(db, args.eventId, args.artistId, artist.name, pairs, skipped)).filter((pair) => {
+    const clip = shortClips.find((row) => row.id === pair.clipId);
+    const caption = approved.find((row) => row.id === pair.captionId);
+    if (!clip || !caption) return false;
+    const owner = clip.owner === "promoter" || clip.owner === "artist" ? clip.owner : null;
+    return captionAllowsClip(
+      {
+        id: String(caption.id),
+        style: String(caption.style ?? ""),
+        mode: caption.mode == null ? null : String(caption.mode),
+        artistId: caption.artist_id == null ? null : String(caption.artist_id),
+        status: caption.status == null ? null : String(caption.status),
+      },
+      {
+        id: String(clip.id),
+        owner,
+        artistId: clip.artist_id == null ? null : String(clip.artist_id),
+        featuredArtistIds: featured.get(String(clip.id)) ?? [],
+      },
+    );
+  });
   const existingAds = await list(db, "launched_ads", "meta_adset_id", target.metaAdsetId);
   if (existingAds.length + planned.length > MAX_ADS_PER_AD_SET) {
     throw new RoundBuildError(

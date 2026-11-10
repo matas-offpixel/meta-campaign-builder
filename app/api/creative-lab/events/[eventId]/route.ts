@@ -7,6 +7,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import {
   addLabClip,
+  saveClipOwner,
+  saveClipFeatures,
   approveLabRound,
   runLoggedGenerate,
   judgeLabCard,
@@ -22,7 +24,7 @@ import { saveClipSelection } from "@/lib/creative-lab/selection-store";
 import type { PairMode } from "@/lib/creative-lab/selection";
 import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
 import { isSpotifyConfigured, searchArtists } from "@/lib/enrichment/spotify";
-import { findArtistClips, readPromoterVoice, requestArtistClip } from "@/lib/creative-lab/ig-discovery";
+import { findArtistClips, findPromoterClips, readPromoterVoice, requestArtistClip } from "@/lib/creative-lab/ig-discovery";
 import type { SaleStage } from "@/lib/creative-lab/caption-facts";
 import { addSpotifyToLineup, applySpotifyCandidate, enrichLibraryArtists, labArtistForLibrary, saveLabLineup, tagSuggestions } from "@/lib/creative-lab/lineup";
 import type { ServiceRoleDb } from "@/lib/creative-lab/load";
@@ -69,6 +71,9 @@ type Body = {
   style?: string;
   n?: number;
   clipId?: string | null;
+  owner?: "promoter" | "artist";
+  folderKey?: string | null;
+  artistIds?: string[];
   each?: boolean;
   pair?: PairMode;
   mode?: "all" | "chosen";
@@ -123,6 +128,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
           return NextResponse.json({ ok: !found.error, error: found.error, sampleN: found.candidates.length });
         }
         return NextResponse.json({ ok: true, ...(await readPromoterVoice(db, event.client_id)) });
+      }
+      case "findPromoterClips": {
+        if (!event.client_id) return NextResponse.json({ error: "This event has no client." }, { status: 400 });
+        const found = await findPromoterClips(db, { clientId: event.client_id, userId: user.id });
+        return NextResponse.json({ ok: !found.error, error: found.error, sampleN: found.candidates.length });
       }
       case "saveFacts":
         await saveLabFacts(db, {
@@ -263,6 +273,30 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
           durationSeconds: body.durationSeconds,
           creativeAssetId: body.creativeAssetId,
           newAsset: body.newAsset,
+          eventId,
+          folderKey: body.folderKey,
+        });
+        return NextResponse.json({ ok: true });
+      case "setClipOwner":
+        if (body.owner !== "promoter" && body.owner !== "artist") {
+          return NextResponse.json({ error: "Say whose footage it is." }, { status: 400 });
+        }
+        await saveClipOwner(db, {
+          userId: user.id,
+          clipId: body.clipId ?? "",
+          owner: body.owner,
+          artistId: body.artistId ?? null,
+          who: user.email ?? user.id,
+          when: new Date().toISOString(),
+        });
+        return NextResponse.json({ ok: true });
+      case "setClipFeatures":
+        await saveClipFeatures(db, {
+          userId: user.id,
+          clipId: body.clipId ?? "",
+          artistIds: body.artistIds ?? [],
+          who: user.email ?? user.id,
+          when: new Date().toISOString(),
         });
         return NextResponse.json({ ok: true });
       case "useQuote": {

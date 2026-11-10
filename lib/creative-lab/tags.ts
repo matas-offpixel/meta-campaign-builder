@@ -24,6 +24,7 @@ export const CAPTION_STYLES = [
   "venue",
   "whats_next",
   "artist_first_person",
+  "artist",
   "experience",
   "four_line",
   "pov",
@@ -38,12 +39,16 @@ export const CAPTION_STYLE_LABELS: Readonly<Record<CaptionStyle, string>> = {
   venue: "Venue",
   whats_next: "What's next",
   artist_first_person: "Artist, first person",
+  artist: "Artist",
   experience: "Experience",
   four_line: "Four line",
   pov: "POV",
 };
 
-/** artist_first_person is the artist's voice. Every other style is the promoter's. There is no voice column. */
+/**
+ * artist_first_person was the artist's voice. It is no longer generated.
+ * Artist is third person, in the promoter's voice, like every other angle.
+ */
 export function voiceForStyle(style: CaptionStyle): "artist" | "promoter" {
   return style === "artist_first_person" ? "artist" : "promoter";
 }

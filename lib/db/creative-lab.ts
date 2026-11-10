@@ -26,6 +26,35 @@ function pronounOn(profile: unknown): string | null {
   return null;
 }
 
+function igCandidateCard(candidate: Row): LabIgCandidate {
+  return {
+    id: text(candidate, "id"),
+    igMediaId: text(candidate, "ig_media_id"),
+    permalink: text(candidate, "permalink") || null,
+    postedAt: text(candidate, "posted_at").slice(0, 10) || null,
+    likes: candidate.likes == null ? null : Number(candidate.likes),
+    comments: candidate.comments == null ? null : Number(candidate.comments),
+    score: candidate.score == null ? null : Number(candidate.score),
+    aspect: text(candidate, "aspect") || null,
+    hasFile: candidate.has_file === true,
+    audioMatch: candidate.audio_match === true ? true : candidate.audio_match === false ? false : null,
+    status: text(candidate, "status"),
+    reason: text(candidate, "reason") || null,
+    thumbnailUrl: publicThumbUrl(text(candidate, "thumbnail_path")),
+    lengthSeconds: null,
+    overlayOpen: false,
+    overlay: overlayOf(candidate.overlay_check),
+    caption: typeof candidate.caption === "string" ? candidate.caption : null,
+  };
+}
+
+function listedCandidates(rows: Row[]): LabIgCandidate[] {
+  return rows
+    .filter((candidate) => ["candidate", "requested", "skipped", "imported"].includes(text(candidate, "status")))
+    .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+    .map(igCandidateCard);
+}
+
 function publicThumbUrl(path: string): string | null {
   if (!path) return null;
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
@@ -109,6 +138,26 @@ export function headlinerError(lineup: readonly string[], headliners: readonly s
   return null;
 }
 
+export type LabIgCandidate = {
+  id: string;
+  igMediaId: string;
+  permalink: string | null;
+  postedAt: string | null;
+  likes: number | null;
+  comments: number | null;
+  score: number | null;
+  aspect: string | null;
+  hasFile: boolean;
+  audioMatch: boolean | null;
+  status: string;
+  reason: string | null;
+  thumbnailUrl: string | null;
+  lengthSeconds: number | null;
+  overlayOpen: boolean;
+  overlay: { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null;
+  caption?: string | null;
+};
+
 export type CreativeLabCardData = {
   eventId: string;
   eventName: string;
@@ -116,6 +165,9 @@ export type CreativeLabCardData = {
   venueName: string | null;
   eventStatus: string | null;
   clientName: string | null;
+  clientHandle?: string | null;
+  /** Clips found on the client's own Instagram. Add imports them as promoter footage. */
+  promoterCandidates?: LabIgCandidate[];
   clientId: string | null;
   voice: CardVoice | null;
   launchesEnabled: boolean;
@@ -141,25 +193,7 @@ export type CreativeLabCardData = {
     igUsername: string | null;
     /** From the library artist's profile when a pronoun is stored there. */
     pronouns: string | null;
-    igCandidates: {
-      id: string;
-      igMediaId: string;
-      permalink: string | null;
-      postedAt: string | null;
-      likes: number | null;
-      comments: number | null;
-      score: number | null;
-      aspect: string | null;
-      hasFile: boolean;
-      audioMatch: boolean | null;
-      status: string;
-      reason: string | null;
-      thumbnailUrl: string | null;
-      lengthSeconds: number | null;
-      overlayOpen: boolean;
-      overlay: { verdict: string; frames: { t: number; text: boolean; what: string }[]; reason: string; flagged: number } | null;
-      caption?: string | null;
-    }[];
+    igCandidates: LabIgCandidate[];
     rights: RightsState;
     rightsLabel: string;
     approvedAt?: string | null;
@@ -185,6 +219,8 @@ export type CreativeLabCardData = {
     previewUrl: string | null;
     hasFile: boolean;
     artistName: string;
+    owner?: "promoter" | "artist";
+    featuredArtistIds?: string[];
     cleared: boolean;
     renderError: string | null;
     judged: { verdict: string | null; cost: number | null; results: number | null; metric: string | null; roundNo: number } | null;
@@ -295,8 +331,28 @@ export async function loadCreativeLabCard(
   if (eventAccount.error) throw new Error(`events: ${eventAccount.error.message}`);
   const adAccountId = text(clientAccount.data as Row | null, "meta_ad_account_id") || text(eventAccount.data as Row | null, "meta_ad_account_id") || null;
   const clientName = text(clientAccount.data as Row | null, "name") || null;
+  const clientHandle = text(clientAccount.data as Row | null, "instagram_handle") || null;
   const artistIds = new Set(artists.map((row) => text(row, "id")));
-  const clipRows = (await rows(db, "creative_lab_clips", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
+  const clipRows = (await rows(db, "creative_lab_clips", "user_id", args.userId)).filter((row) =>
+    artistIds.has(text(row, "artist_id")) || (text(row, "owner") === "promoter" && text(row, "shown_on_event_id") === args.eventId),
+  );
+  const featuresByClip = new Map<string, string[]>();
+  const featureRes = clipRows.length
+    ? await db.from("creative_lab_clip_features").select("clip_id, artist_id").in("clip_id", clipRows.map((row) => text(row, "id")))
+    : { data: [] as Row[], error: null };
+  if (featureRes.error) {
+    const code = "code" in featureRes.error ? featureRes.error.code : "";
+    if (code !== "42P01" && !/does not exist|schema cache/i.test(featureRes.error.message ?? "")) {
+      throw new Error(`creative_lab_clip_features: ${featureRes.error.message}`);
+    }
+  } else {
+    for (const row of (featureRes.data ?? []) as Row[]) {
+      const clipId = text(row, "clip_id");
+      const artistId = text(row, "artist_id");
+      if (!clipId || !artistId) continue;
+      featuresByClip.set(clipId, [...(featuresByClip.get(clipId) ?? []), artistId]);
+    }
+  }
   const renderRows = (await rows(db, "creative_lab_renders", "user_id", args.userId)).filter((row) => clipRows.some((clip) => text(clip, "id") === text(row, "clip_id")));
   const candidateRows = (await rowsIfPresent(db, "creative_lab_ig_candidates", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
   const roundIds = new Set(rounds.map((row) => text(row, "id")));
@@ -434,6 +490,8 @@ export async function loadCreativeLabCard(
     venueName: args.venueName?.trim() || null,
     eventStatus: args.eventStatus,
     clientName,
+    clientHandle,
+    promoterCandidates: listedCandidates(candidateRows.filter((candidate) => text(candidate, "client_id") === (args.clientId ?? "") && !text(candidate, "artist_id"))),
     voice,
     launchesEnabled: labLaunchesEnabled(),
     saleDatesMissing: !String(args.presaleAt ?? "").trim() && !String(args.generalSaleAt ?? "").trim(),
@@ -458,29 +516,7 @@ export async function loadCreativeLabCard(
       igLastError: text(row, "ig_last_error") || null,
       igUsername: text(row, "ig_username") || null,
       pronouns: pronounOn(libraryById.get(text(row, "artist_id"))?.profile_jsonb),
-      igCandidates: candidateRows
-        .filter((candidate) => text(candidate, "artist_id") === text(row, "id"))
-        .filter((candidate) => ["candidate", "requested", "skipped", "imported"].includes(text(candidate, "status")))
-        .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
-        .map((candidate) => ({
-          id: text(candidate, "id"),
-          igMediaId: text(candidate, "ig_media_id"),
-          permalink: text(candidate, "permalink") || null,
-          postedAt: text(candidate, "posted_at").slice(0, 10) || null,
-          likes: candidate.likes == null ? null : Number(candidate.likes),
-          comments: candidate.comments == null ? null : Number(candidate.comments),
-          score: candidate.score == null ? null : Number(candidate.score),
-          aspect: text(candidate, "aspect") || null,
-          hasFile: candidate.has_file === true,
-          audioMatch: candidate.audio_match === true ? true : candidate.audio_match === false ? false : null,
-          status: text(candidate, "status"),
-          reason: text(candidate, "reason") || null,
-          thumbnailUrl: publicThumbUrl(text(candidate, "thumbnail_path")),
-          lengthSeconds: null,
-          overlayOpen: false,
-          overlay: overlayOf(candidate.overlay_check),
-          caption: typeof candidate.caption === "string" ? candidate.caption : null,
-        })),
+      igCandidates: listedCandidates(candidateRows.filter((candidate) => text(candidate, "artist_id") === text(row, "id"))),
       rights: rightsState({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       rightsLabel: rightsLabel({ rights_doc_ref: text(row, "rights_doc_ref"), approved_at: text(row, "approved_at") || null }),
       approvedAt: text(row, "approved_at") || null,
@@ -531,7 +567,9 @@ export async function loadCreativeLabCard(
         storagePath: text(asset, "storage_path") || null,
         previewUrl: null,
         hasFile: Boolean(text(asset, "storage_path")),
-        artistName: text(artist, "name"),
+        artistName: text(artist, "name") || text(clientAccount.data as Row | null, "name") || "Clip",
+        owner: row.owner === "promoter" || row.owner === "artist" ? row.owner : undefined,
+        featuredArtistIds: featuresByClip.get(text(row, "id")) ?? [],
         cleared: Boolean(artist?.approved_at),
         audioMatch: row.audio_match === true ? true : row.audio_match === false ? false : null,
         cropFocusX: row.crop_focus_x == null ? 0.5 : Number(row.crop_focus_x),
