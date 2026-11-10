@@ -8,7 +8,7 @@
  *
  *   node --env-file=.env.local --experimental-strip-types scripts/t1-video-drafts.mts \
  *     --event P26-BDAY --kit <the static PSD's kit folder> --out .scratch/drafts/t1-video-2026-11-10 \
- *     --clip '<clip id>' [--clip …] [--seconds 8] [--lambda] [--local-from 2160] [--version v2-roll-call]
+ *     --clip '<clip id>' [--clip …] [--seconds 8] [--lambda] [--local-from 2160] [--version v2-roll-call] [--format 9:16]
  *
  * --lambda (issue 7, O52/O53): the face comes from the private kit-fonts
  * bucket through a one-hour signed URL and its name is checked
@@ -84,7 +84,7 @@ import {
   distinctCrops,
 } from "../lib/creative-lab/t1-video.ts";
 import { applyBacking, backingLayer, checkFeather, type FeatherCheck } from "../lib/creative-lab/red-backing.ts";
-import { renderSourcePath } from "../lib/creative-lab/render-source.ts";
+import { renderSourceAsset } from "../lib/creative-lab/render-source.ts";
 import { emptyTriedHeadings, triedSection } from "../lib/creative-lab/draft-report.ts";
 import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { MAX_KNEE_STEP, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
@@ -269,7 +269,10 @@ const lambdaFailed: { id: string; why: string }[] = [];
 const dataUri = (b: Buffer) => `data:image/png;base64,${b.toString("base64")}`;
 
 // ─── Layers ──────────────────────────────────────────────────────────────────
-const FORMATS: VideoFormat[] = ["9:16", "4:5", "1:1"];
+// --format F (repeatable): draw only those formats.
+const onlyFormats = many("--format");
+const FORMATS: VideoFormat[] = (["9:16", "4:5", "1:1"] as VideoFormat[]).filter((f) => !onlyFormats.length || onlyFormats.includes(f));
+if (!FORMATS.length) fail(`--format must be 9:16, 4:5 or 1:1`);
 const transparent = (fmt: VideoFormat) => sharp({ create: { ...FORMAT_SIZE[fmt], channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
 const rgbaPng = (data: Uint8Array, size: { width: number; height: number }) => sharp(Buffer.from(data), { raw: { width: size.width, height: size.height, channels: 4 } }).png().toBuffer();
 /** O55 + O57: a layout's bands at a band step, as a PNG at the format's size. */
@@ -300,12 +303,13 @@ for (const clipId of clipIds) {
   const clip = c.data!;
   const art = await db.from("creative_lab_artists").select("name").eq("id", clip.artist_id).maybeSingle();
   const artist = String(art.data?.name ?? "?");
-  const asset = await db.from("creative_assets").select("*").eq("id", clip.creative_asset_id).maybeSingle();
-  if (asset.error || !asset.data) fail(`asset for ${clipId}`);
-  // O68: the render copy when one is stored, else the source (no copy exists on main yet).
-  const source = renderSourcePath(asset.data as Record<string, unknown>, clip as Record<string, unknown>);
-  readFrom.push(`${clipId.slice(0, 8)}: ${source.copy ? "render copy" : "source"} (${source.path})`);
-  const file = await db.storage.from("campaign-assets").download(source.path);
+  // O68 / migration 220: the clip's 1080 render copy (render_asset_id) when it has one, else the original (creative_asset_id).
+  // `asset` is the row the render reads: every download, probe and Lambda signed URL below uses it.
+  const source = renderSourceAsset(clip as { render_asset_id?: unknown; creative_asset_id?: unknown });
+  const asset = await db.from("creative_assets").select("id, storage_path").eq("id", source.assetId).maybeSingle();
+  if (asset.error || !asset.data) fail(`asset ${source.assetId} for ${clipId}`);
+  readFrom.push(`${clipId.slice(0, 8)}: ${source.copy ? "the 1080 render copy" : "the original"} (creative_assets ${source.assetId.slice(0, 8)}, ${String(asset.data!.storage_path)})`);
+  const file = await db.storage.from("campaign-assets").download(String(asset.data!.storage_path));
   if (file.error || !file.data) fail(`download ${clipId}`);
   const slug = `${artist.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${clip.clip_no}`;
   const clipFile = `${slug}.mp4`;

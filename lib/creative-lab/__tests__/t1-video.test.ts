@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { MASTER, RECT_45, type Piece, type Rect } from "../artist-card.ts";
 import { SAMPLE_ROLL_CALL } from "../claim-approval.ts";
 import { FEATHER_STEP_RATIO, applyBacking, backingAlphaAt, backingLayer, checkFeather, featherAt } from "../red-backing.ts";
-import { RENDER_COPY_FIELD, renderSourcePath } from "../render-source.ts";
+import { renderSourceAsset } from "../render-source.ts";
 import { planClaim, splitTwo, type ClaimPlan } from "../claim-slot.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -678,11 +678,31 @@ describe("overlay templates issue 10 · H72 no-claim words (O71), H74 the search
 
 describe("overlay templates issue 10 · O68's render copy (read only), O69, O72", () => {
   it("a render reads the stored render copy when there is one, else the source", () => {
-    assert.deepEqual(renderSourcePath({ storage_path: "a/clip.mp4" }), { path: "a/clip.mp4", copy: false });
-    assert.deepEqual(renderSourcePath({ storage_path: "a/clip.mp4", [RENDER_COPY_FIELD]: "a/clip.render.mp4" }), { path: "a/clip.render.mp4", copy: true });
-    assert.deepEqual(renderSourcePath({ storage_path: "a/clip.mp4" }, { [RENDER_COPY_FIELD]: "c/copy.mp4" }), { path: "c/copy.mp4", copy: true });
-    assert.deepEqual(renderSourcePath({ storage_path: "a/clip.mp4", [RENDER_COPY_FIELD]: "" }), { path: "a/clip.mp4", copy: false });
-    assert.throws(() => renderSourcePath({}));
+    // #1176's shape (migration 220): creative_lab_clips.render_asset_id beside creative_asset_id.
+    const luke4 = { id: "bbcfbdb0", creative_asset_id: "f149bc30-original", render_asset_id: "7fb6bf02-copy" };
+    assert.deepEqual(renderSourceAsset(luke4), { assetId: "7fb6bf02-copy", copy: true });
+    assert.deepEqual(renderSourceAsset({ ...luke4, render_asset_id: null }), { assetId: "f149bc30-original", copy: false });
+    assert.deepEqual(renderSourceAsset({ creative_asset_id: "a", render_asset_id: "" }), { assetId: "a", copy: false });
+    assert.throws(() => renderSourceAsset({}));
+  });
+
+  it("a clip with render_asset_id renders from the copy: the drafts script downloads and signs the copy's own asset row", () => {
+    const src = readFileSync(join(process.cwd(), "scripts/t1-video-drafts.mts"), "utf8");
+    assert.match(src, /renderSourceAsset\(clip/);
+    assert.match(src, /from\("creative_assets"\)\.select\("id, storage_path"\)\.eq\("id", source\.assetId\)/);
+    assert.doesNotMatch(src, /eq\("id", clip\.creative_asset_id\)/);
+    assert.doesNotMatch(src, /render_copy_path/);
+  });
+
+  it("the rule is #1176's: it agrees with render-proxy.ts's renderAssetId on every shape", async () => {
+    const { renderAssetId } = await import("../render-proxy.ts");
+    const shapes = [
+      { creative_asset_id: "orig", render_asset_id: "copy" },
+      { creative_asset_id: "orig", render_asset_id: null },
+      { creative_asset_id: "orig", render_asset_id: "" },
+      { creative_asset_id: "orig" },
+    ];
+    for (const s of shapes) assert.equal(renderSourceAsset(s).assetId, renderAssetId(s));
   });
 
   it("O69: no upscaled copy is made — the render-source reader never writes, and the scale is the renderer's", () => {
