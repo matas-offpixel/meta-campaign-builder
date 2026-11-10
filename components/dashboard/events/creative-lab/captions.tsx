@@ -21,6 +21,11 @@ type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Reco
 
 const ANGLES = ["lineup", "artist_first_person", "pov", "scarcity"] as const;
 const OWNER_ANGLES = ["lineup", "artist", "pov", "scarcity"] as const;
+type Angle = CaptionGenerator["angle"];
+
+function isAngle(value: string): value is Angle {
+  return (ANGLES as readonly string[]).includes(value) || (OWNER_ANGLES as readonly string[]).includes(value);
+}
 const STAGES: { id: SaleStage; label: string }[] = [
   { id: "upcoming", label: "Teaser" },
   { id: "signup", label: "Presale" },
@@ -80,14 +85,14 @@ export function LabCaptions({
 }) {
   const stageDefault = saleStageFromStatus(lab.eventStatus);
   const angles = ownerAngles ? OWNER_ANGLES : ANGLES;
-  const [angle, setAngle] = useState<string>(initialAngle);
+  const [angle, setAngle] = useState<Angle>(isAngle(initialAngle) ? initialAngle : "lineup");
   const [stage, setStage] = useState<SaleStage>(stageDefault);
 
   // The Insights rail's "Use {angle}" (R9): pre-select, never generate.
   useEffect(() => {
     const onUse = (event: Event) => {
       const next = (event as CustomEvent<{ angle?: string }>).detail?.angle;
-      if (next && (angles as readonly string[]).includes(next)) setAngle(next);
+      if (next && isAngle(next) && (angles as readonly string[]).includes(next)) setAngle(next);
     };
     window.addEventListener(USE_ANGLE_EVENT, onUse);
     return () => window.removeEventListener(USE_ANGLE_EVENT, onUse);
