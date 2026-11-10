@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 7 — kit fonts: provided means cleared — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 7 · 10 November 2026</p>
+<h1>Overlay templates — issue 7: kit fonts, provided means cleared</h1>
+<p class="lead">Matas, 10 Nov: "When a font is provided that's it — we are working from promoter open files, an extension of their marketing. Up to them to have the right licences." This issue re-rules the kit font. It supersedes O24's server-render hold (issue 3, as applied in issues 4–6) and withdraws O45 (issue 6). Everything else in issues 1–6 stands. The question that remains is delivery, not licence: where the font file lives and how a render gets it.</p>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 7 · 10 Nov 2026.</b> O49 a provided font is cleared. O50 O45 withdrawn. O51 O24 otherwise stands. O52 delivery: private storage, a signed URL, never git and never the public bundle. O53 the knock-ons: T2 cards a, b and c become CI frames; T1 on a clip may render on Lambda; issue 6's question 9 is closed. Hand-back H47–H52.</li>
+<li><b>Issue 6 · 10 Nov 2026.</b> O37–O48. Merged as #1165.</li>
+</ul></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O49 Provided is cleared</td><td>A kit font that arrives with the client's open files or brand kit (a PSD's linked fonts, a brand-kit folder, a file the client or their designer sends) is cleared for every render: local, Lambda and the CI runner, stills and video. There is no licence record, no proof upload and no use to tick. The licence is the client's to hold: Off/Pixel works from their files as an extension of their marketing.</td></tr>
+<tr><td>O50 O45 withdrawn</td><td>Issue 6's O45 is withdrawn in full. That means no "Licence · Add proof" line on the Brand kit's font row, no <code>_Brand kit / Licences</code> folder, no "Licence recorded · server · video · {who}, {d Mon}", and no "Held — {face}: licence for server rendering not recorded". H43 is withdrawn with it. If any of it was built, it comes out.</td></tr>
+<tr><td>O51 O24 otherwise stands</td><td>Kit type renders only in the kit's own faces. No stand-in face, no fallback stack and no system font, ever. A face enters a kit only from the client's own files: the kit stores which file or folder each face came from and when (kept for the record, never on screen, rule 5). A font Off/Pixel bought or found is never added to a client's kit. J2 stays held for PP Neue Machina until that file arrives from the client.</td></tr>
+<tr><td>O52 Delivery, not licence</td><td>
+<ul>
+<li><b>Never in git.</b> No kit font file (<code>.otf</code>, <code>.ttf</code>, <code>.woff</code>, <code>.woff2</code>) is committed: not in fixtures, not in evidence, not in <code>public/</code>.</li>
+<li><b>Never in the public Remotion bundle.</b> The Lambda site's serve URL can be read by anyone, so no kit font goes into the site bundle, its <code>public/</code> folder or any static asset it serves.</li>
+<li><b>Private storage.</b> Each face is stored in the kit's own private storage bucket, under the client's kit. It is never in a public bucket. <code>offpixel-event-assets</code> is public-read, so fonts never go there.</li>
+<li><b>Loaded at render time</b> from a signed URL made for that one render and expiring within an hour. This is the same path on Lambda and on the CI runner. The signed URL is never written to a log, a database row, a frame artifact or the render's stored props beyond the render itself.</li>
+<li><b>No face, no render.</b> If the face doesn't load, or the loaded face's name isn't the kit's PostScript name, the render stops before the first frame. Nothing falls back (O51). The card reads "Held — {face} didn't load for this render · retry".</li>
+<li>The CI runner reads the bucket with a read-only credential scoped to kit fonts and kept as a CI secret. No font file goes into an uploaded artifact or a cache.</li>
+</ul></td></tr>
+<tr><td>O53 The knock-ons</td><td>
+<ul>
+<li><b>#1163's follow-up.</b> T2 cards a, b and c at 9:16, 4:5 and 1:1 become CI frames now: T2-a-916, T2-a-45, T2-a-11, and the same for b and c. These are nine frames at output size. The hyphenated ids are new; T2a and T2b stay the schematics of issues 4 and 5. The frames render with the draft stamp off, because they are fixtures, never filed or exported. Once they land, <code>docs/evidence/t2-claim-statics-round-3/</code> is no longer the evidence. It stays in the repo as history and is no longer cited.</li>
+<li><b>T1 on a clip</b> (issue 6, H36–H46) may render on Lambda. Nothing in H36–H46 waits on a licence any more. H44's preview check still applies before the first clip ships.</li>
+<li><b>Issue 6's question 9</b> (the kit-font licence) is closed by O49–O50.</li>
+</ul></td></tr>
+</table>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Brand kit</td><td>The font row is as it was before issue 6: no licence line. The face's source file is stored and not shown.</td></tr>
+<tr><td>Approval card lines</td><td>"Held — {face}: licence for server rendering not recorded" is removed. "Held — {face} didn't load for this render · retry" is new.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H47 Withdraw O45</td><td>O50: no licence line, folder, recorded line or licence hold anywhere. H43 is withdrawn.</td><td>kit fonts</td><td>a grep of the app and the Lab finds none of O45's four phrases; a Lambda render of a T1 clip with a provided face is not held</td></tr>
+<tr><td>H48 Provided faces only</td><td>O51: a face enters a kit only from the client's files, with its source file and date stored; no fallback in any render's font stack.</td><td>kit, kit fonts</td><td>unit test: a render whose kit face is missing stops, and never draws in another face</td></tr>
+<tr><td>H49 Delivery</td><td>O52: private bucket per kit; a per-render signed URL expiring within an hour; loaded and its name checked before frame 0, on Lambda and on CI; the "didn't load" hold.</td><td>storage</td><td>a guard in CI fails on any committed font file outside the app's own UI fonts, and on any font file in the Remotion site bundle; the signed URL appears in no log line of a test render</td></tr>
+<tr><td>H50 T2 CI frames</td><td>O53: T2-a, T2-b and T2-c at 9:16, 4:5 and 1:1 shot in <code>frames:check</code> from the fixture kit, stamp off; the evidence folder's README says it is no longer the evidence.</td><td>Puzzle floating kit (T2), the round-3 cards</td><td>each card's step, widest line of the 812 px slot, claim box, red line and drops equal round 3's <code>report.md</code>; the nine baselines get a design PASS naming them before they merge</td></tr>
+<tr><td>H51 T1 on Lambda</td><td>O53: H36–H46 run on Lambda with no licence gate.</td><td>—</td><td>H36–H46's own acceptances, on a Lambda render</td></tr>
+<tr><td>H52 Question 9 closed</td><td>O53: issue 6's question 9 is closed by this record; nothing to build.</td><td>—</td><td>—</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The one-hour signed-URL expiry; the PostScript-name check before frame 0; "Held — {face} didn't load for this render · retry".</li>
+<li>The frame ids T2-a/b/c-916, -45 and -11, and the stamp off on CI frames.</li>
+<li>The face's source file and date stored on the kit.</li>
+</ul>
+
+<h2>Frames</h2>
+<table class="t">
+<tr><th>Id</th><th>Formats</th><th>Source</th></tr>
+<tr><td>T2-a, T2-b, T2-c</td><td>9:16, 4:5, 1:1 at output size</td><td>CI frames, new (H50)</td></tr>
+<tr><td>T1 on clips</td><td>9:16, 4:5, 1:1</td><td>Lambda renders; CI frames from issue 6's build</td></tr>
+</table>
+
+</div></body>
+</html>
