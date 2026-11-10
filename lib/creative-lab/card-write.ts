@@ -382,8 +382,8 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
       }),
       artistId: text(row, "artist_id") || null,
       featuredArtistIds: [] as string[],
-      sourceWidth: null,
-      sourceHeight: null,
+      sourceWidth: null as number | null,
+      sourceHeight: null as number | null,
       judged: judged ? {
         verdict: text(judged, "verdict") || null,
         cost: judged.verdict_cost_per_result == null || judged.verdict_cost_per_result === "" ? null : Number(judged.verdict_cost_per_result),
