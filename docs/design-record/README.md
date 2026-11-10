@@ -164,6 +164,6 @@ Notes, not blockers: {anything for the queue}
 ```
 
 On FAIL the ops thread turns each failed item into a numbered fix on the same
-branch, and only those items plus a no-regression check are re-judged. On
+branch, and only those items plus the no-regression line go back for review. On
 PASS the merge is a squash with the expected head SHA, and any migration is
 applied only from `main` after its sha256 matches.
