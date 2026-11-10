@@ -5,7 +5,8 @@
  * claim the card is a draft: watermarked and not exportable.
  */
 
-import { fixtureRelease, rollCallWords } from "./roll-call-words.ts";
+import { rollCallWords } from "../releases/roll-call.ts";
+import type { Release } from "../releases/types.ts";
 
 export type WarningRow = {
   id: string;
@@ -26,6 +27,27 @@ export const WATERMARK = {
   sample: "DRAFT · sample claim",
 } as const;
 
+/** A release fixture (event_releases shape) for the sample roll-calls and tests. */
+export function fixtureRelease(position: number, name: string, state: Release["state"], extra: Partial<Release> = {}): Release {
+  return {
+    id: `fixture-${position}`,
+    eventId: "fixture",
+    position,
+    name,
+    communityAt: null,
+    listAt: null,
+    state,
+    stateAt: null,
+    stateSource: null,
+    stateSetBy: null,
+    price: null,
+    capacity: null,
+    sold: null,
+    remaining: null,
+    ...extra,
+  };
+}
+
 /**
  * The release fixture behind the sample draft (H25 (b)): early bird, 1st, 2nd
  * and 3rd release sold out, the final release selling fast.
@@ -39,8 +61,8 @@ export const SAMPLE_ROLL_CALL_RELEASES = [
 ] as const;
 
 /**
- * The sample roll-call, resolved from that fixture the way #1158's generator
- * resolves it (A14, A21, H28): line 2 is the live release's furthest met rung,
+ * The sample roll-call, resolved from that fixture by the roll-call generator
+ * (lib/releases/roll-call.ts; A14, A21, H28): line 2 is the live release's furthest met rung,
  * never lower than "{RELEASE} SELLING FAST". Always "DRAFT · sample claim".
  */
 export const SAMPLE_ROLL_CALL = rollCallWords(SAMPLE_ROLL_CALL_RELEASES).claim;

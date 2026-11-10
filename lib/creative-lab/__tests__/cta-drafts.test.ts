@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { CLAIM_FACE_BAND, CLAIM_LIMITS, NO_CLAIM_LIMITS, bandExtensionCandidates, bandPlacementOk, claimBoxRect, contrastRatio, lowContrastAgainst, redInkBox, redLineVerdict, subjectVerdict } from "../artist-card-claim.ts";
+import { WATERMARK_STAMP, watermarkCorner, CLAIM_FACE_BAND, CLAIM_LIMITS, NO_CLAIM_LIMITS, bandExtensionCandidates, bandPlacementOk, claimBoxRect, contrastRatio, lowContrastAgainst, redInkBox, redLineVerdict, subjectVerdict } from "../artist-card-claim.ts";
 import { RECT_45, relativeLuminance } from "../artist-card.ts";
-import { NotExportableError, SAMPLE_ROLL_CALL, SAMPLE_ROLL_CALL_RELEASES, WATERMARK, approvedClaim, assertExportable, watermarkFor, type WarningRow } from "../claim-approval.ts";
+import { NotExportableError, SAMPLE_ROLL_CALL, SAMPLE_ROLL_CALL_RELEASES, WATERMARK, fixtureRelease as r, approvedClaim, assertExportable, watermarkFor, type WarningRow } from "../claim-approval.ts";
 import { CARD_CLAIM, DROP_ORDER, inKitCase, planCardClaim, planClaim, rollCallStates, type CardClaimPlan, type ClaimPlan } from "../claim-slot.ts";
-import { fixtureRelease as r, rollCallWords } from "../roll-call-words.ts";
+import { rollCallWords } from "../../releases/roll-call.ts";
 import { DEFAULT_GRADIENT_SHADOW, bandAlphaAt, renderGradientShadow } from "../overlay-gradient.ts";
 
 /** A fake measure: Bootzy-like width, 0.35 cap per character. */
@@ -246,7 +246,7 @@ describe("the approved-claim gate and the watermark", () => {
 });
 
 describe("H28: the roll-call's line 2 and its shortening (A21, O27)", () => {
-  // Outputs of #1158's lib/releases/roll-call.ts at 63b275d on the same fixtures (run in its worktree).
+  // lib/releases/roll-call.ts (merged in #1158), read through its import: these are its outputs.
   const ladder = [
     { position: 1, triggerKind: "state" as const, triggerValue: "on_sale", claimTemplate: "{release} live", options: {} },
     { position: 2, triggerKind: "state_days" as const, triggerValue: "selling_fast", claimTemplate: "{release} selling fast", options: { days: 14 } },
@@ -317,5 +317,25 @@ describe("H28: the roll-call's line 2 and its shortening (A21, O27)", () => {
     const t1 = planClaim({ kind: "roll-call", soldOut, live, approvedBy: "m", approvedAt: "2026-11-10" }) as ClaimPlan;
     assert.deepEqual(t1.dropped, []);
     assert.deepEqual((planCardClaim(SAMPLE_ROLL_CALL, measure) as CardClaimPlan).dropped, []);
+  });
+});
+
+describe("the draft stamp sits in a free corner, off the claim and the lockup", () => {
+  const size = { width: 1080, height: 1920 };
+  const within = { left: 0, top: RECT_45.top, width: 1080, height: RECT_45.bottom - RECT_45.top };
+  const stamp = { width: 300, height: 50 };
+  it("the first clear corner, inside the 4:5 rectangle", () => {
+    const at = watermarkCorner(stamp, within, [], size);
+    const m = Math.round(WATERMARK_STAMP.margin * 1080);
+    assert.deepEqual([at.left, at.top], [m, RECT_45.top + m]);
+  });
+  it("skips a corner that would touch the type, the claim or the lockup", () => {
+    const name = { left: 20, top: 300, width: 600, height: 200 };
+    const lockup = { left: 700, top: 300, width: 300, height: 120 };
+    const at = watermarkCorner(stamp, within, [name, lockup], size);
+    assert.ok(at.top > 960, "a bottom corner");
+    const claim = { left: 0, top: 1500, width: 600, height: 120 };
+    const at2 = watermarkCorner(stamp, within, [name, lockup, claim], size);
+    assert.ok(at2.left > 540 && at2.top > 960, "bottom-right");
   });
 });

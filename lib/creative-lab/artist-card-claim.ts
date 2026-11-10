@@ -246,24 +246,53 @@ async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<Candidate, "
 // ─── Watermark ──────────────────────────────────────────────────────────────
 
 /** The draft watermark: the words set three times on a diagonal across the card, white at 70 % on a 45 % black band, so every crop shows it. */
-export async function watermarkLayer(text: string, size: Size, fontPath: string, family: string): Promise<Buffer> {
+/** The draft stamp's size and inset, as shares of the frame's width. */
+export const WATERMARK_STAMP = { px: 0.032, margin: 0.035, pad: 10, corners: ["top-left", "top-right", "bottom-left", "bottom-right"] as const } as const;
+
+const overlap = (a: Rect, b: Rect) => Math.max(0, Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top));
+
+/**
+ * Where the draft stamp goes: the first corner of `within` (top-left,
+ * top-right, bottom-left, bottom-right) whose box clears every rect in
+ * `avoid` (each padded), else the corner that covers least of them. No record
+ * fixes the stamp's position; it is kept off the claim, the lockup and the
+ * other type so the claim can be read.
+ */
+export function watermarkCorner(stamp: { width: number; height: number }, within: Rect, avoid: readonly Rect[], size: Size): Rect {
+  const m = Math.round(WATERMARK_STAMP.margin * size.width);
+  const p = WATERMARK_STAMP.pad;
+  const boxes = WATERMARK_STAMP.corners.map((c) => ({
+    left: c.endsWith("left") ? within.left + m : within.left + within.width - m - stamp.width,
+    top: c.startsWith("top") ? within.top + m : within.top + within.height - m - stamp.height,
+    width: stamp.width,
+    height: stamp.height,
+  }));
+  const padded = avoid.map((r) => ({ left: r.left - p, top: r.top - p, width: r.width + 2 * p, height: r.height + 2 * p }));
+  const cost = boxes.map((b) => padded.reduce((a, r) => a + overlap(b, r), 0));
+  const clear = cost.findIndex((c) => c === 0);
+  return boxes[clear >= 0 ? clear : cost.indexOf(Math.min(...cost))]!;
+}
+
+/**
+ * The draft stamp: one horizontal pill in a free corner (watermarkCorner),
+ * inside `within` (the master passes the 4:5 rectangle, so the crop keeps it).
+ */
+export async function watermarkLayer(text: string, size: Size, fontPath: string, family: string, opts: { avoid?: readonly Rect[]; within?: Rect } = {}): Promise<Buffer> {
   const sharp = await sharpLib();
-  const px = Math.round(size.width * 0.075);
+  const px = Math.round(size.width * WATERMARK_STAMP.px);
   const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   const word = await sharp({ text: { text: `<span foreground="#ffffff">${esc}</span>`, font: `${family} ${px}`, fontfile: fontPath, dpi: 72, rgba: true } }).png().toBuffer();
   const meta = await sharp(word).metadata();
-  const pad = Math.round(px * 0.35);
+  const pad = Math.round(px * 0.4);
   const bw = (meta.width ?? 0) + 2 * pad;
   const bh = (meta.height ?? 0) + 2 * pad;
-  const band = await sharp({ create: { width: bw, height: bh, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0.45 } } })
-    .composite([{ input: await sharp(word).ensureAlpha(0.7).png().toBuffer(), left: pad, top: pad, blend: "over" }])
+  const band = await sharp({ create: { width: bw, height: bh, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0.6 } } })
+    .composite([{ input: await sharp(word).ensureAlpha(0.85).png().toBuffer(), left: pad, top: pad, blend: "over" }])
     .png()
     .toBuffer();
-  const rotated = await sharp(band).rotate(-28, { background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
-  const rm = await sharp(rotated).metadata();
-  const placements = [0.3, 0.55, 0.8].map((fy) => ({ input: rotated, left: Math.round((size.width - (rm.width ?? 0)) / 2), top: Math.round(fy * size.height - (rm.height ?? 0) / 2) }));
+  const at = watermarkCorner({ width: bw, height: bh }, opts.within ?? { left: 0, top: 0, width: size.width, height: size.height }, opts.avoid ?? [], size);
   return sharp({ create: { width: size.width, height: size.height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
-    .composite(placements.map((p) => ({ ...p, left: Math.max(-(rm.width ?? 0), p.left) })).filter((p) => p.left > -(rm.width ?? 0)))
+    .composite([{ input: band, left: Math.round(at.left), top: Math.round(at.top) }])
     .png()
     .toBuffer();
 }
@@ -517,7 +546,8 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
   const placements = [...layout.all, ...claimPieces.map((c) => c.at)];
   const overlay = await textOverlay(pieces, placements, frame, { k: 1, dx: 0, dy: 0 }, KIT_SHADOW);
   const wm = input.watermark ? input.watermarkFont ?? (claimFace ? { path: claimFace.path, family: claimFace.family ?? "Bootzy Condensed TM" } : null) : null;
-  const wmMaster = input.watermark && wm ? await watermarkLayer(input.watermark, frame, wm.path, wm.family) : null;
+  const crop45Rect: Rect = { left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top };
+  const wmMaster = input.watermark && wm ? await watermarkLayer(input.watermark, frame, wm.path, wm.family, { avoid: placements, within: crop45Rect }) : null;
   const master = await sharp(shown).composite([{ input: overlay, left: 0, top: 0 }, ...(wmMaster ? [{ input: wmMaster, left: 0, top: 0 }] : [])]).png().toBuffer();
   const crop45 = await sharp(master).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).png().toBuffer();
 
@@ -533,7 +563,8 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
   const squareBase = await sharp(small.png).extract({ left: sLeft, top: sTop, width: side, height: side }).png().toBuffer();
   const squareBands = bandLayer ? await sharp(bandLayer).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).resize(side, side, { fit: "fill" }).png().toBuffer() : null;
   const squareOverlay = await textOverlay(pieces, placements, { width: side, height: side }, { k, dx, dy: -RECT_45.top * k }, KIT_SHADOW);
-  const wmSquare = input.watermark && wm ? await watermarkLayer(input.watermark, { width: side, height: side }, wm.path, wm.family) : null;
+  const squareRects = placements.map((p) => ({ left: p.left * k + dx, top: (p.top - RECT_45.top) * k, width: p.width * k, height: p.height * k }));
+  const wmSquare = input.watermark && wm ? await watermarkLayer(input.watermark, { width: side, height: side }, wm.path, wm.family, { avoid: squareRects }) : null;
   const square = await sharp(squareBase)
     .composite([...(squareBands ? [{ input: squareBands, left: 0, top: 0 }] : []), { input: squareOverlay, left: 0, top: 0 }, ...(wmSquare ? [{ input: wmSquare, left: 0, top: 0 }] : [])])
     .png()
