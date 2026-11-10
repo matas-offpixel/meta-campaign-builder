@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { WATERMARK_STAMP, watermarkCorner, CLAIM_FACE_BAND, CLAIM_LIMITS, NO_CLAIM_LIMITS, bandExtensionCandidates, bandPlacementOk, claimBoxRect, contrastRatio, lowContrastAgainst, redInkBox, redLineVerdict, subjectVerdict } from "../artist-card-claim.ts";
 import { RECT_45, relativeLuminance } from "../artist-card.ts";
 import { NotExportableError, SAMPLE_ROLL_CALL, SAMPLE_ROLL_CALL_RELEASES, WATERMARK, fixtureRelease as r, approvedClaim, assertExportable, watermarkFor, type WarningRow } from "../claim-approval.ts";
-import { CARD_CLAIM, DROP_ORDER, inKitCase, planCardClaim, planClaim, rollCallStates, type CardClaimPlan, type ClaimPlan } from "../claim-slot.ts";
+import { CARD_CLAIM, DROP_ORDER, inKitCase, planCardClaim, planClaim, rollCallStates, splitTwo, type CardClaimPlan, type ClaimPlan } from "../claim-slot.ts";
 import { rollCallWords } from "../../releases/roll-call.ts";
 import { DEFAULT_GRADIENT_SHADOW, bandAlphaAt, renderGradientShadow } from "../overlay-gradient.ts";
 
@@ -313,12 +313,24 @@ describe("H28: the roll-call's line 2 and its shortening (A21, O27)", () => {
   });
 
   it("O35 on T1: past step 2 a plain claim takes TICKETS, then NOW, then the ordinal number form, in that order, before it is refused", () => {
-    const text = "3rd release tickets now selling fast with the final release up next at noon on friday";
+    const text = "3rd release tickets now selling fast with final release up next at noon on friday";
     const ok = { approvedBy: "m", approvedAt: "2026-11-10" };
     const p = planClaim({ kind: "claim", text, ...ok }) as ClaimPlan;
     assert.equal(p.step, 2);
     assert.deepEqual(p.dropped, ["TICKETS", "NOW", "number form"]);
-    assert.deepEqual(p.lines.map((l) => l.text), ["3RD SELLING FAST WITH THE FINAL", "RELEASE UP NEXT AT NOON ON FRIDAY"]);
+    // O28 on T1 (design, #1163): the break never falls inside "FINAL RELEASE".
+    assert.deepEqual(p.lines.map((l) => l.text), ["3RD SELLING FAST WITH FINAL RELEASE", "UP NEXT AT NOON ON FRIDAY"]);
+    // No T1 split ever ends a line with FINAL when the next word is RELEASE or a number, wherever FINAL falls.
+    const filler = "TICKETS ON SALE NOW AT THE DOOR FOR THE LAST FEW DAYS OF THE YEAR".split(" ");
+    for (const tail of ["FINAL RELEASE", "FINAL 100", "FINAL £16.50"]) {
+      for (let k = 0; k <= filler.length; k += 1) {
+        const words = [...filler.slice(0, k), ...tail.split(" "), ...filler.slice(k)];
+        const two = splitTwo(words.join(" "));
+        if (!two) continue;
+        const next = two[1].split(" ")[0]!;
+        assert.ok(!(/\bFINAL$/.test(two[0]) && (next === "RELEASE" || /^[£$€]?\d/.test(next))), two.join(" | "));
+      }
+    }
     const refused = planClaim({ kind: "claim", text: `${text} and saturday and sunday too`, ...ok });
     assert.match((refused as { blocker: string }).blocker, /can't shorten/);
   });

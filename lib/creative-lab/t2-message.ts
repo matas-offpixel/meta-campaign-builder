@@ -130,30 +130,9 @@ export function claimKind(lines: readonly string[]): T2ClaimKind {
 export { applyDrop } from "./claim-slot.ts";
 import { applyDrop } from "./claim-slot.ts";
 
-/** Release names that are two words without RELEASE (O28's examples), beside every "{X} RELEASE". */
-export const TWO_WORD_RELEASE_NAMES = ["EARLY BIRD", "GENERAL SALE"] as const;
-
-const bare = (w: string) => w.replace(/[^\p{L}\p{N}&%£$€]/gu, "").toUpperCase();
-
-/**
- * O28 / O34: may a one-line claim break before word i? Never inside a release
- * name: not before RELEASE ("2ND RELEASE", "FINAL RELEASE"), not inside "EARLY
- * BIRD" or "GENERAL SALE", nor inside any of the event's own release names;
- * and never between FINAL and its number.
- */
-export function breakAllowed(words: readonly string[], i: number, releaseNames: readonly string[] = []): boolean {
-  if (bare(words[i]!) === "RELEASE") return false;
-  // O34: never between FINAL and its number ("FINAL 100").
-  if (bare(words[i - 1] ?? "") === "FINAL" && /^[£$€]?\d/.test(bare(words[i]!))) return false;
-  const names = [...TWO_WORD_RELEASE_NAMES, ...releaseNames.map((n) => n.trim().toUpperCase())].map((n) => n.split(/\s+/).map(bare)).filter((n) => n.length > 1);
-  const ws = words.map(bare);
-  for (const n of names) {
-    for (let start = Math.max(0, i - n.length + 1); start < i; start += 1) {
-      if (start + n.length <= ws.length && n.every((w, j) => ws[start + j] === w)) return false;
-    }
-  }
-  return true;
-}
+/** O28 / O34's unbreakable release names and break rule live in claim-slot.ts, shared with T1's splitTwo. */
+export { TWO_WORD_RELEASE_NAMES, breakAllowed } from "./claim-slot.ts";
+import { breakAllowed } from "./claim-slot.ts";
 
 /** The two-line break whose wider line is narrowest (measured), among O28's allowed breaks. */
 export function bestSplit(line: string, capPx: number, tracking: number, measure: MeasureLine, releaseNames: readonly string[] = []): [string, string] | null {
