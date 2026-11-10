@@ -37,6 +37,7 @@ export function VoicePanel({
   onSave,
   initialOpen = false,
   contained = false,
+  onOpenChange,
 }: {
   lab: CreativeLabCardData;
   angle: string;
@@ -46,8 +47,13 @@ export function VoicePanel({
   initialOpen?: boolean;
   /** The frame keeps the sheet inside the shot. The event page uses a fixed sheet. */
   contained?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(initialOpen);
+  function setVoiceOpen(next: boolean) {
+    setOpen(next);
+    onOpenChange?.(next);
+  }
   const artist = lab.artists.find((item) => item.id === artistId) ?? lab.artists[0] ?? null;
   const voiceArtist = lab.voice?.artists.find((item) => item.id === artistId) ?? lab.voice?.artists[0] ?? null;
   const artistPage = angle === "artist_first_person";
@@ -101,7 +107,7 @@ export function VoicePanel({
       <div className="border-b border-border px-4 pt-3.5 pb-2.5">
         <div className="flex items-center justify-between">
           <b className="text-sm">{header}</b>
-          <button type="button" className="text-muted-foreground" onClick={() => setOpen(false)} aria-label="Close">✕</button>
+          <button type="button" className="text-muted-foreground" onClick={() => setVoiceOpen(false)} aria-label="Close">✕</button>
         </div>
         <div className={`mt-1 font-mono text-[10.5px] tracking-wide text-muted-foreground ${sampleN > 0 ? "uppercase" : ""}`}>
           <span className="max-[700px]:hidden">{subWide}</span>
@@ -170,12 +176,12 @@ export function VoicePanel({
   ) : null;
 
   return (
-    <div className={contained && open ? "contents" : "mb-0 flex flex-col"}>
+    <div className={contained && open ? "contents" : "space-y-2"}>
       <div className="relative z-[15] mt-2.5 flex flex-wrap items-center gap-2.5">
         <button
           type="button"
           className={`inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-semibold max-[700px]:w-full ${parts.house ? "border-dashed text-muted-foreground" : "border-border-strong text-foreground"} ${open ? "border-foreground" : ""}`}
-          onClick={() => setOpen((value) => !value)}
+          onClick={() => setVoiceOpen(!open)}
         >
           <span aria-hidden className={`inline-block h-1.5 w-1.5 rounded-full ${parts.cant ? "bg-warning" : parts.house ? "bg-muted-foreground" : "bg-platform-ig"}`} />
           {parts.name}
@@ -183,9 +189,9 @@ export function VoicePanel({
           <span className="ml-auto hidden font-mono text-[10.5px] text-muted-foreground max-[700px]:inline">{parts.countNarrow}</span>
           <span className="text-muted-foreground" aria-hidden>{open ? "‹" : "›"}</span>
         </button>
-        <p className="text-[11.5px] leading-none text-muted-foreground max-[700px]:hidden">{whyWide}</p>
+        <p className={`text-[11.5px] text-muted-foreground max-[700px]:hidden ${contained && open ? "leading-none" : ""}`}>{whyWide}</p>
       </div>
-      <p className="relative z-[15] mt-1.5 hidden text-[11.5px] leading-none text-muted-foreground max-[700px]:block">{whyNarrow}</p>
+      <p className={`relative z-[15] mt-1.5 hidden text-[11.5px] text-muted-foreground max-[700px]:block ${contained && open ? "leading-none" : ""}`}>{whyNarrow}</p>
       {sheet}
     </div>
   );

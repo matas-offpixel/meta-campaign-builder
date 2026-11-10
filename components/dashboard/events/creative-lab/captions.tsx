@@ -90,6 +90,7 @@ export function LabCaptions({
   const [pair, setPair] = useState<PairMode>(initialPair);
   const [writtenIds, setWrittenIds] = useState<readonly string[] | null>(initialWrittenIds ?? null);
   const [writing, setWriting] = useState(pendingWrite);
+  const [voiceOpen, setVoiceOpen] = useState(initialVoiceOpen);
   const [notice, setNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<"caption" | "quote">("caption");
   const [snapshot, setSnapshot] = useState<CaptionGenerator>({ angle: "lineup", count: 3, pair: "best", stage: stageDefault });
@@ -276,10 +277,11 @@ export function LabCaptions({
             onSave={onSave}
             initialOpen={initialVoiceOpen}
             contained={voiceContained}
+            onOpenChange={setVoiceOpen}
           />
         ) : null}
-        <div className={`space-y-2 ${quoteMode ? "min-[701px]:pt-2.5 max-[700px]:pt-3" : ""}`}>
-          <p className="font-mono text-[9px] font-bold leading-none tracking-[0.16em] text-muted-foreground uppercase">Proven elsewhere</p>
+        <div className={`space-y-2 ${voiceOpen && voiceContained ? "min-[701px]:pt-2.5 max-[700px]:pt-3" : ""}`}>
+          <p className={`font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase ${voiceOpen && voiceContained ? "leading-none" : ""}`}>Proven elsewhere</p>
           <p className="text-[11.5px] text-muted-foreground">{EMPTY_COPY_LINES}</p>
         </div>
         {notice ? <p className="text-sm">{notice}</p> : null}
