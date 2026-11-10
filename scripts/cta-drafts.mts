@@ -23,7 +23,7 @@ import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import { CLAIM_FACE_BAND, renderClaimCard, type ClaimCardResult } from "../lib/creative-lab/artist-card-claim.ts";
-import { trimToInk, type Piece } from "../lib/creative-lab/artist-card.ts";
+import { O20, trimToInk, type Piece } from "../lib/creative-lab/artist-card.ts";
 import { SAMPLE_ROLL_CALL, approvedClaim, watermarkFor, type ClaimSource, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { detectFaces, eyesMeasurable, faceGeometry } from "../lib/creative-lab/face-detect.ts";
 import { fontsDir, indexFonts } from "../lib/creative-lab/kit-font.ts";
@@ -156,6 +156,11 @@ for (const job of jobs) {
   if (res.claim) say(`slot: ${res.claim.kind} · ${res.claim.lines.map((l) => `"${l.text}" ${l.color}${l.color === "red" && res.redLineWhite ? "→white" : ""} cap ${l.capPx.toFixed(1)} px top y ${l.capTop.toFixed(1)} width ${Math.round(l.widthPx)} px`).join(" · ")} · k ${res.claim.k.toFixed(3)}`);
   say(`contrast: text box ${pct(res.contrast.textBox)} · claim box ${pct(res.contrast.claimBox)} · red line ${pct(res.contrast.redLine)} below 2:1${res.approvalLines.length ? ` · approval line: ${res.approvalLines.join("; ")}` : ""}`);
   say(`placement: ${p ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · scale ${p.scale.toFixed(3)}` : "–"} · ${res.extensionLabel || "no extension"}`);
+  // O20's figures for every extended edge, each beside its limit (design checks them, not only "pass").
+  for (const x of res.extension) {
+    const lim = (v: number, max: number, digits = 2) => `${v.toFixed(digits)} (max ${max}) ${v <= max ? "✓" : "✗"}`;
+    say(`O20 ${x.edge} strip, ${x.px} px: residual ${lim(x.detailStdev, O20.maxDetailStdev)} · Sobel > ${O20.sobelThreshold}: ${(x.sobelShare * 100).toFixed(2)} % (max ${O20.maxSobelShare * 100} %) ${x.sobelShare <= O20.maxSobelShare ? "✓" : "✗"} · person mask ${x.maskPixels} px (max 0) ${x.maskPixels === 0 ? "✓" : "✗"} · column ΔE ${lim(x.columnMaxDeltaE, O20.maxColumnDeltaE)} · drift ΔE p95 ${lim(x.driftP95, O20.maxDriftP95)} · seam ΔE p95 after fill ${x.seamP95 == null ? "–" : lim(x.seamP95, O20.maxSeamP95)}`);
+  }
   say(`rules: ${res.pass ? "all pass" : fails.join("; ")}`);
   for (const f of files) say(`- ${f}`);
   say("");

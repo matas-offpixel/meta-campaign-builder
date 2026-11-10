@@ -324,6 +324,23 @@ export type ClaimCardInput = {
 
 export type ClaimCardRule = { rule: string; pass: boolean; detail: string };
 
+/** One extended edge's O20 figures. */
+export type ExtensionFigures = {
+  edge: Edge;
+  px: number;
+  /** Residual: stdev of luminance minus its 31-tap blur (max O20.maxDetailStdev). */
+  detailStdev: number;
+  /** Share of strip pixels with normalised Sobel above O20.sobelThreshold (max O20.maxSobelShare). */
+  sobelShare: number;
+  maskPixels: number;
+  /** O20 (a): the largest column ΔE across the strip (max O20.maxColumnDeltaE). */
+  columnMaxDeltaE: number;
+  /** O20 (b): outer-to-inner band drift, ΔE p95 (max O20.maxDriftP95). */
+  driftP95: number;
+  /** After fill: ΔE p95 across the join (max O20.maxSeamP95). */
+  seamP95: number | null;
+};
+
 export type ClaimCardResult = {
   pass: boolean;
   /** The face sits in the band (head, eyes, chin), whatever the other rules say; a card that isn't placed is not drawn. */
@@ -336,6 +353,8 @@ export type ClaimCardResult = {
   redLineWhite: boolean;
   approvalLines: string[];
   extensionLabel: string;
+  /** O20's figures for each extended edge (strip tests before fill, seam after), so a draft can print them with their limits. */
+  extension: ExtensionFigures[];
   master: Buffer | null;
   crop45: Buffer | null;
   square: Buffer | null;
@@ -347,7 +366,7 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
   const frame = MASTER;
   const rules: ClaimCardRule[] = [];
   const approvalLines: string[] = [];
-  const base0: Omit<ClaimCardResult, "pass" | "placed"> = { held: null, rules, plan: null, claim: null, contrast: { textBox: 0, claimBox: null, redLine: null }, redLineWhite: false, approvalLines, extensionLabel: "", master: null, crop45: null, square: null, watermark: input.watermark };
+  const base0: Omit<ClaimCardResult, "pass" | "placed"> = { held: null, rules, plan: null, claim: null, contrast: { textBox: 0, claimBox: null, redLine: null }, redLineWhite: false, approvalLines, extensionLabel: "", extension: [], master: null, crop45: null, square: null, watermark: input.watermark };
 
   // The claim face first: a missing or trial face holds the card (O24).
   let claimFace: FontEntry | null = null;
@@ -469,6 +488,8 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
       if (ext[edge] <= 0) continue;
       const p95 = seamP95(raw.data, raw.info.width, raw.info.height, raw.info.channels, { edge, at, from, to });
       seams.push(`${edge} join ΔE p95 ${p95.toFixed(2)}`);
+      const st = strips[edge];
+      if (st) base0.extension.push({ edge, px: ext[edge], detailStdev: st.detailStdev, sobelShare: st.sobelShare, maskPixels: st.maskPixels, columnMaxDeltaE: st.columnMaxDeltaE, driftP95: st.driftP95, seamP95: p95 });
       if (p95 > O20.maxSeamP95) ok = false;
     }
     rules.push({ rule: "seam", pass: ok, detail: `${seams.join("; ")} (max ${O20.maxSeamP95})` });
