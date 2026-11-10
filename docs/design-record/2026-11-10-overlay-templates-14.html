@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 14 — every video makes the 9:16 — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 14 · 10 November 2026</p>
+<h1>Overlay templates — issue 14: every video makes the 9:16</h1>
+<div class="lead"><p>Matas, 10 Nov: video ads always run on Reels and Stories, so every video asset must make the 9:16. A feed-only video isn't run as a dark ad; the only feed-only video is a boosted existing post. O63 ruled the resolution floor per format, so a clip too small for 9:16 could still make a 4:5 or 1:1. This issue corrects that. The import already refuses such clips (#1176), so this is a record correction only, with no build. Issues 1–13 stand except where a row says otherwise.</p></div>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 14 · 10 Nov 2026.</b> O93: a clip is refused at import unless it makes the 9:16 (amends O63's per-format skip; H63's and H85's examples follow). Hand-back H92.</li>
+<li><b>Issue 13 · 10 Nov 2026.</b> O90–O92. #1178.</li>
+</ul></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O93 Every video makes the 9:16</td><td>This amends O63. Its 1.6× ceiling, the 675 px window, the filter (O69) and the render copy (O68) stand. What changes is where the floor applies.
+<ul>
+<li><b>The 9:16 decides.</b> A clip is imported only if its 9:16 crop window, the largest 9:16 window in the source, is at least 675 px wide. Otherwise it is refused at import: "Clip too small for 9:16 — {w} px wide in the crop, needs 675". It isn't kept for 4:5 or 1:1 only.</li>
+<li>A clip that makes the 9:16 makes its 4:5 and 1:1 too wherever their windows reach 675 px. A clip that makes the 9:16 but not a 4:5 or 1:1 skips only that format, with O63's line for it, and still runs.</li>
+<li><b>This applies to every video template:</b> T1 on a clip, T2 on a promoter clip (O82), and UGC caption renders. All of them run on Reels and Stories.</li>
+<li><b>Stills are unchanged.</b> They keep O19's no-upscaling, per format (O82). A feed-only still still runs in feed.</li>
+<li><b>Clips already in the Lab</b> that are under the floor are kept, never deleted. Their tile shows one status line, "Too small for 9:16", and they take no template, round or render.</li>
+<li><b>Examples superseded:</b>
+<ul>
+<li>H63's "Luke 1 makes the 1:1 only" becomes "Luke 1 (956 × 718; its 9:16 window is 404 px) is refused".</li>
+<li>Issue 9's data note on Luke 1's 1:1 stands as a measurement, not an outcome.</li>
+</ul></li>
+</ul></td></tr>
+</table>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Clip import</td><td>Refuses a clip whose 9:16 window is under 675 px, with the line.</td></tr>
+<tr><td>Clip tile</td><td>An existing clip under the floor shows "Too small for 9:16" as its one status.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H92 9:16 floor</td><td>O93: confirm #1176's import matches it, including UGC caption clips and promoter clips for T2; existing under-floor clips keep their rows and show the status.</td><td>creative_lab_clips, dimensions</td><td>a 956 × 718 fixture is refused with the exact line; a 720 × 1280 fixture imports and makes all three formats; no row is deleted</td></tr>
+</table>
+
+<h2>Frames</h2>
+<p>None new.</p>
+
+</div></body>
+</html>
