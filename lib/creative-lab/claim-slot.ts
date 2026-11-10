@@ -51,7 +51,7 @@ export const CLAIM_SLOT = {
 } as const;
 
 export type ApprovedClaim =
-  | { kind: "claim"; text: string; approvedBy: string; approvedAt: string }
+  | { kind: "claim"; text: string; approvedBy: string; approvedAt: string; /** O48: the event's own release names (event_releases), which a line break never splits. */ releaseNames?: readonly string[] }
   | { kind: "roll-call"; soldOut: string; live: string; approvedBy: string; approvedAt: string };
 
 export type ClaimLine = { text: string; color: string; cap: number; capTop: number; baseline: number; estWidth: number };
@@ -256,7 +256,7 @@ export function planClaim(claim: ApprovedClaim, frame: Size = MASTER): ClaimPlan
   for (const st of plainDropStates([approved])) {
     const text = st.lines.join(" ");
     if (text.length <= s0.maxChars && estimateWidth(text, s0.cap, frame) <= CLAIM_SLOT.maxWidth) return { ...stack([{ text, color: KIT_WHITE, cap: s0.cap }], frame), step: 0, dropped: st.dropped };
-    const two = splitTwo(text);
+    const two = splitTwo(text, claim.releaseNames);
     if (two) {
       for (const [i, s] of [[1, s1], [2, s2]] as const) {
         if (two.every((t) => t.length <= s.maxChars && estimateWidth(t, s.cap, frame) <= CLAIM_SLOT.maxWidth)) return { ...stack(two.map((t) => ({ text: t, color: KIT_WHITE, cap: s.cap })), frame), step: i, dropped: st.dropped };
