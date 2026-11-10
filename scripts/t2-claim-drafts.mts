@@ -8,15 +8,13 @@
  *   node --env-file=.env.local --experimental-strip-types scripts/t2-claim-drafts.mts \
  *     --event P26-BDAY --kit <the STORY PSD's kit folder> --out <notes folder>
  *
- * (a) the event's rung-1 claim: an approved row if there is one; else the held
- *     row once the rung-1 split (asset bank 4, H20) has reworded it; else the
- *     record's words (A23, AB2). Unapproved → "DRAFT · claim not approved".
- * (b) the roll-call fixture (AB2, A21), "DRAFT · sample claim".
- * (c) the longest fixture roll-call at every O8 step, to the first that fits
- *     or "can't shorten", and the six-release fixture to "can't shorten".
- * (d) (a) with the bands off. There is no bare-ground card (O30).
- * Every fixture is built from releases by the roll-call generator (A14, A21);
- * the claim slot is the panel (O26).
+ * The round's two versions (Matas, 10 Nov; draft-versions.ts): v1, no CTA
+ * (the lineup, the details and the lockup on the panel); v2, the selling-fast
+ * roll-call from the event's live tiers (event_releases, read only), stamped
+ * by its ticket_warnings row. "General sale live" is out of date and isn't
+ * drawn. The stress fixtures (longest, six releases) live in the tests only
+ * (t2-message.test.ts), never on a draft sheet. The claim slot is the panel's
+ * paper (O32); there is no bare-ground card (O30).
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -26,12 +24,12 @@ import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
 
 import { trimToInk } from "../lib/creative-lab/artist-card.ts";
-import { WATERMARK, approvedClaim, assertExportable, fixtureRelease as rel, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
+import { assertExportable, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
+import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { fontsDir, indexFonts } from "../lib/creative-lab/kit-font.ts";
 import { DEFAULT_GRADIENT_SHADOW } from "../lib/creative-lab/overlay-gradient.ts";
 import { PUZZLE_FLOATING_T2, T2_INVENTED } from "../lib/creative-lab/overlay-kits.ts";
-import { rollCallWords } from "../lib/releases/roll-call.ts";
-import { describeAttempt, renderStandaloneMessage, type T2Input, type T2Result } from "../lib/creative-lab/t2-render.ts";
+import { renderStandaloneMessage, type T2Input, type T2Result } from "../lib/creative-lab/t2-render.ts";
 
 const argv = process.argv.slice(2);
 const flag = (n: string) => {
@@ -49,18 +47,6 @@ if (!code || !kitDir || !outDir) fail("--event, --kit and --out are required");
 if (argv.includes("--apply") || argv.includes("--export")) fail("this script never files or exports: drafts go to --out only");
 if (argv.includes("--panel-box")) fail("--panel-box is gone: the slot is the kit's paper (O32)");
 
-/** The record's fixtures as event_releases, through the generator (asset bank 4 AB2 / A21; overlay templates O12). */
-const SOLD = (names: string[]) => names.map((n, i) => rel(i + 1, n, "sold_out"));
-const RC_RELEASES = [...SOLD(["Early bird", "1st release", "2nd release"]), rel(4, "3rd release", "selling_fast")];
-const LONG_RELEASES = [...SOLD(["Early bird", "1st release", "2nd release", "3rd release"]), rel(5, "Final release", "final_x", { remaining: 100 })];
-/** Invented (H26): longer than any record's, to reach "can't shorten". */
-const SIX_RELEASES = [...SOLD(["Early bird", "1st release", "2nd release", "3rd release", "4th release", "5th release", "6th release"]), rel(8, "Final release", "final_x", { remaining: 100 })];
-const ROLL_CALL = rollCallWords(RC_RELEASES).claim;
-const LONGEST = rollCallWords(LONG_RELEASES).claim;
-const OVERLONG = rollCallWords(SIX_RELEASES).claim;
-const namesOf = (rs: { name: string }[]) => rs.map((r) => r.name);
-/** A23 / AB2-1280: the General sale is the release that may say "live". */
-const RECORD_RUNG1 = "General sale live";
 
 // ─── Kit (read in place from the STORY PSD's extracted layers) ──────────────
 type Layer = { name: string; bounds: { left: number; top: number; width: number; height: number } };
@@ -88,17 +74,15 @@ if (tw.error) fail(`ticket_warnings: ${tw.error.message}`);
 const rows = (tw.data ?? []) as (WarningRow & { updated_at: string })[];
 const facts = await db.from("creative_lab_event_facts").select("lineup").eq("event_id", event.id).maybeSingle();
 const lineup = ((facts.data?.lineup as string[] | null) ?? []).filter(Boolean);
-const er = await db.from("event_releases").select("name, position").eq("event_id", event.id).order("position").range(0, 99);
-const eventReleaseNames = er.error ? [] : ((er.data ?? []) as { name: string }[]).map((x) => x.name);
-
-const source = approvedClaim(rows, new Date());
-const split = rows.find((r) => r.state === "held" && /^general sale live$/i.test(r.claim.trim()));
-const rung1 =
-  source.kind === "approved"
-    ? { text: source.claim, why: `approved ticket_warnings ${source.id}`, watermark: null as string | null }
-    : split
-      ? { text: split.claim, why: `held ticket_warnings ${split.id} (rung-1 split landed), not approved`, watermark: WATERMARK.notApproved }
-      : { text: RECORD_RUNG1, why: `the rung-1 split hasn't landed (held rows: ${rows.map((r) => `"${r.claim}" ${r.state}`).join(", ") || "none"}), so the record's words (A23, AB2-1280); not approved`, watermark: WATERMARK.notApproved };
+const er = await db.from("event_releases").select("*").eq("event_id", event.id).order("position").range(0, 99);
+if (er.error) fail(`event_releases: ${er.error.message}`);
+const eventReleaseNames = ((er.data ?? []) as { name: string }[]).map((x) => x.name);
+let versions: DraftVersion[] = [];
+try {
+  versions = draftVersions(((er.data ?? []) as Record<string, unknown>[]).map(releaseFromRow), rows);
+} catch (e) {
+  fail((e as Error).message);
+}
 
 const fonts = indexFonts(fontsDir());
 mkdirSync(outDir, { recursive: true });
@@ -112,8 +96,7 @@ async function card(id: string, title: string, src: string, input: T2Input) {
   if (r.master && r.crop45 && r.square) {
     // A draft is never exportable: check the guard says so before writing to the notes folder.
     try {
-      assertExportable({ watermark: r.watermark });
-      if (!r.watermark) fail(`${id}: an unwatermarked card would be exportable; drafts only`);
+      if (r.watermark) assertExportable({ watermark: r.watermark });
     } catch (e) {
       if ((e as Error).name !== "NotExportableError") throw e;
     }
@@ -128,24 +111,7 @@ async function card(id: string, title: string, src: string, input: T2Input) {
   console.log(`${id}: ${r.held ?? "drawn"} · ${r.rules.map((x) => `${x.rule} ${x.pass ? "✓" : "✗"}`).join(" · ")}`);
 }
 
-await card("a-general-sale-live", `(a) "${rung1.text}"`, rung1.why, { ...base, claim: rung1.text, watermark: rung1.watermark, releaseNames: eventReleaseNames });
-await card("b-roll-call", "(b) roll-call fixture", "fixture releases through the generator (asset bank 4 AB2, A21)", { ...base, claim: ROLL_CALL, watermark: WATERMARK.sample, releaseNames: namesOf(RC_RELEASES) });
-
-// (c) every ladder state of the longest fixture, to the first that fits.
-async function ladder(prefix: string, words: string, src: string, releaseNames: string[]) {
-  const probe = await renderStandaloneMessage({ ...base, claim: words, watermark: WATERMARK.sample, releaseNames });
-  const plan = probe.plan!;
-  const last = plan.chosen ?? plan.attempts.length - 1;
-  for (let i = 0; i <= last; i += 1) {
-    await card(`${prefix}-${String(i).padStart(2, "0")}`, `(c) ${describeAttempt(plan, i)}`, src, { ...base, claim: words, watermark: WATERMARK.sample, attempt: i, releaseNames });
-  }
-  if (plan.chosen == null) await card(`${prefix}-flagged`, `(c) can't shorten · ${plan.meter}`, src, { ...base, claim: words, watermark: WATERMARK.sample, releaseNames });
-  return plan;
-}
-const longPlan = await ladder("c-longest", LONGEST, "fixture releases through the generator (O12 line 1, A21's final X line 2)", namesOf(LONG_RELEASES));
-const overPlan = await ladder("c-six-release", OVERLONG, "invented fixture releases (six sold out), to reach can't shorten", namesOf(SIX_RELEASES));
-
-await card("d-general-sale-live-bands-off", `(d) "${rung1.text}", bands off`, rung1.why, { ...base, bands: null, claim: rung1.text, watermark: rung1.watermark, releaseNames: eventReleaseNames });
+for (const v of versions) await card(v.id, `${v.title}${v.claim ? ` "${v.claim.replace("\n", " / ")}"` : ""}`, v.why, { ...base, claim: v.claim ?? "", watermark: v.watermark, releaseNames: eventReleaseNames });
 
 // ─── Sheet of the 9:16 cards ───────────────────────────────────────────────
 const W = 270;
@@ -177,7 +143,7 @@ const say = (s = "") => lines.push(s);
 say(`# T2 claim statics · ${code} · ${event.name} · ${new Date().toISOString().slice(0, 16)}Z`);
 say();
 say(`ticket_warnings, read live (select only): ${rows.map((r) => `${r.id.slice(0, 8)} "${r.claim}" ${r.state}${r.approved_at ? " approved" : ""}`).join(" · ") || "no rows"}.`);
-say(`Card (a) words: ${rung1.why}.`);
+say(`Versions: ${versions.map((v) => `${v.id} (${v.title}${v.claim ? `: ${v.why}` : ""})`).join(" · ")}.`);
 say(`Lineup (creative_lab_event_facts): ${lineup.join(" · ")}. Details (STORY PSD live layer): ${dateLine} / ${venueLine}.`);
 say(`Ground: ${manifest.psd} Background layer; panel "4th bday poster NEW" at the PSD's position (×${scale.toFixed(4)}); logo: the lockup layer. Fonts: the kit face read in place from FONTS_DIR, never copied or committed; local render only.`);
 const slot0 = cards.find((c) => c.result.slot)?.result.slot;
@@ -205,13 +171,6 @@ for (const c of cards) {
   say(`| ${c.id} | ${r.lines.map((l) => `${l.text} (${l.color}, ${Math.round(l.capPx)} px)`).join(" / ")} | ${step} | ${widest} | ${drops} | ${pct(r.contrast.claimBox)} | ${red} | ${pct(r.contrast.lineup)} / ${pct(r.contrast.details)} | ${ins} | ${ok}${r.watermark ? `, "${r.watermark}"` : ""}${r.approvalLines.length ? ` · approval line "${r.approvalLines.join('", "')}"` : ""} |`);
 }
 say();
-say("## O8 ladders");
-for (const [name, plan] of [["longest fixture", longPlan], ["six-release fixture (invented)", overPlan]] as const) {
-  if (!plan) continue;
-  say(`**${name}:** meter "${plan.meter}"`);
-  plan.attempts.forEach((a, i) => say(`- ${i}${i === plan.chosen ? " ← chosen" : ""}: ${describeAttempt(plan, i)} · "${a.lines.join(" / ")}" · widths ${a.widths.map((w) => Math.round(w)).join(" / ")} of ${Math.round(plan.maxWidthPx)} px · ${a.fits ? "fits" : a.fitsWidth ? "too tall" : "over"}`));
-  say();
-}
 say("## Bands sampled at O25's stops (3 × 3 average at the centre column, alpha %, ±1 to pass, H30)");
 const withBands = cards.find((c) => c.result.bandStops)?.result.bandStops;
 if (withBands) {

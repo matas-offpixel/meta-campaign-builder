@@ -18,10 +18,11 @@
  * site is deployed under its own name (never the production one) and
  * removed afterwards; each S3 render is deleted once downloaded.
  *
- * For each clip: the event's rung-1 claim ("General sale live", held, so
- * "DRAFT · claim not approved") and the sample roll-call ("DRAFT · sample
- * claim"), at 9:16, 4:5 and 1:1. The face (O39) and contrast (O40) are judged
- * on 5-a-second samples; the crop is chosen by O39 (the clip's own first).
+ * For each clip, the round's two versions (Matas, 10 Nov; draft-versions.ts):
+ * v1, no CTA (lockup, name, date); v2, the selling-fast roll-call from the
+ * event's live tiers, stamped by its ticket_warnings row. At 9:16, 4:5 and
+ * 1:1 (O62 skips a 4:5 or 1:1 under 1080 px wide). The face (O56) and
+ * contrast (O57) are judged on 5-a-second samples, at each crop A then B.
  * Also renders a flat mid-grey test clip through the same composition and
  * checks O46's row steps on the encoded file.
  */
@@ -40,7 +41,7 @@ import sharp from "sharp";
 
 import { KIT_SHADOW, lowContrastShare, textOverlay, trimToInk, type Piece, type Placement, type Rect } from "../lib/creative-lab/artist-card.ts";
 import { redLineVerdict, watermarkLayer } from "../lib/creative-lab/artist-card-claim.ts";
-import { WATERMARK, approvedClaim, assertExportable, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
+import { assertExportable, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { KIT_RED, KIT_WHITE, renderCardLine } from "../lib/creative-lab/claim-slot.ts";
 import { detectFaces } from "../lib/creative-lab/face-detect.ts";
 import { providedFace } from "../lib/creative-lab/kit-faces.ts";
@@ -80,8 +81,7 @@ import {
   type VideoFormat,
 } from "../lib/creative-lab/t1-video.ts";
 import { applyBacking, backingLayer } from "../lib/creative-lab/red-backing.ts";
-import { rollCallWords } from "../lib/releases/roll-call.ts";
-import type { Release } from "../lib/releases/types.ts";
+import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { MAX_KNEE_STEP, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
 import type { T1OnClipProps } from "../src/remotion/compositions/T1OnClip.tsx";
 
@@ -135,18 +135,18 @@ const event = ev.data!;
 const tw = await db.from("ticket_warnings").select("id, claim, format, state, approved_by, approved_at, runs_from, runs_to, updated_at").eq("event_id", event.id).range(0, 999);
 if (tw.error) fail(`ticket_warnings: ${tw.error.message}`);
 const rows = (tw.data ?? []) as (WarningRow & { updated_at: string })[];
-const source = approvedClaim(rows, new Date());
-const held = rows.find((r) => r.state === "held" && /^general sale live$/i.test(r.claim.trim()));
-const rung1 = source.kind === "approved" ? { text: source.claim, why: `approved ${source.id}`, wm: null as string | null } : { text: held?.claim ?? "General sale live", why: held ? `held ticket_warnings ${held.id.slice(0, 8)}, not approved` : "the record's words (no held row), not approved", wm: WATERMARK.notApproved };
-// O60: the sample is Puzzle's own claim, from its live tiers (read only) through the roll-call generator.
+// The round's two versions (Matas, 10 Nov): no CTA, and the selling-fast roll-call from the live tiers (O60, read only).
 const er = await db.from("event_releases").select("*").eq("event_id", event.id).order("position").range(0, 99);
 if (er.error) fail(`event_releases: ${er.error.message}`);
 const tiers = (er.data ?? []) as Record<string, unknown>[];
 const releaseNames = releaseNamesOf(tiers as { name: string; position: number }[]);
-const asRelease = (r: Record<string, unknown>): Release => ({ id: String(r.id), eventId: String(r.event_id), position: Number(r.position), name: String(r.name), communityAt: null, listAt: null, state: r.state as Release["state"], stateAt: (r.state_at as string) ?? null, stateSource: null, stateSetBy: null, price: null, capacity: (r.capacity as number) ?? null, sold: (r.sold as number) ?? null, remaining: (r.remaining as number) ?? null });
-const words = rollCallWords(tiers.map(asRelease));
-if (!words.met) fail(`Puzzle's tiers don't make a roll-call: ${words.because}`);
-const sampleClaim = words.claim;
+let versions: DraftVersion[] = [];
+try {
+  versions = draftVersions(tiers.map(releaseFromRow), rows);
+} catch (e) {
+  fail((e as Error).message);
+}
+const rollCall = versions.find((v) => v.id === "v2-roll-call")!;
 
 // The face: read in place locally, or (on --lambda) fetched per run from the private bucket and name-checked (O52).
 let faceTmp: { file: string; done: () => void } | null = null;
@@ -315,12 +315,9 @@ for (const clipId of clipIds) {
   const namePiece = await piece(nameRec!);
   if (!datePiece) fail("the kit has no date line");
 
-  for (const job of [
-    { label: "a-general-sale-live", text: rung1.text, wm: rung1.wm, why: rung1.why },
-    { label: "b-puzzle-roll-call", text: sampleClaim, wm: WATERMARK.sample, why: "Puzzle's own tiers through the roll-call generator (O60)" },
-  ]) {
-    const allowed = claimAllowed(full);
-    const plan = allowed.ok ? await withWidths((m) => planVideoClaim(job.text, m, { releaseNames })) : null;
+  for (const job of versions.map((v) => ({ label: v.id, text: v.claim, wm: v.watermark, why: v.why }))) {
+    const allowed = job.text ? claimAllowed(full) : ({ ok: true } as const);
+    const plan = job.text && allowed.ok ? await withWidths((m) => planVideoClaim(job.text!, m, { releaseNames })) : null;
     const claimPlan = plan && !("held" in plan) ? (plan as VideoClaimPlan) : null;
 
     for (const fmt of FORMATS) {
@@ -457,13 +454,14 @@ for (const clipId of clipIds) {
         claimUrl: typeClaim ? (onLambda ? dataUri(typeClaim) : `${base}/${id}-claim.png`) : null,
       };
       const out = join(outDir, `${id}_DRAFT${refused ? "_REFUSED" : ""}.mp4`);
-      // A draft carries its stamp, so the export guard refuses it; an unstamped draft would be exportable.
-      if (!job.wm) fail(`${id}: an unstamped card would be exportable; drafts only`);
-      try {
-        assertExportable({ watermark: job.wm });
-        fail(`${id}: the export guard let a stamped draft through`);
-      } catch (e) {
-        if ((e as Error).name !== "NotExportableError") throw e;
+      // A stamped draft is refused by the export guard. A no-CTA card has no claim to approve and no stamp; this script has no export path.
+      if (job.wm) {
+        try {
+          assertExportable({ watermark: job.wm });
+          fail(`${id}: the export guard let a stamped draft through`);
+        } catch (e) {
+          if ((e as Error).name !== "NotExportableError") throw e;
+        }
       }
       if (lambda) {
         const nFrames = Math.round(dur * fps);
@@ -512,7 +510,7 @@ for (const clipId of clipIds) {
         steps: stepWord,
         redP95,
         red: redWord,
-        claim: !allowed.ok ? allowed.line : claimPlan ? `step ${claimPlan.step}${claimPlan.dropped.length ? ` · dropped ${claimPlan.dropped.join(", ")}` : ""} · ${Math.round(claimPlan.widest)} of 840 px` : (plan as { held: string }).held,
+        claim: !job.text ? "no CTA" : !allowed.ok ? allowed.line : claimPlan ? `step ${claimPlan.step}${claimPlan.dropped.length ? ` · dropped ${claimPlan.dropped.join(", ")}` : ""} · ${Math.round(claimPlan.widest)} of 840 px` : (plan as { held: string }).held,
         safe,
         file: `${id}_DRAFT${refused ? "_REFUSED" : ""}.mp4`,
         result: refused ? `refused: ${refused}` : "passes",
@@ -527,7 +525,7 @@ await sharp({ create: { width: 1080, height: 1920, channels: 3, background: { r:
 ff("ffmpeg", ["-y", "-v", "error", "-loop", "1", "-framerate", "30", "-i", join(work, "grey.png"), "-t", "2", "-c:v", "libx264", "-crf", "0", "-pix_fmt", "yuv444p", join(work, greyFile)]);
 // The 9:16 A layout with a one-line claim (O55's anchors; for a one-line claim in A the bottom band is O38's).
 const greyName = await piece(kit.pieces.find((p) => p.role === "name")!);
-const greyPlan = (await withWidths((m) => planVideoClaim(rung1.text, m, { releaseNames }))) as VideoClaimPlan;
+const greyPlan = (await withWidths((m) => planVideoClaim("General sale", m, { releaseNames }))) as VideoClaimPlan; // any one-line claim: it only anchors A's bands
 const greyLayout = planClipLayout({ lockup, name: greyName, date: datePiece!, claim: greyPlan }, "9:16", "A");
 const greyKnees = [Math.floor(greyLayout.anchors.topFull + 1e-9), Math.floor(greyLayout.anchors.bottomFull + 1e-9)];
 writeFileSync(join(work, "grey-bands.png"), await rgbaPng(renderVideoBands(1080, 1920, clipBands(greyLayout)), { width: 1080, height: 1920 }));
@@ -574,7 +572,8 @@ if (contactRows.length) await sharp({ create: { width: sheetW, height: y + 10, c
 const pct = (v: number | null) => (v == null ? "–" : `${(v * 100).toFixed(1)} %`);
 const L: string[] = [];
 L.push(`# T1 on a clip · drafts · ${code} · ${event.name} · ${new Date().toISOString().slice(0, 16)}Z`, "");
-L.push(`ticket_warnings, read live (select only): ${rows.map((r) => `${r.id.slice(0, 8)} "${r.claim}" ${r.state}`).join(" · ")}. Claim (a): ${rung1.why}. Claim (b): the sample roll-call (fixture releases).`);
+L.push(`ticket_warnings, read live (select only): ${rows.map((r) => `${r.id.slice(0, 8)} "${r.claim.replace(/\n/g, " / ")}" ${r.state}`).join(" · ")}.`);
+L.push(`Versions (Matas, 10 Nov): ${versions.map((v) => `${v.id} — ${v.title}${v.claim ? ` "${v.claim.replace("\n", " / ")}"` : ""}, ${v.why}${v.watermark ? `, stamped "${v.watermark}"` : ""}`).join("; ")}.`);
 L.push(`Release names for the break rule (event_releases, select only): ${releaseNames.join(" · ") || "none"}.`);
 L.push(onLambda
   ? `Kit face: provided by Puzzle (cleared, O49; recorded in kit-faces.ts, O51), fetched for this run from the private kit-fonts bucket through a one-hour signed URL, its PostScript name checked, then set by sharp from a temporary file (O52). Lambda received the clip as a signed URL and the type and bands as images in the props; its site (${DRAFT_SITE}) carries no kit font.`
@@ -584,7 +583,7 @@ if (lambdaCosts.length) {
   L.push(`Lambda: ${lambdaCosts.length} renders, ${lambdaCosts[0]!.functions} functions each (one orchestrator plus the chunks), $${(total / lambdaCosts.length).toFixed(4)} a render on average, $${total.toFixed(4)} in all.`);
 }
 L.push(`Each clip: its first ${seconds} s from in_s, muted, H.264 CRF 18. Samples at ${T1V_FACE.fps} a second.`, "");
-L.push(`Sample claim (b), from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.state}`).join(" · ")}): "${sampleClaim.replace("\n", " / ")}".`, "");
+L.push(`The roll-call, from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.state}`).join(" · ")}): "${rollCall.claim!.replace("\n", " / ")}".`, "");
 L.push("| Clip | Claim | Format | Arrangement | Crop | Face (O56): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | File |");
 L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
 for (const r of table) L.push(`| ${r.artist} (${r.clip}) | ${r.claimLabel} | ${r.fmt} | ${r.arrangement} | ${r.crop ?? "–"} | ${pct(r.topShare)} / ${pct(r.claimShare)} · ${r.runS.toFixed(1)} s | ${pct(r.topP95)} | ${pct(r.lockupP95)} | ${pct(r.bottomP95)} | ${r.steps} | ${pct(r.redP95)} → ${r.red} | ${r.claim} | ${r.safe ? "✓" : "✗"} | ${r.result} | ${r.file ?? "–"} |`);
