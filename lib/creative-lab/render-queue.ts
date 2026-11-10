@@ -1,8 +1,10 @@
 /**
- * One caption render per cron tick, oldest queued first.
+ * Caption renders per cron tick, oldest queued first.
  *
- * A second tick does not start a render while one is still rendering,
- * because the Lambda quota is one function. A row stuck in rendering for
+ * At most MAX_LAB_RENDERS_AT_ONCE renders are in flight across ticks: a
+ * tick claims only the slots that rows already rendering leave free, and
+ * runs its claims side by side. Each render fans out to at most
+ * MAX_FUNCTIONS_PER_CAPTION_RENDER Lambda functions. A row stuck in rendering for
  * 15 minutes is failed, and its round ad becomes render_failed. The judge
  * never sees that: verdict stays untouched.
  *
@@ -10,6 +12,7 @@
  */
 
 import { loadArchivedClientScope } from "../db/client-status.ts";
+import { MAX_LAB_RENDERS_AT_ONCE } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { renderCaptionOnClip } from "./render.ts";
 
@@ -69,6 +72,7 @@ export async function runRenderTick(
     archivedEventIds?: ReadonlySet<string>;
     render?: (renderId: string, userId: string) => Promise<void>;
     remotionEnabled?: boolean;
+    maxAtOnce?: number;
   } = {},
 ): Promise<RenderTickResult> {
   if (opts.remotionEnabled === false) {
@@ -91,7 +95,8 @@ export async function runRenderTick(
   await refreshRounds(db, touched);
 
   const stillRendering = (await rows(db, "creative_lab_renders", "status", "rendering")).length;
-  if (stillRendering > 0) {
+  const slots = Math.max(0, (opts.maxAtOnce ?? MAX_LAB_RENDERS_AT_ONCE) - stillRendering);
+  if (slots === 0) {
     return { ok: true, claimed: 0, timedOut, skippedArchived: 0, busy: true };
   }
 
@@ -99,7 +104,9 @@ export async function runRenderTick(
   if (queuedRes.error) throw new Error(`creative_lab_renders: ${queuedRes.error.message}`);
   const queued = (queuedRes.data ?? []) as Row[];
   let skippedArchived = 0;
+  const claimed: Row[] = [];
   for (const row of queued) {
+    if (claimed.length >= slots) break;
     const captionRes = await db.from("creative_lab_captions").select("event_id").eq("id", String(row.caption_id)).maybeSingle();
     if (captionRes.error) throw new Error(`creative_lab_captions: ${captionRes.error.message}`);
     const eventId = (captionRes.data as { event_id?: string } | null)?.event_id;
@@ -115,18 +122,22 @@ export async function runRenderTick(
       .select("id");
     if (claim.error) throw new Error(`creative_lab_renders claim: ${claim.error.message}`);
     if (!((claim.data ?? []) as unknown[]).length) continue;
-    const render = opts.render ?? ((renderId: string, userId: string) => renderCaptionOnClip(db, { renderId, userId }).then(() => undefined));
-    try {
-      await render(String(row.id), String(row.user_id));
-      const rounds = await markAds(db, String(row.id), "ready", null);
-      await refreshRounds(db, rounds);
-    } catch (err) {
-      const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
-      await db.from("creative_lab_renders").update({ status: "failed", error: message }).eq("id", row.id).eq("status", "rendering");
-      const rounds = await markAds(db, String(row.id), "render_failed", message);
-      await refreshRounds(db, rounds);
-    }
-    return { ok: true, claimed: 1, timedOut, skippedArchived, busy: false };
+    claimed.push(row);
   }
-  return { ok: true, claimed: 0, timedOut, skippedArchived, busy: false };
+
+  const render = opts.render ?? ((renderId: string, userId: string) => renderCaptionOnClip(db, { renderId, userId }).then(() => undefined));
+  const rounds = await Promise.all(
+    claimed.map(async (row) => {
+      try {
+        await render(String(row.id), String(row.user_id));
+        return await markAds(db, String(row.id), "ready", null);
+      } catch (err) {
+        const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+        await db.from("creative_lab_renders").update({ status: "failed", error: message }).eq("id", row.id).eq("status", "rendering");
+        return await markAds(db, String(row.id), "render_failed", message);
+      }
+    }),
+  );
+  await refreshRounds(db, rounds.flat());
+  return { ok: true, claimed: claimed.length, timedOut, skippedArchived, busy: false };
 }

@@ -1,8 +1,9 @@
 /**
  * GET /api/cron/creative-lab-render-tick
  *
- * Every minute. Claims one queued Creative Lab caption render and burns
- * it. No Meta calls. Auth is the cron bearer.
+ * Every minute. Claims queued Creative Lab caption renders, up to
+ * MAX_LAB_RENDERS_AT_ONCE in flight (lib/creative-lab/lambda.ts), and
+ * burns them side by side. No Meta calls. Auth is the cron bearer.
  *
  * A cron_runs row is written only when the tick claimed a render, timed
  * one out, or failed. /admin/cron-health does not treat a missing minute

@@ -19,7 +19,17 @@ import { deployFunction, deploySite, getFunctions, getOrCreateBucket } from "@re
 
 import "../remotion.config.ts";
 
-import { LAMBDA_DISK_MB, LAMBDA_MEMORY_MB, LAMBDA_SITE_NAME, LAMBDA_TIMEOUT_SECONDS, REMOTION_REGION, lambdaChunking, readConcurrencyLimit } from "../lib/creative-lab/lambda.ts";
+import {
+  LAMBDA_DISK_MB,
+  LAMBDA_MEMORY_MB,
+  LAMBDA_SITE_NAME,
+  LAMBDA_TIMEOUT_SECONDS,
+  MAX_FUNCTIONS_PER_CAPTION_RENDER,
+  MAX_LAB_RENDERS_AT_ONCE,
+  REMOTION_REGION,
+  lambdaChunking,
+  readConcurrencyLimit,
+} from "../lib/creative-lab/lambda.ts";
 
 const regionOnFile = process.env.REMOTION_AWS_REGION?.trim();
 if (regionOnFile && regionOnFile !== REMOTION_REGION) {
@@ -68,4 +78,6 @@ const chunking = lambdaChunking(concurrency, 1);
 console.log(`concurrency ${concurrency}`);
 if (chunking.singleFunction) {
   console.log("quota is 10 or lower: caption renders use one Lambda function");
+} else {
+  console.log(`caption renders use at most ${MAX_FUNCTIONS_PER_CAPTION_RENDER} functions; the render tick runs at most ${MAX_LAB_RENDERS_AT_ONCE} at once`);
 }

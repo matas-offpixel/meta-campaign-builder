@@ -31,7 +31,7 @@ node --env-file=.env.local --experimental-strip-types scripts/remotion-lambda-de
 
 It calls `getOrCreateBucket`, skips `deployFunction` when a compatible function already exists, bundles `src/remotion/index.tsx`, and deploys the site as `creative-lab`. 4.0.471 has no `deploySiteFromBundle`, so `deploySite` bundles the entry point again. Function settings, when it does deploy: timeout 480s, memory 2048 MB, disk 2048 MB, CloudWatch log group on. A function deployed at 240s is not reused; the name gains `480sec` and `REMOTION_LAMBDA_SERVE_URL` stays the same site.
 
-A concurrency quota of 10 or lower makes each caption render use one function. The script prints the quota.
+A concurrency quota of 10 or lower makes each caption render use one function. Above that the fan-out below applies. The script prints the quota and the fan-out.
 
 `remotion.config.ts` inlines the caption font. Lambda's Chrome did not finish fetching the root-relative file. `bundle()` does not load that config, so the deploy script passes the override in `deploySite`'s `options`.
 
@@ -43,7 +43,30 @@ Deployed 6 Nov 2026. Redeployed from `main` (8438049) on 9 Nov 2026, the same `c
 | Function | `remotion-render-4-0-471-mem2048mb-disk2048mb-480sec` |
 | Site | `creative-lab` |
 | Serve URL | `https://remotionlambda-euwest2-sm404lvpzi.s3.eu-west-2.amazonaws.com/sites/creative-lab/index.html` |
-| Concurrency | 1000 on 9 Nov 2026 (10 on 6 Nov). Above 10, caption renders use Remotion's own chunking |
+| Concurrency | 1000 (AWS approved the increase from 10; read 9 and 10 Nov 2026). See Fan-out |
+
+## Fan-out
+
+AWS approved 1000 concurrent Lambda executions in `eu-west-2`, up from 10. At 10 a caption render used one function. At 1000 `renderMediaOnLambda` splits a render into chunks, one function per chunk, plus one function that runs the render. `lib/creative-lab/lambda.ts` sets the split. It does not leave it to Remotion's default.
+
+| Value | Set to | Why |
+|---|---|---|
+| `MAX_FUNCTIONS_PER_CAPTION_RENDER` | 20 | 20 functions rendered the 26 s clip in 30 s for $0.0126. Remotion's default used 33 functions (24 s, $0.0150). 11 functions took 52 s for $0.0117. |
+| `MIN_FRAMES_PER_LAMBDA` | 20 | Remotion's own minimum. A 2 s clip stays on 3 functions. |
+| `MAX_LAB_RENDERS_AT_ONCE` | 4 | 4 renders × 21 functions is 84, 8% of the quota. Four at once each took 31–36 s, against 30 s for one alone. A default 8-ad round renders in two ticks instead of eight. |
+
+`framesPerLambda` is the larger of 20 and frames ÷ 20, rounded up. So a render uses at most 20 functions: a 30 s clip at 30 fps is 45 frames each, a 2 s clip is 20 frames each. `/api/cron/creative-lab-render-tick` claims only the slots that renders already in flight leave free, and runs its claims side by side. A frame-sheet still (`FrameSheet`, the burned-in text check) is one `renderStillOnLambda` call and one function at any quota.
+
+Measured 10 Nov 2026 on clip 2 of the Luke Dean press kit (`Luke dean1.mp4`, 1080×1920, 25 fps, 26.1 s), function `…-480sec`, site `creative-lab` as redeployed on 9 Nov. Times are wall clock from the start call to done. Costs are Remotion's estimates. Each S3 render was deleted. No database row was written.
+
+| Render | Before (Remotion default) | After (this split) |
+|---|---|---|
+| `CaptionOnClip`, 2 s (50 frames) | 20.1 s, $0.00112, 3 functions + 1 | 16.8 s, $0.00102, 3 functions + 1 |
+| `CaptionOnClip`, whole clip, 26 s (653 frames) | 24.5 s, $0.0150, 33 functions + 1 | 30.2 s, $0.0126, 20 functions + 1 |
+| `CaptionOnClip`, 26 s, four at once | — | 31.2–35.5 s each, $0.0130–0.0137 each, 20 + 1 each, 84 in all |
+| `FrameSheet` still | 6.5 s, $0.00018, 1 function | 7.3 s, $0.00020, 1 function |
+
+Both 2 s renders used 3 chunks (17 and 20 frames each), so the 3 s between them is not the split.
 
 ## Role policy
 
@@ -193,7 +216,7 @@ Deployed 6 Nov 2026. Redeployed from `main` (8438049) on 9 Nov 2026, the same `c
 
 ## Billing
 
-Keep an alarm at $20 and a second at $50. Lambda S3 is transient: the route downloads the mp4 into `campaign-assets` and calls `deleteRender`.
+Keep an alarm at $20 and a second at $50. The alarms must stay in place at the 1000 quota: a render loop can now run 84 functions at once instead of 10. Do not remove them. Lambda S3 is transient: the route downloads the mp4 into `campaign-assets` and calls `deleteRender`.
 
 ## Not on Lambda
 
