@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 10 — render copies, the feather curve, names in footage — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 10 · 10 November 2026</p>
+<h1>Overlay templates — issue 10: render copies, the feather curve, names in footage</h1>
+<div class="lead"><p>#1167 round 3 builds issue 9, and 27 of its 30 drafts pass. The three refusals are what the rules should refuse. The build left four questions, and the drafts turned up two things by eye: a no-claim refusal quotes "the claim's time", and other brands' signs sit in the frame under Puzzle's type. This issue rules all of them. Issues 1–9 stand except where a row says otherwise.</p></div>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 10 · 10 Nov 2026.</b>
+<ul>
+<li>O68: the render copy for footage wider than the output.</li>
+<li>O69: the scaling filter (amends O63).</li>
+<li>O70: the backing's feather curve and its check (amends O66 and H66).</li>
+<li>O71: a no-claim refusal's words.</li>
+<li>O72: another name in the footage.</li>
+<li>O73: the search and the report.</li>
+<li>O74: O63's import wiring as a follow-up.</li>
+<li>Open for Matas: competitor branding in the footage, and the no-claim T2's empty panel.</li>
+<li>Hand-back H69–H75.</li>
+</ul></li>
+<li><b>Issue 9 · 10 Nov 2026.</b> O63–O67. #1169.</li>
+</ul></div>
+
+<h2>Data note — #1167 round 3</h2>
+<table class="t">
+<tr><th>What</th><th>Measured</th><th>What it means</th></tr>
+<tr><td>Scale</td><td>Luke 2 (1080 × 1920) at 1.00×. Luke 4 and Luke 5 (2160 × 3840) at 0.50×. Enzo 1 and Enzo 2 (720 × 1280) at 1.50×. Nothing over 1.6×.</td><td>O63 holds. The 4K clips didn't fit Lambda's disk and were rendered locally.</td></tr>
+<tr><td>Refusals</td><td>
+<ul>
+<li>Enzo 1's 9:16: 25 % on B, 43 % on A, the same at every crop. The source is exactly 9:16, so the window can't move.</li>
+<li>Enzo 2's v2 9:16: one 0.6 s run, refused with O65's line.</li>
+<li>Enzo 1's v1 9:16 has no claim but reads "of the claim's time".</li>
+</ul></td><td>The refusals are right. The no-claim words aren't (O71).</td></tr>
+<tr><td>The red line</td><td>Red in all 30. Backed 40 % in six, 60 % in one, none in the rest.</td><td>O58 works.</td></tr>
+<tr><td>The card's gap (H66)</td><td>Rows 1462–1466 stay flat at 40–43 (the core), then rise smoothly to 86 at 1483; the feather's largest step is 5.1. The 26.2 step is row 1461 into 1462: line 1's own glyph edge and shadow, not the backing.</td><td>H66 is measured on the backing layer (O70).</td></tr>
+<tr><td>By eye</td><td>
+<ul>
+<li>A large orange neon "SOLID GROOVES" sits in the face window under "LUKE DEAN · SUNDAY 27TH DECEMBER" in every Luke 2 draft. In the 1:1 it crosses the name.</li>
+<li>Luke 4 shows a "SPACE" sign, and Enzo 1 an "amnesia" sign.</li>
+<li>The lockup's wordmark reads on all 30. Its script reads on dark ground and is thin but legible on Enzo 2's orange.</li>
+<li>The roll-call reads in every format. At 40 % the backing is a soft dark strip that you notice as tone, not as a box.</li>
+</ul></td><td>The type works on moving footage. Another brand's name in the frame doesn't (O72).</td></tr>
+<tr><td>T2, no claim</td><td>Lineup top right, details and lockup at the bottom, and the panel's middle 0.25–0.70 H empty paper.</td><td>Open for Matas.</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O68 The render copy</td><td>The answer is a stored copy, not a bigger Lambda disk. The output is never wider than 1080, so a 4K source only costs download and decode time.
+<ul>
+<li><b>A render copy</b> is made at import for a clip whose crop windows are all wider than 1080 px. Its scale is s = 1080 / the narrowest of its three crop windows (9:16, 4:5, 1:1), and never above 1.</li>
+<li>For example: 2160 × 3840 → 0.5, giving 1080 × 1920. 3840 × 2160 landscape → 1080 / 1215 = 0.889, giving 3413 × 1920. So every window stays at least 1080 wide.</li>
+<li>Encoding: Lanczos, H.264 CRF ≤ 16, the source's frame rate and audio.</li>
+<li>It is stored privately beside the clip, Lambda renders from it, and the original stays untouched as the master. A clip at or under the output size gets no copy.</li>
+</ul></td></tr>
+<tr><td>O69 The scaling filter</td><td>This amends O63's "with Lanczos". Upscales of 1.6× or less use the renderer's own filter, with no stored upscaled copy. By eye, the 1.5× Enzo drafts read as normal phone footage, and the type is set at the output's size whatever the footage does. Lanczos stays for the render copy's downscale (O68).</td></tr>
+<tr><td>O70 The feather curve</td><td>This amends O66 and replaces H66's 6-level limit.
+<ul>
+<li>The backing's feather is a smoothstep (3t² − 2t³) from the core's opacity to 0. The bands keep J2's fade.</li>
+<li>A feather is never shorter than 12 px at the output. Where the gap can't hold the core's padding plus 12 px, the padding shrinks first, down to 0.</li>
+<li><b>The check</b>, on the backing layer rendered alone over flat mid-grey, from one row past the type's ink: the largest row-to-row step is at most 1.6 times the feather's mean step. A smoothstep peaks at 1.5×, and a hard cut fails at any opacity. The type's own edge and shadow are never part of the check.</li>
+</ul></td></tr>
+<tr><td>O71 A no-claim refusal's words</td><td>On a clip with no claim, the share is over the clip's length, and the line reads "Face in the type for {n} % of the clip — choose another crop or clip". The run line (O65) is the same with or without a claim.</td></tr>
+<tr><td>O72 Another name in the footage</td><td>Text in the footage is found on the same 5-a-second samples, by text detection.
+<ul>
+<li>A word whose letters are at least 0.02 H tall, legible in at least 10 % of the samples, is flagged on the approval card: "Another name in the footage: {text} — check before approving".</li>
+<li>It is listed in the report with its share and its box.</li>
+<li>The client's own name and handle, and the event's venue as written on the event, aren't flagged.</li>
+<li>A flag never refuses a clip on its own (text detection misses and misreads). Whether some names should refuse is open for Matas, below.</li>
+</ul></td></tr>
+<tr><td>O73 The search and the report</td><td>Crop candidates that give the same window (a source exactly the format's shape) are tried once. A refused row's arrangement column lists every arrangement tried ("A, B"), not "(A)".</td></tr>
+<tr><td>O74 O63's import wiring</td><td>A follow-up PR is accepted: keep the largest copy, list folder clips first, plus O68's render copy. It has to land before T1 clips can be rendered from the Lab, and it carries H63's import half and H69.</td></tr>
+</table>
+
+<div class="open"><b>Open, for Matas</b>
+<ul>
+<li><b>Competitor branding in the footage.</b> Luke 2's clip is from a Solid Grooves night, and its neon sign sits under Puzzle's type in every format. O72 flags it. Should the Lab also refuse footage showing another promoter's brand, or is it the artist's footage and fine? My recommendation is to refuse when the name sits inside the face window or a type box, and flag otherwise.</li>
+<li><b>The no-claim T2.</b> With no claim, the panel's middle is empty paper. Either the no-claim T2 isn't offered, or the lineup moves to the panel's centre at a larger size. That would be a later issue.</li>
+</ul></div>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>T1 artist clip (video)</td><td>Rendered from the render copy when the source is wider than needed; the renderer's filter up to 1.6×; the backing's smoothstep feather.</td></tr>
+<tr><td>Approval card lines</td><td>"Face in the type for {n} % of the clip — choose another crop or clip" (no claim); "Another name in the footage: {text} — check before approving".</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H69 Render copy</td><td>O68 at import, kept beside the clip; Lambda renders from it.</td><td>clip dimensions</td><td>Luke 4 and Luke 5 render on Lambda from a 1080 × 1920 copy; a 3840 × 2160 fixture gives 3413 × 1920</td></tr>
+<tr><td>H70 Filter</td><td>O69.</td><td>—</td><td>no stored upscaled copies exist</td></tr>
+<tr><td>H71 Feather</td><td>O70's curve, the 12 px minimum, the check on the backing layer.</td><td>—</td><td>the card's backing passes at 40 %, and a fixture at 80 % over a 22 px gap passes; a hard cut fails</td></tr>
+<tr><td>H72 No-claim words</td><td>O71.</td><td>—</td><td>Enzo 1's v1 9:16 reads "Face in the type for 25 % of the clip — choose another crop or clip"</td></tr>
+<tr><td>H73 Names in footage</td><td>O72's detection, flag, report, and the client and venue exceptions.</td><td>the client, the venue</td><td>Luke 2 is flagged "SOLID GROOVES"; a fixture showing "CIRCUIT" isn't</td></tr>
+<tr><td>H74 Search and report</td><td>O73.</td><td>—</td><td>Enzo 1's 9:16 tries one crop, A and B, and the row reads "A, B"</td></tr>
+<tr><td>H75 Import follow-up</td><td>O74.</td><td>—</td><td>its own PR, before T1 clips are reachable from the Lab</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The render copy's scale rule and CRF ≤ 16.</li>
+<li>The smoothstep, the 12 px minimum, and the 1.6× step check.</li>
+<li>0.02 H and 10 % for names in footage, the flag's words, and the client and venue exceptions.</li>
+</ul>
+
+<h2>Frames</h2>
+<p>None new. T1 on clips is judged on drafts; CI frames come from a fixture clip once T1 is reachable from the Lab.</p>
+
+</div></body>
+</html>
