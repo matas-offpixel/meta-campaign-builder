@@ -116,4 +116,41 @@ describe("creative lab card", () => {
     assert.equal(cantRunReason(cleanClip!), null);
     assert.equal(clipBucket(igClip!), "new");
   });
+
+  it("loads the client's own candidates onto the card, and leaves another client's", async () => {
+    const clientId = "92f7334b-ef76-4095-88d6-f422ba1ff3f2";
+    const db = fakeDb({
+      creative_lab_event_facts: [{ event_id: EVENT, lineup: ["Luke Dean"], headliners: ["Luke Dean"], allowed_dates: ["2026-12-27"] }],
+      creative_lab_artists: [{ id: LUKE, client_id: clientId, name: "Luke Dean", approved_at: "2026-11-01T00:00:00Z" }],
+      creative_lab_captions: [],
+      creative_lab_rounds: [],
+      creative_lab_clips: [],
+      creative_lab_round_ads: [],
+      creative_lab_round_ad_launches: [],
+      launched_ad_sets: [],
+      launched_ads: [],
+      creative_assets: [],
+      events: [{ id: EVENT, client_id: clientId, name: "Puzzle 4th Birthday", event_date: "2026-12-27" }],
+      clients: [{ id: clientId, user_id: "op", name: "Puzzle", instagram_handle: "puzzleofficialuk" }],
+      creative_lab_ig_candidates: [
+        { id: "reel-1", user_id: "op", artist_id: null, client_id: clientId, ig_media_id: "media-1", status: "candidate", has_file: true, score: 2, likes: 10, comments: 1 },
+        { id: "reel-2", user_id: "op", artist_id: null, client_id: clientId, ig_media_id: "media-2", status: "candidate", has_file: true, score: 1, likes: 4, comments: 0 },
+        { id: "other-client", user_id: "op", artist_id: null, client_id: "someone-else", ig_media_id: "media-3", status: "candidate", has_file: true },
+        { id: "luke-reel", user_id: "op", artist_id: LUKE, client_id: null, ig_media_id: "media-4", status: "candidate", has_file: true },
+      ],
+    });
+    const card = await loadCreativeLabCard(db as unknown as ServiceRoleDb, {
+      eventId: EVENT,
+      userId: "op",
+      clientId,
+      eventName: "Puzzle 4th Birthday",
+      eventDate: "2026-12-27",
+      venueName: "Circuit",
+      venueCity: "Southampton",
+      eventStatus: "upcoming",
+      now: new Date("2026-11-10T12:00:00Z"),
+    });
+    assert.deepEqual(card.promoterCandidates?.map((row) => row.id), ["reel-1", "reel-2"]);
+    assert.deepEqual(card.artists[0]?.igCandidates.map((row) => row.id), ["luke-reel"]);
+  });
 });

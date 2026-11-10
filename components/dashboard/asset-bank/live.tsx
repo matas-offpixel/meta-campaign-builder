@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ClaimLadder, ReleasesPanel } from "@/components/dashboard/asset-bank/surface";
+import { todayMark } from "@/lib/releases/london";
 import { nextReleaseListAt } from "@/lib/releases/derived";
 import { rowsFromReleases } from "@/lib/releases/view";
 import { completeLadder, defaultLadder } from "@/lib/releases/ladder";
@@ -15,6 +16,7 @@ export function LiveReleases({
   eventId,
   releases,
   ladder,
+  now,
   status = "upcoming",
   counts = [],
   eventAt = null,
@@ -24,6 +26,8 @@ export function LiveReleases({
   eventId: string;
   releases: Release[];
   ladder: LadderRung[];
+  /** One instant from the server render. The timeline and the claims both use it. */
+  now: string;
   status?: string;
   counts?: { at: string; sold: number }[];
   eventAt?: string | null;
@@ -32,7 +36,6 @@ export function LiveReleases({
 }) {
   const [rows, setRows] = useState(releases);
   const used = completeLadder(ladder);
-  const now = new Date().toISOString();
   const context: DerivedContext = {
     counts,
     nextListAt: nextReleaseListAt(rows, now),
@@ -80,6 +83,7 @@ export function LiveReleases({
       claims={claims}
       claimSummary=""
       footnote="tap a state to set it"
+      todayLabel={todayMark(now)}
       onState={async (id, state: ReleaseState, confirmed) => {
         const body = await post({ releaseId: id, state, confirmed });
         if (body.ask) return { ask: true };

@@ -126,11 +126,14 @@ Baselines: Ubuntu frames-baselines 42497321834 and 42497326107, matching, `only=
 
 ## CLW series
 
-The caption follows the footage's owner. `only=CLW` shoots CLW1–CLW3 and leaves CL and CLV alone.
+The caption follows the footage's owner. `only=CLW` shoots CLW1, CLW1b, CLW2 and CLW3, and leaves CL and CLV alone.
+
+CLW1b baselines: Ubuntu frames-baselines 42898262157 and 42898272384, matching, `only=CLW1b`.
 
 | Id | State | What to check by hand |
 |---|---|---|
 | CLW1 | Clips by owner | Puzzle footage first, empty, then Enzo and Luke. 393 stacks and shows Enzo #1 and #2 |
+| CLW1b | Clips with candidates | The same section with eight Puzzle candidate tiles and Add on each, Find clips on @puzzle above the tiles, and no empty box. Enzo (5) and Luke (21) below. 393 is two tiles across |
 | CLW2 | Generator | Angle row Lineup · Artist · POV · Scarcity. The Artist caption is the writer's wrap (default 18, four lines: "Luke Dean. Back" / "at Circuit" / "for Puzzle's" / "4th birthday.") centred on Luke #1's clip. An unpaired Lineup post and Luke's quote line. 393 is the unpaired post |
 | CLW3 | Next | "Add Puzzle footage — 20 Lineup captions are waiting for it." 393 puts the button on its own line |
 

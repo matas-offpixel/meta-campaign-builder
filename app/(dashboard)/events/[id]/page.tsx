@@ -161,7 +161,9 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
     }),
   ]);
 
+  const now = new Date();
   const lab = await loadCreativeLabCard(admin, {
+    now,
     eventId: event.id,
     userId: user.id,
     clientId: event.client_id ?? null,
@@ -236,6 +238,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       ticketTiers={ticketTiers}
       initialGoogleAdsPlanId={googleAdsPlan?.id ?? null}
       lab={lab}
+      nowIso={now.toISOString()}
       bank={bank}
     />
   );

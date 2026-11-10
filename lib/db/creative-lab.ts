@@ -354,7 +354,12 @@ export async function loadCreativeLabCard(
     }
   }
   const renderRows = (await rows(db, "creative_lab_renders", "user_id", args.userId)).filter((row) => clipRows.some((clip) => text(clip, "id") === text(row, "clip_id")));
-  const candidateRows = (await rowsIfPresent(db, "creative_lab_ig_candidates", "user_id", args.userId)).filter((row) => artistIds.has(text(row, "artist_id")));
+  const clientId = args.clientId ?? "";
+  const candidateRows = (await rowsIfPresent(db, "creative_lab_ig_candidates", "user_id", args.userId)).filter((row) => {
+    const artistId = text(row, "artist_id");
+    if (artistId) return artistIds.has(artistId);
+    return clientId !== "" && text(row, "client_id") === clientId;
+  });
   const roundIds = new Set(rounds.map((row) => text(row, "id")));
   const adRows = (await rows(db, "creative_lab_round_ads", "user_id", args.userId)).filter((row) => roundIds.has(text(row, "round_id")));
   const launchRows = (await rows(db, "creative_lab_round_ad_launches", "user_id", args.userId)).filter((row) =>

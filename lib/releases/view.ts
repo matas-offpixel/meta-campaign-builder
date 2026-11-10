@@ -1,4 +1,5 @@
 import { releaseHeadline } from "./entry.ts";
+import { londonDayMonth } from "./london.ts";
 import { isBackfilled, panelFigure } from "./visibility.ts";
 import type { LadderRung, Release, ReleaseState } from "./types.ts";
 import { nextRung, type DerivedContext } from "../ticket-warnings/next-rung.ts";
@@ -21,9 +22,7 @@ type Row = {
 
 function when(iso: string | null): string {
   if (!iso) return "no date";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
-  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" }).format(date);
+  return londonDayMonth(iso) || iso.slice(0, 10);
 }
 
 /** The event page's releases panel, from the saved rows. The frames use their own fixture. */

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { CreativeLabCardData } from "@/lib/db/creative-lab";
+import type { CreativeLabCardData, LabIgCandidate } from "@/lib/db/creative-lab";
 import { HeldLabel } from "@/components/dashboard/events/creative-lab/held-label";
 import {
   CLIPS_NOTE,
@@ -314,7 +314,7 @@ export function LabClips({
           ))}
         </>
       ) : null}
-      <FindClips lab={lab} busy={busy} onSave={onSave} pendingImportId={pendingImportId} />
+      <FindClips lab={lab} busy={busy} onSave={onSave} pendingImportId={pendingImportId} hidePromoter={layout === "owner"} />
       <RenderRows rows={lab.renders} now={lab.now} />
     </section>
   );
@@ -348,12 +348,13 @@ function OwnerGroups({
   const handle = lab.clientHandle || lab.voice?.promoter.handle || null;
   const empty = emptyFootage(client, handle);
   const promoter = lab.clips.filter((clip) => clipOwner(clip) === "promoter");
+  const candidates = rankCandidates(lab.promoterCandidates ?? []);
   return (
     <div className="space-y-4">
       <div>
         <p className="font-medium">{client} footage</p>
         <p className="text-muted-foreground"><span className="max-[700px]:hidden">{promoterHint(false)}</span><span className="hidden max-[700px]:inline">{promoterHint(true)}</span></p>
-        {promoter.length === 0 ? (
+        {promoter.length === 0 && candidates.length === 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-dashed border-border p-3 max-[700px]:flex-col max-[700px]:items-start">
             <span>{empty.sentence}</span>
             {handle ? (
@@ -365,20 +366,35 @@ function OwnerGroups({
             {findError ? <span className="text-xs text-destructive">{findError}</span> : null}
           </div>
         ) : (
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {promoter.map((clip) => {
-              const names = (clip.featuredArtistIds ?? []).map((id) => lab.artists.find((artist) => artist.id === id)?.name).filter((name): name is string => Boolean(name));
-              return (
-                <ClipTile
-                  key={clip.id}
-                  clip={clip}
-                  label={promoterTileLabel(client, clip.clipNo, names)}
-                  selected={selected.has(clip.id)}
-                  onToggle={() => onToggle(clip.id)}
-                  menu={<ClipMenu clip={clip} lab={lab} client={client} features onSave={onSave} />}
-                />
-              );
-            })}
+          <div className="mt-2 space-y-2">
+            {promoter.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {promoter.map((clip) => {
+                  const names = (clip.featuredArtistIds ?? []).map((id) => lab.artists.find((artist) => artist.id === id)?.name).filter((name): name is string => Boolean(name));
+                  return (
+                    <ClipTile
+                      key={clip.id}
+                      clip={clip}
+                      label={promoterTileLabel(client, clip.clipNo, names)}
+                      selected={selected.has(clip.id)}
+                      onToggle={() => onToggle(clip.id)}
+                      menu={<ClipMenu clip={clip} lab={lab} client={client} features onSave={onSave} />}
+                    />
+                  );
+                })}
+              </div>
+            ) : null}
+            {candidates.length > 0 ? (
+              <div className="space-y-2">
+                {handle ? (
+                  <Button type="button" disabled={finding} onClick={onFind}>{empty.action}</Button>
+                ) : (
+                  <Button type="button" onClick={onAddHandle}>{empty.action}</Button>
+                )}
+                {findError ? <span className="text-xs text-destructive">{findError}</span> : null}
+                <CandidateTiles rows={candidates} artistId={lab.clientId || "promoter"} lab={lab} busy={finding} onSave={onSave} />
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -624,21 +640,33 @@ function Importing() {
   );
 }
 
+/** Grouping separators differ between Node and the browser. A comma keeps the tile text the same. */
+function tally(value: number): string {
+  return String(Math.trunc(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 /** Candidate tiles: thumbnail, length, likes, comments, age, aspect, one action. */
-function FindClips({ lab, busy, onSave, pendingImportId = null }: { lab: CreativeLabCardData; busy: boolean; onSave: Save; pendingImportId?: string | null }) {
+function CandidateTiles({
+  rows,
+  artistId,
+  lab,
+  busy,
+  onSave,
+  pendingImportId = null,
+}: {
+  rows: (LabIgCandidate & { rank: number })[];
+  artistId: string;
+  lab: CreativeLabCardData;
+  busy: boolean;
+  onSave: Save;
+  pendingImportId?: string | null;
+}) {
   const router = useRouter();
   const [importing, setImporting] = useState<string | null>(pendingImportId);
   const [failed, setFailed] = useState<Record<string, string>>({});
-  const promoterRows = rankCandidates(lab.promoterCandidates ?? []);
-  const groups = [
-    ...(promoterRows.length > 0 ? [{ artist: { id: lab.clientId || "promoter", name: lab.clientName || "Promoter" }, rows: promoterRows }] : []),
-    ...lab.artists
-      .map((artist) => ({ artist, rows: rankCandidates(artist.igCandidates) }))
-      .filter((group) => group.rows.length > 0),
-  ];
-  const opened = groups.flatMap((group) => group.rows).find((clip) => clip.overlayOpen)?.id ?? null;
+  const opened = rows.find((clip) => clip.overlayOpen)?.id ?? null;
   const [openId, setOpenId] = useState<string | null>(opened);
-  if (groups.length === 0) return null;
+  const open = rows.find((clip) => clip.id === openId && clip.overlay) ?? null;
 
   /** Download, check and register one candidate. The tile says "Importing…" until it resolves, and one sentence if it fails. */
   async function add(id: string, anyway: boolean) {
@@ -669,77 +697,92 @@ function FindClips({ lab, busy, onSave, pendingImportId = null }: { lab: Creativ
   }
 
   return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {rows.map((clip) => {
+          const state = candidateTileState(clip);
+          const age = postAge(clip.postedAt, lab.now);
+          const dimmed = clip.status === "skipped" || clip.status === "requested";
+          const quality = clip.reason?.includes("Too low quality") ? clip.reason : null;
+          const pending = importing === clip.id;
+          const error = failed[clip.id] ?? null;
+          return (
+            <article key={clip.igMediaId} data-candidate={clip.id} className={`rounded border border-border p-2 ${dimmed ? "opacity-[0.55]" : ""}`}>
+              <div className="relative">
+                <Poster url={clip.thumbnailUrl} />
+                <span className="absolute top-1 left-1 rounded bg-background px-1 text-xs font-medium tabular-nums text-foreground">{clip.rank}</span>
+                {clip.lengthSeconds != null ? <span className="absolute bottom-1 left-1 text-xs text-white">▶ {durationLabel(clip.lengthSeconds)}</span> : null}
+              </div>
+              <p className="mt-1 text-xs tabular-nums">♥ {clip.likes == null ? "—" : tally(clip.likes)} · 💬 {tally(clip.comments ?? 0)}</p>
+              <p className="text-xs text-muted-foreground">{[age, clip.aspect || "aspect unknown"].filter(Boolean).join(" · ")}</p>
+              {state.action === "request" ? (
+                <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap px-1" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId, igMediaId: clip.igMediaId })}>Request from team</Button>
+              ) : state.action === "add" ? (
+                <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap" disabled={busy || pending} aria-busy={pending} onClick={() => void add(clip.id, false)}>
+                  <HeldLabel idle={candidateAddLabel(clip.aspect)} pending={pending ? <Importing /> : null} active={pending} />
+                </Button>
+              ) : state.action === "import" ? (
+                <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap" disabled={busy || pending} aria-busy={pending} onClick={() => void add(clip.id, true)}>
+                  <HeldLabel idle="Import" pending={pending ? <Importing /> : null} active={pending} />
+                </Button>
+              ) : null}
+              {error ? <p data-import-error className="mt-1 text-xs text-destructive" role="alert">{error}</p> : null}
+              {quality ? <p className="mt-1 text-xs text-destructive">{quality}</p> : state.see ? (
+                <p className="mt-1 text-xs text-destructive">
+                  {state.status} · <button type="button" className="underline" onClick={() => setOpenId(clip.id)}>see</button>
+                </p>
+              ) : state.status ? <p className="mt-1 text-xs text-muted-foreground">{state.status}</p> : null}
+            </article>
+          );
+        })}
+      </div>
+      {open?.overlay ? (
+        <section className="w-full max-w-[460px] space-y-2 rounded border border-border bg-card p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="font-medium">Why #{open.rank} was skipped</h3>
+            <span className="text-xs text-muted-foreground">8 frames checked</span>
+          </div>
+          <div className="grid grid-cols-8 gap-1">
+            {open.overlay.frames.map((frame) => (
+              <div key={frame.t} className={`relative aspect-[9/16] overflow-hidden rounded bg-black ${frame.text ? "outline outline-2 outline-destructive" : ""}`}>
+                <FrameStill src={open.thumbnailUrl} at={frame.t} />
+                {frame.text ? <span className="absolute inset-x-0 bottom-[30%] bg-destructive/80 text-center text-[10px] text-white">Aa</span> : null}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs">
+            {overlayPanelLine(open.overlay.flagged)}{" "}
+            <button type="button" className="inline-flex items-center gap-1 underline" disabled={busy || importing === open.id} aria-busy={importing === open.id} onClick={() => void add(open.id, true)}>
+              <HeldLabel idle="Import anyway" pending={importing === open.id ? <Importing /> : "Import anyway"} active={importing === open.id} />
+            </button>
+          </p>
+          {failed[open.id] ? <p className="text-xs text-destructive" role="alert">{failed[open.id]}</p> : null}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+/** Candidate tiles under Find clips. The owner layout shows the client's own clips in the footage group. */
+function FindClips({ lab, busy, onSave, pendingImportId = null, hidePromoter = false }: { lab: CreativeLabCardData; busy: boolean; onSave: Save; pendingImportId?: string | null; hidePromoter?: boolean }) {
+  const promoterRows = hidePromoter ? [] : rankCandidates(lab.promoterCandidates ?? []);
+  const groups = [
+    ...(promoterRows.length > 0 ? [{ artist: { id: lab.clientId || "promoter", name: lab.clientName || "Promoter" }, rows: promoterRows }] : []),
+    ...lab.artists
+      .map((artist) => ({ artist, rows: rankCandidates(artist.igCandidates) }))
+      .filter((group) => group.rows.length > 0),
+  ];
+  if (groups.length === 0) return null;
+
+  return (
     <div className="space-y-3">
       <h3 className="font-medium">Find clips on Instagram</h3>
-      {groups.map(({ artist, rows }) => {
-        const open = rows.find((clip) => clip.id === openId && clip.overlay) ?? null;
-        return (
-          <div key={artist.id} className="space-y-2">
-            <p className="text-muted-foreground">{artist.name} · best first · likes, comments and how recent · native 9:16 first</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {rows.map((clip) => {
-                const state = candidateTileState(clip);
-                const age = postAge(clip.postedAt, lab.now);
-                const dimmed = clip.status === "skipped" || clip.status === "requested";
-                const quality = clip.reason?.includes("Too low quality") ? clip.reason : null;
-                const pending = importing === clip.id;
-                const error = failed[clip.id] ?? null;
-                return (
-                  <article key={clip.igMediaId} data-candidate={clip.id} className={`rounded border border-border p-2 ${dimmed ? "opacity-[0.55]" : ""}`}>
-                    <div className="relative">
-                      <Poster url={clip.thumbnailUrl} />
-                      <span className="absolute top-1 left-1 rounded bg-background px-1 text-xs font-medium tabular-nums text-foreground">{clip.rank}</span>
-                      {clip.lengthSeconds != null ? <span className="absolute bottom-1 left-1 text-xs text-white">▶ {durationLabel(clip.lengthSeconds)}</span> : null}
-                    </div>
-                    <p className="mt-1 text-xs tabular-nums">♥ {clip.likes == null ? "—" : clip.likes.toLocaleString("en-GB")} · 💬 {(clip.comments ?? 0).toLocaleString("en-GB")}</p>
-                    <p className="text-xs text-muted-foreground">{[age, clip.aspect || "aspect unknown"].filter(Boolean).join(" · ")}</p>
-                    {state.action === "request" ? (
-                      <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap px-1" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId: artist.id, igMediaId: clip.igMediaId })}>Request from team</Button>
-                    ) : state.action === "add" ? (
-                      <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap" disabled={busy || pending} aria-busy={pending} onClick={() => void add(clip.id, false)}>
-                        <HeldLabel idle={candidateAddLabel(clip.aspect)} pending={pending ? <Importing /> : null} active={pending} />
-                      </Button>
-                    ) : state.action === "import" ? (
-                      <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap" disabled={busy || pending} aria-busy={pending} onClick={() => void add(clip.id, true)}>
-                        <HeldLabel idle="Import" pending={pending ? <Importing /> : null} active={pending} />
-                      </Button>
-                    ) : null}
-                    {error ? <p data-import-error className="mt-1 text-xs text-destructive" role="alert">{error}</p> : null}
-                    {quality ? <p className="mt-1 text-xs text-destructive">{quality}</p> : state.see ? (
-                      <p className="mt-1 text-xs text-destructive">
-                        {state.status} · <button type="button" className="underline" onClick={() => setOpenId(clip.id)}>see</button>
-                      </p>
-                    ) : state.status ? <p className="mt-1 text-xs text-muted-foreground">{state.status}</p> : null}
-                  </article>
-                );
-              })}
-            </div>
-            {open?.overlay ? (
-              <section className="w-full max-w-[460px] space-y-2 rounded border border-border bg-card p-3">
-                <div className="flex items-baseline justify-between gap-2">
-                  <h3 className="font-medium">Why #{open.rank} was skipped</h3>
-                  <span className="text-xs text-muted-foreground">8 frames checked</span>
-                </div>
-                <div className="grid grid-cols-8 gap-1">
-                  {open.overlay.frames.map((frame) => (
-                    <div key={frame.t} className={`relative aspect-[9/16] overflow-hidden rounded bg-black ${frame.text ? "outline outline-2 outline-destructive" : ""}`}>
-                      <FrameStill src={open.thumbnailUrl} at={frame.t} />
-                      {frame.text ? <span className="absolute inset-x-0 bottom-[30%] bg-destructive/80 text-center text-[10px] text-white">Aa</span> : null}
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs">
-                  {overlayPanelLine(open.overlay.flagged)}{" "}
-                  <button type="button" className="inline-flex items-center gap-1 underline" disabled={busy || importing === open.id} aria-busy={importing === open.id} onClick={() => void add(open.id, true)}>
-                    <HeldLabel idle="Import anyway" pending={importing === open.id ? <Importing /> : "Import anyway"} active={importing === open.id} />
-                  </button>
-                </p>
-                {failed[open.id] ? <p className="text-xs text-destructive" role="alert">{failed[open.id]}</p> : null}
-              </section>
-            ) : null}
-          </div>
-        );
-      })}
+      {groups.map(({ artist, rows }) => (
+        <div key={artist.id} className="space-y-2">
+          <p className="text-muted-foreground">{artist.name} · best first · likes, comments and how recent · native 9:16 first</p>
+          <CandidateTiles rows={rows} artistId={artist.id} lab={lab} busy={busy} onSave={onSave} pendingImportId={pendingImportId} />
+        </div>
+      ))}
     </div>
   );
 }
