@@ -119,10 +119,20 @@ Baselines: Ubuntu frames-baselines 42497321834 and 42497326107, matching, `only=
 
 | Id | State | What to check by hand |
 |---|---|---|
-| CLV1 | Generator, caption mode | The real VoicePanel. Two strips at 1280: Lineup "Sounds like @puzzle · 24 posts"; Artist, first person "Sounds like @enzosiragusa · 30 posts". 393 is the puzzle chip full width, "24 posts" on the right, why line "Promoter voice · read today 09:12" |
+| CLV1 | Generator, caption mode | The real VoicePanel. Two strips at 1280: Lineup "Sounds like @puzzle · 24 posts"; Artist, third person, "Sounds like @puzzle". 393 is the puzzle chip full width, "24 posts" on the right, why line "Promoter voice · read today 09:12" |
 | CLV2 | Voice sheet | Traits from the fixture through the extractor, four exemplars verbatim, "+ 20 more", Read again. 393 is an 88% bottom sheet, fewer trait rows, two exemplars, "+ 22 more" |
 | CLV3 | Nothing read | Dashed House voice chip and "No posts read yet — Find clips reads them." Sheet empty state with Find clips. 393 stacks the sentence under the chip |
-| CLV4 | Can't be read, thin, no handle, stale | Luke Dean: "@lukedean can't be read: not a business or creator account." Reeshy: 2 posts, fewer than 8. Benji King: no Instagram on the row. Phill de Janeiro: Sounds like @philldejaneiro · 30 posts, read Fri 10 Oct. 393 is the can't-read chip only |
+| CLV4 | Artist, third person | Each strip reads the promoter page: "Sounds like @puzzle". The section labels stay (Empty feed, No handle, Read but stale). 393 is Luke's strip |
+
+## CLW series
+
+The caption follows the footage's owner. `only=CLW` shoots CLW1–CLW3 and leaves CL and CLV alone.
+
+| Id | State | What to check by hand |
+|---|---|---|
+| CLW1 | Clips by owner | Puzzle footage first, empty, then Enzo and Luke. 393 stacks and shows Enzo #1 and #2 |
+| CLW2 | Generator | Angle row Lineup · Artist · POV · Scarcity. The Artist caption is the writer's wrap (default 18, four lines: "Luke Dean. Back" / "at Circuit" / "for Puzzle's" / "4th birthday.") centred on Luke #1's clip. An unpaired Lineup post and Luke's quote line. 393 is the unpaired post |
+| CLW3 | Next | "Add Puzzle footage — 20 Lineup captions are waiting for it." 393 puts the button on its own line |
 
 ## AB series
 

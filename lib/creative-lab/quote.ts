@@ -27,7 +27,7 @@ const FACT_CODES = new Set([
 ]);
 
 export type CaptionGenerator = {
-  angle: "lineup" | "artist_first_person" | "pov" | "scarcity";
+  angle: "lineup" | "artist" | "artist_first_person" | "pov" | "scarcity";
   count: 1 | 3 | 5;
   pair: "spread" | "best" | "each";
   stage: "upcoming" | "signup" | "on_sale";

@@ -207,7 +207,11 @@ export function systemPrompt(
   const phraseLine = placeList
     ? `Each line is one phrase of at most 24 characters; put ${placeList} each on its own line.`
     : "";
+  const third = style === "artist"
+    ? "Write about one artist in the third person. The promoter is speaking. Do not write as the artist, and do not use I, I'm, my or me for them.\n\n"
+    : "";
   return appendVoice(`You write one paid-social caption in the voice of the examples. Copy their sentence shapes. Voice: ${voiceForStyle(style)}. Style: ${style}. The overlay is one idea.
+${third}
 
 Shapes to mirror, with the tokens:
 ${shapes}

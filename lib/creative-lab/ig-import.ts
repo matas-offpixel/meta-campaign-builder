@@ -8,6 +8,7 @@ import { snapRatio } from "../clients/asset-queue/aspect-detect.ts";
 import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset } from "../creatives/asset-registry.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { LOW_QUALITY_AFTER_CROP, cropWindow } from "../../src/remotion/caption-style/profile.ts";
+import { ownerFromImport } from "./footage-owner.ts";
 import { frameSampleTimes, settleOverlayVerdict, type OverlayCheck, type OverlayFrame } from "./overlay-check.ts";
 
 type Row = Record<string, unknown>;
@@ -49,6 +50,7 @@ export async function importIgCandidate(
     userId: string;
     anyway?: boolean;
     now?: Date;
+    eventId?: string | null;
     mediaUrl?: (igMediaId: string) => Promise<string>;
     download?: (url: string) => Promise<Uint8Array>;
     upload?: (storagePath: string, bytes: Uint8Array) => Promise<void>;
@@ -75,9 +77,20 @@ export async function importIgCandidate(
     return { outcome: "skipped", clipId: null, reason: LOW_QUALITY_AFTER_CROP, steps, check: null };
   }
 
-  const artistRes = await db.from("creative_lab_artists").select("*").eq("id", text(candidate, "artist_id")).eq("user_id", args.userId).maybeSingle();
-  if (artistRes.error) throw new Error(artistRes.error.message);
-  const artist = artistRes.data as Row | null;
+  const artistId = text(candidate, "artist_id");
+  const promoterClientId = text(candidate, "client_id");
+  let artist: Row | null = null;
+  if (artistId) {
+    const artistRes = await db.from("creative_lab_artists").select("*").eq("id", artistId).eq("user_id", args.userId).maybeSingle();
+    if (artistRes.error) throw new Error(artistRes.error.message);
+    artist = artistRes.data as Row | null;
+  } else if (promoterClientId) {
+    const clientRes = await db.from("clients").select("id, user_id, instagram_handle").eq("id", promoterClientId).maybeSingle();
+    if (clientRes.error) throw new Error(clientRes.error.message);
+    const client = clientRes.data as Row | null;
+    if (!client || text(client, "user_id") !== args.userId) throw new Error("No client with that id.");
+    artist = { id: promoterClientId, client_id: promoterClientId, user_id: args.userId, ig_username: text(client, "instagram_handle"), rights_doc_ref: "" };
+  }
   if (!artist) throw new Error("No artist with that id.");
 
   let assetId = text(candidate, "asset_id");
@@ -181,6 +194,7 @@ export async function importIgCandidate(
     duration: measured?.durationInSeconds ?? null,
     check: check ?? (candidate.overlay_check as OverlayCheck | null),
     now: args.now ?? new Date(),
+    eventId: args.eventId ?? null,
   });
   await markImported(db, args.candidateId, clipId, assetId);
   return { outcome: "imported", clipId, reason: null, steps, check };
@@ -210,17 +224,31 @@ async function sourceDuration(db: ServiceRoleDb, assetId: string, given: number 
 
 async function insertClip(
   db: ServiceRoleDb,
-  args: { userId: string; artist: Row; candidate: Row; assetId: string; duration: number | null; check: OverlayCheck | null; now: Date },
+  args: { userId: string; artist: Row; candidate: Row; assetId: string; duration: number | null; check: OverlayCheck | null; now: Date; eventId?: string | null },
 ): Promise<string> {
   const artistId = text(args.artist, "id");
-  const clips = await db.from("creative_lab_clips").select("clip_no").eq("artist_id", artistId);
+  const clientId = text(args.artist, "client_id");
+  const client = clientId
+    ? await db.from("clients").select("instagram_handle").eq("id", clientId).maybeSingle()
+    : { data: null, error: null };
+  if (client.error) throw new Error(client.error.message);
+  const derived = ownerFromImport({
+    kind: "instagram",
+    handle: text(args.candidate, "username") || text(args.artist, "ig_username"),
+    clientHandle: text(client.data as Row | null, "instagram_handle"),
+    artistId,
+  });
+  const clips = derived.owner === "promoter"
+    ? await db.from("creative_lab_clips").select("clip_no").eq("owner", "promoter").is("artist_id", null)
+    : await db.from("creative_lab_clips").select("clip_no").eq("artist_id", artistId);
   if (clips.error) throw new Error(clips.error.message);
   const nextNo = Math.max(0, ...((clips.data ?? []) as Row[]).map((row) => Number(row.clip_no) || 0)) + 1;
   const duration = await sourceDuration(db, args.assetId, args.duration);
   const trimmed = duration != null && duration > TRIM_SECONDS;
   const inserted = await db.from("creative_lab_clips").insert({
     user_id: args.userId,
-    artist_id: artistId,
+    artist_id: derived.artistId,
+    owner: derived.owner,
     creative_asset_id: args.assetId,
     clip_no: nextNo,
     source: "instagram",
@@ -240,6 +268,7 @@ async function insertClip(
     in_s: trimmed ? 0 : null,
     out_s: trimmed ? TRIM_SECONDS : null,
     overlay_check: args.check,
+    ...(derived.owner === "promoter" && args.eventId ? { shown_on_event_id: args.eventId } : {}),
   }).select("id");
   if (inserted.error) throw new Error(inserted.error.message);
   const id = text((inserted.data as Row[] | null)?.[0] ?? null, "id");

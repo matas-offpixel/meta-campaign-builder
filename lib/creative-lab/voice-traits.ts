@@ -499,8 +499,9 @@ export function voiceChipParts(args: { handle: string | null; sampleN: number; e
   house: boolean;
   cant: boolean;
 } {
-  if (args.artistPage && !args.handle) {
-    return { name: "House voice", count: "· no Instagram on the row", countNarrow: "Add Instagram", house: true, cant: false };
+  if (!args.handle) {
+    if (args.artistPage) return { name: "House voice", count: "· no Instagram on the row", countNarrow: "Add Instagram", house: true, cant: false };
+    return { name: "House voice", count: "· no Instagram on the client", countNarrow: "Add Instagram", house: true, cant: false };
   }
   if (args.error && args.sampleN < VOICE_FLOOR) {
     const handle = args.handle ?? "the page";
