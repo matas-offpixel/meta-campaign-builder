@@ -21,8 +21,8 @@ The 90% rung waits 14 days, because artwork refreshes every two weeks. The seed 
 
 ## Validation
 
-- [ ] `node --conditions react-server --experimental-strip-types --test lib/releases/__tests__/bank.test.ts`
-- [ ] AB5 Ubuntu pair, both 0, then the frames that moved
+- [x] `node --conditions react-server --experimental-strip-types --test lib/releases/__tests__/bank.test.ts` — 28 passed
+- [ ] AB5 Ubuntu pair 42825268452 / 42825278848, both 0 against each other. AB5-1280 1280×976 → 1280×960. AB5-393 393×1493 → 393×1477. Both now read "Selling fast for 14+ days · default 14".
 - [ ] CI green on the frame commit
 
 ## Notes
