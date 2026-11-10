@@ -3476,7 +3476,7 @@ export type Database = {
       }
       creative_lab_clips: {
         Row: {
-          artist_id: string | null
+          artist_id: string
           audio_match: boolean | null
           audio_status: string
           clip_no: number
@@ -3508,7 +3508,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          artist_id?: string | null
+          artist_id: string
           audio_match?: boolean | null
           audio_status?: string
           clip_no: number
@@ -3540,7 +3540,7 @@ export type Database = {
           user_id: string
         }
         Update: {
-          artist_id?: string | null
+          artist_id?: string
           audio_match?: boolean | null
           audio_status?: string
           clip_no?: number
