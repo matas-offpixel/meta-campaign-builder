@@ -128,6 +128,8 @@ Baselines: Ubuntu frames-baselines 42497321834 and 42497326107, matching, `only=
 
 The caption follows the footage's owner. `only=CLW` shoots CLW1, CLW1b, CLW2 and CLW3, and leaves CL and CLV alone.
 
+CLW1b baselines: Ubuntu frames-baselines 42898262157 and 42898272384, matching, `only=CLW1b`.
+
 | Id | State | What to check by hand |
 |---|---|---|
 | CLW1 | Clips by owner | Puzzle footage first, empty, then Enzo and Luke. 393 stacks and shows Enzo #1 and #2 |
