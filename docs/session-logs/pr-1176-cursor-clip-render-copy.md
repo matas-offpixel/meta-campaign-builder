@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 1176
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1176
 - **Branch:** `cursor/clip-render-copy`
 - **Base:** `8daf45674736b21164ed1367d7e772e6245f5765` (main)
 
