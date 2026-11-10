@@ -24,6 +24,7 @@ The campaign rail leads with Best copy shapes from copy_features, collapsed by a
 - [x] rail model, rail-frames, rail-sources, copy-features, cross-client guard
 - [ ] `npm run build`
 - [x] frames IR3, IR4, IR9 from two matching Ubuntu runs (IR pair 42724782279 / 42724790431; CL pair 42724797545 / 42724804814; CL5 re-pair 42725690535 / 42725699885)
+- [x] fail-round pair, both 0: IR 42799008506 / 42799014065, CL 42799018587 / 42799023023
 
 ## Notes
 
