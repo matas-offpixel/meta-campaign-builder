@@ -80,6 +80,11 @@ export const INVENTED = [
   "O20 reading: the fill is blurred along the edge with sigma 0.03 W (32 px); the grain is monochrome Gaussian noise at the strip's detail stdev, seeded",
   "O20 person mask: MediaPipe Selfie (256²) refined by a guided filter on the photo at ≤ 2400 px, resampled to the source grid (segment.ts)",
   "O20 eyes measurable: detector confidence ≥ 0.5, both eye centroids inside the face box, ≥ 0.25 box widths apart, between brows and chin",
+  "O21 B ground: the ruling's #32322f is used (re-samples printed beside it); the lift interpolates centre → edge in CIELAB by smoothstep(d / 756); flat or lift is the one with the larger median ΔE between the figure's 6 px inner edge band and the ground behind it, unless only the other passes contrast",
+  "O21 B matte: the source-resolution guided filter (radius 8, eps 1e-3, grey guide) runs over the photo rows and columns that reach any canvas plus 24 px; hair = above the chin row where ≥ 35 % of a 7×7 window is fractional (0.05–0.95); feathers 2.5 px (hair) and 1.25 px (body), 10–90 %",
+  "O21 B decontamination: the local background is measured at output size on an 8 px grid (48 px when fewer than 20 pixels lie within 24 px); spill is judged on the decontaminated colour, the fade band left out; pixels the feather reaches beyond the matte take the nearest solid pixel's colour",
+  "O21 B unify: contrast about the figure's median L* so its 5th-percentile L* meets the ground's (black levels), clamped 0.9–1.1; saturation 0 at median C* ≤ 10 to −15 % at ≥ 30; white balance moves the mid-greys (L* 30–70, C* ≤ 15, ≥ 500 px) towards the ground's a* and b*, capped ΔE 4; all three scaled back together until the face box's median moves ΔE ≤ 3",
+  "O21 B shadow and grain: the 0.04 W shadow blur is read as O6's blur is (sigma = half, 21.5 px); the grain sigma is 1.4826 × median |Immerkær operator| ÷ 6 on the solid figure at output size, clamped 2–5; the 1:1's grain is added after its 0.8× re-sit",
 ] as const;
 
 // ─── Text layout ────────────────────────────────────────────────────────────

@@ -35,3 +35,25 @@ export function parseHex(h: string): [number, number, number] {
   const s = h.replace("#", "");
   return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
 }
+
+/** CIELAB (D65) → sRGB, unclamped floats 0–255 (the inverse of rgbToLab). */
+export function labToRgb(L: number, a: number, b: number): [number, number, number] {
+  const fy = (L + 16) / 116;
+  const fx = fy + a / 500;
+  const fz = fy - b / 200;
+  const inv = (t: number) => (t > 6 / 29 ? t * t * t : (108 / 841) * (t - 4 / 29));
+  const X = inv(fx) * 0.95047;
+  const Y = inv(fy);
+  const Z = inv(fz) * 1.08883;
+  const R = 3.2406 * X - 1.5372 * Y - 0.4986 * Z;
+  const G = -0.9689 * X + 1.8758 * Y + 0.0415 * Z;
+  const B = 0.0557 * X - 0.204 * Y + 1.057 * Z;
+  const gam = (c: number) => 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.max(0, c) ** (1 / 2.4) - 0.055);
+  return [gam(R), gam(G), gam(B)];
+}
+
+/** Hermite smoothstep of t clamped to 0–1. */
+export function smoothstep(t: number): number {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+}

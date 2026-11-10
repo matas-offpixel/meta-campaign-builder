@@ -164,3 +164,42 @@ export function maskTouches(mask: PersonMask, rect: { left: number; top: number;
   for (let y = y0; y < y1; y += 1) for (let x = x0; x < x1; x += 1) if (mask.alpha[y * mask.width + x]! > threshold) count += 1;
   return count;
 }
+
+/**
+ * The mask refined again at source resolution (O21 round 5): a guided filter
+ * of radius 8 guided by the photo's own grey, over the source rows and columns
+ * in `region` (the part that reaches the card), in strips with a 2r apron so
+ * the result equals one pass over the whole region. Outside the region the
+ * mask is unchanged.
+ */
+export async function refineAtSource(image: Buffer, mask: PersonMask, region: { left: number; top: number; width: number; height: number }, radius = 8, eps = 1e-3): Promise<PersonMask> {
+  const sharp = (await import("sharp")).default;
+  const { width: W, height: H } = mask;
+  const x0 = Math.max(0, Math.floor(region.left));
+  const y0 = Math.max(0, Math.floor(region.top));
+  const x1 = Math.min(W, Math.ceil(region.left + region.width));
+  const y1 = Math.min(H, Math.ceil(region.top + region.height));
+  const alpha = Float32Array.from(mask.alpha);
+  if (x1 <= x0 || y1 <= y0) return { width: W, height: H, alpha };
+  const rw = x1 - x0;
+  const grey = await sharp(image).rotate().removeAlpha().extract({ left: x0, top: y0, width: rw, height: y1 - y0 }).greyscale().raw().toBuffer();
+  const apron = 2 * radius + 2;
+  const strip = 512;
+  for (let sy = y0; sy < y1; sy += strip) {
+    const ey = Math.min(y1, sy + strip);
+    const ay0 = Math.max(y0, sy - apron);
+    const ay1 = Math.min(y1, ey + apron);
+    const sh = ay1 - ay0;
+    const I = new Float32Array(rw * sh);
+    const p = new Float32Array(rw * sh);
+    for (let y = 0; y < sh; y += 1) {
+      for (let x = 0; x < rw; x += 1) {
+        I[y * rw + x] = grey[(y + ay0 - y0) * rw + x]! / 255;
+        p[y * rw + x] = mask.alpha[(y + ay0) * W + x + x0]!;
+      }
+    }
+    const q = guidedFilter(I, p, rw, sh, radius, eps);
+    for (let y = sy; y < ey; y += 1) for (let x = 0; x < rw; x += 1) alpha[y * W + x + x0] = q[(y - ay0) * rw + x]!;
+  }
+  return { width: W, height: H, alpha };
+}

@@ -16,8 +16,8 @@
  * as 9:16, 4:5 and 1:1.
  *
  * Per photo the order is O21's: A (the photo, extended per O20 when it
- * must be) if every rule passes, else B (the artist cut out onto the PSD's
- * Background and panel, artist-card-cutout.ts) if the cut-out passes, else skip.
+ * must be) if every rule passes, else B (the artist cut out onto a plain
+ * ground, artist-card-cutout.ts) if the cut-out passes, else skip.
  *
  * Default: writes PNGs and report.md to --out (default outputs/{CODE}/cards).
  * --apply also copies them into the event's Drive tree, routed by
@@ -36,9 +36,9 @@ import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import { cardFileName, cardFolderKey, INVENTED, renderCard, trimToInk, type CardFormat, type Piece, type RenderResult } from "../lib/creative-lab/artist-card.ts";
-import { chooseVariant, renderCutout, type CutoutResult } from "../lib/creative-lab/artist-card-cutout.ts";
+import { chooseVariant, describeGround, renderCutout, type CutoutResult } from "../lib/creative-lab/artist-card-cutout.ts";
 import { detectFaces, eyesMeasurable, faceGeometry, type FaceBox } from "../lib/creative-lab/face-detect.ts";
-import { segmentPerson } from "../lib/creative-lab/segment.ts";
+import { refineAtSource, segmentPerson } from "../lib/creative-lab/segment.ts";
 import { APP_ID_KEY, APP_TAG_KEY, driveFromEnv } from "../lib/drive/client.ts";
 import type { DriveDb } from "../lib/drive/db.ts";
 import { ensureEventKey } from "../lib/drive/folders.ts";
@@ -56,6 +56,8 @@ const kitDir = flag("--kit") ?? "";
 const outDir = flag("--out") ?? join("outputs", code, "cards");
 const version = Number(flag("--version") ?? "1");
 const scans = many("--scan");
+const debugDir = flag("--debug");
+let debugTag = "card";
 const numbered = new Map<string, number>();
 const picks = many("--pick").map((p) => {
   const at = p.lastIndexOf("=");
@@ -104,7 +106,7 @@ const info = await Promise.all(kit.pieces.filter((p) => p.role === "info").map(p
 const lockupRecord = kit.pieces.find((p) => p.role === "logo") ?? null;
 const lockup = lockupRecord ? await piece(lockupRecord) : null;
 
-// Variant B's backdrop: the PSD's own Background and taped-panel layers (psd-kit's manifest roles).
+// The charcoal re-sample (printed beside the ruling's #32322f): the taped panel layer and the flattened preview.
 type KitManifestFile = { roles: { role: string; ref: string }[]; layer_files: Record<string, string> };
 const kitManifest = JSON.parse(readFileSync(join(kitDir, "manifest.json"), "utf8")) as KitManifestFile;
 const layerFor = (role: string): Buffer | null => {
@@ -112,7 +114,7 @@ const layerFor = (role: string): Buffer | null => {
   const file = ref != null ? kitManifest.layer_files[ref] : undefined;
   return file ? readFileSync(join(kitDir, file)) : null;
 };
-const backdrop = { background: layerFor("background"), panel: layerFor("panel") };
+const backdrop = { panel: layerFor("panel"), preview: existsSync(join(kitDir, "preview.png")) ? readFileSync(join(kitDir, "preview.png")) : null };
 
 const lines: string[] = [];
 const say = (line = "") => {
@@ -132,9 +134,9 @@ async function download(storagePath: string): Promise<Buffer> {
   return Buffer.from(await file.data.arrayBuffer());
 }
 
-type Judged = { variant: "A" | "B1" | "B2" | "skip"; a: RenderResult; b: CutoutResult | null; faces: FaceBox[] };
+type Judged = { variant: "A" | "B" | "skip"; a: RenderResult; b: CutoutResult | null; faces: FaceBox[] };
 
-/** O21: A (extension included), then B1, then B2, then skip. */
+/** O21: A (extension included), then B, then skip. */
 async function judge(photo: Buffer, artist: string): Promise<Judged> {
   const nameRecord = kit.pieces.find((p) => p.role === "name" && p.artist?.toLowerCase() === artist.toLowerCase());
   if (!nameRecord) fail(`${artist}: no name piece in ${kit.psd}`);
@@ -146,10 +148,14 @@ async function judge(photo: Buffer, artist: string): Promise<Judged> {
   const subjects = countSubjects(faces);
   const a = await renderCard({ photo, face: geometry, eyes, subjects, mask, name, info, lockup });
   let b: CutoutResult | null = null;
-  if (!a.pass && backdrop.background && backdrop.panel) {
-    b = await renderCutout({ photo, mask, face: geometry, eyes, subjects, name, info, lockup, background: backdrop.background, panel: backdrop.panel });
+  if (!a.pass) {
+    b = await renderCutout({ photo, mask, face: geometry, eyes, subjects, name, info, lockup, panel: backdrop.panel, preview: backdrop.preview, refine: (region) => refineAtSource(photo, mask, region), debug: debugDir ? async (name, gray, w, h) => {
+      const sharp = (await import("sharp")).default;
+      mkdirSync(debugDir, { recursive: true });
+      await sharp(Buffer.from(gray), { raw: { width: w, height: h, channels: 1 } }).png().toFile(join(debugDir, `${debugTag}-${name}.png`));
+    } : undefined });
   }
-  return { variant: chooseVariant(a, b?.b1 ?? null, b?.b2 ?? null), a, b, faces };
+  return { variant: chooseVariant(a, b), a, b, faces };
 }
 
 function ruleLine(card: RenderResult): string {
@@ -169,14 +175,18 @@ function cutoutLine(b: CutoutResult | null): string {
   if (!b) return "B not tried";
   const p = b.plan;
   const f = b.figures;
-  const fails = b.shared.filter((r) => !r.pass).map((r) => `${r.rule}: ${r.detail}`);
+  const fails = b.rules.filter((r) => !r.pass).map((r) => `${r.rule}: ${r.detail}`);
   const where = p
-    ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · face centre ${p.faceCentreX.toFixed(3)} W · scale ${p.scale.toFixed(3)} · ends ${(p.figureEnd / 1920).toFixed(3)} H${p.fade ? " · fade applied" : ""}${p.sideCut ? ` · side cut (${p.sideCut}) flush` : ""}`
+    ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · face centre ${p.faceCentreX.toFixed(3)} W (1:1 ${p.squareCentreX.toFixed(3)}) · scale ${p.scale.toFixed(3)} · ends ${(p.figureEnd / 1920).toFixed(3)} H · fade ${p.fade ? "yes" : "no (bottom-anchored)"} · side cut ${p.sideCut ?? "none"}`
     : "not placed";
-  const edge = `face-box alpha min ${f.faceAlphaMin == null ? "–" : f.faceAlphaMin.toFixed(2)} · feather ${f.featherPx} px · halo ${f.haloShare == null ? "–" : (f.haloShare * 100).toFixed(2) + " %"} of ${f.haloBand} px`;
-  const v = (x: CutoutResult["b1"]) =>
-    x ? `${x.variant} ${x.pass ? "PASS" : "FAIL"}${x.silhouetteOpacity != null ? ` (silhouette ${Math.round(x.silhouetteOpacity * 100)} %)` : ""}: ${x.rules.map((r) => `${r.rule} ${r.detail}`).join("; ")}` : "";
-  return `B shared ${b.sharedPass ? "PASS" : "FAIL"} · ${where} · ${edge}${fails.length ? ` · fails ${fails.join("; ")}` : ""}${b.b1 ? ` || ${v(b.b1)}` : ""}${b.b2 ? ` || ${v(b.b2)}` : ""}`;
+  const pct = (v: number | null, d = 2) => (v == null ? "–" : `${(v * 100).toFixed(d)} %`);
+  const u = f.unify;
+  const unify = u
+    ? `unify contrast ×${u.contrast.toFixed(3)}, saturation ${((u.saturation - 1) * 100).toFixed(1)} %, WB a* ${u.wb[0].toFixed(2)} b* ${u.wb[1].toFixed(2)} (ΔE ${u.wbDeltaE.toFixed(2)}, ${u.midGreys} mid-grey px), face ΔE ${u.faceDeltaE.toFixed(2)}${u.k < 1 ? ` (scaled back to ${u.k.toFixed(2)})` : ""}`
+    : "unify –";
+  const figuresLine = `face alpha ${pct(f.faceAlphaShare)} ≥ 0.9, inner min ${f.faceAlphaInnerMin == null ? "–" : f.faceAlphaInnerMin.toFixed(2)} · spill ${pct(f.spillShare)} of ${f.spillCounted} px · halo ${pct(f.haloShare)} of ${f.haloBand} px · hair ${pct(f.hairShare, 1)} of the edge · ${unify} · grain σ ${f.grainSigma == null ? "–" : f.grainSigma.toFixed(2)} (measured ${f.grainMeasured == null ? "–" : f.grainMeasured.toFixed(2)})`;
+  const ground = b.ground ? `ground ${describeGround(b.ground)}${f.separation ? ` (edge separation flat ΔE ${f.separation.flat.toFixed(1)}, lift ΔE ${f.separation.lift.toFixed(1)})` : ""} · contrast ${pct(b.contrastShare, 1)}` : "ground –";
+  return `B ${b.pass ? "PASS" : "FAIL"} · ${where} · ${ground} · ${figuresLine}${fails.length ? ` · fails ${fails.join("; ")}` : ""}`;
 }
 
 function mkdirOut(): string {
@@ -241,6 +251,7 @@ mkdirOut();
 for (const pick of picks) {
   const assetRes = await supabase.from("creative_assets").select("id, storage_path, filename").eq("id", pick.assetId).maybeSingle();
   if (assetRes.error || !assetRes.data) fail(`asset ${pick.assetId}: ${assetRes.error?.message ?? "not found"}`);
+  debugTag = `${artistSlug(pick.artist)}-${pick.card}`;
   const j = await judge(await download(String(assetRes.data.storage_path)), pick.artist);
   const card = j.a;
   say(`## ${pick.artist} · card ${pick.card} · ${assetRes.data.filename} (${pick.assetId}) → variant ${j.variant}`);
@@ -258,10 +269,15 @@ for (const pick of picks) {
     if (card.squarePhotoScale > 0.8001) say(`- 1:1: the photo is too narrow to extend at the sides; drawn at ${card.squarePhotoScale.toFixed(3)}× the master's scale (not 0.8×), anchored on the eyes`);
     if (card.squareShift) say(`- 1:1: the photo ran out; its window shifted ${card.squareShift} px (the text stays centred)`);
   }
-  const chosenB = j.variant === "B1" ? j.b?.b1 : j.variant === "B2" ? j.b?.b2 : null;
-  say(`Disclosure: ${j.variant === "A" ? card.extensionLabel || "(none: the photo covers the frame)" : chosenB ? chosenB.disclosure : "–"}${j.b ? ` · charcoal ${j.b.charcoal}` : ""}`);
+  const chosenB = j.variant === "B" ? j.b : null;
+  const cc = j.b?.charcoal;
+  say(`Disclosure: ${j.variant === "A" ? card.extensionLabel || "(none: the photo covers the frame)" : chosenB ? chosenB.disclosure : "–"}${cc ? ` · charcoal ${cc.used} (ruling); re-sampled: the panel's own pixels ${cc.panelOwn ?? "–"}, the panel as seen over the paint ${cc.panelSeen ?? "–"}` : ""}`);
   if (j.variant === "skip") {
-    say("Skipped: neither A, B1 nor B2 passes. Nothing written.");
+    if (j.b?.master) {
+      const held = join(outDir, `HELD-${artistSlug(pick.artist)}-${pick.card}-${String(assetRes.data.filename).replace(/[^A-Za-z0-9]+/g, "-")}B.png`);
+      writeFileSync(held, j.b.master);
+      say(`Skipped: neither A nor B passes. Held render (local only, never filed): ${held}`);
+    } else say("Skipped: neither A nor B passes. Nothing written.");
     say("");
     continue;
   }
