@@ -176,7 +176,19 @@ for (const job of jobs) {
         at = y;
       }
     }
-    say(`H66 (O66): backing ${Math.round(res.redBacking * 100)} % · gap y ${y0}–${y1} · largest row-to-row step of mean luma across line 1's width ${worst.toFixed(1)} levels at y ${at} (limit 6) → ${worst <= 6 ? "passes" : "fails"}`);
+    // The feather alone: from the core's edge (line 1's baseline + a quarter of the gap, at most 0.5 cap) to line 2's cap top.
+    const core = Math.ceil(l1.capTop + l1.capPx + Math.min(0.5 * l1.capPx, 0.25 * (l2.capTop - (l1.capTop + l1.capPx))));
+    let fWorst = 0;
+    let fAt = core;
+    for (let y = core; y < y1; y += 1) {
+      const d = Math.abs(rowLuma(y + 1) - rowLuma(y));
+      if (d > fWorst) {
+        fWorst = d;
+        fAt = y;
+      }
+    }
+    const profile = Array.from({ length: y1 - y0 + 2 }, (_, i) => `${y0 + i}:${rowLuma(y0 + i).toFixed(0)}`).join(" ");
+    say(`H66 (O66): backing ${Math.round(res.redBacking * 100)} % · gap y ${y0}–${y1}. Whole gap, line 1's glyph edge and O6 shadow included: largest row-to-row step ${worst.toFixed(1)} levels at y ${at}. The feather alone (y ${core}–${y1}): ${fWorst.toFixed(1)} levels at y ${fAt} (limit 6) → ${fWorst <= 6 ? "passes" : "fails"}. Mean luma by row: ${profile}`);
   }
   say(`placement: ${p ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · scale ${p.scale.toFixed(3)}` : "–"} · ${res.extensionLabel || "no extension"}`);
   // O20's figures for every extended edge, each beside its limit (design checks them, not only "pass").

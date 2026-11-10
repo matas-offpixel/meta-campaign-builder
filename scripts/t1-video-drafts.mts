@@ -92,6 +92,11 @@ const flag = (n: string) => {
   return i >= 0 ? argv[i + 1] : undefined;
 };
 const many = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1]!] : []));
+// Set once the draft site is deployed, cleared once it's deleted: an exit with it still set prints how to remove it.
+let siteLeft: string | null = null;
+process.on("exit", () => {
+  if (siteLeft) console.error(`the draft site ${siteLeft} is still deployed — remove it with deleteSite({ siteName: "${siteLeft}" }) before anything else`);
+});
 const fail = (m: string): never => {
   console.error(m);
   process.exit(2);
@@ -104,6 +109,9 @@ const seconds = Number(flag("--seconds") ?? "8");
 if (!code || !kitDir || !flag("--out") || !clipIds.length) fail("--event, --kit, --out and --clip are required");
 if (argv.some((a) => ["--apply", "--export", "--upload"].includes(a))) fail("this script renders drafts only: it never files, exports or uploads");
 const onLambda = argv.includes("--lambda");
+// --local-from W: on --lambda, a clip at least W px wide renders here instead. Lambda's Chrome runs out of
+// disk fetching a 2160 × 3840 source (round 3, Luke 4), and its disk is an infra setting this script doesn't change.
+const localFrom = Number(argv[argv.indexOf("--local-from") + 1] ?? NaN);
 const DRAFT_SITE = "creative-lab-t1-drafts";
 mkdirSync(outDir, { recursive: true });
 const work = join(outDir, "_work");
@@ -241,10 +249,12 @@ if (onLambda) {
   const fn = pickLambdaFunction(await getFunctions({ region: REMOTION_REGION, compatibleOnly: true }));
   if (!fn) fail("no 480 s Remotion function in eu-west-2");
   const site = await deploySite({ entryPoint: resolve("src/remotion/index.tsx"), bucketName, region: REMOTION_REGION, siteName: DRAFT_SITE });
+  siteLeft = DRAFT_SITE;
   lambda = { serveUrl: site.serveUrl, bucketName, functionName: fn!.functionName, limit: await readConcurrencyLimit() };
   console.log(`site ${DRAFT_SITE} deployed (no kit font in it); function ${fn!.functionName}; concurrency ${lambda.limit}`);
 }
 const lambdaCosts: { id: string; functions: number; costUsd: number | null; ms: number }[] = [];
+const lambdaFailed: { id: string; why: string }[] = [];
 const dataUri = (b: Buffer) => `data:image/png;base64,${b.toString("base64")}`;
 
 // ─── Layers ──────────────────────────────────────────────────────────────────
@@ -267,7 +277,7 @@ async function layer(pieces: Piece[], places: Placement[], fmt: VideoFormat): Pr
 }
 
 // ─── Per clip ────────────────────────────────────────────────────────────────
-type Row = { clip: string; artist: string; claimLabel: string; fmt: VideoFormat; arrangement: string; crop: number | null; scale: number | null; tried: string[]; faceLine: string; topShare: number; claimShare: number; runS: number; topP95: number | null; lockupP95: number | null; bottomP95: number | null; steps: string; redP95: number | null; red: string; claim: string; safe: boolean; file: string | null; result: string };
+type Row = { clip: string; artist: string; claimLabel: string; fmt: VideoFormat; arrangement: string; crop: number | null; scale: number | null; tried: string[]; faceLine: string; topShare: number; claimShare: number; runS: number; topP95: number | null; lockupP95: number | null; bottomP95: number | null; steps: string; redP95: number | null; red: string; claim: string; safe: boolean; file: string | null; result: string; renderedOn?: string };
 const table: Row[] = [];
 const contactRows: { label: string; file: string }[] = [];
 
@@ -450,9 +460,10 @@ for (const clipId of clipIds) {
       writeFileSync(join(work, `${id}-top.png`), topWithStamp);
       writeFileSync(join(work, `${id}-bands.png`), bands);
       if (typeClaim) writeFileSync(join(work, `${id}-claim.png`), typeClaim);
-      const clipSigned = onLambda ? (await db.storage.from("campaign-assets").createSignedUrl(String(asset.data!.storage_path), 3600)).data?.signedUrl : null;
+      const here = !lambda || (Number.isFinite(localFrom) && src.width >= localFrom);
+      const clipSigned = !here ? (await db.storage.from("campaign-assets").createSignedUrl(String(asset.data!.storage_path), 3600)).data?.signedUrl : null;
       const props: T1OnClipProps = {
-        clipUrl: onLambda ? clipSigned! : `${base}/${clipFile}`,
+        clipUrl: !here ? clipSigned! : `${base}/${clipFile}`,
         format: fmt,
         sourceWidth: src.width,
         sourceHeight: src.height,
@@ -462,9 +473,9 @@ for (const clipId of clipIds) {
         fps,
         durationInSeconds: dur,
         muted: true,
-        bandsUrl: onLambda ? dataUri(bands) : `${base}/${id}-bands.png`,
-        topUrl: onLambda ? dataUri(topWithStamp) : `${base}/${id}-top.png`,
-        claimUrl: typeClaim ? (onLambda ? dataUri(typeClaim) : `${base}/${id}-claim.png`) : null,
+        bandsUrl: !here ? dataUri(bands) : `${base}/${id}-bands.png`,
+        topUrl: !here ? dataUri(topWithStamp) : `${base}/${id}-top.png`,
+        claimUrl: typeClaim ? (!here ? dataUri(typeClaim) : `${base}/${id}-claim.png`) : null,
       };
       const out = join(outDir, `${id}_DRAFT${refused ? "_REFUSED" : ""}.mp4`);
       // A stamped draft is refused by the export guard. A no-CTA card has no claim to approve and no stamp; this script has no export path.
@@ -476,7 +487,9 @@ for (const clipId of clipIds) {
           if ((e as Error).name !== "NotExportableError") throw e;
         }
       }
-      if (lambda) {
+      let renderedOn = "local";
+      if (lambda && !here) {
+        renderedOn = "Lambda";
         const nFrames = Math.round(dur * fps);
         const chunk = lambdaChunking(lambda.limit, nFrames);
         const started = Date.now();
@@ -486,7 +499,14 @@ for (const clipId of clipIds) {
           await new Promise((res) => setTimeout(res, 2000));
           progress = await getRenderProgress({ renderId: r.renderId, bucketName: r.bucketName, functionName: lambda.functionName, region: REMOTION_REGION });
         }
-        if (progress.fatalErrorEncountered || !progress.outKey) fail(`${id}: Lambda render failed: ${progress.errors.map((e) => e.message).join("; ")}`);
+        if (progress.fatalErrorEncountered || !progress.outKey) {
+          // Delete what the failed render left in S3, note it, and go on to the next draft.
+          await deleteRender({ bucketName: r.bucketName, region: REMOTION_REGION, renderId: r.renderId });
+          const why = progress.errors.map((e) => e.message.split("\n")[0]).join("; ");
+          console.error(`${id}: Lambda render failed (render deleted): ${why}`);
+          lambdaFailed.push({ id, why: why.slice(0, 300) });
+          continue;
+        }
         const { GetObjectCommand } = await import("@aws-sdk/client-s3");
         const { LambdaClientInternals } = await import("@remotion/lambda/client");
         const s3 = LambdaClientInternals.getS3Client({ region: REMOTION_REGION, customCredentials: null, forcePathStyle: false, requestHandler: null });
@@ -528,6 +548,7 @@ for (const clipId of clipIds) {
         claim: !job.text ? "no CTA" : !allowed.ok ? allowed.line : claimPlan ? `step ${claimPlan.step}${claimPlan.dropped.length ? ` · dropped ${claimPlan.dropped.join(", ")}` : ""} · ${Math.round(claimPlan.widest)} of 840 px` : (plan as { held: string }).held,
         safe,
         file: `${id}_DRAFT${refused ? "_REFUSED" : ""}.mp4`,
+        renderedOn,
         result: refused ? `refused: ${refused}` : "passes",
       });
     }
@@ -593,15 +614,16 @@ L.push(`Release names for the break rule (event_releases, select only): ${releas
 L.push(onLambda
   ? `Kit face: provided by Puzzle (cleared, O49; recorded in kit-faces.ts, O51), fetched for this run from the private kit-fonts bucket through a one-hour signed URL, its PostScript name checked, then set by sharp from a temporary file (O52). Lambda received the clip as a signed URL and the type and bands as images in the props; its site (${DRAFT_SITE}) carries no kit font.`
   : `Kit face: provided by Puzzle (cleared, O49), read in place from FONTS_DIR, never copied or committed. Local Remotion renders.`);
+for (const f of lambdaFailed) L.push(`Lambda render failed for ${f.id} (its S3 render deleted, no draft): ${f.why}`);
 if (lambdaCosts.length) {
   const total = lambdaCosts.reduce((a, c) => a + (c.costUsd ?? 0), 0);
   L.push(`Lambda: ${lambdaCosts.length} renders, ${lambdaCosts[0]!.functions} functions each (one orchestrator plus the chunks), $${(total / lambdaCosts.length).toFixed(4)} a render on average, $${total.toFixed(4)} in all.`);
 }
 L.push(`Each clip: its first ${seconds} s from in_s, muted, H.264 CRF 18. Samples at ${T1V_FACE.fps} a second.`, "");
 L.push(`The roll-call, from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.state}`).join(" · ")}): "${rollCall.claim!.replace("\n", " / ")}".`, "");
-L.push("| Clip | Version | Format | Arrangement | Crop | Scale (O63, ≤ 1.6×) | Face (O64): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | File |");
-L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
-for (const r of table) L.push(`| ${r.artist} (${r.clip}) | ${r.claimLabel} | ${r.fmt} | ${r.arrangement} | ${r.crop ?? "–"} | ${r.scale == null ? "–" : `${r.scale.toFixed(2)}×`} | ${pct(r.topShare)} / ${pct(r.claimShare)} · ${r.runS.toFixed(1)} s | ${pct(r.topP95)} | ${pct(r.lockupP95)} | ${pct(r.bottomP95)} | ${r.steps} | ${pct(r.redP95)} → ${r.red} | ${r.claim} | ${r.safe ? "✓" : "✗"} | ${r.result} | ${r.file ?? "–"} |`);
+L.push("| Clip | Version | Format | Arrangement | Crop | Scale (O63, ≤ 1.6×) | Face (O64): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | Rendered | File |");
+L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+for (const r of table) L.push(`| ${r.artist} (${r.clip}) | ${r.claimLabel} | ${r.fmt} | ${r.arrangement} | ${r.crop ?? "–"} | ${r.scale == null ? "–" : `${r.scale.toFixed(2)}×`} | ${pct(r.topShare)} / ${pct(r.claimShare)} · ${r.runS.toFixed(1)} s | ${pct(r.topP95)} | ${pct(r.lockupP95)} | ${pct(r.bottomP95)} | ${r.steps} | ${pct(r.redP95)} → ${r.red} | ${r.claim} | ${r.safe ? "✓" : "✗"} | ${r.result} | ${r.renderedOn ?? "–"} | ${r.file ?? "–"} |`);
 L.push("", "## Every crop and arrangement tried (O65)");
 for (const r of table) {
   if (!r.tried.length) continue;
@@ -617,6 +639,9 @@ for (const i of T1V_INVENTED) L.push(`- **${i.ruling}**: ${i.value}`);
 L.push("", `Contact sheet: CONTACT-SHEET.png (frames at ${TIMES.join(" / ")} s).`);
 writeFileSync(join(outDir, "report.md"), L.join("\n") + "\n");
 server.close();
-if (lambda) await deleteSite({ bucketName: lambda.bucketName, region: REMOTION_REGION, siteName: DRAFT_SITE });
+if (lambda) {
+  await deleteSite({ bucketName: lambda.bucketName, region: REMOTION_REGION, siteName: DRAFT_SITE });
+  siteLeft = null;
+}
 faceTmp?.done();
 console.log(`wrote ${contactRows.length} drafts, CONTACT-SHEET.png and report.md to ${outDir}`);
