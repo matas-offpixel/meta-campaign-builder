@@ -26,11 +26,11 @@ import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
 
 import { trimToInk } from "../lib/creative-lab/artist-card.ts";
-import { WATERMARK, approvedClaim, assertExportable, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
+import { WATERMARK, approvedClaim, assertExportable, fixtureRelease as rel, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { fontsDir, indexFonts } from "../lib/creative-lab/kit-font.ts";
 import { DEFAULT_GRADIENT_SHADOW } from "../lib/creative-lab/overlay-gradient.ts";
 import { T2_INVENTED } from "../lib/creative-lab/overlay-kits.ts";
-import { fixtureRelease as rel, rollCallWords } from "../lib/creative-lab/roll-call-words.ts";
+import { rollCallWords } from "../lib/releases/roll-call.ts";
 import { describeAttempt, renderStandaloneMessage, type T2Input, type T2Result } from "../lib/creative-lab/t2-render.ts";
 
 const argv = process.argv.slice(2);

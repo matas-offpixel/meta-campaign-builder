@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fixtureRelease as r, rollCallWords } from "../roll-call-words.ts";
+import { rollCallWords } from "../../releases/roll-call.ts";
+import { fixtureRelease as r } from "../claim-approval.ts";
 import { PUZZLE_FLOATING_T2, T2_INVENTED } from "../overlay-kits.ts";
 import { sampleStops } from "../t2-render.ts";
 import { applyDrop, bestSplit, breakAllowed, claimKind, claimSlot, inCase, isNumberToken, layoutClaim, planDetails, planLineup, planLogo, planT2Claim } from "../t2-message.ts";

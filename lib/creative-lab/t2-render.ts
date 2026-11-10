@@ -349,7 +349,9 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
 
   // O6 once on the whole group; the watermark over everything.
   const overlay = await textOverlay(pieces, places, frame, { k: 1, dx: 0, dy: 0 }, KIT_SHADOW);
-  const wm = input.watermark ? await watermarkLayer(input.watermark, frame, face.path, face.family ?? "Bootzy Condensed TM") : null;
+  // The draft stamp in a free corner of the 4:5 rectangle, off the claim, the corners and the lockup.
+  const crop45Rect: Rect = { left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top };
+  const wm = input.watermark ? await watermarkLayer(input.watermark, frame, face.path, face.family ?? "Bootzy Condensed TM", { avoid: places, within: crop45Rect }) : null;
   out.master = await sharp(shown).composite([{ input: overlay, left: 0, top: 0 }, ...(wm ? [{ input: wm, left: 0, top: 0 }] : [])]).png().toBuffer();
   out.crop45 = await sharp(out.master).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).png().toBuffer();
 
@@ -378,7 +380,8 @@ export async function renderStandaloneMessage(input: T2Input): Promise<T2Result>
   const panelSquare = input.panel && panelMaster ? await sharp(panelMaster).resize(Math.round(input.panel.width * k), Math.round(input.panel.height * k), { fit: "fill" }).png().toBuffer() : null;
   const squareBands = bandLayer ? await sharp(bandLayer).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).resize(side, side, { fit: "fill" }).png().toBuffer() : null;
   const squareOverlay = await textOverlay(pieces, places, { width: side, height: side }, { k, dx, dy }, KIT_SHADOW);
-  const wmSquare = input.watermark ? await watermarkLayer(input.watermark, { width: side, height: side }, face.path, face.family ?? "Bootzy Condensed TM") : null;
+  const squareAvoid = places.map((p) => ({ left: p.left * k + dx, top: p.top * k + dy, width: p.width * k, height: p.height * k }));
+  const wmSquare = input.watermark ? await watermarkLayer(input.watermark, { width: side, height: side }, face.path, face.family ?? "Bootzy Condensed TM", { avoid: squareAvoid }) : null;
   out.square = await sharp(groundSquare)
     .composite([
       ...(panelSquare ? [{ input: panelSquare, left: Math.round(input.panel!.left * k + dx), top: Math.round(input.panel!.top * k + dy) }] : []),
