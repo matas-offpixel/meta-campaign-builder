@@ -310,7 +310,7 @@ type FaceForCutout = FaceLines & { box: { x: number; width: number } };
  * face box and 1.0× source; eyes centred in what the bands leave free; x from
  * the face centre, or flush on the cut side; the figure must reach 0.85 H.
  */
-export function planFigure(photo: Size, face: FaceForCutout, edges: MaskEdges, frame: Size = MASTER): FigurePlan | { blocker: string } {
+export function planFigure(photo: Size, face: FaceForCutout, edges: MaskEdges, frame: Size = MASTER, opts: { squareRule?: boolean } = {}): FigurePlan | { blocker: string } {
   const H = frame.height;
   const W = frame.width;
   const f = SLOTS.face;
@@ -342,7 +342,7 @@ export function planFigure(photo: Size, face: FaceForCutout, edges: MaskEdges, f
       continue;
     }
     const square = squareFaceCentre(centre, sideCut, W);
-    if (sideCut && (square < CUTOUT.faceCentreCut.min - 1e-9 || square > CUTOUT.faceCentreCut.max + 1e-9)) {
+    if (opts.squareRule !== false && sideCut && (square < CUTOUT.faceCentreCut.min - 1e-9 || square > CUTOUT.faceCentreCut.max + 1e-9)) {
       reason ||= `face centre ${square.toFixed(3)} of the 1:1 outside 0.38–0.62 with the ${sideCut} cut flush on the square`;
       continue;
     }
@@ -777,6 +777,9 @@ export type CutoutResult = {
     spillUnknown: number;
     haloShare: number | null;
     haloBand: number;
+    /** Diagnostics only: ΔE between the source background the halo test looks for and the ground behind the band (median), and the band's share both within ΔE 10 of that background and ΔE ≥ 10 from the ground (a halo that shows). */
+    haloGroundDeltaE: number | null;
+    haloVisibleShare: number | null;
     hairShare: number | null;
     grainMeasured: number | null;
     grainSigma: number | null;
@@ -810,6 +813,8 @@ export type CutoutInput = {
   refine?: (region: { left: number; top: number; width: number; height: number }) => Promise<PersonMask>;
   /** Diagnostics: one-channel maps at frame size (matte, hair, spill and halo hits). */
   debug?: (name: string, gray: Uint8Array, width: number, height: number) => Promise<void>;
+  /** Evaluation only: skip the 1:1 face-centre rule so the edge can be measured. The card then always fails a "measureOnly" rule and is never filed. */
+  measureOnly?: boolean;
 };
 
 type Canvas = {
@@ -849,7 +854,7 @@ export async function renderCutout(input: CutoutInput): Promise<CutoutResult> {
     seen = panelSeen(raw.data, raw.info.width, raw.info.height, raw.info.channels);
   }
   const rules: CutoutRule[] = [];
-  const figures: CutoutResult["figures"] = { faceAlphaShare: null, faceAlphaInnerMin: null, spillShare: null, spillCounted: 0, spillUnknown: 0, haloShare: null, haloBand: 0, hairShare: null, grainMeasured: null, grainSigma: null, unify: null, separation: null };
+  const figures: CutoutResult["figures"] = { faceAlphaShare: null, faceAlphaInnerMin: null, spillShare: null, spillCounted: 0, spillUnknown: 0, haloShare: null, haloBand: 0, haloGroundDeltaE: null, haloVisibleShare: null, hairShare: null, grainMeasured: null, grainSigma: null, unify: null, separation: null };
   const base = { charcoal: { used: CUTOUT.ground.charcoal, panelOwn, panelSeen: seen }, disclosure: DISCLOSURE_B, layout, layoutCheck };
   const done = (plan: FigurePlan | null, ground: GroundSpec | null = null, contrastShare: number | null = null): CutoutResult => ({ pass: false, plan, rules, figures, ground, contrastShare, master: null, crop45: null, square: null, ...base });
 
@@ -861,7 +866,7 @@ export async function renderCutout(input: CutoutInput): Promise<CutoutResult> {
   }
   const face = input.face;
   const edges = maskEdges(input.mask, { top: face.headTopY, bottom: face.chinY });
-  const planned = planFigure({ width: input.mask.width, height: input.mask.height }, face, edges, frame);
+  const planned = planFigure({ width: input.mask.width, height: input.mask.height }, face, edges, frame, { squareRule: !input.measureOnly });
   if ("blocker" in planned) {
     rules.push({ rule: "placement", pass: false, detail: planned.blocker });
     return done(null);
@@ -873,6 +878,7 @@ export async function renderCutout(input: CutoutInput): Promise<CutoutResult> {
     detail: `head ${plan.headTop.toFixed(3)} · eyes ${plan.eyes.toFixed(3)} · chin ${plan.chin.toFixed(3)} H · face box ${Math.round(plan.faceWidthPx)} px · face centre ${plan.faceCentreX.toFixed(3)} W (1:1 ${plan.squareCentreX.toFixed(3)}) · ${plan.scale.toFixed(3)}× source · ends ${(plan.figureEnd / H).toFixed(3)} H${plan.fade ? " (fades)" : " (bottom-anchored)"}${plan.sideCut ? ` · ${plan.sideCut} side cut flush` : ""}`,
   });
   if (!(rules.every((r) => r.pass) && layoutCheck.insideSafe && layoutCheck.insideTextBox)) return done(plan);
+  if (input.measureOnly) rules.push({ rule: "measureOnly", pass: false, detail: "evaluation render: the 1:1 face-centre rule was skipped; never filed" });
 
   // 1. The matte refined at source resolution over the part of the photo any canvas shows (frame x −270…1350).
   const s = plan.scale;
@@ -1158,6 +1164,27 @@ export async function renderCutout(input: CutoutInput): Promise<CutoutResult> {
   const halo = haloShare(chosen.rgb, 3, inside, W, H, bgLab);
   figures.haloShare = halo.share;
   figures.haloBand = halo.band;
+  {
+    const shade = unifiedFor(main).shade;
+    const dOut = distanceOutside(inside, W, H);
+    const gd: number[] = [];
+    let band = 0;
+    let visible = 0;
+    const hits = input.debug ? new Uint8Array(n) : null;
+    for (let i = 0; i < n; i += 1) {
+      if (!(dOut[i]! > 0 && dOut[i]! <= CUTOUT.halo.bandPx)) continue;
+      band += 1;
+      if (hits) hits[i] = deltaE(rgbToLab(chosen.rgb[i * 3]!, chosen.rgb[i * 3 + 1]!, chosen.rgb[i * 3 + 2]!), bgLab) < CUTOUT.halo.deltaE ? 255 : 96;
+      const k = 1 - shade[i]!;
+      const g = rgbToLab(chosen.groundRgb[i * 3]! * k, chosen.groundRgb[i * 3 + 1]! * k, chosen.groundRgb[i * 3 + 2]! * k);
+      if (band % 4 === 0) gd.push(deltaE(g, bgLab));
+      const c = rgbToLab(chosen.rgb[i * 3]!, chosen.rgb[i * 3 + 1]!, chosen.rgb[i * 3 + 2]!);
+      if (deltaE(c, bgLab) < CUTOUT.halo.deltaE && deltaE(c, g) >= CUTOUT.halo.deltaE) visible += 1;
+    }
+    figures.haloGroundDeltaE = gd.length ? percentile(gd, 50) : null;
+    figures.haloVisibleShare = band ? visible / band : null;
+    if (hits && input.debug) await input.debug("halo", hits, W, H);
+  }
   rules.push({ rule: "halo", pass: halo.share <= CUTOUT.halo.maxShare, detail: `${(halo.share * 100).toFixed(2)} % of ${halo.band} band px within ΔE ${CUTOUT.halo.deltaE} of the source background (max ${CUTOUT.halo.maxShare * 100} %)` });
 
   const pass = rules.every((r) => r.pass) && layoutCheck.insideSafe && layoutCheck.insideTextBox;

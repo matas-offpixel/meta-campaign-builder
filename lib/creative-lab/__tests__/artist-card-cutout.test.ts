@@ -90,6 +90,9 @@ describe("O21 B: figure placement", () => {
     const plan = planFigure(photo, { ...face, eyeX: 1200, box: { x: 600, width: 1200 } }, { ...none, left: true });
     assert.ok("blocker" in plan);
     if ("blocker" in plan) assert.match(plan.blocker, /of the 1:1 outside 0\.38–0\.62/);
+    // Evaluation only (measureOnly): the same photo places when the square rule is skipped.
+    const measured = planFigure(photo, { ...face, eyeX: 1200, box: { x: 600, width: 1200 } }, { ...none, left: true }, undefined, { squareRule: false });
+    assert.ok(!("blocker" in measured));
   });
 
   it("maskEdges reads which photo edges the person touches", () => {
