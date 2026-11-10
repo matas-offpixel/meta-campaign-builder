@@ -360,11 +360,13 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
       .filter((ad) => text(ad, "verdict") || text(ad, "window_start") || ad.verdict_results != null || ad.verdict_cost_per_result != null)
       .sort((a, b) => Number(rounds.find((round) => text(round, "id") === text(b, "round_id"))?.round_no) - Number(rounds.find((round) => text(round, "id") === text(a, "round_id"))?.round_no));
     const judged = judgedAds[0];
+    const owner: FootageOwner | null = row.owner === "promoter" || row.owner === "artist" ? row.owner : null;
     return {
       id: text(row, "id"),
       artistName: text(artist, "name") || "Clip",
       clipNo: Number(row.clip_no) || 0,
       cleared: Boolean(artist?.approved_at),
+      owner,
       renderError: currentRenderError(clipRenders.map((render) => ({
         status: text(render, "status"),
         error: text(render, "error") || null,
@@ -375,9 +377,8 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
         inS: inS != null && Number.isFinite(inS) ? inS : null,
         outS: outS != null && Number.isFinite(outS) ? outS : null,
       }),
-      owner: row.owner === "promoter" || row.owner === "artist" ? row.owner : null,
       artistId: text(row, "artist_id") || null,
-      featuredArtistIds: [],
+      featuredArtistIds: [] as string[],
       judged: judged ? {
         verdict: text(judged, "verdict") || null,
         cost: judged.verdict_cost_per_result == null || judged.verdict_cost_per_result === "" ? null : Number(judged.verdict_cost_per_result),

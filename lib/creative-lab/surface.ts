@@ -64,7 +64,7 @@ export function generateFailureSentence(error: unknown): string {
 
 export type ClipForGroup = {
   id: string;
-  artistId?: string;
+  artistId?: string | null;
   artistName: string;
   clipNo: number;
   cleared: boolean;

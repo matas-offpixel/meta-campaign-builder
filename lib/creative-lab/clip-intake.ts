@@ -216,7 +216,7 @@ export async function importArtistClips(
   const folderUrl = args.folderUrl ?? text(artist, "clip_folder_url");
   if (!folderUrl) {
     const message = "Add a Drive or Dropbox folder link first.";
-    await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
+    if (args.artistId) await writeFolderState(db, args.artistId, userId, { clip_folder_last_error: message });
     throw new ClipIntakeError("no_folder", message);
   }
   const rightsRef = text(artist, "rights_doc_ref") || "Promoter page";
@@ -341,7 +341,7 @@ export async function importArtistClips(
           const proxy = await attachRenderProxy(db, {
             clipId,
             userId,
-            artistId: args.artistId,
+            artistId: args.artistId ?? "promoter",
             name,
             original: bytes,
             width: measured.width,
@@ -380,6 +380,6 @@ export async function importArtistClips(
     }
   }
 
-  if (ownFolder) await writeFolderState(db, args.artistId, userId, { clip_folder_synced_at: now, clip_folder_last_error: null });
+  if (ownFolder && args.artistId) await writeFolderState(db, args.artistId, userId, { clip_folder_synced_at: now, clip_folder_last_error: null });
   return { files, folderError: null };
 }
