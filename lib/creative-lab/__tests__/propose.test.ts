@@ -73,6 +73,24 @@ function withVoices(over: Record<string, unknown> = {}) {
 }
 
 describe("proposeRound", () => {
+  it("leaves a 1920 × 1080 clip out of the round and keeps a 720 × 1280 clip", async () => {
+    const fake = withVoices({
+      creative_lab_clips: [
+        { id: "landscape", artist_id: ARTIST, clip_no: 1, in_s: 0, out_s: 10, creative_asset_id: "asset-wide", source_width: 1920, source_height: 1080 },
+        { id: "vertical", artist_id: ARTIST, clip_no: 2, in_s: 0, out_s: 10, creative_asset_id: "asset-tall", source_width: 720, source_height: 1280 },
+      ],
+      creative_assets: [
+        { id: "asset-wide", user_id: USER, duration_seconds: 12 },
+        { id: "asset-tall", user_id: USER, duration_seconds: 12 },
+      ],
+    });
+    const result = await proposeRound(db(fake), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET });
+    assert.ok(result.ads.length > 0);
+    assert.ok(result.ads.every((ad) => ad.clipId === "vertical"));
+    assert.equal(result.skipped.some((row) => row.reason === "Too small for 9:16"), true);
+    assert.equal(fake.tables.creative_lab_clips.length, 2);
+  });
+
   it("an uncleared artist proposes a promoter-voice round and skips artist voice", async () => {
     const fake = withVoices();
     fake.tables.creative_lab_artists[0].approved_at = null;

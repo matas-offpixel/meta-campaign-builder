@@ -28,6 +28,29 @@ export async function signClipPreviews(
   return signed;
 }
 
+/**
+ * Sizes already on the clip, then a moov probe for the rest. A miss leaves
+ * that clip out of the map: the caller does not invent a refusal.
+ */
+export async function sizesForClipFiles(
+  clips: readonly { id: string; storagePath: string | null; width?: number | null; height?: number | null }[],
+): Promise<Map<string, { width: number; height: number }>> {
+  const sizes = new Map<string, { width: number; height: number }>();
+  const pending: { id: string; storagePath: string | null }[] = [];
+  for (const clip of clips) {
+    if (clip.width != null && clip.height != null && clip.width > 0 && clip.height > 0) {
+      sizes.set(clip.id, { width: clip.width, height: clip.height });
+      continue;
+    }
+    if (clip.storagePath) pending.push(clip);
+  }
+  if (pending.length === 0) return sizes;
+  const signed = await signClipPreviews(pending);
+  const measured = await measureClipSources(pending, signed);
+  for (const [id, size] of measured) sizes.set(id, size);
+  return sizes;
+}
+
 /** Pixel size of each signed file. A miss leaves the clip off Best clip. */
 export async function measureClipSources(
   clips: readonly { id: string }[],

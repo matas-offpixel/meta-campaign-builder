@@ -21,6 +21,15 @@ export function orderArtistClips<T extends ClipListing>(clips: readonly T[]): T[
 const FORMATS = ["9:16", "4:5", "1:1"] as const satisfies readonly VideoFormat[];
 const MIN_WINDOW_PX = 675;
 
+/** O93. An existing clip under this stays in the Lab and takes no template, round or render. */
+export const TOO_SMALL_FOR_916 = "Too small for 9:16";
+
+/** The 9:16 crop window is under 675 px. Missing dimensions are not a refusal. */
+export function tooSmallFor916(source: { width: number; height: number } | null | undefined): boolean {
+  if (!source || !(source.width > 0) || !(source.height > 0)) return false;
+  return footageWindow(source, "9:16").width + 1e-9 < MIN_WINDOW_PX;
+}
+
 /** The refusal line for a video whose narrowest crop window is under 675 px. Null when it can import. */
 export function importQualityLine(source: { width: number; height: number }): string | null {
   let narrowest: { format: VideoFormat; width: number } | null = null;

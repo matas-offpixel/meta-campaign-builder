@@ -378,7 +378,7 @@ function OwnerGroups({
                       clip={clip}
                       label={promoterTileLabel(client, clip.clipNo, names)}
                       selected={selected.has(clip.id)}
-                      onToggle={() => onToggle(clip.id)}
+                      onToggle={cantRunReason(clip) ? undefined : () => onToggle(clip.id)}
                       menu={<ClipMenu clip={clip} lab={lab} client={client} features onSave={onSave} />}
                     />
                   );
@@ -414,7 +414,7 @@ function OwnerGroups({
                   key={clip.id}
                   clip={clip}
                   selected={selected.has(clip.id)}
-                  onToggle={() => onToggle(clip.id)}
+                  onToggle={cantRunReason(clip) ? undefined : () => onToggle(clip.id)}
                   menu={<ClipMenu clip={clip} lab={lab} client={client} features={false} onSave={onSave} />}
                 />
               ))}
@@ -546,7 +546,7 @@ function ClipTile({
         <p className="text-xs">{name}</p>
       )}
       {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
-      {wideFrame && !clip.cropOpen ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
+      {wideFrame && !clip.cropOpen && !reason ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
       {reason ? <p className="text-xs text-destructive">{reason}</p> : (
         <div className="mt-1 space-y-1 text-xs">
           <VerdictChip verdict={verdict} />
