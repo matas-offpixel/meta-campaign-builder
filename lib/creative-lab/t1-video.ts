@@ -13,9 +13,9 @@
 import { MASTER, RECT_45, type Piece, type Placement, type Rect, type Size } from "./artist-card.ts";
 import { J2_FALL, type GradientShadow } from "./overlay-gradient.ts";
 import { DROP_ORDER, applyDrop, breakAllowed, isRollCall, rollCallStates, type Drop } from "./claim-slot.ts";
-import { FORMAT_SIZE, T1V_TIMING, claimOn, claimOpacity, footageWindow, type VideoFormat } from "./t1-video-frame.ts";
+import { FORMAT_SIZE, T1V_TIMING, claimOn, claimOpacity, footageWindow, orderArtistClips, type ClipListing, type VideoFormat } from "./t1-video-frame.ts";
 
-export { FORMAT_SIZE, T1V_TIMING, claimOn, claimOpacity, footageWindow, type VideoFormat };
+export { FORMAT_SIZE, T1V_TIMING, claimOn, claimOpacity, footageWindow, orderArtistClips, type ClipListing, type VideoFormat };
 
 // ─── O37: the claim's entrance ──────────────────────────────────────────────
 
@@ -402,16 +402,21 @@ export function formatTooSmall(source: Size, format: VideoFormat): string | null
   return w + 1e-9 < T1V_SCALE.minWindowPx ? T1V_LINES.tooSmall(format, w) : null;
 }
 
-export type ClipListing = { id: string; source: string; clipNo: number };
+const IMPORT_FORMATS = ["9:16", "4:5", "1:1"] as const satisfies readonly VideoFormat[];
 
 /**
- * O63's listing rule, for the Clips section and import: within one artist's
- * group, folder and press-kit clips come before Instagram clips, each kind in
- * its own clip order. The Lab doesn't match duplicates.
+ * O63's import gate, video only. Accept when the narrowest crop window is at
+ * least 675 px wide. Otherwise the line names that window. Stills stay on
+ * O19 and are never upscaled.
  */
-export function orderArtistClips<T extends ClipListing>(clips: readonly T[]): T[] {
-  const rank = (s: string) => (s === "instagram" ? 1 : 0);
-  return [...clips].sort((a, b) => rank(a.source) - rank(b.source) || a.clipNo - b.clipNo);
+export function importQualityLine(source: Size): string | null {
+  let narrowest: { format: VideoFormat; width: number } | null = null;
+  for (const format of IMPORT_FORMATS) {
+    const width = footageWindow(source, format).width;
+    if (!narrowest || width < narrowest.width) narrowest = { format, width };
+  }
+  if (!narrowest || narrowest.width + 1e-9 >= T1V_SCALE.minWindowPx) return null;
+  return T1V_LINES.tooSmall(narrowest.format, narrowest.width);
 }
 
 

@@ -7,8 +7,10 @@
 import { snapRatio } from "../clients/asset-queue/aspect-detect.ts";
 import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset } from "../creatives/asset-registry.ts";
 import type { ServiceRoleDb } from "./load.ts";
-import { LOW_QUALITY_AFTER_CROP, cropWindow } from "../../src/remotion/caption-style/profile.ts";
+import { LOW_QUALITY_AFTER_CROP } from "../../src/remotion/caption-style/profile.ts";
 import { ownerFromImport } from "./footage-owner.ts";
+import { importQualityLine } from "./t1-video.ts";
+import { attachRenderProxy, type RenderProxyMaker } from "./render-proxy.ts";
 import { frameSampleTimes, settleOverlayVerdict, type OverlayCheck, type OverlayFrame } from "./overlay-check.ts";
 
 type Row = Record<string, unknown>;
@@ -57,6 +59,8 @@ export async function importIgCandidate(
     probe?: (bytes: Uint8Array) => { width: number; height: number; durationInSeconds: number } | null;
     check?: (input: { bytes: Uint8Array; times: number[]; thumbnail: Uint8Array | null; storagePath: string | null }) => Promise<{ verdict?: string; frames?: OverlayFrame[]; reason?: string; unsure?: boolean }>;
     thumbnail?: (path: string) => Promise<Uint8Array | null>;
+    /** O68. Defaults to ffmpeg. false stores the original and no render copy. */
+    renderProxy?: RenderProxyMaker | false;
   },
 ): Promise<IgImportResult> {
   const steps: IgImportStep[] = [];
@@ -73,8 +77,9 @@ export async function importIgCandidate(
   if (candidate.has_file !== true || text(candidate, "file_source") === "none") {
     return { outcome: "refused", clipId: null, reason: "Request from team", steps, check: null };
   }
-  if (args.anyway && text(candidate, "reason") === LOW_QUALITY_AFTER_CROP) {
-    return { outcome: "skipped", clipId: null, reason: LOW_QUALITY_AFTER_CROP, steps, check: null };
+  const heldReason = text(candidate, "reason");
+  if (args.anyway && (heldReason === LOW_QUALITY_AFTER_CROP || heldReason.startsWith("Clip too small for "))) {
+    return { outcome: "skipped", clipId: null, reason: heldReason, steps, check: null };
   }
 
   const artistId = text(candidate, "artist_id");
@@ -134,13 +139,16 @@ export async function importIgCandidate(
     await db.from("creative_lab_ig_candidates").update({ asset_id: assetId }).eq("id", args.candidateId);
   }
 
-  if (measured && cropWindow(measured.width, measured.height, 0.5).width < 540) {
-    await db.from("creative_lab_ig_candidates").update({
-      status: "skipped",
-      reason: LOW_QUALITY_AFTER_CROP,
-      asset_id: assetId || null,
-    }).eq("id", args.candidateId);
-    return { outcome: "skipped", clipId: null, reason: LOW_QUALITY_AFTER_CROP, steps, check: null };
+  if (measured) {
+    const line = importQualityLine({ width: measured.width, height: measured.height });
+    if (line) {
+      await db.from("creative_lab_ig_candidates").update({
+        status: "skipped",
+        reason: line,
+        asset_id: assetId || null,
+      }).eq("id", args.candidateId);
+      return { outcome: "skipped", clipId: null, reason: line, steps, check: null };
+    }
   }
 
   let check: OverlayCheck | null = null;
@@ -197,6 +205,24 @@ export async function importIgCandidate(
     eventId: args.eventId ?? null,
   });
   await markImported(db, args.candidateId, clipId, assetId);
+  if (args.renderProxy !== false && measured && bytes && args.upload) {
+    try {
+      await attachRenderProxy(db, {
+        clipId,
+        userId: args.userId,
+        artistId: text(artist, "id"),
+        name: `${text(candidate, "ig_media_id")}.mp4`,
+        original: Buffer.from(bytes),
+        width: measured.width,
+        height: measured.height,
+        durationSeconds: measured.durationInSeconds,
+        make: args.renderProxy,
+        upload: async (path, file) => args.upload!(path, file),
+      });
+    } catch {
+      // The original is the clip. The next run stores the render copy.
+    }
+  }
   return { outcome: "imported", clipId, reason: null, steps, check };
 }
 

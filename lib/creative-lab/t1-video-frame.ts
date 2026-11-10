@@ -49,3 +49,15 @@ export function footageWindow(source: Size, format: VideoFormat, cropFocusY = 0.
   return { left, top, width: w, height: h };
 }
 
+export type ClipListing = { id: string; source: string; clipNo: number };
+
+/**
+ * O63, for the Clips section: within one artist's group, folder and press-kit
+ * clips come before Instagram clips, each kind in its own clip order.
+ * The Lab doesn't match duplicates.
+ */
+export function orderArtistClips<T extends ClipListing>(clips: readonly T[]): T[] {
+  const rank = (source: string) => (source === "instagram" ? 1 : 0);
+  return [...clips].sort((a, b) => rank(a.source) - rank(b.source) || a.clipNo - b.clipNo);
+}
+

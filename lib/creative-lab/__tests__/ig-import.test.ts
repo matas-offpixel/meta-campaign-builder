@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 
 import { importIgCandidate, requeueClipOnFocusChange } from "../ig-import.ts";
 import type { ServiceRoleDb } from "../load.ts";
-import { LOW_QUALITY_AFTER_CROP } from "../../../src/remotion/caption-style/profile.ts";
+import { importQualityLine } from "../t1-video.ts";
+import { footageWindow } from "../t1-video-frame.ts";
 import { fakeDb, type FakeDb } from "./fake-db.ts";
 
 const USER = "op";
@@ -102,17 +103,65 @@ describe("instagram import", () => {
     assert.equal(fake.tables.creative_lab_clips.length, 0);
   });
 
-  it("refuses a crop under 540 px and writes no clip", async () => {
+  it("imports a 720 × 1280 reel and stores no upscaled copy", async () => {
     const fake = seed({});
+    const uploaded: string[] = [];
     const result = await importIgCandidate(fake as unknown as ServiceRoleDb, {
       candidateId: "cand-1",
       userId: USER,
-      ...deps({ width: 800, height: 450, durationInSeconds: 8 }),
+      ...deps({ width: 720, height: 1280, durationInSeconds: 8 }),
+      upload: async (path) => {
+        uploaded.push(path);
+      },
+      renderProxy: async () => {
+        throw new Error("an upscale gets no stored copy");
+      },
     });
+    assert.equal(importQualityLine({ width: 720, height: 1280 }), null);
+    assert.equal(result.outcome, "imported");
+    assert.equal(uploaded.length, 1);
+    assert.equal(fake.tables.creative_lab_clips[0]?.render_asset_id ?? null, null);
+  });
+
+  it("refuses a 600 px crop window with the resolution line and writes no clip", async () => {
+    const fake = seed({});
+    const source = { width: 600, height: 1067 };
+    const result = await importIgCandidate(fake as unknown as ServiceRoleDb, {
+      candidateId: "cand-1",
+      userId: USER,
+      ...deps({ ...source, durationInSeconds: 8 }),
+    });
+    const window = Math.round(footageWindow(source, "9:16").width);
+    assert.equal(window, 600);
     assert.equal(result.outcome, "skipped");
-    assert.equal(result.reason, LOW_QUALITY_AFTER_CROP);
+    assert.equal(result.reason, `Clip too small for 9:16 — ${window} px wide in the crop, needs 675`);
     assert.equal(fake.tables.creative_lab_clips.length, 0);
     assert.equal(result.steps.includes("check"), false);
+  });
+
+  it("keeps a 4K original and stores a copy whose narrowest window is 1080", async () => {
+    const fake = seed({});
+    const made: { width: number; height: number }[] = [];
+    const result = await importIgCandidate(fake as unknown as ServiceRoleDb, {
+      candidateId: "cand-1",
+      userId: USER,
+      ...deps({ width: 2160, height: 3840, durationInSeconds: 8 }),
+      renderProxy: async (_bytes, size) => {
+        made.push(size);
+        return Buffer.from(`copy ${size.width}x${size.height}`);
+      },
+    });
+    assert.equal(result.outcome, "imported");
+    assert.deepEqual(made, [{ width: 1080, height: 1920 }]);
+    const clip = fake.tables.creative_lab_clips[0]!;
+    const original = fake.tables.creative_assets.find((row) => row.id === clip.creative_asset_id);
+    const copy = fake.tables.creative_assets.find((row) => row.id === clip.render_asset_id);
+    assert.equal(String(original?.storage_path).includes("proxy-1080"), false);
+    assert.match(String(copy?.storage_path), /proxy-1080/);
+    assert.equal(footageWindow({ width: 1080, height: 1920 }, "9:16").width, 1080);
+    const landscape = { width: 3414, height: 1920 };
+    assert.ok(footageWindow({ width: 3840, height: 2160 }, "9:16").width > 1080);
+    assert.ok(Math.abs(footageWindow(landscape, "9:16").width - 1080) < 1);
   });
 
   it("trims a 31.6s source to the first 30s on the clip", async () => {
