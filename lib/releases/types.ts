@@ -46,6 +46,8 @@ export type LadderRung = {
     wording?: LadderWording;
     alt?: string;
     preferred?: boolean;
+    /** On the selling-fast state rung: on sale counts when every earlier release is sold out. */
+    or_earlier_sold_out?: boolean;
     windowDays?: number;
     threshold?: number;
   };

@@ -711,7 +711,7 @@ export function ClientDetail({
           </TabPanel>
 
           <TabPanel active={activeTab === "ticketing"}>
-            {ladder && ladder.length ? <LiveLadder rungs={ladder} /> : null}
+            {ladder && ladder.length ? <LiveLadder rungs={ladder} clientName={client.name} /> : null}
             <TicketingConnectionsPanel
               clientId={client.id}
               initial={ticketingConnections}
