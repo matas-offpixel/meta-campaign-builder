@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import { cardFileName, cardFolderKey, INVENTED, renderCard, trimToInk, type CardFormat, type Piece, type RenderResult } from "../lib/creative-lab/artist-card.ts";
-import { CUTOUT_DISCLOSURE, chooseVariant, renderCutout, type CutoutResult } from "../lib/creative-lab/artist-card-cutout.ts";
+import { chooseVariant, renderCutout, type CutoutResult } from "../lib/creative-lab/artist-card-cutout.ts";
 import { detectFaces, eyesMeasurable, faceGeometry, type FaceBox } from "../lib/creative-lab/face-detect.ts";
 import { segmentPerson } from "../lib/creative-lab/segment.ts";
 import { APP_ID_KEY, APP_TAG_KEY, driveFromEnv } from "../lib/drive/client.ts";
@@ -132,9 +132,9 @@ async function download(storagePath: string): Promise<Buffer> {
   return Buffer.from(await file.data.arrayBuffer());
 }
 
-type Judged = { variant: "A" | "B" | "skip"; a: RenderResult; b: CutoutResult | null; faces: FaceBox[] };
+type Judged = { variant: "A" | "B1" | "B2" | "skip"; a: RenderResult; b: CutoutResult | null; faces: FaceBox[] };
 
-/** A, then B when A fails (O21), then skip. */
+/** O21: A (extension included), then B1, then B2, then skip. */
 async function judge(photo: Buffer, artist: string): Promise<Judged> {
   const nameRecord = kit.pieces.find((p) => p.role === "name" && p.artist?.toLowerCase() === artist.toLowerCase());
   if (!nameRecord) fail(`${artist}: no name piece in ${kit.psd}`);
@@ -149,7 +149,7 @@ async function judge(photo: Buffer, artist: string): Promise<Judged> {
   if (!a.pass && backdrop.background && backdrop.panel) {
     b = await renderCutout({ photo, mask, face: geometry, eyes, subjects, name, info, lockup, background: backdrop.background, panel: backdrop.panel });
   }
-  return { variant: chooseVariant(a, b), a, b, faces };
+  return { variant: chooseVariant(a, b?.b1 ?? null, b?.b2 ?? null), a, b, faces };
 }
 
 function ruleLine(card: RenderResult): string {
@@ -161,14 +161,22 @@ function ruleLine(card: RenderResult): string {
   return `A ${card.pass ? "PASS" : "FAIL"} · contrast ${(card.contrastShare * 100).toFixed(1)} % · ${where}${fails.length ? ` · fails ${fails.join("; ")}` : ""}${layout}`;
 }
 
+function stripFigures(st: { detailStdev: number; sobelShare: number; maskPixels: number; columnMaxDeltaE: number; driftP95: number }): string {
+  return `detail ${st.detailStdev.toFixed(2)} (max 4) · Sobel ${(st.sobelShare * 100).toFixed(2)} % (max 2 %) · mask ${st.maskPixels} px · (a) column ΔE ${st.columnMaxDeltaE.toFixed(2)} (max 3) · (b) drift p95 ${st.driftP95.toFixed(2)} (max 3)`;
+}
+
 function cutoutLine(b: CutoutResult | null): string {
   if (!b) return "B not tried";
   const p = b.plan;
-  const fails = b.rules.filter((r) => !r.pass).map((r) => `${r.rule}: ${r.detail}`);
   const f = b.figures;
-  const where = p ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · scale ${p.scale.toFixed(3)}` : "not placed";
-  const mask = `face-box alpha min ${f.faceAlphaMin == null ? "–" : f.faceAlphaMin.toFixed(2)} · feather ${f.featherPx} px · halo ${f.haloShare == null ? "–" : (f.haloShare * 100).toFixed(2) + " %"} of ${f.haloBand} px · bottom row ${(f.bottomShare * 100).toFixed(1)} %`;
-  return `B ${b.pass ? "PASS" : "FAIL"} · contrast ${(b.contrastShare * 100).toFixed(1)} % · ${where} · ${mask}${fails.length ? ` · fails ${fails.join("; ")}` : ""}`;
+  const fails = b.shared.filter((r) => !r.pass).map((r) => `${r.rule}: ${r.detail}`);
+  const where = p
+    ? `head ${p.headTop.toFixed(3)} · eyes ${p.eyes.toFixed(3)} · chin ${p.chin.toFixed(3)} H · face box ${Math.round(p.faceWidthPx)} px · face centre ${p.faceCentreX.toFixed(3)} W · scale ${p.scale.toFixed(3)} · ends ${(p.figureEnd / 1920).toFixed(3)} H${p.fade ? " · fade applied" : ""}${p.sideCut ? ` · side cut (${p.sideCut}) flush` : ""}`
+    : "not placed";
+  const edge = `face-box alpha min ${f.faceAlphaMin == null ? "–" : f.faceAlphaMin.toFixed(2)} · feather ${f.featherPx} px · halo ${f.haloShare == null ? "–" : (f.haloShare * 100).toFixed(2) + " %"} of ${f.haloBand} px`;
+  const v = (x: CutoutResult["b1"]) =>
+    x ? `${x.variant} ${x.pass ? "PASS" : "FAIL"}${x.silhouetteOpacity != null ? ` (silhouette ${Math.round(x.silhouetteOpacity * 100)} %)` : ""}: ${x.rules.map((r) => `${r.rule} ${r.detail}`).join("; ")}` : "";
+  return `B shared ${b.sharedPass ? "PASS" : "FAIL"} · ${where} · ${edge}${fails.length ? ` · fails ${fails.join("; ")}` : ""}${b.b1 ? ` || ${v(b.b1)}` : ""}${b.b2 ? ` || ${v(b.b2)}` : ""}`;
 }
 
 function mkdirOut(): string {
@@ -239,19 +247,25 @@ for (const pick of picks) {
   say(`${j.faces.length} face(s) · ${ruleLine(card)}`);
   if (j.b) say(cutoutLine(j.b));
   for (const [edge, st] of Object.entries(card.strips)) {
-    say(`- O20 ${edge} strip: detail stdev ${st.detailStdev.toFixed(2)} (max 4) · normalised Sobel > 20 on ${(st.sobelShare * 100).toFixed(2)} % (max 2 %) · person mask ${st.maskPixels} px · grain added at ${st.detailStdev.toFixed(2)}`);
+    say(`- O20 ${edge} strip: ${stripFigures(st)} · grain added at ${st.detailStdev.toFixed(2)}`);
+  }
+  for (const sm of card.seams) say(`- O20 (c) ${sm.edge} seam ΔE p95 ${sm.p95.toFixed(2)} (max 2)`);
+  if (card.rejectedExtension) {
+    const r = card.rejectedExtension;
+    say(`- extension refused (${r.label}): ${Object.entries(r.strips).map(([e, st]) => `${e} ${stripFigures(st)}`).join("; ")}; seam it would have made: ${r.seams.map((sm) => `${sm.edge} ΔE p95 ${sm.p95.toFixed(2)}`).join(", ")}`);
   }
   if (j.variant === "A") {
     if (card.squarePhotoScale > 0.8001) say(`- 1:1: the photo is too narrow to extend at the sides; drawn at ${card.squarePhotoScale.toFixed(3)}× the master's scale (not 0.8×), anchored on the eyes`);
     if (card.squareShift) say(`- 1:1: the photo ran out; its window shifted ${card.squareShift} px (the text stays centred)`);
   }
-  say(`Disclosure: ${j.variant === "A" ? card.extensionLabel || "(none: the photo covers the frame)" : j.variant === "B" ? CUTOUT_DISCLOSURE : "–"}`);
+  const chosenB = j.variant === "B1" ? j.b?.b1 : j.variant === "B2" ? j.b?.b2 : null;
+  say(`Disclosure: ${j.variant === "A" ? card.extensionLabel || "(none: the photo covers the frame)" : chosenB ? chosenB.disclosure : "–"}${j.b ? ` · charcoal ${j.b.charcoal}` : ""}`);
   if (j.variant === "skip") {
-    say("Skipped: neither A nor B passes. Nothing written.");
+    say("Skipped: neither A, B1 nor B2 passes. Nothing written.");
     say("");
     continue;
   }
-  const chosen = j.variant === "A" ? { master: card.master, crop45: card.crop45, square: card.square } : { master: j.b!.master!, crop45: j.b!.crop45!, square: j.b!.square! };
+  const chosen = j.variant === "A" ? { master: card.master, crop45: card.crop45, square: card.square } : { master: chosenB!.master!, crop45: chosenB!.crop45!, square: chosenB!.square! };
   const slug = artistSlug(pick.artist);
   const outputs: { format: CardFormat; bytes: Buffer }[] = [
     { format: "9x16", bytes: chosen.master },

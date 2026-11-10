@@ -22,6 +22,8 @@ import {
   pieceScale,
   planFaceCrop,
   relativeLuminance,
+  seamP95,
+  stripColourTests,
   stripStats,
   textBoxRect,
   type CropPlan,
@@ -140,6 +142,48 @@ describe("O20 strip tests", () => {
     const st = stripStats(lum, w, h);
     assert.ok(st.sobelShare > 0.02, `sobel ${st.sobelShare}`);
     assert.equal(st.pass, false);
+  });
+});
+
+describe("O20 colour tests (round 4, CIELAB)", () => {
+  const length = 300;
+  const depth = 48;
+  /** RGB strip laid out (d × length + i) × 3, d = 0 at the photo's outer edge. */
+  const strip = (colour: (i: number, d: number) => [number, number, number]) => {
+    const out = new Uint8Array(length * depth * 3);
+    for (let d = 0; d < depth; d += 1) for (let i = 0; i < length; i += 1) out.set(colour(i, d), (d * length + i) * 3);
+    return out;
+  };
+
+  it("a smooth gradient passes (a) and (b)", () => {
+    const t = stripColourTests(strip((i) => [60 + Math.round((i / length) * 30), 80, 70]), length, depth);
+    assert.ok(t.columnMaxDeltaE <= 3, `a ${t.columnMaxDeltaE}`);
+    assert.ok(t.driftP95 <= 3, `b ${t.driftP95}`);
+  });
+
+  it("streaky foliage fails (a): colour bands along the strip", () => {
+    const t = stripColourTests(strip((i) => (Math.floor(i / 20) % 2 ? [40, 90, 40] : [140, 170, 90])), length, depth);
+    assert.ok(t.columnMaxDeltaE > 3, `a ${t.columnMaxDeltaE}`);
+    assert.equal(t.passColumn, false);
+  });
+
+  it("colour that changes from the edge inward fails (b)", () => {
+    const t = stripColourTests(strip((_, d) => (d < 24 ? [90, 120, 80] : [40, 70, 50])), length, depth);
+    assert.ok(t.driftP95 > 3, `b ${t.driftP95}`);
+    assert.equal(t.passDrift, false);
+  });
+
+  it("(c) a hard join fails; a smooth one passes", () => {
+    const w = 100;
+    const h = 60;
+    const hard = new Uint8Array(w * h * 3);
+    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) hard.set(y < 30 ? [60, 60, 60] : [110, 110, 110], (y * w + x) * 3);
+    assert.ok(seamP95(hard, w, h, 3, { edge: "top", at: 30, from: 0, to: w }) > 2);
+    const smooth = new Uint8Array(w * h * 3).fill(80);
+    assert.ok(seamP95(smooth, w, h, 3, { edge: "top", at: 30, from: 0, to: w }) <= 2);
+    const side = new Uint8Array(w * h * 3);
+    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) side.set(x < 50 ? [60, 60, 60] : [110, 110, 110], (y * w + x) * 3);
+    assert.ok(seamP95(side, w, h, 3, { edge: "left", at: 50, from: 0, to: h }) > 2);
   });
 });
 

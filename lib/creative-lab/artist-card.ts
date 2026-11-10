@@ -42,6 +42,7 @@
  * never enlarged past their own pixels. No text is rendered here.
  */
 
+import { deltaE, percentile, rgbToLab } from "./colour.ts";
 import { maskTouches, type PersonMask } from "./segment.ts";
 
 // ─── Slots ──────────────────────────────────────────────────────────────────
@@ -305,6 +306,14 @@ export const O20 = {
   maxDetailStdev: 4,
   sobelThreshold: 20,
   maxSobelShare: 0.02,
+  /** O20 amended (round 4), in CIELAB on the 48 px strip after the 31-tap blur. */
+  maxColumnDeltaE: 3,
+  maxDriftP95: 3,
+  /** Outer and inner bands for the drift test, px of the strip's depth. */
+  driftBand: 16,
+  /** The seam after fill, on the rendered photo layer: 8 px either side of the join, p95. */
+  seamBand: 8,
+  maxSeamP95: 2,
   /** Gaps to the head's top, fractions of H. */
   headGap: 0.05,
   maxTop: 576,
@@ -358,6 +367,88 @@ export function blurLum(lum: ArrayLike<number>, w: number, h: number, taps: numb
   return out;
 }
 
+/**
+ * O20 (a) and (b) on a strip given as RGB, index (d × length + i) × 3, where i
+ * runs along the strip and d across it from the photo's outer edge (d = 0).
+ * Both run in CIELAB after the 31-tap Gaussian (σ 5).
+ *   (a) column profile: the mean Lab of each column, blurred along the strip
+ *       with 31 taps; the largest ΔE between the profile and its blur.
+ *   (b) drift: per column, ΔE between the mean of the outer 16 px and the
+ *       inner 16 px; the 95th percentile.
+ */
+export function stripColourTests(rgb: ArrayLike<number>, length: number, depth: number): { columnMaxDeltaE: number; driftP95: number; passColumn: boolean; passDrift: boolean } {
+  const n = length * depth;
+  const L = new Float64Array(n);
+  const A = new Float64Array(n);
+  const B = new Float64Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const lab = rgbToLab(rgb[i * 3]!, rgb[i * 3 + 1]!, rgb[i * 3 + 2]!);
+    L[i] = lab[0];
+    A[i] = lab[1];
+    B[i] = lab[2];
+  }
+  const bl = [blurLum(L, length, depth, O20.blurTaps), blurLum(A, length, depth, O20.blurTaps), blurLum(B, length, depth, O20.blurTaps)];
+  const mean = (i: number, d0: number, d1: number) => [0, 1, 2].map((c) => {
+    let acc = 0;
+    for (let d = d0; d < d1; d += 1) acc += bl[c]![d * length + i]!;
+    return acc / (d1 - d0);
+  });
+  const profile = Array.from({ length }, (_, i) => mean(i, 0, depth));
+  const k = gaussianKernel(O20.blurTaps);
+  const r = (O20.blurTaps - 1) / 2;
+  let columnMaxDeltaE = 0;
+  for (let i = 0; i < length; i += 1) {
+    const smooth = [0, 0, 0];
+    for (let t = -r; t <= r; t += 1) {
+      const p = profile[clampNum(i + t, 0, length - 1)]!;
+      for (let c = 0; c < 3; c += 1) smooth[c]! += p[c]! * k[t + r]!;
+    }
+    columnMaxDeltaE = Math.max(columnMaxDeltaE, deltaE(profile[i]!, smooth));
+  }
+  const band = Math.min(O20.driftBand, Math.floor(depth / 2));
+  const drifts = Array.from({ length }, (_, i) => deltaE(mean(i, 0, band), mean(i, depth - band, depth)));
+  const driftP95 = percentile(drifts, 95);
+  return { columnMaxDeltaE, driftP95, passColumn: columnMaxDeltaE <= O20.maxColumnDeltaE, passDrift: driftP95 <= O20.maxDriftP95 };
+}
+
+/**
+ * O20 (c): the seam after fill. Along a join (a row for the top, a column for
+ * a side), for each position ΔE between the mean Lab of the 8 px on the fill
+ * side and the 8 px on the photo side; the 95th percentile.
+ */
+export function seamP95(rgb: ArrayLike<number>, width: number, height: number, channels: number, join: { edge: Edge; at: number; from: number; to: number }): number {
+  const S = O20.seamBand;
+  const labAt = (x: number, y: number) => rgbToLab(rgb[(y * width + x) * channels]!, rgb[(y * width + x) * channels + 1]!, rgb[(y * width + x) * channels + 2]!);
+  const meanLab = (pts: [number, number][]) => {
+    const acc = [0, 0, 0];
+    for (const [x, y] of pts) {
+      const l = labAt(x, y);
+      for (let c = 0; c < 3; c += 1) acc[c]! += l[c]!;
+    }
+    return acc.map((v) => v / Math.max(1, pts.length));
+  };
+  const out: number[] = [];
+  for (let p = Math.max(0, join.from); p < join.to; p += 1) {
+    const fill: [number, number][] = [];
+    const photo: [number, number][] = [];
+    for (let k = 0; k < S; k += 1) {
+      if (join.edge === "top") {
+        if (p >= width) break;
+        if (join.at - 1 - k >= 0) fill.push([p, join.at - 1 - k]);
+        if (join.at + k < height) photo.push([p, join.at + k]);
+      } else {
+        if (p >= height) break;
+        const fx = join.edge === "left" ? join.at - 1 - k : join.at + k;
+        const px = join.edge === "left" ? join.at + k : join.at - 1 - k;
+        if (fx >= 0 && fx < width) fill.push([fx, p]);
+        if (px >= 0 && px < width) photo.push([px, p]);
+      }
+    }
+    if (fill.length && photo.length) out.push(deltaE(meanLab(fill), meanLab(photo)));
+  }
+  return percentile(out, 95);
+}
+
 export type StripStats = {
   /** Stdev of luminance minus its 31-tap Gaussian blur, 0–255. */
   detailStdev: number;
@@ -365,6 +456,9 @@ export type StripStats = {
   sobelShare: number;
   /** Person-mask pixels (alpha > 0.5) in the strip; filled in by renderCard, 0 in stripStats. */
   maskPixels: number;
+  /** O20 (a), (b): filled in by renderCard from the strip's colour; 0 in stripStats. */
+  columnMaxDeltaE: number;
+  driftP95: number;
   pass: boolean;
 };
 
@@ -392,7 +486,7 @@ export function stripStats(lum: ArrayLike<number>, w: number, h: number): StripS
     }
   }
   const sobelShare = total ? over / total : 0;
-  return { detailStdev, sobelShare, maskPixels: 0, pass: detailStdev <= O20.maxDetailStdev && sobelShare <= O20.maxSobelShare };
+  return { detailStdev, sobelShare, maskPixels: 0, columnMaxDeltaE: 0, driftP95: 0, pass: detailStdev <= O20.maxDetailStdev && sobelShare <= O20.maxSobelShare };
 }
 
 export type FaceForExtension = FaceLines & { box: { width: number } };
@@ -620,7 +714,7 @@ export function textBoxRect(frame: Size = MASTER): Rect {
   return { left: INSET, top, width: frame.width - 2 * INSET, height: SLOTS.textBox.bottom * frame.height - top };
 }
 
-export type RuleResult = { rule: "contrast" | "subject" | "eyes" | "scale" | "face"; pass: boolean; detail: string };
+export type RuleResult = { rule: "contrast" | "subject" | "eyes" | "scale" | "face" | "seam"; pass: boolean; detail: string };
 
 export function judgePhoto(input: { contrastShare: number; subjects: number; plan: CropPlan | null; eyes?: { ok: boolean; why: string }; extensionNote?: string }): RuleResult[] {
   const out: RuleResult[] = [];
@@ -753,6 +847,10 @@ export type RenderResult = {
   extensionLabel: string;
   /** The strip tests behind each extended edge. */
   strips: Partial<Record<Edge, StripStats>>;
+  /** O20 (c) per extended edge. */
+  seams: { edge: Edge; p95: number }[];
+  /** When every extension was refused on O20 (a)/(b): the first one that passed the older tests, with all its figures. */
+  rejectedExtension: { label: string; strips: Partial<Record<Edge, StripStats>>; seams: { edge: Edge; p95: number }[] } | null;
   /** How far the 1:1's photo window had to shift sideways to stay inside the photo (px), 0 when it fit. */
   squareShift: number;
   /** The 1:1's photo scale relative to the master (0.8 unless the photo is too narrow to extend at the sides). */
@@ -763,7 +861,7 @@ export type RenderResult = {
 };
 
 /** The 48 px strip along one edge of the placed photo, at output scale, as luminance. */
-async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate, "scale" | "left" | "top" | "extend">, edge: Edge, frame: Size): Promise<{ lum: Buffer; w: number; h: number; source: Rect } | null> {
+async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate, "scale" | "left" | "top" | "extend">, edge: Edge, frame: Size): Promise<{ lum: Buffer; w: number; h: number; source: Rect; rgb: Uint8Array; length: number; depth: number } | null> {
   const sharp = await sharpLib();
   const s = c.scale;
   const S = O20.strip;
@@ -776,7 +874,8 @@ async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate
     if (w < 3 || x1 <= x0) return null;
     const source = { left: x0, top: 0, width: x1 - x0, height: Math.min(photo.height, Math.ceil(S / s)) };
     const { data } = await sharp(rotated).extract(source).resize(w, S, { fit: "fill" }).greyscale().raw().toBuffer({ resolveWithObject: true });
-    return { lum: data, w, h: S, source };
+    const rgb = await sharp(rotated).extract(source).resize(w, S, { fit: "fill" }).removeAlpha().raw().toBuffer();
+    return { lum: data, w, h: S, source, rgb: new Uint8Array(rgb), length: w, depth: S };
   }
   const py0 = Math.max(0, c.top - c.extend.top);
   const py1 = Math.min(photo.height * s, c.top + frame.height - c.extend.top);
@@ -788,7 +887,38 @@ async function stripLuminance(rotated: Buffer, photo: Size, c: Pick<ExtCandidate
   const left = edge === "left" ? 0 : photo.width - cols;
   const source = { left, top: y0, width: cols, height: y1 - y0 };
   const { data } = await sharp(rotated).extract(source).resize(S, h, { fit: "fill" }).greyscale().raw().toBuffer({ resolveWithObject: true });
-  return { lum: data, w: S, h, source };
+  const raw = await sharp(rotated).extract(source).resize(S, h, { fit: "fill" }).removeAlpha().raw().toBuffer();
+  // Re-lay as (depth × length): length runs down the side, depth from the photo's outer edge inward.
+  const rgb = new Uint8Array(S * h * 3);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < S; x += 1) {
+      const d = edge === "left" ? x : S - 1 - x;
+      rgb.set(raw.subarray((y * S + x) * 3, (y * S + x) * 3 + 3), (d * h + y) * 3);
+    }
+  }
+  return { lum: data, w: S, h, source, rgb, length: h, depth: S };
+}
+
+/** The extended photo layer for a placement, cut to the frame, as raw RGB; and O20 (c) on each join. */
+async function extendedBase(rotated: Buffer, photo: Size, c: { scale: number; left: number; top: number; extend: Extension }, strips: Partial<Record<Edge, StripStats>>, frame: Size): Promise<{ raw: Buffer; seams: { edge: Edge; p95: number }[] }> {
+  const sharp = await sharpLib();
+  const w = Math.max(1, Math.round(photo.width * c.scale));
+  const h = Math.max(1, Math.round(photo.height * c.scale));
+  const scaledRaw = await sharp(rotated).resize(w, h).removeAlpha().raw().toBuffer();
+  const grain = { top: strips.top?.detailStdev ?? 0, left: strips.left?.detailStdev ?? 0, right: strips.right?.detailStdev ?? 0 };
+  const canvas = extendCanvas(scaledRaw, w, h, c.extend, grain);
+  const left = clampNum(Math.round(c.left), 0, canvas.width - frame.width);
+  const top = clampNum(Math.round(c.top), 0, canvas.height - frame.height);
+  const raw = await sharp(canvas.data, { raw: { width: canvas.width, height: canvas.height, channels: 3 } }).extract({ left, top, width: frame.width, height: frame.height }).raw().toBuffer();
+  const seams: { edge: Edge; p95: number }[] = [];
+  const x0 = c.extend.left - left;
+  const y0 = c.extend.top - top;
+  const xs = { from: Math.max(0, x0), to: Math.min(frame.width, x0 + w) };
+  const ys = { from: Math.max(0, y0), to: Math.min(frame.height, y0 + h) };
+  if (c.extend.top > 0) seams.push({ edge: "top", p95: seamP95(raw, frame.width, frame.height, 3, { edge: "top", at: y0, ...xs }) });
+  if (c.extend.left > 0) seams.push({ edge: "left", p95: seamP95(raw, frame.width, frame.height, 3, { edge: "left", at: x0, ...ys }) });
+  if (c.extend.right > 0) seams.push({ edge: "right", p95: seamP95(raw, frame.width, frame.height, 3, { edge: "right", at: x0 + w, ...ys }) });
+  return { raw, seams };
 }
 
 /** Plan, judge and compose one card: 9:16 master, its 4:5 centre crop, and the 1:1 re-sit. */
@@ -815,6 +945,7 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
   // Placement: the photo alone when it can; otherwise the first O20 extension whose strips pass.
   let plan: CropPlan | null = null;
   let extensionNote = "";
+  let rejectedExtension: RenderResult["rejectedExtension"] = null;
   const strips: Partial<Record<Edge, StripStats>> = {};
   if (face) {
     const p0 = planFaceCrop(photo, face, frame);
@@ -825,6 +956,7 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
       const candidates = extensionCandidates(photo, face as FaceForExtension, frame, why);
       const cache = new Map<string, StripStats | null>();
       let firstFail = "";
+      let nearMiss: { c: ExtCandidate; strips: Partial<Record<Edge, StripStats>> } | null = null;
       let tested = 0;
       for (const c of candidates) {
         const edges = (["top", "left", "right"] as const).filter((e) => c.extend[e] > 0);
@@ -839,15 +971,25 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
             else {
               const st = stripStats(strip.lum, strip.w, strip.h);
               const maskPixels = input.mask ? maskTouches(input.mask, strip.source, O20.maskThreshold) : 0;
-              cache.set(key, { ...st, maskPixels, pass: st.pass && maskPixels === 0 });
+              const colour = stripColourTests(strip.rgb, strip.length, strip.depth);
+              cache.set(key, {
+                ...st,
+                maskPixels,
+                columnMaxDeltaE: colour.columnMaxDeltaE,
+                driftP95: colour.driftP95,
+                pass: st.pass && maskPixels === 0 && colour.passColumn && colour.passDrift,
+              });
             }
           }
           const st = cache.get(key) ?? null;
+          if (st && !st.pass && !nearMiss && st.detailStdev <= O20.maxDetailStdev && st.sobelShare <= O20.maxSobelShare && st.maskPixels === 0) {
+            nearMiss = { c, strips: { ...got, [edge]: st } };
+          }
           if (!st || !st.pass) {
             ok = false;
             if (!firstFail) {
               firstFail = st
-                ? `${edge} strip detail ${st.detailStdev.toFixed(1)} (max ${O20.maxDetailStdev}), Sobel > ${O20.sobelThreshold} on ${(st.sobelShare * 100).toFixed(1)} % (max ${O20.maxSobelShare * 100} %), person mask ${st.maskPixels} px (max 0) at scale ${c.scale.toFixed(3)}`
+                ? `${edge} strip detail ${st.detailStdev.toFixed(1)} (max ${O20.maxDetailStdev}), Sobel > ${O20.sobelThreshold} on ${(st.sobelShare * 100).toFixed(1)} % (max ${O20.maxSobelShare * 100} %), person mask ${st.maskPixels} px (max 0), column ΔE ${st.columnMaxDeltaE.toFixed(2)} (max ${O20.maxColumnDeltaE}), drift p95 ${st.driftP95.toFixed(2)} (max ${O20.maxDriftP95}) at scale ${c.scale.toFixed(3)}`
                 : `${edge} strip not visible`;
             }
             break;
@@ -862,6 +1004,11 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
         if (tested >= 160) break;
       }
       if (plan === p0) extensionNote = candidates.length ? `no O20 extension passes the strip tests (first tried: ${firstFail})` : `no O20 extension fits: ${why.blocker}`;
+      if (plan === p0 && nearMiss) {
+        // Reported only: the seam this rejected extension would have made.
+        const tried = await extendedBase(rotated, photo, nearMiss.c, nearMiss.strips, frame);
+        rejectedExtension = { label: extensionLabel(nearMiss.c.extend), strips: nearMiss.strips, seams: tried.seams };
+      }
     }
   }
   const crop = plan ?? planCover(photo, frame);
@@ -899,8 +1046,29 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
     .toBuffer();
   // Contrast on the final pixels, extension included (O20 rule 6).
   const raw = await sharp(base).raw().toBuffer({ resolveWithObject: true });
+  // O20 (c): the seam after fill, on the rendered photo layer (before the type).
+  const seams: { edge: Edge; p95: number }[] = [];
+  if (extended) {
+    const pw = Math.round(photo.width * crop.scale);
+    const phh = Math.round(photo.height * crop.scale);
+    const x0 = Math.round(ext.left - crop.left);
+    const y0 = Math.round(ext.top - crop.top);
+    const xs = { from: Math.max(0, x0), to: Math.min(frame.width, x0 + pw) };
+    const ys = { from: Math.max(0, y0), to: Math.min(frame.height, y0 + phh) };
+    if (ext.top > 0) seams.push({ edge: "top", p95: seamP95(raw.data, raw.info.width, raw.info.height, raw.info.channels, { edge: "top", at: y0, ...xs }) });
+    if (ext.left > 0) seams.push({ edge: "left", p95: seamP95(raw.data, raw.info.width, raw.info.height, raw.info.channels, { edge: "left", at: x0, ...ys }) });
+    if (ext.right > 0) seams.push({ edge: "right", p95: seamP95(raw.data, raw.info.width, raw.info.height, raw.info.channels, { edge: "right", at: x0 + pw, ...ys }) });
+  }
   const contrastShare = lowContrastShare(raw.data, raw.info.width, raw.info.channels, textBoxRect(frame));
   const rules = judgePhoto({ contrastShare, subjects: input.subjects, plan, eyes: input.eyes, extensionNote });
+  if (seams.length) {
+    const bad = seams.filter((sm) => sm.p95 > O20.maxSeamP95);
+    rules.push({
+      rule: "seam",
+      pass: bad.length === 0,
+      detail: seams.map((sm) => `${sm.edge} join ΔE p95 ${sm.p95.toFixed(2)} (max ${O20.maxSeamP95})`).join("; "),
+    });
+  }
 
   const layout = layoutText({ lockup: input.lockup, name: input.name, info: input.info }, frame);
   const pieces = [...(input.lockup ? [input.lockup] : []), input.name, ...input.info];
@@ -938,6 +1106,8 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
     pass: rules.every((r) => r.pass) && layoutCheck.insideSafe && layoutCheck.insideTextBox,
     contrastShare,
     extensionLabel: extensionLabel(ext),
+    seams,
+    rejectedExtension,
     strips,
     squareShift: Math.round(sLeft - wantLeft),
     squarePhotoScale: kPhoto,
