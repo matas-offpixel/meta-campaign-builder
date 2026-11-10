@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1160
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1160
 - **Branch:** `cursor/claims-panel-ended`
 
 ## Summary
@@ -21,8 +21,8 @@ The Claims panel was still offering a release's "{release} live" rung after a la
 
 - [x] `node --experimental-strip-types --test lib/releases/__tests__/bank.test.ts` (34 pass)
 - [x] `tsc --noEmit` on the touched files (only the pre-existing bank.test.ts TS2353)
-- [ ] Ubuntu AB1c pair, then CI
+- [x] Ubuntu pair 42863781446 / 42863793839, both 0 against each other. AB1c-1280 1280×562. AB1c-393 393×913. The other AB frames in the first artifact match the files on main.
 
 ## Notes
 
-Migrations 224 and 225 are not in this branch. No design-pass label. Not merged.
+No design-pass label. Not merged.
