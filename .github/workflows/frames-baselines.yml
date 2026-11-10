@@ -23,8 +23,12 @@ jobs:
       ENABLE_PLAN_FRAMES: "1"
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key
+      LANG: en_GB.UTF-8
+      LC_ALL: en_GB.UTF-8
     steps:
       - uses: actions/checkout@v5
+      - name: en-GB locale
+        run: sudo locale-gen en_GB.UTF-8
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc

@@ -211,7 +211,7 @@ async function main() {
     console.log(`waiting for ${BASE}/frames/L1`);
     await waitForServer(`${BASE}/frames/L1`);
     console.log("server up");
-    const browser = await chromium.launch({ timeout: 30_000 });
+    const browser = await chromium.launch({ timeout: 30_000, args: ["--lang=en-GB"] });
     try {
       for (const shot of FRAME_SHOTS) {
         const dest = shotFile(shot.id);
@@ -220,6 +220,7 @@ async function main() {
         const page = await browser.newPage({
           viewport: { width: shot.width, height: 900 },
           deviceScaleFactor: 1,
+          locale: "en-GB",
         });
         if (shot.id.startsWith("CLQ")) {
           const fontBody = await readFile(TIKTOK_SANS);
@@ -362,7 +363,7 @@ async function main() {
         for (const guardPath of RAIL_GUARD_PATHS) {
           const id = `IR0-${guardPath.split("/")[1]}`;
           console.log(`guard ${id} ${guardPath}`);
-          const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
+          const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, locale: "en-GB" });
           await page.goto(`${BASE}${guardPath}`, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => null);
           await page.waitForTimeout(750);
           const count = await page.evaluate(() => document.querySelectorAll("[data-insights-rail], [data-insights-pill]").length);

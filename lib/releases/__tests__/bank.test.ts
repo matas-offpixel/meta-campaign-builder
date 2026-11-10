@@ -6,10 +6,11 @@ import { boardCounts, makeMissing, type BoardCell } from "../board.ts";
 import { backfillReleases, deriveSaleDates } from "../dates.ts";
 import { applyCount, applyState, freshness, releaseHeadline } from "../entry.ts";
 import { defaultLadder, puzzleLadder } from "../ladder.ts";
+import { presentLadder } from "../present.ts";
 import type { Release, TicketWarning } from "../types.ts";
 import { approveWarning, backToHeld, claimWindow, notNow, paydayPush, todaySentence } from "../windows.ts";
 import { countdownRung, lineupRung, percentStandIn, priceRiseRung, velocityRung } from "../derived.ts";
-import { OFFER_MARKER, OFFER_ON_LADDER, OFFER_REFUSAL, offerPrices, offerRefusal, offerWords } from "../offers.ts";
+import { OFFER_MARKER, OFFER_ON_LADDER, OFFER_REFUSAL, enteredByLine, enteredByWhen, offerPrices, offerRefusal, offerWords, operatorDisplayName } from "../offers.ts";
 import { liveClaimLine, rollCallWords, soldOutLine } from "../roll-call.ts";
 import { isBackfilled, mountsReleases, panelFigure, todayListsEvent, warningCell } from "../visibility.ts";
 import { derivedProposals, nextRung, proposalOnChange } from "../../ticket-warnings/next-rung.ts";
@@ -416,6 +417,16 @@ describe("offers, cancelled, backfilled", () => {
     assert.deepEqual(offerPrices({ today: 10, parts: 3 }), [10]);
   });
 
+  it("names the operator on the offer card and never the user id", () => {
+    const at = new Date("2026-11-08T14:10:00Z");
+    const id = "11111111-1111-1111-1111-111111111111";
+    assert.equal(enteredByLine("Matas", at), "entered by Matas, 8 Nov");
+    assert.equal(enteredByWhen(at).wide, "Sun 8 Nov 14:10");
+    assert.equal(enteredByLine(id, at), null);
+    assert.equal(operatorDisplayName({ id, user_metadata: { full_name: "Matas" } }), "Matas");
+    assert.equal(operatorDisplayName({ id, user_metadata: { name: id } }), null);
+  });
+
   it("keeps a cancelled event's rows and mounts no panel and no Today row", () => {
     const rows = [release({ name: "General sale", position: 1, state: "on_sale" })];
     assert.equal(mountsReleases("cancelled"), false);
@@ -517,5 +528,22 @@ describe("approval, windows, the board", () => {
     assert.deepEqual(makeMissing(cells), { made: 0, said: "Nothing to make. The missing cells need a piece." });
     const ready = [{ status: "missing" as const, makeable: true }, { status: "missing" as const, makeable: false }];
     assert.equal(makeMissing(ready).made, 1);
+  });
+
+  it("AB5 draws Puzzle's ladder with the record's sub-lines and a quoted claim on every rung", () => {
+    const rows = presentLadder(puzzleLadder());
+    assert.equal(rows.length, 14);
+    assert.equal(rows[1]!.trigger, "Selling fast for 5+ days, no count");
+    assert.equal(rows[1]!.detail, "Puzzle: 5 days (default 7)");
+    assert.equal(rows[0]!.detail, "from the release time, or a read / entry");
+    assert.equal(rows[2]!.detail, "when a count and a capacity exist");
+    assert.equal(rows.find((row) => row.trigger.startsWith("2+ releases"))!.detail, "roll-call · preferred over the % rung");
+    assert.equal(rows.find((row) => row.trigger.startsWith("Sold now"))!.detail, "sales velocity · needs two counts · window and count per client");
+    assert.equal(rows.find((row) => row.trigger === "State final X")!.note, "X from the page or the count, never typed");
+    assert.equal(rows.find((row) => row.trigger.startsWith("Next release"))!.note, "qualifier \"LAST CHANCE AT £{n}\" when the release has a price");
+    assert.equal(rows.at(-1)!.note, "refreshes the lineup slot and every ALONGSIDE: list");
+    assert.ok(rows.every((row) => row.claim.includes("\"")));
+    assert.equal(presentLadder(defaultLadder())[1]!.trigger, "Selling fast for 7+ days, no count");
+    assert.equal(presentLadder(defaultLadder())[1]!.detail, undefined);
   });
 });

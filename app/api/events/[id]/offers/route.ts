@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { insertOffer } from "@/lib/db/releases";
-import { offerRefusal, offerWords, type OfferFigures, type OfferKind } from "@/lib/releases/offers";
+import { offerRefusal, offerWords, operatorDisplayName, type OfferFigures, type OfferKind } from "@/lib/releases/offers";
 import { createClient } from "@/lib/supabase/server";
 
 const KINDS = new Set<OfferKind>(["payment_plan", "group", "early_entry"]);
@@ -52,5 +52,5 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const message = err instanceof Error ? err.message : "Could not save the offer.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, enteredBy: operatorDisplayName(user) });
 }

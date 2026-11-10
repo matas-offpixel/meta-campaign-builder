@@ -39,3 +39,33 @@ export function offerWords(kind: OfferKind, figures: OfferFigures): { lines: str
 export function offerPrices(figures: OfferFigures): number[] {
   return [figures.today, figures.price].filter((price): price is number => price != null);
 }
+
+const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The name on the offer card. A user id is never a name. */
+export function operatorDisplayName(user: { id?: string | null; user_metadata?: Record<string, unknown> | null }): string | null {
+  const meta = user.user_metadata ?? {};
+  for (const key of ["full_name", "name"]) {
+    const value = meta[key];
+    if (typeof value !== "string") continue;
+    const name = value.trim();
+    if (!name || name === user.id || USER_ID.test(name)) continue;
+    return name;
+  }
+  return null;
+}
+
+/** "8 Nov" and "Sun 8 Nov 14:10". London, so the card matches the sheet. */
+export function enteredByWhen(at: Date): { day: string; wide: string } {
+  const day = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" }).format(at);
+  const weekday = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "Europe/London" }).format(at);
+  const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Europe/London" }).format(at);
+  return { day, wide: `${weekday} ${day} ${time}` };
+}
+
+/** "entered by Matas, 8 Nov". Null when the only identity on hand is the user id. */
+export function enteredByLine(name: string | null | undefined, at: Date): string | null {
+  const who = name?.trim() ?? "";
+  if (!who || USER_ID.test(who)) return null;
+  return `entered by ${who}, ${enteredByWhen(at).day}`;
+}
