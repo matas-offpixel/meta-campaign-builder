@@ -258,8 +258,8 @@ describe("H28: the roll-call's line 2 and its shortening (A21, O27)", () => {
   const two = [r(1, "Early bird", "sold_out"), r(2, "1st release", "sold_out")];
 
   it("the sample is resolved from releases: line 2 is the live release at SELLING FAST, never lower", () => {
-    assert.equal(SAMPLE_ROLL_CALL, "EARLY BIRD, 1ST, 2ND & 3RD RELEASE SOLD OUT\nFINAL RELEASE SELLING FAST");
-    assert.equal(rollCallWords(SAMPLE_ROLL_CALL_RELEASES, { ladder, nowIso: now }).line2, "FINAL RELEASE SELLING FAST");
+    assert.equal(SAMPLE_ROLL_CALL, "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\n3RD RELEASE SELLING FAST");
+    assert.equal(rollCallWords(SAMPLE_ROLL_CALL_RELEASES, { ladder, nowIso: now }).line2, "3RD RELEASE SELLING FAST");
   });
 
   it("line 2 is the live release's furthest met rung, as #1158's generator gives it", () => {
@@ -294,7 +294,7 @@ describe("H28: the roll-call's line 2 and its shortening (A21, O27)", () => {
     assert.deepEqual(states.map((s) => s.dropped), [[], ["TICKETS"], ["TICKETS", "NOW"], [...DROP_ORDER]]);
     assert.ok(states.every((s) => s.line1 === line1 && /\bRELEASE\b/.test(s.line1)));
     // Only an ordinal has a number form.
-    assert.deepEqual(rollCallStates(line1, "FINAL RELEASE SELLING FAST").map((s) => s.line2), ["FINAL RELEASE SELLING FAST"]);
+    assert.deepEqual(rollCallStates(line1, "FINAL RELEASE ON SALE").map((s) => s.line2), ["FINAL RELEASE ON SALE"]);
     // Line 1 without RELEASE on the frame: line 2 never takes the number form.
     assert.deepEqual(rollCallStates("EARLY BIRD & PRESALE SOLD OUT", "3RD RELEASE SELLING FAST").map((s) => s.line2), ["3RD RELEASE SELLING FAST"]);
   });

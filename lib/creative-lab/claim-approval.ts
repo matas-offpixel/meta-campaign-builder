@@ -50,14 +50,15 @@ export function fixtureRelease(position: number, name: string, state: Release["s
 
 /**
  * The release fixture behind the sample draft (H25 (b)): early bird, 1st, 2nd
- * and 3rd release sold out, the final release selling fast.
+ * release sold out, the 3rd release selling fast: Puzzle 4th Birthday's own
+ * tiers on 10 Nov (overlay templates issue 8, O60), so the sample states no
+ * tier the event doesn't have.
  */
 export const SAMPLE_ROLL_CALL_RELEASES = [
   fixtureRelease(1, "Early bird", "sold_out"),
   fixtureRelease(2, "1st release", "sold_out"),
   fixtureRelease(3, "2nd release", "sold_out"),
-  fixtureRelease(4, "3rd release", "sold_out"),
-  fixtureRelease(5, "Final release", "selling_fast"),
+  fixtureRelease(4, "3rd release", "selling_fast"),
 ] as const;
 
 /**

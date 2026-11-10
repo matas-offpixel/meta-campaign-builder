@@ -46,6 +46,8 @@ export const VIDEO_STOPS_45: readonly (readonly [number, number])[] = VIDEO_STOP
 export const BAND_CRF_MAX = 18;
 /** O46's acceptance: across each fade, no step between adjacent rows' mean luma larger than this. */
 export const MAX_ROW_STEP = 2;
+/** O55: at J2's two knee rows, where the band drops inside one row, the limit is 3 levels. */
+export const MAX_KNEE_STEP = 3;
 
 // ─── Blue noise ─────────────────────────────────────────────────────────────
 

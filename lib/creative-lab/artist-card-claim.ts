@@ -46,6 +46,11 @@ import {
   type Size,
   type StripStats,
 } from "./artist-card.ts";
+import { applyBacking, backingLayer } from "./red-backing.ts";
+import { RED_BACKING, backingRect, chooseBacking, type BackingBox } from "./t1-video.ts";
+
+const moveR = (r: Rect, t: { k: number; dx: number; dy: number }): Rect => ({ left: r.left * t.k + t.dx, top: r.top * t.k + t.dy, width: r.width * t.k, height: r.height * t.k });
+const moveBox = (b: BackingBox, t: { k: number; dx: number; dy: number }): BackingBox => ({ rect: moveR(b.rect, t), bounds: moveR(b.bounds, t), feather: b.feather * t.k });
 import { CARD_CLAIM, KIT_RED, KIT_WHITE, inKitCase, isRollCall, planCardClaim, plainDropStates, renderCardLine, rollCallStates, type CardClaimPlan } from "./claim-slot.ts";
 import { requireFont, type FontEntry } from "./kit-font.ts";
 import { renderGradientShadow, type GradientShadow } from "./overlay-gradient.ts";
@@ -351,6 +356,8 @@ export type ClaimCardResult = {
   claim: CardClaimPlan | null;
   contrast: { textBox: number; claimBox: number | null; redLine: number | null };
   redLineWhite: boolean;
+  /** O58: the backing's opacity under the red line, when one was needed. */
+  redBacking: number | null;
   approvalLines: string[];
   extensionLabel: string;
   /** O20's figures for each extended edge (strip tests before fill, seam after), so a draft can print them with their limits. */
@@ -366,7 +373,7 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
   const frame = MASTER;
   const rules: ClaimCardRule[] = [];
   const approvalLines: string[] = [];
-  const base0: Omit<ClaimCardResult, "pass" | "placed"> = { held: null, rules, plan: null, claim: null, contrast: { textBox: 0, claimBox: null, redLine: null }, redLineWhite: false, approvalLines, extensionLabel: "", extension: [], master: null, crop45: null, square: null, watermark: input.watermark };
+  const base0: Omit<ClaimCardResult, "pass" | "placed"> = { held: null, rules, plan: null, claim: null, contrast: { textBox: 0, claimBox: null, redLine: null }, redLineWhite: false, redBacking: null, approvalLines, extensionLabel: "", extension: [], master: null, crop45: null, square: null, watermark: input.watermark };
 
   // The claim face first: a missing or trial face holds the card (O24).
   let claimFace: FontEntry | null = null;
@@ -501,6 +508,7 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
 
   // The claim (O23).
   let claimPlan: CardClaimPlan | null = null;
+  let backing: { box: BackingBox; opacity: number } | null = null;
   const claimPieces: { piece: Piece; at: Placement }[] = [];
   if (input.claimText != null && claimFace) {
     const face0 = claimFace;
@@ -537,15 +545,27 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
     const claimBox = lowContrastShare(raw.data, raw.info.width, raw.info.channels, claimBoxRect(planned.blockTop, frame));
     base0.contrast.claimBox = claimBox;
     rules.push({ rule: "claimContrast", pass: claimBox <= CARD_CLAIM.claimBoxMax, detail: `${(claimBox * 100).toFixed(1)} % of the claim box below 3:1, bands ${input.bands ? "on" : "off"} (max ${CARD_CLAIM.claimBoxMax * 100} %)` });
-    for (const line of planned.lines) {
+    for (const [li, line] of planned.lines.entries()) {
       let colour = line.color === "red" ? KIT_RED : KIT_WHITE;
       if (line.color === "red") {
+        // O58: the red line stays #FE3232. A black backing under line 1 only, 40 → 60 → 80 %; white only past 80 %.
         const v = redLineVerdict(raw.data, raw.info.width, raw.info.channels, line, frame);
         base0.contrast.redLine = v.share;
         if (!v.red) {
-          colour = KIT_WHITE;
-          base0.redLineWhite = true;
-          approvalLines.push(CARD_CLAIM.redToWhite);
+          const next = planned.lines[li + 1];
+          const box = backingRect(line, frame.width, { bottom: next ? next.capTop - 1 : undefined });
+          const shares = RED_BACKING.steps.map((op) => redLineVerdict(applyBacking(raw.data, raw.info.width, raw.info.height, raw.info.channels, box, op), raw.info.width, raw.info.channels, line, frame).share);
+          const verdict = chooseBacking([v.share, ...shares], "photo");
+          if (verdict.backing != null) {
+            backing = { box, opacity: verdict.backing };
+            base0.redBacking = verdict.backing;
+            base0.contrast.redLine = shares[RED_BACKING.steps.indexOf(verdict.backing as 0.4 | 0.6 | 0.8)]!;
+            approvalLines.push(verdict.line!);
+          } else {
+            colour = KIT_WHITE;
+            base0.redLineWhite = true;
+            approvalLines.push(CARD_CLAIM.redToWhite);
+          }
         }
       }
       const p = await renderCardLine(line.text, colour, line.capPx, face0);
@@ -577,7 +597,11 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
   const wm = input.watermark ? input.watermarkFont ?? (claimFace ? { path: claimFace.path, family: claimFace.family ?? "Bootzy Condensed TM" } : null) : null;
   const crop45Rect: Rect = { left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top };
   const wmMaster = input.watermark && wm ? await watermarkLayer(input.watermark, frame, wm.path, wm.family, { avoid: placements, within: crop45Rect }) : null;
-  const master = await sharp(shown).composite([{ input: overlay, left: 0, top: 0 }, ...(wmMaster ? [{ input: wmMaster, left: 0, top: 0 }] : [])]).png().toBuffer();
+  // O58: the backing sits over the bands and under the type.
+  const backingAt = async (size: Size, t: { k: number; dx: number; dy: number }) =>
+    backing ? sharp(Buffer.from(backingLayer(size.width, size.height, moveBox(backing.box, t), backing.opacity)), { raw: { width: size.width, height: size.height, channels: 4 } }).png().toBuffer() : null;
+  const backingMaster = await backingAt(frame, { k: 1, dx: 0, dy: 0 });
+  const master = await sharp(shown).composite([...(backingMaster ? [{ input: backingMaster, left: 0, top: 0 }] : []), { input: overlay, left: 0, top: 0 }, ...(wmMaster ? [{ input: wmMaster, left: 0, top: 0 }] : [])]).png().toBuffer();
   const crop45 = await sharp(master).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).png().toBuffer();
 
   // 1:1 (O1): the 4:5 at 0.8×, photo extended at the sides; the bands and the type carried the same way.
@@ -594,8 +618,9 @@ export async function renderClaimCard(input: ClaimCardInput): Promise<ClaimCardR
   const squareOverlay = await textOverlay(pieces, placements, { width: side, height: side }, { k, dx, dy: -RECT_45.top * k }, KIT_SHADOW);
   const squareRects = placements.map((p) => ({ left: p.left * k + dx, top: (p.top - RECT_45.top) * k, width: p.width * k, height: p.height * k }));
   const wmSquare = input.watermark && wm ? await watermarkLayer(input.watermark, { width: side, height: side }, wm.path, wm.family, { avoid: squareRects }) : null;
+  const backingSquare = await backingAt({ width: side, height: side }, { k, dx, dy: -RECT_45.top * k });
   const square = await sharp(squareBase)
-    .composite([...(squareBands ? [{ input: squareBands, left: 0, top: 0 }] : []), { input: squareOverlay, left: 0, top: 0 }, ...(wmSquare ? [{ input: wmSquare, left: 0, top: 0 }] : [])])
+    .composite([...(squareBands ? [{ input: squareBands, left: 0, top: 0 }] : []), ...(backingSquare ? [{ input: backingSquare, left: 0, top: 0 }] : []), { input: squareOverlay, left: 0, top: 0 }, ...(wmSquare ? [{ input: wmSquare, left: 0, top: 0 }] : [])])
     .png()
     .toBuffer();
 

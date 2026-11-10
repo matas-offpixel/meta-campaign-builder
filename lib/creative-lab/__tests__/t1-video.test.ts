@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { MASTER, RECT_45, type Piece, type Rect } from "../artist-card.ts";
+import { SAMPLE_ROLL_CALL } from "../claim-approval.ts";
+import { backingAlphaAt } from "../red-backing.ts";
 import { planClaim, splitTwo, type ClaimPlan } from "../claim-slot.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -12,9 +14,8 @@ import { KIT_FONT_BUCKET, KIT_FONT_URL_TTL_S, KitFaceHeldError, didNotLoad, kitF
 import {
   FORMAT_SIZE,
   MIN_CLAIM_CLIP_S,
-  T1V_CLAIM,
+  T1C,
   T1V_LINES,
-  VIDEO_SAFE,
   assignUse,
   captionT1Conflicts,
   chooseCrop,
@@ -30,13 +31,20 @@ import {
   releaseNamesOf,
   sampleTimes,
   typeTransform,
-  videoTopBlock,
+  backingRect,
+  chooseBacking,
+  chooseStep,
+  clipBandStops,
+  clipBands,
+  countedFaces,
+  formatTooSmall,
+  planClipLayout,
   type ContrastSample,
   type FaceSample,
   type VideoClaimPlan,
 } from "../t1-video.ts";
 import { sampleStops } from "../t2-render.ts";
-import { BAND_KNEE_ROWS_916, MAX_ROW_STEP, VIDEO_GRADIENT_SHADOW, VIDEO_STOPS_45, VIDEO_STOPS_916, blueNoise, maxRowStep, overFlatGrey, renderVideoBands, rowMeanLuma } from "../video-bands.ts";
+import { BAND_KNEE_ROWS_916, MAX_KNEE_STEP, MAX_ROW_STEP, VIDEO_GRADIENT_SHADOW, VIDEO_STOPS_45, VIDEO_STOPS_916, blueNoise, maxRowStep, overFlatGrey, renderVideoBands, rowMeanLuma } from "../video-bands.ts";
 import { bandAlphaAt } from "../overlay-gradient.ts";
 
 /** A Bootzy-like fake width: 0.35 cap per character. */
@@ -89,7 +97,7 @@ describe("H38 · O39 the face over time", () => {
     sampleTimes(12).map((tS) => ({ tS, faces: [{ left: 420, top: (tS >= 3 && tS < 4 ? 1000 : 1300) + shiftY, width: 240, height: 240 }, { left: 900, top: 100, width: 60, height: 60 }] }));
 
   it("a fixture clip with the face crossing the claim for 1 s is refused with the record's line", () => {
-    const v = judgeFaceOverTime(samplesAt(0), { top, claim });
+    const v = judgeFaceOverTime(samplesAt(0), { always: [top], claim });
     assert.equal(v.ok, false);
     close(v.longestRunS, 1);
     assert.equal(v.line, T1V_LINES.face(Math.round(v.claimShare * 100)));
@@ -97,19 +105,19 @@ describe("H38 · O39 the face over time", () => {
   });
 
   it("the same clip passes on a lower crop, which is tried before the clip is refused", () => {
-    const pick = chooseCrop([0, 300], (shift) => judgeFaceOverTime(samplesAt(shift), { top, claim }));
+    const pick = chooseCrop([0, 300], (shift) => judgeFaceOverTime(samplesAt(shift), { always: [top], claim }));
     assert.equal(pick.crop, 300);
     assert.ok(pick.verdict.ok);
-    const none = chooseCrop([0], (shift) => judgeFaceOverTime(samplesAt(shift), { top, claim }));
+    const none = chooseCrop([0], (shift) => judgeFaceOverTime(samplesAt(shift), { always: [top], claim }));
     assert.equal(none.crop, null);
   });
 
   it("≤ 10 % of samples and never more than 0.5 s in a row; faces under half the main face's width don't count", () => {
     // Two samples (0.4 s) in the claim: inside both limits.
     const s: FaceSample[] = sampleTimes(12).map((tS) => ({ tS, faces: [{ left: 420, top: tS >= 5 && tS < 5.4 ? 1100 : 1350, width: 240, height: 240 }] }));
-    assert.ok(judgeFaceOverTime(s, { top, claim }).ok);
+    assert.ok(judgeFaceOverTime(s, { always: [top], claim }).ok);
     const small: FaceSample[] = sampleTimes(12).map((tS) => ({ tS, faces: [{ left: 420, top: 1350, width: 240, height: 240 }, { left: 500, top: 1100, width: 100, height: 100 }] }));
-    assert.ok(judgeFaceOverTime(small, { top, claim }).ok);
+    assert.ok(judgeFaceOverTime(small, { always: [top], claim }).ok);
   });
 });
 
@@ -143,6 +151,9 @@ describe("H39 · O40 contrast over the clip", () => {
   });
 });
 
+const piece = (w: number, h: number, cap: number, label: string): Piece => ({ png: Buffer.alloc(0), width: w, height: h, capPx: cap, label });
+const pieces = { lockup: piece(1290, 388, 0, "lockup"), name: piece(1000, 220, 220, "name"), date: piece(800, 60, 60, "date"), claim: planVideoClaim("General sale live", measure) as VideoClaimPlan };
+
 describe("H40 · O41 / O42 the crop moves the footage, never the type", () => {
   const plan = planVideoClaim("General sale live", measure) as VideoClaimPlan;
   it("moving crop_focus_y moves the footage window and no slot", () => {
@@ -153,6 +164,8 @@ describe("H40 · O41 / O42 the crop moves the footage, never the type", () => {
     for (const f of ["9:16", "4:5", "1:1"] as const) {
       const t = typeTransform(f);
       assert.deepEqual(moveRect(claimBlockRect(plan), t), moveRect(claimBlockRect(plan), typeTransform(f)));
+      // O54's layout takes no crop at all: the same pieces give the same boxes whatever the footage does.
+      assert.deepEqual(planClipLayout(pieces, f, "A").boxes, planClipLayout(pieces, f, "A").boxes);
       assert.ok(!("cropFocusY" in t));
     }
   });
@@ -173,7 +186,7 @@ describe("H40 · O41 / O42 the crop moves the footage, never the type", () => {
   });
 });
 
-describe("H41 · O43 the safe area and the claim", () => {
+describe("O43 · the claim on a clip", () => {
   it("the claim's last line sits on 0.65 H; one line has its cap top at 0.610 H, two lines' line 1 at 0.552 H", () => {
     const one = planVideoClaim("General sale live", measure) as VideoClaimPlan;
     assert.equal(one.step, 0);
@@ -184,19 +197,6 @@ describe("H41 · O43 the safe area and the claim", () => {
     close(two.lines[0]!.capTop / 1920, 0.5517, 1e-9);
     close(two.lines[1]!.capTop + two.lines[1]!.capPx, 1248);
     assert.ok(two.lines.every((l) => l.widthPx <= 840));
-    close(T1V_CLAIM.carried45, 0.7133, 1e-4);
-  });
-
-  it("every type box inside x 120–960, y 269–1248 on the 9:16, the name and details kept within 840 px", () => {
-    const piece = (w: number, h: number, cap: number, label: string): Piece => ({ png: Buffer.alloc(0), width: w, height: h, capPx: cap, label });
-    // A name the static layout would let reach 864 px (0.8 W).
-    const topBlock = videoTopBlock({ lockup: piece(900, 270, 0, "lockup"), name: piece(1000, 230, 220, "name"), info: [piece(950, 70, 60, "info1"), piece(600, 70, 60, "info2")] });
-    const claimPlan = planVideoClaim("Early bird, 1st & 2nd release sold out\n3rd release selling fast", measure) as VideoClaimPlan;
-    const boxes = [...topBlock.all, ...claimPlan.lines.map((l) => ({ left: (1080 - l.widthPx) / 2, top: l.capTop, width: l.widthPx, height: l.capPx }))];
-    const r = insideVideoSafe(boxes);
-    assert.ok(r.ok, JSON.stringify(r.outside));
-    assert.ok(topBlock.all.every((p) => p.width <= 840 + 1e-9));
-    assert.deepEqual(VIDEO_SAFE, { left: 120, right: 960, top: 269, bottom: 1248 });
   });
 
   it("the roll-call keeps its lockup on a clip: line 1 red at 0.625 of line 2's cap; line 1 never shortened", () => {
@@ -359,7 +359,7 @@ describe("H45 · O46 dithering the bands", () => {
     assert.ok(Math.max(...fades) <= MAX_ROW_STEP, `step ${Math.max(...fades)}`);
     // The knees: J2 drops 10 % of the band's opacity inside one row (2 % alpha: about 2.6 levels on 128 grey at 0.60 H).
     const knees = BAND_KNEE_ROWS_916.map((y) => steps[y]!);
-    assert.ok(knees.every((k) => k > MAX_ROW_STEP && k < 3.5), knees.join(", "));
+    assert.ok(knees.every((k) => k > MAX_ROW_STEP && k <= MAX_KNEE_STEP), knees.join(", "));
     assert.equal(maxRowStep(means).row, 1152);
   });
 
@@ -398,5 +398,157 @@ describe("H46 · O48 the event's release names on T1", () => {
     assert.ok(!(/\bEARLY$/.test(p.lines[0]!.text) && /^ENTRY\b/.test(p.lines[1]!.text)), p.lines.map((l) => l.text).join(" | "));
     const v = planVideoClaim("Last tickets for early entry are on sale now at the door", measure, { releaseNames: names }) as VideoClaimPlan;
     assert.ok(!(/\bEARLY$/.test(v.lines[0]!.text) && /^ENTRY\b/.test(v.lines[1]?.text ?? "")), v.lines.map((l) => l.text).join(" | "));
+  });
+});
+
+// ─── Issue 8 (H53–H61) ──────────────────────────────────────────────────────
+
+describe("H53 · O54 the clip layout", () => {
+  it("A: the lockup, name and date inside 0.145–0.32 H, then the claim; no venue or time on a clip", () => {
+    const a = planClipLayout(pieces, "9:16", "A");
+    assert.deepEqual(Object.keys(a.pieces).sort(), ["date", "lockup", "name"]);
+    close(a.boxes.lockup!.top / 1920, 0.145);
+    close(a.boxes.lockup!.width, 0.25 * 1080);
+    close(a.pieces.name.at.top / 1920, 0.205);
+    close(a.pieces.name.at.height, 0.07 * 1920);
+    close(a.pieces.date.at.top / 1920, 0.29);
+    assert.ok(a.boxes.top.top >= 0.145 * 1920 - 1e-6 && a.boxes.top.top + a.boxes.top.height <= 0.32 * 1920 + 1e-6);
+    assert.deepEqual(a.boxes.bottom, a.boxes.claim);
+  });
+
+  it("B: the top block inside 0.145–0.275 H; the date's baseline 0.015 H above the claim's first cap top", () => {
+    const b = planClipLayout(pieces, "9:16", "B");
+    assert.ok(b.boxes.top.top + b.boxes.top.height <= 0.275 * 1920 + 1e-6);
+    close(b.pieces.date.at.top + b.pieces.date.at.height, b.claim[0]!.capTop - 0.015 * 1920);
+    close(b.pieces.date.at.top / 1920, 0.565, 1e-3);
+    const two = planClipLayout({ ...pieces, claim: planVideoClaim("Early bird, 1st & 2nd release sold out\n3rd release selling fast", measure) as VideoClaimPlan }, "9:16", "B");
+    assert.ok(two.pieces.date.at.top + two.pieces.date.at.height < two.claim[0]!.capTop);
+  });
+
+  it("4:5 and 1:1: the lockup's top on 0.05 of the rectangle and the claim's last baseline on 0.90, the 1:1 at 0.8×", () => {
+    for (const f of ["4:5", "1:1"] as const) {
+      const l = planClipLayout(pieces, f, "A");
+      close(l.boxes.lockup!.top / l.size.height, 0.05);
+      close((l.claim[0]!.capTop + l.claim[0]!.capPx) / l.size.height, 0.9);
+    }
+    close(planClipLayout(pieces, "1:1", "A").pieces.name.at.height, 0.07 * 1920 * 0.8);
+  });
+
+  it("every 9:16 type box inside the video safe area, the name within 840 px", () => {
+    for (const arr of ["A", "B"] as const) {
+      const l = planClipLayout({ ...pieces, name: piece(1600, 220, 220, "wide name") }, "9:16", arr);
+      const boxes = [l.boxes.lockup!, l.pieces.name.at, l.pieces.date.at, ...l.claim.map((c) => ({ left: (1080 - c.widthPx) / 2, top: c.capTop, width: c.widthPx, height: c.capPx }))];
+      assert.ok(insideVideoSafe(boxes).ok, arr);
+      assert.ok(l.pieces.name.at.width <= 840 + 1e-6);
+    }
+  });
+});
+
+describe("H54 · O55 the bands follow the blocks", () => {
+  it("a one-line claim in A gives O38's 0.55 / 0.60 / 0.68 H; B's are 0.505 / 0.555 / 0.635", () => {
+    const a = planClipLayout(pieces, "9:16", "A").anchors;
+    close(a.bottomZero / 1920, 0.55, 1e-9);
+    close(a.bottomFull / 1920, 0.6, 1e-9);
+    close(a.bottomRamp / 1920, 0.68, 1e-9);
+    const b = planClipLayout(pieces, "9:16", "B").anchors;
+    close(b.bottomZero / 1920, 0.505, 2e-3);
+    close(b.bottomFull / 1920, 0.555, 2e-3);
+    close(b.bottomRamp / 1920, 0.635, 2e-3);
+    close(a.topFull / 1920, 0.34, 2e-3);
+    close(a.topGone / 1920, 0.43, 2e-3);
+  });
+
+  it("A's and B's stops read within ±1 % on 3 × 3 averages in every format, at each band step", () => {
+    for (const f of ["9:16", "4:5", "1:1"] as const) {
+      for (const arr of ["A", "B"] as const) {
+        for (const step of T1C.bandSteps) {
+          const l = planClipLayout(pieces, f, arr);
+          const steps = { top: step, bottom: step };
+          const layer = renderVideoBands(l.size.width, l.size.height, clipBands(l, steps));
+          for (const st of sampleStops(layer, l.size, 4, clipBandStops(l, steps))) assert.ok(st.ok, `${f} ${arr} +${step}: ${st.at} read ${st.got} (want ${st.want})`);
+        }
+      }
+    }
+  });
+});
+
+describe("H55 · O56 the face on clips", () => {
+  const top: Rect = { left: 120, top: 278, width: 840, height: 336 };
+  const claim: Rect = { left: 120, top: 1171, width: 840, height: 77 };
+  it("a face whose chin sits under the claim passes: only the upper 60 % of the box is tested", () => {
+    const s: FaceSample[] = sampleTimes(12).map((tS) => ({ tS, faces: [{ left: 400, top: 1020, width: 240, height: 240 }] }));
+    // Both boxes reach into the claim (1171) with the chin. Upper 60 %: from 1020 it ends at 1164, inside the padded claim box (from 1159);
+    // from 1010 it ends at 1154, clear of it.
+    const ok = sampleTimes(12).map((tS) => ({ tS, faces: [{ left: 400, top: 1010, width: 240, height: 240 }] }));
+    assert.equal(judgeFaceOverTime(s, { always: [top], claim }).ok, false);
+    assert.equal(judgeFaceOverTime(ok, { always: [top], claim }).ok, true);
+  });
+
+  it("crowd faces narrower than 0.06 W (65 px) don't count", () => {
+    assert.deepEqual(countedFaces([{ left: 0, top: 0, width: 60, height: 60 }], 1080), []);
+    const crowd: FaceSample[] = sampleTimes(12).map((tS) => ({ tS, faces: [{ left: 400, top: 300, width: 50, height: 50 }] }));
+    assert.ok(judgeFaceOverTime(crowd, { always: [top], claim }).ok);
+  });
+});
+
+describe("H56 · O57 contrast steps", () => {
+  it("the first band step that passes is the clip's; past the last, the refusal line", () => {
+    assert.equal(chooseStep([0.13, 0.09, 0.05], 0.1), 1);
+    assert.equal(T1V_LINES.bands(10), "bands +10");
+    assert.equal(chooseStep([0.3, 0.2, 0.12], 0.1), null);
+    assert.equal(T1V_LINES.tooBright("name"), "Too bright behind the name — choose another clip");
+    assert.deepEqual([...T1C.bandSteps], [0, 0.1, 0.2]);
+  });
+});
+
+describe("H57 · O58 the red line stays red", () => {
+  it("the backing steps 40 → 60 → 80 % before white; the line names the step", () => {
+    assert.deepEqual(chooseBacking([0.1, 0, 0, 0]), { backing: null, white: false, line: null });
+    assert.deepEqual(chooseBacking([0.6, 0.4, 0.2, 0.1]), { backing: 0.6, white: false, line: "red line backed 60 %" });
+    assert.deepEqual(chooseBacking([0.9, 0.8, 0.7, 0.3], "photo"), { backing: null, white: true, line: "claim line 1 in white — red unreadable on this photo" });
+  });
+
+  it("the backing is line 1's ink box padded 0.5 cap and 1 cap at full opacity, feathered with J2 over 1 cap outside, cut at line 2 and 0.07–0.93 W", () => {
+    const b = backingRect({ capTop: 1000, capPx: 54, widthPx: 700 }, 1080, { bottom: 1070 });
+    close(b.rect.left, 1080 / 2 - 350 - 54);
+    close(b.rect.top, 973);
+    assert.equal(b.rect.top + b.rect.height, 1070);
+    assert.equal(b.feather, 54);
+    // Full across the padded box, edge to edge.
+    close(backingAlphaAt(Math.ceil(b.rect.left), 1020, b, 0.8), 0.8);
+    close(backingAlphaAt(540, 974, b, 0.8), 0.8);
+    // Fading outside it over one cap, gone past it.
+    const out = backingAlphaAt(Math.floor(b.rect.left) - 20, 1020, b, 0.8);
+    assert.ok(out > 0 && out < 0.8, String(out));
+    assert.equal(backingAlphaAt(Math.floor(b.rect.left) - 60, 1020, b, 0.8), 0);
+    // Cut hard at line 2: nothing below 1070.
+    assert.equal(backingAlphaAt(540, 1075, b, 0.8), 0);
+    const wide = backingRect({ capTop: 1000, capPx: 54, widthPx: 1000 }, 1080);
+    close(wide.rect.left, 0.07 * 1080);
+    close(wide.rect.left + wide.rect.width, 0.93 * 1080);
+    assert.equal(backingAlphaAt(70, 1020, wide, 0.8), 0);
+  });
+});
+
+describe("H58 / H59 · O60 the sample claim is Puzzle's true claim", () => {
+  it("the sample reads exactly Puzzle's tiers", () => {
+    assert.equal(SAMPLE_ROLL_CALL, "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\n3RD RELEASE SELLING FAST");
+  });
+
+  it("no test or fixture carries the withdrawn sample", () => {
+    const dir = new URL(".", import.meta.url).pathname;
+    const bad = [["FINAL RELEASE", "SELLING FAST"].join(" "), ["1ST,", "2ND", "&", "3RD"].join(" ")];
+    const hits = readdirSync(dir).filter((f) => f.endsWith(".ts")).filter((f) => bad.some((b) => readFileSync(join(dir, f), "utf8").toUpperCase().includes(b)));
+    assert.deepEqual(hits, []);
+  });
+});
+
+describe("H61 · O62 no upscaling", () => {
+  it("a 720-wide clip makes no 4:5 or 1:1: the format is skipped with the line (the 9:16 is still made)", () => {
+    const src = { width: 720, height: 1280 };
+    assert.equal(formatTooSmall(src, "4:5"), "Clip too small for 4:5 — needs 1080 px wide");
+    assert.equal(formatTooSmall(src, "1:1"), "Clip too small for 1:1 — needs 1080 px wide");
+    assert.equal(formatTooSmall(src, "9:16"), null);
+    assert.equal(formatTooSmall({ width: 1080, height: 1920 }, "1:1"), null);
   });
 });

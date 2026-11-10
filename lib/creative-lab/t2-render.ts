@@ -1,9 +1,9 @@
 /**
  * T2 standalone message, rendered locally (overlay-templates issue 1 O1, O4,
  * O6, O8, O12; issue 3 O19 amended, O23 case, O24 fonts, O25 bands). A sharp
- * still, not a Remotion composition: kit fonts may not render on Lambda until
- * Matas confirms each licence (O24; kit-font.ts SERVER_RENDER_ALLOWLIST is
- * empty), so this path only ever reads the face in place from FONTS_DIR.
+ * still, not a Remotion composition. It reads the kit face in place from
+ * FONTS_DIR; a provided face may render anywhere (issue 7, O49), delivered as
+ * t1-lambda.ts withKitFace does (O52).
  *
  * Layers, bottom to top: the ground (the kit's paint), the arrangement's panel
  * (always, on a panel kit: O30), O25's bands (O29), the type and the lockup under one O6 shadow, and the

@@ -40,7 +40,7 @@ import sharp from "sharp";
 
 import { KIT_SHADOW, lowContrastShare, textOverlay, trimToInk, type Piece, type Placement, type Rect } from "../lib/creative-lab/artist-card.ts";
 import { redLineVerdict, watermarkLayer } from "../lib/creative-lab/artist-card-claim.ts";
-import { SAMPLE_ROLL_CALL, WATERMARK, approvedClaim, assertExportable, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
+import { WATERMARK, approvedClaim, assertExportable, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { KIT_RED, KIT_WHITE, renderCardLine } from "../lib/creative-lab/claim-slot.ts";
 import { detectFaces } from "../lib/creative-lab/face-detect.ts";
 import { providedFace } from "../lib/creative-lab/kit-faces.ts";
@@ -49,27 +49,40 @@ import { withKitFace } from "../lib/creative-lab/t1-lambda.ts";
 import { fontsDir, indexFonts, readFontFaces, requireFont } from "../lib/creative-lab/kit-font.ts";
 import {
   FORMAT_SIZE,
+  RED_BACKING,
+  T1C,
+  T1V_CONTRAST,
   T1V_FACE,
   T1V_INVENTED,
-  chooseCrop,
+  T1V_LINES,
+  backingRect,
+  chooseBacking,
+  chooseStep,
   claimAllowed,
+  claimOn,
+  clipBands,
   footageWindow,
+  formatTooSmall,
   insideVideoSafe,
-  judgeContrastOverClip,
   judgeFaceOverTime,
-  moveRect,
+  nearestRank,
+  planClipLayout,
   planVideoClaim,
   releaseNamesOf,
   sampleTimes,
-  typeTransform,
-  videoTopBlock,
-  type ContrastSample,
+  type BackingBox,
+  type ClipLayout,
   type FaceSample,
+  type FaceVerdict,
   type MeasureCap,
+  type RedVerdict,
   type VideoClaimPlan,
   type VideoFormat,
 } from "../lib/creative-lab/t1-video.ts";
-import { BAND_KNEE_ROWS_916, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
+import { applyBacking, backingLayer } from "../lib/creative-lab/red-backing.ts";
+import { rollCallWords } from "../lib/releases/roll-call.ts";
+import type { Release } from "../lib/releases/types.ts";
+import { MAX_KNEE_STEP, MAX_ROW_STEP, renderVideoBands, rowMeanLuma } from "../lib/creative-lab/video-bands.ts";
 import type { T1OnClipProps } from "../src/remotion/compositions/T1OnClip.tsx";
 
 const argv = process.argv.slice(2);
@@ -109,7 +122,9 @@ const piece = async (r: PieceRecord): Promise<Piece> => {
   const t = await trimToInk(readFileSync(join(kitDir, r.file)));
   return { png: t.png, width: t.width, height: t.height, capPx: Math.min(r.cap_px, t.height), label: r.label };
 };
-const info = await Promise.all(kit.pieces.filter((p) => p.role === "info").map(piece));
+// O54: the kit's date line, verbatim (the one info piece that names a day).
+const dateRec = kit.pieces.find((p) => p.role === "info" && /DAY\b/i.test(p.label));
+const datePiece = dateRec ? await piece(dateRec) : null;
 const lockupRec = kit.pieces.find((p) => p.role === "logo");
 const lockup = lockupRec ? await piece(lockupRec) : null;
 
@@ -123,8 +138,15 @@ const rows = (tw.data ?? []) as (WarningRow & { updated_at: string })[];
 const source = approvedClaim(rows, new Date());
 const held = rows.find((r) => r.state === "held" && /^general sale live$/i.test(r.claim.trim()));
 const rung1 = source.kind === "approved" ? { text: source.claim, why: `approved ${source.id}`, wm: null as string | null } : { text: held?.claim ?? "General sale live", why: held ? `held ticket_warnings ${held.id.slice(0, 8)}, not approved` : "the record's words (no held row), not approved", wm: WATERMARK.notApproved };
-const er = await db.from("event_releases").select("name, position").eq("event_id", event.id).range(0, 99);
-const releaseNames = er.error ? [] : releaseNamesOf((er.data ?? []) as { name: string; position: number }[]);
+// O60: the sample is Puzzle's own claim, from its live tiers (read only) through the roll-call generator.
+const er = await db.from("event_releases").select("*").eq("event_id", event.id).order("position").range(0, 99);
+if (er.error) fail(`event_releases: ${er.error.message}`);
+const tiers = (er.data ?? []) as Record<string, unknown>[];
+const releaseNames = releaseNamesOf(tiers as { name: string; position: number }[]);
+const asRelease = (r: Record<string, unknown>): Release => ({ id: String(r.id), eventId: String(r.event_id), position: Number(r.position), name: String(r.name), communityAt: null, listAt: null, state: r.state as Release["state"], stateAt: (r.state_at as string) ?? null, stateSource: null, stateSetBy: null, price: null, capacity: (r.capacity as number) ?? null, sold: (r.sold as number) ?? null, remaining: (r.remaining as number) ?? null });
+const words = rollCallWords(tiers.map(asRelease));
+if (!words.met) fail(`Puzzle's tiers don't make a roll-call: ${words.because}`);
+const sampleClaim = words.claim;
 
 // The face: read in place locally, or (on --lambda) fetched per run from the private bucket and name-checked (O52).
 let faceTmp: { file: string; done: () => void } | null = null;
@@ -226,22 +248,25 @@ const dataUri = (b: Buffer) => `data:image/png;base64,${b.toString("base64")}`;
 
 // ─── Layers ──────────────────────────────────────────────────────────────────
 const FORMATS: VideoFormat[] = ["9:16", "4:5", "1:1"];
-async function bandsPng(fmt: VideoFormat): Promise<Buffer> {
-  const master = await sharp(Buffer.from(renderVideoBands(1080, 1920)), { raw: { width: 1080, height: 1920, channels: 4 } }).png().toBuffer();
-  if (fmt === "9:16") return master;
-  const c45 = await sharp(master).extract({ left: 0, top: 285, width: 1080, height: 1350 }).png().toBuffer();
-  return fmt === "4:5" ? c45 : sharp(c45).resize(1080, 1080, { fit: "fill" }).png().toBuffer();
-}
-const BANDS: Record<VideoFormat, Buffer> = { "9:16": await bandsPng("9:16"), "4:5": await bandsPng("4:5"), "1:1": await bandsPng("1:1") };
 const transparent = (fmt: VideoFormat) => sharp({ create: { ...FORMAT_SIZE[fmt], channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
-
-type Placed = { pieces: Piece[]; places: Placement[] };
-async function layer(p: Placed, fmt: VideoFormat): Promise<Buffer> {
-  return textOverlay(p.pieces, p.places, FORMAT_SIZE[fmt], typeTransform(fmt), KIT_SHADOW);
+const rgbaPng = (data: Uint8Array, size: { width: number; height: number }) => sharp(Buffer.from(data), { raw: { width: size.width, height: size.height, channels: 4 } }).png().toBuffer();
+/** O55 + O57: a layout's bands at a band step, as a PNG at the format's size. */
+const bandCache = new Map<string, Buffer>();
+async function bandsFor(l: ClipLayout, step: { top: number; bottom: number }): Promise<Buffer> {
+  const key = `${l.format}|${l.arrangement}|${l.claim.length}|${JSON.stringify(l.anchors)}|${step.top}|${step.bottom}`;
+  const hit = bandCache.get(key);
+  if (hit) return hit;
+  const png = await rgbaPng(renderVideoBands(l.size.width, l.size.height, clipBands(l, step)), l.size);
+  bandCache.set(key, png);
+  return png;
+}
+/** The type in a layout is already at the format's size: one O6 shadow over the group. */
+async function layer(pieces: Piece[], places: Placement[], fmt: VideoFormat): Promise<Buffer> {
+  return textOverlay(pieces, places, FORMAT_SIZE[fmt], { k: 1, dx: 0, dy: 0 }, KIT_SHADOW);
 }
 
 // ─── Per clip ────────────────────────────────────────────────────────────────
-type Row = { clip: string; artist: string; claimLabel: string; fmt: VideoFormat; crop: number | null; faceLine: string; topShare: number; claimShare: number; runS: number; topP95: number; claimP95: number | null; redP95: number | null; red: string; claim: string; safe: boolean; file: string | null; result: string };
+type Row = { clip: string; artist: string; claimLabel: string; fmt: VideoFormat; arrangement: string; crop: number | null; faceLine: string; topShare: number; claimShare: number; runS: number; topP95: number | null; lockupP95: number | null; bottomP95: number | null; steps: string; redP95: number | null; red: string; claim: string; safe: boolean; file: string | null; result: string };
 const table: Row[] = [];
 const contactRows: { label: string; file: string }[] = [];
 
@@ -284,82 +309,136 @@ for (const clipId of clipIds) {
     writeFileSync(faceCache, JSON.stringify(sourceFaces));
   }
 
-  // Name and details for this artist.
+  // O54: the clip carries the lockup, the name and one date line (the kit's, verbatim); no venue or time.
   const nameRec = kit.pieces.find((p) => p.role === "name" && p.artist === artist);
   if (!nameRec) fail(`no name piece for ${artist}`);
-  const top = videoTopBlock({ lockup, name: await piece(nameRec!), info });
+  const namePiece = await piece(nameRec!);
+  if (!datePiece) fail("the kit has no date line");
 
   for (const job of [
     { label: "a-general-sale-live", text: rung1.text, wm: rung1.wm, why: rung1.why },
-    { label: "b-sample-roll-call", text: SAMPLE_ROLL_CALL, wm: WATERMARK.sample, why: "sample (fixture releases)" },
+    { label: "b-puzzle-roll-call", text: sampleClaim, wm: WATERMARK.sample, why: "Puzzle's own tiers through the roll-call generator (O60)" },
   ]) {
     const allowed = claimAllowed(full);
     const plan = allowed.ok ? await withWidths((m) => planVideoClaim(job.text, m, { releaseNames })) : null;
     const claimPlan = plan && !("held" in plan) ? (plan as VideoClaimPlan) : null;
-    const claimRectM = claimPlan ? { left: (1080 - 840) / 2, top: claimPlan.blockTop, width: 840, height: claimPlan.bottom - claimPlan.blockTop } : null;
-    const safe = insideVideoSafe([...top.all, ...(claimPlan ? claimPlan.lines.map((l) => ({ left: (1080 - l.widthPx) / 2, top: l.capTop, width: l.widthPx, height: l.capPx })) : [])]).ok;
 
     for (const fmt of FORMATS) {
-      const t = typeTransform(fmt);
       const size = FORMAT_SIZE[fmt];
-      const topRect = moveRect(top.block, t);
-      const claimRect = claimRectM ? moveRect(claimRectM, t) : null;
-      // O39: the crop. The clip's own crop_focus_y first, then 0.5, then ±0.1 outward.
+      const id = `${slug}_${job.label}_${fmt.replace(":", "x")}`;
+      // O62: no upscaling.
+      const small = formatTooSmall(src, fmt);
+      if (small) {
+        console.log(`${id}: ${small}`);
+        table.push({ clip: clipId.slice(0, 8), artist, claimLabel: job.label, fmt, arrangement: "–", crop: null, faceLine: small, topShare: 0, claimShare: 0, runS: 0, topP95: null, lockupP95: null, bottomP95: null, steps: "–", redP95: null, red: "–", claim: "–", safe: true, file: null, result: small });
+        continue;
+      }
+      const cropX = Number(clip.crop_focus_x ?? 0.5);
       const own = Number(clip.crop_focus_y ?? 0.5);
       const cands = [...new Set([own, 0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8].map((v) => Math.round(v * 100) / 100))];
       const samplesFor = (cy: number): FaceSample[] => {
-        const win = footageWindow(src, fmt, cy, Number(clip.crop_focus_x ?? 0.5));
+        const win = footageWindow(src, fmt, cy, cropX);
         const k = size.width / win.width;
         return times.map((tS, i) => ({ tS, faces: (sourceFaces[i] ?? []).map((b) => ({ left: (b.left - win.left) * k, top: (b.top - win.top) * k, width: b.width * k, height: b.height * k })) }));
       };
-      const pick = chooseCrop(cands, (cy) => judgeFaceOverTime(samplesFor(cy), { top: topRect, claim: claimRect }));
-      const cropY = pick.crop ?? own;
-      const v = pick.verdict;
+      const groundAt = async (cy: number, i: number, bands: Buffer) => {
+        const win = footageWindow(src, fmt, cy, cropX);
+        return sharp(join(sdir, frames[i]!)).extract({ left: Math.round(win.left), top: Math.round(win.top), width: Math.round(win.width), height: Math.round(win.height) }).resize(size.width, size.height).composite([{ input: bands }]).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      };
 
-      // O40: contrast per sample on the chosen crop, bands on, before type.
-      const win = footageWindow(src, fmt, cropY, Number(clip.crop_focus_x ?? 0.5));
-      const cs: ContrastSample[] = [];
-      for (let i = 0; i < frames.length; i += 1) {
-        const shown = await sharp(join(sdir, frames[i]!)).extract({ left: Math.round(win.left), top: Math.round(win.top), width: Math.round(win.width), height: Math.round(win.height) }).resize(size.width, size.height).composite([{ input: BANDS[fmt] }]).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-        const l1 = claimPlan?.lines[0];
-        const redLine = claimPlan && l1 && l1.color === "red" ? redLineVerdict(shown.data, shown.info.width, shown.info.channels, { capTop: l1.capTop * t.k + t.dy, capPx: l1.capPx * t.k, widthPx: l1.widthPx * t.k }, size).share : null;
-        cs.push({ tS: times[i]!, topBlock: lowContrastShare(shown.data, shown.info.width, shown.info.channels, topRect), claimBox: claimRect ? lowContrastShare(shown.data, shown.info.width, shown.info.channels, claimRect) : null, redInk: redLine });
-      }
-      const cv = judgeContrastOverClip(cs);
-
-      // Type layers: the top block with the draft stamp (on from frame 0), the claim (in at 1.5 s, O37).
-      const namePiece = await piece(nameRec!);
-      const topPieces: Piece[] = [];
-      const topPlaces: Placement[] = [];
-      const list: [Piece | null, Placement | null][] = [[lockup, top.lockup], [namePiece, top.name], ...info.map((p, i) => [p, top.info[i] ?? null] as [Piece, Placement | null])];
-      for (const [pc, pl] of list) {
-        if (pc && pl) {
-          topPieces.push(pc);
-          topPlaces.push(pl);
+      // O54 / O56 / O57: at each crop, A then B; the first pair whose face and contrast pass is the clip's.
+      type Pick = { cy: number; layout: ClipLayout; face: FaceVerdict; topStep: number; bottomStep: number; p95: { top: number; lockup: number | null; bottom: number } };
+      let chosen: Pick | null = null;
+      let bestFace: FaceVerdict | null = null;
+      let tooBright: string | null = null;
+      search: for (const cy of cands) {
+        for (const arr of ["A", "B"] as const) {
+          const l = planClipLayout({ lockup, name: namePiece, date: datePiece!, claim: claimPlan }, fmt, arr);
+          const fv = judgeFaceOverTime(samplesFor(cy), { always: arr === "A" ? [l.boxes.top] : [l.boxes.top, l.boxes.date], claim: l.boxes.claim }, { frameWidth: size.width });
+          if (!bestFace || Math.max(fv.topShare, fv.claimShare) < Math.max(bestFace.topShare, bestFace.claimShare)) bestFace = fv;
+          if (!fv.ok) continue;
+          // O57: the top block (and the lockup alone, O61) and the bottom block per band step, p95 over the samples.
+          const tops: number[][] = T1C.bandSteps.map(() => []);
+          const locks: number[][] = T1C.bandSteps.map(() => []);
+          const bots: number[][] = T1C.bandSteps.map(() => []);
+          for (const [si, st] of T1C.bandSteps.entries()) {
+            const bands = await bandsFor(l, { top: st, bottom: st });
+            for (let i = 0; i < frames.length; i += 1) {
+              const g = await groundAt(cy, i, bands);
+              tops[si]!.push(lowContrastShare(g.data, g.info.width, g.info.channels, l.boxes.top));
+              if (l.boxes.lockup) locks[si]!.push(lowContrastShare(g.data, g.info.width, g.info.channels, l.boxes.lockup));
+              if (claimOn(times[i]!) || arr === "B") bots[si]!.push(lowContrastShare(g.data, g.info.width, g.info.channels, l.boxes.bottom));
+            }
+          }
+          const topP = tops.map((v) => nearestRank(v, 95));
+          const lockP = locks.map((v) => (v.length ? nearestRank(v, 95) : 0));
+          const botP = bots.map((v) => (v.length ? nearestRank(v, 95) : 0));
+          const topStep = topP.findIndex((v, i) => v <= T1V_CONTRAST.topBlock + 1e-9 && lockP[i]! <= T1C.lockupMax + 1e-9);
+          const bottomStep = chooseStep(botP, T1V_CONTRAST.claimBox);
+          if (topStep < 0) {
+            tooBright ??= T1V_LINES.tooBright("name");
+            continue;
+          }
+          if (bottomStep == null) {
+            tooBright ??= T1V_LINES.tooBright("claim");
+            continue;
+          }
+          chosen = { cy, layout: l, face: fv, topStep, bottomStep, p95: { top: topP[topStep]!, lockup: l.boxes.lockup ? lockP[topStep]! : null, bottom: botP[bottomStep]! } };
+          break search;
         }
       }
-      const typeTop = await layer({ pieces: topPieces, places: topPlaces }, fmt);
+      // A refused clip is still drawn as the flagged preview, on its own crop in A.
+      const refused = chosen ? null : (tooBright ?? bestFace?.line ?? "refused");
+      const layout = chosen?.layout ?? planClipLayout({ lockup, name: namePiece, date: datePiece!, claim: claimPlan }, fmt, "A");
+      const cropY = chosen?.cy ?? own;
+      const steps = { top: T1C.bandSteps[chosen?.topStep ?? 0]!, bottom: T1C.bandSteps[chosen?.bottomStep ?? 0]! };
+      const bands = await bandsFor(layout, steps);
+
+      // O58: the red line stays red: band step first, then a backing under line 1, 40 → 60 → 80 %; white only past 80 %.
+      let red: RedVerdict | null = null;
+      let redP95: number | null = null;
+      let backing: BackingBox | null = null;
+      const l1 = layout.claim[0];
+      if (l1 && l1.color === "red") {
+        backing = backingRect(l1, size.width, { bottom: layout.claim[1] ? layout.claim[1].capTop - 1 : undefined, top: layout.arrangement === "B" ? layout.boxes.date.top + layout.boxes.date.height + 1 : undefined });
+        const byStep: number[][] = [[], ...RED_BACKING.steps.map(() => [])];
+        for (let i = 0; i < frames.length; i += 1) {
+          if (!claimOn(times[i]!)) continue;
+          const g = await groundAt(cropY, i, bands);
+          byStep[0]!.push(redLineVerdict(g.data, g.info.width, g.info.channels, l1, size).share);
+          for (const [bi, op] of RED_BACKING.steps.entries()) byStep[bi + 1]!.push(redLineVerdict(applyBacking(g.data, g.info.width, g.info.height, g.info.channels, backing!, op), g.info.width, g.info.channels, l1, size).share);
+        }
+        const p95s = byStep.map((v) => nearestRank(v, 95));
+        red = chooseBacking(p95s, "clip");
+        redP95 = red.backing != null ? p95s[RED_BACKING.steps.indexOf(red.backing as 0.4 | 0.6 | 0.8) + 1]! : p95s[0]!;
+      }
+
+      // Type layers. The top layer (lockup, name, date; on from frame 0) carries the draft stamp; the claim layer
+      // (the backing, then the claim's lines) fades in at 1.5 s (O37, O58).
+      const lp = layout.pieces;
+      const topPieces = [...(lp.lockup ? [lp.lockup] : []), lp.name, lp.date];
+      const typeTop = await layer(topPieces.map((p) => p.piece), topPieces.map((p) => p.at), fmt);
       const claimPieces: Piece[] = [];
       const claimPlaces: Placement[] = [];
-      if (claimPlan) {
-        for (const [i, line] of claimPlan.lines.entries()) {
-          // O40: the red line is decided once for the clip; failing, line 1 is white throughout.
-          const colour = line.color === "red" && (i > 0 || cv.red) ? KIT_RED : KIT_WHITE;
-          const s = await renderCardLine(line.text, colour, line.capPx, face);
-          claimPieces.push({ png: s.png, width: s.width, height: s.height, capPx: line.capPx, label: line.text });
-          claimPlaces.push({ label: line.text, left: Math.round((1080 - s.width) / 2), top: Math.round(line.capTop - s.capTopRow), width: s.width, height: s.height, scale: 1, short: false, stepped: false, belowFloor: false });
-        }
+      for (const [i, line] of layout.claim.entries()) {
+        const colour = line.color === "red" && (i > 0 || !red?.white) ? KIT_RED : KIT_WHITE;
+        const set = await renderCardLine(line.text, colour, line.capPx, face);
+        claimPieces.push({ png: set.png, width: set.width, height: set.height, capPx: line.capPx, label: line.text });
+        claimPlaces.push({ label: line.text, left: Math.round((size.width - set.width) / 2), top: Math.round(line.capTop - set.capTopRow), width: set.width, height: set.height, scale: 1, short: false, stepped: false, belowFloor: false });
       }
-      const typeClaim = claimPieces.length ? await layer({ pieces: claimPieces, places: claimPlaces }, fmt) : null;
-      // O36: the stamp in a free corner of the 4:5 rectangle (every format shows it).
-      const avoid = [...topPlaces, ...claimPlaces].map((p) => moveRect(p, t));
+      let typeClaim = claimPieces.length ? await layer(claimPieces, claimPlaces, fmt) : null;
+      if (typeClaim && backing && red?.backing != null) {
+        const back = await rgbaPng(backingLayer(size.width, size.height, backing, red.backing), size);
+        typeClaim = await sharp(back).composite([{ input: typeClaim }]).png().toBuffer();
+      }
+      // O36 / O62: the stamp in the first free corner of the 4:5 rectangle, never touching the lockup.
+      const avoid = [...topPieces.map((p) => p.at), ...claimPlaces];
       const within = fmt === "9:16" ? { left: 0, top: 285, width: 1080, height: 1350 } : { left: 0, top: 0, width: size.width, height: size.height };
       const stamp = job.wm ? await watermarkLayer(job.wm, size, face.path, face.family ?? "Bootzy Condensed TM", { avoid, within }) : null;
       const topWithStamp = stamp ? await sharp(typeTop).composite([{ input: stamp }]).png().toBuffer() : typeTop;
 
-      const id = `${slug}_${job.label}_${fmt.replace(":", "x")}`;
       writeFileSync(join(work, `${id}-top.png`), topWithStamp);
-      writeFileSync(join(work, `${id}-bands.png`), BANDS[fmt]);
+      writeFileSync(join(work, `${id}-bands.png`), bands);
       if (typeClaim) writeFileSync(join(work, `${id}-claim.png`), typeClaim);
       const clipSigned = onLambda ? (await db.storage.from("campaign-assets").createSignedUrl(String(asset.data!.storage_path), 3600)).data?.signedUrl : null;
       const props: T1OnClipProps = {
@@ -368,17 +447,15 @@ for (const clipId of clipIds) {
         sourceWidth: src.width,
         sourceHeight: src.height,
         cropFocusY: cropY,
-        cropFocusX: Number(clip.crop_focus_x ?? 0.5),
+        cropFocusX: cropX,
         inS,
         fps,
         durationInSeconds: dur,
         muted: true,
-        bandsUrl: onLambda ? dataUri(BANDS[fmt]) : `${base}/${id}-bands.png`,
+        bandsUrl: onLambda ? dataUri(bands) : `${base}/${id}-bands.png`,
         topUrl: onLambda ? dataUri(topWithStamp) : `${base}/${id}-top.png`,
         claimUrl: typeClaim ? (onLambda ? dataUri(typeClaim) : `${base}/${id}-claim.png`) : null,
       };
-      const refused = pick.crop == null ? v.line : null;
-      // A refused clip is still drawn, as the flagged preview (stamped, never filed), so the refusal can be seen.
       const out = join(outDir, `${id}_DRAFT${refused ? "_REFUSED" : ""}.mp4`);
       // A draft carries its stamp, so the export guard refuses it; an unstamped draft would be exportable.
       if (!job.wm) fail(`${id}: an unstamped card would be exportable; drafts only`);
@@ -389,8 +466,8 @@ for (const clipId of clipIds) {
         if ((e as Error).name !== "NotExportableError") throw e;
       }
       if (lambda) {
-        const frames = Math.round(dur * fps);
-        const chunk = lambdaChunking(lambda.limit, frames);
+        const nFrames = Math.round(dur * fps);
+        const chunk = lambdaChunking(lambda.limit, nFrames);
         const started = Date.now();
         const r = await renderMediaOnLambda({ region: REMOTION_REGION, functionName: lambda.functionName, serveUrl: lambda.serveUrl, composition: "T1OnClip", inputProps: props as unknown as Record<string, unknown>, codec: "h264", crf: 18, muted: true, framesPerLambda: chunk.framesPerLambda, concurrencyPerLambda: chunk.concurrencyPerLambda, privacy: "private", downloadBehavior: { type: "download", fileName: null } });
         let progress = await getRenderProgress({ renderId: r.renderId, bucketName: r.bucketName, functionName: lambda.functionName, region: REMOTION_REGION });
@@ -405,33 +482,40 @@ for (const clipId of clipIds) {
         const obj = await s3.send(new GetObjectCommand({ Bucket: r.bucketName, Key: progress.outKey! }));
         writeFileSync(out, Buffer.from(await obj.Body!.transformToByteArray()));
         await deleteRender({ bucketName: r.bucketName, region: REMOTION_REGION, renderId: r.renderId });
-        const functions = Math.ceil(frames / (chunk.framesPerLambda ?? frames)) + 1;
+        const functions = Math.ceil(nFrames / (chunk.framesPerLambda ?? nFrames)) + 1;
         lambdaCosts.push({ id, functions, costUsd: progress.costs?.accruedSoFar ?? null, ms: Date.now() - started });
         console.log(`  lambda: ${functions} functions · $${(progress.costs?.accruedSoFar ?? 0).toFixed(4)} · ${((Date.now() - started) / 1000).toFixed(0)} s`);
       } else {
         const composition = await selectComposition({ serveUrl, id: "T1OnClip", inputProps: props as unknown as Record<string, unknown> });
         await renderMedia({ composition, serveUrl, codec: "h264", crf: 18, outputLocation: out, inputProps: props as unknown as Record<string, unknown>, muted: true, logLevel: "error" });
       }
-      contactRows.push({ label: `${id}${refused ? " · REFUSED (flagged preview)" : ""}`, file: out });
-      console.log(`${id}: crop ${cropY} · face ${v.ok ? "ok" : v.line} · top p95 ${(cv.topBlockP95 * 100).toFixed(1)} % · claim p95 ${cv.claimBoxP95 == null ? "–" : (cv.claimBoxP95 * 100).toFixed(1) + " %"} · red ${cv.redInkP95 == null ? "–" : (cv.redInkP95 * 100).toFixed(1) + " %"} → ${cv.redInkP95 == null ? "–" : cv.red ? "red" : "white"}`);
+      contactRows.push({ label: `${id} · ${layout.arrangement}${refused ? " · REFUSED (flagged preview)" : ""}`, file: out });
+      const fv = chosen?.face ?? bestFace!;
+      const redWord = !red ? "–" : red.white ? "white (whole clip)" : red.backing != null ? `red, backed ${Math.round(red.backing * 100)} %` : "red";
+      const stepWord = chosen ? `top +${Math.round(steps.top * 100)} · bottom +${Math.round(steps.bottom * 100)}` : "–";
+      console.log(`${id}: ${layout.arrangement} · crop ${cropY} · ${refused ?? "passes"} · steps ${stepWord} · red ${redWord}`);
+      const safe = fmt !== "9:16" || insideVideoSafe([...topPieces.map((p) => p.at), ...layout.claim.map((c) => ({ left: (size.width - c.widthPx) / 2, top: c.capTop, width: c.widthPx, height: c.capPx }))]).ok;
       table.push({
         clip: clipId.slice(0, 8),
         artist,
         claimLabel: job.label,
         fmt,
-        crop: pick.crop,
-        faceLine: v.ok ? "ok" : (v.line ?? "refused"),
-        topShare: v.topShare,
-        claimShare: v.claimShare,
-        runS: v.longestRunS,
-        topP95: cv.topBlockP95,
-        claimP95: cv.claimBoxP95,
-        redP95: cv.redInkP95,
-        red: cv.redInkP95 == null ? "–" : cv.red ? "red" : "white (whole clip)",
+        arrangement: chosen ? layout.arrangement : `(${layout.arrangement})`,
+        crop: chosen?.cy ?? null,
+        faceLine: fv.ok ? "ok" : (fv.line ?? "refused"),
+        topShare: fv.topShare,
+        claimShare: fv.claimShare,
+        runS: fv.longestRunS,
+        topP95: chosen?.p95.top ?? null,
+        lockupP95: chosen?.p95.lockup ?? null,
+        bottomP95: chosen?.p95.bottom ?? null,
+        steps: stepWord,
+        redP95,
+        red: redWord,
         claim: !allowed.ok ? allowed.line : claimPlan ? `step ${claimPlan.step}${claimPlan.dropped.length ? ` · dropped ${claimPlan.dropped.join(", ")}` : ""} · ${Math.round(claimPlan.widest)} of 840 px` : (plan as { held: string }).held,
         safe,
         file: `${id}_DRAFT${refused ? "_REFUSED" : ""}.mp4`,
-        result: refused ? `refused: ${refused}` : [v.ok ? null : "face", cv.ok ? null : "contrast"].filter(Boolean).join(", ") || "passes",
+        result: refused ? `refused: ${refused}` : "passes",
       });
     }
   }
@@ -441,7 +525,12 @@ for (const clipId of clipIds) {
 const greyFile = "grey-test.mp4";
 await sharp({ create: { width: 1080, height: 1920, channels: 3, background: { r: 128, g: 128, b: 128 } } }).png().toFile(join(work, "grey.png"));
 ff("ffmpeg", ["-y", "-v", "error", "-loop", "1", "-framerate", "30", "-i", join(work, "grey.png"), "-t", "2", "-c:v", "libx264", "-crf", "0", "-pix_fmt", "yuv444p", join(work, greyFile)]);
-writeFileSync(join(work, "grey-bands.png"), BANDS["9:16"]);
+// The 9:16 A layout with a one-line claim (O55's anchors; for a one-line claim in A the bottom band is O38's).
+const greyName = await piece(kit.pieces.find((p) => p.role === "name")!);
+const greyPlan = (await withWidths((m) => planVideoClaim(rung1.text, m, { releaseNames }))) as VideoClaimPlan;
+const greyLayout = planClipLayout({ lockup, name: greyName, date: datePiece!, claim: greyPlan }, "9:16", "A");
+const greyKnees = [Math.floor(greyLayout.anchors.topFull + 1e-9), Math.floor(greyLayout.anchors.bottomFull + 1e-9)];
+writeFileSync(join(work, "grey-bands.png"), await rgbaPng(renderVideoBands(1080, 1920, clipBands(greyLayout)), { width: 1080, height: 1920 }));
 writeFileSync(join(work, "grey-top.png"), await transparent("9:16"));
 const greyProps: T1OnClipProps = { clipUrl: `${base}/${greyFile}`, format: "9:16", sourceWidth: 1080, sourceHeight: 1920, cropFocusY: 0.5, fps: 30, durationInSeconds: 2, muted: true, bandsUrl: `${base}/grey-bands.png`, topUrl: `${base}/grey-top.png`, claimUrl: null };
 const greyOut = join(outDir, "grey-test_bands_crf18.mp4");
@@ -451,9 +540,9 @@ ff("ffmpeg", ["-y", "-v", "error", "-ss", "1", "-i", greyOut, "-frames:v", "1", 
 const gf = await sharp(join(work, "grey-frame.png")).removeAlpha().raw().toBuffer({ resolveWithObject: true });
 const means = rowMeanLuma(gf.data, gf.info.width, gf.info.height, gf.info.channels);
 const steps = Array.from(means, (m, y) => (y ? Math.abs(m - means[y - 1]!) : 0));
-const kneeNear = (y: number) => BAND_KNEE_ROWS_916.some((k) => Math.abs(k - y) <= 1);
+const kneeNear = (y: number) => greyKnees.some((k) => Math.abs(k - y) <= 1);
 const fadeMax = Math.max(...steps.filter((_, y) => !kneeNear(y)));
-const kneeSteps = BAND_KNEE_ROWS_916.map((k) => Math.max(steps[k - 1] ?? 0, steps[k]!, steps[k + 1] ?? 0));
+const kneeSteps = greyKnees.map((k) => Math.max(steps[k - 1] ?? 0, steps[k]!, steps[k + 1] ?? 0));
 
 // ─── Contact sheet: 0 / 1.5 / 1.75 / 4.75 s ──────────────────────────────────
 const TIMES = [0, 1.5, 1.75, 4.75];
@@ -495,13 +584,14 @@ if (lambdaCosts.length) {
   L.push(`Lambda: ${lambdaCosts.length} renders, ${lambdaCosts[0]!.functions} functions each (one orchestrator plus the chunks), $${(total / lambdaCosts.length).toFixed(4)} a render on average, $${total.toFixed(4)} in all.`);
 }
 L.push(`Each clip: its first ${seconds} s from in_s, muted, H.264 CRF 18. Samples at ${T1V_FACE.fps} a second.`, "");
-L.push("| Clip | Claim | Format | Crop (crop_focus_y) | Face: top / claim share · longest run | Top block p95 (≤ 10 %) | Claim box p95 (≤ 15 %) | Red ink p95 (≤ 25 %) → colour | Claim | Inside safe area | Result | File |");
-L.push("|---|---|---|---|---|---|---|---|---|---|---|---|");
-for (const r of table) L.push(`| ${r.artist} (${r.clip}) | ${r.claimLabel} | ${r.fmt} | ${r.crop ?? "none passes"} | ${pct(r.topShare)} / ${pct(r.claimShare)} · ${r.runS.toFixed(1)} s${r.faceLine === "ok" ? "" : ` · ${r.faceLine}`} | ${pct(r.topP95)} | ${pct(r.claimP95)} | ${pct(r.redP95)} → ${r.red} | ${r.claim} | ${r.safe ? "✓" : "✗"} | ${r.result} | ${r.file ?? "–"} |`);
+L.push(`Sample claim (b), from Puzzle's tiers (${tiers.map((t) => `${t.name} ${t.state}`).join(" · ")}): "${sampleClaim.replace("\n", " / ")}".`, "");
+L.push("| Clip | Claim | Format | Arrangement | Crop | Face (O56): top / claim share · run | Top block p95 (≤ 10 %) | Lockup p95 (≤ 15 %) | Bottom block p95 (≤ 15 %) | Band steps (O57) | Red line p95 → result (O58) | Claim | Safe area | Result | File |");
+L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+for (const r of table) L.push(`| ${r.artist} (${r.clip}) | ${r.claimLabel} | ${r.fmt} | ${r.arrangement} | ${r.crop ?? "–"} | ${pct(r.topShare)} / ${pct(r.claimShare)} · ${r.runS.toFixed(1)} s | ${pct(r.topP95)} | ${pct(r.lockupP95)} | ${pct(r.bottomP95)} | ${r.steps} | ${pct(r.redP95)} → ${r.red} | ${r.claim} | ${r.safe ? "✓" : "✗"} | ${r.result} | ${r.file ?? "–"} |`);
 L.push("", "## O46 on the encoded file");
-L.push(`A flat 0x808080 1080 × 1920 clip through T1OnClip with the bands only, H.264 CRF 18 (grey-test_bands_crf18.mp4), frame at 1 s. Largest step between adjacent rows' mean luma across the fades: ${fadeMax.toFixed(2)} levels (limit ${MAX_ROW_STEP}) → ${fadeMax <= MAX_ROW_STEP ? "passes" : "fails"}. At J2's two knees (rows ${BAND_KNEE_ROWS_916.join(", ")}): ${kneeSteps.map((k) => k.toFixed(2)).join(" / ")} levels — the band's own drop inside one row, not a dither step.`);
-L.push("", "## Invented while building (T1V_INVENTED)");
-for (const i of T1V_INVENTED) L.push(`- ${i}`);
+L.push(`A flat 0x808080 1080 × 1920 clip through T1OnClip with the bands only, H.264 CRF 18 (grey-test_bands_crf18.mp4), frame at 1 s. Largest step between adjacent rows' mean luma across the fades: ${fadeMax.toFixed(2)} levels (limit ${MAX_ROW_STEP}) → ${fadeMax <= MAX_ROW_STEP ? "passes" : "fails"}. At J2's two knees (rows ${greyKnees.join(", ")}, A's top and bottom bands): ${kneeSteps.map((k) => k.toFixed(2)).join(" / ")} levels (limit ${MAX_KNEE_STEP}, O55) → ${kneeSteps.every((k) => k <= MAX_KNEE_STEP) ? "passes" : "fails"}.`);
+L.push("", "## T1V_INVENTED and its rulings (issue 8, O62)");
+for (const i of T1V_INVENTED) L.push(`- **${i.ruling}**: ${i.value}`);
 L.push("", `Contact sheet: CONTACT-SHEET.png (frames at ${TIMES.join(" / ")} s).`);
 writeFileSync(join(outDir, "report.md"), L.join("\n") + "\n");
 server.close();

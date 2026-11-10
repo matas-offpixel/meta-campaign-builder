@@ -124,11 +124,11 @@ describe("the O8 ladder on T2", () => {
 
   it("past the last step the words shorten in order, and the plan says what went", () => {
     // Line 1 fits; line 2 is too wide until TICKETS goes.
-    const p = planT2Claim({ approved: "Early bird, 1st, 2nd & 3rd release sold out\nFinal 100 final release tickets" }, (t) => (t.startsWith("EARLY") ? 500 : t.includes("TICKETS") ? 1000 : 800));
+    const p = planT2Claim({ approved: "Early bird, presale & 1st release sold out\nFinal 100 final release tickets" }, (t) => (t.startsWith("EARLY") ? 500 : t.includes("TICKETS") ? 1000 : 800));
     assert.match(p.meter, /^step [012] of 2 · 2 lines · dropped /);
     assert.ok(p.attempts[p.chosen!]!.dropped.length >= 1);
     assert.equal(p.attempts[p.chosen!]!.dropped[0], "TICKETS");
-    assert.deepEqual(p.approvedLines, ["Early bird, 1st, 2nd & 3rd release sold out", "Final 100 final release tickets"]);
+    assert.deepEqual(p.approvedLines, ["Early bird, presale & 1st release sold out", "Final 100 final release tickets"]);
   });
 
   it("with nothing left to drop it can't shorten and has no Approve", () => {
@@ -368,8 +368,8 @@ describe("H30: band stops on 3 × 3 averages", () => {
 describe("O33: T2's step 2", () => {
   it("a claim too wide at 5.2 % H steps to 4.5 % H before any drop; the meter reads \"of 2\"", () => {
     const slot = claimSlot(paperRect());
-    // Line 1 of O12's own roll-call: 43 characters; 0.32 × cap per character fits only at step 2 (54 px cap: 743 px).
-    const p = planT2Claim({ approved: "Early bird, 1st, 2nd & 3rd release sold out\nFinal release selling fast" }, (t, cap) => t.length * 0.32 * cap, PUZZLE_FLOATING_T2, undefined, { slot });
+    // A 42-character line 1: at 0.32 × cap per character it fits only at step 2 (54 px cap: 726 px; 839 px at step 1).
+    const p = planT2Claim({ approved: "Early bird, presale & 1st release sold out\n3rd release selling fast" }, (t, cap) => t.length * 0.32 * cap, PUZZLE_FLOATING_T2, undefined, { slot });
     const a = p.attempts[p.chosen!]!;
     assert.equal(a.step, 2);
     assert.deepEqual(a.dropped, []);

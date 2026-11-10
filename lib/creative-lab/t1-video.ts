@@ -10,7 +10,8 @@
  * where O23 puts it. Everything here is for video only.
  */
 
-import { MASTER, RECT_45, layoutText, type Piece, type Placement, type Rect, type Size, type TextLayout } from "./artist-card.ts";
+import { MASTER, RECT_45, type Piece, type Placement, type Rect, type Size } from "./artist-card.ts";
+import { J2_FALL, type GradientShadow } from "./overlay-gradient.ts";
 import { DROP_ORDER, applyDrop, breakAllowed, isRollCall, rollCallStates, type Drop } from "./claim-slot.ts";
 import { FORMAT_SIZE, T1V_TIMING, claimOn, claimOpacity, footageWindow, type VideoFormat } from "./t1-video-frame.ts";
 
@@ -26,6 +27,10 @@ export const T1V_LINES = {
   face: (pct: number) => `Face in the type for ${pct} % of the claim's time — choose another crop or clip`,
   redToWhite: "claim line 1 in white — red unreadable on this clip",
   captionAndT1: "A clip takes a UGC caption or T1, never both",
+  tooBright: (what: "name" | "claim") => `Too bright behind the ${what} — choose another clip`,
+  bands: (n: number) => `bands +${n}`,
+  backed: (pct: number) => `red line backed ${pct} %`,
+  tooSmall: (format: string) => `Clip too small for ${format} — needs 1080 px wide`,
 } as const;
 
 /** O37: does a clip of this length take a claim? It can still run as T1 without one. */
@@ -53,8 +58,6 @@ export const T1V_CLAIM = {
   pitchAt4: 0.0583,
   /** The roll-call keeps its lockup (O12, O23): line 1 at 0.625 of line 2's cap, 0.29 of line 2's cap apart. */
   rollCall: { line1: 0.217 / 0.347, gap: 22 / 76 },
-  /** The 4:5 and 1:1 carry the 9:16's arrangement: the claim's last line on 0.713 of the 4:5 rectangle. */
-  carried45: (0.65 * MASTER.height - RECT_45.top) / (RECT_45.bottom - RECT_45.top),
 } as const;
 
 export type VideoClaimLine = { text: string; approvedText: string; color: "red" | "white"; capPx: number; capTop: number; widthPx: number };
@@ -143,27 +146,6 @@ export function planVideoClaim(approved: string, measure: MeasureCap, opts: { re
   return { held: `${Math.round(widestSeen)} of ${T1V_CLAIM.maxWidthPx} px · can't shorten` };
 }
 
-/**
- * O43: the top block keeps its static slots (O3, O18's 76 px inset) and keeps
- * the name and details within 840 px: a piece the static layout lets reach
- * 864 px (0.8 W) is scaled down about the frame's centre, its top kept; the
- * details lines step down together.
- */
-export function videoTopBlock(input: { lockup: Piece | null; name: Piece; info: readonly Piece[] }, frame: Size = MASTER): TextLayout {
-  const base = layoutText(input, frame);
-  const narrow = (p: Placement, k: number): Placement => (k >= 1 ? p : { ...p, width: p.width * k, height: p.height * k, left: frame.width / 2 - (p.width * k) / 2, scale: p.scale * k, stepped: true });
-  const name = narrow(base.name, T1V_CLAIM.maxWidthPx / base.name.width);
-  const widestInfo = base.info.length ? Math.max(...base.info.map((p) => p.width)) : 0;
-  const kInfo = widestInfo ? T1V_CLAIM.maxWidthPx / widestInfo : 1;
-  const info = base.info.map((p) => narrow(p, kInfo));
-  const all = [base.lockup, name, ...info].filter((p): p is Placement => p != null);
-  const left = Math.min(...all.map((p) => p.left));
-  const top = Math.min(...all.map((p) => p.top));
-  const right = Math.max(...all.map((p) => p.left + p.width));
-  const bottom = Math.max(...all.map((p) => p.top + p.height));
-  return { lockup: base.lockup, name, info, all, block: { left, top, width: right - left, height: bottom - top } };
-}
-
 /** H41: every type box inside the 9:16 video safe area. */
 export function insideVideoSafe(boxes: readonly Rect[]): { ok: boolean; outside: Rect[] } {
   const outside = boxes.filter((b) => b.left < VIDEO_SAFE.left - 0.5 || b.left + b.width > VIDEO_SAFE.right + 0.5 || b.top < VIDEO_SAFE.top - 0.5 || b.top + b.height > VIDEO_SAFE.bottom + 0.5);
@@ -192,9 +174,212 @@ export function typeTransform(format: VideoFormat): { k: number; dx: number; dy:
 
 export const moveRect = (r: Rect, t: { k: number; dx: number; dy: number }): Rect => ({ left: r.left * t.k + t.dx, top: r.top * t.k + t.dy, width: r.width * t.k, height: r.height * t.k });
 
+// ─── O54: the clip layout (issue 8) ─────────────────────────────────────────
+
+export type Arrangement = "A" | "B";
+
+/** O54's sizes, fractions of the 9:16 H unless named. */
+export const T1C = {
+  lockupWidth: 0.25,
+  lockupTop: 0.145,
+  nameCap: 0.07,
+  nameCapTop: 0.205,
+  dateCap: 0.0297,
+  /** A: the date's cap top. */
+  dateCapTopA: 0.29,
+  /** B: the date's baseline sits this far above the claim's first cap top. */
+  dateGapB: 0.015,
+  /** 4:5 and 1:1: the lockup's top and the claim's last baseline, fractions of the rectangle. */
+  rect: { lockupTop: 0.05, claimBottom: 0.9 },
+  maxWidthPx: 840,
+  /** O55: the top band full to the top block's last baseline + 0.02 H, gone 0.09 H later. */
+  bandTop: { gap: 0.02, fade: 0.09 },
+  /** O55: the bottom band 0 at the bottom block's first cap top − 0.06 H, 20 % at − 0.01 H, 30 % at + 0.07 H. */
+  bandBottom: { zero: -0.06, full: -0.01, ramp: 0.07 },
+  /** O57: band steps, added to each band's opacities. */
+  bandSteps: [0, 0.1, 0.2],
+  /** O61: the lockup alone, ≤ 15 % below 3:1 on the p95 sample. */
+  lockupMax: 0.15,
+} as const;
+
+export type ClipPiece = { piece: Piece; at: Placement };
+export type ClipLayout = {
+  format: VideoFormat;
+  arrangement: Arrangement;
+  /** Type scale: 1 in 9:16 and 4:5, 0.8 in 1:1 (O1). */
+  k: number;
+  size: Size;
+  pieces: { lockup: ClipPiece | null; name: ClipPiece; date: ClipPiece };
+  claim: VideoClaimLine[];
+  boxes: { lockup: Rect | null; top: Rect; date: Rect; claim: Rect | null; bottom: Rect };
+  /** The base bands (step 0), anchored to the blocks (O55). */
+  anchors: { topFull: number; topGone: number; bottomZero: number; bottomFull: number; bottomRamp: number };
+};
+
+const H916 = MASTER.height;
+const union = (rs: readonly Rect[]): Rect => {
+  const l = Math.min(...rs.map((r) => r.left));
+  const t = Math.min(...rs.map((r) => r.top));
+  const r = Math.max(...rs.map((x) => x.left + x.width));
+  const b = Math.max(...rs.map((x) => x.top + x.height));
+  return { left: l, top: t, width: r - l, height: b - t };
+};
+
+/**
+ * O54: the lockup, the name and one date line (no venue or time), with the
+ * claim, in arrangement A (date at the top) or B (date above the claim). The
+ * 9:16 positions are O54's; the 4:5 and 1:1 keep the 9:16 pixel sizes (×0.8
+ * in the 1:1), the lockup's top on 0.05 of the rectangle and the claim's last
+ * baseline on 0.90. The claim plan is the 9:16's; its lines are scaled and
+ * re-anchored here.
+ */
+export function planClipLayout(input: { lockup: Piece | null; name: Piece; date: Piece; claim: VideoClaimPlan | null }, format: VideoFormat, arrangement: Arrangement): ClipLayout {
+  const size = FORMAT_SIZE[format];
+  const k = format === "1:1" ? 0.8 : 1;
+  const W = size.width;
+  const origin = format === "9:16" ? T1C.lockupTop * H916 : T1C.rect.lockupTop * size.height;
+  const claimBottom = format === "9:16" ? T1V_CLAIM.bottom * H916 : T1C.rect.claimBottom * size.height;
+  const y = (y916: number) => origin + (y916 - T1C.lockupTop * H916) * k;
+  const centred = (piece: Piece, scale: number, top: number, label: string): ClipPiece => {
+    const w = piece.width * scale;
+    const h = piece.height * scale;
+    return { piece, at: { label, left: (W - w) / 2, top, width: w, height: h, scale, short: false, stepped: false, belowFloor: false } };
+  };
+  const fit = (piece: Piece, cap: number) => Math.min((cap * H916) / Math.max(1, piece.capPx), T1C.maxWidthPx / Math.max(1, piece.width)) * k;
+  const lockup = input.lockup ? centred(input.lockup, ((T1C.lockupWidth * MASTER.width) / input.lockup.width) * k, origin, "lockup") : null;
+  const name = centred(input.name, fit(input.name, T1C.nameCap), y(T1C.nameCapTop * H916), "name");
+  const claim: VideoClaimLine[] = (input.claim?.lines ?? []).map((l) => ({ ...l, capPx: l.capPx * k, widthPx: l.widthPx * k, capTop: claimBottom + (l.capTop - input.claim!.bottom) * k }));
+  const claimTop = claim.length ? claim[0]!.capTop : claimBottom - T1V_CLAIM.steps[0]!.cap * H916 * k;
+  const dateScale = fit(input.date, T1C.dateCap);
+  const dateCapPx = input.date.capPx * dateScale;
+  const dateTop = arrangement === "A" ? y(T1C.dateCapTopA * H916) : claimTop - T1C.dateGapB * H916 * k - dateCapPx;
+  const date = centred(input.date, dateScale, dateTop, "date");
+  const claimRect = claim.length ? { left: (W - T1V_CLAIM.maxWidthPx * k) / 2, top: claimTop, width: T1V_CLAIM.maxWidthPx * k, height: claimBottom - claimTop } : null;
+  const topParts = [lockup?.at, name.at, arrangement === "A" ? date.at : null].filter((r): r is Placement => !!r);
+  const top = union(topParts);
+  const bottomParts = [claimRect ?? { left: (W - T1V_CLAIM.maxWidthPx * k) / 2, top: claimTop, width: T1V_CLAIM.maxWidthPx * k, height: claimBottom - claimTop }, arrangement === "B" ? date.at : null].filter((r): r is Rect => !!r);
+  const bottom = union(bottomParts);
+  // O55: the top band from the top block's last baseline; the bottom band from the bottom block's first cap top.
+  const lastBaseline = arrangement === "A" ? date.at.top + dateCapPx : name.at.top + input.name.capPx * name.at.scale;
+  const firstCap = arrangement === "B" ? date.at.top : claimTop;
+  const topFull = lastBaseline + T1C.bandTop.gap * H916 * k;
+  return {
+    format,
+    arrangement,
+    k,
+    size,
+    pieces: { lockup, name, date },
+    claim,
+    boxes: { lockup: lockup?.at ?? null, top, date: date.at, claim: claimRect, bottom },
+    anchors: {
+      topFull,
+      topGone: topFull + T1C.bandTop.fade * H916 * k,
+      bottomZero: firstCap + T1C.bandBottom.zero * H916 * k,
+      bottomFull: firstCap + T1C.bandBottom.full * H916 * k,
+      bottomRamp: firstCap + T1C.bandBottom.ramp * H916 * k,
+    },
+  };
+}
+
+/** O55 + O57: the clip's bands at its band steps (added to each band's opacities). */
+export function clipBands(layout: ClipLayout, steps: { top: number; bottom: number } = { top: 0, bottom: 0 }): GradientShadow {
+  const Hr = layout.size.height;
+  const a = layout.anchors;
+  return {
+    blendMode: "normal",
+    bands: [
+      { edge: "top", plateau: a.topFull / Hr, extent: a.topGone / Hr, opacity: 0.2 + steps.top, color: "#000000", knots: J2_FALL },
+      { edge: "bottom", plateau: (Hr - a.bottomFull) / Hr, extent: (Hr - a.bottomZero) / Hr, opacity: 0.2 + steps.bottom, color: "#000000", knots: J2_FALL, ramp: { opacity: 0.3 + steps.bottom, at: (Hr - a.bottomRamp) / Hr } },
+    ],
+  };
+}
+
+/**
+ * O55's stops for a layout (fraction of the format's height → alpha %): the
+ * top band 20 % at its plateau's end with 18 % just inside the fade (the
+ * knee pair, 0.00025 H), 0 where it's gone; the bottom band 0, then 18 % and
+ * 20 % at its knee, 30 % at its ramp and to the edge.
+ */
+export function clipBandStops(layout: ClipLayout, steps: { top: number; bottom: number } = { top: 0, bottom: 0 }): (readonly [number, number])[] {
+  const Hr = layout.size.height;
+  const a = layout.anchors;
+  const knee = 0.00025 * H916 * layout.k;
+  const t = (0.2 + steps.top) * 100;
+  const b = (0.2 + steps.bottom) * 100;
+  const r = (0.3 + steps.bottom) * 100;
+  return [
+    [a.topFull / Hr, t],
+    [(a.topFull + knee) / Hr, t * 0.9],
+    [a.topGone / Hr, 0],
+    [a.bottomZero / Hr, 0],
+    [(a.bottomFull - knee) / Hr, b * 0.9],
+    [a.bottomFull / Hr, b],
+    [a.bottomRamp / Hr, r],
+    [(Hr - 20) / Hr, r],
+  ];
+}
+
+/** O57: the first band step at which a figure passes its limit, or null (refused). p95ByStep is in T1C.bandSteps order. */
+export function chooseStep(p95ByStep: readonly number[], limit: number): number | null {
+  const i = p95ByStep.findIndex((v) => v <= limit + 1e-9);
+  return i < 0 ? null : i;
+}
+
+/** O58: the red line's backing steps, after the band steps. */
+export const RED_BACKING = { steps: [0.4, 0.6, 0.8], padY: 0.5, padX: 1, feather: 1, minX: 0.07, maxX: 0.93 } as const;
+
+export type RedVerdict = { backing: number | null; white: boolean; line: string | null };
+
+/**
+ * O58: the red line stays #FE3232. p95ByBacking is [no backing, 40 %, 60 %,
+ * 80 %]; the first that passes the ink-box test (≤ 25 % below 2:1) is used.
+ * White only past 80 %, with the approval line.
+ */
+export function chooseBacking(p95ByBacking: readonly number[], what: "clip" | "photo" = "clip"): RedVerdict {
+  const i = p95ByBacking.findIndex((v) => v <= T1V_CONTRAST.redInk + 1e-9);
+  if (i === 0) return { backing: null, white: false, line: null };
+  if (i > 0) return { backing: RED_BACKING.steps[i - 1]!, white: false, line: T1V_LINES.backed(Math.round(RED_BACKING.steps[i - 1]! * 100)) };
+  return { backing: null, white: true, line: `claim line 1 in white — red unreadable on this ${what}` };
+}
+
+export type BackingBox = { rect: Rect; bounds: Rect; feather: number };
+
+/**
+ * O58: the backing for line 1, format px. `rect` is its ink box padded 0.5 cap
+ * above and below and 1 cap left and right, at full opacity; it fades to 0
+ * over 1 cap outside that (`feather`), cut hard at `bounds`: 0.07–0.93 W, and
+ * between the type above line 1 and line 2 below it, so it never sits under
+ * any other type.
+ */
+export function backingRect(line: { capTop: number; capPx: number; widthPx: number }, frameWidth: number, clamp: { top?: number; bottom?: number } = {}): BackingBox {
+  const bl = RED_BACKING.minX * frameWidth;
+  const br = RED_BACKING.maxX * frameWidth;
+  const bt = clamp.top ?? 0;
+  const bb = clamp.bottom ?? Infinity;
+  const left = Math.max(bl, (frameWidth - line.widthPx) / 2 - RED_BACKING.padX * line.capPx);
+  const right = Math.min(br, (frameWidth + line.widthPx) / 2 + RED_BACKING.padX * line.capPx);
+  const top = Math.max(bt, line.capTop - RED_BACKING.padY * line.capPx);
+  const bottom = Math.min(bb, line.capTop + line.capPx + RED_BACKING.padY * line.capPx);
+  return { rect: { left, top, width: right - left, height: bottom - top }, bounds: { left: bl, top: bt, width: br - bl, height: Math.min(bb, 1e6) - bt }, feather: RED_BACKING.feather * line.capPx };
+}
+
+/**
+ * O62: a 4:5 or 1:1 whose footage window is narrower than 1080 px is not made
+ * (no upscaling; H61: "a 720-wide fixture makes no 4:5 or 1:1"). The 9:16 is
+ * still made from a narrower source, scaled up, until design rules on it.
+ */
+export function formatTooSmall(source: Size, format: VideoFormat): string | null {
+  if (format === "9:16") return null;
+  return footageWindow(source, format).width + 1e-9 < FORMAT_SIZE[format].width ? T1V_LINES.tooSmall(format) : null;
+}
+
 // ─── O39: the face over time ────────────────────────────────────────────────
 
 export const T1V_FACE = {
+  /** O56: a face counts only at this share of W and wider (65 px on 1080); crowd faces don't. */
+  minWidth: 0.06,
+  /** O56: only the upper part of its box is tested (brow to nose). */
+  upper: 0.6,
   /** Samples a second. */
   fps: 5,
   /** At most this share of samples with the face in type (while that type is on screen). */
@@ -212,23 +397,30 @@ export type FaceSample = { tS: number; faces: Rect[] };
 const pad = (r: Rect, p: number): Rect => ({ left: r.left - p, top: r.top - p, width: r.width + 2 * p, height: r.height + 2 * p });
 const touches = (a: Rect, b: Rect) => a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
 
-/** The main face (the widest) of a sample; faces under half its width are ignored. */
-export function mainFace(faces: readonly Rect[]): Rect | null {
-  if (!faces.length) return null;
-  return [...faces].sort((a, b) => b.width - a.width)[0]!;
+/** O56: the faces that count — at least 0.06 W wide, and at least half the widest such face. */
+export function countedFaces(faces: readonly Rect[], frameWidth: number): Rect[] {
+  const big = faces.filter((f) => f.width >= T1V_FACE.minWidth * frameWidth - 1e-9);
+  if (!big.length) return [];
+  const main = Math.max(...big.map((f) => f.width));
+  return big.filter((f) => f.width >= T1V_FACE.minFaceShare * main - 1e-9);
 }
+
+/** O56: the part of a face box that's tested — its upper 60 %. */
+export const upperFace = (f: Rect): Rect => ({ ...f, height: f.height * T1V_FACE.upper });
 
 export type FaceVerdict = { ok: boolean; topShare: number; claimShare: number; longestRunS: number; line: string | null };
 
 /**
- * O39: the face against the top block (from frame 0) and the claim box (while
- * the claim is on screen), each padded 12 px. Shares are over the samples in
- * which that type is on screen; a run counts consecutive samples in which the
- * face touches any on-screen type, a sample standing for 1 / fps seconds.
+ * O39 as amended by O56: the upper 60 % of each counted face against the
+ * type that's on screen, each box padded 12 px: `always` (the top block, and
+ * the date in B) from frame 0, `claim` after 1.5 s. Shares are over the
+ * samples in which that type is on screen; a run counts consecutive samples
+ * touching any on-screen type, each sample 1 / fps seconds.
  */
-export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { top: Rect; claim: Rect | null }, opts: { fps?: number } = {}): FaceVerdict {
+export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { always: readonly Rect[]; claim: Rect | null }, opts: { fps?: number; frameWidth?: number } = {}): FaceVerdict {
   const fps = opts.fps ?? T1V_FACE.fps;
-  const top = pad(boxes.top, T1V_FACE.pad);
+  const W = opts.frameWidth ?? MASTER.width;
+  const always = boxes.always.map((b) => pad(b, T1V_FACE.pad));
   const claim = boxes.claim ? pad(boxes.claim, T1V_FACE.pad) : null;
   let topHits = 0;
   let claimHits = 0;
@@ -236,11 +428,11 @@ export function judgeFaceOverTime(samples: readonly FaceSample[], boxes: { top: 
   let run = 0;
   let longest = 0;
   for (const s of samples) {
-    const f = mainFace(s.faces);
+    const faces = countedFaces(s.faces, W).map(upperFace);
     const onClaim = !!claim && claimOn(s.tS);
     if (onClaim) claimSamples += 1;
-    const hitTop = !!f && touches(f, top);
-    const hitClaim = !!f && onClaim && touches(f, claim!);
+    const hitTop = faces.some((f) => always.some((b) => touches(f, b)));
+    const hitClaim = onClaim && faces.some((f) => touches(f, claim!));
     if (hitTop) topHits += 1;
     if (hitClaim) claimHits += 1;
     run = hitTop || hitClaim ? run + 1 : 0;
@@ -335,22 +527,28 @@ export function releaseNamesOf(rows: readonly { name: string | null; position?: 
     .filter(Boolean);
 }
 
-/** Values no asset, PSD or record gives, from building T1 on a clip. */
-export const T1V_INVENTED = [
-  "the claim is 'on screen' for O39 and O40 from the first frame after 1.5 s (opacity above 0)",
-  "O39: the top block counts over every sample, the claim box over the samples after 1.5 s; the refusal's {n} is the larger of the two shares; a run is consecutive samples touching any on-screen type, each sample 0.2 s",
-  "O39: the main face is the widest detected face; the crop candidates are the clip's own crop_focus_y, then 0.5, then ±0.1 steps outward",
-  "a roll-call on a clip keeps the artist card's lockup: line 1 at 0.625 of line 2's cap, 0.29 of line 2's cap apart",
-  "the one-line claim breaks onto two lines at the measured most-even break among O28's allowed breaks (as T2), not T1's character count",
-  "the step-2 pitch scales with the cap: 0.0583 × 3.4 / 4 = 0.0496 H",
-  "the 4:5 window is the largest 4:5 inside the source at its crop_focus_y; the 1:1 the largest square; a source narrower than 1080 is scaled up to the output (the window itself is never padded)",
-  "the type layers are set by sharp from the kit face and drawn by the composition as images, so the browser never loads a kit font",
-  "drafts are muted and cut to their first 8 s from in_s (the contact sheet's last frame is 4.75 s)",
-  "the claim box for O40 is 840 px wide, centred, from the claim's first cap top to its 0.65 H baseline; the top block's box is the name, details and lockup's union",
-  "the bottom band's knee is tested as a stop pair, as O25 writes its own: 18 % at 0.59975 H (J2's 0.9 knot) beside the 20 % at 0.60 H",
-  "O46's 2-level step is checked across the fades, not at J2's two knees (rows 845 and 1152), where the band drops 10 % of its opacity inside one row (about 2.1 and 2.6 levels on mid-grey); those are reported",
-  "blue noise: void-and-cluster on a 32 × 32 torus, Gaussian sigma 1.5, seeded start at 10 % density; alpha8 = floor(alpha16 / 257 + threshold)",
-  "the draft stamp sits on the top block's layer (on from frame 0), in the first free corner of the 4:5 rectangle",
-  "O52 delivery: the face is fetched per render from a signed URL (≤ 1 h) to a temporary file that sharp sets the type from; the composition gets images only, so no font reaches the browser, the Lambda site or its serve URL; the bucket is kit-fonts, the path {client id}/{PostScript name}.{ext}",
-  "a top-block piece wider than 840 px is scaled down about the frame's centre with its top kept; the details lines step down together",
-] as const;
+/** Every value the T1 clip build chose, with its ruling (issue 8, O62). */
+export const T1V_INVENTED: readonly { value: string; ruling: "accepted" | "accepted, amended" | "rejected" | "new, not yet ruled" }[] = [
+  { ruling: "accepted", value: "the claim is 'on screen' for O39 and O40 from the first frame after 1.5 s" },
+  { ruling: "accepted, amended", value: "O39's counting (the top block over every sample, the claim after 1.5 s, the larger share, 0.2 s samples), under O56: the upper 60 % of each face at least 0.06 W wide and half the widest" },
+  { ruling: "accepted, amended", value: "the widest face as the main face; crops in order: the clip's crop_focus_y, 0.5, then ±0.1 outward, with A then B at each crop (O54, O56)" },
+  { ruling: "accepted", value: "the roll-call on a clip: line 1 at 0.625 of line 2's cap, 0.29 of line 2's cap apart" },
+  { ruling: "accepted", value: "a one-line claim breaks at the measured most-even break among O28's allowed breaks" },
+  { ruling: "accepted", value: "the step-2 pitch scales with the cap: 0.0496 H" },
+  { ruling: "accepted", value: "the 4:5 and 1:1 windows: the largest window of that shape at its crop_focus_y" },
+  { ruling: "rejected", value: "a source narrower than 1080 scaled up: such a clip doesn't make that format (O62)" },
+  { ruling: "accepted", value: "the type set by sharp and drawn as images (O52's delivery)" },
+  { ruling: "accepted", value: "drafts muted and cut to 8 s (drafts only)" },
+  { ruling: "accepted, amended", value: "the claim box 840 px wide, centred; the top block's box the lockup, name and date (A) or lockup and name (B); the lockup also tested alone (O61)" },
+  { ruling: "accepted", value: "the knee pair, 18 % at 0.00025 H on the fade side of every 20 % stop (O55)" },
+  { ruling: "accepted", value: "O46 at J2's knee rows: ≤ 3 levels; ≤ 2 across the fades (O55)" },
+  { ruling: "accepted", value: "blue noise: void-and-cluster, 32 × 32, sigma 1.5, alpha8 = floor(alpha16 / 257 + threshold)" },
+  { ruling: "accepted, amended", value: "the draft stamp in the first free corner, on the top layer, never touching the lockup's ink box" },
+  { ruling: "accepted", value: "O52's path {client id}/{PostScript name}.{ext} in kit-fonts, a per-render signed URL to a temporary file" },
+  { ruling: "accepted", value: "a name wider than 840 px scaled down about the centre, its top kept" },
+  { ruling: "new, not yet ruled", value: "O56: every counted face is tested (not the widest alone), each by its upper 60 %" },
+  { ruling: "new, not yet ruled", value: "O58: the backing is full across the padded box and feathered outward over 1 cap with J2's fade; it is cut hard where it would reach the type above line 1 or line 2 below it, and at 0.07–0.93 W" },
+  { ruling: "new, not yet ruled", value: "O58 on clips: the red line's p95 is re-read with the chosen band step, then each backing step, on the same samples" },
+  { ruling: "new, not yet ruled", value: "O62 applies to the 4:5 and 1:1 (H61); the 9:16 is still scaled up from a narrower source. All three draft clips are under 1080 wide (Luke 1 956 × 718, Enzo 1 and 2 720 × 1280), so they make 9:16s only, and Luke 1's 9:16 window is 404 px wide (2.7×)" },
+  { ruling: "new, not yet ruled", value: "with no claim (a clip under 4.75 s) the bottom band is anchored where a one-line claim would sit" },
+];
