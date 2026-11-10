@@ -43,6 +43,7 @@
  */
 
 import { deltaE, percentile, rgbToLab } from "./colour.ts";
+import { renderGradientShadow, type GradientShadow } from "./overlay-gradient.ts";
 import { maskTouches, type PersonMask } from "./segment.ts";
 
 // ─── Slots ──────────────────────────────────────────────────────────────────
@@ -254,9 +255,12 @@ export type CropPlan = {
  * (no upscaling), never below cover. Then the eyes are centred at 0.5 W and
  * the photo is clamped to cover the frame. No extension: see extensionCandidates.
  */
-export function planFaceCrop(photo: Size, face: FaceLines, frame: Size = MASTER): CropPlan {
+/** The face band (O18); with a claim present, claim-slot.ts faceBandWithClaim moves the chin up. */
+export type FaceBand = { headTopMin: number; eyesMin: number; eyesMax: number; chinMax: number };
+
+export function planFaceCrop(photo: Size, face: FaceLines, frame: Size = MASTER, band: FaceBand = SLOTS.face): CropPlan {
   const H = frame.height;
-  const f = SLOTS.face;
+  const f = band;
   const a = Math.max(1, face.eyeY - face.headTopY);
   const b = Math.max(1, face.chinY - face.eyeY);
   const cover = Math.max(frame.width / photo.width, frame.height / photo.height);
@@ -836,6 +840,8 @@ export type RenderInput = {
   info: Piece[];
   lockup: Piece | null;
   shadow?: { dy: number; blur: number; opacity: number };
+  /** Optional gradient shadow layer between the photo and the type (overlay-gradient.ts); off unless given. */
+  gradientShadow?: GradientShadow;
 };
 
 export type RenderResult = {
@@ -1079,8 +1085,11 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
   const pieces = [...(input.lockup ? [input.lockup] : []), input.name, ...input.info];
   const shadow = input.shadow ?? KIT_SHADOW;
 
+  const gradientLayer = input.gradientShadow
+    ? await sharp(Buffer.from(renderGradientShadow(input.gradientShadow, frame.width, frame.height)), { raw: { width: frame.width, height: frame.height, channels: 4 } }).png().toBuffer()
+    : null;
   const overlay = await textOverlay(pieces, layout.all, frame, { k: 1, dx: 0, dy: 0 }, shadow);
-  const master = await sharp(base).composite([{ input: overlay, left: 0, top: 0 }]).png().toBuffer();
+  const master = await sharp(base).composite([...(gradientLayer ? [{ input: gradientLayer, left: 0, top: 0 }] : []), { input: overlay, left: 0, top: 0 }]).png().toBuffer();
   const crop45 = await sharp(master).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).png().toBuffer();
 
   // 1:1 (O1): the 4:5 arrangement at 0.8×, centred, the photo extended at the sides.
@@ -1097,7 +1106,9 @@ export async function renderCard(input: RenderInput): Promise<RenderResult> {
   const sTop = clampNum(Math.round(wantTop), 0, small.height - side);
   const squareBase = await sharp(small.png).extract({ left: sLeft, top: sTop, width: side, height: side }).png().toBuffer();
   const squareOverlay = await textOverlay(pieces, layout.all, { width: side, height: side }, { k, dx, dy: -RECT_45.top * k }, shadow);
-  const square = await sharp(squareBase).composite([{ input: squareOverlay, left: 0, top: 0 }]).png().toBuffer();
+  // The gradient follows the type into the 1:1: the 4:5 band of the frame's layer at 0.8× (it is uniform across, so it spans the square).
+  const squareGradient = gradientLayer ? await sharp(gradientLayer).extract({ left: 0, top: RECT_45.top, width: frame.width, height: RECT_45.bottom - RECT_45.top }).resize(side, side, { fit: "fill" }).png().toBuffer() : null;
+  const square = await sharp(squareBase).composite([...(squareGradient ? [{ input: squareGradient, left: 0, top: 0 }] : []), { input: squareOverlay, left: 0, top: 0 }]).png().toBuffer();
 
   const layoutCheck = checkLayout(layout, frame);
   return {

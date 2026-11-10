@@ -91,3 +91,13 @@ offpixel_xero_*.xlsx
 
 # plan-frames evidence pack (CI artifact)
 /frames-evidence/
+
+# Font files are never committed: client kit fonts are read where Matas installs them (FONTS_DIR, default ~/Library/Fonts).
+*.otf
+*.ttf
+*.ttc
+*.otc
+*.woff
+*.woff2
+# Remotion's bundled TikTok Sans (SIL OFL) is the one font the repo carries.
+!src/remotion/fonts/TikTokSans*.ttf
