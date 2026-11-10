@@ -132,10 +132,14 @@ function centred(piece: Pick<Piece, "width" | "height" | "label">, scale: number
   return { label: piece.label, left: Math.round((frame.width - width) / 2), top: Math.round(top), width, height, scale, ...flags };
 }
 
-export type TextLayout = { lockup: Placement | null; name: Placement; info: Placement[]; all: Placement[]; block: Rect };
+/** The claim slot. Empty until the next ruling fills it. No gradient is drawn here. */
+export type ClaimHook = { text: string | null };
+export const EMPTY_CLAIM: ClaimHook = { text: null };
 
-/** Lockup, then the name 28 px under it, then the info lines 36 px under the name. */
-export function layoutText(input: { lockup: Piece | null; name: Piece; info: readonly Piece[] }, frame: Size = MASTER): TextLayout {
+export type TextLayout = { lockup: Placement | null; name: Placement; info: Placement[]; claim: ClaimHook; all: Placement[]; block: Rect };
+
+/** Lockup, then the name 28 px under it, then the info lines 36 px under the name. The claim stays empty. */
+export function layoutText(input: { lockup: Piece | null; name: Piece; info: readonly Piece[]; claim?: string | null }, frame: Size = MASTER): TextLayout {
   let y: number = SLOTS.lockup.top;
   let lockup: Placement | null = null;
   if (input.lockup) {
@@ -160,7 +164,7 @@ export function layoutText(input: { lockup: Piece | null; name: Piece; info: rea
     });
   }
   const all = [lockup, name, ...info].filter((p): p is Placement => p != null);
-  return { lockup, name, info, all, block: unionRect(all) };
+  return { lockup, name, info, claim: { text: input.claim ?? null }, all, block: unionRect(all) };
 }
 
 export type LayoutCheck = {

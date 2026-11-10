@@ -489,6 +489,9 @@ export function splitTextLines(pixels: PixelData, lines: readonly string[]): Lin
 
 export type KitRole = "headliner_names" | "info" | "logo" | "title" | "background" | "panel";
 
+/** The PSD's live-text coral. Not a UI colour. */
+export const KIT_CORAL = "#ff6876";
+
 export type RoleFacts = { headliners: readonly string[]; venue?: string | null; city?: string | null; date?: string | null };
 
 export type RoleHit = { role: KitRole; ref: string; name: string; why: string };
@@ -561,6 +564,9 @@ export function identifyRoles(manifest: KitManifest, facts: RoleFacts): RoleHit[
         continue;
       }
     }
+    if (layer.kind === "smart_object" && (layer.smart_object?.layers.length ?? 0) === 0) {
+      hits.push({ role: "panel", ref: layer.ref, name: layer.name, why: "a flat smart object, one panel piece" });
+    }
     if (/\bLOGO\b|\bPUZZLE\b/.test(name)) hits.push({ role: "logo", ref: layer.ref, name: layer.name, why: "layer name" });
     else if (/\bBIRTHDAY\b|\bBDAY\b|\bSCRIPT\b|\bNEON\b|\bTITLE\b/.test(name) && !/\bPOSTER\b/.test(name)) hits.push({ role: "title", ref: layer.ref, name: layer.name, why: "layer name" });
     else if (/\bDATE\b|\bVENUE\b|\bINFO\b|\bDETAILS\b/.test(name)) hits.push({ role: "info", ref: layer.ref, name: layer.name, why: "layer name" });
@@ -571,6 +577,39 @@ export function identifyRoles(manifest: KitManifest, facts: RoleFacts): RoleHit[
     hits.push({ role: "background", ref: bottom.ref, name: bottom.name, why: "lowest shown layer covering the canvas" });
   }
   return hits;
+}
+
+function effectsPresent(effects: EffectsSummary | null): boolean {
+  if (!effects || effects.disabled) return false;
+  return effects.shadows.some((shadow) => shadow.enabled) || effects.stroke.length > 0 || effects.other.length > 0;
+}
+
+/**
+ * H13: the live text layer as two role runs (names, info), the coral runs
+ * on PART 1 / & / >, and whether the layer carries effects.
+ */
+export function liveTextAccount(layers: readonly KitLayer[], facts: RoleFacts): {
+  textLayers: number;
+  runs: ("names" | "info")[];
+  coralRuns: string[];
+  effects: "no effects" | "has effects";
+} {
+  const text = layers.filter((layer) => layer.shown && layer.kind === "text");
+  const roles = new Set<"names" | "info">();
+  const coralRuns: string[] = [];
+  let effects: "no effects" | "has effects" = "no effects";
+  for (const layer of text) {
+    if (effectsPresent(layer.effects)) effects = "has effects";
+    for (const run of layer.text?.runs ?? []) {
+      if ((run.color ?? "").toLowerCase() === KIT_CORAL) coralRuns.push(run.text.trim());
+    }
+    for (const line of layer.text?.lines ?? []) {
+      const role = lineRole(line, facts.headliners, facts).role;
+      if (role === "name") roles.add("names");
+      if (role === "info") roles.add("info");
+    }
+  }
+  return { textLayers: text.length, runs: [...roles], coralRuns, effects };
 }
 
 // ─── File names ─────────────────────────────────────────────────────────────

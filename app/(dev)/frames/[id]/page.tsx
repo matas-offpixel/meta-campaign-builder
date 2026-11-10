@@ -14,6 +14,8 @@ import { SelectionFrameMount } from "@/components/dashboard/events/creative-lab/
 import { VOICE_FRAME_IDS } from "@/scripts/plan-frames/voice-ids";
 import { AudioFrameMount } from "@/components/dashboard/events/creative-lab/audio-frame-mount";
 import { AUDIO_FRAME_IDS } from "@/scripts/plan-frames/audio-ids";
+import { ArtistCardFrameMount } from "@/components/dashboard/events/creative-lab/artist-card-frame-mount";
+import { ARTIST_CARD_FRAME_IDS } from "@/scripts/plan-frames/artist-card-ids";
 import { SELECTION_FRAME_IDS } from "@/scripts/plan-frames/selection-ids";
 import { LAB_FRAME_IDS } from "@/scripts/plan-frames/lab-ids";
 import { getLabFrame } from "@/scripts/plan-frames/lab-fixtures";
@@ -22,7 +24,7 @@ import { getRailFrame } from "@/scripts/plan-frames/rail-fixtures";
 
 export function generateStaticParams() {
   if (process.env.ENABLE_PLAN_FRAMES !== "1") return [];
-  return [...FRAME_IDS, ...LAB_FRAME_IDS, ...RAIL_FRAME_IDS, ...BANK_FRAME_IDS, ...QUOTE_FRAME_IDS, ...VOICE_FRAME_IDS, ...SELECTION_FRAME_IDS, ...AUDIO_FRAME_IDS].map((id) => ({ id }));
+  return [...FRAME_IDS, ...LAB_FRAME_IDS, ...RAIL_FRAME_IDS, ...BANK_FRAME_IDS, ...QUOTE_FRAME_IDS, ...VOICE_FRAME_IDS, ...SELECTION_FRAME_IDS, ...AUDIO_FRAME_IDS, ...ARTIST_CARD_FRAME_IDS].map((id) => ({ id }));
 }
 
 export default async function PlanFramePage({
@@ -37,6 +39,7 @@ export default async function PlanFramePage({
   if ((VOICE_FRAME_IDS as readonly string[]).includes(id)) return <VoiceFrameMount id={id} />;
   if ((SELECTION_FRAME_IDS as readonly string[]).includes(id)) return <SelectionFrameMount id={id} />;
   if ((AUDIO_FRAME_IDS as readonly string[]).includes(id)) return <AudioFrameMount id={id} />;
+  if ((ARTIST_CARD_FRAME_IDS as readonly string[]).includes(id)) return <ArtistCardFrameMount id={id} />;
   const rail = getRailFrame(id);
   if (rail) return <InsightsRailFrameMount fixture={rail} />;
   const lab = getLabFrame(id);
