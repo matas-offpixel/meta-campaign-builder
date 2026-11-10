@@ -1,6 +1,6 @@
 import { countdownRung, lineupRung, percentStandIn, priceRiseRung, velocityRung, type CountRead } from "../releases/derived.ts";
 import { isBackfilled } from "../releases/visibility.ts";
-import { liveClaimLine, rollCallWords } from "../releases/roll-call.ts";
+import { rollCallWords } from "../releases/roll-call.ts";
 import type { LadderRung, Release } from "../releases/types.ts";
 import { daysBetween } from "../releases/dates.ts";
 
@@ -68,19 +68,8 @@ function earlierAllSoldOut(release: Release, rows: readonly Release[]): boolean 
   return earlier.length > 0 && earlier.every((row) => row.state === "sold_out");
 }
 
-function shoutRelease(name: string, tail: string): string {
-  const upper = name.trim().toUpperCase();
-  const titled = /\bRELEASE\b/.test(upper) ? upper : `${upper} RELEASE`;
-  return `${titled} ${tail}`;
-}
-
 function claimText(rung: LadderRung, release: Release, siblings: readonly Release[], nowIso: string, context: DerivedContext, ladder: readonly LadderRung[]): string {
-  if (isRoll(rung)) {
-    const words = rollCallWords(siblings);
-    const live = siblings.filter((row) => row.state === "on_sale" || row.state === "selling_fast" || row.state === "final_x");
-    if (live.length !== 1) return words.claim;
-    return `${words.line1}\n${rollLine2(live[0]!, siblings, ladder, nowIso, context)}`;
-  }
+  if (isRoll(rung)) return rollCallWords(siblings, { ladder, nowIso }).claim;
   if (rung.triggerKind === "velocity") {
     return velocityRung(context.counts ?? [], nowIso, rung.options.windowDays ?? 14, rung.options.threshold ?? Number(rung.triggerValue)).claim;
   }
@@ -103,23 +92,6 @@ function claimText(rung: LadderRung, release: Release, siblings: readonly Releas
     return left != null ? `final ${left}` : "final X";
   }
   return fill(rung.claimTemplate, release);
-}
-
-/** Line 2 is the live release's highest met rung below sold out, and never lower than selling fast. */
-function rollLine2(release: Release, siblings: readonly Release[], ladder: readonly LadderRung[], nowIso: string, context: DerivedContext): string {
-  const reached = [...ladder]
-    .sort((a, b) => a.position - b.position)
-    .filter((rung) => {
-      if (isRoll(rung) || isDerived(rung)) return false;
-      if (rung.triggerKind === "state" && rung.triggerValue === "sold_out") return false;
-      return met(rung, release, siblings, nowIso, context);
-    });
-  const pick = reached[reached.length - 1];
-  if (!pick || (pick.triggerKind === "state" && (pick.triggerValue === "on_sale" || pick.triggerValue === "selling_fast"))) {
-    return shoutRelease(release.name, "SELLING FAST");
-  }
-  if (pick.triggerValue === "final_x") return liveClaimLine(release);
-  return claimText(pick, release, siblings, nowIso, context, ladder).toUpperCase();
 }
 
 function met(rung: LadderRung, release: Release, siblings: readonly Release[], nowIso: string, context: DerivedContext): boolean {

@@ -339,6 +339,43 @@ describe("roll-call words", () => {
     const siblings = [sold("Early bird", 1), sold("1st", 2), sold("2nd release", 3), live];
     const rung = nextRung(live, defaultLadder(), siblings, NOW);
     assert.equal(rung?.claim, "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\n3RD RELEASE SELLING FAST");
+    const words = rollCallWords(siblings, { ladder: defaultLadder(), nowIso: NOW });
+    assert.equal(words.line1, "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT");
+    assert.equal(words.line2, "3RD RELEASE SELLING FAST");
+    assert.equal(words.claim.includes("RUNNING LOW"), false);
+  });
+
+  it("line 2 names final X, or 90% sold out after the selling-fast days, and never running low", () => {
+    const sold = (name: string, position: number) =>
+      release({ name, position, state: "sold_out", stateAt: "2026-10-01", stateSource: "client_message", stateSetBy: "matas" });
+    const final = release({
+      name: "Final release",
+      position: 4,
+      state: "final_x",
+      stateAt: "2026-11-06",
+      stateSource: "client_message",
+      stateSetBy: "matas",
+      remaining: 100,
+    });
+    const finalWords = rollCallWords(
+      [sold("Early bird", 1), sold("2nd release", 2), sold("3rd release", 3), final],
+      { ladder: defaultLadder(), nowIso: NOW },
+    );
+    assert.equal(finalWords.line2, "FINAL 100 FINAL RELEASE TICKETS");
+    const fast = release({
+      name: "Final release",
+      position: 4,
+      state: "selling_fast",
+      stateAt: "2026-10-23",
+      stateSource: "client_message",
+      stateSetBy: "matas",
+    });
+    const fastWords = rollCallWords(
+      [sold("Early bird", 1), sold("2nd release", 2), sold("3rd release", 3), fast],
+      { ladder: defaultLadder(), nowIso: NOW },
+    );
+    assert.equal(fastWords.line2, "FINAL RELEASE 90% SOLD OUT");
+    assert.equal(`${finalWords.claim}\n${fastWords.claim}`.includes("RUNNING LOW"), false);
   });
 });
 
