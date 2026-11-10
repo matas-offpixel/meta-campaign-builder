@@ -24,6 +24,7 @@ import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-
 import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
 import { ClipSound, showSoundToggle, useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { overlayPanelLine } from "@/lib/creative-lab/overlay-check";
+import { orderArtistClips } from "@/lib/creative-lab/import-quality";
 import {
   candidateAddLabel,
   candidateTileState,
@@ -399,7 +400,7 @@ function OwnerGroups({
         )}
       </div>
       {lab.artists.map((artist) => {
-        const clips = lab.clips.filter((clip) => clipOwner(clip) === "artist" && clip.artistId === artist.id);
+        const clips = orderArtistClips(lab.clips.filter((clip) => clipOwner(clip) === "artist" && clip.artistId === artist.id));
         const featuring = promoter.filter((clip) => (clip.featuredArtistIds ?? []).includes(artist.id)).length;
         if (clips.length === 0 && featuring === 0) return null;
         return (
@@ -703,7 +704,7 @@ function CandidateTiles({
           const state = candidateTileState(clip);
           const age = postAge(clip.postedAt, lab.now);
           const dimmed = clip.status === "skipped" || clip.status === "requested";
-          const quality = clip.reason?.includes("Too low quality") ? clip.reason : null;
+          const quality = clip.reason?.includes("Too low quality") || clip.reason?.startsWith("Clip too small for ") ? clip.reason : null;
           const pending = importing === clip.id;
           const error = failed[clip.id] ?? null;
           return (
