@@ -115,6 +115,7 @@ function coerceFeature(row: CopyFeatureRow): CopyFeatureRow {
     results: Number(row.results),
     index_vs_event: row.index_vs_event == null ? null : Number(row.index_vs_event),
     client_ids: row.client_ids ?? [],
+    ads_hash: row.ads_hash ?? null,
   };
 }
 

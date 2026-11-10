@@ -6,12 +6,12 @@
  * test keeps the two in step.
  */
 
-export const RAIL_FRAME_IDS = ["IR1", "IR2", "IR3", "IR4", "IR5", "IR6", "IR7", "IR8"] as const;
+export const RAIL_FRAME_IDS = ["IR1", "IR2", "IR3", "IR4", "IR5", "IR6", "IR7", "IR8", "IR9"] as const;
 
 export type RailFrameId = (typeof RAIL_FRAME_IDS)[number];
 
 /** The widths the record sets per frame. */
-export const RAIL_FRAME_WIDTHS: Record<RailFrameId, readonly (1280 | 393)[]> = {
+export const RAIL_FRAME_WIDTHS: Record<RailFrameId, readonly (1280 | 393 | 1176)[]> = {
   IR1: [1280],
   IR2: [1280, 393],
   IR3: [1280],
@@ -20,6 +20,7 @@ export const RAIL_FRAME_WIDTHS: Record<RailFrameId, readonly (1280 | 393)[]> = {
   IR6: [1280],
   IR7: [393],
   IR8: [1280, 393],
+  IR9: [1176],
 };
 
 /** Client surfaces the rail must never reach (R3, IR0). */

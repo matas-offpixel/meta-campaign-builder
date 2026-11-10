@@ -43,6 +43,8 @@ export type CopyFeatureRow = {
   confidence: CopyConfidence;
   proven: boolean;
   client_ids: string[];
+  /** Null on rows written before migration 223. A null never collapses. */
+  ads_hash: string | null;
 };
 
 /** The library's ads with each line re-keyed to its feature values. */
@@ -78,6 +80,7 @@ export function computeCopyFeatures(library: CopyLibrary): CopyFeatureRow[] {
       confidence: scored.confidence,
       proven: scored.proven,
       client_ids: scored.client_ids,
+      ads_hash: scored.ads_hash ?? null,
     });
   }
   return rows;

@@ -24,7 +24,7 @@ describe("Insights rail frame catalog (IR)", () => {
   it("the runner shoots every IR id at the record's widths, and checks the record's guard paths", () => {
     assert.deepEqual(SHOT_WIDTHS, RAIL_FRAME_WIDTHS);
     assert.deepEqual([...SHOT_GUARDS], [...RAIL_GUARD_PATHS]);
-    assert.equal(RAIL_SHOTS.length, 12);
+    assert.equal(RAIL_SHOTS.length, 13);
     for (const shot of RAIL_SHOTS as { id: string; frame: string; width: number }[]) {
       assert.equal(shot.id, `${shot.frame}-${shot.width}`);
       assert.ok((RAIL_FRAME_IDS as readonly string[]).includes(shot.frame), shot.frame);
@@ -48,7 +48,7 @@ describe("Insights rail frame catalog (IR)", () => {
   it("IR1 and IR7 rest collapsed; the open frames open", () => {
     assert.equal(RAIL_FRAME_FIXTURES.IR1.open, false);
     assert.equal(RAIL_FRAME_FIXTURES.IR7.open, false);
-    for (const id of ["IR2", "IR3", "IR4", "IR5", "IR6", "IR8"] as const) assert.equal(RAIL_FRAME_FIXTURES[id].open, true, id);
+    for (const id of ["IR2", "IR3", "IR4", "IR5", "IR6", "IR8", "IR9"] as const) assert.equal(RAIL_FRAME_FIXTURES[id].open, true, id);
     assert.equal(RAIL_FRAME_FIXTURES.IR3.railOnly, true);
     assert.equal(RAIL_FRAME_FIXTURES.IR6.railOnly, true);
   });
@@ -118,16 +118,33 @@ describe("Insights rail frame catalog (IR)", () => {
     assert.equal(data.verticalDisabledReason, "Vertical is off until the music rollup stops including other verticals.");
   });
 
-  it("IR4: copy leads on campaign creation, both empty with the record's sentences (H9)", () => {
+  it("IR4: best copy shapes lead, copy lines stay empty (H18, H19)", () => {
     const { context, data } = RAIL_FRAME_FIXTURES.IR4;
     assert.equal(context.surface, "campaign");
     assert.equal(context.stage, "registration");
     assert.equal(context.objective, "Leads");
-    assert.deepEqual(data.sections.map((section) => section.id), ["best-lines", "proven", "messaging_angle", "visual_format", "asset_type"]);
-    assert.equal(data.sections[0]!.empty, "Lines are scored overnight. None are scored yet, so the first examples arrive after tonight's run.");
-    assert.equal(data.sections[1]!.empty, "No line is proven yet. Proven lines appear here as chips you can drop into the copy.");
+    assert.deepEqual(data.sections.map((section) => section.id), ["copy-shapes", "copy-lines", "messaging_angle", "visual_format", "asset_type"]);
+    const shapes = data.sections[0]!;
+    assert.equal(shapes.kicker, "Best copy shapes");
+    assert.equal(shapes.scopeLabel, "All clients");
+    assert.equal(shapes.fallback, "Puzzle has no copy shape with enough shows yet. Showing all clients.");
+    assert.equal(shapes.bars[0]!.label, "Opener: artist name");
+    assert.equal(shapes.bars[0]!.facets, "artist voice · undated");
+    assert.equal(shapes.bars[0]!.valueText, "0.65");
+    assert.equal(shapes.bars[1]!.label, "4+ lines");
+    assert.equal(shapes.bars[1]!.facets, "promoter voice · dated · a price");
+    assert.equal(shapes.bars[1]!.valueText, "0.75");
+    assert.equal(shapes.bars[1]!.detail, "3 shows · 27 ads · ticket sale");
+    assert.equal(shapes.result?.text, "Opener: artist name costs 35% less than usual.");
+    assert.equal(shapes.bars[2]!.label, "1–2 emoji");
+    assert.equal(shapes.bars[3]!.label, "Countdown scarcity");
+    assert.equal(shapes.confidence, "ok · 22+ ads · 3+ shows · 90 days · all clients · +14 more");
+    assert.equal(shapes.lock, true);
+    assert.equal(shapes.action?.label, "Use shape");
+    assert.equal(shapes.action?.note, "artist voice → Angle: Artist, first person");
+    assert.equal(data.sections[1]!.kicker, "Copy lines");
+    assert.equal(data.sections[1]!.empty, "No line has run in two shows yet. Lines appear here, as chips you can drop into the copy, once one does.");
     assert.equal(data.sections[4]!.result?.text, "Lifestyle image with text costs 7% less than usual.");
-    assert.equal(data.sections.some((section) => section.action), false);
   });
 
   it("IR6: the CL6 Lab leads, with its figures and Use Lineup (H8)", () => {

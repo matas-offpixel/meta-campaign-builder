@@ -402,7 +402,8 @@ export async function writeCopyPerformance(
   let written = 0;
   for (let start = 0; start < rows.length; start += 200) {
     const chunk = rows.slice(start, start + 200).map((row) => {
-      const { shows, ...stored } = row;
+      const { shows, ads_hash, ...stored } = row;
+      void ads_hash;
       void shows;
       return { ...stored, updated_at: updatedAt };
     });

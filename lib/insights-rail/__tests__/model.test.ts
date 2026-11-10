@@ -10,7 +10,11 @@ import {
   borrowedLine,
   buildClusterSection,
   buildLabSection,
+  EMPTY_COPY_LINES,
   buildRail,
+  collapseShapes,
+  shapeFacet,
+  tiktokPlatformThin,
   buildSection,
   buildTikTokSections,
   clusterLine,
@@ -28,6 +32,7 @@ import {
   valueLabel,
   type ClusterRow,
   type RailContext,
+  type ShapeRow,
   type TagRow,
   type TikTokRow,
 } from "../model.ts";
@@ -126,9 +131,8 @@ describe("insights rail model", () => {
     assert.equal(asset.result?.text, "Lifestyle image with text costs 7% less than usual.");
     assert.deepEqual(asset.bars.map((bar) => bar.tone), ["olive", "ink"]);
     assert.deepEqual(asset.thin, [{ key: "ugc", label: "UGC", fundedAds: 0 }]);
-    assert.deepEqual(campaign.sections.map((section) => section.id), ["best-lines", "proven", "messaging_angle", "visual_format", "asset_type"]);
-    assert.equal(campaign.sections[0]!.empty, "Lines are scored overnight. None are scored yet, so the first examples arrive after tonight's run.");
-    assert.equal(campaign.sections[1]!.empty, "No line is proven yet. Proven lines appear here as chips you can drop into the copy.");
+    assert.deepEqual(campaign.sections.map((section) => section.id), ["copy-lines", "messaging_angle", "visual_format", "asset_type"]);
+    assert.equal(campaign.sections[0]!.empty, "No line has run in two shows yet. Lines appear here, as chips you can drop into the copy, once one does.");
     for (const section of [...rail.sections, ...campaign.sections]) {
       for (const text of [section.result?.text, section.confidence, section.fallback, ...section.bars.map((bar) => bar.label)]) {
         if (text) assert.doesNotMatch(text, /_/, text);
@@ -338,14 +342,14 @@ describe("insights rail model", () => {
       { dimension: "gender", value: "MALE", spend: 2, clicks: 3, impressions: 999, views2s: 150 },
     ], "Puzzle")[1]!;
     assert.deepEqual(thinGender.bars.map((bar) => bar.label), ["Women"]);
-    assert.deepEqual(thinGender.thin, [{ key: "MALE", label: "Men", fundedAds: 999, line: "Not enough data yet: 999 impressions" }]);
+    assert.deepEqual(thinGender.thin, [{ key: "MALE", label: "Men", fundedAds: 999, line: "Not enough data yet: £2 spent, 3 clicks" }]);
     assert.equal(thinGender.confidence, "ok · 2-s views ÷ impressions · 20,999 impressions · 90 days · Puzzle · TikTok");
-    const okGender = buildTikTokSections([
+    const thinClicks = buildTikTokSections([
       { dimension: "gender", value: "FEMALE", spend: 50, clicks: 100, impressions: 20000, views2s: 2000 },
       { dimension: "gender", value: "MALE", spend: 2, clicks: 3, impressions: 1000, views2s: 150 },
     ], "Puzzle")[1]!;
-    assert.deepEqual(okGender.bars.map((bar) => bar.label), ["Men", "Women"]);
-    assert.equal(okGender.thin.length, 0);
+    assert.deepEqual(thinClicks.bars.map((bar) => bar.label), ["Women"]);
+    assert.equal(thinClicks.thin[0]!.line, "Not enough data yet: £2 spent, 3 clicks");
     assert.equal(tiktokAgeLabel("AGE_55_100"), "55–100");
     assert.equal(tiktokAgeLabel("AGE_55+"), "55+");
     assert.equal(tiktokGenderLabel("FEMALE"), "Women");
@@ -372,5 +376,101 @@ describe("insights rail model", () => {
     const event = buildRail({ context: PUZZLE, scope: "client", stage: "registration", rows: { client: IR3 } });
     assert.ok(event.sections.every((section) => section.borrowed === null));
     assert.ok(!event.sections.some((section) => section.confidence?.endsWith("Meta")));
+  });
+
+  it("R17: a platform-unit row is thin under any of 20 clicks, £10 or 1,000 impressions", () => {
+    assert.equal(tiktokPlatformThin({ clicks: 19, spend: 10, impressions: 1000 }), true);
+    assert.equal(tiktokPlatformThin({ clicks: 20, spend: 9.99, impressions: 1000 }), true);
+    assert.equal(tiktokPlatformThin({ clicks: 20, spend: 10, impressions: 999 }), true);
+    assert.equal(tiktokPlatformThin({ clicks: 20, spend: 10, impressions: 1000 }), false);
+    const drawn = buildTikTokSections([{ dimension: "age", value: "AGE_18_24", spend: 10, clicks: 20, impressions: 1000, views2s: 100 }], "Puzzle")[0]!;
+    assert.equal(drawn.bars.length, 1);
+    assert.equal(drawn.thin.length, 0);
+    const thin = buildTikTokSections([{ dimension: "age", value: "AGE_18_24", spend: 10, clicks: 19, impressions: 1000, views2s: 100 }], "Puzzle")[0]!;
+    assert.equal(thin.bars.length, 0);
+    assert.equal(thin.thin[0]!.line, "Not enough data yet: £10 spent, 19 clicks");
+  });
+
+  it("R23: labels are capitalised phrases, and a one-line body is not a label", () => {
+    assert.equal(shapeFacet("cta_kind", "none"), "No CTA");
+    assert.equal(shapeFacet("cta_kind", "sign_up"), "Sign up CTA");
+    assert.equal(shapeFacet("scarcity_kind", "countdown"), "Countdown scarcity");
+    assert.equal(shapeFacet("scarcity_kind", "pct_sold"), "% sold scarcity");
+    assert.equal(shapeFacet("scarcity_kind", "none"), "No scarcity");
+    assert.equal(shapeFacet("length_band", "gt_200"), "Very long body");
+    assert.equal(shapeFacet("emoji_count_band", "0"), "No emoji");
+    assert.equal(shapeFacet("emoji_count_band", "1_2"), "1–2 emoji");
+    assert.equal(shapeFacet("opener", "imperative"), "Opener: a command");
+    assert.equal(shapeFacet("opener", "name_first"), "Opener: artist name");
+    assert.equal(shapeFacet("line_count_band", "1"), null);
+    assert.equal(shapeFacet("line_count_band", "2_3"), "2–3 lines");
+    const row = (feature: string, value: string): ShapeRow => ({
+      feature, value, voice: null, index: 0.8, shows: 3, ads: 20, stage: "registration", adsHash: "base", confidence: "ok",
+    });
+    const dropped = collapseShapes([row("line_count_band", "1")]);
+    assert.equal(dropped.length, 0);
+    const kept = collapseShapes([row("line_count_band", "1"), row("opener", "question")]);
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0]!.label, "Opener: a question");
+    assert.equal(kept[0]!.facets, "");
+  });
+
+  it("R21: equal ads hashes collapse; equal counts with different hashes do not; a null hash never does", () => {
+    const row = (feature: string, hash: string | null, ads = 27): ShapeRow => ({
+      feature,
+      value: feature === "has_date" ? "yes" : feature === "has_price" ? "yes" : "4_plus",
+      voice: "promoter",
+      index: 0.75,
+      shows: 3,
+      ads,
+      stage: "ticket_sale",
+      adsHash: hash,
+      confidence: "ok",
+    });
+    const collapsed = collapseShapes([row("line_count_band", "same"), row("has_date", "same"), row("has_price", "same")]);
+    assert.equal(collapsed.length, 1);
+    assert.equal(collapsed[0]!.label, "4+ lines");
+    assert.equal(collapsed[0]!.facets, "promoter voice · dated · a price");
+    const apart = collapseShapes([row("line_count_band", "a"), row("has_date", "b")]);
+    assert.equal(apart.length, 2);
+    const unhashed = collapseShapes([row("line_count_band", null), row("has_date", null)]);
+    assert.equal(unhashed.length, 2);
+  });
+
+  it("R22: one proven line shows the chip and Use line; none shows the sentence", () => {
+    const empty = buildRail({ context: { ...PUZZLE, surface: "campaign" }, scope: "client", stage: "registration", rows: { client: IR3 } });
+    assert.equal(empty.sections.find((section) => section.id === "copy-lines")!.empty, EMPTY_COPY_LINES);
+    const filled = buildRail({
+      context: { ...PUZZLE, surface: "campaign" },
+      scope: "client",
+      stage: "registration",
+      rows: { client: IR3 },
+      copy: { best: [], proven: [{ text: "Doors at 10", cpr: 3, indexVsEvent: 0.8, eventsN: 2, proven: true }] },
+    });
+    const lines = filled.sections.find((section) => section.id === "copy-lines")!;
+    assert.equal(lines.empty, null);
+    assert.deepEqual(lines.chips, [{ text: "Doors at 10", action: "Use line" }]);
+  });
+
+  it("a 4+ lines winner uses the record's result sentence", () => {
+    const row: ShapeRow = {
+      feature: "line_count_band",
+      value: "4_plus",
+      voice: "promoter",
+      index: 0.75,
+      shows: 3,
+      ads: 27,
+      stage: "ticket_sale",
+      adsHash: "only",
+      confidence: "ok",
+    };
+    const rail = buildRail({
+      context: { ...PUZZLE, surface: "campaign" },
+      scope: "all",
+      stage: "ticket_sale",
+      rows: { all: IR3 },
+      shapes: { rows: [row], scope: "all" },
+    });
+    assert.equal(rail.sections[0]!.result?.text, "4+ line bodies cost 25% less than usual.");
   });
 });

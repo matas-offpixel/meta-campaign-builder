@@ -211,6 +211,7 @@ describe("copy_features reader and migration", () => {
       confidence: "ok",
       proven: true,
       client_ids: ["11111111-1111-1111-1111-111111111111"],
+      ads_hash: null,
     };
     const { db, calls } = fakeDb((call) => {
       if (call.table === "clients" && op(call, "eq")) return { data: [{ id: "archived-client" }], error: null };
@@ -249,5 +250,11 @@ describe("copy_features reader and migration", () => {
     const runner = readFileSync("lib/learning/runner.ts", "utf8");
     assert.ok(runner.indexOf('job("copy_performance"') < runner.indexOf('job("copy_features"'), "features run after the templates");
     assert.match(readFileSync("lib/learning/cross-client/index.ts", "utf8"), /topCopyFeatures/);
+  });
+
+  it("migration 223: ads_hash is a nullable text column and the file drops nothing", () => {
+    const sql = readFileSync("supabase/migrations/223_copy_features_ads_hash.sql", "utf8");
+    assert.match(sql, /add column if not exists ads_hash text/);
+    assert.doesNotMatch(sql, /\bdrop\b/i);
   });
 });

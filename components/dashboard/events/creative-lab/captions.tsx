@@ -13,6 +13,7 @@ import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/capti
 import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
 import { VoicePanel } from "@/components/dashboard/events/creative-lab/voice-panel";
 import { USE_ANGLE_EVENT } from "@/components/insights-rail/use-angle";
+import { EMPTY_COPY_LINES } from "@/lib/insights-rail/model";
 import { acceptQuote, heldQuoteSentence, postsForQuote, quoteLines, sourceChip, type CaptionGenerator, type QuoteSource } from "@/lib/creative-lab/quote";
 
 type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
@@ -89,6 +90,7 @@ export function LabCaptions({
   const [pair, setPair] = useState<PairMode>(initialPair);
   const [writtenIds, setWrittenIds] = useState<readonly string[] | null>(initialWrittenIds ?? null);
   const [writing, setWriting] = useState(pendingWrite);
+  const [voiceOpen, setVoiceOpen] = useState(initialVoiceOpen);
   const [notice, setNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<"caption" | "quote">("caption");
   const [snapshot, setSnapshot] = useState<CaptionGenerator>({ angle: "lineup", count: 3, pair: "best", stage: stageDefault });
@@ -266,7 +268,6 @@ export function LabCaptions({
             active={writing}
           />
         </Button>
-        {notice ? <p className="text-sm">{notice}</p> : null}
         {quoteMode ? (
           <VoicePanel
             lab={lab}
@@ -276,8 +277,14 @@ export function LabCaptions({
             onSave={onSave}
             initialOpen={initialVoiceOpen}
             contained={voiceContained}
+            onOpenChange={setVoiceOpen}
           />
         ) : null}
+        <div className={`space-y-2 ${voiceOpen && voiceContained ? "min-[701px]:pt-2.5 max-[700px]:pt-3" : ""}`}>
+          <p className={`font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase ${voiceOpen && voiceContained ? "leading-none pb-[3px] max-[700px]:pb-0" : ""}`}>Proven elsewhere</p>
+          <p className="text-[11.5px] text-muted-foreground">{EMPTY_COPY_LINES}</p>
+        </div>
+        {notice ? <p className="text-sm">{notice}</p> : null}
       </div>
       )}
       {pair === "each" ? (
