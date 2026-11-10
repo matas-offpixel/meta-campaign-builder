@@ -403,7 +403,7 @@ describe("insights rail model", () => {
     assert.equal(shapeFacet("opener", "imperative"), "Opener: a command");
     assert.equal(shapeFacet("opener", "name_first"), "Opener: artist name");
     assert.equal(shapeFacet("line_count_band", "1"), null);
-    assert.equal(shapeFacet("line_count_band", "2_3"), "2+ lines");
+    assert.equal(shapeFacet("line_count_band", "2_3"), "2–3 lines");
     const row = (feature: string, value: string): ShapeRow => ({
       feature, value, voice: null, index: 0.8, shows: 3, ads: 20, stage: "registration", adsHash: "base", confidence: "ok",
     });

@@ -32,4 +32,4 @@ Migration 223 sha256 `185ac37939387812cbd1a36f3ee2f1439d1f9e6b0075db08118354e5d2
 
 R13 sorts cheapest first, so IR4's result names the 0.65 opener, not the figure's 4+ line sentence. That sentence is what the 0.75 row says when it is the winner. The figure's "1 emoji" and "Urgency scarcity" rows are the record's placeholders; the fixture uses the stored bands "1–2 emoji" and "Countdown scarcity". The scope toggle stays on This client while the section reads All clients. The confidence line says "all clients", and the sheet uses the same words in place of "All". IR3 did not move.
 
-Design fail round: the R22 sentence sits under the writer's Write button, labelled Proven elsewhere. The drawer hides its collapsed edge tab while open.
+Design fail round: the R22 sentence sits under the writer's Write button, labelled Proven elsewhere. On a voice frame the chip comes first. The drawer hides its collapsed edge tab, and its border, while open. The 2–3 line band reads "2–3 lines". The sheet scope stays the caps label; lowercase "all clients" is the confidence line only.

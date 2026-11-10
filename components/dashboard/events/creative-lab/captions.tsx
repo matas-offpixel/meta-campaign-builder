@@ -267,11 +267,6 @@ export function LabCaptions({
             active={writing}
           />
         </Button>
-        <div className="space-y-2">
-          <p className="font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase">Proven elsewhere</p>
-          <p className="text-[11.5px] text-muted-foreground">{EMPTY_COPY_LINES}</p>
-        </div>
-        {notice ? <p className="text-sm">{notice}</p> : null}
         {quoteMode ? (
           <VoicePanel
             lab={lab}
@@ -283,6 +278,11 @@ export function LabCaptions({
             contained={voiceContained}
           />
         ) : null}
+        <div className="space-y-2">
+          <p className="font-mono text-[9px] font-bold tracking-[0.16em] text-muted-foreground uppercase">Proven elsewhere</p>
+          <p className="text-[11.5px] text-muted-foreground">{EMPTY_COPY_LINES}</p>
+        </div>
+        {notice ? <p className="text-sm">{notice}</p> : null}
       </div>
       )}
       {pair === "each" ? (

@@ -650,7 +650,7 @@ const SHAPE_PHRASE: Record<string, Record<string, string | null>> = {
   },
   length_band: { le_60: "Short body", "61_120": "Medium body", "121_200": "Long body", gt_200: "Very long body" },
   emoji_count_band: { "0": "No emoji", "1_2": "1–2 emoji", "3_plus": "3+ emoji" },
-  line_count_band: { "1": null, "2_3": "2+ lines", "4_plus": "4+ lines" },
+  line_count_band: { "1": null, "2_3": "2–3 lines", "4_plus": "4+ lines" },
 };
 
 function shapeRank(feature: string): number {

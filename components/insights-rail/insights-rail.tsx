@@ -163,7 +163,7 @@ export function InsightsRail() {
 
   if (layout === "drawer") {
     return (
-      <aside data-insights-rail data-layout="drawer" className="relative shrink-0 border-l border-border-strong bg-card" style={{ width: TAB_WIDTH }}>
+      <aside data-insights-rail data-layout="drawer" className={`relative shrink-0 bg-card ${open ? "" : "border-l border-border-strong"}`} style={{ width: TAB_WIDTH }}>
         {open ? null : tab}
         {open ? <Drawer onClose={() => setOpen(false)}>{panel}</Drawer> : null}
       </aside>
@@ -313,12 +313,7 @@ function Section({ section }: { section: InsightSection }) {
       {section.borrowed ? <p data-borrowed-line className="mb-2.5 text-[11.5px] text-warning-foreground">{section.borrowed}</p> : null}
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <span className="text-[9px] font-bold tracking-[.16em] text-foreground/80 uppercase">{section.kicker}</span>
-        {section.id === "copy-shapes" && section.scopeLabel === "All clients" ? (
-          <>
-            <span className="text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase max-[700px]:hidden">All clients</span>
-            <span className="text-[9px] font-bold tracking-normal text-muted-foreground normal-case min-[701px]:hidden">all clients</span>
-          </>
-        ) : section.scopeLabel ? (
+        {section.scopeLabel ? (
           <span className="text-[9px] font-bold tracking-[.16em] text-muted-foreground uppercase">{section.scopeLabel}</span>
         ) : null}
       </div>
