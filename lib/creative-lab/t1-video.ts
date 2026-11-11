@@ -46,8 +46,8 @@ export function claimAllowed(durationS: number): { ok: true } | { ok: false; lin
 export const VIDEO_SAFE = { left: 120, right: 960, top: 269, bottom: 1248 } as const;
 
 export const T1V_CLAIM = {
-  /** The claim's last line sits on this (its baseline), fraction of H: y 1248. */
-  bottom: 0.65,
+  /** The claim's last line sits on this (its baseline), fraction of H: y 1238 (O97, was 0.65 H / 1248), so a comma or descender still ends by 1248. */
+  bottom: 1238 / 1920,
   /** Each line within 840 px (0.778 W), centred. */
   maxWidthPx: 840,
   /** O8's steps on a clip: one line at 4 % H, two lines at 4 % H, two lines at 3.4 % H; never a third line. */
@@ -129,7 +129,7 @@ export function planVideoClaim(approved: string, measure: MeasureCap, opts: { re
       const widths = lines.map((t, i) => measure(t, caps[i]!));
       widestSeen = Math.max(widestSeen, ...widths);
       if (!widths.every((w) => w <= T1V_CLAIM.maxWidthPx + 0.5)) continue;
-      // Bottom-anchored: the last line's baseline on 0.65 H; equal-cap lines one pitch apart, a roll-call 0.29 × line 2's cap apart.
+      // Bottom-anchored: the last line's baseline on 1238 (O97); equal-cap lines one pitch apart, a roll-call 0.29 × line 2's cap apart.
       const pitch = (T1V_CLAIM.pitchAt4 * (s.cap / 0.04)) * frame.height;
       const tops: number[] = [];
       tops[lines.length - 1] = bottomPx - caps[lines.length - 1]!;
@@ -183,12 +183,14 @@ export type Arrangement = "A" | "B";
 /** O54's sizes, fractions of the 9:16 H unless named. */
 export const T1C = {
   lockupWidth: 0.25,
-  lockupTop: 0.145,
+  /** O97: the lockup's ink top on 353 (0.184 H), 0.05 of the 4:5 view below Feed's crop edge. O54's top block moved down 75 px as one (was 0.145 H, 278). */
+  lockupTop: 353 / 1920,
   nameCap: 0.07,
-  nameCapTop: 0.205,
+  /** O97: 469 (0.244 H), was 0.205 H. */
+  nameCapTop: 469 / 1920,
   dateCap: 0.0297,
-  /** A: the date's cap top. */
-  dateCapTopA: 0.29,
+  /** A: the date's cap top. O97: 632 (0.329 H), was 0.29 H. */
+  dateCapTopA: 632 / 1920,
   /** B: the date's baseline sits this far above the claim's first cap top. */
   dateGapB: 0.015,
   /** 4:5 and 1:1: the lockup's top and the claim's last baseline, fractions of the rectangle. */
@@ -630,6 +632,6 @@ export const T1V_INVENTED: readonly { value: string; ruling: "accepted" | "accep
   { ruling: "accepted, amended", value: "with no claim, the bottom band anchored where a one-line claim would sit; in B the date stays above that line (O67)" },
   { ruling: "invented in a record", value: "issue 9: 1.6× and 675 px; Lanczos; folder clips first; the 0.08 W floor; the run line's words; the backing's quarter-gap padding, feather to the neighbour's ink, the 0.25 cap minimums and H66's 6-level check" },
   { ruling: "invented in a record", value: "issue 10: the smoothstep feather, its 12 px minimum and the 1.6× step check (O70); the no-claim line (O71); trying identical windows once and \"A, B\" on refused rows (O73); the renderer's own filter up to 1.6× (O69). O72 is overruled by Matas (10 Nov): footage showing another promoter's or venue's branding is fine and never flagged" },
-  { ruling: "accepted", value: "O70's check as shipped (design, #1174): the backing layer dithered with the bands' blue noise (16 → 8 bit, O46), each row's mean level across the core's width, the grey not rounded a second time; read over the feather's rows only, its mean step the drop over the feather's length in rows (fix round 1)" },
-  { ruling: "invented in a record", value: "while building issue 10: the render copy is read from a render_copy_path field on the clip or its asset when one exists (render-source.ts); neither is on main yet, so every render reads the source" },
+  { ruling: "accepted", value: "O92 (issue 13) rules O70's check as built (design, #1174): the backing layer dithered with the bands' blue noise (16 → 8 bit, O46), each row's mean level across the core's width, the grey not rounded a second time; read over the feather's rows only, its mean step the drop over the feather's length in rows (fix round 1)" },
+  { ruling: "accepted", value: "the render copy (O68) is read from creative_lab_clips.render_asset_id, #1176's 1080 copy (migration 220), else creative_asset_id (render-source.ts; Matas, 10 Nov)" },
 ];
