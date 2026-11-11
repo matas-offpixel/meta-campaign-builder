@@ -44,6 +44,7 @@ import { redLineVerdict, watermarkLayer } from "../lib/creative-lab/artist-card-
 import { assertExportable, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { KIT_RED, KIT_WHITE, renderCardLine } from "../lib/creative-lab/claim-slot.ts";
 import { detectFaces } from "../lib/creative-lab/face-detect.ts";
+import { TOO_SMALL_FOR_916, tooSmallFor916 } from "../lib/creative-lab/import-quality.ts";
 import { providedFace } from "../lib/creative-lab/kit-faces.ts";
 import { REMOTION_REGION, lambdaChunking, pickLambdaFunction, readConcurrencyLimit } from "../lib/creative-lab/lambda.ts";
 import { withKitFace } from "../lib/creative-lab/t1-lambda.ts";
@@ -351,7 +352,7 @@ for (const clipId of clipIds) {
       const size = FORMAT_SIZE[fmt];
       const id = `${slug}_${job.label}_${fmt.replace(":", "x")}`;
       // O62: no upscaling.
-      const small = formatTooSmall(src, fmt);
+      const small = tooSmallFor916(src) ? TOO_SMALL_FOR_916 : formatTooSmall(src, fmt);
       if (small) {
         console.log(`${id}: ${small}`);
         table.push({ clip: clipId.slice(0, 8), artist, claimLabel: job.label, fmt, arrangement: "–", crop: null, scale: null, tried: [], faceLine: small, topShare: 0, claimShare: 0, runS: 0, topP95: null, lockupP95: null, bottomP95: null, steps: "–", redP95: null, red: "–", feather: [], claim: "–", safe: true, file: null, result: small });

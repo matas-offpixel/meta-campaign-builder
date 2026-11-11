@@ -16,6 +16,7 @@ import { isCaptionStyle } from "./tags.ts";
 import { artistKey } from "./lineup.ts";
 import { clipsForStyle, ownerFromImport, type FootageOwner } from "./footage-owner.ts";
 import { bestOfSelected, effectiveSelection, NO_CLIP_SELECTED, spreadClipIds, type PairMode } from "./selection.ts";
+import { sizesForClipFiles } from "./clip-preview.ts";
 import { loadClipSelection } from "./selection-store.ts";
 import { emptyYield, generateLogLine, noteReject, type GenerateYield } from "./generate-log.ts";
 import { CAPTIONS_NOT_WRITTEN, currentRenderError, LINES_ALREADY_ON_EVENT, playableClipSeconds } from "./surface.ts";
@@ -300,6 +301,8 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
     owner: FootageOwner | null;
     artistId: string | null;
     featuredArtistIds: string[];
+    sourceWidth: number | null;
+    sourceHeight: number | null;
   }[];
   paired: Set<string>;
   selection: Awaited<ReturnType<typeof loadClipSelection>>;
@@ -321,7 +324,7 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
   if (clipRows.length === 0) return { clips: [], paired: new Set(), selection };
   const assetIds = [...new Set(clipRows.map((row) => text(row, "creative_asset_id")).filter(Boolean))];
   const assetsRes = assetIds.length
-    ? await db.from("creative_assets").select("id, duration_seconds").in("id", assetIds)
+    ? await db.from("creative_assets").select("id, duration_seconds, storage_path").in("id", assetIds)
     : { data: [] as Row[], error: null };
   if (assetsRes.error) throw new Error(assetsRes.error.message);
   const assets = new Map(((assetsRes.data ?? []) as Row[]).map((row) => [text(row, "id"), row]));
@@ -379,6 +382,8 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
       }),
       artistId: text(row, "artist_id") || null,
       featuredArtistIds: [] as string[],
+      sourceWidth: null as number | null,
+      sourceHeight: null as number | null,
       judged: judged ? {
         verdict: text(judged, "verdict") || null,
         cost: judged.verdict_cost_per_result == null || judged.verdict_cost_per_result === "" ? null : Number(judged.verdict_cost_per_result),
@@ -411,6 +416,23 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
     }
   }
   clips.sort((a, b) => a.clipNo - b.clipNo || a.artistName.localeCompare(b.artistName));
+  const pathByClip = new Map(clipRows.map((row) => [
+    text(row, "id"),
+    text(assets.get(text(row, "creative_asset_id")) ?? null, "storage_path"),
+  ]));
+  const sizes = await sizesForClipFiles(clips.map((clip) => ({
+    id: clip.id,
+    storagePath: pathByClip.get(clip.id) || null,
+  }))).catch((err: unknown) => {
+    console.error("[creative-lab] clip size probe failed:", err instanceof Error ? err.message : err);
+    return new Map<string, { width: number; height: number }>();
+  });
+  for (const clip of clips) {
+    const size = sizes.get(clip.id);
+    if (!size) continue;
+    clip.sourceWidth = size.width;
+    clip.sourceHeight = size.height;
+  }
   return { clips, paired, selection };
 }
 

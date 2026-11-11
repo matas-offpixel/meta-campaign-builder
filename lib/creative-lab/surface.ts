@@ -4,6 +4,7 @@
  */
 
 import { captionAllowsClip } from "./footage-owner.ts";
+import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
 
 export type VerdictChip = { label: string; tone: "win" | "lose" | "hold" | "flag" | "dash" };
 
@@ -75,6 +76,8 @@ export type ClipForGroup = {
   source?: string;
   /** The clip row's burned-in text verdict (overlay_check). */
   overlay?: { verdict: string; flagged?: number } | null;
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
 };
 
 export type ClipBucket = "keeping" | "new" | "cant";
@@ -174,7 +177,16 @@ export function burnedInTextSentence(clip: Pick<ClipForGroup, "overlay" | "sourc
   return `Text burned into ${Number(clip.overlay.flagged) || 0} of 8 frames`;
 }
 
+/** O93. One status when the 9:16 window is under 675 px. The row stays. */
+export function tooSmall916Sentence(clip: Pick<ClipForGroup, "sourceWidth" | "sourceHeight">): string | null {
+  const width = clip.sourceWidth;
+  const height = clip.sourceHeight;
+  if (width == null || height == null) return null;
+  return tooSmallFor916({ width, height }) ? TOO_SMALL_FOR_916 : null;
+}
+
 export function clipBucket(clip: ClipForGroup): ClipBucket {
+  if (tooSmall916Sentence(clip)) return "cant";
   if (renderRefusalSentence(clip.renderError)) return "cant";
   if (burnedInTextSentence(clip)) return "cant";
   if (!clip.judged) return "new";
@@ -288,7 +300,16 @@ export function importErrorSentence(error: unknown): string {
 }
 
 export function cantRunReason(clip: ClipForGroup): string | null {
-  return renderRefusalSentence(clip.renderError) ?? burnedInTextSentence(clip);
+  return tooSmall916Sentence(clip) ?? renderRefusalSentence(clip.renderError) ?? burnedInTextSentence(clip);
+}
+
+/** A failed row whose clip cannot make 9:16. Another try is still a render, so there is no link. */
+export function failedRenderSentence(
+  error: string | null | undefined,
+  clip: { sourceWidth?: number | null; sourceHeight?: number | null } | null | undefined,
+): string {
+  if (clip && tooSmall916Sentence(clip)) return `The renderer failed · ${TOO_SMALL_FOR_916}`;
+  return renderRefusalSentence(error) ?? "This render failed — try it again.";
 }
 
 /** The lead clip for the feed post and for Best clip. A refused clip, and a crop under 540 px, is never returned. */

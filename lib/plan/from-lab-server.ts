@@ -3,6 +3,8 @@
  * from its Storage file (S17, HS12).
  */
 
+import { clipIdsTooSmallFor916 } from "../creative-lab/clip-preview.ts";
+import { TOO_SMALL_FOR_916 } from "../creative-lab/import-quality.ts";
 import { upsertRegisteredAsset } from "../creatives/asset-registry.ts";
 import type { Database } from "../db/database.types.ts";
 import { attachIntakeAsset } from "./creative-intake-db.ts";
@@ -26,7 +28,7 @@ export async function listLabSource(db: Db, plan: CampaignPlan): Promise<{ ok: t
   if (!eventId) return { ok: true, eventName: plan.name ?? "", rows: [] };
   const event = await db.from("events").select("name").eq("id", eventId).maybeSingle();
   if (event.error) return { ok: false, error: event.error.message };
-  const clips = await db.from("creative_lab_clips").select("id, artist_id, clip_no, event_id").eq("event_id", eventId);
+  const clips = await db.from("creative_lab_clips").select("id, artist_id, clip_no, event_id, creative_asset_id").eq("event_id", eventId);
   if (clips.error) return { ok: false, error: clips.error.message };
   const clipIds = (clips.data ?? []).map((row) => row.id);
   if (clipIds.length === 0) return { ok: true, eventName: event.data?.name ?? plan.name ?? "", rows: [] };
@@ -81,10 +83,20 @@ export async function listLabSource(db: Db, plan: CampaignPlan): Promise<{ ok: t
     })),
   );
   const byId = new Map((renders.data ?? []).map((row) => [row.id, row]));
+  const sourceIds = [...new Set((clips.data ?? []).map((row) => row.creative_asset_id).filter((id): id is string => Boolean(id)))];
+  const sources = sourceIds.length
+    ? await db.from("creative_assets").select("id, storage_path").in("id", sourceIds)
+    : { data: [], error: null };
+  if (sources.error) return { ok: false, error: sources.error.message };
+  const pathOf = new Map((sources.data ?? []).map((row) => [row.id, row.storage_path]));
+  const small = await clipIdsTooSmallFor916((clips.data ?? []).map((row) => ({
+    id: row.id,
+    storagePath: (row.creative_asset_id ? pathOf.get(row.creative_asset_id) : null) ?? null,
+  })));
   return {
     ok: true,
     eventName: event.data?.name ?? plan.name ?? "",
-    rows: ordered.map((row) => {
+    rows: ordered.filter((row) => !small.has(byId.get(row.id)?.clip_id ?? "")).map((row) => {
       const render = byId.get(row.id)!;
       const clip = clipOf.get(render.clip_id);
       const artist = clip ? artistOf.get(clip.artist_id) ?? "" : "";
@@ -105,9 +117,15 @@ export async function addLabRender(db: Db, plan: CampaignPlan, renderId: string)
   const render = await db.from("creative_lab_renders").select("id, clip_id, status, creative_asset_id, user_id").eq("id", renderId).maybeSingle();
   if (render.error) return { ok: false, error: render.error.message };
   if (!render.data || render.data.status !== "done") return { ok: false, error: RENDER_NOT_ON_EVENT };
-  const clip = await db.from("creative_lab_clips").select("id, event_id, artist_id, clip_no").eq("id", render.data.clip_id).maybeSingle();
+  const clip = await db.from("creative_lab_clips").select("id, event_id, artist_id, clip_no, creative_asset_id").eq("id", render.data.clip_id).maybeSingle();
   if (clip.error) return { ok: false, error: clip.error.message };
   if (!clip.data || clip.data.event_id !== eventId) return { ok: false, error: RENDER_NOT_ON_EVENT };
+  const source = clip.data.creative_asset_id
+    ? await db.from("creative_assets").select("storage_path").eq("id", clip.data.creative_asset_id).maybeSingle()
+    : { data: null, error: null };
+  if (source.error) return { ok: false, error: source.error.message };
+  const small = await clipIdsTooSmallFor916([{ id: clip.data.id, storagePath: source.data?.storage_path ?? null }]);
+  if (small.has(clip.data.id)) return { ok: false, error: TOO_SMALL_FOR_916 };
   const asset = render.data.creative_asset_id
     ? await db.from("creative_assets").select("id, storage_path, storage_bucket, byte_size, duration_seconds, thumbnail_url").eq("id", render.data.creative_asset_id).maybeSingle()
     : { data: null, error: null };
