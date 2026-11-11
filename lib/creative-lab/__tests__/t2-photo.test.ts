@@ -249,8 +249,8 @@ describe("H81 · O80 positions", () => {
     const safe = photoClipSafe(m.layout);
     assert.ok(safe.ok, JSON.stringify(safe.outside));
     const L = m.layout;
-    // O87: the lineup as on the still; the details' last baseline and the logo's ink bottom on 0.65 H.
-    close(L.lineup[0]!.capTop, 0.207 * 1920);
+    // O87: the lineup as on the still (O94 moves it up on this roll-call clip, by lineupShift); the details' last baseline and the logo's ink bottom on 0.65 H.
+    close(L.lineup[0]!.capTop + L.lineupShift, 0.207 * 1920);
     for (const l of L.lineup) close(l.left + l.widthPx, 0.889 * 1080);
     const lastDetail = L.details.at(-1)!;
     close(lastDetail.capTop + lastDetail.capPx, 0.65 * 1920);
@@ -554,5 +554,63 @@ describe("O82 on the still, per format: a face only the 1:1's type touches refus
     assert.deepEqual(Object.keys(r.report.refused), ["1:1"]);
     assert.equal(r.report.refused["1:1"], "Face in the type — choose another crop or photo");
     for (const f of ["9:16", "4:5", "1:1"] as const) assert.ok(r.images[f]);
+  });
+});
+
+describe("O94 (issue 15) · room on the 9:16 clip", () => {
+  const gap = 0.04 * 1920;
+  const room = (L: { boxes: { lineup: Rect; details: Rect }; block: { blockTop: number; blockBottom: number } }) => ({
+    above: L.block.blockTop - (L.boxes.lineup.top + L.boxes.lineup.height),
+    below: L.boxes.details.top - L.block.blockBottom,
+  });
+
+  it("the roll-call: the lineup moves up to 0.16 H, the block steps to 0.0485 H, at least 0.04 H each side", () => {
+    const m = planPhotoMaster(PUZZLE, "clip", measure);
+    assert.ok(m.ok);
+    const L = m.layout;
+    close(L.lineup[0]!.capTop, 0.16 * 1920);
+    close(L.lineupShift, 0.207 * 1920 - 0.16 * 1920);
+    assert.equal(L.block.step, 1);
+    close(L.block.lines[0]!.capPx, 0.0485 * 1920);
+    const r = room(L);
+    assert.ok(r.above >= gap - 1e-6 && r.below >= gap - 1e-6, JSON.stringify(r));
+    close(r.above, r.below);
+    assert.ok(photoClipSafe(L).ok);
+  });
+
+  it("no claim: nothing moves, the block stays at step 0, and the room is still ≥ 0.04 H each side", () => {
+    const m = planPhotoMaster({ ...PUZZLE, claim: null }, "clip", measure);
+    assert.ok(m.ok);
+    assert.equal(m.layout.lineupShift, 0);
+    close(m.layout.lineup[0]!.capTop, 0.207 * 1920);
+    assert.equal(m.layout.block.step, 0);
+    const r = room(m.layout);
+    assert.ok(r.above >= gap && r.below >= gap);
+  });
+
+  it("past the last step, refused with the line; stills and the 4:5 / 1:1 are untouched", () => {
+    const long = planPhotoMaster({ ...PUZZLE, lineup: ["A", "B", "C", "D", "E", "F"], claim: "LAST FEW TICKETS LEFT FOR THE BIRTHDAY\nGET THEM BEFORE THEY GO" }, "clip", measure);
+    assert.deepEqual(long, { ok: false, line: "No room for the claim on the 9:16 clip — shorten it" });
+    const still = planPhotoMaster(PUZZLE, "still", measure);
+    assert.ok(still.ok);
+    assert.equal(still.layout.lineupShift, 0);
+    close(still.layout.lineup[0]!.capTop, 0.207 * 1920);
+    for (const f of ["4:5", "1:1"] as const) {
+      const c = planPhotoLayout(PUZZLE, "clip", f, measure);
+      const s = planPhotoLayout(PUZZLE, "still", f, measure);
+      assert.ok(c.ok && s.ok);
+      assert.deepEqual(c.layout.boxes, s.layout.boxes);
+      assert.equal(c.layout.lineupShift, 0);
+    }
+  });
+
+  it("the 0.005 slot check reads the moved lineup top", () => {
+    const m = planPhotoMaster(PUZZLE, "clip", measure);
+    assert.ok(m.ok);
+    const checks = dataNoteChecks(m.layout);
+    assert.ok(checks.every((c) => c.ok), JSON.stringify(checks.filter((c) => !c.ok)));
+    const top = checks.find((c) => c.slot.startsWith("lineup first cap top"))!;
+    assert.match(top.slot, /moved up 90 px, O94/);
+    close(top.want, T2P_DATA_NOTE.lineup.capTops[0] - m.layout.lineupShift);
   });
 });

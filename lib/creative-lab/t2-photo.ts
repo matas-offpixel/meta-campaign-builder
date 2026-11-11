@@ -65,6 +65,13 @@ export const T2P = {
   logo: { wordmark: 0.161, lockup: 0.25 },
   /** O1: the 1:1 re-sit. */
   square: { k: 0.8, side: 1080 },
+  /**
+   * O94 (issue 15), the 9:16 clip: at least 0.04 H between the lineup's last
+   * line and the block, and between the block's last line and the date.
+   * Short of room, the lineup moves up first, its first cap top no higher
+   * than 0.16 H (under the Reels top bar); then the block steps down as one.
+   */
+  clipRoom: { gap: 0.04, lineupTopMin: 0.16 },
   /** O81: the three bands (fractions of the 9:16 H, scaled with the format's k). */
   bands: {
     opacity: 0.2,
@@ -112,6 +119,7 @@ export const T2P_LINES = {
   artistFootage: "Artist footage takes T1 — T2's photo ground is for the promoter's own photos and clips",
   captionAndT2: "A clip takes a UGC caption or T2, never both",
   claimTooLong: (widest: number, limit: number) => `claim ${Math.round(widest)} of ${Math.round(limit)} px · can't shorten`,
+  noRoom: "No room for the claim on the 9:16 clip — shorten it",
 } as const;
 
 // ─── O76: the ground ────────────────────────────────────────────────────────
@@ -190,7 +198,7 @@ function fitLines(text: string, capPx: number, limit: number, tracking: number, 
  * takes O23's sizes at the claim's cap; O8's drops apply to the claim only.
  * The block's lines are placed from y = 0; `placeBlock` centres it.
  */
-export function planPhotoBlock(input: BlockInput, limitPx: number, measure: MeasureLine, kit: T2Kit = PUZZLE_FLOATING_T2, frame: Size = MASTER): { ok: true; block: PhotoBlock } | { ok: false; line: string } {
+export function planPhotoBlock(input: BlockInput, limitPx: number, measure: MeasureLine, kit: T2Kit = PUZZLE_FLOATING_T2, frame: Size = MASTER, opts: { fromStep?: number } = {}): { ok: true; block: PhotoBlock } | { ok: false; line: string } {
   const exp = input.experience ? checkExperienceLine(input.experience) : null;
   if (exp && !exp.ok) return { ok: false, line: exp.line };
   const expText = exp?.ok ? experienceDisplay(exp.text) : null;
@@ -202,7 +210,7 @@ export function planPhotoBlock(input: BlockInput, limitPx: number, measure: Meas
   const te = T2P.tracking.experience;
   let expEverFits = !expText;
   let claimWidest = 0;
-  for (let s = 0; s < steps.length; s += 1) {
+  for (let s = opts.fromStep ?? 0; s < steps.length; s += 1) {
     const C = steps[s]! * frame.height;
     const pitch = T2P.experience.pitch * C;
     const expFit = expText ? fitLines(typedLines(expText).join("\n"), C, limitPx, te, measure, names, true) : null;
@@ -267,6 +275,11 @@ export function planPhotoBlock(input: BlockInput, limitPx: number, measure: Meas
   return { ok: false, line: T2P_LINES.claimTooLong(claimWidest, limitPx) };
 }
 
+/** The block planned from a given step on (O94 steps it down on the 9:16 clip). */
+function planBlockFrom(input: BlockInput, measure: MeasureLine, kit: T2Kit, frame: Size, step: number) {
+  return planPhotoBlock(input, T2P.widthPx, measure, kit, frame, { fromStep: step });
+}
+
 /** The block moved so its middle (first cap top to last baseline) sits on y. */
 export function placeBlock(block: PhotoBlock, centreY: number): PhotoBlock {
   const dy = centreY - (block.blockBottom - block.blockTop) / 2 - block.blockTop;
@@ -299,6 +312,8 @@ export type PhotoLayout = {
   details: CornerLine[];
   logo: Rect;
   boxes: PhotoBoxes;
+  /** O94: how far the lineup moved up on the 9:16 clip to make room for the block (px of the 9:16), 0 when it didn't. */
+  lineupShift: number;
 };
 
 const union = (rs: readonly Rect[]): Rect => {
@@ -383,15 +398,48 @@ export function planPhotoMaster(input: PhotoSlotsInput, ground: PhotoGround, mea
   const logo = planPhotoLogo(input.logo, detailsBox.top + detailsBox.height, frame);
   const planned = planPhotoBlock(input, T2P.widthPx, measure, kit, frame);
   if (!planned.ok) return planned;
-  const lineupBox = cornerRect(lineup);
-  // O87: on a still, 0.535 H; on a clip, between the lineup's last baseline and the details' first cap top.
-  const centreY = ground === "clip" ? (lineupBox.top + lineupBox.height + detailsBox.top) / 2 : T2P.stillCentre * H;
-  const block = placeBlock(planned.block, centreY);
+  let block: PhotoBlock;
+  let lineupShift = 0;
+  let lineupNow = lineup;
+  if (ground === "clip") {
+    // O94: the block fits between the lineup and the date with 0.04 H each side; the lineup moves up first
+    // (its top no higher than 0.16 H), then the block steps down as one; past the last step, refused.
+    const gap = T2P.clipRoom.gap * H;
+    const lineupBottom = (() => {
+      const b0 = cornerRect(lineup);
+      return b0.top + b0.height;
+    })();
+    const maxShift = Math.max(0, lineup[0]!.capTop - T2P.clipRoom.lineupTopMin * H);
+    const roomAt = (shift: number) => detailsBox.top - (lineupBottom - shift) - 2 * gap;
+    let chosen: PhotoBlock | null = null;
+    for (let s = planned.block.step; s < T2P.experience.steps.length && !chosen; s += 1) {
+      const at = s === planned.block.step ? planned : planBlockFrom(input, measure, kit, frame, s);
+      if (!at.ok) break;
+      const h = at.block.blockBottom - at.block.blockTop;
+      if (h <= roomAt(0) + 1e-6) {
+        chosen = at.block;
+        lineupShift = 0;
+      } else if (h <= roomAt(maxShift) + 1e-6) {
+        chosen = at.block;
+        // On the first step the lineup moves only as far as the block needs; once the block has stepped, the lineup is already at its limit.
+        lineupShift = s === planned.block.step ? Math.min(maxShift, h - roomAt(0)) : maxShift;
+      }
+    }
+    if (!chosen) return { ok: false, line: T2P_LINES.noRoom };
+    if (lineupShift > 0) lineupNow = lineup.map((l) => ({ ...l, capTop: l.capTop - lineupShift }));
+    const top = cornerRect(lineupNow);
+    // Centred in the room left: the two gaps are equal and at least 0.04 H.
+    block = placeBlock(chosen, (top.top + top.height + detailsBox.top) / 2);
+  } else {
+    // O87: on a still, 0.535 H.
+    block = placeBlock(planned.block, T2P.stillCentre * H);
+  }
+  const lineupBox = cornerRect(lineupNow);
   const experience = blockRect(block.lines.filter((l) => l.role === "experience"), W);
   const claim = blockRect(block.lines.filter((l) => l.role === "claim"), W);
   return {
     ok: true,
-    layout: { ground, format: "9:16", k: 1, size: frame, block, lineup, details, logo, boxes: { lineup: lineupBox, experience, claim, block: blockRect(block.lines, W)!, details: detailsBox, logo } },
+    layout: { ground, format: "9:16", k: 1, size: frame, block, lineup: lineupNow, details, logo, lineupShift, boxes: { lineup: lineupBox, experience, claim, block: blockRect(block.lines, W)!, details: detailsBox, logo } },
   };
 }
 
@@ -441,6 +489,8 @@ export function planPhotoLayout(input: PhotoSlotsInput, ground: PhotoGround, for
       lineup,
       details,
       logo: mapToFormat(L.logo, format),
+      // The 4:5 and 1:1 take the still's positions (O80), so the lineup never moves there.
+      lineupShift: L.lineupShift,
       boxes: { lineup: mapToFormat(b.lineup, format), experience: b.experience && mapToFormat(b.experience, format), claim: b.claim && mapToFormat(b.claim, format), block: mapToFormat(b.block, format), details: mapToFormat(b.details, format), logo: mapToFormat(b.logo, format) },
     },
   };
@@ -472,7 +522,8 @@ export function dataNoteChecks(layout: PhotoLayout): NoteCheck[] {
     out.push({ slot, axis, want, got, delta: got - want, limit, ok: Math.abs(got - want) <= limit + 1e-6 });
   };
   const still = layout.ground === "still" || f !== "9:16";
-  add("lineup first cap top", "y", y(N.lineup.capTops[0]), layout.lineup[0]!.capTop);
+  // O94: when the lineup moved up on the 9:16 clip, the check reads its moved top.
+  add(layout.lineupShift > 0 ? `lineup first cap top (moved up ${Math.round(layout.lineupShift)} px, O94)` : "lineup first cap top", "y", y(N.lineup.capTops[0]) - layout.lineupShift * layout.k, layout.lineup[0]!.capTop);
   add("lineup right edge", "x", x(N.lineup.right), Math.max(...layout.lineup.map((l) => l.left + l.widthPx)));
   add("details left edge (text frame)", "x", x(N.details.left), layout.details[0]!.left);
   add("logo right edge", "x", x(N.logo.right), layout.logo.left + layout.logo.width);
@@ -659,6 +710,8 @@ export function assignPhotoT2(existing: readonly TemplateUse[], next: TemplateUs
 
 export const T2P_INVENTED: readonly { value: string; ruling: "invented in a record" | "invented here" | "measured" | "ruled" }[] = [
   { ruling: "measured", value: "issue 12 (O85–O87): every still size and position, from Matas's example on its 1080 × 1920 file (T2P_DATA_NOTE)" },
+  { ruling: "ruled", value: "issue 15 (O94): on the 9:16 clip, at least 0.04 H between the lineup and the block and between the block and the date; short of room the lineup moves up first (its top no higher than 0.16 H), then the block steps down as one, else \"No room for the claim on the 9:16 clip — shorten it\"; the slot check reads the moved lineup top" },
+  { ruling: "invented here", value: "O94's lineup moves only as far as the block needs at its first fitting step; once the block has stepped down, the lineup is at its 0.16 H limit; the block is centred in the room left, so both gaps are equal" },
   { ruling: "invented in a record", value: "issue 12: the step sizes below step 0 (T2's ratios: 0.0485, 0.042 H); the clip's details on 0.65 H and the block between; the two-spaces ask and its words" },
   { ruling: "invented in a record", value: "issue 11 (still standing): the centre band and its 0.02 / 0.06 H; the 40-character limit, the writer's word bans and every new line; \"& MORE\" from the facts' flag" },
   { ruling: "ruled", value: "issue 13: tracking 0 on the experience line, the lineup and the date / venue lines (O90); the claim Bootzy at +25, its width logged against the example's 582 px, not judged, its cap height and centring still checked (O91); the poster-panel T2 keeps +5" },
