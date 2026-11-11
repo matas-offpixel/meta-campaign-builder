@@ -1,5 +1,5 @@
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
-import { MmlCreativeIntake } from "@/components/plan/mml-creative-intake";
+import { CreativeLabFrameHold } from "@/components/dashboard/events/creative-lab-frame-hold";
 import type { LabFrameFixture } from "@/scripts/plan-frames/lab-fixtures";
 
 /**
@@ -11,13 +11,7 @@ export function CreativeLabFrameMount({ fixture }: { fixture: LabFrameFixture })
     <div data-frame-ready={fixture.id} className="bg-background px-6 py-6 text-foreground">
       <CreativeLabCard lab={fixture.lab} />
       {fixture.holdRows ? (
-        <MmlCreativeIntake
-          planId="frame-plan"
-          clientId={null}
-          persisted
-          onLaunches={() => undefined}
-          fixture={{ eventName: fixture.lab.eventName, rows: [], holdRows: fixture.holdRows }}
-        />
+        <CreativeLabFrameHold eventName={fixture.lab.eventName} holdRows={fixture.holdRows} />
       ) : null}
     </div>
   );
