@@ -194,15 +194,15 @@ describe("H40 · O41 / O42 the crop moves the footage, never the type", () => {
 });
 
 describe("O43 · the claim on a clip", () => {
-  it("the claim's last line sits on 0.65 H; one line has its cap top at 0.610 H, two lines' line 1 at 0.552 H", () => {
+  it("the claim's last line sits on 1238 (O97, was 0.65 H); one line has its cap top 10 px above 0.610 H, two lines' line 1 10 px above 0.552 H", () => {
     const one = planVideoClaim("General sale live", measure) as VideoClaimPlan;
     assert.equal(one.step, 0);
-    close(one.lines[0]!.capTop + one.lines[0]!.capPx, 0.65 * 1920);
-    close(one.lines[0]!.capTop / 1920, 0.61, 1e-9);
+    close(one.lines[0]!.capTop + one.lines[0]!.capPx, 1238);
+    close(one.lines[0]!.capTop / 1920, 0.61 - 10 / 1920, 1e-9);
     const two = planVideoClaim("Final release tickets now on sale everywhere", measure) as VideoClaimPlan;
     assert.equal(two.step, 1);
-    close(two.lines[0]!.capTop / 1920, 0.5517, 1e-9);
-    close(two.lines[1]!.capTop + two.lines[1]!.capPx, 1248);
+    close(two.lines[0]!.capTop / 1920, 0.5517 - 10 / 1920, 1e-9);
+    close(two.lines[1]!.capTop + two.lines[1]!.capPx, 1238);
     assert.ok(two.lines.every((l) => l.widthPx <= 840));
   });
 
@@ -411,23 +411,23 @@ describe("H46 · O48 the event's release names on T1", () => {
 // ─── Issue 8 (H53–H61) ──────────────────────────────────────────────────────
 
 describe("H53 · O54 the clip layout", () => {
-  it("A: the lockup, name and date inside 0.145–0.32 H, then the claim; no venue or time on a clip", () => {
+  it("A: the lockup, name and date inside 0.184–0.359 H (O97), then the claim; no venue or time on a clip", () => {
     const a = planClipLayout(pieces, "9:16", "A");
     assert.deepEqual(Object.keys(a.pieces).sort(), ["date", "lockup", "name"]);
-    close(a.boxes.lockup!.top / 1920, 0.145);
+    close(a.boxes.lockup!.top, 353);
     close(a.boxes.lockup!.width, 0.25 * 1080);
-    close(a.pieces.name.at.top / 1920, 0.205);
+    close(a.pieces.name.at.top, 469);
     close(a.pieces.name.at.height, 0.07 * 1920);
-    close(a.pieces.date.at.top / 1920, 0.29);
-    assert.ok(a.boxes.top.top >= 0.145 * 1920 - 1e-6 && a.boxes.top.top + a.boxes.top.height <= 0.32 * 1920 + 1e-6);
+    close(a.pieces.date.at.top, 632);
+    assert.ok(a.boxes.top.top >= 353 - 1e-6 && a.boxes.top.top + a.boxes.top.height <= 0.359 * 1920 + 1, `${a.boxes.top.top}–${a.boxes.top.top + a.boxes.top.height}`);
     assert.deepEqual(a.boxes.bottom, a.boxes.claim);
   });
 
-  it("B: the top block inside 0.145–0.275 H; the date's baseline 0.015 H above the claim's first cap top", () => {
+  it("B: the top block inside 0.184–0.314 H (O97); the date's baseline 0.015 H above the claim's first cap top, 10 px up with the claim", () => {
     const b = planClipLayout(pieces, "9:16", "B");
-    assert.ok(b.boxes.top.top + b.boxes.top.height <= 0.275 * 1920 + 1e-6);
+    assert.ok(b.boxes.top.top + b.boxes.top.height <= 0.314 * 1920 + 1);
     close(b.pieces.date.at.top + b.pieces.date.at.height, b.claim[0]!.capTop - 0.015 * 1920);
-    close(b.pieces.date.at.top / 1920, 0.565, 1e-3);
+    close(b.pieces.date.at.top / 1920, 0.565 - 10 / 1920, 1e-3);
     const two = planClipLayout({ ...pieces, claim: planVideoClaim("Early bird, 1st & 2nd release sold out\n3rd release selling fast", measure) as VideoClaimPlan }, "9:16", "B");
     assert.ok(two.pieces.date.at.top + two.pieces.date.at.height < two.claim[0]!.capTop);
   });
@@ -452,17 +452,18 @@ describe("H53 · O54 the clip layout", () => {
 });
 
 describe("H54 · O55 the bands follow the blocks", () => {
-  it("a one-line claim in A gives O38's 0.55 / 0.60 / 0.68 H; B's are 0.505 / 0.555 / 0.635", () => {
+  it("the bands follow the moved blocks (O97): the bottom band 10 px above O38's 0.55 / 0.60 / 0.68 H in A and 0.505 / 0.555 / 0.635 in B; the top band 75 px lower", () => {
     const a = planClipLayout(pieces, "9:16", "A").anchors;
-    close(a.bottomZero / 1920, 0.55, 1e-9);
-    close(a.bottomFull / 1920, 0.6, 1e-9);
-    close(a.bottomRamp / 1920, 0.68, 1e-9);
+    const up = 10 / 1920;
+    close(a.bottomZero / 1920, 0.55 - up, 1e-9);
+    close(a.bottomFull / 1920, 0.6 - up, 1e-9);
+    close(a.bottomRamp / 1920, 0.68 - up, 1e-9);
     const b = planClipLayout(pieces, "9:16", "B").anchors;
-    close(b.bottomZero / 1920, 0.505, 2e-3);
-    close(b.bottomFull / 1920, 0.555, 2e-3);
-    close(b.bottomRamp / 1920, 0.635, 2e-3);
-    close(a.topFull / 1920, 0.34, 2e-3);
-    close(a.topGone / 1920, 0.43, 2e-3);
+    close(b.bottomZero / 1920, 0.505 - up, 2e-3);
+    close(b.bottomFull / 1920, 0.555 - up, 2e-3);
+    close(b.bottomRamp / 1920, 0.635 - up, 2e-3);
+    close(a.topFull / 1920, 0.34 + 75 / 1920, 2e-3);
+    close(a.topGone / 1920, 0.43 + 75 / 1920, 2e-3);
   });
 
   it("A's and B's stops read within ±1 % on 3 × 3 averages in every format, at each band step", () => {
