@@ -549,7 +549,7 @@ function ClipTile({
       {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
       {wideFrame && !clip.cropOpen && !reason ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
       {reason ? (
-        <div className="mt-1 space-y-1 text-xs">
+        <div className="space-y-1 text-xs">
           <p className="text-destructive">{reason}</p>
           {clip.judged && ((clip.judged.cost ?? 0) > 0 || (clip.judged.results ?? 0) > 0) ? (
             <p className="tabular-nums">{money(clip.judged.cost)} / {metricUnit(clip.judged.metric)} · {resultsLabel(clip.judged.results, clip.judged.metric)}</p>
