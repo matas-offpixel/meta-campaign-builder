@@ -9,8 +9,13 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import {
   RESUMABLE_UPLOAD_THRESHOLD,
+  uploadFileToStorageBucket,
   uploadResumableTus,
   uploadToStorageBucket,
 } from "../storage-upload.ts";
@@ -279,5 +284,60 @@ describe("uploadToStorageBucket", () => {
 describe("RESUMABLE_UPLOAD_THRESHOLD", () => {
   it("is 40 MB", () => {
     assert.equal(RESUMABLE_UPLOAD_THRESHOLD, 40 * 1024 * 1024);
+  });
+});
+
+// ── uploadFileToStorageBucket (a file on disk, the Drive pickup's copies) ─────
+
+describe("uploadFileToStorageBucket", () => {
+  afterEach(() => {
+    mock.restoreAll();
+    clearEnv();
+  });
+
+  it("over the threshold: one TUS PATCH whose body is a stream read from the file, not a Buffer", async () => {
+    setEnv();
+    const dir = mkdtempSync(path.join(tmpdir(), "upload-file-"));
+    try {
+      const file = path.join(dir, "copy.mp4");
+      const size = RESUMABLE_UPLOAD_THRESHOLD + 1234;
+      writeFileSync(file, Buffer.alloc(size, 5));
+      const calls: { method: string; headers: Record<string, string>; body: unknown; duplex?: string; received?: number }[] = [];
+      mock.method(globalThis, "fetch", async (_url: string, init: RequestInit & { duplex?: string }) => {
+        const call = { method: String(init.method), headers: init.headers as Record<string, string>, body: init.body, duplex: init.duplex, received: 0 };
+        calls.push(call);
+        if (call.method === "POST") return makeFakeResponse({ status: 201, headers: { Location: "/storage/v1/upload/resumable/abc" } });
+        for await (const chunk of init.body as unknown as AsyncIterable<Uint8Array>) call.received += chunk.byteLength;
+        return makeFakeResponse({ status: 204 });
+      });
+      const client = makeServiceClient({ error: { message: "simple path must not run" } });
+      const res = await uploadFileToStorageBucket(client, "campaign-assets", "videos/x.mp4", file, "video/mp4");
+      assert.equal(res.error, null);
+      assert.equal(calls.length, 2);
+      assert.equal(calls[0]!.headers["Upload-Length"], String(size));
+      assert.equal(calls[1]!.headers["Content-Length"], String(size));
+      assert.equal(calls[1]!.duplex, "half");
+      assert.ok(!Buffer.isBuffer(calls[1]!.body));
+      assert.equal(calls[1]!.received, size);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("at or under the threshold: the simple upload", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "upload-file-"));
+    try {
+      const file = path.join(dir, "small.mp4");
+      writeFileSync(file, Buffer.alloc(10, 1));
+      let uploaded: Buffer | null = null;
+      const client = {
+        storage: { from: () => ({ upload: async (_p: string, body: Buffer) => ((uploaded = body), { error: null }) }) },
+      } as unknown as import("@supabase/supabase-js").SupabaseClient;
+      const res = await uploadFileToStorageBucket(client, "campaign-assets", "videos/s.mp4", file, "video/mp4");
+      assert.equal(res.error, null);
+      assert.equal(uploaded!.byteLength, 10);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

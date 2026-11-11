@@ -18,6 +18,10 @@
  * directly via fetch, which is available in Next.js server contexts.
  */
 
+import { createReadStream } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
+import { Readable } from "node:stream";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Below this size use simple upload; at or above use TUS. */
@@ -42,6 +46,32 @@ export async function uploadResumableTus(
   storagePath: string,
   buffer: Buffer,
   contentType: string,
+): Promise<{ error: Error | null }> {
+  return tusUpload(bucket, storagePath, contentType, buffer.byteLength, () => buffer as unknown as BodyInit);
+}
+
+/**
+ * The same TUS upload with the body streamed from a file on disk: the file
+ * is never held in memory (the Drive pickup's 1080 render copies, which can
+ * be up to the 200 MB cap).
+ */
+export async function uploadResumableTusFile(
+  bucket: string,
+  storagePath: string,
+  filePath: string,
+  contentType: string,
+): Promise<{ error: Error | null }> {
+  const { size } = await stat(filePath);
+  return tusUpload(bucket, storagePath, contentType, size, () => Readable.toWeb(createReadStream(filePath)) as unknown as BodyInit, true);
+}
+
+async function tusUpload(
+  bucket: string,
+  storagePath: string,
+  contentType: string,
+  length: number,
+  makeBody: () => BodyInit,
+  streamed = false,
 ): Promise<{ error: Error | null }> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -72,7 +102,7 @@ export async function uploadResumableTus(
         Authorization: `Bearer ${serviceKey}`,
         "Content-Type": "application/offset+octet-stream",
         "Tus-Resumable": "1.0.0",
-        "Upload-Length": String(buffer.byteLength),
+        "Upload-Length": String(length),
         "Upload-Metadata": uploadMetadata,
         "x-upsert": "true",
       },
@@ -97,10 +127,9 @@ export async function uploadResumableTus(
     ? location
     : `${supabaseUrl}${location}`;
 
-  // ── Step 2: Upload the full buffer in one PATCH ────────────────────────────
-  // Sending the whole buffer in one PATCH is valid TUS (offset=0 to EOF) and
-  // avoids complexity of chunked streaming. Memory is already allocated from
-  // the Dropbox download step.
+  // ── Step 2: Upload the whole body in one PATCH ─────────────────────────────
+  // One PATCH from offset 0 to EOF is valid TUS. A buffer body is already in
+  // memory from the download step; a file body is streamed.
   let patchRes: Response;
   try {
     patchRes = await fetch(patchUrl, {
@@ -110,10 +139,12 @@ export async function uploadResumableTus(
         "Content-Type": "application/offset+octet-stream",
         "Tus-Resumable": "1.0.0",
         "Upload-Offset": "0",
-        "Content-Length": String(buffer.byteLength),
+        "Content-Length": String(length),
       },
-      body: buffer as unknown as BodyInit,
-    });
+      body: makeBody(),
+      // A stream body needs half-duplex in Node's fetch.
+      ...(streamed ? { duplex: "half" } : {}),
+    } as RequestInit);
   } catch (err) {
     return { error: new Error(`TUS PATCH network error: ${(err as Error).message}`) };
   }
@@ -151,4 +182,23 @@ export async function uploadToStorageBucket(
     .upload(storagePath, buffer, { contentType, upsert: true });
 
   return { error: error ?? null };
+}
+
+/**
+ * Upload a file on disk to Supabase Storage. Over the resumable threshold the
+ * body is streamed from disk; at or under it (≤ 40 MB) the file is read and
+ * sent with the simple upload. Always upserts.
+ */
+export async function uploadFileToStorageBucket(
+  serviceClient: SupabaseClient,
+  bucket: string,
+  storagePath: string,
+  filePath: string,
+  contentType: string,
+): Promise<{ error: Error | { message: string } | null }> {
+  const { size } = await stat(filePath);
+  if (size > RESUMABLE_UPLOAD_THRESHOLD) {
+    return uploadResumableTusFile(bucket, storagePath, filePath, contentType);
+  }
+  return uploadToStorageBucket(serviceClient, bucket, storagePath, await readFile(filePath), contentType);
 }
