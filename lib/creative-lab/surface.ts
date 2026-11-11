@@ -4,7 +4,12 @@
  */
 
 import { captionAllowsClip } from "./footage-owner.ts";
-import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
+import {
+  LANDSCAPE_TRIPLE_FIT_ONLY,
+  TOO_SMALL_FOR_916,
+  tooSmallFor916,
+  tripleFitSource,
+} from "./import-quality.ts";
 
 export type VerdictChip = { label: string; tone: "win" | "lose" | "hold" | "flag" | "dash" };
 
@@ -78,9 +83,18 @@ export type ClipForGroup = {
   overlay?: { verdict: string; flagged?: number } | null;
   sourceWidth?: number | null;
   sourceHeight?: number | null;
+  /** Set on a clip that was made from a landscape. It runs as one 9:16. */
+  tripleFitSourceId?: string | null;
+  /** The source clip's number, so the tile can read "Triple-fit · #{n}". */
+  tripleFitSourceNo?: number | null;
+  owner?: "promoter" | "artist" | null;
 };
 
-export type ClipBucket = "keeping" | "new" | "cant";
+export type ClipBucket = "keeping" | "new" | "cant" | "triple";
+
+export const TRIPLE_FIT_OFFER = "Make a triple-fit";
+const TRIPLE_FIT_MIN_SECONDS = 6;
+const TRIPLE_FIT_RUNNABLE_CAP = 3;
 
 /** A superseded render is an old path, kept for the record. It is not a refusal. */
 export function isSupersededRender(error: string | null | undefined): boolean {
@@ -149,7 +163,8 @@ export type RankedClip = ClipForGroup & {
 /** Native 9:16 first, then the wider crop, then billing order. Under 540 px is left for a hand pick. */
 export function bestRunnableClip<T extends RankedClip>(clips: readonly T[]): T | null {
   const eligible = clips.filter((clip) => {
-    if (clipBucket(clip) === "cant") return false;
+    const bucket = clipBucket(clip);
+    if (bucket === "cant" || bucket === "triple") return false;
     const width = clip.sourceWidth;
     const height = clip.sourceHeight;
     if (width == null || height == null) return false;
@@ -177,15 +192,61 @@ export function burnedInTextSentence(clip: Pick<ClipForGroup, "overlay" | "sourc
   return `Text burned into ${Number(clip.overlay.flagged) || 0} of 8 frames`;
 }
 
+/** O108. The landscape line. A made triple-fit does not wear it. */
+export function tripleFitOnlySentence(
+  clip: Pick<ClipForGroup, "sourceWidth" | "sourceHeight" | "tripleFitSourceId">,
+): string | null {
+  if (clip.tripleFitSourceId) return null;
+  const width = clip.sourceWidth;
+  const height = clip.sourceHeight;
+  if (width == null || height == null) return null;
+  return tripleFitSource({ width, height }) ? LANDSCAPE_TRIPLE_FIT_ONLY : null;
+}
+
 /** O93. One status when the 9:16 window is under 675 px. The row stays. */
-export function tooSmall916Sentence(clip: Pick<ClipForGroup, "sourceWidth" | "sourceHeight">): string | null {
+export function tooSmall916Sentence(
+  clip: Pick<ClipForGroup, "sourceWidth" | "sourceHeight" | "tripleFitSourceId">,
+): string | null {
+  if (clip.tripleFitSourceId) return null;
   const width = clip.sourceWidth;
   const height = clip.sourceHeight;
   if (width == null || height == null) return null;
   return tooSmallFor916({ width, height }) ? TOO_SMALL_FOR_916 : null;
 }
 
+/** "Triple-fit · #{n}" for a made clip, otherwise "{artist} #{n}". */
+export function clipTileName(clip: {
+  artistName: string;
+  clipNo: number;
+  tripleFitSourceId?: string | null;
+  tripleFitSourceNo?: number | null;
+}): string {
+  if (clip.tripleFitSourceId) return `Triple-fit · #${clip.tripleFitSourceNo ?? clip.clipNo}`;
+  return `${clip.artistName} #${clip.clipNo}`;
+}
+
+/**
+ * O108. The button shows when this owner has fewer than 3 clips that can
+ * run in 9:16. One made triple-fit per source. A promoter is not offered
+ * one. Under 6 seconds the claim cannot be cut.
+ */
+export function showTripleFitOffer(clip: ClipForGroup, clips: readonly ClipForGroup[]): boolean {
+  if (clip.tripleFitSourceId || clip.owner === "promoter") return false;
+  if (!tripleFitOnlySentence(clip)) return false;
+  if (clip.durationSeconds != null && clip.durationSeconds < TRIPLE_FIT_MIN_SECONDS) return false;
+  if (clips.some((other) => other.tripleFitSourceId === clip.id)) return false;
+  const ownerId = clip.artistId ?? "";
+  const runnable = clips.filter((other) => {
+    const otherOwner = other.owner === "promoter" ? "promoter" : (other.artistId ?? "");
+    if (otherOwner !== ownerId) return false;
+    const bucket = clipBucket(other);
+    return bucket === "keeping" || bucket === "new";
+  }).length;
+  return runnable < TRIPLE_FIT_RUNNABLE_CAP;
+}
+
 export function clipBucket(clip: ClipForGroup): ClipBucket {
+  if (tripleFitOnlySentence(clip)) return "triple";
   if (tooSmall916Sentence(clip)) return "cant";
   if (renderRefusalSentence(clip.renderError)) return "cant";
   if (burnedInTextSentence(clip)) return "cant";
@@ -306,8 +367,9 @@ export function cantRunReason(clip: ClipForGroup): string | null {
 /** A failed row whose clip cannot make 9:16. Another try is still a render, so there is no link. */
 export function failedRenderSentence(
   error: string | null | undefined,
-  clip: { sourceWidth?: number | null; sourceHeight?: number | null } | null | undefined,
+  clip: Pick<ClipForGroup, "sourceWidth" | "sourceHeight" | "tripleFitSourceId"> | null | undefined,
 ): string {
+  if (clip && tripleFitOnlySentence(clip)) return `The renderer failed · ${LANDSCAPE_TRIPLE_FIT_ONLY}`;
   if (clip && tooSmall916Sentence(clip)) return `The renderer failed · ${TOO_SMALL_FOR_916}`;
   return renderRefusalSentence(error) ?? "This render failed — try it again.";
 }
@@ -350,17 +412,19 @@ export function clipsForEachNew<T extends ClipForGroup>(clips: readonly T[], alr
     .sort((a, b) => a.clipNo - b.clipNo);
 }
 
-export function groupClips<T extends ClipForGroup>(clips: readonly T[]): { keeping: T[]; fresh: T[]; cant: T[] } {
+export function groupClips<T extends ClipForGroup>(clips: readonly T[]): { keeping: T[]; fresh: T[]; cant: T[]; triple: T[] } {
   const keeping: T[] = [];
   const fresh: T[] = [];
   const cant: T[] = [];
+  const triple: T[] = [];
   for (const clip of clips) {
     const bucket = clipBucket(clip);
     if (bucket === "keeping") keeping.push(clip);
     else if (bucket === "cant") cant.push(clip);
+    else if (bucket === "triple") triple.push(clip);
     else fresh.push(clip);
   }
-  return { keeping, fresh, cant };
+  return { keeping, fresh, cant, triple };
 }
 
 export function durationLabel(seconds: number | null | undefined): string {

@@ -17,6 +17,7 @@ import { artistKey } from "./lineup.ts";
 import { clipsForStyle, ownerFromImport, type FootageOwner } from "./footage-owner.ts";
 import { bestOfSelected, effectiveSelection, NO_CLIP_SELECTED, spreadClipIds, type PairMode } from "./selection.ts";
 import { sizesForClipFiles } from "./clip-preview.ts";
+import { missingTripleFitColumn } from "./import-quality.ts";
 import { loadClipSelection } from "./selection-store.ts";
 import { emptyYield, generateLogLine, noteReject, type GenerateYield } from "./generate-log.ts";
 import { CAPTIONS_NOT_WRITTEN, currentRenderError, LINES_ALREADY_ON_EVENT, playableClipSeconds } from "./surface.ts";
@@ -303,6 +304,8 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
     featuredArtistIds: string[];
     sourceWidth: number | null;
     sourceHeight: number | null;
+    tripleFitSourceId: string | null;
+    tripleFitSourceNo: number | null;
   }[];
   paired: Set<string>;
   selection: Awaited<ReturnType<typeof loadClipSelection>>;
@@ -384,6 +387,8 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
       featuredArtistIds: [] as string[],
       sourceWidth: null as number | null,
       sourceHeight: null as number | null,
+      tripleFitSourceId: null as string | null,
+      tripleFitSourceNo: null as number | null,
       judged: judged ? {
         verdict: text(judged, "verdict") || null,
         cost: judged.verdict_cost_per_result == null || judged.verdict_cost_per_result === "" ? null : Number(judged.verdict_cost_per_result),
@@ -394,12 +399,22 @@ async function clipsAwaitingPreview(db: ServiceRoleDb, eventId: string): Promise
     };
   });
   if (clipIds.length > 0) {
-    const owned = await db.from("creative_lab_clips").select("id, owner").in("id", clipIds);
+    const withLink = await db.from("creative_lab_clips").select("id, owner, triple_fit_source_id").in("id", clipIds);
+    const owned = withLink.error && missingTripleFitColumn(withLink.error.message)
+      ? await db.from("creative_lab_clips").select("id, owner").in("id", clipIds)
+      : withLink;
     if (!owned.error) {
-      const byId = new Map((owned.data ?? []).map((row) => [text(row as Row, "id"), (row as Row).owner]));
+      const byId = new Map((owned.data ?? []).map((row) => [text(row as Row, "id"), row as Row]));
+      const numberOf = new Map(clips.map((clip) => [clip.id, clip.clipNo]));
       for (const clip of clips) {
-        const owner = byId.get(clip.id);
+        const row = byId.get(clip.id);
+        const owner = row?.owner;
         if (owner === "promoter" || owner === "artist") clip.owner = owner;
+        const sourceId = text(row, "triple_fit_source_id");
+        if (sourceId) {
+          clip.tripleFitSourceId = sourceId;
+          clip.tripleFitSourceNo = numberOf.get(sourceId) ?? null;
+        }
       }
     } else if (!/owner|does not exist|schema cache/i.test(owned.error.message)) {
       throw new Error(owned.error.message);

@@ -4,7 +4,7 @@
  * lib/plan/__tests__/lab-frames.test.ts keeps the two lists equal.
  */
 
-export const LAB_FRAME_IDS = ["CL1", "CL2", "CL3", "CL4", "CL5", "CL6", "CL7", "CL8", "CL9", "CL10"] as const;
+export const LAB_FRAME_IDS = ["CL1", "CL2", "CL3", "CL4", "CL5", "CL6", "CL7", "CL8", "CL9", "CL10", "CL11"] as const;
 
 export type LabFrameId = (typeof LAB_FRAME_IDS)[number];
 

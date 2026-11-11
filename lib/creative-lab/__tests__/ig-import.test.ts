@@ -73,6 +73,9 @@ describe("instagram import", () => {
     assert.equal(T1V_SCALE.minWindowPx, 675);
     assert.equal(importQualityLine(source), T1V_LINES.tooSmall("9:16", narrowest));
     assert.equal(importQualityLine({ width: 720, height: 1280 }), null);
+    assert.equal(importQualityLine({ width: 1920, height: 1080 }), null);
+    assert.equal(importQualityLine({ width: 956, height: 718 }), null);
+    assert.match(importQualityLine({ width: 640, height: 360 }) ?? "", /Clip too small for 9:16/);
     const clips = [
       { id: "ig", source: "instagram", clipNo: 1 },
       { id: "folder", source: "folder", clipNo: 2 },

@@ -49,7 +49,10 @@ export function emptySelection(): ClipSelection {
 }
 
 export function usableClips<T extends ClipForGroup>(clips: readonly T[]): T[] {
-  return clips.filter((clip) => clipBucket(clip) !== "cant");
+  return clips.filter((clip) => {
+    const bucket = clipBucket(clip);
+    return bucket === "keeping" || bucket === "new";
+  });
 }
 
 /** The clips a generate and a round may use. Can't-run tiles are never in it. */

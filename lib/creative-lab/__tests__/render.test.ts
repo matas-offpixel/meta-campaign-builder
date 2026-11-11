@@ -122,6 +122,19 @@ describe("renderCaptionOnClip", () => {
     assert.equal(fake.tables.creative_lab_clips.length, 1);
   });
 
+  it("does not single-crop a made triple-fit", async () => {
+    let called = false;
+    const fake = seed();
+    fake.tables.creative_lab_clips[0]!.triple_fit_source_id = "source-1";
+    const { deps: d } = deps(async () => {
+      called = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    d.probe = async () => ({ width: 1920, height: 1080, fps: 30, durationInSeconds: 12 });
+    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }), /triple-fit composition pending/);
+    assert.equal(called, false);
+  });
+
   it("rejects aspect 4:5 with kind video before rendering", async () => {
     let called = false;
     const fake = seed({ aspect: "4:5", kind: "video" });

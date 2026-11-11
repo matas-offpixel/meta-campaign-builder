@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
 import { Button } from "@/components/ui/button";
 import { sha256HexOfBlob } from "@/lib/creatives/sha256-stream";
+import { planVideoRowLine } from "@/lib/creative-lab/import-quality";
 import {
   INTAKE_BUCKETS,
   META_CROSS_PUBLISH_NOTE,
@@ -170,6 +171,7 @@ export function MmlCreativeIntake({
     eventName: string;
     empty?: boolean;
     rows: { id: string; pairing: string; narrowPairing: string; roundNo: number; length: string | null; inDrive: boolean; added: boolean }[];
+    holdRows?: { id: string; filename: string; width: number; height: number; bucket: IntakeBucket }[];
   } | null;
 }) {
   const [view, setView] = useState<IntakeView | null>(null);
@@ -200,7 +202,25 @@ export function MmlCreativeIntake({
     void reload();
   }, [persisted, reload, fixture]);
 
-  const assets = fixture ? addedAsNineSixteen(fixture.rows) : (view?.assets ?? []);
+  const assets = fixture?.holdRows?.length
+    ? fixture.holdRows.map((row) => ({
+        id: row.id,
+        filename: row.filename,
+        mediaKind: "video" as const,
+        width: row.width,
+        height: row.height,
+        durationSeconds: 12,
+        detectedBucket: row.bucket,
+        override: null,
+        bucket: row.bucket,
+        reason: null,
+        thumbnailUrl: null,
+        groupId: null,
+        uploadError: null,
+      }))
+    : fixture
+      ? addedAsNineSixteen(fixture.rows)
+      : (view?.assets ?? []);
   const groups = view?.groups ?? [];
   const selectedAssets = selected
     .map((id) => assets.find((asset) => asset.id === id))
@@ -522,6 +542,9 @@ export function MmlCreativeIntake({
                         {formatDuration(asset.durationSeconds) ? ` · ${formatDuration(asset.durationSeconds)}` : ""}
                         {asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ""}
                       </span>
+                      {planVideoRowLine(asset) ? (
+                        <span className={`block text-destructive ${VIZ_TYPE.label}`}>{planVideoRowLine(asset)}</span>
+                      ) : null}
                       {asset.override ? (
                         <span className={`block ${VIZ_TYPE.label}`}>moved by you</span>
                       ) : null}

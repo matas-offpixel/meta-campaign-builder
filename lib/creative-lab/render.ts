@@ -21,6 +21,7 @@ import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profil
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
+import { renderTripleFitClip } from "./triple-fit-render.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
 import { renderAssetId } from "./render-proxy.ts";
@@ -232,6 +233,7 @@ export async function renderCaptionOnClip(
     const serveUrl = lambda ? requireLambdaServeUrl(input.serveUrl) : "";
     const signed = await sign(bucket, String(source.storage_path));
     const meta = await probe(signed);
+    if (String(clip.triple_fit_source_id ?? "").trim()) await renderTripleFitClip();
     if (tooSmallFor916({ width: meta.width, height: meta.height })) throw new Error(TOO_SMALL_FOR_916);
 
     const window = clipWindow({

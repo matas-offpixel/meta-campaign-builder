@@ -11,7 +11,7 @@ import { LabStrip } from "@/components/dashboard/events/creative-lab/strip";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { ownerFootageGap } from "@/lib/creative-lab/footage-owner";
 import { labNextStep } from "@/lib/creative-lab/lineup";
-import { clipSelectionStrip, effectiveSelection, emptySelection } from "@/lib/creative-lab/selection";
+import { clipSelectionStrip, effectiveSelection, emptySelection, usableClips } from "@/lib/creative-lab/selection";
 import { clipBucket, roundStripState } from "@/lib/creative-lab/surface";
 
 async function post(eventId: string, body: Record<string, unknown>): Promise<{ ok: boolean; status: number; json: Record<string, unknown> }> {
@@ -40,13 +40,14 @@ export function labStripProps(lab: CreativeLabCardData, owner: boolean) {
     judgedRound: newest?.status === "judged" ? newest.roundNo : null,
   });
   const cant = lab.clips.filter((clip) => clipBucket(clip) === "cant").length;
+  const runnable = usableClips(lab.clips).length;
   const selection = lab.clipSelection ?? emptySelection();
-  const clipLines = clipSelectionStrip(selection.mode, effectiveSelection(selection, lab.clips).length, cant, lab.clips.length - cant);
+  const clipLines = clipSelectionStrip(selection.mode, effectiveSelection(selection, lab.clips).length, cant, runnable);
   const roundLines = roundStripState(newest?.status);
   return {
     eventId: lab.eventId,
     lineup: lab.lineupRows.length,
-    clips: lab.clips.length - cant,
+    clips: runnable,
     captions: lab.captions.length,
     round: newest?.roundNo ?? null,
     next,
