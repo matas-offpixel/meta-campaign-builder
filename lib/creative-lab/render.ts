@@ -20,6 +20,7 @@ import { captionLimits, outputSize, profile, styleVersion, type CaptionAspect, t
 import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
+import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
 import { renderAssetId } from "./render-proxy.ts";
@@ -231,6 +232,7 @@ export async function renderCaptionOnClip(
     const serveUrl = lambda ? requireLambdaServeUrl(input.serveUrl) : "";
     const signed = await sign(bucket, String(source.storage_path));
     const meta = await probe(signed);
+    if (tooSmallFor916({ width: meta.width, height: meta.height })) throw new Error(TOO_SMALL_FOR_916);
 
     const window = clipWindow({
       fileSeconds: meta.durationInSeconds,
@@ -349,6 +351,7 @@ export async function renderTimingSample(
   const probe = input.deps?.probe ?? probeClip;
   const signed = await sign(input.bucket, input.storagePath);
   const meta = await probe(signed);
+  if (tooSmallFor916({ width: meta.width, height: meta.height })) throw new Error(TOO_SMALL_FOR_916);
   const loaded = loadLabRender({ aspect: input.aspect, kind: "video" });
   if (loaded.kind !== "video") throw new Error("video renders are 9:16 only");
   const size = outputSize(meta.width, meta.height, loaded.aspect);

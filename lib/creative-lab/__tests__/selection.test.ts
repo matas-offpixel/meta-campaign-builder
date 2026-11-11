@@ -128,6 +128,8 @@ describe("clip selection", () => {
     assert.equal(CLIPS_NOTE, "Selected clips become ads when a round pairs them with an approved caption");
     assert.equal(captionsNote(1), "✓ a caption, then Propose round 1 renders it on the selected clips");
     assert.equal(clipSelectionStrip("chosen", 4, 1, 9).line, "4 selected");
+    assert.equal(clipSelectionStrip("all", 0, 1, 0).line, "1 blocked");
+    assert.equal(clipSelectionStrip("all", 0, 0, 0).line, "none yet");
   });
 
   it("wires the artist picker and the off-card sentence into the generator", () => {

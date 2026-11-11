@@ -4,7 +4,8 @@
  * usable clip, including one imported later.
  */
 
-import { clipBucket, CLIP_TRIM_SECONDS, type ClipForGroup } from "./surface.ts";
+import { TOO_SMALL_FOR_916 } from "./import-quality.ts";
+import { cantRunReason, clipBucket, CLIP_TRIM_SECONDS, type ClipForGroup } from "./surface.ts";
 
 export type SelectionMode = "all" | "chosen";
 
@@ -104,7 +105,11 @@ export function leftSelectionNote(selection: ClipSelection, clips: readonly (Cli
   if (selection.mode !== "chosen") return null;
   const left = clips.find((clip) => clipBucket(clip) === "cant" && selection.rows.some((row) => row.clipId === clip.id && row.selected));
   if (!left) return null;
-  const why = (left.durationSeconds ?? 0) > CLIP_TRIM_SECONDS ? "too long" : "can't run";
+  const why = (left.durationSeconds ?? 0) > CLIP_TRIM_SECONDS
+    ? "too long"
+    : cantRunReason(left) === TOO_SMALL_FOR_916
+      ? "too small for 9:16"
+      : "can't run";
   return `${left.artistName} #${left.clipNo} left the selection — ${why}`;
 }
 
@@ -159,7 +164,11 @@ export function previewPlate(
 
 /** The Clips cell keeps the usable count. The state line names a choice only after one is made. */
 export function clipSelectionStrip(mode: SelectionMode, selected: number, blocked: number, total: number): { line: string; short: string } {
-  if (total <= 0) return { line: "none yet", short: "none" };
+  if (total <= 0 && blocked <= 0) return { line: "none yet", short: "none" };
+  if (total <= 0) {
+    const line = `${blocked} blocked`;
+    return { line, short: line };
+  }
   if (mode === "chosen") {
     const line = `${selected} selected`;
     return { line, short: line };

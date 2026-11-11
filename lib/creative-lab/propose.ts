@@ -15,6 +15,8 @@ import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
 import { captionAllowsClip } from "./footage-owner.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
+import { clipIdsTooSmallFor916, sizesForClipFiles } from "./clip-preview.ts";
+import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
 import { noSelectedClipsSentence, selectedIdSet } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
 import { assertArtistCleared, buildAdName, createRound, type LabArtist } from "./rounds.ts";
@@ -214,6 +216,45 @@ function targetFromRound(row: Row): RoundTarget {
 type Clip = Row & { seconds: number | null };
 type Caption = Row;
 
+function rowSize(clip: Row): { width: number; height: number } | null {
+  const width = Number(clip.source_width ?? clip.sourceWidth);
+  const height = Number(clip.source_height ?? clip.sourceHeight);
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
+/** Drop a clip whose 9:16 window is under 675 px. The row is kept; it just isn't in the round. */
+async function clipsForRound(clips: Clip[], assets: Map<string, Row>, skipped: { reason: string }[]): Promise<Clip[]> {
+  const sizes = new Map<string, { width: number; height: number }>();
+  const pending: { id: string; storagePath: string | null }[] = [];
+  for (const clip of clips) {
+    const known = rowSize(clip);
+    if (known) {
+      sizes.set(String(clip.id), known);
+      continue;
+    }
+    const asset = assets.get(String(clip.creative_asset_id ?? ""));
+    const storagePath = asset ? String(asset.storage_path ?? "") : "";
+    if (storagePath) pending.push({ id: String(clip.id), storagePath });
+  }
+  if (pending.length > 0) {
+    const measured = await sizesForClipFiles(pending).catch((err: unknown) => {
+      console.error("[propose] clip size probe failed:", err instanceof Error ? err.message : err);
+      return new Map<string, { width: number; height: number }>();
+    });
+    for (const [id, size] of measured) sizes.set(id, size);
+  }
+  const kept: Clip[] = [];
+  for (const clip of clips) {
+    const size = sizes.get(String(clip.id));
+    if (size && tooSmallFor916(size)) {
+      skipped.push({ reason: TOO_SMALL_FOR_916 });
+      continue;
+    }
+    kept.push(clip);
+  }
+  return kept;
+}
+
 function usable(clips: Clip[], skipped: { reason: string }[]): Clip[] {
   const ok: Clip[] = [];
   for (const clip of clips) {
@@ -300,9 +341,14 @@ export async function proposeRound(
   const usableClips = usable(clips, skipped);
   const selection = await loadClipSelection(db, args.eventId);
   const selectedIds = selectedIdSet(selection, usableClips.map((clip) => String(clip.id)));
-  const shortClips = usableClips.filter((clip) => selectedIds.has(String(clip.id)));
+  const shortClips = await clipsForRound(
+    usableClips.filter((clip) => selectedIds.has(String(clip.id))),
+    assets,
+    skipped,
+  );
   const featureRows = await list(db, "creative_lab_clip_features", "artist_id", args.artistId);
   const featureIds = featureRows.map((row) => String(row.clip_id ?? "")).filter(Boolean);
+  const featuredClips: Clip[] = [];
   if (featureIds.length > 0) {
     const extra = await db.from("creative_lab_clips").select("*").in("id", featureIds);
     if (!extra.error) {
@@ -311,10 +357,11 @@ export async function proposeRound(
         if (shortClips.some((clip) => clip.id === row.id)) continue;
         const ticked = selection.mode === "all" || selection.rows.some((item) => item.clipId === String(row.id) && item.selected);
         if (!ticked) continue;
-        shortClips.push({ ...row, seconds: clipSeconds(row, assets.get(String(row.creative_asset_id))) } as Clip);
+        featuredClips.push({ ...row, seconds: clipSeconds(row, assets.get(String(row.creative_asset_id))) } as Clip);
       }
     }
   }
+  shortClips.push(...(await clipsForRound(featuredClips, assets, skipped)));
 
   const rounds = (await list(db, "creative_lab_rounds", "event_id", args.eventId))
     .filter((row) => row.artist_id === args.artistId)
@@ -669,6 +716,23 @@ export async function retryRender(db: ServiceRoleDb, args: { renderId: string; u
     throw new RenderRetryError(409, renderRefusalSentence(error) ?? "This render can't be tried again — propose the round again.");
   }
   if (render.aspect !== "9:16") throw new RenderRetryError(409, "This render is an old size — propose the round again.");
+  const clip = await db.from("creative_lab_clips").select("id, creative_asset_id").eq("id", String(render.clip_id)).maybeSingle();
+  if (clip.error) throw new Error(`creative_lab_clips: ${clip.error.message}`);
+  if (clip.data) {
+    const row = clip.data as Row;
+    const assetId = String(row.creative_asset_id ?? "");
+    const asset = assetId
+      ? await db.from("creative_assets").select("storage_path").eq("id", assetId).maybeSingle()
+      : { data: null, error: null };
+    if (asset.error) throw new Error(`creative_assets: ${asset.error.message}`);
+    const small = await clipIdsTooSmallFor916([{
+      id: String(row.id),
+      storagePath: String(asset.data?.storage_path ?? "") || null,
+      width: Number(row.source_width) || null,
+      height: Number(row.source_height) || null,
+    }]);
+    if (small.has(String(row.id))) throw new RenderRetryError(409, TOO_SMALL_FOR_916);
+  }
 
   const ads = (await list(db, "creative_lab_round_ads", "render_id", args.renderId)).filter((ad) => ad.user_id === args.userId);
   const roundIds = [...new Set(ads.map((ad) => String(ad.round_id)))];

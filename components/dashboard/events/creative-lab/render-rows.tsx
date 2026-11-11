@@ -7,7 +7,7 @@ import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/capti
 import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { DriveFailed, InDriveMark } from "@/components/dashboard/events/drive/ui";
-import { renderFailureLine, renderRowFraction, renderRowWord, visibleRenderRows, durationLabel } from "@/lib/creative-lab/surface";
+import { failedRenderSentence, renderFailureLine, renderRowFraction, renderRowWord, visibleRenderRows, durationLabel } from "@/lib/creative-lab/surface";
 
 type Render = CreativeLabCardData["renders"][number] & {
   durationSeconds?: number | null;
@@ -22,7 +22,8 @@ type Render = CreativeLabCardData["renders"][number] & {
  * When a fresh try can fix it and its round is still being built, "try it
  * again" is the link: it re-queues that one render.
  */
-export function RenderRows({ rows, now }: { rows: readonly Render[]; now: string }) {
+export function RenderRows({ rows, now, clips = [] }: { rows: readonly Render[]; now: string; clips?: readonly { id: string; sourceWidth?: number | null; sourceHeight?: number | null }[] }) {
+  const clipOf = new Map(clips.map((clip) => [clip.id, clip]));
   const router = useRouter();
   const [retrying, setRetrying] = useState<string | null>(null);
   const [refused, setRefused] = useState<Record<string, string>>({});
@@ -108,7 +109,7 @@ export function RenderRows({ rows, now }: { rows: readonly Render[]; now: string
                     <>
                       {failed ? (
                         <FailureLine
-                          sentence={refused[row.id] ?? label}
+                          sentence={refused[row.id] ?? failedRenderSentence(row.error, clipOf.get(row.clipId))}
                           roundOpen={row.roundOpen && !refused[row.id]}
                           busy={retrying === row.id}
                           onRetry={() => void retry(row.id)}
