@@ -538,3 +538,21 @@ describe("issue 12 · H87 two spaces (O88), O89 no lineup shadow", () => {
     assert.doesNotMatch(src, /KIT_SHADOW|textOverlay|shadow\s*:|blur\(|stroke/i);
   });
 });
+
+describe("O82 on the still, per format: a face only the 1:1's type touches refuses the 1:1 alone (Bootzy, when it's installed here)", () => {
+  it("the 9:16 and 4:5 pass; the 1:1 is drawn as a flagged preview with the line", async (t) => {
+    const r0 = resolveFont("BootzyCondensedTM-Regular", indexFonts(fontsDir()));
+    if (r0.status !== "found") return t.skip("Bootzy isn't installed on this machine");
+    const sharp = (await import("sharp")).default;
+    const { renderPhotoStill } = await import("../t2-photo-render.ts");
+    const photo = await sharp({ create: { width: 1200, height: 2133, channels: 3, background: { r: 90, g: 90, b: 90 } } }).png().toBuffer();
+    const logoPng = await sharp({ create: { width: 400, height: 180, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer();
+    // Master px (k = 0.9): x 220–330, y 1320–1430 — clear of the 9:16's type, on the 1:1's re-sat details.
+    const face = { left: 220 / 0.9, top: 1320 / 0.9, width: 110 / 0.9, height: 110 / 0.9 };
+    const r = await renderPhotoStill({ photo, slots: PUZZLE, face: r0.entry, logoPng, stamp: null, faces: [face], cropFocusY: [0.5] });
+    assert.equal(r.held, null);
+    assert.deepEqual(Object.keys(r.report.refused), ["1:1"]);
+    assert.equal(r.report.refused["1:1"], "Face in the type — choose another crop or photo");
+    for (const f of ["9:16", "4:5", "1:1"] as const) assert.ok(r.images[f]);
+  });
+});
