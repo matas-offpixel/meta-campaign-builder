@@ -26,11 +26,27 @@
  * error leaves it where it was, so the page is read again (the import and
  * the audit rows dedupe). A file the import reports as failed is not retried
  * unless it changes again.
+ *
+ * A run that is killed (out of memory, out of time) throws nothing and saves
+ * nothing, so on its own the next run would read the same page and die on
+ * the same file every 15 minutes (11 Nov 2026: B3B12.mp4 and SWEELY 1.mp4).
+ * Drive's page tokens can't mark a place inside a page, so before each clip
+ * import the run writes that file's id on the cursor row (migration 230,
+ * inflight_file_id / inflight_attempts) and clears it after. A run that
+ * finds the marker still set knows the last run died on that file. After
+ * PICKUP_MAX_ATTEMPTS deaths the file is recorded as failed and skipped, and
+ * the page can finish. Moving the file again puts it back in the feed and
+ * clears the count. Until migration 230 is applied the marker can't be
+ * written and the run works as before.
+ *
+ * Clips are streamed from Drive to the function's temp disk (DriveApi
+ * downloadTo), never read into memory whole.
  */
 
 import { isArchivedClientStatus } from "../db/client-status.ts";
-import { importArtistClips, type ClipImportResult } from "../creative-lab/clip-intake.ts";
+import { importArtistClips, type ClipFolderListing, type ClipImportResult } from "../creative-lab/clip-intake.ts";
 import { labArtistForLibrary } from "../creative-lab/lineup.ts";
+import type { ContentIdentity } from "../creatives/asset-registry.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
 import { APP_TAG_KEY, FOLDER_MIME, SHORTCUT_MIME, type DriveApi, type DriveChange, type DriveFile } from "./client.ts";
 import { allRows, rowById, rowsWhere, type DriveDb, type RowOf } from "./db.ts";
@@ -40,6 +56,9 @@ import { ARTIST_CLIPS_KEY, BRAND_KIT_KEY, isCancelled } from "./tree.ts";
 /** Folder depth walked up from a file to find a folder the map knows. */
 const MAX_DEPTH = 6;
 export const PICKUP_MAX_PAGES = 20;
+/** Runs a file may kill before the pickup records it as failed and moves past it. */
+export const PICKUP_MAX_ATTEMPTS = 2;
+export const KILLED_RUN_LINE = `Stopped the import ${PICKUP_MAX_ATTEMPTS} times without finishing (out of memory or time), so it was skipped — move it out of the folder and back to try again`;
 
 export type PickupSkip = "removed" | "trashed" | "folder" | "shortcut" | "ours" | "elsewhere" | "archived_client" | "cancelled";
 
@@ -69,6 +88,8 @@ export type ImportClip = (args: {
   eventId: string;
   file: DriveFile;
   download: () => Promise<Uint8Array>;
+  /** Streams the file to disk (DriveApi downloadTo). When given, the import never holds the file in memory. */
+  downloadTo?: (filePath: string) => Promise<ContentIdentity>;
 }) => Promise<ClipImportResult>;
 
 type MapRow = RowOf<"drive_folders">;
@@ -80,19 +101,50 @@ type Located =
   | { kind: "venue"; row: MapRow }
   | { kind: "elsewhere" };
 
+/** A one-file listing of a Drive file: streamed to disk when `downloadTo` is given. */
+export function oneFileListing(file: DriveFile, download: () => Promise<Uint8Array>, downloadTo?: (filePath: string) => Promise<ContentIdentity>): ClipFolderListing {
+  return {
+    list: async () => [{ sourceFileId: file.id, name: file.name, size: file.size ?? 0 }],
+    download: async () => Buffer.from(await download()),
+    ...(downloadTo ? { downloadToFile: async (_url: string, _file: unknown, filePath: string) => downloadTo(filePath) } : {}),
+  };
+}
+
+type ImportDeps = Pick<Parameters<typeof importArtistClips>[1], "upload" | "probe" | "now" | "uploadFile" | "probeFile" | "renderProxyFile" | "maxStoredBytes">;
+
 /** The default import: the existing folder import over a one-file listing of this Drive file. */
-export function folderImport(db: ServiceRoleDb, deps: Pick<Parameters<typeof importArtistClips>[1], "upload" | "probe" | "now"> = {}): ImportClip {
-  return ({ labArtistId, eventId, file, download }) =>
+export function folderImport(db: ServiceRoleDb, deps: ImportDeps = {}): ImportClip {
+  return ({ labArtistId, eventId, file, download, downloadTo }) =>
     importArtistClips(db, {
       ...deps,
       artistId: labArtistId,
       eventId,
       maxNew: 1,
       folderUrl: `drive-export:${file.id}`,
-      listing: {
-        list: async () => [{ sourceFileId: file.id, name: file.name, size: file.size ?? 0 }],
-        download: async () => Buffer.from(await download()),
-      },
+      listing: oneFileListing(file, download, downloadTo),
+      // Migration 228: an original over the storage cap stays in Drive; only its 1080 render copy is stored.
+      driveMaster: () => file.id,
+    });
+}
+
+/** The import for a Venue & crowd file: the folder import as the event's promoter clip. */
+export type ImportVenueClip = (args: {
+  event: RowOf<"events">;
+  file: DriveFile;
+  download: () => Promise<Uint8Array>;
+  downloadTo?: (filePath: string) => Promise<ContentIdentity>;
+}) => Promise<ClipImportResult>;
+
+export function venueImport(db: ServiceRoleDb, deps: ImportDeps = {}): ImportVenueClip {
+  return ({ event, file, download, downloadTo }) =>
+    importArtistClips(db, {
+      ...deps,
+      asPromoter: { userId: event.user_id, rightsRef: "Venue & crowd" },
+      eventId: event.id,
+      maxNew: 1,
+      source: "file",
+      folderUrl: `drive-export:${file.id}`,
+      listing: oneFileListing(file, download, downloadTo),
       // Migration 228: an original over the storage cap stays in Drive; only its 1080 render copy is stored.
       driveMaster: () => file.id,
     });
@@ -109,6 +161,48 @@ async function writeCursor(db: DriveDb, driveId: string, pageToken: string, now:
     .from("drive_change_cursors")
     .upsert({ drive_id: driveId, page_token: pageToken, updated_at: now.toISOString() }, { onConflict: "drive_id" });
   if (res.error) throw new Error(`drive_change_cursors upsert: ${res.error.message}`);
+}
+
+type Inflight = { fileId: string; attempts: number };
+
+/**
+ * The cursor row's in-flight columns (migration 230). Not in the generated
+ * types yet, so read and written untyped. Any error (the migration not
+ * applied, most likely) turns the marker off for this run: the run then
+ * works as it did before.
+ */
+type InflightTable = {
+  select(columns: string): { eq(column: string, value: string): { maybeSingle(): PromiseLike<{ data: unknown; error: { message: string } | null }> } };
+  update(patch: Record<string, unknown>): { eq(column: string, value: string): PromiseLike<{ error: { message: string } | null }> };
+};
+
+function inflightTable(db: DriveDb): InflightTable {
+  return db.from("drive_change_cursors") as unknown as InflightTable;
+}
+
+async function readInflight(db: DriveDb, driveId: string): Promise<{ on: boolean; inflight: Inflight | null }> {
+  const res = await inflightTable(db).select("inflight_file_id, inflight_attempts").eq("drive_id", driveId).maybeSingle();
+  if (res.error) {
+    console.warn(JSON.stringify({ step: "drive_pickup_inflight", off: true, error: res.error.message.slice(0, 160) }));
+    return { on: false, inflight: null };
+  }
+  const row = (res.data ?? {}) as { inflight_file_id?: string | null; inflight_attempts?: number | null };
+  return { on: true, inflight: row.inflight_file_id ? { fileId: row.inflight_file_id, attempts: Number(row.inflight_attempts) || 0 } : null };
+}
+
+async function writeInflight(db: DriveDb, driveId: string, inflight: Inflight | null, now: Date): Promise<boolean> {
+  const res = await inflightTable(db)
+    .update({
+      inflight_file_id: inflight?.fileId ?? null,
+      inflight_attempts: inflight?.attempts ?? 0,
+      inflight_started_at: inflight ? now.toISOString() : null,
+    })
+    .eq("drive_id", driveId);
+  if (res.error) {
+    console.warn(JSON.stringify({ step: "drive_pickup_inflight", off: true, error: res.error.message.slice(0, 160) }));
+    return false;
+  }
+  return true;
 }
 
 export function skipReason(change: DriveChange): PickupSkip | null {
@@ -144,7 +238,7 @@ async function locate(file: DriveFile, index: ReadonlyMap<string, MapRow>, getFi
 export async function runDrivePickup(
   db: DriveDb,
   drive: DriveApi,
-  opts: { now?: Date; maxPages?: number; importClip?: ImportClip } = {},
+  opts: { now?: Date; maxPages?: number; importClip?: ImportClip; importVenueClip?: ImportVenueClip } = {},
 ): Promise<PickupResult> {
   const now = opts.now ?? new Date();
   const result: PickupResult = { ok: true, firstRun: false, pages: 0, changes: 0, clips: [], kitFiles: 0, misses: [], skipped: {}, errors: [] };
@@ -180,7 +274,38 @@ export async function runDrivePickup(
     result.skipped[reason] = (result.skipped[reason] ?? 0) + 1;
   };
   const importClip = opts.importClip ?? folderImport(db as unknown as ServiceRoleDb);
+  const importVenueClip = opts.importVenueClip ?? venueImport(db as unknown as ServiceRoleDb);
   const maxPages = opts.maxPages ?? PICKUP_MAX_PAGES;
+  const marker = await readInflight(db, drive.driveId);
+  let inflight = marker.inflight;
+  const downloadOf = (file: DriveFile) => ({
+    download: () => drive.download(file.id),
+    ...(drive.downloadTo ? { downloadTo: (filePath: string) => drive.downloadTo!(file.id, filePath) } : {}),
+  });
+
+  /**
+   * Runs one clip import with the file's id on the cursor row, or, when the
+   * last PICKUP_MAX_ATTEMPTS runs died on this file, records it as failed
+   * and moves on. Returns null when the file was skipped.
+   */
+  async function guarded(file: DriveFile, eventId: string, artist: string, run: () => Promise<ClipImportResult>): Promise<ClipImportResult | null> {
+    if (!marker.on) return run();
+    const again = inflight?.fileId === file.id ? inflight.attempts : 0;
+    if (again >= PICKUP_MAX_ATTEMPTS) {
+      console.warn(JSON.stringify({ step: "drive_pickup_killed_file", eventId, name: file.name, attempts: again }));
+      result.clips.push({ fileId: file.id, name: file.name, eventId, artist, outcome: "failed", reason: KILLED_RUN_LINE });
+      if (await writeInflight(db, drive.driveId, null, now)) inflight = null;
+      return null;
+    }
+    const next = { fileId: file.id, attempts: again + 1 };
+    if (await writeInflight(db, drive.driveId, next, now)) inflight = next;
+    // Cleared whether the import returns or throws: only a killed run leaves it set.
+    try {
+      return await run();
+    } finally {
+      if (await writeInflight(db, drive.driveId, null, now)) inflight = null;
+    }
+  }
 
   let token = stored;
   try {
@@ -206,6 +331,8 @@ export async function runDrivePickup(
   } catch (err) {
     result.errors.push((err instanceof Error ? err.message : String(err)).replace(/https?:\/\/\S+/g, "").slice(0, 300));
   }
+  // A marker left by a run that died on a file this run didn't meet again (moved away since): this run lived, so clear it.
+  if (marker.on && inflight) await writeInflight(db, drive.driveId, null, now);
   // Moves only past pages that finished: a page that threw is read again next run.
   if (token !== stored) await writeCursor(db, drive.driveId, token, now);
   return result;
@@ -238,19 +365,8 @@ export async function runDrivePickup(
 
     if (!event) return skip("elsewhere");
     if (where.kind === "venue") {
-      const imported = await importArtistClips(db as unknown as ServiceRoleDb, {
-        asPromoter: { userId: event.user_id, rightsRef: "Venue & crowd" },
-        eventId: event.id,
-        maxNew: 1,
-        source: "file",
-        folderUrl: `drive-export:${file.id}`,
-        listing: {
-          list: async () => [{ sourceFileId: file.id, name: file.name, size: file.size ?? 0 }],
-          download: async () => Buffer.from(await drive.download(file.id)),
-        },
-        // Migration 228: an original over the storage cap stays in Drive; only its 1080 render copy is stored.
-        driveMaster: () => file.id,
-      });
+      const imported = await guarded(file, event.id, "promoter", () => importVenueClip({ event, file, ...downloadOf(file) }));
+      if (!imported) return;
       for (const row of imported.files) {
         result.clips.push({ fileId: file.id, name: row.name, eventId: event.id, artist: "promoter", outcome: row.outcome, reason: row.reason });
       }
@@ -277,7 +393,8 @@ export async function runDrivePickup(
     }
     if (!artist) return skip("elsewhere");
     const labArtistId = await labArtistFor(db, event, client, artist);
-    const imported = await importClip({ labArtistId, eventId: event.id, file, download: () => drive.download(file.id) });
+    const imported = await guarded(file, event.id, artist.name, () => importClip({ labArtistId, eventId: event.id, file, ...downloadOf(file) }));
+    if (!imported) return;
     for (const row of imported.files) {
       result.clips.push({ fileId: file.id, name: row.name, eventId: event.id, artist: artist.name, outcome: row.outcome, reason: row.reason });
     }

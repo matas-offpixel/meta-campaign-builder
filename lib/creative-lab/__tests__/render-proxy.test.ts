@@ -8,8 +8,9 @@ import { describe, it } from "node:test";
 
 import { importArtistClips, type ClipFolderFile, type ImportedClip } from "../clip-intake.ts";
 import type { ServiceRoleDb } from "../load.ts";
-import { probeMp4Bytes } from "../mp4-probe.ts";
+import { probeMp4Bytes, probeMp4File } from "../mp4-probe.ts";
 import {
+  makeColumnProxyFile,
   attachRenderProxy,
   ffmpegProxyArgs,
   makeRenderProxy,
@@ -267,6 +268,31 @@ describe("makeRenderProxy with ffmpeg-static", { skip: ffmpegPath ? false : "no 
       const probed = probeMp4Bytes(proxy);
       assert.equal(probed.width, 1080);
       assert.equal(probed.height, 1920);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("makeColumnProxyFile with ffmpeg-static (the Drive pickup's file-to-file copy)", { skip: ffmpegPath ? false : "no ffmpeg-static binary" }, () => {
+  it("a landscape 4K file becomes a 1080 × 1920 file, and probeMp4File reads both from disk (moov after mdat in the source)", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "column-file-test-"));
+    try {
+      const input = path.join(dir, "4k.mp4");
+      execFileSync(ffmpegPath!, [
+        "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "testsrc2=size=3840x2160:rate=10:duration=0.5",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=0.5",
+        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+        input,
+      ]);
+      const source = await probeMp4File(input);
+      assert.deepEqual([source.width, source.height], [3840, 2160]);
+      const output = path.join(dir, "column.mp4");
+      await makeColumnProxyFile(input, output, { width: 1080, height: 1920 });
+      const column = await probeMp4File(output);
+      assert.deepEqual([column.width, column.height], [1080, 1920]);
+      assert.deepEqual(probeMp4Bytes(readFileSync(output)), column);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -18,13 +18,14 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { snapRatio } from "../clients/asset-queue/aspect-detect.ts";
 import { fingerprintBytes, upsertRegisteredAsset } from "../creatives/asset-registry.ts";
+import { fingerprintFile } from "../creatives/stream-file.ts";
 import type { ServiceRoleDb } from "./load.ts";
 
 type Row = Record<string, unknown>;
@@ -124,11 +125,134 @@ async function runFfmpeg(bytes: Buffer, args: (input: string, output: string) =>
   }
 }
 
+/**
+ * The file-to-file maker: reads the original at `input`, writes the copy to
+ * `output`. Neither is held in memory, so a 400–450 MB 4K original costs
+ * disk, not the function's memory (11 Nov 2026: two Rossi-show originals
+ * read into Buffers killed the Drive pickup).
+ */
+export type FileProxyMaker = (input: string, output: string, size: ProxySize) => Promise<void>;
+
+/** A copy over the cap it may be stored under. Thrown before anything is uploaded. */
+export class ProxyOverLimit extends Error {
+  readonly bytes: number;
+  constructor(bytes: number) {
+    super("render copy over the storage cap");
+    this.name = "ProxyOverLimit";
+    this.bytes = bytes;
+  }
+}
+
+async function execFfmpeg(args: string[]): Promise<void> {
+  const ffmpeg = await ffmpegStaticPath();
+  await promisify(execFile)(ffmpeg, args, { maxBuffer: 4 * 1024 * 1024 });
+}
+
+/** ffmpeg file to file, at the proxy size. */
+export const makeRenderProxyFile: FileProxyMaker = (input, output, size) => execFfmpeg(ffmpegProxyArgs(input, output, size));
+
+/** ffmpeg file to file, the 9:16 column (COLUMN_SIZE); the size argument is ignored. */
+export const makeColumnProxyFile: FileProxyMaker = (input, output) => execFfmpeg(ffmpegColumnArgs(input, output));
+
 /** Writes the original to a temp folder, runs ffmpeg, reads the proxy back, and removes the folder. */
 export const makeRenderProxy: RenderProxyMaker = async (bytes, size) => runFfmpeg(bytes, (input, output) => ffmpegProxyArgs(input, output, size));
 
 /** The column copy (COLUMN_SIZE); the size argument is ignored. */
 export const makeColumnProxy: RenderProxyMaker = async (bytes) => runFfmpeg(bytes, ffmpegColumnArgs);
+
+export type FileUpload = (storagePath: string, filePath: string, contentType: string) => Promise<void>;
+
+/** The original on disk, with the fingerprint taken while it was written. */
+export type OriginalFile = { path: string; contentHash: string };
+
+/**
+ * storeRenderProxy for an original on disk: ffmpeg writes the copy to a temp
+ * folder beside nothing else, its size is read with stat and its hash by
+ * streaming, and it is uploaded from the file. `maxBytes` refuses a copy
+ * over the cap (ProxyOverLimit) before the upload. The temp folder is
+ * removed whatever happens.
+ */
+export async function storeRenderProxyFile(
+  db: ServiceRoleDb,
+  args: {
+    userId: string;
+    artistId: string;
+    name: string;
+    original: OriginalFile;
+    size: ProxySize;
+    durationSeconds: number | null;
+    make?: FileProxyMaker;
+    maxBytes?: number;
+    uploadFile: FileUpload;
+  },
+): Promise<{ assetId: string; storagePath: string; size: ProxySize }> {
+  const make = args.make ?? makeRenderProxyFile;
+  const dir = await mkdtemp(path.join(tmpdir(), "lab-proxy-"));
+  try {
+    const output = path.join(dir, "proxy.mp4");
+    await make(args.original.path, output, args.size);
+    const { size: bytes } = await stat(output);
+    if (args.maxBytes != null && bytes > args.maxBytes) throw new ProxyOverLimit(bytes);
+    const identity = await fingerprintFile(output);
+    const storagePath = proxyStoragePath(args.artistId, args.original.contentHash);
+    await args.uploadFile(storagePath, output, "video/mp4");
+    const base = args.name.replace(/\.[^.]+$/, "");
+    const registered = await upsertRegisteredAsset(db, {
+      userId: args.userId,
+      identity,
+      filename: `${base} (1080 proxy).mp4`,
+      mediaKind: "video",
+      aspectRatio: snapRatio(args.size.width, args.size.height),
+      durationSeconds: args.durationSeconds,
+      storageBucket: BUCKET,
+      storagePath,
+    });
+    if (!registered.ok) throw new Error(registered.error);
+    return { assetId: registered.asset.id, storagePath, size: args.size };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** attachRenderProxy for an original on disk (storeRenderProxyFile, then the link). */
+export async function attachRenderProxyFile(
+  db: ServiceRoleDb,
+  args: {
+    clipId: string;
+    userId: string;
+    artistId: string;
+    name: string;
+    original: OriginalFile;
+    width: number;
+    height: number;
+    durationSeconds: number | null;
+    make?: FileProxyMaker;
+    uploadFile: FileUpload;
+  },
+): Promise<AttachedProxy | null> {
+  const size = renderProxySize(args.width, args.height);
+  if (!size) return null;
+  const existing = await linkedProxy(db, args.clipId, size);
+  if (existing) return existing;
+  const stored = await storeRenderProxyFile(db, { ...args, size });
+  await linkProxy(db, args.clipId, stored.assetId);
+  return { ...stored, created: true };
+}
+
+async function linkedProxy(db: ServiceRoleDb, clipId: string, size: ProxySize): Promise<AttachedProxy | null> {
+  const clip = await db.from("creative_lab_clips").select("id, render_asset_id").eq("id", clipId).maybeSingle();
+  if (clip.error) throw new Error(clip.error.message);
+  const linked = (clip.data as Row | null)?.render_asset_id;
+  if (!(typeof linked === "string" && linked)) return null;
+  const asset = await db.from("creative_assets").select("storage_path").eq("id", linked).maybeSingle();
+  if (asset.error) throw new Error(asset.error.message);
+  return { assetId: linked, storagePath: String((asset.data as Row | null)?.storage_path ?? ""), size, created: false };
+}
+
+async function linkProxy(db: ServiceRoleDb, clipId: string, assetId: string): Promise<void> {
+  const updated = await db.from("creative_lab_clips").update({ render_asset_id: assetId }).eq("id", clipId);
+  if (updated.error) throw new Error(updated.error.message);
+}
 
 export type AttachedProxy = { assetId: string; storagePath: string; size: ProxySize; created: boolean };
 
@@ -155,18 +279,11 @@ export async function attachRenderProxy(
   const size = renderProxySize(args.width, args.height);
   if (!size) return null;
 
-  const clip = await db.from("creative_lab_clips").select("id, render_asset_id").eq("id", args.clipId).maybeSingle();
-  if (clip.error) throw new Error(clip.error.message);
-  const linked = (clip.data as Row | null)?.render_asset_id;
-  if (typeof linked === "string" && linked) {
-    const asset = await db.from("creative_assets").select("storage_path").eq("id", linked).maybeSingle();
-    if (asset.error) throw new Error(asset.error.message);
-    return { assetId: linked, storagePath: String((asset.data as Row | null)?.storage_path ?? ""), size, created: false };
-  }
+  const existing = await linkedProxy(db, args.clipId, size);
+  if (existing) return existing;
 
   const stored = await storeRenderProxy(db, { ...args, size });
-  const updated = await db.from("creative_lab_clips").update({ render_asset_id: stored.assetId }).eq("id", args.clipId);
-  if (updated.error) throw new Error(updated.error.message);
+  await linkProxy(db, args.clipId, stored.assetId);
   return { ...stored, created: true };
 }
 

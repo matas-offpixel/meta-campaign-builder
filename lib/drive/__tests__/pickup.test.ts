@@ -6,7 +6,7 @@ import { APP_ID_KEY, APP_TAG_KEY, DriveApiError, FOLDER_MIME } from "../client.t
 import type { DriveDb, RowOf, TableName } from "../db.ts";
 import { artistClipsKey, ensureArtistFolders, ensureEventTree } from "../folders.ts";
 import { loadLineupArtists } from "../lineup.ts";
-import { folderImport, runDrivePickup, type ImportClip } from "../pickup.ts";
+import { KILLED_RUN_LINE, PICKUP_MAX_ATTEMPTS, folderImport, runDrivePickup, venueImport, type ImportClip } from "../pickup.ts";
 import { DRIVE_REFUSED, NO_FOLDER, shareEventFolder, stopSharingEventFolder } from "../share.ts";
 import { runDriveTick } from "../tick.ts";
 import { fortnightlyFrom } from "../tree.ts";
@@ -296,9 +296,10 @@ describe("the real folder import from a Drive pickup", () => {
     const enzo = folderId(drive, `${EVENT} / 02 Source / Artist clips / Enzo Siragusa`);
     const bytes = new Uint8Array([1, 2, 3, 4]);
     const first = drive.drop(enzo, "boiler-room.mp4", { bytes });
+    // The pickup streams to disk (file mode), so the fakes are the file-mode ones.
     const importClip = folderImport(db as never, {
-      upload: async () => undefined,
-      probe: () => ({ width: 1080, height: 1920, durationInSeconds: 42 }),
+      uploadFile: async () => undefined,
+      probeFile: async () => ({ width: 1080, height: 1920, durationInSeconds: 42 }),
       now: NOW,
     });
     await runDrivePickup(db, drive, { now: NOW, importClip });
@@ -371,5 +372,153 @@ describe("share with promoter (HS17)", () => {
     assert.equal(drive.permissions.size, 0);
     assert.ok(!drive.calls.some((call) => call.startsWith("share")));
     assert.equal(FOLDER_MIME, "application/vnd.google-apps.folder");
+  });
+});
+
+/** Waits (bounded) until the pickup has written this file's id on the cursor row: the run is now inside that file's import. */
+async function untilInflight(db: TestDb, fileId: string, attempts: number) {
+  for (let i = 0; i < 1000; i += 1) {
+    const cursor = rows(db, "drive_change_cursors")[0];
+    if (cursor?.inflight_file_id === fileId && cursor.inflight_attempts === attempts) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(`no inflight marker for ${fileId} at attempt ${attempts}`);
+}
+
+describe("a run killed on one file (11 Nov 2026: B3B12.mp4, SWEELY 1.mp4)", () => {
+  it("dies twice on the file, then records it as failed and moves past it; the next file and the cursor carry on", async () => {
+    const db = seed();
+    const drive = fakeDrive();
+    await primed(db, drive);
+    const before = rows(db, "drive_change_cursors")[0].page_token;
+    const enzo = folderId(drive, `${EVENT} / 02 Source / Artist clips / Enzo Siragusa`);
+    const bad = drive.drop(enzo, "SWEELY 1.mp4");
+    drive.drop(enzo, "R21.mp4");
+    const imported: string[] = [];
+    let killing = true;
+    // A killed run never returns from the import: no catch, no finally, nothing saved.
+    const importClip: ImportClip = async ({ file }) => {
+      if (file.id === bad.id && killing) return new Promise<never>(() => {});
+      imported.push(file.name);
+      return { files: [{ name: file.name, outcome: "imported", reason: null }], folderError: null };
+    };
+
+    for (let attempt = 1; attempt <= PICKUP_MAX_ATTEMPTS; attempt += 1) {
+      void runDrivePickup(db, drive, { now: NOW, importClip });
+      await untilInflight(db, bad.id, attempt);
+      assert.equal(rows(db, "drive_change_cursors")[0].page_token, before, "a killed run saves no cursor");
+    }
+    assert.deepEqual(imported, []);
+
+    const third = await runDrivePickup(db, drive, { now: NOW, importClip });
+    assert.deepEqual(third.clips.map((c) => [c.name, c.outcome, c.reason]), [
+      ["SWEELY 1.mp4", "failed", KILLED_RUN_LINE],
+      ["R21.mp4", "imported", null],
+    ]);
+    const cursor = rows(db, "drive_change_cursors")[0];
+    assert.equal(cursor.page_token, String(drive.changeLog.length));
+    assert.equal(cursor.inflight_file_id, null);
+    assert.equal(cursor.inflight_attempts, 0);
+
+    // The feed has moved on: nothing replays.
+    const fourth = await runDrivePickup(db, drive, { now: NOW, importClip });
+    assert.deepEqual(fourth.clips, []);
+    assert.deepEqual(imported, ["R21.mp4"]);
+
+    // Moved out and back once the import can take it: a new change, a fresh count, imported.
+    killing = false;
+    drive.changeLog.push({ fileId: bad.id, removed: false, file: { ...drive.files.get(bad.id)! } });
+    const fifth = await runDrivePickup(db, drive, { now: NOW, importClip });
+    assert.deepEqual(fifth.clips.map((c) => [c.name, c.outcome]), [["SWEELY 1.mp4", "imported"]]);
+  });
+
+  it("an import that returns or throws clears the marker: only a killed run counts", async () => {
+    const db = seed();
+    const drive = fakeDrive();
+    await primed(db, drive);
+    const enzo = folderId(drive, `${EVENT} / 02 Source / Artist clips / Enzo Siragusa`);
+    drive.drop(enzo, "clip.mp4");
+    let fail = true;
+    const importClip: ImportClip = async ({ file }) => {
+      if (fail) throw new Error("storage down");
+      return { files: [{ name: file.name, outcome: "imported", reason: null }], folderError: null };
+    };
+    for (let i = 0; i < PICKUP_MAX_ATTEMPTS + 1; i += 1) {
+      const res = await runDrivePickup(db, drive, { now: NOW, importClip });
+      assert.match(res.errors[0], /storage down/);
+      assert.equal(rows(db, "drive_change_cursors")[0].inflight_file_id, null);
+    }
+    fail = false;
+    const ok = await runDrivePickup(db, drive, { now: NOW, importClip });
+    assert.deepEqual(ok.clips.map((c) => c.outcome), ["imported"]);
+  });
+
+  it("a marker for a file this run never meets (moved away) is cleared when the run finishes", async () => {
+    const db = seed();
+    const drive = fakeDrive();
+    await primed(db, drive);
+    Object.assign(rows(db, "drive_change_cursors")[0], { inflight_file_id: "moved-away", inflight_attempts: 1 });
+    const { importClip } = recorder();
+    await runDrivePickup(db, drive, { now: NOW, importClip });
+    assert.equal(rows(db, "drive_change_cursors")[0].inflight_file_id, null);
+  });
+
+  it("before migration 230 is applied (no inflight columns) the run works as it did", async () => {
+    const inner = seed();
+    const drive = fakeDrive();
+    await primed(inner, drive);
+    const missing = { message: 'column drive_change_cursors.inflight_file_id does not exist' };
+    const db = {
+      ...inner,
+      from(table: string) {
+        const builder = inner.from(table) as Record<string, (...args: unknown[]) => unknown>;
+        if (table !== "drive_change_cursors") return builder;
+        return {
+          ...builder,
+          select: (columns: string) =>
+            columns.includes("inflight") ? { eq: () => ({ maybeSingle: async () => ({ data: null, error: missing }) }) } : builder.select(columns),
+          update: (patch: Record<string, unknown>) => ("inflight_file_id" in patch ? { eq: async () => ({ error: missing }) } : builder.update(patch)),
+        };
+      },
+    } as unknown as TestDb;
+    drive.drop(folderId(drive, `${EVENT} / 02 Source / Artist clips / Enzo Siragusa`), "clip.mp4");
+    const { calls, importClip } = recorder();
+    const res = await runDrivePickup(db, drive, { now: NOW, importClip });
+    assert.deepEqual(res.errors, []);
+    assert.equal(calls.length, 1);
+    assert.equal(rows(inner, "drive_change_cursors")[0].page_token, String(drive.changeLog.length));
+  });
+});
+
+describe("Venue & crowd from a Drive pickup streams the file to disk", () => {
+  it("download() is never called; an over-cap original is kept in Drive with its 1080 column copy stored", async () => {
+    const db = seed();
+    const drive = fakeDrive();
+    await primed(db, drive);
+    const venue = folderId(drive, `${EVENT} / 02 Source / Venue & crowd`);
+    const file = drive.drop(venue, "B3B12.mp4", { bytes: new Uint8Array(4096).fill(3) });
+    const uploads: string[] = [];
+    const importVenueClip = venueImport(db as never, {
+      maxStoredBytes: 1024,
+      probeFile: async () => ({ width: 3840, height: 2160, durationInSeconds: 51 }),
+      renderProxyFile: async (_input, output) => {
+        const { writeFile } = await import("node:fs/promises");
+        await writeFile(output, Buffer.alloc(512, 1));
+      },
+      uploadFile: async (storagePath) => {
+        uploads.push(storagePath);
+      },
+    });
+    const res = await runDrivePickup(db, drive, { now: NOW, importClip: recorder().importClip, importVenueClip });
+    assert.deepEqual(res.clips.map((c) => [c.name, c.artist, c.outcome]), [["B3B12.mp4", "promoter", "imported"]]);
+    assert.ok(drive.calls.includes(`downloadTo ${file.id}`));
+    assert.ok(!drive.calls.includes(`download ${file.id}`));
+    assert.equal(uploads.length, 1);
+    assert.match(uploads[0]!, /proxy-1080/);
+    const clip = rows(db, "creative_lab_clips")[0];
+    assert.equal(clip.owner, "promoter");
+    const master = rows(db, "creative_assets").find((a) => a.id === clip.creative_asset_id)!;
+    assert.equal(master.drive_file_id, file.id);
+    assert.equal(master.storage_path, null);
   });
 });

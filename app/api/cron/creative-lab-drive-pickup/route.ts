@@ -62,6 +62,12 @@ export const GET = withCronRunLog(
       misses: body.misses ?? [],
       skipped: body.skipped ?? {},
       errors: body.errors ?? [],
+      // A file the import failed on, including one skipped after killing PICKUP_MAX_ATTEMPTS runs.
+      failed: Array.isArray(body.clips)
+        ? body.clips
+          .filter((clip: { outcome?: string }) => clip.outcome === "failed")
+          .map((clip: { name?: string; eventId?: string; reason?: string | null }) => ({ name: clip.name, eventId: clip.eventId, reason: clip.reason }))
+        : [],
     }),
     recordWhen: (body, status) => {
       if (status >= 400 || body.ok === false) return true;
