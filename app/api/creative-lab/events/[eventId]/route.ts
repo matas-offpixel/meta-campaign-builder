@@ -21,7 +21,7 @@ import {
   storeLabQuote,
 } from "@/lib/creative-lab/card-write";
 import { saveClipSelection } from "@/lib/creative-lab/selection-store";
-import { makeTripleFit } from "@/lib/creative-lab/triple-fit";
+import { makeTripleFit } from "@/lib/creative-lab/make-triple-fit";
 import type { PairMode } from "@/lib/creative-lab/selection";
 import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
 import { isSpotifyConfigured, searchArtists } from "@/lib/enrichment/spotify";

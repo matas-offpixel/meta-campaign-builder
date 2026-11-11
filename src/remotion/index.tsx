@@ -15,6 +15,7 @@ import {
 } from "./compositions/CaptionOnClip";
 import { FrameSheet } from "./compositions/FrameSheet";
 import { T1OnClip, type T1OnClipProps } from "./compositions/T1OnClip";
+import { TripleFitOnClip, type TripleFitOnClipProps } from "./compositions/TripleFitOnClip";
 import { FORMAT_SIZE } from "../../lib/creative-lab/t1-video-frame";
 import {
   captionLimits,
@@ -50,6 +51,20 @@ const t1DefaultProps: T1OnClipProps = {
   bandsUrl: "",
   topUrl: "",
   claimUrl: null,
+};
+
+const tripleFitDefaultProps: TripleFitOnClipProps = {
+  clipUrl: "",
+  sourceWidth: 1920,
+  sourceHeight: 1080,
+  window: { left: 49, top: 0, width: 1822, height: 1080 },
+  fps: 30,
+  durationInSeconds: 1,
+  muted: true,
+  bandsUrl: "",
+  topUrl: "",
+  claimUrl: null,
+  guideUrl: null,
 };
 
 const captionDefaultProps: CaptionOnClipProps = {
@@ -147,6 +162,19 @@ function RemotionRoot() {
         height={1920}
         durationInFrames={30}
         defaultProps={t1DefaultProps as unknown as Record<string, unknown>}
+      />
+      <Composition
+        id="TripleFitOnClip"
+        component={TripleFitOnClip as unknown as FC<Record<string, unknown>>}
+        calculateMetadata={({ props }) => {
+          const p = props as unknown as TripleFitOnClipProps;
+          return { width: 1080, height: 1920, fps: p.fps || 30, durationInFrames: Math.max(1, Math.round(p.durationInSeconds * (p.fps || 30))) };
+        }}
+        fps={30}
+        width={1080}
+        height={1920}
+        durationInFrames={30}
+        defaultProps={tripleFitDefaultProps as unknown as Record<string, unknown>}
       />
       <Composition
         id="FrameSheet"

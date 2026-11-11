@@ -1,25 +1,22 @@
 /**
- * O68 (overlay templates issue 10): a clip wider than the output is rendered
- * from a stored render copy (Lanczos, CRF ≤ 16, beside the clip), and the
- * original stays the master. Making that copy is the import follow-up's (O74,
- * Cursor's); this only reads it. When the clip or its asset carries a
- * render_copy_path, that path is used; otherwise the source's own
- * storage_path. Neither the column nor any copy is on main yet, so today
- * every render reads the source.
+ * O68 (overlay templates issue 10): a clip larger than the output renders
+ * from its stored 1080 render copy, and the original stays the master.
+ * #1176 (migration 220) makes that copy at import and links it on
+ * creative_lab_clips.render_asset_id, a creative_assets row; the original
+ * stays on creative_asset_id for Drive and download. This reads it: a clip
+ * with a render_asset_id renders from the copy; one without (the original is
+ * small enough, or it predates the copy) renders from creative_asset_id.
+ * The same rule as render-proxy.ts's renderAssetId, kept here so the draft
+ * scripts and their tests don't load the proxy maker. Read only.
  */
 
-/** The field a render copy is read from, on the clip row or on its creative_assets row. */
-export const RENDER_COPY_FIELD = "render_copy_path";
-
-export type RenderSource = { path: string; copy: boolean };
+export type RenderSource = { assetId: string; copy: boolean };
 
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 
-/** The Storage path a render reads: the clip's render copy when one exists, else the source. Read only. */
-export function renderSourcePath(asset: Readonly<Record<string, unknown>>, clip: Readonly<Record<string, unknown>> = {}): RenderSource {
-  const copy = clip[RENDER_COPY_FIELD] ?? asset[RENDER_COPY_FIELD];
-  if (nonEmpty(copy)) return { path: copy, copy: true };
-  const source = asset.storage_path;
-  if (!nonEmpty(source)) throw new Error("clip asset has no storage_path");
-  return { path: source, copy: false };
+/** The creative_assets row a render reads: the clip's render copy when it has one, else the original. */
+export function renderSourceAsset(clip: Readonly<{ render_asset_id?: unknown; creative_asset_id?: unknown }>): RenderSource {
+  if (nonEmpty(clip.render_asset_id)) return { assetId: clip.render_asset_id, copy: true };
+  if (nonEmpty(clip.creative_asset_id)) return { assetId: clip.creative_asset_id, copy: false };
+  throw new Error("clip has no creative_asset_id");
 }

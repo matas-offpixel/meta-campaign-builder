@@ -1,118 +1,172 @@
 /**
- * "Make a triple-fit" writes one new clip row for a landscape source.
- * The picture is cc/triple-fit. This file only records the clip.
+ * The triple-fit (overlay templates issue 16, O108–O116,
+ * docs/design-record/2026-11-11-overlay-templates-16.html): one landscape
+ * clip shown three times in one 9:16, each copy a third of the height, all
+ * through the same window at the same timecode, with the clip's own sound
+ * played once. T1 on a clip, arrangement B only, inside issue 15's band and
+ * clear of the seams. Pure rules only. The composition is
+ * src/remotion/compositions/TripleFitOnClip.tsx.
+ *
+ * The Lab's tiles, groups, offer and import are Cursor's files this round
+ * (clips.tsx, surface.ts, selection.ts, import-quality.ts, clip-intake.ts,
+ * render.ts): the functions here are ready for them to call.
  */
 
-import type { ServiceRoleDb } from "./load.ts";
-import { sizesForClipFiles } from "./clip-preview.ts";
-import { missingTripleFitColumn, tripleFitSource } from "./import-quality.ts";
-import { showTripleFitOffer, type ClipForGroup } from "./surface.ts";
+import type { Rect, Size } from "./artist-card.ts";
+import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
+import type { ClipLayout, FaceSample } from "./t1-video.ts";
+import { bandChecks, t1BandSlots, type BandCheck, type BandSlot } from "./video-band.ts";
+import { TRIPLE_FIT, partPlacements, partScale, partWindow, type PartPlacement, type PartWindow } from "./triple-fit-frame.ts";
 
-type Row = Record<string, unknown>;
+export { TRIPLE_FIT, partPlacements, partScale, partWindow, type PartPlacement, type PartWindow };
 
-function text(row: Row | null | undefined, key: string): string {
-  return String(row?.[key] ?? "").trim();
+export const TF_LINES = {
+  /** O108: a triple-fit clip's one tile line. */
+  landscape: "Landscape — triple-fit only",
+  group: (n: number) => `Triple-fit only · ${n}`,
+  make: "Make a triple-fit",
+  /** O114: the made triple-fit's own tile. */
+  tile: (n: number) => `Triple-fit · #${n}`,
+  /** Under both floors: O93's words, unchanged. */
+  tooSmall: TOO_SMALL_FOR_916,
+  /** Invented here (O109 gives the 6 s rule, not its words), in T1's "Clip too short" form. */
+  tooShort: "Clip too short for a triple-fit — needs 6 s",
+  /** O111: A's date crosses the 640 seam. Invented words. */
+  arrangementB: "A triple-fit takes T1 arrangement B only",
+  /** O111: UGC captions and quote mode cross the 640 seam. Invented words. */
+  noCaption: "A triple-fit takes T1, never a UGC caption or quote mode",
+  /** O116: T2's lineup crosses the 640 seam. Invented words. */
+  noPromoter: "Triple-fits aren't made from promoter clips yet",
+  /** O110 / the existing clip flag, carried onto the triple-fit. */
+  musicMatch: "Music match — mute or replace before launch",
+} as const;
+
+export type ClipKind = { kind: "916"; line: null } | { kind: "triple-fit"; line: typeof TF_LINES.landscape } | { kind: "too-small"; line: typeof TOO_SMALL_FOR_916 };
+
+/**
+ * O108: a clip that makes its own 9:16 runs as itself. One too small for it
+ * whose part window is at least 675 px wide is a triple-fit clip. Under both
+ * floors it keeps "Too small for 9:16". A portrait clip is never a triple-fit.
+ */
+export function clipKind(source: Size): ClipKind {
+  if (!tooSmallFor916(source)) return { kind: "916", line: null };
+  if (source.width > source.height && partWindow(source).width + 1e-9 >= TRIPLE_FIT.minWindowPx) return { kind: "triple-fit", line: TF_LINES.landscape };
+  return { kind: "too-small", line: TOO_SMALL_FOR_916 };
 }
 
-function playableSeconds(row: Row, fileSeconds: number | null): number | null {
-  const inn = row.in_s == null || row.in_s === "" ? null : Number(row.in_s);
-  const out = row.out_s == null || row.out_s === "" ? null : Number(row.out_s);
-  if (inn != null && out != null && Number.isFinite(inn) && Number.isFinite(out)) return Math.max(0, out - inn);
-  return fileSeconds != null && Number.isFinite(fileSeconds) ? fileSeconds : null;
+/** O93 as O108 amends it: the import refuses only a clip under both floors, with O93's words. */
+export function importRefusal(source: Size): string | null {
+  return clipKind(source).kind === "too-small" ? TOO_SMALL_FOR_916 : null;
 }
 
-function asCard(row: Row, size: { width: number; height: number } | undefined, seconds: number | null): ClipForGroup {
-  const owner = row.owner === "promoter" ? "promoter" : row.owner === "artist" ? "artist" : null;
-  return {
-    id: text(row, "id"),
-    artistId: text(row, "artist_id") || null,
-    artistName: "",
-    clipNo: Number(row.clip_no) || 0,
-    cleared: false,
-    renderError: null,
-    durationSeconds: seconds,
-    judged: null,
-    sourceWidth: size?.width ?? null,
-    sourceHeight: size?.height ?? null,
-    tripleFitSourceId: text(row, "triple_fit_source_id") || null,
-    owner,
-  };
+/**
+ * O108: "Make a triple-fit" shows on a triple-fit clip's tile when its owner
+ * has fewer than 3 clips that run in 9:16. Never for the promoter yet (O116),
+ * never for a clip under 6 s (O109), never twice from one clip (O114).
+ */
+export function offerTripleFit(args: { source: Size; durationS: number; owner: "artist" | "promoter"; runnable916: number; alreadyMade: boolean }): boolean {
+  if (args.owner !== "artist" || args.alreadyMade) return false;
+  if (clipKind(args.source).kind !== "triple-fit") return false;
+  if (args.durationS + 1e-9 < TRIPLE_FIT.minS) return false;
+  return args.runnable916 < TRIPLE_FIT.offerBelow;
 }
 
-/** One triple-fit for this landscape, when the offer would show. */
-export async function makeTripleFit(
-  db: ServiceRoleDb,
-  args: { userId: string; clipId: string },
-): Promise<{ clipId: string }> {
-  const sourceRes = await db.from("creative_lab_clips").select("*").eq("id", args.clipId).eq("user_id", args.userId).maybeSingle();
-  if (sourceRes.error) throw new Error(sourceRes.error.message);
-  const source = sourceRes.data as Row | null;
-  if (!source) throw new Error("This clip isn't on your Lab.");
-  if (text(source, "triple_fit_source_id")) throw new Error("This clip is already a triple-fit.");
-  if (source.owner === "promoter") throw new Error("A promoter clip isn't offered a triple-fit.");
+/** O108: the tile groups' order within an owner: the clips that can run, then "Triple-fit only · {n}", then "Can't run". */
+export function groupOf(source: Size, refused: boolean): "runs" | "triple-fit only" | "can't run" {
+  if (refused) return "can't run";
+  const k = clipKind(source).kind;
+  return k === "916" ? "runs" : k === "triple-fit" ? "triple-fit only" : "can't run";
+}
 
-  const existing = await db.from("creative_lab_clips").select("id").eq("triple_fit_source_id", args.clipId).maybeSingle();
-  if (existing.error) {
-    if (missingTripleFitColumn(existing.error.message)) throw new Error("The triple-fit column isn't on the database yet.");
-    throw new Error(existing.error.message);
-  }
-  if (existing.data) throw new Error("This clip already has a triple-fit.");
+/** O109: the render's length, the stored window up to 30 s, or the too-short line. */
+export function tripleFitLength(inS: number, outS: number): { ok: true; seconds: number } | { ok: false; line: string } {
+  const seconds = Math.min(TRIPLE_FIT.maxS, Math.max(0, outS - inS));
+  return seconds + 1e-9 >= TRIPLE_FIT.minS ? { ok: true, seconds } : { ok: false, line: TF_LINES.tooShort };
+}
 
-  const artistId = text(source, "artist_id");
-  if (!artistId) throw new Error("This clip has no artist.");
-  const siblingsRes = await db.from("creative_lab_clips").select("*").eq("user_id", args.userId).eq("artist_id", artistId);
-  if (siblingsRes.error) throw new Error(siblingsRes.error.message);
-  const siblings = (siblingsRes.data ?? []) as Row[];
-  const assetIds = [...new Set(siblings.map((row) => text(row, "creative_asset_id")).filter(Boolean))];
-  const assetsRes = assetIds.length
-    ? await db.from("creative_assets").select("id, storage_path, duration_seconds").in("id", assetIds)
-    : { data: [] as Row[], error: null };
-  if (assetsRes.error) throw new Error(assetsRes.error.message);
-  const assetOf = new Map(((assetsRes.data ?? []) as Row[]).map((row) => [text(row, "id"), row]));
-  const sizes = await sizesForClipFiles(siblings.map((row) => {
-    const asset = assetOf.get(text(row, "creative_asset_id"));
-    return {
-      id: text(row, "id"),
-      storagePath: text(asset, "storage_path") || null,
-      width: Number(row.source_width) || null,
-      height: Number(row.source_height) || null,
-    };
-  })).catch(() => new Map<string, { width: number; height: number }>());
+/** O63: the scale from the window, refused past 1.6× with O93's words. */
+export function tripleFitUpscale(source: Size, cropFocusX = 0.5, cropFocusY = 0.5): { ok: true; scale: number; window: PartWindow } | { ok: false; scale: number; window: PartWindow; line: string } {
+  const window = partWindow(source, cropFocusX, cropFocusY);
+  const scale = partScale(window);
+  return scale <= TRIPLE_FIT.maxUpscale + 1e-9 ? { ok: true, scale, window } : { ok: false, scale, window, line: TOO_SMALL_FOR_916 };
+}
 
-  const cards = siblings.map((row) => {
-    const asset = assetOf.get(text(row, "creative_asset_id"));
-    const fileSeconds = asset?.duration_seconds == null ? null : Number(asset.duration_seconds);
-    return asCard(row, sizes.get(text(row, "id")), playableSeconds(row, Number.isFinite(fileSeconds) ? fileSeconds : null));
+/** O110: the clip's own track once; a music match carries its flag; no track runs silent. */
+export function tripleFitSound(clip: { hasAudio: boolean; audioMatch?: boolean | null; audioStatus?: string | null }): { muted: boolean; flag: string | null } {
+  const muted = !clip.hasAudio || clip.audioStatus === "muted";
+  return { muted, flag: clip.audioMatch ? TF_LINES.musicMatch : null };
+}
+
+// ─── O111: type and the seams ───────────────────────────────────────────────
+
+/** The two seam clearances, y 616–664 and 1256–1304. */
+export const SEAM_ZONES: readonly { seam: number; top: number; bottom: number }[] = TRIPLE_FIT.seams.map((s) => ({ seam: s, top: s - TRIPLE_FIT.seamClear, bottom: s + TRIPLE_FIT.seamClear }));
+
+/** O111: no type ink within 24 px of a seam. */
+export function seamChecks(slots: readonly BandSlot[]): BandCheck[] {
+  return slots.map(({ slot, box }) => {
+    const hit = SEAM_ZONES.find((z) => box.top < z.bottom && box.top + box.height > z.top);
+    return { slot, ok: !hit, why: hit ? `ink ${Math.round(box.top)}–${Math.round(box.top + box.height)} in the ${hit.seam} seam's ${TRIPLE_FIT.seamClear} px (${hit.top}–${hit.bottom})` : null };
   });
-  const sourceCard = cards.find((clip) => clip.id === args.clipId);
-  const size = sizes.get(args.clipId);
-  if (!sourceCard || !size || !tripleFitSource(size)) throw new Error("This clip can't make a triple-fit.");
-  if (!showTripleFitOffer(sourceCard, cards)) throw new Error("This artist already has 3 clips that can run in 9:16.");
-
-  const nextNo = Math.max(0, ...siblings.map((row) => Number(row.clip_no) || 0)) + 1;
-  const inserted = await db.from("creative_lab_clips").insert({
-    user_id: args.userId,
-    artist_id: artistId,
-    owner: "artist",
-    creative_asset_id: text(source, "creative_asset_id"),
-    clip_no: nextNo,
-    source: text(source, "source") || "file",
-    rights_ref: text(source, "rights_ref"),
-    event_id: text(source, "event_id") || null,
-    audio_status: text(source, "audio_status") || "original",
-    audio_match: source.audio_match === true ? true : source.audio_match === false ? false : null,
-    crop_focus_x: source.crop_focus_x == null ? 0.5 : Number(source.crop_focus_x),
-    crop_focus_y: source.crop_focus_y == null ? 0.5 : Number(source.crop_focus_y),
-    in_s: source.in_s ?? null,
-    out_s: source.out_s ?? null,
-    triple_fit_source_id: args.clipId,
-  }).select("id");
-  if (inserted.error) {
-    if (missingTripleFitColumn(inserted.error.message)) throw new Error("The triple-fit column isn't on the database yet.");
-    if (/duplicate|unique/i.test(inserted.error.message)) throw new Error("This clip already has a triple-fit.");
-    throw new Error(inserted.error.message);
-  }
-  const clipId = text(((inserted.data ?? []) as Row[])[0], "id");
-  if (!clipId) throw new Error("The triple-fit clip was not saved.");
-  return { clipId };
 }
+
+/**
+ * H103: a triple-fit's type passes issue 15's band check (H94) and the seam
+ * check. Arrangement A is refused outright: its date (632–689) crosses 640.
+ */
+export function tripleFitTypeChecks(layout: ClipLayout): BandCheck[] {
+  if (layout.arrangement !== "B") return [{ slot: "arrangement", ok: false, why: TF_LINES.arrangementB }];
+  const slots = t1BandSlots(layout);
+  const band = bandChecks(slots);
+  const seam = seamChecks(slots);
+  return slots.map((s, i) => (band[i]!.ok ? seam[i]! : band[i]!));
+}
+
+/** O111: which part each slot sits on. The top block on part 1, the date and claim on part 2, nothing on part 3. */
+export function partOf(box: Rect): 1 | 2 | 3 {
+  const mid = box.top + box.height / 2;
+  return mid < TRIPLE_FIT.seams[0] ? 1 : mid < TRIPLE_FIT.seams[1] ? 2 : 3;
+}
+
+// ─── O112: faces ────────────────────────────────────────────────────────────
+
+const toPart = (r: Rect): Rect => ({ ...r, top: r.top - TRIPLE_FIT.partTops[partOf(r) - 1]! });
+
+/**
+ * O112: the type boxes in the part's own coordinates. The top block (part
+ * 1) and the date (part 2) are on screen throughout; the claim (part 2)
+ * from 1.5 s. One window, so one face test reads the union of the two sets.
+ */
+export function partFaceBoxes(layout: ClipLayout): { always: Rect[]; claim: Rect | null; union: { top: number; bottom: number } } {
+  const always = [toPart(layout.boxes.top), toPart(layout.boxes.date)];
+  const claim = layout.boxes.claim ? toPart(layout.boxes.claim) : null;
+  const all = [...always, ...(claim ? [claim] : [])];
+  return { always, claim, union: { top: Math.min(...all.map((r) => r.top)), bottom: Math.max(...all.map((r) => r.top + r.height)) } };
+}
+
+/** O112: source face boxes mapped into the part (1080 × 640) through the shared window. The floor is then 0.08 of the part's width. */
+export function facesInPart(samples: readonly { tS: number; faces: readonly Rect[] }[], window: PartWindow): FaceSample[] {
+  const k = partScale(window);
+  return samples.map((s) => ({ tS: s.tS, faces: s.faces.map((f) => ({ left: (f.left - window.left) * k, top: (f.top - window.top) * k, width: f.width * k, height: f.height * k })) }));
+}
+
+/** O112: crop candidates (O56) along the window's slack, tried once for the clip; candidates giving the same window are tried once (O73). */
+export function partCropCandidates(source: Size, own: { x: number; y: number }, steps: readonly number[] = [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8]): { x: number; y: number }[] {
+  const w = partWindow(source);
+  const alongX = w.height === source.height;
+  const values = [alongX ? own.x : own.y, ...steps].map((v) => Math.round(v * 100) / 100);
+  const seen = new Set<string>();
+  const out: { x: number; y: number }[] = [];
+  for (const v of values) {
+    const c = alongX ? { x: v, y: own.y } : { x: own.x, y: v };
+    const win = partWindow(source, c.x, c.y);
+    const key = `${Math.round(win.left)}:${Math.round(win.top)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
+/** O113: one clip, so its own rights decide the channels. */
+export const tripleFitChannels = <T>(clipChannels: T): T => clipChannels;
