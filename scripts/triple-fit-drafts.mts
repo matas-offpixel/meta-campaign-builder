@@ -72,7 +72,6 @@ import {
   arrangementsTried,
 } from "../lib/creative-lab/t1-video.ts";
 import { applyBacking, backingLayer, checkFeather, type FeatherCheck } from "../lib/creative-lab/red-backing.ts";
-import { renderSourcePath } from "../lib/creative-lab/render-source.ts";
 import { emptyTriedHeadings, triedSection } from "../lib/creative-lab/draft-report.ts";
 import { draftVersions, releaseFromRow, type DraftVersion } from "../lib/creative-lab/draft-versions.ts";
 import { VIDEO_BAND, bandWord } from "../lib/creative-lab/video-band.ts";
@@ -311,10 +310,12 @@ for (const clipId of clipIds) {
   const artist = String(art.data?.name ?? "?");
   const asset = await db.from("creative_assets").select("*").eq("id", clip.creative_asset_id).maybeSingle();
   if (asset.error || !asset.data) fail(`asset for ${clipId}`);
-  // O68: the render copy when one is stored, else the source (no copy exists on main yet).
-  const source = renderSourcePath(asset.data as Record<string, unknown>, clip as Record<string, unknown>);
-  readFrom.push(`${clipId.slice(0, 8)}: ${source.copy ? "render copy" : "source"} (${source.path})`);
-  const file = await db.storage.from("campaign-assets").download(source.path);
+  // O109: a triple-fit reads the original. A clip's render copy (render_asset_id) is a whole-frame 1080 proxy or
+  // #1182's 9:16 column, never the part window, so it isn't used here; the part window's own copy is a follow-up.
+  const sourcePath = String(asset.data!.storage_path ?? "");
+  if (!sourcePath) fail(`${clipId}: its original isn't in Storage (a Drive master, migration 228); a triple-fit needs the part window's own copy`);
+  readFrom.push(`${clipId.slice(0, 8)}: the original (creative_assets ${String(asset.data!.id).slice(0, 8)}, ${sourcePath})`);
+  const file = await db.storage.from("campaign-assets").download(sourcePath);
   if (file.error || !file.data) fail(`download ${clipId}`);
   const slug = `${artist.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${clip.clip_no}`;
   const clipFile = `${slug}.mp4`;
