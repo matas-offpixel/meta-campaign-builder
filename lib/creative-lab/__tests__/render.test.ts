@@ -5,7 +5,10 @@ import { before, describe, it } from "node:test";
 
 import { styleVersion } from "../../../src/remotion/caption-style/profile.ts";
 import type { ServiceRoleDb } from "../load.ts";
-import { audioMode, loadLabRender, renderCaptionOnClip, renderStoragePath, type CaptionRenderRequest } from "../render.ts";
+import { audioMode, loadLabRender, renderCaptionOnClip, renderStoragePath, type CaptionRenderRequest, type RenderDeps } from "../render.ts";
+import { planClipLayout, planVideoClaim, type VideoClaimPlan } from "../t1-video.ts";
+import type { LambdaDeps } from "../lambda.ts";
+import { partWindow } from "../triple-fit.ts";
 import { fakeDb, type FakeDb } from "./fake-db.ts";
 
 const LINES = ["Luke Dean joins", "Enzo Siragusa for", "our 4th Birthday", "You in?"];
@@ -57,7 +60,7 @@ function seed(over: { aspect?: string; kind?: string; lines?: string[]; style?: 
   });
 }
 
-function deps(renderToFile: CaptionRenderRequest extends never ? never : (req: CaptionRenderRequest) => Promise<{ bytes: Uint8Array; renderMs: number }>) {
+function deps(renderToFile: CaptionRenderRequest extends never ? never : (req: CaptionRenderRequest) => Promise<{ bytes: Uint8Array; renderMs: number }>): { uploaded: { path: string; bytes: Uint8Array }[]; deps: RenderDeps } {
   const uploaded: { path: string; bytes: Uint8Array }[] = [];
   return {
     uploaded,
@@ -122,17 +125,108 @@ describe("renderCaptionOnClip", () => {
     assert.equal(fake.tables.creative_lab_clips.length, 1);
   });
 
-  it("does not single-crop a made triple-fit", async () => {
-    let called = false;
-    const fake = seed();
+  it("renders a made triple-fit as TripleFitOnClip from the source render copy", async () => {
+    const measure = (t: string, cap: number) => t.length * 0.35 * cap;
+    const piece = (w: number, h: number, cap: number, label: string) => ({ png: Buffer.alloc(0), width: w, height: h, capPx: cap, label });
+    const claim = planVideoClaim("Early bird, 1st & 2nd release sold out\n3rd release selling fast", measure) as VideoClaimPlan;
+    const layout = planClipLayout({ lockup: piece(1290, 388, 0, "lockup"), name: piece(1000, 220, 220, "name"), date: piece(800, 60, 60, "date"), claim }, "9:16", "B");
+    let captionCalled = false;
+    const signed: string[] = [];
+    const calls: { name: string; input: Record<string, unknown> }[] = [];
+    const fake = seed({ lines: ["one | two"] });
     fake.tables.creative_lab_clips[0]!.triple_fit_source_id = "source-1";
-    const { deps: d } = deps(async () => {
-      called = true;
+    fake.tables.creative_lab_clips.push({
+      id: "source-1",
+      creative_asset_id: "asset-master",
+      render_asset_id: "asset-copy",
+      audio_status: "original",
+      crop_focus_x: 0.4,
+      crop_focus_y: 0.6,
+      in_s: 1,
+      out_s: 20,
+    });
+    fake.tables.creative_assets.push(
+      { id: "asset-master", storage_bucket: "campaign-assets", storage_path: "videos/4k-master.mp4" },
+      { id: "asset-copy", storage_bucket: "campaign-assets", storage_path: "videos/render-copy.mp4" },
+    );
+    const { uploaded, deps: d } = deps(async () => {
+      captionCalled = true;
       return { bytes: new Uint8Array([9]), renderMs: 50 };
     });
-    d.probe = async () => ({ width: 1920, height: 1080, fps: 30, durationInSeconds: 12 });
-    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }), /triple-fit composition pending/);
-    assert.equal(called, false);
+    d.signUrl = async (_bucket: string, path: string) => {
+      signed.push(path);
+      return `https://signed.example/${path}`;
+    };
+    d.probe = async () => ({ width: 1920, height: 1080, fps: 30, durationInSeconds: 24 });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const record = (name: string) => (input: unknown) => {
+      calls.push({ name, input: input as Record<string, unknown> });
+    };
+    const lambda: LambdaDeps = {
+      client: {
+        getFunctions: (async (input: unknown) => {
+          record("getFunctions")(input);
+          return [{ functionName: "remotion-render-4-0-471-mem2048mb-disk2048mb-480sec", timeoutInSeconds: 480 }];
+        }) as never,
+        renderMediaOnLambda: (async (input: unknown) => {
+          record("renderMediaOnLambda")(input);
+          return { bucketName: "remotionlambda-test", renderId: "r1" };
+        }) as never,
+        getRenderProgress: (async (input: unknown) => {
+          record("getRenderProgress")(input);
+          return { done: true, fatalErrorEncountered: false, errors: [], outBucket: "remotionlambda-test", outKey: "renders/r1/out.mp4", costs: { accruedSoFar: 0, displayCost: "$0" } };
+        }) as never,
+        deleteRender: (async (input: unknown) => {
+          record("deleteRender")(input);
+        }) as never,
+        renderStillOnLambda: (async () => ({ url: "https://example.test/sheet.jpg" })) as never,
+      },
+      readConcurrencyLimit: async () => 1000,
+      download: async () => new Uint8Array([7, 7]),
+      pollMs: 0,
+    };
+    d.tripleFit = {
+      arrange: async () => layout,
+      paint: async () => ({ bands: png, top: png, claim: null }),
+      lambda,
+      deleteRender: async (target) => {
+        calls.push({ name: "deleteRender", input: target });
+      },
+    };
+    const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", serveUrl: "https://serve.test/index.html", deps: d });
+    assert.equal(captionCalled, false);
+    assert.deepEqual(signed, ["videos/render-copy.mp4"]);
+    const render = calls.find((call) => call.name === "renderMediaOnLambda")!.input;
+    const props = render.inputProps as { clipUrl: string; window: unknown; muted: boolean; guideUrl?: string | null; durationInSeconds: number };
+    assert.equal(render.composition, "TripleFitOnClip");
+    assert.equal(props.clipUrl, "https://signed.example/videos/render-copy.mp4");
+    assert.deepEqual(props.window, partWindow({ width: 1920, height: 1080 }, 0.4, 0.6));
+    assert.equal(props.muted, false);
+    assert.equal(render.muted, false);
+    assert.equal(props.guideUrl, null);
+    assert.equal(props.durationInSeconds, 19);
+    assert.equal(calls.some((call) => call.name === "deleteRender"), true);
+    assert.deepEqual([result.width, result.height], [1080, 1920]);
+    assert.equal(result.durationSeconds, 19);
+    assert.equal(uploaded.length, 1);
+    assert.equal(fake.tables.creative_lab_renders[0]!.status, "done");
+  });
+
+  it("a quote on a made triple-fit never becomes a caption render", async () => {
+    let captionCalled = false;
+    const fake = seed();
+    fake.tables.creative_lab_clips[0]!.triple_fit_source_id = "source-1";
+    fake.tables.creative_lab_captions[0]!.mode = "quote";
+    const { deps: d } = deps(async () => {
+      captionCalled = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    await assert.rejects(
+      renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }),
+      /A triple-fit takes T1, never a UGC caption or quote mode/,
+    );
+    assert.equal(captionCalled, false);
+    assert.equal(fake.tables.creative_lab_renders[0]!.status, "failed");
   });
 
   it("rejects aspect 4:5 with kind video before rendering", async () => {

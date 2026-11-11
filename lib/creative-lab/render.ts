@@ -21,7 +21,7 @@ import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profil
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
-import { renderTripleFitClip } from "./triple-fit-render.ts";
+import { renderTripleFitClip, type TripleFitHooks } from "./triple-fit-render.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
 import { renderAssetId } from "./render-proxy.ts";
@@ -53,6 +53,8 @@ export type RenderDeps = {
     deleteRender: (target: LambdaHandle) => Promise<void>;
   };
   upload: (objectPath: string, bytes: Uint8Array) => Promise<void>;
+  /** Test seam for a made triple-fit. Production paints the layers and calls Lambda. */
+  tripleFit?: TripleFitHooks;
 };
 
 type RowResult = { data: Record<string, unknown> | null; error: { message: string } | null };
@@ -199,6 +201,54 @@ export async function renderCaptionOnClip(
     const loaded = loadLabRender({ aspect: render.aspect, kind: render.kind });
     if (loaded.kind !== "video") throw new Error("static renders are not written yet");
     const aspect = loaded.aspect;
+    if (String(clip.triple_fit_source_id ?? "").trim()) {
+      const sign = input.deps?.signUrl ?? defaultSign;
+      const probe = input.deps?.probe ?? probeClip;
+      const rendered = await renderTripleFitClip({
+        db,
+        clip,
+        caption,
+        signUrl: sign,
+        probe,
+        serveUrl: input.serveUrl,
+        hooks: input.deps?.tripleFit,
+      });
+      const identity = fingerprintBytes(rendered.bytes);
+      const attempt = Number(render.attempt ?? 1);
+      const storagePath = renderStoragePath(input.renderId, Number.isFinite(attempt) && attempt > 0 ? attempt : 1);
+      const upload = input.deps?.upload ?? defaultUpload;
+      await upload(storagePath, rendered.bytes);
+      const durationSeconds = Math.round(rendered.durationSeconds * 1000) / 1000;
+      const registered = await upsertRegisteredAsset(db, {
+        userId: input.userId,
+        identity,
+        filename: "triple-fit-9x16.mp4",
+        mediaKind: "video",
+        aspectRatio: aspect,
+        durationSeconds,
+        storageBucket: BUCKET,
+        storagePath,
+      });
+      if (!registered.ok) throw new Error(registered.error);
+      await patchRender(db, input.renderId, {
+        status: "done",
+        error: null,
+        render_ms: rendered.renderMs,
+        creative_asset_id: registered.asset.id,
+      });
+      return {
+        renderId: input.renderId,
+        renderMs: rendered.renderMs,
+        creativeAssetId: registered.asset.id,
+        aspect,
+        width: rendered.width,
+        height: rendered.height,
+        storagePath,
+        durationSeconds,
+        estimatedCostUsd: rendered.estimatedCostUsd,
+        estimatedCostDisplay: rendered.estimatedCostDisplay,
+      };
+    }
     const quote = caption.mode === "quote" || caption.style === "quote";
     const version = quote ? quoteVersion : captionVersion;
     const size: CaptionSize = caption.size_variant === "long" ? "long" : "default";
@@ -233,7 +283,6 @@ export async function renderCaptionOnClip(
     const serveUrl = lambda ? requireLambdaServeUrl(input.serveUrl) : "";
     const signed = await sign(bucket, String(source.storage_path));
     const meta = await probe(signed);
-    if (String(clip.triple_fit_source_id ?? "").trim()) await renderTripleFitClip();
     if (tooSmallFor916({ width: meta.width, height: meta.height })) throw new Error(TOO_SMALL_FOR_916);
 
     const window = clipWindow({
