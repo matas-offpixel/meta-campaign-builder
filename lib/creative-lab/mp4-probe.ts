@@ -112,42 +112,57 @@ export function probeMp4Bytes(bytes: Uint8Array): Probe {
 /** Largest moov read into memory from a file: a 30–60 s clip's is well under 10 MB. */
 const MAX_MOOV_BYTES = 64 * 1024 * 1024;
 
+/** Random access to an mp4's bytes: its total size, and a read of `length` bytes from `start`. */
+export type Mp4Reader = { size: number; read(start: number, length: number): Promise<Buffer> };
+
 /**
- * The same probe from a file on disk, reading only the top-level box headers
- * and the moov atom (which may sit after mdat), never the whole file.
+ * The probe from a reader, reading only the top-level box headers and the
+ * moov atom (which may sit after mdat), never the whole file: a file on disk
+ * (probeMp4File) or byte ranges from Drive (the pickup's over-cap originals).
  */
+export async function probeMp4Reader(reader: Mp4Reader): Promise<Probe> {
+  const total = reader.size;
+  let offset = 0;
+  while (offset + 8 <= total) {
+    const header = await reader.read(offset, Math.min(16, total - offset));
+    if (header.length < 8) break;
+    let size = header.readUInt32BE(0);
+    let headerBytes = 8;
+    if (size === 1) {
+      if (header.length < 16) break;
+      size = Number(header.readBigUInt64BE(8));
+      headerBytes = 16;
+    } else if (size === 0) {
+      size = total - offset;
+    }
+    if (size < headerBytes) throw new Error("mp4 box size is shorter than its header");
+    if (header.toString("ascii", 4, 8) === "moov") {
+      if (size > MAX_MOOV_BYTES || offset + size > total) throw new Error("mp4 moov atom is too large or cut short");
+      const moov = await reader.read(offset, size);
+      if (moov.length < size) throw new Error("mp4 moov atom is cut short");
+      return probeMp4Bytes(moov);
+    }
+    offset += size;
+  }
+  throw new Error("mp4 has no moov atom");
+}
+
+/** probeMp4Reader over a file on disk. */
 export async function probeMp4File(filePath: string): Promise<Probe> {
   const handle = await open(filePath, "r");
   try {
-    const { size: total } = await handle.stat();
-    const header = Buffer.alloc(16);
-    let offset = 0;
-    while (offset + 8 <= total) {
-      const { bytesRead } = await handle.read(header, 0, 16, offset);
-      if (bytesRead < 8) break;
-      let size = header.readUInt32BE(0);
-      let headerBytes = 8;
-      if (size === 1) {
-        if (bytesRead < 16) break;
-        size = Number(header.readBigUInt64BE(8));
-        headerBytes = 16;
-      } else if (size === 0) {
-        size = total - offset;
-      }
-      if (size < headerBytes) throw new Error("mp4 box size is shorter than its header");
-      if (header.toString("ascii", 4, 8) === "moov") {
-        if (size > MAX_MOOV_BYTES || offset + size > total) throw new Error("mp4 moov atom is too large or cut short");
-        const moov = Buffer.alloc(size);
-        const read = await handle.read(moov, 0, size, offset);
-        if (read.bytesRead < size) throw new Error("mp4 moov atom is cut short");
-        return probeMp4Bytes(moov);
-      }
-      offset += size;
-    }
+    const { size } = await handle.stat();
+    return await probeMp4Reader({
+      size,
+      async read(start, length) {
+        const buf = Buffer.alloc(length);
+        const { bytesRead } = await handle.read(buf, 0, length, start);
+        return buf.subarray(0, bytesRead);
+      },
+    });
   } finally {
     await handle.close();
   }
-  throw new Error("mp4 has no moov atom");
 }
 
 async function fetchRange(url: string, start: number, end: number): Promise<{ buf: Buffer; total: number }> {

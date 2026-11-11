@@ -76,3 +76,27 @@ describe("restDriveApi.downloadTo", () => {
     }
   });
 });
+
+describe("restDriveApi.fetchMedia", () => {
+  it("sends the Range with the token in a header; the Response carries no token, and a failure names only status and reason", async () => {
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    let fail = false;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("oauth2")) return new Response(JSON.stringify({ access_token: "ya29.MEDIA-TOKEN", expires_in: 3600 }), { status: 200 });
+      seen.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
+      if (fail) return new Response(JSON.stringify({ error: { errors: [{ reason: "rateLimitExceeded" }] } }), { status: 403 });
+      return new Response(new Uint8Array(10), { status: 206, headers: { "content-range": "bytes 0-9/100" } });
+    }) as typeof fetch;
+    const drive = restDriveApi({ driveId: "D", serviceAccount: serviceAccount(), fetchImpl });
+    const res = await drive.fetchMedia!("file-9", { range: "bytes=0-9" });
+    assert.equal(res.status, 206);
+    assert.equal(seen[0]!.headers.Range, "bytes=0-9");
+    assert.equal(seen[0]!.headers.Authorization, "Bearer ya29.MEDIA-TOKEN");
+    assert.ok(!seen[0]!.url.includes("ya29"), "the token is a header, never in the URL");
+    fail = true;
+    const err = await drive.fetchMedia!("file-9").then(() => null, (e: Error) => e);
+    assert.match(String(err?.message), /HTTP 403 rateLimitExceeded/);
+    assert.ok(!String(err?.message).includes("ya29"));
+  });
+});

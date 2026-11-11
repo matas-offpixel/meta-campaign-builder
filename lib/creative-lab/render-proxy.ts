@@ -118,7 +118,9 @@ async function runFfmpeg(bytes: Buffer, args: (input: string, output: string) =>
     const input = path.join(dir, "original");
     const output = path.join(dir, "proxy.mp4");
     await writeFile(input, bytes);
-    await promisify(execFile)(ffmpeg, args(input, output), { maxBuffer: 4 * 1024 * 1024 });
+    await promisify(execFile)(ffmpeg, args(input, output), { maxBuffer: 4 * 1024 * 1024 }).catch((err: unknown) => {
+      throw ffmpegFailure(err);
+    });
     return await readFile(output);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -143,9 +145,70 @@ export class ProxyOverLimit extends Error {
   }
 }
 
+/** The stored line for a failed import is cut here (cron_runs detail, the pickup's errors). */
+export const FAILURE_REASON_MAX = 300;
+
+/**
+ * ffmpeg's ways of saying the output disk is full (11 Nov 2026, SWEELY 1.mp4:
+ * "[vost#0:0/libx264 @ …] Error submitting a packet to the muxer: No space
+ * left on device"; the macOS build says "No space left on device" beside
+ * "Error muxing a packet").
+ */
+const NO_SPACE = /ENOSPC|No space left on device|Error submitting a packet/i;
+/** A stderr line that names the failure. */
+const CAUSE = /error|invalid|fail|no such|denied|not found|space|unable|could not|cannot/i;
+
+/** Removes URLs, Authorization / Bearer values, and query-string keys and tokens from text that may be stored or logged. */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/(authorization\s*[:=]\s*)(bearer\s+)?[^\s"',]+/gi, "$1[redacted]")
+    .replace(/bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/[a-z][a-z0-9+.-]*:\/\/[^\s"']+/gi, "[url]")
+    .replace(/([?&](?:access_token|token|key|sig|signature)=)[^&\s]+/gi, "$1[redacted]");
+}
+
+/** A failed ffmpeg run, with the useful part first: ffmpeg's own message, never the command line. */
+export class FfmpegFailed extends Error {
+  /** The output disk filled up. */
+  readonly noSpace: boolean;
+  constructor(message: string, noSpace: boolean) {
+    super(message);
+    this.name = "FfmpegFailed";
+    this.noSpace = noSpace;
+  }
+}
+
+/**
+ * execFile's error says "Command failed: {the whole command}\n{stderr}", and
+ * the stored reason was cut at 300 characters inside the command line. This
+ * keeps ffmpeg's last stderr lines, the ones naming the failure first, drops the command,
+ * redacts URLs and credentials, and caps the length.
+ */
+export function ffmpegFailure(err: unknown): FfmpegFailed {
+  const e = (err ?? {}) as { message?: string; stderr?: string | Buffer; code?: string | number; signal?: string | null };
+  const message = String(e.message ?? "");
+  const stderr = e.stderr != null && String(e.stderr).trim() ? String(e.stderr) : message.split("\n").slice(1).join("\n");
+  const lines = stderr
+    .split("\n")
+    .map((line) => line.replace(/^\s*\[[^\]]*@\s*0x[0-9a-f]+\]\s*/i, "").trim())
+    .filter(Boolean);
+  const noSpace = e.code === "ENOSPC" || NO_SPACE.test(stderr) || NO_SPACE.test(message);
+  // The lines that say what went wrong first, in ffmpeg's order; each capped so one long line can't crowd out the cause.
+  const tail = lines.slice(-4);
+  const telling = tail.filter((line) => CAUSE.test(line));
+  const ranked = [...telling, ...tail.filter((line) => !CAUSE.test(line))].map((line) => (line.length > 140 ? `${line.slice(0, 139)}…` : line));
+  const cause = e.signal ? `killed by ${e.signal}` : ranked.length ? ranked.join(" · ") : `exit ${String(e.code ?? "unknown")}`;
+  const text = redactSecrets(`ffmpeg: ${cause}`).replace(/\s+/g, " ").trim();
+  return new FfmpegFailed(text.length > FAILURE_REASON_MAX ? `${text.slice(0, FAILURE_REASON_MAX - 1)}…` : text, noSpace);
+}
+
 async function execFfmpeg(args: string[]): Promise<void> {
   const ffmpeg = await ffmpegStaticPath();
-  await promisify(execFile)(ffmpeg, args, { maxBuffer: 4 * 1024 * 1024 });
+  try {
+    await promisify(execFile)(ffmpeg, args, { maxBuffer: 4 * 1024 * 1024 });
+  } catch (err) {
+    throw ffmpegFailure(err);
+  }
 }
 
 /** ffmpeg file to file, at the proxy size. */

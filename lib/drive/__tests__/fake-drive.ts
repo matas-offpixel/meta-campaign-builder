@@ -15,7 +15,9 @@ export type FakeDrive = DriveApi & {
   /** Next shareReader throws this. */
   refuseShare: DriveApiError | null;
   /** A file put in the drive by someone else (an operator dropping a clip). */
-  drop(parentId: string, name: string, opts?: { mimeType?: string; appProperties?: Record<string, string>; bytes?: Uint8Array }): DriveFile;
+  drop(parentId: string, name: string, opts?: { mimeType?: string; appProperties?: Record<string, string>; bytes?: Uint8Array; size?: number }): DriveFile;
+  /** Next fetchMedia throws this. */
+  failMedia: Error | null;
   trash(fileId: string): void;
   pathOf(id: string): string;
   childrenNamed(path: string): string[];
@@ -40,8 +42,9 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
     pageSize: 100,
     permissions: new Map(),
     refuseShare: null,
+    failMedia: null,
     drop(parentId, name, opts = {}) {
-      return add({ id: `d${next++}`, name, mimeType: opts.mimeType ?? "video/mp4", parents: [parentId], appProperties: opts.appProperties, bytes: opts.bytes ?? new Uint8Array([9]), size: 1 });
+      return add({ id: `d${next++}`, name, mimeType: opts.mimeType ?? "video/mp4", parents: [parentId], appProperties: opts.appProperties, bytes: opts.bytes ?? new Uint8Array([9]), size: opts.size ?? 1 });
     },
     trash(fileId) {
       const file = files.get(fileId)!;
@@ -58,6 +61,22 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
       const file = files.get(fileId);
       if (!file) throw new Error("Drive download failed: HTTP 404 notFound");
       return file.bytes ?? new Uint8Array();
+    },
+    async fetchMedia(fileId, opts = {}) {
+      calls.push(`fetchMedia ${fileId}${opts.range ? ` ${opts.range}` : ""}`);
+      if (self.failMedia) throw self.failMedia;
+      const file = files.get(fileId);
+      if (!file) throw new Error("Drive download failed: HTTP 404 notFound");
+      const bytes = file.bytes ?? new Uint8Array();
+      const m = opts.range ? /^bytes=(\d+)-(\d*)$/.exec(opts.range) : null;
+      if (!m) return new Response(bytes.slice(), { status: 200, headers: { "content-length": String(bytes.byteLength), "accept-ranges": "bytes" } });
+      const start = Number(m[1]);
+      const end = Math.min(m[2] ? Number(m[2]) : bytes.byteLength - 1, bytes.byteLength - 1);
+      if (start >= bytes.byteLength) return new Response(null, { status: 416 });
+      return new Response(bytes.slice(start, end + 1), {
+        status: 206,
+        headers: { "content-length": String(end - start + 1), "content-range": `bytes ${start}-${end}/${bytes.byteLength}` },
+      });
     },
     async downloadTo(fileId, filePath) {
       calls.push(`downloadTo ${fileId}`);
