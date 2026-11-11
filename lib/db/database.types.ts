@@ -2979,11 +2979,12 @@ export type Database = {
           content_hash: string
           created_at: string
           duration_seconds: number | null
+          drive_file_id: string | null
           filename: string
           id: string
           media_kind: string
           storage_bucket: string
-          storage_path: string
+          storage_path: string | null
           thumbnail_url: string | null
           user_id: string
         }
@@ -2993,11 +2994,12 @@ export type Database = {
           content_hash: string
           created_at?: string
           duration_seconds?: number | null
+          drive_file_id?: string | null
           filename: string
           id?: string
           media_kind: string
           storage_bucket?: string
-          storage_path: string
+          storage_path?: string | null
           thumbnail_url?: string | null
           user_id: string
         }
@@ -3007,11 +3009,12 @@ export type Database = {
           content_hash?: string
           created_at?: string
           duration_seconds?: number | null
+          drive_file_id?: string | null
           filename?: string
           id?: string
           media_kind?: string
           storage_bucket?: string
-          storage_path?: string
+          storage_path?: string | null
           thumbnail_url?: string | null
           user_id?: string
         }

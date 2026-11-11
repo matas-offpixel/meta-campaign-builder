@@ -43,7 +43,10 @@ export interface CreativeAssetRow {
   aspectRatio: RegistryAspect;
   durationSeconds: number | null;
   storageBucket: string;
+  /** "" for an original kept in Drive (migration 228: storage_path null, drive_file_id set). */
   storagePath: string;
+  /** The Drive file holding the original when it isn't in Storage (migration 228), else null. */
+  driveFileId?: string | null;
   thumbnailUrl: string | null;
   createdAt: string;
 }
@@ -135,7 +138,8 @@ export function rowToCreativeAsset(row: Record<string, unknown>): CreativeAssetR
     durationSeconds:
       typeof row.duration_seconds === "number" ? row.duration_seconds : null,
     storageBucket: String(row.storage_bucket ?? "campaign-assets"),
-    storagePath: String(row.storage_path),
+    storagePath: typeof row.storage_path === "string" ? row.storage_path : "",
+    driveFileId: typeof row.drive_file_id === "string" && row.drive_file_id ? row.drive_file_id : null,
     thumbnailUrl: typeof row.thumbnail_url === "string" ? row.thumbnail_url : null,
     createdAt: String(row.created_at ?? ""),
   };
@@ -240,7 +244,9 @@ export async function upsertRegisteredAsset(
     aspectRatio: RegistryAspect;
     durationSeconds?: number | null;
     storageBucket: string;
-    storagePath: string;
+    /** Null only with driveFileId: an original kept in Drive (migration 228). */
+    storagePath: string | null;
+    driveFileId?: string | null;
     thumbnailUrl?: string | null;
     existingId?: string;
   },
@@ -248,6 +254,7 @@ export async function upsertRegisteredAsset(
   | { ok: true; asset: CreativeAssetRow; created: boolean }
   | { ok: false; tableMissing: boolean; error: string }
 > {
+  if (!input.storagePath && !input.driveFileId) return { ok: false, tableMissing: false, error: "an asset needs a storage_path or a drive_file_id" };
   const existing = await findAssetByFingerprint(supabase, input.userId, input.identity);
   if (!existing.ok) return existing;
   if (existing.asset) {
@@ -264,7 +271,8 @@ export async function upsertRegisteredAsset(
     aspect_ratio: input.aspectRatio,
     duration_seconds: input.durationSeconds ?? null,
     storage_bucket: input.storageBucket,
-    storage_path: input.storagePath,
+    storage_path: input.storagePath || null,
+    ...(input.driveFileId ? { drive_file_id: input.driveFileId } : {}),
     thumbnail_url: input.thumbnailUrl ?? null,
   };
   const insert = asClient(supabase)
