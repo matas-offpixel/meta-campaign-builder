@@ -3,6 +3,10 @@
  * stored page token (drive_change_cursors, migration 219) and, for each new
  * file:
  *
+ *   An original over the campaign-assets cap (200 MB) isn't stored: only its
+ *   1080 render copy is, and the original is recorded with its Drive file id
+ *   (migration 228) — Drive keeps the master.
+ *
  *   - under an event's 02 Source / Artist clips / {artist} → the existing
  *     folder import (importArtistClips: dedupe by Drive file id and sha256,
  *     the 30 s trim; nothing about it changes) as that artist's clip on that
@@ -89,6 +93,8 @@ export function folderImport(db: ServiceRoleDb, deps: Pick<Parameters<typeof imp
         list: async () => [{ sourceFileId: file.id, name: file.name, size: file.size ?? 0 }],
         download: async () => Buffer.from(await download()),
       },
+      // Migration 228: an original over the storage cap stays in Drive; only its 1080 render copy is stored.
+      driveMaster: () => file.id,
     });
 }
 
@@ -242,6 +248,8 @@ export async function runDrivePickup(
           list: async () => [{ sourceFileId: file.id, name: file.name, size: file.size ?? 0 }],
           download: async () => Buffer.from(await drive.download(file.id)),
         },
+        // Migration 228: an original over the storage cap stays in Drive; only its 1080 render copy is stored.
+        driveMaster: () => file.id,
       });
       for (const row of imported.files) {
         result.clips.push({ fileId: file.id, name: row.name, eventId: event.id, artist: "promoter", outcome: row.outcome, reason: row.reason });

@@ -528,6 +528,8 @@ export async function loadCreativeLabCard(
     })),
     clips: clipRows.map((row) => {
       const asset = assetOf.get(text(row, "creative_asset_id"));
+      // Migration 228: an original kept in Drive has no storage_path; the tile previews and plays its 1080 render copy.
+      const playable = text(asset, "storage_path") ? asset : assetOf.get(text(row, "render_asset_id")) ?? asset;
       const fileSeconds = asset?.duration_seconds == null || asset.duration_seconds === "" ? null : Number(asset.duration_seconds);
       const storedIn = row.in_s == null || row.in_s === "" ? null : Number(row.in_s);
       const storedOut = row.out_s == null || row.out_s === "" ? null : Number(row.out_s);
@@ -568,10 +570,10 @@ export async function loadCreativeLabCard(
         sourceHeight: null,
         billingOrder: bill >= 0 ? bill : Number.MAX_SAFE_INTEGER,
         isHeadliner: line?.isHeadliner === true,
-        thumbnailUrl: text(renderedAsset, "thumbnail_url") || text(asset, "thumbnail_url") || null,
-        storagePath: text(asset, "storage_path") || null,
+        thumbnailUrl: text(renderedAsset, "thumbnail_url") || text(asset, "thumbnail_url") || text(playable, "thumbnail_url") || null,
+        storagePath: text(playable, "storage_path") || null,
         previewUrl: null,
-        hasFile: Boolean(text(asset, "storage_path")),
+        hasFile: Boolean(text(playable, "storage_path")),
         artistName: text(artist, "name") || text(clientAccount.data as Row | null, "name") || "Clip",
         owner: row.owner === "promoter" || row.owner === "artist" ? row.owner : undefined,
         featuredArtistIds: featuresByClip.get(text(row, "id")) ?? [],
@@ -593,7 +595,9 @@ export async function loadCreativeLabCard(
     }),
     renders: renderRows.map((row) => {
       const clip = clipRows.find((item) => text(item, "id") === text(row, "clip_id"));
-      const clipAsset = clip ? assetOf.get(text(clip, "creative_asset_id")) : undefined;
+      const clipOriginal = clip ? assetOf.get(text(clip, "creative_asset_id")) : undefined;
+      // Migration 228: a Drive-master original carries no URLs; its render copy does.
+      const clipAsset = clip && !text(clipOriginal, "storage_path") ? assetOf.get(text(clip, "render_asset_id")) ?? clipOriginal : clipOriginal;
       const artist = artists.find((item) => text(item, "id") === text(clip ?? null, "artist_id"));
       const caption = captions.find((item) => text(item, "id") === text(row, "caption_id"));
       const asset = assetOf.get(text(row, "creative_asset_id"));
@@ -707,7 +711,9 @@ export async function loadCreativeLabCard(
           ads: ads.map((ad) => {
             const launch = launchRows.find((row) => text(row, "round_ad_id") === text(ad, "id"));
             const clip = clipRows.find((row) => text(row, "id") === text(ad, "clip_id"));
-            const asset = assetOf.get(text(clip, "creative_asset_id"));
+            const original = assetOf.get(text(clip, "creative_asset_id"));
+            // Migration 228: a Drive-master original has no thumbnail; its render copy may.
+            const asset = text(original, "storage_path") ? original : assetOf.get(text(clip, "render_asset_id")) ?? original;
             const account = text(launch, "ad_account_id").replace(/^act_/, "");
             const metaAdId = text(launch, "meta_ad_id") || null;
             return {

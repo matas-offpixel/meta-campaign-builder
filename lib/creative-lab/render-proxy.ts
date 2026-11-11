@@ -141,8 +141,33 @@ export async function attachRenderProxy(
     return { assetId: linked, storagePath: String((asset.data as Row | null)?.storage_path ?? ""), size, created: false };
   }
 
+  const stored = await storeRenderProxy(db, { ...args, size });
+  const updated = await db.from("creative_lab_clips").update({ render_asset_id: stored.assetId }).eq("id", args.clipId);
+  if (updated.error) throw new Error(updated.error.message);
+  return { ...stored, created: true };
+}
+
+/**
+ * Makes, stores and registers the proxy, without linking it to a clip.
+ * The Drive-master import (migration 228) calls it before the clip row
+ * exists, so the clip is inserted with render_asset_id already set; a
+ * failure then leaves no clip behind.
+ */
+export async function storeRenderProxy(
+  db: ServiceRoleDb,
+  args: {
+    userId: string;
+    artistId: string;
+    name: string;
+    original: Buffer;
+    size: ProxySize;
+    durationSeconds: number | null;
+    make?: RenderProxyMaker;
+    upload: (storagePath: string, bytes: Buffer, contentType: string) => Promise<void>;
+  },
+): Promise<{ assetId: string; storagePath: string; size: ProxySize }> {
   const make = args.make ?? makeRenderProxy;
-  const proxy = await make(args.original, size);
+  const proxy = await make(args.original, args.size);
   const storagePath = proxyStoragePath(args.artistId, fingerprintBytes(args.original).contentHash);
   await args.upload(storagePath, proxy, "video/mp4");
   const base = args.name.replace(/\.[^.]+$/, "");
@@ -151,13 +176,11 @@ export async function attachRenderProxy(
     identity: fingerprintBytes(proxy),
     filename: `${base} (1080 proxy).mp4`,
     mediaKind: "video",
-    aspectRatio: snapRatio(size.width, size.height),
+    aspectRatio: snapRatio(args.size.width, args.size.height),
     durationSeconds: args.durationSeconds,
     storageBucket: BUCKET,
     storagePath,
   });
   if (!registered.ok) throw new Error(registered.error);
-  const updated = await db.from("creative_lab_clips").update({ render_asset_id: registered.asset.id }).eq("id", args.clipId);
-  if (updated.error) throw new Error(updated.error.message);
-  return { assetId: registered.asset.id, storagePath, size, created: true };
+  return { assetId: registered.asset.id, storagePath, size: args.size };
 }

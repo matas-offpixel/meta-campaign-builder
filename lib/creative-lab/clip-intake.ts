@@ -16,12 +16,20 @@ import { uploadToStorageBucket } from "../clients/asset-queue/storage-upload.ts"
 import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset, type RegistryAspect } from "../creatives/asset-registry.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { probeMp4Bytes } from "./mp4-probe.ts";
-import { attachRenderProxy, type RenderProxyMaker } from "./render-proxy.ts";
+import { attachRenderProxy, renderProxySize, storeRenderProxy, type RenderProxyMaker } from "./render-proxy.ts";
 
 const BUCKET = "campaign-assets";
 const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "webm"]);
 const CLIP_SOURCES = new Set(["spark", "file", "instagram", "presskit"]);
 const TRIM_SECONDS = 30;
+/** The campaign-assets bucket's cap a file (MAX_SINGLE_FILE_BYTES in asset-queue/drive.ts and dropbox.ts). */
+export const MAX_STORED_BYTES = 200 * 1024 * 1024;
+
+export const DRIVE_MASTER_LINES = {
+  notInDrive: "Over the 200 MB storage cap — put it in the event's Drive folder and it imports from there, the original kept in Drive",
+  noCopy: "Over the 200 MB storage cap, and its 9:16 crop is already 1080 or under, so there's no smaller copy to store — trim it before it goes in",
+  copyOff: "Over the 200 MB storage cap, and the render copy is switched off for this import",
+} as const;
 
 type Row = Record<string, unknown>;
 
@@ -64,6 +72,8 @@ export type ImportedClip = {
   storagePath: string;
   /** The 1080 render proxy's path when one was made, else null. Renders and the text check read it. */
   renderStoragePath: string | null;
+  /** Set when the original stayed in Drive (over the cap, migration 228): its Drive file id. storagePath is then "". */
+  driveFileId?: string | null;
   durationSeconds: number | null;
   inS: number | null;
   outS: number | null;
@@ -200,6 +210,16 @@ export async function importArtistClips(
      * skips it. A failure leaves the clip imported on its original.
      */
     renderProxy?: RenderProxyMaker | false;
+    /**
+     * Migration 228: for a file read from Drive, its Drive file id. An original
+     * over the storage cap is then not uploaded: only its 1080 render copy is
+     * stored, and the original is recorded as a creative_assets row with
+     * drive_file_id and no storage_path — Drive keeps the master. Without it
+     * an over-cap file fails with a line saying so.
+     */
+    driveMaster?: (file: ClipFolderFile) => string | null;
+    /** The cap a stored original may reach. Defaults to MAX_STORED_BYTES (tests pass a small one). */
+    maxStoredBytes?: number;
   },
 ): Promise<ClipImportResult> {
   const promoter = args.asPromoter ?? null;
@@ -291,8 +311,32 @@ export async function importArtistClips(
       const aspect: RegistryAspect = measured
         ? snapRatio(measured.width, measured.height)
         : resolveRegistryAspect({ filename: name, probed: "other" });
-      const storagePath = `videos/creative-lab/${promoter ? `promoter/${args.eventId ?? "event"}` : args.artistId}/${identity.contentHash}.${ext}`;
-      await upload(storagePath, bytes, contentType(ext));
+      // Migration 228: over the cap, the original stays in Drive and only its 1080 render copy is stored.
+      const overCap = bytes.byteLength > (args.maxStoredBytes ?? MAX_STORED_BYTES);
+      let driveFileId: string | null = null;
+      let copy: { assetId: string; storagePath: string } | null = null;
+      if (overCap) {
+        driveFileId = args.driveMaster ? args.driveMaster(file) : null;
+        const copySize = measured ? renderProxySize(measured.width, measured.height) : null;
+        const reason = !driveFileId ? DRIVE_MASTER_LINES.notInDrive : !copySize ? DRIVE_MASTER_LINES.noCopy : args.renderProxy === false ? DRIVE_MASTER_LINES.copyOff : null;
+        if (reason) {
+          files.push({ name, size, outcome: "failed", reason });
+          continue;
+        }
+        // The copy first: if it fails, no clip row is left without something to render.
+        copy = await storeRenderProxy(db, {
+          userId,
+          artistId: args.artistId ?? "promoter",
+          name,
+          original: bytes,
+          size: copySize!,
+          durationSeconds: duration,
+          make: args.renderProxy || undefined,
+          upload,
+        });
+      }
+      const storagePath = overCap ? "" : `videos/creative-lab/${promoter ? `promoter/${args.eventId ?? "event"}` : args.artistId}/${identity.contentHash}.${ext}`;
+      if (!overCap) await upload(storagePath, bytes, contentType(ext));
       const registered = await upsertRegisteredAsset(db, {
         userId,
         identity,
@@ -300,8 +344,9 @@ export async function importArtistClips(
         mediaKind: "video",
         aspectRatio: aspect,
         durationSeconds: duration,
-        storageBucket: BUCKET,
-        storagePath,
+        storageBucket: overCap ? "drive" : BUCKET,
+        storagePath: overCap ? null : storagePath,
+        driveFileId,
       });
       if (!registered.ok) throw new Error(registered.error);
       const trimmed = duration != null && duration > TRIM_SECONDS;
@@ -321,6 +366,7 @@ export async function importArtistClips(
         source_file_id: file.sourceFileId,
         in_s: trimmed ? 0 : null,
         out_s: trimmed ? TRIM_SECONDS : null,
+        ...(copy ? { render_asset_id: copy.assetId } : {}),
       }).select("id");
       if (inserted.error) {
         if (/duplicate|unique/i.test(inserted.error.message)) {
@@ -335,8 +381,8 @@ export async function importArtistClips(
       imported += 1;
       const clipId = text(((inserted.data ?? []) as Row[])[0], "id");
       const notes: string[] = trimmed ? ["trimmed to 30 s"] : [];
-      let renderStoragePath: string | null = null;
-      if (args.renderProxy !== false && clipId && measured) {
+      let renderStoragePath: string | null = copy?.storagePath ?? null;
+      if (!copy && args.renderProxy !== false && clipId && measured) {
         try {
           const proxy = await attachRenderProxy(db, {
             clipId,
@@ -364,6 +410,7 @@ export async function importArtistClips(
             name,
             storagePath,
             renderStoragePath,
+            driveFileId,
             durationSeconds: duration,
             inS: trimmed ? 0 : null,
             outS: trimmed ? TRIM_SECONDS : null,
