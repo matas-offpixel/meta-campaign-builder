@@ -311,7 +311,13 @@ REMOTION_LAMBDA_SERVE_URL=
 > 9 Nov 2026, renames on a rename or re-date, makes the on-sale `w/c {d Mon}`
 > folder (payday-week Monday and a fortnight later, from `lib/creative-lab/payday.ts`),
 > marks cancelled events, files approved round renders (`drive_status`, migration
-> 218) and marks judged winners. Launch reads Storage, never Drive. Older events:
+> 218) and marks judged winners. Since 11 Nov 2026 (record `2026-11-11-creative-lab-drive-owner-type`)
+> every filing stage (Teaser, Announcement, Presale live, Reminders, each w/c, 4 Show week)
+> takes `{owner} / Videos | Statics`: the owner is the render's footage owner
+> (`creative_lab_clips.owner`, migration 226) under the lineup name, or the client's name
+> (`{Client} (promoter)` on a clash); the type is `creative_lab_renders.kind`. Owner and type
+> folders are made on first filing (`lib/drive/owner.ts`, `ensureRouteFolder`); new cycles are
+> made empty. `scripts/drive-owner-type-migrate.mts` did the one-off move of hand-made folders. Launch reads Storage, never Drive. Older events:
 > `scripts/backfill-drive-tree.mts` (dry-run by default, `--apply`, `--event CODE`).
 > Drive → app is `/api/cron/creative-lab-drive-pickup` (every 15 min, `lib/drive/pickup.ts`):
 > the drive's changes feed from the token in `drive_change_cursors` (migration 219). New

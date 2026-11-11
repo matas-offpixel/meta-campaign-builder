@@ -17,6 +17,7 @@ import {
 
 const P26 = { name: "Puzzle 4th Birthday", event_date: "2026-12-27", event_code: "P26-BDAY" };
 const fortnightly = fortnightlyFrom("2026-11-02");
+const ENZO = { kind: "artist" as const, artistId: "lab-enzo", name: "Enzo Siragusa" };
 
 describe("tree paths (S13, S18)", () => {
   it("names the event folder with the date and the code verbatim", () => {
@@ -28,7 +29,7 @@ describe("tree paths (S13, S18)", () => {
 
   it("has every S18 folder, parent before child, no w/c folders up front", () => {
     const names = EVENT_TREE.map((spec) => spec.name);
-    for (const name of ["00 Brief & admin", "01 Open files", "02 Source", "Artist clips", "Press kits", "Venue & crowd", "03 Creatives", "1 Signup", "Teaser", "Artist", "Promoter", "Experience", "Announcement", "2 Presale", "Presale live", "Reminders", "3 On sale", "4 Show week", "04 D2C", "05 Reports", "06 Post-event", "_Winners"]) {
+    for (const name of ["00 Brief & admin", "01 Open files", "02 Source", "Artist clips", "Press kits", "Venue & crowd", "03 Creatives", "1 Signup", "Teaser", "Announcement", "2 Presale", "Presale live", "Reminders", "3 On sale", "4 Show week", "04 D2C", "05 Reports", "06 Post-event", "_Winners"]) {
       assert.ok(names.includes(name), name);
     }
     const seen = new Set(["event"]);
@@ -37,6 +38,8 @@ describe("tree paths (S13, S18)", () => {
       seen.add(spec.key);
     }
     assert.ok(!EVENT_TREE.some((spec) => spec.key.includes("/wc/")));
+    // D4: Teaser has no voice children; owner folders come with the first filing.
+    for (const gone of ["Artist", "Promoter", "Experience", "UGC", "Ticket warnings", "Content"]) assert.ok(!names.includes(gone), gone);
   });
 
   it("names a cycle w/c {d Mon}", () => {
@@ -60,7 +63,7 @@ describe("w/c cadence (HS13)", () => {
       if (day >= "2026-12-21") assert.equal(monday, null, day);
     }
     assert.deepEqual(due, ["2026-11-02", "2026-11-16", "2026-11-30", "2026-12-14"]);
-    assert.equal(routeRender({ stage: "on-sale", angle: "lineup", today: "2026-12-21", eventDate: "2026-12-27", calendar: fortnightly }).key, "03/4");
+    assert.equal(routeRender({ stage: "on-sale", today: "2026-12-21", eventDate: "2026-12-27", calendar: fortnightly, owner: ENZO, kind: "video" }).stageKey, "03/4");
   });
 
   it("creates nothing before on sale", () => {
@@ -78,20 +81,12 @@ describe("w/c cadence (HS13)", () => {
 });
 
 describe("routing (S20) and the file name (S14)", () => {
-  it("Enzo #1 × caption 2, on sale, round 1, ready 17 Nov", () => {
-    const route = routeRender({ stage: "on-sale", angle: "lineup", today: "2026-11-17", eventDate: "2026-12-27", calendar: fortnightly });
-    assert.equal(route.key, "03/3/wc/2026-11-16/ugc");
+  it("Enzo #1 × caption 2, on sale, round 1, ready 17 Nov: w/c 16 Nov / Enzo Siragusa / Videos, S14 name unchanged", () => {
+    const route = routeRender({ stage: "on-sale", today: "2026-11-17", eventDate: "2026-12-27", calendar: fortnightly, owner: ENZO, kind: "video" });
+    assert.equal(route.key, "03/3/wc/2026-11-16/owner/artist:lab-enzo/videos");
+    assert.deepEqual([route.owner.name, route.type.name], ["Enzo Siragusa", "Videos"]);
     const name = renderFileName({ eventCode: "P26-BDAY", artistName: "Enzo Siragusa", clipNo: 1, angle: "lineup", captionNo: 2, stage: "on-sale", roundNo: 1, aspect: "9:16" });
     assert.equal(name, "P26-BDAY_enzo-siragusa-1_lineup2-on-sale_r1_9x16.mp4");
-  });
-
-  it("signup splits by voice", () => {
-    const at = { today: "2026-10-10", eventDate: "2026-12-27", calendar: fortnightly };
-    assert.equal(routeRender({ ...at, stage: "signup", angle: "quote" }).key, "03/1/teaser/artist");
-    assert.equal(routeRender({ ...at, stage: "signup", angle: "artist-first-person" }).key, "03/1/teaser/artist");
-    assert.equal(routeRender({ ...at, stage: "signup", angle: "lineup" }).key, "03/1/teaser/promoter");
-    assert.equal(routeRender({ ...at, stage: "signup", angle: "pov" }).key, "03/1/teaser/promoter");
-    assert.equal(routeRender({ ...at, stage: "signup", angle: "scarcity" }).key, "03/1/teaser/promoter");
   });
 
   it("never overwrites: a second file of that name is _v2", () => {

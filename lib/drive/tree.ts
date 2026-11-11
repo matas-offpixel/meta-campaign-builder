@@ -38,9 +38,17 @@ export function clientSpecs(client: { name: string }): FolderSpec[] {
   ];
 }
 
+export const TEASER_KEY = "03/1/teaser";
+export const ANNOUNCEMENT_KEY = "03/1/announcement";
+export const PRESALE_LIVE_KEY = "03/2/presale-live";
+export const REMINDERS_KEY = "03/2/reminders";
+
 /**
  * Every event folder but the w/c ones, names verbatim from S18. Order is
  * parent before child. {artist} folders are made per artist, not here.
+ * Teaser has no voice children any more (D4, 2026-11-11 record): the owner
+ * and type folders under every filing stage are made on first filing (D5).
+ * Artist / Promoter / Experience folders made before then stay where they are.
  */
 export const EVENT_TREE: readonly FolderSpec[] = [
   { key: "00", parent: EVENT_KEY, name: "00 Brief & admin", level: "event" },
@@ -51,14 +59,11 @@ export const EVENT_TREE: readonly FolderSpec[] = [
   { key: "02/venue-crowd", parent: "02", name: "Venue & crowd", level: "event" },
   { key: "03", parent: EVENT_KEY, name: "03 Creatives", level: "event" },
   { key: "03/1", parent: "03", name: "1 Signup", level: "event" },
-  { key: "03/1/teaser", parent: "03/1", name: "Teaser", level: "event" },
-  { key: "03/1/teaser/artist", parent: "03/1/teaser", name: "Artist", level: "event" },
-  { key: "03/1/teaser/promoter", parent: "03/1/teaser", name: "Promoter", level: "event" },
-  { key: "03/1/teaser/experience", parent: "03/1/teaser", name: "Experience", level: "event" },
-  { key: "03/1/announcement", parent: "03/1", name: "Announcement", level: "event" },
+  { key: TEASER_KEY, parent: "03/1", name: "Teaser", level: "event" },
+  { key: ANNOUNCEMENT_KEY, parent: "03/1", name: "Announcement", level: "event" },
   { key: "03/2", parent: "03", name: "2 Presale", level: "event" },
-  { key: "03/2/presale-live", parent: "03/2", name: "Presale live", level: "event" },
-  { key: "03/2/reminders", parent: "03/2", name: "Reminders", level: "event" },
+  { key: PRESALE_LIVE_KEY, parent: "03/2", name: "Presale live", level: "event" },
+  { key: REMINDERS_KEY, parent: "03/2", name: "Reminders", level: "event" },
   { key: ON_SALE_KEY, parent: "03", name: "3 On sale", level: "event" },
   { key: SHOW_WEEK_KEY, parent: "03", name: "4 Show week", level: "event" },
   { key: "04", parent: EVENT_KEY, name: "04 D2C", level: "event" },
@@ -126,11 +131,12 @@ export function cycleKey(monday: string): FolderKey {
   return `${ON_SALE_KEY}/wc/${monday}`;
 }
 
-export const CYCLE_CHILDREN = [
-  { slug: "ugc", name: "UGC" },
-  { slug: "ticket-warnings", name: "Ticket warnings" },
-  { slug: "content", name: "Content" },
-] as const;
+/**
+ * A new w/c {d Mon} is made empty (D3). UGC · Ticket warnings · Content were
+ * retired on 11 Nov 2026; the ones already made stay where they are, and the
+ * owner folders go straight under the cycle.
+ */
+export const CYCLE_CHILDREN: readonly { slug: string; name: string }[] = [];
 
 export function cycleSpecs(monday: string): FolderSpec[] {
   const key = cycleKey(monday);
@@ -228,7 +234,7 @@ export function cycleDue(input: CycleInput): string | null {
   return cycleMondayFor(input.today, input.calendar);
 }
 
-// ─── Routing an approved render (S20) ────────────────────────────────────────
+// ─── Routing an approved render (S20, re-ruled by D4) ────────────────────────
 
 export type RenderStage = "signup" | "on-sale";
 
@@ -243,33 +249,123 @@ export function angleSlug(style: string, mode?: string | null): string {
   return style.trim().toLowerCase().replace(/_/g, "-");
 }
 
-const ARTIST_VOICE = new Set(["artist-first-person", "quote"]);
+// ─── Owner, then type (D1–D5, 2026-11-11-creative-lab-drive-owner-type) ─────
 
-export type RouteInput = {
+/**
+ * Who a filed piece belongs to (D2): one artist, under the name the Lab lineup
+ * gives them, or the promoter, under the client's name. Exactly one owner per
+ * render; a b2b lineup entry is one artist under its exact name.
+ */
+export type DriveOwner =
+  | { kind: "artist"; artistId: string; name: string }
+  | { kind: "promoter"; clientName: string; clash: boolean };
+
+export type DriveKind = "video" | "static";
+
+export const PROMOTER_SUFFIX = " (promoter)";
+
+/** The promoter owner. clash: an artist on the lineup has the client's name exactly (D1). */
+export function promoterOwner(clientName: string, lineupNames: readonly string[]): DriveOwner {
+  const name = clientFolderName({ name: clientName });
+  return { kind: "promoter", clientName: name, clash: lineupNames.includes(name) };
+}
+
+/** An artist's folder name: the lineup string as written — never trimmed, case-folded or normalised (D1, S22). */
+export function ownerFolderName(owner: DriveOwner): string {
+  if (owner.kind === "artist") {
+    if (!owner.name.trim()) throw new Error("artist has no name");
+    return owner.name;
+  }
+  return owner.clash ? `${owner.clientName}${PROMOTER_SUFFIX}` : owner.clientName;
+}
+
+/** {stage key}/owner/artist:{id} or {stage key}/owner/promoter (D5). Never a name. */
+export function ownerKey(stageKey: FolderKey, owner: Pick<DriveOwner, "kind"> & { artistId?: string }): FolderKey {
+  if (owner.kind === "artist") {
+    if (!owner.artistId) throw new Error("artist owner has no id");
+    return `${stageKey}/owner/artist:${owner.artistId}`;
+  }
+  return `${stageKey}/owner/promoter`;
+}
+
+export function typeKey(owner: FolderKey, kind: DriveKind): FolderKey {
+  return `${owner}/${kind === "video" ? "videos" : "statics"}`;
+}
+
+export function ownerSpec(stageKey: FolderKey, owner: DriveOwner): FolderSpec {
+  return { key: ownerKey(stageKey, owner), parent: stageKey, name: ownerFolderName(owner), level: "event" };
+}
+
+export function typeSpec(owner: FolderKey, kind: DriveKind): FolderSpec {
+  return { key: typeKey(owner, kind), parent: owner, name: kind === "video" ? "Videos" : "Statics", level: "event" };
+}
+
+/** A non-render piece goes by its file (D3): a video to Videos, an image to Statics, anything else nowhere. */
+export function kindForFile(file: { mimeType?: string | null; name?: string | null }): DriveKind | null {
+  const mime = (file.mimeType ?? "").toLowerCase();
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("image/")) return "static";
+  const ext = /\.([a-z0-9]+)$/i.exec(file.name ?? "")?.[1]?.toLowerCase();
+  if (ext && ["mp4", "mov", "webm", "m4v"].includes(ext)) return "video";
+  if (ext && ["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) return "static";
+  return null;
+}
+
+/** Every stage folder that takes {owner} / {type} (D4). _Winners and 04 D2C stay flat. */
+export function isFilingStage(key: FolderKey): boolean {
+  return [TEASER_KEY, ANNOUNCEMENT_KEY, PRESALE_LIVE_KEY, REMINDERS_KEY, SHOW_WEEK_KEY].includes(key) || /^03\/3\/wc\/\d{4}-\d{2}-\d{2}$/.test(key);
+}
+
+/** The parts of an owner or type key, for renames by key (D5). */
+export function parseOwnerKey(key: FolderKey): { stageKey: FolderKey; owner: { kind: "artist"; artistId: string } | { kind: "promoter" }; type: DriveKind | null } | null {
+  const match = /^(.+)\/owner\/(artist:([^/]+)|promoter)(?:\/(videos|statics))?$/.exec(key);
+  if (!match) return null;
+  return {
+    stageKey: match[1],
+    owner: match[3] ? { kind: "artist", artistId: match[3] } : { kind: "promoter" },
+    type: match[4] === "videos" ? "video" : match[4] === "statics" ? "static" : null,
+  };
+}
+
+export type StageInput = {
   stage: RenderStage;
-  angle: string;
   today: string;
   eventDate: string | null;
   calendar?: CycleCalendar;
 };
 
-/**
- * Where an approved render goes. Show week first: from its Monday every render
- * goes to 4 Show week. Signup splits by voice: artist-first-person and quote →
- * Teaser/Artist, every other angle → Teaser/Promoter. On sale → the current
- * cycle's UGC.
- */
-export function routeRender(input: RouteInput): { key: FolderKey; cycle: string | null } {
+/** The stage folder a Lab render files into (D4): show week first, then signup's Teaser, then this cycle. */
+export function stageFor(input: StageInput): { key: FolderKey; cycle: string | null } {
   const showWeek = showWeekMonday(input.eventDate);
   if (showWeek && input.today >= showWeek) return { key: SHOW_WEEK_KEY, cycle: null };
-  if (input.stage === "signup") {
-    return { key: ARTIST_VOICE.has(input.angle) ? "03/1/teaser/artist" : "03/1/teaser/promoter", cycle: null };
-  }
+  if (input.stage === "signup") return { key: TEASER_KEY, cycle: null };
   const monday = cycleMondayFor(input.today, input.calendar);
-  return { key: `${cycleKey(monday)}/ugc`, cycle: monday };
+  return { key: cycleKey(monday), cycle: monday };
 }
 
-/** Every key in the tree, parent first, for one cycle Monday or none. */
+export type RouteInput = StageInput & { owner: DriveOwner; kind: DriveKind };
+
+export type Route = {
+  /** The type folder the file lands in. */
+  key: FolderKey;
+  stageKey: FolderKey;
+  cycle: string | null;
+  owner: FolderSpec;
+  type: FolderSpec;
+};
+
+/**
+ * Where an approved render goes (D4's routing table): {stage} / {owner} /
+ * {Videos | Statics}. The voice split is gone; the owner is the footage's.
+ */
+export function routeRender(input: RouteInput): Route {
+  const stage = stageFor(input);
+  const owner = ownerSpec(stage.key, input.owner);
+  const type = typeSpec(owner.key, input.kind);
+  return { key: type.key, stageKey: stage.key, cycle: stage.cycle, owner, type };
+}
+
+/** Every key in the tree, parent first, for one cycle Monday or none. Owner and type keys need their owner's name: see routeRender. */
 export function specFor(key: FolderKey): FolderSpec | null {
   const fixed = EVENT_TREE.find((spec) => spec.key === key);
   if (fixed) return fixed;

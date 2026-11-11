@@ -10,12 +10,19 @@
  * Never overwrites: a name already in the folder gets _v2, _v3 (S14). A
  * re-render (creative_lab_renders.attempt moved on since the last copy) is
  * filed again under the next free name.
+ *
+ * Where (D4, 2026-11-11-creative-lab-drive-owner-type): {stage} / {owner} /
+ * {Videos | Statics}. The owner is the render's footage owner, read once at
+ * filing (D2), so a later owner correction moves nothing already filed. The
+ * type is creative_lab_renders.kind (D3). Owner and type folders are made by
+ * the first filing that needs them (D5).
  */
 
 import { RENDER_NOT_ON_EVENT } from "./panel.ts";
 import { APP_ID_KEY, APP_TAG_KEY, SHORTCUT_MIME, type DriveApi } from "./client.ts";
 import { rowById, rowsWhere, type DriveDb, type RowOf } from "./db.ts";
-import { ensureEventKey, emptyLog, type TreeLog } from "./folders.ts";
+import { ensureEventKey, ensureRouteFolder, emptyLog, type TreeLog } from "./folders.ts";
+import { resolveClipOwner } from "./owner.ts";
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import {
   WINNERS_KEY,
@@ -26,7 +33,9 @@ import {
   routeRender,
   winnerFileName,
   type CycleCalendar,
+  type DriveOwner,
   type FolderKey,
+  type Route,
 } from "./tree.ts";
 
 export type RenderRow = RowOf<"creative_lab_renders">;
@@ -43,7 +52,9 @@ export type FilingContext = {
   roundNo: number;
   caption: RowOf<"creative_lab_captions">;
   clip: RowOf<"creative_lab_clips">;
-  artist: RowOf<"creative_lab_artists">;
+  /** The clip's Lab artist; null for promoter footage. */
+  artist: RowOf<"creative_lab_artists"> | null;
+  owner: DriveOwner;
   event: RowOf<"events">;
   client: RowOf<"clients">;
   asset: RowOf<"creative_assets">;
@@ -52,6 +63,7 @@ export type FilingContext = {
 export type FilingPlan = {
   renderId: string;
   key: FolderKey;
+  route: Route;
   cycle: string | null;
   baseName: Parameters<typeof freeRenderFileName>[0];
   bucket: string;
@@ -86,8 +98,6 @@ export async function loadFilingContext(db: DriveDb, render: RenderRow): Promise
   if (!caption) return { skip: "no_caption" };
   const clip = await rowById(db, "creative_lab_clips", render.clip_id);
   if (!clip) return { skip: "no_clip" };
-  const artist = await rowById(db, "creative_lab_artists", clip.artist_id);
-  if (!artist) return { skip: "no_artist" };
   const event = await rowById(db, "events", caption.event_id ?? rounds[0].event_id);
   if (!event) return { skip: "no_event" };
   const client = await rowById(db, "clients", event.client_id);
@@ -95,9 +105,11 @@ export async function loadFilingContext(db: DriveDb, render: RenderRow): Promise
   if (isArchivedClientStatus(client.status)) return { skip: "archived_client" };
   if (isCancelled(event.status)) return { skip: "cancelled" };
   if (!event.drive_folder_id) return { skip: "no_tree" };
+  const resolved = await resolveClipOwner(db, clip, event, client);
+  if (!resolved) return { skip: "no_artist" };
   const asset = await rowById(db, "creative_assets", render.creative_asset_id);
   if (!asset?.storage_path) return { skip: "no_file" };
-  return { render, roundNo, caption, clip, artist, event, client, asset };
+  return { render, roundNo, caption, clip, artist: resolved.labArtist, owner: resolved.owner, event, client, asset };
 }
 
 function extensionOf(path: string): string {
@@ -117,16 +129,19 @@ function mimeFor(ext: string): string {
 export function planFiling(ctx: FilingContext, today: string, calendar?: CycleCalendar): FilingPlan {
   const stage = renderStage(ctx.event.status);
   const angle = angleSlug(String(ctx.caption.style), ctx.caption.mode);
-  const route = routeRender({ stage, angle, today, eventDate: ctx.event.event_date ?? null, calendar });
+  const kind = ctx.render.kind === "static" ? "static" : "video";
+  const route = routeRender({ stage, today, eventDate: ctx.event.event_date ?? null, calendar, owner: ctx.owner, kind });
   const path = String(ctx.asset.storage_path);
   const ext = extensionOf(path);
   return {
     renderId: String(ctx.render.id),
     key: route.key,
+    route,
     cycle: route.cycle,
     baseName: {
       eventCode: ctx.event.event_code ?? null,
-      artistName: String(ctx.artist.name),
+      // S14's {artist} is the footage's owner: the artist, or the client for promoter footage.
+      artistName: ctx.owner.kind === "artist" ? ctx.owner.name : ctx.owner.clientName,
       clipNo: Number(ctx.clip.clip_no),
       angle,
       captionNo: Number(ctx.caption.caption_no),
@@ -181,7 +196,7 @@ export async function fileRender(
   }
   try {
     const plan = planFiling(ctx, deps.today, deps.calendar);
-    const folderId = await ensureEventKey(db, drive, ctx.event, ctx.client, plan.key, deps.log ?? emptyLog());
+    const folderId = await ensureRouteFolder(db, drive, ctx.event, ctx.client, plan.route, deps.log ?? emptyLog());
     const taken = new Set((await drive.listChildren(folderId)).map((file) => file.name));
     const name = freeRenderFileName(plan.baseName, taken);
     const bytes = await deps.download(plan.bucket, plan.path);

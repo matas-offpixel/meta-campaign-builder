@@ -56,6 +56,12 @@ export interface DriveApi {
   uploadFile(args: { parentId: string; name: string; mimeType: string; bytes: Uint8Array; appProperties: Record<string, string> }): Promise<DriveFile>;
   createShortcut(args: { parentId: string; name: string; targetId: string; appProperties: Record<string, string> }): Promise<DriveFile>;
   update(fileId: string, patch: { name?: string; description?: string }): Promise<DriveFile>;
+  /**
+   * Move a file or folder: one PATCH with addParents / removeParents, so its id
+   * and any shared link stay the same. Never a copy, a rename or a delete.
+   * Optional: only the one-off owner/type move (scripts/drive-owner-type-migrate.mts) needs it.
+   */
+  moveFile?(fileId: string, fromParentId: string, toParentId: string): Promise<DriveFile>;
   /** One file's metadata, or null when it is gone or the account can't see it. */
   getFile(fileId: string): Promise<DriveFile | null>;
   download(fileId: string): Promise<Uint8Array>;
@@ -276,6 +282,12 @@ export function restDriveApi(opts: { driveId: string; serviceAccount: ServiceAcc
         { method: "PATCH", headers: json, body: JSON.stringify(patch) },
         "update",
       );
+      return toFile((await res.json()) as Record<string, unknown>);
+    },
+
+    async moveFile(fileId, fromParentId, toParentId) {
+      const params = new URLSearchParams({ addParents: toParentId, removeParents: fromParentId, supportsAllDrives: "true", fields: FILE_FIELDS });
+      const res = await call(`${API}/files/${encodeURIComponent(fileId)}?${params}`, { method: "PATCH", headers: json, body: "{}" }, "move");
       return toFile((await res.json()) as Record<string, unknown>);
     },
 

@@ -21,8 +21,9 @@ import { isArchivedClientStatus } from "../db/client-status.ts";
 import type { DriveApi } from "./client.ts";
 import { fileRender, markWinners, wantsFiling, type FileResult, type StorageDownload, type WinnerResult } from "./filing.ts";
 import { allRows, type DriveDb, type RowOf } from "./db.ts";
-import { emptyLog, ensureArtistFolders, ensureClientTree, ensureCycleFolder, ensureEventTree, markCancelled, type TreeLog } from "./folders.ts";
+import { emptyLog, ensureArtistFolders, ensureClientTree, ensureCycleFolder, ensureEventTree, markCancelled, renameOwnerFolders, type TreeLog } from "./folders.ts";
 import { loadLineupArtists } from "./lineup.ts";
+import { ownerNameResolver } from "./owner.ts";
 
 export { allRows } from "./db.ts";
 import { cycleDue, isCancelled, londonToday, type CycleCalendar } from "./tree.ts";
@@ -109,6 +110,8 @@ export async function runDriveTick(
       await ensureEventTree(db, drive, event, client, log);
       // Artist clips/{artist} for each lineup artist (S22): made with the tree, and again when the lineup changes.
       await ensureArtistFolders(db, drive, event, client, await loadLineupArtists(db, event.id), log);
+      // Owner folders follow a Lab or client rename, in every stage and cycle (D5). Map-only unless a name changed.
+      await renameOwnerFolders(db, drive, event, client, await ownerNameResolver(db, event, client), log);
     });
     const monday = cycleDue({ today, onSale: String(event.status ?? "") === "on_sale", onSaleFrom: onSaleFrom(event), eventDate: event.event_date ?? null, calendar: opts.calendar });
     if (monday) {
