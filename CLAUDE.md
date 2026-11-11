@@ -317,7 +317,9 @@ REMOTION_LAMBDA_SERVE_URL=
 > (`creative_lab_clips.owner`, migration 226) under the lineup name, or the client's name
 > (`{Client} (promoter)` on a clash); the type is `creative_lab_renders.kind`. Owner and type
 > folders are made on first filing (`lib/drive/owner.ts`, `ensureRouteFolder`); new cycles are
-> made empty. `scripts/drive-owner-type-migrate.mts` did the one-off move of hand-made folders. Launch reads Storage, never Drive. Older events:
+> made empty. `scripts/drive-owner-type-migrate.mts` maps P26-BDAY's hand-made
+> `w/c 9 Nov / Content / {owner} / Videos | Statics` folders in place (the client holds the
+> Content link), so that cycle's filings land inside it; it never moves anything. Launch reads Storage, never Drive. Older events:
 > `scripts/backfill-drive-tree.mts` (dry-run by default, `--apply`, `--event CODE`).
 > Drive → app is `/api/cron/creative-lab-drive-pickup` (every 15 min, `lib/drive/pickup.ts`):
 > the drive's changes feed from the token in `drive_change_cursors` (migration 219). New

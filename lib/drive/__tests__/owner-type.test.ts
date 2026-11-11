@@ -12,7 +12,7 @@ import type { DriveDb, RowOf, TableName } from "../db.ts";
 import { fileRender } from "../filing.ts";
 import { ensureCycleFolder, ensureEventKey, ensureEventTree, ensureRouteFolder } from "../folders.ts";
 import { stageFolder } from "../panel.ts";
-import { formatOwnerMoveLine, migrateOwnerType } from "../owner-move.ts";
+import { formatOwnerMapLine, mapOwnerTypeInPlace } from "../owner-map.ts";
 import { runDriveTick } from "../tick.ts";
 import {
   ANNOUNCEMENT_KEY,
@@ -273,8 +273,12 @@ describe("made when first needed (D5) and renames by key", () => {
   });
 });
 
-describe("the one-off move (D6, HD5)", () => {
-  /** P26-BDAY's w/c 9 Nov as it was on 11 Nov: the old cycle children, and the two hand-made owner folders in Content. */
+describe("D6 in place: map the client's Content / {owner} folders, move nothing", () => {
+  /**
+   * P26-BDAY's w/c 9 Nov as Ops left it on 11 Nov: the client holds the link to
+   * Content, and Content / Puzzle, Luke Dean and Enzo Siragusa each have Videos
+   * and Statics, with the cards in Statics (and one Luke card still loose).
+   */
   async function p26(db: TestDb, drive: FakeDrive) {
     await tree(db, drive);
     const event = row(db, "events", "e1");
@@ -282,76 +286,112 @@ describe("the one-off move (D6, HD5)", () => {
     await ensureCycleFolder(db, drive, event, client, "2026-11-09");
     const cycle = db.tables.drive_folders.find((r) => r.key === cycleKey("2026-11-09"))!;
     const kids: Record<string, string> = {};
-    for (const name of ["UGC", "Ticket warnings", "Content"]) {
+    for (const [name, slug] of [["UGC", "ugc"], ["Ticket warnings", "ticket-warnings"], ["Content", "content"]]) {
       kids[name] = (await drive.createFolder(String(cycle.drive_folder_id), name)).id;
-      db.tables.drive_folders.push({ client_id: "c1", event_id: "e1", key: `${cycleKey("2026-11-09")}/${name.toLowerCase().replace(" ", "-")}`, name, drive_folder_id: kids[name] });
+      db.tables.drive_folders.push({ client_id: "c1", event_id: "e1", key: `${cycleKey("2026-11-09")}/${slug}`, name, drive_folder_id: kids[name] });
     }
-    const luke = await drive.createFolder(kids.Content, "Luke Dean");
-    const enzo = await drive.createFolder(kids.Content, "Enzo Siragusa");
-    for (const card of [1, 2]) for (const f of ["9x16", "4x5", "1x1"]) drive.drop(luke.id, `P26-BDAY_luke-dean_artist-card-${card}_on-sale_${f}_v3.png`, { mimeType: "image/png" });
-    for (const f of ["9x16", "4x5", "1x1"]) drive.drop(enzo.id, `P26-BDAY_enzo-siragusa_artist-card-1_on-sale_${f}_v4.png`, { mimeType: "image/png" });
-    return { luke: luke.id, enzo: enzo.id, cycle: String(cycle.drive_folder_id), kids };
+    const owners: Record<string, { id: string; videos: string; statics: string }> = {};
+    for (const name of ["Puzzle", "Luke Dean", "Enzo Siragusa"]) {
+      const folder = await drive.createFolder(kids.Content, name);
+      owners[name] = { id: folder.id, videos: (await drive.createFolder(folder.id, "Videos")).id, statics: (await drive.createFolder(folder.id, "Statics")).id };
+    }
+    for (const card of [1, 2]) for (const f of ["9x16", "4x5", "1x1"]) {
+      const loose = card === 2 && f === "9x16";
+      drive.drop(loose ? owners["Luke Dean"].id : owners["Luke Dean"].statics, `P26-BDAY_luke-dean_artist-card-${card}_on-sale_${f}_v3.png`, { mimeType: "image/png" });
+    }
+    for (const f of ["9x16", "4x5", "1x1"]) drive.drop(owners["Enzo Siragusa"].statics, `P26-BDAY_enzo-siragusa_artist-card-1_on-sale_${f}_v4.png`, { mimeType: "image/png" });
+    return { cycle: String(cycle.drive_folder_id), kids, owners };
   }
   const W = `${CREATIVES} / 3 On sale / w/c 9 Nov`;
+  const LUKE_KEY = "03/3/wc/2026-11-09/owner/artist:lab-luke";
 
-  it("the dry run lists exactly 2 folder moves and 9 file moves, and changes nothing", async () => {
+  it("the dry run lists 9 mappings and 0 moves, checks the client's Content link, and writes nothing", async () => {
     const db = seed();
     const drive = fakeDrive();
     const ids = await p26(db, drive);
-    const before = JSON.stringify([...drive.files.values()]);
-    const mapBefore = db.tables.drive_folders.length;
-    const dry = await migrateOwnerType(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), { apply: false });
-    assert.equal(dry.folderMoves, 2);
-    assert.equal(dry.fileMoves, 9);
-    const moves = dry.lines.filter((l) => l.op === "move-folder" || l.op === "move-file").map(formatOwnerMoveLine);
-    assert.equal(moves.length, 11);
-    assert.ok(moves.includes(`move folder  ${"03 Creatives / 3 On sale / w/c 9 Nov"} / Content / Luke Dean  →  03 Creatives / 3 On sale / w/c 9 Nov / Luke Dean  (id ${ids.luke}, unchanged)`));
-    assert.equal(dry.lines.filter((l) => l.op === "move-file" && l.to.includes("Luke Dean / Statics")).length, 6);
-    assert.equal(dry.lines.filter((l) => l.op === "move-file" && l.to.includes("Enzo Siragusa / Statics")).length, 3);
-    assert.equal(JSON.stringify([...drive.files.values()]), before);
-    assert.equal(db.tables.drive_folders.length, mapBefore);
-    assert.ok(!drive.calls.some((c) => c.startsWith("move") || c.startsWith("createFolder Statics")));
+    const files = JSON.stringify([...drive.files.values()]);
+    const mapBefore = JSON.stringify(db.tables.drive_folders);
+    drive.calls.length = 0;
+    const dry = await mapOwnerTypeInPlace(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), { apply: false });
+    assert.equal(dry.mappings, 9);
+    assert.equal(dry.moves, 0);
+    const maps = dry.lines.filter((l) => l.op === "map");
+    assert.deepEqual(maps.map((l) => (l as { key: string }).key).sort(), [
+      "03/3/wc/2026-11-09/owner/artist:lab-enzo",
+      "03/3/wc/2026-11-09/owner/artist:lab-enzo/statics",
+      "03/3/wc/2026-11-09/owner/artist:lab-enzo/videos",
+      LUKE_KEY,
+      `${LUKE_KEY}/statics`,
+      `${LUKE_KEY}/videos`,
+      "03/3/wc/2026-11-09/owner/promoter",
+      "03/3/wc/2026-11-09/owner/promoter/statics",
+      "03/3/wc/2026-11-09/owner/promoter/videos",
+    ]);
+    assert.ok(maps.some((l) => l.op === "map" && l.key === LUKE_KEY && l.id === ids.owners["Luke Dean"].id));
+    const content = dry.lines.find((l) => l.op === "content");
+    assert.deepEqual(content && { ok: content.op === "content" && content.ok, id: content.op === "content" && content.id }, { ok: true, id: ids.kids.Content });
+    assert.ok(dry.lines.some((l) => l.op === "left" && l.path.endsWith("Luke Dean / P26-BDAY_luke-dean_artist-card-2_on-sale_9x16_v3.png")));
+    assert.ok(formatOwnerMapLine(maps[0]!).startsWith("map "));
+    assert.equal(JSON.stringify([...drive.files.values()]), files);
+    assert.equal(JSON.stringify(db.tables.drive_folders), mapBefore);
+    assert.ok(!drive.calls.some((c) => !c.startsWith("list") && !c.startsWith("get")), drive.calls.join(", "));
   });
 
-  it("--apply keeps both folder ids, puts 6 + 3 files in Statics, maps both owner keys; a second --apply moves nothing", async () => {
+  it("--apply records the 9 folders where they are; later filings land inside the link; a second --apply records nothing new", async () => {
     const db = seed();
     const drive = fakeDrive();
     const ids = await p26(db, drive);
-    const out = await migrateOwnerType(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), { apply: true });
-    assert.equal(out.folderMoves + out.fileMoves, 11);
-    assert.equal(drive.pathOf(ids.luke), `${W} / Luke Dean`);
-    assert.equal(drive.pathOf(ids.enzo), `${W} / Enzo Siragusa`);
-    assert.equal(drive.childrenNamed(`${W} / Luke Dean / Statics`).length, 6);
-    assert.equal(drive.childrenNamed(`${W} / Enzo Siragusa / Statics`).length, 3);
-    assert.deepEqual(drive.childrenNamed(`${W} / Luke Dean`), ["Statics"]);
-    assert.deepEqual(drive.childrenNamed(W), ["Content", "Enzo Siragusa", "Luke Dean", "Ticket warnings", "UGC"]);
-    assert.deepEqual(drive.childrenNamed(`${W} / Content`), []);
-    const lukeKey = "03/3/wc/2026-11-09/owner/artist:lab-luke";
-    assert.equal(db.tables.drive_folders.find((r) => r.key === lukeKey)?.drive_folder_id, ids.luke);
-    assert.ok(db.tables.drive_folders.some((r) => r.key === `${lukeKey}/statics`));
-    assert.ok(db.tables.drive_folders.some((r) => r.key === "03/3/wc/2026-11-09/owner/artist:lab-enzo/statics"));
+    const files = JSON.stringify([...drive.files.values()]);
+    const out = await mapOwnerTypeInPlace(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), { apply: true });
+    assert.equal(out.mappings, 9);
+    assert.equal(JSON.stringify([...drive.files.values()]), files);
+    assert.equal(db.tables.drive_folders.find((r) => r.key === LUKE_KEY)?.drive_folder_id, ids.owners["Luke Dean"].id);
+    assert.equal(db.tables.drive_folders.find((r) => r.key === `${LUKE_KEY}/statics`)?.drive_folder_id, ids.owners["Luke Dean"].statics);
+    assert.equal(db.tables.drive_folders.find((r) => r.key === "03/3/wc/2026-11-09/content")?.drive_folder_id, ids.kids.Content);
 
-    const again = await migrateOwnerType(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), { apply: true });
-    assert.equal(again.folderMoves + again.fileMoves + again.made, 0);
-    assert.deepEqual(again.lines, []);
+    const rows = db.tables.drive_folders.length;
+    const again = await mapOwnerTypeInPlace(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), { apply: true });
+    assert.equal(again.mappings, 0);
+    assert.equal(again.lines.filter((l) => l.op === "mapped").length, 9);
+    assert.equal(db.tables.drive_folders.length, rows);
 
-    // A later Lab filing for Luke on that cycle lands in the moved folder, not a new one.
+    // A Lab filing for Luke on that cycle goes into Content / Luke Dean / Videos — inside the client's link.
     const filed = await fileRender(db, drive, row(db, "creative_lab_renders", "rd-luke-tf"), { ...deps, today: "2026-11-10", calendar: undefined });
     assert.equal(filed.ok, true);
-    assert.equal(drive.files.get(drive.files.get((filed as { fileId: string }).fileId)!.parents![0])!.parents![0], ids.luke);
+    const file = drive.files.get((filed as { fileId: string }).fileId)!;
+    assert.equal(file.parents![0], ids.owners["Luke Dean"].videos);
+    assert.ok(drive.pathOf(file.id).startsWith(`${W} / Content / Luke Dean / Videos / `));
+    assert.deepEqual(drive.childrenNamed(W), ["Content", "Ticket warnings", "UGC"]);
   });
 
-  it("leaves a folder that names no owner and a file that is neither image nor video", async () => {
+  it("records nothing for a folder that is missing, moved or named differently, and never overwrites a key", async () => {
     const db = seed();
     const drive = fakeDrive();
     const ids = await p26(db, drive);
-    const stray = await drive.createFolder(ids.kids.Content, "luke dean");
-    drive.drop(ids.luke, "notes.pdf", { mimeType: "application/pdf" });
-    const out = await migrateOwnerType(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), { apply: true });
-    assert.equal(drive.files.get(stray.id)!.parents![0], ids.kids.Content);
-    assert.ok(out.lines.some((l) => l.op === "left" && l.path.endsWith("Content / luke dean")));
-    assert.ok(out.lines.some((l) => l.op === "left" && l.path.endsWith("Luke Dean / notes.pdf")));
-    assert.ok(drive.childrenNamed(`${W} / Luke Dean`).includes("notes.pdf"));
+    drive.files.get(ids.owners["Enzo Siragusa"].id)!.name = "enzo siragusa";
+    drive.files.get(ids.owners["Puzzle"].videos)!.name = "Video";
+    drive.files.get(ids.owners["Luke Dean"].statics)!.parents = [ids.kids.UGC];
+    db.tables.drive_folders.push({ client_id: "c1", event_id: "e1", key: `${LUKE_KEY}/videos`, name: "Videos", drive_folder_id: "somewhere-else" });
+    const out = await mapOwnerTypeInPlace(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), { apply: true });
+    const keys = db.tables.drive_folders.map((r) => r.key);
+    assert.ok(!keys.some((k) => String(k).includes("artist:lab-enzo")));
+    assert.ok(!keys.includes("03/3/wc/2026-11-09/owner/promoter/videos"));
+    assert.ok(!keys.includes(`${LUKE_KEY}/statics`));
+    assert.equal(db.tables.drive_folders.find((r) => r.key === `${LUKE_KEY}/videos`)?.drive_folder_id, "somewhere-else");
+    assert.ok(out.lines.some((l) => l.op === "left" && l.path.endsWith("Content / enzo siragusa")));
+    assert.ok(out.lines.some((l) => l.op === "left" && l.path.endsWith("Puzzle / Video")));
+    assert.ok(out.lines.some((l) => l.op === "conflict" && l.key === `${LUKE_KEY}/videos`));
+    assert.equal(out.mappings, 3); // Puzzle, Puzzle/Statics, Luke Dean
+  });
+
+  it("a Content row that no longer checks out maps nothing under it", async () => {
+    const db = seed();
+    const drive = fakeDrive();
+    const ids = await p26(db, drive);
+    drive.trash(ids.kids.Content);
+    const out = await mapOwnerTypeInPlace(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), { apply: true });
+    assert.equal(out.mappings, 0);
+    assert.ok(out.lines.some((l) => l.op === "content" && !l.ok && /trash/.test(String(l.why))));
   });
 });
 

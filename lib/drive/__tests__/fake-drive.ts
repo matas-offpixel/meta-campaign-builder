@@ -138,14 +138,6 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
       if (patch.name != null) file.name = patch.name;
       return { ...file };
     },
-    async moveFile(fileId, fromParentId, toParentId) {
-      calls.push(`move ${fileId} ${fromParentId} ${toParentId}`);
-      const file = files.get(fileId);
-      if (!file) throw new Error("Drive move failed: HTTP 404 notFound");
-      if (!file.parents?.includes(fromParentId)) throw new Error("Drive move failed: HTTP 400 not in that parent");
-      file.parents = [...file.parents.filter((p) => p !== fromParentId), toParentId];
-      return { ...file };
-    },
     pathOf(id) {
       const parts: string[] = [];
       for (let cursor = files.get(id); cursor; cursor = cursor.parents?.[0] ? files.get(cursor.parents[0]) : undefined) parts.unshift(cursor.name);

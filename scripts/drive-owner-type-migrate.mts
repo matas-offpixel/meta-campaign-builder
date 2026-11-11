@@ -1,17 +1,17 @@
 /**
- * D6 / HD5 of docs/design-record/2026-11-11-creative-lab-drive-owner-type.html:
- * move an event's hand-made Content / {owner} folders up under their cycle and
- * their files into Statics or Videos (lib/drive/owner-move.ts).
+ * D6 of docs/design-record/2026-11-11-creative-lab-drive-owner-type.html, done
+ * in place (Matas, 11 Nov): the client already holds the link to the cycle's
+ * Content folder, so its {owner} / Videos | Statics folders stay where they
+ * are and are recorded in the folder map under D5's keys
+ * (lib/drive/owner-map.ts). Later filings for that cycle land inside the link.
  *
  *   node --env-file=.env.local --experimental-strip-types scripts/drive-owner-type-migrate.mts --event P26-BDAY
  *   node --env-file=.env.local --experimental-strip-types scripts/drive-owner-type-migrate.mts --event P26-BDAY --apply
  *
  * Dry run by default: SELECTs against Supabase and listings on the Shared
- * Drive only — nothing is moved, made or recorded. --apply moves (folder
- * moves keep the folder's id and shared links), makes the type folders the
- * files need, and records owner and type folders in drive_folders. Moves only:
- * never a rename, trash, delete or permission change. Safe to run twice: a
- * second --apply prints no moves.
+ * Drive only. --apply writes drive_folders rows, nothing else. Map only: it
+ * cannot move, make, rename, trash or share anything — there is no such call
+ * in it. Safe to run twice: a second --apply records nothing new.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -19,7 +19,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/db/database.types.ts";
 import { driveFromEnv } from "../lib/drive/client.ts";
 import type { DriveDb } from "../lib/drive/db.ts";
-import { formatOwnerMoveLine, migrateOwnerType } from "../lib/drive/owner-move.ts";
+import { formatOwnerMapLine, mapOwnerTypeInPlace } from "../lib/drive/owner-map.ts";
 
 const argv = process.argv.slice(2);
 const apply = argv.includes("--apply");
@@ -54,11 +54,11 @@ if (clientRes.error || !clientRes.data) {
   process.exit(2);
 }
 if (!event.drive_folder_id) {
-  console.log(`${code} has no Drive folder: nothing to move.`);
+  console.log(`${code} has no Drive folder: nothing to map.`);
   process.exit(0);
 }
 
-console.log(`# Drive owner/type move ${apply ? "APPLY" : "DRY RUN — nothing moved, made or recorded"} · ${code} · ${event.name} · client ${clientRes.data.name}`);
-const result = await migrateOwnerType(db as unknown as DriveDb, drive, event, clientRes.data, { apply });
-for (const line of result.lines) console.log(formatOwnerMoveLine(line));
-console.log(`# ${result.folderMoves} folder moves · ${result.fileMoves} file moves · ${result.made} folders ${apply ? "made" : "to make"}`);
+console.log(`# Drive owner/type map, in place ${apply ? "APPLY — drive_folders rows only" : "DRY RUN — nothing recorded"} · ${code} · ${event.name} · client ${clientRes.data.name}`);
+const result = await mapOwnerTypeInPlace(db as unknown as DriveDb, drive, event, clientRes.data, { apply });
+for (const line of result.lines) console.log(formatOwnerMapLine(line));
+console.log(`# ${result.mappings} mappings ${apply ? "recorded" : "to record"} · ${result.moves} moves`);
