@@ -1,5 +1,6 @@
 /** In-memory Shared Drive for the export tests. It has no delete: nothing in the export may delete. */
 
+import { writeStreamToFile } from "../../creatives/stream-file.ts";
 import { DriveApiError, FOLDER_MIME, SHORTCUT_MIME, type DriveApi, type DriveChange, type DriveFile } from "../client.ts";
 
 export type FakeDrive = DriveApi & {
@@ -57,6 +58,13 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
       const file = files.get(fileId);
       if (!file) throw new Error("Drive download failed: HTTP 404 notFound");
       return file.bytes ?? new Uint8Array();
+    },
+    async downloadTo(fileId, filePath) {
+      calls.push(`downloadTo ${fileId}`);
+      const file = files.get(fileId);
+      if (!file) throw new Error("Drive download failed: HTTP 404 notFound");
+      const bytes = file.bytes ?? new Uint8Array();
+      return writeStreamToFile((async function* () { yield bytes; })(), filePath);
     },
     async startPageToken() {
       calls.push("startPageToken");

@@ -4,6 +4,8 @@
  * (glibc 2.35), and that binary is what getVideoMetadata shells out to.
  */
 
+import { open } from "node:fs/promises";
+
 export type Probe = { width: number; height: number; fps: number; durationInSeconds: number };
 
 type Box = { type: string; payloadStart: number; end: number };
@@ -105,6 +107,47 @@ export function probeMp4Bytes(bytes: Uint8Array): Probe {
     fps,
     durationInSeconds,
   };
+}
+
+/** Largest moov read into memory from a file: a 30–60 s clip's is well under 10 MB. */
+const MAX_MOOV_BYTES = 64 * 1024 * 1024;
+
+/**
+ * The same probe from a file on disk, reading only the top-level box headers
+ * and the moov atom (which may sit after mdat), never the whole file.
+ */
+export async function probeMp4File(filePath: string): Promise<Probe> {
+  const handle = await open(filePath, "r");
+  try {
+    const { size: total } = await handle.stat();
+    const header = Buffer.alloc(16);
+    let offset = 0;
+    while (offset + 8 <= total) {
+      const { bytesRead } = await handle.read(header, 0, 16, offset);
+      if (bytesRead < 8) break;
+      let size = header.readUInt32BE(0);
+      let headerBytes = 8;
+      if (size === 1) {
+        if (bytesRead < 16) break;
+        size = Number(header.readBigUInt64BE(8));
+        headerBytes = 16;
+      } else if (size === 0) {
+        size = total - offset;
+      }
+      if (size < headerBytes) throw new Error("mp4 box size is shorter than its header");
+      if (header.toString("ascii", 4, 8) === "moov") {
+        if (size > MAX_MOOV_BYTES || offset + size > total) throw new Error("mp4 moov atom is too large or cut short");
+        const moov = Buffer.alloc(size);
+        const read = await handle.read(moov, 0, size, offset);
+        if (read.bytesRead < size) throw new Error("mp4 moov atom is cut short");
+        return probeMp4Bytes(moov);
+      }
+      offset += size;
+    }
+  } finally {
+    await handle.close();
+  }
+  throw new Error("mp4 has no moov atom");
 }
 
 async function fetchRange(url: string, start: number, end: number): Promise<{ buf: Buffer; total: number }> {

@@ -15,6 +15,8 @@
 import { createSign } from "node:crypto";
 
 import { parseServiceAccountJson, type ServiceAccount } from "../clients/asset-queue/drive-auth.ts";
+import type { ContentIdentity } from "../creatives/asset-registry.ts";
+import { writeStreamToFile } from "../creatives/stream-file.ts";
 
 export const FOLDER_MIME = "application/vnd.google-apps.folder";
 export const SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
@@ -57,6 +59,12 @@ export interface DriveApi {
   /** One file's metadata, or null when it is gone or the account can't see it. */
   getFile(fileId: string): Promise<DriveFile | null>;
   download(fileId: string): Promise<Uint8Array>;
+  /**
+   * Streams the file to `filePath` and returns its sha256 and byte count,
+   * never holding the whole file in memory (a 4K original is 400–450 MB).
+   * Optional: without it the pickup reads the file with download().
+   */
+  downloadTo?(fileId: string, filePath: string): Promise<ContentIdentity>;
   /** changes.getStartPageToken for the drive. */
   startPageToken(): Promise<string>;
   listChanges(pageToken: string): Promise<DriveChangePage>;
@@ -276,6 +284,12 @@ export function restDriveApi(opts: { driveId: string; serviceAccount: ServiceAcc
     async download(fileId) {
       const res = await call(`${API}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {}, "download");
       return new Uint8Array(await res.arrayBuffer());
+    },
+
+    async downloadTo(fileId, filePath) {
+      const res = await call(`${API}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {}, "download");
+      if (!res.body) throw new DriveApiError(500, "no_body", "Drive download returned no body.");
+      return writeStreamToFile(res.body, filePath);
     },
 
     async startPageToken() {
