@@ -719,18 +719,19 @@ export async function retryRender(db: ServiceRoleDb, args: { renderId: string; u
   const clip = await db.from("creative_lab_clips").select("id, creative_asset_id").eq("id", String(render.clip_id)).maybeSingle();
   if (clip.error) throw new Error(`creative_lab_clips: ${clip.error.message}`);
   if (clip.data) {
-    const assetId = String(clip.data.creative_asset_id ?? "");
+    const row = clip.data as Row;
+    const assetId = String(row.creative_asset_id ?? "");
     const asset = assetId
       ? await db.from("creative_assets").select("storage_path").eq("id", assetId).maybeSingle()
       : { data: null, error: null };
     if (asset.error) throw new Error(`creative_assets: ${asset.error.message}`);
     const small = await clipIdsTooSmallFor916([{
-      id: String(clip.data.id),
+      id: String(row.id),
       storagePath: String(asset.data?.storage_path ?? "") || null,
-      width: Number(clip.data.source_width) || null,
-      height: Number(clip.data.source_height) || null,
+      width: Number(row.source_width) || null,
+      height: Number(row.source_height) || null,
     }]);
-    if (small.has(String(clip.data.id))) throw new RenderRetryError(409, TOO_SMALL_FOR_916);
+    if (small.has(String(row.id))) throw new RenderRetryError(409, TOO_SMALL_FOR_916);
   }
 
   const ads = (await list(db, "creative_lab_round_ads", "render_id", args.renderId)).filter((ad) => ad.user_id === args.userId);
