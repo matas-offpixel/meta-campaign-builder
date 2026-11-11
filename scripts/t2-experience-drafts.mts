@@ -56,6 +56,8 @@ import { withKitFace } from "../lib/creative-lab/t1-lambda.ts";
 import { FORMAT_SIZE, footageWindow, claimOn } from "../lib/creative-lab/t1-video-frame.ts";
 import { RED_BACKING, T1V_FACE, chooseBacking, distinctCrops, nearestRank, releaseNamesOf, type RedVerdict } from "../lib/creative-lab/t1-video.ts";
 import {
+  bandWord,
+  videoBandChecks,
   T2P_DATA_NOTE,
   T2P_INVENTED,
   choosePhotoBandSteps,
@@ -238,7 +240,7 @@ const claimWidthNote = (L: PhotoLayout | undefined) => {
   return c ? `${Math.round(c.widthPx)} px at ${Math.round(c.capPx)} px cap (example ${T2P_DATA_NOTE.claim.right - T2P_DATA_NOTE.claim.left} px at 54)` : "– (no claim)";
 };
 
-type Row = { ground: string; source: string; inS: string; fmt: PhotoFormat; version: string; note: string; claimWidth: string; faces: string; steps: string; backing: string; result: string; file: string | null; renderedOn: string };
+type Row = { ground: string; source: string; inS: string; fmt: PhotoFormat; version: string; note: string; band: string; claimWidth: string; faces: string; steps: string; backing: string; result: string; file: string | null; renderedOn: string };
 const table: Row[] = [];
 const sheet: { label: string; frames: string[] }[] = [];
 const lambdaCosts: { id: string; functions: number; costUsd: number | null }[] = [];
@@ -286,6 +288,7 @@ if (photoDrive || photoAsset) {
         fmt,
         version: v.id,
         note: L ? dataNoteWord(dataNoteChecks(L)) : "–",
+        band: "– (a still: O96 is for video)",
         claimWidth: claimWidthNote(L),
         faces: `${r.report.crop != null ? `chosen y ${r.report.crop} x ${r.report.cropX} · ` : ""}${r.report.tried.join("; ") || "–"}`,
         steps: s ? `+${s.top * 10} / +${s.centre * 10} / +${s.bottom * 10}` : "–",
@@ -371,11 +374,12 @@ if (clipRows.length) {
 
     for (const v of versions) {
       const stamp = stampFor(v);
-      for (const fmt of ["9:16", "4:5", "1:1"] as PhotoFormat[]) {
+      // O95 (issue 15): video is one 9:16. No 4:5 or 1:1 clip draft is made.
+      for (const fmt of ["9:16"] as PhotoFormat[]) {
         const size = FORMAT_SIZE[fmt];
         const id = `clip-${slug}_${v.id}_${fmt.replace(":", "x")}`;
         const small = clipTooSmall(src, fmt);
-        const row: Row = { ground: "clip", source: label, inS: `${inS} s (stored ${storedIn}–${storedOut.toFixed(1)} s, unchanged)`, fmt, version: v.id, note: "–", claimWidth: "–", faces: "–", steps: "–", backing: "–", result: "", file: null, renderedOn: "Lambda" };
+        const row: Row = { ground: "clip", source: label, inS: `${inS} s (stored ${storedIn}–${storedOut.toFixed(1)} s, unchanged)`, fmt, version: v.id, note: "–", band: "–", claimWidth: "–", faces: "–", steps: "–", backing: "–", result: "", file: null, renderedOn: "Lambda" };
         if (small) {
           table.push({ ...row, result: small });
           continue;
@@ -387,6 +391,10 @@ if (clipRows.length) {
         }
         const L = planned.layout;
         row.note = dataNoteWord(dataNoteChecks(L));
+        // O96 / O100: every type box in the band; the red line's backing core is checked with the type (its feather isn't).
+        const core = photoBackingFor(L);
+        row.band = bandWord(videoBandChecks(L, core ? [{ slot: "backing core", box: core.rect }] : []));
+        row.inS += ` · lineup top ${Math.round(L.lineup[0]!.capTop)}${L.lineupShift ? ` (moved up ${Math.round(L.lineupShift)} px, O94)` : ""} · block step ${L.block.step} (${[0.056, 0.0485, 0.042][L.block.step]} H)`;
         row.claimWidth = claimWidthNote(L);
         if (fmt === "9:16" && !photoClipSafe(L).ok) notes.push(`${id}: a type box is outside the safe area`);
         // O82 + O81: at each distinct crop, faces first, then the band ladder on the p95 of the samples.
@@ -540,9 +548,10 @@ L.push(`Experience line (typed by Matas, kept verbatim; the writer's bans apply 
 L.push(`Versions: ${versions.map((v) => `${v.id}${v.claim ? ` "${v.claim.replace("\n", " / ")}"` : ""}${v.watermark ? " (held)" : ""}`).join("; ")}.`);
 L.push(`Lineup (creative_lab_event_facts): ${lineup.join(" · ")} · "& MORE": ${moreToAnnounce ? "drawn (the facts say more acts are coming)" : "not drawn (the facts have no flag)"}. Details: ${details.join(" / ")}. Logo: the kit's event lockup (0.25 W).`);
 L.push("In-points are drawn in the draft only, inside each clip's stored window; no row is changed (the Lab has no in/out write path).", "");
-L.push("| Ground | Footage · in-point | Format | Version | Slot check (H86, ±0.005 H / W) | Claim width (O91, logged) | Faces (O82): crops tried | Band steps top / centre / bottom (O81) | Red line → backing (O58) | Result | Rendered | File |");
-L.push("|---|---|---|---|---|---|---|---|---|---|---|---|");
-for (const r of table) L.push(`| ${r.ground} | ${r.source} · ${r.inS} | ${r.fmt} | ${r.version} | ${r.note} | ${r.claimWidth} | ${r.faces} | ${r.steps} | ${r.backing} | ${r.result} | ${r.renderedOn} | ${r.file ?? "–"} |`);
+L.push("Video is one 9:16 (O95, issue 15): the clip drafts are 9:16 only; the photo stills keep 9:16, 4:5 and 1:1. The band check (O96 / O100) reads every type box of a 9:16 clip against x 120–960, first ink ≥ 353, last baseline 1238.", "");
+L.push("| Ground | Footage · in-point | Format | Version | Slot check (H86, ±0.005 H / W) | Band check (O96 / O100) | Claim width (O91, logged) | Faces (O82): crops tried | Band steps top / centre / bottom (O81) | Red line → backing (O58) | Result | Rendered | File |");
+L.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+for (const r of table) L.push(`| ${r.ground} | ${r.source} · ${r.inS} | ${r.fmt} | ${r.version} | ${r.note} | ${r.band} | ${r.claimWidth} | ${r.faces} | ${r.steps} | ${r.backing} | ${r.result} | ${r.renderedOn} | ${r.file ?? "–"} |`);
 if (lambdaCosts.length) {
   const total = lambdaCosts.reduce((a, c) => a + (c.costUsd ?? 0), 0);
   L.push("", `Lambda: ${lambdaCosts.length} renders, ${lambdaCosts[0]!.functions} functions each (one orchestrator plus the chunks), $${(total / lambdaCosts.length).toFixed(4)} a render on average, $${total.toFixed(4)} in all. Site ${DRAFT_SITE} (no kit font) removed; each S3 render deleted after download.`);

@@ -263,7 +263,13 @@ export async function photoTypeLayers(L: PhotoLayout, opts: { face: FontEntry; l
   for (const l of L.details) put(top, await setRuns(l.runs.map((r) => ({ text: r.text, color: r.coral ? kit.colours.coral : kit.colours.white })), l.capPx, T2P.tracking.details, opts.face), l.left, l.capTop);
   top.push({ input: await sharp(opts.logoPng).resize(Math.round(L.logo.width), Math.round(L.logo.height), { fit: "fill" }).png().toBuffer(), left: Math.round(L.logo.left), top: Math.round(L.logo.top) });
   const boxes = [L.boxes.lineup, L.boxes.block, L.boxes.details, L.boxes.logo];
-  const within = L.format === "9:16" ? { left: 0, top: RECT_45.top, width: MASTER.width, height: RECT_45.bottom - RECT_45.top } : { left: 0, top: 0, width: L.size.width, height: L.size.height };
+  // O96: on a video the draft stamp stays inside the band (x 120–960, from y 353); a still keeps the 4:5 rectangle.
+  const within =
+    L.ground === "clip" && L.format === "9:16"
+      ? { left: T2P.band.left, top: T2P.band.firstInk, width: T2P.band.right - T2P.band.left, height: T2P.band.lastBaseline - T2P.band.firstInk }
+      : L.format === "9:16"
+        ? { left: 0, top: RECT_45.top, width: MASTER.width, height: RECT_45.bottom - RECT_45.top }
+        : { left: 0, top: 0, width: L.size.width, height: L.size.height };
   if (opts.stamp) top.push({ input: await watermarkLayer(opts.stamp, L.size, opts.face.path, opts.face.family ?? "Bootzy Condensed TM", { avoid: boxes, within }), left: 0, top: 0 });
   const blank = () => sharp({ create: { width: L.size.width, height: L.size.height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } });
   return { top: await blank().composite(top).png().toBuffer(), claim: claim.length ? await blank().composite(claim).png().toBuffer() : null };

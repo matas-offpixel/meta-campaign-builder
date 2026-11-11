@@ -26,8 +26,10 @@ import {
   T2P,
   T2P_DATA_NOTE,
   T2P_LINES,
+  bandWord,
   dataNoteChecks,
   dataNoteWord,
+  videoBandChecks,
   VIDEO_SAFE,
   assignPhotoT2,
   captionTemplateConflicts,
@@ -253,10 +255,10 @@ describe("H81 · O80 positions", () => {
     close(L.lineup[0]!.capTop + L.lineupShift, 0.207 * 1920);
     for (const l of L.lineup) close(l.left + l.widthPx, 0.889 * 1080);
     const lastDetail = L.details.at(-1)!;
-    close(lastDetail.capTop + lastDetail.capPx, 0.65 * 1920);
+    close(lastDetail.capTop + lastDetail.capPx, 1238);
     close(L.details[0]!.left, 0.111 * 1080);
     close(L.logo.left + L.logo.width, 0.889 * 1080);
-    close(L.logo.top + L.logo.height, 0.65 * 1920);
+    close(L.logo.top + L.logo.height, 1238);
     const lineupBaseline = L.boxes.lineup.top + L.boxes.lineup.height;
     close((L.block.blockTop + L.block.blockBottom) / 2, (lineupBaseline + L.boxes.details.top) / 2);
     assert.equal(VIDEO_SAFE.bottom, 1248);
@@ -564,14 +566,15 @@ describe("O94 (issue 15) · room on the 9:16 clip", () => {
     below: L.boxes.details.top - L.block.blockBottom,
   });
 
-  it("the roll-call: the lineup moves up to 0.16 H, the block steps to 0.0485 H, at least 0.04 H each side", () => {
+  it("the roll-call (O98 worked example): the lineup moves up to 353, the block steps to 0.042 H at 739–1037, at least 0.04 H each side", () => {
     const m = planPhotoMaster(PUZZLE, "clip", measure);
     assert.ok(m.ok);
     const L = m.layout;
-    close(L.lineup[0]!.capTop, 0.16 * 1920);
-    close(L.lineupShift, 0.207 * 1920 - 0.16 * 1920);
-    assert.equal(L.block.step, 1);
-    close(L.block.lines[0]!.capPx, 0.0485 * 1920);
+    close(L.lineup[0]!.capTop, 353);
+    close(L.lineupShift, 0.207 * 1920 - 353);
+    assert.equal(L.block.step, 2);
+    close(L.block.lines[0]!.capPx, 0.042 * 1920);
+    assert.ok(Math.abs(L.block.blockTop - 739) <= 1 && Math.abs(L.block.blockBottom - 1036) <= 1.5, `${L.block.blockTop}–${L.block.blockBottom}`);
     const r = room(L);
     assert.ok(r.above >= gap - 1e-6 && r.below >= gap - 1e-6, JSON.stringify(r));
     close(r.above, r.below);
@@ -610,7 +613,40 @@ describe("O94 (issue 15) · room on the 9:16 clip", () => {
     const checks = dataNoteChecks(m.layout);
     assert.ok(checks.every((c) => c.ok), JSON.stringify(checks.filter((c) => !c.ok)));
     const top = checks.find((c) => c.slot.startsWith("lineup first cap top"))!;
-    assert.match(top.slot, /moved up 90 px, O94/);
+    assert.match(top.slot, /moved up 44 px, O94/);
     close(top.want, T2P_DATA_NOTE.lineup.capTops[0] - m.layout.lineupShift);
+  });
+});
+
+describe("issue 15 · O96 / O100 the band check (H94), O98 T2 on a clip (H96)", () => {
+  it("the T2 clip, roll-call and no-claim, is inside the band: x 120–960, first ink ≥ 353, last baseline 1238", () => {
+    for (const claim of [ROLL_CALL, null]) {
+      const m = planPhotoMaster({ ...PUZZLE, claim }, "clip", measure);
+      assert.ok(m.ok);
+      const checks = videoBandChecks(m.layout);
+      assert.deepEqual(checks.filter((c) => !c.ok), [], String(claim));
+      assert.match(bandWord(checks), /^✓ \(\d+ in the band\)$/);
+      const last = m.layout.details.at(-1)!;
+      close(last.capTop + last.capPx, 1238);
+      close(m.layout.logo.top + m.layout.logo.height, 1238);
+    }
+    const noClaim = planPhotoMaster({ ...PUZZLE, claim: null }, "clip", measure);
+    assert.ok(noClaim.ok);
+    close(noClaim.layout.lineup[0]!.capTop, 0.207 * 1920);
+    assert.equal(noClaim.layout.block.step, 0);
+  });
+
+  it("a box at y 278 fails, naming the slot; one past x 960 or below 1238 too", () => {
+    const m = planPhotoMaster(PUZZLE, "clip", measure);
+    assert.ok(m.ok);
+    const bad = videoBandChecks(m.layout, [
+      { slot: "fixture lockup", box: { left: 405, top: 278, width: 270, height: 100 } },
+      { slot: "fixture wide", box: { left: 100, top: 600, width: 900, height: 50 } },
+      { slot: "fixture low", box: { left: 200, top: 1200, width: 100, height: 49 } },
+    ]);
+    const off = bad.filter((c) => !c.ok);
+    assert.deepEqual(off.map((c) => c.slot), ["fixture lockup", "fixture wide", "fixture low"]);
+    assert.equal(off[0]!.why, "top 278 above 353");
+    assert.match(bandWord(bad), /^✗ fixture lockup: top 278 above 353; /);
   });
 });

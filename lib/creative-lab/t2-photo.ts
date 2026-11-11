@@ -60,7 +60,8 @@ export const T2P = {
   /** O86 / O87: the lineup, right-aligned on 0.889 W. */
   lineup: { capTop: 0.207, cap: 0.0276, pitch: 0.0323, maxLines: 6, maxWidth: 0.4 },
   /** O86 / O87: the details by the text frame on 0.111 W; the last baseline on 0.793 H (still) or 0.65 H (clip). */
-  details: { cap: 0.028, pitch: 0.0328, baselineStill: 0.793, baselineClip: 0.65, maxWidth: 0.4 },
+  /** O98 (issue 15): on the clip the details' last baseline sits on 1238 px (0.645 H), so a descender still ends by 1248. */
+  details: { cap: 0.028, pitch: 0.0328, baselineStill: 0.793, baselineClip: 1238 / 1920, maxWidth: 0.4 },
   /** O86: the logo by its ink box, right edge on 0.889 W, ink bottom on the details' last baseline: the wordmark at 0.161 W, or the event lockup at its own 0.25 W (O54). */
   logo: { wordmark: 0.161, lockup: 0.25 },
   /** O1: the 1:1 re-sit. */
@@ -71,7 +72,13 @@ export const T2P = {
    * Short of room, the lineup moves up first, its first cap top no higher
    * than 0.16 H (under the Reels top bar); then the block steps down as one.
    */
-  clipRoom: { gap: 0.04, lineupTopMin: 0.16 },
+  clipRoom: { gap: 0.04, lineupTopMin: 353 / 1920 },
+  /**
+   * O96 (issue 15), the band every video type ink box sits in: Feed's centre 4:5 (y 285–1635) meets
+   * the Reels / Stories safe area (x 120–960, y 269–1248). No type ink above 353 (Feed's inset); the
+   * last baseline on 1238 at the lowest.
+   */
+  band: { left: 120, right: 960, top: 285, bottom: 1248, firstInk: 353, lastBaseline: 1238 },
   /** O81: the three bands (fractions of the 9:16 H, scaled with the format's k). */
   bands: {
     opacity: 0.2,
@@ -542,6 +549,38 @@ export function dataNoteWord(checks: readonly NoteCheck[]): string {
   if (!off.length) return `✓ (${checks.length} within ±0.005)`;
   return `✗ ${off.map((c) => `${c.slot} ${c.delta > 0 ? "+" : ""}${Math.round(c.delta)} px (limit ${Math.round(c.limit)})`).join("; ")}`;
 }
+
+export type BandCheck = { slot: string; ok: boolean; why: string | null };
+
+/**
+ * O96 / O100 (H94): every type box of a 9:16 video layout inside the band
+ * (x 120–960, y 285–1248), the first ink at or below 353 and the last
+ * baseline at or above 1238. Boxes are cap top to baseline (the record's
+ * 1238 leaves a descender's room to 1248). The backing's core is checked
+ * on x with the type; bands and feathers aren't type.
+ */
+export function videoBandChecks(layout: PhotoLayout, extra: { slot: string; box: Rect }[] = []): BandCheck[] {
+  const B = T2P.band;
+  const boxes: { slot: string; box: Rect }[] = [
+    ...layout.lineup.map((l) => ({ slot: `lineup "${l.text}"`, box: { left: l.left, top: l.capTop, width: l.widthPx, height: l.capPx } })),
+    ...layout.block.lines.map((l) => ({ slot: `${l.role} "${l.text}"`, box: { left: (layout.size.width - l.widthPx) / 2, top: l.capTop, width: l.widthPx, height: l.capPx } })),
+    ...layout.details.map((l) => ({ slot: `details "${l.text}"`, box: { left: l.left, top: l.capTop, width: l.widthPx, height: l.capPx } })),
+    { slot: "logo", box: layout.logo },
+    ...extra,
+  ];
+  return boxes.map(({ slot, box }) => {
+    const r = box.left + box.width;
+    const b = box.top + box.height;
+    const why = box.left < B.left - 0.5 ? `left ${Math.round(box.left)} < ${B.left}` : r > B.right + 0.5 ? `right ${Math.round(r)} > ${B.right}` : box.top < B.firstInk - 0.5 ? `top ${Math.round(box.top)} above ${B.firstInk}` : b > B.lastBaseline + 0.5 ? `baseline ${Math.round(b)} below ${B.lastBaseline}` : null;
+    return { slot, ok: why == null, why };
+  });
+}
+
+/** The report's word for the band check: "✓ (n in the band)" or the slots outside and why. */
+export const bandWord = (checks: readonly BandCheck[]): string => {
+  const off = checks.filter((c) => !c.ok);
+  return off.length ? `✗ ${off.map((c) => `${c.slot}: ${c.why}`).join("; ")}` : `✓ (${checks.length} in the band)`;
+};
 
 /** O80 / H81: every type box inside O43's safe area on the 9:16 clip. */
 export function photoClipSafe(layout: PhotoLayout): { ok: boolean; outside: Rect[] } {
