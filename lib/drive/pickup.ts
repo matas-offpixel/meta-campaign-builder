@@ -40,13 +40,18 @@
  * written and the run works as before.
  *
  * Clips are streamed from Drive to the function's temp disk (DriveApi
- * downloadTo), never read into memory whole.
+ * downloadTo), never read into memory whole. One over the storage cap is not
+ * written to disk at all: ffmpeg reads it from Drive by byte ranges through a
+ * loopback server (DriveApi fetchMedia, lib/creatives/remote-file.ts), so
+ * the temp disk ("up to 500 MB") only holds its 1080 copy.
  */
 
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import { importArtistClips, type ClipFolderListing, type ClipImportResult } from "../creative-lab/clip-intake.ts";
 import { labArtistForLibrary } from "../creative-lab/lineup.ts";
+import { redactSecrets } from "../creative-lab/render-proxy.ts";
 import type { ContentIdentity } from "../creatives/asset-registry.ts";
+import { remoteOriginal, type FetchRange } from "../creatives/remote-file.ts";
 import type { ServiceRoleDb } from "../creative-lab/load.ts";
 import { APP_TAG_KEY, FOLDER_MIME, SHORTCUT_MIME, type DriveApi, type DriveChange, type DriveFile } from "./client.ts";
 import { allRows, rowById, rowsWhere, type DriveDb, type RowOf } from "./db.ts";
@@ -90,6 +95,8 @@ export type ImportClip = (args: {
   download: () => Promise<Uint8Array>;
   /** Streams the file to disk (DriveApi downloadTo). When given, the import never holds the file in memory. */
   downloadTo?: (filePath: string) => Promise<ContentIdentity>;
+  /** The file's bytes by range (DriveApi fetchMedia). When given, an over-cap original is never written to disk. */
+  fetchRange?: FetchRange;
 }) => Promise<ClipImportResult>;
 
 type MapRow = RowOf<"drive_folders">;
@@ -101,27 +108,33 @@ type Located =
   | { kind: "venue"; row: MapRow }
   | { kind: "elsewhere" };
 
-/** A one-file listing of a Drive file: streamed to disk when `downloadTo` is given. */
-export function oneFileListing(file: DriveFile, download: () => Promise<Uint8Array>, downloadTo?: (filePath: string) => Promise<ContentIdentity>): ClipFolderListing {
+/** A one-file listing of a Drive file: streamed to disk when `downloadTo` is given, read by range when `fetchRange` is. */
+export function oneFileListing(
+  file: DriveFile,
+  download: () => Promise<Uint8Array>,
+  downloadTo?: (filePath: string) => Promise<ContentIdentity>,
+  fetchRange?: FetchRange,
+): ClipFolderListing {
   return {
     list: async () => [{ sourceFileId: file.id, name: file.name, size: file.size ?? 0 }],
     download: async () => Buffer.from(await download()),
     ...(downloadTo ? { downloadToFile: async (_url: string, _file: unknown, filePath: string) => downloadTo(filePath) } : {}),
+    ...(fetchRange ? { openRemote: () => remoteOriginal(fetchRange) } : {}),
   };
 }
 
-type ImportDeps = Pick<Parameters<typeof importArtistClips>[1], "upload" | "probe" | "now" | "uploadFile" | "probeFile" | "renderProxyFile" | "maxStoredBytes">;
+type ImportDeps = Pick<Parameters<typeof importArtistClips>[1], "upload" | "probe" | "now" | "uploadFile" | "probeFile" | "probeRemote" | "renderProxyFile" | "maxStoredBytes">;
 
 /** The default import: the existing folder import over a one-file listing of this Drive file. */
 export function folderImport(db: ServiceRoleDb, deps: ImportDeps = {}): ImportClip {
-  return ({ labArtistId, eventId, file, download, downloadTo }) =>
+  return ({ labArtistId, eventId, file, download, downloadTo, fetchRange }) =>
     importArtistClips(db, {
       ...deps,
       artistId: labArtistId,
       eventId,
       maxNew: 1,
       folderUrl: `drive-export:${file.id}`,
-      listing: oneFileListing(file, download, downloadTo),
+      listing: oneFileListing(file, download, downloadTo, fetchRange),
       // Migration 228: an original over the storage cap stays in Drive; only its 1080 render copy is stored.
       driveMaster: () => file.id,
     });
@@ -133,10 +146,11 @@ export type ImportVenueClip = (args: {
   file: DriveFile;
   download: () => Promise<Uint8Array>;
   downloadTo?: (filePath: string) => Promise<ContentIdentity>;
+  fetchRange?: FetchRange;
 }) => Promise<ClipImportResult>;
 
 export function venueImport(db: ServiceRoleDb, deps: ImportDeps = {}): ImportVenueClip {
-  return ({ event, file, download, downloadTo }) =>
+  return ({ event, file, download, downloadTo, fetchRange }) =>
     importArtistClips(db, {
       ...deps,
       asPromoter: { userId: event.user_id, rightsRef: "Venue & crowd" },
@@ -144,7 +158,7 @@ export function venueImport(db: ServiceRoleDb, deps: ImportDeps = {}): ImportVen
       maxNew: 1,
       source: "file",
       folderUrl: `drive-export:${file.id}`,
-      listing: oneFileListing(file, download, downloadTo),
+      listing: oneFileListing(file, download, downloadTo, fetchRange),
       // Migration 228: an original over the storage cap stays in Drive; only its 1080 render copy is stored.
       driveMaster: () => file.id,
     });
@@ -281,6 +295,7 @@ export async function runDrivePickup(
   const downloadOf = (file: DriveFile) => ({
     download: () => drive.download(file.id),
     ...(drive.downloadTo ? { downloadTo: (filePath: string) => drive.downloadTo!(file.id, filePath) } : {}),
+    ...(drive.fetchMedia ? { fetchRange: ((range, signal) => drive.fetchMedia!(file.id, { range, signal })) as FetchRange } : {}),
   });
 
   /**
@@ -329,7 +344,7 @@ export async function runDrivePickup(
       token = page.nextPageToken;
     }
   } catch (err) {
-    result.errors.push((err instanceof Error ? err.message : String(err)).replace(/https?:\/\/\S+/g, "").slice(0, 300));
+    result.errors.push(redactSecrets((err instanceof Error ? err.message : String(err)).replace(/https?:\/\/\S+/g, "")).slice(0, 300));
   }
   // A marker left by a run that died on a file this run didn't meet again (moved away since): this run lived, so clear it.
   if (marker.on && inflight) await writeInflight(db, drive.driveId, null, now);

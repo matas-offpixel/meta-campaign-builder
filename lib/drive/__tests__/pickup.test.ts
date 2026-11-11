@@ -522,3 +522,67 @@ describe("Venue & crowd from a Drive pickup streams the file to disk", () => {
     assert.equal(master.storage_path, null);
   });
 });
+
+describe("an over-cap Venue & crowd file is read from Drive by range, never written to disk (SWEELY 1.mp4)", () => {
+  const TOKEN = "ya29.PICKUP-TEST-TOKEN";
+
+  function sweely(db: TestDb, drive: FakeDrive) {
+    const venue = folderId(drive, `${EVENT} / 02 Source / Venue & crowd`);
+    const bytes = new Uint8Array(4096).map((_, i) => i % 256);
+    return drive.drop(venue, "SWEELY 1.mp4", { bytes, size: bytes.byteLength });
+  }
+
+  function venueDeps(made: string[], uploads: string[]) {
+    return {
+      maxStoredBytes: 1024,
+      probeRemote: async () => ({ width: 3840, height: 2160, durationInSeconds: 56 }),
+      renderProxyFile: async (input: string, output: string) => {
+        made.push(input);
+        const res = await fetch(input, { headers: { Range: "bytes=0-" } });
+        assert.equal((await res.arrayBuffer()).byteLength, 4096);
+        const { writeFile } = await import("node:fs/promises");
+        await writeFile(output, Buffer.alloc(512, 1));
+      },
+      uploadFile: async (storagePath: string) => {
+        uploads.push(storagePath);
+      },
+    };
+  }
+
+  it("fetchMedia only (no downloadTo, no download), ffmpeg's input a loopback URL; the master stays in Drive", async () => {
+    const db = seed();
+    const drive = fakeDrive();
+    await primed(db, drive);
+    const file = sweely(db, drive);
+    const made: string[] = [];
+    const uploads: string[] = [];
+    const res = await runDrivePickup(db, drive, { now: NOW, importClip: recorder().importClip, importVenueClip: venueImport(db as never, venueDeps(made, uploads)) });
+    assert.deepEqual(res.clips.map((c) => [c.name, c.outcome]), [["SWEELY 1.mp4", "imported"]]);
+    assert.ok(drive.calls.some((c) => c.startsWith(`fetchMedia ${file.id}`)));
+    assert.ok(!drive.calls.includes(`downloadTo ${file.id}`));
+    assert.ok(!drive.calls.includes(`download ${file.id}`));
+    assert.match(made[0]!, /^http:\/\/127\.0\.0\.1:\d+\//);
+    assert.equal(uploads.length, 1);
+    const clip = rows(db, "creative_lab_clips")[0];
+    const master = rows(db, "creative_assets").find((a) => a.id === clip.creative_asset_id)!;
+    assert.equal(master.drive_file_id, file.id);
+    assert.equal(master.storage_path, null);
+    assert.equal(master.byte_size, 4096);
+    assert.equal(rows(db, "drive_change_cursors")[0].inflight_file_id, null);
+  });
+
+  it("a Drive error that carries a token and URL is stored without either, and the run moves on", async () => {
+    const db = seed();
+    const drive = fakeDrive();
+    await primed(db, drive);
+    sweely(db, drive);
+    drive.failMedia = new Error(`fetch failed: Authorization: Bearer ${TOKEN} https://www.googleapis.com/drive/v3/files/abc?alt=media&access_token=${TOKEN}`);
+    const res = await runDrivePickup(db, drive, { now: NOW, importClip: recorder().importClip, importVenueClip: venueImport(db as never, venueDeps([], [])) });
+    assert.deepEqual(res.clips.map((c) => c.outcome), ["failed"]);
+    assert.ok(res.clips[0]!.reason!.length <= 300);
+    const stored = JSON.stringify({ res, cursors: rows(db, "drive_change_cursors") });
+    assert.ok(!stored.includes(TOKEN));
+    assert.ok(!stored.includes("googleapis"));
+    assert.equal(rows(db, "drive_change_cursors")[0].page_token, String(drive.changeLog.length));
+  });
+});

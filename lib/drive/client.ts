@@ -65,6 +65,13 @@ export interface DriveApi {
    * Optional: without it the pickup reads the file with download().
    */
   downloadTo?(fileId: string, filePath: string): Promise<ContentIdentity>;
+  /**
+   * The file's bytes as a streaming Response: the whole file, or one HTTP
+   * Range ("bytes=0-99" → 206). The credentials stay inside this call; the
+   * Response carries none. Optional: the pickup reads an over-cap original
+   * this way (ffmpeg through a loopback server) so it never touches disk.
+   */
+  fetchMedia?(fileId: string, opts?: { range?: string | null; signal?: AbortSignal }): Promise<Response>;
   /** changes.getStartPageToken for the drive. */
   startPageToken(): Promise<string>;
   listChanges(pageToken: string): Promise<DriveChangePage>;
@@ -284,6 +291,14 @@ export function restDriveApi(opts: { driveId: string; serviceAccount: ServiceAcc
     async download(fileId) {
       const res = await call(`${API}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {}, "download");
       return new Uint8Array(await res.arrayBuffer());
+    },
+
+    async fetchMedia(fileId, mediaOpts = {}) {
+      return call(
+        `${API}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
+        { headers: mediaOpts.range ? { Range: mediaOpts.range } : {}, signal: mediaOpts.signal },
+        "download",
+      );
     },
 
     async downloadTo(fileId, filePath) {

@@ -14,6 +14,13 @@
  * `upload`, `probe` and `renderProxy` maker are not used (their file
  * counterparts are uploadFile, probeFile and renderProxyFile);
  * `renderProxy: false` still switches the render copy off.
+ *
+ * A listing with openRemote (the Drive pickup again) reads an original over
+ * the storage cap in remote mode: it is fingerprinted in one streamed pass,
+ * probed by byte ranges, and ffmpeg reads it through a loopback server
+ * (lib/creatives/remote-file.ts), so only the 1080 copy is written to the
+ * temp disk. The function's /tmp is "up to 500 MB"; SWEELY 1.mp4 (449 MB)
+ * and its copy did not fit there together (11 Nov 2026).
  */
 
 import { mkdtemp, rm } from "node:fs/promises";
@@ -28,15 +35,19 @@ import { loadServiceAccount } from "../clients/asset-queue/drive-auth.ts";
 import { fetchDropboxFileContent, isDropboxFolderUrl, listDropboxFolderFiles } from "../clients/asset-queue/dropbox.ts";
 import { uploadFileToStorageBucket, uploadToStorageBucket } from "../clients/asset-queue/storage-upload.ts";
 import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset, type ContentIdentity, type RegistryAspect } from "../creatives/asset-registry.ts";
+import type { RemoteOriginal } from "../creatives/remote-file.ts";
 import type { ServiceRoleDb } from "./load.ts";
-import { probeMp4Bytes, probeMp4File } from "./mp4-probe.ts";
+import { probeMp4Bytes, probeMp4File, probeMp4Reader } from "./mp4-probe.ts";
 import {
   COLUMN_SIZE,
+  FAILURE_REASON_MAX,
+  FfmpegFailed,
   ProxyOverLimit,
   attachRenderProxy,
   attachRenderProxyFile,
   makeColumnProxy,
   makeColumnProxyFile,
+  redactSecrets,
   renderProxySize,
   storeRenderProxy,
   storeRenderProxyFile,
@@ -89,6 +100,12 @@ export type ClipFolderListing = {
    * this file) and download() is not called.
    */
   downloadToFile?(url: string, file: ClipFolderFile, filePath: string): Promise<ContentIdentity>;
+  /**
+   * The file read where it lives, never written to disk. When present, a file
+   * listed over the storage cap (or with no listed size) runs in remote mode
+   * (see the top of this file).
+   */
+  openRemote?(url: string, file: ClipFolderFile): RemoteOriginal;
 };
 
 export type ClipProbe = { width: number; height: number; durationInSeconds: number };
@@ -142,7 +159,14 @@ function contentType(ext: string): string {
 }
 
 function plain(message: string): string {
-  return message.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(0, 500) || "Could not import this file.";
+  return redactSecrets(message.replace(/https?:\/\/\S+/g, "")).replace(/\s+/g, " ").trim().slice(0, FAILURE_REASON_MAX) || "Could not import this file.";
+}
+
+/** Disk full while writing the original or its copy: the temp-disk line, whatever said it. */
+function isNoSpace(err: unknown): boolean {
+  if ((err as NodeJS.ErrnoException | null)?.code === "ENOSPC") return true;
+  if (err instanceof FfmpegFailed) return err.noSpace;
+  return err instanceof Error && /No space left on device/i.test(err.message);
 }
 
 function shareMessageFromConfig(): string {
@@ -222,10 +246,20 @@ async function defaultProbeFile(filePath: string): Promise<ClipProbe | null> {
   }
 }
 
-/** The original as this import holds it: in memory (a listing without downloadToFile) or on disk. */
+/** The original as this import holds it: in memory (a listing without downloadToFile), on disk, or where it lives (remote mode). */
 type Original =
   | { kind: "bytes"; bytes: Buffer; identity: ContentIdentity }
-  | { kind: "file"; path: string; identity: ContentIdentity };
+  | { kind: "file"; path: string; identity: ContentIdentity }
+  | { kind: "remote"; remote: RemoteOriginal; identity: ContentIdentity };
+
+async function defaultProbeRemote(remote: RemoteOriginal, size: number): Promise<ClipProbe | null> {
+  try {
+    const probe = await probeMp4Reader({ size, read: (start, length) => remote.readRange(start, length) });
+    return { width: probe.width, height: probe.height, durationInSeconds: probe.durationInSeconds };
+  } catch {
+    return null;
+  }
+}
 
 async function writeFolderState(db: ServiceRoleDb, artistId: string, userId: string, patch: Row): Promise<void> {
   const updated = await db.from("creative_lab_artists").update(patch).eq("id", artistId).eq("user_id", userId);
@@ -276,6 +310,8 @@ export async function importArtistClips(
     uploadFile?: FileUpload;
     /** File mode's probe, from a file on disk. Defaults to the moov-atom probe. */
     probeFile?: (filePath: string, name: string) => Promise<ClipProbe | null>;
+    /** Remote mode's probe, by byte ranges. Defaults to the moov-atom probe over readRange. */
+    probeRemote?: (remote: RemoteOriginal, size: number, name: string) => Promise<ClipProbe | null>;
     /**
      * Migration 228: for a file read from Drive, its Drive file id. An original
      * over the storage cap is then not uploaded: only its 1080 render copy is
@@ -314,6 +350,8 @@ export async function importArtistClips(
   const probe = args.probe ?? ((bytes: Buffer) => defaultProbe(bytes));
   const uploadFile = args.uploadFile ?? ((storagePath: string, filePath: string, type: string) => defaultUploadFile(db, storagePath, filePath, type));
   const probeFile = args.probeFile ?? ((filePath: string) => defaultProbeFile(filePath));
+  const probeRemote = args.probeRemote ?? ((remote: RemoteOriginal, size: number) => defaultProbeRemote(remote, size));
+  const storedCap = args.maxStoredBytes ?? MAX_STORED_BYTES;
   const now = (args.now ?? new Date()).toISOString();
 
   let listed: ClipFolderFile[];
@@ -368,12 +406,18 @@ export async function importArtistClips(
     if (imported >= cap) break;
     let temp: string | null = null;
     try {
-      let original: Original;
-      if (listing.downloadToFile) {
+      let original: Original | null = null;
+      // Remote mode: over the cap by its listed size (or no size listed), the original is never written to disk.
+      if (listing.openRemote && (!(size > 0) || size > storedCap)) {
+        const remote = listing.openRemote(folderUrl, file);
+        const remoteIdentity = await remote.fingerprint();
+        if (remoteIdentity.byteSize > storedCap) original = { kind: "remote", remote, identity: remoteIdentity };
+      }
+      if (!original && listing.downloadToFile) {
         temp = await mkdtemp(path.join(tmpdir(), "lab-intake-"));
         const filePath = path.join(temp, `original.${ext}`);
         original = { kind: "file", path: filePath, identity: await listing.downloadToFile(folderUrl, file, filePath) };
-      } else {
+      } else if (!original) {
         const bytes = await listing.download(folderUrl, file);
         original = { kind: "bytes", bytes, identity: fingerprintBytes(bytes) };
       }
@@ -383,13 +427,17 @@ export async function importArtistClips(
         files.push({ name, size, outcome: "skipped", reason: "same video as a clip already imported" });
         continue;
       }
-      const measured = original.kind === "file" ? await probeFile(original.path, name) : probe(original.bytes, name);
+      const measured = original.kind === "file"
+        ? await probeFile(original.path, name)
+        : original.kind === "remote"
+          ? await probeRemote(original.remote, identity.byteSize, name)
+          : probe(original.bytes, name);
       const duration = measured ? Math.round(measured.durationInSeconds * 1000) / 1000 : null;
       const aspect: RegistryAspect = measured
         ? snapRatio(measured.width, measured.height)
         : resolveRegistryAspect({ filename: name, probed: "other" });
       // Migration 228: over the cap, the original stays in Drive and only its 1080 render copy is stored.
-      const overCap = identity.byteSize > (args.maxStoredBytes ?? MAX_STORED_BYTES);
+      const overCap = identity.byteSize > storedCap;
       let driveFileId: string | null = null;
       let copy: { assetId: string; storagePath: string } | null = null;
       if (overCap) {
@@ -403,10 +451,24 @@ export async function importArtistClips(
         // The copy first: if it fails, no clip row is left without something to render. A copy over the cap
         // itself is refused before anything is uploaded. Over the cap the copy is the 1080 × 1920 9:16 column
         // (Matas, 11 Nov): the whole-frame copy of 4K crowd footage is itself over the cap at CRF 16.
-        const limit = args.maxStoredBytes ?? MAX_STORED_BYTES;
+        const limit = storedCap;
         const copyArgs = { userId, artistId: args.artistId ?? "promoter", name, size: COLUMN_SIZE, durationSeconds: duration };
         try {
-          if (original.kind === "file") {
+          if (original.kind === "remote") {
+            // ffmpeg reads the original through the loopback server; only the copy is written to disk.
+            const served = await original.remote.serve();
+            try {
+              copy = await storeRenderProxyFile(db, {
+                ...copyArgs,
+                original: { path: served.url, contentHash: identity.contentHash },
+                make: args.renderProxyFile ?? makeColumnProxyFile,
+                maxBytes: limit,
+                uploadFile,
+              });
+            } finally {
+              await served.close();
+            }
+          } else if (original.kind === "file") {
             copy = await storeRenderProxyFile(db, {
               ...copyArgs,
               original: { path: original.path, contentHash: identity.contentHash },
@@ -436,7 +498,7 @@ export async function importArtistClips(
       const storagePath = overCap ? "" : `videos/creative-lab/${promoter ? `promoter/${args.eventId ?? "event"}` : args.artistId}/${identity.contentHash}.${ext}`;
       if (!overCap) {
         if (original.kind === "file") await uploadFile(storagePath, original.path, contentType(ext));
-        else await upload(storagePath, original.bytes, contentType(ext));
+        else if (original.kind === "bytes") await upload(storagePath, original.bytes, contentType(ext));
       }
       const registered = await upsertRegisteredAsset(db, {
         userId,
@@ -493,7 +555,9 @@ export async function importArtistClips(
               make: args.renderProxyFile,
               uploadFile,
             })
-            : await attachRenderProxy(db, { ...proxyArgs, original: original.bytes, make: args.renderProxy || undefined, upload });
+            : original.kind === "bytes"
+              ? await attachRenderProxy(db, { ...proxyArgs, original: original.bytes, make: args.renderProxy || undefined, upload })
+              : null;
           // No note on the file: the import's words are unchanged.
           if (proxy) renderStoragePath = proxy.storagePath;
         } catch (err) {
@@ -521,8 +585,7 @@ export async function importArtistClips(
       files.push({ name, size, outcome: "imported", reason: notes.length ? notes.join("; ") : null, ...(clipId ? { clipId } : {}) });
     } catch (err) {
       if (err instanceof ClipIntakeError) throw err;
-      const noDisk = (err as NodeJS.ErrnoException | null)?.code === "ENOSPC";
-      files.push({ name, size, outcome: "failed", reason: noDisk ? NO_TEMP_DISK : plain(err instanceof Error ? err.message : "Could not import this file.") });
+      files.push({ name, size, outcome: "failed", reason: isNoSpace(err) ? NO_TEMP_DISK : plain(err instanceof Error ? err.message : "Could not import this file.") });
     } finally {
       if (temp) await rm(temp, { recursive: true, force: true });
     }
