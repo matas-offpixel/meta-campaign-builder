@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Upload folder — owner first — 11 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.muted{color:var(--ink-3)}.mono{font-family:var(--mono)}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative;max-width:100%}
+.panel{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn.dis{opacity:.45}
+.ehead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin:0}
+.ehead h4{margin:0;font:700 18px/1.15 var(--sans)}
+.ehead .meta{font-size:12px;color:var(--ink-2);margin-top:3px}
+.ehead .links{display:flex;gap:14px;align-items:center;font-size:12.5px;white-space:nowrap}
+.ehead .links a{color:var(--ink);text-decoration:underline;text-underline-offset:3px;font-weight:600}
+.dim{position:absolute;inset:0;background:rgba(30,24,16,.28)}
+.dlg{position:relative;background:var(--edit);border-radius:12px;box-shadow:0 12px 32px rgba(30,24,16,.2);padding:16px 18px;font-size:12.5px}
+.dlg h4{margin:0 0 2px;font:600 15px var(--sans)}
+.opt{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;font-size:12px}
+.opt i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--ink-3);flex:none}
+.opt.on{background:var(--card)}.opt.on i{border:4px solid var(--ink)}
+.opt small{color:var(--ink-3);margin-left:auto;font-size:11px;white-space:nowrap}
+.field{height:30px;border:1px solid var(--border-strong);border-radius:6px;background:#fff8f0;display:flex;align-items:center;padding:0 9px;font:11px var(--mono);color:var(--ink-2);overflow:hidden;white-space:nowrap}
+.pick{display:inline-block;border:1px solid var(--border-strong);border-radius:5px;background:#fff8f0;padding:1px 6px;margin:0 1px}
+.sub{font-size:11.5px;color:var(--ink-3);padding:0 8px 4px 31px}
+.frame>figure{max-width:100%;min-width:0}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · Creative Lab · Drive · 11 November 2026</p>
+<h1>The event page's upload folder, owner first</h1>
+<div class="lead"><p>A follow-up to <code>2026-11-11-creative-lab-drive-owner-type.html</code>. Its D3 retires <code>Content</code> from new cycles, but the upload panel (<code>lib/drive/panel.ts</code> <code>stageFolder</code>, the 9 Nov record's S23 and CLS7) still preselects <code>03 Creatives / 3 On sale / w/c {d Mon} / Content</code> for any file it can't place elsewhere. From <code>w/c 23 Nov</code> that folder won't exist. This record rules what the panel offers instead. S23's other preselections (00, 01, Artist clips, Press kits) stand.</p></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+
+<tr><td>U1 On sale: owner and type, chosen in the row</td><td>This takes option (b). The creatives row reads <code>03 Creatives / 3 On sale / w/c {d Mon} / {owner} / {type}</code>, and the last two parts are pickers inside the row.
+<ul>
+<li><b>Owner:</b>
+<ul>
+<li>The list is the Lab lineup in billing order, each name exactly as D1 writes it, then the promoter: the client's name, or <code>{Client} (promoter)</code> on a clash.</li>
+<li>It's preselected only when the file name names exactly one lineup artist, using S23's existing match (the longest name wins).</li>
+<li>Otherwise it reads <i>choose who it's for</i>, and Upload waits for it. The owner is never guessed: a wrong guess puts the file in another team's approval folder, the one Matas shares with them.</li>
+</ul></li>
+<li><b>Type:</b> taken from the file's MIME when it's certain: <code>video/*</code> → Videos, <code>image/*</code> → Statics. Anything else reads <i>choose Videos or Statics</i>, and Upload waits.</li>
+<li><b>Never the stage or cycle folder itself:</b> option (a) is not offered. D4 leaves those folders holding only owner folders, so a file at cycle level would be the one thing an approval share can't see.</li>
+<li><b>The current cycle only,</b> as S23 had it. An older cycle is reached through <i>Another folder in the tree…</i> and gets the same two pickers.</li>
+</ul></td></tr>
+
+<tr><td>U2 The other stages</td><td>The same row and pickers, for whichever stage is current:
+<ul>
+<li>signup → <code>03 Creatives / 1 Signup / Teaser / {owner} / {type}</code>, replacing S23's bare <code>1 Signup</code>;</li>
+<li>show week → <code>03 Creatives / 4 Show week / {owner} / {type}</code>.</li>
+</ul>
+<code>Announcement</code>, <code>Presale live</code> and <code>Reminders</code> stay under <i>Another folder in the tree…</i>. Choosing one shows the same two pickers. A stage folder chosen there never takes the file directly.</td></tr>
+
+<tr><td>U3 A finished creative isn't source footage</td><td>S23 sends "a video named for an artist" to <code>02 Source / Artist clips / {artist}</code>, which imports it into the Lab as a clip. A finished edit carries the artist's name too, so the two need telling apart.
+<ul>
+<li>A file whose name follows S14's render pattern is a creative. That means it starts with the event's code and has <code>_9x16</code>, <code>_4x5</code> or <code>_1x1</code> before the extension or <code>_winner</code>, for example <code>P26-BDAY_luke-dean_artist-card-3_on-sale_9x16_v1.png</code>.</li>
+<li>Such a file is preselected to the creatives row, with the owner from the name and the type from MIME.</li>
+<li>Every other file follows S23 as before.</li>
+</ul></td></tr>
+
+<tr><td>U4 Words and states</td><td>
+<ul>
+<li><b>Preselected with both known:</b> the row is selected and its small line reads <i>likely — "{artist}" in the name</i>, S23's own form. The promoter is never preselected. A promoter file is chosen by hand, because a file name can't say it belongs to no artist.</li>
+<li><b>Owner unknown:</b> the picker reads <i>choose who it's for</i>, Upload is dimmed, and the line under the row reads <i>Choose who it's for — the file goes in their folder for approval.</i></li>
+<li><b>Type unknown:</b> the picker reads <i>choose Videos or Statics</i>, and Upload is dimmed.</li>
+<li><b>Folder not made yet (D5):</b> <i>Makes {owner} / {type} in {w/c d Mon} with this upload.</i>, using the stage's own name for Teaser or 4 Show week. It's said once, under the row. No folder is made until Upload.</li>
+<li><b>An artist renamed in the Lab:</b> the picker shows the Lab's current name. The upload goes by the owner's key, so it lands in that artist's folder even while D5's rename of the Drive folder is still on its way. No extra words.</li>
+<li><b>An artist removed from the lineup:</b> they're not in the picker. Their old folders stay (D5) and are reached through <i>Another folder in the tree…</i>.</li>
+<li><b>Safety net:</b> a key that resolves to no folder and can't be made (for example the retired <code>Content</code> of a new cycle) refuses with the panel's existing <i>That folder isn't in this event's tree — choose another.</i> Content is never made again.</li>
+</ul></td></tr>
+
+<tr><td>U5 Elsewhere on the event page</td><td>
+<ul>
+<li>Only the upload panel's words change.</li>
+<li>The Drive panel's <i>now: 3 On sale / w/c {d Mon}</i> line is unchanged: it names the stage, not a folder to drop into.</li>
+<li>The render rows' "in Drive" mark is unchanged.</li>
+<li>The asset board's <i>+ needs …</i> lines point at 01 and 02 and are unchanged.</li>
+<li>The usual-folders list in the panel loses the <code>… / Content</code> row and gains the creatives row of U1 or U2.</li>
+</ul></td></tr>
+
+<tr><td>U6 The deadline</td><td>
+<ul>
+<li>This ships no later than the first Monday on which a cycle is made under D3. For P26-BDAY that's <b>Mon 23 Nov</b>, when <code>w/c 23 Nov</code> is made with no children. The target is a deploy by <b>Fri 20 Nov</b>.</li>
+<li>If it slips, U4's safety net stands in: an on-sale upload preselected to the retired Content is refused with the existing sentence, never filed into a newly made Content.</li>
+<li>cc/drive-owner-type must keep that refusal: with <code>CYCLE_CHILDREN</code> empty, <code>specFor</code> no longer resolves <code>…/content</code>, and the upload must refuse rather than make the folder.</li>
+</ul></td></tr>
+</table>
+
+<h2>CLS7b · Which folder? — owner first (1280 and 393)</h2>
+<p class="lead">This replaces CLS7's creatives row. At 1280, Matas drops a finished artist card named for Luke Dean, and the owner and type are both known. At 393 he drops a phone video named for nobody, so the owner has to be chosen first.</p>
+<div class="frame">
+<figure><figcaption>CLS7b-1280 · a finished card · the creatives row preselected · Luke Dean / Statics · the folder is new this cycle</figcaption>
+<div class="vp" style="width:1280px;max-width:100%;height:600px;padding:18px">
+<div class="panel" style="opacity:.6"><div class="ehead"><div><h4>Puzzle 4th Birthday</h4><div class="meta">Puzzle · P26-BDAY · 27 Dec 2026 · Circuit, Southampton</div></div><div class="links"><a>View client</a><a>Drive folder ↗</a></div></div></div>
+<div class="dim"></div>
+<div style="position:absolute;left:0;right:0;top:44px;display:flex;justify-content:center"><div class="dlg" style="width:720px;max-width:94%">
+  <h4>Which folder?</h4>
+  <div class="mono muted" style="font-size:11px;margin-bottom:10px">P26-BDAY_luke-dean_artist-card-3_on-sale_9x16_v1.png · 1.8 MB</div>
+  <div class="opt"><i></i>00 Brief &amp; admin</div><div class="opt"><i></i>01 Open files</div><div class="opt"><i></i>02 Source / Artist clips / <u>choose artist</u></div><div class="opt"><i></i>02 Source / Press kits / <u>choose artist</u></div><div class="opt"><i></i>02 Source / Venue &amp; crowd</div>
+  <div class="opt on"><i></i><span>03 Creatives / 3 On sale / w/c 23 Nov / <span class="pick">Luke Dean ▾</span> / <span class="pick">Statics ▾</span></span><small>likely — "luke dean" in the name</small></div>
+  <div class="sub">Makes Luke Dean / Statics in w/c 23 Nov with this upload.</div>
+  <div class="opt"><i></i>04 D2C</div><div class="opt"><i></i>05 Reports</div><div class="opt"><i></i>06 Post-event</div><div class="opt"><i></i><u>Another folder in the tree…</u></div>
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px"><span class="btn ghost">Cancel</span><span class="btn solid">Upload</span></div>
+</div></div>
+</div></figure>
+<figure><figcaption>CLS7b-393 · a video named for nobody · the owner is chosen first · Upload waits</figcaption>
+<div class="vp" style="width:393px;height:560px;padding:12px">
+<div class="panel" style="padding:12px"><div class="ehead" style="display:block"><h4>Puzzle 4th Birthday</h4><div class="meta">Puzzle · P26-BDAY · 27 Dec 2026</div><div class="links" style="margin-top:8px"><a>View client</a><a>Drive folder ↗</a></div></div></div>
+<div class="dim"></div>
+<div class="dlg" style="position:absolute;left:0;right:0;bottom:0;border-radius:14px 14px 0 0;padding:16px">
+  <h4>Which folder?</h4>
+  <div class="mono muted" style="font-size:11px;margin-bottom:10px">IMG_4821.mov · 62 MB</div>
+  <div class="field" style="justify-content:space-between;font-family:var(--sans);font-size:12px;color:var(--ink)"><span>03 Creatives / 3 On sale / w/c 23 Nov</span><u>Change</u></div>
+  <div style="display:flex;gap:8px;margin-top:8px">
+    <div class="field" style="flex:1;justify-content:space-between;font-family:var(--sans);font-size:12px;color:var(--ink-3)"><span>choose who it's for</span><span>▾</span></div>
+    <div class="field" style="flex:0 0 104px;justify-content:space-between;font-family:var(--sans);font-size:12px;color:var(--ink)"><span>Videos</span><span>▾</span></div>
+  </div>
+  <div class="muted" style="font-size:11.5px;margin-top:6px">Choose who it's for — the file goes in their folder for approval.</div>
+  <div style="display:flex;gap:8px;margin-top:12px"><span class="btn ghost" style="flex:1">Cancel</span><span class="btn solid dis" style="flex:1">Upload</span></div>
+</div>
+</div></figure>
+<figure><figcaption>CLS7b · the owner list, open (both widths)</figcaption>
+<div class="vp" style="width:300px;padding:12px">
+  <div class="dlg" style="padding:8px 6px">
+    <div class="opt">Enzo Siragusa</div><div class="opt on">Luke Dean</div><div class="opt">Reeshy</div><div class="opt">Phill de Janeiro</div><div class="opt">Benji King</div>
+    <div style="border-top:1px solid var(--border-strong);margin:4px 0"></div>
+    <div class="opt">Puzzle</div>
+  </div>
+</div></figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HU1 The creatives row</td><td>U1, U2: <code>stageFolder</code> returns the stage key (current cycle, Teaser or 4 Show week), and the row carries the owner and type pickers. The key it files to is D5's <code>{stage}/owner/{artist:id|promoter}/{videos|statics}</code>. <code>/content</code> is never returned.</td><td><code>lib/drive/panel.ts</code>, <code>tree.ts</code> owner and type specs</td><td>on sale on 24 Nov the row reads <code>03 Creatives / 3 On sale / w/c 23 Nov / … / …</code>; at signup it reads <code>1 Signup / Teaser / …</code>; from 21 Dec it reads <code>4 Show week / …</code></td></tr>
+<tr><td>HU2 Preselection</td><td>U1, U3: owner from exactly one lineup name in the file name, else unset; type from MIME (<code>video/*</code>, <code>image/*</code>), else unset. Upload is disabled while either is unset. An S14-pattern name goes to the creatives row ahead of S23's Artist clips rule.</td><td>lineup, MIME</td><td><code>P26-BDAY_luke-dean_artist-card-3_on-sale_9x16_v1.png</code> → creatives / Luke Dean / Statics; <code>enzo-boiler-room-2025.mp4</code> → Artist clips / Enzo Siragusa (S23, unchanged); <code>IMG_4821.mov</code> → creatives / unset / Videos, Upload disabled; a PDF chosen into creatives → type unset</td></tr>
+<tr><td>HU3 Words</td><td>U4 verbatim: <i>choose who it's for</i> · <i>choose Videos or Statics</i> · <i>Choose who it's for — the file goes in their folder for approval.</i> · <i>Makes {owner} / {type} in {folder} with this upload.</i> · <i>likely — "{artist}" in the name</i>.</td><td>—</td><td>unit tests on each sentence</td></tr>
+<tr><td>HU4 Made on upload</td><td>D5 on the upload path: the owner folder, then the type folder, made at Upload and recorded in the map. A failure refuses with <i>The tree wasn't made — try again; if it fails twice, check the export account can add folders in Off / Pixel.</i>, the panel's existing sentence.</td><td>drive_folders</td><td>uploading to a new Luke Dean / Statics makes both folders once; a second upload reuses them</td></tr>
+<tr><td>HU5 Safety net</td><td>U4, U6: a key with no folder and no spec refuses with <i>That folder isn't in this event's tree — choose another.</i> Nothing named Content is created.</td><td>—</td><td>a stale client posting <code>03/3/wc/2026-11-23/content</code> is refused and no folder is created</td></tr>
+<tr><td>HU6 Frames</td><td>CLS7b-1280 and CLS7b-393 as drawn, in the CL fixture with today Tue 24 Nov 2026 and on-sale cycle <code>w/c 23 Nov</code>. CLS7 (the set-times PDF, and Enzo's clip at 393) is re-shot with the creatives row in its list.</td><td>the CL fixture</td><td>frames:check CLS7 ×2 rebaselined, CLS7b ×2 new; nothing else moves</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The owner is never guessed, and Upload waits for it.</li>
+<li>S14's pattern marking a file as a finished creative ahead of S23's Artist clips rule.</li>
+<li>Every sentence in U4 except the two kept from the panel.</li>
+<li>Older cycles only through <i>Another folder…</i>.</li>
+<li>The Fri 20 Nov target. Mon 23 Nov is the fact.</li>
+<li>Option (b) is the user's proposal, taken.</li>
+</ul>
+
+</div></body>
+</html>
