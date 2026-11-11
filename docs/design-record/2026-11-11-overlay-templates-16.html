@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 16 — the triple-fit — 11 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.m916{width:216px;height:384px}
+.off{position:absolute;background:rgba(30,24,16,.55)}
+.feed{position:absolute;border-top:1px dashed #f3d9a0;border-bottom:1px dashed #f3d9a0}
+.isect{position:absolute;border:1.5px solid #fff;background:rgba(255,255,255,.10)}
+.tband{position:absolute;border-top:1px dotted #fff}
+.slot{background:rgba(255,255,255,.18)}
+.slot.red{border-color:#FE3232;color:#FE3232}
+.lbl{white-space:nowrap}
+.legend{font-size:12px;color:var(--ink-2);margin:4px 0 14px}
+.legend span{display:inline-block;width:14px;height:10px;vertical-align:-1px;margin:0 4px 0 12px;border-radius:2px}
+@media (max-width:700px){.m916{width:166px;height:295px}.sch .lbl{font-size:6px}.frame{gap:14px}}
+.m45{width:216px;height:270px}
+.msrc{width:256px;height:240px;background:var(--card)}
+.part{position:absolute}
+.p1{background:#6f6a8e}.p2{background:#5e7d72}.p3{background:#8a6f5e}
+.clear{position:absolute;background:repeating-linear-gradient(0deg,rgba(254,50,50,.35) 0 2px,transparent 2px 4px)}
+.seam{position:absolute;background:#fff}
+.src{position:absolute;background:#9a9086}
+.win{position:absolute;border:1.5px solid #fff;background:rgba(94,125,114,.85);display:flex;align-items:center;justify-content:center;text-align:center;color:#fff}
+.msrc .lbl{color:var(--ink-2)}
+@media (max-width:700px){.m45{width:166px;height:207px}.msrc{width:200px;height:188px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 16 · 11 November 2026</p>
+<h1>Overlay templates — issue 16: Matas's answers, and the triple-fit</h1>
+<div class="lead"><p>This issue covers two things. First, Matas has answered four open questions (O103–O107), and #1182's fixed centre crop needs a ruling. Second, it adds a new video layout. Matas, 11 Nov: "if we are short of footage and viral landscape footage is available on an artist's feed, then we can take that and triple fit it in a 9x16 edit, so each part takes 1/3 of the video, and only 1 single audio is played from one of the clips." He then corrected the first draft of this record: "it's 3 of the same clip using the same audio." So a triple-fit is <b>one</b> landscape clip shown three times. That is O108–O116. Issues 1–15 stand except where a row says otherwise.</p></div>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 16 · 11 Nov 2026.</b> O103 T2's logo is the event lockup. O104 plan rows that can't make the 9:16. O105 statics don't run in Reels. O106 O89 and O91 still open. O107 a Drive-master clip's crop. O108–O116 the triple-fit. Hand-back H99–H106.</li>
+<li><b>Issue 15 · 11 Nov 2026.</b> O94–O102. #1183.</li>
+</ul></div>
+
+<h2>Matas's answers</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O103 T2's logo</td><td>This amends O86's wordmark slot.
+<ul>
+<li>T2 uses the kit's <b>event lockup</b>, as #1177 drafted it: for Puzzle, the PUZZLE 4th Birthday lockup.</li>
+<li>Its ink box is 0.25 W wide, with its ink bottom on the details' last baseline and its right edge on 0.889 W.</li>
+<li>The plain wordmark at 0.161 W is used only when the kit has no event lockup.</li>
+<li>The lockup is the promoter's artwork. Its script isn't recoloured or thickened.</li>
+</ul></td></tr>
+<tr><td>O104 Plan rows that can't make the 9:16</td><td>This amends O93 and O102 ("an asset already on a plan stays"). Matas: only 9:16-capable clips go into video ads.
+<ul>
+<li>A plan row whose clip can't make the 9:16 stays on the plan. It reads <b>"Too small for 9:16"</b> and can't launch.</li>
+<li>A plan row holding a 4:5 or 1:1 video render (O102) reads <b>"Video runs as 9:16 only"</b> and can't launch.</li>
+<li>Neither row is removed. Each holds the plan until it's replaced.</li>
+</ul></td></tr>
+<tr><td>O105 Statics don't run in Reels</td><td>Issue 6's open question on the 9:16 still's placement is closed: statics don't run in Reels at all. The 9:16 still runs in Stories. Its layout is unchanged, and Reels' controls don't apply to it.</td></tr>
+<tr><td>O106 Still open</td><td>The claim's face and width (O91) and the lineup shadow (O89) stay as ruled until Matas answers.</td></tr>
+<tr><td>O107 A Drive-master clip's crop</td><td>From the #1182 verdict.
+<ul>
+<li>A clip whose original stays in Drive (migration 228) has only its stored copy, the <b>centred</b> 9:16 window. Its crop is the centre:
+<ul>
+<li>the crop editor doesn't open;</li>
+<li>O56's crop candidates collapse to the centre;</li>
+<li>a face refusal names the clip as O65 and O71 do.</li>
+</ul></li>
+<li>A different crop needs a new copy made from the Drive master. That is a follow-up, not built yet.</li>
+</ul></td></tr>
+</table>
+
+<h2>The triple-fit</h2>
+<p>One landscape clip, stacked three times in one 9:16, each copy a third of the height, all in sync, with the clip's own sound played once. T1's type sits in issue 15's band. TF1 is the frame. TF2 is what Feed's centre 4:5 shows of it. TF3 is how the part is cut from its source. The three colours below mark the three copies of the same footage.</p>
+<p class="legend"><span style="background:#6f6a8e"></span>part 1<span style="background:#5e7d72"></span>part 2<span style="background:#8a6f5e"></span>part 3<span style="background:repeating-linear-gradient(0deg,rgba(254,50,50,.35) 0 2px,transparent 2px 4px)"></span>no type at a seam<span style="border:1.5px solid #fff;background:#9a9086"></span>issue 15's band</p>
+<div class="frame">
+<figure><figcaption>TF1 · the triple-fit on the 9:16, issue 15's band over it</figcaption><div class="sch m916">
+<div class="part p1" style="left:0.000%;top:0.000%;width:100.000%;height:33.333%;"></div>
+<div class="part p2" style="left:0.000%;top:33.333%;width:100.000%;height:33.333%;"></div>
+<div class="part p3" style="left:0.000%;top:66.667%;width:100.000%;height:33.333%;"></div>
+<div class="clear" style="left:0.000%;top:32.083%;width:100.000%;height:2.500%;"></div>
+<div class="seam" style="left:0.000%;top:33.281%;width:100.000%;height:0.104%;"></div>
+<div class="clear" style="left:0.000%;top:65.417%;width:100.000%;height:2.500%;"></div>
+<div class="seam" style="left:0.000%;top:66.615%;width:100.000%;height:0.104%;"></div>
+<div class="off" style="left:0.000%;top:0.000%;width:100.000%;height:14.844%;"></div>
+<div class="off" style="left:0.000%;top:85.156%;width:100.000%;height:14.844%;"></div>
+<div class="ui" style="left:0.000%;top:0.000%;width:100.000%;height:14.010%;"></div>
+<div class="ui" style="left:0.000%;top:65.000%;width:100.000%;height:35.000%;"></div>
+<div class="uis" style="left:0.000%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="uis" style="left:88.889%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="isect" style="left:11.111%;top:14.844%;width:77.778%;height:50.156%;"></div>
+<div class="tband" style="left:11.111%;top:18.385%;width:77.778%;height:46.615%;"></div>
+<div class="slot" style="left:37.500%;top:18.385%;width:25.000%;height:2.083%;">lockup</div>
+<div class="slot" style="left:11.111%;top:24.427%;width:77.778%;height:6.979%;">name · cap 134</div>
+<div class="slot" style="left:27.778%;top:50.156%;width:44.444%;height:2.969%;">date (B)</div>
+<div class="slot red" style="left:15.741%;top:59.896%;width:68.519%;height:1.510%;">line 1</div>
+<div class="slot" style="left:20.370%;top:62.083%;width:59.259%;height:2.396%;">claim</div>
+<span class="lbl" style="left:1.852%;top:15.625%;">PART 1 · the clip · same frame</span>
+<span class="lbl" style="left:1.852%;top:36.458%;">PART 2 · the clip · ♪ its one track</span>
+<span class="lbl" style="left:1.852%;top:69.792%;">PART 3 · the clip · same frame</span>
+<span class="lbl" style="left:12.037%;top:33.854%;">no type 616–664</span>
+<span class="lbl" style="left:12.037%;top:65.729%;">no type 1256–1304</span>
+</div></figure>
+<figure><figcaption>TF2 · what Feed shows (the centre 4:5)</figcaption><div class="sch m45">
+<div class="part p1" style="left:0.000%;top:0.000%;width:100.000%;height:26.296%;"></div>
+<div class="part p2" style="left:0.000%;top:26.296%;width:100.000%;height:47.407%;"></div>
+<div class="part p3" style="left:0.000%;top:73.704%;width:100.000%;height:26.296%;"></div>
+<div class="seam" style="left:0.000%;top:26.222%;width:100.000%;height:0.148%;"></div>
+<div class="seam" style="left:0.000%;top:73.630%;width:100.000%;height:0.148%;"></div>
+<div class="slot" style="left:37.500%;top:5.037%;width:25.000%;height:2.963%;">lockup</div>
+<div class="slot" style="left:11.111%;top:13.630%;width:77.778%;height:9.926%;">name</div>
+<div class="slot" style="left:27.778%;top:50.222%;width:44.444%;height:4.222%;">date (B)</div>
+<div class="slot red" style="left:15.741%;top:64.074%;width:68.519%;height:2.148%;">line 1</div>
+<div class="slot" style="left:20.370%;top:67.185%;width:59.259%;height:3.407%;">claim</div>
+<span class="lbl" style="left:1.852%;top:1.481%;">PART 1 · its lower 355 px</span>
+<span class="lbl" style="left:1.852%;top:28.148%;">PART 2 · all 640 px</span>
+<span class="lbl" style="left:1.852%;top:74.815%;">PART 3 · its upper 355 px</span>
+</div></figure>
+<figure><figcaption>TF3 · a part's window in its source</figcaption><div class="sch msrc">
+<div class="src" style="left:0.000%;top:0.000%;width:100.000%;height:60.000%;"></div>
+<div class="win" style="left:2.578%;top:0.000%;width:94.844%;height:60.000%;">1822 × 1080 → 1080 × 640 · 0.59×</div>
+<span class="lbl" style="left:0.781%;top:61.250%;">1920 × 1080 (16:9, Luke 15, 16, 18, 21):</span>
+<span class="lbl" style="left:0.781%;top:64.583%;">the full height, centred</span>
+<div class="src" style="left:0.000%;top:68.333%;width:37.344%;height:29.917%;"></div>
+<div class="win" style="left:0.000%;top:71.500%;width:37.344%;height:23.583%;">956 × 566 · 1.13×</div>
+<span class="lbl" style="left:39.062%;top:75.000%;">956 × 718 (4:3, Luke 1):</span>
+<span class="lbl" style="left:39.062%;top:79.167%;">the full width,</span>
+<span class="lbl" style="left:39.062%;top:83.333%;">crop_focus_y places it</span>
+</div></figure>
+</div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+
+<tr><td>O108 When it's offered</td><td>
+<ul>
+<li><b>A triple-fit clip</b> is one too small for its own 9:16 (its 9:16 window is under 675 px, O93) whose part window (O109) is at least <b>675 px</b> wide. It's imported, not refused. Its tile has one status line:
+<ul>
+<li><b>"Landscape — triple-fit only"</b>.</li>
+</ul></li>
+<li>These tiles sit in their owner's group (W2), in a <b>"Triple-fit only · {n}"</b> group after the clips that can run and before "Can't run". They have no selection tick, so they never go into a single-clip round.</li>
+<li>A clip under both floors keeps "Too small for 9:16". O93's import refusal applies only when both floors fail, with its words unchanged.</li>
+<li><b>The offer:</b> "Make a triple-fit" shows on a triple-fit clip's tile when the owner is short of 9:16 footage, meaning they have <b>fewer than 3</b> clips that can run in 9:16 (O93, O102: 9:16-capable and not refused). 3 is a round's default "How many". The count is of 9:16 clips, not parts. One triple-fit clip is enough to make one triple-fit.</li>
+<li><b>Never automatic:</b> the Lab never proposes a triple-fit, and a triple-fit never takes a 9:16 clip's place in a round. A landscape clip that does make its own 9:16 runs as itself, and is never offered as a triple-fit. A portrait clip is never a triple-fit.</li>
+<li><b>Luke Dean</b> (sizes from the 10 Nov size table):
+<ul>
+<li>Luke 15, 16, 18 and 21 are 1920 × 1080. Each 9:16 window is 607 px, under the floor. Each part window is 1822 px, so all four are triple-fit clips, at 0.59×.</li>
+<li>Luke 1 is 956 × 718. Its 9:16 window is 404 px. Its part window is 956 px, so it is a triple-fit clip too, at 1.13×.</li>
+</ul></li>
+</ul></td></tr>
+
+<tr><td>O109 The layout</td><td>
+<ul>
+<li><b>One clip, three times.</b> Parts 1, 2 and 3 are the same clip, through the same window, showing <b>the same frame at the same timecode</b>. They are in sync from first frame to last, never offset, so the one soundtrack matches all three pictures.</li>
+<li>Each part is <b>1080 × 640</b>: part 1 is y 0–640, part 2 is y 640–1280, part 3 is y 1280–1920. They are exact thirds, with no gaps and no dividers. The seam is where one copy's bottom edge meets the next copy's top.</li>
+<li><b>Crop: one window for all three parts</b>, never staggered. The window has the part's shape (1.6875 : 1) and is as wide as the source allows: width = min(source width, source height × 1.6875).
+<ul>
+<li>A 16:9 source keeps its full height, and the window is centred, with crop_focus_x moving it across the slack (1920 × 1080 → a 1822 × 1080 window).</li>
+<li>A 4:3 source keeps its full width, and crop_focus_y places it (O41) (956 × 718 → 956 × 566).</li>
+<li>Staggering the crop would buy almost nothing: a 1920 × 1080 source has 98 px of slack, and Luke 1 has 152 px.</li>
+<li>The focus is set once on the clip and holds for the whole length.</li>
+</ul></li>
+<li><b>Scale:</b> O63's limit, at most 1.6× from the window, which is the 675 px floor. O69's filter applies.</li>
+<li><b>The render copy</b> for a triple-fit clip wider than 1080 is its part window at 1080 × 640 (Lanczos, CRF ≤ 16, as O68 and O101). The composition places it three times.</li>
+<li><b>Length:</b> the clip's stored window, at most 30 s. Under <b>6 s</b> it isn't offered, because the claim needs 1.5 s plus at least 3 s on screen (O37).</li>
+<li>Feed shows part 1's lower 355 px, all of part 2 and part 3's upper 355 px (TF2). Part 3 sits under the Reels controls. Every copy is the same footage, so nothing is lost that another part doesn't show.</li>
+</ul></td></tr>
+
+<tr><td>O110 Sound</td><td>
+<ul>
+<li><b>The clip's own track, once</b>, from its in-point and in sync with all three pictures.</li>
+<li>It is played once, never layered three times.</li>
+<li>A clip flagged "Music match — mute or replace before launch" carries the flag onto its triple-fit, as on any clip.</li>
+<li>A clip with no audio track runs silent, as it would on its own.</li>
+</ul></td></tr>
+
+<tr><td>O111 Type</td><td>
+<ul>
+<li>A triple-fit takes <b>T1 on a clip, arrangement B only</b> (O54, moved by O97):
+<ul>
+<li>the lockup at 353;</li>
+<li>the name's cap top at 469;</li>
+<li>the date above the claim;</li>
+<li>the claim's last baseline on 1238.</li>
+</ul>
+Everything stays inside issue 15's band.</li>
+<li>A's date (632–689) would cross the seam at 640, so A is never used. No type ink sits within <b>24 px of a seam</b> (y 616–664 and 1256–1304). B's top block ends at 603 and its date starts at 963.</li>
+<li>The top block sits on part 1, and the date and claim on part 2. Part 3 carries no type.</li>
+<li>O55's bands stay anchored to the blocks and run across the seams. O40's contrast is read on the pixels under each type box. Red is decided per triple-fit.</li>
+<li>Not on a triple-fit: UGC captions and quote mode, because their blocks centre on 0.355 H and 0.28 H and cross the 640 seam. T2 isn't used either (O116).</li>
+</ul></td></tr>
+
+<tr><td>O112 Faces</td><td>
+<ul>
+<li>One footage window under two sets of type.
+<ul>
+<li>Part 1's lockup and name sit on part-local y 353–603.</li>
+<li>Part 2's date and claim sit on part-local y 323–598 (963–1238 less 640).</li>
+</ul></li>
+<li>So the face test reads the window against the <b>union</b> of the two, in the part's own coordinates:
+<ul>
+<li>the floor is 0.08 of the part's width (O64);</li>
+<li>time in the type (O39, O65, O71) is measured against that union.</li>
+</ul>
+Part 3 adds no boxes.</li>
+<li>Crop candidates (O56) are tried once for the clip, because all three parts share the window.</li>
+<li>A refusal uses O71's words unchanged.</li>
+</ul></td></tr>
+
+<tr><td>O113 Rights</td><td>One clip, so its own rights decide the channels (rights_ref, and the "✓ Cleared — artist channels too" gate). A triple-fit runs wherever that clip could run. W4 holds.</td></tr>
+
+<tr><td>O114 In the Lab</td><td>
+<ul>
+<li>"Make a triple-fit" turns the clip into one 9:16 clip. It has its own tile in its owner's group, <b>"Triple-fit · #{n}"</b>.</li>
+<li>It is selectable, and it pairs only with T1, arrangement B.</li>
+<li>It renders, launches and lists in "From the Lab" as one 9:16 asset (O95).</li>
+<li>Its source clip stays as its own tile, still "Landscape — triple-fit only".</li>
+<li>Deleting it is never needed. Unticking it takes it out of rounds. Making a second triple-fit from the same clip isn't offered.</li>
+</ul></td></tr>
+
+<tr><td>O115 Invented here</td><td>These values are invented, not measured, and are judged on drafts:
+<ul>
+<li>the 24 px seam clearance;</li>
+<li>the 6 s minimum;</li>
+<li>"fewer than 3" for the offer;</li>
+<li>one shared window rather than staggered crops;</li>
+<li>every new line of words in O108 and O114.</li>
+</ul></td></tr>
+
+<tr><td>O116 The promoter's triple-fit</td><td>
+<ul>
+<li>Promoter clips become triple-fit clips at import (O108), and their tiles show it.</li>
+<li>"Make a triple-fit" isn't shown for the promoter yet. Promoter footage takes T2 on a clip, and T2's lineup runs from 397 to 698 (or from 353 when it moves up), which crosses the 640 seam.</li>
+<li>T2 on a triple-fit needs its own layout in a later issue, with drafts.</li>
+</ul></td></tr>
+</table>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Clip import</td><td>Under the 9:16 floor but with a part window ≥ 675 px: imported as a triple-fit clip.</td></tr>
+<tr><td>Clip tile and groups</td><td>"Landscape — triple-fit only"; the "Triple-fit only · {n}" group; "Make a triple-fit" on the tile; the "Triple-fit · #{n}" tile.</td></tr>
+<tr><td>Triple-fit composition</td><td>One clip in three 1080 × 640 parts, in sync, one window, its own track once, T1 B, no type within 24 px of a seam.</td></tr>
+<tr><td>MML plan rows</td><td>"Too small for 9:16" and "Video runs as 9:16 only", neither can launch.</td></tr>
+<tr><td>T2 logo slot</td><td>The event lockup, 0.25 W.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H99 Plan rows</td><td>O104.</td><td>campaign plan rows, clip dimensions</td><td>a plan with a 956 × 718 clip's video reads "Too small for 9:16" and its launch is refused; a 4:5 video render row reads "Video runs as 9:16 only"; no row removed</td></tr>
+<tr><td>H100 Drive-master crop</td><td>O107.</td><td>creative_assets.drive_file_id</td><td>a Drive-master clip opens no crop editor; its crop candidates are the centre only</td></tr>
+<tr><td>H101 Triple-fit import</td><td>O108: the two widths, the tile line, the group, the offer.</td><td>creative_lab_clips</td><td>Luke 15 (1920 × 1080) and Luke 1 (956 × 718) import as "Landscape — triple-fit only"; 640 × 360 (part window 607) keeps the O93 refusal; with 2 runnable 9:16 clips the offer shows on the tile; with 3 it doesn't</td></tr>
+<tr><td>H102 Layout and sound</td><td>O109, O110.</td><td>the composition</td><td>parts at y 0 / 640 / 1280, 1080 × 640 each, the same window; every part shows the same source frame number in every output frame; upscale ≤ 1.6×; one audio stream, the clip's, not summed; length = the stored window, ≥ 6 s</td></tr>
+<tr><td>H103 Type and the seams</td><td>O111: T1 B only; issue 15's band check (H94) plus no ink in y 616–664 and 1256–1304.</td><td>render geometry</td><td>a draft on Luke 15 passes both checks; an A arrangement on a triple-fit is refused by the check</td></tr>
+<tr><td>H104 Faces</td><td>O112: one window against the union of part 1's and part 2's type boxes.</td><td>face results</td><td>the time-in-type is reported once for the clip against part-local y 323–603</td></tr>
+<tr><td>H105 Rights</td><td>O113.</td><td>rights_ref</td><td>a triple-fit's channels equal its clip's</td></tr>
+<tr><td>H106 Drafts</td><td>Luke Dean: one triple-fit from Luke 15, and one from Luke 1, with the claim (b), stamped. TF1's band, seams and parts as an overlay layer in the draft only. A still at 0.5 s and 4 s, plus the MP4.</td><td>—</td><td>judged by eye against TF1 and TF2</td></tr>
+</table>
+
+<h2>Frames</h2>
+<p>TF1–TF3 above. Next drafts: H106.</p>
+
+</div></body>
+</html>
