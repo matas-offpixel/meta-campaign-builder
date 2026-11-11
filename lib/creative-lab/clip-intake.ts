@@ -16,7 +16,7 @@ import { uploadToStorageBucket } from "../clients/asset-queue/storage-upload.ts"
 import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset, type RegistryAspect } from "../creatives/asset-registry.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { probeMp4Bytes } from "./mp4-probe.ts";
-import { attachRenderProxy, makeRenderProxy, renderProxySize, storeRenderProxy, type RenderProxyMaker } from "./render-proxy.ts";
+import { COLUMN_SIZE, attachRenderProxy, makeColumnProxy, renderProxySize, storeRenderProxy, type RenderProxyMaker } from "./render-proxy.ts";
 
 const BUCKET = "campaign-assets";
 const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "webm"]);
@@ -334,8 +334,9 @@ export async function importArtistClips(
           continue;
         }
         // The copy first: if it fails, no clip row is left without something to render. A copy over the cap
-        // itself is refused before anything is uploaded.
-        const maker = args.renderProxy || makeRenderProxy;
+        // itself is refused before anything is uploaded. Over the cap the copy is the 1080 × 1920 9:16 column
+        // (Matas, 11 Nov): the whole-frame copy of 4K crowd footage is itself over the cap at CRF 16.
+        const maker = args.renderProxy || makeColumnProxy;
         const limit = args.maxStoredBytes ?? MAX_STORED_BYTES;
         try {
           copy = await storeRenderProxy(db, {
@@ -343,7 +344,7 @@ export async function importArtistClips(
             artistId: args.artistId ?? "promoter",
             name,
             original: bytes,
-            size: copySize!,
+            size: COLUMN_SIZE,
             durationSeconds: duration,
             make: async (b, sz) => {
               const made = await maker(b, sz);

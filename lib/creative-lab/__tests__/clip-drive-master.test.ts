@@ -41,14 +41,14 @@ function run(fake: ReturnType<typeof promoterFake>, files: ClipFolderFile[], opt
 }
 
 describe("migration 228 · an original over the storage cap stays in Drive; only its 1080 copy is stored", () => {
-  it("a 3840 × 2160 original over the cap: no upload of the original, the copy at 3414 × 1920, the master by its Drive id, the clip on both", async () => {
+  it("a 3840 × 2160 original over the cap: no upload of the original, the copy the 1080 × 1920 9:16 column, the master by its Drive id, the clip on both", async () => {
     const fake = promoterFake();
     const made: ProxySize[] = [];
     const uploads: string[] = [];
     const imported: ImportedClip[] = [];
     const res = await run(fake, [{ sourceFileId: "b3b12", name: "B3B12.mp4", size: 406_000_000 }], { probe: { width: 3840, height: 2160, durationInSeconds: 51 }, made, uploads, onImported: imported });
     assert.equal(res.files[0]!.outcome, "imported", JSON.stringify(res.files));
-    assert.deepEqual(made, [{ width: 3414, height: 1920 }]);
+    assert.deepEqual(made, [{ width: 1080, height: 1920 }]);
     assert.equal(uploads.length, 1);
     assert.match(uploads[0]!, /^videos\/creative-lab\/promoter\/proxy-1080\/[0-9a-f]{64}\.mp4$/);
     const clip = fake.tables.creative_lab_clips[0]!;
@@ -184,5 +184,19 @@ describe("migration 228 · an original over the storage cap stays in Drive; only
     assert.match(sql, /alter column storage_path drop not null/);
     assert.match(sql, /check \(storage_path is not null or drive_file_id is not null\)/);
     assert.doesNotMatch(sql.replace(/--.*$/gm, ""), /drop (table|column)|delete from|truncate/i);
+  });
+});
+
+describe("the 9:16 column copy (Matas, 11 Nov)", () => {
+  it("crops the centred 9:16 window and scales it to 1080 × 1920 with #1176's settings", async () => {
+    const { ffmpegColumnArgs, ffmpegProxyArgs, COLUMN_SIZE } = await import("../render-proxy.ts");
+    const col = ffmpegColumnArgs("in.mp4", "out.mp4");
+    const vf = col[col.indexOf("-vf") + 1]!;
+    assert.equal(vf, "crop='trunc(min(iw,ih*9/16)/2)*2':'trunc(min(ih,iw*16/9)/2)*2',scale=1080:1920:flags=lanczos,setsar=1");
+    assert.deepEqual(COLUMN_SIZE, { width: 1080, height: 1920 });
+    // Everything else is the proxy's: CRF 16, a keyframe a second, AAC 256k, moov first.
+    const frame = ffmpegProxyArgs("in.mp4", "out.mp4", { width: 3414, height: 1920 });
+    assert.deepEqual(col.filter((_, i) => i !== col.indexOf("-vf") + 1), frame.filter((_, i) => i !== frame.indexOf("-vf") + 1));
+    for (const want of ["-crf", "16", "+faststart", "expr:gte(t,n_forced*1)"]) assert.ok(col.includes(want), want);
   });
 });

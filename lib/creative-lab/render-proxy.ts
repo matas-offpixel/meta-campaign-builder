@@ -85,6 +85,24 @@ export function ffmpegProxyArgs(input: string, output: string, size: ProxySize):
 
 export type RenderProxyMaker = (bytes: Buffer, size: ProxySize) => Promise<Buffer>;
 
+/**
+ * The 9:16 column copy (Matas, 11 Nov: video is one 9:16, read in Feed's
+ * centre 4:5 crop and the Reels / Stories safe zones). The original's
+ * centred 9:16 window — the full height of a landscape frame, the full
+ * width of a portrait one — scaled to 1080 × 1920. Used for an original
+ * kept in Drive (migration 228): the whole-frame copy of the Rossi-show
+ * 4K is 246–559 MB at CRF 16, over the storage cap, and this one is under.
+ */
+export const COLUMN_SIZE: ProxySize = { width: PROXY_WIDTH, height: PROXY_HEIGHT };
+
+/** ffmpeg for the column copy: #1176's settings (Lanczos, CRF 16, a keyframe a second, AAC, moov first) after a centred 9:16 crop. */
+export function ffmpegColumnArgs(input: string, output: string): string[] {
+  const args = ffmpegProxyArgs(input, output, COLUMN_SIZE);
+  const vf = args.indexOf("-vf");
+  args[vf + 1] = `crop='trunc(min(iw,ih*9/16)/2)*2':'trunc(min(ih,iw*16/9)/2)*2',scale=${COLUMN_SIZE.width}:${COLUMN_SIZE.height}:flags=lanczos,setsar=1`;
+  return args;
+}
+
 async function ffmpegStaticPath(): Promise<string> {
   const mod = (await import("ffmpeg-static")) as unknown as { default?: string | null } | string;
   const resolved = typeof mod === "string" ? mod : mod.default;
@@ -92,20 +110,25 @@ async function ffmpegStaticPath(): Promise<string> {
   return resolved;
 }
 
-/** Writes the original to a temp folder, runs ffmpeg, reads the proxy back, and removes the folder. */
-export const makeRenderProxy: RenderProxyMaker = async (bytes, size) => {
+async function runFfmpeg(bytes: Buffer, args: (input: string, output: string) => string[]): Promise<Buffer> {
   const ffmpeg = await ffmpegStaticPath();
   const dir = await mkdtemp(path.join(tmpdir(), "lab-proxy-"));
   try {
     const input = path.join(dir, "original");
     const output = path.join(dir, "proxy.mp4");
     await writeFile(input, bytes);
-    await promisify(execFile)(ffmpeg, ffmpegProxyArgs(input, output, size), { maxBuffer: 4 * 1024 * 1024 });
+    await promisify(execFile)(ffmpeg, args(input, output), { maxBuffer: 4 * 1024 * 1024 });
     return await readFile(output);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-};
+}
+
+/** Writes the original to a temp folder, runs ffmpeg, reads the proxy back, and removes the folder. */
+export const makeRenderProxy: RenderProxyMaker = async (bytes, size) => runFfmpeg(bytes, (input, output) => ffmpegProxyArgs(input, output, size));
+
+/** The column copy (COLUMN_SIZE); the size argument is ignored. */
+export const makeColumnProxy: RenderProxyMaker = async (bytes) => runFfmpeg(bytes, ffmpegColumnArgs);
 
 export type AttachedProxy = { assetId: string; storagePath: string; size: ProxySize; created: boolean };
 
