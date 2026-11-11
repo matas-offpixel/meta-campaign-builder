@@ -131,7 +131,7 @@ export function AudioFrameMount({ id }: { id: string }) {
     <div data-frame-ready={id} className="flex flex-col items-start gap-6 bg-background p-4 text-foreground sm:flex-row">
       <FeedPost lab={card} caption={caption} page="Puzzle" stage="on_sale" busy={false} onSave={quiet} />
       <div className="w-full sm:w-80">
-        <RenderRows rows={card.renders} now={card.now} />
+        <RenderRows rows={card.renders} now={card.now} clips={card.clips} />
       </div>
     </div>
   );

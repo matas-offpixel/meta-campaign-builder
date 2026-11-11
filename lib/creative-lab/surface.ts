@@ -303,6 +303,15 @@ export function cantRunReason(clip: ClipForGroup): string | null {
   return tooSmall916Sentence(clip) ?? renderRefusalSentence(clip.renderError) ?? burnedInTextSentence(clip);
 }
 
+/** A failed row whose clip cannot make 9:16. Another try is still a render, so there is no link. */
+export function failedRenderSentence(
+  error: string | null | undefined,
+  clip: { sourceWidth?: number | null; sourceHeight?: number | null } | null | undefined,
+): string {
+  if (clip && tooSmall916Sentence(clip)) return `The renderer failed · ${TOO_SMALL_FOR_916}`;
+  return renderRefusalSentence(error) ?? "This render failed — try it again.";
+}
+
 /** The lead clip for the feed post and for Best clip. A refused clip, and a crop under 540 px, is never returned. */
 export function feedPostClip<T extends RankedClip>(clips: readonly T[]): T | null {
   return bestRunnableClip(clips);

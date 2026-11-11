@@ -15,7 +15,7 @@ import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
 import { captionAllowsClip } from "./footage-owner.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
-import { sizesForClipFiles } from "./clip-preview.ts";
+import { clipIdsTooSmallFor916, sizesForClipFiles } from "./clip-preview.ts";
 import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
 import { noSelectedClipsSentence, selectedIdSet } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
@@ -716,6 +716,22 @@ export async function retryRender(db: ServiceRoleDb, args: { renderId: string; u
     throw new RenderRetryError(409, renderRefusalSentence(error) ?? "This render can't be tried again — propose the round again.");
   }
   if (render.aspect !== "9:16") throw new RenderRetryError(409, "This render is an old size — propose the round again.");
+  const clip = await db.from("creative_lab_clips").select("id, creative_asset_id, source_width, source_height").eq("id", String(render.clip_id)).maybeSingle();
+  if (clip.error) throw new Error(`creative_lab_clips: ${clip.error.message}`);
+  if (clip.data) {
+    const assetId = String(clip.data.creative_asset_id ?? "");
+    const asset = assetId
+      ? await db.from("creative_assets").select("storage_path").eq("id", assetId).maybeSingle()
+      : { data: null, error: null };
+    if (asset.error) throw new Error(`creative_assets: ${asset.error.message}`);
+    const small = await clipIdsTooSmallFor916([{
+      id: String(clip.data.id),
+      storagePath: String(asset.data?.storage_path ?? "") || null,
+      width: Number(clip.data.source_width) || null,
+      height: Number(clip.data.source_height) || null,
+    }]);
+    if (small.has(String(clip.data.id))) throw new RenderRetryError(409, TOO_SMALL_FOR_916);
+  }
 
   const ads = (await list(db, "creative_lab_round_ads", "render_id", args.renderId)).filter((ad) => ad.user_id === args.userId);
   const roundIds = [...new Set(ads.map((ad) => String(ad.round_id)))];

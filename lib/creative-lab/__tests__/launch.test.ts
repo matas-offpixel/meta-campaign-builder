@@ -181,6 +181,25 @@ describe("launch a round", () => {
     }
   });
 
+  it("does not launch a finished render whose clip cannot make 9:16", async () => {
+    const fake = roundDb({
+      ads: [
+        { id: "ad-1", round_id: ROUND, user_id: USER, ad_name: "LUKEDEAN-clip01_cap-lineup1", caption_id: "cap-1", render_id: "render-1", clip_id: "clip-wide", launch_state: "ready" },
+        { id: "ad-2", round_id: ROUND, user_id: USER, ad_name: "LUKEDEAN-clip02_cap-lineup1", caption_id: "cap-1", render_id: "render-2", clip_id: "clip-phone", launch_state: "ready" },
+      ],
+    });
+    fake.tables.creative_lab_clips = [
+      { id: "clip-wide", creative_asset_id: "src-wide", source_width: 1920, source_height: 1080 },
+      { id: "clip-phone", creative_asset_id: "src-phone", source_width: 720, source_height: 1280 },
+    ];
+    const seen = calls();
+    fake.tables.launched_ads.push({ launch_run_id: "run-1", ad_name: "LUKEDEAN-clip02_cap-lineup1", meta_ad_id: "meta-2", meta_adset_id: ADSET, meta_campaign_id: "camp_1", ad_account_id: "act_1" });
+    const result = await launchApprovedRound(ROUND, { db: fake as unknown as ServiceRoleDb, userId: USER, upload: seen.upload, launch: seen.launch, tag: seen.tag });
+    assert.equal(result.skipped.some((row) => row.reason === "Too small for 9:16" && row.roundAdId === "ad-1"), true);
+    assert.deepEqual(seen.uploads.map((row) => row.storagePath), ["videos/creative-lab/b.mp4"]);
+    assert.equal(result.launched[0]?.metaAdId, "meta-2");
+  });
+
   it("refuses a round that is not approved", async () => {
     const fake = roundDb({ status: "draft" });
     const seen = calls();

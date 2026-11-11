@@ -164,7 +164,11 @@ export function previewPlate(
 
 /** The Clips cell keeps the usable count. The state line names a choice only after one is made. */
 export function clipSelectionStrip(mode: SelectionMode, selected: number, blocked: number, total: number): { line: string; short: string } {
-  if (total <= 0) return { line: "none yet", short: "none" };
+  if (total <= 0 && blocked <= 0) return { line: "none yet", short: "none" };
+  if (total <= 0) {
+    const line = `${blocked} blocked`;
+    return { line, short: line };
+  }
   if (mode === "chosen") {
     const line = `${selected} selected`;
     return { line, short: line };

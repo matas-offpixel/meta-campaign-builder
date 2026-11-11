@@ -5,6 +5,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { tooSmallFor916 } from "./import-quality.ts";
 import { probeMp4Url } from "./mp4-probe.ts";
 
 const BUCKET = "campaign-assets";
@@ -49,6 +50,21 @@ export async function sizesForClipFiles(
   const measured = await measureClipSources(pending, signed);
   for (const [id, size] of measured) sizes.set(id, size);
   return sizes;
+}
+
+/** Clip ids whose 9:16 window is under 675 px. A miss is not a refusal. */
+export async function clipIdsTooSmallFor916(
+  clips: readonly { id: string; storagePath: string | null; width?: number | null; height?: number | null }[],
+): Promise<Set<string>> {
+  const sizes = await sizesForClipFiles(clips).catch((err: unknown) => {
+    console.error("[creative-lab] clip size probe failed:", err instanceof Error ? err.message : err);
+    return new Map<string, { width: number; height: number }>();
+  });
+  const small = new Set<string>();
+  for (const [id, size] of sizes) {
+    if (tooSmallFor916(size)) small.add(id);
+  }
+  return small;
 }
 
 /** Pixel size of each signed file. A miss leaves the clip off Best clip. */

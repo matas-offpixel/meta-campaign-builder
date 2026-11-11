@@ -7,6 +7,8 @@
  * not run by itself.
  */
 
+import { clipIdsTooSmallFor916 } from "./clip-preview.ts";
+import { TOO_SMALL_FOR_916 } from "./import-quality.ts";
 import { buildLabDraft, buildLabLaunchBody, type LabDraftAd, type LabDraftTarget } from "./lab-draft.ts";
 import { LAB_LAUNCHES_OFF, labLaunchesEnabled } from "./killswitch.ts";
 import type { ServiceRoleDb } from "./load.ts";
@@ -134,6 +136,27 @@ function targetOf(round: Row, eventName: string, clientId: string | null): LabDr
   };
 }
 
+/** Source clips whose 9:16 window is under 675 px. A miss is not a refusal. */
+async function clipsTooSmallToLaunch(db: ServiceRoleDb, clipIds: readonly string[]): Promise<Set<string>> {
+  const ids = [...new Set(clipIds.map((id) => id.trim()).filter(Boolean))];
+  if (!ids.length) return new Set();
+  const clips = await db.from("creative_lab_clips").select("id, creative_asset_id, source_width, source_height").in("id", ids);
+  if (clips.error) throw new Error(`creative_lab_clips: ${clips.error.message}`);
+  const rows = (clips.data ?? []) as Row[];
+  const assetIds = [...new Set(rows.map((row) => text(row, "creative_asset_id")).filter(Boolean))];
+  const assets = assetIds.length
+    ? await db.from("creative_assets").select("id, storage_path").in("id", assetIds)
+    : { data: [] as Row[], error: null };
+  if (assets.error) throw new Error(`creative_assets: ${assets.error.message}`);
+  const pathOf = new Map(((assets.data ?? []) as Row[]).map((row) => [text(row, "id"), text(row, "storage_path")]));
+  return clipIdsTooSmallFor916(rows.map((row) => ({
+    id: text(row, "id"),
+    storagePath: pathOf.get(text(row, "creative_asset_id")) || null,
+    width: Number(row.source_width) || null,
+    height: Number(row.source_height) || null,
+  })));
+}
+
 /**
  * Launch every ready ad in an approved round, paused.
  * render_failed ads are listed and skipped. A launch_failed ad is tried
@@ -178,6 +201,7 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
   const skipped: LaunchRoundResult["skipped"] = [];
   const errors: LaunchRoundResult["errors"] = [];
   const ready: { ad: Row; caption: Row; asset: Row; style: CaptionStyle; pageId: string; instagramActorId: string | null }[] = [];
+  const smallClips = await clipsTooSmallToLaunch(deps.db, ads.map((ad) => text(ad, "clip_id")));
 
   for (const ad of ads) {
     const state = text(ad, "launch_state");
@@ -188,6 +212,10 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
     }
     if (state === "launched" || already.has(text(ad, "id"))) continue;
     if (state !== "ready" && state !== "launch_failed") continue;
+    if (smallClips.has(text(ad, "clip_id"))) {
+      skipped.push({ roundAdId: text(ad, "id"), adName, reason: TOO_SMALL_FOR_916 });
+      continue;
+    }
     const caption = captionOf.get(text(ad, "caption_id"));
     const render = renderOf.get(text(ad, "render_id"));
     const asset = render ? assetOf.get(text(render, "creative_asset_id")) : undefined;

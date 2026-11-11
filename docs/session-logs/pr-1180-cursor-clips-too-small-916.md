@@ -39,3 +39,5 @@ Puzzle 4th Birthday is in selection mode `chosen`. Dry run, nothing written:
 Zero rows would be unticked. The gate leaves all five out of a round, a template and a render.
 
 Re-baselined from the Ubuntu `frames:check` shots, because Bea Lowe #1 is a 1920 × 1080 fixture and moves to Can't run: CL3, CL4, CL5, CL6, CL9 and CL10 at 1280 and 393, plus IR1 and IR2 at 1280 (they mount CL3's lab).
+
+Fix round 1: a too-small clip does not open the crop editor, an event whose only clip is blocked reads "1 blocked" rather than "none yet", a failed row on that clip has no retry, and a judged clip keeps its cost line without the verdict chip. Lab launch and From the Lab refuse the finished render. Drive filing copies a file and does not create an ad.

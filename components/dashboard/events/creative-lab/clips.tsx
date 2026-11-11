@@ -30,6 +30,7 @@ import {
   candidateTileState,
   cantRunReason,
   clipBucket,
+  tooSmall916Sentence,
   durationLabel,
   groupClips,
   findClipsErrorSentence,
@@ -316,7 +317,7 @@ export function LabClips({
         </>
       ) : null}
       <FindClips lab={lab} busy={busy} onSave={onSave} pendingImportId={pendingImportId} hidePromoter={layout === "owner"} />
-      <RenderRows rows={lab.renders} now={lab.now} />
+      <RenderRows rows={lab.renders} now={lab.now} clips={lab.clips} />
     </section>
   );
 }
@@ -499,7 +500,7 @@ function ClipGroup({
           <ClipTile key={clip.id} clip={clip} selected={selected?.has(clip.id) === true} audible={clip.id === audibleClipId} onToggle={onToggle ? () => onToggle(clip.id) : undefined} />
         ))}
       </div>
-      {clips.filter((clip) => clip.cropOpen && clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight)).map((clip) => (
+      {clips.filter((clip) => clip.cropOpen && !tooSmall916Sentence(clip) && clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight)).map((clip) => (
         <CropPicker
           key={clip.id}
           src={clip.previewUrl}
@@ -547,7 +548,14 @@ function ClipTile({
       )}
       {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
       {wideFrame && !clip.cropOpen && !reason ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
-      {reason ? <p className="text-xs text-destructive">{reason}</p> : (
+      {reason ? (
+        <div className="mt-1 space-y-1 text-xs">
+          <p className="text-destructive">{reason}</p>
+          {clip.judged && ((clip.judged.cost ?? 0) > 0 || (clip.judged.results ?? 0) > 0) ? (
+            <p className="tabular-nums">{money(clip.judged.cost)} / {metricUnit(clip.judged.metric)} · {resultsLabel(clip.judged.results, clip.judged.metric)}</p>
+          ) : null}
+        </div>
+      ) : (
         <div className="mt-1 space-y-1 text-xs">
           <VerdictChip verdict={verdict} />
           {clip.judged && clipBucket(clip) === "keeping" ? (
