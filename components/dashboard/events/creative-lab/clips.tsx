@@ -602,7 +602,7 @@ function ClipTile({
         <p className="text-xs">{name}</p>
       )}
       {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
-      {wideFrame && !clip.cropOpen && !reason ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
+      {wideFrame && !clip.cropOpen && !reason && !clip.tripleFitSourceId ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
       {reason ? (
         <div className="space-y-1 text-xs">
           <p className="text-destructive">{reason}</p>
