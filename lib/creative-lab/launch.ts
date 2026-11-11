@@ -140,7 +140,7 @@ function targetOf(round: Row, eventName: string, clientId: string | null): LabDr
 async function clipsTooSmallToLaunch(db: ServiceRoleDb, clipIds: readonly string[]): Promise<Set<string>> {
   const ids = [...new Set(clipIds.map((id) => id.trim()).filter(Boolean))];
   if (!ids.length) return new Set();
-  const clips = await db.from("creative_lab_clips").select("id, creative_asset_id, source_width, source_height").in("id", ids);
+  const clips = await db.from("creative_lab_clips").select("id, creative_asset_id").in("id", ids);
   if (clips.error) throw new Error(`creative_lab_clips: ${clips.error.message}`);
   const rows = (clips.data ?? []) as Row[];
   const assetIds = [...new Set(rows.map((row) => text(row, "creative_asset_id")).filter(Boolean))];

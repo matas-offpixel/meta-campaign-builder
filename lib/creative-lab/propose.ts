@@ -716,7 +716,7 @@ export async function retryRender(db: ServiceRoleDb, args: { renderId: string; u
     throw new RenderRetryError(409, renderRefusalSentence(error) ?? "This render can't be tried again — propose the round again.");
   }
   if (render.aspect !== "9:16") throw new RenderRetryError(409, "This render is an old size — propose the round again.");
-  const clip = await db.from("creative_lab_clips").select("id, creative_asset_id, source_width, source_height").eq("id", String(render.clip_id)).maybeSingle();
+  const clip = await db.from("creative_lab_clips").select("id, creative_asset_id").eq("id", String(render.clip_id)).maybeSingle();
   if (clip.error) throw new Error(`creative_lab_clips: ${clip.error.message}`);
   if (clip.data) {
     const assetId = String(clip.data.creative_asset_id ?? "");
