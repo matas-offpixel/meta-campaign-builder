@@ -94,6 +94,29 @@ describe("migration 228 · an original over the storage cap stays in Drive; only
     }
   });
 
+  it("a copy over the cap itself is refused before anything is stored (the Rossi-show 4K: 246–559 MB at CRF 16)", async () => {
+    const fake = promoterFake();
+    const uploads: string[] = [];
+    const res = await importArtistClips(fake as unknown as ServiceRoleDb, {
+      asPromoter: { userId: USER, rightsRef: "Venue & crowd" },
+      eventId: EVENT,
+      folderUrl: "drive-export:folder",
+      maxStoredBytes: 32,
+      listing: { list: async () => [{ sourceFileId: "sweely", name: "SWEELY 1.mp4", size: 449_059_415 }], download: async () => Buffer.alloc(64) },
+      probe: () => ({ width: 3840, height: 2160, durationInSeconds: 56.36 }),
+      upload: async (p) => {
+        uploads.push(p);
+      },
+      renderProxy: async () => Buffer.alloc(48),
+      driveMaster: () => "drive-sweely",
+    });
+    assert.equal(res.files[0]!.outcome, "failed");
+    assert.match(res.files[0]!.reason!, /^Over the 200 MB storage cap, and its 1080 render copy is too \(0 MB\) — nothing was stored$/);
+    assert.equal(uploads.length, 0);
+    assert.equal(fake.tables.creative_lab_clips.length, 0);
+    assert.equal(fake.tables.creative_assets.length, 0);
+  });
+
   it("a copy that fails leaves no clip row behind", async () => {
     const fake = promoterFake();
     const res = await importArtistClips(fake as unknown as ServiceRoleDb, {

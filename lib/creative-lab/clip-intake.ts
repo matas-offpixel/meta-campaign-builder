@@ -16,7 +16,7 @@ import { uploadToStorageBucket } from "../clients/asset-queue/storage-upload.ts"
 import { fingerprintBytes, resolveRegistryAspect, upsertRegisteredAsset, type RegistryAspect } from "../creatives/asset-registry.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { probeMp4Bytes } from "./mp4-probe.ts";
-import { attachRenderProxy, renderProxySize, storeRenderProxy, type RenderProxyMaker } from "./render-proxy.ts";
+import { attachRenderProxy, makeRenderProxy, renderProxySize, storeRenderProxy, type RenderProxyMaker } from "./render-proxy.ts";
 
 const BUCKET = "campaign-assets";
 const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "webm"]);
@@ -29,7 +29,17 @@ export const DRIVE_MASTER_LINES = {
   notInDrive: "Over the 200 MB storage cap — put it in the event's Drive folder and it imports from there, the original kept in Drive",
   noCopy: "Over the 200 MB storage cap, and its 9:16 crop is already 1080 or under, so there's no smaller copy to store — trim it before it goes in",
   copyOff: "Over the 200 MB storage cap, and the render copy is switched off for this import",
+  /** Measured 11 Nov: CRF 16 copies of the Rossi-show 4K are 246–559 MB, so the copy alone can be over the cap too. */
+  copyTooBig: (mb: number) => `Over the 200 MB storage cap, and its 1080 render copy is too (${Math.round(mb)} MB) — nothing was stored`,
 } as const;
+
+class CopyTooBig extends Error {
+  readonly bytes: number;
+  constructor(bytes: number) {
+    super("render copy over the storage cap");
+    this.bytes = bytes;
+  }
+}
 
 type Row = Record<string, unknown>;
 
@@ -323,17 +333,30 @@ export async function importArtistClips(
           files.push({ name, size, outcome: "failed", reason });
           continue;
         }
-        // The copy first: if it fails, no clip row is left without something to render.
-        copy = await storeRenderProxy(db, {
-          userId,
-          artistId: args.artistId ?? "promoter",
-          name,
-          original: bytes,
-          size: copySize!,
-          durationSeconds: duration,
-          make: args.renderProxy || undefined,
-          upload,
-        });
+        // The copy first: if it fails, no clip row is left without something to render. A copy over the cap
+        // itself is refused before anything is uploaded.
+        const maker = args.renderProxy || makeRenderProxy;
+        const limit = args.maxStoredBytes ?? MAX_STORED_BYTES;
+        try {
+          copy = await storeRenderProxy(db, {
+            userId,
+            artistId: args.artistId ?? "promoter",
+            name,
+            original: bytes,
+            size: copySize!,
+            durationSeconds: duration,
+            make: async (b, sz) => {
+              const made = await maker(b, sz);
+              if (made.byteLength > limit) throw new CopyTooBig(made.byteLength);
+              return made;
+            },
+            upload,
+          });
+        } catch (err) {
+          if (!(err instanceof CopyTooBig)) throw err;
+          files.push({ name, size, outcome: "failed", reason: DRIVE_MASTER_LINES.copyTooBig(err.bytes / (1024 * 1024)) });
+          continue;
+        }
       }
       const storagePath = overCap ? "" : `videos/creative-lab/${promoter ? `promoter/${args.eventId ?? "event"}` : args.artistId}/${identity.contentHash}.${ext}`;
       if (!overCap) await upload(storagePath, bytes, contentType(ext));
