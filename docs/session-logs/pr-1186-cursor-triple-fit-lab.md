@@ -17,13 +17,13 @@ A landscape clip whose own 9:16 is under 675 px, and whose part window is not, i
 - `lib/creative-lab/triple-fit.ts`, migration `229_creative_lab_clips_triple_fit.sql` — one made clip per source (written, not applied)
 - `lib/creative-lab/triple-fit-render.ts` — seam Claude Code replaces; no single-clip crop
 - `lib/plan/creative-intake.ts`, `preflight.ts`, `mml-creative-intake.tsx` — plan rows stay and do not launch
-- Frames: CL11 added. CL3, CL4, CL5, CL6, CL9, CL10 and the IR shots that mount them will move because Bea Lowe #1 is now triple-fit only. Ubuntu rasters land after CI.
+- Frames rebaselined from the Ubuntu `plan-frames` artifact: CL3, CL4, CL5, CL6, CL9, CL10 at 1280 and 393; CL11-1280 and CL11-393 added; IR1-1280 and IR2-1280. IR2-393 did not move.
 
 ## Validation
 
 - [x] Unit tests for classification, import, offer, one-per-source, round, render seam, plan hold
-- [ ] `npm run build` — CI is the build gate (worktree `node_modules` is a symlink)
-- [ ] Frame baselines — after the Ubuntu `plan-frames` artifact
+- [x] `npm run build` — CI run 43023326237 (worktree `node_modules` is a symlink)
+- [x] Frame baselines from that run's Ubuntu `plan-frames` artifact, `shots/` matched `diff/*/actual.png`
 
 ## Notes
 
