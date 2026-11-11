@@ -108,6 +108,20 @@ describe("renderCaptionOnClip", () => {
     assert.equal(asset.byte_size, 4);
   });
 
+  it("does not render a 1920 × 1080 clip into 9:16", async () => {
+    let called = false;
+    const fake = seed();
+    const { deps: d } = deps(async () => {
+      called = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    d.probe = async () => ({ width: 1920, height: 1080, fps: 30, durationInSeconds: 12 });
+    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }), /Too small for 9:16/);
+    assert.equal(called, false);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "failed");
+    assert.equal(fake.tables.creative_lab_clips.length, 1);
+  });
+
   it("rejects aspect 4:5 with kind video before rendering", async () => {
     let called = false;
     const fake = seed({ aspect: "4:5", kind: "video" });
@@ -198,7 +212,7 @@ describe("renderCaptionOnClip", () => {
       serveUrl: "https://serve.example/creative-lab",
       deps: {
         signUrl: async () => "https://signed.example/ugc1.mp4",
-        probe: async () => ({ width: 1920, height: 1080, fps: 30, durationInSeconds: 34.06 }),
+        probe: async () => ({ width: 1080, height: 1920, fps: 30, durationInSeconds: 34.06 }),
         upload: async () => {},
         lambda: {
           render: async (request) => {

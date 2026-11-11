@@ -10,6 +10,7 @@ import {
   cropWindowBox,
   renderRowWord,
   cantRunReason,
+  clipBucket,
   CAPTION_BOX_WIDTH_PCT,
   captionBoxInsets,
   captionCopy,
@@ -80,6 +81,12 @@ describe("creative lab surface", () => {
     assert.equal(cantRunReason(history), null);
     assert.equal(cantRunReason(long), null);
     assert.equal(cantRunReason(refused), "This clip isn't vertical — use a 9:16 file.");
+    const landscape = { ...LUKE, id: "landscape", sourceWidth: 1920, sourceHeight: 1080 };
+    const phone = { ...LUKE, id: "phone", sourceWidth: 720, sourceHeight: 1280 };
+    assert.equal(cantRunReason(landscape), "Too small for 9:16");
+    assert.equal(clipBucket(landscape), "cant");
+    assert.equal(cantRunReason(phone), null);
+    assert.equal(clipBucket(phone), "new");
     assert.equal(cantRunReason(refused)?.includes("9:16 only"), false);
     assert.equal(playableClipSeconds({ fileSeconds: 45, inS: null, outS: null }), 30);
     assert.equal(playableClipSeconds({ fileSeconds: 45, inS: 0, outS: 30 }), 30);
