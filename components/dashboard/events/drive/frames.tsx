@@ -6,7 +6,7 @@ import { EventDetailHeader } from "@/components/dashboard/events/event-detail-he
 import { MmlCreativeIntake } from "@/components/plan/mml-creative-intake";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
 import { fortnightlyFrom } from "@/lib/drive/tree";
-import { formatFileSize, panelRows, preselectFolder, usualFolders, type FolderChoice, type SharePhase } from "@/lib/drive/panel";
+import { formatFileSize, panelRows, preselectFolder, usualFolders, type FolderChoice, type OwnerOption, type SharePhase, type UploadContext } from "@/lib/drive/panel";
 
 import { DriveSetup, WhichFolder } from "./ui";
 
@@ -115,17 +115,74 @@ function Header({ setup = false, open = false, phase, shared = false }: { setup?
 const PDF = preselectFolder({ name: "Puzzle-4th-set-times-v3.pdf" }, { artists: ARTISTS, status: "on_sale", eventDate: "2026-12-27", today: TODAY, calendar: CAL });
 const CLIP = preselectFolder({ name: "enzo-boiler-room-2025.mp4", fromClips: true, artistId: "enzo" }, { artists: ARTISTS, status: "on_sale", eventDate: "2026-12-27", today: TODAY, calendar: CAL });
 
-function FolderQuestion({ file, selected }: { file: { name: string; bytes: number }; selected: FolderChoice }) {
+const CLS7_CTX: UploadContext = { artists: ARTISTS, status: "on_sale", eventDate: "2026-12-27", today: TODAY, calendar: CAL };
+
+/**
+ * CLS7b / CLS7c (2026-11-11-creative-lab-upload-owner): the CL fixture on Tue
+ * 24 Nov 2026, on sale, cycle w/c 23 Nov from the code's payday calendar. The
+ * owner list is P26-BDAY's lineup in billing order, then the promoter.
+ */
+const OWNERS: OwnerOption[] = [
+  { ref: "artist:enzo", name: "Enzo Siragusa", kind: "artist" },
+  { ref: "artist:luke", name: "Luke Dean", kind: "artist" },
+  { ref: "library:reeshy", name: "Reeshy", kind: "artist" },
+  { ref: "library:phill", name: "Phill de Janeiro", kind: "artist" },
+  { ref: "library:benji", name: "Benji King", kind: "artist" },
+  { ref: "promoter", name: "Puzzle", kind: "promoter" },
+];
+const CLS7B_CTX: UploadContext = {
+  artists: [{ id: "enzo", name: "Enzo Siragusa" }, { id: "luke", name: "Luke Dean" }],
+  status: "on_sale",
+  eventDate: "2026-12-27",
+  today: "2026-11-24",
+  owners: OWNERS,
+  eventCode: "P26-BDAY",
+};
+/** w/c 23 Nov is made; nothing inside it yet, so "Makes … with this upload." shows. */
+const CLS7B_KEYS = ["event", "03", "03/3", "03/3/wc/2026-11-23"];
+const CARD = { name: "P26-BDAY_luke-dean_artist-card-3_on-sale_9x16_v1.png", mimeType: "image/png", bytes: Math.round(1.8 * 1024 * 1024) };
+const PHONE = { name: "IMG_4821.mov", mimeType: "video/quicktime", bytes: 62 * 1024 * 1024 };
+
+function FolderQuestion({
+  file,
+  selected,
+  ctx = CLS7_CTX,
+  folderKeys = null,
+  openList = null,
+}: {
+  file: { name: string; bytes: number; mimeType?: string };
+  selected: FolderChoice;
+  ctx?: UploadContext;
+  folderKeys?: string[] | null;
+  openList?: "owner" | "type" | null;
+}) {
   return (
     <WhichFolder
       fileLabel={`${file.name} · ${formatFileSize(file.bytes)}`}
-      choices={usualFolders({ artists: ARTISTS, status: "on_sale", eventDate: "2026-12-27", today: TODAY, calendar: CAL }, selected)}
+      choices={usualFolders(ctx, selected)}
       selectedKey={selected.key}
-      artists={ARTISTS}
+      artists={[...ctx.artists]}
+      file={{ name: file.name, mimeType: file.mimeType ?? null }}
+      folderKeys={folderKeys}
+      openList={openList}
       onSelect={() => undefined}
       onCancel={() => undefined}
       onUpload={() => undefined}
     />
+  );
+}
+
+function OwnerFirst({ id, openList }: { id: string; openList: "owner" | null }) {
+  return (
+    <div data-frame-ready={id} className="relative min-h-screen bg-background text-foreground">
+      <Header />
+      <div className="max-[700px]:hidden">
+        <FolderQuestion file={CARD} selected={preselectFolder(CARD, CLS7B_CTX)} ctx={CLS7B_CTX} folderKeys={CLS7B_KEYS} openList={openList} />
+      </div>
+      <div className="hidden max-[700px]:block">
+        <FolderQuestion file={PHONE} selected={preselectFolder(PHONE, CLS7B_CTX)} ctx={CLS7B_CTX} folderKeys={CLS7B_KEYS} openList={openList} />
+      </div>
+    </div>
   );
 }
 
@@ -172,6 +229,8 @@ export function DriveFrames({ id }: { id: string }) {
       </div>
     );
   }
+  if (id === "CLS7b") return <OwnerFirst id={id} openList={null} />;
+  if (id === "CLS7c") return <OwnerFirst id={id} openList="owner" />;
   if (id === "CLS8") {
     return (
       <div data-frame-ready={id} className="bg-background text-foreground">

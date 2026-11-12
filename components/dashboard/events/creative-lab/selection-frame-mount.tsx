@@ -153,7 +153,7 @@ function candidate(id: string, likes: number): CreativeLabCardData["artists"][nu
 }
 
 export function SelectionFrameMount({ id }: { id: string }) {
-  if (id.startsWith("CLS5") || id === "CLS6" || id === "CLS7" || id === "CLS8" || id === "CLS9") {
+  if (id.startsWith("CLS5") || id === "CLS6" || id.startsWith("CLS7") || id === "CLS8" || id === "CLS9") {
     return <DriveFrames id={id} />;
   }
   const quiet = async () => ({ ok: true, json: {} });

@@ -2,6 +2,13 @@
  * An event-page upload lands in the folder the operator chose (S23) and,
  * for 01 Open files and Artist clips, follows that folder's import at once
  * (S22, HS15) instead of waiting for the changes feed.
+ *
+ * The creatives row (2026-11-11-creative-lab-upload-owner, HU1, HU4) posts a
+ * D5 key, {stage}/owner/{artist:id|library:id|promoter}/{videos|statics}: the
+ * owner folder, then the type folder, are made at Upload and recorded in the
+ * map, and a second upload reuses them. A stage folder never takes the file
+ * itself. HU5: a key with no folder in the map and no spec — a stale client's
+ * retired …/content — is refused; nothing named Content is ever made.
  */
 
 import { APP_ID_KEY, APP_TAG_KEY, type DriveApi } from "./client.ts";
@@ -10,16 +17,52 @@ import {
   artistClipsKey,
   ensureArtistFolders,
   ensureEventKey,
+  ensureRouteFolder,
   findOrCreateFolder,
   type ClientRow,
   type EventRow,
 } from "./folders.ts";
 import { loadLineupArtists } from "./lineup.ts";
+import { labArtistFolderName } from "./owner.ts";
+import { FOLDER_NOT_IN_TREE, TREE_NOT_MADE } from "./panel.ts";
 import { labArtistForLibrary } from "../creative-lab/lineup.ts";
 import { importArtistClips } from "../creative-lab/clip-intake.ts";
 import { folderImport } from "./pickup.ts";
 import { NO_FOLDER } from "./share.ts";
-import { ARTIST_CLIPS_KEY, PRESS_KITS_KEY } from "./tree.ts";
+import { ARTIST_CLIPS_KEY, PRESS_KITS_KEY, isFilingStage, ownerSpec, promoterOwner, specFor, typeSpec, type DriveOwner } from "./tree.ts";
+
+const CREATIVES_KEY = /^(.+)\/owner\/(artist|library|promoter)(?::([^/]+))?\/(videos|statics)$/;
+
+/** The parts of a creatives-row key, or null for any other key. */
+export function parseCreativesKey(key: string): { stageKey: string; owner: "artist" | "library" | "promoter"; id: string | null; kind: "video" | "static" } | null {
+  const match = CREATIVES_KEY.exec(key);
+  if (!match || !isFilingStage(match[1]!)) return null;
+  const owner = match[2] as "artist" | "library" | "promoter";
+  if ((owner === "promoter") !== (match[3] == null)) return null;
+  return { stageKey: match[1]!, owner, id: match[3] ?? null, kind: match[4] === "videos" ? "video" : "static" };
+}
+
+/** The owner a creatives-row key names, resolved on the server (names are never taken from the client). */
+async function creativesOwner(
+  db: DriveDb,
+  event: EventRow,
+  client: ClientRow,
+  userId: string,
+  parsed: NonNullable<ReturnType<typeof parseCreativesKey>>,
+): Promise<DriveOwner> {
+  const lineup = await loadLineupArtists(db, event.id);
+  if (parsed.owner === "promoter") return promoterOwner(client.name, lineup.map((artist) => artist.name));
+  if (parsed.owner === "artist") {
+    const lab = await rowById(db, "creative_lab_artists", parsed.id);
+    if (!lab || lab.client_id !== client.id) throw new Error(FOLDER_NOT_IN_TREE);
+    return { kind: "artist", artistId: lab.id, name: await labArtistFolderName(db, lab) };
+  }
+  const artist = lineup.find((row) => row.libraryArtistId === parsed.id);
+  if (!artist) throw new Error(FOLDER_NOT_IN_TREE);
+  const event2 = await rowById(db, "events", event.id);
+  const labArtistId = await labArtistForLibrary(db as never, { userId: event2?.user_id || userId, clientId: client.id, libraryArtistId: artist.libraryArtistId, name: artist.name });
+  return { kind: "artist", artistId: labArtistId, name: artist.name };
+}
 
 export type PlaceChoice = {
   key: string;
@@ -30,8 +73,21 @@ export function appKeepsFile(key: string): boolean {
   return key === "01" || key.startsWith(`${ARTIST_CLIPS_KEY}/`) || key === ARTIST_CLIPS_KEY || key.startsWith(`${PRESS_KITS_KEY}/`) || key === PRESS_KITS_KEY;
 }
 
-async function parentFor(db: DriveDb, drive: DriveApi, event: EventRow, client: ClientRow, choice: PlaceChoice): Promise<{ parentId: string; artistLibraryId: string | null; missName: string | null }> {
+async function parentFor(db: DriveDb, drive: DriveApi, event: EventRow, client: ClientRow, choice: PlaceChoice, userId: string): Promise<{ parentId: string; artistLibraryId: string | null; missName: string | null }> {
   if (!event.drive_folder_id) throw new Error(NO_FOLDER);
+  const creatives = parseCreativesKey(choice.key);
+  if (creatives) {
+    const owner = await creativesOwner(db, event, client, userId, creatives);
+    const o = ownerSpec(creatives.stageKey, owner);
+    let parentId: string;
+    try {
+      parentId = await ensureRouteFolder(db, drive, event, client, { stageKey: creatives.stageKey, owner: o, type: typeSpec(o.key, creatives.kind) });
+    } catch (err) {
+      if (err instanceof Error && err.message === FOLDER_NOT_IN_TREE) throw err;
+      throw new Error(TREE_NOT_MADE);
+    }
+    return { parentId, artistLibraryId: null, missName: null };
+  }
   if (choice.key.startsWith(`${ARTIST_CLIPS_KEY}/`) || choice.key === ARTIST_CLIPS_KEY) {
     const lineup = await loadLineupArtists(db, event.id);
     const artist = choice.artistName ? lineup.find((row) => row.name === choice.artistName) ?? null : null;
@@ -53,6 +109,11 @@ async function parentFor(db: DriveDb, drive: DriveApi, event: EventRow, client: 
     const parentId = name ? await findOrCreateFolder(drive, kits, name, { created: [], found: [], renamed: [] }, name) : kits;
     return { parentId, artistLibraryId: null, missName: null };
   }
+  // A stage that takes creatives never takes the file itself (U1, U2), and a key
+  // the tree can't resolve — the retired …/content of a new cycle — is refused (HU5).
+  if (isFilingStage(choice.key)) throw new Error(FOLDER_NOT_IN_TREE);
+  const map = await rowsWhere(db, "drive_folders", "event_id", event.id);
+  if (!map.some((row) => row.key === choice.key) && !specFor(choice.key)) throw new Error(FOLDER_NOT_IN_TREE);
   const parentId = await ensureEventKey(db, drive, event, client, choice.key);
   return { parentId, artistLibraryId: null, missName: null };
 }
@@ -72,7 +133,7 @@ export async function placeUploadedFile(
   },
 ): Promise<{ fileId: string }> {
   const now = args.now ?? new Date();
-  const where = await parentFor(db, drive, args.event, args.client, args.choice);
+  const where = await parentFor(db, drive, args.event, args.client, args.choice, args.userId);
   const file = await drive.uploadFile({
     parentId: where.parentId,
     name: args.name,

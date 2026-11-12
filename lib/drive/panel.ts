@@ -4,6 +4,8 @@
  * is the routing table (routeRender / the cycle the tick files into).
  *
  * Record: docs/design-record/2026-11-09-creative-lab-clip-selection.html.
+ * The creatives row (owner, then type) is docs/design-record/2026-11-11-creative-lab-upload-owner.html
+ * (U1–U6): it replaces S23's "w/c {d Mon} / Content", which D3 retired.
  */
 
 import {
@@ -11,14 +13,19 @@ import {
   EVENT_KEY,
   EVENT_TREE,
   PRESS_KITS_KEY,
+  SHOW_WEEK_KEY,
+  TEASER_KEY,
   WINNERS_KEY,
   cycleFolderName,
   cycleKey,
   cycleMondayFor,
   eventFolderName,
+  isFilingStage,
   renderStage,
   showWeekMonday,
+  typeKey,
   type CycleCalendar,
+  type DriveKind,
   type FolderKey,
 } from "./tree.ts";
 
@@ -91,6 +98,8 @@ export type UploadArtist = { id: string; name: string };
 
 export type UploadFile = {
   name: string;
+  /** The browser's type for the file. The creatives row's type comes from it when it is certain (U1). */
+  mimeType?: string | null;
   /** Set when the file was picked from Clips. */
   fromClips?: boolean;
   /** The Clips artist the file was dropped for, when the name does not say it. */
@@ -104,7 +113,46 @@ export type FolderChoice = {
   artistName: string | null;
   /** The record's "likely — \"…\" in the name", or null. */
   likely: string | null;
+  /** Set on the creatives row (U1, U2): the stage, and the owner and type picked in the row. */
+  creatives?: CreativesRow | null;
 };
+
+/** One entry of the owner picker: a lineup artist, or the promoter. ref is D5's key part. */
+export type OwnerOption = {
+  /** "artist:{Lab artist id}", "library:{library artist id}" (a lineup artist with no Lab row yet) or "promoter". */
+  ref: string;
+  name: string;
+  kind: "artist" | "promoter";
+};
+
+export type CreativesRow = {
+  stageKey: FolderKey;
+  /** "03 Creatives / 3 On sale / w/c 23 Nov" */
+  stageLabel: string;
+  /** The stage's own folder name for "Makes … in {folder}": "w/c 23 Nov", "Teaser", "4 Show week". */
+  folderName: string;
+  owners: OwnerOption[];
+  owner: OwnerOption | null;
+  kind: DriveKind | null;
+};
+
+// ─── U4's words ──────────────────────────────────────────────────────────────
+
+export const CHOOSE_OWNER = "choose who it's for";
+export const CHOOSE_TYPE = "choose Videos or Statics";
+export const OWNER_NEEDED = "Choose who it's for — the file goes in their folder for approval.";
+
+export function makesFolderLine(owner: string, type: string, folder: string): string {
+  return `Makes ${owner} / ${type} in ${folder} with this upload.`;
+}
+
+export function likelyArtistLine(artist: string): string {
+  return `likely — "${artist}" in the name`;
+}
+
+export function typeFolderName(kind: DriveKind): string {
+  return kind === "video" ? "Videos" : "Statics";
+}
 
 export function driveHeaderLabel(hasFolder: boolean): string {
   return hasFolder ? DRIVE_HEADER : SETUP_HEADER;
@@ -160,21 +208,30 @@ export function formatFileSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function stageFolder(input: { status: string | null; eventDate: string | null; today: string; calendar?: CycleCalendar }): { key: string; label: string } {
+/**
+ * The stage an upload's creatives row files into (HU1): this cycle when on
+ * sale, 1 Signup / Teaser before, 4 Show week from its Monday. Never a
+ * folder that takes the file itself: the owner and type pickers come after.
+ */
+export function stageFolder(input: { status: string | null; eventDate: string | null; today: string; calendar?: CycleCalendar }): { key: string; label: string; folderName: string } {
   const show = showWeekMonday(input.eventDate);
-  if (show && input.today >= show) return { key: "03/4", label: "03 Creatives / 4 Show week" };
+  if (show && input.today >= show) return { key: SHOW_WEEK_KEY, label: "03 Creatives / 4 Show week", folderName: "4 Show week" };
   if (renderStage(input.status) === "on-sale") {
     const monday = cycleMondayFor(input.today, input.calendar);
-    return { key: `${cycleKey(monday)}/content`, label: `03 Creatives / 3 On sale / ${cycleFolderName(monday)} / Content` };
+    return { key: cycleKey(monday), label: `03 Creatives / 3 On sale / ${cycleFolderName(monday)}`, folderName: cycleFolderName(monday) };
   }
-  return { key: "03/1", label: "03 Creatives / 1 Signup" };
+  return { key: TEASER_KEY, label: "03 Creatives / 1 Signup / Teaser", folderName: "Teaser" };
+}
+
+/** S23's match: every lineup name in the file name, longest first. */
+function artistsInName<T extends { name: string }>(name: string, artists: readonly T[]): T[] {
+  const lower = name.toLowerCase().replace(/[-_]+/g, " ");
+  const hits = artists.filter((artist) => artist.name && lower.includes(artist.name.toLowerCase()));
+  return hits.sort((a, b) => b.name.length - a.name.length);
 }
 
 function artistInName(name: string, artists: readonly UploadArtist[]): UploadArtist | null {
-  const lower = name.toLowerCase().replace(/[-_]+/g, " ");
-  const hits = artists.filter((artist) => artist.name && lower.includes(artist.name.toLowerCase()));
-  hits.sort((a, b) => b.name.length - a.name.length);
-  return hits[0] ?? null;
+  return artistsInName(name, artists)[0] ?? null;
 }
 
 function keywordInName(name: string): (typeof NAME_RULES)[number] | null {
@@ -182,12 +239,125 @@ function keywordInName(name: string): (typeof NAME_RULES)[number] | null {
   return NAME_RULES.find((word) => lower.includes(word)) ?? null;
 }
 
-export function preselectFolder(
-  file: UploadFile,
-  ctx: { artists: readonly UploadArtist[]; status: string | null; eventDate: string | null; today: string; calendar?: CycleCalendar },
+/**
+ * The one lineup artist the file name names, or null (U1): S23's match, the
+ * longest name winning over a name inside it ("Enzo" in "Enzo Siragusa").
+ * Two different artists named → null: the owner is never guessed. The
+ * promoter is never preselected.
+ */
+export function ownerFromName(name: string, owners: readonly OwnerOption[]): OwnerOption | null {
+  const hits = artistsInName(name, owners.filter((owner) => owner.kind === "artist"));
+  const distinct = hits.filter((hit, i) => !hits.slice(0, i).some((longer) => longer.name.toLowerCase().includes(hit.name.toLowerCase())));
+  return distinct.length === 1 ? distinct[0]! : null;
+}
+
+/** The type from the file's MIME when it is certain (U1); anything else is chosen. */
+export function kindFromMime(mimeType: string | null | undefined): DriveKind | null {
+  const mime = (mimeType ?? "").toLowerCase();
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("image/")) return "static";
+  return null;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * U3: a finished creative, not source footage — the event's code first, and
+ * _9x16 / _4x5 / _1x1 before the extension or _winner (S14). A version after
+ * the format (…_9x16_v1.png) still counts.
+ */
+export function isFinishedCreativeName(name: string, eventCode: string | null | undefined): boolean {
+  const code = eventCode?.trim();
+  if (!code) return false;
+  return new RegExp(`^${escapeRegex(code)}_.*_(9x16|4x5|1x1)(?:_v\\d+)?(?:_winner)?\\.[A-Za-z0-9]+$`).test(name);
+}
+
+/** The D5 key a complete creatives row files to, or null while the owner or type is unset. */
+export function creativesKey(row: Pick<CreativesRow, "stageKey" | "owner" | "kind">): string | null {
+  if (!row.owner || !row.kind) return null;
+  return typeKey(`${row.stageKey}/owner/${row.owner.ref}`, row.kind);
+}
+
+function creativesLabel(row: CreativesRow): string {
+  return `${row.stageLabel} / ${row.owner?.name ?? CHOOSE_OWNER} / ${row.kind ? typeFolderName(row.kind) : CHOOSE_TYPE}`;
+}
+
+/** The creatives row as a folder choice. Its key is the D5 key once owner and type are set, the stage key until then. */
+export function creativesChoice(row: CreativesRow, likely: string | null = null): FolderChoice {
+  return { key: creativesKey(row) ?? row.stageKey, label: creativesLabel(row), artistId: null, artistName: null, likely, creatives: row };
+}
+
+/** The picker changed the owner. */
+export function withOwner(choice: FolderChoice, ref: string | null): FolderChoice {
+  if (!choice.creatives) return choice;
+  const owner = ref ? choice.creatives.owners.find((option) => option.ref === ref) ?? null : null;
+  return creativesChoice({ ...choice.creatives, owner }, null);
+}
+
+/** The picker changed the type. */
+export function withKind(choice: FolderChoice, kind: DriveKind | null): FolderChoice {
+  if (!choice.creatives) return choice;
+  return creativesChoice({ ...choice.creatives, kind }, choice.likely);
+}
+
+/** Upload waits while the creatives row's owner or type is unset (U4). */
+export function uploadReady(choice: FolderChoice | null | undefined): boolean {
+  if (!choice) return false;
+  return !choice.creatives || creativesKey(choice.creatives) !== null;
+}
+
+/** The line under the creatives row (U4): owner first, then the folder it will make, else nothing. */
+export function creativesNote(choice: FolderChoice | null | undefined, folderKeys?: ReadonlySet<string> | null): string | null {
+  const row = choice?.creatives;
+  if (!row) return null;
+  if (!row.owner) return OWNER_NEEDED;
+  const key = creativesKey(row);
+  if (!key || !row.kind || !folderKeys || folderKeys.has(key)) return null;
+  return makesFolderLine(row.owner.name, typeFolderName(row.kind), row.folderName);
+}
+
+/** The owner list (HU2): the lineup in billing order, then the promoter. Falls back to the Lab artists given. */
+function ownersOf(ctx: { owners?: readonly OwnerOption[] | null; artists: readonly UploadArtist[] }): OwnerOption[] {
+  if (ctx.owners) return [...ctx.owners];
+  return ctx.artists.map((artist) => ({ ref: `artist:${artist.id}`, name: artist.name, kind: "artist" as const }));
+}
+
+/** A fresh creatives row for a stage, owner from the name (exactly one lineup artist) and type from MIME. */
+export function stageCreativesChoice(
+  stage: { key: string; label: string; folderName: string },
+  owners: readonly OwnerOption[],
+  file: Pick<UploadFile, "name" | "mimeType"> | null,
 ): FolderChoice {
+  const owner = file ? ownerFromName(file.name, owners) : null;
+  const kind = file ? kindFromMime(file.mimeType) : null;
+  return creativesChoice(
+    { stageKey: stage.key, stageLabel: stage.label, folderName: stage.folderName, owners: [...owners], owner, kind },
+    owner ? likelyArtistLine(owner.name.toLowerCase()) : null,
+  );
+}
+
+export type UploadContext = {
+  artists: readonly UploadArtist[];
+  status: string | null;
+  eventDate: string | null;
+  today: string;
+  calendar?: CycleCalendar;
+  /** The owner picker's list (lineup, then the promoter). Without it, the Lab artists given. */
+  owners?: readonly OwnerOption[] | null;
+  /** The event's code, for U3's finished-creative names. */
+  eventCode?: string | null;
+  /** The folder map's keys, for "Makes … with this upload." */
+  folderKeys?: readonly string[] | null;
+};
+
+export function preselectFolder(file: UploadFile, ctx: UploadContext): FolderChoice {
   const named = artistInName(file.name, ctx.artists);
   const stage = stageFolder(ctx);
+  const owners = ownersOf(ctx);
+  // U3: a finished creative goes to the creatives row, ahead of S23's Artist clips rule.
+  if (isFinishedCreativeName(file.name, ctx.eventCode)) return stageCreativesChoice(stage, owners, file);
   if (DESIGN.test(file.name) || FONT.test(file.name)) {
     return { key: "01", label: "01 Open files", artistId: null, artistName: null, likely: null };
   }
@@ -219,17 +389,14 @@ export function preselectFolder(
       likely: null,
     };
   }
-  return { key: stage.key, label: stage.label, artistId: null, artistName: null, likely: null };
+  return stageCreativesChoice(stage, owners, file);
 }
 
 export function clipImportLine(artistName: string): string {
   return `Imports into the Lab as ${artistName}'s clip, after the text check.`;
 }
 
-export function usualFolders(
-  ctx: { artists: readonly UploadArtist[]; status: string | null; eventDate: string | null; today: string; calendar?: CycleCalendar },
-  selected: FolderChoice,
-): FolderChoice[] {
+export function usualFolders(ctx: UploadContext, selected: FolderChoice): FolderChoice[] {
   const stage = stageFolder(ctx);
   const artistLabel = selected.artistName && selected.key.startsWith(`${ARTIST_CLIPS_KEY}/`)
     ? selected.label
@@ -237,21 +404,44 @@ export function usualFolders(
   const pressLabel = selected.artistName && selected.key.startsWith(`${PRESS_KITS_KEY}/`)
     ? selected.label
     : "02 Source / Press kits / choose artist";
+  // U5: the … / Content row is gone; the creatives row of U1 / U2 takes its place.
+  const creatives = selected.creatives && selected.creatives.stageKey === stage.key ? selected : stageCreativesChoice(stage, ownersOf(ctx), null);
   return [
     { key: "00", label: "00 Brief & admin", artistId: null, artistName: null, likely: selected.key === "00" ? selected.likely : null },
     { key: "01", label: "01 Open files", artistId: null, artistName: null, likely: null },
     { key: selected.key.startsWith(`${ARTIST_CLIPS_KEY}/`) ? selected.key : ARTIST_CLIPS_KEY, label: artistLabel, artistId: selected.artistId, artistName: selected.artistName, likely: null },
     { key: selected.key.startsWith(`${PRESS_KITS_KEY}/`) ? selected.key : PRESS_KITS_KEY, label: pressLabel, artistId: null, artistName: null, likely: null },
     { key: "02/venue-crowd", label: "02 Source / Venue & crowd", artistId: null, artistName: null, likely: null },
-    { key: stage.key, label: stage.label, artistId: null, artistName: null, likely: null },
+    creatives,
     { key: "04", label: "04 D2C", artistId: null, artistName: null, likely: null },
     { key: "05", label: "05 Reports", artistId: null, artistName: null, likely: null },
     { key: "06", label: "06 Post-event", artistId: null, artistName: null, likely: null },
   ];
 }
 
-/** Folder paths for "Another folder in the tree…", parent names joined. */
-export function otherFolderChoices(): { key: string; label: string }[] {
+/**
+ * A folder picked under "Another folder in the tree…" (U2): a stage that takes
+ * creatives (Announcement, Presale live, Reminders, an older cycle…) becomes a
+ * creatives row with the same two pickers and never takes the file itself.
+ * Any other folder is a plain choice.
+ */
+export function anotherFolderChoice(
+  picked: { key: string; label: string },
+  ctx: Pick<UploadContext, "owners" | "artists">,
+  file: Pick<UploadFile, "name" | "mimeType"> | null = null,
+): FolderChoice {
+  if (!isFilingStage(picked.key)) return { key: picked.key, label: picked.label, artistId: null, artistName: null, likely: null };
+  const folderName = picked.label.split(" / ").at(-1) ?? picked.label;
+  const label = picked.label.startsWith("03 Creatives") ? picked.label : `03 Creatives / ${picked.label}`;
+  return stageCreativesChoice({ key: picked.key, label, folderName }, ownersOf(ctx), file);
+}
+
+/**
+ * Folder paths for "Another folder in the tree…", parent names joined. With
+ * the folder map's keys, every cycle but the current one is listed too (U1:
+ * an older cycle is reached here, with the same two pickers).
+ */
+export function otherFolderChoices(opts: { folderKeys?: readonly string[] | null; currentStageKey?: string | null } = {}): { key: string; label: string }[] {
   const usual = new Set(["00", "01", "02", ARTIST_CLIPS_KEY, PRESS_KITS_KEY, "02/venue-crowd", "03", "04", "05", "06", WINNERS_KEY, EVENT_KEY]);
   const byKey = new Map(EVENT_TREE.map((spec) => [spec.key, spec]));
   const labelOf = (key: string): string => {
@@ -265,7 +455,13 @@ export function otherFolderChoices(): { key: string; label: string }[] {
     }
     return names.join(" / ");
   };
-  return EVENT_TREE.filter((spec) => !usual.has(spec.key)).map((spec) => ({ key: spec.key, label: labelOf(spec.key) }));
+  const fixed = EVENT_TREE.filter((spec) => !usual.has(spec.key)).map((spec) => ({ key: spec.key, label: labelOf(spec.key) }));
+  const cycles = (opts.folderKeys ?? [])
+    .map((key) => /^03\/3\/wc\/(\d{4}-\d{2}-\d{2})$/.exec(key))
+    .filter((match): match is RegExpExecArray => Boolean(match) && match![0] !== opts.currentStageKey)
+    .sort((a, b) => a[1]!.localeCompare(b[1]!))
+    .map((match) => ({ key: match[0], label: `03 Creatives / 3 On sale / ${cycleFolderName(match[1]!)}` }));
+  return [...fixed, ...cycles];
 }
 
 export type PanelRow = { key: string; name: string; folderId: string | null; now: string | null; trailing: string };

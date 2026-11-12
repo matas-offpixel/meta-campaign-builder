@@ -14,7 +14,7 @@
  * (creative_lab_artists.id), so a rename renames, never re-files.
  */
 
-import { rowById, type DriveDb, type RowOf } from "./db.ts";
+import { rowById, rowsWhere, type DriveDb, type RowOf } from "./db.ts";
 import { loadLineupArtists } from "./lineup.ts";
 import { ownerFolderName, promoterOwner, type DriveOwner } from "./tree.ts";
 
@@ -74,4 +74,28 @@ export async function ownerNameResolver(
     }
     return artistNames.get(owner.artistId) ?? null;
   };
+}
+
+/**
+ * The upload's owner picker (HU2, 2026-11-11-creative-lab-upload-owner): the
+ * Lab lineup in billing order, each under its lineup name today (a renamed
+ * artist shows the new name; one taken off the lineup isn't offered), then the
+ * promoter — the client's name, or "{Client} (promoter)" on a clash. ref is
+ * the D5 key part: "artist:{Lab artist id}", or "library:{library artist id}"
+ * for a lineup artist with no Lab row yet (the upload makes one, the Lab's way).
+ */
+export async function uploadOwnerOptions(
+  db: DriveDb,
+  event: Pick<RowOf<"events">, "id">,
+  client: Pick<RowOf<"clients">, "id" | "name">,
+): Promise<{ ref: string; name: string; kind: "artist" | "promoter" }[]> {
+  const lineup = await loadLineupArtists(db, event.id);
+  const labRows = await rowsWhere(db, "creative_lab_artists", "client_id", client.id);
+  const out: { ref: string; name: string; kind: "artist" | "promoter" }[] = [];
+  for (const artist of lineup) {
+    const lab = labRows.find((row) => row.artist_id === artist.libraryArtistId) ?? labRows.find((row) => row.name === artist.name);
+    out.push({ ref: lab ? `artist:${lab.id}` : `library:${artist.libraryArtistId}`, name: artist.name, kind: "artist" });
+  }
+  out.push({ ref: "promoter", name: ownerFolderName(promoterOwner(client.name, lineup.map((artist) => artist.name))), kind: "promoter" });
+  return out;
 }
