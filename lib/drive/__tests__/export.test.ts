@@ -80,7 +80,7 @@ describe("trees (S19, HS13)", () => {
     const drive = fakeDrive();
     await withTree(db, drive);
     assert.deepEqual(drive.childrenNamed("Puzzle"), ["2026-12-27 Puzzle 4th Birthday [P26-BDAY]", "_Brand kit"]);
-    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 1 Signup / Teaser`), ["Artist", "Experience", "Promoter"]);
+    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 1 Signup / Teaser`), []);
     assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 3 On sale`), []);
     assert.equal(db.tables.drive_folders.length, drive.files.size);
     assert.equal(drive.files.size, 2 + 1 + EVENT_TREE.length);
@@ -156,19 +156,19 @@ describe("trees (S19, HS13)", () => {
     assert.ok(drive.childrenNamed("Puzzle / Puzzle Video").includes("03 Creatives"));
   });
 
-  it("w/c folder with UGC · Ticket warnings · Content", async () => {
+  it("a new w/c folder is made empty (D3)", async () => {
     const db = seed();
     const drive = fakeDrive();
     await withTree(db, drive);
     await ensureCycleFolder(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), "2026-11-16");
     await ensureCycleFolder(db, drive, row(db, "events", "e1"), row(db, "clients", "c1"), "2026-11-16");
     assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 3 On sale`), ["w/c 16 Nov"]);
-    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 3 On sale / w/c 16 Nov`), ["Content", "Ticket warnings", "UGC"]);
+    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 3 On sale / w/c 16 Nov`), []);
   });
 });
 
 describe("filing (S20, HS9)", () => {
-  it("files Enzo #1 × caption 2 into this cycle's UGC under the S14 name, tagged", async () => {
+  it("files Enzo #1 × caption 2 into this cycle's Enzo Siragusa / Videos under the S14 name, tagged", async () => {
     const db = seed();
     const drive = fakeDrive();
     await withTree(db, drive);
@@ -179,11 +179,11 @@ describe("filing (S20, HS9)", () => {
     assert.equal(render.status, "done");
     assert.equal(render.drive_file_name, "P26-BDAY_enzo-siragusa-1_lineup2-on-sale_r1_9x16.mp4");
     const file = drive.files.get(String(render.drive_file_id))!;
-    assert.equal(drive.pathOf(file.id), `${EVENT_PATH} / 03 Creatives / 3 On sale / w/c 16 Nov / UGC / P26-BDAY_enzo-siragusa-1_lineup2-on-sale_r1_9x16.mp4`);
+    assert.equal(drive.pathOf(file.id), `${EVENT_PATH} / 03 Creatives / 3 On sale / w/c 16 Nov / Enzo Siragusa / Videos / P26-BDAY_enzo-siragusa-1_lineup2-on-sale_r1_9x16.mp4`);
     assert.equal(file.appProperties?.[APP_TAG_KEY], "lab_render");
   });
 
-  it("signup + quote → Teaser/Artist; signup + lineup → Teaser/Promoter", async () => {
+  it("signup files under Teaser / {owner} / Videos whatever the angle (the voice split is gone)", async () => {
     const db = seed({ event: { status: "upcoming" } });
     const drive = fakeDrive();
     await withTree(db, drive);
@@ -191,8 +191,11 @@ describe("filing (S20, HS9)", () => {
     row(db, "creative_lab_captions", "cap2").style = "quote";
     await fileRender(db, drive, row(db, "creative_lab_renders", "rd1"), deps);
     await fileRender(db, drive, row(db, "creative_lab_renders", "rd2"), deps);
-    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 1 Signup / Teaser / Artist`), ["P26-BDAY_enzo-siragusa-1_quote2-signup_r1_9x16.mp4"]);
-    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 1 Signup / Teaser / Promoter`), ["P26-BDAY_enzo-siragusa-2_lineup1-signup_r1_9x16.mp4"]);
+    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 1 Signup / Teaser / Enzo Siragusa / Videos`), [
+      "P26-BDAY_enzo-siragusa-1_quote2-signup_r1_9x16.mp4",
+      "P26-BDAY_enzo-siragusa-2_lineup1-signup_r1_9x16.mp4",
+    ]);
+    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 1 Signup / Teaser`), ["Enzo Siragusa"]);
   });
 
   it("a re-render files again as _v2 and leaves the first copy", async () => {
@@ -306,7 +309,7 @@ describe("the tick", () => {
     assert.equal(result.trees.events, 1);
     assert.deepEqual(result.cycles, ["P26-BDAY w/c 2026-11-16"]);
     assert.equal(result.filed.filter((f) => f.ok).length, 2);
-    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 3 On sale / w/c 16 Nov / UGC`).length, 2);
+    assert.deepEqual(drive.childrenNamed(`${EVENT_PATH} / 03 Creatives / 3 On sale / w/c 16 Nov / Enzo Siragusa / Videos`).length, 2);
     const again = await runDriveTick(db, drive, { download, now: NOW, calendar: fortnightly });
     assert.deepEqual(again.created, []);
     assert.deepEqual(again.filed, []);

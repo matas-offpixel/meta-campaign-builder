@@ -20,9 +20,10 @@
  * ground, artist-card-cutout.ts) if the cut-out passes, else skip.
  *
  * Default: writes PNGs and report.md to --out (default outputs/{CODE}/cards).
- * --apply also copies them into the event's Drive tree, routed by
- * cardFolderKey (on sale → 03 Creatives / 3 On sale / w/c … / Content),
- * tagged so the pickup skips them. A photo that needs more room above or
+ * --apply also copies them into the event's Drive tree: cardFolderKey gives
+ * the stage (on sale → 03 Creatives / 3 On sale / w/c …), and under it the
+ * artist's owner folder and Statics (D1–D5, 2026-11-11 owner-type record:
+ * … / w/c 9 Nov / Luke Dean / Statics), tagged so the pickup skips them. A photo that needs more room above or
  * at the sides is extended per O20 (lib/creative-lab/artist-card.ts) and the
  * card's line says "photo extended … by N px". Files are named with
  * _v{--version} (default 1: no suffix), and the next free _vN when that
@@ -41,8 +42,9 @@ import { detectFaces, eyesMeasurable, faceGeometry, type FaceBox } from "../lib/
 import { refineAtSource, segmentPerson } from "../lib/creative-lab/segment.ts";
 import { APP_ID_KEY, APP_TAG_KEY, driveFromEnv } from "../lib/drive/client.ts";
 import type { DriveDb } from "../lib/drive/db.ts";
-import { ensureEventKey } from "../lib/drive/folders.ts";
-import { artistSlug, cycleKey, cycleMondayFor, londonToday, renderStage, showWeekMonday } from "../lib/drive/tree.ts";
+import { ensureRouteFolder } from "../lib/drive/folders.ts";
+import { labArtistFolderName } from "../lib/drive/owner.ts";
+import { artistSlug, cycleKey, cycleMondayFor, londonToday, ownerSpec, renderStage, showWeekMonday, typeSpec } from "../lib/drive/tree.ts";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -232,19 +234,39 @@ if (scans.length) {
 
 const today = londonToday(new Date());
 const stage = renderStage(event.status) === "on-sale" ? "on-sale" : "presale";
-const folderKey = cardFolderKey({ stage, today, eventDate: event.event_date, cycleKeyFor: (day) => cycleKey(cycleMondayFor(day)), showWeekMonday });
-say(`Drive folder key: ${folderKey} (stage ${stage}) · version _v${version}`);
+// cardFolderKey still names the retired cycle Content folder; the stage is the cycle itself (D3, D4).
+const stageKey = cardFolderKey({ stage, today, eventDate: event.event_date, cycleKeyFor: (day) => cycleKey(cycleMondayFor(day)), showWeekMonday }).replace(/\/content$/, "");
+say(`Drive stage key: ${stageKey} (stage ${stage}) · then {artist} / Statics · version _v${version}`);
 say("");
 
 const { drive, reason } = driveFromEnv();
 if (apply && !drive) fail(`--apply needs the export drive: ${reason}`);
-let driveFolder: string | null = null;
-let taken = new Set<string>();
-if (apply && drive) {
-  const clientRes = await supabase.from("clients").select("id, name, status, drive_folder_id").eq("id", String(event.client_id)).maybeSingle();
-  if (clientRes.error || !clientRes.data) fail(clientRes.error?.message ?? "no client");
-  driveFolder = await ensureEventKey(supabase as unknown as DriveDb, drive, event as never, clientRes.data as never, folderKey);
-  taken = new Set((await drive.listChildren(driveFolder)).map((f) => f.name));
+const cardDb = supabase as unknown as DriveDb;
+const eventClientId = String(event.client_id);
+const eventRow = event;
+const clientRow = apply && drive
+  ? await (async () => {
+      const clientRes = await supabase.from("clients").select("id, name, status, drive_folder_id").eq("id", String(event.client_id)).maybeSingle();
+      if (clientRes.error || !clientRes.data) fail(clientRes.error?.message ?? "no client");
+      return clientRes.data;
+    })()
+  : null;
+/** {artist} / Statics under the stage, made on first use (D5), keyed by the Lab artist id. */
+const artistFolders = new Map<string, { id: string; taken: Set<string> }>();
+async function artistStatics(artist: string): Promise<{ id: string; taken: Set<string> }> {
+  const known = artistFolders.get(artist);
+  if (known) return known;
+  const labRes = await supabase.from("creative_lab_artists").select("id, name, artist_id").eq("client_id", eventClientId);
+  if (labRes.error) fail(labRes.error.message);
+  const labRows = (labRes.data ?? []) as { id: string; name: string; artist_id: string | null }[];
+  let lab: { id: string; name: string; artist_id: string | null } | undefined;
+  for (const row of labRows) if (row.name === artist || (await labArtistFolderName(cardDb, row)) === artist) lab = lab ?? row;
+  if (!lab) fail(`no Lab artist named exactly "${artist}" for this client — the owner folder needs one`);
+  const owner = ownerSpec(stageKey, { kind: "artist", artistId: lab.id, name: await labArtistFolderName(cardDb, lab) });
+  const id = await ensureRouteFolder(cardDb, drive!, eventRow as never, clientRow as never, { stageKey, owner, type: typeSpec(owner.key, "static") });
+  const entry = { id, taken: new Set((await drive!.listChildren(id)).map((f) => f.name)) };
+  artistFolders.set(artist, entry);
+  return entry;
 }
 
 mkdirOut();
@@ -292,7 +314,8 @@ for (const pick of picks) {
     const name = cardFileName({ eventCode: code, artistSlug: slug, pick: pick.card, stage, format: o.format, version });
     writeFileSync(join(outDir, name), o.bytes);
     let link = "";
-    if (apply && drive && driveFolder) {
+    if (apply && drive) {
+      const { id: driveFolder, taken } = await artistStatics(pick.artist);
       let free = name;
       for (let v = version + 1; taken.has(free); v += 1) free = cardFileName({ eventCode: code, artistSlug: slug, pick: pick.card, stage, format: o.format, version: v });
       const up = await drive.uploadFile({

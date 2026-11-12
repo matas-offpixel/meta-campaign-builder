@@ -21,6 +21,7 @@ import {
   cycleSpecs,
   eventFolderName,
   isCancelled,
+  parseOwnerKey,
   specFor,
   type FolderKey,
   type FolderSpec,
@@ -279,7 +280,69 @@ export async function ensureArtistFolders(
   return ids;
 }
 
-/** w/c {d Mon} with UGC · Ticket warnings · Content (HS13). */
+/**
+ * The stage, owner and type folders a filing needs (D5): the stage through
+ * the tree, then {owner} and {Videos | Statics} under it, parent first, each
+ * recorded in the map under its stable key. Map-first, then found by exact
+ * name, then created — never ahead of a filing. A known owner folder whose
+ * name the record now gives differently (a Lab or client rename) is renamed.
+ */
+export async function ensureRouteFolder(
+  db: DriveDb,
+  drive: DriveApi,
+  event: EventRow,
+  client: ClientRow,
+  route: { stageKey: FolderKey; owner: FolderSpec; type: FolderSpec },
+  log: TreeLog = emptyLog(),
+): Promise<string> {
+  const stageId = await ensureEventKey(db, drive, event, client, route.stageKey, log);
+  const map = await loadMap(db, client.id, event.id);
+  const stageLabel = labelFor([client.name, eventFolderName({ ...event, status: null })], specFor(route.stageKey)!);
+  const scope: Scope = {
+    db,
+    drive,
+    clientId: client.id,
+    eventId: event.id,
+    map,
+    log,
+    rootParentId: stageId,
+    label: (spec) => (spec.key === route.owner.key ? `${stageLabel} / ${route.owner.name}` : `${stageLabel} / ${route.owner.name} / ${spec.name}`),
+  };
+  const ownerId = await ensureSpec(scope, route.owner, stageId);
+  return ensureSpec(scope, route.type, ownerId);
+}
+
+/**
+ * Renames follow (D5): every owner folder of the event, in every stage and
+ * cycle, takes the name its key's owner has today. Type folders and files
+ * never change. An owner whose name can't be read today (an artist off the
+ * lineup) keeps the folder as it is. Reads the map only; Drive is called just
+ * for a folder whose name changed.
+ */
+export async function renameOwnerFolders(
+  db: DriveDb,
+  drive: DriveApi,
+  event: EventRow,
+  client: ClientRow,
+  nameOf: (owner: { kind: "artist"; artistId: string } | { kind: "promoter" }) => Promise<string | null>,
+  log: TreeLog = emptyLog(),
+): Promise<number> {
+  const map = await loadMap(db, client.id, event.id);
+  let renamed = 0;
+  for (const row of map.values()) {
+    const parts = parseOwnerKey(row.key);
+    if (!parts || parts.type) continue;
+    const name = await nameOf(parts.owner);
+    if (!name || name === row.name) continue;
+    await drive.update(row.drive_folder_id, { name });
+    await remember(db, { ...row, name });
+    log.renamed.push(`${name} (was ${row.name})`);
+    renamed += 1;
+  }
+  return renamed;
+}
+
+/** w/c {d Mon}, made empty: its owner folders come with its first filing (D3, D5). */
 export async function ensureCycleFolder(
   db: DriveDb,
   drive: DriveApi,
