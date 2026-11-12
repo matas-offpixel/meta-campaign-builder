@@ -178,6 +178,21 @@ describe("the copy (G6, HG6)", () => {
     assert.equal(db.tables.creative_assets.length, 0);
   });
 
+  it("a static's 4:5 that measures otherwise is refused with the static sentence, not the video one", async () => {
+    const { db, drive, event, ids } = tree();
+    const measured = drive.drop(ids.enzoUgc, "a_r1_4x5.jpg", { mimeType: "image/jpeg", bytes: new Uint8Array(8), size: 8, meta: { width: 1080, height: 1080 } });
+    const unmeasured = drive.drop(ids.enzoUgc, "b_r1_4x5.jpg", { mimeType: "image/jpeg", bytes: new Uint8Array(8), size: 8 });
+    const d = deps(db, drive);
+    const first = await copyPickedFile(d.deps, event, { fileId: measured.id, role: "4:5" });
+    const second = await copyPickedFile({ ...d.deps, measure: async () => ({ width: 1080, height: 1920 }) }, event, { fileId: unmeasured.id, role: "4:5" });
+    for (const result of [first, second]) {
+      assert.equal(result.ok, false);
+      assert.equal(!result.ok && result.code, "not_916");
+      assert.equal(!result.ok && result.reason, PICKER_WORDS.notNineSixteenStatic);
+    }
+    assert.deepEqual(d.uploads, []);
+  });
+
   it("a row the browser registered first (same bytes, no drive_file_id) gets this file's id, and its own path is used", async () => {
     const { db, drive, event, ids } = tree();
     const bytes = new Uint8Array(64).fill(5);

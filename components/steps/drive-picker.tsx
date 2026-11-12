@@ -20,8 +20,8 @@ import {
   formatBytes,
   formatDuration,
   isFailed,
-  middleCut,
   rowLine,
+  splitFileName,
   type AssetModeName,
   type BatchFields,
   type PickerOwner,
@@ -52,6 +52,8 @@ export type DrivePickerProps = {
   onPrepare: (plan: PickerPrepare) => void;
   batch: PickerBatchRow[] | null;
   onRetryFailed: () => void;
+  /** G6: "Couldn't copy from Drive — Retry" retries that row only. */
+  onRetryRow?: (rowId: string) => void;
   onDismissBatch: () => void;
   /** Frames and tests pass a fixture; the default reads the picker route. */
   loadView?: (query: PickerQuery) => Promise<PickerView>;
@@ -200,9 +202,18 @@ export function DrivePicker(props: DrivePickerProps) {
         <ul className="divide-y divide-border rounded-lg border border-border">
           {batch.map((row) => (
             <li key={row.rowId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-              <span className="min-w-0 truncate font-medium">{row.name}</span>
+              <FileName name={row.name} className="font-medium" />
               <span className={`shrink-0 text-xs ${isFailed(row.state) ? "text-destructive" : row.state.kind === "ready" ? "text-success" : "text-muted-foreground"}`}>
-                {rowLine(row.state)}
+                {row.state.kind === "copy_failed" ? (
+                  <>
+                    {W.copyFailed} —{" "}
+                    <button type="button" onClick={() => props.onRetryRow?.(row.rowId)} className="font-medium underline hover:no-underline">
+                      {W.retry}
+                    </button>
+                  </>
+                ) : (
+                  rowLine(row.state)
+                )}
               </span>
             </li>
           ))}
@@ -212,8 +223,28 @@ export function DrivePicker(props: DrivePickerProps) {
   else if (batch && counts && counts.done)
     body = (
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-        <StatusLine className="text-sm font-medium">{W.endLine(counts.ready, counts.skipped, counts.failed)}</StatusLine>
-        <Crumbs crumbs={crumbs} view={view} go={go} cycleMenu={cycleMenu} setCycleMenu={setCycleMenu} />
+        <StatusLine className="text-sm font-medium">
+          {W.endLineHead(counts.ready, counts.skipped, counts.failed)}
+          {counts.failed > 0 ? (
+            <>
+              {" — "}
+              <button type="button" onClick={props.onRetryFailed} className="font-medium text-primary hover:underline">
+                {W.retry}
+              </button>
+            </>
+          ) : null}
+        </StatusLine>
+        {/* G7: a folder from the end screen leaves the batch first, as the Next: chips do, so its tiles come back. */}
+        <Crumbs
+          crumbs={crumbs}
+          view={view}
+          go={(next) => {
+            props.onDismissBatch();
+            go(next);
+          }}
+          cycleMenu={cycleMenu}
+          setCycleMenu={setCycleMenu}
+        />
         {sameFor.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-muted-foreground">{W.next}</span>
@@ -295,7 +326,7 @@ export function DrivePicker(props: DrivePickerProps) {
                   </div>
                   <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                     {tiles.map((tile) => (
-                      <FileTile key={tile.file.id} tile={tile} on={selected.has(tile.file.id)} onToggle={() => toggle(tile)} thumb={props.thumbnailUrl?.(tile.file.id) ?? (eventId && tile.file.hasThumbnail ? `/api/events/${eventId}/drive/picker/thumbnail?file=${encodeURIComponent(tile.file.id)}` : null)} />
+                      <FileTile key={tile.file.id} tile={tile} mode={mode} on={selected.has(tile.file.id)} onToggle={() => toggle(tile)} thumb={props.thumbnailUrl?.(tile.file.id) ?? (eventId && tile.file.hasThumbnail ? `/api/events/${eventId}/drive/picker/thumbnail?file=${encodeURIComponent(tile.file.id)}` : null)} />
                     ))}
                   </div>
                 </>
@@ -420,7 +451,18 @@ function FolderList({ items, go }: { items: readonly { id: string; name: string 
   );
 }
 
-function FileTile({ tile, on, onToggle, thumb }: { tile: Tile; on: boolean; onToggle: () => void; thumb: string | null }) {
+/** G2: the head truncates; the tail (ratio token, extension) stays in view. Typed glyphs: "9x16", not a ligature. */
+function FileName({ name, className }: { name: string; className?: string }) {
+  const { head, tail } = splitFileName(name);
+  return (
+    <span className={`flex min-w-0 ${className ?? ""}`} title={name} style={{ fontFeatureSettings: '"calt" 0' }}>
+      <span className="min-w-0 truncate">{head}</span>
+      {tail ? <span className="shrink-0 whitespace-pre">{tail}</span> : null}
+    </span>
+  );
+}
+
+function FileTile({ tile, mode, on, onToggle, thumb }: { tile: Tile; mode: AssetModeName; on: boolean; onToggle: () => void; thumb: string | null }) {
   const duration = tile.kind === "video" ? formatDuration(tile.file.durationMs) : null;
   const meta = [tile.kind === "video" ? "Video" : "Static", duration, formatBytes(tile.file.size)].filter(Boolean).join(" · ");
   const pairs = Object.keys(tile.pairs).map((r) => `+ ${r}`).join(" ");
@@ -444,13 +486,11 @@ function FileTile({ tile, on, onToggle, thumb }: { tile: Tile; on: boolean; onTo
         ) : null}
       </div>
       <div className="space-y-0.5 p-2">
-        <Datum className="truncate text-[11px] font-medium" title={tile.file.name}>
-          {middleCut(tile.file.name, 34)}
-        </Datum>
+        <FileName name={tile.file.name} className="text-[11px] font-medium" />
         <Datum className="text-[10px] text-muted-foreground">{meta}</Datum>
         {tile.reason ? <StatusLine className="text-[10px] font-medium text-destructive">{tile.reason}</StatusLine> : null}
         {tile.note ? <StatusLine className="text-[10px] text-muted-foreground">{tile.note}</StatusLine> : null}
-        {tile.selectable && tile.kind === "video" ? <Datum className="sr-only">{W.videoSingle}</Datum> : null}
+        {tile.selectable && tile.kind === "video" && mode !== "single" ? <StatusLine className="text-[10px] text-muted-foreground">{W.videoSingle}</StatusLine> : null}
       </div>
     </button>
   );

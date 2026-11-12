@@ -303,7 +303,8 @@ export async function copyPickedFile(
     if (file.size != null && file.size > limit) return fail("too_large", kind === "video" ? PICKER_WORDS.overVideo : PICKER_WORDS.overImage);
     const role = input.role ?? "9:16";
     const measured = ratioOf(file);
-    if (measured && measured !== role) return fail("not_916", PICKER_WORDS.notNineSixteenVideo);
+    const notNineSixteen = kind === "video" ? PICKER_WORDS.notNineSixteenVideo : PICKER_WORDS.notNineSixteenStatic;
+    if (measured && measured !== role) return fail("not_916", notNineSixteen);
 
     const ext = extOf(file, kind);
     const folder = kind === "video" ? "videos" : "images";
@@ -336,7 +337,7 @@ export async function copyPickedFile(
       if (!measured) {
         const size = await (deps.measure ?? defaultMeasure)(local, kind);
         const fits = size ? (role === "9:16" ? isNineSixteen(size.width, size.height) : ratioOf({ ...size, rotation: 0 }) === role) : false;
-        if (!fits) return fail("not_916", PICKER_WORDS.notNineSixteenVideo);
+        if (!fits) return fail("not_916", notNineSixteen);
       }
       const known = await findAssetByFingerprint(deps.db, deps.userId, identity);
       const knownRow = known.ok ? known.asset : null;

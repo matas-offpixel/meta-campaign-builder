@@ -10,7 +10,7 @@
 import { useCallback, useRef, useState, type MutableRefObject } from "react";
 
 import { createDefaultAssetVariation, createDefaultCreative, defaultCtaForObjective } from "@/lib/campaign-defaults";
-import { failedRows, readCopyStream, runBatch, type BatchRow, type CopyOk } from "@/lib/drive/picker-batch";
+import { readCopyStream, retryTargets, runBatch, type BatchRow, type CopyOk } from "@/lib/drive/picker-batch";
 import { PICKER_WORDS, defaultBatchFields, identityForOwner, type BatchFields, type BatchIdentity, type PickerOwner, type RowState } from "@/lib/drive/picker-model";
 import { reuploadStoredAsset } from "@/lib/hooks/useUploadAsset";
 import { getAspectRatioSlots } from "@/lib/meta/upload";
@@ -173,12 +173,18 @@ export function useDrivePicker(input: {
     [fields, input, creativesRef, onChange, run],
   );
 
-  const onRetryFailed = useCallback(() => {
-    const retry = failedRows(planRows.current, states.current);
-    if (retry.length === 0) return;
-    for (const row of retry) for (const part of row.parts) patchSlot(row.adId!, row.variationId, part.slotAssetId, { uploadStatus: "uploading", error: undefined });
-    void run(retry);
-  }, [patchSlot, run]);
+  /** Retry failed (no rowId), or one row's own Retry. */
+  const retry = useCallback(
+    (rowId?: string) => {
+      const rows = retryTargets(planRows.current, states.current, rowId);
+      if (rows.length === 0) return;
+      for (const row of rows) for (const part of row.parts) patchSlot(row.adId!, row.variationId, part.slotAssetId, { uploadStatus: "uploading", error: undefined });
+      void run(rows);
+    },
+    [patchSlot, run],
+  );
+  const onRetryFailed = useCallback(() => retry(), [retry]);
+  const onRetryRow = useCallback((rowId: string) => retry(rowId), [retry]);
 
   const existingDriveIds = new Set<string>();
   for (const c of input.creatives) for (const v of c.assetVariations ?? []) for (const a of v.assets) if (a.driveFileId) existingDriveIds.add(a.driveFileId);
@@ -194,6 +200,7 @@ export function useDrivePicker(input: {
     onPrepare,
     rows,
     onRetryFailed,
+    onRetryRow,
     onDismissBatch: () => setRows(null),
     existingNames: input.creatives.map((c) => c.name),
     existingDriveIds,

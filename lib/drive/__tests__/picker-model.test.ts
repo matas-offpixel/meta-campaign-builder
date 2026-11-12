@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { failedRows, planPrepare, runBatch, readCopyStream, type BatchRow, type CopyOutcome } from "../picker-batch.ts";
+import { failedRows, planPrepare, retryTargets, runBatch, readCopyStream, type BatchRow, type CopyOutcome } from "../picker-batch.ts";
 import {
   PICKER_WORDS,
   adNames,
@@ -18,6 +18,7 @@ import {
   parseS14,
   ratioOf,
   rowLine,
+  splitFileName,
   type PickerFile,
   type RowState,
 } from "../picker-model.ts";
@@ -210,6 +211,46 @@ describe("the batch (G6, HG6)", () => {
     assert.equal(PICKER_WORDS.preparingHead(counts.n, counts.ready), "Preparing 2 ads · 1 ready");
   });
 
+  it("Retry on one row retries that row only (if it failed); Retry failed takes every failed row", () => {
+    const states = new Map<string, RowState>([
+      ["one", { kind: "copy_failed" }],
+      ["two", { kind: "ready" }],
+      ["three", { kind: "meta_failed", reason: "x" }],
+    ]);
+    assert.deepEqual(retryTargets(rows, states, "one").map((r) => r.rowId), ["one"]);
+    assert.deepEqual(retryTargets(rows, states, "two"), []);
+    assert.deepEqual(retryTargets(rows, states).map((r) => r.rowId), ["one", "three"]);
+    assert.equal(PICKER_WORDS.endLineHead(2, 0, 1), "2 ads prepared · 0 skipped (already in this draft) · 1 failed");
+  });
+
+  it("a static whose 4:5 fails the copy-time ratio check reads the static sentence, not the video one", async () => {
+    const slotLines: string[] = [];
+    const staticRow: BatchRow = {
+      rowId: "s1",
+      name: "P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16",
+      adId: "ad-s1",
+      variationId: "v",
+      kind: "image",
+      parts: [
+        { fileId: "f-916", fileName: "a_r1_9x16.jpg", role: "9:16", slotAssetId: "s916" },
+        { fileId: "f-45", fileName: "a_r1_4x5.jpg", role: "4:5", slotAssetId: "s45" },
+      ],
+    };
+    const states = await runBatch([staticRow, rows[0]!], {
+      copy: async (_row, part) =>
+        part.role === "4:5" || part.fileId === "f-one"
+          ? { ok: false, code: "not_916", reason: "measured" }
+          : { ok: true, storagePath: "p", storageBucket: "b", registryAssetId: "r", mediaType: "image", fileName: part.fileName, fromRegistry: false },
+      sendToMeta: async () => ({ url: "" }),
+      onRow: () => {},
+      onUploaded: () => {},
+      onSlotFailed: (_row, part, line) => slotLines.push(`${part.slotAssetId}: ${line}`),
+    });
+    assert.equal(rowLine(states.get("s1")!), "Not 9:16 — pairs with its 9:16 in Dual or Full");
+    assert.equal(rowLine(states.get("one")!), "Not 9:16 — video runs as 9:16 only");
+    assert.deepEqual(slotLines, ["s45: Not 9:16 — pairs with its 9:16 in Dual or Full", "s: Not 9:16 — video runs as 9:16 only"]);
+  });
+
   it("readCopyStream reads the NDJSON progress and the done line, split across chunks", async () => {
     const text = '{"type":"progress","pct":10}\n{"type":"registry"}\n{"type":"done","ok":true,"storagePath":"x","storageBucket":"b","registryAssetId":"r","mediaType":"video","fileName":"f","fromRegistry":true}\n';
     const enc = new TextEncoder().encode(text);
@@ -224,5 +265,15 @@ describe("the batch (G6, HG6)", () => {
     const result = await readCopyStream(new Response(body), (p) => seen.push(p.type));
     assert.deepEqual(seen, ["progress", "registry"]);
     assert.equal(result.ok && result.storagePath, "x");
+  });
+});
+
+describe("file names keep their end (G2)", () => {
+  it("the tail holds the ratio token and the extension (and a row's (again)); otherwise just the extension", () => {
+    assert.deepEqual(splitFileName("P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16.mp4"), { head: "P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1", tail: "_9x16.mp4" });
+    assert.deepEqual(splitFileName("P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16 (again)"), { head: "P26-BDAY_enzo-siragusa-1_quote-on-sale_r1", tail: "_9x16 (again)" });
+    assert.deepEqual(splitFileName("x_r2_4x5_winner.jpg"), { head: "x_r2", tail: "_4x5_winner.jpg" });
+    assert.deepEqual(splitFileName("enzo-ibiza-terrace.mov"), { head: "enzo-ibiza-terrace", tail: ".mov" });
+    assert.deepEqual(splitFileName("Enzo - UGC 4"), { head: "Enzo - UGC 4", tail: "" });
   });
 });

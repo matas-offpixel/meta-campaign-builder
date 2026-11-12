@@ -6,7 +6,7 @@
  */
 
 import type { AssetModeName, PickerKind, PickerOwner, RatioName, RowState, Tile } from "./picker-model.ts";
-import { adNames, folderLabel, isFailed, ownerShortName } from "./picker-model.ts";
+import { adNames, folderLabel, isFailed, ownerShortName, rowLine } from "./picker-model.ts";
 
 /** One file into one slot of the row's ad: the 9:16, or (Dual / Full statics) its 4:5 or 1:1. */
 export type BatchPart = { fileId: string; fileName: string; role: RatioName; slotAssetId: string | null };
@@ -111,9 +111,9 @@ export async function runBatch(rows: readonly BatchRow[], deps: BatchDeps): Prom
         copy = { ok: false, code: "copy_failed", reason: "Couldn't copy from Drive" };
       }
       if (!copy.ok) {
-        const notNineSixteen = copy.code === "not_916";
-        set(row, notNineSixteen ? { kind: "not_916" } : { kind: "copy_failed" });
-        deps.onSlotFailed(row, part, notNineSixteen ? "Not 9:16 — video runs as 9:16 only" : "Couldn't copy from Drive — Retry");
+        const state: RowState = copy.code === "not_916" ? { kind: "not_916", static: row.kind === "image" } : { kind: "copy_failed" };
+        set(row, state);
+        deps.onSlotFailed(row, part, rowLine(state));
         failed = true;
         break;
       }
@@ -140,6 +140,12 @@ export function failedRows(rows: readonly BatchRow[], states: ReadonlyMap<string
     const state = states.get(row.rowId);
     return state ? isFailed(state) : false;
   });
+}
+
+/** A row's own Retry (rowId): that row, if it failed. Retry failed (no rowId): every failed row. */
+export function retryTargets(rows: readonly BatchRow[], states: ReadonlyMap<string, RowState>, rowId?: string): BatchRow[] {
+  const failed = failedRows(rows, states);
+  return rowId ? failed.filter((row) => row.rowId === rowId) : failed;
 }
 
 // ─── Prepare (G5) ───────────────────────────────────────────────────────────

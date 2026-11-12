@@ -6,6 +6,10 @@
 
 // ─── Words (verbatim from the record) ───────────────────────────────────────
 
+function endHead(n: number, s: number, f: number): string {
+  return `${n} ads prepared · ${s} skipped (already in this draft) · ${f} failed`;
+}
+
 export const PICKER_WORDS = {
   entry: "From Drive",
   noEvent: "Link this campaign to an event to pick from its Drive folder.",
@@ -51,7 +55,9 @@ export const PICKER_WORDS = {
   preparingTail: " — the others carry on if one fails.",
   closeNote: "You can close this; ads finish in the draft.",
   retryFailed: (f: number) => `Retry failed (${f})`,
-  endLine: (n: number, s: number, f: number) => `${n} ads prepared · ${s} skipped (already in this draft) · ${f} failed${f > 0 ? " — Retry" : ""}`,
+  endLine: (n: number, s: number, f: number) => `${endHead(n, s, f)}${f > 0 ? " — Retry" : ""}`,
+  /** The end line before its " — Retry" (the picker draws Retry as a button). */
+  endLineHead: (n: number, s: number, f: number) => endHead(n, s, f),
   fromDrive: "From Drive",
   fromDrivePath: (path: string) => `From Drive · ${path}`,
   dialogTitle: (code: string) => `From Drive · ${code}`,
@@ -151,6 +157,17 @@ export function middleCut(name: string, max = 44): string {
   if (name.length <= max) return name;
   const tail = Math.ceil((max - 1) * 0.45);
   return `${name.slice(0, max - 1 - tail)}…${name.slice(name.length - tail)}`;
+}
+
+/**
+ * A file name in two parts for a tile or row (G2): a head that may truncate,
+ * and a tail that always shows — the ratio token and the extension (and a
+ * row's " (again)"), else just the extension.
+ */
+export function splitFileName(name: string): { head: string; tail: string } {
+  const m = /(_(?:9x16|4x5|1x1)(?:_winner)?(?:\.[a-z0-9]+)?(?: \(again\))?)$/i.exec(name) ?? /(\.[a-z0-9]{2,5}(?: \(again\))?)$/i.exec(name);
+  if (!m || m.index === 0) return { head: name, tail: "" };
+  return { head: name.slice(0, m.index), tail: m[1] };
 }
 
 // ─── S14 names (lib/drive/tree.ts renderFileName) ───────────────────────────
@@ -328,7 +345,8 @@ export type RowState =
   | { kind: "skipped" }
   | { kind: "copy_failed" }
   | { kind: "meta_failed"; reason: string }
-  | { kind: "not_916" };
+  /** A static's file (its 9:16, 4:5 or 1:1) reads the static sentence, a video the video one. */
+  | { kind: "not_916"; static?: boolean };
 
 export function rowLine(state: RowState): string {
   switch (state.kind) {
@@ -349,7 +367,7 @@ export function rowLine(state: RowState): string {
     case "meta_failed":
       return PICKER_WORDS.metaFailed(state.reason);
     case "not_916":
-      return PICKER_WORDS.notNineSixteenVideo;
+      return state.static ? PICKER_WORDS.notNineSixteenStatic : PICKER_WORDS.notNineSixteenVideo;
   }
 }
 

@@ -3,7 +3,8 @@
 /**
  * DL frames for the launcher's From Drive picker (HG8): the real DrivePicker
  * on a fixture tree — no live Drive, no Meta. DL1 at 1280 and 393, DL3 and
- * DL4 at 1280. File names are the record's (12 Nov held finals plus two
+ * DL4 at 1280. DL0 and DL5 are the creatives step itself
+ * (drive-creatives-frame-mount.tsx). File names are the record's (12 Nov held finals plus two
  * samples); the primary text and headline are the record's sample words.
  */
 
@@ -11,6 +12,7 @@ import { useState } from "react";
 
 import type { BatchFields, PickerFile, PickerView, RowState } from "@/lib/drive/picker-model";
 
+import { DriveCreativesFrameMount } from "./drive-creatives-frame-mount";
 import { DrivePicker, type PickerBatchRow } from "./drive-picker";
 
 const MB = 1024 * 1024;
@@ -36,7 +38,7 @@ const FILES: PickerFile[] = [
   video("fullset", "enzo-full-set-4k.mp4", 252, 1.2 * 1024),
 ];
 
-const VIEW: PickerView = {
+export const FIXTURE_VIEW: PickerView = {
   state: "ok",
   eventCode: "P26-BDAY",
   stageKey: STAGE,
@@ -63,7 +65,7 @@ const VIEW: PickerView = {
   ],
 };
 
-const FIELDS: BatchFields = {
+export const FIXTURE_FIELDS: BatchFields = {
   primaryText: "Enzo Siragusa closes out the year with Puzzle…",
   headline: "Puzzle 4th Birthday",
   url: "https://… the event's ticket URL",
@@ -101,8 +103,13 @@ export const DRIVE_PICKER_FRAMES: Record<string, { rows: PickerBatchRow[] | null
 
 export function DrivePickerFrameMount({ id }: { id: string }) {
   const frameId = id.replace(/-\d+$/, "");
+  if (frameId === "DL0" || frameId === "DL5") return <DriveCreativesFrameMount frameId={frameId} />;
+  return <PickerFrame frameId={frameId} />;
+}
+
+function PickerFrame({ frameId }: { frameId: string }) {
   const frame = DRIVE_PICKER_FRAMES[frameId] ?? DRIVE_PICKER_FRAMES.DL1!;
-  const [fields, setFields] = useState(FIELDS);
+  const [fields, setFields] = useState(FIXTURE_FIELDS);
   const [ready, setReady] = useState(false);
   return (
     <div className="min-h-screen bg-background" {...(ready ? { "data-frame-ready": frameId } : {})}>
@@ -113,7 +120,7 @@ export function DrivePickerFrameMount({ id }: { id: string }) {
         eventCode="P26-BDAY"
         fields={fields}
         onFieldsChange={setFields}
-        onClearFields={() => setFields({ ...FIELDS, primaryText: "", headline: "" })}
+        onClearFields={() => setFields({ ...FIXTURE_FIELDS, primaryText: "", headline: "" })}
         ctaOptions={[{ value: "buy_tickets", label: "Buy tickets" }]}
         pages={[{ id: "puzzle", name: "Puzzle" }]}
         instagramFor={() => [{ id: "puzzle-ig", username: "puzzleofficialuk" }]}
@@ -126,7 +133,7 @@ export function DrivePickerFrameMount({ id }: { id: string }) {
         loadView={async () => {
           // Ready once the fixture view is in and painted.
           requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
-          return VIEW;
+          return FIXTURE_VIEW;
         }}
         thumbnailUrl={thumb}
         initialSelected={frame.selected}
