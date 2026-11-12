@@ -7,7 +7,8 @@
  * D5 key, {stage}/owner/{artist:id|library:id|promoter}/{videos|statics}: the
  * owner folder, then the type folder, are made at Upload and recorded in the
  * map, and a second upload reuses them. A stage folder never takes the file
- * itself. HU5: a key with no folder in the map and no spec — a stale client's
+ * itself, and neither do 03 Creatives or its stage parents (1 Signup, 2
+ * Presale, 3 On sale). HU5: a key with no folder in the map and no spec — a stale client's
  * retired …/content — is refused; nothing named Content is ever made.
  */
 
@@ -24,7 +25,7 @@ import {
 } from "./folders.ts";
 import { loadLineupArtists } from "./lineup.ts";
 import { labArtistFolderName } from "./owner.ts";
-import { FOLDER_NOT_IN_TREE, TREE_NOT_MADE } from "./panel.ts";
+import { FOLDER_NOT_IN_TREE, STAGE_PARENT_KEYS, TREE_NOT_MADE } from "./panel.ts";
 import { labArtistForLibrary } from "../creative-lab/lineup.ts";
 import { importArtistClips } from "../creative-lab/clip-intake.ts";
 import { folderImport } from "./pickup.ts";
@@ -111,7 +112,7 @@ async function parentFor(db: DriveDb, drive: DriveApi, event: EventRow, client: 
   }
   // A stage that takes creatives never takes the file itself (U1, U2), and a key
   // the tree can't resolve — the retired …/content of a new cycle — is refused (HU5).
-  if (isFilingStage(choice.key)) throw new Error(FOLDER_NOT_IN_TREE);
+  if (isFilingStage(choice.key) || STAGE_PARENT_KEYS.includes(choice.key)) throw new Error(FOLDER_NOT_IN_TREE);
   const map = await rowsWhere(db, "drive_folders", "event_id", event.id);
   if (!map.some((row) => row.key === choice.key) && !specFor(choice.key)) throw new Error(FOLDER_NOT_IN_TREE);
   const parentId = await ensureEventKey(db, drive, event, client, choice.key);

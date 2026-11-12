@@ -138,6 +138,9 @@ export type CreativesRow = {
 
 // ─── U4's words ──────────────────────────────────────────────────────────────
 
+/** 03 Creatives and its stage parents: never a place to drop a file (U2). The server refuses them too. */
+export const STAGE_PARENT_KEYS: readonly string[] = ["03", "03/1", "03/2", "03/3"];
+
 export const CHOOSE_OWNER = "choose who it's for";
 export const CHOOSE_TYPE = "choose Videos or Statics";
 export const OWNER_NEEDED = "Choose who it's for — the file goes in their folder for approval.";
@@ -442,7 +445,8 @@ export function anotherFolderChoice(
  * an older cycle is reached here, with the same two pickers).
  */
 export function otherFolderChoices(opts: { folderKeys?: readonly string[] | null; currentStageKey?: string | null } = {}): { key: string; label: string }[] {
-  const usual = new Set(["00", "01", "02", ARTIST_CLIPS_KEY, PRESS_KITS_KEY, "02/venue-crowd", "03", "04", "05", "06", WINNERS_KEY, EVENT_KEY]);
+  // U2: the bare stage parents (1 Signup, 2 Presale, 3 On sale) aren't choices; their children are.
+  const usual = new Set(["00", "01", "02", ARTIST_CLIPS_KEY, PRESS_KITS_KEY, "02/venue-crowd", "03", "04", "05", "06", WINNERS_KEY, EVENT_KEY, ...STAGE_PARENT_KEYS]);
   const byKey = new Map(EVENT_TREE.map((spec) => [spec.key, spec]));
   const labelOf = (key: string): string => {
     const names: string[] = [];

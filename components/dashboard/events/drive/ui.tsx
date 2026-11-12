@@ -345,6 +345,16 @@ export function WhichFolder(props: {
                   <>
                     {choice.creatives.stageLabel} /{" "}
                     <CreativesPickers choice={isSelected(choice) && selected?.creatives ? selected : choice} onChange={select} openList={props.openList} />
+                    {/* U4: the likely line stays in one piece. When it doesn't fit after the pickers it
+                        wraps whole onto the next line, starting at the row label's left edge. */}
+                    {(isSelected(choice) && selected?.creatives ? selected.likely : choice.likely) ? (
+                      <>
+                        {" "}
+                        <small className="inline-block whitespace-nowrap text-muted-foreground">{isSelected(choice) && selected?.creatives ? selected.likely : choice.likely}</small>
+                      </>
+                    ) : null}
+                    {/* "Makes … with this upload." under the row, from the same left edge. */}
+                    {isSelected(choice) && note ? <span className="block pb-1 text-[11.5px] text-muted-foreground">{note}</span> : null}
                   </>
                 ) : choice.label.includes(CHOOSE_ARTIST) ? (
                   <>
@@ -356,20 +366,23 @@ export function WhichFolder(props: {
                 ) : (
                   choice.label
                 )}
-                {(isSelected(choice) && selected?.creatives ? selected.likely : choice.likely) ? (
-                  <small className="ml-2 text-muted-foreground">{isSelected(choice) && selected?.creatives ? selected.likely : choice.likely}</small>
-                ) : null}
+                {!choice.creatives && choice.likely ? <small className="ml-2 text-muted-foreground">{choice.likely}</small> : null}
               </span>
             </label>
-            {choice.creatives && isSelected(choice) && note ? <p className="mb-1 ml-6 text-[11.5px] text-muted-foreground">{note}</p> : null}
           </div>
         ))}
         {selected?.creatives && !props.choices.some((choice) => choice.creatives && choice.creatives.stageKey === selected.creatives!.stageKey) ? (
           <div>
             <p className="py-0.5 text-sm">
               {selected.creatives.stageLabel} / <CreativesPickers choice={selected} onChange={select} openList={props.openList} />
+              {selected.likely ? (
+                <>
+                  {" "}
+                  <small className="inline-block whitespace-nowrap text-muted-foreground">{selected.likely}</small>
+                </>
+              ) : null}
+              {note ? <span className="block pb-1 text-[11.5px] text-muted-foreground">{note}</span> : null}
             </p>
-            {note ? <p className="mb-1 ml-6 text-[11.5px] text-muted-foreground">{note}</p> : null}
           </div>
         ) : null}
         <button type="button" className="underline" onClick={() => setAnother((open) => !open)}>

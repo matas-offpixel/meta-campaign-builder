@@ -142,6 +142,9 @@ describe("HU2 preselection (the record's acceptance cases)", () => {
     const reports = anotherFolderChoice({ key: "05", label: "05 Reports" }, { owners: OWNERS, artists: CTX.artists });
     assert.equal(reports.creatives, undefined);
     const others = otherFolderChoices({ folderKeys: ["03/3/wc/2026-11-09", "03/3/wc/2026-11-09/content", "03/3/wc/2026-11-23"], currentStageKey: "03/3/wc/2026-11-23" });
+    // U2: the bare 1 Signup, 2 Presale and 3 On sale aren't offered; their children are.
+    for (const parent of ["03", "03/1", "03/2", "03/3"]) assert.ok(!others.some((row) => row.key === parent), parent);
+    for (const child of ["03/1/teaser", "03/1/announcement", "03/2/presale-live", "03/2/reminders", "03/4"]) assert.ok(others.some((row) => row.key === child), child);
     assert.ok(others.some((row) => row.key === "03/3/wc/2026-11-09" && row.label === "03 Creatives / 3 On sale / w/c 9 Nov"));
     assert.ok(!others.some((row) => row.key === "03/3/wc/2026-11-23" || row.key.endsWith("/content")));
     assert.equal(anotherFolderChoice(others.find((row) => row.key === "03/3/wc/2026-11-09")!, { owners: OWNERS, artists: CTX.artists }).creatives?.folderName, "w/c 9 Nov");
@@ -291,6 +294,17 @@ describe("HU5 the safety net", () => {
     assert.equal(folders(drive), before);
     assert.ok(![...drive.files.values()].some((f) => f.name === "Content"));
   });
+
+  for (const key of ["03", "03/1", "03/2", "03/3"]) {
+    it(`the stage parent ${key} is refused with the panel's sentence and nothing is filed`, async () => {
+      const db = seed();
+      const drive = fakeDrive();
+      await setup(db, drive);
+      const files = drive.files.size;
+      await assert.rejects(upload(db, drive, key, "x.png"), { message: FOLDER_NOT_IN_TREE });
+      assert.equal(drive.files.size, files);
+    });
+  }
 
   it("a stage folder never takes the file itself; an owner not on this client is refused", async () => {
     const db = seed();
