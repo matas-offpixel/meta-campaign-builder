@@ -5,7 +5,7 @@ import { styleVersion } from "../../../src/remotion/caption-style/profile.ts";
 import type { ServiceRoleDb } from "../load.ts";
 import { emptyYield, generateLogLine } from "../generate-log.ts";
 import { normaliseCaption } from "../caption-facts.ts";
-import { generateCaptions, substitutePlaceholders, type AnthropicLike, type CaptionCandidate } from "../writer.ts";
+import { declaredNamesMissTheText, generateCaptions, namesInOverlay, substitutePlaceholders, type AnthropicLike, type CaptionCandidate } from "../writer.ts";
 import { fakeDb, type FakeDb } from "./fake-db.ts";
 
 const EVENT = "evt-day";
@@ -338,6 +338,48 @@ describe("generateCaptions", () => {
       anthropic: claude([{ overlay: "{artist} at {venue}", primaryText: "You in?", declaredNames: ["Luke Dean"] }], withArtist),
     });
     assert.match(String(withArtist[0].system), /\{artist\}/);
+  });
+
+  it("stores the lineup names the overlay says, and the artist when the write is for one", async () => {
+    const fake = eventDb();
+    const written = await generateCaptions(fake as unknown as ServiceRoleDb, {
+      eventId: EVENT,
+      artistId: "artist-1",
+      style: "lineup",
+      n: 1,
+      now: new Date("2026-11-06T12:00:00Z"),
+    }, {
+      anthropic: claude([{ overlay: "Luke Dean at Circuit", primaryText: "You in?", declaredNames: ["Reeshy"] }], []),
+    });
+    const row = fake.tables.creative_lab_captions.find((item) => item.id === written[0]!.id);
+    assert.deepEqual(row?.declared_names, ["Luke Dean"]);
+    assert.equal(row?.artist_id, "artist-1");
+    assert.deepEqual(written[0]!.declaredNames, ["Luke Dean"]);
+
+    const promoter = eventDb();
+    await generateCaptions(promoter as unknown as ServiceRoleDb, {
+      eventId: EVENT,
+      style: "lineup",
+      n: 1,
+      now: new Date("2026-11-06T12:00:00Z"),
+    }, {
+      anthropic: claude([{ overlay: "Luke Dean at Circuit", primaryText: "You in?", declaredNames: ["Reeshy"] }], []),
+    });
+    assert.equal(promoter.tables.creative_lab_captions.at(-1)?.artist_id, null);
+  });
+
+  it("the dry run lists the four captions that declare Reeshy and not the two already corrected", () => {
+    const rows = [
+      { id: "52066c6b", text: "POV: Enzo Siragusa is about to take over", declared_names: ["Reeshy"], status: "proposed" },
+      { id: "58407d51", text: "Enzo Siragusa set to bring this energy", declared_names: ["Reeshy"], status: "proposed" },
+      { id: "6feb6bd0", text: "POV: Enzo Siragusa is about to play", declared_names: ["Reeshy"], status: "proposed" },
+      { id: "1262c27f", text: "Luke Dean is taking over", declared_names: ["Reeshy"], status: "proposed" },
+      { id: "4f14645a", text: "Luke Dean set to bring this energy", declared_names: ["Luke Dean"], status: "approved" },
+      { id: "4d87a400", text: "POV: You're in the crowd and Enzo Siragusa drops this", declared_names: ["Enzo Siragusa"], status: "approved" },
+    ];
+    const listed = rows.filter((row) => declaredNamesMissTheText(row.declared_names, row.text)).map((row) => row.id);
+    assert.deepEqual(listed, ["52066c6b", "58407d51", "6feb6bd0", "1262c27f"]);
+    assert.deepEqual(namesInOverlay(["Enzo Siragusa", "Luke Dean", "Reeshy"], rows[3]!.text), ["Luke Dean"]);
   });
 });
 
