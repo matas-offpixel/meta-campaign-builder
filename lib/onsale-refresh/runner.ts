@@ -1,0 +1,268 @@
+/**
+ * The on-sale refresh run (P1: shadow proposals only).
+ *
+ * For every on-sale event with Meta campaigns: plan the day (R1), gather
+ * the campaign's facts (load.ts), build the proposal (rules.ts), store it
+ * with its lines and inputs, expire the previous proposal's unanswered
+ * lines, and post to ads_automation. Nothing here writes to Meta. A dry
+ * run computes everything and writes nothing, Slack included.
+ *
+ * Killswitch: ENABLE_ONSALE_REFRESH must be exactly "1" for the cron;
+ * the dry-run script passes it. Unset = the route answers 200 with
+ * skippedReason "killswitch".
+ */
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import type { NotifyOptions, NotifyResult } from "../notify/slack.ts";
+import { buildEventInputs, driveForRefresh, loadAux, loadInsights, loadOnSaleEvents, type EventInputs, type EventRow } from "./load.ts";
+import { ONSALE_PHASE, type PhaseConfig } from "./phase-config.ts";
+import { buildProposal, type CampaignInput, type Proposal } from "./rules.ts";
+import { addDaysIso, todayLondon } from "./schedule.ts";
+import { slackMessage } from "./slack.ts";
+
+type Db = Pick<SupabaseClient, "from">;
+
+export const ONSALE_REFRESH_ENV = "ENABLE_ONSALE_REFRESH";
+
+export function isOnsaleRefreshEnabled(env: Record<string, string | undefined>): boolean {
+  return env[ONSALE_REFRESH_ENV] === "1";
+}
+
+export type ProposalRecord = {
+  proposalId: string | null;
+  event: EventRow;
+  input: CampaignInput;
+  proposal: Proposal;
+  written: boolean;
+  slack: NotifyResult | { sent: false; reason: "dry_run" | "not_ready" };
+};
+
+export type RefreshResult =
+  | { ok: true; skippedReason: "killswitch" }
+  | {
+      ok: boolean;
+      dryRun: boolean;
+      day: string;
+      events: number;
+      proposals: ProposalRecord[];
+      skipped: { eventCode: string | null; reason: string }[];
+      driveCalls: number;
+      errors: string[];
+    };
+
+export type RunRefreshInput = {
+  env: Record<string, string | undefined>;
+  db: Db;
+  now?: Date;
+  /** Compute everything, write nothing. */
+  dryRun?: boolean;
+  /** A hand-started shadow run for this day (reads the data to the day before). */
+  shadowDay?: string;
+  /** Only these event codes. */
+  eventCodes?: readonly string[];
+  config?: PhaseConfig;
+  /** The operator who owns the rows. Tests pass one; the cron looks it up. */
+  userId?: string;
+  notify?: (opts: NotifyOptions) => Promise<NotifyResult>;
+  /** Tests: injected facts. */
+  loaders?: Partial<{
+    events: typeof loadOnSaleEvents;
+    insights: typeof loadInsights;
+    aux: typeof loadAux;
+    inputs: typeof buildEventInputs;
+  }>;
+  appUrl?: string;
+};
+
+export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshResult> {
+  const dryRun = input.dryRun === true;
+  if (!dryRun && !isOnsaleRefreshEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
+  const now = input.now ?? new Date();
+  const config = input.config ?? ONSALE_PHASE;
+  const day = input.shadowDay ?? todayLondon(now);
+  const shadow = Boolean(input.shadowDay);
+  const loaders = { events: loadOnSaleEvents, insights: loadInsights, aux: loadAux, inputs: buildEventInputs, ...input.loaders };
+  const errors: string[] = [];
+  const skipped: { eventCode: string | null; reason: string }[] = [];
+
+  let events = await loaders.events(input.db, day);
+  if (input.eventCodes?.length) {
+    const wanted = new Set(input.eventCodes.map((code) => code.trim().toLowerCase()));
+    events = events.filter((event) => wanted.has((event.event_code ?? "").toLowerCase()));
+  }
+  if (!events.length) return { ok: true, dryRun, day, events: 0, proposals: [], skipped, driveCalls: 0, errors };
+
+  const earliestSale = events.map((event) => event.general_sale_at?.slice(0, 10) ?? day).sort()[0]!;
+  const since = addDaysIso(earliestSale < addDaysIso(day, -56) ? addDaysIso(day, -56) : earliestSale, -14);
+  const [raw, aux] = await Promise.all([
+    loaders.insights(input.db, since),
+    loaders.aux(input.db, events.map((event) => event.id), [...new Set(events.map((event) => event.client_id).filter((id): id is string => Boolean(id)))]),
+  ]);
+  const { drive, reason: driveReason } = driveForRefresh(input.env);
+  if (driveReason) skipped.push({ eventCode: null, reason: `Drive: ${driveReason} — no add lines this run` });
+
+  const proposals: ProposalRecord[] = [];
+  let driveCalls = 0;
+  let userId = input.userId ?? null;
+  for (const event of events) {
+    let inputs: EventInputs;
+    try {
+      inputs = await loaders.inputs({ event, day, shadow, config, raw, aux, drive });
+    } catch (err) {
+      errors.push(`${event.event_code ?? event.id}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    driveCalls += inputs.driveCalls;
+    if (inputs.plan.showWeek) {
+      skipped.push({ eventCode: event.event_code, reason: "show week: the refresh stops, the show-week burst takes over" });
+      continue;
+    }
+    if (!inputs.campaigns.length) {
+      skipped.push({ eventCode: event.event_code, reason: "no Meta campaign spent in the window" });
+      continue;
+    }
+    for (const campaign of inputs.campaigns) {
+      if (!campaign.adSets.some((set) => set.delivering)) {
+        const lastDay = campaign.adSets.map((set) => set.lastDay).sort().at(-1);
+        skipped.push({ eventCode: event.event_code, reason: `${campaign.campaignKey}: stopped — no spend since ${lastDay ?? "the window"}` });
+        continue;
+      }
+      const proposal = buildProposal(campaign, config);
+      const record: ProposalRecord = { proposalId: null, event, input: campaign, proposal, written: false, slack: { sent: false, reason: "dry_run" } };
+      if (!dryRun) {
+        try {
+          userId ??= await loadOwner(input.db, event);
+          record.proposalId = await writeProposal(input.db, { userId, event, campaign, proposal });
+          record.written = true;
+          if (input.notify) {
+            record.slack = await input.notify(
+              slackMessage(
+                { proposalId: record.proposalId, eventName: event.name, eventCode: event.event_code, eventId: event.id, campaignKey: campaign.campaignKey, plan: campaign.plan, mode: "shadow", proposal },
+                input.appUrl ?? input.env.NEXT_PUBLIC_APP_URL ?? "https://app.offpixel.co.uk",
+              ),
+            );
+            if (record.slack.sent) await input.db.from("onsale_refresh_proposals").update({ slack_posted_at: now.toISOString() }).eq("id", record.proposalId);
+          } else {
+            record.slack = { sent: false, reason: "not_ready" };
+          }
+        } catch (err) {
+          errors.push(`${event.event_code ?? event.id} · ${campaign.campaignKey}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      proposals.push(record);
+    }
+  }
+  const result: RefreshResult = { ok: errors.length === 0, dryRun, day, events: events.length, proposals, skipped, driveCalls, errors };
+  console.log(
+    `[onsale-refresh] done ok=${result.ok} dry_run=${dryRun} day=${day} events=${events.length} proposals=${proposals.length} lines=${proposals.reduce((n, p) => n + p.proposal.lines.length, 0)} drive_calls=${driveCalls} errors=${errors.length}`,
+  );
+  return result;
+}
+
+/** The event's owner (events.user_id), the row owner the RLS policies read. */
+async function loadOwner(db: Db, event: EventRow): Promise<string> {
+  const { data, error } = await db.from("events").select("user_id").eq("id", event.id).maybeSingle();
+  if (error) throw new Error(`events owner: ${error.message}`);
+  const userId = (data as { user_id?: string | null } | null)?.user_id;
+  if (!userId) throw new Error(`event ${event.event_code ?? event.id} has no owner`);
+  return userId;
+}
+
+/** Insert the proposal and its lines; expire the previous proposal's unanswered lines for the campaign. */
+export async function writeProposal(db: Db, args: { userId: string; event: EventRow; campaign: CampaignInput; proposal: Proposal }): Promise<string> {
+  const { campaign, proposal } = args;
+  const inserted = await db
+    .from("onsale_refresh_proposals")
+    .upsert(
+      {
+        user_id: args.userId,
+        event_id: args.event.id,
+        campaign_key: campaign.campaignKey,
+        campaign_ids: campaign.campaignIds,
+        run_kind: campaign.plan.runKind,
+        run_day: campaign.plan.day,
+        cycle_monday: campaign.plan.cycleMonday,
+        cycle_kind: campaign.plan.cycleKind,
+        window_start: campaign.plan.window.start,
+        window_end: campaign.plan.window.end,
+        mode: "shadow",
+        objective: proposal.objective,
+        why: proposal.why,
+        blockers: proposal.blockers,
+        enough_data: proposal.enoughData,
+        not_enough_data: proposal.notEnoughData,
+        next_check: campaign.plan.nextCheck,
+        campaign_summary: proposal.campaignSummary,
+        inputs: inputsSnapshot(campaign),
+        watch: proposal.watch,
+        notes: proposal.notes,
+      },
+      { onConflict: "event_id,campaign_key,run_kind,window_end" },
+    )
+    .select("id")
+    .single();
+  if (inserted.error || !inserted.data) throw new Error(`onsale_refresh_proposals: ${inserted.error?.message ?? "no row"}`);
+  const proposalId = (inserted.data as { id: string }).id;
+  // Idempotent per campaign and window: replace this proposal's lines.
+  const cleared = await db.from("onsale_refresh_lines").delete().eq("proposal_id", proposalId);
+  if (cleared.error) throw new Error(`onsale_refresh_lines clear: ${cleared.error.message}`);
+  if (proposal.lines.length) {
+    const rows = proposal.lines.map((line, position) => ({
+      proposal_id: proposalId,
+      user_id: args.userId,
+      position: position + 1,
+      kind: line.kind,
+      rule_id: line.ruleId,
+      title: line.title,
+      detail: line.detail,
+      write_text: line.writeText,
+      target: line.target,
+      evidence: line.evidence,
+      write: line.write,
+      adds_spend: line.addsSpend,
+      blocked_reason: line.blockedReason,
+      supply: line.supply,
+      state: "to_review",
+    }));
+    const written = await db.from("onsale_refresh_lines").insert(rows);
+    if (written.error) throw new Error(`onsale_refresh_lines: ${written.error.message}`);
+  }
+  // R4: unanswered lines of earlier proposals for this campaign expire at the next refresh.
+  const earlier = await db.from("onsale_refresh_proposals").select("id").eq("event_id", args.event.id).eq("campaign_key", campaign.campaignKey).neq("id", proposalId);
+  if (earlier.error) throw new Error(`earlier proposals: ${earlier.error.message}`);
+  const ids = ((earlier.data ?? []) as { id: string }[]).map((row) => row.id);
+  if (ids.length) {
+    const expired = await db.from("onsale_refresh_lines").update({ state: "expired" }).in("proposal_id", ids).eq("state", "to_review");
+    if (expired.error) throw new Error(`expire lines: ${expired.error.message}`);
+  }
+  return proposalId;
+}
+
+/** The figures a line's evidence was read from, without the Drive listing. */
+export function inputsSnapshot(campaign: CampaignInput): Record<string, unknown> {
+  return {
+    campaignIds: campaign.campaignIds,
+    resultEvent: campaign.resultEvent,
+    window: campaign.plan.window,
+    week: { spend: campaign.weekSpend, results: campaign.weekResults },
+    sinceOnSale: { spend: campaign.totalSpend, results: campaign.totalResults, firstSpendDay: campaign.totalFirstDay, ic: campaign.sinceOnSale.ic, purchases: campaign.sinceOnSale.purchases, fromDay: campaign.sinceOnSale.fromDay },
+    last14: campaign.last14,
+    budgetGbp: campaign.budgetGbp,
+    spendToDateGbp: Math.round(campaign.spendToDateGbp * 100) / 100,
+    ticketingLinked: campaign.ticketingLinked,
+    adSets: campaign.adSets,
+    creatives: campaign.ads.map((ad) => ({ adId: ad.adId, adsetId: ad.adsetId, name: ad.name, weekSpend: ad.weekSpend, weekResults: ad.weekResults, totalSpend: ad.totalSpend, totalResults: ad.totalResults, convertScore: ad.convertScore, significant: ad.significant, firstDay: ad.firstDay })),
+    supply: campaign.supply.map((file) => ({ fileId: file.fileId, name: file.name, path: file.path, mix: file.mix, alreadyInCampaign: file.alreadyInCampaign })),
+    claims: campaign.claims.map((claim) => claim.id),
+  };
+}
+
+/** cron_runs rows_written for the route: proposals stored. */
+export function refreshRunLog(body: Record<string, unknown>): { rows: number; detail: Record<string, unknown> } {
+  const proposals = Array.isArray(body.proposals) ? (body.proposals as { written?: boolean; proposal?: { lines?: unknown[] } }[]) : [];
+  return {
+    rows: proposals.filter((row) => row.written).length,
+    detail: { events: body.events ?? 0, lines: proposals.reduce((n, row) => n + (row.proposal?.lines?.length ?? 0), 0), driveCalls: body.driveCalls ?? 0, errors: Array.isArray(body.errors) ? body.errors.length : 0 },
+  };
+}

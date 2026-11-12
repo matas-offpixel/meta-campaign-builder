@@ -199,6 +199,7 @@ ENABLE_AD_DAILY_INSIGHTS=
 ENABLE_AD_COPY_CAPTURE=
 ENABLE_LEARNING_REFRESH=
 ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
+ENABLE_ONSALE_REFRESH=
 REMOTION_AWS_ACCESS_KEY_ID=
 REMOTION_AWS_SECRET_ACCESS_KEY=
 REMOTION_AWS_REGION=
@@ -583,6 +584,36 @@ REMOTION_LAMBDA_SERVE_URL=
 > `--json FILE`). It prints the templates before and after. Matas runs
 > `--apply` after merge, with the Spotify credentials in `.env.local`.
 
+> **`ENABLE_ONSALE_REFRESH`** must be exactly `"1"` to activate
+> `/api/cron/onsale-refresh`, the on-sale refresh of
+> `docs/design-record/2026-11-12-on-sale-refresh.html` (P1: shadow proposals
+> only). Unset = 200 with `skippedReason: "killswitch"`. Mondays at 07:00
+> London: the cycle refresh on each payday cycle's Monday (the payday-week
+> Monday and the Monday a fortnight after it, `paydayCycleMondays` in
+> `lib/drive/tree.ts`) and the mid-cycle check on the Monday between, reading
+> the last full Monday–Sunday week; from show week's Monday the refresh
+> stops. `?shadow=YYYY-MM-DD` starts a shadow run by hand (data to the day
+> before); `?event=CODE` narrows it. One proposal per campaign (the
+> campaign's name on the event; a rebuilt campaign under the same name is
+> the same campaign) with R2's lines — add creative from the cycle's Drive
+> owner folders, claim ready, pause creative, bring back / missing default /
+> drop an audience, a within-campaign budget move — each with its evidence
+> snapshot and the write it would make, stored in `onsale_refresh_proposals`
+> + `onsale_refresh_lines` (migration 232, owner read RLS) and posted to
+> `ads_automation` through `notify()` (its own killswitch, channel switch
+> and business hours). Every threshold is in `lib/onsale-refresh/phase-config.ts`
+> (R8; the presale config is noted there, not switched on). Reads
+> `ad_daily_insights` (IC = `omni_initiated_checkout`, LPV = the column),
+> `creative_scores` (convert axis), `interest_clusters.live_evidence`,
+> `ticket_warnings`, `events.budget_marketing`, `client_ticketing_connections`
+> and one Drive listing per cycle type folder; never Meta. Archived clients
+> are excluded. Nothing is applied: Accept / Reject / Apply are P2. The panel
+> is `components/dashboard/events/onsale-refresh-panel.tsx` (read-only,
+> fetched through `GET /api/events/[id]/onsale-refresh`); the frames are
+> `app/(dev)/frames/onsale/[id]` until the shared frames registry takes the
+> OR series. Dry run on prod, reads only: `scripts/onsale-refresh.mts --event
+> CODE --shadow YYYY-MM-DD`; `--apply` stores the shadow proposals.
+
 > **`ENABLE_GOOGLE_ADS_DAILY_INSIGHTS`** must be exactly `"1"` to activate
 > `/api/cron/google-ads-daily-insights` (04:00 UTC). Unset = 200 with
 > `skippedReason: "killswitch"`. Read-only against Google Ads (GAQL search,
@@ -779,6 +810,10 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
 - `/api/cron/google-ads-daily-insights` (04:00 UTC) — Google Ads campaign,
   search-term and location facts per day (see
   `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
+- `/api/cron/onsale-refresh` (Mondays 07:00 London) — the on-sale refresh,
+  P1 shadow proposals (see `ENABLE_ONSALE_REFRESH` above). Zero Meta calls;
+  the one call out is the cycle folder's Drive listing. Registration in
+  `vercel.json` is a separate one-line change.
 
 ### Canonical spec
 
