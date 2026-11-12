@@ -99,7 +99,7 @@ function withoutClaims(real: ServiceRoleDb): ServiceRoleDb {
           return Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected);
         },
       };
-      return empty as ReturnType<ServiceRoleDb["from"]>;
+      return empty as unknown as ReturnType<ServiceRoleDb["from"]>;
     },
   };
 }
