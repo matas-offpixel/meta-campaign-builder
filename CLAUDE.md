@@ -609,7 +609,8 @@ REMOTION_LAMBDA_SERVE_URL=
 > and one Drive listing per cycle type folder; never Meta. Archived clients
 > are excluded. Nothing is applied: Accept / Reject / Apply are P2. The panel
 > is `components/dashboard/events/onsale-refresh-panel.tsx` (read-only,
-> fetched through `GET /api/events/[id]/onsale-refresh`); the frames are
+> fetched through `GET /api/events/[id]/onsale-refresh`, mounted on the
+> event page's overview tab under the Creative Lab card); the frames are
 > `app/(dev)/frames/onsale/[id]` until the shared frames registry takes the
 > OR series. Dry run on prod, reads only: `scripts/onsale-refresh.mts --event
 > CODE --shadow YYYY-MM-DD`; `--apply` stores the shadow proposals.
@@ -812,8 +813,9 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
 - `/api/cron/onsale-refresh` (Mondays 07:00 London) — the on-sale refresh,
   P1 shadow proposals (see `ENABLE_ONSALE_REFRESH` above). Zero Meta calls;
-  the one call out is the cycle folder's Drive listing. Registration in
-  `vercel.json` is a separate one-line change.
+  the one call out is the cycle folder's Drive listing. "0 7 * * 1" in
+  `vercel.json`: 07:00 London in winter, 08:00 in summer, both before
+  Matas's Monday planning.
 
 ### Canonical spec
 

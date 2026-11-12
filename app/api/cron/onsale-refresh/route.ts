@@ -24,8 +24,8 @@ import { isOnsaleRefreshEnabled, refreshRunLog, runOnsaleRefresh } from "@/lib/o
  *
  * Auth: bearer header `Authorization: Bearer <CRON_SECRET>`.
  *
- * Registration in vercel.json ("0 7 * * 1" — 07:00 London is 07:00 UTC in
- * winter; summer runs at 08:00 London) is a separate one-line change.
+ * vercel.json: "0 7 * * 1" — 07:00 London in winter, 08:00 in summer,
+ * both ready for Matas's Monday planning.
  */
 
 export const maxDuration = 300;

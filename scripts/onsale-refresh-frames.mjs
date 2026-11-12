@@ -26,7 +26,7 @@ const browser = await chromium.launch();
 try {
   for (const shot of REFRESH_SHOTS) {
     const page = await browser.newPage({ viewport: { width: shot.width, height: 900 }, deviceScaleFactor: 1 });
-    await page.goto(`${base}${shot.path}`, { waitUntil: "networkidle" });
+    await page.goto(`${base}/frames/${shot.frame}`, { waitUntil: "networkidle" });
     await page.waitForSelector(`[data-frame-ready="${shot.frame}"]`);
     const file = path.join(out, `${shot.id}.png`);
     await page.screenshot({ path: file, fullPage: true });

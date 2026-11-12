@@ -106,6 +106,10 @@
       "schedule": "30 3 * * *"
     },
     {
+      "path": "/api/cron/onsale-refresh",
+      "schedule": "0 7 * * 1"
+    },
+    {
       "path": "/api/cron/creative-lab-clip-sync",
       "schedule": "45 3 * * *"
     },

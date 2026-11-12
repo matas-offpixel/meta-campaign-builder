@@ -24,6 +24,7 @@ import { EventVenuePanel } from "@/components/dashboard/events/event-venue-panel
 import { LiveReleases } from "@/components/dashboard/asset-bank/live";
 import { OffersSheet } from "@/components/dashboard/asset-bank/surface";
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
+import { OnSaleRefreshPanel } from "@/components/dashboard/events/onsale-refresh-panel";
 import { InsightsPageContext } from "@/components/insights-rail/rail-context";
 import { railLabFromCard } from "@/lib/insights-rail/lab-summary";
 import { stageForEventStatus } from "@/lib/insights-rail/model";
@@ -370,6 +371,7 @@ export function EventDetail({
               ) : null}
               {bank && event.status !== "cancelled" ? <OffersSheet eventId={bank.eventId} /> : null}
               {lab ? <CreativeLabCard lab={lab} quoteMode presentation="owner" driveFolderId={event.drive_folder_id} /> : null}
+              <OnSaleRefreshPanel eventId={event.id} />
               {!isBrand && event.client_id ? (
                 <p className="text-sm">
                   <Link className="underline" href={`/clients/${event.client_id}?tab=ticketing`}>Ticketing</Link>

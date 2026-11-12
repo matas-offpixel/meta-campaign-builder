@@ -37,6 +37,17 @@ function nextLine(proposal: PanelProposal, wide: boolean): string {
   return parts.length ? ` · next: ${parts.join(" · ")}` : "";
 }
 
+/** The wide and the narrow wording of one line; the viewport picks (sm: 640px). */
+function Wide({ wide, narrow }: { wide: string; narrow: string }) {
+  if (wide === narrow) return <>{wide}</>;
+  return (
+    <>
+      <span className="hidden sm:inline">{wide}</span>
+      <span className="sm:hidden">{narrow}</span>
+    </>
+  );
+}
+
 function LineRow({ line, shadow }: { line: PanelLine; shadow: boolean }) {
   const disabled = shadow || line.state !== "to_review";
   return (
@@ -76,7 +87,7 @@ function LineRow({ line, shadow }: { line: PanelLine; shadow: boolean }) {
   );
 }
 
-function Watch({ label, items, note, wide }: { label: string; items: { title: string; detail: string }[]; note: string; wide: boolean }) {
+function Watch({ label, items, note }: { label: string; items: { title: string; detail: string }[]; note: string }) {
   if (!note && !items.length) return null;
   return (
     <p className="text-xs text-muted-foreground">
@@ -87,7 +98,7 @@ function Watch({ label, items, note, wide }: { label: string; items: { title: st
             <span key={item.title}>
               {index ? "; " : ""}
               {item.title}
-              {wide ? ` · ${item.detail}` : ` · ${item.detail.split(" · ").slice(0, 2).join(" · ")}`}
+              <Wide wide={` · ${item.detail}`} narrow={` · ${item.detail.split(" · ").slice(0, 2).join(" · ")}`} />
             </span>
           ))}
           .
@@ -100,12 +111,10 @@ function Watch({ label, items, note, wide }: { label: string; items: { title: st
 export type OnSaleRefreshPanelViewProps = {
   eventId: string;
   proposals: PanelProposal[];
-  /** The frames pass a width; the live panel uses CSS. */
-  wide?: boolean;
 };
 
-/** The panel from data. Nothing here fetches. */
-export function OnSaleRefreshPanelView({ eventId, proposals, wide = true }: OnSaleRefreshPanelViewProps) {
+/** The panel from data; the viewport decides the wide or the narrow wording. Nothing here fetches. */
+export function OnSaleRefreshPanelView({ eventId, proposals }: OnSaleRefreshPanelViewProps) {
   if (!proposals.length) {
     return (
       <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4">
@@ -124,7 +133,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals, wide = true }: OnSa
           <p className="text-sm font-medium">On-sale refresh · {weekLabel(head.cycleMonday)}</p>
           <p className="text-xs text-muted-foreground">
             Data to {shortDay(head.windowEnd)}
-            {nextLine(head, wide)}
+            <Wide wide={nextLine(head, true)} narrow={nextLine(head, false)} />
           </p>
         </div>
         <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs">{shadow ? "Shadow" : "Live"}</span>
@@ -136,7 +145,9 @@ export function OnSaleRefreshPanelView({ eventId, proposals, wide = true }: OnSa
           <ul className="mt-1 space-y-1">
             {head.blockers.map((blocker) => (
               <li key={blocker.kind} className="flex flex-col gap-1 text-xs sm:flex-row sm:items-baseline sm:justify-between">
-                <span>{wide ? blocker.text : blocker.text.replace("This event has no marketing budget, so nothing", "No marketing budget: nothing").replace("the listing's sales can't be checked against the pixel.", "sales can't be checked against the pixel.")}</span>
+                <span>
+                  <Wide wide={blocker.text} narrow={blocker.text.replace("This event has no marketing budget, so nothing", "No marketing budget: nothing")} />
+                </span>
                 {blocker.kind === "budget" ? (
                   <Link href={`/events/${eventId}/edit`} className="shrink-0 underline underline-offset-2">
                     {blocker.action}
@@ -155,7 +166,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals, wide = true }: OnSa
         <p className="text-xs">{head.why.objective}</p>
         <p className="text-xs text-muted-foreground">
           {head.why.purchase}
-          {wide ? ` ${head.why.moves}` : ""}
+          <span className="hidden sm:inline"> {head.why.moves}</span>
         </p>
       </div>
 
@@ -166,7 +177,11 @@ export function OnSaleRefreshPanelView({ eventId, proposals, wide = true }: OnSa
           <div key={proposal.id} className="mb-3 border-t border-border pt-3">
             <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between">
               <p className="text-sm font-medium">{proposal.campaignKey}</p>
-              {proposal.campaignSummary ? <p className="text-xs text-muted-foreground">{wide ? proposal.campaignSummary : proposal.campaignSummary.split(" · ").slice(1).join(" · ")}</p> : null}
+              {proposal.campaignSummary ? (
+                <p className="text-xs text-muted-foreground">
+                  <Wide wide={proposal.campaignSummary} narrow={proposal.campaignSummary.split(" · ").slice(1).join(" · ")} />
+                </p>
+              ) : null}
             </div>
             {proposal.notEnoughData ? <p className="mt-1 text-xs text-destructive">{proposal.notEnoughData}</p> : null}
 
@@ -179,7 +194,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals, wide = true }: OnSa
               </ul>
             ) : null}
             <div className="mt-2">
-              <Watch label="Watch" items={proposal.watch.creatives} note={proposal.notes.pauses} wide={wide} />
+              <Watch label="Watch" items={proposal.watch.creatives} note={proposal.notes.pauses} />
             </div>
 
             <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Audiences</p>
@@ -191,14 +206,16 @@ export function OnSaleRefreshPanelView({ eventId, proposals, wide = true }: OnSa
               </ul>
             ) : null}
             <div className="mt-2">
-              <Watch label="Watch" items={proposal.watch.audiences} note={proposal.notes.drops} wide={wide} />
+              <Watch label="Watch" items={proposal.watch.audiences} note={proposal.notes.drops} />
             </div>
           </div>
         );
       })}
 
       <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-muted-foreground">{shadow ? (wide ? "Shadow: nothing here can be applied yet. Each line is checked against next week's data." : "Shadow: nothing applies yet.") : `Outcomes are checked after the next full week.`}</p>
+        <p className="text-xs text-muted-foreground">
+          {shadow ? <Wide wide="Shadow: nothing here can be applied yet. Each line is checked against next week's data." narrow="Shadow: nothing applies yet." /> : "Outcomes are checked after the next full week."}
+        </p>
         <Button type="button" size="sm" disabled={shadow || accepted === 0}>
           Apply accepted ({accepted})
         </Button>
