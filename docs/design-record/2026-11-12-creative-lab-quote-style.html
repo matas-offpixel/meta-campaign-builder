@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quote style — 12 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.muted{color:var(--ink-3)}.mono{font-family:var(--mono)}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative;max-width:100%}
+.panel{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn.dis{opacity:.45}
+.ehead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin:0}
+.ehead h4{margin:0;font:700 18px/1.15 var(--sans)}
+.ehead .meta{font-size:12px;color:var(--ink-2);margin-top:3px}
+.ehead .links{display:flex;gap:14px;align-items:center;font-size:12.5px;white-space:nowrap}
+.ehead .links a{color:var(--ink);text-decoration:underline;text-underline-offset:3px;font-weight:600}
+.dim{position:absolute;inset:0;background:rgba(30,24,16,.28)}
+.dlg{position:relative;background:var(--edit);border-radius:12px;box-shadow:0 12px 32px rgba(30,24,16,.2);padding:16px 18px;font-size:12.5px}
+.dlg h4{margin:0 0 2px;font:600 15px var(--sans)}
+.opt{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;font-size:12px}
+.opt i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--ink-3);flex:none}
+.opt.on{background:var(--card)}.opt.on i{border:4px solid var(--ink)}
+.opt small{color:var(--ink-3);margin-left:auto;font-size:11px;white-space:nowrap}
+.field{height:30px;border:1px solid var(--border-strong);border-radius:6px;background:#fff8f0;display:flex;align-items:center;padding:0 9px;font:11px var(--mono);color:var(--ink-2);overflow:hidden;white-space:nowrap}
+.pick{display:inline-block;border:1px solid var(--border-strong);border-radius:5px;background:#fff8f0;padding:1px 6px;margin:0 1px}
+.sub{font-size:11.5px;color:var(--ink-3);padding:0 8px 4px 31px}
+.frame>figure{max-width:100%;min-width:0}
+.cap{position:absolute;left:0;right:0;text-align:center;color:#fff;font-family:"TikTok Sans",system-ui,sans-serif;font-weight:500;letter-spacing:.01em;text-shadow:-.06em 0 0 #000,.06em 0 0 #000,0 -.06em 0 #000,0 .06em 0 #000,-.045em -.045em 0 #000,.045em .045em 0 #000,-.045em .045em 0 #000,.045em -.045em 0 #000;white-space:nowrap}
+.cap.q{text-shadow:none;font-weight:700}
+.cap.ghost{color:transparent;text-shadow:none}
+.ghostbox{position:absolute;border:1px dashed rgba(255,255,255,.75)}
+.fbox{position:absolute;border:1.5px solid #ffd23f;border-radius:2px}
+.fbox i{position:absolute;inset:8% 12%;border-radius:50%;background:rgba(255,214,170,.55)}
+.fbox b{position:absolute;left:0;right:0;top:60%;border-top:1px dotted #ffd23f}
+.lim{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.55)}
+.st{font:700 9px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;margin:8px 0 2px}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}
+.ladder{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;background:var(--card);border-radius:10px;padding:14px 16px}
+.ladder div{text-align:center;font:11px/1.4 var(--mono);color:var(--ink-2)}
+.ladder .w{display:block;background:#9a9086;border-radius:4px;padding:8px 10px;color:#fff;font-family:system-ui,sans-serif;font-weight:500;text-shadow:-1px 0 #000,1px 0 #000,0 -1px #000,0 1px #000;margin-bottom:6px}
+.row{background:var(--edit);border-radius:8px;padding:10px 12px;font-size:12.5px;max-width:520px;margin:0 0 8px}
+.row .n{font-weight:600}.row .s{font:11px/1.4 var(--mono);color:var(--ink-3);margin-top:3px}
+.row .s.r{color:var(--brick)}
+.order{position:relative;width:300px;height:480px;background:var(--card);border-radius:8px;font:10px/1 var(--mono);color:var(--ink-2)}
+</style>
+
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · Creative Lab · quote mode · 12 November 2026</p>
+<h1>A quote looks like a caption</h1>
+<div class="lead"><p>Matas, 12 Nov, on the Luke quote finals: "we've strayed from the UGC caption approved font (TikTok Sans in white with black outline)."</p>
+<p>His standing rule of 6 Nov is that every UGC overlay uses the refined TikTok Sans style with the black outline. Two records drifted from it:</p>
+<ul>
+<li>quote mode's Q2 (<code>2026-11-08-creative-lab-quote-mode.html</code>: no stroke, weight 700 or 400, cap 0.0135 H, centred on 0.28 H);</li>
+<li>C5 of <code>2026-11-12-creative-lab-caption-placement.html</code>, which built a quote-only search on top of Q2.</li>
+</ul>
+<p>This record re-rules both. A quote is whose words they are, not a look. Ops has already re-rendered P26-BDAY's 7 quote finals this way, at Matas's direction. The Lab's build of C1–C7 takes this record with it.</p></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+
+<tr><td>Q10 One look</td><td>A quote renders in the locked caption style (rule 13, <code>v1.json</code>): TikTok Sans at <code>wdth</code> 120 / <code>wght</code> 400, white fill, the black outside stroke at 0.054054 em, line height 1.054, centred on 0.493 W inside O99's box. Its sizes are the caption's:
+<ul>
+<li>the standard size, 18 characters a line, 4 lines;</li>
+<li>the long size where the text needs it (0.75, 24 a line, 5 lines, 73–96 characters), chosen by the validator's existing rule.</li>
+</ul>
+<b>Q2's look is retired:</b> no-stroke type, the 700 / 400 weight choice, cap 0.0135 H, pitch 0.030 H and the 0.28 H centre are no longer drawn. CLQ3's side-by-side is superseded.</td></tr>
+
+<tr><td>Q11 Placement and size</td><td>Caption placement C1–C3 applies to quotes as it does to captions:
+<ul>
+<li>the search starts at the caption's own spot (0.355469 H, y 682.5);</li>
+<li>C2's size steps apply, from 1.0 or from the long size, down to the 0.65 floor;</li>
+<li>C3 refuses only after every place × size fails. The quote keeps C3's own sentence, <i>No place on this clip keeps the quote off the face — choose another clip or in-point.</i></li>
+</ul>
+<b>Withdrawn from C5:</b> the quote's 0.28 H start, "no size steps", and contrast as part of the pass. A quote's contrast is now measured and stored and never refused, as C4 rules for captions; the outline is what makes it read. C5's line on T1 and T2 still stands: a quote never sits on a T1 or T2 render, just as a caption doesn't.</td></tr>
+
+<tr><td>Q12 Lines</td><td>A caption's lines are the writer's phrases. A quote has no writer, so its lines are made once:
+<ul>
+<li>it is wrapped at word boundaries to the measure of its starting size, 18 or 24 characters a line;</li>
+<li>a word is never split;</li>
+<li>C2's steps then keep those lines, as they do for a caption.</li>
+</ul>
+The words stay verbatim (Q1). The only edit is still dropping whole sentences from the start or end.</td></tr>
+
+<tr><td>Q13 Too long</td><td>A quote over the long size's limit (more than 96 characters, or more than 5 lines of 24) isn't drawn smaller to fit. The Lab says <i>This quote is too long — drop a sentence from the start or end.</i> and offers Q1's sentence drop.
+<ul>
+<li>Luke's quote is 98 characters: <i>Back in Southampton for this one… Closing out the year with Puzzle on 27th December. See you there</i>.</li>
+<li>Dropping <i>See you there</i> makes it 84 characters, 4 lines of 24 (CLQ5b).</li>
+<li>Check the re-rendered Luke finals against this (HQ9). If one carries all 98 characters, it's outside the long size's limit.</li>
+</ul></td></tr>
+
+<tr><td>Q14 What "quote" still means</td><td>Quote mode stays a mode for whose words they are:
+<ul>
+<li>the artist's approved words, with <code>kind = quote</code> and its <code>source_kind</code> / <code>source_ref</code> (Q1);</li>
+<li>artist-voice and gated by the artist's clearance (Q4);</li>
+<li>paired only with its artist's clips on its cleared channels (W6);</li>
+<li>no quote marks and no name on the clip (Q2's content rules stay);</li>
+<li>emoji inline as the caption shows them.</li>
+</ul>
+The writer's mode switch (CLQ1) and the quote feed-post's chips (CLQ2) are unchanged. <code>quote_weight</code> is no longer read by the renderer.</td></tr>
+
+<tr><td>Q15 Renders already made</td><td>
+<ul>
+<li>P26-BDAY's 7 quote finals are already re-rendered in the caption style (ops, 12 Nov).</li>
+<li>Any other quote render still in Q2's look isn't offered to launch or Drive. It shows <i>Old quote style — render again</i> and re-renders under Q10–Q13 on request.</li>
+<li>Nothing is deleted.</li>
+</ul></td></tr>
+</table>
+
+<h2>CLQ5 · The same quote, the old look and the caption style (schematic, 9:16 at ¼)</h2>
+<p class="lead">The dashed rectangle is O96's band, as in CLP1–CLP5.</p>
+<div class="frame">
+<figure><figcaption>Retired · Q2's look (no stroke, bold, 0.28 H)</figcaption><div class="sch m916"><div class="safe" style="left:30px;top:71.25px;width:210px;height:240.75px"></div><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div class="cap q" style="top:120.00px;font-size:9.28px;line-height:14.40px">Back in Southampton on 27th December to</div><div class="cap q" style="top:134.40px;font-size:9.28px;line-height:14.40px">close out the year w/ Puzzle.</div><div class="lbl" style="left:4px;bottom:5px">retired · Q2 · no stroke · 0.28 H</div></div><p class="st no">Not drawn again</p></figure>
+<figure><figcaption>CLQ5a · Enzo's quote in the caption style</figcaption><div class="sch m916"><div class="safe" style="left:30px;top:71.25px;width:210px;height:240.75px"></div><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div class="cap" style="top:154.17px;font-size:10.41px;line-height:10.97px;margin-left:-4px">Back in Southampton on</div><div class="cap" style="top:165.14px;font-size:10.41px;line-height:10.97px;margin-left:-4px">27th December to close</div><div class="cap" style="top:176.11px;font-size:10.41px;line-height:10.97px;margin-left:-4px">out the year w/ Puzzle.</div><div class="lbl" style="left:4px;bottom:5px">caption style · long · 75 % · 0.355 H</div></div><p class="st ok">69 characters · 5 lines at 18 → long, 3 lines of 24</p></figure>
+<figure><figcaption>CLQ5b · Luke's quote, 98 characters → too long</figcaption><div class="sch m916"><div class="safe" style="left:30px;top:71.25px;width:210px;height:240.75px"></div><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div class="cap" style="top:148.69px;font-size:10.41px;line-height:10.97px;margin-left:-4px">Back in Southampton for</div><div class="cap" style="top:159.66px;font-size:10.41px;line-height:10.97px;margin-left:-4px">this one… Closing out</div><div class="cap" style="top:170.62px;font-size:10.41px;line-height:10.97px;margin-left:-4px">the year with Puzzle on</div><div class="cap" style="top:181.59px;font-size:10.41px;line-height:10.97px;margin-left:-4px">27th December.</div><div class="lbl" style="left:4px;bottom:5px">84 characters, last sentence dropped (Q1)</div></div><p class="st ok">Drop "See you there" (Q1) → 84 characters, 4 lines of 24</p></figure>
+</div>
+<p class="lead">On a phone, the outline is the difference. Q2's white with no stroke disappears over a bright crowd, as the Enzo 1 and 4 quote finals of 12 Nov showed at 4 s. The caption style reads on any ground, which is why C4 never refuses a caption on contrast.</p>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HQ7 One renderer</td><td>Q10: quotes render through the caption style path. The Q2 branch (no stroke, weights, 0.28 H) is removed from the render path. <code>style_version</code> is the caption's.</td><td><code>v1.json</code> unchanged</td><td>a quote render's ink matches a caption render of the same lines pixel for pixel</td></tr>
+<tr><td>HQ8 Placement</td><td>Q11: C1–C3 for quotes, from 682.5, with C2's steps. There is no quote contrast gate. Contrast is stored. C3's quote sentence stays.</td><td>—</td><td>the C1–C7 build's fixtures run once for a caption and once for a quote, with the same result</td></tr>
+<tr><td>HQ9 Lines and too long</td><td>Q12: word-boundary wrap at 18 or 24, once, kept through the steps. Q13: over 96 characters or 5 lines of 24 is refused with Q13's sentence, and Q1's drop is offered.</td><td>the quote row</td><td>Enzo's quote (69 characters) → long, 3 lines; Luke's (98) → refused until <i>See you there</i> is dropped, then 4 lines. The 7 re-rendered P26-BDAY finals are checked against this</td></tr>
+<tr><td>HQ10 Old renders</td><td>Q15: a render in Q2's look is flagged <i>Old quote style — render again</i> and isn't offered to launch or Drive.</td><td>the render row's style version</td><td>no Q2-look render is offered anywhere</td></tr>
+</table>
+
+<h2>Supersedes</h2>
+<ul class="notes">
+<li>Q2's look (quote-mode record), and CLQ3 as a comparison.</li>
+<li>C5's quote-only rules (caption-placement record): the 0.28 H start, no size steps, the contrast gate, HP5.</li>
+<li>Q3's wrap width of 70 % W and four-line maximum, replaced by Q12.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Q12's word-boundary wrap at the starting size's measure.</li>
+<li>Q13's sentence and its sentence-drop offer.</li>
+<li>Q15's <i>Old quote style — render again</i>, and old-look renders not offered.</li>
+<li>Everything else is Matas's re-rule, as relayed.</li>
+</ul>
+
+</div></body>
+</html>
