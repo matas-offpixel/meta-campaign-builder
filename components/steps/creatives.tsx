@@ -76,6 +76,9 @@ import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { META_DRAWER_COPY } from "@/lib/plan/drawer";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
+import { PICKER_WORDS } from "@/lib/drive/picker-model";
+import { DrivePicker } from "@/components/steps/drive-picker";
+import { useDrivePicker } from "@/components/steps/use-drive-picker";
 
 const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
@@ -117,6 +120,11 @@ const RATIO_LABELS: Record<AssetRatio, { label: string; desc: string }> = {
 };
 
 type BulkField = "headline" | "description" | "destinationUrl" | "cta";
+
+/** G5: an ad made from Drive (its slot carries the Drive file id). */
+function fromDrive(c: AdCreativeDraft): boolean {
+  return (c.assetVariations ?? []).some((v) => v.assets.some((a) => Boolean(a.driveFileId)));
+}
 
 // ─── Inline loading/error helpers ────────────────────────────────────────────
 
@@ -196,6 +204,17 @@ function CreativesBody({
   // Keep a fresh reference for async upload callbacks that run after state updates
   const creativesRef = useRef(creatives);
   useEffect(() => { creativesRef.current = creatives; }, [creatives]);
+  // From Drive (G1–G7): the session and the copy live here, so closing the picker never stops a batch.
+  const drivePicker = useDrivePicker({
+    creatives,
+    creativesRef,
+    onChange,
+    objective: settings?.objective,
+    eventId: linkedEventId,
+    ticketUrl: linkedEvent?.ticket_url,
+    adAccountId,
+    onAdded: setActiveId,
+  });
 
   // ── Real Meta identity data ────────────────────────────────────────────────
   // Pass adAccountId so the BM-aware /pages?adAccountId= endpoint is used,
@@ -741,9 +760,35 @@ function CreativesBody({
           <button type="button" onClick={() => fileInputRef.current?.click()} className="font-medium text-primary hover:underline">
             browse
           </button>
+          <span className="text-muted-foreground"> · </span>
+          <button type="button" onClick={drivePicker.openPicker} className="font-medium text-primary hover:underline">
+            {PICKER_WORDS.entry}
+          </button>
         </div>
         <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" className="hidden" onChange={handleFileInput} />
       </div>
+
+      {drivePicker.fields ? (
+        <DrivePicker
+          open={drivePicker.open}
+          onClose={drivePicker.close}
+          eventId={linkedEventId}
+          eventCode={linkedEvent?.event_code || linkedEvent?.name || ""}
+          fields={drivePicker.fields}
+          onFieldsChange={drivePicker.onFieldsChange}
+          onClearFields={drivePicker.onClearFields}
+          onOwnerChange={drivePicker.onOwnerChange}
+          ctaOptions={CTA_OPTIONS}
+          pages={pages.data.map((p) => ({ id: p.id, name: p.name }))}
+          instagramFor={(pageId) => igAccounts.data.filter((ig) => ig.linkedPageId === pageId).map((ig) => ({ id: ig.id, username: ig.username ?? "" }))}
+          existingNames={drivePicker.existingNames}
+          existingDriveIds={drivePicker.existingDriveIds}
+          onPrepare={drivePicker.onPrepare}
+          batch={drivePicker.rows}
+          onRetryFailed={drivePicker.onRetryFailed}
+          onDismissBatch={drivePicker.onDismissBatch}
+        />
+      ) : null}
 
       {creatives.length === 0 ? (
         <Card className="py-10 text-center">
@@ -781,7 +826,11 @@ function CreativesBody({
                       {importedHeadlineNote(c, copyNotes) ? (
                         <span className="block text-[11px] text-muted-foreground">{importedHeadlineNote(c, copyNotes)}</span>
                       ) : null}
-                      {page && <span className="block truncate text-[11px] text-muted-foreground">{page.name}</span>}
+                      {(page || fromDrive(c)) && (
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {[page?.name, fromDrive(c) ? (c.mediaType ?? "image") : null, fromDrive(c) ? PICKER_WORDS.fromDrive : null].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                       <div className="mt-0.5 flex gap-1">
                         <Badge variant={(c.sourceType ?? "new") === "existing_post" ? "warning" : "outline"} className="text-[8px] px-1 py-0">
                           {(c.sourceType ?? "new") === "existing_post" ? "post" : "new"}
@@ -2659,6 +2708,8 @@ function AssetSlot({
           )}
         </div>
       )}
+
+      {asset.sourceLabel ? <Datum className="mt-1 truncate text-[10px] text-muted-foreground">{asset.sourceLabel}</Datum> : null}
 
       {/* ── Media viewer modal ── */}
       <MediaViewerModal

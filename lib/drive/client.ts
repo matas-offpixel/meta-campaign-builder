@@ -37,6 +37,15 @@ export type DriveFile = {
   size?: number | null;
 };
 
+/** A media file with Drive's own measurements (files.list thumbnailLink, video/imageMediaMetadata). */
+export type DriveMediaFile = DriveFile & {
+  thumbnailLink: string | null;
+  width: number | null;
+  height: number | null;
+  rotation: number | null;
+  durationMs: number | null;
+};
+
 /** One entry of the Shared Drive's changes feed (changes.list). */
 export type DriveChange = { fileId: string; removed: boolean; file: DriveFile | null };
 
@@ -64,7 +73,13 @@ export interface DriveApi {
    * never holding the whole file in memory (a 4K original is 400–450 MB).
    * Optional: without it the pickup reads the file with download().
    */
-  downloadTo?(fileId: string, filePath: string): Promise<ContentIdentity>;
+  downloadTo?(fileId: string, filePath: string, opts?: { onBytes?: (written: number) => void }): Promise<ContentIdentity>;
+  /** A folder's media children (not trashed), with Drive's measurements. Optional: the launcher's From Drive picker. */
+  listMedia?(parentId: string): Promise<DriveMediaFile[]>;
+  /** One file with Drive's measurements, or null when it is gone. */
+  getMediaFile?(fileId: string): Promise<DriveMediaFile | null>;
+  /** A file's thumbnailLink, fetched as the export account (the link needs it). */
+  fetchThumbnail?(thumbnailLink: string): Promise<Response>;
   /**
    * The file's bytes as a streaming Response: the whole file, or one HTTP
    * Range ("bytes=0-99" → 206). The credentials stay inside this call; the
@@ -152,6 +167,38 @@ function tokenSource(sa: ServiceAccount, fetchImpl: typeof fetch): () => Promise
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3";
 const FILE_FIELDS = "id,name,mimeType,parents,appProperties,shortcutDetails(targetId),trashed,size";
+const MEDIA_FIELDS = `${FILE_FIELDS},thumbnailLink,videoMediaMetadata(width,height,durationMillis),imageMediaMetadata(width,height,rotation)`;
+
+/** Thumbnail links are Google-hosted; anything else is refused (no fetching arbitrary URLs as the account). */
+export function isDriveThumbnailLink(link: string): boolean {
+  try {
+    const url = new URL(link);
+    return url.protocol === "https:" && (/\.googleusercontent\.com$/.test(url.hostname) || url.hostname === "drive.google.com" || url.hostname === "www.googleapis.com");
+  } catch {
+    return false;
+  }
+}
+
+function num(value: unknown): number | null {
+  const n = Number(value);
+  return value == null || !Number.isFinite(n) ? null : n;
+}
+
+function toMediaFile(raw: Record<string, unknown>): DriveMediaFile {
+  // Drive's VideoMediaMetadata has width, height and durationMillis only (asking for a rotation field fails the call).
+  const video = raw.videoMediaMetadata as { width?: unknown; height?: unknown; durationMillis?: unknown; rotation?: unknown } | undefined;
+  const image = raw.imageMediaMetadata as { width?: unknown; height?: unknown; rotation?: unknown } | undefined;
+  const meta = video ?? image;
+  return {
+    ...toFile(raw),
+    thumbnailLink: typeof raw.thumbnailLink === "string" ? raw.thumbnailLink : null,
+    width: num(meta?.width),
+    height: num(meta?.height),
+    // imageMediaMetadata.rotation counts clockwise quarter turns; a video's comes back only if Drive ever sends one.
+    rotation: image && !video ? (num(image.rotation) ?? 0) * 90 : num(video?.rotation),
+    durationMs: num(video?.durationMillis),
+  };
+}
 
 function escapeQuery(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -301,10 +348,48 @@ export function restDriveApi(opts: { driveId: string; serviceAccount: ServiceAcc
       );
     },
 
-    async downloadTo(fileId, filePath) {
+    async downloadTo(fileId, filePath, dlOpts = {}) {
       const res = await call(`${API}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {}, "download");
       if (!res.body) throw new DriveApiError(500, "no_body", "Drive download returned no body.");
-      return writeStreamToFile(res.body, filePath);
+      return writeStreamToFile(res.body, filePath, dlOpts.onBytes);
+    },
+
+    async listMedia(parentId) {
+      const clauses = [`'${escapeQuery(parentId)}' in parents`, "trashed = false", `mimeType != '${FOLDER_MIME}'`];
+      const out: DriveMediaFile[] = [];
+      let pageToken: string | undefined;
+      do {
+        const params = new URLSearchParams({
+          q: clauses.join(" and "),
+          corpora: "drive",
+          driveId: opts.driveId,
+          includeItemsFromAllDrives: "true",
+          supportsAllDrives: "true",
+          pageSize: "1000",
+          orderBy: "name",
+          fields: `nextPageToken,files(${MEDIA_FIELDS})`,
+        });
+        if (pageToken) params.set("pageToken", pageToken);
+        const res = await call(`${API}/files?${params}`, {}, "list");
+        const body = (await res.json()) as { files?: Record<string, unknown>[]; nextPageToken?: string };
+        out.push(...(body.files ?? []).map(toMediaFile));
+        pageToken = body.nextPageToken;
+      } while (pageToken);
+      return out;
+    },
+
+    async getMediaFile(fileId) {
+      const res = await fetchImpl(`${API}/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=${encodeURIComponent(MEDIA_FIELDS)}`, {
+        headers: { Authorization: `Bearer ${await token()}` },
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) await fail(res, "get");
+      return toMediaFile((await res.json()) as Record<string, unknown>);
+    },
+
+    async fetchThumbnail(thumbnailLink) {
+      if (!isDriveThumbnailLink(thumbnailLink)) throw new DriveApiError(400, "bad_link", "Not a Drive thumbnail link.");
+      return call(thumbnailLink, {}, "thumbnail");
     },
 
     async startPageToken() {
