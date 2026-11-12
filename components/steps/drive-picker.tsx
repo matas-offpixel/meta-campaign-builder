@@ -379,8 +379,8 @@ function Crumbs({ crumbs, view, go, cycleMenu, setCycleMenu }: { crumbs: CrumbIt
   return (
     <nav aria-label="Folder" className="relative flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
       {crumbs.map((crumb, i) => (
-        <span key={`${crumb.label}-${i}`} className={`items-center gap-1 ${i < crumbs.length - 3 ? "hidden md:flex" : "flex"}`}>
-          {i > 0 ? <span>/</span> : null}
+        <span key={`${crumb.label}-${i}`} className={`items-center gap-1 ${i < crumbs.length - 4 ? "hidden md:flex" : "flex"}`}>
+          {i > 0 ? <span className={i === crumbs.length - 4 ? "hidden md:inline" : ""}>/</span> : null}
           {crumb.menu === "cycle" ? (
             <span className="relative">
               <button type="button" onClick={() => setCycleMenu(!cycleMenu)} className="inline-flex items-center gap-0.5 font-medium text-foreground hover:underline">
@@ -403,7 +403,7 @@ function Crumbs({ crumbs, view, go, cycleMenu, setCycleMenu }: { crumbs: CrumbIt
           )}
         </span>
       ))}
-      {crumbs.length > 3 ? <span className="order-first md:hidden">… /</span> : null}
+      {crumbs.length > 4 ? <span className="order-first md:hidden">… /</span> : null}
     </nav>
   );
 }
@@ -432,7 +432,7 @@ function FileTile({ tile, on, onToggle, thumb }: { tile: Tile; on: boolean; onTo
       aria-pressed={on}
       className={`group flex flex-col overflow-hidden rounded-lg border text-left transition-colors ${on ? "border-primary ring-2 ring-primary/30" : "border-border"} ${tile.selectable ? "hover:border-border-strong" : "cursor-not-allowed opacity-70"}`}
     >
-      <div className="relative aspect-[9/16] max-h-44 w-full bg-muted">
+      <div className="relative h-32 w-full bg-muted md:h-36">
         {/* A Drive thumbnail through the app's own route (it needs the export account); next/image can't optimise it. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" /> : null}

@@ -100,10 +100,12 @@ export const DRIVE_PICKER_FRAMES: Record<string, { rows: PickerBatchRow[] | null
 };
 
 export function DrivePickerFrameMount({ id }: { id: string }) {
-  const frame = DRIVE_PICKER_FRAMES[id.replace(/-\d+$/, "")] ?? DRIVE_PICKER_FRAMES.DL1!;
+  const frameId = id.replace(/-\d+$/, "");
+  const frame = DRIVE_PICKER_FRAMES[frameId] ?? DRIVE_PICKER_FRAMES.DL1!;
   const [fields, setFields] = useState(FIELDS);
+  const [ready, setReady] = useState(false);
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" {...(ready ? { "data-frame-ready": frameId } : {})}>
       <DrivePicker
         open
         onClose={() => {}}
@@ -121,7 +123,11 @@ export function DrivePickerFrameMount({ id }: { id: string }) {
         batch={frame.rows}
         onRetryFailed={() => {}}
         onDismissBatch={() => {}}
-        loadView={async () => VIEW}
+        loadView={async () => {
+          // Ready once the fixture view is in and painted.
+          requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
+          return VIEW;
+        }}
         thumbnailUrl={thumb}
         initialSelected={frame.selected}
       />
