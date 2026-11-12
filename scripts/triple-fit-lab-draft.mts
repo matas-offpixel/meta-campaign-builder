@@ -19,7 +19,7 @@ import { createClient } from "@supabase/supabase-js";
 import { approvedClaim, type WarningRow } from "../lib/creative-lab/claim-approval.ts";
 import { REMOTION_REGION } from "../lib/creative-lab/lambda.ts";
 import type { ServiceRoleDb } from "../lib/creative-lab/load.ts";
-import { renderMadeTripleFit } from "../lib/creative-lab/render.ts";
+import { renderMadeTripleFit } from "../lib/creative-lab/made-triple-fit.ts";
 
 const SITE = "triple-fit-lab-draft";
 

@@ -21,7 +21,6 @@ import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profil
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { TOO_SMALL_FOR_916, TRIPLE_FIT_NOT_PAIRED, tooSmallFor916 } from "./import-quality.ts";
-import { renderTripleFitClip, type TripleFitHooks } from "./triple-fit-render.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
 import { renderAssetId } from "./render-proxy.ts";
@@ -69,7 +68,7 @@ function q(db: ServiceRoleDb, table: string): Loose {
   return db.from(table) as unknown as Loose;
 }
 
-async function one(db: ServiceRoleDb, table: string, id: string): Promise<Record<string, unknown> | null> {
+export async function one(db: ServiceRoleDb, table: string, id: string): Promise<Record<string, unknown> | null> {
   const { data, error } = await q(db, table).select("*").eq("id", id).maybeSingle();
   if (error) throw new Error(`${table}: ${error.message}`);
   return data;
@@ -89,7 +88,7 @@ function storageAdmin() {
   return createSupabaseClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
 }
 
-async function defaultSign(bucket: string, objectPath: string): Promise<string> {
+export async function defaultSign(bucket: string, objectPath: string): Promise<string> {
   const { data, error } = await storageAdmin().storage.from(bucket).createSignedUrl(objectPath, SIGNED_URL_SECONDS);
   if (error || !data?.signedUrl) throw new Error(`signed url for ${objectPath}: ${error?.message ?? "no url"}`);
   return data.signedUrl;
@@ -329,35 +328,6 @@ async function lambdaRender(
     estimatedCostDisplay: output.estimatedCostDisplay,
     lambda: { bucketName: output.bucketName, lambdaRenderId: output.lambdaRenderId },
   };
-}
-
-/**
- * One made triple-fit, outside a caption round. Nothing is written to
- * creative_lab_renders. The claim is the event's approved ladder claim.
- */
-export async function renderMadeTripleFit(
-  db: ServiceRoleDb,
-  input: {
-    clipId?: string;
-    /** Used when the made row is not stored yet. It still has to name its source clip. */
-    clip?: Record<string, unknown>;
-    signUrl?: RenderDeps["signUrl"];
-    probe?: RenderDeps["probe"];
-    serveUrl?: string;
-    hooks?: TripleFitHooks;
-  },
-): Promise<Awaited<ReturnType<typeof renderTripleFitClip>>> {
-  const clip = input.clip ?? (input.clipId ? await one(db, "creative_lab_clips", input.clipId) : null);
-  if (!clip) throw new Error("clip not found");
-  if (!String(clip.triple_fit_source_id ?? "").trim()) throw new Error("This clip is not a triple-fit");
-  return renderTripleFitClip({
-    db,
-    clip,
-    signUrl: input.signUrl ?? defaultSign,
-    probe: input.probe ?? probeClip,
-    serveUrl: input.serveUrl,
-    hooks: input.hooks,
-  });
 }
 
 /**
