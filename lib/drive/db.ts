@@ -7,6 +7,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Tables } from "../db/database.types.ts";
+import { pageAll } from "../db/paged-read.ts";
 
 export type DriveDb = Pick<SupabaseClient<Database>, "from">;
 export type TableName = keyof Database["public"]["Tables"];
@@ -20,6 +21,7 @@ export type RowOf<T extends TableName> = Tables<T>;
 type Reader = {
   select(columns: string): Reader;
   eq(column: string, value: string): Reader;
+  order(column: string, options: { ascending: boolean }): Reader;
   range(from: number, to: number): PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
   maybeSingle(): PromiseLike<{ data: unknown; error: { message: string } | null }>;
 };
@@ -37,24 +39,10 @@ export async function rowById<T extends TableName>(db: DriveDb, table: T, id: st
   return (res.data as RowOf<T> | null) ?? null;
 }
 
-export async function rowsWhere<T extends TableName>(db: DriveDb, table: T, column: keyof RowOf<T> & string, value: string): Promise<RowOf<T>[]> {
-  const out: RowOf<T>[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const res = await reader(db, table).select("*").eq(column, value).range(from, from + PAGE - 1);
-    if (res.error) throw new Error(`${table}: ${res.error.message}`);
-    const rows = (res.data ?? []) as RowOf<T>[];
-    out.push(...rows);
-    if (rows.length < PAGE) return out;
-  }
+export function rowsWhere<T extends TableName>(db: DriveDb, table: T, column: keyof RowOf<T> & string, value: string): Promise<RowOf<T>[]> {
+  return pageAll<RowOf<T>>((from, to) => reader(db, table).select("*").eq(column, value).order("id", { ascending: true }).range(from, to), ["id"], table, PAGE);
 }
 
-export async function allRows<T extends TableName>(db: DriveDb, table: T): Promise<RowOf<T>[]> {
-  const out: RowOf<T>[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const res = await reader(db, table).select("*").range(from, from + PAGE - 1);
-    if (res.error) throw new Error(`${table}: ${res.error.message}`);
-    const rows = (res.data ?? []) as RowOf<T>[];
-    out.push(...rows);
-    if (rows.length < PAGE) return out;
-  }
+export function allRows<T extends TableName>(db: DriveDb, table: T): Promise<RowOf<T>[]> {
+  return pageAll<RowOf<T>>((from, to) => reader(db, table).select("*").order("id", { ascending: true }).range(from, to), ["id"], table, PAGE);
 }

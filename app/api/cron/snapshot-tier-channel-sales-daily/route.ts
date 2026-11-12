@@ -4,6 +4,7 @@ import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 
 import { upsertDailyHistory } from "@/lib/db/tier-channel-daily-history";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { dedupeOn } from "@/lib/db/paged-read";
 
 /**
  * GET /api/cron/snapshot-tier-channel-sales-daily
@@ -68,10 +69,12 @@ async function handleGET(req: NextRequest) {
   // channel, so Internal Counts (13 events × tiers × 8 outlets) takes it
   // past that cap on its own.
   const allSalesRows: { event_id: unknown; tickets_sold: unknown; revenue_amount: unknown }[] = [];
+  const seenSales = new Set<string>();
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase
       .from("tier_channel_sales")
-      .select("event_id, tickets_sold, revenue_amount")
+      .select("id, event_id, tickets_sold, revenue_amount")
+      .order("id", { ascending: true })
       .range(from, from + 999);
     if (error) {
       return NextResponse.json(
@@ -80,7 +83,13 @@ async function handleGET(req: NextRequest) {
       );
     }
     const page = data ?? [];
-    allSalesRows.push(...page);
+    for (const row of dedupeOn(page as Array<{ id: string; event_id: unknown; tickets_sold: unknown; revenue_amount: unknown }>, ["id"])) {
+      if (row.id != null) {
+        if (seenSales.has(String(row.id))) continue;
+        seenSales.add(String(row.id));
+      }
+      allSalesRows.push(row);
+    }
     if (page.length < 1000) break;
   }
 

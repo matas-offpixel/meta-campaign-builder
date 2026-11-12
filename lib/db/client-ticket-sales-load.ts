@@ -6,6 +6,7 @@ import {
   type ClientSalesEventRow,
 } from "@/lib/admin/client-ticket-sales";
 import type { SnapshotForRollupTickets } from "@/lib/ticketing/rollup-tickets-from-snapshots";
+import { dedupeOn } from "./paged-read.ts";
 
 export type { ClientSalesEventRow };
 
@@ -38,14 +39,16 @@ async function listSnapshotsForEvents(
   if (eventIds.length === 0) return byEvent;
 
   const pageSize = 1000;
+  const seenSnapshots = new Set<string>();
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await sb
       .from("ticket_sales_snapshots")
       .select(
-        "event_id, snapshot_at, tickets_sold, source, gross_revenue_cents, external_event_id, connection_id",
+        "id, event_id, snapshot_at, tickets_sold, source, gross_revenue_cents, external_event_id, connection_id",
       )
       .in("event_id", eventIds)
       .order("snapshot_at", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) {
       throw new Error(
@@ -53,9 +56,13 @@ async function listSnapshotsForEvents(
       );
     }
     const page = (data ?? []) as Array<
-      SnapshotForRollupTickets & { event_id: string }
+      SnapshotForRollupTickets & { id: string; event_id: string }
     >;
     for (const row of page) {
+      if (row.id != null) {
+        if (seenSnapshots.has(row.id)) continue;
+        seenSnapshots.add(row.id);
+      }
       byEvent.get(row.event_id)?.push(row);
     }
     if (page.length < pageSize) break;
@@ -73,24 +80,35 @@ async function listSpendForEvents(
   if (eventIds.length === 0) return spend;
 
   const pageSize = 1000;
+  const seenDays = new Set<string>();
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await sb
       .from("event_daily_rollups")
-      .select("event_id, ad_spend, tiktok_spend, google_ads_spend")
+      // Ordered by the (event_id, date) unique key and deduped: unordered pages
+      // overlapped on prod (13 Nov 2026: 2,233 rows, 1,705 distinct), moving
+      // up to £2,192 of spend between a client's events.
+      .select("event_id, date, ad_spend, tiktok_spend, google_ads_spend")
       .in("event_id", eventIds)
+      .order("event_id", { ascending: true })
+      .order("date", { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) {
       throw new Error(
         `[client-ticket-sales] rollup spend load failed: ${error.message}`,
       );
     }
-    const page = (data ?? []) as Array<{
-      event_id: string;
-      ad_spend: number | null;
-      tiktok_spend: number | null;
-      google_ads_spend: number | null;
-    }>;
+    const page = dedupeOn(
+      (data ?? []) as Array<{
+        event_id: string;
+        date: string;
+        ad_spend: number | null;
+        tiktok_spend: number | null;
+        google_ads_spend: number | null;
+      }>,
+      ["event_id", "date"],
+    ).filter((row) => !seenDays.has(`${row.event_id}\u0000${row.date}`));
     for (const row of page) {
+      seenDays.add(`${row.event_id}\u0000${row.date}`);
       const next =
         (spend.get(row.event_id) ?? 0) +
         num(row.ad_spend) +

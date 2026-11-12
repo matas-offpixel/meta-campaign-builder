@@ -12,6 +12,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadArchivedClientIds, logSkippedArchivedClients } from "../db/client-status.ts";
 import { metaObjectiveNeedsPromotedEvent } from "../launched-ad-sets/snapshot.ts";
 import { normalizeAdAccountId } from "../meta/ad-account.ts";
+import { dedupeOn } from "../db/paged-read.ts";
 import { createPromotedEventLookup } from "./adset-meta.ts";
 import { captureAccountCopy, type SeenAd } from "./copy-capture.ts";
 import { isAdCopyCaptureEnabled } from "./copy.ts";
@@ -77,15 +78,21 @@ async function loadColumn(
   clientColumn: string,
 ): Promise<{ account: string; clientId: string | null }[]> {
   const out: { account: string; clientId: string | null }[] = [];
+  const seen = new Set<string>();
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await db
       .from(table)
-      .select(`${column}, ${clientColumn}`)
+      .select(`id, ${column}, ${clientColumn}`)
       .not(column, "is", null)
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`${table}.${column}: ${error.message}`);
     const rows = (data ?? []) as unknown as Record<string, string | null>[];
-    for (const row of rows) {
+    for (const row of dedupeOn(rows, ["id"])) {
+      if (row.id != null) {
+        if (seen.has(String(row.id))) continue;
+        seen.add(String(row.id));
+      }
       if (row[column]) out.push({ account: row[column] as string, clientId: row[clientColumn] ?? null });
     }
     if (rows.length < PAGE) break;

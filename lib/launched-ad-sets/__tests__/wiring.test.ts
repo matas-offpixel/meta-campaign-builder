@@ -43,7 +43,7 @@ describe("Phase 0 wiring", () => {
   it("does not change the cross-event assignment join", () => {
     assert.match(
       PATTERNS,
-      /"event_id,creative_name,tag_id,tag:creative_tags!creative_tag_assignments_tag_id_fkey\(dimension,value_key,value_label\)"/,
+      /"id,event_id,creative_name,tag_id,tag:creative_tags!creative_tag_assignments_tag_id_fkey\(dimension,value_key,value_label\)"/,
     );
     assert.doesNotMatch(PATTERNS, /meta_ad_id/);
   });

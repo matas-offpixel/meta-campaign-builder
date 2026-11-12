@@ -13,6 +13,7 @@ import {
   type DescribeDecisionPoint,
   type DescribeLaunchedRow,
 } from "../optimisation/describe-cells.ts";
+import { dedupeOn } from "./paged-read.ts";
 
 /**
  * Must equal the PostgREST max-rows project setting. If that setting
@@ -63,7 +64,7 @@ interface DecisionRow {
 const LAUNCHED_SELECT =
   "client_id, meta_adset_id, draft_id, meta_campaign_id, source_type, objective, phase_at_launch, advantage_plus_effective, descriptor_source, initial_daily_budget_pence, launched_at";
 
-const DECISION_SELECT = "adset_id, metric, metric_value, decided_at";
+const DECISION_SELECT = "id, adset_id, metric, metric_value, decided_at";
 
 const ADSET_IN_CHUNK = 100;
 
@@ -123,6 +124,7 @@ async function pageLaunchedAdSets(
   viewer: DescribeViewer | undefined,
 ): Promise<{ status: "ok"; rows: LaunchedRow[] } | { status: "unreadable" }> {
   const rows: LaunchedRow[] = [];
+  const seen = new Set<string>();
   for (let page = 0; ; page++) {
     if (page >= DESCRIBE_MAX_PAGES) {
       console.error(
@@ -146,7 +148,13 @@ async function pageLaunchedAdSets(
       return { status: "unreadable" };
     }
     const batch = (data ?? []) as LaunchedRow[];
-    rows.push(...batch);
+    for (const row of dedupeOn(batch, ["meta_adset_id"])) {
+      if (row.meta_adset_id != null) {
+        if (seen.has(String(row.meta_adset_id))) continue;
+        seen.add(String(row.meta_adset_id));
+      }
+      rows.push(row);
+    }
     if (batch.length < DESCRIBE_PAGE_SIZE) break;
   }
   return { status: "ok", rows };
@@ -178,6 +186,7 @@ async function pageLatestDecisions(
     const adsetIds = chunk.map((row) => row.metaAdsetId);
     const draftIds = [...new Set(chunk.map((row) => row.draftId))];
     const need = new Set(adsetIds);
+    const seenDecisions = new Set<string>();
     for (let page = 0; need.size > 0; page++) {
       if (page >= DESCRIBE_MAX_PAGES) {
         console.error(
@@ -198,8 +207,12 @@ async function pageLatestDecisions(
         console.error(`[describe-cells] decisions read failed: ${error.message}`);
         return { status: "unreadable" };
       }
-      const batch = (data ?? []) as DecisionRow[];
-      for (const row of batch) {
+      const batch = (data ?? []) as Array<DecisionRow & { id?: string }>;
+      for (const row of dedupeOn(batch, ["id"])) {
+        if (row.id != null) {
+          if (seenDecisions.has(String(row.id))) continue;
+          seenDecisions.add(String(row.id));
+        }
         if (!need.has(row.adset_id)) continue;
         const point = pointIfMetric(row);
         if (!point) continue;
