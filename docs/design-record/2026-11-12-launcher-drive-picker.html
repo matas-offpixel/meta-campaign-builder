@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drive picker — 12 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.muted{color:var(--ink-3)}.mono{font-family:var(--mono)}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative;max-width:100%}
+.panel{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn.dis{opacity:.45}
+.ehead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin:0}
+.ehead h4{margin:0;font:700 18px/1.15 var(--sans)}
+.ehead .meta{font-size:12px;color:var(--ink-2);margin-top:3px}
+.ehead .links{display:flex;gap:14px;align-items:center;font-size:12.5px;white-space:nowrap}
+.ehead .links a{color:var(--ink);text-decoration:underline;text-underline-offset:3px;font-weight:600}
+.dim{position:absolute;inset:0;background:rgba(30,24,16,.28)}
+.dlg{position:relative;background:var(--edit);border-radius:12px;box-shadow:0 12px 32px rgba(30,24,16,.2);padding:16px 18px;font-size:12.5px}
+.dlg h4{margin:0 0 2px;font:600 15px var(--sans)}
+.opt{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;font-size:12px}
+.opt i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--ink-3);flex:none}
+.opt.on{background:var(--card)}.opt.on i{border:4px solid var(--ink)}
+.opt small{color:var(--ink-3);margin-left:auto;font-size:11px;white-space:nowrap}
+.field{height:30px;border:1px solid var(--border-strong);border-radius:6px;background:#fff8f0;display:flex;align-items:center;padding:0 9px;font:11px var(--mono);color:var(--ink-2);overflow:hidden;white-space:nowrap}
+.pick{display:inline-block;border:1px solid var(--border-strong);border-radius:5px;background:#fff8f0;padding:1px 6px;margin:0 1px}
+.sub{font-size:11.5px;color:var(--ink-3);padding:0 8px 4px 31px}
+.frame>figure{max-width:100%;min-width:0}
+.cap{position:absolute;left:0;right:0;text-align:center;color:#fff;font-family:"TikTok Sans",system-ui,sans-serif;font-weight:500;letter-spacing:.01em;text-shadow:-.06em 0 0 #000,.06em 0 0 #000,0 -.06em 0 #000,0 .06em 0 #000,-.045em -.045em 0 #000,.045em .045em 0 #000,-.045em .045em 0 #000,.045em -.045em 0 #000;white-space:nowrap}
+.cap.q{text-shadow:none;font-weight:700}
+.cap.ghost{color:transparent;text-shadow:none}
+.ghostbox{position:absolute;border:1px dashed rgba(255,255,255,.75)}
+.fbox{position:absolute;border:1.5px solid #ffd23f;border-radius:2px}
+.fbox i{position:absolute;inset:8% 12%;border-radius:50%;background:rgba(255,214,170,.55)}
+.fbox b{position:absolute;left:0;right:0;top:60%;border-top:1px dotted #ffd23f}
+.lim{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.55)}
+.st{font:700 9px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;margin:8px 0 2px}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}
+.ladder{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;background:var(--card);border-radius:10px;padding:14px 16px}
+.ladder div{text-align:center;font:11px/1.4 var(--mono);color:var(--ink-2)}
+.ladder .w{display:block;background:#9a9086;border-radius:4px;padding:8px 10px;color:#fff;font-family:system-ui,sans-serif;font-weight:500;text-shadow:-1px 0 #000,1px 0 #000,0 -1px #000,0 1px #000;margin-bottom:6px}
+.row{background:var(--edit);border-radius:8px;padding:10px 12px;font-size:12.5px;max-width:520px;margin:0 0 8px}
+.row .n{font-weight:600}.row .s{font:11px/1.4 var(--mono);color:var(--ink-3);margin-top:3px}
+.row .s.r{color:var(--brick)}
+.order{position:relative;width:300px;height:480px;background:var(--card);border-radius:8px;font:10px/1 var(--mono);color:var(--ink-2)}
+.mod{background:var(--edit);border-radius:12px;box-shadow:0 12px 32px rgba(30,24,16,.22);font-size:12.5px;overflow:hidden}
+.mod .hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.mod .hd h4{margin:0;font:600 15px var(--sans)}
+.crumb{font:11px/1.4 var(--mono);color:var(--ink-2);padding:8px 16px;border-bottom:1px solid var(--border);overflow-x:auto;white-space:nowrap}
+.crumb b{font-weight:600;color:var(--ink)}.crumb u{text-underline-offset:3px}
+.bar{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.4fr) minmax(0,.8fr) minmax(0,1.6fr);gap:8px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.bar label{display:block;font:700 8.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+.bar .field{height:28px;font-size:11px}
+.next{padding:8px 16px;font-size:11.5px;color:var(--ink-2);display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--border)}
+.chip{display:inline-flex;align-items:center;height:24px;padding:0 9px;border:1px solid var(--border-strong);border-radius:999px;font:600 11px var(--sans);color:var(--ink);background:#fff8f0;white-space:nowrap}
+.chip.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.selrow{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;font-size:12px}
+.selrow a{font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;padding:4px 16px 14px}
+.tile{position:relative;font-size:11px;min-width:0;font-feature-settings:'calt' 0}
+.tile .th{position:relative;aspect-ratio:9/16;border-radius:6px;background:linear-gradient(160deg,#3b3530,#7d6f63 60%,#2c2724);overflow:hidden}
+.tile .th.wide{background:#2a2622}
+.tile .th .in{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);aspect-ratio:16/9;background:linear-gradient(160deg,#3b3530,#7d6f63 60%,#2c2724)}
+.tile .th .in45{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);aspect-ratio:4/5;background:linear-gradient(160deg,#5a4a3a,#a08b74 60%,#3a3128)}
+.tile .ck{position:absolute;left:6px;top:6px;width:18px;height:18px;border-radius:4px;border:1.5px solid #fff;background:rgba(0,0,0,.25)}
+.tile .ck.on{background:var(--ink);border-color:#fff}
+.tile .ck.on:after{content:"✓";position:absolute;inset:0;color:#fff;font:700 12px/16px var(--sans);text-align:center}
+.tile .rt{position:absolute;right:6px;top:6px;font:700 9px/1 var(--mono);color:#fff;background:rgba(0,0,0,.45);padding:3px 4px;border-radius:3px}
+.tile .du{position:absolute;right:6px;bottom:6px;font:600 9px/1 var(--mono);color:#fff;background:rgba(0,0,0,.45);padding:3px 4px;border-radius:3px}
+.tile .nm{margin-top:5px;font:600 11px/1.3 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .mt{font:10.5px/1.3 var(--mono);color:var(--ink-3)}
+.tile.off .th{opacity:.38}.tile.off .nm{color:var(--ink-3)}
+.tile .why{font:10.5px/1.3 var(--sans);color:var(--brick);margin-top:2px}
+.ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--border);background:var(--card)}
+.ft .note{font-size:11.5px;color:var(--ink-2)}
+.prog{padding:10px 16px}
+.prow{display:grid;grid-template-columns:28px 1fr 200px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
+.prow .mini{width:22px;height:39px;border-radius:3px;background:linear-gradient(160deg,#3b3530,#7d6f63 60%,#2c2724)}
+.prow .st2{font:11px/1.3 var(--mono);color:var(--ink-2)}
+.prow .st2.ok{color:var(--olive)}.prow .st2.no{color:var(--brick)}
+.meter{height:4px;border-radius:2px;background:var(--muted);overflow:hidden;margin-top:4px}.meter i{display:block;height:100%;background:var(--ink)}
+.line{font:12px/1.4 var(--sans);color:var(--ink);padding:10px 16px;border-bottom:1px solid var(--border)}
+.side{background:var(--edit);border-radius:10px;padding:10px;font-size:12px}
+.side .ad{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border:1px solid var(--border);border-radius:7px;margin-bottom:5px;background:#fff8f0}
+.side .ad .n{flex:none;width:18px;height:18px;border-radius:4px;background:var(--muted);font:700 9px/18px var(--mono);text-align:center;color:var(--ink-3)}
+.side .ad .t{font-weight:600}.side .ad .s{font:10.5px var(--mono);color:var(--ink-3)}
+.side .ad.new{border-color:var(--ink)}
+.phone{width:393px;max-width:100%;border:1px solid var(--border-strong);border-radius:14px;overflow:hidden;background:var(--edit);font-size:12.5px}
+.phone .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.phone .bar1{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--border);font-size:11.5px;color:var(--ink-2)}
+.dropz{border:2px dashed var(--border-strong);border-radius:12px;padding:14px;display:flex;justify-content:center;gap:8px;align-items:center;font-size:13px;color:var(--ink-2);background:rgba(30,24,16,.03)}
+.dropz a{font-weight:600;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.dropz .drv{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--ink);font:600 12px var(--sans);color:var(--ink);background:#fff8f0}
+@media (max-width:700px){.bar{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+body{font-feature-settings:'calt' 0}
+</style>
+
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · campaign launcher · creatives step · 12 November 2026</p>
+<h1>From Drive: bulk-prepare ads from the event's folders</h1>
+<div class="lead"><p>Matas, 12 Nov: "an integration between our Google Drive and campaign launchers for quicker upload to campaigns. Drive folders appear there, multiple select of content (perhaps keeping the multi select to 9:16 files only to avoid placement issues), the ad upload should detect if static or video, select for which page, and bulk uploads in one go."</p>
+<p><b>Where it lives:</b> the Meta launcher's creatives step, <code>components/steps/creatives.tsx</code>. That component is the same in the wizard, the canvas drawer (▤ creatives) and <code>/campaign/[id]</code>, so the picker ships in all three.</p>
+<p><b>What the step does today:</b></p>
+<ul>
+<li>Its drop zone <i>Drag &amp; drop files to bulk-create ads or browse</i> creates one empty ad per dropped file. Each copies the active ad's identity, captions, headline, URL and CTA (<code>handleBulkUpload</code>).</li>
+<li><i>Bulk Upload</i> inside an ad adds variations.</li>
+<li><i>Apply to all</i> copies headline, description, URL and CTA across the draft.</li>
+</ul>
+<p>This record adds a third source next to drag and browse, reads the event's Drive tree, and fills the ads it makes.</p></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+
+<tr><td>G1 The entry and the tree</td><td>
+<ul>
+<li><b>Entry:</b> a <i>From Drive</i> button in the drop zone, after <i>browse</i>. It opens a picker (DL1): a dialog 960 px wide at 1280, full-screen at 393.</li>
+<li><b>It opens the campaign's event's own tree</b> (the event's map in <code>drive_folders</code>), at the current stage's owners. That stage is the on-sale cycle <code>w/c {d Mon}</code>, <code>1 Signup / Teaser</code> or <code>4 Show week</code>, as <code>stageFolder</code> picks it.</li>
+<li><b>Owners come from the tree map, not from position.</b> P26-BDAY's owner folders were mapped in place under the hand-made <code>w/c 9 Nov / Content</code>. They still show as the stage's owners, and the breadcrumb shows the folders' path by stage and owner, not the Drive path.</li>
+<li><b>Order:</b> the lineup in billing order, then the promoter (U1's order). Any other child folders follow under <i>Other folders here</i>.</li>
+<li><b>Below the owner, the folders are read as they are in Drive.</b> Today that's <code>Videos / UGC · CTA · No CTA</code> and <code>Statics / CTA · No CTA</code>, as made in the Off / Pixel Shared Drive on 12 Nov. No record rules that layer yet (the owner-type record stops at Videos / Statics). The picker shows those folders by name and doesn't depend on them.</li>
+<li><b>The breadcrumb:</b> every segment opens its folder. The cycle segment is a menu of the event's cycles, newest first, so older cycles are one choice away. <code>03 Creatives</code> opens the other stages.</li>
+<li><b>Empty states:</b>
+<ul>
+<li>no event on the campaign: <i>Link this campaign to an event to pick from its Drive folder.</i></li>
+<li>an event with no tree: <i>This event has no Drive folder yet — make it from the event page's Drive panel.</i>, with <i>Open event ↗</i></li>
+<li>Drive can't be read: <i>Off / Pixel can't read this event's folder — check the export account can see it.</i></li>
+<li>an empty folder: <i>Nothing in {folder} yet.</i></li>
+</ul>
+Each one keeps <i>browse</i> working.</li>
+</ul></td></tr>
+
+<tr><td>G2 Selection and 9:16</td><td>Files show as tiles:
+<ul>
+<li>Drive's own thumbnail, fetched through the app, since Drive's link needs the account;</li>
+<li>the ratio badge, the duration for video, the file name (cut in the middle) and its size;</li>
+<li><i>{n} of {m} selected</i> · <i>Select all 9:16 ({k})</i> · <i>None</i>, within the open folder.</li>
+</ul>
+<b>The ratio</b> comes from <code>videoMediaMetadata</code> / <code>imageMediaMetadata</code> (width, height, rotation), with 2 % tolerance (the crop's own). <b>A file Drive hasn't measured yet</b> is selectable and reads <i>Size checked when copied</i>. If it turns out not to be 9:16, that ad fails with the reason below.
+<p style="margin-top:8px"><b>Disabled, never selectable, with a reason:</b></p>
+<ul>
+<li>a video that isn't 9:16: <i>Not 9:16 — video runs as 9:16 only</i> (O95, O104). The proposal's "runs in Feed only" isn't true of video, so it isn't used;</li>
+<li>a static that isn't 9:16, in Single: <i>Not 9:16 — pairs with its 9:16 in Dual or Full</i>;</li>
+<li>a file over the step's own limits (<code>MAX_VIDEO_BYTES</code> 200 MB, <code>MAX_IMAGE_BYTES</code> 30 MB): <i>Over 200 MB — too large to upload here</i> (or 30 MB).</li>
+</ul>
+<p style="margin-top:8px"><b>Dual and Full apply to statics only.</b> A video always makes a Single 9:16 ad whatever the batch's mode, and its row says <i>Video runs as 9:16 only</i>.</p>
+<p>For statics in Dual or Full, the 9:16 is the tile. Its 4:5 (and its 1:1 in Full) are found in the same folder by the S14 name with only the ratio token different, and shown on the tile as <i>+ 4:5</i>, <i>+ 1:1</i>. Those siblings aren't separate tiles. A 9:16 missing its sibling is disabled: <i>Needs its 4:5</i> or <i>Needs its 4:5 and 1:1</i>. A file without an S14 name can't be paired, so it runs only in Single.</p></td></tr>
+
+<tr><td>G3 Kind</td><td>Image or video from the file's MIME (<code>video/*</code>, <code>image/*</code>). It sets the ad's Media Type and its asset slots. A mixed selection makes mixed ads, one per file. The existing "all files must be the same type" rule stays on <i>Bulk Upload</i> inside one ad, where it belongs.</td></tr>
+
+<tr><td>G4 The batch's fields</td><td>A bar at the top of the picker, filled once and written into every ad it makes. Each ad stays editable afterwards. The fields and their defaults:
+<ul>
+<li><b>Primary text:</b> empty on the first batch.</li>
+<li><b>Headline:</b> empty on the first batch.</li>
+<li><b>URL:</b> the event's <code>ticket_url</code>; with none, the draft's last ad's URL; else empty.</li>
+<li><b>CTA:</b> the draft's last ad's CTA; with no ads, the objective's default.</li>
+<li><b>Page and Instagram:</b> the draft's last identity, through the step's existing resolution (the page's linked Instagram, never overwriting an operator's pick).</li>
+</ul>
+<b>The owner folder doesn't switch the identity by itself.</b> W3 writes artist-footage captions in the promoter's voice, so the client's Page is the safe default. When Matas picks an artist's account (for example @enzosiragusa), that pick is remembered for that owner for the rest of the session (G7).
+<p style="margin-top:6px"><b>At 393</b> the bar collapses to one line of values with <i>Edit</i>.</p></td></tr>
+
+<tr><td>G5 Prepare</td><td><i>Prepare {n} ads</i> makes one ad per selected file (one per set in Dual or Full), added to the end of the draft. Nothing launches: Launch stays its own, separate step.
+<ul>
+<li><b>Name:</b> the file name without its extension when it's an S14 name. Otherwise <i>{owner's first name} - {folder} {n}</i>, matching <i>Enzo - UGC 3</i>.
+<ul>
+<li>{folder} is UGC, CTA or No CTA, or Video / Static when the file sits straight in Videos or Statics.</li>
+<li>{n} continues from the highest number already in the draft for that owner and folder.</li>
+<li>When two owners share a first name, the full name is used.</li>
+</ul></li>
+<li><b>No duplicate:</b> a file whose <code>drive_file_id</code> is already an ad in this draft is skipped with <i>Already in this draft — skipped</i>.</li>
+<li><b>The source:</b> each ad's asset slot shows <i>From Drive · {folder path}</i>. The sidebar row adds <i>From Drive</i> to its sub-line.</li>
+</ul></td></tr>
+
+<tr><td>G6 The copy (what the operator sees)</td><td>Each file goes Drive → Storage (streamed, #1188 / #1189's path, deduped by <code>creative_assets</code> on <code>drive_file_id</code>, migration 228) → Meta (video by <code>META_VIDEO_UPLOAD_MODE=file_url</code>'s signed link, images as today). Each row moves through these states:
+<ul>
+<li><i>Copying from Drive… {pct} %</i></li>
+<li><i>Sending to Meta…</i></li>
+<li><i>Ready</i></li>
+<li>when the registry already holds the file: <i>Already in Off / Pixel — sending to Meta…</i></li>
+<li>on a failure:
+<ul>
+<li><i>Couldn't copy from Drive — Retry</i></li>
+<li><i>Meta didn't take this file — {reason}</i>, the reason through the step's existing plain-words error</li>
+<li><i>Not 9:16 — video runs as 9:16 only</i>, from G2's check on copy</li>
+</ul></li>
+</ul>
+One failure never stops the batch.
+<ul>
+<li>The head line reads <i>Preparing {n} ads · {k} ready</i>.</li>
+<li>The end line reads <i>{n} ads prepared · {s} skipped (already in this draft) · {f} failed — Retry</i>.</li>
+<li><i>Retry failed ({f})</i> reruns only the failed files.</li>
+<li>Closing the dialog doesn't stop the copy. The ads finish in the draft, with their own slot states.</li>
+</ul></td></tr>
+
+<tr><td>G7 The next owner</td><td>After a batch, the picker stays on the same folder and shows <i>Next:</i> chips for the same path under each other owner (<i>Luke Dean / Videos / UGC</i>, <i>Puzzle / Videos / UGC</i>), so the next batch is one click away. An owner without that folder shows <i>— empty</i> and is disabled.
+<ul>
+<li>The batch's fields are kept, with a <i>Clear fields</i> text button.</li>
+<li>The identity follows G4's per-owner memory.</li>
+<li><i>Done</i> closes the picker.</li>
+</ul></td></tr>
+
+<tr><td>G8 TikTok</td><td>Not in this record. TikTok's ▶ video tab will mount the same picker; its fields (identity, the caption field, its own spec) and its words need their own ruling. Build the picker as a shared component that takes the step's fields and identity from the host.</td></tr>
+</table>
+
+<h2>The entry (in the drop zone)</h2>
+<div class="dropz"><span>⇪ Drag &amp; drop files to bulk-create ads or <a>browse</a></span><span class="muted">·</span><span class="drv">From Drive</span></div>
+
+<h2>DL1 · The picker on Enzo Siragusa / Videos / UGC (1280)</h2>
+<p class="lead">This is the batch's state in Single mode:</p>
+<ul class="notes">
+<li>four 9:16 files, three of them selected;</li>
+<li>a landscape clip disabled with <i>Not 9:16 — video runs as 9:16 only</i>;</li>
+<li>a 1.2 GB master disabled as too large;</li>
+<li>the batch's fields at the top, and <i>Same folder for</i> chips for the other owners.</li>
+</ul>
+<p class="lead">The file names are the 12 Nov held finals plus two samples. The primary text and headline are sample words.</p>
+<div class="vp" style="padding:24px;background:rgba(30,24,16,.28)"><div class="mod" style="max-width:960px;margin:0 auto">
+<div class="hd"><h4>From Drive · P26-BDAY</h4><span class="btn ghost">✕</span></div>
+<div class="crumb">03 Creatives / 3 On sale / <u>w/c 9 Nov ▾</u> / <u>Enzo Siragusa</u> / <u>Videos</u> / <b>UGC</b></div>
+<div class="bar">
+<div><label>Primary text</label><div class="field">Enzo Siragusa closes out the year with Puzzle…</div></div>
+<div><label>Headline</label><div class="field">Puzzle 4th Birthday</div></div>
+<div><label>URL · event ticket link</label><div class="field">https://… the event's ticket URL</div></div>
+<div><label>CTA</label><div class="field">Buy tickets ▾</div></div>
+<div><label>Page · Instagram</label><div class="field">Puzzle · @puzzleofficialuk ▾</div></div>
+</div>
+<div class="selrow"><span><b>3 of 4 selected</b> · Single 9:16 · <a>Select all 9:16 (4)</a> · <a>None</a></span><span class="muted">6 files · 2 can't be used here</span></div>
+<div class="grid"><div class="tile"><div class="th"><div class="ck on"></div><span class="rt">9:16</span><span class="du">21.8 s</span></div><div class="nm" title="P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16.mp4">P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16.mp4</div><div class="mt">Video · 21.8 s · 26.8 MB</div></div><div class="tile"><div class="th"><div class="ck on"></div><span class="rt">9:16</span><span class="du">21.8 s</span></div><div class="nm" title="P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16.mp4">P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16.mp4</div><div class="mt">Video · 21.8 s · 34.2 MB</div></div><div class="tile"><div class="th"><div class="ck on"></div><span class="rt">9:16</span><span class="du">6.0 s</span></div><div class="nm" title="P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16.mp4">P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16.mp4</div><div class="mt">Video · 6.0 s · 10.4 MB</div></div><div class="tile"><div class="th"><div class="ck"></div><span class="rt">9:16</span><span class="du">14.2 s</span></div><div class="nm" title="P26-BDAY_enzo-siragusa-2_caption-artist-on-sale_r1_9x16.mp4">P26-BDAY_enzo-siragusa-2_caption-artist-on-sale_r1_9x16.mp4</div><div class="mt">Video · 14.2 s · 18.1 MB</div></div><div class="tile off"><div class="th wide"><div class="in"></div><span class="rt">16:9</span><span class="du">31.0 s</span></div><div class="nm" title="enzo-ibiza-terrace.mov">enzo-ibiza-terrace.mov</div><div class="mt">Video · 31.0 s · 88.4 MB</div><div class="why">Not 9:16 — video runs as 9:16 only</div></div><div class="tile off"><div class="th"><span class="rt">9:16</span><span class="du">4:12</span></div><div class="nm" title="enzo-full-set-4k.mp4">enzo-full-set-4k.mp4</div><div class="mt">Video · 4:12 · 1.2 GB</div><div class="why">Over 200 MB — too large to upload here</div></div></div>
+<div class="next">Same folder for: <span class="chip">Luke Dean / Videos / UGC</span><span class="chip">Puzzle / Videos / UGC</span><span class="chip">Reeshy — empty</span></div>
+<div class="ft"><span class="note">One ad per file. Nothing launches — the ads join this draft.</span><span><span class="btn ghost">Cancel</span> <span class="btn solid">Prepare 3 ads</span></span></div>
+</div></div>
+
+<h2>DL1-393 · The same at 393</h2>
+<p class="lead">The dialog is full-screen. The batch's fields collapse to one line with <i>Edit</i>, there are two tiles a row, and the chips use owner names only.</p>
+<div class="phone">
+<div class="hd" style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border)"><b style="font-size:15px">From Drive · P26-BDAY</b><span>✕</span></div>
+<div class="crumb" style="padding:8px 14px">… / <u>w/c 9 Nov ▾</u> / <u>Enzo Siragusa</u> / <u>Videos</u> / <b>UGC</b></div>
+<div class="bar1"><span>Caption · URL · Buy tickets · Puzzle · @puzzleofficialuk</span><span class="btn" style="height:24px">Edit</span></div>
+<div class="selrow" style="padding:8px 14px"><span><b>2 of 4</b> · <a>All 9:16</a> · <a>None</a></span></div>
+<div class="grid" style="padding:4px 14px 12px"><div class="tile"><div class="th"><div class="ck on"></div><span class="rt">9:16</span><span class="du">21.8 s</span></div><div class="nm" title="P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16.mp4">P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16.mp4</div><div class="mt">Video · 21.8 s · 26.8 MB</div></div><div class="tile"><div class="th"><div class="ck on"></div><span class="rt">9:16</span><span class="du">21.8 s</span></div><div class="nm" title="P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16.mp4">P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16.mp4</div><div class="mt">Video · 21.8 s · 34.2 MB</div></div><div class="tile off"><div class="th wide"><div class="in"></div><span class="rt">16:9</span><span class="du">31.0 s</span></div><div class="nm" title="enzo-ibiza-terrace.mov">enzo-ibiza-terrace.mov</div><div class="mt">Video · 31.0 s · 88.4 MB</div><div class="why">Not 9:16 — video runs as 9:16 only</div></div><div class="tile off"><div class="th"><span class="rt">9:16</span><span class="du">4:12</span></div><div class="nm" title="enzo-full-set-4k.mp4">enzo-full-set-4k.mp4</div><div class="mt">Video · 4:12 · 1.2 GB</div><div class="why">Over 200 MB — too large to upload here</div></div></div>
+<div class="next" style="padding:8px 14px">Same folder for: <span class="chip">Luke Dean</span><span class="chip">Puzzle</span></div>
+<div class="ft" style="padding:10px 14px"><span class="note">Nothing launches.</span><span class="btn solid">Prepare 2 ads</span></div>
+</div>
+
+<h2>DL3 · Preparing</h2>
+<p class="lead">One row per file, each in its own state. A failure stays in its row, and the rest carry on.</p>
+<div class="mod" style="max-width:960px"><div class="hd"><h4>From Drive · P26-BDAY</h4></div>
+<div class="line"><b>Preparing 4 ads · 1 ready</b> — the others carry on if one fails.</div>
+<div class="prog"><div class="prow"><div class="mini"></div><div>P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16</div><div><div class="st2 ok">Ready</div></div></div><div class="prow"><div class="mini"></div><div>P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16</div><div><div class="st2 ">Sending to Meta…</div><div class="meter"><i style="width:80%"></i></div></div></div><div class="prow"><div class="mini"></div><div>P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16</div><div><div class="st2 ">Copying from Drive… 40 %</div><div class="meter"><i style="width:40%"></i></div></div></div><div class="prow"><div class="mini"></div><div>enzo-crowd-pov.mp4</div><div><div class="st2 no">Couldn't copy from Drive — Retry</div></div></div><div class="prow"><div class="mini"></div><div>P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16 (again)</div><div><div class="st2 ">Already in this draft — skipped</div></div></div></div>
+<div class="ft"><span class="note">You can close this; ads finish in the draft.</span><span class="btn">Retry failed (1)</span></div></div>
+
+<h2>DL4 · The result</h2>
+<p class="lead">The draft's sidebar gains the new ads at the end, each marked <i>From Drive</i>. The picker shows the end line, the <i>Next:</i> chips and the kept fields.</p>
+<div class="frame" style="align-items:flex-start">
+<div style="flex:0 0 260px" class="side"><div class="k" style="margin:2px 0 8px">Ads (24)</div>
+<div class="ad"><span class="n">21</span><div><div class="t">Enzo - UGC 3</div><div class="s">Puzzle · video</div></div></div>
+<div class="ad new"><span class="n">22</span><div><div class="t">P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16</div><div class="s">Puzzle · video · From Drive</div></div></div>
+<div class="ad new"><span class="n">23</span><div><div class="t">P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16</div><div class="s">Puzzle · video · From Drive</div></div></div>
+<div class="ad new"><span class="n">24</span><div><div class="t">P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16</div><div class="s">Puzzle · video · From Drive</div></div></div>
+</div>
+<div style="flex:1;min-width:280px"><div class="mod">
+<div class="line"><b>3 ads prepared</b> · 1 skipped (already in this draft) · 1 failed — <u>Retry</u></div>
+<div class="crumb">03 Creatives / 3 On sale / <u>w/c 9 Nov ▾</u> / <u>Enzo Siragusa</u> / <u>Videos</u> / <b>UGC</b></div>
+<div class="next">Next: <span class="chip">Luke Dean / Videos / UGC</span><span class="chip">Puzzle / Videos / UGC</span></div>
+<div class="selrow"><span>Batch fields: <b>kept</b> for the next folder · <a>Clear fields</a></span><span class="btn solid">Done</span></div>
+</div></div></div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HG1 Entry and tree</td><td>G1: a <i>From Drive</i> button in the drop zone in all three hosts. The picker opens at the current stage's owners from the tree map. The breadcrumb's cycle segment is a menu. The four empty states verbatim.</td><td><code>drive_folders</code> map, <code>stageFolder</code>, the event's Drive id</td><td>P26-BDAY on 12 Nov opens at w/c 9 Nov's owners (Enzo Siragusa, Luke Dean, Reeshy, Phill de Janeiro, Benji King, Puzzle) although they sit under Content. A campaign without an event shows the first empty state</td></tr>
+<tr><td>HG2 Tiles and 9:16</td><td>G2: ratio from Drive's metadata with rotation, 2 % tolerance; unmeasured → <i>Size checked when copied</i>. The three disabled reasons verbatim. Dual / Full pairing by S14 name, statics only; video always Single.</td><td>Drive <code>files.list</code> fields: thumbnailLink, mimeType, size, videoMediaMetadata, imageMediaMetadata</td><td>a 1920 × 1080 clip is disabled; a 1080 × 1920 phone clip with rotation 90 reads 9:16; a 9:16 static without its 4:5 is disabled in Dual</td></tr>
+<tr><td>HG3 Kind</td><td>G3: media type from MIME, per ad.</td><td>—</td><td>a mixed selection of 2 videos and 1 static makes 2 video ads and 1 image ad</td></tr>
+<tr><td>HG4 Fields</td><td>G4: the bar's five fields and their defaults; written into each new ad; per-owner identity memory for the session.</td><td><code>events.ticket_url</code>, the draft's last ad</td><td>the first batch on P26-BDAY prefills the ticket URL and the last CTA; picking @enzosiragusa for Enzo is remembered for the next Enzo batch, not for Luke's</td></tr>
+<tr><td>HG5 Prepare</td><td>G5: one ad per file or set; names by S14 or <i>{first name} - {folder} {n}</i>; skip by <code>drive_file_id</code>; <i>From Drive · {path}</i> on the slot. Nothing launches.</td><td>the ad's asset carries <code>drive_file_id</code> and <code>registryAssetId</code></td><td>adding the same folder twice adds nothing the second time; with <i>Enzo - UGC 3</i> already in the draft, the next non-S14 UGC file is <i>Enzo - UGC 4</i></td></tr>
+<tr><td>HG6 Copy</td><td>G6: the path and the row states verbatim. A failure doesn't stop the batch. <i>Retry failed</i>. Closing the dialog doesn't cancel.</td><td><code>creative_assets</code> (228), the streamed Drive read (#1188 / #1189)</td><td>a fixture batch with one failing file ends <i>2 ads prepared · 0 skipped (already in this draft) · 1 failed — Retry</i>, and Retry makes the third</td></tr>
+<tr><td>HG7 Next owner</td><td>G7: the picker stays; <i>Next:</i> chips for the same path under the other owners (disabled with <i>— empty</i>); fields kept; <i>Clear fields</i>.</td><td>the tree map</td><td>after Enzo's batch, one click opens Luke Dean / Videos / UGC with the fields kept</td></tr>
+<tr><td>HG8 Frames</td><td>DL1 at 1280 and 393, DL3 and DL4 at 1280, in the creatives step's frames fixture, with a Drive fixture for the tree and files. The drop zone's frame is re-shot with <i>From Drive</i>.</td><td>fixtures only: no live Drive, no Meta upload in CI</td><td>frames:check adds DL1 ×2, DL3, DL4; the step's existing frames move only in the drop zone</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Owners from the tree map with the folders' stage and owner shown in the breadcrumb, not the Drive path. Folders below the owner read by name.</li>
+<li>The cycle segment as a menu, and the four empty-state sentences.</li>
+<li>The 2 % tolerance (borrowed from the crop) and <i>Size checked when copied</i>.</li>
+<li>Every disabled reason. Video always Single (from O95). Pairing by S14 name for statics in Dual / Full.</li>
+<li>The defaults: primary text and headline empty, the URL's fallbacks.</li>
+<li>No identity switch by owner, and per-owner memory.</li>
+<li>Naming by first name and folder. <i>Enzo - UGC 3</i> is Matas's own pattern, taken.</li>
+<li>Every G6 row state and line, <i>Retry failed</i>, and closing that doesn't cancel.</li>
+<li>The <i>Next:</i> chips and <i>Clear fields</i>.</li>
+<li>The 960 px dialog, full-screen at 393.</li>
+<li>TikTok deferred to its own record.</li>
+</ul>
+
+</div></body>
+</html>
