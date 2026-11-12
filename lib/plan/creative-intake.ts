@@ -220,6 +220,12 @@ export interface IntakeSendAsset {
   bucket: IntakeBucket;
   /** Group this asset is matched into. Null = a single. */
   groupId: string | null;
+  /**
+   * A video that cannot launch as itself (too small for 9:16, or a 4:5 / 1:1
+   * video). The row stays. Send does not insert it and does not delete a
+   * creative that already holds it.
+   */
+  videoHold?: boolean;
 }
 
 export interface IntakeOwnedCreative {
@@ -303,6 +309,7 @@ function desiredCreatives(assets: readonly IntakeSendAsset[]): Array<{
   }
   const desired: Array<{ key: string; mode: AssetMode; assetIds: string[] }> = [];
   for (const [key, members] of byGroup) {
+    if (members.some((asset) => asset.videoHold)) continue;
     const mode = matchAssetMode(members);
     if (!mode) continue;
     desired.push({
@@ -312,7 +319,7 @@ function desiredCreatives(assets: readonly IntakeSendAsset[]): Array<{
     });
   }
   for (const asset of singles) {
-    if (asset.bucket === "other") continue;
+    if (asset.bucket === "other" || asset.videoHold) continue;
     desired.push({
       key: singleGroupKey(asset.id),
       mode: "single",
@@ -400,9 +407,12 @@ export function planIntakeSend(input: {
     });
   }
 
+  const heldKeys = new Set(
+    input.assets.flatMap((asset) => (asset.videoHold ? [asset.groupId ?? singleGroupKey(asset.id)] : [])),
+  );
   const removeCreativeIds: string[] = [];
   for (const owned of input.owned) {
-    if (desiredKeys.has(owned.key)) continue;
+    if (desiredKeys.has(owned.key) || heldKeys.has(owned.key)) continue;
     const edited =
       owned.fingerprint != null &&
       owned.draftFingerprint != null &&

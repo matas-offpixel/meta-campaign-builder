@@ -1,4 +1,5 @@
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
+import { CreativeLabFrameHold } from "@/components/dashboard/events/creative-lab-frame-hold";
 import type { LabFrameFixture } from "@/scripts/plan-frames/lab-fixtures";
 
 /**
@@ -9,6 +10,9 @@ export function CreativeLabFrameMount({ fixture }: { fixture: LabFrameFixture })
   return (
     <div data-frame-ready={fixture.id} className="bg-background px-6 py-6 text-foreground">
       <CreativeLabCard lab={fixture.lab} />
+      {fixture.holdRows ? (
+        <CreativeLabFrameHold eventName={fixture.lab.eventName} holdRows={fixture.holdRows} />
+      ) : null}
     </div>
   );
 }

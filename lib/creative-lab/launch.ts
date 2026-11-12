@@ -8,7 +8,7 @@
  */
 
 import { clipIdsTooSmallFor916 } from "./clip-preview.ts";
-import { TOO_SMALL_FOR_916 } from "./import-quality.ts";
+import { TOO_SMALL_FOR_916, missingTripleFitColumn } from "./import-quality.ts";
 import { buildLabDraft, buildLabLaunchBody, type LabDraftAd, type LabDraftTarget } from "./lab-draft.ts";
 import { LAB_LAUNCHES_OFF, labLaunchesEnabled } from "./killswitch.ts";
 import type { ServiceRoleDb } from "./load.ts";
@@ -140,7 +140,10 @@ function targetOf(round: Row, eventName: string, clientId: string | null): LabDr
 async function clipsTooSmallToLaunch(db: ServiceRoleDb, clipIds: readonly string[]): Promise<Set<string>> {
   const ids = [...new Set(clipIds.map((id) => id.trim()).filter(Boolean))];
   if (!ids.length) return new Set();
-  const clips = await db.from("creative_lab_clips").select("id, creative_asset_id").in("id", ids);
+  const withLink = await db.from("creative_lab_clips").select("id, creative_asset_id, triple_fit_source_id").in("id", ids);
+  const clips = withLink.error && missingTripleFitColumn(withLink.error.message)
+    ? await db.from("creative_lab_clips").select("id, creative_asset_id").in("id", ids)
+    : withLink;
   if (clips.error) throw new Error(`creative_lab_clips: ${clips.error.message}`);
   const rows = (clips.data ?? []) as Row[];
   const assetIds = [...new Set(rows.map((row) => text(row, "creative_asset_id")).filter(Boolean))];
@@ -149,12 +152,16 @@ async function clipsTooSmallToLaunch(db: ServiceRoleDb, clipIds: readonly string
     : { data: [] as Row[], error: null };
   if (assets.error) throw new Error(`creative_assets: ${assets.error.message}`);
   const pathOf = new Map(((assets.data ?? []) as Row[]).map((row) => [text(row, "id"), text(row, "storage_path")]));
-  return clipIdsTooSmallFor916(rows.map((row) => ({
+  const small = await clipIdsTooSmallFor916(rows.map((row) => ({
     id: text(row, "id"),
     storagePath: pathOf.get(text(row, "creative_asset_id")) || null,
     width: Number(row.source_width) || null,
     height: Number(row.source_height) || null,
   })));
+  for (const row of rows) {
+    if (text(row, "triple_fit_source_id")) small.delete(text(row, "id"));
+  }
+  return small;
 }
 
 /**

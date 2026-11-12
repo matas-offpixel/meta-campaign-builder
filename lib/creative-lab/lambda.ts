@@ -127,15 +127,22 @@ async function lambdaClient(deps?: LambdaDeps): Promise<NonNullable<LambdaDeps["
   return deps?.client ?? (await import("@remotion/lambda/client"));
 }
 
+export type CompositionRender = {
+  composition: "CaptionOnClip" | "TripleFitOnClip";
+  inputProps: Record<string, unknown>;
+  muted: boolean;
+  frameCount: number;
+};
+
 /** Render, poll once through to the end, and download the mp4. Deletes a partial S3 render if the poll fails. */
-export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl: string, deps?: LambdaDeps): Promise<LambdaRenderOutput> {
+export async function renderCompositionViaLambda(req: CompositionRender, serveUrl: string, deps?: LambdaDeps): Promise<LambdaRenderOutput> {
   const { getFunctions, renderMediaOnLambda, getRenderProgress, deleteRender } = await lambdaClient(deps);
   const functions = await getFunctions({ region: REMOTION_REGION, compatibleOnly: true });
   const functionName = pickLambdaFunction(functions)?.functionName;
   if (!functionName) throw new Error("No 480s Remotion Lambda function in eu-west-2. Run scripts/remotion-lambda-deploy.mts.");
 
   const limit = await (deps?.readConcurrencyLimit ?? readConcurrencyLimit)();
-  const chunking = lambdaChunking(limit, frameCount(req.props));
+  const chunking = lambdaChunking(limit, req.frameCount);
   const startedAt = Date.now();
   let started: Started | null = null;
   try {
@@ -143,8 +150,8 @@ export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl
       region: REMOTION_REGION,
       functionName,
       serveUrl,
-      composition: "CaptionOnClip",
-      inputProps: req.props as unknown as Record<string, unknown>,
+      composition: req.composition,
+      inputProps: req.inputProps,
       codec: "h264",
       privacy: "private",
       imageFormat: "jpeg",
@@ -182,6 +189,16 @@ export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl
     }
     throw err;
   }
+}
+
+/** A caption render is CaptionOnClip. A triple-fit does not use this. */
+export async function renderCaptionViaLambda(req: CaptionRenderRequest, serveUrl: string, deps?: LambdaDeps): Promise<LambdaRenderOutput> {
+  return renderCompositionViaLambda({
+    composition: "CaptionOnClip",
+    inputProps: req.props as unknown as Record<string, unknown>,
+    muted: req.muted,
+    frameCount: frameCount(req.props),
+  }, serveUrl, deps);
 }
 
 /**

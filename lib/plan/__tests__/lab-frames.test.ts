@@ -17,7 +17,7 @@ describe("Creative Lab frame catalog (CL)", () => {
   it("the runner shoots every CL id at 1280 and 393", () => {
     assert.deepEqual([...SHOT_IDS], [...LAB_FRAME_IDS]);
     assert.deepEqual([...LAB_WIDTHS], [...LAB_FRAME_WIDTHS]);
-    assert.equal(LAB_SHOTS.length, 20);
+    assert.equal(LAB_SHOTS.length, 24);
     assert.ok(LAB_SHOTS.every((shot: { id: string; frame: string; width: number }) => shot.id === `${shot.frame}-${shot.width}`));
   });
 
@@ -36,9 +36,9 @@ describe("Creative Lab frame catalog (CL)", () => {
     const bea = LAB_FRAME_FIXTURES.CL10.lab.clips.find((clip) => clip.id === failed.clipId);
     assert.equal(renderRowWord(failed, shown, LAB_FRAME_FIXTURES.CL10.now), "The renderer failed — try it again.");
     assert.equal(failed.roundOpen, true);
-    assert.equal(failedRenderSentence(failed.error, bea), "The renderer failed · Too small for 9:16");
+    assert.equal(failedRenderSentence(failed.error, bea), "The renderer failed · Landscape — triple-fit only");
     assert.deepEqual(renderFailureLine(failedRenderSentence(failed.error, bea), failed.roundOpen), {
-      lead: "The renderer failed · Too small for 9:16",
+      lead: "The renderer failed · Landscape — triple-fit only",
       link: null,
       tail: "",
     });

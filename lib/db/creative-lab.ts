@@ -229,6 +229,8 @@ export type CreativeLabCardData = {
     hasAudio?: boolean | null;
     cropFocusX: number;
     cropOpen: boolean;
+    tripleFitSourceId?: string | null;
+    tripleFitSourceNo?: number | null;
   }[];
   renders: {
     id: string;
@@ -581,6 +583,10 @@ export async function loadCreativeLabCard(
         audioMatch: row.audio_match === true ? true : row.audio_match === false ? false : null,
         cropFocusX: row.crop_focus_x == null ? 0.5 : Number(row.crop_focus_x),
         cropOpen: false,
+        tripleFitSourceId: text(row, "triple_fit_source_id") || null,
+        tripleFitSourceNo: text(row, "triple_fit_source_id")
+          ? Number(clipRows.find((item) => text(item, "id") === text(row, "triple_fit_source_id"))?.clip_no) || null
+          : null,
         renderError,
         judged: judged
           ? {

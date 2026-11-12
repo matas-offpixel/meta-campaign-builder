@@ -15,8 +15,8 @@ import { crowdBlock, normaliseCaption } from "./caption-facts.ts";
 import { captionAllowsClip } from "./footage-owner.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
-import { clipIdsTooSmallFor916, sizesForClipFiles } from "./clip-preview.ts";
-import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
+import { sizesForClipFiles } from "./clip-preview.ts";
+import { LANDSCAPE_TRIPLE_FIT_ONLY, TOO_SMALL_FOR_916, TRIPLE_FIT_NOT_PAIRED, missingTripleFitColumn, tooSmallFor916, tripleFitSource } from "./import-quality.ts";
 import { noSelectedClipsSentence, selectedIdSet } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
 import { assertArtistCleared, buildAdName, createRound, type LabArtist } from "./rounds.ts";
@@ -245,7 +245,15 @@ async function clipsForRound(clips: Clip[], assets: Map<string, Row>, skipped: {
   }
   const kept: Clip[] = [];
   for (const clip of clips) {
+    if (String(clip.triple_fit_source_id ?? "").trim()) {
+      skipped.push({ reason: TRIPLE_FIT_NOT_PAIRED });
+      continue;
+    }
     const size = sizes.get(String(clip.id));
+    if (size && tripleFitSource(size)) {
+      skipped.push({ reason: LANDSCAPE_TRIPLE_FIT_ONLY });
+      continue;
+    }
     if (size && tooSmallFor916(size)) {
       skipped.push({ reason: TOO_SMALL_FOR_916 });
       continue;
@@ -716,22 +724,29 @@ export async function retryRender(db: ServiceRoleDb, args: { renderId: string; u
     throw new RenderRetryError(409, renderRefusalSentence(error) ?? "This render can't be tried again — propose the round again.");
   }
   if (render.aspect !== "9:16") throw new RenderRetryError(409, "This render is an old size — propose the round again.");
-  const clip = await db.from("creative_lab_clips").select("id, creative_asset_id").eq("id", String(render.clip_id)).maybeSingle();
+  const withLink = await db.from("creative_lab_clips").select("id, creative_asset_id, triple_fit_source_id").eq("id", String(render.clip_id)).maybeSingle();
+  const clip = withLink.error && missingTripleFitColumn(withLink.error.message)
+    ? await db.from("creative_lab_clips").select("id, creative_asset_id").eq("id", String(render.clip_id)).maybeSingle()
+    : withLink;
   if (clip.error) throw new Error(`creative_lab_clips: ${clip.error.message}`);
   if (clip.data) {
     const row = clip.data as Row;
-    const assetId = String(row.creative_asset_id ?? "");
-    const asset = assetId
-      ? await db.from("creative_assets").select("storage_path").eq("id", assetId).maybeSingle()
-      : { data: null, error: null };
-    if (asset.error) throw new Error(`creative_assets: ${asset.error.message}`);
-    const small = await clipIdsTooSmallFor916([{
-      id: String(row.id),
-      storagePath: String(asset.data?.storage_path ?? "") || null,
-      width: Number(row.source_width) || null,
-      height: Number(row.source_height) || null,
-    }]);
-    if (small.has(String(row.id))) throw new RenderRetryError(409, TOO_SMALL_FOR_916);
+    if (!String(row.triple_fit_source_id ?? "").trim()) {
+      const assetId = String(row.creative_asset_id ?? "");
+      const asset = assetId
+        ? await db.from("creative_assets").select("storage_path").eq("id", assetId).maybeSingle()
+        : { data: null, error: null };
+      if (asset.error) throw new Error(`creative_assets: ${asset.error.message}`);
+      const measured = await sizesForClipFiles([{
+        id: String(row.id),
+        storagePath: String(asset.data?.storage_path ?? "") || null,
+        width: Number(row.source_width) || null,
+        height: Number(row.source_height) || null,
+      }]);
+      const size = measured.get(String(row.id));
+      if (size && tripleFitSource(size)) throw new RenderRetryError(409, LANDSCAPE_TRIPLE_FIT_ONLY);
+      if (size && tooSmallFor916(size)) throw new RenderRetryError(409, TOO_SMALL_FOR_916);
+    }
   }
 
   const ads = (await list(db, "creative_lab_round_ads", "render_id", args.renderId)).filter((ad) => ad.user_id === args.userId);
