@@ -13,6 +13,7 @@
     "test": "node --conditions react-server --experimental-strip-types --test 'lib/**/__tests__/*.test.ts' 'components/meta/**/__tests__/*.test.ts' && vitest run",
     "bundle-remotion": "node --experimental-strip-types scripts/bundle-remotion.ts",
     "prebuild": "npm run bundle-remotion",
+    "check:function-size": "node --experimental-strip-types scripts/check-function-size.mts",
     "frames": "ENABLE_PLAN_FRAMES=1 npm run build && ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --update",
     "frames:check": "ENABLE_PLAN_FRAMES=1 npm run build && ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --check"
   },
