@@ -15,6 +15,7 @@ import {
   shareStateLine,
   usualFolders,
   type FolderChoice,
+  type OwnerOption,
   type SharePhase,
 } from "@/lib/drive/panel";
 
@@ -36,6 +37,10 @@ type View = {
   status: string | null;
   eventDate: string | null;
   folderName: string;
+  /** The upload's owner picker and its folder map (2026-11-11-creative-lab-upload-owner). */
+  eventCode?: string | null;
+  owners?: OwnerOption[];
+  folderKeys?: string[];
 };
 
 export type DrivePreview = {
@@ -299,8 +304,8 @@ export function DriveLive(props: {
               event.target.value = "";
               if (!picked || !view) return;
               const next = preselectFolder(
-                { name: picked.name, artistId: props.artists.length === 1 ? props.artists[0]?.id : null },
-                { artists: props.artists, status: view.status, eventDate: view.eventDate, today: view.today },
+                { name: picked.name, mimeType: picked.type || null, artistId: props.artists.length === 1 ? props.artists[0]?.id : null },
+                { artists: props.artists, status: view.status, eventDate: view.eventDate, today: view.today, owners: view.owners ?? null, eventCode: view.eventCode ?? null, folderKeys: view.folderKeys ?? null },
               );
               setFile(picked);
               setChoice(next);
@@ -314,9 +319,11 @@ export function DriveLive(props: {
       {file && choice && view ? (
         <WhichFolder
           fileLabel={`${file.name} · ${formatFileSize(file.size)}`}
-          choices={usualFolders({ artists: props.artists, status: view.status, eventDate: view.eventDate, today: view.today }, choice)}
+          choices={usualFolders({ artists: props.artists, status: view.status, eventDate: view.eventDate, today: view.today, owners: view.owners ?? null, eventCode: view.eventCode ?? null }, choice)}
           selectedKey={choice.key}
           artists={props.artists}
+          file={{ name: file.name, mimeType: file.type || null }}
+          folderKeys={view.folderKeys ?? null}
           busy={busy}
           onSelect={setChoice}
           onCancel={() => { setFile(null); setChoice(null); }}

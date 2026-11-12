@@ -12,6 +12,7 @@ import {
   folderPlace,
   panelRows,
 } from "@/lib/drive/panel";
+import { uploadOwnerOptions } from "@/lib/drive/owner";
 import { createEventTree, linkEventFolder, parseDriveFolderId, resolveDriveFolder } from "@/lib/drive/setup";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -61,6 +62,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     }
   }
   const today = londonToday(new Date());
+  // The upload's owner picker (HU2): the lineup in billing order, then the promoter.
+  const owners = client ? await uploadOwnerOptions(db, event, client) : [];
   const mapped = folders.find((row) => row.key === "event");
   let folderName = mapped?.name || eventFolderName(event);
   if (event.drive_folder_id) {
@@ -90,6 +93,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     today,
     status: event.status,
     eventDate: event.event_date,
+    eventCode: event.event_code ?? null,
+    owners,
+    folderKeys: folders.map((row) => row.key),
   });
 }
 

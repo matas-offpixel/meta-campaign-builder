@@ -3507,6 +3507,7 @@ export type Database = {
           source: string
           source_file_id: string | null
           shown_on_event_id: string | null
+          triple_fit_source_id: string | null
           updated_at: string
           user_id: string
         }
@@ -3539,6 +3540,7 @@ export type Database = {
           source: string
           source_file_id?: string | null
           shown_on_event_id?: string | null
+          triple_fit_source_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -3571,6 +3573,7 @@ export type Database = {
           source?: string
           source_file_id?: string | null
           shown_on_event_id?: string | null
+          triple_fit_source_id?: string | null
           updated_at?: string
           user_id?: string
         }

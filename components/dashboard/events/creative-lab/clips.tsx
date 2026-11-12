@@ -16,6 +16,7 @@ import {
   selectionAfterNone,
   selectionAfterToggle,
   selectionCount,
+  usableClips,
   type ClipSelection,
 } from "@/lib/creative-lab/selection";
 import { CropPicker } from "@/components/dashboard/events/creative-lab/crop-picker";
@@ -30,7 +31,12 @@ import {
   candidateTileState,
   cantRunReason,
   clipBucket,
+  clipTileName,
+  madeTripleFitSentence,
+  showTripleFitOffer,
   tooSmall916Sentence,
+  TRIPLE_FIT_OFFER,
+  tripleFitOnlySentence,
   durationLabel,
   groupClips,
   findClipsErrorSentence,
@@ -120,7 +126,7 @@ export function LabClips({
   const stored = lab.clipSelection ?? emptySelection();
   const [override, setOverride] = useState<ClipSelection | null>(null);
   const selection = override ?? stored;
-  const usable = [...groups.keeping, ...groups.fresh];
+  const usable = usableClips(lab.clips);
   const usableIds = usable.map((clip) => clip.id);
   const counts = selectionCount(selection, lab.clips);
   const selected = new Set(effectiveSelection(selection, lab.clips).map((clip) => clip.id));
@@ -254,6 +260,7 @@ export function LabClips({
           lab={lab}
           selected={selected}
           finding={finding}
+          busy={busy}
           findError={findError}
           onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))}
           onSave={onSave}
@@ -261,9 +268,11 @@ export function LabClips({
           onAddHandle={() => { if (lab.clientId) router.push(`/clients/${lab.clientId}/edit`); }}
         />
       ) : showTiles ? <>
-      <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} wide selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
-      <ClipGroup title="New" hint="untested" clips={groups.fresh} selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
-      <ClipGroup title="Can't run" clips={groups.cant} audibleClipId={audibleClipId} onCrop={() => undefined} />
+      <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} all={lab.clips} busy={busy} onSave={onSave} wide selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="New" hint="untested" clips={groups.fresh} all={lab.clips} busy={busy} onSave={onSave} selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="Triple-fit only" clips={groups.triple} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
+      <ClipGroup title="Triple-fit" clips={groups.made} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
+      <ClipGroup title="Can't run" clips={groups.cant} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
       </> : null}
       {intake ? (
         <>
@@ -327,10 +336,42 @@ function clipOwner(clip: CreativeLabCardData["clips"][number]): "promoter" | "ar
   return clip.artistId ? "artist" : "promoter";
 }
 
+function OwnerTiles({
+  clips,
+  className,
+  render,
+}: {
+  clips: CreativeLabCardData["clips"];
+  className: string;
+  render: (clip: CreativeLabCardData["clips"][number]) => ReactNode;
+}) {
+  const triple = clips.filter((clip) => clipBucket(clip) === "triple");
+  const made = clips.filter((clip) => clipBucket(clip) === "made");
+  const rest = clips.filter((clip) => clipBucket(clip) !== "triple" && clipBucket(clip) !== "made");
+  return (
+    <>
+      {rest.length > 0 ? <div className={className}>{rest.map(render)}</div> : null}
+      {triple.length > 0 ? (
+        <>
+          <p className="mb-2 mt-2 text-muted-foreground">Triple-fit only · {triple.length}</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{triple.map(render)}</div>
+        </>
+      ) : null}
+      {made.length > 0 ? (
+        <>
+          <p className="mb-2 mt-2 text-muted-foreground">Triple-fit · {made.length}</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{made.map(render)}</div>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function OwnerGroups({
   lab,
   selected,
   finding,
+  busy,
   findError,
   onToggle,
   onSave,
@@ -340,6 +381,7 @@ function OwnerGroups({
   lab: CreativeLabCardData;
   selected: ReadonlySet<string>;
   finding: boolean;
+  busy: boolean;
   findError: string | null;
   onToggle: (clipId: string) => void;
   onSave: Save;
@@ -370,21 +412,26 @@ function OwnerGroups({
         ) : (
           <div className="mt-2 space-y-2">
             {promoter.length > 0 ? (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                {promoter.map((clip) => {
+              <OwnerTiles
+                clips={promoter}
+                className="grid grid-cols-2 gap-2 sm:grid-cols-5"
+                render={(clip) => {
                   const names = (clip.featuredArtistIds ?? []).map((id) => lab.artists.find((artist) => artist.id === id)?.name).filter((name): name is string => Boolean(name));
                   return (
                     <ClipTile
                       key={clip.id}
                       clip={clip}
+                      clips={lab.clips}
+                      busy={busy}
+                      onSave={onSave}
                       label={promoterTileLabel(client, clip.clipNo, names)}
                       selected={selected.has(clip.id)}
-                      onToggle={cantRunReason(clip) ? undefined : () => onToggle(clip.id)}
+                      onToggle={cantRunReason(clip) || madeTripleFitSentence(clip) ? undefined : () => onToggle(clip.id)}
                       menu={<ClipMenu clip={clip} lab={lab} client={client} features onSave={onSave} />}
                     />
                   );
-                })}
-              </div>
+                }}
+              />
             ) : null}
             {candidates.length > 0 ? (
               <div className="space-y-2">
@@ -409,17 +456,22 @@ function OwnerGroups({
             <p className="font-medium">{artist.name} footage</p>
             <p className="text-muted-foreground"><span className="max-[700px]:hidden">{artistHint(artist.name, artist.pronouns, false)}</span><span className="hidden max-[700px]:inline">{artistHint(artist.name, artist.pronouns, true)}</span></p>
             {featuring > 0 ? <p className="text-xs text-muted-foreground">{featuringLine(featuring, client, artist.name)}</p> : null}
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {clips.map((clip) => (
+            <OwnerTiles
+              clips={clips}
+              className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5"
+              render={(clip) => (
                 <ClipTile
                   key={clip.id}
                   clip={clip}
+                  clips={lab.clips}
+                  busy={busy}
+                  onSave={onSave}
                   selected={selected.has(clip.id)}
-                  onToggle={cantRunReason(clip) ? undefined : () => onToggle(clip.id)}
+                  onToggle={cantRunReason(clip) || madeTripleFitSentence(clip) ? undefined : () => onToggle(clip.id)}
                   menu={<ClipMenu clip={clip} lab={lab} client={client} features={false} onSave={onSave} />}
                 />
-              ))}
-            </div>
+              )}
+            />
           </div>
         );
       })}
@@ -476,6 +528,9 @@ function ClipGroup({
   title,
   hint,
   clips,
+  all,
+  busy,
+  onSave,
   wide,
   selected,
   audibleClipId,
@@ -485,6 +540,9 @@ function ClipGroup({
   title: string;
   hint?: string;
   clips: CreativeLabCardData["clips"];
+  all: CreativeLabCardData["clips"];
+  busy: boolean;
+  onSave: Save;
   wide?: boolean;
   selected?: ReadonlySet<string>;
   audibleClipId?: string | null;
@@ -497,10 +555,10 @@ function ClipGroup({
       <p className="mb-2 text-muted-foreground">{title} · {clips.length}{hint ? ` · ${hint}` : ""}</p>
       <div className={wide ? "grid grid-cols-2 gap-2 sm:grid-cols-5" : "flex gap-2 overflow-x-auto sm:grid sm:grid-cols-5"}>
         {clips.map((clip) => (
-          <ClipTile key={clip.id} clip={clip} selected={selected?.has(clip.id) === true} audible={clip.id === audibleClipId} onToggle={onToggle ? () => onToggle(clip.id) : undefined} />
+          <ClipTile key={clip.id} clip={clip} clips={all} busy={busy} onSave={onSave} selected={selected?.has(clip.id) === true} audible={clip.id === audibleClipId} onToggle={onToggle ? () => onToggle(clip.id) : undefined} />
         ))}
       </div>
-      {clips.filter((clip) => clip.cropOpen && !tooSmall916Sentence(clip) && clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight)).map((clip) => (
+      {clips.filter((clip) => clip.cropOpen && !clip.tripleFitSourceId && !tripleFitOnlySentence(clip) && !tooSmall916Sentence(clip) && clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight)).map((clip) => (
         <CropPicker
           key={clip.id}
           src={clip.previewUrl}
@@ -517,6 +575,9 @@ function ClipGroup({
 
 function ClipTile({
   clip,
+  clips,
+  busy = false,
+  onSave,
   label,
   selected = false,
   audible = false,
@@ -524,19 +585,31 @@ function ClipTile({
   menu,
 }: {
   clip: CreativeLabCardData["clips"][number];
+  clips?: CreativeLabCardData["clips"];
+  busy?: boolean;
+  onSave?: Save;
   label?: string;
   selected?: boolean;
   audible?: boolean;
   onToggle?: () => void;
   menu?: ReactNode;
 }) {
-  const reason = cantRunReason(clip);
+  const landscape = tripleFitOnlySentence(clip);
+  const blocked = cantRunReason(clip);
+  const waiting = madeTripleFitSentence(clip);
+  const offer = clips ? showTripleFitOffer(clip, clips) : false;
   const verdict = clip.judged ? (clip.judged.verdict === "thin" ? "untested" : clip.judged.verdict) : "untested";
   const wideFrame = clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight);
-  const name = label ?? `${clip.artistName} #${clip.clipNo}`;
+  const name = clip.tripleFitSourceId ? clipTileName(clip) : (label ?? clipTileName(clip));
+  const tick = waiting ? undefined : onToggle;
+  const outline = blocked
+    ? "rounded border border-dashed border-destructive p-1"
+    : landscape
+      ? "rounded border border-border p-1"
+      : "";
   return (
-    <article className={`w-36 shrink-0 sm:w-auto ${selected ? "rounded ring-2 ring-foreground" : ""} ${reason ? "rounded border border-dashed border-destructive p-1" : ""}`} title={clip.rightsRef}>
-      <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} hasAudio={clip.hasAudio} initialAudible={audible} ticked={onToggle ? selected : undefined} onToggle={onToggle} />
+    <article className={`w-36 shrink-0 sm:w-auto ${selected && !waiting ? "rounded ring-2 ring-foreground" : ""} ${outline}`} title={clip.rightsRef}>
+      <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} hasAudio={clip.hasAudio} initialAudible={audible} ticked={tick ? selected : undefined} onToggle={tick} />
       <p className="mt-1 flex justify-between text-xs">
         <span>{sourceBadge(clip.source)}</span>
         <span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span>
@@ -547,12 +620,17 @@ function ClipTile({
         <p className="text-xs">{name}</p>
       )}
       {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
-      {wideFrame && !clip.cropOpen && !reason ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
-      {reason ? (
+      {wideFrame && !clip.cropOpen && !waiting && !landscape && !blocked ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
+      {waiting || landscape || blocked ? (
         <div className="space-y-1 text-xs">
-          <p className="text-destructive">{reason}</p>
+          <p className={blocked ? "text-destructive" : "text-muted-foreground"}>{waiting ?? landscape ?? blocked}</p>
           {clip.judged && ((clip.judged.cost ?? 0) > 0 || (clip.judged.results ?? 0) > 0) ? (
             <p className="tabular-nums">{money(clip.judged.cost)} / {metricUnit(clip.judged.metric)} · {resultsLabel(clip.judged.results, clip.judged.metric)}</p>
+          ) : null}
+          {offer ? (
+            <button type="button" className="underline disabled:opacity-50" disabled={busy} onClick={() => void onSave?.({ action: "makeTripleFit", clipId: clip.id })}>
+              {TRIPLE_FIT_OFFER}
+            </button>
           ) : null}
         </div>
       ) : (

@@ -30,11 +30,19 @@ import {
   SETUP_TITLE,
   SHARE,
   SHARE_WITH_PROMOTER,
+  CHOOSE_OWNER,
+  CHOOSE_TYPE,
   UPLOAD,
   WHICH_FOLDER,
+  anotherFolderChoice,
   clipImportLine,
+  creativesNote,
   driveFolderUrl,
   otherFolderChoices,
+  typeFolderName,
+  uploadReady,
+  withKind,
+  withOwner,
   type FolderChoice,
 } from "@/lib/drive/panel";
 
@@ -211,6 +219,73 @@ export function DriveSetup(props: {
   );
 }
 
+/**
+ * The creatives row's two pickers (2026-11-11-creative-lab-upload-owner, U1,
+ * U4): who it's for, then Videos or Statics. Lists, not native selects, so the
+ * open owner list can be drawn (CLS7b). The lineup comes first in billing
+ * order, then a rule, then the promoter.
+ */
+export function CreativesPickers(props: {
+  choice: FolderChoice;
+  onChange: (choice: FolderChoice) => void;
+  stacked?: boolean;
+  /** Frames only: draw this list open. */
+  openList?: "owner" | "type" | null;
+}) {
+  const [open, setOpen] = useState<"owner" | "type" | null>(props.openList ?? null);
+  const row = props.choice.creatives;
+  if (!row) return null;
+  const artists = row.owners.filter((owner) => owner.kind === "artist");
+  const promoter = row.owners.filter((owner) => owner.kind === "promoter");
+  const trigger = "inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-sm";
+  // Stacked (393, a sheet): the list opens in the flow so the sheet grows to show it all.
+  const list = props.stacked
+    ? "mt-1 block min-w-[180px] rounded-md border border-border bg-card py-1 text-sm shadow-sm"
+    : "absolute left-0 top-full z-10 mt-1 min-w-[180px] rounded-md border border-border bg-card py-1 text-sm shadow-sm";
+  const item = "block w-full px-2.5 py-1 text-left hover:bg-muted";
+  return (
+    <span className={props.stacked ? "flex flex-col items-start gap-1.5" : "inline-flex flex-wrap items-baseline gap-1"}>
+      <span className={props.stacked ? "block" : "relative"}>
+        <button type="button" aria-haspopup="listbox" aria-expanded={open === "owner"} className={`${trigger} ${row.owner ? "" : "text-muted-foreground"}`} onClick={() => setOpen(open === "owner" ? null : "owner")}>
+          {row.owner?.name ?? CHOOSE_OWNER}
+          <span aria-hidden>▾</span>
+        </button>
+        {open === "owner" ? (
+          <span role="listbox" className={list}>
+            {artists.map((owner) => (
+              <button key={owner.ref} type="button" role="option" aria-selected={row.owner?.ref === owner.ref} className={item} onClick={() => { props.onChange(withOwner(props.choice, owner.ref)); setOpen(null); }}>
+                {owner.name}
+              </button>
+            ))}
+            {promoter.length ? <span className="my-1 block border-t border-border" /> : null}
+            {promoter.map((owner) => (
+              <button key={owner.ref} type="button" role="option" aria-selected={row.owner?.ref === owner.ref} className={item} onClick={() => { props.onChange(withOwner(props.choice, owner.ref)); setOpen(null); }}>
+                {owner.name}
+              </button>
+            ))}
+          </span>
+        ) : null}
+      </span>
+      {props.stacked ? null : <span>/</span>}
+      <span className={props.stacked ? "block" : "relative"}>
+        <button type="button" aria-haspopup="listbox" aria-expanded={open === "type"} className={`${trigger} ${row.kind ? "" : "text-muted-foreground"}`} onClick={() => setOpen(open === "type" ? null : "type")}>
+          {row.kind ? typeFolderName(row.kind) : CHOOSE_TYPE}
+          <span aria-hidden>▾</span>
+        </button>
+        {open === "type" ? (
+          <span role="listbox" className={list}>
+            {(["video", "static"] as const).map((kind) => (
+              <button key={kind} type="button" role="option" aria-selected={row.kind === kind} className={item} onClick={() => { props.onChange(withKind(props.choice, kind)); setOpen(null); }}>
+                {typeFolderName(kind)}
+              </button>
+            ))}
+          </span>
+        ) : null}
+      </span>
+    </span>
+  );
+}
+
 export function WhichFolder(props: {
   fileLabel: string;
   choices: FolderChoice[];
@@ -220,6 +295,12 @@ export function WhichFolder(props: {
   onCancel: () => void;
   onUpload: () => void;
   busy?: boolean;
+  /** The file, for a stage picked under "Another folder…" (its owner and type preselect the same way). */
+  file?: { name: string; mimeType?: string | null } | null;
+  /** The folder map's keys: "Makes … with this upload." and the older cycles under "Another folder…". */
+  folderKeys?: string[] | null;
+  /** Frames only: draw a creatives picker's list open. */
+  openList?: "owner" | "type" | null;
 }) {
   const group = useId();
   const titleId = useId();
@@ -233,8 +314,22 @@ export function WhichFolder(props: {
     return () => document.removeEventListener("keydown", onKey);
   }, [onCancel]);
   const [picking, setPicking] = useState<"artist" | "press" | null>(null);
-  const selected = props.choices.find((choice) => choice.key === props.selectedKey) ?? props.choices[0];
+  // A choice made here that the parent's list doesn't hold (a stage under "Another folder…", or a
+  // picker change before the parent re-renders) is kept so the dialog shows what was picked.
+  const [extra, setExtra] = useState<FolderChoice | null>(null);
+  const select = (choice: FolderChoice) => {
+    setExtra(props.choices.some((row) => row.key === choice.key) ? null : choice);
+    props.onSelect(choice);
+  };
+  const selected = props.choices.find((choice) => choice.key === props.selectedKey) ?? (extra && extra.key === props.selectedKey ? extra : props.choices[0]);
   const importLine = selected?.artistName && selected.key.includes("artist-clips") ? clipImportLine(selected.artistName) : null;
+  const folderKeys = props.folderKeys ? new Set(props.folderKeys) : null;
+  const note = creativesNote(selected, folderKeys);
+  const creativesRow = props.choices.find((choice) => choice.creatives);
+  const others = otherFolderChoices({ folderKeys: props.folderKeys, currentStageKey: creativesRow?.creatives?.stageKey ?? null });
+  const pickOther = (picked: { key: string; label: string }) =>
+    select(anotherFolderChoice(picked, { owners: creativesRow?.creatives?.owners ?? null, artists: props.artists }, props.file ?? null));
+  const isSelected = (choice: FolderChoice) => choice.key === props.selectedKey || Boolean(choice.creatives && selected?.creatives && choice.creatives.stageKey === selected.creatives.stageKey);
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/30 p-6 max-[700px]:items-end max-[700px]:p-0">
     <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="w-full max-w-[540px] rounded-md border border-border bg-card p-4 shadow-sm max-[700px]:rounded-b-none">
@@ -242,35 +337,66 @@ export function WhichFolder(props: {
       <p className="mb-2 font-mono text-[11px] text-muted-foreground">{props.fileLabel}</p>
       <div className="max-[700px]:hidden">
         {props.choices.map((choice) => (
-          <label key={choice.label} className="flex items-baseline gap-2 py-0.5 text-sm">
-            <input type="radio" name={group} className="accent-foreground" checked={choice.key === props.selectedKey} onChange={() => props.onSelect(choice)} />
-            <span>
-              {choice.label.includes(CHOOSE_ARTIST) ? (
-                <>
-                  {choice.label.replace(CHOOSE_ARTIST, "")}
-                  <button type="button" className="underline" onClick={() => setPicking(choice.key.includes("press") ? "press" : "artist")}>
-                    {CHOOSE_ARTIST}
-                  </button>
-                </>
-              ) : (
-                choice.label
-              )}
-              {choice.likely ? <small className="ml-2 text-muted-foreground">{choice.likely}</small> : null}
-            </span>
-          </label>
+          <div key={choice.creatives ? `creatives:${choice.creatives.stageKey}` : choice.label}>
+            <label className="flex items-baseline gap-2 py-0.5 text-sm">
+              <input type="radio" name={group} className="accent-foreground" checked={isSelected(choice)} onChange={() => select(choice)} />
+              <span>
+                {choice.creatives ? (
+                  <>
+                    {choice.creatives.stageLabel} /{" "}
+                    <CreativesPickers choice={isSelected(choice) && selected?.creatives ? selected : choice} onChange={select} openList={props.openList} />
+                    {/* U4: the likely line stays in one piece. When it doesn't fit after the pickers it
+                        wraps whole onto the next line, starting at the row label's left edge. */}
+                    {(isSelected(choice) && selected?.creatives ? selected.likely : choice.likely) ? (
+                      <>
+                        {" "}
+                        <small className="inline-block whitespace-nowrap text-muted-foreground">{isSelected(choice) && selected?.creatives ? selected.likely : choice.likely}</small>
+                      </>
+                    ) : null}
+                    {/* "Makes … with this upload." under the row, from the same left edge. */}
+                    {isSelected(choice) && note ? <span className="block pb-1 text-[11.5px] text-muted-foreground">{note}</span> : null}
+                  </>
+                ) : choice.label.includes(CHOOSE_ARTIST) ? (
+                  <>
+                    {choice.label.replace(CHOOSE_ARTIST, "")}
+                    <button type="button" className="underline" onClick={() => setPicking(choice.key.includes("press") ? "press" : "artist")}>
+                      {CHOOSE_ARTIST}
+                    </button>
+                  </>
+                ) : (
+                  choice.label
+                )}
+                {!choice.creatives && choice.likely ? <small className="ml-2 text-muted-foreground">{choice.likely}</small> : null}
+              </span>
+            </label>
+          </div>
         ))}
+        {selected?.creatives && !props.choices.some((choice) => choice.creatives && choice.creatives.stageKey === selected.creatives!.stageKey) ? (
+          <div>
+            <p className="py-0.5 text-sm">
+              {selected.creatives.stageLabel} / <CreativesPickers choice={selected} onChange={select} openList={props.openList} />
+              {selected.likely ? (
+                <>
+                  {" "}
+                  <small className="inline-block whitespace-nowrap text-muted-foreground">{selected.likely}</small>
+                </>
+              ) : null}
+              {note ? <span className="block pb-1 text-[11.5px] text-muted-foreground">{note}</span> : null}
+            </p>
+          </div>
+        ) : null}
         <button type="button" className="underline" onClick={() => setAnother((open) => !open)}>
           {ANOTHER_FOLDER}
         </button>
         {another
-          ? otherFolderChoices().map((choice) => (
+          ? others.map((choice) => (
               <label key={choice.key} className="flex items-baseline gap-2 py-0.5 text-sm">
                 <input
                   type="radio"
                   name={group}
                   className="accent-foreground"
-                  checked={choice.key === props.selectedKey}
-                  onChange={() => props.onSelect({ key: choice.key, label: choice.label, artistId: null, artistName: null, likely: null })}
+                  checked={choice.key === props.selectedKey || selected?.creatives?.stageKey === choice.key}
+                  onChange={() => pickOther(choice)}
                 />
                 {choice.label}
               </label>
@@ -286,7 +412,7 @@ export function WhichFolder(props: {
                 onClick={() => {
                   const label = picking === "press" ? `02 Source / Press kits / ${artist.name}` : `02 Source / Artist clips / ${artist.name}`;
                   const key = picking === "press" ? `02/press-kits/${artist.id}` : `02/artist-clips/${artist.id}`;
-                  props.onSelect({ key, label, artistId: artist.id, artistName: artist.name, likely: null });
+                  select({ key, label, artistId: artist.id, artistName: artist.name, likely: null });
                   setPicking(null);
                 }}
               >
@@ -298,16 +424,27 @@ export function WhichFolder(props: {
       </div>
       <div className="hidden max-[700px]:block">
         <p className="flex items-baseline justify-between gap-2 text-xs">
-          <span>{selected?.label}</span>
+          <span>{selected?.creatives ? selected.creatives.stageLabel : selected?.label}</span>
           <button type="button" className="underline" onClick={() => setAnother(true)}>
             {CHANGE}
           </button>
         </p>
+        {selected?.creatives ? (
+          <div className="mt-1.5 pl-3">
+            <CreativesPickers choice={selected} onChange={select} stacked openList={props.openList} />
+          </div>
+        ) : null}
+        {note ? <p className="mt-1.5 text-[11.5px] text-muted-foreground">{note}</p> : null}
         {importLine ? <p className="mt-1.5 text-[11.5px] text-muted-foreground">{importLine}</p> : null}
         {another ? (
           <div className="mt-2">
             {props.choices.map((choice) => (
-              <button key={choice.label} type="button" className="block py-0.5 text-left text-sm underline" onClick={() => { props.onSelect(choice); setAnother(false); }}>
+              <button key={choice.creatives ? `creatives:${choice.creatives.stageKey}` : choice.label} type="button" className="block py-0.5 text-left text-sm underline" onClick={() => { select(choice); setAnother(false); }}>
+                {choice.creatives ? choice.creatives.stageLabel : choice.label}
+              </button>
+            ))}
+            {others.map((choice) => (
+              <button key={choice.key} type="button" className="block py-0.5 text-left text-sm underline" onClick={() => { pickOther(choice); setAnother(false); }}>
                 {choice.label}
               </button>
             ))}
@@ -318,7 +455,7 @@ export function WhichFolder(props: {
         <button type="button" className="rounded border border-border px-3 py-1 text-sm" onClick={props.onCancel}>
           {CANCEL}
         </button>
-        <button type="button" className="rounded bg-foreground px-3 py-1 text-sm text-background disabled:opacity-40" disabled={props.busy} onClick={props.onUpload}>
+        <button type="button" className="rounded bg-foreground px-3 py-1 text-sm text-background disabled:opacity-40" disabled={props.busy || !uploadReady(selected)} onClick={props.onUpload}>
           {UPLOAD}
         </button>
       </div>

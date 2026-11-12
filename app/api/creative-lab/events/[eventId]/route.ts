@@ -21,6 +21,7 @@ import {
   storeLabQuote,
 } from "@/lib/creative-lab/card-write";
 import { saveClipSelection } from "@/lib/creative-lab/selection-store";
+import { makeTripleFit } from "@/lib/creative-lab/make-triple-fit";
 import type { PairMode } from "@/lib/creative-lab/selection";
 import { findArtistCandidates } from "@/lib/enrichment/artist-pipeline";
 import { isSpotifyConfigured, searchArtists } from "@/lib/enrichment/spotify";
@@ -262,6 +263,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
       case "requestIgCandidate":
         await requestArtistClip(db, { userId: user.id, artistId: body.artistId ?? "", igMediaId: body.igMediaId ?? "" });
         return NextResponse.json({ ok: true });
+      case "makeTripleFit":
+        return NextResponse.json(await makeTripleFit(db, { userId: user.id, clipId: body.clipId ?? "" }));
       case "addClip":
         await addLabClip(db, {
           userId: user.id,

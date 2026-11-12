@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { driveFromEnv } from "@/lib/drive/client";
-import { appKeepsFile, placeUploadedFile } from "@/lib/drive/place-upload";
+import { appKeepsFile, parseCreativesKey, placeUploadedFile } from "@/lib/drive/place-upload";
 import { EVENT_NOT_ON_ACCOUNT, FOLDER_NOT_IN_TREE, NO_CLIENT_TREE, SIGN_IN_AGAIN } from "@/lib/drive/panel";
 import { ARTIST_CLIPS_KEY, EVENT_TREE, PRESS_KITS_KEY } from "@/lib/drive/tree";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
@@ -9,6 +9,8 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 function allowedKey(key: string): boolean {
+  // The creatives row's D5 key (2026-11-11-creative-lab-upload-owner, HU1).
+  if (parseCreativesKey(key)) return true;
   if (EVENT_TREE.some((spec) => spec.key === key)) return true;
   if (key.startsWith(`${ARTIST_CLIPS_KEY}/`) || key === ARTIST_CLIPS_KEY) return true;
   if (key.startsWith(`${PRESS_KITS_KEY}/`) || key === PRESS_KITS_KEY) return true;
@@ -57,6 +59,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ ok: true, fileId: placed.fileId });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: message }, { status: message === FOLDER_NOT_IN_TREE ? 400 : 500 });
   }
 }

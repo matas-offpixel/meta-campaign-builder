@@ -15,6 +15,8 @@ export type LabFrameFixture = {
   title: string;
   now: string;
   lab: CreativeLabCardData;
+  /** Plan rows drawn under the card. Absent on every frame except CL11. */
+  holdRows?: { id: string; filename: string; width: number; height: number; bucket: "4:5" | "1:1" | "9:16" | "other" }[];
 };
 
 export const LAB_NOW = "2026-11-06T12:00:00.000Z";
@@ -434,6 +436,46 @@ export const LAB_FRAME_FIXTURES: Record<LabFrameId, LabFrameFixture> = {
         { id: "render-3", clipId: C1.id, captionId: CAP_LINEUP.id, label: "Ada North #1 × lineup", status: "rendering", error: null, renderMs: null, updatedAt: "2026-11-06T11:58:12.000Z", previewUrl: null, posterUrl: null, clipPreviewUrl: LAB_CLIP_916, lines: [], playing: false, roundOpen: true },
         { id: "render-4", clipId: C2.id, captionId: CAP_POV.id, label: "Bea Lowe #1 × pov", status: "failed", error: "Lambda render failed", renderMs: 41000, updatedAt: "2026-11-06T11:40:00.000Z", previewUrl: null, posterUrl: null, clipPreviewUrl: LAB_CLIP_169, lines: [], playing: false, roundOpen: true },
         { id: "render-0", clipId: C1.id, captionId: CAP_LINEUP.id, label: "Ada North #1 × lineup", status: "failed", error: "superseded: 9:16 only", renderMs: 165910, updatedAt: "2026-11-05T23:16:47.000Z", previewUrl: null, posterUrl: null, clipPreviewUrl: LAB_CLIP_916, lines: [], playing: false, roundOpen: true },
+      ],
+    }),
+  },
+  CL11: {
+    kind: "lab",
+    id: "CL11",
+    title: "Creative Lab — triple-fit",
+    now: LAB_NOW,
+    holdRows: [
+      { id: "plan-wide", filename: "luke-wide.mp4", width: 956, height: 718, bucket: "other" },
+      { id: "plan-feed", filename: "feed-video.mp4", width: 1080, height: 1350, bucket: "4:5" },
+    ],
+    lab: base({
+      facts: FACTS,
+      lineupRows: LINEUP,
+      artists: ARTISTS,
+      clips: [
+        C1,
+        C3,
+        clip({ id: "clip-ada-15", artistId: ADA, artistName: "Ada North", clipNo: 15, source: "file", durationSeconds: 24, sourceWidth: 1920, sourceHeight: 1080, previewUrl: LAB_CLIP_169 }),
+        clip({ id: "clip-ada-tiny", artistId: ADA, artistName: "Ada North", clipNo: 4, source: "file", durationSeconds: 8, sourceWidth: 640, sourceHeight: 360, previewUrl: LAB_CLIP_169 }),
+        clip({ id: "clip-bea-21", artistId: BEA, artistName: "Bea Lowe", clipNo: 21, source: "file", durationSeconds: 24, sourceWidth: 1920, sourceHeight: 1080, previewUrl: LAB_CLIP_169 }),
+        clip({ id: "clip-bea-made", artistId: BEA, artistName: "Bea Lowe", clipNo: 22, source: "file", durationSeconds: 24, sourceWidth: 1920, sourceHeight: 1080, previewUrl: LAB_CLIP_169, tripleFitSourceId: "clip-bea-21", tripleFitSourceNo: 21 }),
+      ],
+    }),
+  },
+  // The made tile is the only one in its group, so the 393 row does not clip it.
+  CL12: {
+    kind: "lab",
+    id: "CL12",
+    title: "Creative Lab — made triple-fit",
+    now: LAB_NOW,
+    lab: base({
+      facts: FACTS,
+      lineupRows: LINEUP,
+      artists: ARTISTS,
+      clips: [
+        clip({ id: "clip-ada-15", artistId: ADA, artistName: "Ada North", clipNo: 15, source: "file", durationSeconds: 24, sourceWidth: 1920, sourceHeight: 1080, previewUrl: LAB_CLIP_169 }),
+        clip({ id: "clip-ada-tiny", artistId: ADA, artistName: "Ada North", clipNo: 4, source: "file", durationSeconds: 8, sourceWidth: 640, sourceHeight: 360, previewUrl: LAB_CLIP_169 }),
+        clip({ id: "clip-bea-made", artistId: BEA, artistName: "Bea Lowe", clipNo: 22, source: "file", durationSeconds: 24, sourceWidth: 1920, sourceHeight: 1080, previewUrl: LAB_CLIP_169, tripleFitSourceId: "clip-bea-21", tripleFitSourceNo: 21 }),
       ],
     }),
   },

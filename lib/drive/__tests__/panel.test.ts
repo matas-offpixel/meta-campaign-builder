@@ -29,7 +29,9 @@ const ctx = {
 describe("drive panel", () => {
   it("files the on-sale cycle the fixture is in", () => {
     assert.equal(panelNowLine({ status: "on_sale", eventDate: "2026-12-27", today, calendar }), "now: 3 On sale / w/c 16 Nov");
-    assert.equal(stageFolder(ctx).label, "03 Creatives / 3 On sale / w/c 16 Nov / Content");
+    // U1 (2026-11-11 upload-owner record): the stage itself, never "/ Content".
+    assert.equal(stageFolder(ctx).label, "03 Creatives / 3 On sale / w/c 16 Nov");
+    assert.equal(stageFolder(ctx).key, "03/3/wc/2026-11-16");
   });
 
   it("preselects the folder from the file", () => {

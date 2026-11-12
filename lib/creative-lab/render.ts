@@ -20,7 +20,8 @@ import { captionLimits, outputSize, profile, styleVersion, type CaptionAspect, t
 import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
-import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
+import { TOO_SMALL_FOR_916, TRIPLE_FIT_NOT_PAIRED, tooSmallFor916 } from "./import-quality.ts";
+import { renderTripleFitClip, type TripleFitHooks } from "./triple-fit-render.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
 import { renderAssetId } from "./render-proxy.ts";
@@ -198,6 +199,7 @@ export async function renderCaptionOnClip(
     const loaded = loadLabRender({ aspect: render.aspect, kind: render.kind });
     if (loaded.kind !== "video") throw new Error("static renders are not written yet");
     const aspect = loaded.aspect;
+    if (String(clip.triple_fit_source_id ?? "").trim()) throw new Error(TRIPLE_FIT_NOT_PAIRED);
     const quote = caption.mode === "quote" || caption.style === "quote";
     const version = quote ? quoteVersion : captionVersion;
     const size: CaptionSize = caption.size_variant === "long" ? "long" : "default";
@@ -327,6 +329,35 @@ async function lambdaRender(
     estimatedCostDisplay: output.estimatedCostDisplay,
     lambda: { bucketName: output.bucketName, lambdaRenderId: output.lambdaRenderId },
   };
+}
+
+/**
+ * One made triple-fit, outside a caption round. Nothing is written to
+ * creative_lab_renders. The claim is the event's approved ladder claim.
+ */
+export async function renderMadeTripleFit(
+  db: ServiceRoleDb,
+  input: {
+    clipId?: string;
+    /** Used when the made row is not stored yet. It still has to name its source clip. */
+    clip?: Record<string, unknown>;
+    signUrl?: RenderDeps["signUrl"];
+    probe?: RenderDeps["probe"];
+    serveUrl?: string;
+    hooks?: TripleFitHooks;
+  },
+): Promise<Awaited<ReturnType<typeof renderTripleFitClip>>> {
+  const clip = input.clip ?? (input.clipId ? await one(db, "creative_lab_clips", input.clipId) : null);
+  if (!clip) throw new Error("clip not found");
+  if (!String(clip.triple_fit_source_id ?? "").trim()) throw new Error("This clip is not a triple-fit");
+  return renderTripleFitClip({
+    db,
+    clip,
+    signUrl: input.signUrl ?? defaultSign,
+    probe: input.probe ?? probeClip,
+    serveUrl: input.serveUrl,
+    hooks: input.hooks,
+  });
 }
 
 /**

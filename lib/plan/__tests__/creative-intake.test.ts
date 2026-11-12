@@ -513,3 +513,29 @@ describe("MML intake guards", () => {
     }
   });
 });
+
+describe("a video that cannot launch stays on the plan", () => {
+  it("does not insert a held video and does not delete the creative that already holds it", () => {
+    const held = { ...video("wide", "4:5"), videoHold: true };
+    const reel = video("reel", "9:16");
+    const first = planIntakeSend({
+      assets: [held, reel],
+      owned: [],
+      routes: [],
+      metaLaunched: false,
+      tiktokLaunched: false,
+    });
+    assert.deepEqual(first.meta.map((row) => row.key), [singleGroupKey("reel")]);
+    assert.deepEqual(first.removeCreativeIds, []);
+    const owned = stamp(singleGroupKey("wide"), "c-wide", "single", ["wide"]);
+    const again = planIntakeSend({
+      assets: [held],
+      owned: [owned],
+      routes: [],
+      metaLaunched: false,
+      tiktokLaunched: false,
+    });
+    assert.deepEqual(again.meta, []);
+    assert.deepEqual(again.removeCreativeIds, []);
+  });
+});

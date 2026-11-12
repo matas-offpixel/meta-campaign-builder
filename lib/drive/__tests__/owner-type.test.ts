@@ -395,20 +395,18 @@ describe("D6 in place: map the client's Content / {owner} folders, move nothing"
   });
 });
 
-describe("known gap: the upload preselect (follow-up, own record)", () => {
-  // Matas, 11 Nov: "Follow-up, own record". lib/drive/panel.ts stageFolder still
-  // preselects "3 On sale / w/c {d Mon} / Content" for an on-sale upload, drawn in
-  // the 9 Nov record's CLS7 frame. D3 no longer makes Content, so from w/c 23 Nov
-  // the upload fails ("unknown folder key"). The likely fix is the cycle folder
-  // itself. Skipped until that record lands; run it to see the failure.
-  it.skip("an on-sale upload into a new cycle reaches its preselected folder", async () => {
+describe("the upload preselect on a new cycle (fixed: 2026-11-11-creative-lab-upload-owner)", () => {
+  // Pinned as a known gap by #1191. stageFolder now returns the cycle itself and
+  // the creatives row adds owner and type; …/content is never offered (HU1, HU5).
+  it("an on-sale upload into a new cycle reaches its stage folder, never a Content folder", async () => {
     const db = seed();
     const drive = fakeDrive();
     await tree(db, drive);
     const event = row(db, "events", "e1");
     await ensureCycleFolder(db, drive, event, row(db, "clients", "c1"), "2026-11-23");
     const target = stageFolder({ status: "on_sale", eventDate: "2026-12-27", today: "2026-11-24" });
+    assert.equal(target.key, "03/3/wc/2026-11-23");
     const id = await ensureEventKey(db, drive, event, row(db, "clients", "c1"), target.key);
-    assert.ok(drive.pathOf(id).startsWith(`${CREATIVES} / 3 On sale / w/c 23 Nov`));
+    assert.equal(drive.pathOf(id), `${CREATIVES} / 3 On sale / w/c 23 Nov`);
   });
 });

@@ -51,6 +51,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # Vercel refuses a function over 250 MB uncompressed (#1186). Fails above 230.
+      - run: npm run check:function-size
 
   frames:
     name: frames:check

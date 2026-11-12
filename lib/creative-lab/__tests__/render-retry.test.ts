@@ -74,7 +74,7 @@ describe("retry on a failed render row", () => {
   it("does not retry a render whose clip cannot make 9:16", async () => {
     const fake = world("rendering");
     fake.tables.creative_lab_clips = [{ id: "clip-1", creative_asset_id: "asset-1", source_width: 1920, source_height: 1080 }];
-    await assert.rejects(retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP }), /Too small for 9:16/);
+    await assert.rejects(retryRender(fake as unknown as ServiceRoleDb, { renderId: "r1", userId: OP }), /Landscape — triple-fit only/);
     assert.equal(fake.tables.creative_lab_renders.find((row) => row.id === "r1")!.status, "failed");
   });
 

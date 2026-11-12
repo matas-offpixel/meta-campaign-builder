@@ -26,6 +26,7 @@ import {
   generateButtonLabel,
   firstPairings,
   groupClips,
+  tripleFitOnlySentence,
   money,
   playableClipSeconds,
   postAge,
@@ -83,8 +84,9 @@ describe("creative lab surface", () => {
     assert.equal(cantRunReason(refused), "This clip isn't vertical — use a 9:16 file.");
     const landscape = { ...LUKE, id: "landscape", sourceWidth: 1920, sourceHeight: 1080 };
     const phone = { ...LUKE, id: "phone", sourceWidth: 720, sourceHeight: 1280 };
-    assert.equal(cantRunReason(landscape), "Too small for 9:16");
-    assert.equal(clipBucket(landscape), "cant");
+    assert.equal(cantRunReason(landscape), null);
+    assert.equal(tripleFitOnlySentence(landscape), "Landscape — triple-fit only");
+    assert.equal(clipBucket(landscape), "triple");
     assert.equal(cantRunReason(phone), null);
     assert.equal(clipBucket(phone), "new");
     assert.equal(cantRunReason(refused)?.includes("9:16 only"), false);
