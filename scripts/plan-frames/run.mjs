@@ -264,17 +264,23 @@ async function main() {
         }
         if (shot.frame === "CLQ2") {
           const probe = await page.evaluate(() => {
-            const lines = [...document.querySelectorAll("[data-quote-line]")];
+            const lines = [...document.querySelectorAll("[data-caption-line]")];
             const first = lines[0];
             const style = first ? getComputedStyle(first) : null;
             const fontSize = style ? Number.parseFloat(style.fontSize) : 0;
+            let width = 0;
+            if (first) {
+              const range = document.createRange();
+              range.selectNodeContents(first);
+              width = range.getBoundingClientRect().width;
+            }
             return {
               count: lines.length,
               first: first?.textContent ?? "",
               last: lines.at(-1)?.textContent ?? "",
-              width: first ? first.getBoundingClientRect().width : 0,
+              width,
               fontSize,
-              em: Number(first?.getAttribute("data-quote-em") ?? "0"),
+              em: Number(first?.getAttribute("data-caption-em") ?? "0"),
               family: style?.fontFamily ?? "",
               whiteSpace: style?.whiteSpace ?? "",
             };
@@ -284,7 +290,7 @@ async function main() {
           console.log(
             `${shot.id} lines=${probe.count} first=${JSON.stringify(probe.first)} ${probe.width.toFixed(2)}px vs ${expected.toFixed(2)}px (${(delta * 100).toFixed(2)}%) ${probe.family} ${probe.whiteSpace}`,
           );
-          if (probe.count !== 4 || !probe.last.includes("🔥") || probe.whiteSpace !== "nowrap") {
+          if (probe.count !== 6 || !probe.last.includes("🔥") || probe.whiteSpace !== "pre") {
             throw new Error(`${shot.id}: quote rendered ${probe.count} lines, last ${JSON.stringify(probe.last)}. Not a baseline.`);
           }
           if (delta > 0.02) {

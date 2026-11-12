@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 
 import { ClipSound, showSoundToggle, useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { captionBoxInsets } from "@/lib/creative-lab/surface";
+import { captionCharEm } from "@/lib/creative-lab/video-band";
 import { profile } from "../../../../src/remotion/caption-style/profile";
 import type { QuoteWeight } from "../../../../src/remotion/caption-style/quote-profile";
 
@@ -107,7 +108,14 @@ export function CaptionOverlay({
           }}
         >
           {shown.map((line, index) => (
-            <span key={index} data-caption-line className="block">{line}</span>
+            <span
+              key={index}
+              data-caption-line=""
+              data-caption-em={index === 0 ? [...line].reduce((em, char) => em + captionCharEm(char), 0) : undefined}
+              className="block"
+            >
+              {line}
+            </span>
           ))}
         </p>
       ) : null}
