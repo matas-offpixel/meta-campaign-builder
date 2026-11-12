@@ -14,6 +14,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { campaignMatchesBracketedEventCode } from "../insights/meta-event-code-match.ts";
 import { normalizeAdAccountId, resolveEventAdAccountId } from "../meta/ad-account.ts";
+import { loadAllPaged } from "./paged-read.ts";
 
 /**
  * Group ads by what they show, not by name. The same key the Meta import
@@ -75,29 +76,24 @@ export function resolveAdContext(row: AdFactRow, index: AdContextIndex): AdConte
   return { clientId: matches[0].clientId, eventId: matches[0].eventId, source: "campaign_code" };
 }
 
-async function loadAll<T>(db: SupabaseClient, table: string, columns: string): Promise<T[]> {
-  const rows: T[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from(table).select(columns).range(from, from + 999);
-    if (error) throw new Error(`${table}: ${error.message}`);
-    rows.push(...((data ?? []) as T[]));
-    if ((data ?? []).length < 1000) break;
-  }
-  return rows;
-}
-
-/** Service-role read of the three join sources. */
-export async function loadAdContextIndex(db: SupabaseClient): Promise<AdContextIndex> {
-  type LedgerRow = { client_id: string | null; event_id: string | null };
+/**
+ * Service-role read of the three join sources. Each table is paged in
+ * primary-key order and deduped (paged-read.ts): an unordered `.range`
+ * read can hand a row to two pages and another to none, and a ledger row
+ * that never arrives drops its ad from the event it was launched for.
+ */
+export async function loadAdContextIndex(db: Pick<SupabaseClient, "from">): Promise<AdContextIndex> {
+  type LedgerRow = { id: string; client_id: string | null; event_id: string | null };
   const [ads, adSets, events, clients] = await Promise.all([
-    loadAll<LedgerRow & { meta_ad_id: string }>(db, "launched_ads", "meta_ad_id, client_id, event_id"),
-    loadAll<LedgerRow & { meta_adset_id: string }>(db, "launched_ad_sets", "meta_adset_id, client_id, event_id"),
-    loadAll<{ id: string; client_id: string | null; event_code: string | null; meta_ad_account_id: string | null }>(
+    loadAllPaged<LedgerRow & { meta_ad_id: string }>(db, "launched_ads", "id, meta_ad_id, client_id, event_id", ["id"]),
+    loadAllPaged<LedgerRow & { meta_adset_id: string }>(db, "launched_ad_sets", "id, meta_adset_id, client_id, event_id", ["id"]),
+    loadAllPaged<{ id: string; client_id: string | null; event_code: string | null; meta_ad_account_id: string | null }>(
       db,
       "events",
       "id, client_id, event_code, meta_ad_account_id",
+      ["id"],
     ),
-    loadAll<{ id: string; meta_ad_account_id: string | null }>(db, "clients", "id, meta_ad_account_id"),
+    loadAllPaged<{ id: string; meta_ad_account_id: string | null }>(db, "clients", "id, meta_ad_account_id", ["id"]),
   ]);
   const clientAccount = new Map(clients.map((c) => [c.id, c.meta_ad_account_id]));
   return {

@@ -54,6 +54,7 @@ import { phaseFromMetaObjective } from "../launched-ad-sets/snapshot.ts";
 import { dropArchivedClientRows, loadArchivedClientIds } from "../db/client-status.ts";
 import { clusterKey } from "../analysis/interest-performance.ts";
 import { loadAdContextIndex, resolveAdContext, type AdContextIndex, type AdContextSource } from "./ad-facts.ts";
+import { loadAllPaged, type PagedQuery } from "./paged-read.ts";
 import { showOf } from "./copy/shows.ts";
 import { currencyResolver, type CurrencyResolver } from "./currency.ts";
 
@@ -354,23 +355,9 @@ export function joinRates(facts: readonly LearningFact[]): Map<string, JoinRate>
 
 type Db = Pick<SupabaseClient, "from">;
 
-type Query = {
-  not(column: string, operator: string, value: unknown): Query;
-  order(column: string, options: { ascending: boolean }): Query;
-  range(from: number, to: number): PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
-};
-
-async function loadAll<T>(db: Db, table: string, columns: string, filter?: (q: Query) => Query): Promise<T[]> {
-  const rows: T[] = [];
-  for (let from = 0; ; from += 1000) {
-    let query = db.from(table).select(columns) as unknown as Query;
-    if (filter) query = filter(query);
-    const { data, error } = await query.order("id", { ascending: true }).range(from, from + 999);
-    if (error) throw new Error(`${table}: ${error.message}`);
-    rows.push(...((data ?? []) as T[]));
-    if ((data ?? []).length < 1000) break;
-  }
-  return rows;
+/** Every row of a table in `id` order, deduped on `id` (paged-read.ts); every column list here selects `id`. */
+function loadAll<T extends Record<string, unknown>>(db: Db, table: string, columns: string, filter?: (q: PagedQuery) => PagedQuery): Promise<T[]> {
+  return loadAllPaged<T>(db, table, columns, ["id"], filter);
 }
 
 export type LearningClient = {
@@ -454,7 +441,7 @@ export async function loadLearningInputs(db: Db, opts: LoadLearningOptions = {})
     loadAll<CreativeTag>(db, "creative_tags", "id, dimension, value_key, value_label", (q) => q.not("dimension", "is", null)),
     loadAll<{ ad_account_id: string; currency: string | null }>(db, "bm_ad_accounts", "id, ad_account_id, currency"),
     loadAll<AdDayRow>(db, "ad_daily_insights", adDayColumns),
-    loadAdContextIndex(db as SupabaseClient),
+    loadAdContextIndex(db),
   ]);
   const tags = new Map(tagRows.map((t) => [t.id, t]));
   const currency = currencyResolver(
