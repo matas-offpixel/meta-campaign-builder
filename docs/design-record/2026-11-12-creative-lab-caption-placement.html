@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Caption placement — 12 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.muted{color:var(--ink-3)}.mono{font-family:var(--mono)}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative;max-width:100%}
+.panel{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn.dis{opacity:.45}
+.ehead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin:0}
+.ehead h4{margin:0;font:700 18px/1.15 var(--sans)}
+.ehead .meta{font-size:12px;color:var(--ink-2);margin-top:3px}
+.ehead .links{display:flex;gap:14px;align-items:center;font-size:12.5px;white-space:nowrap}
+.ehead .links a{color:var(--ink);text-decoration:underline;text-underline-offset:3px;font-weight:600}
+.dim{position:absolute;inset:0;background:rgba(30,24,16,.28)}
+.dlg{position:relative;background:var(--edit);border-radius:12px;box-shadow:0 12px 32px rgba(30,24,16,.2);padding:16px 18px;font-size:12.5px}
+.dlg h4{margin:0 0 2px;font:600 15px var(--sans)}
+.opt{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;font-size:12px}
+.opt i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--ink-3);flex:none}
+.opt.on{background:var(--card)}.opt.on i{border:4px solid var(--ink)}
+.opt small{color:var(--ink-3);margin-left:auto;font-size:11px;white-space:nowrap}
+.field{height:30px;border:1px solid var(--border-strong);border-radius:6px;background:#fff8f0;display:flex;align-items:center;padding:0 9px;font:11px var(--mono);color:var(--ink-2);overflow:hidden;white-space:nowrap}
+.pick{display:inline-block;border:1px solid var(--border-strong);border-radius:5px;background:#fff8f0;padding:1px 6px;margin:0 1px}
+.sub{font-size:11.5px;color:var(--ink-3);padding:0 8px 4px 31px}
+.frame>figure{max-width:100%;min-width:0}
+.cap{position:absolute;left:0;right:0;text-align:center;color:#fff;font-family:"TikTok Sans",system-ui,sans-serif;font-weight:500;letter-spacing:.01em;text-shadow:-.06em 0 0 #000,.06em 0 0 #000,0 -.06em 0 #000,0 .06em 0 #000,-.045em -.045em 0 #000,.045em .045em 0 #000,-.045em .045em 0 #000,.045em -.045em 0 #000;white-space:nowrap}
+.cap.q{text-shadow:none;font-weight:700}
+.cap.ghost{color:transparent;text-shadow:none}
+.ghostbox{position:absolute;border:1px dashed rgba(255,255,255,.75)}
+.fbox{position:absolute;border:1.5px solid #ffd23f;border-radius:2px}
+.fbox i{position:absolute;inset:8% 12%;border-radius:50%;background:rgba(255,214,170,.55)}
+.fbox b{position:absolute;left:0;right:0;top:60%;border-top:1px dotted #ffd23f}
+.lim{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.55)}
+.st{font:700 9px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;margin:8px 0 2px}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}
+.ladder{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;background:var(--card);border-radius:10px;padding:14px 16px}
+.ladder div{text-align:center;font:11px/1.4 var(--mono);color:var(--ink-2)}
+.ladder .w{display:block;background:#9a9086;border-radius:4px;padding:8px 10px;color:#fff;font-family:system-ui,sans-serif;font-weight:500;text-shadow:-1px 0 #000,1px 0 #000,0 -1px #000,0 1px #000;margin-bottom:6px}
+.row{background:var(--edit);border-radius:8px;padding:10px 12px;font-size:12.5px;max-width:520px;margin:0 0 8px}
+.row .n{font-weight:600}.row .s{font:11px/1.4 var(--mono);color:var(--ink-3);margin-top:3px}
+.row .s.r{color:var(--brick)}
+.order{position:relative;width:300px;height:480px;background:var(--card);border-radius:8px;font:10px/1 var(--mono);color:var(--ink-2)}
+</style>
+
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · Creative Lab · UGC captions · 12 November 2026</p>
+<h1>The caption finds a place to work</h1>
+<div class="lead"><p>Matas, on the 12 Nov caption runs: "something's not right here, need to be less rigid — the caption overlay should find a place to work, reducing the font size of it if needed."</p>
+<p>Today a UGC caption sits in one place:</p>
+<ul>
+<li>its block centred on 0.355469 H (y 682.5 at 1920), as rule 13 measured it from <code>Luke Dean - UGC 1.mp4</code> (<code>v1.json</code> <code>verticalCenterPctOfSourceHeight</code>);</li>
+<li>centred on 0.493 W inside O99's box, x 120–944.</li>
+</ul>
+<p>It never moves. On 12 Nov the ops run applied T1's face rule (O39, as amended by O56 and O64) to that one box. Luke 4, 6 and 7 and Enzo 1, 4 and 5 were refused at every in-point from 14 % to 82 %, and Luke has no new caption ad.</p>
+<p>This record keeps the face rule and lets the caption move, then shrink, before it refuses. The caption style itself, rule 13 and <code>v1.json</code>, is unchanged.</p></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+
+<tr><td>C1 The placement search</td><td>The caption block may sit anywhere in O96's band whose ink stays inside it: x 120–944 (O99), first ink at y ≥ 353, last baseline at y ≤ 1238.
+<ul>
+<li><b>Candidates:</b> today's spot (centre y 682.5), then steps of 0.02 H (38.4 px) up and down from it, as far as the band allows. At full size a four-line block reaches 5 steps up and 11 down.</li>
+<li><b>The test:</b> O39 in the block's own box, using T1's judge as it is (<code>judgeFaceOverTime</code>):
+<ul>
+<li>the caption's line boxes are the <code>always</code> boxes, with no claim;</li>
+<li>5 samples a second;</li>
+<li>a face may be in the box for ≤ 10 % of samples and ≤ 0.5 s in a row;</li>
+<li>only faces ≥ 0.08 W on the source (O64) and ≥ ½ the widest face count;</li>
+<li>only the upper 60 % of a face is tested (O56);</li>
+<li>the type box is padded as T1's is.</li>
+</ul></li>
+<li><b>Which passing place wins:</b> the one nearest today's spot. When up and down are equally near, up wins. This changes the proposal, which took the place with the least face time. The pass already keeps the face clear, and the measured spot is where native captions sit. "Least face time" would send a caption to the top or bottom edge whenever that edge reads 0 %, even with a passing place one step from home.</li>
+<li><b>One place for the whole clip,</b> with no jumping. The block stays centred on 0.493 W, as now.</li>
+<li><b>The crop isn't searched:</b> the clip's stored crop stands. Only the type moves.</li>
+</ul></td></tr>
+
+<tr><td>C2 Size steps</td><td>If no place passes at a size, the caption steps down one size and the search runs again (C1).
+<ul>
+<li><b>Steps, as fractions of the standard size</b> (<code>fontSizePctOfWidth</code> 0.051389 W, 55.5 px at 1080):
+<ul>
+<li><b>1.0:</b> 55.5 px, ≈ 20.2 pt on a 393-pt-wide phone.</li>
+<li><b>0.85:</b> 47.2 px, ≈ 17.2 pt.</li>
+<li><b>0.75:</b> 41.6 px, ≈ 15.1 pt. This is the existing long size, 0.038542 W.</li>
+<li><b>0.65:</b> 36.1 px, ≈ 13.1 pt. This is the floor.</li>
+</ul></li>
+<li><b>The floor:</b> 0.65 of the standard size (0.033403 W).
+<ul>
+<li>At 13 pt on a phone the cap is about 9 pt, the size of iOS's footnote text.</li>
+<li>Below that, white type with a 2 px outline over moving footage reads as small print, not as something a person typed on their own clip.</li>
+<li>Feed shows the same 9:16 at the same width in its 4:5 crop, so the floor holds there too.</li>
+</ul></li>
+<li><b>Long captions</b> (73–96 characters) start at 0.75 and have one step, to 0.65.</li>
+<li><b>Lines are never rewrapped.</b> This changes the proposal. The writer's lines are phrases (one phrase per line, ≤ 18 characters, or ≤ 24 in a long caption), and they are what Matas approved. Smaller type keeps the same lines, so the block gets shorter and narrower, which is what clears a face. Rewrapping to longer lines would make the block wider and change the copy.</li>
+<li><b>Everything else scales with the em, as the long size does:</b> stroke 0.054054 em, line height 1.054 em, the 0.493 W centre, and <code>wdth</code> 120 / <code>wght</code> 400.</li>
+<li><b>Order across in-points:</b> where the run tries several in-points, every in-point is searched at a size before the next size down. The caption stays as large as any in-point allows. Within a size, the run's own in-point order stands, then C1's nearest place.</li>
+</ul></td></tr>
+
+<tr><td>C3 The refusal</td><td>Only after every place × size, at every in-point the run tries, fails:
+<ul>
+<li>a caption reads <i>No place on this clip keeps the caption off the face — choose another clip or in-point.</i>;</li>
+<li>a quote reads <i>No place on this clip keeps the quote off the face — choose another clip or in-point.</i></li>
+</ul>
+These replace T1's <i>Face in the type for {n} s at a time — choose another crop or clip</i> on caption and quote renders. T1 keeps its own line.</td></tr>
+
+<tr><td>C4 The 12 Nov ops choices</td><td>
+<ul>
+<li><b>O39's thresholds on the caption block:</b> confirmed, as amended by O56 and O64. This is the test C1 and C2 search against.</li>
+<li><b>Contrast on a caption:</b> measured as O40 measures it, stored on the render, and never refused. Rule 13's white fill with a black outside stroke reads on any ground; that is what the stroke is for.</li>
+<li><b>O44 per ad, not per clip:</b> confirmed. One ad never carries both a caption and T1's type. The same footage may make a caption ad and a T1 ad.</li>
+</ul></td></tr>
+
+<tr><td>C5 Quotes and long captions</td><td>
+<ul>
+<li><b>Long captions:</b> C1–C3 as written, from 0.75 (C2).</li>
+<li><b>Quotes (Q2):</b> the same search from the quote's own measured spot (block centre 0.28 H, y 537.6), in the same steps and band.
+<ul>
+<li><b>No size steps:</b> Q2's font (≈ 0.0193 H, 37.1 px) is already at the floor of 36.1 px.</li>
+<li><b>Contrast is part of the pass:</b> a quote has no stroke (Q2), so C4's reason doesn't hold for it. A place passes only if the quote's line boxes also measure ≥ 3:1 against the footage on O40's p95 sample.</li>
+<li><b>No fallback to the caption style:</b> Q2 stays locked, and a quote with no place is refused with C3's quote line.</li>
+</ul></li>
+<li><b>T1 and T2 renders never carry a caption</b> (O44, O83). The search exists only on caption and quote renders.</li>
+</ul></td></tr>
+
+<tr><td>C6 What the Lab says</td><td>On the render row and the round cell, one 11 px mono ink-3 line, only when the caption isn't at today's spot at full size:
+<ul>
+<li><i>Moved up to keep off the face</i></li>
+<li><i>Moved down to keep off the face</i></li>
+<li><i>Smaller to keep off the face — 85 %</i> (or 75 %, 65 %)</li>
+<li><i>Moved up and smaller to keep off the face — 85 %</i> (and the same with down)</li>
+</ul>
+A long caption at 0.75 is at its own size and says nothing about size. The refusal (C3) sits where refusal lines sit today, in brick. The words never name steps, pixels or the judge.</td></tr>
+
+<tr><td>C7 Stored, and the re-run</td><td>
+<ul>
+<li><b>Stored on each caption render:</b> the chosen centre y (px at 1920) and the size fraction, beside the stored face share, longest run and contrast.</li>
+<li>The preview and Lambda read the same two numbers (O99's same-box rule), so the Lab's preview shows the caption where it will render.</li>
+<li>Renders already made stay as they are.</li>
+<li>The re-run makes the refused Luke 4, 6, 7 and Enzo 1, 4, 5 under C1–C3.</li>
+</ul></td></tr>
+</table>
+
+<h2>CLP1–CLP5 · The five states (schematic, 9:16 at ¼)</h2>
+<p class="lead">Each frame shows one still from a clip; the judge runs over every sample. On each frame:</p>
+<ul class="notes">
+<li>The dashed rectangle is O96's band.</li>
+<li>The dashed lines mark first ink at 353 and the last baseline at 1238.</li>
+<li>The yellow boxes are counted faces, and the dotted line in each is O56's upper 60 %.</li>
+<li>"Today" is the fixed spot this record replaces.</li>
+<li>The words are sample words, not a caption from the Lab.</li>
+</ul>
+<p class="lead">C6 asks ops for a real draft of each state, from Luke 4 and 7 and Enzo 1, 4 and 5 (HP6).</p>
+<div class="frame">
+<figure><figcaption>CLP1 · today's spot passes</figcaption><div class="sch m916"><div class="safe" style="left:30px;top:71.25px;width:210px;height:240.75px"></div><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div class="lbl" style="left:4px;top:79px">353</div><div class="lbl" style="left:4px;top:300px">1238</div><div class="fbox" style="left:95.0px;top:250.0px;width:80.0px;height:75.0px"><i></i><b></b></div><div class="cap" style="top:141.38px;font-size:13.88px;line-height:14.62px;margin-left:-4px">pov: the drop</div><div class="cap" style="top:156.00px;font-size:13.88px;line-height:14.62px;margin-left:-4px">you waited all</div><div class="cap" style="top:170.62px;font-size:13.88px;line-height:14.62px;margin-left:-4px">night for</div><div class="cap" style="top:185.25px;font-size:13.88px;line-height:14.62px;margin-left:-4px">finally lands</div><div class="lbl" style="left:4px;bottom:5px">centre 682 · 100 %</div></div><p class="st ok">Placed at today's spot · no line</p></figure>
+<figure><figcaption>CLP2 · moved up</figcaption><div class="sch m916"><div class="safe" style="left:30px;top:71.25px;width:210px;height:240.75px"></div><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div class="lbl" style="left:4px;top:79px">353</div><div class="lbl" style="left:4px;top:300px">1238</div><div class="fbox" style="left:95.0px;top:175.0px;width:80.0px;height:70.0px"><i></i><b></b></div><div class="ghostbox" style="left:36px;right:40px;top:141.4px;height:58.5px"></div><div class="lbl" style="right:4px;top:132.4px">today</div><div class="cap" style="top:112.58px;font-size:13.88px;line-height:14.62px;margin-left:-4px">pov: the drop</div><div class="cap" style="top:127.20px;font-size:13.88px;line-height:14.62px;margin-left:-4px">you waited all</div><div class="cap" style="top:141.82px;font-size:13.88px;line-height:14.62px;margin-left:-4px">night for</div><div class="cap" style="top:156.45px;font-size:13.88px;line-height:14.62px;margin-left:-4px">finally lands</div><div class="lbl" style="left:4px;bottom:5px">3 steps up · centre 567 · 100 %</div></div><p class="st ok">Moved up to keep off the face</p></figure>
+<figure><figcaption>CLP3 · moved down</figcaption><div class="sch m916"><div class="safe" style="left:30px;top:71.25px;width:210px;height:240.75px"></div><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div class="lbl" style="left:4px;top:79px">353</div><div class="lbl" style="left:4px;top:300px">1238</div><div class="fbox" style="left:100.0px;top:117.5px;width:45.0px;height:42.5px"><i></i><b></b></div><div class="ghostbox" style="left:36px;right:40px;top:141.4px;height:58.5px"></div><div class="lbl" style="right:4px;top:132.4px">today</div><div class="cap" style="top:150.98px;font-size:13.88px;line-height:14.62px;margin-left:-4px">pov: the drop</div><div class="cap" style="top:165.60px;font-size:13.88px;line-height:14.62px;margin-left:-4px">you waited all</div><div class="cap" style="top:180.22px;font-size:13.88px;line-height:14.62px;margin-left:-4px">night for</div><div class="cap" style="top:194.85px;font-size:13.88px;line-height:14.62px;margin-left:-4px">finally lands</div><div class="lbl" style="left:4px;bottom:5px">1 step down · centre 721 · 100 %</div></div><p class="st ok">Moved down to keep off the face</p></figure>
+<figure><figcaption>CLP4 · stepped down a size (b2b, two counted faces)</figcaption><div class="sch m916"><div class="safe" style="left:30px;top:71.25px;width:210px;height:240.75px"></div><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div class="lbl" style="left:4px;top:79px">353</div><div class="lbl" style="left:4px;top:300px">1238</div><div class="fbox" style="left:50.0px;top:143.0px;width:70.0px;height:72.5px"><i></i><b></b></div><div class="fbox" style="left:140.0px;top:245.0px;width:50.0px;height:50.0px"><i></i><b></b></div><div class="ghostbox" style="left:36px;right:40px;top:141.4px;height:58.5px"></div><div class="lbl" style="right:4px;top:132.4px">today</div><div class="cap" style="top:88.16px;font-size:11.79px;line-height:12.43px;margin-left:-4px">pov: the drop</div><div class="cap" style="top:100.59px;font-size:11.79px;line-height:12.43px;margin-left:-4px">you waited all</div><div class="cap" style="top:113.03px;font-size:11.79px;line-height:12.43px;margin-left:-4px">night for</div><div class="cap" style="top:125.46px;font-size:11.79px;line-height:12.43px;margin-left:-4px">finally lands</div><div class="lbl" style="left:4px;bottom:5px">6 steps up · centre 452 · 85 %</div></div><p class="st ok">Moved up and smaller to keep off the face — 85 %</p></figure>
+<figure><figcaption>CLP5 · refused (two faces fill the band)</figcaption><div class="sch m916"><div class="safe" style="left:30px;top:71.25px;width:210px;height:240.75px"></div><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div class="lbl" style="left:4px;top:79px">353</div><div class="lbl" style="left:4px;top:300px">1238</div><div class="fbox" style="left:37.5px;top:75.0px;width:105.0px;height:115.0px"><i></i><b></b></div><div class="fbox" style="left:130.0px;top:190.0px;width:110.0px;height:147.5px"><i></i><b></b></div><div class="ghostbox" style="left:36px;right:40px;top:141.4px;height:58.5px"></div><div class="lbl" style="right:4px;top:132.4px">today</div><div class="lbl" style="left:4px;bottom:5px">every place × size fails</div></div><p class="st no">No place on this clip keeps the caption off the face — choose another clip or in-point.</p></figure>
+</div>
+<p class="lead">How each frame resolves:</p>
+<ul class="notes">
+<li>CLP2: two steps up still touches the face's upper 60 %, and the first passing place down is 9 steps away, so 3 up wins.</li>
+<li>CLP3: today's spot touches the face's upper 60 %, and one step down clears it. The chin may sit under the caption, as O56 allows on T1. Up is out of the band.</li>
+<li>CLP4: at 1.0 no gap holds the 234 px block. At 0.85 the 199 px block fits 6 steps up. The gap between the faces is 210 px, but no 0.02 H step lands in it.</li>
+<li>CLP5: at 0.65 the 152 px block fits no gap at any step.</li>
+</ul>
+
+<h2>CLP6 · The order of the search</h2>
+<div class="frame">
+<figure><figcaption>Places at one size, nearest first, up before down · full size, four lines: 5 up, 11 down</figcaption>
+<div class="order">
+<div style="position:absolute;left:20px;top:0;width:120px;height:480px;background:#9a9086;border-radius:4px"></div><div style="position:absolute;left:20px;top:88.25px;width:120px;border-top:1px dashed #fff"></div><div style="position:absolute;left:20px;top:309.5px;width:120px;border-top:1px dashed #fff"></div><div style="position:absolute;left:50px;top:170.1px;width:60px;border-top:2px solid #ffd23f"></div><div style="position:absolute;left:150px;top:165.6px">try 1 · today, 682</div><div style="position:absolute;left:60px;top:160.5px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:156.0px">2 · ↑1</div><div style="position:absolute;left:60px;top:179.7px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:175.2px">3 · ↓1</div><div style="position:absolute;left:60px;top:150.9px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:146.4px">4 · ↑2</div><div style="position:absolute;left:60px;top:189.3px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:184.8px">5 · ↓2</div><div style="position:absolute;left:60px;top:141.3px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:136.8px">6 · ↑3</div><div style="position:absolute;left:60px;top:198.9px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:194.4px">7 · ↓3</div><div style="position:absolute;left:60px;top:131.7px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:127.2px">8 · ↑4</div><div style="position:absolute;left:60px;top:208.5px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:204.0px">9 · ↓4</div><div style="position:absolute;left:60px;top:122.1px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:117.6px">10 · ↑5</div><div style="position:absolute;left:60px;top:218.1px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:213.6px">11 · ↓5</div><div style="position:absolute;left:60px;top:227.7px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:223.2px">13 · ↓6</div><div style="position:absolute;left:60px;top:237.3px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:232.8px">15 · ↓7</div><div style="position:absolute;left:60px;top:246.9px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:242.4px">17 · ↓8</div><div style="position:absolute;left:60px;top:256.5px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:252.0px">19 · ↓9</div><div style="position:absolute;left:60px;top:266.1px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:261.6px">21 · ↓10</div><div style="position:absolute;left:60px;top:275.7px;width:40px;border-top:1px solid #fff"></div><div style="position:absolute;left:150px;top:271.2px">23 · ↓11</div><div style="position:absolute;left:150px;top:80px;color:var(--ink-3)">353</div><div style="position:absolute;left:150px;top:312px;color:var(--ink-3)">1238</div>
+</div></figure>
+<figure style="flex:1;min-width:280px"><figcaption>Sizes, largest first (a long caption starts at 75 %)</figcaption>
+<div class="ladder">
+<div><span class="w" style="font-size:20.2px">finally lands</span>100 % · 55.5 px<br>≈ 20.2 pt</div>
+<div><span class="w" style="font-size:17.2px">finally lands</span>85 % · 47.2 px<br>≈ 17.2 pt</div>
+<div><span class="w" style="font-size:15.1px">finally lands</span>75 % · 41.6 px<br>≈ 15.1 pt · long</div>
+<div><span class="w" style="font-size:13.1px">finally lands</span>65 % · 36.1 px<br>≈ 13.1 pt · floor</div>
+</div>
+<p class="lead" style="margin-top:10px">The samples are drawn at the phone size in points, as a 1080-wide frame appears on a 393-pt screen. Lines keep their breaks at every size (C2).</p>
+<p class="lead">The loop: for each size, largest first; then for each in-point the run tries, in its own order; then for each place, nearest first. The first pass wins. When nothing passes, C3.</p>
+</figure>
+</div>
+
+<h2>CLP7 · The words on the render row</h2>
+<div class="frame">
+<figure><figcaption>Render rows · words only, row layout unchanged</figcaption>
+<div class="row"><div class="n">Luke 4 · caption · 9:16</div><div class="s">Moved up to keep off the face</div></div>
+<div class="row"><div class="n">Enzo 1 · caption · 9:16</div><div class="s">Smaller to keep off the face — 75 %</div></div>
+<div class="row"><div class="n">Enzo 5 · quote · 9:16</div><div class="s">Moved down to keep off the face</div></div>
+<div class="row"><div class="n">Luke 6 · caption · 9:16</div><div class="s r">No place on this clip keeps the caption off the face — choose another clip or in-point.</div></div>
+</figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HP1 The search</td><td>C1: candidate centres 682.5 ± k × 38.4 inside O96 (first ink ≥ 353, last baseline ≤ 1238, x 120–944), ordered 0, −1, +1, −2, +2 …. Each one is judged with <code>judgeFaceOverTime(samples, { always: captionLineBoxes, claim: null })</code>. The first pass wins and holds for the clip.</td><td>face samples per in-point, the line boxes from <code>captionBandSlots</code> at each centre and size</td><td>unit fixtures for CLP1–CLP5 resolve to: 0 / 100 %; −3 / 100 %; +1 / 100 %; −6 / 85 %; refused</td></tr>
+<tr><td>HP2 Sizes</td><td>C2: scales 1.0, 0.85, 0.75, 0.65 (long from 0.75). Lines unchanged. Stroke and line height in em. Every in-point at a size before the next size.</td><td><code>v1.json</code> unchanged; scale is a render input, not a profile value, so <code>style_version</code> doesn't move</td><td>a 4-line caption at 0.85 has the same four lines; 0.65 is never undercut</td></tr>
+<tr><td>HP3 Refusal</td><td>C3's two sentences verbatim, on caption and quote renders only. T1's line is unchanged.</td><td>—</td><td>unit test on each sentence; T1's tests unchanged</td></tr>
+<tr><td>HP4 Contrast and O44</td><td>C4: caption contrast measured and stored, never refused. O44 checked per ad.</td><td>the render row</td><td>a white-ground clip renders a caption; one clip yields both a caption render and a T1 render</td></tr>
+<tr><td>HP5 Quotes</td><td>C5: quote search from 537.6, no size steps, contrast ≥ 3:1 (O40's p95) as part of the pass, C3's quote line.</td><td>—</td><td>a quote over a white wall moves to a darker place or is refused; it's never stroked</td></tr>
+<tr><td>HP6 Drafts</td><td>C6's words on the render row and round cell. A real draft per state at 1080 × 1920: default passes, moved up, moved down, smaller, refused. Taken from Luke 4 / 7 and Enzo 1 / 4 / 5, each with its line and its stored centre and scale, for the design thread to judge before the build merges.</td><td>the 12 Nov clips</td><td>five drafts, one per state, each named for its clip and in-point</td></tr>
+<tr><td>HP7 Stored</td><td>C7: centre y and scale on the caption render, read by preview and Lambda. Old renders untouched. The re-run covers Luke 4 / 6 / 7 and Enzo 1 / 4 / 5.</td><td>migration if the render table needs two columns</td><td>the preview's block sits on the render's block, within 2 px at 1080</td></tr>
+</table>
+
+<h2>Logged for the builder, not ruled here</h2>
+<ul class="notes">
+<li>The Lab's writer (<code>writer.ts</code>, Cursor's file) saves caption rows without <code>artist_id</code> and with the wrong <code>declared_names</code>. The footage-owner record's W3, W4 and W6 read the owner, so a row with no <code>artist_id</code> can't pair correctly. Fix it before the re-run (HP7), or the re-run pairs on bad rows.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Nearest passing place, ties up. This changes the proposal's least face time.</li>
+<li>Lines never rewrapped at a smaller size. This changes the proposal's rewrap.</li>
+<li>The ≈ 13 pt reasoning for the floor. The steps 1.0, 0.85, 0.75 and 0.65 are the proposal's, taken.</li>
+<li>The search covers every in-point at a size before the next size down.</li>
+<li>The crop isn't searched.</li>
+<li>For quotes: no size steps (Q2 is already at the floor), contrast ≥ 3:1 as part of the pass, and C3's quote sentence.</li>
+<li>C6's four lines.</li>
+<li>The 0.02 H step and C3's caption sentence are the proposal's, taken.</li>
+<li>Every geometry figure is computed from <code>v1.json</code> and O96 / O99. The phone sizes in points assume a 1080-wide frame shown 393 pt wide.</li>
+</ul>
+
+</div></body>
+</html>
