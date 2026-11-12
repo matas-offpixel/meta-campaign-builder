@@ -1,8 +1,5 @@
 import { notFound } from "next/navigation";
 
-import { DrivePickerFrameMount } from "@/components/steps/drive-picker-frame-mount";
-import { DRIVE_PICKER_FRAME_IDS } from "@/scripts/plan-frames/drive-picker-ids";
-
 import { AssetBankFrameMount } from "@/components/dashboard/asset-bank/frame-mount";
 import { CreativeLabFrameMount } from "@/components/dashboard/events/creative-lab-frame-mount";
 import { InsightsRailFrameMount } from "@/components/insights-rail/insights-frame-mount";
@@ -24,10 +21,12 @@ import { LAB_FRAME_IDS } from "@/scripts/plan-frames/lab-ids";
 import { getLabFrame } from "@/scripts/plan-frames/lab-fixtures";
 import { RAIL_FRAME_IDS } from "@/scripts/plan-frames/rail-ids";
 import { getRailFrame } from "@/scripts/plan-frames/rail-fixtures";
+import { DrivePickerFrameMount } from "@/components/steps/drive-picker-frame-mount";
+import { DRIVE_PICKER_FRAME_IDS } from "@/scripts/plan-frames/drive-picker-ids";
 
 export function generateStaticParams() {
   if (process.env.ENABLE_PLAN_FRAMES !== "1") return [];
-  return [...FRAME_IDS, ...DRIVE_PICKER_FRAME_IDS, ...LAB_FRAME_IDS, ...RAIL_FRAME_IDS, ...BANK_FRAME_IDS, ...QUOTE_FRAME_IDS, ...VOICE_FRAME_IDS, ...SELECTION_FRAME_IDS, ...AUDIO_FRAME_IDS, ...FOOTAGE_FRAME_IDS].map((id) => ({ id }));
+  return [...FRAME_IDS, ...LAB_FRAME_IDS, ...RAIL_FRAME_IDS, ...BANK_FRAME_IDS, ...QUOTE_FRAME_IDS, ...VOICE_FRAME_IDS, ...SELECTION_FRAME_IDS, ...AUDIO_FRAME_IDS, ...FOOTAGE_FRAME_IDS, ...DRIVE_PICKER_FRAME_IDS].map((id) => ({ id }));
 }
 
 export default async function PlanFramePage({
@@ -37,13 +36,13 @@ export default async function PlanFramePage({
 }) {
   if (process.env.ENABLE_PLAN_FRAMES !== "1") notFound();
   const { id } = await params;
-  if ((DRIVE_PICKER_FRAME_IDS as readonly string[]).includes(id)) return <DrivePickerFrameMount id={id} />;
   if ((BANK_FRAME_IDS as readonly string[]).includes(id)) return <AssetBankFrameMount id={id} />;
   if ((QUOTE_FRAME_IDS as readonly string[]).includes(id)) return <QuoteFrameMount id={id} />;
   if ((VOICE_FRAME_IDS as readonly string[]).includes(id)) return <VoiceFrameMount id={id} />;
   if ((FOOTAGE_FRAME_IDS as readonly string[]).includes(id)) return <FootageFrameMount id={id} />;
   if ((SELECTION_FRAME_IDS as readonly string[]).includes(id)) return <SelectionFrameMount id={id} />;
   if ((AUDIO_FRAME_IDS as readonly string[]).includes(id)) return <AudioFrameMount id={id} />;
+  if ((DRIVE_PICKER_FRAME_IDS as readonly string[]).includes(id)) return <DrivePickerFrameMount id={id} />;
   const rail = getRailFrame(id);
   if (rail) return <InsightsRailFrameMount fixture={rail} />;
   const lab = getLabFrame(id);
