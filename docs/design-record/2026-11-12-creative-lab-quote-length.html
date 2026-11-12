@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quote length and checks — 12 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.muted{color:var(--ink-3)}.mono{font-family:var(--mono)}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative;max-width:100%}
+.panel{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn.dis{opacity:.45}
+.ehead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin:0}
+.ehead h4{margin:0;font:700 18px/1.15 var(--sans)}
+.ehead .meta{font-size:12px;color:var(--ink-2);margin-top:3px}
+.ehead .links{display:flex;gap:14px;align-items:center;font-size:12.5px;white-space:nowrap}
+.ehead .links a{color:var(--ink);text-decoration:underline;text-underline-offset:3px;font-weight:600}
+.dim{position:absolute;inset:0;background:rgba(30,24,16,.28)}
+.dlg{position:relative;background:var(--edit);border-radius:12px;box-shadow:0 12px 32px rgba(30,24,16,.2);padding:16px 18px;font-size:12.5px}
+.dlg h4{margin:0 0 2px;font:600 15px var(--sans)}
+.opt{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;font-size:12px}
+.opt i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--ink-3);flex:none}
+.opt.on{background:var(--card)}.opt.on i{border:4px solid var(--ink)}
+.opt small{color:var(--ink-3);margin-left:auto;font-size:11px;white-space:nowrap}
+.field{height:30px;border:1px solid var(--border-strong);border-radius:6px;background:#fff8f0;display:flex;align-items:center;padding:0 9px;font:11px var(--mono);color:var(--ink-2);overflow:hidden;white-space:nowrap}
+.pick{display:inline-block;border:1px solid var(--border-strong);border-radius:5px;background:#fff8f0;padding:1px 6px;margin:0 1px}
+.sub{font-size:11.5px;color:var(--ink-3);padding:0 8px 4px 31px}
+.frame>figure{max-width:100%;min-width:0}
+.cap{position:absolute;left:0;right:0;text-align:center;color:#fff;font-family:"TikTok Sans",system-ui,sans-serif;font-weight:500;letter-spacing:.01em;text-shadow:-.06em 0 0 #000,.06em 0 0 #000,0 -.06em 0 #000,0 .06em 0 #000,-.045em -.045em 0 #000,.045em .045em 0 #000,-.045em .045em 0 #000,.045em -.045em 0 #000;white-space:nowrap}
+.cap.q{text-shadow:none;font-weight:700}
+.cap.ghost{color:transparent;text-shadow:none}
+.ghostbox{position:absolute;border:1px dashed rgba(255,255,255,.75)}
+.fbox{position:absolute;border:1.5px solid #ffd23f;border-radius:2px}
+.fbox i{position:absolute;inset:8% 12%;border-radius:50%;background:rgba(255,214,170,.55)}
+.fbox b{position:absolute;left:0;right:0;top:60%;border-top:1px dotted #ffd23f}
+.lim{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.55)}
+.st{font:700 9px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;margin:8px 0 2px}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}
+.ladder{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;background:var(--card);border-radius:10px;padding:14px 16px}
+.ladder div{text-align:center;font:11px/1.4 var(--mono);color:var(--ink-2)}
+.ladder .w{display:block;background:#9a9086;border-radius:4px;padding:8px 10px;color:#fff;font-family:system-ui,sans-serif;font-weight:500;text-shadow:-1px 0 #000,1px 0 #000,0 -1px #000,0 1px #000;margin-bottom:6px}
+.row{background:var(--edit);border-radius:8px;padding:10px 12px;font-size:12.5px;max-width:520px;margin:0 0 8px}
+.row .n{font-weight:600}.row .s{font:11px/1.4 var(--mono);color:var(--ink-3);margin-top:3px}
+.row .s.r{color:var(--brick)}
+.order{position:relative;width:300px;height:480px;background:var(--card);border-radius:8px;font:10px/1 var(--mono);color:var(--ink-2)}
+</style>
+
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · Creative Lab · quote mode · 12 November 2026</p>
+<h1>A quote stays whole, and is checked only for fit and its facts</h1>
+<div class="lead"><p>Matas, 12 Nov: keep the artist team's approved quote intact.</p>
+<p>Q13 of <code>2026-11-12-creative-lab-quote-style.html</code> capped a quote at 96 characters, the writer's long-caption limit. That cap was invented in that record, not asked for, and it would have made Luke Dean's 98-character quote lose a sentence. This record replaces Q13 (Q16), and rules which of the writer's checks run on a quote (Q17, re-ruling Q8 of the quote-mode record). Q10–Q12, Q14 and Q15 stand.</p></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>Q16 As long as the box holds</td><td>A quote may be as long as the caption box holds at the long size: 5 lines of 24 characters, 120 at most.
+<ul>
+<li><b>The test is the wrap, not a count.</b> Q12's word-boundary wrap at 24 must make 5 lines or fewer, and every line must fit O99's box (x 120–944, ≤ 824 px measured). 120 is the most that can fit. A shorter quote whose words wrap to a sixth line doesn't fit.</li>
+<li><b>Only past that</b> does the Lab say <i>This quote is too long — drop a sentence from the start or end.</i> (Q13's sentence, kept) and offer Q1's sentence drop. The person drops the sentence; the Lab never does.</li>
+<li><b>Approved words are never trimmed to fit:</b> no characters cut, no ellipsis, no smaller size to squeeze the text in. C2's size steps are only for keeping off a face, and they run after the quote has fitted at its own size.</li>
+<li><b>Captions are unchanged.</b> The writer's captions keep the validator's own limits (18 a line and 4 lines at the standard size; 73–96 characters, 24 a line and 5 lines at the long size). The 120 applies to quotes only, because a quote's words aren't Off/Pixel's to shorten.</li>
+<li><b>Luke's quote</b> (<i>Back in Southampton for this one… Closing out the year with Puzzle on 27th December. See you there</i>, 98 characters) wraps to 5 lines of 24 and runs whole (CLQ6a).</li>
+</ul></td></tr>
+<tr><td>Q17 Which checks run on a quote</td><td>A quote is the artist team's approved words (<code>quote_source</code>), not the writer's. Run through the caption validator (<code>caption-facts.ts</code>), Luke's quote is flagged three ways, and none of the three belongs to a quote:
+<ul>
+<li>over the 96 cap (<code>too_long</code>);</li>
+<li>"Back in Southampton" read as a past show not in the facts (<code>past_not_in_facts</code>);</li>
+<li>"Closing out" read as a set time (<code>set_not_in_facts</code>).</li>
+</ul>
+Q8 of the quote-mode record ran the validator on quotes, strict until Matas ruled. This is the ruling.
+<p style="margin-top:8px"><b>On a quote, these run:</b></p>
+<ul>
+<li><b>Fit:</b> Q16's test (the wrap at 24, ≤ 5 lines, each ≤ 824 px). It replaces every length and line code: <code>too_long</code>, <code>four_line</code>, <code>word_too_long</code>.</li>
+<li><b>The lineup and date facts the artist chose:</b> a name in the quote must be on this event (<code>unknown_name</code>), and a date or weekday must match the event (<code>date_not_in_facts</code>, <code>weekday_mismatch</code>). "27th December" passes because the event is 27 December.</li>
+</ul>
+<p style="margin-top:8px"><b>On a quote, these don't run:</b> <code>past_not_in_facts</code>, <code>set_not_in_facts</code>, <code>footage_venue</code>, <code>support_artist</code>, <code>crowd_unproven</code>, <code>next_list</code>, <code>signup_on_sale</code>, <code>ticket_before_sale</code>, <code>generic_overlay</code>, <code>pick_one</code>, <code>emoji</code>, <code>hashtag</code> and <code>all_caps</code>. They exist to keep the writer from inventing or styling, and a quote's words aren't written here. Emoji stay inline (Q7).</p>
+<p style="margin-top:8px"><b>Kept, and flagged for Matas to overrule:</b> the ticket-truth checks (<code>sold_out_not_true</code>, <code>final_not_true</code>, <code>count_not_true</code>, <code>remaining_unknown</code>, <code>scarcity_without_tiers</code>, <code>price_not_in_facts</code>). The standing rule is no fabricated scarcity, ever. An ad that says "sold out" when it isn't breaks that whoever wrote the words, and Off/Pixel is the one running the ad. Nothing in Luke's or Enzo's quote trips them.</p>
+<p style="margin-top:8px"><b>When a kept check fails, the words are never edited.</b> The quote is held, out of rounds and renders, with one line:</p>
+<ul>
+<li><i>This quote names {name}, who isn't on this event — check it with the artist's team.</i></li>
+<li><i>This quote's date doesn't match the event — check it with the artist's team.</i></li>
+<li><i>This quote says {claim}, which isn't true of this event's tickets yet.</i></li>
+</ul>
+The fix is another quote, or Q1's sentence drop by the person.</td></tr>
+</table>
+
+<h2>CLQ6 · Whole, and the one refusal (schematic, 9:16 at ¼)</h2>
+<div class="frame">
+<figure><figcaption>CLQ6a · Luke's approved quote, whole</figcaption><div class="sch m916"><div class="safe" style="left:30px;top:71.25px;width:210px;height:240.75px"></div><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div class="cap" style="top:143.20px;font-size:10.41px;line-height:10.97px;margin-left:-4px">Back in Southampton for</div><div class="cap" style="top:154.17px;font-size:10.41px;line-height:10.97px;margin-left:-4px">this one… Closing out</div><div class="cap" style="top:165.14px;font-size:10.41px;line-height:10.97px;margin-left:-4px">the year with Puzzle on</div><div class="cap" style="top:176.11px;font-size:10.41px;line-height:10.97px;margin-left:-4px">27th December. See you</div><div class="cap" style="top:187.08px;font-size:10.41px;line-height:10.97px;margin-left:-4px">there</div><div class="lbl" style="left:4px;bottom:5px">98 characters · 5 lines of 24 · long · 75 %</div></div><p class="st ok">Fits · nothing dropped</p></figure>
+<figure><figcaption>CLQ6b · past 5 lines of 24 (any quote)</figcaption><div class="sch m916" style="background:#b8ada3"><div class="lim" style="top:88.25px"></div><div class="lim" style="top:309.5px"></div><div style="position:absolute;left:18px;right:18px;top:150px;color:#1e1810;font:600 11px/1.45 var(--sans)">A sixth line of 24 is needed.<br><br><span style="color:#9B3B28">This quote is too long — drop a sentence from the start or end.</span><br><br><span style="font-weight:400;color:#4a3d30">Nothing is trimmed, shortened with an ellipsis or drawn smaller to fit.</span></div><div class="lbl" style="left:4px;bottom:5px;color:#1e1810">the only refusal for length</div></div><p class="st no">Asks for a sentence to be dropped</p></figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HQ11 Fit</td><td>Q16: a quote fits when Q12's wrap at 24 makes ≤ 5 lines and each line is ≤ 824 px (O99). Otherwise it's refused with the sentence, and Q1's drop is offered. There's no character cap on quotes beyond what the wrap allows, and no trimming.</td><td>the quote row</td><td>Luke's 98-character quote → 5 lines, long, runs whole; a quote whose wrap makes 6 lines → refused; the writer's 97-character caption → refused as before</td></tr>
+<tr><td>HQ12 The 7 finals (replaces HQ9's check)</td><td>Check P26-BDAY's 7 re-rendered quote finals against 5 lines of 24 and the 824 px line width, not against 96 characters. Any that dropped words to fit 96 are re-rendered whole.</td><td>the 7 finals' lines</td><td>each final's lines listed with their lengths; every Luke final carries all 98 characters</td></tr>
+<tr><td>HQ13 The validator on quotes</td><td>Q17: for <code>kind = quote</code>, the validator runs Q16's fit, <code>unknown_name</code>, <code>date_not_in_facts</code>, <code>weekday_mismatch</code> and the six ticket-truth codes, and nothing else. A failure holds the quote with Q17's line. The words are never changed.</td><td><code>caption-facts.ts</code>, the quote row</td><td>Luke's 98-character quote passes with no flags; the same words entered as a writer caption still fail <code>too_long</code>, <code>past_not_in_facts</code> and <code>set_not_in_facts</code>; a quote naming an artist not on the lineup is held with the name line</td></tr>
+</table>
+
+<h2>Supersedes</h2>
+<ul class="notes">
+<li>Q13 and HQ9's 96-character test (quote-style record).</li>
+<li>CLQ5b, which showed Luke's quote with a sentence dropped.</li>
+<li>Q8 of the quote-mode record ("strict until ruled"), now ruled by Q17.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The wrap as the measure, with 120 as its ceiling. The 5 lines of 24 and the 824 px width are existing values.</li>
+<li>"The person drops the sentence; the Lab never does."</li>
+<li>Q17's split of the codes. Keeping the ticket-truth checks is my addition, from the no-fabricated-scarcity rule, and Matas can overrule it. Q17's three hold sentences.</li>
+<li>Everything else is Matas's re-rule, as relayed.</li>
+</ul>
+
+</div></body>
+</html>
