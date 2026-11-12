@@ -6,9 +6,11 @@
  * the cycle's Drive folders (one listChildren per owner type folder).
  *
  * Reads only. Every table read is paginated with .range (PostgREST's
- * 1,000-row cap). Archived clients are left out (lib/db/client-status.ts).
- * Meta is never called; the Drive read is the only call out, and a run
- * with no Drive credentials still produces every line but the adds.
+ * 1,000-row cap) and ordered by a unique key, then deduped: an unordered
+ * page can repeat rows, which inflated the first dry run. Archived
+ * clients are left out (lib/db/client-status.ts). Meta is never called;
+ * the Drive read is the only call out, and a run with no Drive
+ * credentials still produces every line but the adds.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -53,15 +55,27 @@ type InsightRow = {
 
 const PAGE = 1000;
 
-async function loadAll<T>(db: Db, table: string, columns: string, filter?: (q: any) => any): Promise<T[]> {
+/**
+ * Every row of a table, 1,000 at a time, ordered by `orderBy` (a unique
+ * key, or a key set that is unique together) so pages never overlap, and
+ * deduped on that key in case they do.
+ */
+export async function loadAll<T extends Record<string, unknown>>(db: Db, table: string, columns: string, orderBy: readonly string[], filter?: (q: any) => any): Promise<T[]> {
   const rows: T[] = [];
+  const seen = new Set<string>();
   for (let from = 0; ; from += PAGE) {
-    let query = db.from(table).select(columns).range(from, from + PAGE - 1);
+    let query = db.from(table).select(columns);
     if (filter) query = filter(query);
-    const { data, error } = await query;
+    for (const column of orderBy) query = query.order(column, { ascending: true });
+    const { data, error } = await query.range(from, from + PAGE - 1);
     if (error) throw new Error(`${table}: ${error.message}`);
-    const chunk = (data ?? []) as T[];
-    rows.push(...chunk);
+    const chunk = (data ?? []) as unknown as T[];
+    for (const row of chunk) {
+      const key = orderBy.map((column) => String(row[column] ?? "")).join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
     if (chunk.length < PAGE) break;
   }
   return rows;
@@ -89,7 +103,7 @@ export function resultOf(row: InsightRow, resultEvent: ResultEvent): number {
 /** Events on sale for an active client, with a date still ahead. */
 export async function loadOnSaleEvents(db: Db, today: string): Promise<EventRow[]> {
   const archived = await loadArchivedClientIds(db as SupabaseClient);
-  const events = await loadAll<EventRow>(db, "events", "id, name, event_code, event_date, general_sale_at, status, client_id, budget_marketing, drive_folder_id", (q) =>
+  const events = await loadAll<EventRow>(db, "events", "id, name, event_code, event_date, general_sale_at, status, client_id, budget_marketing, drive_folder_id", ["id"], (q) =>
     q.not("general_sale_at", "is", null).gte("event_date", today).neq("status", "cancelled"),
   );
   return events.filter((event) => event.client_id && !archived.has(event.client_id) && (event.general_sale_at ?? "") <= `${today}T23:59:59Z`);
@@ -97,10 +111,15 @@ export async function loadOnSaleEvents(db: Db, today: string): Promise<EventRow[
 
 export type RawInsights = { rows: InsightRow[]; context: AdContextIndex };
 
-/** Every ad-day from `since`, joined to its event by the learning loop's rule. */
-export async function loadInsights(db: Db, since: string): Promise<RawInsights> {
+/**
+ * Every ad-day, joined to its event by the learning loop's rule. All of
+ * them: spend to date is an event's all-time spend, so no lower bound,
+ * and the result does not depend on which other events are in the run.
+ * Ordered by (date, meta_ad_id), the table's unique key, and deduped.
+ */
+export async function loadInsights(db: Db): Promise<RawInsights> {
   const [rows, context] = await Promise.all([
-    loadAll<InsightRow>(db, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, ad_account_id, date, ad_name, adset_name, campaign_name, spend, landing_page_views, purchases, actions", (q) => q.gte("date", since)),
+    loadAll<InsightRow>(db, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, ad_account_id, date, ad_name, adset_name, campaign_name, spend, landing_page_views, purchases, actions", ["date", "meta_ad_id"]),
     loadAdContextIndex(db as SupabaseClient),
   ]);
   return { rows, context };
@@ -113,21 +132,24 @@ export type Aux = {
   warnings: { id: string; event_id: string; claim: string; state: string; approved_at: string | null; runs_from: string | null; runs_to: string | null; render_id: string | null }[];
   ticketing: { client_id: string; provider: string | null; status: string | null }[];
   driveFolders: { event_id: string | null; key: string; name: string; drive_folder_id: string }[];
+  /** Drive file ids of renders a Lab launch put into this event's campaigns (round_ads.launch_state = launched). */
   renderDriveIds: Set<string>;
 };
+
+type LaunchedRenderRow = { drive_file_id: string | null; creative_lab_round_ads: { launch_state: string | null; round: { event_id: string | null } | null }[] | null };
 
 export async function loadAux(db: Db, eventIds: readonly string[], clientIds: readonly string[]): Promise<Aux> {
   const inEvents = (q: any) => q.in("event_id", eventIds);
   const [scores, clusters, launchedAdSets, warnings, ticketing, driveFolders, launchedRenders] = await Promise.all([
     eventIds.length
-      ? loadAll<Aux["scores"][number] & { axis: string; fetched_at: string }>(db, "creative_scores", "event_id, creative_name, axis, score, significance, fetched_at", (q) => inEvents(q).eq("axis", "convert"))
+      ? loadAll<Aux["scores"][number] & { id: string; axis: string; fetched_at: string }>(db, "creative_scores", "id, event_id, creative_name, axis, score, significance, fetched_at", ["id"], (q) => inEvents(q).eq("axis", "convert"))
       : Promise.resolve([]),
-    loadAll<Aux["clusters"][number]>(db, "interest_clusters", "id, name, interests, live_evidence", (q) => q.is("archived_at", null).not("live_evidence", "is", null)),
-    eventIds.length ? loadAll<Aux["launchedAdSets"][number]>(db, "launched_ad_sets", "event_id, meta_adset_id, interest_ids", inEvents) : Promise.resolve([]),
-    eventIds.length ? loadAll<Aux["warnings"][number]>(db, "ticket_warnings", "id, event_id, claim, state, approved_at, runs_from, runs_to, render_id", inEvents) : Promise.resolve([]),
-    clientIds.length ? loadAll<Aux["ticketing"][number]>(db, "client_ticketing_connections", "client_id, provider, status", (q) => q.in("client_id", clientIds)) : Promise.resolve([]),
-    eventIds.length ? loadAll<Aux["driveFolders"][number]>(db, "drive_folders", "event_id, key, name, drive_folder_id", (q) => inEvents(q).like("key", "03/3/wc/%")) : Promise.resolve([]),
-    loadAll<{ drive_file_id: string | null }>(db, "creative_lab_renders", "drive_file_id, creative_lab_round_ads!inner(launch_state)", (q) => q.not("drive_file_id", "is", null)).catch(() => [] as { drive_file_id: string | null }[]),
+    loadAll<Aux["clusters"][number]>(db, "interest_clusters", "id, name, interests, live_evidence", ["id"], (q) => q.is("archived_at", null).not("live_evidence", "is", null)),
+    eventIds.length ? loadAll<Aux["launchedAdSets"][number]>(db, "launched_ad_sets", "event_id, meta_adset_id, interest_ids", ["meta_adset_id"], inEvents) : Promise.resolve([]),
+    eventIds.length ? loadAll<Aux["warnings"][number]>(db, "ticket_warnings", "id, event_id, claim, state, approved_at, runs_from, runs_to, render_id", ["id"], inEvents) : Promise.resolve([]),
+    clientIds.length ? loadAll<Aux["ticketing"][number] & { id: string }>(db, "client_ticketing_connections", "id, client_id, provider, status", ["id"], (q) => q.in("client_id", clientIds)) : Promise.resolve([]),
+    eventIds.length ? loadAll<Aux["driveFolders"][number] & { id: string }>(db, "drive_folders", "id, event_id, key, name, drive_folder_id", ["id"], (q) => inEvents(q).like("key", "03/3/wc/%")) : Promise.resolve([]),
+    loadAll<LaunchedRenderRow & { id: string }>(db, "creative_lab_renders", "id, drive_file_id, creative_lab_round_ads!inner(launch_state, round:creative_lab_rounds(event_id))", ["id"], (q) => q.not("drive_file_id", "is", null).eq("creative_lab_round_ads.launch_state", "launched")).catch(() => [] as (LaunchedRenderRow & { id: string })[]),
   ]);
   // The latest run's convert scores only.
   const latest = new Map<string, string>();
@@ -142,7 +164,12 @@ export async function loadAux(db: Db, eventIds: readonly string[], clientIds: re
     warnings,
     ticketing,
     driveFolders,
-    renderDriveIds: new Set(launchedRenders.map((row) => row.drive_file_id).filter((id): id is string => Boolean(id))),
+    renderDriveIds: new Set(
+      launchedRenders
+        .filter((row) => (row.creative_lab_round_ads ?? []).some((ad) => ad.launch_state === "launched" && (!ad.round?.event_id || eventIds.includes(ad.round.event_id))))
+        .map((row) => row.drive_file_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
   };
 }
 
@@ -171,7 +198,7 @@ export async function loadCycleSupply(drive: DriveApi | null, folders: Aux["driv
   const add = (file: DriveFile, owner: string, kind: "video" | "static" | null, mix: SupplyMix, path: string) => {
     const resolvedKind = kind ?? kindForFile(file);
     if (!resolvedKind || file.trashed) return;
-    files.push({ fileId: file.id, name: file.name, owner, kind: resolvedKind, mix, path, alreadyInCampaign: renderDriveIds.has(file.id) });
+    files.push({ fileId: file.id, name: file.name, owner, kind: resolvedKind, mix, path, alreadyInCampaign: renderDriveIds.has(file.id), matchedBy: "lab_launch" });
   };
   for (const folder of typeFolders) {
     const ownerKey = folder.key.replace(/\/(videos|statics)$/, "");
@@ -320,8 +347,12 @@ export async function buildEventInputs(args: {
         ad.weekResults += results;
       }
       ads.set(row.meta_ad_id, ad);
+      // F4: an ad set is its name within the campaign; the 6 Nov rebuild's copy of an ad set is the same ad set.
       const setId = row.meta_adset_id ?? "";
-      const set = adSets.get(setId) ?? { adsetId: setId, name: row.adset_name ?? setId, firstDay: row.date, lastDay: row.date, weekSpend: 0, weekResults: 0, totalSpend: 0, totalResults: 0, delivering: false };
+      const setKey = (row.adset_name ?? setId).trim();
+      const set = adSets.get(setKey) ?? { adsetId: setId, adsetIds: [], name: setKey, firstDay: row.date, lastDay: row.date, weekSpend: 0, weekResults: 0, totalSpend: 0, totalResults: 0, delivering: false };
+      if (setId && !set.adsetIds.includes(setId)) set.adsetIds.push(setId);
+      if (setId && (spend > 0 ? row.date >= set.lastDay : !set.adsetId)) set.adsetId = setId;
       if (row.date < set.firstDay) set.firstDay = row.date;
       if (spend > 0 && row.date > set.lastDay) set.lastDay = row.date;
       set.totalSpend += spend;
@@ -331,7 +362,7 @@ export async function buildEventInputs(args: {
         set.weekResults += results;
       }
       if (spend > 0 && lastTwo.includes(row.date)) set.delivering = true;
-      adSets.set(setId, set);
+      adSets.set(setKey, set);
     }
     campaigns.push({
       eventId: event.id,

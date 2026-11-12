@@ -18,7 +18,7 @@ import type { NotifyOptions, NotifyResult } from "../notify/slack.ts";
 import { buildEventInputs, driveForRefresh, loadAux, loadInsights, loadOnSaleEvents, type EventInputs, type EventRow } from "./load.ts";
 import { ONSALE_PHASE, type PhaseConfig } from "./phase-config.ts";
 import { buildProposal, type CampaignInput, type Proposal } from "./rules.ts";
-import { addDaysIso, todayLondon } from "./schedule.ts";
+import { planRun, todayLondon, type CycleKind, type RunKind } from "./schedule.ts";
 import { slackMessage } from "./slack.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -93,10 +93,9 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
   }
   if (!events.length) return { ok: true, dryRun, day, events: 0, proposals: [], skipped, driveCalls: 0, errors };
 
-  const earliestSale = events.map((event) => event.general_sale_at?.slice(0, 10) ?? day).sort()[0]!;
-  const since = addDaysIso(earliestSale < addDaysIso(day, -56) ? addDaysIso(day, -56) : earliestSale, -14);
+  // F3: every row, ordered by (date, meta_ad_id) and deduped, so the spend to date is the event's all-time spend.
   const [raw, aux] = await Promise.all([
-    loaders.insights(input.db, since),
+    loaders.insights(input.db),
     loaders.aux(input.db, events.map((event) => event.id), [...new Set(events.map((event) => event.client_id).filter((id): id is string => Boolean(id)))]),
   ]);
   const { drive, reason: driveReason } = driveForRefresh(input.env);
@@ -217,6 +216,7 @@ export async function writeProposal(db: Db, args: { userId: string; event: Event
       title: line.title,
       detail: line.detail,
       write_text: line.writeText,
+      narrow: line.narrow,
       target: line.target,
       evidence: line.evidence,
       write: line.write,
@@ -239,6 +239,97 @@ export async function writeProposal(db: Db, args: { userId: string; event: Event
   return proposalId;
 }
 
+type PendingRow = {
+  id: string;
+  event_id: string;
+  campaign_key: string;
+  run_kind: RunKind;
+  run_day: string;
+  cycle_monday: string;
+  cycle_kind: CycleKind;
+  window_start: string;
+  window_end: string;
+  mode: "shadow" | "live";
+  objective: Proposal["objective"];
+  why: Proposal["why"];
+  blockers: Proposal["blockers"];
+  enough_data: boolean;
+  not_enough_data: string | null;
+  campaign_summary: string | null;
+  watch: Proposal["watch"];
+  notes: Proposal["notes"];
+  events: { id: string; name: string; event_code: string | null; event_date: string | null } | null;
+};
+
+/**
+ * F2: post the proposals the Monday run could not (notify() returned
+ * outside_business_hours at 06:00, so slack_posted_at stayed null). Runs
+ * as `?post=pending` at 10:05 London. One post per proposal, deduped on
+ * the proposal id; a proposal older than `maxAgeDays` is left alone.
+ */
+export async function postPendingProposals(args: {
+  db: Db;
+  notify: (opts: NotifyOptions) => Promise<NotifyResult>;
+  now?: Date;
+  appUrl?: string;
+  env?: Record<string, string | undefined>;
+  config?: PhaseConfig;
+  maxAgeDays?: number;
+}): Promise<{ ok: boolean; pending: number; posted: string[]; skipped: { proposalId: string; reason: string }[]; errors: string[] }> {
+  const now = args.now ?? new Date();
+  const config = args.config ?? ONSALE_PHASE;
+  const sinceDay = new Date(now.getTime() - (args.maxAgeDays ?? 10) * 86_400_000).toISOString().slice(0, 10);
+  const { data, error } = await args.db
+    .from("onsale_refresh_proposals")
+    .select("id, event_id, campaign_key, run_kind, run_day, cycle_monday, cycle_kind, window_start, window_end, mode, objective, why, blockers, enough_data, not_enough_data, campaign_summary, watch, notes, events:events!inner(id, name, event_code, event_date)")
+    .is("slack_posted_at", null)
+    .gte("run_day", sinceDay)
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (error) throw new Error(`onsale_refresh_proposals pending: ${error.message}`);
+  const rows = (data ?? []) as unknown as PendingRow[];
+  const posted: string[] = [];
+  const skipped: { proposalId: string; reason: string }[] = [];
+  const errors: string[] = [];
+  const appUrl = args.appUrl ?? args.env?.NEXT_PUBLIC_APP_URL ?? "https://app.offpixel.co.uk";
+  for (const row of rows) {
+    if (!row.events) {
+      skipped.push({ proposalId: row.id, reason: "no event" });
+      continue;
+    }
+    try {
+      const lines = await args.db.from("onsale_refresh_lines").select("kind").eq("proposal_id", row.id).order("position", { ascending: true });
+      if (lines.error) throw new Error(`onsale_refresh_lines: ${lines.error.message}`);
+      const plan = planRun({ day: row.run_day, eventDate: row.events.event_date, config, shadow: row.run_kind === "shadow" });
+      const proposal: Proposal = {
+        objective: row.objective,
+        why: row.why,
+        blockers: row.blockers ?? [],
+        enoughData: row.enough_data,
+        notEnoughData: row.not_enough_data,
+        lines: ((lines.data ?? []) as { kind: Proposal["lines"][number]["kind"] }[]).map((line) => ({ kind: line.kind }) as unknown as Proposal["lines"][number]),
+        watch: row.watch ?? { creatives: [], audiences: [] },
+        notes: row.notes ?? { pauses: "", drops: "", adds: "" },
+        campaignSummary: row.campaign_summary ?? "",
+      };
+      const result = await args.notify(
+        slackMessage({ proposalId: row.id, eventName: row.events.name, eventCode: row.events.event_code, eventId: row.events.id, campaignKey: row.campaign_key, plan, mode: row.mode, proposal }, appUrl),
+      );
+      if (result.sent) {
+        const marked = await args.db.from("onsale_refresh_proposals").update({ slack_posted_at: now.toISOString() }).eq("id", row.id);
+        if (marked.error) throw new Error(`slack_posted_at: ${marked.error.message}`);
+        posted.push(row.id);
+      } else {
+        skipped.push({ proposalId: row.id, reason: result.reason ?? "not_sent" });
+      }
+    } catch (err) {
+      errors.push(`${row.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  console.log(`[onsale-refresh] post=pending pending=${rows.length} posted=${posted.length} skipped=${skipped.length} errors=${errors.length}`);
+  return { ok: errors.length === 0, pending: rows.length, posted, skipped, errors };
+}
+
 /** The figures a line's evidence was read from, without the Drive listing. */
 export function inputsSnapshot(campaign: CampaignInput): Record<string, unknown> {
   return {
@@ -253,7 +344,7 @@ export function inputsSnapshot(campaign: CampaignInput): Record<string, unknown>
     ticketingLinked: campaign.ticketingLinked,
     adSets: campaign.adSets,
     creatives: campaign.ads.map((ad) => ({ adId: ad.adId, adsetId: ad.adsetId, name: ad.name, weekSpend: ad.weekSpend, weekResults: ad.weekResults, totalSpend: ad.totalSpend, totalResults: ad.totalResults, convertScore: ad.convertScore, significant: ad.significant, firstDay: ad.firstDay })),
-    supply: campaign.supply.map((file) => ({ fileId: file.fileId, name: file.name, path: file.path, mix: file.mix, alreadyInCampaign: file.alreadyInCampaign })),
+    supply: campaign.supply.map((file) => ({ fileId: file.fileId, name: file.name, path: file.path, mix: file.mix, alreadyInCampaign: file.alreadyInCampaign, matchedBy: file.matchedBy })),
     claims: campaign.claims.map((claim) => claim.id),
   };
 }
@@ -262,7 +353,7 @@ export function inputsSnapshot(campaign: CampaignInput): Record<string, unknown>
 export function refreshRunLog(body: Record<string, unknown>): { rows: number; detail: Record<string, unknown> } {
   const proposals = Array.isArray(body.proposals) ? (body.proposals as { written?: boolean; proposal?: { lines?: unknown[] } }[]) : [];
   return {
-    rows: proposals.filter((row) => row.written).length,
-    detail: { events: body.events ?? 0, lines: proposals.reduce((n, row) => n + (row.proposal?.lines?.length ?? 0), 0), driveCalls: body.driveCalls ?? 0, errors: Array.isArray(body.errors) ? body.errors.length : 0 },
+    rows: proposals.filter((row) => row.written).length + (Array.isArray(body.posted) ? body.posted.length : 0),
+    detail: { events: body.events ?? 0, lines: proposals.reduce((n, row) => n + (row.proposal?.lines?.length ?? 0), 0), driveCalls: body.driveCalls ?? 0, pending: body.pending ?? 0, posted: Array.isArray(body.posted) ? body.posted.length : 0, errors: Array.isArray(body.errors) ? body.errors.length : 0 },
   };
 }

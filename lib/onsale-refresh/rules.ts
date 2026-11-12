@@ -29,7 +29,10 @@ export type AdInput = {
 };
 
 export type AdSetInput = {
+  /** The Meta id the write targets: the newest id with spend under this name. */
   adsetId: string;
+  /** Every Meta id behind the name (F4: a rebuilt campaign's copy is the same ad set). */
+  adsetIds: string[];
   name: string;
   firstDay: string;
   lastDay: string;
@@ -44,7 +47,7 @@ export type AdSetInput = {
 export type ClusterInput = {
   id: string;
   name: string;
-  /** interest_clusters.live_evidence.cprIndex (shrunk). */
+  /** interest_clusters.live_evidence.cprIndex (shrunk, cost-based: lower is better). */
   index: number | null;
   /** 0 thin · 0.5 ok · 1 strong (lib/learning/shrink.ts CONFIDENCE_SCORE). */
   confidence: number;
@@ -62,6 +65,8 @@ export type SupplyFile = {
   /** The Drive path under the cycle folder, for the line. */
   path: string;
   alreadyInCampaign: boolean;
+  /** How "already in the campaign" was decided: a Lab launch of a render with this Drive id. Hand uploads are not matched. */
+  matchedBy: "lab_launch";
 };
 
 export type ClaimInput = {
@@ -124,6 +129,8 @@ export type ProposalLine = {
   detail: string;
   /** What Apply would write (P2+). */
   writeText: string;
+  /** F2's wording at 393: a shorter detail and, when the write line is dropped there, null. */
+  narrow: { detail: string; writeText: string | null };
   target: Record<string, unknown>;
   evidence: Record<string, unknown>;
   write: Record<string, unknown> | null;
@@ -134,19 +141,20 @@ export type ProposalLine = {
   supply: boolean;
 };
 
-export type WatchItem = { title: string; detail: string; evidence: Record<string, unknown> };
+export type WatchItem = { title: string; detail: string; narrow: string; evidence: Record<string, unknown> };
 
 export type Proposal = {
   objective: ResultEvent;
-  why: { objective: string; purchase: string; moves: string };
-  blockers: { kind: "budget" | "ticketing"; text: string; action: string }[];
+  why: { objective: string; purchase: string; purchaseNarrow: string; moves: string; ticketing: string | null };
+  /** R5: only the budget blocks a line. Ticketing is a stated input, said under Objective (F9). */
+  blockers: { kind: "budget"; text: string; action: string }[];
   enoughData: boolean;
   /** The sentence shown when the week is under the floor. */
   notEnoughData: string | null;
   lines: ProposalLine[];
   watch: { creatives: WatchItem[]; audiences: WatchItem[] };
-  /** Sentences the panel shows when a section has no line. */
-  notes: { pauses: string; drops: string };
+  /** Sentences the panel shows when a section has no line, and the adds' matching caveat (F7). */
+  notes: { pauses: string; drops: string; adds: string };
   campaignSummary: string;
 };
 
@@ -178,18 +186,18 @@ export function whyLines(input: CampaignInput, objective: ResultEvent, config: P
       ? `Initiate Checkout — ${input.sinceOnSale.ic} reached the pixel${since}. Last 14 days: ${input.last14.ic} IC, ${input.last14.purchases} purchase${input.last14.purchases === 1 ? "" : "s"}.`
       : `Landing Page View — the pixel logged ${input.last14.ic} Initiate Checkout in 14 days, under ${config.icMinIn14Days}. Last 14 days: ${input.last14.lpv} LPV, ${input.last14.purchases} purchase${input.last14.purchases === 1 ? "" : "s"}.`;
   const weeks = input.sinceOnSale.fromDay && input.plan.window.end ? Math.max(1, Math.round(daysBetween(input.sinceOnSale.fromDay, input.plan.window.end) / 7)) : null;
-  const purchaseLine =
-    input.last14.purchases >= config.purchaseMinIn14Days
-      ? `Purchase campaign proposed — ${input.last14.purchases} purchases on the pixel in 14 days (P4 adds the line).`
-      : `Purchase campaign not proposed — ${input.sinceOnSale.purchases} purchase${input.sinceOnSale.purchases === 1 ? "" : "s"} on the pixel${weeks ? ` in ${weeks} week${weeks === 1 ? "" : "s"}` : ""}.`;
-  const movesLine = input.last14.purchases >= config.purchaseMinIn14Days ? "Budget moves may cross campaigns on cost per purchase." : "Budget moves stay inside each campaign.";
-  return { objective: objectiveLine, purchase: purchaseLine, moves: movesLine };
+  const purchases = `${input.sinceOnSale.purchases} purchase${input.sinceOnSale.purchases === 1 ? "" : "s"} on the pixel${weeks ? ` in ${weeks} week${weeks === 1 ? "" : "s"}` : ""}.`;
+  const proposed = input.last14.purchases >= config.purchaseMinIn14Days;
+  const purchaseLine = proposed ? `Purchase campaign proposed — ${input.last14.purchases} purchases on the pixel in 14 days (P4 adds the line).` : `Purchase campaign not proposed — ${purchases}`;
+  const purchaseNarrow = proposed ? `Purchase campaign: ${input.last14.purchases} purchases in 14 days.` : `No Purchase campaign: ${purchases}`;
+  const movesLine = proposed ? "Budget moves may cross campaigns on cost per purchase." : "Budget moves stay inside each campaign.";
+  const ticketing = input.ticketingLinked ? null : "No linked ticketing: the pixel's purchases can't be checked against real sales.";
+  return { objective: objectiveLine, purchase: purchaseLine, purchaseNarrow, moves: movesLine, ticketing };
 }
 
 export function blockersFor(input: CampaignInput): Proposal["blockers"] {
   const out: Proposal["blockers"] = [];
   if (input.budgetGbp == null) out.push({ kind: "budget", text: "This event has no marketing budget, so nothing that adds spend can be accepted.", action: "Set budget" });
-  if (!input.ticketingLinked) out.push({ kind: "ticketing", text: "No ticketing link: the listing's sales can't be checked against the pixel.", action: "Link listing" });
   return out;
 }
 
@@ -227,6 +235,13 @@ function lastDeliveringAds(creative: Creative, ads: readonly AdInput[], adSets: 
   });
 }
 
+/**
+ * R2 pause creative. Watch (F5) holds only creatives past the cost bar
+ * that are not yet significant, significant and bottom third but live
+ * under 7 days, or kept because they are the last delivering ad in their
+ * ad set. A significant creative outside the bottom third is not shown.
+ * The mid-cycle check proposes no pauses (F6); Watch still shows.
+ */
 export function pauseLines(input: CampaignInput, config: PhaseConfig): { lines: ProposalLine[]; watch: WatchItem[]; note: string } {
   const label = RESULT_LABEL[input.resultEvent].short;
   const campaignCpr = cpr(input.weekSpend, input.weekResults);
@@ -234,6 +249,7 @@ export function pauseLines(input: CampaignInput, config: PhaseConfig): { lines: 
   const watch: WatchItem[] = [];
   const lines: ProposalLine[] = [];
   if (campaignCpr == null) return { lines, watch, note: `No pauses: the campaign has no ${label} cost this week.` };
+  const midCycle = input.plan.runKind === "mid_cycle";
   const scored = creatives.filter((creative) => creative.convertScore != null).sort((a, b) => a.convertScore! - b.convertScore!);
   const bottomThird = new Set(scored.slice(0, Math.floor(scored.length / 3)).map((creative) => creative.name));
   const candidates = creatives
@@ -256,24 +272,31 @@ export function pauseLines(input: CampaignInput, config: PhaseConfig): { lines: 
       window: input.plan.window,
     };
     const costText = `${creative.ads.length} ads · ${gbp(creative.totalSpend)} · ${creative.totalResults} ${label}${creativeCpr == null ? "" : ` · ${gbp(creativeCpr)} each, ${ratioText(creativeCpr / campaignCpr)} the campaign`}`;
-    const qualifies = creative.significant && bottomThird.has(creative.name) && daysLive >= config.minDays;
-    if (!qualifies) {
-      watch.push({ title: creative.name, detail: `${costText} · convert ${creative.convertScore ?? "—"}, ${creative.significant ? "significant" : "not yet significant"}${daysLive < config.minDays ? ` · live ${daysLive} day${daysLive === 1 ? "" : "s"}` : ""}`, evidence });
+    const narrow = `${creative.name} · ${gbp(creative.totalSpend)} · ${creative.totalResults} ${label}`;
+    const inBottomThird = bottomThird.has(creative.name);
+    if (!creative.significant) {
+      watch.push({ title: creative.name, detail: `${costText} · convert ${creative.convertScore ?? "—"}, not yet significant`, narrow, evidence });
       continue;
     }
-    if (lines.length >= config.maxPauses) continue;
+    if (!inBottomThird) continue;
+    if (daysLive < config.minDays) {
+      watch.push({ title: creative.name, detail: `${costText} · convert ${creative.convertScore}, significant · bottom third · live ${daysLive} day${daysLive === 1 ? "" : "s"}`, narrow, evidence });
+      continue;
+    }
     const lastInSet = lastDeliveringAds(creative, input.ads, input.adSets);
     const adIds = creative.ads.filter((ad) => !lastInSet.some((last) => last.adId === ad.adId)).map((ad) => ad.adId);
     if (!adIds.length) {
-      watch.push({ title: creative.name, detail: `${costText} · the last delivering ad in its ad set, so it stays`, evidence });
+      watch.push({ title: creative.name, detail: `${costText} · the last delivering ad in its ad set, so it stays`, narrow, evidence });
       continue;
     }
+    if (midCycle || lines.length >= config.maxPauses) continue;
     lines.push({
       kind: "pause_creative",
       ruleId: "pause.significant_bottom_third",
       title: creative.name,
       detail: `${costText} · convert ${creative.convertScore}, significant · bottom third`,
       writeText: `Pause ${adIds.length} ad${adIds.length === 1 ? "" : "s"} · ad status write`,
+      narrow: { detail: `${gbp(creative.totalSpend)} · ${creative.totalResults} ${label}${creativeCpr == null ? "" : ` · ${gbp(creativeCpr)} each, ${ratioText(creativeCpr / campaignCpr)}`}`, writeText: null },
       target: { creative: creative.name, adIds },
       evidence,
       write: { kind: "ad_status", adIds, status: "PAUSED" },
@@ -282,7 +305,7 @@ export function pauseLines(input: CampaignInput, config: PhaseConfig): { lines: 
       supply: false,
     });
   }
-  const note = lines.length ? "" : "No pauses: no creative has enough evidence.";
+  const note = lines.length ? "" : midCycle ? "No pauses on a mid-cycle check." : "No pauses: no creative has enough evidence.";
   return { lines, watch, note };
 }
 
@@ -310,8 +333,9 @@ export function addLines(input: CampaignInput, config: PhaseConfig): ProposalLin
     title: file.name,
     detail: `${file.path} · approved final · ${cycleWord}`,
     writeText: `New ad in each delivering ad set (${delivering.length}) · launch path · goes in live`,
+    narrow: { detail: `${file.path} · ${cycleWord}`, writeText: "New ad in each delivering ad set · live" },
     target: { driveFileId: file.fileId, name: file.name, owner: file.owner, kind: file.kind, mix: MIX_LABEL[file.mix] || null },
-    evidence: { path: file.path, cycleMonday: input.plan.cycleMonday, cycleKind: input.plan.cycleKind, deliveringAdSets: delivering.length },
+    evidence: { path: file.path, cycleMonday: input.plan.cycleMonday, cycleKind: input.plan.cycleKind, deliveringAdSets: delivering.length, matchedBy: file.matchedBy },
     write: { kind: "add_ads", driveFileId: file.fileId, adsetIds: delivering, status: "ACTIVE" },
     addsSpend: false,
     blockedReason: null,
@@ -331,6 +355,7 @@ export function claimLines(input: CampaignInput): ProposalLine[] {
       title: `“${claim.claim.replace(/\s*\n\s*/g, " / ")}”`,
       detail: `Approved · live since ${claim.runsFrom ? dayMonth(claim.runsFrom.slice(0, 10)) : dayMonth(claim.approvedAt!.slice(0, 10))} · no render yet`,
       writeText: input.plan.nextCycle ? `Make it in the Lab: it joins the ${dayMonth(input.plan.nextCycle)} ${input.plan.nextCycleKind ?? ""} cycle's adds`.replace("  ", " ") : "Make it in the Lab",
+      narrow: { detail: `Approved · live since ${claim.runsFrom ? dayMonth(claim.runsFrom.slice(0, 10)) : dayMonth(claim.approvedAt!.slice(0, 10))} · no render yet`, writeText: input.plan.nextCycle ? `Make it in the Lab: it joins the ${dayMonth(input.plan.nextCycle)} ${input.plan.nextCycleKind ?? ""} cycle's adds`.replace("  ", " ") : "Make it in the Lab" },
       target: { ticketWarningId: claim.id },
       evidence: { claim: claim.claim, approvedAt: claim.approvedAt, runsFrom: claim.runsFrom, runsTo: claim.runsTo },
       write: null,
@@ -360,7 +385,8 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
       title: set.name,
       detail: `Stopped ${dayMonth(set.lastDay)} · ${gbp(set.totalSpend)} · ${set.totalResults} ${label} · ${gbp(setCpr)} each, ${ratioText(setCpr / totalCpr)} the campaign`,
       writeText: "Ad set status → on · its own budget",
-      target: { adsetId: set.adsetId, name: set.name },
+      narrow: { detail: `${gbp(set.totalSpend)} · ${set.totalResults} ${label} · ${gbp(setCpr)} each, ${ratioText(setCpr / totalCpr)}`, writeText: null },
+      target: { adsetId: set.adsetId, adsetIds: set.adsetIds, name: set.name },
       evidence: { spend: round2(set.totalSpend), results: set.totalResults, cpr: round2(setCpr), campaignCpr: round2(totalCpr), cprRatio: round2(setCpr / totalCpr), stoppedOn: set.lastDay },
       write: { kind: "adset_status", adsetId: set.adsetId, status: "ACTIVE" },
       addsSpend: true,
@@ -371,13 +397,14 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
   // Bring back a client cluster not used on this event.
   for (const cluster of input.clusters) {
     if (cluster.usedOnEvent || cluster.index == null) continue;
-    if (cluster.index < config.bringBackClusterIndexAtLeast || cluster.confidence < config.bringBackClusterConfidenceAtLeast) continue;
+    if (cluster.index > config.bringBackClusterCprIndexAtMost || cluster.confidence < config.bringBackClusterConfidenceAtLeast) continue;
     lines.push({
       kind: "bring_back_audience",
       ruleId: "bring_back.client_cluster",
       title: cluster.name,
-      detail: `Client interest cluster · live evidence index ${cluster.index} · confidence ${cluster.confidence} · not used on this event`,
+      detail: `Client interest cluster · live evidence cost index ${cluster.index} (≤ ${config.bringBackClusterCprIndexAtMost}) · confidence ${cluster.confidence} · not used on this event`,
       writeText: "New ad set through the launch path · its own budget",
+      narrow: { detail: `cost index ${cluster.index} · confidence ${cluster.confidence}`, writeText: null },
       target: { clusterId: cluster.id, name: cluster.name },
       evidence: { index: cluster.index, confidence: cluster.confidence },
       write: { kind: "new_adset", clusterId: cluster.id },
@@ -410,7 +437,7 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
       const costText = `${gbp(set.weekSpend)} · ${set.weekResults} ${label}${setCpr == null ? "" : ` · ${gbp(setCpr)} each, ${ratioText(setCpr / campaignCpr)} the campaign`}`;
       const qualifies = daysLive >= config.minDays && set.weekSpend >= config.dropSpendMultiple * campaignCpr && (setCpr == null || setCpr >= config.dropCprRatio * campaignCpr) && !RETARGETING.test(set.name) && delivering.length > 1;
       if (!qualifies) {
-        watch.push({ title: set.name, detail: `${costText} (drops at ${config.dropCprRatio}×)${daysLive < config.minDays ? ` · live ${daysLive} day${daysLive === 1 ? "" : "s"}` : ""}`, evidence });
+        watch.push({ title: set.name, detail: `${costText} (drops at ${config.dropCprRatio}×)${daysLive < config.minDays ? ` · live ${daysLive} day${daysLive === 1 ? "" : "s"}` : ""}`, narrow: `${set.name} · ${gbp(set.weekSpend)} · ${set.weekResults} ${label}`, evidence });
         continue;
       }
       lines.push({
@@ -419,7 +446,8 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
         title: set.name,
         detail: `${costText} · live ${daysLive} days`,
         writeText: "Ad set status → off",
-        target: { adsetId: set.adsetId, name: set.name },
+        narrow: { detail: `${gbp(set.weekSpend)} · ${set.weekResults} ${label}${setCpr == null ? "" : ` · ${gbp(setCpr)} each, ${ratioText(setCpr / campaignCpr)}`}`, writeText: null },
+        target: { adsetId: set.adsetId, adsetIds: set.adsetIds, name: set.name },
         evidence,
         write: { kind: "adset_status", adsetId: set.adsetId, status: "PAUSED" },
         addsSpend: false,
@@ -450,6 +478,7 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
         title: `${worst.set.name} → ${best.set.name}`,
         detail: `${gbp(worst.setCpr!)} per ${label} (${ratioText(worst.setCpr! / campaignCpr)}) to ${gbp(best.setCpr!)} per ${label} (${ratioText(best.setCpr! / campaignCpr)}) · ${gbp(amount)} a week${cap != null ? ` · cap ${gbp(cap)} (20 % of ${gbp(remaining!)} remaining)` : ""}`,
         writeText: "Ad-set budget write, both sides",
+        narrow: { detail: `${gbp(amount)} a week${cap != null ? ` · cap ${gbp(cap)}` : ""}`, writeText: null },
         target: { fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId },
         evidence: { fromCpr: round2(worst.setCpr!), toCpr: round2(best.setCpr!), campaignCpr: round2(campaignCpr), amountGbp: amount, capGbp: cap, remainingBudgetGbp: remaining },
         write: { kind: "adset_budget_move", fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId, amountGbp: amount },
@@ -469,6 +498,7 @@ function missingDefault(which: string, title: string, spendBlock: string | null)
     title,
     detail: "Standing default · not in the campaign",
     writeText: "New ad set through the launch path · its own budget",
+    narrow: { detail: "Standing default · not in the campaign", writeText: null },
     target: { default: which },
     evidence: {},
     write: { kind: "new_adset", default: which },
@@ -509,7 +539,7 @@ export function buildProposal(input: CampaignInput, config: PhaseConfig): Propos
     notEnoughData,
     lines: [...adds, ...claims, ...pauses.lines, ...audiences.lines],
     watch: { creatives: pauses.watch, audiences: audiences.watch },
-    notes: { pauses: pauses.note, drops: audiences.note },
+    notes: { pauses: pauses.note, drops: audiences.note, adds: "Files uploaded by hand in Ads Manager aren't matched." },
     campaignSummary: campaignSummary(input),
   };
 }

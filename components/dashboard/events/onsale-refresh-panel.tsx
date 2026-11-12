@@ -58,8 +58,11 @@ function LineRow({ line, shadow }: { line: PanelLine; shadow: boolean }) {
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{KIND_LABEL[line.kind]}</span>
             <span className="break-words text-sm font-medium">{line.title}</span>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{line.detail}</p>
-          <p className="mt-0.5 text-xs">{line.writeText}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            <Wide wide={line.detail} narrow={line.narrow.detail} />
+          </p>
+          <p className="mt-0.5 hidden text-xs sm:block">{line.writeText}</p>
+          {line.narrow.writeText ? <p className="mt-0.5 text-xs sm:hidden">{line.narrow.writeText}</p> : null}
           {line.blockedReason ? <p className="mt-0.5 text-xs text-destructive">{line.blockedReason}</p> : null}
           {line.state !== "to_review" ? (
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -69,7 +72,7 @@ function LineRow({ line, shadow }: { line: PanelLine; shadow: boolean }) {
           ) : null}
         </div>
         {line.supply ? (
-          <Link href="#creative-lab" className="shrink-0 text-xs underline underline-offset-2">
+          <Link href="#lab-round" className="shrink-0 text-xs underline underline-offset-2">
             Open Lab
           </Link>
         ) : (
@@ -87,23 +90,15 @@ function LineRow({ line, shadow }: { line: PanelLine; shadow: boolean }) {
   );
 }
 
-function Watch({ label, items, note }: { label: string; items: { title: string; detail: string }[]; note: string }) {
+/** "No pauses: … Watch: name · detail." wide; "No pauses · Watch: name · spend · results" at 393 (F2's wording). */
+function Watch({ label, items, note }: { label: string; items: { title: string; detail: string; narrow?: string }[]; note: string }) {
   if (!note && !items.length) return null;
+  const shortNote = note.split(/[:.]/)[0] ?? "";
+  const wide = `${note ? `${note} ` : ""}${items.length ? `${label}: ${items.map((item) => `${item.title} · ${item.detail}`).join("; ")}.` : ""}`.trim();
+  const narrow = [shortNote, items.length ? `${label}: ${items.map((item) => item.narrow ?? `${item.title} · ${item.detail.split(" · ").slice(0, 2).join(" · ")}`).join("; ")}` : ""].filter(Boolean).join(" · ");
   return (
     <p className="text-xs text-muted-foreground">
-      {note ? `${note} ` : ""}
-      {items.length ? (
-        <>
-          {label}: {items.map((item, index) => (
-            <span key={item.title}>
-              {index ? "; " : ""}
-              {item.title}
-              <Wide wide={` · ${item.detail}`} narrow={` · ${item.detail.split(" · ").slice(0, 2).join(" · ")}`} />
-            </span>
-          ))}
-          .
-        </>
-      ) : null}
+      <Wide wide={wide} narrow={narrow} />
     </p>
   );
 }
@@ -148,13 +143,9 @@ export function OnSaleRefreshPanelView({ eventId, proposals }: OnSaleRefreshPane
                 <span>
                   <Wide wide={blocker.text} narrow={blocker.text.replace("This event has no marketing budget, so nothing", "No marketing budget: nothing")} />
                 </span>
-                {blocker.kind === "budget" ? (
-                  <Link href={`/events/${eventId}/edit`} className="shrink-0 underline underline-offset-2">
-                    {blocker.action}
-                  </Link>
-                ) : (
-                  <span className="shrink-0 text-muted-foreground">{blocker.action}</span>
-                )}
+                <Link href={`/events/${eventId}/edit`} className="shrink-0 underline underline-offset-2">
+                  {blocker.action}
+                </Link>
               </li>
             ))}
           </ul>
@@ -165,9 +156,10 @@ export function OnSaleRefreshPanelView({ eventId, proposals }: OnSaleRefreshPane
         <p className="text-xs font-medium">Objective</p>
         <p className="text-xs">{head.why.objective}</p>
         <p className="text-xs text-muted-foreground">
-          {head.why.purchase}
+          <Wide wide={head.why.purchase} narrow={head.why.purchaseNarrow || head.why.purchase} />
           <span className="hidden sm:inline"> {head.why.moves}</span>
         </p>
+        {head.why.ticketing ? <p className="text-xs text-muted-foreground">{head.why.ticketing}</p> : null}
       </div>
 
       {proposals.map((proposal) => {
@@ -193,6 +185,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals }: OnSaleRefreshPane
                 ))}
               </ul>
             ) : null}
+            {creatives.some((line) => line.kind === "add_creative") && proposal.notes.adds ? <p className="mt-1 text-xs text-muted-foreground">{proposal.notes.adds}</p> : null}
             <div className="mt-2">
               <Watch label="Watch" items={proposal.watch.creatives} note={proposal.notes.pauses} />
             </div>

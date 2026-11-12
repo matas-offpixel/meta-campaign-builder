@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { fakeDb, op } from "../../launched-ads/__tests__/fake-db.ts";
-import { actionCount, loadCycleSupply, resultOf } from "../load.ts";
+import { actionCount, loadAll, loadCycleSupply, resultOf } from "../load.ts";
 import { ONSALE_PHASE, PRESALE_PHASE } from "../phase-config.ts";
 import { addLines, audienceLines, buildProposal, chooseObjective, claimLines, pauseLines, whyLines, type AdInput, type AdSetInput, type CampaignInput } from "../rules.ts";
-import { inputsSnapshot, isOnsaleRefreshEnabled, refreshRunLog, runOnsaleRefresh, writeProposal, type RunRefreshInput } from "../runner.ts";
+import { inputsSnapshot, isOnsaleRefreshEnabled, postPendingProposals, refreshRunLog, runOnsaleRefresh, writeProposal, type RunRefreshInput } from "../runner.ts";
 import { cycleKindOf, nextCycleAfter, planRun, scheduledRunKind, shortDay, weekLabel, windowFor } from "../schedule.ts";
 import { slackMessage } from "../slack.ts";
 
@@ -64,7 +64,7 @@ function ad(overrides: Partial<AdInput> & Pick<AdInput, "adId" | "adsetId" | "na
 }
 
 function adSet(overrides: Partial<AdSetInput> & Pick<AdSetInput, "adsetId" | "name">): AdSetInput {
-  return { firstDay: "2026-10-30", lastDay: "2026-11-11", weekSpend: 40, weekResults: 5, totalSpend: 100, totalResults: 12, delivering: true, ...overrides };
+  return { adsetIds: [overrides.adsetId], firstDay: "2026-10-30", lastDay: "2026-11-11", weekSpend: 40, weekResults: 5, totalSpend: 100, totalResults: 12, delivering: true, ...overrides };
 }
 
 function campaign(overrides: Partial<CampaignInput> = {}): CampaignInput {
@@ -108,7 +108,10 @@ describe("on-sale refresh: objective and the why line (R3)", () => {
     const why = whyLines(campaign(), "initiate_checkout", ONSALE_PHASE);
     assert.equal(why.objective, "Initiate Checkout — 106 reached the pixel since 30 Oct. Last 14 days: 26 IC, 1 purchase.");
     assert.equal(why.purchase, "Purchase campaign not proposed — 1 purchase on the pixel in 2 weeks.");
+    assert.equal(why.purchaseNarrow, "No Purchase campaign: 1 purchase on the pixel in 2 weeks.");
     assert.equal(why.moves, "Budget moves stay inside each campaign.");
+    assert.equal(why.ticketing, "No linked ticketing: the pixel's purchases can't be checked against real sales.", "F9: ticketing is an input said under Objective");
+    assert.equal(whyLines(campaign({ ticketingLinked: true }), "initiate_checkout", ONSALE_PHASE).ticketing, null);
     const lpv = whyLines(campaign({ last14: { ic: 4, purchases: 0, lpv: 900 } }), "landing_page_view", ONSALE_PHASE);
     assert.match(lpv.objective, /^Landing Page View — the pixel logged 4 Initiate Checkout in 14 days, under 10\. Last 14 days: 900 LPV, 0 purchases\.$/);
     const purchase = whyLines(campaign({ last14: { ic: 40, purchases: 18, lpv: 0 } }), "initiate_checkout", ONSALE_PHASE);
@@ -140,7 +143,20 @@ describe("on-sale refresh: pause creative (R2)", () => {
     assert.ok(watched.includes("Young"), "under 7 days");
     assert.ok(watched.includes("Unsure"), "not significant");
     assert.ok(!watched.includes("Cheap"), "under the spend bar is not even watched");
-    assert.ok(watched.includes("Strong"), "past the spend bar, not bottom third");
+    assert.ok(!watched.includes("Strong"), "F5: significant and outside the bottom third is not shown");
+    assert.ok(!watched.includes("Mid"), "F5: significant and outside the bottom third is not shown");
+    assert.ok(!watched.includes("Weak"), "proposed, not watched");
+    assert.equal(lines[0]!.narrow.writeText, null, "F2's wording drops the write line at 393");
+    assert.match(lines[0]!.narrow.detail, /^£80\.00 · 3 IC/);
+  });
+
+  it("F6: the mid-cycle check proposes no pauses; Watch still shows", () => {
+    const mid = planRun({ day: "2026-11-16", eventDate: "2026-12-27", config: ONSALE_PHASE });
+    const { lines, watch, note } = pauseLines(campaign({ ads, adSets: sets, plan: mid }), ONSALE_PHASE);
+    assert.deepEqual(lines, []);
+    assert.equal(note, "No pauses on a mid-cycle check.");
+    assert.ok(watch.some((item) => item.title === "Unsure"));
+    assert.ok(watch.every((item) => item.narrow.startsWith(`${item.title} · £`)));
   });
 
   it("never the last delivering ad in an ad set, at most three pauses", () => {
@@ -178,6 +194,8 @@ describe("on-sale refresh: audiences and budget (R2, R5)", () => {
     assert.equal(bring.addsSpend, true);
     assert.equal(bring.blockedReason, "Adds spend: set this event's budget to accept this.");
     assert.match(bring.detail, /^Stopped 6 Nov · £36\.85 · 12 IC · £3\.07 each, 0\.4× the campaign$/);
+    assert.deepEqual(bring.narrow, { detail: "£36.85 · 12 IC · £3.07 each, 0.4×", writeText: null }, "F2's wording at 393");
+    assert.deepEqual(bring.target, { adsetId: "edm", adsetIds: ["edm"], name: "Electronic dance music, Electronic music" });
     assert.ok(watch.some((item) => item.title === "Lineup — Primary" && /1\.84× the campaign \(drops at 2×\)/.test(item.detail)));
     assert.ok(watch.some((item) => item.title === "Fresh" && /live 4 days/.test(item.detail)));
   });
@@ -196,29 +214,28 @@ describe("on-sale refresh: audiences and budget (R2, R5)", () => {
     assert.match(noBudget.lines.find((line) => line.kind === "move_budget")!.blockedReason ?? "", /set this event's budget/);
   });
 
+  it("F8: a client cluster comes back at a live cost index of at most 0.83 (lower is better), at confidence 0.5", () => {
+    const clusters = [
+      { id: "c-good", name: "Techno heads", index: 0.7, confidence: 0.8, usedOnEvent: false },
+      { id: "c-edge", name: "Edge", index: 0.83, confidence: 0.5, usedOnEvent: false },
+      { id: "c-dear", name: "Dear", index: 1.2, confidence: 0.9, usedOnEvent: false },
+      { id: "c-unsure", name: "Unsure", index: 0.5, confidence: 0.3, usedOnEvent: false },
+      { id: "c-used", name: "Used", index: 0.5, confidence: 0.9, usedOnEvent: true },
+    ];
+    assert.equal(ONSALE_PHASE.bringBackClusterCprIndexAtMost, 0.83);
+    const { lines } = audienceLines(campaign({ clusters, budgetGbp: 4500, adSets: [adSet({ adsetId: "ret", name: "Retargeting" }), adSet({ adsetId: "ll", name: "1% LL" })] }), ONSALE_PHASE);
+    assert.deepEqual(lines.filter((line) => line.ruleId === "bring_back.client_cluster").map((line) => line.title), ["Techno heads", "Edge"]);
+  });
+
   it("missing standing defaults are proposed when no delivering ad set is retargeting or the lookalike", () => {
     const { lines } = audienceLines(campaign({ adSets: [adSet({ adsetId: "a", name: "Adv+" }), adSet({ adsetId: "b", name: "Wide" })] }), ONSALE_PHASE);
     assert.deepEqual(lines.filter((line) => line.kind === "missing_default").map((line) => line.ruleId), ["missing_default.retargeting", "missing_default.registrations_lookalike"]);
   });
 
-  it("a client cluster comes back on live evidence at index ≥ 1.2 and confidence ≥ 0.5 when not used on the event", () => {
-    const { lines } = audienceLines(
-      campaign({
-        adSets: sets,
-        clusters: [
-          { id: "k1", name: "Melodic Techno", index: 1.37, confidence: 0, usedOnEvent: false },
-          { id: "k2", name: "Disc Genre", index: 1.3, confidence: 0.5, usedOnEvent: false },
-          { id: "k3", name: "Used", index: 1.5, confidence: 1, usedOnEvent: true },
-        ],
-      }),
-      ONSALE_PHASE,
-    );
-    assert.deepEqual(lines.filter((line) => line.ruleId === "bring_back.client_cluster").map((line) => line.title), ["Disc Genre"]);
-  });
 });
 
 describe("on-sale refresh: supply (R2)", () => {
-  const supply = (name: string, mix: "ugc" | "cta" | "no_cta", extra: Partial<CampaignInput["supply"][number]> = {}) => ({ fileId: name, name, owner: "Enzo Siragusa", kind: "video" as const, mix, path: `Enzo Siragusa / Videos / ${mix.toUpperCase()}`, alreadyInCampaign: false, ...extra });
+  const supply = (name: string, mix: "ugc" | "cta" | "no_cta", extra: Partial<CampaignInput["supply"][number]> = {}) => ({ fileId: name, name, owner: "Enzo Siragusa", kind: "video" as const, mix, path: `Enzo Siragusa / Videos / ${mix.toUpperCase()}`, alreadyInCampaign: false, matchedBy: "lab_launch" as const, ...extra });
 
   it("the content cycle leads with UGC and No CTA two in three, caps at six, skips files already in the campaign, and the mid-cycle check adds nothing", () => {
     const files = [supply("c1", "cta"), supply("c2", "cta"), supply("c3", "cta"), supply("u1", "ugc"), supply("u2", "ugc"), supply("n1", "no_cta"), supply("n2", "no_cta"), supply("u3", "ugc"), supply("in", "ugc", { alreadyInCampaign: true })];
@@ -228,6 +245,8 @@ describe("on-sale refresh: supply (R2)", () => {
     assert.equal(leads, 4, "2 in 3 of 6");
     assert.ok(!lines.some((line) => line.title === "in"));
     assert.match(lines[0]!.detail, /content cycle/);
+    assert.equal((lines[0]!.evidence as { matchedBy: string }).matchedBy, "lab_launch", "F7: how the duplicate check was made");
+    assert.deepEqual(lines[0]!.narrow, { detail: `${lines[0]!.title.startsWith("u") ? "Enzo Siragusa / Videos / UGC" : "Enzo Siragusa / Videos / NO_CTA"} · content cycle`, writeText: "New ad in each delivering ad set · live" });
     const payday = addLines(campaign({ supply: files, plan: planRun({ day: "2026-11-23", eventDate: "2026-12-27", config: ONSALE_PHASE }) }), ONSALE_PHASE);
     assert.equal(payday.filter((line) => / \/ CTA$/.test(line.detail.split(" · ")[0]!)).length, 3, "the payday cycle takes every CTA file first (3 of 6)");
     assert.match(payday[0]!.detail, /payday cycle/);
@@ -261,15 +280,17 @@ describe("on-sale refresh: the proposal (R2, R5)", () => {
         weekResults: 12,
         ads: [ad({ adId: "a", adsetId: "s", name: "Weak", convertScore: 1, significant: true, totalSpend: 80 }), ad({ adId: "b", adsetId: "s", name: "Ok", convertScore: 80, significant: true, totalSpend: 80 })],
         adSets: [adSet({ adsetId: "s", name: "Boiler", weekSpend: 100, weekResults: 1 })],
-        supply: [{ fileId: "f", name: "clip", owner: "Enzo", kind: "video", mix: "ugc", path: "Enzo / Videos / UGC", alreadyInCampaign: false }],
+        supply: [{ fileId: "f", name: "clip", owner: "Enzo", kind: "video", mix: "ugc", path: "Enzo / Videos / UGC", alreadyInCampaign: false, matchedBy: "lab_launch" }],
       }),
       ONSALE_PHASE,
     );
     assert.equal(proposal.enoughData, false);
     assert.equal(proposal.notEnoughData, "Not enough data this week (12 IC, under 20) — next check Mon 16 Nov.");
     assert.deepEqual(proposal.lines.map((line) => line.kind), ["add_creative"]);
-    assert.equal(proposal.blockers.length, 2);
+    assert.equal(proposal.blockers.length, 1, "F9: only the budget blocks; ticketing is said under Objective");
     assert.equal(proposal.blockers[0]!.text, "This event has no marketing budget, so nothing that adds spend can be accepted.");
+    assert.equal(proposal.why.ticketing, "No linked ticketing: the pixel's purchases can't be checked against real sales.");
+    assert.equal(proposal.notes.adds, "Files uploaded by hand in Ads Manager aren't matched.");
     assert.equal(proposal.campaignSummary, "29 Oct – 11 Nov · £734.22 · 96 IC · £7.65 each");
   });
 
@@ -283,6 +304,20 @@ describe("on-sale refresh: the proposal (R2, R5)", () => {
 // ── load helpers ─────────────────────────────────────────────────────────────
 
 describe("on-sale refresh: loading", () => {
+  it("F3: every paged read is ordered by its unique key and deduped, so overlapping pages never double a row", async () => {
+    const pageA = Array.from({ length: 1000 }, (_, i) => ({ date: "2026-11-01", meta_ad_id: `a${String(i).padStart(4, "0")}`, spend: 1 }));
+    const pageB = [...pageA.slice(990), ...Array.from({ length: 5 }, (_, i) => ({ date: "2026-11-02", meta_ad_id: `b${i}`, spend: 1 }))];
+    let page = 0;
+    const { db, calls } = fakeDb(() => ({ data: page++ === 0 ? pageA : pageB, error: null }));
+    const rows = await loadAll<{ date: string; meta_ad_id: string; spend: number }>(db, "ad_daily_insights", "date, meta_ad_id, spend", ["date", "meta_ad_id"]);
+    assert.equal(rows.length, 1005, "the 10 repeated rows are dropped");
+    assert.equal(rows.reduce((sum, row) => sum + row.spend, 0), 1005);
+    for (const call of calls) {
+      assert.deepEqual(call.ops.filter(([name]) => name === "order").map(([, args]) => args[0]), ["date", "meta_ad_id"]);
+      assert.ok(op(call, "range"));
+    }
+  });
+
   it("results read Meta's canonical IC action, LPV from its column", () => {
     const row = { meta_ad_id: "a", meta_adset_id: "s", meta_campaign_id: "c", ad_account_id: "act", date: "2026-11-10", ad_name: null, adset_name: null, campaign_name: null, spend: 1, landing_page_views: 7, purchases: 0, actions: [{ action_type: "omni_initiated_checkout", value: "3" }, { action_type: "offsite_conversion.fb_pixel_initiate_checkout", value: "3" }, { action_type: "initiate_checkout", value: "3" }] };
     assert.equal(actionCount(row.actions, "omni_initiated_checkout"), 3);
@@ -332,7 +367,7 @@ describe("on-sale refresh: runner", () => {
   const event = { id: "e1", name: "Puzzle 4th Birthday", event_code: "P26-BDAY", event_date: "2026-12-27", general_sale_at: "2026-10-30T12:00:00Z", status: "on_sale", client_id: "c1", budget_marketing: 4500, drive_folder_id: "f" };
   const loaders = {
     events: async () => [event],
-    insights: async () => ({ rows: [], context: { launchedAds: new Map(), launchedAdSets: new Map(), codedEvents: [] } }),
+    insights: async (_db: unknown) => ({ rows: [], context: { launchedAds: new Map(), launchedAdSets: new Map(), codedEvents: [] } }),
     aux: async () => ({ scores: [], clusters: [], launchedAdSets: [], warnings: [], ticketing: [], driveFolders: [], renderDriveIds: new Set<string>() }),
     inputs: async (args: { event: typeof event }) => ({
       event: args.event,
@@ -373,7 +408,7 @@ describe("on-sale refresh: runner", () => {
     assert.equal(result.driveCalls, 2);
     assert.equal(notified, 0);
     assert.ok(calls.every((call) => !op(call, "upsert") && !op(call, "insert") && !op(call, "update") && !op(call, "delete")));
-    assert.deepEqual(refreshRunLog(result as unknown as Record<string, unknown>), { rows: 0, detail: { events: 1, lines: result.proposals[0]!.proposal.lines.length, driveCalls: 2, errors: 0 } });
+    assert.deepEqual(refreshRunLog(result as unknown as Record<string, unknown>), { rows: 0, detail: { events: 1, lines: result.proposals[0]!.proposal.lines.length, driveCalls: 2, pending: 0, posted: 0, errors: 0 } });
   });
 
   it("a live run stores the proposal with its lines and inputs, expires the previous proposal's unanswered lines, posts once", async () => {
@@ -399,6 +434,7 @@ describe("on-sale refresh: runner", () => {
     const inserted = op(lines, "insert")![0] as Record<string, unknown>[];
     assert.ok(inserted.length > 0);
     assert.ok(inserted.every((line) => line.state === "to_review" && line.proposal_id === "p1" && line.user_id === "op"));
+    assert.ok(inserted.every((line) => typeof (line.narrow as { detail?: string }).detail === "string"), "F10: every line stores its 393 wording");
     const expired = calls.find((call) => call.table === "onsale_refresh_lines" && op(call, "update"))!;
     assert.deepEqual(op(expired, "update"), [{ state: "expired" }]);
     assert.deepEqual(op(expired, "in"), ["proposal_id", ["p0"]]);
@@ -406,6 +442,30 @@ describe("on-sale refresh: runner", () => {
     assert.ok(calls.some((call) => call.table === "onsale_refresh_proposals" && op(call, "update")?.[0] && "slack_posted_at" in (op(call, "update")![0] as object)));
     // No Meta, no ad set, no ad status write anywhere.
     assert.ok(calls.every((call) => !["ads", "adsets", "campaigns"].includes(call.table)));
+  });
+
+  it("F2: ?post=pending posts the proposals business hours held back, marks slack_posted_at only when sent, and leaves the rest", async () => {
+    const pending = [
+      { id: "p1", event_id: "e1", campaign_key: "[P26-BDAY] On Sale", run_kind: "shadow", run_day: "2026-11-12", cycle_monday: "2026-11-09", cycle_kind: "content", window_start: "2026-11-05", window_end: "2026-11-11", mode: "shadow", objective: "initiate_checkout", why: whyLines(campaign(), "initiate_checkout", ONSALE_PHASE), blockers: [], enough_data: true, not_enough_data: null, campaign_summary: null, watch: { creatives: [], audiences: [] }, notes: { pauses: "", drops: "", adds: "" }, events: { id: "e1", name: "Puzzle 4th Birthday", event_code: "P26-BDAY", event_date: "2026-12-27" } },
+      { id: "p2", event_id: "e2", campaign_key: "[NX] On Sale", run_kind: "shadow", run_day: "2026-11-12", cycle_monday: "2026-11-09", cycle_kind: "content", window_start: "2026-11-05", window_end: "2026-11-11", mode: "shadow", objective: "initiate_checkout", why: whyLines(campaign(), "initiate_checkout", ONSALE_PHASE), blockers: [], enough_data: true, not_enough_data: null, campaign_summary: null, watch: { creatives: [], audiences: [] }, notes: { pauses: "", drops: "", adds: "" }, events: { id: "e2", name: "NX", event_code: "NX-1", event_date: "2026-12-05" } },
+    ];
+    const { db, calls } = fakeDb((call) => {
+      if (call.table === "onsale_refresh_proposals" && op(call, "is")) return { data: pending, error: null };
+      if (call.table === "onsale_refresh_lines") return { data: [{ kind: "add_creative" }, { kind: "add_creative" }], error: null };
+      return { data: [], error: null };
+    });
+    const keys: string[] = [];
+    const result = await postPendingProposals({ db, now: new Date("2026-11-16T10:05:00Z"), appUrl: "https://app.example", notify: async (opts) => ((keys.push(opts.dedupeKey ?? "")), opts.dedupeKey === "onsale_refresh:p1" ? { sent: true } : { sent: false, reason: "outside_business_hours" }) });
+    assert.deepEqual(keys, ["onsale_refresh:p1", "onsale_refresh:p2"]);
+    assert.deepEqual(result.posted, ["p1"]);
+    assert.deepEqual(result.skipped, [{ proposalId: "p2", reason: "outside_business_hours" }]);
+    assert.equal(result.ok, true);
+    const pendingRead = calls.find((call) => call.table === "onsale_refresh_proposals" && op(call, "is"))!;
+    assert.deepEqual(op(pendingRead, "is"), ["slack_posted_at", null]);
+    const marks = calls.filter((call) => call.table === "onsale_refresh_proposals" && op(call, "update"));
+    assert.equal(marks.length, 1);
+    assert.deepEqual(op(marks[0]!, "eq"), ["id", "p1"]);
+    assert.ok("slack_posted_at" in (op(marks[0]!, "update")![0] as object));
   });
 
   it("the Slack post names the event, the cycle, the shadow count and the panel link, and dedupes on the proposal", () => {
@@ -439,6 +499,7 @@ describe("on-sale refresh: migration, route and docs", () => {
     for (const kind of ["add_creative", "claim_ready", "pause_creative", "bring_back_audience", "missing_default", "drop_audience", "move_budget"]) assert.ok(sql.includes(`'${kind}'`), kind);
     for (const state of ["to_review", "accepted", "rejected", "applied", "failed", "expired"]) assert.ok(sql.includes(`'${state}'`), state);
     assert.match(sql, /unique \(event_id, campaign_key, run_kind, window_end\)/);
+    assert.match(sql, /narrow\s+jsonb not null default '\{\}'/, "F10: the line's 393 wording");
     assert.match(sql, /for select using \(auth\.uid\(\) = user_id\)/);
     assert.doesNotMatch(sql, /for all using/);
   });
@@ -455,5 +516,18 @@ describe("on-sale refresh: migration, route and docs", () => {
     const claude = readFileSync("CLAUDE.md", "utf8");
     assert.match(claude, /ENABLE_ONSALE_REFRESH=/);
     assert.match(claude, /\/api\/cron\/onsale-refresh/);
+    const vercel = JSON.parse(readFileSync("vercel.json", "utf8")) as { crons: { path: string; schedule: string }[] };
+    assert.deepEqual(
+      vercel.crons.filter((cron) => cron.path.startsWith("/api/cron/onsale-refresh")).map((cron) => [cron.path, cron.schedule]),
+      [
+        ["/api/cron/onsale-refresh", "0 6 * * 1"],
+        ["/api/cron/onsale-refresh?post=pending", "5 10 * * 1"],
+      ],
+      "F1: 06:00 UTC after the 03:30 learning-refresh; F2: the 10:05 catch-up post",
+    );
+    assert.match(route, /searchParams\.get\("post"\) === "pending"/);
+    assert.doesNotMatch(readFileSync("components/dashboard/events/onsale-refresh-panel.tsx", "utf8"), /#creative-lab/, "F10: Open Lab goes to the Lab card's round anchor");
+    assert.match(readFileSync("components/dashboard/events/onsale-refresh-panel.tsx", "utf8"), /href="#lab-round"/);
+    assert.match(readFileSync("components/dashboard/events/event-detail.tsx", "utf8"), /\{!isBrand && event\.status === "on_sale" \? <OnSaleRefreshPanel eventId=\{event\.id\} \/> : null\}/, "F10: mounted on on-sale events that aren't brand campaigns");
   });
 });

@@ -8,8 +8,11 @@
  * The on-sale numbers are the record's (Matas, 12 Nov): significant and
  * bottom third and 7 days and 2× cost per result to pause, at most 3
  * pauses; nothing but supply under 20 results a week; moves capped at
- * 20 % of the remaining budget. The presale config is noted here and
- * not yet switched on.
+ * 20 % of the remaining budget. Design's 12 Nov corrections: the cluster
+ * rule reads live_evidence.cprIndex, which is cost-based, so a cluster
+ * comes back at ≤ 0.83. The move's own bars (1.5× from, 0.75× to, 5
+ * results in the receiving set) are this build's, not the record's. The
+ * presale config is noted here and not yet switched on.
  */
 
 export type ResultEvent = "initiate_checkout" | "landing_page_view" | "complete_registration";
@@ -36,8 +39,8 @@ export type PhaseConfig = {
   /** Bring back: a stopped ad set with ≥ results at ≤ this × the campaign's cost per result. */
   bringBackMinResults: number;
   bringBackMaxCprRatio: number;
-  /** Bring back: a client cluster whose live-evidence shrunk index and confidence clear these. */
-  bringBackClusterIndexAtLeast: number;
+  /** Bring back: a client cluster whose live-evidence cprIndex (cost-based, lower is better) is at most this, at confidence at least the second. */
+  bringBackClusterCprIndexAtMost: number;
   bringBackClusterConfidenceAtLeast: number;
   /** Drop: ≥ minDays, spend ≥ this × cost per result, running at ≥ this × it. */
   dropSpendMultiple: number;
@@ -74,7 +77,7 @@ export const ONSALE_PHASE: PhaseConfig = {
   addMixShare: 2 / 3,
   bringBackMinResults: 10,
   bringBackMaxCprRatio: 0.6,
-  bringBackClusterIndexAtLeast: 1.2,
+  bringBackClusterCprIndexAtMost: 0.83,
   bringBackClusterConfidenceAtLeast: 0.5,
   dropSpendMultiple: 3,
   dropCprRatio: 2,

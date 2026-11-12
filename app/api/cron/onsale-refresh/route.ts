@@ -4,28 +4,34 @@ import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import { notify } from "@/lib/notify/slack";
-import { isOnsaleRefreshEnabled, refreshRunLog, runOnsaleRefresh } from "@/lib/onsale-refresh/runner";
+import { isOnsaleRefreshEnabled, postPendingProposals, refreshRunLog, runOnsaleRefresh } from "@/lib/onsale-refresh/runner";
 
 /**
  * GET /api/cron/onsale-refresh
  *
  * The on-sale refresh (docs/design-record/2026-11-12-on-sale-refresh.html,
- * P1): on each Monday at 07:00 London the cycle refresh or the mid-cycle
- * check for every on-sale event with Meta campaigns — one shadow proposal
- * per campaign, stored with its lines and posted to ads_automation. Reads
- * ad_daily_insights, creative_scores, live evidence, ticket warnings and
- * the cycle's Drive folders. Writes proposals only; never Meta.
+ * P1): on each Monday at 06:00 UTC (06:00 London in winter, 07:00 in
+ * summer, after the 03:30 UTC learning-refresh) the cycle refresh or the
+ * mid-cycle check for every on-sale event with Meta campaigns — one shadow
+ * proposal per campaign, stored with its lines and posted to
+ * ads_automation. Reads ad_daily_insights, creative_scores, live evidence,
+ * ticket warnings and the cycle's Drive folders. Writes proposals only;
+ * never Meta.
  *
  * `?shadow=YYYY-MM-DD` starts a shadow run for that day by hand (R1): it
  * reads the data to the day before. `?event=CODE` narrows to one event.
+ *
+ * `?post=pending` (F2) posts the proposals the 06:00 run stored but could
+ * not post — notify() answers outside_business_hours before 10:00 London,
+ * and slack_posted_at stays null — one Slack post per proposal, deduped on
+ * its id. vercel.json runs it at 10:05 Monday.
  *
  * Killswitch: `ENABLE_ONSALE_REFRESH` must be exactly `"1"`. Unset
  * responds 200 with `skippedReason: "killswitch"`.
  *
  * Auth: bearer header `Authorization: Bearer <CRON_SECRET>`.
  *
- * vercel.json: "0 7 * * 1" — 07:00 London in winter, 08:00 in summer,
- * both ready for Matas's Monday planning.
+ * vercel.json: "0 6 * * 1" for the run, "5 10 * * 1" for `?post=pending`.
  */
 
 export const maxDuration = 300;
@@ -56,6 +62,10 @@ async function handleGET(req: NextRequest) {
 
   try {
     const notifyDeps = buildLiveNotifyDeps(supabase);
+    if (req.nextUrl.searchParams.get("post") === "pending") {
+      const posted = await postPendingProposals({ db: supabase, env: process.env, notify: (opts) => notify(opts, notifyDeps) });
+      return NextResponse.json(posted, { status: posted.ok ? 200 : 207 });
+    }
     const result = await runOnsaleRefresh({
       env: process.env,
       db: supabase,

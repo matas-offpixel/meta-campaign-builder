@@ -64,6 +64,7 @@ create table if not exists public.onsale_refresh_lines (
   title           text not null,
   detail          text not null,
   write_text      text not null,
+  narrow          jsonb not null default '{}',
   target          jsonb not null default '{}',
   evidence        jsonb not null default '{}',
   write           jsonb,
@@ -79,6 +80,8 @@ create table if not exists public.onsale_refresh_lines (
   created_at      timestamptz not null default now()
 );
 
+comment on column public.onsale_refresh_lines.narrow is
+  'The line at 393 (the record''s F2): {detail, writeText|null}. The panel shows it under 640px.';
 comment on table public.onsale_refresh_lines is
   'One line of an on-sale refresh proposal (R2, HR2): kind, target, evidence, the write it would make, and its state. Migration 232.';
 comment on column public.onsale_refresh_lines.state is

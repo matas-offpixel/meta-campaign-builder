@@ -7,7 +7,7 @@
  * a hand-started shadow run on any day reads the seven days to the day
  * before. From show week's Monday the refresh stops.
  *
- * Dates are ISO days in London; the cron runs at 07:00 London so the
+ * Dates are ISO days in London; the cron runs at 06:00 UTC so the
  * nightly learning-refresh (03:30 UTC) has finished.
  */
 
