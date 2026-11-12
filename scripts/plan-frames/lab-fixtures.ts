@@ -462,6 +462,23 @@ export const LAB_FRAME_FIXTURES: Record<LabFrameId, LabFrameFixture> = {
       ],
     }),
   },
+  // The made tile is the only one in its group, so the 393 row does not clip it.
+  CL12: {
+    kind: "lab",
+    id: "CL12",
+    title: "Creative Lab — made triple-fit",
+    now: LAB_NOW,
+    lab: base({
+      facts: FACTS,
+      lineupRows: LINEUP,
+      artists: ARTISTS,
+      clips: [
+        clip({ id: "clip-ada-15", artistId: ADA, artistName: "Ada North", clipNo: 15, source: "file", durationSeconds: 24, sourceWidth: 1920, sourceHeight: 1080, previewUrl: LAB_CLIP_169 }),
+        clip({ id: "clip-ada-tiny", artistId: ADA, artistName: "Ada North", clipNo: 4, source: "file", durationSeconds: 8, sourceWidth: 640, sourceHeight: 360, previewUrl: LAB_CLIP_169 }),
+        clip({ id: "clip-bea-made", artistId: BEA, artistName: "Bea Lowe", clipNo: 22, source: "file", durationSeconds: 24, sourceWidth: 1920, sourceHeight: 1080, previewUrl: LAB_CLIP_169, tripleFitSourceId: "clip-bea-21", tripleFitSourceNo: 21 }),
+      ],
+    }),
+  },
 };
 
 export function getLabFrame(id: string): LabFrameFixture | undefined {

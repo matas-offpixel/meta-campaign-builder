@@ -7,10 +7,11 @@
 
 import { dirname } from "node:path";
 
+import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
 
 import type { TripleFitOnClipProps } from "../../src/remotion/compositions/TripleFitOnClip.tsx";
-import { KIT_SHADOW, textOverlay, type Piece, type Placement } from "./artist-card.ts";
+import { KIT_SHADOW, textOverlay, trimToInk, type Piece, type Placement } from "./artist-card.ts";
 import { approvedClaim, type WarningRow } from "./claim-approval.ts";
 import { KIT_RED, KIT_WHITE, renderCardLine } from "./claim-slot.ts";
 import { indexFonts, requireFont, type FontEntry } from "./kit-font.ts";
@@ -93,14 +94,70 @@ async function rows(db: ServiceRoleDb, table: string, column: string, value: str
   return data ?? [];
 }
 
-function dateLine(allowed: readonly string[], eventDate: string): string {
-  const fromFacts = allowed.map((line) => line.trim()).find(Boolean) ?? "";
-  const iso = /^\d{4}-\d{2}-\d{2}/.test(fromFacts) ? fromFacts.slice(0, 10) : "";
-  if (!iso && fromFacts) return fromFacts.toUpperCase();
-  const day = iso || eventDate.slice(0, 10);
-  const parsed = new Date(`${day}T12:00:00Z`);
-  if (!day || Number.isNaN(parsed.getTime())) throw new Error("This event has no date line");
-  return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(parsed).toUpperCase();
+type KitPieceRecord = { role: string; label: string; file: string; cap_px: number };
+
+/**
+ * O54: the clip carries the kit's logo and the kit's date line, verbatim.
+ * The date is the info piece whose label names a day ("SUNDAY 27TH DECEMBER"),
+ * never a reformatted ISO date.
+ */
+export function clipKitPieces(pieces: readonly KitPieceRecord[]): { lockup: KitPieceRecord; date: KitPieceRecord } {
+  const lockup = pieces.find((piece) => piece.role === "logo");
+  const date = pieces.find((piece) => piece.role === "info" && /DAY\b/i.test(piece.label));
+  if (!lockup || !date) throw new Error("This event's kit has no lockup or date line");
+  return { lockup, date };
+}
+
+/**
+ * The stored logo layer is the lockup drawn over a translucent oval. The
+ * oval's centre is under alpha 64; the wordmark and the script sit above it.
+ * The lockup on the clip is that ink, which is what the triple-fit drafts draw.
+ */
+const LOCKUP_INK_ALPHA = 64;
+
+export async function lockupInk(png: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const out = Buffer.from(data);
+  for (let i = 3; i < out.length; i += 4) {
+    if (out[i]! < LOCKUP_INK_ALPHA) {
+      out[i - 3] = 0;
+      out[i - 2] = 0;
+      out[i - 1] = 0;
+      out[i] = 0;
+    }
+  }
+  return sharp(out, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+}
+
+function kitStorage() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) throw new Error("This event's kit needs storage credentials");
+  return createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } }).storage.from("campaign-assets");
+}
+
+/** The event's static kit when it has one, otherwise the only kit stored for it. */
+async function eventKit(eventId: string): Promise<{ lockup: Piece; date: Piece }> {
+  const bucket = kitStorage();
+  const root = `kits/${eventId}`;
+  const listed = await bucket.list(root, { limit: 100 });
+  if (listed.error) throw new Error(`This event's kit: ${listed.error.message}`);
+  const slugs = (listed.data ?? []).map((entry) => entry.name).filter((name) => name && !name.includes("."));
+  const slug = slugs.find((name) => name.endsWith("-static")) ?? slugs[0];
+  if (!slug) throw new Error("This event has no kit");
+  const base = `${root}/${slug}`;
+  const json = await bucket.download(`${base}/pieces.json`);
+  if (json.error || !json.data) throw new Error(`This event's kit: ${json.error?.message ?? "no pieces"}`);
+  const kit = JSON.parse(await json.data.text()) as { pieces: KitPieceRecord[] };
+  const picked = clipKitPieces(kit.pieces);
+  const piece = async (record: KitPieceRecord, ink: boolean): Promise<Piece> => {
+    const file = await bucket.download(`${base}/${record.file}`);
+    if (file.error || !file.data) throw new Error(`This event's kit: ${file.error?.message ?? record.file}`);
+    const raw = ink ? await lockupInk(Buffer.from(await file.data.arrayBuffer())) : Buffer.from(await file.data.arrayBuffer());
+    const trimmed = await trimToInk(raw);
+    return { png: trimmed.png, width: trimmed.width, height: trimmed.height, capPx: Math.min(record.cap_px, trimmed.height), label: record.label };
+  };
+  return { lockup: await piece(picked.lockup, true), date: await piece(picked.date, false) };
 }
 
 async function measured<T>(face: FontEntry, run: (measure: MeasureCap) => T): Promise<T> {
@@ -166,13 +223,11 @@ async function arrangeWithFace(
   signUrl: (bucket: string, objectPath: string) => Promise<string>,
 ): Promise<{ layout: ClipLayout; face: FontEntry }> {
   const event = eventId ? await one(db, "events", eventId) : null;
-  const facts = eventId ? await rows(db, "creative_lab_event_facts", "event_id", eventId) : [];
   const artist = await one(db, "creative_lab_artists", text(source, "artist_id"));
   const artistName = text(artist, "name").toUpperCase();
   if (!artistName) throw new Error("This clip has no artist name");
-  const rawDates = facts[0]?.allowed_dates;
-  const allowed = Array.isArray(rawDates) ? rawDates.filter((line): line is string => typeof line === "string") : [];
-  const line = dateLine(allowed, text(event, "event_date"));
+  if (!eventId) throw new Error("This event has no kit");
+  const kitPieces = await eventKit(eventId);
   const clientId = text(event, "client_id");
   const kit = providedFace(clientId, "BootzyCondensedTM-Regular");
   if (!kit) throw new Error("Held — BootzyCondensedTM-Regular didn't load for this render · retry");
@@ -194,12 +249,11 @@ async function arrangeWithFace(
     async (file) => requireFont(kit.postscriptName, indexFonts(dirname(file))),
   );
   const name = await pieceAt(artistName, T1C.nameCap * OUTPUT.height, face);
-  const date = await pieceAt(line, T1C.dateCap * OUTPUT.height, face);
   const claim = claimText
     ? await measured(face, (measure) => planVideoClaim(claimText, measure))
     : null;
   if (claim && "held" in claim) throw new Error(claim.held);
-  return { layout: planClipLayout({ lockup: null, name, date, claim: claim as VideoClaimPlan | null }, "9:16", "B"), face };
+  return { layout: planClipLayout({ lockup: kitPieces.lockup, name, date: kitPieces.date, claim: claim as VideoClaimPlan | null }, "9:16", "B"), face };
 }
 
 const dataUri = (bytes: Buffer) => `data:image/png;base64,${bytes.toString("base64")}`;

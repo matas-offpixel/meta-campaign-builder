@@ -135,8 +135,8 @@ const site = await deploySite({
   siteName: SITE,
 });
 try {
-  await draft("luke-15-no-claim", withoutClaims(db), site.serveUrl);
-  await draft("luke-15-roll-call", db, site.serveUrl);
+  await draft("luke-dean-15_lab-no-claim", withoutClaims(db), site.serveUrl);
+  await draft("luke-dean-15_lab-roll-call", db, site.serveUrl);
 } finally {
   await deleteSite({ bucketName, region: REMOTION_REGION, siteName: SITE });
   console.log(`removed site ${SITE}`);

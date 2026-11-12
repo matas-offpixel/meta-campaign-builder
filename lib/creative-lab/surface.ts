@@ -91,7 +91,7 @@ export type ClipForGroup = {
   owner?: "promoter" | "artist" | null;
 };
 
-export type ClipBucket = "keeping" | "new" | "cant" | "triple";
+export type ClipBucket = "keeping" | "new" | "cant" | "triple" | "made";
 
 export const TRIPLE_FIT_OFFER = "Make a triple-fit";
 const TRIPLE_FIT_MIN_SECONDS = 6;
@@ -204,7 +204,11 @@ export function tripleFitOnlySentence(
   return tripleFitSource({ width, height }) ? LANDSCAPE_TRIPLE_FIT_ONLY : null;
 }
 
-/** O93. One status when the 9:16 window is under 675 px. The row stays. */
+/**
+ * O93. One status when the 9:16 window is under 675 px. The row stays.
+ * A landscape triple-fit source is too small for its own 9:16 by definition;
+ * that case belongs to the landscape line, not to Can't run.
+ */
 export function tooSmall916Sentence(
   clip: Pick<ClipForGroup, "sourceWidth" | "sourceHeight" | "tripleFitSourceId">,
 ): string | null {
@@ -212,7 +216,9 @@ export function tooSmall916Sentence(
   const width = clip.sourceWidth;
   const height = clip.sourceHeight;
   if (width == null || height == null) return null;
-  return tooSmallFor916({ width, height }) ? TOO_SMALL_FOR_916 : null;
+  const size = { width, height };
+  if (!tooSmallFor916(size) || tripleFitSource(size)) return null;
+  return TOO_SMALL_FOR_916;
 }
 
 /** A made triple-fit is not paired with a caption. The tile says so and carries no tick. */
@@ -246,13 +252,14 @@ export function showTripleFitOffer(clip: ClipForGroup, clips: readonly ClipForGr
     const otherOwner = other.owner === "promoter" ? "promoter" : (other.artistId ?? "");
     if (otherOwner !== ownerId) return false;
     const bucket = clipBucket(other);
-    return bucket === "keeping" || bucket === "new";
+    return bucket === "keeping" || bucket === "new" || bucket === "made";
   }).length;
   return runnable < TRIPLE_FIT_RUNNABLE_CAP;
 }
 
 export function clipBucket(clip: ClipForGroup): ClipBucket {
   if (tripleFitOnlySentence(clip)) return "triple";
+  if (madeTripleFitSentence(clip)) return "made";
   if (tooSmall916Sentence(clip)) return "cant";
   if (renderRefusalSentence(clip.renderError)) return "cant";
   if (burnedInTextSentence(clip)) return "cant";
@@ -418,19 +425,21 @@ export function clipsForEachNew<T extends ClipForGroup>(clips: readonly T[], alr
     .sort((a, b) => a.clipNo - b.clipNo);
 }
 
-export function groupClips<T extends ClipForGroup>(clips: readonly T[]): { keeping: T[]; fresh: T[]; cant: T[]; triple: T[] } {
+export function groupClips<T extends ClipForGroup>(clips: readonly T[]): { keeping: T[]; fresh: T[]; cant: T[]; triple: T[]; made: T[] } {
   const keeping: T[] = [];
   const fresh: T[] = [];
   const cant: T[] = [];
   const triple: T[] = [];
+  const made: T[] = [];
   for (const clip of clips) {
     const bucket = clipBucket(clip);
     if (bucket === "keeping") keeping.push(clip);
     else if (bucket === "cant") cant.push(clip);
     else if (bucket === "triple") triple.push(clip);
+    else if (bucket === "made") made.push(clip);
     else fresh.push(clip);
   }
-  return { keeping, fresh, cant, triple };
+  return { keeping, fresh, cant, triple, made };
 }
 
 export function durationLabel(seconds: number | null | undefined): string {

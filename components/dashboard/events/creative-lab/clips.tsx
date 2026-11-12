@@ -16,6 +16,7 @@ import {
   selectionAfterNone,
   selectionAfterToggle,
   selectionCount,
+  usableClips,
   type ClipSelection,
 } from "@/lib/creative-lab/selection";
 import { CropPicker } from "@/components/dashboard/events/creative-lab/crop-picker";
@@ -125,7 +126,7 @@ export function LabClips({
   const stored = lab.clipSelection ?? emptySelection();
   const [override, setOverride] = useState<ClipSelection | null>(null);
   const selection = override ?? stored;
-  const usable = [...groups.keeping, ...groups.fresh];
+  const usable = usableClips(lab.clips);
   const usableIds = usable.map((clip) => clip.id);
   const counts = selectionCount(selection, lab.clips);
   const selected = new Set(effectiveSelection(selection, lab.clips).map((clip) => clip.id));
@@ -270,6 +271,7 @@ export function LabClips({
       <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} all={lab.clips} busy={busy} onSave={onSave} wide selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
       <ClipGroup title="New" hint="untested" clips={groups.fresh} all={lab.clips} busy={busy} onSave={onSave} selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
       <ClipGroup title="Triple-fit only" clips={groups.triple} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
+      <ClipGroup title="Triple-fit" clips={groups.made} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
       <ClipGroup title="Can't run" clips={groups.cant} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
       </> : null}
       {intake ? (
@@ -344,7 +346,8 @@ function OwnerTiles({
   render: (clip: CreativeLabCardData["clips"][number]) => ReactNode;
 }) {
   const triple = clips.filter((clip) => clipBucket(clip) === "triple");
-  const rest = clips.filter((clip) => clipBucket(clip) !== "triple");
+  const made = clips.filter((clip) => clipBucket(clip) === "made");
+  const rest = clips.filter((clip) => clipBucket(clip) !== "triple" && clipBucket(clip) !== "made");
   return (
     <>
       {rest.length > 0 ? <div className={className}>{rest.map(render)}</div> : null}
@@ -352,6 +355,12 @@ function OwnerTiles({
         <>
           <p className="mb-2 mt-2 text-muted-foreground">Triple-fit only · {triple.length}</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{triple.map(render)}</div>
+        </>
+      ) : null}
+      {made.length > 0 ? (
+        <>
+          <p className="mb-2 mt-2 text-muted-foreground">Triple-fit · {made.length}</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{made.map(render)}</div>
         </>
       ) : null}
     </>

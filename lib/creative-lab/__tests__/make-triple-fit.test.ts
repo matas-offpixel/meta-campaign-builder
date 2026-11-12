@@ -73,7 +73,9 @@ describe("triple-fit classification", () => {
   it("names the made clip from the source number and keeps it out of caption rounds", () => {
     const made = clip({ id: "made", clipNo: 22, tripleFitSourceId: "wide", tripleFitSourceNo: 15, sourceWidth: 1920, sourceHeight: 1080 });
     assert.equal(clipTileName(made), "Triple-fit · #15");
-    assert.equal(clipBucket(made), "new");
+    assert.equal(clipBucket(made), "made");
+    assert.deepEqual(groupClips([vertical, made]).made.map((row) => row.id), ["made"]);
+    assert.deepEqual(groupClips([vertical, made]).fresh.map((row) => row.id), ["v"]);
     assert.equal(madeTripleFitSentence(made), "T1 only — not paired with captions");
     assert.equal(usableClips([made]).length, 0);
     assert.equal(showTripleFitOffer(made, [made]), false);
