@@ -16,7 +16,7 @@ import { captionAllowsClip } from "./footage-owner.ts";
 import { nextRoundPlan, type RoundPlanInput } from "./judge.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { sizesForClipFiles } from "./clip-preview.ts";
-import { LANDSCAPE_TRIPLE_FIT_ONLY, TOO_SMALL_FOR_916, missingTripleFitColumn, tooSmallFor916, tripleFitSource } from "./import-quality.ts";
+import { LANDSCAPE_TRIPLE_FIT_ONLY, TOO_SMALL_FOR_916, TRIPLE_FIT_NOT_PAIRED, missingTripleFitColumn, tooSmallFor916, tripleFitSource } from "./import-quality.ts";
 import { noSelectedClipsSentence, selectedIdSet } from "./selection.ts";
 import { loadClipSelection } from "./selection-store.ts";
 import { assertArtistCleared, buildAdName, createRound, type LabArtist } from "./rounds.ts";
@@ -246,7 +246,7 @@ async function clipsForRound(clips: Clip[], assets: Map<string, Row>, skipped: {
   const kept: Clip[] = [];
   for (const clip of clips) {
     if (String(clip.triple_fit_source_id ?? "").trim()) {
-      kept.push(clip);
+      skipped.push({ reason: TRIPLE_FIT_NOT_PAIRED });
       continue;
     }
     const size = sizes.get(String(clip.id));

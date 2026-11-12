@@ -50,6 +50,7 @@ export function emptySelection(): ClipSelection {
 
 export function usableClips<T extends ClipForGroup>(clips: readonly T[]): T[] {
   return clips.filter((clip) => {
+    if (clip.tripleFitSourceId) return false;
     const bucket = clipBucket(clip);
     return bucket === "keeping" || bucket === "new";
   });

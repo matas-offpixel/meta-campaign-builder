@@ -29,6 +29,9 @@ export const TOO_SMALL_FOR_916 = "Too small for 9:16";
 /** O108. A landscape whose own 9:16 is under 675 px, and whose part window is not. */
 export const LANDSCAPE_TRIPLE_FIT_ONLY = "Landscape — triple-fit only";
 
+/** A made triple-fit waits for T1. It is not a caption clip. */
+export const TRIPLE_FIT_NOT_PAIRED = "T1 only — not paired with captions";
+
 /** O104. A 4:5 or 1:1 video row stays on the plan and does not launch. */
 export const VIDEO_RUNS_AS_916_ONLY = "Video runs as 9:16 only";
 

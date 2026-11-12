@@ -9,10 +9,12 @@ import {
   tripleFitSource,
   videoDraftHold,
 } from "../import-quality.ts";
+import { usableClips } from "../selection.ts";
 import {
   clipBucket,
   clipTileName,
   groupClips,
+  madeTripleFitSentence,
   showTripleFitOffer,
   type ClipForGroup,
 } from "../surface.ts";
@@ -68,10 +70,12 @@ describe("triple-fit classification", () => {
     assert.equal(showTripleFitOffer(landscape, [...two, clip({ id: "made", tripleFitSourceId: "wide", sourceWidth: 1920, sourceHeight: 1080 })]), false);
   });
 
-  it("names the made clip from the source number and lets it join as a 9:16 clip", () => {
+  it("names the made clip from the source number and keeps it out of caption rounds", () => {
     const made = clip({ id: "made", clipNo: 22, tripleFitSourceId: "wide", tripleFitSourceNo: 15, sourceWidth: 1920, sourceHeight: 1080 });
     assert.equal(clipTileName(made), "Triple-fit · #15");
     assert.equal(clipBucket(made), "new");
+    assert.equal(madeTripleFitSentence(made), "T1 only — not paired with captions");
+    assert.equal(usableClips([made]).length, 0);
     assert.equal(showTripleFitOffer(made, [made]), false);
   });
 

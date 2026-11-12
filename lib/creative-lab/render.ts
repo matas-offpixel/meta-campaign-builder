@@ -20,7 +20,7 @@ import { captionLimits, outputSize, profile, styleVersion, type CaptionAspect, t
 import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import { deleteLambdaRender, renderCaptionViaLambda, requireLambdaServeUrl, type LambdaRenderOutput } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
-import { TOO_SMALL_FOR_916, tooSmallFor916 } from "./import-quality.ts";
+import { TOO_SMALL_FOR_916, TRIPLE_FIT_NOT_PAIRED, tooSmallFor916 } from "./import-quality.ts";
 import { renderTripleFitClip, type TripleFitHooks } from "./triple-fit-render.ts";
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
@@ -53,8 +53,6 @@ export type RenderDeps = {
     deleteRender: (target: LambdaHandle) => Promise<void>;
   };
   upload: (objectPath: string, bytes: Uint8Array) => Promise<void>;
-  /** Test seam for a made triple-fit. Production paints the layers and calls Lambda. */
-  tripleFit?: TripleFitHooks;
 };
 
 type RowResult = { data: Record<string, unknown> | null; error: { message: string } | null };
@@ -201,54 +199,7 @@ export async function renderCaptionOnClip(
     const loaded = loadLabRender({ aspect: render.aspect, kind: render.kind });
     if (loaded.kind !== "video") throw new Error("static renders are not written yet");
     const aspect = loaded.aspect;
-    if (String(clip.triple_fit_source_id ?? "").trim()) {
-      const sign = input.deps?.signUrl ?? defaultSign;
-      const probe = input.deps?.probe ?? probeClip;
-      const rendered = await renderTripleFitClip({
-        db,
-        clip,
-        caption,
-        signUrl: sign,
-        probe,
-        serveUrl: input.serveUrl,
-        hooks: input.deps?.tripleFit,
-      });
-      const identity = fingerprintBytes(rendered.bytes);
-      const attempt = Number(render.attempt ?? 1);
-      const storagePath = renderStoragePath(input.renderId, Number.isFinite(attempt) && attempt > 0 ? attempt : 1);
-      const upload = input.deps?.upload ?? defaultUpload;
-      await upload(storagePath, rendered.bytes);
-      const durationSeconds = Math.round(rendered.durationSeconds * 1000) / 1000;
-      const registered = await upsertRegisteredAsset(db, {
-        userId: input.userId,
-        identity,
-        filename: "triple-fit-9x16.mp4",
-        mediaKind: "video",
-        aspectRatio: aspect,
-        durationSeconds,
-        storageBucket: BUCKET,
-        storagePath,
-      });
-      if (!registered.ok) throw new Error(registered.error);
-      await patchRender(db, input.renderId, {
-        status: "done",
-        error: null,
-        render_ms: rendered.renderMs,
-        creative_asset_id: registered.asset.id,
-      });
-      return {
-        renderId: input.renderId,
-        renderMs: rendered.renderMs,
-        creativeAssetId: registered.asset.id,
-        aspect,
-        width: rendered.width,
-        height: rendered.height,
-        storagePath,
-        durationSeconds,
-        estimatedCostUsd: rendered.estimatedCostUsd,
-        estimatedCostDisplay: rendered.estimatedCostDisplay,
-      };
-    }
+    if (String(clip.triple_fit_source_id ?? "").trim()) throw new Error(TRIPLE_FIT_NOT_PAIRED);
     const quote = caption.mode === "quote" || caption.style === "quote";
     const version = quote ? quoteVersion : captionVersion;
     const size: CaptionSize = caption.size_variant === "long" ? "long" : "default";
@@ -378,6 +329,35 @@ async function lambdaRender(
     estimatedCostDisplay: output.estimatedCostDisplay,
     lambda: { bucketName: output.bucketName, lambdaRenderId: output.lambdaRenderId },
   };
+}
+
+/**
+ * One made triple-fit, outside a caption round. Nothing is written to
+ * creative_lab_renders. The claim is the event's approved ladder claim.
+ */
+export async function renderMadeTripleFit(
+  db: ServiceRoleDb,
+  input: {
+    clipId?: string;
+    /** Used when the made row is not stored yet. It still has to name its source clip. */
+    clip?: Record<string, unknown>;
+    signUrl?: RenderDeps["signUrl"];
+    probe?: RenderDeps["probe"];
+    serveUrl?: string;
+    hooks?: TripleFitHooks;
+  },
+): Promise<Awaited<ReturnType<typeof renderTripleFitClip>>> {
+  const clip = input.clip ?? (input.clipId ? await one(db, "creative_lab_clips", input.clipId) : null);
+  if (!clip) throw new Error("clip not found");
+  if (!String(clip.triple_fit_source_id ?? "").trim()) throw new Error("This clip is not a triple-fit");
+  return renderTripleFitClip({
+    db,
+    clip,
+    signUrl: input.signUrl ?? defaultSign,
+    probe: input.probe ?? probeClip,
+    serveUrl: input.serveUrl,
+    hooks: input.hooks,
+  });
 }
 
 /**

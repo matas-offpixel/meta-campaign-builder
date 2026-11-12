@@ -11,6 +11,7 @@ import sharp from "sharp";
 
 import type { TripleFitOnClipProps } from "../../src/remotion/compositions/TripleFitOnClip.tsx";
 import { KIT_SHADOW, textOverlay, type Piece, type Placement } from "./artist-card.ts";
+import { approvedClaim, type WarningRow } from "./claim-approval.ts";
 import { KIT_RED, KIT_WHITE, renderCardLine } from "./claim-slot.ts";
 import { indexFonts, requireFont, type FontEntry } from "./kit-font.ts";
 import { providedFace } from "./kit-faces.ts";
@@ -93,9 +94,10 @@ async function rows(db: ServiceRoleDb, table: string, column: string, value: str
 }
 
 function dateLine(allowed: readonly string[], eventDate: string): string {
-  const fromFacts = allowed.map((line) => line.trim()).find(Boolean);
-  if (fromFacts) return fromFacts.toUpperCase();
-  const day = eventDate.slice(0, 10);
+  const fromFacts = allowed.map((line) => line.trim()).find(Boolean) ?? "";
+  const iso = /^\d{4}-\d{2}-\d{2}/.test(fromFacts) ? fromFacts.slice(0, 10) : "";
+  if (!iso && fromFacts) return fromFacts.toUpperCase();
+  const day = iso || eventDate.slice(0, 10);
   const parsed = new Date(`${day}T12:00:00Z`);
   if (!day || Number.isNaN(parsed.getTime())) throw new Error("This event has no date line");
   return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(parsed).toUpperCase();
@@ -159,10 +161,10 @@ export async function buildTripleFitLayers(layout: ClipLayout, face: FontEntry |
 async function arrangeWithFace(
   db: ServiceRoleDb,
   source: Row,
+  eventId: string,
   claimText: string,
   signUrl: (bucket: string, objectPath: string) => Promise<string>,
 ): Promise<{ layout: ClipLayout; face: FontEntry }> {
-  const eventId = text(source, "event_id");
   const event = eventId ? await one(db, "events", eventId) : null;
   const facts = eventId ? await rows(db, "creative_lab_event_facts", "event_id", eventId) : [];
   const artist = await one(db, "creative_lab_artists", text(source, "artist_id"));
@@ -202,6 +204,23 @@ async function arrangeWithFace(
 
 const dataUri = (bytes: Buffer) => `data:image/png;base64,${bytes.toString("base64")}`;
 
+/** The event's approved ladder claim, or none. Caption text is not a claim. */
+async function ladderClaim(db: ServiceRoleDb, eventId: string): Promise<string> {
+  if (!eventId) return "";
+  const warnings = await rows(db, "ticket_warnings", "event_id", eventId);
+  const source = approvedClaim(warnings.map((row): WarningRow => ({
+    id: text(row, "id"),
+    claim: text(row, "claim"),
+    format: row.format == null ? null : String(row.format),
+    state: text(row, "state"),
+    approved_by: row.approved_by == null ? null : String(row.approved_by),
+    approved_at: row.approved_at == null ? null : String(row.approved_at),
+    runs_from: row.runs_from == null ? null : String(row.runs_from),
+    runs_to: row.runs_to == null ? null : String(row.runs_to),
+  })), new Date());
+  return source.kind === "approved" ? source.claim : "";
+}
+
 /**
  * Render one made triple-fit. The footage is the source clip's render copy
  * (render_asset_id, else creative_asset_id), never a 4K Drive master.
@@ -209,13 +228,11 @@ const dataUri = (bytes: Buffer) => `data:image/png;base64,${bytes.toString("base
 export async function renderTripleFitClip(input: {
   db: ServiceRoleDb;
   clip: Row;
-  caption: Row;
   signUrl: (bucket: string, objectPath: string) => Promise<string>;
   probe: (url: string) => Promise<Probe>;
   serveUrl?: string;
   hooks?: TripleFitHooks;
 }): Promise<TripleFitRendered> {
-  if (text(input.caption, "mode") === "quote" || text(input.caption, "style") === "quote") throw new Error(TF_LINES.noCaption);
   const sourceId = text(input.clip, "triple_fit_source_id");
   if (!sourceId) throw new Error("This clip is not a triple-fit");
   const source = await one(input.db, "creative_lab_clips", sourceId);
@@ -246,11 +263,11 @@ export async function renderTripleFitClip(input: {
   if (parts.length !== 3) throw new Error("A triple-fit is three parts");
   if (!sound.muted && parts.filter((part) => !part.muted).length !== 1) throw new Error("A triple-fit plays the clip's sound once");
 
-  const lines = Array.isArray(input.caption.lines) ? (input.caption.lines as unknown[]).map((line) => String(line)) : [];
-  const claimText = lines.map((line) => line.trim()).filter(Boolean).join("\n");
+  const eventId = text(source, "event_id") || text(input.clip, "event_id");
+  const claimText = await ladderClaim(input.db, eventId);
   const arranged = input.hooks?.arrange
     ? { layout: await input.hooks.arrange({ artistName: "", dateLine: "", claimText }), face: null }
-    : await arrangeWithFace(input.db, source, claimText, input.signUrl);
+    : await arrangeWithFace(input.db, source, eventId, claimText, input.signUrl);
   const failed = tripleFitTypeChecks(arranged.layout).find((check) => !check.ok);
   if (failed) throw new Error(failed.why ?? TF_LINES.arrangementB);
   const painted = input.hooks?.paint

@@ -91,16 +91,20 @@ describe("proposeRound", () => {
     assert.equal(fake.tables.creative_lab_clips.length, 2);
   });
 
-  it("keeps a made triple-fit in the round even though the file is landscape", async () => {
+  it("leaves a made triple-fit out of a caption round", async () => {
     const fake = withVoices({
       creative_lab_clips: [
         { id: "made", artist_id: ARTIST, clip_no: 3, in_s: 0, out_s: 10, creative_asset_id: "asset-wide", source_width: 1920, source_height: 1080, triple_fit_source_id: "landscape" },
+        { id: "vertical", artist_id: ARTIST, clip_no: 2, in_s: 0, out_s: 10, creative_asset_id: "asset-tall", source_width: 720, source_height: 1280 },
       ],
-      creative_assets: [{ id: "asset-wide", user_id: USER, duration_seconds: 12 }],
+      creative_assets: [
+        { id: "asset-wide", user_id: USER, duration_seconds: 12 },
+        { id: "asset-tall", user_id: USER, duration_seconds: 12 },
+      ],
     });
     const result = await proposeRound(db(fake), { userId: USER, eventId: EVENT, artistId: ARTIST, adsetMetaId: ADSET });
-    assert.ok(result.ads.some((ad) => ad.clipId === "made"));
-    assert.equal(result.skipped.some((row) => row.reason === "Landscape — triple-fit only" || row.reason === "Too small for 9:16"), false);
+    assert.ok(result.ads.every((ad) => ad.clipId === "vertical"));
+    assert.equal(result.skipped.some((row) => row.reason === "T1 only — not paired with captions"), true);
   });
 
   it("an uncleared artist proposes a promoter-voice round and skips artist voice", async () => {

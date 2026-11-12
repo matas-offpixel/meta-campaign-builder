@@ -5,7 +5,8 @@ import { before, describe, it } from "node:test";
 
 import { styleVersion } from "../../../src/remotion/caption-style/profile.ts";
 import type { ServiceRoleDb } from "../load.ts";
-import { audioMode, loadLabRender, renderCaptionOnClip, renderStoragePath, type CaptionRenderRequest, type RenderDeps } from "../render.ts";
+import { TRIPLE_FIT_NOT_PAIRED } from "../import-quality.ts";
+import { audioMode, loadLabRender, renderCaptionOnClip, renderMadeTripleFit, renderStoragePath, type CaptionRenderRequest, type RenderDeps } from "../render.ts";
 import { planClipLayout, planVideoClaim, type VideoClaimPlan } from "../t1-video.ts";
 import type { LambdaDeps } from "../lambda.ts";
 import { partWindow } from "../triple-fit.ts";
@@ -125,7 +126,24 @@ describe("renderCaptionOnClip", () => {
     assert.equal(fake.tables.creative_lab_clips.length, 1);
   });
 
-  it("renders a made triple-fit as TripleFitOnClip from the source render copy", async () => {
+  it("refuses a made triple-fit instead of burning a caption on it", async () => {
+    let called = false;
+    const fake = seed({ lines: ["one | two"] });
+    fake.tables.creative_lab_clips[0]!.triple_fit_source_id = "source-1";
+    const { deps: d } = deps(async () => {
+      called = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    await assert.rejects(
+      renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }),
+      new RegExp(TRIPLE_FIT_NOT_PAIRED),
+    );
+    assert.equal(called, false);
+    assert.equal(fake.tables.creative_lab_renders[0]!.status, "failed");
+    assert.equal(fake.tables.creative_lab_renders[0]!.error, TRIPLE_FIT_NOT_PAIRED);
+  });
+
+  it("a made triple-fit's claim is the approved ladder claim, never the caption", async () => {
     const measure = (t: string, cap: number) => t.length * 0.35 * cap;
     const piece = (w: number, h: number, cap: number, label: string) => ({ png: Buffer.alloc(0), width: w, height: h, capPx: cap, label });
     const claim = planVideoClaim("Early bird, 1st & 2nd release sold out\n3rd release selling fast", measure) as VideoClaimPlan;
@@ -185,16 +203,39 @@ describe("renderCaptionOnClip", () => {
       download: async () => new Uint8Array([7, 7]),
       pollMs: 0,
     };
-    d.tripleFit = {
-      arrange: async () => layout,
-      paint: async () => ({ bands: png, top: png, claim: null }),
-      lambda,
-      deleteRender: async (target) => {
-        calls.push({ name: "deleteRender", input: target });
+    fake.tables.creative_lab_clips[0]!.event_id = "event-1";
+    fake.tables.creative_lab_clips[1]!.event_id = "event-1";
+    fake.tables.ticket_warnings = [{
+      id: "fda292bd-claim",
+      event_id: "event-1",
+      claim: "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\n3RD RELEASE SELLING FAST",
+      format: null,
+      state: "live",
+      approved_by: "matas",
+      approved_at: "2026-11-12T10:00:00Z",
+      runs_from: null,
+      runs_to: null,
+    }];
+    const seenClaims: string[] = [];
+    const result = await renderMadeTripleFit(db(fake), {
+      clipId: "clip-1",
+      signUrl: d.signUrl,
+      probe: d.probe,
+      serveUrl: "https://serve.test/index.html",
+      hooks: {
+        arrange: async (spec) => {
+          seenClaims.push(spec.claimText);
+          return layout;
+        },
+        paint: async () => ({ bands: png, top: png, claim: png }),
+        lambda,
+        deleteRender: async (target) => {
+          calls.push({ name: "deleteRender", input: target });
+        },
       },
-    };
-    const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", serveUrl: "https://serve.test/index.html", deps: d });
+    });
     assert.equal(captionCalled, false);
+    assert.deepEqual(seenClaims, ["EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\n3RD RELEASE SELLING FAST"]);
     assert.deepEqual(signed, ["videos/render-copy.mp4"]);
     const render = calls.find((call) => call.name === "renderMediaOnLambda")!.input;
     const props = render.inputProps as { clipUrl: string; window: unknown; muted: boolean; guideUrl?: string | null; durationInSeconds: number };
@@ -208,8 +249,9 @@ describe("renderCaptionOnClip", () => {
     assert.equal(calls.some((call) => call.name === "deleteRender"), true);
     assert.deepEqual([result.width, result.height], [1080, 1920]);
     assert.equal(result.durationSeconds, 19);
-    assert.equal(uploaded.length, 1);
-    assert.equal(fake.tables.creative_lab_renders[0]!.status, "done");
+    assert.equal(uploaded.length, 0);
+    assert.equal(fake.tables.creative_lab_renders[0]!.status, "queued");
+    assert.equal(seenClaims[0]!.includes("one | two"), false);
   });
 
   it("a quote on a made triple-fit never becomes a caption render", async () => {
@@ -223,7 +265,7 @@ describe("renderCaptionOnClip", () => {
     });
     await assert.rejects(
       renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }),
-      /A triple-fit takes T1, never a UGC caption or quote mode/,
+      new RegExp(TRIPLE_FIT_NOT_PAIRED),
     );
     assert.equal(captionCalled, false);
     assert.equal(fake.tables.creative_lab_renders[0]!.status, "failed");

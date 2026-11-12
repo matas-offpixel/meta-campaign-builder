@@ -31,6 +31,7 @@ import {
   cantRunReason,
   clipBucket,
   clipTileName,
+  madeTripleFitSentence,
   showTripleFitOffer,
   tooSmall916Sentence,
   TRIPLE_FIT_OFFER,
@@ -416,7 +417,7 @@ function OwnerGroups({
                       onSave={onSave}
                       label={promoterTileLabel(client, clip.clipNo, names)}
                       selected={selected.has(clip.id)}
-                      onToggle={cantRunReason(clip) ? undefined : () => onToggle(clip.id)}
+                      onToggle={cantRunReason(clip) || madeTripleFitSentence(clip) ? undefined : () => onToggle(clip.id)}
                       menu={<ClipMenu clip={clip} lab={lab} client={client} features onSave={onSave} />}
                     />
                   );
@@ -457,7 +458,7 @@ function OwnerGroups({
                   busy={busy}
                   onSave={onSave}
                   selected={selected.has(clip.id)}
-                  onToggle={cantRunReason(clip) ? undefined : () => onToggle(clip.id)}
+                  onToggle={cantRunReason(clip) || madeTripleFitSentence(clip) ? undefined : () => onToggle(clip.id)}
                   menu={<ClipMenu clip={clip} lab={lab} client={client} features={false} onSave={onSave} />}
                 />
               )}
@@ -584,14 +585,22 @@ function ClipTile({
   onToggle?: () => void;
   menu?: ReactNode;
 }) {
-  const reason = tripleFitOnlySentence(clip) ?? cantRunReason(clip);
+  const landscape = tripleFitOnlySentence(clip);
+  const blocked = cantRunReason(clip);
+  const waiting = madeTripleFitSentence(clip);
   const offer = clips ? showTripleFitOffer(clip, clips) : false;
   const verdict = clip.judged ? (clip.judged.verdict === "thin" ? "untested" : clip.judged.verdict) : "untested";
   const wideFrame = clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight);
   const name = clip.tripleFitSourceId ? clipTileName(clip) : (label ?? clipTileName(clip));
+  const tick = waiting ? undefined : onToggle;
+  const outline = blocked
+    ? "rounded border border-dashed border-destructive p-1"
+    : landscape
+      ? "rounded border border-border p-1"
+      : "";
   return (
-    <article className={`w-36 shrink-0 sm:w-auto ${selected ? "rounded ring-2 ring-foreground" : ""} ${reason ? "rounded border border-dashed border-destructive p-1" : ""}`} title={clip.rightsRef}>
-      <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} hasAudio={clip.hasAudio} initialAudible={audible} ticked={onToggle ? selected : undefined} onToggle={onToggle} />
+    <article className={`w-36 shrink-0 sm:w-auto ${selected && !waiting ? "rounded ring-2 ring-foreground" : ""} ${outline}`} title={clip.rightsRef}>
+      <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} hasAudio={clip.hasAudio} initialAudible={audible} ticked={tick ? selected : undefined} onToggle={tick} />
       <p className="mt-1 flex justify-between text-xs">
         <span>{sourceBadge(clip.source)}</span>
         <span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span>
@@ -602,10 +611,10 @@ function ClipTile({
         <p className="text-xs">{name}</p>
       )}
       {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
-      {wideFrame && !clip.cropOpen && !reason && !clip.tripleFitSourceId ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
-      {reason ? (
+      {wideFrame && !clip.cropOpen && !waiting && !landscape && !blocked ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
+      {waiting || landscape || blocked ? (
         <div className="space-y-1 text-xs">
-          <p className="text-destructive">{reason}</p>
+          <p className={blocked ? "text-destructive" : "text-muted-foreground"}>{waiting ?? landscape ?? blocked}</p>
           {clip.judged && ((clip.judged.cost ?? 0) > 0 || (clip.judged.results ?? 0) > 0) ? (
             <p className="tabular-nums">{money(clip.judged.cost)} / {metricUnit(clip.judged.metric)} · {resultsLabel(clip.judged.results, clip.judged.metric)}</p>
           ) : null}

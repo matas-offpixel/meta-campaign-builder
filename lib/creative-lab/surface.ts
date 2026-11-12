@@ -7,6 +7,7 @@ import { captionAllowsClip } from "./footage-owner.ts";
 import {
   LANDSCAPE_TRIPLE_FIT_ONLY,
   TOO_SMALL_FOR_916,
+  TRIPLE_FIT_NOT_PAIRED,
   tooSmallFor916,
   tripleFitSource,
 } from "./import-quality.ts";
@@ -164,7 +165,7 @@ export type RankedClip = ClipForGroup & {
 export function bestRunnableClip<T extends RankedClip>(clips: readonly T[]): T | null {
   const eligible = clips.filter((clip) => {
     const bucket = clipBucket(clip);
-    if (bucket === "cant" || bucket === "triple") return false;
+    if (clip.tripleFitSourceId || bucket === "cant" || bucket === "triple") return false;
     const width = clip.sourceWidth;
     const height = clip.sourceHeight;
     if (width == null || height == null) return false;
@@ -212,6 +213,11 @@ export function tooSmall916Sentence(
   const height = clip.sourceHeight;
   if (width == null || height == null) return null;
   return tooSmallFor916({ width, height }) ? TOO_SMALL_FOR_916 : null;
+}
+
+/** A made triple-fit is not paired with a caption. The tile says so and carries no tick. */
+export function madeTripleFitSentence(clip: { tripleFitSourceId?: string | null }): string | null {
+  return clip.tripleFitSourceId ? TRIPLE_FIT_NOT_PAIRED : null;
 }
 
 /** "Triple-fit · #{n}" for a made clip, otherwise "{artist} #{n}". */
