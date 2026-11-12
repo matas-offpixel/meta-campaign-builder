@@ -5,6 +5,7 @@ import { recordCronRun } from "@/lib/reporting/cron-run-log";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { loadRollupSyncCronEligibility } from "@/lib/dashboard/cron-eligibility";
 import { warnMetaReconcileDriftForTopRollupEvents } from "@/lib/dashboard/rollup-meta-reconcile-log";
+import { addLegResult, emptyLegTallies, legRunRecord, ROLLUP_LEGS } from "@/lib/dashboard/rollup-sync-leg-tally";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
 import {
   runUnmatchedCampaignCodeGuard,
@@ -223,12 +224,10 @@ export async function GET(req: NextRequest) {
 
   const results: EventSyncResult[] = [];
   let totalRowsUpserted = 0;
-  const legTallies = {
-    meta: { rows: 0, considered: 0, failed: 0 },
-    tickets: { rows: 0, considered: 0, failed: 0 },
-    tiktok: { rows: 0, considered: 0, failed: 0 },
-    google: { rows: 0, considered: 0, failed: 0 },
-  };
+  // Per-leg tallies for `cron_runs`. A leg an event does not use (no
+  // TikTok account, no ticketing link) is a skip, not a failure — see
+  // `rollup-sync-leg-tally.ts`.
+  const legTallies = emptyLegTallies();
   const legEvidence: { eventCode: string | null; claimedCampaignIds: number; metaRows: number }[] = [];
   const venueAllocatorCompletedKeys = new Set<string>();
   const unmatchedScanAccounts: AdAccountScanTarget[] = [];
@@ -289,15 +288,35 @@ export async function GET(req: NextRequest) {
 
       // Per-leg tallies for `cron_runs`. Folding the four legs into one
       // number is how a dead tickets leg hid behind a healthy Meta leg.
-      legTallies.meta.rows += result.summary.metaRowsUpserted ?? 0;
-      legTallies.tickets.rows += result.summary.eventbriteRowsUpserted ?? 0;
-      legTallies.tiktok.rows += result.summary.tiktokRowsUpserted ?? 0;
-      legTallies.google.rows += result.summary.googleAdsRowsUpserted ?? 0;
-      for (const leg of Object.values(legTallies)) leg.considered += 1;
-      if (!result.summary.metaOk) legTallies.meta.failed += 1;
-      if (!result.summary.eventbriteOk) legTallies.tickets.failed += 1;
-      if (!result.summary.tiktokOk) legTallies.tiktok.failed += 1;
-      if (!result.summary.googleAdsOk) legTallies.google.failed += 1;
+      const { summary } = result;
+      addLegResult(legTallies.meta, "meta", {
+        eventCode: event.event_code ?? null,
+        ok: summary.metaOk,
+        reason: summary.metaReason,
+        error: summary.metaError,
+        rows: summary.metaRowsUpserted,
+      });
+      addLegResult(legTallies.tickets, "tickets", {
+        eventCode: event.event_code ?? null,
+        ok: summary.eventbriteOk,
+        reason: summary.eventbriteReason,
+        error: summary.eventbriteError,
+        rows: summary.eventbriteRowsUpserted,
+      });
+      addLegResult(legTallies.tiktok, "tiktok", {
+        eventCode: event.event_code ?? null,
+        ok: summary.tiktokOk,
+        reason: summary.tiktokReason,
+        error: summary.tiktokError,
+        rows: summary.tiktokRowsUpserted,
+      });
+      addLegResult(legTallies.google, "google", {
+        eventCode: event.event_code ?? null,
+        ok: summary.googleAdsOk,
+        reason: summary.googleAdsReason,
+        error: summary.googleAdsError,
+        rows: summary.googleAdsRowsUpserted,
+      });
       // Evidence the evaluator needs without calling Meta: what this event
       // claimed, and whether any spend came back for it.
       legEvidence.push({
@@ -379,6 +398,9 @@ export async function GET(req: NextRequest) {
       console.error(
         `[cron rollup-sync-events] event=${event.id} threw: ${message}`,
       );
+      for (const leg of ROLLUP_LEGS) {
+        addLegResult(legTallies[leg], leg, { eventCode: event.event_code ?? null, ok: false, error: message });
+      }
       results.push({
         eventId: event.id,
         ok: false,
@@ -463,16 +485,15 @@ export async function GET(req: NextRequest) {
   await runShowClosePass(supabase);
 
   // One `cron_runs` row per leg. Each leg is alarmed separately, so each
-  // leg has to be able to report a zero of its own.
-  for (const [leg, tally] of Object.entries(legTallies)) {
+  // leg has to be able to report a zero of its own. `ok` is false only
+  // when the leg was asked to sync an event and could not; the skips are
+  // counted by reason in `detail`.
+  for (const leg of ROLLUP_LEGS) {
+    const record = legRunRecord(legTallies[leg], leg === "meta" ? { events: legEvidence } : {});
     await recordCronRun(supabase, {
       cronName: `rollup-sync-events:${leg}`,
       startedAt,
-      ok: tally.failed === 0,
-      rowsWritten: tally.rows,
-      rowsConsidered: tally.considered,
-      detail: leg === "meta" ? { events: legEvidence } : { failedEvents: tally.failed },
-      error: tally.failed > 0 ? `${tally.failed} event(s) failed this leg` : null,
+      ...record,
     });
   }
 
