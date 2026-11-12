@@ -25,6 +25,7 @@ import { renderTripleFitClip, type TripleFitHooks } from "./triple-fit-render.ts
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
 import { renderAssetId } from "./render-proxy.ts";
+import type { PlaceHit, PlaceMiss } from "./caption-placement.ts";
 
 export type { Probe };
 
@@ -53,7 +54,25 @@ export type RenderDeps = {
     deleteRender: (target: LambdaHandle) => Promise<void>;
   };
   upload: (objectPath: string, bytes: Uint8Array) => Promise<void>;
+  /**
+   * C1–C3. The caller passes samples. The render route does not detect
+   * faces: face-api is script-side, and render-caption is at the function
+   * size cap. With no place function the caption stays at today's spot.
+   */
+  place?: (args: {
+    lines: readonly string[];
+    baseScale: number;
+    kind: "caption" | "quote";
+    inS: number;
+    outS: number;
+    url: string;
+    sourceWidth: number;
+    sourceHeight: number;
+    cropFocusX: number;
+  }) => Promise<PlaceHit | PlaceMiss>;
 };
+
+export type { PlaceHit, PlaceMiss };
 
 type RowResult = { data: Record<string, unknown> | null; error: { message: string } | null };
 type ListResult = { error: { message: string } | null };
@@ -201,23 +220,20 @@ export async function renderCaptionOnClip(
     const aspect = loaded.aspect;
     if (String(clip.triple_fit_source_id ?? "").trim()) throw new Error(TRIPLE_FIT_NOT_PAIRED);
     const quote = caption.mode === "quote" || caption.style === "quote";
-    const version = quote ? quoteVersion : captionVersion;
+    // Q10: a quote renders in the caption style. A row still stamped with the quote profile is re-rendered under it.
+    const version = captionVersion;
+    const restyle = quote && (String(caption.style_version) === quoteVersion || String(render.style_version) === quoteVersion);
     const size: CaptionSize = caption.size_variant === "long" ? "long" : "default";
     const lines = asLines(caption.lines);
-    if (quote) {
-      if (lines.some((line) => line.trim() === "")) throw new Error("empty line; a quote is at most 4");
-      if (lines.length > 4) throw new Error(`${lines.length} lines; a quote is at most 4`);
-    } else {
-      if (size === "long" && !profile.longApproved) throw new Error("long caption size is not approved");
-      const limits = captionLimits(size);
-      if (lines.some((line) => line.trim() === "")) throw new Error(`empty line; an overlay is at most ${limits.maxLines} lines`);
-      if (lines.some((line) => /^(?:more|&|w\/)$/i.test(line.trim()))) throw new Error(`a short word is its own line; an overlay is at most ${limits.maxLines} lines`);
-      if (lines.some((line) => line.includes("|") || /(^|\s)\/(\s|$)/.test(line))) throw new Error(`a line break is the only separator; an overlay is at most ${limits.maxLines} lines`);
-      if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
-      const over = lines.find((line) => line.length > limits.charsPerLine);
-      if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
-    }
-    if (caption.style_version !== version || render.style_version !== version) {
+    if (size === "long" && !profile.longApproved) throw new Error("long caption size is not approved");
+    const limits = captionLimits(size);
+    if (lines.some((line) => line.trim() === "")) throw new Error(`empty line; an overlay is at most ${limits.maxLines} lines`);
+    if (!quote && lines.some((line) => /^(?:more|&|w\/)$/i.test(line.trim()))) throw new Error(`a short word is its own line; an overlay is at most ${limits.maxLines} lines`);
+    if (!quote && lines.some((line) => line.includes("|") || /(^|\s)\/(\s|$)/.test(line))) throw new Error(`a line break is the only separator; an overlay is at most ${limits.maxLines} lines`);
+    if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
+    const over = lines.find((line) => line.length > limits.charsPerLine);
+    if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
+    if (!restyle && (caption.style_version !== version || render.style_version !== version)) {
       throw new Error(`style_version does not match the bundled profile ${version}`);
     }
     const quoteWeight = caption.quote_weight === 400 ? 400 : 700;
@@ -261,6 +277,26 @@ export async function renderCaptionOnClip(
       size,
       ...(quote ? { mode: "quote" as const, weight: quoteWeight as 400 | 700 } : {}),
     };
+    const baseScale = size === "long" ? 0.75 : 1;
+    const place = input.deps?.place
+      ? await input.deps.place({
+          lines,
+          baseScale,
+          kind: quote ? "quote" : "caption",
+          inS,
+          outS,
+          url: signed,
+          sourceWidth: meta.width,
+          sourceHeight: meta.height,
+          cropFocusX: props.cropFocusX ?? 0.5,
+        })
+      : null;
+    if (place && !place.ok) throw new Error(place.line);
+    if (place?.ok) {
+      props.placementCenterY = place.centre;
+      props.placementScale = place.scale;
+      props.inS = place.inS;
+    }
     const request: CaptionRenderRequest = { props, muted: audio === "muted" };
     const frame = outputSize(meta.width, meta.height, aspect);
     const rendered: RenderedClip = input.deps?.renderToFile
@@ -279,7 +315,7 @@ export async function renderCaptionOnClip(
       filename: `caption-${aspect.replace(":", "x")}.mp4`,
       mediaKind: "video",
       aspectRatio: aspect,
-      durationSeconds: Math.round((outS - inS) * 1000) / 1000,
+      durationSeconds: Math.round((outS - (props.inS ?? inS)) * 1000) / 1000,
       storageBucket: BUCKET,
       storagePath,
     });
@@ -289,6 +325,16 @@ export async function renderCaptionOnClip(
       status: "done",
       error: null,
       render_ms: renderMs,
+      ...(restyle ? { style_version: version } : {}),
+      ...(place?.ok
+        ? {
+            placement_center_y: place.centre,
+            placement_scale: place.scale,
+            face_share: place.faceShare,
+            face_run_s: place.runS,
+            contrast: place.contrast ?? null,
+          }
+        : {}),
       creative_asset_id: registered.asset.id,
     });
     if (rendered.lambda && lambda) {

@@ -12,6 +12,8 @@ import { clipWindow, currentRenderError, renderRoundOpen } from "../creative-lab
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { quoteLines, validateQuote } from "../creative-lab/quote.ts";
+import { OLD_QUOTE_STYLE, placementNote } from "../creative-lab/caption-placement.ts";
+import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
 import { loadCardVoice, type CardVoice } from "../creative-lab/voice-store.ts";
 import { loadClipSelection } from "../creative-lab/selection-store.ts";
@@ -255,6 +257,11 @@ export type CreativeLabCardData = {
     durationSeconds?: number | null;
     narrowLabel?: string | null;
     thumbUrl?: string | null;
+    /** C6, or the old-quote sentence. Null when the caption is at today's spot at its own size. */
+    placementNote?: string | null;
+    placementCenter?: number | null;
+    placementScale?: number | null;
+    oldQuote?: boolean;
   }[];
   assets: { id: string; filename: string; durationSeconds: number | null; thumbnailUrl: string | null }[];
   clientEvents: { id: string; name: string; eventDate: string | null }[];
@@ -487,6 +494,7 @@ export async function loadCreativeLabCard(
     : null;
 
   const clipSelection = await loadClipSelection(db, args.eventId);
+  const quoteVersion = await quoteStyleVersion();
 
   return {
     eventId: args.eventId,
@@ -624,6 +632,16 @@ export async function loadCreativeLabCard(
         driveStatus: text(row, "drive_status") || null,
         driveFileName: text(row, "drive_file_name") || null,
         driveFileId: text(row, "drive_file_id") || null,
+        placementCenter: row.placement_center_y == null ? null : Number(row.placement_center_y),
+        placementScale: row.placement_scale == null ? null : Number(row.placement_scale),
+        oldQuote: text(row, "style_version") === quoteVersion,
+        placementNote: text(row, "style_version") === quoteVersion
+          ? OLD_QUOTE_STYLE
+          : placementNote(
+              row.placement_center_y == null ? null : Number(row.placement_center_y),
+              row.placement_scale == null ? null : Number(row.placement_scale),
+              text(caption ?? null, "size_variant") === "long" ? 0.75 : 1,
+            ),
         roundOpen: renderRoundOpen(
           adRows
             .filter((ad) => text(ad, "render_id") === text(row, "id"))

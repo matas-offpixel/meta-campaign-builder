@@ -97,6 +97,9 @@ export function RenderRows({ rows, now, clips = [] }: { rows: readonly Render[];
                   ) : (
                     <p className="truncate text-sm">{row.label}</p>
                   )}
+                  {row.placementNote ? (
+                    <p className={`font-mono text-[11px] ${row.oldQuote ? "text-destructive" : "text-muted-foreground"}`}>{row.placementNote}</p>
+                  ) : null}
                   {driveRow ? (
                     <>
                       {row.driveFileName ? <p className="truncate text-[11px] text-muted-foreground max-[700px]:hidden">{row.driveFileName}</p> : null}
@@ -142,7 +145,13 @@ export function RenderRows({ rows, now, clips = [] }: { rows: readonly Render[];
         </div>
         {playing ? (
           <div className="w-full sm:w-[11.25rem]">
-            <CaptionOverlay lines={playing.lines} src={playing.previewUrl} poster={playing.posterUrl} />
+            <CaptionOverlay
+              lines={playing.lines}
+              src={playing.previewUrl}
+              poster={playing.posterUrl}
+              placementCenter={playing.placementCenter == null ? null : playing.placementCenter / 1920}
+              placementScale={playing.placementScale}
+            />
           </div>
         ) : null}
       </div>

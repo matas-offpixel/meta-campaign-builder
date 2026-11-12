@@ -24,7 +24,7 @@ import { CAPTIONS_NOT_WRITTEN, currentRenderError, LINES_ALREADY_ON_EVENT, playa
 import { headlinerError } from "../db/creative-lab.ts";
 import { factsHash, loadEventFacts, saleStageFromStatus, validateCaption } from "./caption-facts.ts";
 import { quoteInsert, validateQuote, type QuoteSource } from "./quote.ts";
-import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
+import { styleVersion } from "../../src/remotion/caption-style/profile.ts";
 import type { SaleStage } from "./caption-facts.ts";
 
 type Row = Record<string, unknown>;
@@ -698,7 +698,7 @@ export async function storeLabQuote(
     event_id: args.eventId,
     caption_no: next,
     facts_hash: factsHash(facts),
-    style_version: await quoteStyleVersion(),
+    style_version: await styleVersion(),
     ...built.row,
   }).select("id").single();
   if (inserted.error) throw new Error(inserted.error.message);

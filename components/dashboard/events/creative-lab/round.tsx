@@ -110,6 +110,7 @@ export function LabRound({
                           <button type="button" className={`w-16 rounded border p-1 ${cell?.on ? "border-border bg-card" : "border-dashed border-border text-muted-foreground"}`} onClick={() => toggle(`${clip.id}:${caption.id}`)}>
                             <CaptionOverlay lines={[]} src={clip.previewUrl} poster={clip.thumbnailUrl} compact />
                             <span className="mt-1 block text-xs">{cell?.on ? "On" : "Off — tap to include"}</span>
+                            {placementNoteFor(lab, clip.id, caption.id) ? <span className="mt-1 block font-mono text-[11px] text-muted-foreground">{placementNoteFor(lab, clip.id, caption.id)}</span> : null}
                           </button>
                         </td>
                       );
@@ -127,7 +128,12 @@ export function LabRound({
                 <li key={`${cell.clipId}:${cell.captionId}`}>
                   <button type="button" className="flex items-center gap-2 text-left text-sm" onClick={() => toggle(`${cell.clipId}:${cell.captionId}`)}>
                     <span className="w-10 shrink-0"><CaptionOverlay lines={[]} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} compact /></span>
-                    <span>{pairingLabel(clip, caption)} · {cell.on ? "On" : "Off"}</span>
+                    <span>
+                      {pairingLabel(clip, caption)} · {cell.on ? "On" : "Off"}
+                      {clip && caption && placementNoteFor(lab, clip.id, caption.id) ? (
+                        <span className="mt-1 block font-mono text-[11px] text-muted-foreground">{placementNoteFor(lab, clip.id, caption.id)}</span>
+                      ) : null}
+                    </span>
                   </button>
                 </li>
               );
@@ -206,6 +212,10 @@ function proposeReason(lab: CreativeLabCardData, clips: number, captions: number
   if (clips === 0) return "No usable clips.";
   if (lab.adSets.length === 0) return "No ad set on this event.";
   return null;
+}
+
+function placementNoteFor(lab: CreativeLabCardData, clipId: string, captionId: string): string | null {
+  return lab.renders.find((row) => row.clipId === clipId && row.captionId === captionId)?.placementNote ?? null;
 }
 
 function captionHead(caption: { style: string; lines: string[] }): string {

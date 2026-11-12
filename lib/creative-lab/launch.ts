@@ -14,6 +14,8 @@ import { LAB_LAUNCHES_OFF, labLaunchesEnabled } from "./killswitch.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { assertArtistCleared, type LabArtist } from "./rounds.ts";
 import { assignCaptionStyleTag, isCaptionStyle, type CaptionStyle } from "./tags.ts";
+import { OLD_QUOTE_STYLE } from "./caption-placement.ts";
+import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 
 export class LabLaunchError extends Error {
   readonly code: "not_found" | "not_approved" | "no_target" | "rights";
@@ -209,6 +211,7 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
   const errors: LaunchRoundResult["errors"] = [];
   const ready: { ad: Row; caption: Row; asset: Row; style: CaptionStyle; pageId: string; instagramActorId: string | null }[] = [];
   const smallClips = await clipsTooSmallToLaunch(deps.db, ads.map((ad) => text(ad, "clip_id")));
+  const oldQuote = await quoteStyleVersion();
 
   for (const ad of ads) {
     const state = text(ad, "launch_state");
@@ -225,6 +228,10 @@ export async function launchApprovedRound(roundId: string, deps: LaunchRoundDeps
     }
     const caption = captionOf.get(text(ad, "caption_id"));
     const render = renderOf.get(text(ad, "render_id"));
+    if (render && text(render, "style_version") === oldQuote) {
+      skipped.push({ roundAdId: text(ad, "id"), adName, reason: OLD_QUOTE_STYLE });
+      continue;
+    }
     const asset = render ? assetOf.get(text(render, "creative_asset_id")) : undefined;
     const style = caption ? text(caption, "style") : "";
     if (!caption || !isCaptionStyle(style) || !asset || !text(asset, "storage_path") || !text(asset, "content_hash")) {

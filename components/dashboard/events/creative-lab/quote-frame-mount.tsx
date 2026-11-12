@@ -51,7 +51,7 @@ export function QuoteFrameMount({ id }: { id: string }) {
             chip="@enzosiragusa · post, 12 Oct"
             chipNarrow="@enzosiragusa · 12 Oct"
             picked="read from the post · 3 sentences picked of 4"
-            lineLabel={`${quoteLines(ENZO).length} of 4 lines`}
+            lineLabel={`${quoteLines(ENZO).length} of 5 lines`}
             pairNote="Pairs with Enzo's best clip (More to change). Nothing is written by the Lab: the words are the artist's, as posted, with the source kept."
             handle="enzosiragusa"
             posts={postsForQuote([

@@ -192,7 +192,7 @@ export function LabCaptions({
           }}
           chip={sourceChip({ source, postedLabel: posts[0]?.postedOn ?? "", wide: true }).replace(/^●\s*/, "")}
           picked={null}
-          lineLabel={`${quoteLines(words).length} of 4 lines`}
+          lineLabel={`${quoteLines(words).length} of 5 lines`}
           handle={artist?.igUsername}
           pairNote="Pairs with the artist's best clip (More to change). Nothing is written by the Lab."
           onUse={useWords}
