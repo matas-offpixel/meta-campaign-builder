@@ -186,14 +186,14 @@ export function whyLines(input: CampaignInput, objective: ResultEvent, config: P
   const since = input.sinceOnSale.fromDay ? ` since ${dayMonth(input.sinceOnSale.fromDay)}` : "";
   const objectiveLine =
     objective === "initiate_checkout"
-      ? `Initiate Checkout — ${input.sinceOnSale.ic} reached the pixel${since}. Last 14 days: ${input.last14.ic} IC, ${input.last14.purchases} purchase${input.last14.purchases === 1 ? "" : "s"}.`
-      : `Landing Page View — the pixel logged ${input.last14.ic} Initiate Checkout in 14 days, under ${config.icMinIn14Days}. Last 14 days: ${input.last14.lpv} LPV, ${input.last14.purchases} purchase${input.last14.purchases === 1 ? "" : "s"}.`;
-  const weeks = input.sinceOnSale.fromDay && input.plan.window.end ? Math.max(1, Math.round(daysBetween(input.sinceOnSale.fromDay, input.plan.window.end) / 7)) : null;
-  const purchases = `${input.sinceOnSale.purchases} purchase${input.sinceOnSale.purchases === 1 ? "" : "s"} on the pixel${weeks ? ` in ${weeks} week${weeks === 1 ? "" : "s"}` : ""}.`;
-  const proposed = input.last14.purchases >= config.purchaseMinIn14Days;
-  // G3: at the purchase bar the signal is named; the campaign and cross-campaign moves are P4's.
-  const purchaseLine = proposed ? `Purchase signal: ${input.last14.purchases} purchases on the pixel in 14 days. Purchase campaign and cross-campaign moves aren't proposed yet.` : `Purchase campaign not proposed — ${purchases}`;
-  const purchaseNarrow = proposed ? `Purchase signal: ${input.last14.purchases} in 14 days.` : `No Purchase campaign: ${purchases}`;
+      ? `Initiate Checkout — ${input.sinceOnSale.ic} reached the pixel${since}. Last 14 days: ${input.last14.ic} IC.`
+      : `Landing Page View — the pixel logged ${input.last14.ic} Initiate Checkout in 14 days, under ${config.icMinIn14Days}. Last 14 days: ${input.last14.lpv} LPV.`;
+  // H1: the pixel's purchase count is purchases attributed to this show's ads for ANY show on the pixel, never this show's
+  // sales. One form whatever the count; it decides nothing in P1 (no bar, no branch).
+  const n = input.last14.purchases;
+  const purchaseWord = `purchase${n === 1 ? "" : "s"}`;
+  const purchaseLine = `Purchase campaign not proposed — this show's own purchases aren't read yet. Attributed to these ads: ${n} ${purchaseWord} in 14 days, any show on this pixel.`;
+  const purchaseNarrow = `No Purchase campaign: ${n} attributed ${purchaseWord} in 14 days, any show.`;
   const movesLine = "Budget moves stay inside each campaign.";
   const ticketing = input.ticketingLinked ? null : "No linked ticketing: the pixel's purchases can't be checked against real sales.";
   return { objective: objectiveLine, purchase: purchaseLine, purchaseNarrow, moves: movesLine, ticketing };

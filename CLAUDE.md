@@ -616,7 +616,11 @@ REMOTION_LAMBDA_SERVE_URL=
 > events are `lib/onsale-refresh/on-sale.ts`'s `isOnSale`: not cancelled,
 > the show still ahead, and `status = 'on_sale'` or `general_sale_at`
 > passed; the loader and the event page's panel mount share it, so every
-> event the refresh posts about shows the panel. Reads every `ad_daily_insights` row,
+> event the refresh posts about shows the panel. The pixel's purchase count
+> is purchases attributed to this show's ads for any show on the same pixel,
+> never this show's sales (12 Nov: 22 of Julian Fijma's 24 landed before its
+> presale): the why line says "attributed … any show on this pixel", there
+> is no purchase bar, and no count proposes anything. Reads every `ad_daily_insights` row,
 > paged in (date, meta_ad_id) order and deduped, so the spend to date is
 > the event's all-time spend (IC = `omni_initiated_checkout`, LPV = the column),
 > `creative_scores` (convert axis), `interest_clusters.live_evidence`,

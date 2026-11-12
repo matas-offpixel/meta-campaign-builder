@@ -20,9 +20,9 @@ export const OR1_PROPOSALS: PanelProposal[] = [
     mode: "shadow",
     objective: "initiate_checkout",
     why: {
-      objective: "Initiate Checkout — 111 reached the pixel since 21 Oct.",
-      purchase: "Purchase campaign not proposed — 1 purchase on the pixel in 3 weeks.",
-      purchaseNarrow: "No Purchase campaign: 1 purchase on the pixel in 3 weeks.",
+      objective: "Initiate Checkout — 111 reached the pixel since 21 Oct. Last 14 days: 96 IC.",
+      purchase: "Purchase campaign not proposed — this show's own purchases aren't read yet. Attributed to these ads: 1 purchase in 14 days, any show on this pixel.",
+      purchaseNarrow: "No Purchase campaign: 1 attributed purchase in 14 days, any show.",
       moves: "Budget moves stay inside each campaign.",
       ticketing: "No linked ticketing: the pixel's purchases can't be checked against real sales.",
     },

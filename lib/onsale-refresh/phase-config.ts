@@ -50,7 +50,6 @@ export type PhaseConfig = {
   /** R3: IC when the event logged this many in 14 days; else the pixel's 7-day count; else LPV. */
   icMinIn14Days: number;
   icPixelMinIn7Days: number;
-  purchaseMinIn14Days: number;
   /** R5: at most this share of the remaining budget moves in one refresh. */
   moveCapShare: number;
   /** R2: a move leaves an ad set at ≥ this × the campaign's cost per result for one at ≤ the second. */
@@ -84,7 +83,6 @@ export const ONSALE_PHASE: PhaseConfig = {
   watchCprRatio: 1.5,
   icMinIn14Days: 10,
   icPixelMinIn7Days: 10,
-  purchaseMinIn14Days: 15,
   moveCapShare: 0.2,
   moveFromCprRatio: 1.5,
   moveToCprRatio: 0.75,

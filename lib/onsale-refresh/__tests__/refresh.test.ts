@@ -105,23 +105,30 @@ describe("on-sale refresh: objective and the why line (R3)", () => {
     assert.equal(chooseObjective({ last14: { ic: 3, purchases: 0, lpv: 500 } }, ONSALE_PHASE, 12), "initiate_checkout");
   });
 
-  it("the why line quotes the counts verbatim and says Purchase is not proposed under 15 in 14 days", () => {
+  it("the why line quotes the IC count verbatim and never reads the pixel's purchases as this show's (H1)", () => {
     const why = whyLines(campaign(), "initiate_checkout", ONSALE_PHASE);
-    assert.equal(why.objective, "Initiate Checkout — 106 reached the pixel since 30 Oct. Last 14 days: 26 IC, 1 purchase.");
-    assert.equal(why.purchase, "Purchase campaign not proposed — 1 purchase on the pixel in 2 weeks.");
-    assert.equal(why.purchaseNarrow, "No Purchase campaign: 1 purchase on the pixel in 2 weeks.");
+    assert.equal(why.objective, "Initiate Checkout — 106 reached the pixel since 30 Oct. Last 14 days: 26 IC.");
+    assert.equal(why.purchase, "Purchase campaign not proposed — this show's own purchases aren't read yet. Attributed to these ads: 1 purchase in 14 days, any show on this pixel.");
+    assert.equal(why.purchaseNarrow, "No Purchase campaign: 1 attributed purchase in 14 days, any show.");
     assert.equal(why.moves, "Budget moves stay inside each campaign.");
     assert.equal(why.ticketing, "No linked ticketing: the pixel's purchases can't be checked against real sales.", "F9: ticketing is an input said under Objective");
     assert.equal(whyLines(campaign({ ticketingLinked: true }), "initiate_checkout", ONSALE_PHASE).ticketing, null);
-    const signal = whyLines(campaign({ last14: { ic: 30, purchases: 15, lpv: 400 } }), "initiate_checkout", ONSALE_PHASE);
-    assert.equal(signal.purchase, "Purchase signal: 15 purchases on the pixel in 14 days. Purchase campaign and cross-campaign moves aren't proposed yet.", "G3");
-    assert.equal(signal.purchaseNarrow, "Purchase signal: 15 in 14 days.");
-    assert.equal(signal.moves, "Budget moves stay inside each campaign.", "G3: cross-campaign moves are P4's");
     const lpv = whyLines(campaign({ last14: { ic: 4, purchases: 0, lpv: 900 } }), "landing_page_view", ONSALE_PHASE);
-    assert.match(lpv.objective, /^Landing Page View — the pixel logged 4 Initiate Checkout in 14 days, under 10\. Last 14 days: 900 LPV, 0 purchases\.$/);
-    const purchase = whyLines(campaign({ last14: { ic: 40, purchases: 18, lpv: 0 } }), "initiate_checkout", ONSALE_PHASE);
-    assert.equal(purchase.purchase, "Purchase signal: 18 purchases on the pixel in 14 days. Purchase campaign and cross-campaign moves aren't proposed yet.", "G3");
-    assert.equal(purchase.moves, "Budget moves stay inside each campaign.");
+    assert.equal(lpv.objective, "Landing Page View — the pixel logged 4 Initiate Checkout in 14 days, under 10. Last 14 days: 900 LPV.");
+  });
+
+  it("H1: 0, 1, 15 and 100 attributed purchases all give the same form — only the count and its plural change, nothing is proposed", () => {
+    assert.ok(!("purchaseMinIn14Days" in ONSALE_PHASE), "no purchase bar in the config");
+    for (const n of [0, 1, 15, 100]) {
+      const why = whyLines(campaign({ last14: { ic: 40, purchases: n, lpv: 0 } }), "initiate_checkout", ONSALE_PHASE);
+      const word = n === 1 ? "purchase" : "purchases";
+      assert.equal(why.purchase, `Purchase campaign not proposed — this show's own purchases aren't read yet. Attributed to these ads: ${n} ${word} in 14 days, any show on this pixel.`);
+      assert.equal(why.purchaseNarrow, `No Purchase campaign: ${n} attributed ${word} in 14 days, any show.`);
+      assert.equal(why.moves, "Budget moves stay inside each campaign.");
+      assert.equal(why.objective, "Initiate Checkout — 106 reached the pixel since 30 Oct. Last 14 days: 40 IC.");
+      const proposal = buildProposal(campaign({ budgetGbp: 4500, last14: { ic: 40, purchases: n, lpv: 0 } }), ONSALE_PHASE);
+      assert.ok(!proposal.lines.some((line) => /purchase/i.test(`${line.kind} ${line.ruleId} ${line.title}`)), `${n}: no purchase line`);
+    }
   });
 });
 
