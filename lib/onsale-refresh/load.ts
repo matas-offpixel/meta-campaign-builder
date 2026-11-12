@@ -21,6 +21,7 @@ import { kindForFile } from "../drive/tree.ts";
 import { loadAdContextIndex, resolveAdContext, type AdContextIndex } from "../learning/ad-facts.ts";
 import { CONFIDENCE_SCORE, type Confidence } from "../learning/shrink.ts";
 import type { PhaseConfig, ResultEvent } from "./phase-config.ts";
+import { isOnSale } from "./on-sale.ts";
 import { chooseObjective, type AdInput, type AdSetInput, type CampaignInput, type ClaimInput, type ClusterInput, type SupplyFile, type SupplyMix } from "./rules.ts";
 import { addDaysIso, planRun, type RunPlan } from "./schedule.ts";
 
@@ -100,13 +101,13 @@ export function resultOf(row: InsightRow, resultEvent: ResultEvent): number {
   return actionCount(row.actions, "omni_complete_registration");
 }
 
-/** Events on sale for an active client, with a date still ahead. */
+/** Events on sale (G2's shared predicate, on-sale.ts) for an active client. */
 export async function loadOnSaleEvents(db: Db, today: string): Promise<EventRow[]> {
   const archived = await loadArchivedClientIds(db as SupabaseClient);
   const events = await loadAll<EventRow>(db, "events", "id, name, event_code, event_date, general_sale_at, status, client_id, budget_marketing, drive_folder_id", ["id"], (q) =>
-    q.not("general_sale_at", "is", null).gte("event_date", today).neq("status", "cancelled"),
+    q.gte("event_date", today).neq("status", "cancelled"),
   );
-  return events.filter((event) => event.client_id && !archived.has(event.client_id) && (event.general_sale_at ?? "") <= `${today}T23:59:59Z`);
+  return events.filter((event) => event.client_id && !archived.has(event.client_id) && isOnSale(event, today));
 }
 
 export type RawInsights = { rows: InsightRow[]; context: AdContextIndex };
@@ -127,7 +128,7 @@ export async function loadInsights(db: Db): Promise<RawInsights> {
 
 export type Aux = {
   scores: { event_id: string; creative_name: string; score: number; significance: boolean }[];
-  clusters: { id: string; name: string; interests: unknown; live_evidence: { cprIndex?: number | null; confidence?: Confidence } | null }[];
+  clusters: { id: string; name: string; interests: unknown; live_evidence: { cprIndex?: number | null; confidence?: Confidence; perClient?: { clientId: string; client: string; cprIndex: number | null; confidence: Confidence }[] } | null }[];
   launchedAdSets: { event_id: string | null; meta_adset_id: string; interest_ids: unknown }[];
   warnings: { id: string; event_id: string; claim: string; state: string; approved_at: string | null; runs_from: string | null; runs_to: string | null; render_id: string | null }[];
   ticketing: { client_id: string; provider: string | null; status: string | null }[];
@@ -276,13 +277,17 @@ export async function buildEventInputs(args: {
   for (const set of aux.launchedAdSets.filter((set) => set.event_id === event.id)) {
     for (const id of Array.isArray(set.interest_ids) ? set.interest_ids : []) usedInterests.add(String((id as { id?: unknown })?.id ?? id));
   }
+  // G1: the client's own results only — the perClient entry for this event's client, never the pooled index.
   const clusters: ClusterInput[] = aux.clusters.map((cluster) => {
     const interests = Array.isArray(cluster.interests) ? cluster.interests.map((item) => String((item as { id?: unknown })?.id ?? item)) : [];
+    const own = (cluster.live_evidence?.perClient ?? []).find((entry) => entry.clientId === event.client_id) ?? null;
     return {
       id: cluster.id,
       name: cluster.name,
-      index: cluster.live_evidence?.cprIndex ?? null,
-      confidence: CONFIDENCE_SCORE[cluster.live_evidence?.confidence ?? "thin"] ?? 0,
+      client: own?.client ?? null,
+      index: own?.cprIndex ?? null,
+      confidence: own ? (CONFIDENCE_SCORE[own.confidence] ?? 0) : 0,
+      confidenceWord: own?.confidence ?? "thin",
       usedOnEvent: interests.length > 0 && interests.every((id) => usedInterests.has(id)),
     };
   });

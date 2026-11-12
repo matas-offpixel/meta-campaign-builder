@@ -47,10 +47,13 @@ export type AdSetInput = {
 export type ClusterInput = {
   id: string;
   name: string;
-  /** interest_clusters.live_evidence.cprIndex (shrunk, cost-based: lower is better). */
+  /** The event's client, when the cluster ran for it (live_evidence.perClient); null = no own results. */
+  client: string | null;
+  /** The client's own cprIndex from live_evidence.perClient (cost-based: lower is better); never the pooled index. */
   index: number | null;
-  /** 0 thin · 0.5 ok · 1 strong (lib/learning/shrink.ts CONFIDENCE_SCORE). */
+  /** 0 thin · 0.5 ok · 1 strong (lib/learning/shrink.ts CONFIDENCE_SCORE), the client's own. */
   confidence: number;
+  confidenceWord: "thin" | "ok" | "strong";
   usedOnEvent: boolean;
 };
 
@@ -188,9 +191,10 @@ export function whyLines(input: CampaignInput, objective: ResultEvent, config: P
   const weeks = input.sinceOnSale.fromDay && input.plan.window.end ? Math.max(1, Math.round(daysBetween(input.sinceOnSale.fromDay, input.plan.window.end) / 7)) : null;
   const purchases = `${input.sinceOnSale.purchases} purchase${input.sinceOnSale.purchases === 1 ? "" : "s"} on the pixel${weeks ? ` in ${weeks} week${weeks === 1 ? "" : "s"}` : ""}.`;
   const proposed = input.last14.purchases >= config.purchaseMinIn14Days;
-  const purchaseLine = proposed ? `Purchase campaign proposed — ${input.last14.purchases} purchases on the pixel in 14 days (P4 adds the line).` : `Purchase campaign not proposed — ${purchases}`;
-  const purchaseNarrow = proposed ? `Purchase campaign: ${input.last14.purchases} purchases in 14 days.` : `No Purchase campaign: ${purchases}`;
-  const movesLine = proposed ? "Budget moves may cross campaigns on cost per purchase." : "Budget moves stay inside each campaign.";
+  // G3: at the purchase bar the signal is named; the campaign and cross-campaign moves are P4's.
+  const purchaseLine = proposed ? `Purchase signal: ${input.last14.purchases} purchases on the pixel in 14 days. Purchase campaign and cross-campaign moves aren't proposed yet.` : `Purchase campaign not proposed — ${purchases}`;
+  const purchaseNarrow = proposed ? `Purchase signal: ${input.last14.purchases} in 14 days.` : `No Purchase campaign: ${purchases}`;
+  const movesLine = "Budget moves stay inside each campaign.";
   const ticketing = input.ticketingLinked ? null : "No linked ticketing: the pixel's purchases can't be checked against real sales.";
   return { objective: objectiveLine, purchase: purchaseLine, purchaseNarrow, moves: movesLine, ticketing };
 }
@@ -394,19 +398,19 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
       supply: false,
     });
   }
-  // Bring back a client cluster not used on this event.
+  // G1: bring back a cluster that ran for this client (its own perClient figures, registration stage) and is not used on this event.
   for (const cluster of input.clusters) {
-    if (cluster.usedOnEvent || cluster.index == null) continue;
+    if (cluster.usedOnEvent || cluster.index == null || !cluster.client) continue;
     if (cluster.index > config.bringBackClusterCprIndexAtMost || cluster.confidence < config.bringBackClusterConfidenceAtLeast) continue;
     lines.push({
       kind: "bring_back_audience",
       ruleId: "bring_back.client_cluster",
       title: cluster.name,
-      detail: `Client interest cluster · live evidence cost index ${cluster.index} (≤ ${config.bringBackClusterCprIndexAtMost}) · confidence ${cluster.confidence} · not used on this event`,
+      detail: `Ran for ${cluster.client} at ${cluster.index}× its cost per registration · confidence ${cluster.confidenceWord} · not used on this event`,
       writeText: "New ad set through the launch path · its own budget",
-      narrow: { detail: `cost index ${cluster.index} · confidence ${cluster.confidence}`, writeText: null },
+      narrow: { detail: `${cluster.index}× ${cluster.client}'s cost per registration · confidence ${cluster.confidenceWord}`, writeText: null },
       target: { clusterId: cluster.id, name: cluster.name },
-      evidence: { index: cluster.index, confidence: cluster.confidence },
+      evidence: { client: cluster.client, stage: "registration", cprIndex: cluster.index, confidence: cluster.confidenceWord, atMost: config.bringBackClusterCprIndexAtMost },
       write: { kind: "new_adset", clusterId: cluster.id },
       addsSpend: true,
       blockedReason: spendBlock,

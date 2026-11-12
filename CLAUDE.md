@@ -610,8 +610,13 @@ REMOTION_LAMBDA_SERVE_URL=
 > 232, owner read RLS) and posted to `ads_automation` through `notify()`
 > (its own killswitch, channel switch and business hours). Every threshold
 > is in `lib/onsale-refresh/phase-config.ts` (R8; the presale config is
-> noted there, not switched on; a client cluster comes back at live
-> `cprIndex` ≤ 0.83, cost-based). Reads every `ad_daily_insights` row,
+> noted there, not switched on; a client cluster comes back on the
+> event's client's own `live_evidence.perClient` entry only — `cprIndex`
+> ≤ 0.83, cost-based, confidence ≥ ok — never the pooled index). On-sale
+> events are `lib/onsale-refresh/on-sale.ts`'s `isOnSale`: not cancelled,
+> the show still ahead, and `status = 'on_sale'` or `general_sale_at`
+> passed; the loader and the event page's panel mount share it, so every
+> event the refresh posts about shows the panel. Reads every `ad_daily_insights` row,
 > paged in (date, meta_ad_id) order and deduped, so the spend to date is
 > the event's all-time spend (IC = `omni_initiated_checkout`, LPV = the column),
 > `creative_scores` (convert axis), `interest_clusters.live_evidence`,
@@ -620,8 +625,9 @@ REMOTION_LAMBDA_SERVE_URL=
 > are excluded. Nothing is applied: Accept / Reject / Apply are P2. The panel
 > is `components/dashboard/events/onsale-refresh-panel.tsx` (read-only,
 > fetched through `GET /api/events/[id]/onsale-refresh`, mounted on the
-> event page's overview tab under the Creative Lab card for on-sale events
-> that aren't brand campaigns; the latest proposal per campaign by window
+> event page's overview tab under the Creative Lab card for `isOnSale`
+> events that aren't brand campaigns, "Show week: the refresh has stopped."
+> once show week starts; the latest proposal per campaign by window
 > end, then creation; missing ticketing is said under Objective, never a
 > blocker); the frames are
 > `app/(dev)/frames/onsale/[id]` until the shared frames registry takes the

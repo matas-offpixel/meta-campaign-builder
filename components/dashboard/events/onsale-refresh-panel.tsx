@@ -5,7 +5,8 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import type { PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
-import { dayMonth, shortDay, weekLabel } from "@/lib/onsale-refresh/schedule";
+import { isShowWeek } from "@/lib/onsale-refresh/on-sale";
+import { dayMonth, shortDay, todayLondon, weekLabel } from "@/lib/onsale-refresh/schedule";
 
 /**
  * The Refresh panel (R4, F1 at 1280, F2 at 393), read-only in P1: the
@@ -106,15 +107,17 @@ function Watch({ label, items, note }: { label: string; items: { title: string; 
 export type OnSaleRefreshPanelViewProps = {
   eventId: string;
   proposals: PanelProposal[];
+  /** G2: from show week's Monday the refresh has stopped; the empty panel says so. */
+  showWeek?: boolean;
 };
 
 /** The panel from data; the viewport decides the wide or the narrow wording. Nothing here fetches. */
-export function OnSaleRefreshPanelView({ eventId, proposals }: OnSaleRefreshPanelViewProps) {
+export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false }: OnSaleRefreshPanelViewProps) {
   if (!proposals.length) {
     return (
       <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4">
         <p className="text-sm font-medium">On-sale refresh</p>
-        <p className="mt-1 text-xs text-muted-foreground">No proposal yet. The first one comes on the next cycle Monday, ready by 08:00.</p>
+        <p className="mt-1 text-xs text-muted-foreground">{showWeek ? "Show week: the refresh has stopped." : "No proposal yet. The first one comes on the next cycle Monday, ready by 08:00."}</p>
       </section>
     );
   }
@@ -217,8 +220,9 @@ export function OnSaleRefreshPanelView({ eventId, proposals }: OnSaleRefreshPane
   );
 }
 
-/** The live panel: fetches the event's proposals through the session route. */
-export function OnSaleRefreshPanel({ eventId }: { eventId: string }) {
+/** The live panel: fetches the event's proposals through the session route. Mounted by G2's on-sale predicate. */
+export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; eventDate: string | null }) {
+  const showWeek = isShowWeek(eventDate, todayLondon(new Date()));
   const [proposals, setProposals] = useState<PanelProposal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -250,7 +254,7 @@ export function OnSaleRefreshPanel({ eventId }: { eventId: string }) {
       </section>
     );
   }
-  return <OnSaleRefreshPanelView eventId={eventId} proposals={proposals} />;
+  return <OnSaleRefreshPanelView eventId={eventId} proposals={proposals} showWeek={showWeek} />;
 }
 
 export { dayMonth as refreshDayMonth };
