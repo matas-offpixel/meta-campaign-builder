@@ -4,7 +4,7 @@ import { EventConfigPanel } from "@/components/dashboard/events/event-config-pan
 import { EVENT_CONFIG_FRAME_IDS, EVENT_CONFIG_FRAMES, type EventConfigFrameId } from "@/scripts/plan-frames/event-config-fixtures";
 
 /**
- * The event page's Dashboard panel frames (EC1–EC4, D9 / HD2) at
+ * The event page's Dashboard panel frames (EC1–EC7, D9 / HD2) at
  * /frames/event-config/{id}, a nested route under the public /frames/
  * prefix, while app/(dev)/frames/[id]/page.tsx sits in an open Cursor PR.
  * Fixture only: nothing here fetches, and Save does nothing.

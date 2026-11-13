@@ -50,6 +50,11 @@ export interface CachedCirqlinPage {
   title: string | null;
   slug: string | null;
   checkedAt: string | null;
+  /**
+   * Set only by the edit page's refresh when CIRQLIN answers 404 for the
+   * stored id (the page was unpublished). Never stored; nothing is cleared.
+   */
+  notLive?: boolean;
 }
 
 interface EventRow {

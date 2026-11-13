@@ -8,7 +8,7 @@
  * design passes.
  */
 
-export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4"];
+export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4", "EC5", "EC6", "EC7"];
 export const EVENT_CONFIG_WIDTHS = [1280, 393];
 
 export const EVENT_CONFIG_SHOTS = EVENT_CONFIG_FRAME_IDS.flatMap((frame) =>

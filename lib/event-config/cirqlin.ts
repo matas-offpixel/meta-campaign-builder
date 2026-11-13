@@ -9,21 +9,20 @@
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
-import type { CirqlinPageFailure, CirqlinPageRef } from "../cirqlin/page.ts";
+import type { CirqlinPageFailure, CirqlinPageLookup, CirqlinPageRef } from "../cirqlin/page.ts";
 import type { CachedCirqlinPage } from "./read.ts";
 
-/** Design's ruling, exact. */
+/** Design's ruling, exact (the second round, after cirqlin #625). */
 export const CIRQLIN_PAGE_LABEL = "CIRQLIN page";
 export const CIRQLIN_PAGE_PLACEHOLDER = "crqln.com/…";
-export const CIRQLIN_PAGE_NOT_FOUND = "That link isn't a CIRQLIN page we can see.";
-
-/**
- * Not in the ruling: the words for a check that didn't happen. Nothing is
- * saved and the stored page is kept. Listed in the PR body for design.
- */
-export const CIRQLIN_PAGE_UNAUTHORIZED = "CIRQLIN didn't let us check that link. Nothing was saved.";
-export const CIRQLIN_PAGE_RATE_LIMITED = "CIRQLIN has had too many checks in the last few minutes. Try again shortly. Nothing was saved.";
-export const CIRQLIN_PAGE_READ_FAILED = "CIRQLIN couldn't check that link just now. Nothing was saved.";
+/** 404 no_page: a draft, an unpublished page or an unknown link. Nothing is saved. */
+export const CIRQLIN_PAGE_NOT_FOUND = "That link isn't a live CIRQLIN page. Publish it first, or check the link.";
+/** 401 / 429 / 500 / a network failure. Nothing is saved and the stored page is kept. */
+export const CIRQLIN_PAGE_CHECK_FAILED = "Couldn't check the link with CIRQLIN just now. Try again.";
+/** Input that isn't a link. Caught before CIRQLIN is called. */
+export const CIRQLIN_PAGE_NOT_A_LINK = "Paste the page's link.";
+/** A stored page whose ?id= refresh came back 404: "{stored title} · not live now". */
+export const CIRQLIN_PAGE_NOT_LIVE_SUFFIX = "not live now";
 
 /** The shown host: crqln.com even when the page has a custom domain (design wrote it so). */
 export const CIRQLIN_LINKS_HOST = "crqln.com";
@@ -35,22 +34,19 @@ export function cirqlinPageLine(page: { title: string | null; slug: string | nul
   return page.title ? `${page.title} · ${where}` : where;
 }
 
+/** "{stored title} · not live now", from the cached title (else the crqln.com link). */
+export function cirqlinNotLiveLine(page: { title: string | null; slug: string | null }): string {
+  const name = page.title || (page.slug ? `${CIRQLIN_LINKS_HOST}/${page.slug}` : "The linked page");
+  return `${name} · ${CIRQLIN_PAGE_NOT_LIVE_SUFFIX}`;
+}
+
 /** What the field holds when the panel opens: the page's crqln.com link, else empty. */
 export function cirqlinFieldValue(page: CachedCirqlinPage | null): string {
   return page?.slug ? `${CIRQLIN_LINKS_HOST}/${page.slug}` : "";
 }
 
 export function cirqlinFailureMessage(reason: CirqlinPageFailure): string {
-  switch (reason) {
-    case "no_page":
-      return CIRQLIN_PAGE_NOT_FOUND;
-    case "unauthorized":
-      return CIRQLIN_PAGE_UNAUTHORIZED;
-    case "rate_limited":
-      return CIRQLIN_PAGE_RATE_LIMITED;
-    default:
-      return CIRQLIN_PAGE_READ_FAILED;
-  }
+  return reason === "no_page" ? CIRQLIN_PAGE_NOT_FOUND : CIRQLIN_PAGE_CHECK_FAILED;
 }
 
 /** The events-row columns for a linked page (from CIRQLIN's answer) or for no page. */
@@ -63,16 +59,59 @@ export function cirqlinPageColumns(
 }
 
 /**
- * What the save does with the field. `null` (the field wasn't touched) keeps
- * the stored page and calls nothing; blank removes the page; anything else
- * is a link to resolve.
+ * A pasted link: a host with a dot and an optional path, with or without
+ * https://. Not a bare slug, a page title, or text with spaces in it.
+ * CIRQLIN decides whether it is a page; this only decides whether to ask.
  */
-export type CirqlinFieldIntent = { kind: "keep" } | { kind: "clear" } | { kind: "resolve"; url: string };
+export function looksLikeLink(text: string): boolean {
+  const s = text.trim();
+  if (!s || /\s/.test(s)) return false;
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  // "mailto:a@b.com" parses as user "mailto", host "b.com".
+  if (url.username || url.password) return false;
+  return /^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(url.hostname);
+}
+
+/**
+ * What the save does with the field. `null` (the field wasn't touched) keeps
+ * the stored page and calls nothing; blank removes the page; text that isn't
+ * a link is refused before CIRQLIN is called; a link is resolved.
+ */
+export type CirqlinFieldIntent = { kind: "keep" } | { kind: "clear" } | { kind: "not_a_link" } | { kind: "resolve"; url: string };
 
 export function cirqlinFieldIntent(link: string | null | undefined): CirqlinFieldIntent {
   if (link == null) return { kind: "keep" };
   const url = link.trim();
-  return url ? { kind: "resolve", url } : { kind: "clear" };
+  if (!url) return { kind: "clear" };
+  return looksLikeLink(url) ? { kind: "resolve", url } : { kind: "not_a_link" };
+}
+
+export type CirqlinFieldOutcome =
+  | { ok: true; cirqlin?: { page: CirqlinPageRef | null; now: Date } }
+  | { ok: false; error: string; field: "cirqlinPage" };
+
+/**
+ * The save's CIRQLIN step, before anything is written. `lookup` is CIRQLIN's
+ * GET /api/partner/page (?url=); it is called only for a link.
+ */
+export async function resolveCirqlinField(
+  link: string | null | undefined,
+  deps: { lookup: (q: { url: string }) => Promise<CirqlinPageLookup>; now?: () => Date },
+): Promise<CirqlinFieldOutcome> {
+  const now = deps.now ?? (() => new Date());
+  const intent = cirqlinFieldIntent(link);
+  if (intent.kind === "keep") return { ok: true };
+  if (intent.kind === "clear") return { ok: true, cirqlin: { page: null, now: now() } };
+  if (intent.kind === "not_a_link") return { ok: false, error: CIRQLIN_PAGE_NOT_A_LINK, field: "cirqlinPage" };
+  const found = await deps.lookup({ url: intent.url });
+  if (!found.ok) return { ok: false, error: cirqlinFailureMessage(found.reason), field: "cirqlinPage" };
+  return { ok: true, cirqlin: { page: found.page, now: now() } };
 }
 
 /** The edit page refreshes the cache at most this often. */

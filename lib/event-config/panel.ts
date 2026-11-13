@@ -11,6 +11,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { loadAllPaged } from "../db/paged-read.ts";
+import { canBeReferenceShow, londonToday } from "./form.ts";
 import { loadEventConfig, type EventConfig } from "./read.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -24,11 +25,16 @@ export interface ReferenceOption {
 
 export interface EventConfigPanelData {
   config: EventConfig;
-  /** The client's other events, latest show first. */
+  /** The client's other events that can be references (canBeReferenceShow), latest show first. */
   options: ReferenceOption[];
 }
 
-export async function loadEventConfigPanel(sb: Db, eventId: string, clientId: string | null): Promise<EventConfigPanelData | null> {
+export async function loadEventConfigPanel(
+  sb: Db,
+  eventId: string,
+  clientId: string | null,
+  today: string = londonToday(),
+): Promise<EventConfigPanelData | null> {
   const config = await loadEventConfig(sb, eventId);
   if (!config) return null;
   const rows = clientId
@@ -43,6 +49,7 @@ export async function loadEventConfigPanel(sb: Db, eventId: string, clientId: st
     : [];
   const options = rows
     .filter((r) => r.id !== eventId)
-    .map((r) => ({ id: r.id, name: r.name, eventDate: r.event_date, isUmbrella: r.is_umbrella === true }));
+    .map((r) => ({ id: r.id, name: r.name, eventDate: r.event_date, isUmbrella: r.is_umbrella === true }))
+    .filter((o) => canBeReferenceShow(o, today));
   return { config, options };
 }

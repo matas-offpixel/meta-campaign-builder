@@ -5,7 +5,9 @@
  * cached title and slug follow a rename. At most once per edit-page load,
  * for that one event, and not when the cache was confirmed in the last hour
  * (the endpoint's rate limit is shared with the signups read). A failed
- * refresh keeps and shows the cached title; nothing is written.
+ * refresh keeps and shows the cached title; nothing is written. A 404 (the
+ * page isn't live any more) also keeps the stored id and cache, and marks
+ * the page notLive for "{stored title} · not live now".
  *
  * Only app/(dashboard)/events/[id]/edit/page.tsx may import this (guard test).
  * Relative imports only: the `node --test` runner can't resolve `@/`.
@@ -28,7 +30,8 @@ export async function refreshCirqlinPageCache(
   const now = deps.now ?? new Date();
   if (!page || cirqlinCacheIsFresh(page, now)) return page;
   const found = await deps.lookup({ id: page.id });
-  if (!found.ok || found.page.id !== page.id) return page;
+  if (!found.ok) return found.reason === "no_page" ? { ...page, notLive: true } : page;
+  if (found.page.id !== page.id) return page;
   const columns = cirqlinPageColumns(found.page, now);
   const { error } = await sb
     .from("events")

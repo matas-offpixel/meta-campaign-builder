@@ -20,8 +20,8 @@ import { revalidatePath } from "next/cache";
 
 import { lookupCirqlinPage, type CirqlinPageRef } from "@/lib/cirqlin/page";
 import { parseAliasLines, planAliasChange, type CountAliasRow } from "@/lib/event-config/aliases";
-import { cirqlinFailureMessage, cirqlinFieldIntent } from "@/lib/event-config/cirqlin";
-import { allowedReferenceIds, eventConfigUpdate, parseCapacity } from "@/lib/event-config/form";
+import { resolveCirqlinField } from "@/lib/event-config/cirqlin";
+import { allowedReferenceIds, eventConfigUpdate, londonToday, parseCapacity } from "@/lib/event-config/form";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export interface EventConfigInput {
@@ -42,18 +42,6 @@ export type SaveEventConfigResult =
       cirqlinPage?: CirqlinPageRef | null;
     }
   | { ok: false; error: string; field?: EventConfigField };
-
-/** Resolve the field before anything is written. Never logs the request. */
-async function resolveCirqlinField(
-  link: string | null,
-): Promise<{ ok: true; cirqlin?: { page: CirqlinPageRef | null; now: Date } } | { ok: false; error: string; field: EventConfigField }> {
-  const intent = cirqlinFieldIntent(link);
-  if (intent.kind === "keep") return { ok: true };
-  if (intent.kind === "clear") return { ok: true, cirqlin: { page: null, now: new Date() } };
-  const found = await lookupCirqlinPage({ url: intent.url });
-  if (!found.ok) return { ok: false, error: cirqlinFailureMessage(found.reason), field: "cirqlinPage" };
-  return { ok: true, cirqlin: { page: found.page, now: new Date() } };
-}
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
@@ -81,9 +69,13 @@ async function aliasConflicts(eventId: string, wanted: string[]): Promise<{ stor
 
 async function referenceCandidates(sb: Client, clientId: string | null, picked: string[]) {
   if (!clientId || picked.length === 0) return [];
-  const { data, error } = await sb.from("events").select("id,is_umbrella").eq("client_id", clientId).in("id", picked);
+  const { data, error } = await sb.from("events").select("id,is_umbrella,event_date").eq("client_id", clientId).in("id", picked);
   if (error) throw new Error(error.message);
-  return ((data ?? []) as { id: string; is_umbrella: boolean | null }[]).map((r) => ({ id: r.id, isUmbrella: r.is_umbrella === true }));
+  return ((data ?? []) as { id: string; is_umbrella: boolean | null; event_date: string | null }[]).map((r) => ({
+    id: r.id,
+    isUmbrella: r.is_umbrella === true,
+    eventDate: r.event_date,
+  }));
 }
 
 async function saveReferences(sb: Client, eventId: string, next: string[]): Promise<void> {
@@ -135,11 +127,16 @@ export async function saveEventConfig(input: EventConfigInput): Promise<SaveEven
 
   // After the ownership check, so an event that isn't the caller's never
   // spends the rate limit CIRQLIN shares with the signups read.
-  const page = await resolveCirqlinField(input.cirqlinPageLink ?? null);
+  const page = await resolveCirqlinField(input.cirqlinPageLink ?? null, { lookup: (q) => lookupCirqlinPage(q) });
   if (!page.ok) return page;
 
   try {
-    const references = allowedReferenceIds(input.referenceEventIds, input.eventId, await referenceCandidates(sb, clientId, input.referenceEventIds));
+    const references = allowedReferenceIds(
+      input.referenceEventIds,
+      input.eventId,
+      await referenceCandidates(sb, clientId, input.referenceEventIds),
+      londonToday(),
+    );
     const wanted = parseAliasLines(input.aliases);
     const { stored, names } = await aliasConflicts(input.eventId, wanted);
     const plan = planAliasChange(stored, input.eventId, wanted);

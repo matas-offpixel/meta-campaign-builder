@@ -23,8 +23,11 @@ import { parseCapacity } from "@/lib/event-config/form";
 import type { EventConfigPanelData, ReferenceOption } from "@/lib/event-config/panel";
 import {
   CIRQLIN_PAGE_LABEL,
+  CIRQLIN_PAGE_NOT_A_LINK,
   CIRQLIN_PAGE_PLACEHOLDER,
+  cirqlinFieldIntent,
   cirqlinFieldValue,
+  cirqlinNotLiveLine,
   cirqlinPageLine,
 } from "@/lib/event-config/cirqlin";
 import { NO_CAPACITY, NO_CIRQLIN_PAGE, type CachedCirqlinPage } from "@/lib/event-config/read";
@@ -42,6 +45,7 @@ interface Props {
 function cirqlinHint(page: CachedCirqlinPage | null, link: string, touched: boolean): string | null {
   if (touched) return link.trim() ? null : NO_CIRQLIN_PAGE;
   if (!page) return NO_CIRQLIN_PAGE;
+  if (page.notLive) return cirqlinNotLiveLine(page);
   return cirqlinPageLine(page);
 }
 
@@ -142,6 +146,12 @@ export function EventConfigPanel({ eventId, data, readOnly = false, initial }: P
   const onSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (readOnly) return;
+    // Checked here and again on the server, before CIRQLIN is asked.
+    if (linkTouched && cirqlinFieldIntent(link).kind === "not_a_link") {
+      setSaved(false);
+      setError({ message: CIRQLIN_PAGE_NOT_A_LINK, field: "cirqlinPage" });
+      return;
+    }
     setSaving(true);
     setSaved(false);
     setError(null);
