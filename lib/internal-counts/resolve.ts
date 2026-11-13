@@ -76,13 +76,14 @@ interface BlockRow {
   show_name: string;
   event_id: string | null;
   count_date: string | null;
+  printed_date: string | null;
   chosen_total: number | null;
   revenue_held: boolean;
   status: string;
   parsed: ParsedBlock;
 }
 
-const BLOCK_COLUMNS = "id,report_id,show_name,event_id,count_date,chosen_total,revenue_held,status,parsed";
+const BLOCK_COLUMNS = "id,report_id,show_name,event_id,count_date,printed_date,chosen_total,revenue_held,status,parsed";
 
 async function must<T>(p: PromiseLike<{ data: T | null; error: { message: string } | null }>, what: string): Promise<T> {
   const { data, error } = await p;
@@ -219,7 +220,14 @@ async function openItemsNamed(sb: Db, kind: ReviewKind, name: string): Promise<s
 }
 
 async function heldBlocksNamed(sb: Db, name: string): Promise<BlockRow[]> {
-  const { data, error } = await sb.from("internal_count_blocks").select(BLOCK_COLUMNS).eq("show_name", name).eq("status", "held");
+  // Oldest first, so each block meets the counts released before it (M1b follow-up b).
+  const { data, error } = await sb
+    .from("internal_count_blocks")
+    .select(BLOCK_COLUMNS)
+    .eq("show_name", name)
+    .eq("status", "held")
+    .order("count_date", { ascending: true })
+    .order("id", { ascending: true });
   if (error) throw new Error(`internal_count_blocks read failed: ${error.message}`);
   return (data ?? []) as BlockRow[];
 }
@@ -312,7 +320,13 @@ export async function releaseBlock(sb: Db, ctx: RunContext, blockId: string, opt
   const w = blockWrite(block.parsed, { ...check, revenueHeld: block.revenue_held }, block.chosen_total ?? undefined);
   const stored = ctx.counts.find((c) => c.eventId === event.id && c.countDate === block.count_date);
   const update = { paid_tickets: w.paid, comp_tickets: w.comps, total_tickets: w.total };
-  if (stored && stored.total === w.total) {
+  // An older-dated block (printed date kept) whose figures match the show's latest stored count is unchanged:
+  // skipped, as at first read (M1b follow-up b). Matched later, a finished show's restated count isn't written daily.
+  const latest = ctx.counts
+    .filter((c) => c.eventId === event.id && c.countDate <= block.count_date!)
+    .sort((a, b) => b.countDate.localeCompare(a.countDate))[0];
+  const unchangedRestatement = block.printed_date !== null && latest?.total === w.total;
+  if ((stored && stored.total === w.total) || unchangedRestatement) {
     await sb.from("internal_count_blocks").update({ ...update, status: "repeat" }).eq("id", block.id);
     return;
   }

@@ -175,6 +175,7 @@ async function main(): Promise<void> {
             blocks: l.result?.plan?.blocks.map((b) => ({
               show: b.showName,
               countDate: b.countDate,
+              printedDate: b.printedDate,
               paid: b.paid,
               comps: b.comps,
               sinceLast: b.sinceLast,
