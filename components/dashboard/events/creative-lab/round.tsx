@@ -119,7 +119,7 @@ export function LabRound({
                     {captions.map((caption) => {
                       const cell = matrix.cells.find((item) => item.clipId === clip.id && item.captionId === caption.id);
                       return (
-                        <td key={caption.id} className="align-top">
+                        <td key={caption.id}>
                           <button type="button" className={`w-16 rounded border p-1 ${cell?.on ? "border-border bg-card" : "border-dashed border-border text-muted-foreground"}`} onClick={() => toggle(`${clip.id}:${caption.id}`)}>
                             <CaptionOverlay lines={[]} src={clip.previewUrl} poster={clip.thumbnailUrl} compact />
                             <span className="mt-1 block text-xs">{cell?.on ? "On" : "Off — tap to include"}</span>
