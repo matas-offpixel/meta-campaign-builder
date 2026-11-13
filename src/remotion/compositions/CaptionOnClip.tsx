@@ -3,8 +3,7 @@ import { AbsoluteFill, Audio, cancelRender, continueRender, delayRender, Offthre
 
 import tiktokSansUrl from "../fonts/TikTokSans[opsz,slnt,wdth,wght].ttf";
 import { captionInsideSafeRect, captionLayout, captionLimits, captionLineStrokes, profile, type CaptionAspect, type CaptionSize } from "../caption-style/profile";
-import { quoteTextEm, quoteWrapEm } from "../caption-style/quote-measure";
-import { quoteProfile, type QuoteWeight } from "../caption-style/quote-profile";
+import type { QuoteWeight } from "../caption-style/quote-profile";
 
 export type CaptionAudio = "original" | "muted" | "replaced";
 
@@ -29,9 +28,18 @@ export type CaptionOnClipProps = {
   plate: "video" | "black";
   /** Absent is the locked default size. "long" refuses while the profile is unapproved. */
   size?: CaptionSize;
-  /** Absent is the caption (rule 13). Quote uses quote-v1.json. */
+  /** A quote draws in this same caption style (Q10). Kept so a caller can say which words these are. */
   mode?: "caption" | "quote";
+  /** Not read. Q2's weight is retired (Q14). */
   weight?: QuoteWeight;
+  /** Output px at 1920. Absent is today's spot (0.355469 H). */
+  placementCenterY?: number;
+  /** Fraction of the standard size. Absent is the size's own size (1, or 0.75 when size is long). */
+  placementScale?: number;
+  /** Draft stills only. Production renders leave this unset. */
+  draftStamp?: string;
+  /** C6's line, drawn on a draft still. Production renders leave this unset. */
+  draftNote?: string;
   /**
    * Local side-by-side only. Production renders never set this.
    * Lets the unapproved long size be photographed, including a line that
@@ -78,10 +86,16 @@ function measureLine(line: string, fontPx: number, fontWidth: number): number {
  */
 export function CaptionOnClip(props: CaptionOnClipProps) {
   const size = props.size ?? "default";
-  const layout = useMemo(
-    () => captionLayout(props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, size, props.cropFocusX ?? 0.5),
-    [props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, props.cropFocusX, size],
-  );
+  const layout = useMemo(() => {
+    const base = captionLayout(props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, size, props.cropFocusX ?? 0.5);
+    const fontPx = props.placementScale == null ? base.fontPx : profile.fontSizePctOfWidth * base.output.width * props.placementScale;
+    return {
+      ...base,
+      fontPx,
+      strokePx: profile.strokeWidthPctOfFontSize * fontPx,
+      centerY: props.placementCenterY ?? base.centerY,
+    };
+  }, [props.sourceWidth, props.sourceHeight, props.aspect, props.cropFocusY, props.cropFocusX, props.placementCenterY, props.placementScale, size]);
   const { fontPx, safeWidth } = layout;
   const fontWidth = profile.fontWidth;
   const [measureHandle] = useState(() => delayRender("caption measure"));
@@ -103,17 +117,6 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
       await fontReady;
       await document.fonts.ready;
       if (gone) return;
-      if (props.mode === "quote") {
-        const weight: QuoteWeight = props.weight === 400 ? 400 : 700;
-        const limit = quoteWrapEm();
-        const tooWide = props.lines.find((line) => line.includes(" ") && quoteTextEm(line, weight) > limit + 1e-6);
-        if (props.lines.length > quoteProfile.maxLines || tooWide) {
-          cancelRender(new Error(tooWide ? `"${tooWide}" is wider than 0.70 of the frame` : `${props.lines.length} lines; a quote is at most ${quoteProfile.maxLines}`));
-          return;
-        }
-        continueRender(measureHandle);
-        return;
-      }
       if (size === "long" && !profile.longApproved && !props.unapprovedProof) {
         cancelRender(new Error("long caption size is not approved"));
         return;
@@ -176,29 +179,6 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
         />
       ) : null}
       {props.audio === "replaced" && props.replacementAudioUrl ? <Audio src={props.replacementAudioUrl} /> : null}
-      {props.mode === "quote" ? (
-        <div
-          style={{
-            position: "absolute",
-            left: layout.output.width * quoteProfile.horizontalCenterPctOfWidth,
-            top: layout.output.height * quoteProfile.verticalCenterPctOfSourceHeight,
-            transform: "translate(-50%, -50%)",
-            width: layout.output.width * quoteProfile.wrapPctOfWidth,
-            fontFamily: `"${quoteProfile.fontFamily}"`,
-            fontWeight: props.weight === 400 ? 400 : 700,
-            fontStretch: "100%",
-            fontVariationSettings: `"opsz" 36, "slnt" 0, "wdth" 100, "wght" ${props.weight === 400 ? 400 : 700}`,
-            fontSize: layout.output.height * quoteProfile.fontSizePctOfHeight,
-            lineHeight: quoteProfile.pitchPctOfHeight / quoteProfile.fontSizePctOfHeight,
-            textAlign: "center",
-            color: quoteProfile.fill,
-          }}
-        >
-          {props.lines.map((line, index) => (
-            <div key={index} style={{ whiteSpace: "nowrap", fontKerning: "none" }}>{line}</div>
-          ))}
-        </div>
-      ) : (
       <div
         style={{
           position: "absolute",
@@ -231,7 +211,12 @@ export function CaptionOnClip(props: CaptionOnClipProps) {
           );
         })}
       </div>
-      )}
+      {props.draftStamp ? (
+        <div style={{ position: "absolute", top: 36, left: 36, color: "#fff", fontFamily: "ui-monospace, monospace", fontSize: 28, letterSpacing: 2 }}>{props.draftStamp}</div>
+      ) : null}
+      {props.draftNote ? (
+        <div style={{ position: "absolute", left: 36, right: 36, bottom: 48, color: "#fff", fontFamily: "ui-monospace, monospace", fontSize: 22 }}>{props.draftNote}</div>
+      ) : null}
     </AbsoluteFill>
   );
 }

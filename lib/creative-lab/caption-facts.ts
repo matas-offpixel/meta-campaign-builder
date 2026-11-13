@@ -1189,3 +1189,17 @@ export function validateCaption(
 
   return { ok: errors.length === 0, errors, lines, factsHash: factsHash(facts), sizeVariant };
 }
+
+/**
+ * Q17. A quote is the artist team's words. Fit is Q16 (the caller). Here:
+ * a name on this event, a date or weekday that matches, and the six
+ * ticket-truth checks. Not the writer's length, past-show, set-time or style checks.
+ */
+export function quoteFactErrors(text: string, facts: EventFacts): CaptionError[] {
+  return [
+    ...checkNames(text, [], facts),
+    ...checkDates(text, facts),
+    ...checkPrices(text, facts),
+    ...checkScarcity(text, "lineup", facts),
+  ];
+}

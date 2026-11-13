@@ -22,7 +22,8 @@
 import { NextResponse } from "next/server";
 
 import { isRemotionEnabled } from "@/lib/creatives/types";
-import { renderCaptionOnClip, renderTimingSample } from "@/lib/creative-lab/render";
+import { FACE_CHECKING } from "@/lib/creative-lab/caption-placement";
+import { isSamplesPending, renderCaptionOnClip, renderTimingSample } from "@/lib/creative-lab/render";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -80,6 +81,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     return NextResponse.json(result);
   } catch (err) {
+    if (isSamplesPending(err)) return NextResponse.json({ error: FACE_CHECKING }, { status: 409 });
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[render-caption] ERROR:`, message);
     return NextResponse.json({ error: message }, { status: 500 });

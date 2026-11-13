@@ -45,6 +45,10 @@ describe("render failure sentences (defect 2)", () => {
     assert.equal(renderRefusalSentence("caption lines are missing"), "This caption has no lines — generate it again.");
     // The text check on the caption still reads as the caption being too long.
     assert.equal(renderRefusalSentence('"FIXTURE HALL TONIGHT" exceeds 18 characters'), "This caption is too long — shorten it.");
+    assert.equal(renderRefusalSentence('"FIXTURE HALL TONIGHT" exceeds 18 characters', "quote"), "This quote is too long — drop a sentence from the start or end.");
+    assert.equal(renderRefusalSentence("This quote is too long — drop a sentence from the start or end."), "This quote is too long — drop a sentence from the start or end.");
+    const quoteRow = { id: "q", status: "failed", renderMs: null, updatedAt: NOW, error: "6 lines; at most 5", quote: true as const };
+    assert.equal(renderRowWord(quoteRow, [quoteRow], NOW), "This quote is too long — drop a sentence from the start or end.");
     assert.equal(renderRefusalSentence("aspect '4:5' with kind 'video' is not rendered"), "This clip isn't vertical — use a 9:16 file.");
   });
 

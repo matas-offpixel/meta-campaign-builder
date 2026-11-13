@@ -4,9 +4,9 @@ import localFont from "next/font/local";
 
 import { ClipSound, showSoundToggle, useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
 import { captionBoxInsets } from "@/lib/creative-lab/surface";
+import { captionCharEm } from "@/lib/creative-lab/video-band";
 import { profile } from "../../../../src/remotion/caption-style/profile";
-import { quoteTextEm } from "../../../../src/remotion/caption-style/quote-measure";
-import { quoteProfile, type QuoteWeight } from "../../../../src/remotion/caption-style/quote-profile";
+import type { QuoteWeight } from "../../../../src/remotion/caption-style/quote-profile";
 
 const tiktokSans = localFont({
   src: "../../../../src/remotion/fonts/TikTokSans[opsz,slnt,wdth,wght].ttf",
@@ -31,12 +31,14 @@ export function CaptionOverlay({
   inS = 0,
   outS = null,
   mode = "caption",
-  weight = 700,
+  weight: _weight = 700,
   crop = false,
   time = null,
   muted = false,
   hasAudio,
   initialAudible = false,
+  placementCenter = null,
+  placementScale = null,
 }: {
   lines: readonly string[];
   src?: string | null;
@@ -52,19 +54,20 @@ export function CaptionOverlay({
   muted?: boolean;
   hasAudio?: boolean | null;
   initialAudible?: boolean;
+  /** Fraction of the frame height. Absent is today's spot. */
+  placementCenter?: number | null;
+  /** Fraction of the standard size. Absent is 1. */
+  placementScale?: number | null;
 }) {
   const { videoProps, rangeProps, playing, toggle, audible, toggleSound } = useClipVideo(inS, outS, { initialAudible });
   const shown = lines.map((line) => line.trim()).filter(Boolean);
   const stroke = `${profile.strokeWidthPctOfFontSize * 2}em`;
   const quoteCrop = mode === "quote" && crop;
-  // Same width: a 4:5 frame is this fraction of the 9:16 height.
-  const heightRatio = (5 / 4) / (16 / 9);
-  const quoteSize = (quoteCrop ? quoteProfile.fontSizePctOfHeight / heightRatio : quoteProfile.fontSizePctOfHeight) * 100;
-  const quotePitch = (quoteCrop ? quoteProfile.pitchPctOfHeight / heightRatio : quoteProfile.pitchPctOfHeight) * 100;
-  const quoteTop = (quoteCrop ? quoteProfile.verticalCenterInFourFive : quoteProfile.verticalCenterPctOfSourceHeight) * 100;
+  const centre = placementCenter ?? profile.verticalCenterPctOfSourceHeight;
+  const scale = placementScale ?? 1;
 
   return (
-    <div className={`relative w-full overflow-hidden bg-black ${quoteCrop ? "aspect-[4/5]" : "aspect-[9/16]"}`} style={{ containerType: mode === "quote" ? "size" : "inline-size" }}>
+    <div className={`relative w-full overflow-hidden bg-black ${quoteCrop ? "aspect-[4/5]" : "aspect-[9/16]"}`} style={{ containerType: "inline-size" }}>
       {src ? (
         <video
           {...videoProps}
@@ -77,39 +80,11 @@ export function CaptionOverlay({
       ) : mode === "quote" ? (
         <div className="absolute inset-0" style={{ background: "linear-gradient(160deg,#2a241c,#6a5a48)", filter: muted ? "saturate(.6)" : undefined }} />
       ) : null}
-      {mode === "quote" && shown.length ? (
-        <p
-          className={`${tiktokSans.className} pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-center`}
-          style={{
-            left: `${quoteProfile.horizontalCenterPctOfWidth * 100}%`,
-            top: `${quoteTop}%`,
-            width: `${quoteProfile.wrapPctOfWidth * 100}%`,
-            fontFamily: `"TikTok Sans", ${tiktokSans.style.fontFamily}`,
-            fontSize: `${quoteSize}cqh`,
-            lineHeight: `${quotePitch}cqh`,
-            fontWeight: weight,
-            fontKerning: "none",
-            fontVariationSettings: `"opsz" 36, "slnt" 0, "wdth" 100, "wght" ${weight}`,
-            color: quoteProfile.fill,
-          }}
-        >
-          {shown.map((line, index) => (
-            <span
-              key={index}
-              data-quote-line=""
-              data-quote-em={index === 0 ? quoteTextEm(line, weight) : undefined}
-              className="block"
-              style={{ whiteSpace: "nowrap", width: "fit-content", marginInline: "auto" }}
-            >
-              {line}
-            </span>
-          ))}
-        </p>
-      ) : compact ? (
+      {compact ? (
         <span
           aria-hidden
           className="absolute h-0.5 -translate-y-1/2 bg-white"
-          style={{ left: `${box.left}%`, right: `${box.right}%`, top: `${profile.verticalCenterPctOfSourceHeight * 100}%`, outline: `1px solid ${profile.stroke}` }}
+          style={{ left: `${box.left}%`, right: `${box.right}%`, top: `${centre * 100}%`, outline: `1px solid ${profile.stroke}` }}
         />
       ) : shown.length ? (
         // The safe-area box: 84% of the frame, centred on the profile's
@@ -121,8 +96,8 @@ export function CaptionOverlay({
           style={{
             left: `${box.left}%`,
             right: `${box.right}%`,
-            top: `${profile.verticalCenterPctOfSourceHeight * 100}%`,
-            fontSize: `${profile.fontSizePctOfWidth * 100}cqw`,
+            top: `${centre * 100}%`,
+            fontSize: `${profile.fontSizePctOfWidth * scale * 100}cqw`,
             fontWeight: profile.fontWeight,
             fontStretch: `${profile.fontWidth}%`,
             fontVariationSettings: variation,
@@ -133,7 +108,14 @@ export function CaptionOverlay({
           }}
         >
           {shown.map((line, index) => (
-            <span key={index} data-caption-line className="block">{line}</span>
+            <span
+              key={index}
+              data-caption-line=""
+              data-caption-em={index === 0 ? [...line].reduce((em, char) => em + captionCharEm(char), 0) : undefined}
+              className="block"
+            >
+              {line}
+            </span>
           ))}
         </p>
       ) : null}

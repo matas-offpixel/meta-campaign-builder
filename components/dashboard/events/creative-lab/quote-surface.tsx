@@ -271,6 +271,7 @@ export function QuotePost({
   muted = false,
   copyOnNarrow = true,
   weight = 700,
+  placementScale,
 }: {
   page: string;
   copy: string | null;
@@ -284,6 +285,8 @@ export function QuotePost({
   muted?: boolean;
   copyOnNarrow?: boolean;
   weight?: QuoteWeight;
+  /** Fraction of the standard caption size. 0.75 is the long size. */
+  placementScale?: number;
 }) {
   return (
     <article className={`w-full max-w-[360px] ${muted ? "opacity-[.92]" : ""}`}>
@@ -296,7 +299,7 @@ export function QuotePost({
           </span>
         </div>
         {copy ? <p className={`px-3 py-2 text-sm ${copyOnNarrow ? "" : "hidden sm:block"}`}>{copy}</p> : null}
-        <CaptionOverlay mode="quote" weight={weight} crop time={time} muted={muted} lines={quoteLines(words, weight)} />
+        <CaptionOverlay mode="quote" weight={weight} crop time={time} muted={muted} lines={quoteLines(words, weight)} placementScale={placementScale} />
         <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2">
           <p className="min-w-0 text-sm font-medium">{headline}<br /><span className="font-normal text-muted-foreground">{sub}</span></p>
           <span className="inline-flex shrink-0 rounded bg-foreground px-3 py-1.5 text-sm text-background">{cta}</span>

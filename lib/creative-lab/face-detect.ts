@@ -4,7 +4,7 @@
  * Pure JS: @vladmandic/face-api's own bundle (tfjs inside, CPU backend) with
  * the SSD MobileNet v1 weights that ship in the package. No native module,
  * no canvas: sharp decodes the image to raw RGB and that goes in as a tensor.
- * Script-side only — it is never imported by a route.
+ * The render tick is the only route that imports it. render-caption does not.
  *
  * The detector runs on a copy at most 640 px on its long side; boxes come back
  * in the source image's pixels.
