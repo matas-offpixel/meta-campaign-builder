@@ -108,8 +108,12 @@ function Watch({ label, items, note }: { label: string; items: { title: string; 
  * The Objective block (F1 of the per-event purchases record): E4's setup
  * line when the ads' pixel is not the stored one, the objective, the
  * purchase line in its state, the attributed figure under it, and the
- * ticketing note or check. A proposal stored before that record has no
- * `attributed`; its purchase line already says the figure.
+ * ticketing note or check. On the ticket-platform path (T4 of the
+ * ticket-platform record) the attributed figure is the count, so there is
+ * no attributed line: the moves sentence follows the purchase line at
+ * 1280 and the platform's share of the pixel's purchases sits under it.
+ * A proposal stored before the per-event record has no `attributed`
+ * either; its purchase line already says the figure.
  */
 export function ObjectiveBlock({ why, heading = true }: { why: PanelProposal["why"]; heading?: boolean }) {
   const setup = why.pixel ?? [];
@@ -134,6 +138,11 @@ export function ObjectiveBlock({ why, heading = true }: { why: PanelProposal["wh
       {why.attributed ? (
         <p className="text-xs text-muted-foreground">
           <Wide wide={`${why.attributed} ${why.moves}`.trim()} narrow={why.attributedNarrow ?? why.attributed} />
+        </p>
+      ) : null}
+      {why.context ? (
+        <p className="text-xs text-muted-foreground">
+          <Wide wide={why.context} narrow={why.contextNarrow ?? why.context} />
         </p>
       ) : null}
       {why.ticketing ? <p className="text-xs text-muted-foreground">{why.ticketing}</p> : null}

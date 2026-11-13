@@ -113,7 +113,7 @@ export async function loadEventProposals(db: Db, eventId: string): Promise<Panel
     windowEnd: row.window_end,
     mode: row.mode,
     objective: row.objective,
-    why: row.why ?? { objective: "", purchase: "", purchaseNarrow: "", moves: "", ticketing: null, pixel: [], pixelNarrow: [] },
+    why: row.why ?? { objective: "", purchase: "", purchaseNarrow: "", moves: "", ticketing: null, pixel: [], pixelNarrow: [], attributed: null, attributedNarrow: null, context: null, contextNarrow: null },
     blockers: row.blockers ?? [],
     enoughData: row.enough_data,
     notEnoughData: row.not_enough_data,

@@ -43,6 +43,7 @@ export function slackMessage(args: SlackProposal, appUrl: string): NotifyOptions
     args.proposal.why.objective,
     args.proposal.why.purchase,
     args.proposal.why.attributed ?? "",
+    args.proposal.why.context ?? "",
     args.proposal.notEnoughData ?? breakdown,
     args.mode === "shadow" ? "Shadow: nothing here can be applied yet." : "",
     url,
@@ -54,7 +55,7 @@ export function slackMessage(args: SlackProposal, appUrl: string): NotifyOptions
     text,
     blocks: [
       { type: "section", text: { type: "mrkdwn", text: `*${head}*\n${kind} · data to ${shortDay(args.plan.window.end)}` } },
-      { type: "section", text: { type: "mrkdwn", text: [args.campaignKey, args.proposal.why.objective, args.proposal.why.purchase, args.proposal.why.attributed ?? ""].filter(Boolean).join("\n") } },
+      { type: "section", text: { type: "mrkdwn", text: [args.campaignKey, args.proposal.why.objective, args.proposal.why.purchase, args.proposal.why.attributed ?? "", args.proposal.why.context ?? ""].filter(Boolean).join("\n") } },
       { type: "section", text: { type: "mrkdwn", text: args.proposal.notEnoughData ?? breakdown } },
       { type: "section", text: { type: "mrkdwn", text: `<${url}|Open the Refresh panel>${args.mode === "shadow" ? " · Shadow: nothing applies yet." : ""}` } },
     ],

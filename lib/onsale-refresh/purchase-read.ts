@@ -13,6 +13,13 @@
  *  - The database: clients.meta_pixel_id (read, never written), the
  *    running and upcoming events' URLs, the 14 days' tickets sold.
  *
+ * The ticket-platform path (HT1 of
+ * docs/design-record/2026-11-13-ticket-platform-purchases.html) adds no
+ * new kind of read: the attributed purchases since the on-sale date come
+ * from the run's own ad-days, the platform's share from the same domain
+ * breakdown. The ad-set batch covers every ad set that spent since the
+ * on-sale date, so the count can keep to the resolved pixel.
+ *
  * Nothing here writes anywhere. A failed read becomes the "not read"
  * state with its reason; it is never shown as a zero.
  */
@@ -24,13 +31,16 @@ import { resolveAdContext } from "../learning/ad-facts.ts";
 import { loadAll } from "./load.ts";
 import type { PhaseConfig } from "./phase-config.ts";
 import {
+  attributedOnPixel,
   classifyDomain,
   isCirqlinLink,
   normaliseHost,
+  platformFor,
   readPurchases,
   resolvePixel,
   ticketSiteFor,
   CIRQLIN_HOST,
+  type AttributedRow,
   type CirqlinLookup,
   type DomainEvent,
   type HostDay,
@@ -172,7 +182,20 @@ export async function resolveCirqlinDomain(url: string, fetchImpl: typeof fetch 
   }
 }
 
-export type PurchaseEvent = DomainEvent & { event_code: string | null; client_id: string | null; event_date: string | null };
+export type PurchaseEvent = DomainEvent & {
+  event_code: string | null;
+  client_id: string | null;
+  event_date: string | null;
+  /** T2: the show's first on-sale date is its presale when stored, else its general sale. */
+  presale_at?: string | null;
+  general_sale_at?: string | null;
+};
+
+/** The day the show could first be bought: its presale when stored, else its general sale; null when neither is. */
+export function firstOnSaleDay(event: Pick<PurchaseEvent, "presale_at" | "general_sale_at">): string | null {
+  const stamp = event.presale_at || event.general_sale_at;
+  return stamp ? stamp.slice(0, 10) : null;
+}
 
 type SpendRow = { meta_ad_id: string; meta_adset_id: string | null; campaign_name: string | null; ad_account_id: string | null; date: string; spend: number | string; purchases: number | string };
 
@@ -220,16 +243,24 @@ export async function loadPurchaseReads(input: LoadPurchaseReadsInput): Promise<
   const wanted = new Set(eventIds);
   const windowEnd = new Map(events.map((event) => [event.id, planRun({ day: input.day, eventDate: event.event_date, config, shadow: input.shadow }).window.end]));
 
-  // The 14 days' delivering ad sets and attributed purchases, per event, in one pass over the ad-days.
+  // The 14 days' delivering ad sets and attributed purchases, and the ad-days since the on-sale date, per event, in one pass.
+  const onSaleDay = new Map(events.map((event) => [event.id, firstOnSaleDay(event)]));
   const adSetSpend = new Map<string, Map<string, number>>();
   const attributed = new Map<string, number>();
+  const adDays = new Map<string, AttributedRow[]>();
   for (const row of input.raw.rows) {
     const eventId = resolveAdContext({ meta_ad_id: row.meta_ad_id, meta_adset_id: row.meta_adset_id, campaign_name: row.campaign_name, ad_account_id: row.ad_account_id }, input.raw.context).eventId;
     if (!eventId || !wanted.has(eventId)) continue;
     const end = windowEnd.get(eventId)!;
-    if (row.date > end || row.date < addDaysIso(end, -13)) continue;
-    attributed.set(eventId, (attributed.get(eventId) ?? 0) + num(row.purchases));
+    const from14 = addDaysIso(end, -13);
+    const onSale = onSaleDay.get(eventId);
+    if (row.date > end || row.date < (onSale && onSale < from14 ? onSale : from14)) continue;
     const spend = num(row.spend);
+    const days = adDays.get(eventId) ?? [];
+    days.push({ date: row.date, adsetId: row.meta_adset_id, campaign: (row.campaign_name ?? "—").trim(), spend, purchases: num(row.purchases) });
+    adDays.set(eventId, days);
+    if (row.date < from14) continue;
+    attributed.set(eventId, (attributed.get(eventId) ?? 0) + num(row.purchases));
     if (!row.meta_adset_id || spend <= 0) continue;
     const sets = adSetSpend.get(eventId) ?? new Map<string, number>();
     sets.set(row.meta_adset_id, (sets.get(row.meta_adset_id) ?? 0) + spend);
@@ -252,8 +283,8 @@ export async function loadPurchaseReads(input: LoadPurchaseReadsInput): Promise<
   // E1's "other running or upcoming shows": every event still ahead for an active client.
   const others: DomainEvent[] = upcoming.filter((event) => !event.client_id || !archived.has(event.client_id));
 
-  // E4: the delivering ad sets' pixels.
-  const allAdSets = [...new Set([...adSetSpend.values()].flatMap((sets) => [...sets.keys()]))];
+  // E4: the delivering ad sets' pixels — and, for T2's count, those of every ad set with an ad-day since the on-sale date.
+  const allAdSets = [...new Set([...[...adSetSpend.values()].flatMap((sets) => [...sets.keys()]), ...[...adDays.values()].flatMap((days) => days.map((day) => day.adsetId).filter((id): id is string => Boolean(id)))])];
   let pixelOf = new Map<string, string | null>();
   let pixelError: string | null = null;
   if (!input.graph) {
@@ -284,11 +315,13 @@ export async function loadPurchaseReads(input: LoadPurchaseReadsInput): Promise<
   }
   const domains = new Map(events.map((event) => [event.id, classifyDomain(event, others, (url) => lookups.get(url))]));
 
-  // E2: the domain breakdown, once per pixel that an own-domain show counts on.
+  // E2 / T2: the domain breakdown, once per pixel that a show with a domain (own or shared) or a platform ticket link counts on.
+  const platforms = new Map(events.map((event) => [event.id, platformFor(event, config.ticketPlatforms)]));
   const needsStats = new Set<string>();
   for (const event of events) {
     const pixel = resolved.get(event.id)?.pixel.id;
-    if (pixel && (input.everyPixel || domains.get(event.id)!.kind === "own")) needsStats.add(pixel);
+    const kind = domains.get(event.id)!.kind;
+    if (pixel && (input.everyPixel || kind === "own" || kind === "shared_domain" || (platforms.get(event.id) && kind !== "no_url"))) needsStats.add(pixel);
   }
   const stats = new Map<string, { rows: HostDay[] } | { error: string }>();
   for (const pixel of needsStats) {
@@ -324,6 +357,8 @@ export async function loadPurchaseReads(input: LoadPurchaseReadsInput): Promise<
         windowEnd: end,
         attributed14: attributed.get(event.id) ?? 0,
         ticketsSold14: sold.length ? sold.reduce((sum, row) => sum + num(row.tickets_sold), 0) : null,
+        platform: platforms.get(event.id) ?? null,
+        attributed: pixel ? attributedOnPixel(adDays.get(event.id) ?? [], pixelOf, pixel.pixel.id, { windowEnd: end, onSaleDay: onSaleDay.get(event.id) ?? null }) : null,
         config,
       }),
     );
