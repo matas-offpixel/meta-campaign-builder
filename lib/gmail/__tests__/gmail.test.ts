@@ -116,7 +116,7 @@ describe("summarise", () => {
       payload: {
         headers: [
           { name: "Subject", value: "Internal Show Count 12.11.26" },
-          { name: "From", value: "Rachel Chadwick <Rachel@electric-group.co.uk>" },
+          { name: "From", value: "Alex Mercer <alex.mercer@electric-group.co.uk>" },
         ],
         parts: [
           {
@@ -127,7 +127,7 @@ describe("summarise", () => {
             ],
           },
           { mimeType: "image/png", filename: "image.png", body: { attachmentId: "img" } },
-          { mimeType: "application/pdf", filename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf", body: { attachmentId: "pdf1" } },
+          { mimeType: "application/pdf", filename: "JO'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf", body: { attachmentId: "pdf1" } },
         ],
       },
     };
@@ -136,7 +136,7 @@ describe("summarise", () => {
     assert.equal(s.threadId, "t1");
     assert.equal(s.receivedAt, "2026-11-12T11:33:36.000Z");
     assert.equal(s.body, "Hello,\nPlease see today's internal show count attached.");
-    assert.deepEqual(s.pdfs, [{ filename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf", attachmentId: "pdf1" }]);
+    assert.deepEqual(s.pdfs, [{ filename: "JO'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf", attachmentId: "pdf1" }]);
   });
 });
 

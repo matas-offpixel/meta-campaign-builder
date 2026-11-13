@@ -80,6 +80,8 @@ export interface ItemFacts {
     subjectDate: string | null;
     gmailMessageId: string;
     pdfFilename: string | null;
+    /** The email's stored body, for a forward's "first sent" date. */
+    body?: string | null;
   };
   inbox: string | null;
 }
@@ -88,7 +90,7 @@ export function gmailUrl(messageId: string, inbox: string | null): string {
   return `https://mail.google.com/mail/${inbox ? `?authuser=${encodeURIComponent(inbox)}` : ""}#all/${messageId}`;
 }
 
-/** The sender's name as the email gives it ("Rachel Chadwick"); never a full address. */
+/** The sender's name as the email gives it ("Alex Mercer"); never a full address. */
 export function senderName(from: string | null): string {
   const named = (from ?? "").match(/^\s*"?([^"<]+?)"?\s*</);
   if (named?.[1]?.trim()) return named[1].trim().replace(/\s+/g, " ");
@@ -98,11 +100,36 @@ export function senderName(from: string | null): string {
 
 const FORWARD = /^\s*(?:(?:re|fwd?|aw|sv)\s*:\s*)*fwd?\s*:/i;
 
+const MONTH_INDEX: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+
+/**
+ * The date a forward's original was first sent, from the forwarded header
+ * ("Sent: 30 October 2026 12:16", "Date: Thu, 1 Oct 2026 at 10:22",
+ * "Sent: Thursday, October 1, 2026 10:22 AM"), yyyy-mm-dd, or null.
+ */
+export function firstSentDate(body: string | null | undefined): string | null {
+  for (const m of (body ?? "").matchAll(/^\s*\**(?:sent|date)\s*:\**\s*(.+)$/gim)) {
+    const line = m[1];
+    const dm = line.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})\b/);
+    const md = line.match(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/);
+    const [day, mon, year] = dm ? [dm[1], dm[2], dm[3]] : md ? [md[2], md[1], md[3]] : [null, null, null];
+    const month = mon ? MONTH_INDEX[mon.slice(0, 3).toLowerCase()] : undefined;
+    if (day && month && year) return `${year}-${String(month).padStart(2, "0")}-${String(Number(day)).padStart(2, "0")}`;
+  }
+  return null;
+}
+
+/** Ruling d, re-ruled: "forwarded by {sender}, first sent {d Mon}", or "forwarded by {sender}" when the original's date isn't in the email. */
+export function forwardedByLine(sender: string | null, body: string | null | undefined): string {
+  const first = firstSentDate(body);
+  return `forwarded by ${senderName(sender)}${first ? `, first sent ${dayMonth(first)}` : ""}`;
+}
+
 export function sourceOf(f: ItemFacts): SourceView {
   const address = (f.report.sender ?? "").match(/[^\s<>"]+@([^\s<>"]+)/);
   const upload = f.report.gmailMessageId.startsWith("upload:");
-  // Ruling d: a forward's meta gains "· forwarded by {sender}, {d Mon}".
-  const forwardedBy = FORWARD.test(f.report.subject) ? `forwarded by ${senderName(f.report.sender)}, ${dayMonth(f.report.receivedAt)}` : null;
+  // Ruling d: a forward's meta gains "· forwarded by {sender}, first sent {d Mon}".
+  const forwardedBy = FORWARD.test(f.report.subject) ? forwardedByLine(f.report.sender, f.report.body) : null;
   return {
     forwardedBy,
     // R1a: a near miss's meta is "{received}" only; a replaced item's is "\"{newer subject}\" · {received}".
@@ -327,7 +354,8 @@ export function gmailStatusLine(state: GmailState, mailbox: string | null, lastR
   if (state === "not_set_up" || !mailbox) return "Gmail access isn't set up yet";
   const last = lastReadAt ? ` · last read ${lastReadTime(lastReadAt, now)}` : "";
   if (state === "reading") return `Reading ${mailbox}${last || ` · last read ${lastReadTime(now.toISOString(), now)}`} · internal only`;
-  return `Couldn't read ${mailbox}${last}`;
+  // Access is set up but no read has ever worked: not the same as "isn't set up yet".
+  return `Couldn't read ${mailbox}${last || " · no read has worked yet"}`;
 }
 
 export interface UploadOutcome {
@@ -339,12 +367,13 @@ export interface UploadOutcome {
   firstReadAt?: string | null;
 }
 
-/** R1a's upload result lines. The three refusals before reading are NOT RULED. */
+/** R1a's upload result lines; the three refusals are ruled (PASS). */
 export function uploadLine(o: UploadOutcome): string | null {
   switch (o.status) {
     case "processed": {
+      const written = o.written ?? 0;
       const toCheck = o.held ? `, ${figure(o.held)} to check` : "";
-      return `Read ${o.file} · ${figure(o.written ?? 0)} shows stored${toCheck}`;
+      return `Read ${o.file} · ${figure(written)} ${written === 1 ? "show" : "shows"} stored${toCheck}`;
     }
     case "unreadable":
       return `Couldn't read ${o.file}. It's in To check.`;

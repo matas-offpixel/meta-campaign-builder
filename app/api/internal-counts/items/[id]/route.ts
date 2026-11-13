@@ -8,6 +8,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { resolveItem, resolverName, type ResolveAction } from "@/lib/internal-counts/resolve";
+import { missingInput } from "@/lib/internal-counts/review-read";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export const maxDuration = 120;
@@ -21,7 +22,7 @@ function parseAction(form: FormData): ResolveAction | null {
   const date = String(form.get("date") ?? "");
   switch (kind) {
     case "add_manual":
-      return eventId && Number.isFinite(figure) ? { kind, eventId, figure } : null;
+      return eventId && String(form.get("figure") ?? "").trim() && Number.isFinite(figure) ? { kind, eventId, figure } : null;
     case "match":
       return eventId ? { kind, eventId } : null;
     case "use_date":
@@ -54,10 +55,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { data: own } = await supabase.from("internal_count_review_items").select("id").eq("id", id).maybeSingle();
   if (!own) return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
 
-  const action = parseAction(await req.formData());
+  const form = await req.formData();
+  const action = parseAction(form);
   const back = new URL("/internal-counts", req.nextUrl.origin);
   if (!action) {
-    back.searchParams.set("action", "incomplete");
+    // Ruled: say what's missing ("Choose an event first." …); anything else didn't go through.
+    const missing = missingInput(String(form.get("action") ?? ""), String(form.get("event_id") ?? ""), String(form.get("figure") ?? ""));
+    back.searchParams.set("action", missing ?? "failed");
     return NextResponse.redirect(back, 303);
   }
   try {

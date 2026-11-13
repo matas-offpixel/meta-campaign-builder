@@ -7,8 +7,8 @@
  * `isInternalCountsMessage` is the one place the rule lives. An email is a
  * count when the sender's address is at electric-group.co.uk (that domain
  * exactly) and one of its PDFs reads as the counts sheet (pdf-read.ts). The
- * subject is no longer a gate: Matthew's "Re: Internal Counts 16.10.26" and
- * Mike's "FW: Internals 11/09" are counts once their PDF reads as the sheet.
+ * subject is no longer a gate: a reply, "Re: Internal Counts 16.10.26", and
+ * a forward, "FW: Internals 11/09", are counts once their PDF reads as the sheet.
  *
  * Otherwise, from the domain:
  *   - a PDF with either sheet heading that won't parse: unreadable

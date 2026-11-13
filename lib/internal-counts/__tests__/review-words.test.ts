@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { checkedItemView, gmailStatusLine, gmailUrl, openItemView, senderName, uploadLine, type ItemFacts } from "../review-words.ts";
+import { ACTION_FLASH, missingInput } from "../review-read.ts";
+import { checkedItemView, firstSentDate, gmailStatusLine, gmailUrl, openItemView, senderName, uploadLine, type ItemFacts } from "../review-words.ts";
 
 function replaced(detail: Record<string, unknown>): ItemFacts {
   return {
@@ -12,7 +13,7 @@ function replaced(detail: Record<string, unknown>): ItemFacts {
     detail: { countDate: "2026-10-19", previousTotal: 1763, total: 1778, ...detail },
     report: {
       subject: "Re: Internal Counts 23.10.26",
-      sender: "Matthew Green <Matthew@electric-group.co.uk>",
+      sender: "Sam Porter <sam.porter@electric-group.co.uk>",
       receivedAt: "2026-10-23T15:39:16Z",
       sheetDate: "2026-10-23",
       subjectDate: "2026-10-23",
@@ -195,15 +196,57 @@ describe("design FAIL at 903eb97: fixes 1-3 and rulings a, b, d at both widths",
         kind: "sum_mismatch",
         showName: "SCHAK",
         detail: { tiers: 0, total: 993, lateArrival: { laterDate: "2026-09-24", filedDate: "2026-09-22" } },
-        report: { ...base.report, subject: "Fw: Internal Counts 22.09.26", sender: "Rachel Chadwick <rachel@electric-group.co.uk>", receivedAt: "2026-09-25T09:12:00Z" },
+        report: {
+          ...base.report,
+          subject: "Fw: Internal Counts 22.09.26",
+          sender: "Alex Mercer <alex.mercer@electric-group.co.uk>",
+          receivedAt: "2026-09-25T09:12:00Z",
+          body: "FYI\n\n________________________________\nFrom: Jo Hartley\nSent: 22 September 2026 11:40\nSubject: Internal Counts 22.09.26\n",
+        },
       }),
     );
-    assert.equal(v.source.forwardedBy, `forwarded by Rachel Chadwick, 25${N}Sep`);
+    assert.equal(v.source.forwardedBy, `forwarded by Alex Mercer, first sent 22${N}Sep`);
     assert.equal(v.note, `Arrived after the 24${N}Sep count. Filed under 22${N}Sep; later counts are unchanged.`);
     const plain = openItemView(base);
     assert.equal(plain.source.forwardedBy, null);
     assert.equal(plain.note, null);
     assert.ok(!/@/.test(v.source.forwardedBy ?? ""));
+  });
+
+  it("ruling d: with no date in the forwarded header, the meta is the sender alone", () => {
+    const v = openItemView(facts({ kind: "unreadable_pdf", showName: null, detail: { date: null }, report: { ...base.report, subject: "FW: JO'S INTERNAL SHOWS", sender: "Jo Hartley <jo.hartley@electric-group.co.uk>", body: "" } }));
+    assert.equal(v.source.forwardedBy, "forwarded by Jo Hartley");
+  });
+
+  it("firstSentDate reads Outlook, Gmail and US-style forwarded headers", () => {
+    assert.equal(firstSentDate("From: A\nSent: 30 October 2026 12:16\nTo: B"), "2026-10-30");
+    assert.equal(firstSentDate("---------- Forwarded message ---------\nFrom: A\nDate: Thu, 1 Oct 2026 at 10:22"), "2026-10-01");
+    assert.equal(firstSentDate("From: A\nSent: Thursday, October 1, 2026 10:22 AM"), "2026-10-01");
+    assert.equal(firstSentDate("*Sent:* Tuesday, 22 September 2026 11:40"), "2026-09-22");
+    assert.equal(firstSentDate("no header here"), null);
+    assert.equal(firstSentDate(null), null);
+  });
+
+  it("the ruled status, upload and manual-entry lines", () => {
+    const now = new Date("2026-11-13T14:30:00Z");
+    assert.equal(gmailStatusLine("unreachable", "matas@offpixel.co.uk", null, now), "Couldn't read matas@offpixel.co.uk · no read has worked yet");
+    assert.equal(gmailStatusLine("not_set_up", "matas@offpixel.co.uk", null, now), "Gmail access isn't set up yet");
+    assert.equal(uploadLine({ status: "processed", file: "a.pdf", written: 1, held: 0 }), "Read a.pdf · 1 show stored");
+    assert.equal(uploadLine({ status: "processed", file: "a.pdf", written: 1, held: 1 }), "Read a.pdf · 1 show stored, 1 to check");
+    assert.equal(uploadLine({ status: "no_file", file: "" }), "Choose a PDF to upload.");
+    assert.equal(uploadLine({ status: "too_large", file: "" }), "That PDF is over 10 MB.");
+    assert.equal(uploadLine({ status: "not_pdf", file: "" }), "That file isn't a PDF.");
+    assert.equal(ACTION_FLASH.failed, "That didn't go through. Nothing was changed.");
+    const say = (action: string, eventId: string, figure: string) => {
+      const k = missingInput(action, eventId, figure);
+      return k ? ACTION_FLASH[k] : null;
+    };
+    assert.equal(say("add_manual", "", "120"), "Choose an event first.");
+    assert.equal(say("add_manual", "e1", ""), "Type the ticket figure first.");
+    assert.equal(say("add_manual", "e1", "  "), "Type the ticket figure first.");
+    assert.equal(say("add_manual", "", ""), "Choose an event and type the figure first.");
+    assert.equal(say("add_manual", "e1", "120"), null);
+    assert.equal(say("match", "", ""), "Choose an event first.");
   });
 
   it("September is Sep, like every other month", () => {
@@ -212,8 +255,8 @@ describe("design FAIL at 903eb97: fixes 1-3 and rulings a, b, d at both widths",
   });
 
   it("senderName never gives a full address", () => {
-    assert.equal(senderName('"Rachel Chadwick" <rachel@electric-group.co.uk>'), "Rachel Chadwick");
-    assert.equal(senderName("mike@electric-group.co.uk"), "Mike");
-    assert.equal(senderName("Matthew  Green <Matthew@electric-group.co.uk>"), "Matthew Green");
+    assert.equal(senderName('"Alex Mercer" <alex.mercer@electric-group.co.uk>'), "Alex Mercer");
+    assert.equal(senderName("jo@electric-group.co.uk"), "Jo");
+    assert.equal(senderName("Sam  Porter <sam.porter@electric-group.co.uk>"), "Sam Porter");
   });
 });

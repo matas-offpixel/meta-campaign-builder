@@ -34,7 +34,7 @@ function ctx(over: Partial<PlanContext> = {}): PlanContext {
 const report = {
   subject: "Internal Show Count 12.11.26",
   body: "Hello, Please see today's internal show count attached.",
-  pdfFilename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf",
+  pdfFilename: "JO'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf",
   forward: false,
   sentAt: "2026-11-12T11:33:36Z",
 };

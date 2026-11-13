@@ -18,11 +18,24 @@ type Db = SupabaseClient<any, any, any>;
 
 const CHECKED_SHOWN = 30;
 
-const ACTION_FLASH: Record<string, string> = {
-  // NOT RULED: the two action results.
-  incomplete: "Choose an event, or type a figure, first.",
+/** Ruled: a manual entry says what's missing; "failed" is PASS. */
+export const ACTION_FLASH: Record<string, string> = {
+  no_event: "Choose an event first.",
+  no_figure: "Type the ticket figure first.",
+  no_event_figure: "Choose an event and type the figure first.",
   failed: "That didn't go through. Nothing was changed.",
 };
+
+/** What a manual entry (or a match) is missing, as an ACTION_FLASH key, or null when nothing is. */
+export function missingInput(action: string, eventId: string, figureText: string): string | null {
+  const noEvent = !eventId.trim();
+  const figure = figureText.trim();
+  const noFigure = action === "add_manual" && (!figure || !Number.isFinite(Number(figure)));
+  if (noEvent && noFigure) return "no_event_figure";
+  if (noFigure) return "no_figure";
+  if (noEvent && (action === "add_manual" || action === "match")) return "no_event";
+  return null;
+}
 
 /** The line after an upload (R1a) or an action, from the redirect's query. */
 export function flashFor(params: Record<string, string | undefined>): string | null {
@@ -60,6 +73,7 @@ interface ReportRow {
   subject_date: string | null;
   gmail_message_id: string;
   pdf_filename: string | null;
+  body_text?: string | null;
 }
 
 interface EventRow {
@@ -150,7 +164,7 @@ export async function readReviewList(
   if (reportIds.length) {
     const { data } = await sb
       .from("internal_count_reports")
-      .select("id,subject,sender,received_at,sheet_date,subject_date,gmail_message_id,pdf_filename")
+      .select("id,subject,sender,received_at,sheet_date,subject_date,gmail_message_id,pdf_filename,body_text")
       .in("id", reportIds);
     for (const r of (data ?? []) as ReportRow[]) reports.set(r.id, r);
   }
@@ -182,6 +196,7 @@ export async function readReviewList(
         subjectDate: r.subject_date,
         gmailMessageId: r.gmail_message_id,
         pdfFilename: r.pdf_filename,
+        body: r.body_text ?? null,
       },
       inbox,
     };

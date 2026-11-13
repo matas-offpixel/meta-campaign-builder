@@ -10,7 +10,7 @@ import { resolveItem } from "../resolve.ts";
 import { cellRows, processMessage, type IncomingMessage } from "../store.ts";
 
 const pdf12 = await readPdf(
-  "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf",
+  "JO'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf",
   new Uint8Array(readFileSync(new URL("./fixtures/internal-counts-2026-11-12.pdf", import.meta.url))),
 );
 const pdf11 = await readPdf("a.pdf", new Uint8Array(readFileSync(new URL("./fixtures/internal-counts-2026-11-11.pdf", import.meta.url))));
@@ -75,7 +75,7 @@ const message: IncomingMessage = {
   threadId: "1a1cf88f5009e5ff",
   receivedAt: "2026-11-12T11:33:36Z",
   sentAt: "2026-11-12T11:33:30Z",
-  sender: "Rachel Chadwick <Rachel@electric-group.co.uk>",
+  sender: "Alex Mercer <alex.mercer@electric-group.co.uk>",
   subject: "Internal Show Count 12.11.26",
   body: "Hello, Please see today's internal show count attached.",
   forward: false,
