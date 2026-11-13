@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import type { CreativeLabCardData } from "@/lib/db/creative-lab";
@@ -8,6 +9,7 @@ import { nextRoundView } from "@/lib/creative-lab/round-next";
 import { effectiveSelection, emptySelection, noSelectedClipsSentence, notSelectedCount, notSelectedNames, renderPairs, roundBar, winnerNotSelected } from "@/lib/creative-lab/selection";
 import { adPairingName, firstPairings, groupClips, roundHasRun, roundMatrix, styleLabel } from "@/lib/creative-lab/surface";
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
+import { FACE_CHECK_FAILED, FACE_CHECKING } from "@/lib/creative-lab/caption-placement";
 import { RoundsTimeline } from "@/components/dashboard/events/creative-lab/rounds-timeline";
 import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
 
@@ -27,6 +29,17 @@ export function LabRound({
   /** Frame only: pairings that start knocked out, "clipId:captionId". */
   initialOff?: readonly string[];
 }) {
+  const router = useRouter();
+  const [faceRetry, setFaceRetry] = useState<string | null>(null);
+  async function retryFaces(clipId: string) {
+    setFaceRetry(clipId);
+    try {
+      await fetch(`/api/creative-lab/clips/${clipId}/face-retry`, { method: "POST" });
+      router.refresh();
+    } finally {
+      setFaceRetry(null);
+    }
+  }
   const groups = groupClips(lab.clips);
   const usable = [...groups.keeping, ...groups.fresh];
   const selection = lab.clipSelection ?? emptySelection();
@@ -110,7 +123,7 @@ export function LabRound({
                           <button type="button" className={`w-16 rounded border p-1 ${cell?.on ? "border-border bg-card" : "border-dashed border-border text-muted-foreground"}`} onClick={() => toggle(`${clip.id}:${caption.id}`)}>
                             <CaptionOverlay lines={[]} src={clip.previewUrl} poster={clip.thumbnailUrl} compact />
                             <span className="mt-1 block text-xs">{cell?.on ? "On" : "Off — tap to include"}</span>
-                            {placementNoteFor(lab, clip.id, caption.id) ? <span className="mt-1 block font-mono text-[11px] text-muted-foreground">{placementNoteFor(lab, clip.id, caption.id)}</span> : null}
+                            {cell?.on ? <PlacementLine note={placementNoteFor(lab, clip.id, caption.id)} busy={faceRetry === clip.id} onRetry={() => void retryFaces(clip.id)} /> : null}
                           </button>
                         </td>
                       );
@@ -130,9 +143,7 @@ export function LabRound({
                     <span className="w-10 shrink-0"><CaptionOverlay lines={[]} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} compact /></span>
                     <span>
                       {pairingLabel(clip, caption)} · {cell.on ? "On" : "Off"}
-                      {clip && caption && placementNoteFor(lab, clip.id, caption.id) ? (
-                        <span className="mt-1 block font-mono text-[11px] text-muted-foreground">{placementNoteFor(lab, clip.id, caption.id)}</span>
-                      ) : null}
+                      {cell.on && clip && caption ? <PlacementLine note={placementNoteFor(lab, clip.id, caption.id)} busy={faceRetry === clip.id} onRetry={() => void retryFaces(clip.id)} /> : null}
                     </span>
                   </button>
                 </li>
@@ -214,8 +225,44 @@ function proposeReason(lab: CreativeLabCardData, clips: number, captions: number
   return null;
 }
 
-function placementNoteFor(lab: CreativeLabCardData, clipId: string, captionId: string): string | null {
-  return lab.renders.find((row) => row.clipId === clipId && row.captionId === captionId)?.placementNote ?? null;
+function placementNoteFor(lab: CreativeLabCardData, clipId: string, captionId: string): { text: string; failed: boolean } | null {
+  const clip = lab.clips.find((row) => row.id === clipId);
+  if (!clip?.faceCheck) {
+    const stored = lab.renders.find((row) => row.clipId === clipId && row.captionId === captionId)?.placementNote ?? null;
+    return stored ? { text: stored, failed: false } : null;
+  }
+  if (clip.faceCheck === "failed") return { text: FACE_CHECK_FAILED, failed: true };
+  if (clip.faceCheck !== "ready") return { text: FACE_CHECKING, failed: false };
+  const line = clip.faceByCaption?.[captionId];
+  return line ? { text: line, failed: false } : null;
+}
+
+function PlacementLine({ note, busy, onRetry }: { note: { text: string; failed: boolean } | null; busy?: boolean; onRetry?: () => void }) {
+  if (!note) return null;
+  return (
+    <span className={`mt-1 block font-mono text-[11px] ${note.failed ? "text-destructive" : "text-muted-foreground"}`}>
+      {note.text}
+      {note.failed && onRetry ? (
+        <span
+          role="button"
+          tabIndex={0}
+          className="ml-1 underline"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!busy) onRetry();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.stopPropagation();
+              if (!busy) onRetry();
+            }
+          }}
+        >
+          Retry
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 function captionHead(caption: { style: string; lines: string[] }): string {

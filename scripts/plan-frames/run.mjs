@@ -290,7 +290,7 @@ async function main() {
           console.log(
             `${shot.id} lines=${probe.count} first=${JSON.stringify(probe.first)} ${probe.width.toFixed(2)}px vs ${expected.toFixed(2)}px (${(delta * 100).toFixed(2)}%) ${probe.family} ${probe.whiteSpace}`,
           );
-          if (probe.count !== 6 || !probe.last.includes("🔥") || probe.whiteSpace !== "pre") {
+          if (probe.count !== 4 || !probe.last.includes("🔥") || probe.whiteSpace !== "pre") {
             throw new Error(`${shot.id}: quote rendered ${probe.count} lines, last ${JSON.stringify(probe.last)}. Not a baseline.`);
           }
           // Cell size hinting lands a few percent off the advance table.

@@ -19,4 +19,13 @@ comment on column creative_lab_renders.face_share is
 comment on column creative_lab_renders.face_run_s is
   'Longest run of samples with a face in the caption, seconds.';
 comment on column creative_lab_renders.contrast is
-  'C4. O40 contrast on the placed block, stored, never a refusal.';
+  'C4. O40 contrast on the placed block, stored, never a refusal. The render tick writes it after the render.';
+
+alter table creative_lab_clips
+  add column if not exists face_samples jsonb,
+  add column if not exists face_samples_at timestamptz;
+
+comment on column creative_lab_clips.face_samples is
+  'Faces for this crop and window, in output pixels. {detector, fps: 5, cropFocusX, cropFocusY, inS, outS, samples: [{t, faces: [{left, top, width, height}]}]}. error is set when detection failed. A crop or window change makes the row stale.';
+comment on column creative_lab_clips.face_samples_at is
+  'When face_samples was last written.';

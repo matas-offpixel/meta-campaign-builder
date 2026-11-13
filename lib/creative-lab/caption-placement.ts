@@ -7,6 +7,7 @@
 import { captionCharEm, CAPTION_BAND_BOX, VIDEO_BAND } from "./video-band.ts";
 import { profile } from "../../src/remotion/caption-style/profile.ts";
 import type { Rect } from "./artist-card.ts";
+import { judgeFaceOverTime, type FaceSample } from "./t1-face.ts";
 
 export const PLACEMENT_HOME = profile.verticalCenterPctOfSourceHeight * 1920;
 export const PLACEMENT_STEP = 0.02 * 1920;
@@ -21,6 +22,78 @@ export const PLACE_REFUSAL = {
 
 export const QUOTE_TOO_LONG = "This quote is too long — drop a sentence from the start or end.";
 export const OLD_QUOTE_STYLE = "Old quote style — render again";
+export const FACE_CHECKING = "Checking the clip for faces…";
+export const FACE_CHECK_FAILED = "Couldn't check this clip for faces — try again.";
+
+export type StoredFaceRect = { left: number; top: number; width: number; height: number };
+
+/** One detection for a clip's crop and window. `t` is seconds from the window start. */
+export type StoredFaceSamples = {
+  detector: string;
+  fps: 5;
+  cropFocusX: number;
+  cropFocusY: number;
+  inS: number | null;
+  outS: number | null;
+  samples?: { t: number; faces: StoredFaceRect[] }[];
+  error?: string;
+};
+
+export function readFaceSamples(value: unknown): StoredFaceSamples | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as StoredFaceSamples;
+  if (row.fps !== 5 || typeof row.detector !== "string") return null;
+  if (typeof row.cropFocusX !== "number" || typeof row.cropFocusY !== "number") return null;
+  return row;
+}
+
+function sameTime(a: number | null, b: number | null): boolean {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  return Math.abs(a - b) < 0.05;
+}
+
+/** Ready samples match this crop and window. A crop or window change is stale. A stored error stays failed until it is cleared. */
+export function faceSampleState(
+  stored: StoredFaceSamples | null,
+  clip: { cropFocusX: number; cropFocusY: number; inS: number | null; outS: number | null },
+): "ready" | "failed" | "checking" {
+  if (!stored) return "checking";
+  const same =
+    Math.abs(stored.cropFocusX - clip.cropFocusX) < 1e-4
+    && Math.abs(stored.cropFocusY - clip.cropFocusY) < 1e-4
+    && sameTime(stored.inS, clip.inS)
+    && sameTime(stored.outS, clip.outS);
+  if (!same) return "checking";
+  if (stored.error || !stored.samples?.length) return "failed";
+  return "ready";
+}
+
+/** C1–C3 from samples already in output pixels. No detector. */
+export function placeFromStoredSamples(args: {
+  lines: readonly string[];
+  baseScale: number;
+  kind: "caption" | "quote";
+  windowIn: number;
+  windowOut: number;
+  samples: readonly { t: number; faces: StoredFaceRect[] }[];
+}): PlaceHit | PlaceMiss {
+  const faces: FaceSample[] = args.samples.map((sample) => ({ tS: sample.t, faces: sample.faces }));
+  return searchPlacement({
+    lines: args.lines,
+    baseScale: args.baseScale,
+    inPoints: labInPoints(args.windowIn, args.windowOut),
+    kind: args.kind,
+    judge: ({ boxes, inS }) => {
+      const origin = inS - args.windowIn;
+      const slice = faces
+        .filter((sample) => sample.tS >= origin - 1e-6)
+        .map((sample) => ({ tS: sample.tS - origin, faces: sample.faces }));
+      const verdict = judgeFaceOverTime(slice, { always: boxes, claim: null }, { frameWidth: 1080 });
+      return { ok: verdict.ok, topShare: verdict.topShare, longestRunS: verdict.longestRunS };
+    },
+  });
+}
 
 const BOX = { left: CAPTION_BAND_BOX.left, right: CAPTION_BAND_BOX.right, top: VIDEO_BAND.firstInk, bottom: VIDEO_BAND.lastBaseline };
 

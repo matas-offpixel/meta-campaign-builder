@@ -46,6 +46,12 @@ const nextConfig: NextConfig = {
     // because package.json allowScripts approves ffmpeg-static@5.3.0.
     "/api/cron/creative-lab-drive-pickup": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
     "/api/creative-lab/artists/[id]/import-clips": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffmpeg-static/package.json"],
+    "/api/cron/creative-lab-render-tick": [
+      "./node_modules/ffmpeg-static/ffmpeg",
+      "./node_modules/ffmpeg-static/package.json",
+      "./node_modules/@vladmandic/face-api/dist/face-api.esm.js",
+      "./node_modules/@vladmandic/face-api/model/**/*",
+    ],
   },
   // render-caption renders on Remotion Lambda from REMOTION_LAMBDA_SERVE_URL
   // with @remotion/lambda/client only (lib/creative-lab/lambda.ts). It loads

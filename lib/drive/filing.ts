@@ -23,6 +23,7 @@ import { APP_ID_KEY, APP_TAG_KEY, SHORTCUT_MIME, type DriveApi } from "./client.
 import { rowById, rowsWhere, type DriveDb, type RowOf } from "./db.ts";
 import { ensureEventKey, ensureRouteFolder, emptyLog, type TreeLog } from "./folders.ts";
 import { resolveClipOwner } from "./owner.ts";
+import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import {
   WINNERS_KEY,
@@ -82,11 +83,13 @@ export type SkipReason =
   | "archived_client"
   | "cancelled"
   | "no_tree"
-  | "no_file";
+  | "no_file"
+  | "old_quote";
 
 /** Everything a filing needs, or why this render is not filed (it then stays as it is). */
 export async function loadFilingContext(db: DriveDb, render: RenderRow): Promise<FilingContext | { skip: SkipReason }> {
   if (render.status !== "done") return { skip: "not_ready" };
+  if (render.style_version && render.style_version === await quoteStyleVersion()) return { skip: "old_quote" };
   const ads = await rowsWhere(db, "creative_lab_round_ads", "render_id", render.id);
   if (!ads.length) return { skip: "not_in_a_round" };
   const rounds = (await Promise.all([...new Set(ads.map((ad) => ad.round_id))].map((id) => rowById(db, "creative_lab_rounds", id)))).filter(
@@ -157,7 +160,12 @@ export function planFiling(ctx: FilingContext, today: string, calendar?: CycleCa
 }
 
 /** Renders the tick should try now: approved and not yet copied, a due retry, or a re-render since the copy. */
-export function wantsFiling(render: Pick<RenderRow, "status" | "drive_status" | "drive_next_attempt_at" | "drive_render_attempt" | "attempt">, now: Date): boolean {
+export function wantsFiling(
+  render: Pick<RenderRow, "status" | "drive_status" | "drive_next_attempt_at" | "drive_render_attempt" | "attempt"> & { style_version?: string | null },
+  now: Date,
+  quoteVersion?: string | null,
+): boolean {
+  if (quoteVersion && render.style_version === quoteVersion) return false;
   if (render.status !== "done") return false;
   const status = render.drive_status ?? null;
   if (status === null) return true;

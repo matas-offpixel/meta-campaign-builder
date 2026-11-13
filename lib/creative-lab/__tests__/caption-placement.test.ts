@@ -13,6 +13,7 @@ import {
   searchPlacement,
 } from "../caption-placement.ts";
 import { validateQuote } from "../quote.ts";
+import { judgeFaceOverTime, type FaceSample } from "../t1-video.ts";
 
 const LINES = ["pov: the drop", "you waited all", "night for", "finally lands"];
 
@@ -129,5 +130,44 @@ describe("caption placement", () => {
       judge: () => ({ ok: true, topShare: 0, longestRunS: 0 }),
     });
     assert.equal(same.ok && asQuote.ok && same.centre === asQuote.centre && same.scale === asQuote.scale, true);
+  });
+
+  it("resolves CLP1–CLP5 through the real judge, once as a caption and once as a quote", () => {
+    const box = (left: number, top: number, width: number, height: number) => ({
+      left: left * 4,
+      top: top * 4,
+      width: width * 4,
+      height: height * 4,
+    });
+    const fixtures = [
+      { name: "CLP1", faces: [box(95, 250, 80, 75)], step: 0, scale: 1 },
+      { name: "CLP2", faces: [box(95, 175, 80, 70)], step: -3, scale: 1 },
+      { name: "CLP3", faces: [box(100, 117.5, 45, 42.5)], step: 1, scale: 1 },
+      { name: "CLP4", faces: [box(50, 143, 70, 72.5), box(140, 245, 50, 50)], step: -6, scale: 0.85 },
+      { name: "CLP5", faces: [box(37.5, 75, 105, 115), box(130, 190, 110, 147.5)], step: null, scale: null },
+    ];
+    for (const fixture of fixtures) {
+      const samples: FaceSample[] = [0, 0.2, 0.4, 0.6, 0.8].map((tS) => ({ tS, faces: fixture.faces }));
+      for (const kind of ["caption", "quote"] as const) {
+        const found = searchPlacement({
+          lines: LINES,
+          baseScale: 1,
+          inPoints: [0],
+          kind,
+          judge: ({ boxes }) => {
+            const verdict = judgeFaceOverTime(samples, { always: boxes, claim: null }, { frameWidth: 1080 });
+            return { ok: verdict.ok, topShare: verdict.topShare, longestRunS: verdict.longestRunS };
+          },
+        });
+        if (fixture.step == null) {
+          assert.equal(found.ok, false, fixture.name);
+          continue;
+        }
+        assert.equal(found.ok, true, `${fixture.name} ${kind}`);
+        if (!found.ok) continue;
+        assert.equal(found.step, fixture.step, `${fixture.name} ${kind}`);
+        assert.equal(found.scale, fixture.scale, `${fixture.name} ${kind}`);
+      }
+    }
   });
 });

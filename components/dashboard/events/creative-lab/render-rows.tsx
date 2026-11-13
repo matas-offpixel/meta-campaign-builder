@@ -46,6 +46,16 @@ export function RenderRows({ rows, now, clips = [] }: { rows: readonly Render[];
     }
   }
 
+  async function retryFaces(clipId: string) {
+    setRetrying(clipId);
+    try {
+      await fetch(`/api/creative-lab/clips/${clipId}/face-retry`, { method: "POST" });
+      router.refresh();
+    } finally {
+      setRetrying(null);
+    }
+  }
+
   async function retry(id: string) {
     setRetrying(id);
     setRefused((current) => {
@@ -98,7 +108,12 @@ export function RenderRows({ rows, now, clips = [] }: { rows: readonly Render[];
                     <p className="truncate text-sm">{row.label}</p>
                   )}
                   {row.placementNote ? (
-                    <p className={`font-mono text-[11px] ${row.oldQuote ? "text-destructive" : "text-muted-foreground"}`}>{row.placementNote}</p>
+                    <p className={`font-mono text-[11px] ${row.oldQuote || row.faceFailed ? "text-destructive" : "text-muted-foreground"}`}>
+                      {row.placementNote}
+                      {row.faceFailed ? (
+                        <button type="button" className="ml-1 underline" disabled={retrying === row.clipId} onClick={() => void retryFaces(row.clipId)}>Retry</button>
+                      ) : null}
+                    </p>
                   ) : null}
                   {driveRow ? (
                     <>
@@ -112,7 +127,7 @@ export function RenderRows({ rows, now, clips = [] }: { rows: readonly Render[];
                     <>
                       {failed ? (
                         <FailureLine
-                          sentence={refused[row.id] ?? failedRenderSentence(row.error, clipOf.get(row.clipId))}
+                          sentence={refused[row.id] ?? failedRenderSentence(row.error, clipOf.get(row.clipId), row.quote ? "quote" : "caption")}
                           roundOpen={row.roundOpen && !refused[row.id]}
                           busy={retrying === row.id}
                           onRetry={() => void retry(row.id)}

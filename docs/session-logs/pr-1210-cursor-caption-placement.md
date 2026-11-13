@@ -27,10 +27,8 @@ A UGC caption or quote finds a place on the clip that keeps it off faces, and on
 
 ## Notes
 
-Migration sha256: `8a03d3e841cd669407865d7512dcbea46d7e01a7d4856af8c1fd250797a02be4`
+Migration sha256: `ab2c6a6fcaa3ef3e866e15cc893b3bcb5b7da0b9c4469c2eaa96aba0b5623d3d`
 
 `CaptionOnClip` gained `placementCenterY`, `placementScale`, `draftStamp` and `draftNote`. A quote no longer draws the Q2 look. After merge the Remotion Lambda site needs a redeploy and `REMOTION_LAMBDA_SERVE_URL` switched.
 
-The Drive tick (`lib/drive`) was not edited. Launch skips a render still in the old quote style, and the row says "Old quote style — render again". A done row with a null `drive_status` can still be filed by the tick.
-
-The render route does not detect faces. `face-api` is not a dependency and is script-side only, and `/api/admin/remotion/render-caption` is at the function-size cap. `renderCaptionOnClip` stores a place when the caller passes `deps.place`. With no place function the caption stays at today's spot. `caption-place-run.ts` is the sampler for a script, and it is not imported by a route.
+Design's fix round stores faces on the clip (`face_samples`, `face_samples_at` on migration 233, still unapplied). The render tick detects one clip per run. `renderCaptionOnClip` searches those samples and does not render without them. Contrast is measured on the tick after the render. `wantsFiling` skips a render still on the old quote profile. CLQ3 is gone. CLQ2 uses the short quote. CLP1 has no label.

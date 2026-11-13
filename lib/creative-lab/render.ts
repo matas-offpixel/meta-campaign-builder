@@ -25,7 +25,19 @@ import { renderTripleFitClip, type TripleFitHooks } from "./triple-fit-render.ts
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
 import { renderAssetId } from "./render-proxy.ts";
-import type { PlaceHit, PlaceMiss } from "./caption-placement.ts";
+import { FACE_CHECKING, QUOTE_TOO_LONG, faceSampleState, placeFromStoredSamples, readFaceSamples } from "./caption-placement.ts";
+
+/** The clip has no samples for this crop yet. The row stays queued. */
+export class SamplesPending extends Error {
+  constructor() {
+    super(FACE_CHECKING);
+    this.name = "SamplesPending";
+  }
+}
+
+export function isSamplesPending(err: unknown): boolean {
+  return err instanceof SamplesPending || (err instanceof Error && err.name === "SamplesPending");
+}
 
 export type { Probe };
 
@@ -54,25 +66,7 @@ export type RenderDeps = {
     deleteRender: (target: LambdaHandle) => Promise<void>;
   };
   upload: (objectPath: string, bytes: Uint8Array) => Promise<void>;
-  /**
-   * C1–C3. The caller passes samples. The render route does not detect
-   * faces: face-api is script-side, and render-caption is at the function
-   * size cap. With no place function the caption stays at today's spot.
-   */
-  place?: (args: {
-    lines: readonly string[];
-    baseScale: number;
-    kind: "caption" | "quote";
-    inS: number;
-    outS: number;
-    url: string;
-    sourceWidth: number;
-    sourceHeight: number;
-    cropFocusX: number;
-  }) => Promise<PlaceHit | PlaceMiss>;
 };
-
-export type { PlaceHit, PlaceMiss };
 
 type RowResult = { data: Record<string, unknown> | null; error: { message: string } | null };
 type ListResult = { error: { message: string } | null };
@@ -230,8 +224,9 @@ export async function renderCaptionOnClip(
     if (lines.some((line) => line.trim() === "")) throw new Error(`empty line; an overlay is at most ${limits.maxLines} lines`);
     if (!quote && lines.some((line) => /^(?:more|&|w\/)$/i.test(line.trim()))) throw new Error(`a short word is its own line; an overlay is at most ${limits.maxLines} lines`);
     if (!quote && lines.some((line) => line.includes("|") || /(^|\s)\/(\s|$)/.test(line))) throw new Error(`a line break is the only separator; an overlay is at most ${limits.maxLines} lines`);
-    if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
     const over = lines.find((line) => line.length > limits.charsPerLine);
+    if (quote && (lines.length > limits.maxLines || over)) throw new Error(QUOTE_TOO_LONG);
+    if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
     if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
     if (!restyle && (caption.style_version !== version || render.style_version !== version)) {
       throw new Error(`style_version does not match the bundled profile ${version}`);
@@ -278,25 +273,26 @@ export async function renderCaptionOnClip(
       ...(quote ? { mode: "quote" as const, weight: quoteWeight as 400 | 700 } : {}),
     };
     const baseScale = size === "long" ? 0.75 : 1;
-    const place = input.deps?.place
-      ? await input.deps.place({
-          lines,
-          baseScale,
-          kind: quote ? "quote" : "caption",
-          inS,
-          outS,
-          url: signed,
-          sourceWidth: meta.width,
-          sourceHeight: meta.height,
-          cropFocusX: props.cropFocusX ?? 0.5,
-        })
-      : null;
-    if (place && !place.ok) throw new Error(place.line);
-    if (place?.ok) {
-      props.placementCenterY = place.centre;
-      props.placementScale = place.scale;
-      props.inS = place.inS;
+    const cropFocusX = props.cropFocusX ?? 0.5;
+    const cropFocusY = props.cropFocusY ?? 0.5;
+    const storedIn = clip.in_s == null ? null : Number(clip.in_s);
+    const storedOut = clip.out_s == null ? null : Number(clip.out_s);
+    const stored = readFaceSamples(clip.face_samples);
+    if (faceSampleState(stored, { cropFocusX, cropFocusY, inS: storedIn, outS: storedOut }) !== "ready" || !stored?.samples) {
+      throw new SamplesPending();
     }
+    const place = placeFromStoredSamples({
+      lines,
+      baseScale,
+      kind: quote ? "quote" : "caption",
+      windowIn: inS,
+      windowOut: outS,
+      samples: stored.samples,
+    });
+    if (!place.ok) throw new Error(place.line);
+    props.placementCenterY = place.centre;
+    props.placementScale = place.scale;
+    props.inS = place.inS;
     const request: CaptionRenderRequest = { props, muted: audio === "muted" };
     const frame = outputSize(meta.width, meta.height, aspect);
     const rendered: RenderedClip = input.deps?.renderToFile
@@ -326,15 +322,10 @@ export async function renderCaptionOnClip(
       error: null,
       render_ms: renderMs,
       ...(restyle ? { style_version: version } : {}),
-      ...(place?.ok
-        ? {
-            placement_center_y: place.centre,
-            placement_scale: place.scale,
-            face_share: place.faceShare,
-            face_run_s: place.runS,
-            contrast: place.contrast ?? null,
-          }
-        : {}),
+      placement_center_y: place.centre,
+      placement_scale: place.scale,
+      face_share: place.faceShare,
+      face_run_s: place.runS,
       creative_asset_id: registered.asset.id,
     });
     if (rendered.lambda && lambda) {
@@ -356,6 +347,10 @@ export async function renderCaptionOnClip(
     };
   } catch (err) {
     if (pendingDelete) await pendingDelete.lambda.deleteRender(pendingDelete.handle).catch(() => {});
+    if (isSamplesPending(err)) {
+      await patchRender(db, input.renderId, { status: "queued", error: null }).catch(() => {});
+      throw err instanceof Error ? err : new SamplesPending();
+    }
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
     await patchRender(db, input.renderId, { status: "failed", error: message, render_ms: Date.now() - started }).catch(() => {});
     throw err instanceof Error ? err : new Error(message);

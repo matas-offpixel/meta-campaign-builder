@@ -33,9 +33,7 @@ export function PlacementFrameMount({ id }: { id: string }) {
       </div>
       {state.note ? (
         <p className={`mt-2 font-mono text-[11px] ${refused ? "text-destructive" : "text-muted-foreground"}`}>{state.note}</p>
-      ) : (
-        <p className="mt-2 text-[11px] text-muted-foreground">Placed at today's spot</p>
-      )}
+      ) : null}
     </div>
   );
 }

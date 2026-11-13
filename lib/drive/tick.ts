@@ -17,6 +17,7 @@
  * migration-218 columns; never to a render's status.
  */
 
+import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import { isArchivedClientStatus } from "../db/client-status.ts";
 import type { DriveApi } from "./client.ts";
 import { fileRender, markWinners, wantsFiling, type FileResult, type StorageDownload, type WinnerResult } from "./filing.ts";
@@ -123,8 +124,9 @@ export async function runDriveTick(
     }
   }
 
-  // 5. filing
-  const renders = (await allRows(db, "creative_lab_renders")).filter((render) => wantsFiling(render, now));
+  // 5. filing. A render still on the old quote profile is not filed.
+  const quoteVersion = await quoteStyleVersion();
+  const renders = (await allRows(db, "creative_lab_renders")).filter((render) => wantsFiling(render, now, quoteVersion));
   renders.sort((a, b) => String(a.updated_at ?? a.created_at ?? "").localeCompare(String(b.updated_at ?? b.created_at ?? "")));
   let filed = 0;
   for (const render of renders) {
