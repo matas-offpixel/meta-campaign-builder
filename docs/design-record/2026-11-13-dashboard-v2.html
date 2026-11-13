@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard v2 — 13 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.db{background:var(--edit);border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:12.5px}
+.db-hd{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border)}
+.db-hd h4{margin:0;font:600 15px var(--sans)}
+.db-hd .sub{font-size:12px;color:var(--ink-2)}
+.fresh{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start}
+.fr{font:700 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--border-strong);border-radius:999px;padding:5px 8px;color:var(--ink-2);white-space:nowrap}
+.fr.old{border-color:var(--ochre);color:var(--ochre)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border)}
+.chip{font-size:12px;border:1px solid var(--border-strong);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.chip.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.chip.fin{opacity:.5}
+.chip.umb{border-style:dashed}
+.tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.tile{background:var(--card);border-radius:8px;padding:8px 10px;min-width:0}
+.tile .l{font:700 9px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.tile .v{font:600 18px/1.3 var(--sans)}
+.tile .s{font-size:11px;color:var(--ink-2);overflow-wrap:anywhere}
+.tile.on{outline:2px solid var(--ink)}
+.traj{padding:12px 16px}
+.traj .range{font-size:13px;margin:0 0 4px}
+.traj .range b{font-weight:600}
+.bar{position:relative;height:14px;background:var(--card);border-radius:3px;margin:6px 0 2px}
+.bar i{position:absolute;top:0;bottom:0;left:0;border-radius:3px}
+.bar .sold{background:var(--ink)}
+.bar .hold{background:rgba(30,24,16,.45)}
+.bar .high{background:rgba(30,24,16,.18)}
+.bar .alloc{position:absolute;top:-3px;bottom:-3px;width:0;border-left:2px dashed var(--brick)}
+.bar .cap{position:absolute;top:-3px;bottom:-3px;width:0;border-left:2px solid var(--ink)}
+.brow{display:grid;grid-template-columns:150px minmax(0,1fr) 120px;gap:10px;align-items:center;font-size:12px}
+.brow .n{font:11px var(--mono);color:var(--ink-2);text-align:right}
+.note{font-size:11.5px;color:var(--ink-2);margin:6px 0 0}
+.w393 .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+.w393 .brow{grid-template-columns:minmax(0,1fr)}
+.w393 .brow .n{text-align:left}
+@media (max-width:700px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.brow{grid-template-columns:minmax(0,1fr)}.brow .n{text-align:left}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="k">Off/Pixel · design record · dashboard v2 · 13 November 2026</div>
+<h1>Dashboard v2: the sales-vs-spend model, made general</h1>
+<p class="lead">Matas's "NX Newcastle sales vs spend" (artifact <code>1WbbWGeA1hvTfx7dkS9duj</code>, v13) is the model for the internal dashboard and the client share links. The Electric Brixton thread wrote down exactly what it does (functional spec, 13 Nov). D1–D7 take its definitions as they are, changed only where D8–D13 say. D8–D13 rule what the model can't do: ticket truth in the database, per-event config instead of constants, a reference library instead of the Enzo case, client links, all channels' spend, and the consistency fixes.</p>
+<p class="lead"><b>One fact the record turned up:</b> the model hard-codes a capacity of 2,000 per show, but <code>events.capacity</code> stores 1,500 for every NX show that has a value, and NX26-LOCKLEAD, NX27-EWANMCVICAR and NX27-JULIANFIJMA have none. D9 makes the stored value the only source, so which is right is <b>open for Matas</b> before the build reads it.</p>
+
+<h2>D1–D7 · The model, as it is</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>D1 · Shows and campaigns</td><td>
+<ul>
+<li><b>Scope:</b> the client's events from config (D9), never a code regex. A show leaves the default view the day after it plays. "Include finished shows" brings it back (D13).</li>
+<li><b>Campaign → show:</b> linked (the campaign id is in <code>events.meta_campaign_id</code>) beats tagged (the name contains <code>[EVENT_CODE]</code>, first match). A tagged-only campaign carries "Not linked to event" on the internal view.</li>
+<li><b>The umbrella</b> (D9's flag) is its own chip and its own row. It is never in "All shows" spend, tickets, cost per ticket or the trajectory. The header shows it as "Separate {client} umbrella spend £X".</li>
+</ul></td></tr>
+<tr><td>D2 · Spend</td><td>
+<ul>
+<li><b>Per show, per day, per platform:</b> the larger of the rollup's figure and the sum of that platform's linked and tagged campaigns. Then summed over days, and over platforms (D12).</li>
+<li>That catches campaigns the rollup misses without double-counting. The rollup-only and unlinked figures are kept for audit, never shown.</li>
+<li><b>Today is excluded</b> everywhere: spend runs to yesterday, as in the model.</li>
+</ul></td></tr>
+<tr><td>D3 · Engagement</td><td>
+<ul>
+<li>From <code>ad_daily_insights</code> for mapped campaigns: link clicks, landing page views, and initiate checkout and add to cart, summed from the actions.</li>
+<li>Meta's default attribution (7-day click, 1-day view).</li>
+<li>TikTok and Google engagement aren't added to these sums. Their clicks are a different count, so blending them would make the figure no platform's (D12 covers their spend only).</li>
+</ul></td></tr>
+<tr><td>D4 · Period figures</td><td>
+<p>The model's definitions, with D13's fixes:</p>
+<ul>
+<li><b>A window</b> is two consecutive ticket counts for a show. Its tickets are the difference between them, its days are the calendar days between, and its spend runs from the day after the first count through the second. A window whose second count is later than the last spend day is incomplete.</li>
+<li><b>Sold</b> is the latest count (paid tickets, D8). For All shows, it's the sum over shows that have counts.</li>
+<li><b>Tickets in a period</b> is the sum of window tickets, with a window that straddles the period start <i>pro-rated by its days inside</i> (D13). Since launch, it's the latest count.</li>
+<li><b>Cost per ticket</b> is blended, not ad-attributed: spend over tickets on complete windows. Since launch, spend is capped at the latest count date (D13).</li>
+<li><b>Checkout actions:</b> initiate checkouts plus add-to-carts, labelled as actions (D13). Also £ per checkout action, LPVs and £ per LPV, and clicks and CPC.</li>
+<li><b>Registrations</b> are CIRQLIN signups on the show's linked page (D9), or "No CIRQLIN page". <b>£ per registration</b> uses spend between the first and last signup day, because signup pages close at on-sale.</li>
+</ul></td></tr>
+<tr><td>D5 · The daily chart</td><td>
+<ul>
+<li><b>Total sold</b> is a straight line between counts, with a dot on each real count. Before presale, or before a first count of 0, it's 0. Before a non-zero first count it's empty. For All shows it's empty on any day a show lacks a value.</li>
+<li><b>Tickets a day</b> and <b>cost per ticket</b> hold flat across each window, drawn as a step.</li>
+<li>The hover names days between counts as estimated: "Estimated between counts on 5 Nov and 12 Nov".</li>
+<li>Clicks, LPVs, checkout actions and their costs are same-day sums and ratios.</li>
+<li><b>Daily £ per registration</b> is only drawn on days inside the signup window (D13).</li>
+</ul></td></tr>
+<tr><td>D6 · Trajectory</td><td>
+<ul>
+<li><b>Pace:</b> count-to-count, from the latest count back to the latest count at least 7 (or 14) days earlier, falling back to the first count.</li>
+<li><b>Projection to show day:</b> the latest count, plus 7-day pace for the days before the final week, plus 7-day pace × f for the final week's days.</li>
+<li><b>Cases:</b> holds (f = 1), and the reference library's average and best (D10). This replaces "Like Enzo Siragusa" and "Like DJ EZ".</li>
+<li><b>Range:</b> "Projected on show day: {holds}–{high} of {allocation}". It's always capped at the show's sellable allocation (D9), for one show or all shows. The model left one show uncapped, which drew past the room.</li>
+<li><b>Single show:</b> the dots, a dashed pace line to D−7, then the three cases fanned out, the allocation line, a dotted "needed" line and a show-day rule. Tiles give "needed {n} a day" and "sells out {date} at this pace", or "{n} short at this pace".</li>
+<li><b>All shows:</b> one bar per show, layered sold → holds → high, against each show's allocation. Clicking a bar selects that show.</li>
+</ul></td></tr>
+<tr><td>D7 · Controls</td><td>
+<p>As the model has them:</p>
+<ul>
+<li><b>Show chips:</b> All shows, each show by date, the umbrella last. Kept in the URL (<code>show</code>), and selectable from the by-show table and the trajectory bars.</li>
+<li><b>Period presets:</b> since launch, 30, 14, 7 and 3 days, and yesterday (<code>period</code>). They drive the tiles, the chart's range, the campaigns table's "in period" column and the by-show table. The trajectory and header always run to date.</li>
+<li><b>Twelve metric tiles</b> that toggle chart lines. Spend and Total sold are on by default. All / None, and "Pick at least one metric" when none is on.</li>
+<li><b>Axes:</b> "Index to own peak" is forced on when three unit types are picked. Two types share dual axes.</li>
+<li><b>Line pairs:</b> volume solid, its cost dashed in the same colour.</li>
+<li><b>Campaigns table:</b> in-period spend, with "Spending", "Stopped {date}" and "Not linked to event". Hover shows real values.</li>
+</ul></td></tr>
+</table>
+
+<h2>D8–D13 · What the model can't do yet</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>D8 · Ticket truth: the Internal Counts ingest</td><td>
+<ul>
+<li><b>What it reads.</b> Emailed PDFs whose subject is "Internal Counts" or "Internal Show (ticket) counts" (the second since 30 Oct). Subjects match exactly as written; nothing is normalised.</li>
+<li><b>What it writes.</b> One row per show, tier and outlet into <code>tier_channel_sales</code>, with the count date as <code>snapshot_at</code>. The show's total goes into <code>ticket_sales_snapshots</code> with a new source, <code>internal_counts</code>.</li>
+<li><b>Idempotent on the message id.</b> The same email read twice writes nothing new. A corrected email the next day is a new count, not an overwrite.</li>
+<li><b>Paid only.</b> "Sold" is paid tickets. Guest list and comps are stored as their own tiers, flagged as comps. They never count as sold, never enter cost per ticket, and show only as a context line ("plus 218 comps"). This is the model's DJ EZ arithmetic made general: 523 − 129 guest list − 89 VIP comps = 305 paid.</li>
+<li><b>Show matching.</b> A PDF's show name matches an event through a stored alias on the event (D9). Anything unmatched, or a page that doesn't parse, goes to a review list with the message id. Nothing is half-written.</li>
+<li><b>Backfill.</b> The inbox's history is read once, so finished shows (NX26-DJEZ, NX26-MF, NX26-FOLAMOUR) have counts for D10.</li>
+<li><b>Priority.</b> Today it's manual &gt; xlsx_import &gt; fourthefans &gt; eventbrite. <b>internal_counts goes second:</b> manual &gt; internal_counts &gt; xlsx_import &gt; fourthefans &gt; eventbrite.
+  <ul>
+  <li>A manual entry is a person correcting a figure, so it still wins.</li>
+  <li>Internal Counts is the promoter's own box-office total across every outlet, so it beats a periodic xlsx export and any single platform's count.</li>
+  </ul></li>
+<li><b>One source per show-day.</b> Sources are never summed or blended. The tile names the one it used: "Sold 812 · Internal Counts, 12 Nov".</li>
+<li><b>Other clients</b> keep their sources: 4TheFans and Eventbrite connections, xlsx imports and manual entries, under the same priority. A client without counts gets D4's ticket figures as "no ticket counts yet", and the spend and engagement half still works.</li>
+<li><b>Which inbox it reads</b> is ops' question for Matas. The record doesn't pick one.</li>
+</ul></td></tr>
+<tr><td>D9 · Per-event config</td><td>
+<p>These fields replace the model's constants. They're set on the event page, and nothing is inferred from codes or slugs.</p>
+<ul>
+<li><b>Capacity</b>, from <code>events.capacity</code>.</li>
+<li><b>Sellable allocation</b>, when it differs from capacity: the sum of <code>tier_channel_allocations</code> for paid tiers, else capacity. The trajectory and "needed" use the allocation.</li>
+<li><b>Umbrella flag</b>, a yes/no on the event. An umbrella has no trajectory, no tickets and no cost per ticket.</li>
+<li><b>CIRQLIN page link</b>, the page id (or the CIRQLIN event's <code>external_event_code</code>). This replaces the hard-coded slug list.</li>
+<li><b>Reference set</b>, optional: by default the client's library (D10). An event can name its own shows to compare against.</li>
+<li><b>Count aliases</b>, the show name(s) as Internal Counts writes them (D8).</li>
+</ul>
+<p><b>Missing values say so.</b> With no capacity, the trajectory says "Set capacity on the event to see the sell-out line", and there's no 2,000 or any other default. With no page link, Registrations says "No CIRQLIN page".</p></td></tr>
+<tr><td>D10 · The reference-lift library</td><td>
+<ul>
+<li><b>One library per client.</b> It holds that client's finished shows that have counts at D−21, D−7 and the final count.</li>
+<li><b>The lift:</b> tickets a day over the final 7 days, over tickets a day over the 14 days before that. Counts are interpolated to D−21 and D−7, paid tickets only (D8), and the lift is floored at 1.</li>
+<li><b>Excluded:</b> any show that reached its allocation before D−7 ("sold out before its final week"), because the room capped its finish, not demand. A show with no final count is excluded too. This is why Enzo goes: it sold out early, and its counts stop on 14 Oct.</li>
+<li><b>Stored with its evidence:</b> show code, show date, the three counts used, comps excluded, the lift, and when it was computed. It's never recomputed silently.</li>
+<li><b>The two cases on the trajectory:</b> "Like your average finish (×{avg}, {n} shows)" and "Like your best finish (×{max}, {show})". The hover lists the shows.</li>
+<li><b>Fewer than 2 shows in the library:</b> only "Holds" is drawn, with "Opens after your 2nd finished show with counts".</li>
+<li><b>Never another client's shows.</b></li>
+<li><b>Electric Brixton today:</b> DJ EZ (×3.32 in the spec), with Modern Funktion (NX26-MF) and Folamour (NX26-FOLAMOUR) once D8's backfill gives them counts. That's the 28 Oct report's average-and-max, made standing.</li>
+</ul></td></tr>
+<tr><td>D11 · Client surfaces</td><td>
+<ul>
+<li><b>Server-side calcs.</b> The same calc module serves both views, run on the server and handed out behind the existing client share token (<code>/share/client/[token]</code>). The page never queries the database from the viewer's connection, so a client needs no access.</li>
+<li><b>Scope.</b> The token reaches its own client's shows only.</li>
+<li><b>Internal only:</b> the campaigns table's "Not linked to event" pill, the audit figures and the review list. The client sees the same tiles, chart, trajectory and campaigns by name.</li>
+<li><b>Freshness:</b> the same stamps as internal (D13). The figures are cached for at most 5 minutes.</li>
+</ul></td></tr>
+<tr><td>D12 · Spend across channels</td><td>
+<ul>
+<li><b>Per day, per platform:</b> the larger of the platform's own figure and its rollup column. That's <code>ad_spend</code> for Meta, <code>tiktok_spend</code> for TikTok and <code>google_ads_spend</code> for Google, summed per day.</li>
+<li><b>The channel split</b> shows under the Spend tile ("Meta £1,840 · TikTok £220") and as a stacked spend chart on the Spend line.</li>
+<li><b>A platform with no data for the show isn't shown,</b> rather than drawn as £0. A platform with real £0 spend is shown.</li>
+<li>Cost per ticket uses total spend across channels.</li>
+</ul></td></tr>
+<tr><td>D13 · Fixes and additions</td><td>
+<ul>
+<li><b>Since-launch cost per ticket:</b> spend is capped at the latest count date.</li>
+<li><b>Windows that straddle a period start</b> are pro-rated by their days inside the period.</li>
+<li><b>Daily £ per registration</b> is windowed to the signup window, as the period figure is. Outside it, the day is empty, not divided.</li>
+<li><b>"Checkouts + carts" becomes "Checkout actions",</b> with the hover note "Checkouts and add-to-carts. One person can do both."</li>
+<li><b>"Include finished shows"</b> is off by default. When on, finished shows join the chips greyed, and their final count and actual finish show against their library entry.</li>
+<li><b>An allocation band per tier:</b> behind the Total sold line, a stepped band of the released tiers' cumulative allocation, from <code>tier_channel_allocations</code>. "Needed a day" uses what's still on sale, not the whole capacity.</li>
+<li><b>Freshness stamps per source</b> in the header: "Counts to 12 Nov · Spend to 12 Nov · Signups to 12 Nov". A stamp turns amber when its source is more than 2 days behind yesterday.</li>
+</ul></td></tr>
+</table>
+
+<h2>DV1 · One show, internal, 1280</h2>
+<p class="lead">This is a schematic of the layout and the words. Every number is an example except the stamps' structure. NX26-IPC is used as a stand-in.</p>
+<div class="frame">
+<figure><figcaption>1280 · single show</figcaption>
+<div class="vp w1280">
+<div class="db">
+<div class="db-hd">
+<div><h4>Interplanetary Criminal · NX Newcastle</h4>
+<div class="sub">Sat 21 Nov · allocation 1,500 · Separate NX umbrella spend £640</div></div>
+<div class="fresh"><span class="fr">Counts to 12 Nov</span><span class="fr">Spend to 12 Nov</span><span class="fr old">Signups to 9 Nov</span></div></div>
+<div class="chips"><span class="chip">All shows</span><span class="chip on">IPC · 21 Nov</span><span class="chip">Robbie Doherty · 27 Nov</span><span class="chip">DOD · 4 Dec</span><span class="chip">Locklead · 11 Dec</span><span class="chip umb">NX umbrella</span><span class="chip">Include finished</span></div>
+<div class="chips"><span class="chip">Since launch</span><span class="chip">30 days</span><span class="chip on">14 days</span><span class="chip">7 days</span><span class="chip">3 days</span><span class="chip">Yesterday</span></div>
+<div class="tiles">
+<div class="tile on">
+<div class="l">Spend</div>
+<div class="v">£2,060</div>
+<div class="s">Meta £1,840 · TikTok £220 · of £5,410 since launch</div></div>
+<div class="tile on">
+<div class="l">Total sold</div>
+<div class="v">812</div>
+<div class="s">Internal Counts, 12 Nov · plus 64 comps</div></div>
+<div class="tile">
+<div class="l">Tickets</div>
+<div class="v">146</div>
+<div class="s">in 14 days</div></div>
+<div class="tile">
+<div class="l">Cost per ticket</div>
+<div class="v">£14.11</div>
+<div class="s">blended · complete windows</div></div>
+<div class="tile">
+<div class="l">Checkout actions</div>
+<div class="v">388</div>
+<div class="s">£5.31 each</div></div>
+<div class="tile">
+<div class="l">Registrations</div>
+<div class="v">—</div>
+<div class="s">signups closed at on-sale</div></div>
+</div>
+<div class="traj">
+<p class="range">Projected on show day: <b>1,012–1,390</b> of 1,500 · needed 77 a day · 488 short at this pace</p>
+<div class="brow"><span>Holds</span>
+<div class="bar"><i class="sold" style="width:54%"></i><i class="hold" style="left:54%;width:13%"></i><span class="cap" style="left:100%"></span></div><span class="n">1,012</span></div>
+<div class="brow"><span>Like your average finish ×2.1</span>
+<div class="bar"><i class="sold" style="width:54%"></i><i class="hold" style="left:54%;width:21%"></i><span class="cap" style="left:100%"></span></div><span class="n">1,130</span></div>
+<div class="brow"><span>Like your best finish ×3.32</span>
+<div class="bar"><i class="sold" style="width:54%"></i><i class="high" style="left:54%;width:39%"></i><span class="cap" style="left:100%"></span></div><span class="n">1,390</span></div>
+<p class="note">Average and best from 3 finished NX shows: DJ EZ (2 Oct), Modern Funktion (16 Oct), Folamour (23 Oct). Enzo is out: it sold out before its final week.</p>
+</div>
+</div></div></figure>
+</div>
+
+<h2>DV2 · All shows, and the same show at 393</h2>
+<div class="frame">
+<figure><figcaption>1280 · all shows · trajectory bars</figcaption>
+<div class="vp w1280">
+<div class="db">
+<div class="traj">
+<p class="range">Projected on show day: <b>3,162–4,210</b> of 4,500 across 3 shows (Locklead has no capacity; umbrella excluded)</p>
+<div class="brow"><span>IPC · 21 Nov</span>
+<div class="bar"><i class="sold" style="width:54%"></i><i class="hold" style="left:54%;width:13%"></i><i class="high" style="left:67%;width:26%"></i><span class="cap" style="left:100%"></span></div><span class="n">812 · 1,012–1,390</span></div>
+<div class="brow"><span>Robbie Doherty · 27 Nov</span>
+<div class="bar"><i class="sold" style="width:40%"></i><i class="hold" style="left:40%;width:18%"></i><i class="high" style="left:58%;width:30%"></i><span class="cap" style="left:100%"></span></div><span class="n">600 · 870–1,320</span></div>
+<div class="brow"><span>DOD · 4 Dec</span>
+<div class="bar"><i class="sold" style="width:61%"></i><i class="hold" style="left:61%;width:24%"></i><i class="high" style="left:85%;width:15%"></i><span class="cap" style="left:100%"></span></div><span class="n">915 · 1,280–1,500</span></div>
+<div class="brow"><span>Locklead · 11 Dec</span>
+<div class="bar"><span class="cap" style="left:100%"></span></div><span class="n">Set capacity on the event</span></div>
+<p class="note">Each show is capped at its own allocation before summing. A show with no capacity is left out of the total and says why.</p>
+</div></div></div></figure>
+<figure><figcaption>393 · single show</figcaption>
+<div class="vp w393">
+<div class="db">
+<div class="db-hd">
+<div><h4>IPC · NX Newcastle</h4>
+<div class="sub">Sat 21 Nov · allocation 1,500</div></div>
+<div class="fresh"><span class="fr">Counts 12 Nov</span><span class="fr">Spend 12 Nov</span><span class="fr old">Signups 9 Nov</span></div></div>
+<div class="chips"><span class="chip">All</span><span class="chip on">IPC</span><span class="chip">Robbie</span><span class="chip">DOD</span><span class="chip">…</span></div>
+<div class="tiles">
+<div class="tile on">
+<div class="l">Spend</div>
+<div class="v">£2,060</div>
+<div class="s">Meta £1,840 · TikTok £220</div></div>
+<div class="tile on">
+<div class="l">Total sold</div>
+<div class="v">812</div>
+<div class="s">Internal Counts, 12 Nov</div></div>
+<div class="tile">
+<div class="l">Tickets</div>
+<div class="v">146</div>
+<div class="s">14 days</div></div>
+<div class="tile">
+<div class="l">Cost / ticket</div>
+<div class="v">£14.11</div>
+<div class="s">blended</div></div>
+</div>
+<div class="traj">
+<p class="range"><b>1,012–1,390</b> of 1,500 on show day</p>
+<p class="note">Needed 77 a day · 488 short at this pace.</p></div>
+</div></div></figure>
+</div>
+
+<h2>DV3 · The client's link</h2>
+<p class="lead">This is the same view, served from the share token. The differences from internal are drawn here. Everything else matches DV1.</p>
+<div class="frame">
+<figure><figcaption>1280 · /share/client/[token]</figcaption>
+<div class="vp w1280">
+<div class="db">
+<div class="db-hd">
+<div><h4>Interplanetary Criminal · NX Newcastle</h4>
+<div class="sub">Sat 21 Nov · allocation 1,500</div></div>
+<div class="fresh"><span class="fr">Counts to 12 Nov</span><span class="fr">Spend to 12 Nov</span><span class="fr old">Signups to 9 Nov</span></div></div>
+<div class="sec"><h5>Campaigns · in period</h5>
+<div class="ln"><span class="kind">Spending</span>
+<div>
+<div class="what">[NX26-IPC] On Sale — Adv+</div>
+<div class="ev">£1,120 in 14 days</div></div><span></span></div>
+<div class="ln"><span class="kind">Stopped 6 Nov</span>
+<div>
+<div class="what">[NX26-IPC] Presale</div>
+<div class="ev">£0 in 14 days · £1,980 since launch</div></div><span></span></div>
+</div>
+<div class="sec">
+<p class="note">No "Not linked to event" pill, no audit figures and no review list. The numbers are computed on our server; this page never reads the database from the viewer's browser.</p></div>
+</div></div></figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HD1 · Ingest (Claude Code)</td><td>
+<p>D8: both subjects, PDF parse to show, tier and outlet, paid vs comps, idempotent on the message id, the review list, the history backfill, and the source <code>internal_counts</code> placed second in the priority.</p>
+<p><b>Acceptance:</b></p>
+<ul>
+<li>The 12 Nov sheet reproduces the model's v6 CSV counts for every NX show;</li>
+<li>DJ EZ's final count reads 305 paid plus 218 comps;</li>
+<li>re-reading a message writes 0 rows.</li>
+</ul></td></tr>
+<tr><td>HD2 · Config (Claude Code)</td><td>D9's fields and their event-page inputs: capacity, allocation from the tiers, umbrella, CIRQLIN page link, reference set and count aliases. A migration, written and not applied. NX26-GLOBAL is flagged umbrella. Capacity waits on Matas's answer (1,500 stored vs 2,000 in the model).</td></tr>
+<tr><td>HD3 · Server calcs (Claude Code)</td><td>
+<p>D2, D4, D5, D6, D10, D12 and D13's calc fixes in one server module, used by the internal page and the share route.</p>
+<p>The library table stores each lift with its evidence.</p>
+<p>A parity test runs against the model: on the 12 Nov data, every figure the model shows matches, except where D13 deliberately changes it (each of those is listed with both values).</p></td></tr>
+<tr><td>HD4 · Layout and charts (Cursor)</td><td>DV1–DV3: chips, presets, the 12 tiles, the chart (pairs, axes, indexing), the trajectory (single and all), the campaigns table, the freshness stamps, the allocation band and "Include finished". Frames at 1280 and 393, internal and share.</td></tr>
+<tr><td>HD5 · Order</td><td>HD1 and HD2 first, then HD3 (it reads their tables), then HD4. Until HD1 lands, the internal page can run on the model's CSV loaded once as <code>xlsx_import</code> rows, marked as such on the tile.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>internal_counts' place in the priority (second), and "one source per show-day, named on the tile".</li>
+<li>Comps stored as their own tiers and shown as a context line.</li>
+<li>Capping the single-show projection at allocation.</li>
+<li>The library's evidence fields, its "fewer than 2" state, and the case names "average finish" and "best finish".</li>
+<li>The client view's differences, and the 5-minute cache.</li>
+<li>Hiding a platform with no data, as distinct from showing £0.</li>
+<li>The amber stamp at 2 days behind.</li>
+<li>Every string in DV1–DV3. All of DV1–DV3's numbers are examples.</li>
+</ul>
+
+<h2>Open for Matas</h2>
+<ul class="notes">
+<li><b>Capacity:</b> 1,500 (stored on every NX show) or 2,000 (the model). LOCKLEAD, EWANMCVICAR and JULIANFIJMA have none.</li>
+<li>Which inbox the Internal Counts ingest reads (ops' question).</li>
+<li>Whether Modern Funktion and Folamour join DJ EZ in Electric's library once their counts are backfilled, or whether any is excluded for selling out early.</li>
+</ul>
+
+</div>
+</body>
+</html>
