@@ -62,6 +62,30 @@ export interface AnthropicLike {
 
 export type CaptionCandidate = { overlay: string; primaryText: string; declaredNames: string[] };
 
+/** Lineup names the overlay actually says, in lineup order. The model's list is not used. */
+export function namesInOverlay(lineup: readonly string[], overlay: string): string[] {
+  const text = overlay.toLowerCase();
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const raw of lineup) {
+    const name = raw.trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key) || !text.includes(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+}
+
+/** A declared name that the overlay does not contain. */
+export function declaredNamesMissTheText(declared: readonly unknown[], text: string): boolean {
+  const haystack = text.toLowerCase();
+  return declared.some((name) => {
+    const trimmed = String(name ?? "").trim();
+    return trimmed.length > 0 && !haystack.includes(trimmed.toLowerCase());
+  });
+}
+
 export type WrittenCaption = {
   id: string;
   style: CaptionStyle;
@@ -578,6 +602,7 @@ export async function generateCaptions(
       }
       seen.add(key);
       const captionNo = await nextCaptionNo(db, args.eventId, args.style);
+      const declared = namesInOverlay(facts.lineup, overlay);
       const inserted = await insertCaption(db, {
         user_id: ownerId,
         event_id: args.eventId,
@@ -586,7 +611,8 @@ export async function generateCaptions(
         text: overlay,
         lines: check.lines,
         primary_text: primary,
-        declared_names: candidate.declaredNames,
+        declared_names: declared,
+        artist_id: args.artistId ?? null,
         size_variant: check.sizeVariant,
         style_version: version,
         generated_by: model,
@@ -601,7 +627,7 @@ export async function generateCaptions(
         lines: check.lines,
         primaryText: primary,
         sizeVariant: check.sizeVariant,
-        declaredNames: candidate.declaredNames,
+        declaredNames: declared,
         captionNo: Number(inserted.caption_no ?? captionNo),
         ok: true,
         shapeNote,
