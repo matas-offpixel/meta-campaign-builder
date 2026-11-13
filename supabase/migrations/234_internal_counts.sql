@@ -14,10 +14,10 @@
 --   internal_count_show_names    Matas's decisions on sheet names: matched to
 --                                an event, or "Not a show we run". Temporary
 --                                until HD2's count aliases (D9).
---   gmail_connections            the connected inbox (no secret here)
---   gmail_connection_secrets     its refresh token, pgcrypto-encrypted with
---                                GMAIL_TOKEN_KEY (a dedicated key, never
---                                reused). Service role only.
+--
+-- Gmail is read with the Drive service account through Workspace domain-wide
+-- delegation (gmail.readonly, subject GMAIL_INGEST_MAILBOX), so no token is
+-- stored here.
 --
 -- ticket_sales_snapshots gains the source 'internal_counts' (second in
 -- priority: manual > internal_counts > xlsx_import > fourthefans >
@@ -28,8 +28,6 @@
 --
 -- Write only. Not applied from this branch. Ops applies from main.
 -- 233 is the migration this follows.
-
-create extension if not exists pgcrypto;
 
 -- ── ticket_sales_snapshots.source ────────────────────────────────────────
 
@@ -51,94 +49,6 @@ alter table public.ticket_sales_snapshots
 
 comment on column public.ticket_sales_snapshots.source is
   'Provenance of this snapshot row. eventbrite = Eventbrite API. fourthefans = native 4thefans booking API. manual = operator-entered cumulative tickets. xlsx_import = weekly catch-up from an operator upload. foursomething = legacy/internal 4theFans source. internal_counts = the promoter''s emailed Internal Counts PDF (paid tickets only; a later email for the same count date replaces the row; migration 234).';
-
--- ── Gmail connection ─────────────────────────────────────────────────────
-
-create table if not exists public.gmail_connections (
-  id               uuid primary key default gen_random_uuid(),
-  user_id          uuid not null unique references auth.users (id) on delete cascade,
-  email            text not null,
-  scope            text not null,
-  connected_at     timestamptz not null default now(),
-  last_pull_at     timestamptz,
-  last_pull_error  text,
-  updated_at       timestamptz not null default now()
-);
-
-comment on table public.gmail_connections is
-  'The inbox the Internal Counts pull reads (gmail.readonly). One per operator. The refresh token is in gmail_connection_secrets. Migration 234.';
-
-alter table public.gmail_connections enable row level security;
-
-drop policy if exists gmail_connections_owner_select on public.gmail_connections;
-create policy gmail_connections_owner_select on public.gmail_connections
-  for select to authenticated using (user_id = auth.uid());
-
-create table if not exists public.gmail_connection_secrets (
-  connection_id            uuid primary key references public.gmail_connections (id) on delete cascade,
-  refresh_token_encrypted  bytea not null,
-  updated_at               timestamptz not null default now()
-);
-
-comment on table public.gmail_connection_secrets is
-  'pgp_sym_encrypt(refresh_token, GMAIL_TOKEN_KEY). RLS on with no policies: service role only, through set_/get_gmail_refresh_token. Migration 234.';
-
-alter table public.gmail_connection_secrets enable row level security;
-
-create or replace function public.set_gmail_refresh_token(
-  p_connection_id uuid,
-  p_refresh_token text,
-  p_key           text
-)
-returns void
-language plpgsql
-security invoker
-set search_path = public, extensions
-as $$
-begin
-  if p_refresh_token is null or length(p_refresh_token) = 0 then
-    raise exception 'refresh token is required';
-  end if;
-  if p_key is null or length(p_key) < 16 then
-    raise exception 'GMAIL_TOKEN_KEY must be set and at least 16 characters';
-  end if;
-  insert into public.gmail_connection_secrets (connection_id, refresh_token_encrypted, updated_at)
-  values (p_connection_id, pgp_sym_encrypt(p_refresh_token, p_key), now())
-  on conflict (connection_id) do update
-    set refresh_token_encrypted = excluded.refresh_token_encrypted,
-        updated_at = now();
-end;
-$$;
-
-create or replace function public.get_gmail_refresh_token(
-  p_connection_id uuid,
-  p_key           text
-)
-returns text
-language plpgsql
-security invoker
-set search_path = public, extensions
-as $$
-declare
-  v_blob bytea;
-begin
-  if p_key is null or length(p_key) < 16 then
-    raise exception 'GMAIL_TOKEN_KEY must be set and at least 16 characters';
-  end if;
-  select refresh_token_encrypted into v_blob
-    from public.gmail_connection_secrets
-   where connection_id = p_connection_id;
-  if v_blob is null then
-    return null;
-  end if;
-  return pgp_sym_decrypt(v_blob, p_key)::text;
-end;
-$$;
-
-revoke all on function public.set_gmail_refresh_token(uuid, text, text) from public, anon, authenticated;
-revoke all on function public.get_gmail_refresh_token(uuid, text) from public, anon, authenticated;
-grant execute on function public.set_gmail_refresh_token(uuid, text, text) to service_role;
-grant execute on function public.get_gmail_refresh_token(uuid, text) to service_role;
 
 -- ── Reports ──────────────────────────────────────────────────────────────
 

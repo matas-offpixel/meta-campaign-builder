@@ -65,11 +65,21 @@ describe("the review list is internal only", () => {
     const own = [
       ...files(path.join(ROOT, "app/(dashboard)/internal-counts")),
       ...files(path.join(ROOT, "app/api/internal-counts")),
-      ...files(path.join(ROOT, "app/api/gmail")),
     ];
-    assert.ok(own.length >= 5);
+    assert.ok(own.length >= 3);
     for (const f of own) {
       assert.ok(/auth\.getUser\(\)/.test(readFileSync(f, "utf8")), `${path.relative(ROOT, f)} checks the session`);
     }
+  });
+});
+
+describe("Gmail is a service account, not OAuth", () => {
+  it("nothing imports the removed OAuth flow or its token key", () => {
+    const all = ["app", "lib", "components", "scripts"].flatMap((d) => files(path.join(ROOT, d)));
+    const offenders = all
+      .filter((f) => !f.endsWith("internal-only-guard.test.ts"))
+      .filter((f) => /gmail\/oauth|gmail\/connection|api\/gmail\/oauth|GMAIL_TOKEN_KEY|gmail_connection/.test(readFileSync(f, "utf8")))
+      .map((f) => path.relative(ROOT, f));
+    assert.deepEqual(offenders, []);
   });
 });

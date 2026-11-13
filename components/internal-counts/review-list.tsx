@@ -119,15 +119,17 @@ function CheckedItem({ item, events }: { item: CheckedItemView; events: EventOpt
   );
 }
 
+function gmailLine(view: InternalCountsView): string {
+  if (view.gmail === "reading") return `Reading ${view.inbox}`;
+  if (view.gmail === "not_set_up") return "Gmail access isn't set up yet";
+  // NOT IN R1 or the brief: a read that failed for any reason but setup.
+  return "Gmail couldn't be read just now";
+}
+
 function InboxControls({ view }: { view: InternalCountsView }) {
   return (
     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-      {view.gmailConfigured && !view.gmail ? (
-        <a href="/api/gmail/oauth/start" className={BUTTON}>
-          Connect Gmail
-        </a>
-      ) : null}
-      {view.gmail?.lastPullError ? <span className="text-destructive">The last read failed: {view.gmail.lastPullError}</span> : null}
+      <span role="status">{gmailLine(view)}</span>
       <form action="/api/internal-counts/upload" method="post" encType="multipart/form-data" className="flex flex-wrap items-center gap-2">
         <label htmlFor="count-pdf">Upload count PDF</label>
         <input id="count-pdf" name="file" type="file" accept="application/pdf" required className="max-w-full text-xs" />

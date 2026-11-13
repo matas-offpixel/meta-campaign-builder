@@ -1,32 +1,43 @@
 /**
  * lib/gmail/client.ts
  *
- * The four Gmail API reads the Internal Counts pull needs: the profile,
- * a message search, one message, one attachment. Read-only (gmail.readonly);
- * there is no send, modify or label call here.
+ * The Gmail API reads the Internal Counts pull needs: the profile, a
+ * message search, one message, one thread, one attachment. Read-only
+ * (gmail.readonly); there is no send, modify or label call here. The token
+ * comes from lib/gmail/auth.ts (the service account acting as the mailbox).
  */
+
+import { GmailAccessError } from "./auth.ts";
 
 export type GmailFetch = (input: string, init: RequestInit) => Promise<Pick<Response, "ok" | "status" | "json">>;
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
+/** A 403 that means the Gmail API isn't switched on for the project (setup, not an outage). */
+function apiNotEnabled(body: { error?: { status?: string; errors?: Array<{ reason?: string }>; details?: Array<{ reason?: string }> } }): boolean {
+  const reasons = [...(body.error?.errors ?? []), ...(body.error?.details ?? [])].map((e) => e.reason ?? "");
+  return reasons.some((r) => r === "accessNotConfigured" || r === "SERVICE_DISABLED");
+}
+
 export class GmailClient {
-  private readonly accessToken: string;
+  private readonly token: () => Promise<string>;
   private readonly fetcher: GmailFetch;
 
-  constructor(accessToken: string, fetcher: GmailFetch = fetch) {
-    this.accessToken = accessToken;
+  constructor(token: () => Promise<string>, fetcher: GmailFetch = fetch) {
+    this.token = token;
     this.fetcher = fetcher;
   }
 
   private async get<T>(path: string): Promise<T> {
     const res = await this.fetcher(`${API}${path}`, {
-      headers: { Authorization: `Bearer ${this.accessToken}` },
+      headers: { Authorization: `Bearer ${await this.token()}` },
       cache: "no-store",
     });
     if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: { status?: string } };
-      throw new Error(`Gmail ${path.split("?")[0]} returned ${res.status}${body.error?.status ? ` (${body.error.status})` : ""}.`);
+      const body = (await res.json().catch(() => ({}))) as Parameters<typeof apiNotEnabled>[0];
+      const where = `Gmail ${path.split("?")[0].replace(/\/[A-Za-z0-9_-]{10,}/g, "/…")}`;
+      const message = `${where} returned ${res.status}${body.error?.status ? ` (${body.error.status})` : ""}.`;
+      throw new GmailAccessError(res.status === 403 && apiNotEnabled(body) ? "not_delegated" : "failed", res.status, message);
     }
     return (await res.json()) as T;
   }

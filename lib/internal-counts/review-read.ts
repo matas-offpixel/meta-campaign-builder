@@ -19,14 +19,6 @@ type Db = SupabaseClient<any, any, any>;
 const CHECKED_SHOWN = 30;
 
 const FLASH: Record<string, string> = {
-  "gmail=connected": "Gmail connected. Counts are read hourly on weekdays.",
-  "gmail=declined": "Gmail wasn't connected: the request was declined.",
-  "gmail=wrong_scope": "Gmail wasn't connected: Google granted more or less than read-only mail.",
-  "gmail=no_refresh_token": "Gmail wasn't connected: Google sent no lasting access. Remove the app's access in your Google account and connect again.",
-  "gmail=not_configured": "Gmail connect isn't set up on this deployment.",
-  "gmail=state_missing": "Gmail wasn't connected: the request expired. Try again.",
-  "gmail=state_mismatch": "Gmail wasn't connected: the request expired. Try again.",
-  "gmail=failed": "Gmail wasn't connected. Try again.",
   "upload=no_file": "Choose a PDF to upload.",
   "upload=too_large": "That PDF is over 10 MB.",
   "upload=not_pdf": "That file isn't a PDF.",
@@ -144,13 +136,11 @@ async function eventOptions(sb: Db, blockEventIds: string[]): Promise<{ options:
   return { options, byId, byCode };
 }
 
-export async function readReviewList(sb: Db, input: { gmailConfigured: boolean; flash: string | null }): Promise<InternalCountsView> {
-  const { data: conn } = await sb
-    .from("gmail_connections")
-    .select("email,last_pull_at,last_pull_error")
-    .order("connected_at", { ascending: true })
-    .limit(1);
-  const inbox = (conn?.[0]?.email as string | undefined) ?? null;
+export async function readReviewList(
+  sb: Db,
+  input: { gmail: InternalCountsView["gmail"]; mailbox: string | null; flash: string | null },
+): Promise<InternalCountsView> {
+  const inbox = input.mailbox;
   const open = await readItems(sb, true);
   const checked = await readItems(sb, false);
   const items = [...open, ...checked];
@@ -199,8 +189,7 @@ export async function readReviewList(sb: Db, input: { gmailConfigured: boolean; 
   };
   return {
     inbox,
-    gmailConfigured: input.gmailConfigured,
-    gmail: conn?.[0] ? { email: conn[0].email, lastPullAt: conn[0].last_pull_at, lastPullError: conn[0].last_pull_error } : null,
+    gmail: input.gmail,
     flash: input.flash,
     open: open.flatMap((i) => {
       const f = facts(i);

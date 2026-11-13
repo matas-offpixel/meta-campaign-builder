@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { InternalCountsReviewView } from "@/components/internal-counts/review-list";
-import { gmailOAuthConfigFromEnv } from "@/lib/gmail/oauth";
-import { gmailTokenKey } from "@/lib/gmail/connection";
+import { gmailStatus } from "@/lib/internal-counts/gmail-session";
 import { flashFor, readReviewList } from "@/lib/internal-counts/review-read";
 import { createClient } from "@/lib/supabase/server";
 
@@ -20,10 +19,8 @@ export default async function InternalCountsPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const params = await searchParams;
-  const view = await readReviewList(supabase, {
-    gmailConfigured: gmailOAuthConfigFromEnv().config !== null && gmailTokenKey() !== null,
-    flash: flashFor(params),
-  });
+  const status = await gmailStatus();
+  const view = await readReviewList(supabase, { gmail: status.state, mailbox: status.mailbox, flash: flashFor(params) });
   return (
     <main className="px-4 py-6 sm:px-6">
       <InternalCountsReviewView view={view} />

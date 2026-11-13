@@ -12,7 +12,7 @@
  *      near miss. Invented, because nothing in the inbox has them yet: the
  *      date mismatch (13 Nov email, 12 Nov sheet), the unreadable sheet and
  *      the replaced 12 Nov sheet.
- * R1E: "Nothing to check".
+ * R1E: "Nothing to check", before delegation is granted ("Gmail access isn't set up yet").
  */
 
 import { checkedItemView, openItemView, type ItemFacts } from "../../lib/internal-counts/review-words.ts";
@@ -124,8 +124,7 @@ const EVENTS = [
 
 export const R1_VIEW: InternalCountsView = {
   inbox: INBOX,
-  gmailConfigured: true,
-  gmail: { email: INBOX, lastPullAt: "2026-11-13T12:00:04Z", lastPullError: null },
+  gmail: "reading",
   flash: null,
   open: OPEN.map(openItemView),
   checked: [checkedItemView(REPLACED, "Matas", "2026-11-12T15:20:00Z", "keep")],
@@ -134,8 +133,7 @@ export const R1_VIEW: InternalCountsView = {
 
 export const R1E_VIEW: InternalCountsView = {
   inbox: INBOX,
-  gmailConfigured: true,
-  gmail: { email: INBOX, lastPullAt: "2026-11-13T12:00:04Z", lastPullError: null },
+  gmail: "not_set_up",
   flash: null,
   open: [],
   checked: [],

@@ -49,10 +49,10 @@ export interface EventOption {
 }
 
 export interface InternalCountsView {
-  /** The inbox the counts are read from, for "Internal Counts from {inbox} · internal only". */
+  /** The inbox the counts are read from (GMAIL_INGEST_MAILBOX), for "Internal Counts from {inbox} · internal only". */
   inbox: string | null;
-  gmailConfigured: boolean;
-  gmail: { email: string; lastPullAt: string | null; lastPullError: string | null } | null;
+  /** reading: a read works. not_set_up: delegation or env not there yet. unreachable: anything else. */
+  gmail: "reading" | "not_set_up" | "unreachable";
   flash: string | null;
   open: ReviewItemView[];
   checked: CheckedItemView[];

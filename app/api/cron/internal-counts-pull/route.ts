@@ -3,21 +3,22 @@
  *
  * Hourly, 09:00–19:00 UK time on weekdays (the schedule runs every weekday
  * hour in UTC; outside UK hours the route answers 200 with skippedReason).
- * Reads the connected inbox (gmail.readonly) for Electric's Internal Counts
- * PDFs from the last 3 days and runs each new one through the parser
+ * Reads GMAIL_INGEST_MAILBOX (gmail.readonly, the Drive service account
+ * through domain-wide delegation) for Electric's Internal Counts PDFs from
+ * the last 3 days and runs each new one through the parser
  * (lib/internal-counts). Idempotent on the message id. No Meta or Google
  * Ads calls, no sends. Auth is the cron bearer.
  *
  * ENABLE_INTERNAL_COUNTS_PULL must be exactly "1"; anything else → 200 with
- * skippedReason "killswitch".
+ * skippedReason "killswitch". Delegation not granted yet → 200 with
+ * skippedReason "gmail_not_delegated".
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 
 import { isCronAuthorized } from "@/lib/attribution/cron-auth";
-import { recordPull } from "@/lib/gmail/connection";
 import { loadRunContext } from "@/lib/internal-counts/context";
-import { openGmailSession } from "@/lib/internal-counts/gmail-session";
+import { openGmailSession, operatorForMailbox, skipReasonFor } from "@/lib/internal-counts/gmail-session";
 import { gmailSource, PULL_QUERY, runInternalCountsPull, withinPullHours } from "@/lib/internal-counts/pull";
 import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
 import { createServiceRoleClient } from "@/lib/supabase/server";
@@ -36,16 +37,13 @@ async function handleGET(req: NextRequest) {
     return NextResponse.json({ ok: true, skippedReason: "outside_uk_weekday_hours" });
   }
   const sb = createServiceRoleClient();
-  let connectionId: string | null = null;
   try {
-    const session = await openGmailSession(sb);
+    const session = await openGmailSession();
     if (!session.ok) return NextResponse.json({ ok: true, skippedReason: session.reason });
-    connectionId = session.connection.id;
+    const userId = await operatorForMailbox(sb, session.mailbox);
+    if (!userId) return NextResponse.json({ ok: true, skippedReason: "no_operator_for_mailbox" });
     const ctx = await loadRunContext(sb);
-    const summary = await runInternalCountsPull(sb, ctx, gmailSource(session.gmail, PULL_QUERY), {
-      userId: session.connection.user_id,
-    });
-    await recordPull(sb, connectionId, null);
+    const summary = await runInternalCountsPull(sb, ctx, gmailSource(session.gmail, PULL_QUERY), { userId });
     const { lines, ...rest } = summary;
     return NextResponse.json({
       ok: true,
@@ -54,9 +52,11 @@ async function handleGET(req: NextRequest) {
       messages: lines.map((l) => ({ id: l.messageId, subject: l.subject, kind: l.kind, status: l.result?.status ?? null })),
     });
   } catch (err) {
+    // The Gmail API not switched on yet is setup, not a failure.
+    const skip = skipReasonFor(err);
+    if (skip) return NextResponse.json({ ok: true, skippedReason: skip });
     const message = err instanceof Error ? err.message.replace(/https?:\/\/\S+/g, "").trim() : "Unknown error";
     console.error(`[internal-counts-pull] ${message}`);
-    if (connectionId) await recordPull(sb, connectionId, message).catch(() => undefined);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

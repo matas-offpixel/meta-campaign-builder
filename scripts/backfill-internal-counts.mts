@@ -10,7 +10,7 @@
  *
  * Dry run by default: reads only, writes nothing, and prints every message
  * with what it would write and what would go to the review list. --apply
- * writes (needs migration 234 and a connected Gmail). --since YYYY-MM-DD
+ * writes (needs migration 234 and the Gmail delegation). --since YYYY-MM-DD
  * limits to messages received on or after that day.
  *
  * --assume-proposed (dry run only) treats the exact-name proposals in
@@ -19,10 +19,13 @@
  * local export instead of Gmail: DIR/manifest.json is
  * [{ id, threadId, subject, from, receivedAt, body, pdf }] with pdf a file
  * in DIR (or null). It reads no database, so it runs before migration 234.
- * --json FILE writes the summary. The summary ends with every sheet, show
+ * --no-db (dry run only) reads Gmail but no database: run it before
+ * migration 234 is applied. --json FILE writes the summary. The summary ends with every sheet, show
  * and tier where "price equals the column's count" fired.
  *
- * Gmail reads use gmail.readonly only. No token is ever printed.
+ * Gmail is read as GMAIL_INGEST_MAILBOX by the Drive service account
+ * (GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON) through domain-wide delegation,
+ * gmail.readonly only. No key or token is ever printed.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -33,7 +36,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { MessageSummary } from "../lib/gmail/client.ts";
 import { PROPOSED_COUNT_ALIASES } from "../lib/internal-counts/aliases.ts";
 import { loadRunContext, offlineContext } from "../lib/internal-counts/context.ts";
-import { openGmailSession } from "../lib/internal-counts/gmail-session.ts";
+import { openGmailSession, operatorForMailbox } from "../lib/internal-counts/gmail-session.ts";
 import {
   BACKFILL_QUERY,
   gmailSource,
@@ -54,9 +57,10 @@ const apply = flag("--apply");
 const assumeProposed = flag("--assume-proposed");
 const since = value("--since");
 const fromDir = value("--from-dir");
+const noDb = flag("--no-db");
 const jsonOut = value("--json");
-if (apply && (assumeProposed || fromDir)) {
-  console.error("--assume-proposed and --from-dir are for dry runs only");
+if (apply && (assumeProposed || fromDir || noDb)) {
+  console.error("--assume-proposed, --from-dir and --no-db are for dry runs only");
   process.exit(2);
 }
 if (since && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
@@ -119,7 +123,7 @@ async function main(): Promise<void> {
   console.log(`# Internal Counts backfill ${apply ? "APPLY" : "DRY RUN — nothing written"}${assumeProposed ? " (proposed aliases treated as confirmed)" : ""}`);
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const offline = !!fromDir;
+  const offline = !!fromDir || noDb;
   if (!offline && (!url || !key)) {
     console.error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required (or --from-dir)");
     process.exit(2);
@@ -130,14 +134,19 @@ async function main(): Promise<void> {
   if (fromDir) {
     source = dirSource(fromDir);
   } else {
-    const session = await openGmailSession(sb);
+    const session = await openGmailSession();
     if (!session.ok) {
       console.error(`Gmail isn't ready: ${session.reason}`);
       process.exit(2);
     }
-    console.log(`Reading ${session.connection.email} (gmail.readonly), query: ${BACKFILL_QUERY}`);
+    console.log(`Reading ${session.mailbox} (gmail.readonly, delegated), query: ${BACKFILL_QUERY}`);
     source = gmailSource(session.gmail, BACKFILL_QUERY);
-    userId = session.connection.user_id;
+    const owner = apply ? await operatorForMailbox(sb, session.mailbox) : null;
+    if (apply && !owner) {
+      console.error(`No operator account for ${session.mailbox}; the reports need an owner.`);
+      process.exit(2);
+    }
+    userId = owner ?? "dry-run";
   }
   const ctx = offline ? offlineContext(assumeProposed ? PROPOSED_COUNT_ALIASES : undefined) : await loadRunContext(sb);
   const summary = await runInternalCountsPull(sb, ctx, source, {
