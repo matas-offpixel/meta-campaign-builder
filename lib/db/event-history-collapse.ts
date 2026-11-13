@@ -19,7 +19,8 @@ export interface WeeklySnapshot {
     | "fourthefans"
     | "manual"
     | "xlsx_import"
-    | "foursomething";
+    | "foursomething"
+    | "internal_counts";
 }
 
 /**
@@ -28,18 +29,24 @@ export interface WeeklySnapshot {
  * always trump API-pulled or xlsx-bulk-loaded rows, and a one-off
  * xlsx backfill trumps the Eventbrite auto-sync when both cover
  * the same week.
+ *
+ * internal_counts (D8, migration 234) is second: the promoter's own
+ * box-office total across every outlet beats a periodic xlsx export and
+ * any single platform's count, and a manual entry (a person correcting
+ * a figure) still beats it. Sources are never summed or blended.
  */
-const SOURCE_PRIORITY: Record<string, number> = {
+export const SOURCE_PRIORITY: Readonly<Record<string, number>> = {
   eventbrite: 1,
   foursomething: 2,
   fourthefans: 2,
   xlsx_import: 3,
-  manual: 4,
+  internal_counts: 4,
+  manual: 5,
 };
 
 /**
  * Resolve one snapshot per (eventId, snapshot_at week bucket),
- * preferring manual > xlsx_import > fourthefans > eventbrite when multiple rows
+ * preferring manual > internal_counts > xlsx_import > fourthefans > eventbrite when multiple rows
  * exist for the same week. Week bucket = the snapshot_at date
  * converted to YYYY-MM-DD (UTC), so two same-week rows with
  * different HH:MM still collapse correctly.
@@ -170,7 +177,8 @@ function normalizeSource(s: string): WeeklySnapshot["source"] {
     s === "fourthefans" ||
     s === "manual" ||
     s === "xlsx_import" ||
-    s === "foursomething"
+    s === "foursomething" ||
+    s === "internal_counts"
   ) {
     return s;
   }

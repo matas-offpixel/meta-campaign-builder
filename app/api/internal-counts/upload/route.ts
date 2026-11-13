@@ -1,0 +1,54 @@
+/**
+ * POST /api/internal-counts/upload — "Upload count PDF" on the review list.
+ *
+ * The backstop if Gmail is ever disconnected: the same parser, checks and
+ * writes as the pull. The message id is upload:{pdf sha256}, so uploading
+ * the same file twice writes 0 rows. Operator session only.
+ */
+
+import { NextResponse, type NextRequest } from "next/server";
+
+import { pdfSha256, processReport } from "@/lib/internal-counts/store";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+
+export const maxDuration = 120;
+export const dynamic = "force-dynamic";
+
+const MAX_BYTES = 10 * 1024 * 1024;
+
+function back(req: NextRequest, params: Record<string, string>): NextResponse {
+  const url = new URL("/internal-counts", req.nextUrl.origin);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  return NextResponse.redirect(url, 303);
+}
+
+export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ ok: false, error: "Sign in first." }, { status: 401 });
+
+  const form = await req.formData().catch(() => null);
+  const file = form?.get("file");
+  if (!(file instanceof File) || file.size === 0) return back(req, { upload: "no_file" });
+  if (file.size > MAX_BYTES) return back(req, { upload: "too_large" });
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (Buffer.from(bytes.subarray(0, 5)).toString("latin1") !== "%PDF-") return back(req, { upload: "not_pdf" });
+
+  const result = await processReport(createServiceRoleClient(), {
+    userId: user.id,
+    source: "upload",
+    messageId: `upload:${pdfSha256(bytes)}`,
+    receivedAt: new Date().toISOString(),
+    sender: user.email ?? null,
+    subject: `Uploaded: ${file.name}`,
+    body: "",
+    pdf: { filename: file.name, bytes },
+  });
+  return back(req, {
+    upload: result.status,
+    written: String(result.blocksWritten),
+    review: String(result.blocksInReview),
+  });
+}

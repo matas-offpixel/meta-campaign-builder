@@ -144,7 +144,8 @@ const SOURCE_PRIORITY: Record<string, number> = {
   foursomething: 2,
   fourthefans: 2,
   xlsx_import: 3,
-  manual: 4,
+  internal_counts: 4,
+  manual: 5,
 };
 
 const PLATFORM_LABEL: Record<FunnelPlatform, string> = {
@@ -468,7 +469,7 @@ export function buildEventFunnelView(input: EventFunnelInput): EventFunnelView {
       value: purchases,
       provenance: purchaseProvenance,
       provenanceDetail: winning
-        ? `SUM(event_daily_rollups.tickets_sold). Winning snapshot source is ${winning} (manual > xlsx_import > fourthefans/foursomething > eventbrite). Per-day source is not stored on the rollup; this is the event-level label from ticket_sales_snapshots.`
+        ? `SUM(event_daily_rollups.tickets_sold). Winning snapshot source is ${winning} (manual > internal_counts > xlsx_import > fourthefans/foursomething > eventbrite). Per-day source is not stored on the rollup; this is the event-level label from ticket_sales_snapshots.`
         : "SUM(event_daily_rollups.tickets_sold). No ticket_sales_snapshots rows — source cannot be labelled beyond the rollup pipe.",
       conversionFromPrevious: lpvToPurchase,
       conversionLabel: "LPV → purchase",
