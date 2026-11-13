@@ -47,7 +47,8 @@ export type ReviewKind =
   | "near_miss"
   | "replaced"
   | "since_last_mismatch"
-  | "block_after_sent";
+  | "block_after_sent"
+  | "no_tiers";
 
 /** Kinds that hold a show's (or the sheet's) counts until resolved. */
 export const HOLDING_KINDS: ReadonlySet<ReviewKind> = new Set([
@@ -56,6 +57,7 @@ export const HOLDING_KINDS: ReadonlySet<ReviewKind> = new Set([
   "sum_mismatch",
   "unreadable_pdf",
   "block_after_sent",
+  "no_tiers",
 ]);
 
 /** A forward's differing sheet is held too, until Matas keeps the earlier or uses the later one. */
@@ -100,7 +102,8 @@ export type BlockStatus = "write" | "held" | "repeat" | "not_ours" | "superseded
 
 export interface BlockWrite {
   paid: number;
-  comps: number;
+  /** Null when the sheet gives a total but no tiers (comps unknown). */
+  comps: number | null;
   total: number;
   revenueHeld: boolean;
   /** The sheet's paid £, kept even when held so "Revenue is right" can release it. */
@@ -185,6 +188,8 @@ export interface ReportInput {
 /** The rows a block writes, for a given total (the sheet's, or the one Matas picked). */
 export function blockWrite(block: ParsedBlock, check: BlockCheck, total?: number): BlockWrite {
   const sums = soldAndComps(block, total);
+  // A total with no tiers: no tier rows to write and no revenue to read; comps stay unknown (null).
+  if (sums.comps === null) return { ...sums, revenueHeld: true, paidRevenuePence: 0, cells: [] };
   const cells: CellPlan[] = [];
   for (const row of block.outlets) {
     block.tiers.forEach((tier, i) => {
@@ -343,6 +348,11 @@ function planBlock(
   }
   if (check.sum) {
     items.push(item("sum_mismatch", check.sum));
+    held = true;
+  }
+  if (check.noTiers) {
+    // Design ruling on a57bca9: a total with no tiers is its own item, not a sum mismatch.
+    items.push(item("no_tiers", { total: check.noTiers.total, date: base.countDate }));
     held = true;
   }
   const countDate = base.countDate;

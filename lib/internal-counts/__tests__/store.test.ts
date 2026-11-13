@@ -216,3 +216,53 @@ describe("\"Revenue is right\"", () => {
     assert.equal(writes(store.calls).length, 0);
   });
 });
+
+describe("a total but no tiers: the two choices", () => {
+  const schak = pdf12.sheet!.blocks.find((b) => b.showName === "SCHAK")!;
+  const parsed = {
+    ...schak,
+    outlets: schak.outlets.map((o) => ({ ...o, cells: o.cells.map((c) => (c === null ? null : 0)) })),
+    totals: { ...schak.totals!, cells: schak.totals!.cells.map(() => 0), total: 993 },
+  };
+  const item = { id: "nt", report_id: "report-1", block_id: "block-14", kind: "no_tiers", show_name: "SCHAK", detail: { total: 993, date: "2026-09-22" }, resolved_at: null, resolution: null };
+  const block = {
+    id: "block-14", report_id: "report-1", show_name: "SCHAK", event_id: "id-NX26-SCHAK", count_date: "2026-09-22",
+    printed_date: null, chosen_total: null as number | null, revenue_held: true, status: "held", parsed,
+  };
+  function store() {
+    const { db, calls } = fakeDb((call: FakeCall) => {
+      if (call.table === "internal_count_review_items" && op(call, "single")) return { data: item, error: null };
+      if (call.table === "internal_count_blocks" && op(call, "single")) return { data: { ...block, chosen_total: 993 }, error: null };
+      return { data: [], error: null };
+    });
+    const rpcs: Array<[string, Record<string, unknown>]> = [];
+    const sb = Object.assign(db as object, { rpc: async (n: string, a: Record<string, unknown>) => (rpcs.push([n, a]), { error: null }) });
+    return { sb: sb as never, calls, rpcs };
+  }
+
+  it("\"Use the total\" stores the total with comps unknown: no tier rows, comp_tickets null", async () => {
+    const s = store();
+    await resolveItem(s.sb, "nt", { kind: "use_total", total: 993 }, { userId: "u1", name: "Matas" }, runContext());
+    const blockUpdates = writes(s.calls).filter((c) => c.table === "internal_count_blocks").map((c) => op(c, "update")![0] as Record<string, unknown>);
+    assert.deepEqual(blockUpdates[0], { chosen_total: 993 });
+    assert.deepEqual(blockUpdates[1], { paid_tickets: 993, comp_tickets: null, total_tickets: 993 });
+    assert.equal(s.rpcs.length, 1);
+    const [, args] = s.rpcs[0];
+    assert.deepEqual(args.p_cells, []);
+    const snap = args.p_snapshot as { tickets_sold: number; gross_revenue_cents: number | null; raw_payload: Record<string, unknown> };
+    assert.equal(snap.tickets_sold, 993);
+    assert.equal(snap.gross_revenue_cents, null);
+    assert.equal(snap.raw_payload.comps, null);
+  });
+
+  it("\"Skip this show\" stores nothing for it and keeps the block as skipped", async () => {
+    const s = store();
+    await resolveItem(s.sb, "nt", { kind: "skip_show" }, { userId: "u1", name: "Matas" }, runContext());
+    assert.equal(s.rpcs.length, 0);
+    const touched = writes(s.calls);
+    assert.deepEqual(op(touched[0], "update")![0], { status: "skipped" });
+    assert.equal((op(touched[1], "update")![0] as Record<string, unknown>).resolution, "skip_show");
+    assert.ok(!s.calls.some((c) => c.table === "tier_channel_sales" || c.table === "ticket_sales_snapshots"));
+  });
+});
+

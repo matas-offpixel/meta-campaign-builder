@@ -289,3 +289,41 @@ describe("M1b follow-ups", () => {
     assert.equal(d.previousMessageId, "m-11");
   });
 });
+
+describe("a total but no tiers (design ruling on a57bca9: SCHAK, 22 Sep)", () => {
+  let sheet: ParsedSheet;
+  before(async () => {
+    sheet = parseInternalCountsItems(await extractPdfTextItems(new Uint8Array(read("internal-counts-2026-11-12.pdf"))));
+  });
+  // SCHAK as the 22 Sep sheet printed it: a total, every tier 0.
+  const schakNoTiers = (): ParsedSheet => ({
+    ...sheet,
+    blocks: sheet.blocks.map((b) =>
+      b.showName === "SCHAK"
+        ? { ...b, outlets: b.outlets.map((o) => ({ ...o, cells: o.cells.map((c) => (c === null ? null : 0)) })), totals: { ...b.totals!, cells: b.totals!.cells.map(() => 0), total: 993 } }
+        : b,
+    ),
+  });
+
+  it("holds only that show with a no-tiers item; no sum item opens; the rest of the sheet is stored", () => {
+    const plan = planReport(report, schakNoTiers(), ctx());
+    const schak = plan.blocks.find((b) => b.showName === "SCHAK")!;
+    assert.equal(schak.status, "held");
+    assert.deepEqual(
+      plan.reviewItems.filter((i) => i.showName === "SCHAK").map((i) => [i.kind, i.detail]),
+      [["no_tiers", { total: 993, date: "2026-11-12" }]],
+    );
+    assert.equal(plan.reviewItems.filter((i) => i.kind === "sum_mismatch").length, 0);
+    assert.ok(plan.blocks.filter((b) => b.showName !== "SCHAK").every((b) => b.status === "write"));
+  });
+
+  it("its write is the total with comps unknown and no tier rows", () => {
+    const schak = planReport(report, schakNoTiers(), ctx()).blocks.find((b) => b.showName === "SCHAK")!;
+    assert.equal(schak.total, 993);
+    assert.equal(schak.paid, 993);
+    assert.equal(schak.comps, null);
+    assert.equal(schak.cells.length, 0);
+    assert.equal(schak.revenueHeld, true);
+  });
+});
+

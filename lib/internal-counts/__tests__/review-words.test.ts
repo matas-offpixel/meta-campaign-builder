@@ -193,9 +193,9 @@ describe("design FAIL at 903eb97: fixes 1-3 and rulings a, b, d at both widths",
   it("ruling d: a forward's meta and the late-arrival line; neither opens an item", () => {
     const v = openItemView(
       facts({
-        kind: "sum_mismatch",
+        kind: "no_tiers",
         showName: "SCHAK",
-        detail: { tiers: 0, total: 993, lateArrival: { laterDate: "2026-09-24", filedDate: "2026-09-22" } },
+        detail: { total: 993, date: "2026-09-22", lateArrival: { laterDate: "2026-09-24", filedDate: "2026-09-22" } },
         report: {
           ...base.report,
           subject: "Fw: Internal Counts 22.09.26",
@@ -247,6 +247,21 @@ describe("design FAIL at 903eb97: fixes 1-3 and rulings a, b, d at both widths",
     assert.equal(say("add_manual", "", ""), "Choose an event and type the figure first.");
     assert.equal(say("add_manual", "e1", "120"), null);
     assert.equal(say("match", "", ""), "Choose an event first.");
+  });
+
+  it("a total but no tiers: design's words at both widths", () => {
+    const v = openItemView(facts({ kind: "no_tiers", showName: "SCHAK", detail: { total: 993, date: "2026-09-22" } }));
+    assert.equal(v.title, `SCHAK: the 22${N}Sep sheet gives a total (993) but no tiers`);
+    assert.equal(v.titleShort, "SCHAK: total 993, no tiers");
+    assert.equal(v.body, "Comps can't be separated, so this show's count is held. Other shows on the sheet are stored.");
+    assert.equal(v.bodyShort, "Held.");
+    assert.deepEqual(
+      v.actions.map((a) => [a.label, a.action, a.fields?.total ?? null]),
+      [
+        ["Use the total (993)", "use_total", "993"],
+        ["Skip this show", "skip_show", null],
+      ],
+    );
   });
 
   it("September is Sep, like every other month", () => {

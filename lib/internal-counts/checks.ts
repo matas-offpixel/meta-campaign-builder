@@ -37,6 +37,8 @@ export interface BlockCheck {
   unreadable: string[];
   /** Set when the tier counts don't sum to the total: the show is held. */
   sum: { tiers: number; total: number } | null;
+  /** A total with every tier empty or 0: comps can't be separated, so the show is held (design ruling on a57bca9). */
+  noTiers: { total: number } | null;
   priceFlags: PriceFlag[];
   /** count × price ≠ the sheet's tier £ on a tier whose price wasn't flagged. */
   revenueMismatch: string[];
@@ -74,9 +76,17 @@ export function priceFlags(block: ParsedBlock, ceilingPence = DEFAULT_PRICE_CEIL
   return flags;
 }
 
+/** The sheet gives a total but no tiers: a positive total with every tier cell and the totals row at 0 or blank (SCHAK, 22 Sep). */
+export function hasNoTiers(block: ParsedBlock): boolean {
+  const total = block.totals?.total;
+  if (total === null || total === undefined || total <= 0) return false;
+  return sum(columnSums(block)) === 0 && sum(block.totals?.cells ?? []) === 0;
+}
+
 function sumCheck(block: ParsedBlock): BlockCheck["sum"] {
   const total = block.totals?.total;
   if (total === null || total === undefined) return null;
+  if (hasNoTiers(block)) return null;
   const grid = sum(columnSums(block));
   if (grid !== total) return { tiers: grid, total };
   const totalsRow = sum(block.totals?.cells ?? []);
@@ -109,11 +119,14 @@ function revenueCheck(block: ParsedBlock, flagged: Set<number>): string[] {
 
 export function checkBlock(block: ParsedBlock, ceilingPence = DEFAULT_PRICE_CEILING_PENCE): BlockCheck {
   const unreadable = [...block.problems];
-  const flags = priceFlags(block, ceilingPence);
-  const revenueMismatch = revenueCheck(block, new Set(flags.map((f) => f.position)));
+  // No tiers: there's no tier revenue to check; the write keeps revenue unknown (blockWrite), so no price item opens.
+  const noTiers = !unreadable.length && hasNoTiers(block);
+  const flags = noTiers ? [] : priceFlags(block, ceilingPence);
+  const revenueMismatch = noTiers ? [] : revenueCheck(block, new Set(flags.map((f) => f.position)));
   return {
     unreadable,
     sum: unreadable.length ? null : sumCheck(block),
+    noTiers: noTiers ? { total: block.totals!.total! } : null,
     priceFlags: flags,
     revenueMismatch,
     revenueHeld: flags.length > 0 || revenueMismatch.length > 0,
@@ -124,7 +137,12 @@ export function checkBlock(block: ParsedBlock, ceilingPence = DEFAULT_PRICE_CEIL
  * Paid and comp tickets. `total` is the show's count (the sheet's TOTAL, or
  * the figure Matas picked on a sum hold); comps and unused tiers come off it.
  */
-export function soldAndComps(block: ParsedBlock, total?: number): { paid: number; comps: number; total: number } {
+/** comps is null when the sheet gives a total but no tiers: they can't be separated. */
+export function soldAndComps(block: ParsedBlock, total?: number): { paid: number; comps: number | null; total: number } {
+  if (hasNoTiers(block)) {
+    const t = total ?? block.totals!.total!;
+    return { paid: t, comps: null, total: t };
+  }
   const cols = columnSums(block);
   let comps = 0;
   let unused = 0;

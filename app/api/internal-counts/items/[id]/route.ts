@@ -38,6 +38,7 @@ function parseAction(form: FormData): ResolveAction | null {
     case "undo":
     case "keep":
     case "checked":
+    case "skip_show":
       return { kind };
     default:
       return null;

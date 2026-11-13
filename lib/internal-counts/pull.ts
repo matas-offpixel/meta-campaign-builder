@@ -137,7 +137,7 @@ function tally(summary: PullSummary, line: PullLine): void {
   for (const b of r.plan?.blocks ?? []) {
     // The sheet's own checks only (sums, the date, revenue arithmetic); an unmatched name isn't a sheet error.
     const holds =
-      r.plan!.reviewItems.some((i) => (i.blockIndex === b.index && i.kind === "sum_mismatch") || i.kind === "date_mismatch") ||
+      r.plan!.reviewItems.some((i) => (i.blockIndex === b.index && (i.kind === "sum_mismatch" || i.kind === "no_tiers")) || i.kind === "date_mismatch") ||
       ((r.plan!.reviewItems.find((i) => i.blockIndex === b.index && i.kind === "price_looks_wrong")?.detail.revenueMismatch as string[] | undefined)?.length ?? 0) > 0;
     for (const f of b.priceFlags.filter((x: PriceFlag) => x.reason === "equals_count")) {
       summary.priceFirings.push({

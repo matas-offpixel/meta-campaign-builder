@@ -119,7 +119,7 @@ create table if not exists public.internal_count_blocks (
   revenue_released_by   uuid references auth.users (id) on delete set null,
   revenue_released_at   timestamptz,
   parsed                jsonb not null,
-  status                text not null check (status in ('written', 'held', 'repeat', 'not_ours', 'replaced')),
+  status                text not null check (status in ('written', 'held', 'repeat', 'not_ours', 'replaced', 'skipped')),
   written_at            timestamptz,
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now(),
@@ -127,7 +127,7 @@ create table if not exists public.internal_count_blocks (
 );
 
 comment on table public.internal_count_blocks is
-  'One show block of an Internal Counts PDF. written = its rows are in tier_channel_sales and ticket_sales_snapshots; held = stored here only, until its review item is resolved; repeat = restates a stored count (same show, date and total); not_ours = a name marked "Not a show we run"; replaced = a later email for the same count date replaced it (both kept). Migration 234.';
+  'One show block of an Internal Counts PDF. written = its rows are in tier_channel_sales and ticket_sales_snapshots; held = stored here only, until its review item is resolved; repeat = restates a stored count (same show, date and total); not_ours = a name marked "Not a show we run"; replaced = a later email for the same count date replaced it (both kept); skipped = a total with no tiers that Matas chose to skip (nothing stored). comp_tickets is null when the sheet gives a total but no tiers (comps unknown). Migration 234.';
 comment on column public.internal_count_blocks.parsed is
   'The block as parsed: tiers (position, name, price, comp), outlet rows with null for a blank cell and 0 for a printed 0, the totals row and the TIER TOTALS row.';
 comment on column public.internal_count_blocks.paid_revenue_pence is
@@ -137,7 +137,7 @@ comment on column public.internal_count_blocks.printed_date is
 comment on column public.internal_count_blocks.is_final is
   'The show''s final count: the latest written count dated on or after the event''s show day. Earlier post-show counts stay for audit. Kept by write_internal_count_block; read with lib/internal-counts/final-count.ts (HD3: "Final count · Internal Counts, {date}"; D10''s library).';
 comment on column public.internal_count_blocks.chosen_total is
-  'The total Matas picked on "tiers add to n, the sheet''s total says m" (R1). Null until then.';
+  'The total Matas picked on "tiers add to n, the sheet''s total says m" (R1), or on "the sheet gives a total but no tiers". Null until then.';
 comment on column public.internal_count_blocks.since_last_count is
   'Their SINCE LAST COUNT, as printed. our_delta is our own difference from the previous stored count.';
 
@@ -170,7 +170,7 @@ create table if not exists public.internal_count_review_items (
   kind              text not null check (kind in (
                       'price_looks_wrong', 'sale_mention', 'unmatched_show', 'date_mismatch',
                       'sum_mismatch', 'unreadable_pdf', 'near_miss', 'replaced', 'since_last_mismatch',
-                      'block_after_sent')),
+                      'block_after_sent', 'no_tiers')),
   holding           boolean not null,
   show_name         text,
   detail            jsonb not null default '{}',

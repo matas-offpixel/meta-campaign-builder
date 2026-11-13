@@ -27,6 +27,7 @@ export type ResolveAction =
   | { kind: "not_ours" }
   | { kind: "use_date"; date: string }
   | { kind: "use_total"; total: number }
+  | { kind: "skip_show" }
   | { kind: "read_as_count" }
   | { kind: "not_a_count" }
   | { kind: "undo" }
@@ -48,6 +49,7 @@ export const ACTIONS: Record<ReviewKind, ReadonlyArray<ResolveAction["kind"]>> =
   replaced: ["undo", "keep", "keep_earlier", "use_later"],
   since_last_mismatch: ["checked"],
   block_after_sent: ["use_date"],
+  no_tiers: ["use_total", "skip_show"],
 };
 
 export interface Resolver {
@@ -163,10 +165,16 @@ const EFFECTS: { [K in ResolveAction["kind"]]: Effect<Extract<ResolveAction, { k
   not_ours: async (sb, ctx, item, _a, who) => markNotOurs(sb, ctx, item, who),
   use_date: async (sb, ctx, item, a) => applyChosenDate(sb, ctx, item, a.date),
   use_total: async (sb, ctx, item, a) => {
-    if (!item.block_id) throw new Error("The sum item has no show block.");
+    if (!item.block_id) throw new Error("The item has no show block.");
     const { error } = await sb.from("internal_count_blocks").update({ chosen_total: a.total }).eq("id", item.block_id);
     if (error) throw new Error(`Saving the total failed: ${error.message}`);
     await releaseBlock(sb, ctx, item.block_id, { except: item.id });
+  },
+  // No tiers: nothing is stored for the show from this sheet; the block is kept as skipped, so a later name match can't write it.
+  skip_show: async (sb, _ctx, item) => {
+    if (!item.block_id) throw new Error("The item has no show block.");
+    const { error } = await sb.from("internal_count_blocks").update({ status: "skipped" }).eq("id", item.block_id).eq("status", "held");
+    if (error) throw new Error(`Skipping the show failed: ${error.message}`);
   },
   read_as_count: async (sb, ctx, item) => readAsCount(sb, ctx, item),
   keep_earlier: async (sb, _ctx, item) => {

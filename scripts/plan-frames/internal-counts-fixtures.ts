@@ -14,7 +14,7 @@
  *      sheet. Real since the design FAIL at 903eb97: FEVER 105's block dated
  *      after the 8 Oct reply (ruling a), the two "Couldn't read" forms
  *      (ruling b: the 2 Oct forward with no PDF date, the 21 Oct sheet),
- *      SCHAK's 22 Sep sum hold in the 2 Oct forward with its "forwarded
+ *      SCHAK's 22 Sep total with no tiers in the 2 Oct forward with its "forwarded
  *      by" meta and late-arrival line (ruling d), and IPC's SINCE LAST COUNT
  *      with our previous count's 29 Oct email (fix 1).
  * R1E: "Nothing to check", before delegation is granted ("Gmail access isn't set up yet"), after an upload.
@@ -156,8 +156,8 @@ const OPEN: ItemFacts[] = [
   // Real, ruling d: the forward of the 22 Sep sheet arrived on 2 Oct, after the 1 Oct count.
   facts(
     "schak-late",
-    "sum_mismatch",
-    { showName: "SCHAK", detail: { tiers: 0, total: 993, lateArrival: { laterDate: "2026-10-01", filedDate: "2026-09-22" } } },
+    "no_tiers",
+    { showName: "SCHAK", detail: { total: 993, date: "2026-09-22", lateArrival: { laterDate: "2026-10-01", filedDate: "2026-09-22" } } },
     {
       subject: "FW: INTERNAL SHOW COUNTS - 22.09.26",
       body: FWD_22_SEP,

@@ -287,6 +287,17 @@ export function itemWords(f: ItemFacts): Words {
         ? { ...words, actions: [act("Keep the earlier sheet", "keep_earlier"), act("Use the later sheet", "use_later")] }
         : { ...words, actions: [act("Keep the later sheet", "keep"), act("Use the earlier sheet", "undo")] };
     }
+    case "no_tiers": {
+      // Design's ruling on a57bca9.
+      const date = d.date ? dayMonth(String(d.date)) : f.report.sheetDate ? dayMonth(f.report.sheetDate) : dayMonth(f.report.receivedAt);
+      return {
+        title: `${show}: the ${date} sheet gives a total (${figure(d.total)}) but no tiers`,
+        titleShort: `${show}: total ${figure(d.total)}, no tiers`,
+        body: "Comps can't be separated, so this show's count is held. Other shows on the sheet are stored.",
+        bodyShort: "Held.",
+        actions: [act(`Use the total (${figure(d.total)})`, "use_total", { fields: { total: String(d.total) } }), act("Skip this show", "skip_show")],
+      };
+    }
     case "block_after_sent": {
       // Ruling a.
       const blockDate = dayMonth(String(d.blockDate));
