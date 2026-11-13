@@ -37,21 +37,42 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { writeAdStatus, type AdStatusGraph } from "../meta/ad-status-write.ts";
+import { writeAdSetStatus, type AdSetStatusGraph } from "../meta/adset-status-write.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
 import type { AdCreativeDraft, CTAType } from "../types.ts";
 import type { ApplyGates } from "./apply-gates.ts";
 import { addsSpend, appliesNow } from "./line-states.ts";
-import { draftForCampaign, loadAll, type DraftRow } from "./load.ts";
-import type { AddCopy } from "./rules.ts";
+import { draftForCampaign, type DraftRow } from "./load.ts";
+import { LAST_ADSET_STAYS, RETARGETING_STAYS } from "./decide.ts";
+import { applyNewAdSet, type NewAdSetDeps } from "./apply-adsets.ts";
+import { appliedMovesGbp, moveGuard, planGuard, projectedSpend, spendToDate } from "./plan-guard.ts";
+import { RETARGETING, type AddCopy } from "./rules.ts";
+import { todayLondon } from "./schedule.ts";
+
+export { planGuard, spendToDate };
 
 type Db = Pick<SupabaseClient, "from">;
 
-export type AdSetNow = { id: string; campaignId: string | null; effectiveStatus: string | null };
+export type AdSetNow = {
+  id: string;
+  campaignId: string | null;
+  effectiveStatus: string | null;
+  /** Its own configured status (ACTIVE / PAUSED), apart from the campaign's. */
+  status?: string | null;
+  name?: string | null;
+  /** Minor units (pence); null when the budget is the campaign's or a lifetime budget. */
+  dailyBudget?: number | null;
+};
 export type AdNow = { id: string; effectiveStatus: string | null };
 
 /** The Meta calls Apply makes. Reads may retry; writes are single shot. */
-export type RefreshMeta = AdStatusGraph & {
+export type RefreshMeta = AdStatusGraph & AdSetStatusGraph & {
+  /** GET /{adset}: campaign_id, status, effective_status, name, daily_budget. */
   readAdSet(adsetId: string): Promise<AdSetNow | null>;
+  /** GET /{campaign}/adsets: each ad set's id, name and effective status. */
+  listAdSets(campaignId: string): Promise<AdSetNow[]>;
+  /** The optimisation budget write: POST /{adset} { daily_budget } (minor units). */
+  updateAdSetDailyBudget(adsetId: string, dailyBudgetPence: number): Promise<void>;
   listAds(adsetId: string): Promise<AdNow[]>;
   /** Build the creative payload the launch path builds (buildCreativePayload, IG actor checked) and POST it. Returns the creative id. */
   createCreative(adAccountId: string, creative: AdCreativeDraft): Promise<string>;
@@ -71,6 +92,8 @@ export type ApplyDeps = {
   copyFromDrive(fileId: string): Promise<DriveCopy>;
   /** The draft upload (POST /api/meta/upload-asset): a video id or an image hash. */
   upload(input: { storagePath: string; storageBucket: string; type: "video" | "image"; adAccountId: string; fileName: string; aspectRatio: string }): Promise<{ videoId?: string; imageHash?: string }>;
+  /** P3: the new-ad-set lines' Meta calls and the audience builder. Absent = those lines fail without a write. */
+  adsets?: Pick<NewAdSetDeps, "meta" | "ensureAudience">;
   now?: Date;
 };
 
@@ -80,20 +103,29 @@ export type ApplyResult =
   | { ok: true; applied: number; failed: number; lines: ApplyLineOutcome[] }
   | { ok: false; status: number; error: string };
 
-type EventRow = { id: string; user_id: string; budget_marketing: number | string | null };
+type EventRow = { id: string; user_id: string; budget_marketing: number | string | null; event_date?: string | null };
 
-type ProposalRow = { id: string; campaign_key: string; campaign_ids: string[] | null };
+type ProposalRow = { id: string; campaign_key: string; campaign_ids: string[] | null; window_end?: string | null };
 
 type LineRow = {
   id: string;
   proposal_id: string;
-  kind: "add_creative" | "pause_creative";
+  kind: "add_creative" | "pause_creative" | "bring_back_audience" | "drop_audience" | "move_budget" | "missing_default";
   state: string;
   title: string;
   target: Record<string, unknown> | null;
+  evidence?: Record<string, unknown> | null;
   write: Record<string, unknown> | null;
   applied_result: Record<string, unknown> | null;
 };
+
+type Outcome = { state: "applied" | "failed"; reason: string | null; result: Record<string, unknown> };
+
+/** Meta's statuses for an ad set that is spending. */
+const DELIVERING = new Set(["ACTIVE", "LEARNING", "LEARNING_LIMITED"]);
+
+/** The floor we keep on a giving ad set's daily budget, in minor units (£1.00). A move never takes it under. */
+export const MIN_DAILY_BUDGET_MINOR = 100;
 
 export const APPLY_SHADOW = "Shadow: nothing here can be applied yet.";
 
@@ -136,30 +168,16 @@ export function plainMetaReason(err: unknown): string {
   return said ? `Meta didn't take this — ${said.length > 140 ? `${said.slice(0, 137)}…` : said}` : "Meta didn't take this, and gave no reason.";
 }
 
-/** "Applied · 6 ads live" / "Applied · 2 ads paused" (F3). */
+/** "Applied · 6 ads live" / "Applied · 2 ads paused" / "Applied · on" / "Applied · off" (F3). */
 export function appliedText(kind: string, count: number): string {
+  if (kind === "bring_back_audience") return "on";
+  if (kind === "drop_audience") return "off";
   return kind === "pause_creative" ? `${count} ad${count === 1 ? "" : "s"} paused` : `${count} ad${count === 1 ? "" : "s"} live`;
 }
 
-/** The event's spend to date, Meta, from its daily rollups (paged, unique-key order, deduped). */
-export async function spendToDate(db: Db, eventId: string): Promise<number> {
-  const rows = await loadAll<{ event_id: string; date: string; ad_spend: number | string | null }>(db, "event_daily_rollups", "event_id, date, ad_spend", ["event_id", "date"], (q) => q.eq("event_id", eventId));
-  return rows.reduce((sum, row) => sum + num(row.ad_spend), 0);
-}
-
-/**
- * R5's plan guard (the design ruling on #1220): only a line that turns
- * delivery on or raises a budget adds spend — a bring-back, a new ad set,
- * a budget raise. It needs the event's budget, and budget left after the
- * spend to date. An add puts a new ad into an ad set whose budget doesn't
- * change, and a pause lowers spend: neither is guarded. Moves keep their
- * 20 % cap instead.
- */
-export function planGuard(kind: string, budget: number | null, spend: number): string | null {
-  if (!addsSpend(kind)) return null;
-  if (budget == null) return "Set this event's budget to apply this.";
-  if (spend >= budget) return `This event has spent its budget (£${spend.toFixed(2)} of £${budget.toFixed(2)}), so nothing new goes live.`;
-  return null;
+/** "Applied · £14.18 a week moved" (a move). */
+export function movedText(amountGbp: number): string {
+  return `£${amountGbp.toFixed(2)} a week moved`;
 }
 
 function adName(fileName: string): string {
@@ -351,6 +369,85 @@ async function applyPause(deps: ApplyDeps, line: LineRow, ledger: MetaWriteConte
 }
 
 /**
+ * Bring back (a stopped ad set → on) and Drop (a delivering ad set → off),
+ * through the gated ad-set status write. Checked again here: the ad set is
+ * in this campaign; a drop never takes retargeting, nor the last ad set
+ * delivering in the campaign. An ad set already in the asked status is
+ * applied without a write.
+ */
+async function applyAdSetStatus(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContext, guard: Extract<Guarded, { ok: true }>): Promise<Outcome> {
+  const write = line.write ?? {};
+  const adsetId = typeof write.adsetId === "string" ? write.adsetId : null;
+  const on = line.kind === "bring_back_audience";
+  const status = on ? "ACTIVE" : "PAUSED";
+  if (!adsetId) return { state: "failed", reason: "The line has no ad set.", result: {} };
+  const now = await deps.meta.readAdSet(adsetId);
+  if (!now?.campaignId || !guard.campaignIds.includes(now.campaignId)) return { state: "failed", reason: "The ad set isn't in this campaign any more, so nothing was written.", result: { adsetId } };
+  if (!on) {
+    if (RETARGETING.test(now.name ?? line.title)) return { state: "failed", reason: RETARGETING_STAYS, result: { adsetId } };
+    const sets = (await Promise.all(guard.campaignIds.map((id) => deps.meta.listAdSets(id)))).flat();
+    const others = sets.filter((set) => set.id !== adsetId && DELIVERING.has(set.effectiveStatus ?? ""));
+    if (!others.length) return { state: "failed", reason: LAST_ADSET_STAYS, result: { adsetId, delivering: sets.filter((set) => DELIVERING.has(set.effectiveStatus ?? "")).map((set) => set.id) } };
+  }
+  if (now.status === status) return { state: "applied", reason: appliedText(line.kind, 1), result: { adsetId, status, before: now.status, wrote: false } };
+  try {
+    await writeAdSetStatus({ env: deps.env, ledger, graph: deps.meta, adsetId, status, key: line.id });
+  } catch (err) {
+    return { state: "failed", reason: err instanceof Error && err.name === "AdSetStatusWritesDisabledError" ? err.message : plainMetaReason(err), result: { adsetId, error: err instanceof Error ? err.message : String(err) } };
+  }
+  return { state: "applied", reason: appliedText(line.kind, 1), result: { adsetId, status, before: now.status ?? null, effectiveBefore: now.effectiveStatus ?? null, wrote: true } };
+}
+
+type MovePlan = { fromAdsetId: string; toAdsetId: string; deltaMinor: number; from: { before: number; after: number }; to: { before: number; after: number } };
+
+/**
+ * A within-campaign move through the optimisation budget write: the giving
+ * ad set's daily budget down by the week's amount ÷ 7, the receiving one
+ * up by the same. The giving side is written first, so spend is never
+ * above plan mid-move. Each side is re-read first and written only from
+ * the budget the move was planned on (the optimisation write's
+ * "changed underfoot" rule). A retry reuses the stored plan, so a side
+ * already written isn't moved twice.
+ */
+async function applyMove(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContext, guard: Extract<Guarded, { ok: true }>): Promise<Outcome> {
+  const write = line.write ?? {};
+  const fromAdsetId = typeof write.fromAdsetId === "string" ? write.fromAdsetId : null;
+  const toAdsetId = typeof write.toAdsetId === "string" ? write.toAdsetId : null;
+  const amount = num(write.amountGbp);
+  if (!fromAdsetId || !toAdsetId || amount <= 0) return { state: "failed", reason: "The line has no ad sets or amount to move.", result: {} };
+  const [from, to] = await Promise.all([deps.meta.readAdSet(fromAdsetId), deps.meta.readAdSet(toAdsetId)]);
+  for (const set of [from, to]) {
+    if (!set?.campaignId || !guard.campaignIds.includes(set.campaignId)) return { state: "failed", reason: "One of the ad sets isn't in this campaign any more, so nothing was moved.", result: { fromAdsetId, toAdsetId } };
+  }
+  if (from!.dailyBudget == null || to!.dailyBudget == null) return { state: "failed", reason: "The budget is set on the campaign or as a lifetime budget, so ad-set budgets can't be moved.", result: { fromAdsetId, toAdsetId } };
+  const previous = (line.applied_result?.plan ?? (line.applied_result?.previous as Record<string, unknown> | undefined)?.plan) as MovePlan | undefined;
+  const deltaMinor = Math.round((amount * 100) / 7);
+  const plan: MovePlan = previous?.fromAdsetId === fromAdsetId && previous.toAdsetId === toAdsetId
+    ? previous
+    : { fromAdsetId, toAdsetId, deltaMinor, from: { before: from!.dailyBudget, after: from!.dailyBudget - deltaMinor }, to: { before: to!.dailyBudget, after: to!.dailyBudget + deltaMinor } };
+  if (plan.from.after < MIN_DAILY_BUDGET_MINOR) return { state: "failed", reason: "Moving it would take the giving ad set under £1.00 a day, the floor we keep, so nothing was moved.", result: { plan } };
+  const sides: [string, { before: number; after: number }, number][] = [
+    [fromAdsetId, plan.from, from!.dailyBudget],
+    [toAdsetId, plan.to, to!.dailyBudget],
+  ];
+  const written: string[] = [];
+  for (const [adsetId, side, live] of sides) {
+    if (live === side.after) continue;
+    if (live !== side.before) return { state: "failed", reason: written.length ? "The receiving ad set's budget changed in Ads Manager since the proposal, so only the giving side moved." : "The budget changed in Ads Manager since the proposal, so nothing was moved.", result: { plan, written, underfoot: { adsetId, live, expected: side.before } } };
+    try {
+      await withMetaWriteIdempotency(ledger, "refresh_adset_budget_update", { line_id: line.id, adset_id: adsetId, daily_budget: side.after }, async () => {
+        await deps.meta.updateAdSetDailyBudget(adsetId, side.after);
+        return adsetId;
+      }, { required: true });
+      written.push(adsetId);
+    } catch (err) {
+      return { state: "failed", reason: written.length ? `Only the giving side moved — ${plainMetaReason(err)}` : plainMetaReason(err), result: { plan, written, error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+  return { state: "applied", reason: movedText(amount), result: { plan, written, amountGbp: amount } };
+}
+
+/**
  * Apply the event's accepted creative lines (or, with `retry`, its failed
  * ones). `lineIds` narrows it. The caller has checked the owner.
  */
@@ -360,12 +457,12 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
   if (gates.mode !== "live") return { ok: false, status: 409, error: APPLY_SHADOW };
   const now = deps.now ?? new Date();
 
-  const eventRead = await db.from("events").select("id, user_id, budget_marketing").eq("id", args.eventId).maybeSingle();
+  const eventRead = await db.from("events").select("id, user_id, budget_marketing, event_date").eq("id", args.eventId).maybeSingle();
   if (eventRead.error) return { ok: false, status: 500, error: eventRead.error.message };
   const event = eventRead.data as EventRow | null;
   if (!event || event.user_id !== args.userId) return { ok: false, status: 404, error: "Event not found on this account." };
 
-  const proposalRead = await db.from("onsale_refresh_proposals").select("id, campaign_key, campaign_ids").eq("event_id", event.id);
+  const proposalRead = await db.from("onsale_refresh_proposals").select("id, campaign_key, campaign_ids, window_end").eq("event_id", event.id);
   if (proposalRead.error) return { ok: false, status: 500, error: proposalRead.error.message };
   const proposals = new Map(((proposalRead.data ?? []) as ProposalRow[]).map((row) => [row.id, row]));
   if (!proposals.size) return { ok: true, applied: 0, failed: 0, lines: [] };
@@ -373,19 +470,21 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
   const from = args.retry ? "failed" : "accepted";
   const lineRead = await db
     .from("onsale_refresh_lines")
-    .select("id, proposal_id, kind, state, title, target, write, applied_result")
+    .select("id, proposal_id, kind, state, title, target, evidence, write, applied_result")
     .in("proposal_id", [...proposals.keys()])
-    .in("kind", ["add_creative", "pause_creative"])
+    .in("kind", ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default"])
     .eq("state", from)
     .order("position", { ascending: true });
   if (lineRead.error) return { ok: false, status: 500, error: lineRead.error.message };
   const wanted = args.lineIds?.length ? new Set(args.lineIds) : null;
-  const lines = ((lineRead.data ?? []) as LineRow[]).filter((line) => (!wanted || wanted.has(line.id)) && appliesNow({ kind: line.kind, state: "accepted" }, gates));
+  const lines = ((lineRead.data ?? []) as LineRow[]).filter((line) => (!wanted || wanted.has(line.id)) && appliesNow({ kind: line.kind, state: "accepted", writeKind: typeof line.write?.kind === "string" ? line.write.kind : null }, gates));
   if (!lines.length) return { ok: true, applied: 0, failed: 0, lines: [] };
 
   const budget = event.budget_marketing == null ? null : num(event.budget_marketing);
-  // Only a spend-adding line reads the spend to date; P2's creative lines never do.
-  const spend = lines.some((line) => addsSpend(line.kind)) ? await spendToDate(db, event.id) : 0;
+  // Only a spend-adding line or a move reads the spend to date; creative lines and drops never do.
+  const spend = budget != null && lines.some((line) => addsSpend(line.kind) || line.kind === "move_budget") ? await spendToDate(db, event.id) : 0;
+  const isNewAdSet = (line: LineRow) => line.kind === "missing_default" || line.write?.kind === "new_adset";
+  const today = todayLondon(now);
   const outcomes: ApplyLineOutcome[] = [];
   for (const line of lines) {
     // Claim it: only one click gets to run a line.
@@ -398,14 +497,34 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
     const proposal = proposals.get(line.proposal_id)!;
     let outcome: { state: "applied" | "failed"; reason: string | null; result: Record<string, unknown> };
     try {
-      const planned = planGuard(line.kind, budget, spend);
+      // R5 at apply time: the plan guard on spend lines (their spend before the show), the 20 % cap on moves.
+      const planned = isNewAdSet(line)
+        ? null // a new ad set's money is decided by its own rule (apply-adsets.ts), re-read there
+        : line.kind === "move_budget"
+          ? moveGuard(num(line.write?.amountGbp), budget, spend, proposal.window_end ? await appliedMovesGbp(db, event.id, proposal.window_end, line.id) : 0)
+          : planGuard(line.kind, budget, spend, projectedSpend(line.evidence, today, event.event_date ?? null));
       const guard = planned ? ({ ok: false, reason: planned } as const) : await campaignGuard(db, event, line, proposal);
       if (!guard.ok) {
         outcome = { state: "failed", reason: guard.reason, result: { guard: guard.reason } };
       } else {
         const ledger: MetaWriteContext = { supabase: db, userId: event.user_id, draftId: guard.draftId, eventId: event.id };
-        if (line.kind === "add_creative") {
+        if (isNewAdSet(line)) {
+          if (!deps.adsets) {
+            outcome = { state: "failed", reason: "Making new ad sets isn't wired on this deployment, so nothing was made.", result: {} };
+          } else {
+            const moved = proposal.window_end ? await appliedMovesGbp(db, event.id, proposal.window_end, line.id) : 0;
+            outcome = await applyNewAdSet(
+              { db, env: deps.env, ...deps.adsets, plan: { budget, spend: budget != null ? spend || (await spendToDate(db, event.id)) : 0, today, eventDate: event.event_date ?? null, appliedMovesGbp: moved } },
+              { id: line.id, kind: line.kind as "bring_back_audience" | "missing_default", write: line.write, applied_result: (line.applied_result?.previous as Record<string, unknown> | undefined) ?? line.applied_result },
+              { eventId: event.id, userId: event.user_id, campaignKey: proposal.campaign_key, ledger, adAccountId: guard.adAccountId, campaignIds: guard.campaignIds, plainMetaReason },
+            );
+          }
+        } else if (line.kind === "add_creative") {
           outcome = await applyAdd(deps, line, ledger, guard);
+        } else if (line.kind === "bring_back_audience" || line.kind === "drop_audience") {
+          outcome = await applyAdSetStatus(deps, line, ledger, guard);
+        } else if (line.kind === "move_budget") {
+          outcome = await applyMove(deps, line, ledger, guard);
         } else {
           const sibling = await db.from("onsale_refresh_lines").select("id").eq("proposal_id", line.proposal_id).eq("kind", "pause_creative").eq("state", "applied").neq("id", line.id);
           if (sibling.error) throw new Error(sibling.error.message);

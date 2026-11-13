@@ -13,7 +13,7 @@ export type OwnedRefreshEvent = {
   userId: string;
   /** "by {name}": the profile's first name, else the email's local part (never the full email). */
   userName: string | null;
-  event: { id: string; name: string; event_code: string | null; status: string | null; event_date: string | null; drive_folder_id: string | null; budget_marketing: number | string | null };
+  event: { id: string; name: string; event_code: string | null; status: string | null; event_date: string | null; drive_folder_id: string | null; budget_marketing: number | string | null; client_id: string | null };
   gates: ApplyGates;
   budgetSet: boolean;
 };
@@ -28,7 +28,7 @@ export async function ownedRefreshEvent(eventId: string): Promise<{ error: NextR
   const db = createServiceRoleClient();
   const { data, error } = await db
     .from("events")
-    .select("id, name, event_code, status, event_date, drive_folder_id, budget_marketing")
+    .select("id, name, event_code, status, event_date, drive_folder_id, budget_marketing, client_id")
     .eq("id", eventId)
     .eq("user_id", user.id)
     .maybeSingle();

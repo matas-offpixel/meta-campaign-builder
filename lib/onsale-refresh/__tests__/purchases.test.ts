@@ -975,14 +975,14 @@ describe("per-event purchases: Slack and the guards", () => {
     const metaImports = [...route.matchAll(/import \{([^}]+)\} from "@\/lib\/meta\/[^"]+"/g)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()));
     assert.deepEqual(metaImports.sort(), ["graphGetWithToken", "graphMultiGetByIds"], "a GET and the batch node read, nothing else from lib/meta");
     assert.match(route, /maxAttempts: 1/, "one attempt per call, so metaCalls is the true cost");
-    // P2: only Apply (apply.ts) and its gates may reach lib/meta, and only the gated ad-status write and the ledger;
+    // P2/P3: only Apply (apply.ts) and its gates may reach lib/meta, and only the gated status writes and the ledger;
     // the Graph calls themselves are injected by the apply route. Nothing in this folder posts to Graph.
-    const applyFiles = new Set(["apply.ts", "apply-gates.ts"]);
+    const applyFiles = new Set(["apply.ts", "apply-gates.ts", "apply-adsets.ts"]);
     for (const file of readdirSync("lib/onsale-refresh").filter((name) => name.endsWith(".ts"))) {
       const source = readFileSync(`lib/onsale-refresh/${file}`, "utf8");
       assert.doesNotMatch(source, /graphPost|graphDelete|customconversions/, `${file}: no Meta write helper, no custom conversion`);
       if (applyFiles.has(file)) {
-        for (const match of source.matchAll(/from "\.\.\/meta\/([^"]+)"/g)) assert.ok(["ad-status-write.ts", "write-idempotency.ts"].includes(match[1]!), `${file}: ${match[1]}`);
+        for (const match of source.matchAll(/from "\.\.\/meta\/([^"]+)"/g)) assert.ok(["ad-status-write.ts", "adset-status-write.ts", "write-idempotency.ts"].includes(match[1]!), `${file}: ${match[1]}`);
       } else {
         assert.doesNotMatch(source, /from "\.\.\/meta\//, `${file}: the refresh's reads never import lib/meta`);
       }

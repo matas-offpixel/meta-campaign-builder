@@ -5,7 +5,7 @@
  * app/(dev)/frames/[id]/page.tsx sits in an open Cursor PR.
  */
 
-export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7"];
+export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8", "OR9"];
 export const REFRESH_WIDTHS = [1280, 393];
 
 export const REFRESH_SHOTS = REFRESH_FRAME_IDS.flatMap((frame) =>

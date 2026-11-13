@@ -30,5 +30,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     .upsert({ event_id: who.event.id, user_id: who.userId, mode: body.mode, armed_by: who.userId, armed_at: now, updated_at: now }, { onConflict: "event_id" });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   const gates = applyGates(process.env, body.mode);
-  return NextResponse.json({ ok: true, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, budgetSet: who.budgetSet } });
+  return NextResponse.json({ ok: true, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, budgetSet: who.budgetSet } });
 }

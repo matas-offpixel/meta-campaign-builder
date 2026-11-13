@@ -11,7 +11,7 @@ import { AdStatusWritesDisabledError, adStatusWritesEnabled, writeAdStatus } fro
 import { APPLY_ENV, applyEnabled, applyGates } from "../apply-gates.ts";
 import { MAX_PAUSES_PER_REFRESH, appliedText, applyAccepted, planGuard, plainMetaReason, refreshCreative, type ApplyDeps, type RefreshMeta } from "../apply.ts";
 import { SHADOW_REFUSAL, SPEND_NEEDS_BUDGET, decideLine, liveBlockedReason, rejectText } from "../decide.ts";
-import { NOT_APPLIED_YET, appliesNow, displayName, displayState, keepDates, retriesNow, stateText } from "../line-states.ts";
+import { appliesNow, displayName, displayState, keepDates, retriesNow, stateText } from "../line-states.ts";
 import { draftForCampaign } from "../load.ts";
 import { ONSALE_PHASE } from "../phase-config.ts";
 import { countToReview, loadEventProposals, loadPanel } from "../read.ts";
@@ -135,6 +135,15 @@ function fakeMeta(sets: Record<string, { campaignId: string; status: string; ads
       }
       return `ad${++n}`;
     },
+    async listAdSets() {
+      return [];
+    },
+    async postAdSetStatus(id, status) {
+      calls.push(`adset_status:${id}:${status}`);
+    },
+    async updateAdSetDailyBudget(id, pence) {
+      calls.push(`budget:${id}:${pence}`);
+    },
     async post(adId, status) {
       calls.push(`status:${adId}:${status}`);
       const set = Object.values(adSets).find((candidate) => candidate.ads.some((ad) => ad.id === adId));
@@ -187,11 +196,12 @@ describe("on-sale refresh P2: gates", () => {
     assert.equal(appliesNow({ kind: "pause_creative", state: "accepted" }, live(PAUSE_ENV)), true);
   });
 
-  it("Apply accepted (n) counts accepted creative lines only: audiences and budget are P3", () => {
+  it("Apply accepted (n) counts lines Apply writes, each only with its own gate open; new ad sets and claims never", () => {
     const gates = live(PAUSE_ENV);
     assert.equal(appliesNow({ kind: "add_creative", state: "accepted" }, gates), true);
     assert.equal(appliesNow({ kind: "add_creative", state: "to_review" }, gates), false);
-    for (const kind of ["bring_back_audience", "drop_audience", "move_budget", "missing_default", "claim_ready"] as const) assert.equal(appliesNow({ kind, state: "accepted" }, gates), false, kind);
+    for (const kind of ["bring_back_audience", "drop_audience", "move_budget"] as const) assert.equal(appliesNow({ kind, state: "accepted", writeKind: kind === "move_budget" ? "adset_budget_move" : "adset_status" }, gates), false, `${kind}: its gate is off`);
+    for (const kind of ["missing_default", "claim_ready"] as const) assert.equal(appliesNow({ kind, state: "accepted" }, gates), false, kind);
     assert.equal(retriesNow({ kind: "add_creative", state: "failed" }, gates), true);
   });
 
@@ -240,7 +250,7 @@ describe("on-sale refresh P2: the gated ad-status write (lib/meta/ad-status-writ
 
 describe("on-sale refresh P2: Accept and Reject (HR5)", () => {
   const decide = (mem: MemoryDb, lineId: string, decision: Parameters<typeof decideLine>[0]["decision"], opts: { gates?: ReturnType<typeof applyGates>; budgetSet?: boolean } = {}) =>
-    decideLine({ db: mem.db, eventId: "e1", userId: "u1", lineId, decision, gates: opts.gates ?? live(), budgetSet: opts.budgetSet ?? true, now: new Date("2026-11-16T08:30:00Z") });
+    decideLine({ db: mem.db, eventId: "e1", userId: "u1", lineId, decision, gates: opts.gates ?? live(), budget: opts.budgetSet === false ? null : 4500, eventDate: "2026-12-27", now: new Date("2026-11-16T08:30:00Z") });
 
   it("refused in Shadow", async () => {
     const mem = seed({ lines: [addLine("l1", "to_review")] });
@@ -274,14 +284,15 @@ describe("on-sale refresh P2: Accept and Reject (HR5)", () => {
     assert.equal(rejectText("wrong_creative", null), "Wrong creative");
   });
 
-  it("audience and budget lines can't be accepted until P3, with or without a budget; Reject stays live", async () => {
-    for (const kind of ["bring_back_audience", "drop_audience", "move_budget", "missing_default"]) {
-      const mem = seed({ lines: [{ ...addLine("l1", "to_review"), kind, adds_spend: kind === "bring_back_audience" || kind === "missing_default", blocked_reason: null }] });
-      assert.deepEqual(await decide(mem, "l1", { decision: "accept" }, { budgetSet: true }), { ok: false, status: 409, error: "Not applied yet: Apply only writes creatives for now." }, kind);
-      assert.equal(lineOf(mem, "l1").state, "to_review");
-      assert.deepEqual(await decide(mem, "l1", { decision: "reject", reason: "too_early" }), { ok: true, line: { id: "l1", state: "rejected", reason: "Too early" } }, `${kind}: its reasons feed R6`);
+  it("P3: a new ad set's line is accepted when it has money; without, the ruled sentence; Reject stays live", async () => {
+    for (const kind of ["bring_back_audience", "missing_default"]) {
+      const write = { kind: "new_adset", budgetLevel: "ad_set", copyFrom: { dailyGbp: 5 }, giver: null };
+      const ok = seed({ lines: [{ ...addLine("l1", "to_review"), kind, adds_spend: false, blocked_reason: null, write }] });
+      assert.equal(((await decide(ok, "l1", { decision: "accept" })) as { ok: boolean }).ok, true, `${kind}: £5 a day fits the plan`);
+      const none = seed({ lines: [{ ...addLine("l1", "to_review"), kind, adds_spend: false, blocked_reason: null, write }] });
+      assert.deepEqual(await decide(none, "l1", { decision: "accept" }, { budgetSet: false }), { ok: false, status: 409, error: "No budget to start it: set this event's budget, or there's nothing left to move this refresh." }, kind);
+      assert.deepEqual(await decide(none, "l1", { decision: "reject", reason: "too_early" }), { ok: true, line: { id: "l1", state: "rejected", reason: "Too early" } }, `${kind}: its reasons feed R6`);
     }
-    assert.equal(NOT_APPLIED_YET, "Not applied yet: Apply only writes creatives for now.");
     assert.equal(SPEND_NEEDS_BUDGET, "Adds spend: set this event's budget to accept this.");
   });
 
@@ -517,8 +528,10 @@ describe("on-sale refresh P2: Apply accepted (n)", () => {
     assert.equal(keepDates("20 ads · £26.20 · 0 IC"), "20 ads · £26.20 · 0 IC", "a count isn't a date");
   });
 
-  it("an audience line stored as Accepted reads To review", () => {
-    assert.equal(displayState({ kind: "bring_back_audience", state: "accepted" }), "to_review");
+  it("P3 applies every kind it proposes: an accepted new ad set's line reads Accepted", () => {
+    assert.equal(displayState({ kind: "bring_back_audience", state: "accepted", writeKind: "new_adset" }), "accepted");
+    assert.equal(displayState({ kind: "missing_default", state: "accepted", writeKind: "new_adset" }), "accepted");
+    assert.equal(displayState({ kind: "bring_back_audience", state: "accepted", writeKind: "adset_status" }), "accepted");
     assert.equal(displayState({ kind: "add_creative", state: "accepted" }), "accepted");
     assert.equal(displayState({ kind: "drop_audience", state: "rejected" }), "rejected");
   });
@@ -700,7 +713,7 @@ describe("on-sale refresh P2: what the panel reads", () => {
 
   it("loadPanel: gates from the env and the arm; the stale budget blocker goes once a budget is set", async () => {
     const panel = await loadPanel(panelDb().db, "e1", LIVE_ENV);
-    assert.deepEqual(panel.apply, { mode: "live", arm: "live", globalEnabled: true, pauseWritesEnabled: false, budgetSet: true });
+    assert.deepEqual(panel.apply, { mode: "live", arm: "live", globalEnabled: true, pauseWritesEnabled: false, adsetStatusWritesEnabled: false, budgetWritesEnabled: false, audienceWritesEnabled: false, budgetSet: true });
     assert.deepEqual(panel.proposals[0]!.blockers, []);
     assert.equal((await loadPanel(panelDb().db, "e1", {})).apply.mode, "shadow", "the deployment gate off");
   });
