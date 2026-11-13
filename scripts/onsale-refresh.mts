@@ -219,6 +219,8 @@ function stateLabel(state: PurchaseRead["state"]): string {
     nothing_reaches: "nothing reaches",
     under_bar: "under the bar",
     proposed: "proposed (own domain)",
+    no_ticket_url: "no ticket URL stored",
+    platform_no_purchases: "platform: no purchases on the pixel",
     pixel_sells_elsewhere: "platform: pixel sells elsewhere",
     platform_under_bar: "platform: under the bar",
     platform_proposed: "platform: proposed",

@@ -14,7 +14,9 @@ import { purchaseWhy, type PurchaseRead, type PurchaseState } from "../../lib/on
  * P26-BDAY's (OR2).
  *
  * OR2 / OR3 / OR5: the Objective block for three real shows, each as its
- * 12 Nov run read it (F2 of
+ * 12 Nov shadow run read it, which is the data to Wed 11 Nov, the same
+ * cut as OR1 (so LOCKLEAD's 8 credited since 6 Nov is to 11 Nov; a run a
+ * day later reads 11) (F2 of
  * docs/design-record/2026-11-13-ticket-platform-purchases.html). P26-BDAY
  * and NX26-LOCKLEAD sell on Skiddle and take the platform path, under the
  * bar; NX27-JULIANFIJMA sells on Universe while its ads' pixel sells on
@@ -23,8 +25,9 @@ import { purchaseWhy, type PurchaseRead, type PurchaseState } from "../../lib/on
  *
  * OR4: every purchase-line state (F2 of the per-event purchases record,
  * F1 of the ticket-platform record): the own-domain states, the three
- * platform states and the under-14-days form, what is left, and the read
- * that failed. "Ticket site only" is retired. The failed read's fixture
+ * platform states with the under-14-days form and the pixel with no
+ * purchases, what is left with "no ticket URL" ahead of "nothing reaches",
+ * and the read that failed. "Ticket site only" is retired. The failed read's fixture
  * carries a raw reason, which the frame must not show.
  */
 
@@ -124,7 +127,9 @@ export const OR4_STATES: { label: string; why: PanelProposal["why"] }[] = (
     ["Platform · under the bar", read("platform_under_bar", { ...onSkiddle, attributedOnPixel: credited(6, "2026-10-29", false) })],
     ["Platform · on sale under 14 days", read("platform_under_bar", { ...onSkiddle, attributedOnPixel: credited(6, "2026-11-06", true) })],
     ["Platform · pixel sells elsewhere", read("pixel_sells_elsewhere", { ...onSkiddle, platformShare: { purchases: 26, pixelPurchases: 836, share: 26 / 836, elsewhereHost: "universe.com" }, attributedOnPixel: credited(6, "2026-10-29", false) })],
-    ["Nothing reaches", read("nothing_reaches", { domain: DOMAIN, domainVia: "signup_url", landsOn: "Skiddle", ticketSite: null, onDomain: { d14: 0, d28: 0, history: 0 } })],
+    ["Platform · no purchases on the pixel", read("platform_no_purchases", { ...onSkiddle, platformShare: { purchases: 0, pixelPurchases: 0, share: null, elsewhereHost: null }, attributedOnPixel: credited(0, "2026-10-29", false) })],
+    ["No ticket URL", read("no_ticket_url", { domain: DOMAIN, domainVia: "signup_url", ticketSite: null, onDomain: { d14: 0, d28: 0, history: 0 } })],
+    ["Nothing reaches", read("nothing_reaches", { domain: DOMAIN, domainVia: "signup_url", landsOn: "Eventbrite", ticketSite: "Eventbrite", onDomain: { d14: 0, d28: 0, history: 0 } })],
     ["Shared domain", read("shared_domain", { domain: DOMAIN, domainKind: "shared_domain", sharedWith: 2 })],
     ["No own domain", read("no_own_domain", { domainKind: "no_own_domain", cirqlinPage: true })],
     ["No page or ticket URL", read("no_url", { domainKind: "no_url", ticketSite: null })],

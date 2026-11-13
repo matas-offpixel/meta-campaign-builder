@@ -186,8 +186,11 @@ describe("per-event purchases: the count, the bar and the state (E2, E3)", () =>
     assert.equal(nothing.state, "nothing_reaches");
     assert.equal(nothing.landsOn, "Skiddle");
     assert.equal(nothing.historyDays, 28, "Meta's domain breakdown returns 28 days; the record's 90 isn't readable");
-    assert.equal(readPurchases(input({ ticketSite: null, stats: { rows: hosts(["2026-11-03", "www.skiddle.com", 473], ["2026-11-03", "ra.co", 2]) } })).landsOn, "Skiddle", "no ticket link: the host the pixel's purchases mostly come from");
-    assert.equal(readPurchases(input({ ticketSite: null, stats: { rows: hosts(["2026-11-03", "shop.example.org", 5]) } })).landsOn, "shop.example.org");
+    const offList = readPurchases(input({ ticketSite: "Eventbrite", stats: { rows: hosts(["2026-11-03", "www.skiddle.com", 473], ["2026-11-03", "ra.co", 2]) } }));
+    assert.deepEqual([offList.state, offList.landsOn], ["nothing_reaches", "Eventbrite"], "a ticket link on a site that is not a platform: it names the show's own ticket site");
+    // With no ticket link stored there is nothing to name: that is "no ticket URL" (design, 13 Nov), whatever the pixel has.
+    assert.equal(readPurchases(input({ ticketSite: null, stats: { rows: hosts(["2026-11-03", "www.skiddle.com", 473]) } })).state, "no_ticket_url");
+    assert.equal(readPurchases(input({ ticketSite: null, stats: { rows: [] } })).state, "no_ticket_url");
     assert.equal(readPurchases(input({ stats: { rows: [] } })).state, "under_bar", "an empty pixel is not 'they land elsewhere'");
     // A purchase on the domain before the 14 days is still a purchase that reached it.
     assert.equal(readPurchases(input({ stats: { rows: hosts(["2026-10-20", "locklead-newcastle.com", 1], ["2026-11-03", "www.skiddle.com", 473]) } })).state, "under_bar");
@@ -426,9 +429,68 @@ describe("ticket-platform purchases: which shows, and the count (T1, T2)", () =>
     // RA's locale hosts are RA.
     const ra = readPurchases(platformInput({ platform: "RA", ticketSite: "RA" }));
     assert.deepEqual([ra.platformShare!.purchases, ra.platformShare!.elsewhereHost, ra.state], [159, "skiddle.com", "pixel_sells_elsewhere"]);
-    // A pixel with no purchases sells nowhere else: the guard does not fail, the count decides.
-    const empty = readPurchases(platformInput({ stats: { rows: [] } }));
-    assert.deepEqual([empty.state, empty.platformShare], ["platform_under_bar", { purchases: 0, pixelPurchases: 0, share: null, elsewhereHost: null }]);
+  });
+
+  it("a pixel with no purchases fails the guard as its own state: it never reads as proposed or under the bar, whatever is credited", () => {
+    for (const count of [0, 6, 15, 40, 400]) {
+      const empty = readPurchases(platformInput({ attributed: credited(count), attributed14: count, stats: { rows: [] } }));
+      assert.equal(empty.state, "platform_no_purchases", `${count} credited`);
+      assert.deepEqual(empty.platformShare, { purchases: 0, pixelPurchases: 0, share: null, elsewhereHost: null });
+      const said = purchaseWhy(empty, false, ONSALE_PHASE);
+      assert.ok(said.purchase.startsWith("Purchase campaign not proposed — ") && said.purchaseNarrow.startsWith("No Purchase campaign: "), "never the proposed form");
+      assert.doesNotMatch(`${said.purchase} ${said.purchaseNarrow}`, /under 15|attributed/, "nor the under-the-bar form");
+      assert.equal(said.moves, "Budget moves stay inside each campaign.");
+    }
+    // One purchase anywhere on the pixel and the guard is the share again.
+    assert.equal(readPurchases(platformInput({ stats: { rows: hosts(["2026-11-03", "skiddle.com", 1]) } })).state, "platform_under_bar");
+    assert.equal(readPurchases(platformInput({ stats: { rows: hosts(["2026-11-03", "universe.com", 1]) } })).state, "pixel_sells_elsewhere");
+  });
+
+  it("no ticket URL stored: a domain (own or shared) nothing has reached and no ticket link; 'nothing reaches' stays for a ticket link off the platform list", () => {
+    const pixelHas = { rows: hosts(["2026-11-03", "www.skiddle.com", 844]) };
+    const noLink = (overrides: Partial<ReadPurchasesInput> = {}) => readPurchases(input({ ticketSite: null, platform: null, stats: pixelHas, ...overrides }));
+    assert.equal(noLink().state, "no_ticket_url", "Rudimental, D.O.D and Kream: their own domain, no ticket URL");
+    assert.equal(noLink({ domain: { kind: "shared_domain", domain: "julianfijma.com", others: 2 } }).state, "no_ticket_url", "a shared domain too");
+    assert.equal(noLink({ stats: { rows: [] } }).state, "no_ticket_url", "whatever the pixel has");
+    assert.equal(noLink().attributedPurchases.count, 21, "not the platform path: the attributed figure stays");
+    // A purchase on the domain is E1's count, ticket link or not.
+    assert.equal(noLink({ stats: { rows: hosts(["2026-11-03", "locklead-newcastle.com", 2]) } }).state, "under_bar");
+    // A ticket link on a site that is not a platform: nothing reaches, as before.
+    assert.equal(readPurchases(input({ ticketSite: "Eventbrite", platform: null, stats: pixelHas })).state, "nothing_reaches");
+    assert.equal(readPurchases(input({ ticketSite: "Eventbrite", platform: null, domain: { kind: "shared_domain", domain: "julianfijma.com", others: 2 }, stats: pixelHas })).state, "shared_domain");
+    // No domain at all is not this state.
+    assert.equal(noLink({ domain: { kind: "no_own_domain", cirqlinPage: true } }).state, "no_own_domain");
+  });
+
+  it("the whole state order, as the panel reads it: every state in its place, and the earlier wins where two apply", () => {
+    const pixelHas = hosts(["2026-11-03", "www.skiddle.com", 844]);
+    const onDomainToo = hosts(["2026-11-03", "locklead-newcastle.com", 3], ["2026-11-03", "www.skiddle.com", 844]);
+    const shared: DomainClass = { kind: "shared_domain", domain: "julianfijma.com", others: 2 };
+    // In the record's order, with design's two states where the rulings put them. Each row: what must hold, and the state.
+    const order: [string, Partial<ReadPurchasesInput>, PurchaseRead["state"]][] = [
+      ["1 · couldn't be read (the pixels)", { pixelError: "down", resolved: null, domain: { kind: "no_url" } }, "not_read"],
+      ["2 · no pixel, even with no URL", { resolved: null, domain: { kind: "no_url" } }, "no_pixel"],
+      ["3 · no page or ticket URL", { domain: { kind: "no_url" }, ticketSite: null, platform: null }, "no_url"],
+      ["1 · couldn't be read (the CIRQLIN page), once a pixel and a link exist", { domain: { kind: "not_read", reason: "HTTP 503" } }, "not_read"],
+      ["1 · couldn't be read (the breakdown), when a count decides", { stats: { error: "down" } }, "not_read"],
+      ["4 · a shared domain a purchase has reached, platform link or not", { domain: shared, stats: { rows: hosts(["2026-11-03", "julianfijma.com", 3], ["2026-11-03", "skiddle.com", 844]) }, attributed: credited(40) }, "shared_domain"],
+      ["4 · own domain, under the bar, before the platform path", { stats: { rows: onDomainToo }, attributed: credited(40) }, "under_bar"],
+      ["4 · own domain, proposed", { stats: { rows: hosts(["2026-11-03", "locklead-newcastle.com", 15]) }, attributed: credited(0) }, "proposed"],
+      ["5 · platform: no purchases on the pixel, first, whatever is credited", { stats: { rows: [] }, attributed: credited(40) }, "platform_no_purchases"],
+      ["5 · platform: pixel sells elsewhere, before the count", { stats: { rows: hosts(["2026-11-03", "universe.com", 844]) }, attributed: credited(40) }, "pixel_sells_elsewhere"],
+      ["5 · platform: under the bar", { stats: { rows: pixelHas }, attributed: credited(14) }, "platform_under_bar"],
+      ["5 · platform: proposed", { stats: { rows: pixelHas }, attributed: credited(15) }, "platform_proposed"],
+      ["5 · platform, for a shared domain nothing reaches", { domain: shared, stats: { rows: pixelHas }, attributed: credited(15) }, "platform_proposed"],
+      ["6 · no domain of its own, off the platform list", { domain: { kind: "no_own_domain", cirqlinPage: true }, ticketSite: "Eventbrite", platform: null, stats: { rows: pixelHas } }, "no_own_domain"],
+      ["6 · no ticket URL, own domain, ahead of nothing reaches", { ticketSite: null, platform: null, stats: { rows: pixelHas } }, "no_ticket_url"],
+      ["6 · no ticket URL, shared domain, ahead of shared domain", { domain: shared, ticketSite: null, platform: null, stats: { rows: pixelHas } }, "no_ticket_url"],
+      ["6 · shared domain, ticket link off the list", { domain: shared, ticketSite: "Eventbrite", platform: null, stats: { rows: pixelHas } }, "shared_domain"],
+      ["6 · nothing reaches, ticket link off the list", { ticketSite: "Eventbrite", platform: null, stats: { rows: pixelHas } }, "nothing_reaches"],
+    ];
+    for (const [label, overrides, expected] of order) assert.equal(readPurchases(platformInput(overrides)).state, expected, label);
+    // Every state the panel can show is in the list.
+    const all: PurchaseRead["state"][] = ["not_read", "no_pixel", "no_url", "shared_domain", "under_bar", "proposed", "platform_no_purchases", "pixel_sells_elsewhere", "platform_under_bar", "platform_proposed", "no_own_domain", "no_ticket_url", "nothing_reaches"];
+    assert.deepEqual([...new Set(order.map(([, , state]) => state))].sort(), [...all].sort());
   });
 
   it("T1 / T5: the platform path takes in 'nothing reaches', 'no domain of its own' and the retired 'ticket site only'; a domain a purchase has reached wins", () => {
@@ -493,8 +555,6 @@ describe("ticket-platform purchases: the words (T4, F1)", () => {
     assert.equal(universe.context, "Universe took 2 % of this pixel's 836 purchases in 28 days.");
     assert.equal(universe.contextNarrow, "Universe: 2 % of the pixel's purchases in 28 days.");
     assert.equal(lines({ stats: { rows: hosts(["2026-11-03", "skiddle.com", 1]) } }).context, "Skiddle took 100 % of this pixel's 1 purchase in 28 days.");
-    const empty = lines({ stats: { rows: [] } });
-    assert.deepEqual([empty.context, empty.contextNarrow], ["This pixel saw no purchases in 28 days.", "No purchases on the pixel in 28 days."]);
     // Off the platform path nothing changes: the attributed line, no share line.
     const own = purchaseWhy(readPurchases(input({ stats: { rows: hosts(["2026-11-03", "locklead-newcastle.com", 6]) } })), false, ONSALE_PHASE);
     assert.deepEqual([own.context, own.contextNarrow], [null, null]);
@@ -504,6 +564,27 @@ describe("ticket-platform purchases: the words (T4, F1)", () => {
     assert.equal(failed.purchase, "Purchase campaign not proposed — this show's purchases couldn't be read this run. The next run tries again.");
     assert.equal(failed.attributed, "Attributed to these ads: 21 purchases in 14 days, any show on this pixel.");
     assert.equal(failed.context, null);
+  });
+
+  it("design, 13 Nov: the two new states' sentences at 1280 and 393, and what sits under each", () => {
+    // A pixel with no purchases: the platform is named; no context line and no attributed line under it.
+    for (const [platform, site] of [["Skiddle", "Skiddle"], ["Universe", "Universe"], ["See Tickets", "See Tickets"]] as const) {
+      const empty = lines({ platform, ticketSite: site, stats: { rows: [] }, attributed: credited(6) });
+      assert.equal(empty.purchase, `Purchase campaign not proposed — this pixel has seen no purchases in 28 days, so there's nothing for Meta to optimise on. Check that ${platform} sends its purchases to this pixel.`);
+      assert.equal(empty.purchaseNarrow, "No Purchase campaign: no purchases on this pixel in 28 days.");
+      assert.equal(empty.moves, "Budget moves stay inside each campaign.");
+      assert.deepEqual([empty.context, empty.contextNarrow, empty.attributed, empty.attributedNarrow], [null, null, null, null]);
+      assert.equal(`${empty.purchase} ${empty.moves}`, `Purchase campaign not proposed — this pixel has seen no purchases in 28 days, so there's nothing for Meta to optimise on. Check that ${platform} sends its purchases to this pixel. Budget moves stay inside each campaign.`, "the 1280 line as the panel draws it");
+    }
+    // No ticket URL stored: not the platform path, so the attributed line stays and there is no context line.
+    const noLink = purchaseWhy(readPurchases(input({ ticketSite: null, platform: null, stats: { rows: hosts(["2026-11-03", "www.skiddle.com", 844]) } })), false, ONSALE_PHASE);
+    assert.equal(noLink.purchase, "Purchase campaign not proposed — no ticket URL is stored for this show, so its sales can't be matched to a ticket platform. Add the ticket link on the event page.");
+    assert.equal(noLink.purchaseNarrow, "No Purchase campaign: no ticket URL stored.");
+    assert.equal(noLink.moves, "Budget moves stay inside each campaign.");
+    assert.equal(noLink.attributed, "Attributed to these ads: 21 purchases in 14 days, any show on this pixel.");
+    assert.equal(noLink.attributedNarrow, "21 attributed purchases in 14 days, any show.");
+    assert.deepEqual([noLink.context, noLink.contextNarrow], [null, null]);
+    assert.equal(noLink.ticketing, UNLINKED_TICKETING);
   });
 
   it("the shared signal never blocks and never gets a ticketing check; unlinked ticketing is still said; the setup line is unchanged", () => {
@@ -730,7 +811,9 @@ describe("per-event and ticket-platform purchases: the read across a run (HE1, H
     // No pixel and no URL still come first; a show with no ticket URL is unchanged.
     assert.deepEqual([read("trancoso").state, read("trancoso").pixel, read("trancoso").platform], ["no_pixel", null, "Ingresse"]);
     assert.deepEqual([read("csa").state, read("csa").platform, read("csa").platformShare], ["no_url", null, null]);
-    assert.deepEqual([read("rudimental").state, read("rudimental").platform, read("rudimental").landsOn], ["nothing_reaches", null, "Skiddle"]);
+    // Its own domain, nothing on it, and no ticket URL stored: it says so, and what to do.
+    assert.deepEqual([read("rudimental").state, read("rudimental").platform, read("rudimental").landsOn], ["no_ticket_url", null, null]);
+    assert.equal(said("rudimental").purchaseNarrow, "No Purchase campaign: no ticket URL stored.");
 
     // Reads only, counted: one ad-set batch, the breakdown of the three pixels a domain or a platform link counts on, one names batch.
     assert.equal(result.metaCalls, graphCalls.length);
@@ -752,8 +835,8 @@ describe("per-event and ticket-platform purchases: the read across a run (HE1, H
     assert.deepEqual([read.state, read.onDomain!.d14, read.ticketsSold14, read.platformShare], ["proposed", 18, 40, null]);
     assert.equal(purchaseWhy(read, true, ONSALE_PHASE).ticketing, "Ticketing: 40 sold in 14 days · the pixel saw 18 on locklead-newcastle.com (45 % of sales).");
     assert.equal(purchaseWhy(read, true, ONSALE_PHASE).purchase, "Purchase campaign proposed — 18 purchases on locklead-newcastle.com in 14 days.");
-    // Rudimental, on the same pixel with no ticket link, now reads nothing reaches naming where they land.
-    assert.equal(result.reads.get("rudimental")!.state, "nothing_reaches");
+    // Rudimental, on the same pixel with no ticket link, reads no ticket URL stored.
+    assert.equal(result.reads.get("rudimental")!.state, "no_ticket_url");
   });
 
   it("without Meta, or when Meta fails, every show says it was not read — and no call is made that could not be", async () => {

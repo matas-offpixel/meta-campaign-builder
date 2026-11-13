@@ -213,9 +213,14 @@ export type HostDay = { day: string; host: string; count: number };
  * The states, in the ticket-platform record's order (the first that
  * applies wins): not read; no pixel; no page or ticket URL; a domain with
  * a purchase in the history (shared_domain, under_bar, proposed); a
- * ticket link on a platform (pixel_sells_elsewhere, platform_under_bar,
- * platform_proposed); then what is left (no_own_domain, shared_domain,
- * nothing_reaches). "Ticket site only" is retired.
+ * ticket link on a platform (platform_no_purchases, pixel_sells_elsewhere,
+ * platform_under_bar, platform_proposed); then what is left
+ * (no_own_domain, no_ticket_url, shared_domain, nothing_reaches). "Ticket
+ * site only" is retired. Design, 13 Nov: a pixel with no purchases fails
+ * the guard as its own state, first on the platform path; a show with a
+ * domain nothing reaches and no ticket URL stored says so, ahead of
+ * "nothing reaches", which stays for a ticket link on a site that is not
+ * a platform.
  */
 export type PurchaseState =
   | "not_read"
@@ -226,6 +231,8 @@ export type PurchaseState =
   | "nothing_reaches"
   | "under_bar"
   | "proposed"
+  | "no_ticket_url"
+  | "platform_no_purchases"
   | "pixel_sells_elsewhere"
   | "platform_under_bar"
   | "platform_proposed";
@@ -293,7 +300,7 @@ export type PurchaseRead = {
   sharedWith: number;
   /** The site the show's own ticket link is on. */
   ticketSite: string | null;
-  /** "Nothing reaches": where the purchases land instead — the show's ticket site, else the host the pixel's purchases mostly come from. */
+  /** "Nothing reaches": where the purchases land instead — the show's ticket site, one that is not on the platform list. */
   landsOn: string | null;
   /** Purchases on the own domain, on the resolved pixel: 14 and 28 days to the window end, and everything Meta returned. */
   onDomain: { d14: number; d28: number; history: number } | null;
@@ -427,19 +434,20 @@ export function readPurchases(input: ReadPurchasesInput): PurchaseRead {
   if (platform && rows) {
     const platformShare = platformShareOf(rows, platform, config.ticketPlatforms);
     const shared = { ...read, platformShare };
-    // T2's guard: the pixel must mostly sell where this show sells. A pixel with no purchases sells nowhere else.
-    if (platformShare.share != null && platformShare.share < config.platformShareMin) return { ...shared, state: "pixel_sells_elsewhere" };
+    // A pixel with no purchases has nothing for Meta to optimise on: it fails the guard as its own state, whatever is credited.
+    if (platformShare.share == null) return { ...shared, state: "platform_no_purchases" };
+    // T2's guard: the pixel must mostly sell where this show sells.
+    if (platformShare.share < config.platformShareMin) return { ...shared, state: "pixel_sells_elsewhere" };
     return { ...shared, state: (input.attributed?.count ?? 0) >= config.platformPurchasesMinIn14Days ? "platform_proposed" : "platform_under_bar" };
   }
 
   // What is left (E3, in the breakdown's history). "Ticket site only" is retired: a show whose only link is a ticket site that is not a platform has no domain of its own.
-  if (domain.kind === "shared_domain") return { ...read, state: "shared_domain" };
   if (domain.kind === "no_own_domain" || domain.kind === "ticket_site_only") return { ...read, state: "no_own_domain" };
-  // E2: an own domain that never sees a purchase while the pixel has them isn't "under the bar".
-  if (base.pixelWide && base.pixelWide.history > 0) {
-    const landsOn = input.ticketSite ?? ticketSiteOf(base.pixelWide.topHost) ?? base.pixelWide.topHost;
-    return { ...read, state: "nothing_reaches", landsOn };
-  }
+  // A domain (own or shared) nothing has reached, and no ticket link stored: the sales can't be matched to a platform until one is.
+  if (hasDomain && !input.ticketSite) return { ...read, state: "no_ticket_url" };
+  if (domain.kind === "shared_domain") return { ...read, state: "shared_domain" };
+  // E2: an own domain that never sees a purchase while the pixel has them isn't "under the bar". Its ticket link is on a site that is not a platform.
+  if (base.pixelWide && base.pixelWide.history > 0) return { ...read, state: "nothing_reaches", landsOn: input.ticketSite };
   return { ...read, state: "under_bar" };
 }
 
@@ -514,6 +522,14 @@ export function purchaseWhy(read: PurchaseRead, ticketingLinked: boolean, config
       purchase = `${not} ${plural(credited, "purchase")} attributed to these ads ${span}, under ${config.platformPurchasesMinIn14Days}. The signal is shared: ${platform} sells every show on this pixel.`;
       purchaseNarrow = `${no} ${credited} attributed ${span}, under ${config.platformPurchasesMinIn14Days} · shared on ${platform}.`;
       break;
+    case "platform_no_purchases":
+      purchase = `${not} this pixel has seen no purchases in ${read.historyDays} days, so there's nothing for Meta to optimise on. Check that ${platform} sends its purchases to this pixel.`;
+      purchaseNarrow = `${no} no purchases on this pixel in ${read.historyDays} days.`;
+      break;
+    case "no_ticket_url":
+      purchase = `${not} no ticket URL is stored for this show, so its sales can't be matched to a ticket platform. Add the ticket link on the event page.`;
+      purchaseNarrow = `${no} no ticket URL stored.`;
+      break;
     case "pixel_sells_elsewhere": {
       const elsewhere = read.platformShare?.elsewhereHost ?? "another site";
       purchase = `${not} most of this pixel's purchases are on ${elsewhere}, not ${platform} where this show sells, so optimising on them would chase another site's buyers.`;
@@ -557,19 +573,14 @@ export function purchaseWhy(read: PurchaseRead, ticketingLinked: boolean, config
   }
 
   // T4: on the platform path the attributed figure is the count, so it isn't repeated; the platform's share takes its place.
-  const onPlatform = read.state === "platform_proposed" || read.state === "platform_under_bar" || read.state === "pixel_sells_elsewhere";
+  // A pixel with no purchases has neither line under it: there is no share of nothing.
+  const onPlatform = read.state === "platform_proposed" || read.state === "platform_under_bar" || read.state === "pixel_sells_elsewhere" || read.state === "platform_no_purchases";
   let context: string | null = null;
   let contextNarrow: string | null = null;
-  if (onPlatform && read.platformShare) {
-    const { share, pixelPurchases } = read.platformShare;
-    if (share == null) {
-      context = `This pixel saw no purchases in ${read.historyDays} days.`;
-      contextNarrow = `No purchases on the pixel in ${read.historyDays} days.`;
-    } else {
-      const pct = Math.round(share * 100);
-      context = `${platform} took ${pct} % of this pixel's ${plural(pixelPurchases, "purchase")} in ${read.historyDays} days.`;
-      contextNarrow = `${platform}: ${pct} % of the pixel's purchases in ${read.historyDays} days.`;
-    }
+  if (onPlatform && read.state !== "platform_no_purchases" && read.platformShare?.share != null) {
+    const pct = Math.round(read.platformShare.share * 100);
+    context = `${platform} took ${pct} % of this pixel's ${plural(read.platformShare.pixelPurchases, "purchase")} in ${read.historyDays} days.`;
+    contextNarrow = `${platform}: ${pct} % of the pixel's purchases in ${read.historyDays} days.`;
   }
 
   return {
