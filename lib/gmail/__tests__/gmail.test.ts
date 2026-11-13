@@ -38,15 +38,15 @@ describe("Gmail OAuth", () => {
   });
 
   it("names what's missing from the env, and wants a dedicated key of 16+ characters", () => {
-    assert.deepEqual(gmailOAuthConfigFromEnv({} as NodeJS.ProcessEnv).missing, [
+    assert.deepEqual(gmailOAuthConfigFromEnv({} as unknown as NodeJS.ProcessEnv).missing, [
       "GMAIL_OAUTH_CLIENT_ID",
       "GMAIL_OAUTH_CLIENT_SECRET",
       "GMAIL_OAUTH_REDIRECT_URI",
       "GMAIL_OAUTH_STATE_SECRET",
     ]);
-    assert.equal(gmailTokenKey({ GMAIL_TOKEN_KEY: "short" } as NodeJS.ProcessEnv), null);
-    assert.equal(gmailTokenKey({ GOOGLE_ADS_TOKEN_KEY: "a-long-enough-key-123" } as NodeJS.ProcessEnv), null);
-    assert.equal(gmailTokenKey({ GMAIL_TOKEN_KEY: "a-long-enough-key-123" } as NodeJS.ProcessEnv), "a-long-enough-key-123");
+    assert.equal(gmailTokenKey({ GMAIL_TOKEN_KEY: "short" } as unknown as NodeJS.ProcessEnv), null);
+    assert.equal(gmailTokenKey({ GOOGLE_ADS_TOKEN_KEY: "a-long-enough-key-123" } as unknown as NodeJS.ProcessEnv), null);
+    assert.equal(gmailTokenKey({ GMAIL_TOKEN_KEY: "a-long-enough-key-123" } as unknown as NodeJS.ProcessEnv), "a-long-enough-key-123");
   });
 });
 
