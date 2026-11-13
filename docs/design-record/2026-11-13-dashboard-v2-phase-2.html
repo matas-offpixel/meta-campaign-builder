@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard v2 phase 2 — 13 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.db{background:var(--edit);border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:12.5px}
+.db-hd{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border)}
+.db-hd h4{margin:0;font:600 15px var(--sans)}
+.db-hd .sub{font-size:12px;color:var(--ink-2)}
+.fresh{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start}
+.fr{font:700 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--border-strong);border-radius:999px;padding:5px 8px;color:var(--ink-2);white-space:nowrap}
+.fr.old{border-color:var(--ochre);color:var(--ochre)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border)}
+.chip{font-size:12px;border:1px solid var(--border-strong);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.chip.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.chip.fin{opacity:.5}
+.chip.umb{border-style:dashed}
+.tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.tile{background:var(--card);border-radius:8px;padding:8px 10px;min-width:0}
+.tile .l{font:700 9px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.tile .v{font:600 18px/1.3 var(--sans)}
+.tile .s{font-size:11px;color:var(--ink-2);overflow-wrap:anywhere}
+.tile.on{outline:2px solid var(--ink)}
+.traj{padding:12px 16px}
+.traj .range{font-size:13px;margin:0 0 4px}
+.traj .range b{font-weight:600}
+.bar{position:relative;height:14px;background:var(--card);border-radius:3px;margin:6px 0 2px}
+.bar i{position:absolute;top:0;bottom:0;left:0;border-radius:3px}
+.bar .sold{background:var(--ink)}
+.bar .hold{background:rgba(30,24,16,.45)}
+.bar .high{background:rgba(30,24,16,.18)}
+.bar .alloc{position:absolute;top:-3px;bottom:-3px;width:0;border-left:2px dashed var(--brick)}
+.bar .cap{position:absolute;top:-3px;bottom:-3px;width:0;border-left:2px solid var(--ink)}
+.brow{display:grid;grid-template-columns:150px minmax(0,1fr) 120px;gap:10px;align-items:center;font-size:12px}
+.brow .n{font:11px var(--mono);color:var(--ink-2);text-align:right}
+.note{font-size:11.5px;color:var(--ink-2);margin:6px 0 0}
+.w393 .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+.w393 .brow{grid-template-columns:minmax(0,1fr)}
+.w393 .brow .n{text-align:left}
+@media (max-width:700px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.brow{grid-template-columns:minmax(0,1fr)}.brow .n{text-align:left}}
+</style>
+<style>
+.mt{width:100%;border-collapse:collapse;font-size:12px}
+.mt th,.mt td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+.mt th{font:700 9px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.mt th:first-child,.mt td:first-child{text-align:left}
+.scroll{overflow-x:auto}
+.src{font:10px/1.4 var(--mono);color:var(--ink-3);margin-top:4px}
+.fun{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(0,1fr);gap:8px;padding:12px 16px}
+.w393 .fun{grid-template-columns:minmax(0,1fr)}
+.geo{display:grid;grid-template-columns:150px minmax(0,1fr) 70px;gap:8px;align-items:center;font-size:12px;margin:3px 0}
+.geo .b{height:10px;background:var(--card);border-radius:2px;position:relative}
+.geo .b i{position:absolute;left:0;top:0;bottom:0;background:var(--ink);border-radius:2px}
+.geo .b i.unk{background:rgba(30,24,16,.25)}
+.geo .n{font:11px var(--mono);text-align:right;color:var(--ink-2)}
+.w393 .geo{grid-template-columns:110px minmax(0,1fr) 50px}
+@media (max-width:700px){.fun{grid-template-columns:minmax(0,1fr)}.geo{grid-template-columns:110px minmax(0,1fr) 50px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="k">Off/Pixel · design record · dashboard v2 · phase 2 · 13 November 2026</div>
+<h1>Dashboard v2, phase 2: who we reached, the list, the presale, creative and direct-to-fan</h1>
+<p class="lead">This record builds on <a href="2026-11-13-dashboard-v2.html"><code>2026-11-13-dashboard-v2.html</code></a> (D1–D13), which stands. Matas, 13 Nov: take the learnings from the Ironworks Season 1 report, especially Who we reached, Creative and Direct-to-fan, "now that we are using majority of our own landing pages for clients (Cirqlin), so have direct insights there".</p>
+<p class="lead">The report (<code>/share/season/JPdT9KFI40nEbuIy</code>, data to 4 Nov) was built by hand from many sources. This record makes its most useful sections standing parts of the dashboard, each figure naming its source. The report then becomes a saved, dated view of the same dashboard (E7).</p>
+<div class="open"><b>Sources for the frames.</b> The paid-media, presale and direct-to-fan numbers are Ironworks Season 1's own, read from the report on 13 Nov. The first-party geography is Electric Group's live CIRQLIN insights (whole group, 15 pages since 18 Aug, read 13 Nov). Puzzle 4th Birthday couldn't be read: the database connector was down, and the CIRQLIN session in Matas's browser is on the Electric org only. So EV1 uses Electric's real figures instead, and Puzzle's can replace them when the build runs. No invented number is drawn as real; examples are marked.</div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>E1 · Who we reached</td><td>
+<p><b>Two kinds of figure, kept apart. Proposal:</b></p>
+<ul>
+<li><b>Paid audience (the platforms' own):</b>
+  <ul>
+  <li>Meta: age, gender and region per campaign-day, with <b>results by age</b>: spend, impressions and share, CTR, signups (complete registrations), cost per signup, purchases, cost per purchase and revenue. This is the report's "Meta results by age" table, per show and per client.</li>
+  <li>TikTok: age, gender and UK nation with spend, impressions, clicks and CTR only. TikTok doesn't report results by age reliably, so the table says "TikTok reports clicks by age, not signups or sales".</li>
+  </ul></li>
+<li><b>First-party (CIRQLIN, from the signups themselves):</b>
+  <ul>
+  <li>Signup geography from <code>geo_country</code>, <code>geo_region</code> and <code>geo_city</code> on each signup: the top cities with counts, "Everywhere else", and <b>"Couldn't tell"</b> always shown, never spread across the others.</li>
+  <li>Per show, the share from the venue's own region against the rest. For example, across Electric's pages London (1,157) out-signs Newcastle (927).</li>
+  <li>Age only when the page's form asks for it. Today none do, and the panel says so.</li>
+  </ul></li>
+<li><b>Never blended.</b> Meta's age is Meta's modelled audience, CIRQLIN's city is where the signup arrived from. They sit side by side, each labelled with its source: "Meta says" and "from your signups".</li>
+<li><b>Privacy floor.</b> A city shows by name only with 10 or more signups. Smaller cities fold into "Everywhere else". No person-level row ever appears on this surface.</li>
+</ul>
+<p class="src">Invented: the home-region-vs-travelling split, the 10-signup floor, and the TikTok sentence.</p></td></tr>
+<tr><td>E2 · Signups &amp; communities</td><td>
+<p><b>The three-step funnel, each step naming its source. Proposal:</b></p>
+<ol>
+<li><b>Email signups.</b> CIRQLIN signups on the show's linked page (D9) when it has one. Otherwise the Mailchimp event tag's member count, labelled "Mailchimp tag, today's subscribers". "Still subscribed" comes from Mailchimp.</li>
+<li><b>WhatsApp opt-ins.</b> CIRQLIN signups whose consent snapshot includes WhatsApp and who left a phone number. This is cross-checked against the show's <code>CQ-{slug}</code> Bird list, and when the two differ by more than 2 %, both are shown.</li>
+<li><b>Community members.</b> WhatsApp communities have no API, so the count is <b>entered by hand</b> per show, with its date. That's how the report got it.
+  <ul>
+  <li>CIRQLIN's own "Community" figure is taps on the confirmation page's community link, so it shows as <b>"community link taps"</b>, never as members.</li>
+  <li>Electric's taps are 623 against 12,387 signups.</li>
+  </ul></li>
+</ol>
+<ul>
+<li><b>Join rate:</b> members ÷ WhatsApp opt-ins for that show (the report's "Opt-in → community").</li>
+<li><b>Cost per signup, two figures that are never merged:</b>
+  <ul>
+  <li><b>All paid:</b> signup-phase spend, all channels (D12) ÷ CIRQLIN signups.</li>
+  <li><b>Ad-tracked:</b> registration-objective spend ÷ the platforms' complete registrations.</li>
+  </ul>
+  Ironworks shows why both matter: £0.85 for all paid vs £1.34 ad-tracked.</li>
+<li><b>Consent and partner opt-ins:</b> CIRQLIN's consent snapshot counts per channel (email, SMS, WhatsApp), plus a partner opt-in count where the form carries one.</li>
+</ul>
+<p class="src">Invented: the 2 % cross-check line and the "community link taps" label.</p></td></tr>
+<tr><td>E3 · Presale engine</td><td>
+<p><b>What is counted, and what is entered. Proposal:</b></p>
+<table class="mt" style="margin:6px 0 10px">
+<tr><th>Figure</th><th>Source</th><th>How</th></tr>
+<tr><td>Signups at presale</td><td>CIRQLIN</td><td>Counted: signups on the page up to presale open</td></tr>
+<tr><td>Community at presale</td><td>Entered</td><td>The E2 member count nearest before presale</td></tr>
+<tr><td>Presale-day tickets</td><td>Internal Counts (D8)</td><td>Counted, only when a count lands within 24 h after presale open. Otherwise entered, and marked so</td></tr>
+<tr><td>Sold in community window</td><td>Entered</td><td>Snapshot counts can't split a 30-minute window. A linked source with order timestamps (Eventbrite, 4TheFans) counts it instead</td></tr>
+<tr><td>Window start</td><td>Brief / entered</td><td>Defaults to presale open − 30 min. The link drop is pasted by hand, so it has no Bird timestamp</td></tr>
+<tr><td>Community / wider conversion</td><td>Derived</td><td>Window sales ÷ members · later presale-day sales ÷ (signups − members)</td></tr>
+<tr><td>Signup spend per presale ticket</td><td>Derived</td><td>The show's registration-objective spend ÷ presale-day tickets</td></tr>
+<tr><td>Presale return (est.)</td><td>Derived + entered</td><td>Needs an average ticket price (entered, or from tier prices). Always labelled "est."</td></tr>
+<tr><td>Second presales / relaunches</td><td>Entered + CIRQLIN</td><td>Date and "what we did" entered. New signups counted from CIRQLIN since the relaunch date. Result entered</td></tr>
+</table>
+<ul>
+<li>Every entered figure carries "entered by {name}, {date}". Every counted figure names its source. A presale with no entries yet shows the counted half and "Add the window figures".</li>
+</ul>
+<p class="src">Invented: the 24-hour rule for presale-day counts, and the presale log as a per-show form.</p></td></tr>
+<tr><td>E4 · Creative</td><td>
+<p><b>One score source: <code>creative_scores</code>, the same scores the Lab and the on-sale refresh read. Proposal:</b></p>
+<ul>
+<li><b>Format scorecard, judged by objective.</b> Signups count only inside signup campaigns (cost per signup), and purchases only inside purchase campaigns (cost per purchase). A cost shows only where £500 or more ran, as the report does. A format is the creative's S14 angle (UGC edit, static artwork, promo/motion, ticket warning, presale reminder).</li>
+<li><b>AI-tag filters:</b> asset type, visual format, hook and messaging angle, with the counts per tag, and "match every selected tag".</li>
+<li><b>Top 10 by signups and top 10 by sales,</b> each tile with spend, the result, its cost, impressions, clicks, CTR, tags and "View ad".</li>
+<li><b>Least impact:</b> £150 or more spent, and the highest cost per result for its objective.
+  <ul>
+  <li>When the on-sale refresh is on, the list is exactly the refresh's pause candidates (R2: 2× the campaign's cost per result, 7 days live), so the two never disagree.</li>
+  <li>Each row links to its refresh line.</li>
+  </ul></li>
+<li><b>TikTok creatives:</b> spend, impressions, clicks, CTR, 2-second views and completion (full views ÷ 2-second views), ranked by spend.</li>
+<li><b>Links:</b> a creative row opens its Lab render (by <code>drive_file_id</code>) and its Drive file. No score is recomputed on this surface.</li>
+</ul>
+<p class="src">Invented: tying "least impact" to the refresh's R2 when the refresh is on.</p></td></tr>
+<tr><td>E5 · Direct-to-fan</td><td>
+<p><b>Proposal:</b></p>
+<ul>
+<li><b>WhatsApp (Bird):</b> per broadcast, sent, delivered, read, clicked and click rate. Opens are named <b>"read"</b>, because they're read receipts.</li>
+<li><b>Email (Mailchimp):</b> per campaign, delivered, opens, clicks and click rate.
+  <ul>
+  <li>Opens use Mailchimp's bot-filtered rate where its report gives one. Otherwise they're estimated with this client's own ratio, from sends that have both, and marked "est.".</li>
+  <li>A raw open rate (Apple Mail Privacy and scanners included) is never shown as the open rate.</li>
+  <li>Marketing and ticket-holder sends are split.</li>
+  </ul></li>
+<li><b>Clicks are the like-for-like comparison.</b> The headline compares click rates ("WhatsApp 13.4 % vs email 3.8 %"), never open rates across channels.</li>
+<li><b>Channel cost per click:</b>
+  <ul>
+  <li>WhatsApp: delivered × the client's Bird per-message rate (config), or the invoice when entered.</li>
+  <li>SMS: entered.</li>
+  <li>Email: "—", because the plan cost isn't per send.</li>
+  </ul></li>
+<li><b>Per show:</b> the broadcasts carrying the show's tag or list. A send to the whole list shows under the client, not under every show.</li>
+</ul>
+<p class="src">Invented: "read" as Bird's open word, the per-message rate in config, and putting whole-list sends at client level.</p></td></tr>
+<tr><td>E6 · Objective split and budget</td><td>
+<p><b>Proposal:</b></p>
+<ul>
+<li><b>Spend and results by objective × channel.</b> The objectives are Registration, Purchase, Traffic, and Awareness &amp; engagement. Each row's result is its objective's own metric (registrations, purchases, landing page views, reach). Cost per result and ROAS are shown only where the objective is purchase.</li>
+<li><b>Budget:</b> the plan (<code>events.budget_marketing</code>, or a client season budget), paid spend (D12), credits (entered, such as a Google promo credit), D2C distribution (E5's costs) and sub-budgets (afterparties). Variance is plan − paid + credits. The total marketing cost is paid + sub-budgets + D2C.</li>
+</ul>
+<p class="src">Invented: the variance formula as written, and the season budget as a client-level entry.</p></td></tr>
+<tr><td>E7 · Client-visible vs internal, and the season report</td><td>
+<p><b>Client-visible:</b> everything in D1–D13 and E1–E6 about the client's own shows, including D2C costs and budget.</p>
+<p><b>Internal only:</b></p>
+<ul>
+<li>any cross-client benchmark or comparison;</li>
+<li>Off/Pixel's fees;</li>
+<li>D's audit and review lists;</li>
+<li>the "Not linked" pill;</li>
+<li>raw error text;</li>
+<li>person-level rows.</li>
+</ul>
+<p><b>A season report becomes a saved, dated view of the dashboard, not a separate build.</b></p>
+<ul>
+<li>A saved view stores the client, shows and period, the computed figures frozen at a date, and written learnings (entered text, Off/Pixel's words, client-visible).</li>
+<li>It's served behind its own share token, and the existing <code>/share/season/[token]</code> route renders it.</li>
+<li>The frozen figures never change after saving. "Data as of {date}" heads it.</li>
+</ul>
+<p class="src">Invented: frozen figures plus learnings as the saved view's shape.</p></td></tr>
+<tr><td>E8 · Build pieces, after D's HD1–HD5</td><td>
+<ol>
+<li><b>HE1 · Audience breakdowns (Claude Code):</b> Meta age, gender and region results per campaign-day, and TikTok's audience report, stored per show. Read-only from the platforms.</li>
+<li><b>HE2 · CIRQLIN first-party read (Claude Code):</b> per page, signups by geography and consent channel, phone present, and community link taps. Read server-side from CIRQLIN, aggregated with the 10-signup floor.</li>
+<li><b>HE3 · Direct-to-fan ingest (Claude Code):</b> Bird broadcast stats and Mailchimp campaign reports per show and client, with the bot-filtered rate where given. Read-only. Bird deletes nothing (standing rule).</li>
+<li><b>HE4 · Presale log (Claude Code + Cursor):</b> the entered fields in E3, with who and when; the derived figures; and the community member entries (E2).</li>
+<li><b>HE5 · Creative section (Cursor, reading HD3):</b> the E4 surfaces on <code>creative_scores</code>, linked to the Lab and the refresh.</li>
+<li><b>HE6 · Objective and budget (Claude Code + Cursor):</b> E6.</li>
+<li><b>HE7 · Saved views (Claude Code + Cursor):</b> E7, then Ironworks Season 1 re-made as the first saved view. Its numbers should match the hand-built report, except where a figure was entered.</li>
+</ol>
+<p><b>Order:</b> HE1–HE3 together, then HE4–HE6, then HE7. Frames EV1–EV4 at 1280 and 393, internal and share.</p></td></tr>
+</table>
+
+<h2>EV1 · Who we reached (1280)</h2>
+<p class="lead">The left table is Ironworks Season 1's Meta results by age, as the report has them. The right panel is Electric Group's live CIRQLIN signup geography.</p>
+<div class="frame">
+<figure><figcaption>1280 · who we reached</figcaption>
+<div class="vp w1280">
+<div class="db">
+<div class="db-hd">
+<div><h4>Who we reached</h4>
+<div class="sub">Meta says, by age · and from your signups, by city</div></div></div>
+<div class="sec"><h5>Meta results by age · Meta says</h5>
+<div class="scroll">
+<table class="mt">
+<tr><th>Age</th><th>Spend</th><th>Impr. share</th><th>CTR</th><th>Signups</th><th>£ / signup</th><th>Purchases</th><th>£ / purchase</th><th>Revenue</th></tr>
+<tr><td>18–24</td><td>£11,255</td><td>14.4 %</td><td>1.73 %</td><td>1,842</td><td>£6.11</td><td>220</td><td>£51.16</td><td>£21,280</td></tr>
+<tr><td>25–34</td><td>£26,853</td><td>40.0 %</td><td>1.93 %</td><td>11,105</td><td>£2.42</td><td>390</td><td>£68.85</td><td>£41,890</td></tr>
+<tr><td>35–44</td><td>£23,317</td><td>31.4 %</td><td>2.03 %</td><td>10,178</td><td>£2.29</td><td>313</td><td>£74.50</td><td>£36,694</td></tr>
+<tr><td>45–54</td><td>£11,770</td><td>11.6 %</td><td>2.36 %</td><td>7,693</td><td>£1.53</td><td>153</td><td>£76.93</td><td>£17,794</td></tr>
+<tr><td>55–64</td><td>£2,670</td><td>2.2 %</td><td>2.86 %</td><td>1,897</td><td>£1.41</td><td>34</td><td>£78.54</td><td>£4,081</td></tr>
+</table></div>
+<p class="src">Ironworks Season 1 · all Meta campaigns · to 4 Nov · 65+ row omitted here for width</p></div>
+<div class="sec"><h5>Where your signups are · from your signups</h5>
+<div class="geo"><span>London</span>
+<div class="b"><i style="width:9.3%"></i></div><span class="n">1,157</span></div>
+<div class="geo"><span>Newcastle upon Tyne</span>
+<div class="b"><i style="width:7.5%"></i></div><span class="n">927</span></div>
+<div class="geo"><span>Gateshead</span>
+<div class="b"><i style="width:3.8%"></i></div><span class="n">467</span></div>
+<div class="geo"><span>Manchester</span>
+<div class="b"><i style="width:3.7%"></i></div><span class="n">464</span></div>
+<div class="geo"><span>Glasgow</span>
+<div class="b"><i style="width:3.5%"></i></div><span class="n">432</span></div>
+<div class="geo"><span>Everywhere else</span>
+<div class="b"><i style="width:65.1%"></i></div><span class="n">8,062</span></div>
+<div class="geo"><span>Couldn't tell</span>
+<div class="b"><i class="unk" style="width:7.1%"></i></div><span class="n">876</span></div>
+<p class="src">Electric Group · 12,385 signups on 15 CIRQLIN pages since 18 Aug · read 13 Nov · city as the network reported it · no page asks for age yet</p></div>
+</div></div></figure>
+</div>
+
+<h2>EV2 · Signups &amp; communities, and the presale (1280 and 393)</h2>
+<p class="lead">These are Ironworks Season 1's real figures. In the build, each step's source line is what the dashboard prints.</p>
+<div class="frame">
+<figure><figcaption>1280 · the three steps</figcaption>
+<div class="vp w1280">
+<div class="db">
+<div class="fun">
+<div class="tile">
+<div class="l">1 · Email signups</div>
+<div class="v">52,452</div>
+<div class="s">£0.85 each, all paid · 33,180 ad-tracked at £1.34</div>
+<div class="src">Mailchimp audience · CIRQLIN when linked</div></div>
+<div class="tile">
+<div class="l">2 · WhatsApp opt-ins</div>
+<div class="v">52,432</div>
+<div class="s">left a phone number and said yes to WhatsApp</div>
+<div class="src">Bird contacts · CIRQLIN consent when linked</div></div>
+<div class="tile">
+<div class="l">3 · Community members</div>
+<div class="v">22,600</div>
+<div class="s">joined an event or venue community</div>
+<div class="src">Entered · per show, with its date</div></div>
+<div class="tile">
+<div class="l">Opt-in → community</div>
+<div class="v">43.1 %</div>
+<div class="s">Eric Prydz 51.0 % · Jamie Jones 10.6 %</div>
+<div class="src">Derived</div></div>
+</div>
+<div class="sec"><h5>Presale · Charlotte de Witte · Wed 5 Aug</h5>
+<div class="scroll">
+<table class="mt">
+<tr><th>Figure</th><th>Value</th><th>Source</th></tr>
+<tr><td>Signups at presale</td><td>14,500</td><td>Counted · CIRQLIN in the build</td></tr>
+<tr><td>Community at presale</td><td>7,100</td><td>Entered</td></tr>
+<tr><td>Sold in community window</td><td>4,000 · 56.3 %</td><td>Entered</td></tr>
+<tr><td>Sold presale day</td><td>6,600 · 77.6 % of all sold</td><td>Counted · Internal Counts in the build</td></tr>
+<tr><td>Signup spend per presale ticket</td><td>£0.87</td><td>Derived</td></tr>
+</table></div></div>
+</div></div></figure>
+<figure><figcaption>393 · the three steps</figcaption>
+<div class="vp w393">
+<div class="db">
+<div class="fun">
+<div class="tile">
+<div class="l">1 · Email signups</div>
+<div class="v">52,452</div>
+<div class="src">Mailchimp · CIRQLIN when linked</div></div>
+<div class="tile">
+<div class="l">2 · WhatsApp opt-ins</div>
+<div class="v">52,432</div>
+<div class="src">Bird</div></div>
+<div class="tile">
+<div class="l">3 · Community members</div>
+<div class="v">22,600</div>
+<div class="src">Entered</div></div>
+<div class="tile">
+<div class="l">Opt-in → community</div>
+<div class="v">43.1 %</div>
+<div class="src">Derived</div></div>
+</div></div></div></figure>
+</div>
+
+<h2>EV3 · Creative: the format scorecard (1280)</h2>
+<div class="frame">
+<figure><figcaption>1280 · format scorecard, judged by objective</figcaption>
+<div class="vp w1280">
+<div class="db">
+<div class="sec"><h5>Formats · signups inside signup campaigns · purchases inside purchase campaigns · cost where £500+ ran</h5>
+<div class="scroll">
+<table class="mt">
+<tr><th>Format</th><th>Creatives</th><th>Spend</th><th>CTR</th><th>Signups</th><th>£ / signup</th><th>Purchases</th><th>£ / purchase</th></tr>
+<tr><td>UGC edit</td><td>12</td><td>£12,670</td><td>2.94 %</td><td>14,759</td><td>£0.82</td><td>30</td><td>£32.33</td></tr>
+<tr><td>Static artwork</td><td>22</td><td>£18,225</td><td>2.17 %</td><td>5,557</td><td>£1.65</td><td>273</td><td>£22.42</td></tr>
+<tr><td>Promo / motion edit</td><td>26</td><td>£9,569</td><td>2.65 %</td><td>2,741</td><td>£1.62</td><td>68</td><td>£37.78</td></tr>
+<tr><td>Ticket warning</td><td>19</td><td>£8,591</td><td>0.99 %</td><td>19</td><td>—</td><td>230</td><td>£28.07</td></tr>
+<tr><td>Presale reminder</td><td>8</td><td>£1,882</td><td>1.51 %</td><td>745</td><td>£1.91</td><td>—</td><td>—</td></tr>
+</table></div>
+<p class="src">Ironworks Season 1 · Meta · to 4 Nov · in the build the scores come from creative_scores, shared with the Lab and the refresh</p>
+<p class="note">Least impact (£150+, highest cost for its objective): CAMELPHAT – Motion Variations · £670 · 19 signups · £35.26 each. With the refresh on, this list is its pause candidates.</p></div></div></div></figure>
+</div>
+
+<h2>EV4 · Direct-to-fan (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>1280 · channels, clicks as the comparison</figcaption>
+<div class="vp w1280">
+<div class="db">
+<div class="sec"><h5>WhatsApp vs email · Ironworks Season 1</h5>
+<div class="scroll">
+<table class="mt">
+<tr><th>Channel</th><th>Sends</th><th>Delivered</th><th>Read / opened</th><th>Clicked</th><th>Click rate</th><th>Cost</th><th>£ / click</th></tr>
+<tr><td>WhatsApp (Bird) · read receipts</td><td>27</td><td>161,788</td><td>62.5 % read</td><td>21,713</td><td>13.4 %</td><td>£8,147</td><td>£0.38</td></tr>
+<tr><td>Email · marketing · bot-filtered (est.)</td><td>67</td><td>714,591</td><td>16.4 %</td><td>24,909</td><td>3.5 %</td><td>—</td><td>—</td></tr>
+<tr><td>Email · ticket holders · bot-filtered (est.)</td><td>13</td><td>26,915</td><td>24.8 %</td><td>2,903</td><td>10.8 %</td><td>—</td><td>—</td></tr>
+<tr><td>SMS (Firetext) · entered</td><td>1</td><td>5,873</td><td>—</td><td>500</td><td>8.5 %</td><td>£535</td><td>£1.07</td></tr>
+</table></div>
+<p class="note">WhatsApp's click rate is 3.58× email's. Clicks are the like-for-like figure: WhatsApp's opens are read receipts, and email's are estimates after bot filtering.</p></div></div></div></figure>
+<figure><figcaption>393 · the same</figcaption>
+<div class="vp w393">
+<div class="db">
+<div class="sec"><h5>Click rate · clicks ÷ delivered</h5>
+<div class="geo"><span>WhatsApp</span>
+<div class="b"><i style="width:100%"></i></div><span class="n">13.4 %</span></div>
+<div class="geo"><span>Email · tickets</span>
+<div class="b"><i style="width:80.6%"></i></div><span class="n">10.8 %</span></div>
+<div class="geo"><span>SMS</span>
+<div class="b"><i style="width:63.4%"></i></div><span class="n">8.5 %</span></div>
+<div class="geo"><span>Email · marketing</span>
+<div class="b"><i style="width:26.1%"></i></div><span class="n">3.5 %</span></div>
+<p class="note">WhatsApp £0.38 a click · SMS £1.07 · email —</p></div></div></div></figure>
+</div>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li><b>E1:</b> the home-region-vs-travelling split, the 10-signup city floor, and the TikTok sentence.</li>
+<li><b>E2:</b> the 2 % cross-check and "community link taps".</li>
+<li><b>E3:</b> the 24-hour rule and the presale log form.</li>
+<li><b>E4:</b> "least impact" tied to the refresh's R2.</li>
+<li><b>E5:</b> "read" for Bird, the per-message rate in config, and whole-list sends at client level.</li>
+<li><b>E6:</b> the variance formula.</li>
+<li><b>E7:</b> the saved view's shape.</li>
+<li><b>Thresholds taken from the report, not measured here:</b> £500 for a format cost and £150 for least impact.</li>
+<li>Every string in EV1–EV4 that isn't a figure from the two sources named above.</li>
+</ul>
+
+<h2>Open for Matas</h2>
+<ul class="notes">
+<li><b>Community members are entered by hand</b> (no API). Who enters them, and how often: weekly, or at each presale?</li>
+<li><b>The Bird per-message rate per client,</b> or invoices entered monthly.</li>
+<li><b>Puzzle 4th Birthday's first-party frame</b> once the database connector is back. It replaces Electric's in EV1 if he'd rather the frame showed Puzzle.</li>
+</ul>
+
+</div>
+</body>
+</html>
