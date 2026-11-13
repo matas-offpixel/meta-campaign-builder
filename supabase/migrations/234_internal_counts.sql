@@ -61,6 +61,7 @@ create table if not exists public.internal_count_reports (
   parent_report_id  uuid references public.internal_count_reports (id) on delete set null,
   source            text not null check (source in ('gmail', 'upload')),
   received_at       timestamptz not null,
+  sent_at           timestamptz,
   sender            text,
   subject           text not null,
   body_text         text not null default '',
@@ -69,12 +70,14 @@ create table if not exists public.internal_count_reports (
   pdf_filename      text,
   pdf_sha256        text,
   storage_path      text,
-  status            text not null check (status in ('processed', 'unreadable', 'note', 'not_read')),
+  status            text not null check (status in ('processed', 'unreadable', 'duplicate', 'note', 'not_read')),
   created_at        timestamptz not null default now()
 );
 
 comment on table public.internal_count_reports is
-  'One email read by the Internal Counts ingest, or one uploaded PDF (upload:{sha256}). kind count = matched M1; reply = a reply in a count''s thread, stored as a note on that count (parent_report_id), its text run through M3; near_miss = from the domain with a PDF and "count" in the subject, not read unless Matas says so. gmail_message_id is UNIQUE. Migration 234.';
+  'One email read by the Internal Counts ingest, or one uploaded PDF (upload:{sha256}). kind count = from the domain with a PDF that reads as the counts sheet (M1b; status duplicate when another email already carried the same PDF, by pdf_sha256: one count); reply = a reply in a count''s thread with no sheet, stored as a note (parent_report_id), its new text run through M3; near_miss = from the domain with a non-sheet PDF and "count" or "internal" in the subject. gmail_message_id is UNIQUE. Migration 234.';
+comment on column public.internal_count_reports.sent_at is
+  'The email''s Date header. "Later" between two emails for the same count date is this, not fetch order (M1b).';
 comment on column public.internal_count_reports.sheet_date is
   'The count date most of the PDF''s blocks carry (TIER TOTALS row, day first).';
 comment on column public.internal_count_reports.storage_path is
@@ -84,6 +87,8 @@ create index if not exists internal_count_reports_received_idx
   on public.internal_count_reports (received_at desc);
 create index if not exists internal_count_reports_thread_idx
   on public.internal_count_reports (gmail_thread_id) where kind = 'count';
+create index if not exists internal_count_reports_sha_idx
+  on public.internal_count_reports (pdf_sha256) where kind = 'count';
 
 alter table public.internal_count_reports enable row level security;
 

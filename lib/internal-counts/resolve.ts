@@ -30,6 +30,8 @@ export type ResolveAction =
   | { kind: "not_a_count" }
   | { kind: "undo" }
   | { kind: "keep" }
+  | { kind: "keep_earlier" }
+  | { kind: "use_later" }
   | { kind: "checked" };
 
 /** Which actions each kind of item offers (R1). */
@@ -41,7 +43,8 @@ export const ACTIONS: Record<ReviewKind, ReadonlyArray<ResolveAction["kind"]>> =
   sum_mismatch: ["use_total"],
   unreadable_pdf: ["not_a_count"],
   near_miss: ["read_as_count", "not_a_count"],
-  replaced: ["undo", "keep"],
+  // undo / keep on a written replacement; keep_earlier / use_later when a forward's sheet is held (M1b).
+  replaced: ["undo", "keep", "keep_earlier", "use_later"],
   since_last_mismatch: ["checked"],
 };
 
@@ -113,6 +116,11 @@ export async function resolveItem(sb: Db, itemId: string, action: ResolveAction,
   const undoAfterKeep = item.kind === "replaced" && item.resolution === "keep" && action.kind === "undo";
   if (item.resolved_at && !undoAfterKeep) throw new Error("This item is already checked.");
   if (!ACTIONS[item.kind].includes(action.kind)) throw new Error(`"${action.kind}" isn't an action on ${item.kind}.`);
+  if (item.kind === "replaced") {
+    const forward = item.detail.forward === true;
+    const forwardAction = action.kind === "keep_earlier" || action.kind === "use_later";
+    if (forward !== forwardAction) throw new Error(`"${action.kind}" doesn't fit this replaced item.`);
+  }
   const run = ctx ?? (await loadRunContext(sb));
   await EFFECTS[action.kind](sb, run, item, action as never, who);
   if (undoAfterKeep) {
@@ -158,6 +166,16 @@ const EFFECTS: { [K in ResolveAction["kind"]]: Effect<Extract<ResolveAction, { k
     await releaseBlock(sb, ctx, item.block_id, { except: item.id });
   },
   read_as_count: async (sb, ctx, item) => readAsCount(sb, ctx, item),
+  keep_earlier: async (sb, _ctx, item) => {
+    // The stored sheet stays; the forward's held sheet is kept as replaced.
+    if (!item.block_id) return;
+    const { error } = await sb.from("internal_count_blocks").update({ status: "replaced" }).eq("id", item.block_id).eq("status", "held");
+    if (error) throw new Error(`Keeping the earlier sheet failed: ${error.message}`);
+  },
+  use_later: async (sb, ctx, item) => {
+    if (!item.block_id) throw new Error("The item has no show block.");
+    await rewriteBlock(sb, ctx, item.block_id);
+  },
   undo: async (sb, ctx, item) => {
     const previous = item.detail.previousBlockId as string | null | undefined;
     if (!previous) throw new Error("There's no earlier count to go back to.");
@@ -307,7 +325,7 @@ export async function releaseBlock(sb: Db, ctx: RunContext, blockId: string, opt
     countDate: block.count_date,
     total: w.total,
   });
-  rememberCount(ctx, { eventId: event.id, countDate: block.count_date, total: w.total, blockId: block.id });
+  rememberCount(ctx, { eventId: event.id, countDate: block.count_date, total: w.total, blockId: block.id, sentAt: null });
   if (stored) {
     const { data: r } = await sb.from("internal_count_reports").select("user_id").eq("id", block.report_id).single();
     await insertReviewItems(
@@ -343,24 +361,36 @@ async function rewriteBlock(sb: Db, ctx: RunContext, blockId: string): Promise<v
     countDate: block.count_date,
     total: w.total,
   });
-  rememberCount(ctx, { eventId: event.id, countDate: block.count_date, total: w.total, blockId: block.id });
+  rememberCount(ctx, { eventId: event.id, countDate: block.count_date, total: w.total, blockId: block.id, sentAt: null });
 }
 
 /** "Read it as a count": the near miss's stored PDF goes through the count path, as if it had matched. */
 async function readAsCount(sb: Db, ctx: RunContext, item: ItemRow): Promise<void> {
-  const report = await must<{ id: string; user_id: string; subject: string; body_text: string; storage_path: string | null; pdf_filename: string | null }>(
-    sb.from("internal_count_reports").select("id,user_id,subject,body_text,storage_path,pdf_filename").eq("id", item.report_id).single(),
+  const report = await must<{
+    id: string;
+    user_id: string;
+    subject: string;
+    body_text: string;
+    storage_path: string | null;
+    pdf_filename: string | null;
+    sent_at: string | null;
+  }>(
+    sb.from("internal_count_reports").select("id,user_id,subject,body_text,storage_path,pdf_filename,sent_at").eq("id", item.report_id).single(),
     "report",
   );
   if (!report.storage_path) throw new Error("The email's PDF wasn't stored.");
   const { data, error } = await sb.storage.from(INTERNAL_COUNTS_BUCKET).download(report.storage_path);
   if (error || !data) throw new Error("The PDF couldn't be read from storage.");
   const sheet = await parsePdf(new Uint8Array(await data.arrayBuffer()));
-  const plan = planReport({ subject: report.subject, body: report.body_text, pdfFilename: report.pdf_filename }, sheet, planContext(ctx));
+  const plan = planReport(
+    { subject: report.subject, body: report.body_text, pdfFilename: report.pdf_filename, forward: false, sentAt: report.sent_at },
+    sheet,
+    planContext(ctx),
+  );
   const { error: uErr } = await sb
     .from("internal_count_reports")
     .update({ kind: "count", status: plan.unreadable ? "unreadable" : "processed", subject_date: plan.subjectDate, sheet_date: plan.sheetDate })
     .eq("id", report.id);
   if (uErr) throw new Error(`Updating the report failed: ${uErr.message}`);
-  await persistCountBlocks(sb, ctx, report.id, report.user_id, plan);
+  await persistCountBlocks(sb, ctx, report.id, report.user_id, plan, report.sent_at);
 }

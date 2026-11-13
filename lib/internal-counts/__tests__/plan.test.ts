@@ -24,7 +24,8 @@ function ctx(over: Partial<PlanContext> = {}): PlanContext {
     closest: () => null,
     priceCeiling: () => null,
     previousTotal: () => null,
-    storedTotalOn: () => null,
+    storedOn: () => null,
+    mentionSeen: () => false,
     ...over,
   };
 }
@@ -33,6 +34,8 @@ const report = {
   subject: "Internal Show Count 12.11.26",
   body: "Hello, Please see today's internal show count attached.",
   pdfFilename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf",
+  forward: false,
+  sentAt: "2026-11-12T11:33:36Z",
 };
 
 describe("planReport on the 12 Nov sheet", () => {
@@ -97,19 +100,38 @@ describe("planReport on the 12 Nov sheet", () => {
     assert.equal(plan.reviewItems.filter((i) => i.showName === "KREAM").length, 0);
   });
 
-  it("M1 corrections: a different count for a stored date replaces it, with a note", () => {
-    const plan = planReport(report, sheet, ctx({ storedTotalOn: (id) => (id === "id-NX26-IPC" ? 1826 : null) }));
+  const storedIpc = (total: number, sentAt = "2026-11-12T09:00:00Z") =>
+    ctx({ storedOn: (id) => (id === "id-NX26-IPC" ? { total, sentAt, blockId: "b-earlier" } : null) });
+
+  it("M1 corrections: a later email with a different count for a stored date replaces it, with a note", () => {
+    const plan = planReport(report, sheet, storedIpc(1826));
     const ipc = plan.blocks.find((b) => b.showName === "IPC")!;
     assert.equal(ipc.status, "write");
     assert.equal(ipc.replaces, true);
     assert.deepEqual(
       plan.reviewItems.find((i) => i.kind === "replaced")!.detail,
-      { countDate: "2026-11-12", previousTotal: 1826, total: 1828 },
+      { countDate: "2026-11-12", previousTotal: 1826, total: 1828, previousBlockId: "b-earlier" },
     );
   });
 
+  it("M1b change 1: a forward with a different sheet for a stored date never replaces it", () => {
+    const plan = planReport({ ...report, subject: "Fw: Internal Show Count 12.11.26", forward: true }, sheet, storedIpc(1826));
+    const ipc = plan.blocks.find((b) => b.showName === "IPC")!;
+    assert.equal(ipc.status, "held");
+    assert.equal(ipc.replaces, false);
+    const item = plan.reviewItems.find((i) => i.kind === "replaced")!;
+    assert.equal(item.detail.forward, true);
+  });
+
+  it("M1b change 5: 'later' is the Date header; an earlier email arriving late doesn't replace", () => {
+    const plan = planReport(report, sheet, storedIpc(1826, "2026-11-12T15:00:00Z"));
+    const ipc = plan.blocks.find((b) => b.showName === "IPC")!;
+    assert.equal(ipc.status, "superseded");
+    assert.equal(plan.reviewItems.find((i) => i.kind === "replaced")!.detail.previousIsThis, true);
+  });
+
   it("a restated count (same show, date and total) writes nothing and asks nothing", () => {
-    const plan = planReport(report, sheet, ctx({ storedTotalOn: (id) => (id === "id-NX26-EED" ? 1731 : null) }));
+    const plan = planReport(report, sheet, ctx({ storedOn: (id) => (id === "id-NX26-EED" ? { total: 1731, sentAt: null, blockId: "b" } : null) }));
     assert.equal(plan.blocks.find((b) => b.showName === "EAST END DUBS")!.status, "repeat");
     assert.equal(plan.reviewItems.filter((i) => i.showName === "EAST END DUBS").length, 0);
   });
@@ -151,6 +173,9 @@ describe("HM3 on the 30 Oct email", () => {
     const all = planReport({ ...report, subject: "Internal Show Count 30.10.26", body }, sheet, ctx()).reviewItems;
     assert.equal(all.filter((i) => i.kind === "sale_mention").length, 4);
     const plan = planReport({ ...report, body }, withShows, ctx({ notOurs: new Set(["DUSKY BRIS"]) }));
+    // The same sentences on the same count date never come back (M1b change 3).
+    const again = planReport({ ...report, body }, withShows, ctx({ notOurs: new Set(["DUSKY BRIS"]), mentionSeen: (k) => plan.reviewItems.some((i) => i.detail.key === k) }));
+    assert.equal(again.reviewItems.filter((i) => i.kind === "sale_mention").length, 0);
     const sales = plan.reviewItems.filter((i) => i.kind === "sale_mention");
     assert.deepEqual(
       sales.map((i) => [i.showName, i.detail.sentence]),

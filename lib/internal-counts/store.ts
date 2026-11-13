@@ -19,17 +19,17 @@
  * PDF library loads lazily inside pdf-text.ts.
  */
 
-import { createHash } from "node:crypto";
-
 import { planContext, rememberCount, type Db, type RunContext } from "./context.ts";
-import { extractPdfTextItems } from "./pdf-text.ts";
-import { parseInternalCountsItems, type ParsedSheet } from "./parse.ts";
-import { saleMentions } from "./mentions.ts";
-import { HOLDING_KINDS, planReport, type BlockPlan, type EventRef, type ReportPlan, type ReviewItemPlan } from "./plan.ts";
+import { pdfSha256, readPdf, type ReadPdf } from "./pdf-read.ts";
+import type { ParsedSheet } from "./parse.ts";
+import { isHolding, mentionItems, planReport, type BlockPlan, type EventRef, type ReportPlan, type ReviewItemPlan } from "./plan.ts";
+
+export { pdfSha256 };
 
 export const INTERNAL_COUNTS_BUCKET = "internal-counts";
 
-export type MessageKind = "count" | "reply" | "near_miss";
+/** "count" and "unreadable" both take the count path; an unreadable sheet stores nothing but its item. */
+export type MessageKind = "count" | "unreadable" | "reply" | "near_miss";
 
 export interface IncomingMessage {
   userId: string;
@@ -39,10 +39,14 @@ export interface IncomingMessage {
   messageId: string;
   threadId: string | null;
   receivedAt: string;
+  /** The email's Date header (ISO): "later" is this, not fetch order (M1b). */
+  sentAt: string | null;
   sender: string | null;
   subject: string;
   body: string;
-  pdf: { filename: string; bytes: Uint8Array } | null;
+  forward: boolean;
+  /** The PDF the email is read by (pdf-read.ts chooseSheet), or for a near miss its first PDF. */
+  pdf: ReadPdf | null;
 }
 
 export interface ProcessOptions {
@@ -54,7 +58,7 @@ export interface ProcessOptions {
 export interface ProcessResult {
   messageId: string;
   kind: MessageKind;
-  status: "already_read" | "processed" | "unreadable" | "note" | "not_read";
+  status: "already_read" | "processed" | "unreadable" | "duplicate" | "note" | "not_read";
   dryRun: boolean;
   blocksWritten: number;
   blocksHeld: number;
@@ -63,16 +67,8 @@ export interface ProcessResult {
   reviewItems: ReviewItemPlan[];
 }
 
-export function pdfSha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
 export async function parsePdf(bytes: Uint8Array): Promise<ParsedSheet | null> {
-  try {
-    return parseInternalCountsItems(await extractPdfTextItems(bytes));
-  } catch {
-    return null;
-  }
+  return (await readPdf("stored.pdf", bytes)).sheet;
 }
 
 export async function isAlreadyRead(sb: Db, messageId: string): Promise<boolean> {
@@ -95,6 +91,26 @@ function result(input: IncomingMessage, dryRun: boolean, over: Partial<ProcessRe
   };
 }
 
+/** What a thread's count gives its replies: the sheet's show names and count date. */
+interface ThreadSheet {
+  reportId: string | null;
+  showNames: string[];
+  sheetDate: string | null;
+}
+
+const threadSheets = new WeakMap<RunContext, Map<string, ThreadSheet>>();
+
+function rememberThread(ctx: RunContext, threadId: string | null, sheet: ThreadSheet): void {
+  if (!threadId) return;
+  if (!threadSheets.has(ctx)) threadSheets.set(ctx, new Map());
+  threadSheets.get(ctx)!.set(threadId, sheet);
+  ctx.countThreads.set(threadId, sheet.reportId ?? `pending:${threadId}`);
+}
+
+function rememberMentions(ctx: RunContext, items: ReviewItemPlan[]): void {
+  for (const i of items) if (i.kind === "sale_mention" && typeof i.detail.key === "string") ctx.mentionKeys.add(i.detail.key);
+}
+
 export async function processMessage(
   sb: Db,
   ctx: RunContext,
@@ -107,19 +123,32 @@ export async function processMessage(
   }
   if (input.kind === "reply") return processReply(sb, ctx, input, dryRun);
   if (input.kind === "near_miss") return processNearMiss(sb, input, dryRun);
+  if (input.kind === "count" && input.pdf && ctx.pdfShas.has(input.pdf.sha256)) return processDuplicate(sb, ctx, input, dryRun);
 
-  const sheet = input.pdf ? await parsePdf(input.pdf.bytes) : null;
+  const pctx = planContext(ctx, opts.confirmedAliases);
   const plan = planReport(
-    { subject: input.subject, body: input.body, pdfFilename: input.pdf?.filename ?? null },
-    sheet,
-    planContext(ctx, opts.confirmedAliases),
+    {
+      subject: input.subject,
+      body: input.body,
+      pdfFilename: input.pdf?.filename ?? null,
+      forward: input.forward,
+      sentAt: input.sentAt,
+      pdfDate: input.pdf?.pdfDate ?? null,
+    },
+    input.pdf?.sheet ?? null,
+    pctx,
   );
   const status = plan.unreadable ? "unreadable" : "processed";
   const writes = plan.blocks.filter((b) => b.status === "write");
   const held = plan.blocks.filter((b) => b.status === "held").length;
-  if (input.threadId) ctx.countThreads.set(input.threadId, `pending:${input.messageId}`);
+  rememberMentions(ctx, plan.reviewItems);
+  if (input.pdf && !plan.unreadable) ctx.pdfShas.add(input.pdf.sha256);
+  const threadSheet = { showNames: plan.blocks.map((b) => b.showName), sheetDate: plan.sheetDate };
+  if (!plan.unreadable) rememberThread(ctx, input.threadId, { reportId: null, ...threadSheet });
   if (dryRun) {
-    for (const b of writes) rememberCount(ctx, { eventId: b.eventId!, countDate: b.countDate!, total: b.total, blockId: null });
+    for (const b of writes) {
+      rememberCount(ctx, { eventId: b.eventId!, countDate: b.countDate!, total: b.total, blockId: null, sentAt: input.sentAt });
+    }
     return result(input, dryRun, { status, blocksWritten: writes.length, blocksHeld: held, plan, reviewItems: plan.reviewItems });
   }
 
@@ -130,10 +159,10 @@ export async function processMessage(
     sheetDate: plan.sheetDate,
     parentReportId: null,
   });
-  if (input.threadId) ctx.countThreads.set(input.threadId, reportId);
+  if (!plan.unreadable) rememberThread(ctx, input.threadId, { reportId, ...threadSheet });
   let written: number;
   try {
-    written = await persistCountBlocks(sb, ctx, reportId, input.userId, plan);
+    written = await persistCountBlocks(sb, ctx, reportId, input.userId, plan, input.sentAt);
   } catch (err) {
     // Unread it so the next run retries the whole email; every write restates the same rows.
     await sb.from("internal_count_reports").delete().eq("id", reportId);
@@ -143,20 +172,50 @@ export async function processMessage(
   return result(input, dryRun, { status, blocksWritten: written, blocksHeld: held, plan, reviewItems: plan.reviewItems });
 }
 
+/** The same PDF (sha256) as a count already read: one count. The email is kept, and its new text still runs M3. */
+async function processDuplicate(sb: Db, ctx: RunContext, input: IncomingMessage, dryRun: boolean): Promise<ProcessResult> {
+  const sheet = input.pdf!.sheet;
+  const items = mentionItems(input.body, sheet?.blocks.map((b) => b.showName) ?? [], input.pdf!.pdfDate, input.forward, {
+    notOurs: ctx.notOurs,
+    mentionSeen: (k) => ctx.mentionKeys.has(k),
+  });
+  rememberMentions(ctx, items);
+  rememberThread(ctx, input.threadId, { reportId: null, showNames: sheet?.blocks.map((b) => b.showName) ?? [], sheetDate: input.pdf!.pdfDate });
+  if (dryRun) return result(input, dryRun, { status: "duplicate", reviewItems: items });
+  const reportId = await insertReport(sb, input, {
+    kind: "count",
+    status: "duplicate",
+    subjectDate: null,
+    sheetDate: input.pdf!.pdfDate,
+    parentReportId: null,
+  });
+  await insertReviewItems(sb, reportId, input.userId, items, new Map());
+  return result(input, dryRun, { status: "duplicate", reviewItems: items });
+}
+
+async function threadSheetFor(sb: Db, ctx: RunContext, threadId: string | null): Promise<ThreadSheet | null> {
+  if (!threadId) return null;
+  const known = threadSheets.get(ctx)?.get(threadId);
+  if (known) return known;
+  const reportId = ctx.countThreads.get(threadId);
+  if (!reportId || reportId.startsWith("pending:") || ctx.offline) return null;
+  return { reportId, showNames: await parentShowNames(sb, reportId), sheetDate: await parentSheetDate(sb, reportId) };
+}
+
 async function processReply(sb: Db, ctx: RunContext, input: IncomingMessage, dryRun: boolean): Promise<ProcessResult> {
-  const parentId = input.threadId ? (ctx.countThreads.get(input.threadId) ?? null) : null;
-  const showNames = parentId && !parentId.startsWith("pending:") && !ctx.offline ? await parentShowNames(sb, parentId) : [];
-  const parentDate = parentId && !parentId.startsWith("pending:") && !ctx.offline ? await parentSheetDate(sb, parentId) : null;
-  const items: ReviewItemPlan[] = saleMentions(input.body, showNames)
-    .filter((m) => !(m.showName && ctx.notOurs.has(m.showName)))
-    .map((m) => ({ kind: "sale_mention", blockIndex: null, showName: m.showName, detail: { sentence: m.sentence, countDate: parentDate } }));
+  const parent = await threadSheetFor(sb, ctx, input.threadId);
+  const items = mentionItems(input.body, parent?.showNames ?? [], parent?.sheetDate ?? null, input.forward, {
+    notOurs: ctx.notOurs,
+    mentionSeen: (k) => ctx.mentionKeys.has(k),
+  });
+  rememberMentions(ctx, items);
   if (dryRun) return result(input, dryRun, { status: "note", reviewItems: items });
   const reportId = await insertReport(sb, input, {
     kind: "reply",
     status: "note",
     subjectDate: null,
-    sheetDate: parentDate,
-    parentReportId: parentId && !parentId.startsWith("pending:") ? parentId : null,
+    sheetDate: parent?.sheetDate ?? null,
+    parentReportId: parent?.reportId ?? null,
   });
   await insertReviewItems(sb, reportId, input.userId, items, new Map());
   return result(input, dryRun, { status: "note", reviewItems: items });
@@ -207,7 +266,7 @@ async function insertReport(
   input: IncomingMessage,
   r: { kind: MessageKind; status: string; subjectDate: string | null; sheetDate: string | null; parentReportId: string | null },
 ): Promise<string> {
-  const sha = input.pdf ? pdfSha256(input.pdf.bytes) : null;
+  const sha = input.pdf?.sha256 ?? null;
   const storagePath = input.pdf ? await storePdf(sb, input, sha!) : null;
   const { data, error } = await sb
     .from("internal_count_reports")
@@ -219,6 +278,7 @@ async function insertReport(
       parent_report_id: r.parentReportId,
       source: input.source,
       received_at: input.receivedAt,
+      sent_at: input.sentAt,
       sender: input.sender,
       subject: input.subject,
       body_text: input.body,
@@ -252,7 +312,7 @@ export async function insertReviewItems(
       block_id: i.blockIndex === null ? null : (blockIds.get(i.blockIndex) ?? null),
       user_id: userId,
       kind: i.kind,
-      holding: HOLDING_KINDS.has(i.kind),
+      holding: isHolding(i),
       show_name: i.showName,
       detail: i.detail,
     })),
@@ -261,7 +321,7 @@ export async function insertReviewItems(
 }
 
 function blockRow(reportId: string, userId: string, b: BlockPlan) {
-  const status = b.status === "write" || b.status === "held" ? "held" : b.status;
+  const status = b.status === "write" || b.status === "held" ? "held" : b.status === "superseded" ? "replaced" : b.status;
   return {
     report_id: reportId,
     user_id: userId,
@@ -293,7 +353,14 @@ async function openUnmatchedNames(sb: Db): Promise<Set<string>> {
   return new Set(((data ?? []) as Array<{ show_name: string | null }>).map((r) => r.show_name ?? ""));
 }
 
-export async function persistCountBlocks(sb: Db, ctx: RunContext, reportId: string, userId: string, plan: ReportPlan): Promise<number> {
+export async function persistCountBlocks(
+  sb: Db,
+  ctx: RunContext,
+  reportId: string,
+  userId: string,
+  plan: ReportPlan,
+  sentAt: string | null,
+): Promise<number> {
   const blockIds = new Map<number, string>();
   if (plan.blocks.length) {
     const { data, error } = await sb
@@ -305,26 +372,23 @@ export async function persistCountBlocks(sb: Db, ctx: RunContext, reportId: stri
   }
   const already = await openUnmatchedNames(sb);
   const items = plan.reviewItems.filter((i) => !(i.kind === "unmatched_show" && already.has(i.showName ?? "")));
+  // An earlier email that arrives late: its own block is the one an Undo would bring back.
+  for (const i of items) {
+    if (i.kind === "replaced" && i.detail.previousIsThis && i.blockIndex !== null) i.detail.previousBlockId = blockIds.get(i.blockIndex) ?? null;
+  }
   let written = 0;
   for (const b of plan.blocks) {
     if (b.status !== "write") continue;
     const event = ctx.eventsById.get(b.eventId!)!;
     const blockId = blockIds.get(b.index)!;
-    const replaced = item(items, b.index, "replaced");
-    if (replaced) {
-      replaced.detail.previousBlockId = ctx.counts.find((c) => c.eventId === event.id && c.countDate === b.countDate)?.blockId ?? null;
-    }
     await writeBlock(sb, { blockId, reportId, event, plan: b, countDate: b.countDate!, total: b.total });
-    rememberCount(ctx, { eventId: event.id, countDate: b.countDate!, total: b.total, blockId });
+    rememberCount(ctx, { eventId: event.id, countDate: b.countDate!, total: b.total, blockId, sentAt });
     written++;
   }
   await insertReviewItems(sb, reportId, userId, items, blockIds);
   return written;
 }
 
-function item(items: ReviewItemPlan[], index: number, kind: ReviewItemPlan["kind"]): ReviewItemPlan | undefined {
-  return items.find((i) => i.blockIndex === index && i.kind === kind);
-}
 
 /** Paid, non-blank cells go to tier_channel_sales; comps, unused tiers and blanks stay in `parsed`. */
 export function cellRows(b: Pick<BlockPlan, "cells">) {

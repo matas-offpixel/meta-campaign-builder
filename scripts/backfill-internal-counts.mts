@@ -69,7 +69,7 @@ if (since && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
 }
 
 function dirSource(dir: string): MessageSource {
-  type Entry = { id: string; threadId?: string; subject: string; from: string; receivedAt: string; body: string; pdf: string | null };
+  type Entry = { id: string; threadId?: string; subject: string; from: string; receivedAt: string; sentAt?: string; body: string; pdf: string | null };
   const entries = JSON.parse(readFileSync(path.join(dir, "manifest.json"), "utf8")) as Entry[];
   return {
     async list(): Promise<MessageSummary[]> {
@@ -79,12 +79,13 @@ function dirSource(dir: string): MessageSource {
         subject: e.subject,
         from: e.from,
         receivedAt: e.receivedAt,
+        sentAt: e.sentAt ?? e.receivedAt,
         body: e.body,
         pdfs: e.pdf ? [{ filename: e.pdf, attachmentId: e.pdf }] : [],
       }));
     },
-    async pdf(m) {
-      const name = m.pdfs[0]?.attachmentId;
+    async pdf(m, index) {
+      const name = m.pdfs[index]?.attachmentId;
       const file = name ? path.join(dir, name) : null;
       return file && existsSync(file) ? new Uint8Array(readFileSync(file)) : null;
     },

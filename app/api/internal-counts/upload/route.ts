@@ -9,7 +9,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { loadRunContext } from "@/lib/internal-counts/context";
-import { pdfSha256, processMessageSafely } from "@/lib/internal-counts/store";
+import { readPdf } from "@/lib/internal-counts/pdf-read";
+import { processMessageSafely } from "@/lib/internal-counts/store";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export const maxDuration = 120;
@@ -38,17 +39,21 @@ export async function POST(req: NextRequest) {
   if (Buffer.from(bytes.subarray(0, 5)).toString("latin1") !== "%PDF-") return back(req, { upload: "not_pdf" });
 
   const sb = createServiceRoleClient();
+  const pdf = await readPdf(file.name, bytes);
+  const now = new Date().toISOString();
   const result = await processMessageSafely(sb, await loadRunContext(sb), {
     userId: user.id,
     source: "upload",
-    kind: "count",
+    kind: pdf.verdict === "sheet" ? "count" : "unreadable",
     threadId: null,
-    messageId: `upload:${pdfSha256(bytes)}`,
-    receivedAt: new Date().toISOString(),
+    messageId: `upload:${pdf.sha256}`,
+    sentAt: now,
+    forward: false,
+    receivedAt: now,
     sender: user.email ?? null,
     subject: `Uploaded: ${file.name}`,
     body: "",
-    pdf: { filename: file.name, bytes },
+    pdf,
   });
   return back(req, {
     upload: result.status,

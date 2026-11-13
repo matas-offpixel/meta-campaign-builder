@@ -24,6 +24,8 @@ export interface StoredCount {
   countDate: string;
   total: number;
   blockId: string | null;
+  /** The storing email's Date header (ISO). */
+  sentAt: string | null;
 }
 
 export interface RunContext {
@@ -37,6 +39,10 @@ export interface RunContext {
   counts: StoredCount[];
   /** Gmail thread id → the count report stored for it. */
   countThreads: Map<string, string>;
+  /** sha256 of every counts sheet already read: the same PDF is one count, however many emails carry it. */
+  pdfShas: Set<string>;
+  /** M3 keys (sentence + count date) already raised. */
+  mentionKeys: Set<string>;
   /** True when built without the database (offline dry run). */
   offline: boolean;
 }
@@ -84,6 +90,8 @@ export function offlineContext(confirmed: Readonly<Record<string, string>> = CON
     ceilings: new Map(),
     counts: [],
     countThreads: new Map(),
+    pdfShas: new Set(),
+    mentionKeys: new Set(),
     offline: true,
   };
   indexEvents(ctx);
@@ -130,28 +138,40 @@ export async function loadRunContext(sb: Db): Promise<RunContext> {
     ["name"],
     "internal_count_show_names",
   );
-  const blocks = await pageAll<{ id: string; event_id: string; count_date: string; total_tickets: number }>(
+  const blocks = await pageAll<{ id: string; report_id: string; event_id: string; count_date: string; total_tickets: number }>(
     (from, to) =>
       sb
         .from("internal_count_blocks")
-        .select("id,event_id,count_date,total_tickets")
+        .select("id,report_id,event_id,count_date,total_tickets")
         .eq("status", "written")
         .order("id", { ascending: true })
         .range(from, to),
     ["id"],
     "internal_count_blocks",
   );
-  const threads = await pageAll<{ id: string; gmail_thread_id: string | null }>(
+  const reports = await pageAll<{ id: string; gmail_thread_id: string | null; sent_at: string | null; pdf_sha256: string | null }>(
     (from, to) =>
       sb
         .from("internal_count_reports")
-        .select("id,gmail_thread_id")
+        .select("id,gmail_thread_id,sent_at,pdf_sha256")
         .eq("kind", "count")
         .order("id", { ascending: true })
         .range(from, to),
     ["id"],
     "internal_count_reports",
   );
+  const mentions = await pageAll<{ id: string; detail: { key?: string } }>(
+    (from, to) =>
+      sb
+        .from("internal_count_review_items")
+        .select("id,detail")
+        .eq("kind", "sale_mention")
+        .order("id", { ascending: true })
+        .range(from, to),
+    ["id"],
+    "internal_count_review_items",
+  );
+  const sentAtOf = new Map(reports.map((r) => [r.id, r.sent_at]));
   const ctx: RunContext = {
     events,
     eventsByCode: new Map(),
@@ -159,8 +179,16 @@ export async function loadRunContext(sb: Db): Promise<RunContext> {
     aliases: { ...CONFIRMED_COUNT_ALIASES },
     notOurs: new Set(names.filter((n) => n.not_ours).map((n) => n.name)),
     ceilings: new Map(),
-    counts: blocks.map((b) => ({ eventId: b.event_id, countDate: b.count_date, total: b.total_tickets, blockId: b.id })),
-    countThreads: new Map(threads.filter((t) => t.gmail_thread_id).map((t) => [t.gmail_thread_id!, t.id])),
+    counts: blocks.map((b) => ({
+      eventId: b.event_id,
+      countDate: b.count_date,
+      total: b.total_tickets,
+      blockId: b.id,
+      sentAt: sentAtOf.get(b.report_id) ?? null,
+    })),
+    countThreads: new Map(reports.filter((t) => t.gmail_thread_id).map((t) => [t.gmail_thread_id!, t.id])),
+    pdfShas: new Set(reports.map((r) => r.pdf_sha256).filter((x): x is string => !!x)),
+    mentionKeys: new Set(mentions.map((m) => m.detail?.key).filter((k): k is string => !!k)),
     offline: false,
   };
   indexEvents(ctx);
@@ -191,8 +219,11 @@ export function planContext(ctx: RunContext, confirmed?: Readonly<Record<string,
       ctx.counts
         .filter((c) => c.eventId === eventId && c.countDate < countDate)
         .sort((a, b) => b.countDate.localeCompare(a.countDate))[0]?.total ?? null,
-    storedTotalOn: (eventId, countDate) =>
-      ctx.counts.find((c) => c.eventId === eventId && c.countDate === countDate)?.total ?? null,
+    storedOn: (eventId, countDate) => {
+      const c = ctx.counts.find((x) => x.eventId === eventId && x.countDate === countDate);
+      return c ? { total: c.total, sentAt: c.sentAt, blockId: c.blockId } : null;
+    },
+    mentionSeen: (key) => ctx.mentionKeys.has(key),
   };
 }
 

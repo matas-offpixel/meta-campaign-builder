@@ -179,7 +179,8 @@ export function itemWords(f: ItemFacts): Words {
       };
     }
     case "unreadable_pdf": {
-      const day = dayMonth(f.report.subjectDate ?? f.report.receivedAt);
+      // M1b: the PDF's date, else the subject's.
+      const day = dayMonth(String(d.date ?? f.report.subjectDate ?? f.report.receivedAt));
       const title = `Couldn't read the ${day} sheet`;
       const body = `${f.report.pdfFilename ?? "No PDF"}. Nothing from it was stored.`;
       const url = sourceOf(f).emailUrl;
@@ -202,6 +203,18 @@ export function itemWords(f: ItemFacts): Words {
       };
     }
     case "replaced": {
+      if (d.forward === true) {
+        // Buttons from M1b ("Keep the earlier sheet" · "Use the later sheet"). Title and line NOT IN R1: R1a's words are pending.
+        const title = `A forward has a different ${dayMonth(String(d.countDate))} sheet`;
+        const body = `${show}: ${d.previousTotal} stored, ${d.total} in the forward. The stored sheet is kept until you choose.`;
+        return {
+          title,
+          titleShort: title,
+          body,
+          bodyShort: body,
+          actions: [act("Keep the earlier sheet", "keep_earlier"), act("Use the later sheet", "use_later")],
+        };
+      }
       // NOT IN R1: R1 words this item only once checked ("Checked · the {date} sheet was replaced by a later email").
       const title = `The ${dayMonth(String(d.countDate))} sheet was replaced by a later email`;
       const body = `${show}: ${d.previousTotal} before, ${d.total} now. Both emails are kept; the later one is used.`;

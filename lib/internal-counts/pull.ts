@@ -13,7 +13,8 @@
 
 import { summarise, type GmailClient, type MessageSummary } from "../gmail/client.ts";
 import type { Db, RunContext } from "./context.ts";
-import { classifyMessage, type MessageKind } from "./message.ts";
+import { classifyMessage, isForward, isFromCountDomain, type MessageKind } from "./message.ts";
+import { chooseSheet, readPdf, type ReadPdf } from "./pdf-read.ts";
 import type { PriceFlag } from "./checks.ts";
 import { processMessageSafely, type ProcessOptions, type ProcessResult } from "./store.ts";
 
@@ -23,7 +24,8 @@ export const BACKFILL_QUERY = "from:electric-group.co.uk has:attachment filename
 /** Where messages come from: Gmail, or a local export for an offline dry run. */
 export interface MessageSource {
   list(): Promise<MessageSummary[]>;
-  pdf(message: MessageSummary): Promise<Uint8Array | null>;
+  /** The bytes of one of the message's PDFs. */
+  pdf(message: MessageSummary, index: number): Promise<Uint8Array | null>;
 }
 
 /** The query's messages, plus every other message in their threads (replies often carry no PDF). */
@@ -41,9 +43,9 @@ export function gmailSource(gmail: GmailClient, query: string): MessageSource {
       }
       return [...out.values()];
     },
-    async pdf(m) {
-      const first = m.pdfs[0];
-      return first ? gmail.attachment(m.id, first.attachmentId) : null;
+    async pdf(m, index) {
+      const p = m.pdfs[index];
+      return p ? gmail.attachment(m.id, p.attachmentId) : null;
     },
   };
 }
@@ -80,6 +82,8 @@ export interface PriceFiring {
 export interface PullSummary {
   found: number;
   counts: number;
+  /** Counts whose PDF (sha256) another email already carried: one count. */
+  duplicates: number;
   replies: number;
   nearMisses: number;
   ignored: number;
@@ -97,6 +101,7 @@ export function emptySummary(): PullSummary {
   return {
     found: 0,
     counts: 0,
+    duplicates: 0,
     replies: 0,
     nearMisses: 0,
     ignored: 0,
@@ -119,7 +124,8 @@ function tally(summary: PullSummary, line: PullLine): void {
     summary.alreadyRead++;
     return;
   }
-  if (line.kind === "count") summary.counts++;
+  if (r?.status === "duplicate") summary.duplicates++;
+  else if (line.kind === "count" || line.kind === "unreadable") summary.counts++;
   if (line.kind === "reply") summary.replies++;
   if (line.kind === "near_miss") summary.nearMisses++;
   if (!r) return;
@@ -157,14 +163,15 @@ export async function runInternalCountsPull(
   const summary = emptySummary();
   const messages = (await source.list()).filter((m) => !opts.since || m.receivedAt >= opts.since);
   summary.found = messages.length;
-  messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt) || a.id.localeCompare(b.id));
+  // "Later" is the Date header, not fetch order (M1b).
+  messages.sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.id.localeCompare(b.id));
   for (const m of messages) {
+    const read = isFromCountDomain(m.from) ? await readAll(source, m) : [];
     const threadHasCount = !!m.threadId && ctx.countThreads.has(m.threadId);
-    const kind = classifyMessage({ subject: m.subject, from: m.from, hasPdf: m.pdfs.length > 0 }, threadHasCount);
+    const kind = classifyMessage({ subject: m.subject, from: m.from, pdfVerdicts: read.map((p) => p.verdict) }, threadHasCount);
     const line: PullLine = { messageId: m.id, receivedAt: m.receivedAt, subject: m.subject, from: m.from, kind };
     if (kind !== "ignore") {
-      const pdf = m.pdfs[0];
-      const bytes = pdf && kind !== "reply" ? await source.pdf(m) : null;
+      const pdf = kind === "count" || kind === "unreadable" ? chooseSheet(read) : kind === "near_miss" ? (read[0] ?? null) : null;
       line.result = await processMessageSafely(
         sb,
         ctx,
@@ -175,10 +182,12 @@ export async function runInternalCountsPull(
           messageId: m.id,
           threadId: m.threadId,
           receivedAt: m.receivedAt,
+          sentAt: m.sentAt,
           sender: m.from,
           subject: m.subject,
           body: m.body,
-          pdf: pdf && bytes ? { filename: pdf.filename, bytes } : null,
+          forward: isForward(m.subject),
+          pdf,
         },
         { dryRun: opts.dryRun, confirmedAliases: opts.confirmedAliases },
       );
@@ -187,6 +196,16 @@ export async function runInternalCountsPull(
     opts.onMessage?.(line);
   }
   return summary;
+}
+
+/** Every PDF in the message, each read on its own (M1b). */
+async function readAll(source: MessageSource, m: MessageSummary): Promise<ReadPdf[]> {
+  const out: ReadPdf[] = [];
+  for (let i = 0; i < m.pdfs.length; i++) {
+    const bytes = await source.pdf(m, i);
+    if (bytes) out.push(await readPdf(m.pdfs[i].filename, bytes));
+  }
+  return out;
 }
 
 /** 09:00–19:59 Europe/London, Monday to Friday. */

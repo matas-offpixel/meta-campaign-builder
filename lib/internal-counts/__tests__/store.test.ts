@@ -5,11 +5,15 @@ import { describe, it } from "node:test";
 import { fakeDb, op, type FakeCall } from "../../launched-ads/__tests__/fake-db.ts";
 import { PROPOSED_COUNT_ALIASES } from "../aliases.ts";
 import { offlineContext, type RunContext } from "../context.ts";
+import { readPdf } from "../pdf-read.ts";
 import { resolveItem } from "../resolve.ts";
 import { cellRows, processMessage, type IncomingMessage } from "../store.ts";
 
-const pdf12 = new Uint8Array(readFileSync(new URL("./fixtures/internal-counts-2026-11-12.pdf", import.meta.url)));
-const pdf11 = new Uint8Array(readFileSync(new URL("./fixtures/internal-counts-2026-11-11.pdf", import.meta.url)));
+const pdf12 = await readPdf(
+  "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf",
+  new Uint8Array(readFileSync(new URL("./fixtures/internal-counts-2026-11-12.pdf", import.meta.url))),
+);
+const pdf11 = await readPdf("a.pdf", new Uint8Array(readFileSync(new URL("./fixtures/internal-counts-2026-11-11.pdf", import.meta.url))));
 
 /** A run context over real-looking events, as loadRunContext would build it. */
 function runContext(): RunContext {
@@ -70,10 +74,12 @@ const message: IncomingMessage = {
   messageId: "1a1cf88f5009e5ff",
   threadId: "1a1cf88f5009e5ff",
   receivedAt: "2026-11-12T11:33:36Z",
+  sentAt: "2026-11-12T11:33:30Z",
   sender: "Rachel Chadwick <Rachel@electric-group.co.uk>",
   subject: "Internal Show Count 12.11.26",
   body: "Hello, Please see today's internal show count attached.",
-  pdf: { filename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf", bytes: pdf12 },
+  forward: false,
+  pdf: pdf12,
 };
 
 const writes = (calls: FakeCall[]) => calls.filter((c) => op(c, "insert") || op(c, "upsert") || op(c, "update") || op(c, "delete"));
@@ -103,13 +109,41 @@ describe("processMessage", () => {
   it("dry run writes nothing and carries counts forward: ours minus 11 Nov equals SINCE LAST COUNT", async () => {
     const store = fakeStore();
     const ctx = runContext();
-    await processMessage(store.sb, ctx, { ...message, messageId: "m11", subject: "Internal Show counts 11.11.26", pdf: { filename: "a.pdf", bytes: pdf11 } }, { dryRun: true });
+    await processMessage(store.sb, ctx, { ...message, messageId: "m11", subject: "Internal Show counts 11.11.26", sentAt: "2026-11-11T11:51:00Z", pdf: pdf11 }, { dryRun: true });
     const r12 = await processMessage(store.sb, ctx, message, { dryRun: true });
     assert.equal(store.rpcs.length, 0);
     assert.equal(store.uploads.length, 0);
     assert.equal(writes(store.calls).length, 0);
     assert.deepEqual(r12.reviewItems.map((i) => i.kind), ["price_looks_wrong"]);
     assert.ok(r12.plan!.blocks.every((b) => b.ourDelta === b.sinceLast));
+  });
+
+  it("the same PDF in a second email (a forward) is one count", async () => {
+    const store = fakeStore();
+    const ctx = runContext();
+    await processMessage(store.sb, ctx, message, { dryRun: true });
+    const fwd = await processMessage(
+      store.sb,
+      ctx,
+      { ...message, messageId: "fw", subject: "Fw: Internal Show Count 12.11.26", forward: true, sentAt: "2026-11-12T13:00:00Z" },
+      { dryRun: true },
+    );
+    assert.equal(fwd.status, "duplicate");
+    assert.equal(fwd.blocksWritten, 0);
+    assert.deepEqual(fwd.reviewItems, []);
+  });
+
+  it("a forward with a different sheet for a stored date keeps the stored one and asks", async () => {
+    const store = fakeStore();
+    const ctx = runContext();
+    await processMessage(store.sb, ctx, { ...message, messageId: "m11", subject: "Internal Show counts 11.11.26", pdf: pdf11, sentAt: "2026-11-11T11:51:00Z" }, { dryRun: true });
+    assert.equal(ctx.counts.length, 9);
+    // A forward whose (different) PDF carries a count date already stored: pretend the 11 Nov sheet came first under the 12 Nov date.
+    ctx.counts = ctx.counts.map((c) => ({ ...c, countDate: "2026-11-12", total: c.total - 1 }));
+    const fwd = await processMessage(store.sb, ctx, { ...message, messageId: "fw2", forward: true, subject: "Fw: Internal Show Count 12.11.26" }, { dryRun: true });
+    assert.equal(fwd.blocksWritten, 0);
+    assert.ok(fwd.plan!.blocks.every((b) => b.status === "held"));
+    assert.ok(fwd.reviewItems.some((i) => i.kind === "replaced" && i.detail.forward === true));
   });
 
   it("a reply in a count's thread is a note; its text runs the sales check", async () => {

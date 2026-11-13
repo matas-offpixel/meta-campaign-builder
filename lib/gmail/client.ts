@@ -99,6 +99,8 @@ export interface MessageSummary {
   subject: string;
   from: string;
   receivedAt: string;
+  /** The Date header (ISO), or receivedAt when it's missing or unreadable. */
+  sentAt: string;
   body: string;
   pdfs: Array<{ filename: string; attachmentId: string }>;
 }
@@ -143,6 +145,9 @@ export function summarise(m: GmailMessage): MessageSummary {
     subject: header("Subject"),
     from: header("From"),
     receivedAt: new Date(Number(m.internalDate)).toISOString(),
+    sentAt: Number.isFinite(Date.parse(header("Date")))
+      ? new Date(Date.parse(header("Date"))).toISOString()
+      : new Date(Number(m.internalDate)).toISOString(),
     body: (plain || htmlToText(html)).replace(/\r\n/g, "\n").trim(),
     pdfs,
   };

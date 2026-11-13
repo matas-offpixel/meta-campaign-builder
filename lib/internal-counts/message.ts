@@ -1,30 +1,28 @@
 /**
  * lib/internal-counts/message.ts
  *
- * Which emails are Internal Counts (M1 of
- * docs/design-record/2026-11-13-internal-counts-matching.html), and the
- * dates in their subjects (M2).
+ * Which emails are Internal Counts: M1b of
+ * docs/design-record/2026-11-13-internal-counts-matching.html.
  *
- * `isInternalCountsMessage` is the one place the matching rule lives. An
- * email is a count when all four hold:
- *   - the sender's address is at electric-group.co.uk (exactly; no subdomain)
- *   - it carries a PDF attachment
- *   - its subject doesn't start with a reply or forward prefix
- *   - its subject matches the Internal Counts pattern
+ * `isInternalCountsMessage` is the one place the rule lives. An email is a
+ * count when the sender's address is at electric-group.co.uk (that domain
+ * exactly) and one of its PDFs reads as the counts sheet (pdf-read.ts). The
+ * subject is no longer a gate: Matthew's "Re: Internal Counts 16.10.26" and
+ * Mike's "FW: Internals 11/09" are counts once their PDF reads as the sheet.
  *
- * Anything else from the domain is a reply in a count's thread (stored as a
- * note), a near miss (a PDF and "count" in the subject), or not ours.
+ * Otherwise, from the domain:
+ *   - a PDF with either sheet heading that won't parse: unreadable
+ *     ("Couldn't read the {date} sheet")
+ *   - a reply in a count's thread with no sheet: a note (M1)
+ *   - a PDF and "count" or "internal" in the subject: a near miss
+ *   - anything else: ignored silently
+ * A sheet Matas forwards himself isn't a count (manual upload covers it).
  */
 
-export const COUNT_DOMAIN = "electric-group.co.uk";
-const PREFIX = /^\s*(re|fwd?|aw|sv)\s*:/i;
-const PATTERN = /^\s*internal\s+(shows?\s+)?(\(?ticket\)?\s+)?counts?\b/i;
+import type { PdfVerdict } from "./pdf-read.ts";
 
-export interface MessageHeaders {
-  subject: string;
-  from: string;
-  hasPdf: boolean;
-}
+export const COUNT_DOMAIN = "electric-group.co.uk";
+const PREFIXES = /^\s*(?:(?:re|fwd?|aw|sv)\s*:\s*)+/i;
 
 /** The sender's address from a From header ("Name <a@b>" or "a@b"), lower-cased. */
 export function senderAddress(from: string): string {
@@ -39,39 +37,59 @@ export function isFromCountDomain(from: string): boolean {
   return at > 0 && address.slice(at + 1) === COUNT_DOMAIN;
 }
 
-export function isInternalCountsMessage(m: MessageHeaders): boolean {
-  return isFromCountDomain(m.from) && m.hasPdf && !PREFIX.test(m.subject) && PATTERN.test(m.subject);
+/** The subject with every leading Re:/FW:/Fwd:/AW:/SV: taken off. */
+export function stripPrefixes(subject: string): string {
+  return subject.replace(PREFIXES, "").trim();
 }
 
-export type MessageKind = "count" | "reply" | "near_miss" | "ignore";
+/** A forward: a Fw:/Fwd: anywhere in the leading prefixes. A forward never replaces a stored sheet. */
+export function isForward(subject: string): boolean {
+  const prefixes = subject.match(PREFIXES)?.[0] ?? "";
+  return /\bfwd?\s*:/i.test(prefixes);
+}
 
-/**
- * M1. `threadHasCount` is true when a count from the same Gmail thread is
- * already stored (or read earlier in the same run).
- */
-export function classifyMessage(m: MessageHeaders, threadHasCount: boolean): MessageKind {
-  if (isInternalCountsMessage(m)) return "count";
+export interface MessageFacts {
+  from: string;
+  subject: string;
+  /** One verdict per PDF in the email. */
+  pdfVerdicts: PdfVerdict[];
+}
+
+export function isInternalCountsMessage(m: Pick<MessageFacts, "from" | "pdfVerdicts">): boolean {
+  return isFromCountDomain(m.from) && m.pdfVerdicts.includes("sheet");
+}
+
+export type MessageKind = "count" | "unreadable" | "reply" | "near_miss" | "ignore";
+
+/** M1b. `threadHasCount` is true when a count from the same Gmail thread is stored (or read earlier in the run). */
+export function classifyMessage(m: MessageFacts, threadHasCount: boolean): MessageKind {
   if (!isFromCountDomain(m.from)) return "ignore";
+  if (isInternalCountsMessage(m)) return "count";
+  if (m.pdfVerdicts.includes("unreadable")) return "unreadable";
   if (threadHasCount) return "reply";
-  if (m.hasPdf && /count/i.test(m.subject)) return "near_miss";
+  if (m.pdfVerdicts.length > 0 && /count|internal/i.test(m.subject)) return "near_miss";
   return "ignore";
 }
 
-/** M2: the subject's dd.mm.yy (or dd.mm.yyyy), always day first, as yyyy-mm-dd; else null. */
-export function subjectCountDate(subject: string): string | null {
-  const m = subject.match(/(?:^|[^\d])(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?!\d)/);
-  if (!m) return null;
-  const day = Number(m[1]);
-  const month = Number(m[2]);
-  const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
+const iso = (year: number, month: number, day: number): string | null =>
+  month < 1 || month > 12 || day < 1 || day > 31
+    ? null
+    : `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
-const QUOTE_START = /^(>|_{5,}|From:\s|On .+wrote:\s*$|-{2,}\s*Original Message|Sent:\s)/im;
-
-/** The sender's own words: the body up to the first quoted reply. */
-export function newPartOfBody(body: string): string {
-  const m = body.match(QUOTE_START);
-  return (m && m.index !== undefined ? body.slice(0, m.index) : body).trim();
+/**
+ * The subject's date, for M2's cross-check only. Leading prefixes are taken
+ * off first. Always day first: dd.mm.yy, dd.mm.yyyy, dd/mm/yy, and dd.mm or
+ * dd/mm with the year from the PDF ("Internals 18.09" = 18 Sep). Null when
+ * the subject has no date (or no year to give a dd.mm).
+ */
+export function subjectCountDate(subject: string, pdfYear?: number | null): string | null {
+  const s = stripPrefixes(subject);
+  const full = s.match(/(?:^|[^\d])(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?![\d./-])/);
+  if (full) {
+    const year = full[3].length === 2 ? 2000 + Number(full[3]) : Number(full[3]);
+    return iso(year, Number(full[2]), Number(full[1]));
+  }
+  const short = s.match(/(?:^|[^\d])(\d{1,2})[./](\d{1,2})(?![\d./])/);
+  if (short && pdfYear) return iso(pdfYear, Number(short[2]), Number(short[1]));
+  return null;
 }

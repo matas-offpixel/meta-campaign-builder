@@ -23,6 +23,7 @@ const FLASH: Record<string, string> = {
   "upload=too_large": "That PDF is over 10 MB.",
   "upload=not_pdf": "That file isn't a PDF.",
   "upload=already_read": "That PDF was uploaded before. Nothing new was written.",
+  "upload=duplicate": "That sheet was already read from an email. Nothing new was written.",
   "upload=unreadable": "That PDF couldn't be read as an Internal Counts sheet. It's on the list below.",
   "action=incomplete": "Choose an event, or type a figure, first.",
   "action=failed": "That didn't go through. Nothing was changed.",
