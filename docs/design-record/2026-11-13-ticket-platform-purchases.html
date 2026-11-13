@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ticket-platform purchases — 13 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.p4{display:grid;grid-template-columns:150px minmax(0,1fr);gap:0;font-size:12.5px}
+.p4>div{padding:8px 10px;border-bottom:1px solid var(--border)}
+.p4 .lab{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+@media (max-width:700px){.p4{grid-template-columns:minmax(0,1fr)}.p4 .lab{border-bottom:0;padding-bottom:0}}
+.p4 .sm{display:block;font-size:11.5px;color:var(--ink-3);margin-top:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="k">Off/Pixel · design record · on-sale optimisation · 13 November 2026</div>
+<h1>Ticket-platform purchases: a shared signal, used honestly</h1>
+<p class="lead">This record amends E1–E3 of <a href="2026-11-13-per-event-purchases.html"><code>2026-11-13-per-event-purchases.html</code></a> (#1211). That record is merged and stays as it is; where the two differ, this one rules. E4 (the pixel) stands.</p>
+<p class="lead"><b>Matas, 13 Nov:</b> for shows selling on ticket platforms (Skiddle, RA, See Tickets, Dice), a Purchase campaign may optimise on the pixel's purchases, shared across shows and not split per show.</p>
+<p class="lead"><b>Why it's needed.</b> #1212's read-only dry run (HE1, 13 Nov, data to 12 Nov) found no show with a single purchase on its own domain, because buyers check out on Skiddle. The five NX shows and EBR26-KREAM have their own domains with 0 purchases. All six run on a pixel other than the stored one; Meta names the NX one "NX Live Skiddle". Under E1 alone, the Purchase campaign would almost never be proposed for these clients.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>T1 · Which shows take the platform path</td><td>
+<p>A show takes the platform path when both of these hold:</p>
+<ul>
+<li><b>Its ticket URL's host is a ticket platform.</b> That means Skiddle, RA, See Tickets and Dice (Matas's four), plus Universe and Ingresse, which E1 already names as ticket sites. The list is a config that ops can extend.</li>
+<li><b>No purchase has reached its own domain in 28 days,</b> or it has no own domain at all.</li>
+</ul>
+<p>This takes in three of E3's dead ends whenever the ticket URL is on a platform: "ticket site only", "nothing reaches" and "no domain of its own". A show with no ticket URL is unchanged.</p></td></tr>
+<tr><td>T2 · The trigger, and what the campaign optimises on (a)</td><td>
+<p><b>E1's principle still holds: the count that triggers is what the campaign would optimise on.</b> On the platform path the campaign optimises on the resolved pixel's standard Purchase event. So the trigger is the purchases Meta credits to this show's ads, which is the signal Meta will learn from.</p>
+<ul>
+<li><b>Trigger:</b> 15 or more purchases attributed to this show's ads in 14 days, on the resolved pixel (E4).</li>
+<li><b>Counted from the show's on-sale date.</b> The count runs from the later of the window start and the show's first on-sale date (its presale when stored, else its general sale). A purchase credited before the show could be bought is certainly another show's: 22 of Julian Fijma's 24 landed before its presale. When the show has been on sale for less than 14 days, the sentence says "since {d Mon}" instead of "in 14 days".</li>
+<li><b>Guard: the pixel must mostly sell where this show sells.</b> In Meta's domain breakdown, the show's platform must carry at least half of the resolved pixel's purchases over 28 days. Otherwise optimising on the pixel's Purchase would chase another site's buyers. Example: Fever 105's ads run on the "Electric Studios Universe Pixel", whose purchases mostly land on universe.com, while Fever 105 sells on Skiddle. No proposal, and the panel says why (T4).</li>
+<li><b>It optimises on the standard Purchase event, with no custom conversion.</b> Once the guard passes, a custom conversion on the platform's domain would cover most of the pixel's purchases anyway. It would add a write and change nothing.</li>
+<li><b>The pixel-wide host count is never the trigger.</b> 473 purchases on skiddle.com in 14 days on the NX pixel says the pixel has signal. It doesn't say these ads earn any of it.</li>
+</ul></td></tr>
+<tr><td>T3 · Cross-campaign moves (b)</td><td>
+<ul>
+<li><b>Allowed between this show's own campaigns</b> on cost per attributed purchase: the campaign's spend over the purchases credited to it since the on-sale date.</li>
+<li><b>Both campaigns must optimise on the same resolved pixel.</b> Each needs at least 5 attributed purchases in the week. C9's 1.5× / 0.75× thresholds apply.</li>
+<li><b>Moves never cross shows.</b> The budget is per event, and shared purchases make one show's cost per purchase another show's too.</li>
+<li><b>Lines name the measure as it is:</b> "cost per attributed purchase", never "cost per sale".</li>
+<li>Under the bar, or when the guard fails, moves stay inside each campaign as before.</li>
+</ul></td></tr>
+<tr><td>T4 · What the panel says (c)</td><td>
+<p>The platform path has three states, with strings in F1. Each one says the signal is shared and never blocks: the shared signal is a fact, not a fault.</p>
+<ul>
+<li><b>Proposed:</b> 15 or more attributed, and the guard passes.</li>
+<li><b>Under the bar:</b> under 15, and the guard passes.</li>
+<li><b>Pixel sells elsewhere:</b> the guard fails, whatever the count.</li>
+</ul>
+<p>The attributed line isn't repeated under these states, because there it <i>is</i> the count. In its place a context line gives the platform's share: "Skiddle took 81 % of this pixel's 836 purchases in 28 days." E3's "ticket site only" state is retired; a show selling only on a platform now lands here.</p></td></tr>
+<tr><td>T5 · The own-domain rule first (d)</td><td>
+<ul>
+<li><b>E1 still applies, and it applies first.</b> A show whose own domain has had at least one purchase in 28 days (a CIRQLIN checkout or an embedded ticket widget) takes E1's own-domain count and its per-show custom conversion, which is more precise than the shared signal.</li>
+<li><b>No such show exists today.</b> #1212's read found 0 purchases on every own domain.</li>
+<li>When an own domain has purchases but its ticket URL is also on a platform, E1 wins. The platform path is only for shows whose own domain sees nothing.</li>
+</ul></td></tr>
+<tr><td>T6 · Re-rulings from #1212</td><td>
+<ul>
+<li><b>28 days, not 90.</b> Meta's domain breakdown goes back only 28 days, so E2's test and F2's "nothing reaches" sentence say 28 days (Matas, 13 Nov).</li>
+<li><b>The delivering window</b> for E4 is the 14 days to the window end, the same span as the count.</li>
+<li><b>The pixel's name is Meta's.</b> The setup line uses the name Meta gives the pixel ("NX Live Skiddle"), not a CIRQLIN label. #1211's frames, which wrote "NX LOVES", are superseded on this point.</li>
+<li><b>A ninth state: couldn't be read.</b> A missing token, a Meta error or a CIRQLIN page that didn't load gives "Purchase campaign not proposed — this show's purchases couldn't be read this run. The next run tries again." At 393: "No Purchase campaign: purchases not read this run." It's never shown as a zero, and the raw reason goes to the evidence and the ops log, never the panel. The attributed line stays under it.</li>
+</ul></td></tr>
+</table>
+
+<h2>F1 · The platform states (1280, with the 393 form under each)</h2>
+<p class="lead">This replaces E3's "ticket site only" state. Counts and shares are examples; braces are filled per show.</p>
+<div class="frame">
+<figure><figcaption>1280 · Objective · platform states</figcaption>
+<div class="vp w1280">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<div class="p4">
+<div class="lab">Proposed</div>
+<div>Purchase campaign proposed — 17 purchases attributed to these ads in 14 days, on pixel …2763. The signal is shared: Skiddle sells every show on this pixel, so Meta optimises for buyers of any of them. Budget moves can cross campaigns on cost per attributed purchase.<span class="sm">393: Purchase campaign: 17 attributed in 14 days · shared on Skiddle.</span></div>
+<div class="lab">Under the bar</div>
+<div>Purchase campaign not proposed — 6 purchases attributed to these ads in 14 days, under 15. The signal is shared: Skiddle sells every show on this pixel. Budget moves stay inside each campaign.<span class="sm">393: No Purchase campaign: 6 attributed in 14 days, under 15 · shared on Skiddle.</span></div>
+<div class="lab">Pixel sells elsewhere</div>
+<div>Purchase campaign not proposed — most of this pixel's purchases are on universe.com, not Skiddle where this show sells, so optimising on them would chase another site's buyers. Budget moves stay inside each campaign.<span class="sm">393: No Purchase campaign: this pixel's purchases are mostly on universe.com.</span></div>
+<div class="lab">Under each</div>
+<div>Skiddle took 81 % of this pixel's 836 purchases in 28 days.<span class="sm">393: Skiddle: 81 % of the pixel's purchases in 28 days.</span></div>
+<div class="lab">On sale under 14 days</div>
+<div>"in 14 days" becomes "since 6 Nov" in the first sentence at both widths.</div>
+<div class="lab">Couldn't be read</div>
+<div>Purchase campaign not proposed — this show's purchases couldn't be read this run. The next run tries again.<span class="sm">393: No Purchase campaign: purchases not read this run.</span></div>
+</div></div></div></div></figure>
+</div>
+
+<h2>F2 · Objective, two real shows (1280 and 393)</h2>
+<p class="lead"><b>NX26-LOCKLEAD</b>: its pixel, mismatch, Meta's pixel name and IC line are real (#1212's read). Its count since 6 Nov (6) and Skiddle's share are examples until HT1 reads them.</p>
+<p class="lead"><b>NX27-JULIANFIJMA</b>: it sells on Universe and its ads use the NX pixel, whose purchases mostly land on skiddle.com, so it's expected to read "pixel sells elsewhere". Universe's exact share is HT1's to read.</p>
+<div class="frame">
+<figure><figcaption>1280 · NX26-LOCKLEAD · under the bar</figcaption>
+<div class="vp w1280">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<div class="setup"><span>Ads optimise on pixel …2763 (NX Live Skiddle); the client's stored pixel is …4565. Counts use …2763.</span></div>
+<p class="why">Initiate Checkout — 93 reached the pixel since 6 Nov. Last 14 days: 96 IC.<small>Purchase campaign not proposed — 6 purchases attributed to these ads since 6 Nov, under 15. The signal is shared: Skiddle sells every show on this pixel. Budget moves stay inside each campaign.</small><small>Skiddle took 81 % of this pixel's 836 purchases in 28 days.</small><small>No linked ticketing: the pixel's purchases can't be checked against real sales.</small></p></div>
+</div></div></figure>
+<figure><figcaption>393 · NX26-LOCKLEAD</figcaption>
+<div class="vp w393">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<div class="setup"><span>Ads use pixel …2763; stored is …4565. Counts use …2763.</span></div>
+<p class="why">Initiate Checkout — 93 reached the pixel since 6 Nov. Last 14 days: 96 IC.<small>No Purchase campaign: 6 attributed since 6 Nov, under 15 · shared on Skiddle.</small><small>Skiddle: 81 % of the pixel's purchases in 28 days.</small><small>No linked ticketing: the pixel's purchases can't be checked against real sales.</small></p></div>
+</div></div></figure>
+</div>
+<div class="frame">
+<figure><figcaption>1280 · NX27-JULIANFIJMA · pixel sells elsewhere</figcaption>
+<div class="vp w1280">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<div class="setup"><span>Ads optimise on pixel …2763 (NX Live Skiddle); the client's stored pixel is …4565. Counts use …2763.</span></div>
+<p class="why">Purchase campaign not proposed — most of this pixel's purchases are on skiddle.com, not Universe where this show sells, so optimising on them would chase another site's buyers. Budget moves stay inside each campaign.<small>Universe took 2 % of this pixel's 836 purchases in 28 days.</small></p></div>
+</div></div></figure>
+<figure><figcaption>393 · NX27-JULIANFIJMA</figcaption>
+<div class="vp w393">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<div class="setup"><span>Ads use pixel …2763; stored is …4565. Counts use …2763.</span></div>
+<p class="why">No Purchase campaign: this pixel's purchases are mostly on skiddle.com.<small>Universe: 2 % of the pixel's purchases in 28 days.</small></p></div>
+</div></div></figure>
+</div>
+
+<h2>The state order, all of it</h2>
+<p class="lead">This replaces E3's order. The first state that applies wins.</p>
+<table class="t">
+<tr><th style="width:190px">#</th><th>State</th></tr>
+<tr><td>1</td><td>Couldn't be read (T6)</td></tr>
+<tr><td>2</td><td>No pixel (E3)</td></tr>
+<tr><td>3</td><td>No page or ticket URL (E3)</td></tr>
+<tr><td>4</td><td>Own domain with a purchase in 28 days: shared domain, under the bar, or proposed (E1–E3, T5)</td></tr>
+<tr><td>5</td><td>Ticket URL on a platform: pixel sells elsewhere, under the bar, or proposed (T1–T4)</td></tr>
+<tr><td>6</td><td>Anything left: no domain of its own, shared domain, or nothing reaches (E3, in 28 days). "Ticket site only" is retired.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HT1 · The platform read</td><td>
+<p>Extends #1212's read, still read-only. Per show it adds:</p>
+<ul>
+<li>the attributed purchases since the on-sale date, from <code>ad_daily_insights</code>, per campaign and in total;</li>
+<li>the platform's share of the resolved pixel's purchases over 28 days, from the domain breakdown #1212 already reads;</li>
+<li>the T4 state.</li>
+</ul>
+<p>The dry-run table gains those three columns.</p>
+<p><b>Acceptance:</b></p>
+<ul>
+<li>NX26-LOCKLEAD takes the platform path, not "nothing reaches";</li>
+<li>NX27-JULIANFIJMA reads "pixel sells elsewhere" if Universe's share is under 50 %;</li>
+<li>ES26-FEVER105's pixel guard names universe.com;</li>
+<li>P26-BDAY takes the platform path (Skiddle), not "no domain of its own".</li>
+</ul></td></tr>
+<tr><td>HT2 · Panel and frames</td><td>F1's strings at 1280 and 393, and the state order above. OR4 gains the three platform states and "couldn't be read", and loses "ticket site only". OR2 and OR3 re-shoot with their new states.</td></tr>
+<tr><td>HT3 · Moves</td><td>T3's cross-campaign moves, in shadow, only in the Proposed state, on cost per attributed purchase with the same-pixel and ≥ 5 checks.</td></tr>
+<tr><td>HT4 · On Accept (later)</td><td>On the platform path, the Purchase campaign optimises on the resolved pixel's standard Purchase event, with no custom conversion. E1's custom conversion stays for the own-domain path (HE4).</td></tr>
+</table>
+
+<h2>Supersedes</h2>
+<ul class="notes">
+<li>E3's "ticket site only" state and its F2 string.</li>
+<li>E2's and F2's 90 days, now 28.</li>
+<li>E3's order, replaced by the order above.</li>
+<li>"NX LOVES" as the pixel's name in #1211's F1. The setup line uses Meta's name.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Counting from the on-sale date, and the "since {d Mon}" form.</li>
+<li>T2's 50 % guard and the "pixel sells elsewhere" state.</li>
+<li>T3's same-pixel and ≥ 5 checks for moves.</li>
+<li>Every string in F1, F2 and T6, including the platform-share context line.</li>
+<li>LOCKLEAD's 6, the 17, and the 81 % and 2 % shares, which are examples.</li>
+</ul>
+
+<h2>Open for Matas</h2>
+<ul class="notes">
+<li>The 50 % guard: whether half is the right line.</li>
+<li>Whether Universe and Ingresse join his four platforms (they're in the list by default because E1 already names them as ticket sites).</li>
+</ul>
+
+</div>
+</body>
+</html>
