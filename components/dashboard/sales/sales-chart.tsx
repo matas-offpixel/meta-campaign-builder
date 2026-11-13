@@ -16,6 +16,11 @@ import {
   type SalesUnit,
 } from "@/lib/dashboard/sales-vs-spend";
 
+/** Plot geometry lives in this square. The SVG stretches it to the box; dots and dates stay outside that stretch. */
+export const CHART_PLOT = 1000;
+/** Inset so an 8px dot stays inside the box at 393. */
+export const PLOT_PAD = 28;
+
 const GROUP_COLOR = [
   "var(--foreground)",
   "var(--warning-foreground)",
@@ -59,33 +64,30 @@ export function SalesChart({
   return (
     <figure className="mt-2">
       <AxisCaption plan={plan} selected={selected} points={points} allocation={allocation} />
-      <svg viewBox="0 0 640 280" role="img" aria-label="Sales and spend" className="block h-72 w-full">
-        <rect x="8" y="8" width="624" height="264" fill="none" stroke="currentColor" className="text-border" />
-        {band}
-        {drawn.map((series) => (
-          <g key={series.id}>
+      <div className="relative h-72 w-full border border-border">
+        <svg viewBox={`0 0 ${CHART_PLOT} ${CHART_PLOT}`} preserveAspectRatio="none" role="img" aria-label="Sales and spend" className="absolute inset-0 h-full w-full">
+          {band}
+          {drawn.map((series) => (
             <polyline
+              key={series.id}
               fill="none"
               stroke={series.color}
               strokeWidth="1.6"
+              vectorEffect="non-scaling-stroke"
               strokeDasharray={series.dashed ? "4 3" : undefined}
               points={series.coords.map((coord) => `${coord.x},${coord.y}`).join(" ")}
             >
               {series.id === "sold" && series.coords.some((coord) => coord.note) ? <title>{series.coords.find((coord) => coord.note)?.note}</title> : null}
             </polyline>
-            {series.id === "sold"
-              ? series.coords.filter((coord) => coord.count).map((coord, index) => (
-                <circle key={index} cx={coord.x} cy={coord.y} r="4" fill={series.color} />
-              ))
-              : null}
-          </g>
-        ))}
-      </svg>
-      <div className="mt-1 flex justify-between text-xs text-muted-foreground">
-        {ticks.map((tick) => (
-          <span key={tick.day} className="whitespace-nowrap">{keepDate(tick.label)}</span>
-        ))}
+          ))}
+        </svg>
+        {drawn.filter((series) => series.id === "sold").flatMap((series) =>
+          series.coords.filter((coord) => coord.count).map((coord) => (
+            <ChartDot key={`${coord.x}-${coord.y}`} x={coord.x} y={coord.y} color={series.color} />
+          )),
+        )}
       </div>
+      <ChartDateLabels ticks={ticks.map((tick) => ({ key: tick.day, x: tick.x, label: tick.label }))} />
       <ul className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[11px] text-muted-foreground">
         {drawn.map((series) => (
           <li key={series.id} className="flex items-center gap-1.5">
@@ -208,13 +210,47 @@ function colorFor(id: SalesMetricId): string {
 }
 
 function xAt(index: number, count: number): number {
-  if (count <= 1) return 320;
-  return 8 + (index / (count - 1)) * 624;
+  if (count <= 1) return CHART_PLOT / 2;
+  return PLOT_PAD + (index / (count - 1)) * (CHART_PLOT - PLOT_PAD * 2);
 }
 
 function yAt(fraction: number): number {
   const clamped = Math.max(0, Math.min(1, fraction));
-  return 272 - clamped * 264;
+  return PLOT_PAD + (1 - clamped) * (CHART_PLOT - PLOT_PAD * 2);
+}
+
+export function ChartDot({ x, y, color }: { x: number; y: number; color: string }) {
+  return (
+    <span
+      className="absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+      style={{ left: `${(x / CHART_PLOT) * 100}%`, top: `${(y / CHART_PLOT) * 100}%`, background: color }}
+    />
+  );
+}
+
+export function ChartDateLabels({ ticks }: { ticks: { key: string; x: number; label: string }[] }) {
+  return (
+    <div className="relative mt-1 h-4 text-xs text-muted-foreground">
+      {ticks.map((tick) => {
+        const percent = (tick.x / CHART_PLOT) * 100;
+        return (
+          <span
+            key={tick.key}
+            className="absolute top-0 whitespace-nowrap"
+            style={{ left: `${percent}%`, transform: labelShift(percent) }}
+          >
+            {keepDate(tick.label)}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function labelShift(percent: number): string {
+  if (percent <= 4) return "translateX(0)";
+  if (percent >= 96) return "translateX(-100%)";
+  return "translateX(-50%)";
 }
 
 function axisTicks(points: SalesChartPoint[]): { day: string; x: number; label: string }[] {

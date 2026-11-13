@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { SalesChart } from "@/components/dashboard/sales/sales-chart";
+import { CHART_PLOT, PLOT_PAD, ChartDateLabels, ChartDot, SalesChart } from "@/components/dashboard/sales/sales-chart";
 import {
   DEFAULT_ON_METRICS,
   INDEX_TO_PEAK,
@@ -285,60 +285,70 @@ function trajectoryChart(trajectory: SingleTrajectory, cases: SingleTrajectory["
   const end = Date.parse(`${trajectory.showDayIso}T00:00:00Z`);
   const span = Math.max(1, end - start);
   const yMax = Math.max(trajectory.allocation, needed.showDaySold, ...cases.map((item) => item.value), pace.fanSold);
-  const x = (day: string) => 16 + ((Date.parse(`${day}T00:00:00Z`) - start) / span) * 608;
-  const y = (sold: number) => 228 - (sold / yMax) * 212;
+  const x = (day: string) => PLOT_PAD + ((Date.parse(`${day}T00:00:00Z`) - start) / span) * (CHART_PLOT - PLOT_PAD * 2);
+  const y = (sold: number) => PLOT_PAD + (1 - sold / yMax) * (CHART_PLOT - PLOT_PAD * 2);
   const dates = [pace.fromDay, pace.toDay, pace.fanDay, trajectory.showDayIso];
+  const allocationY = y(trajectory.allocation);
   return (
     <figure className="mt-3">
-      <svg viewBox="0 0 640 240" role="img" aria-label="Trajectory to show day" className="block h-64 w-full">
-        <line x1="16" y1={y(trajectory.allocation)} x2="624" y2={y(trajectory.allocation)} stroke="var(--foreground)" strokeOpacity="0.35" />
-        <text x="20" y={y(trajectory.allocation) - 6} fontSize="12" fill="currentColor" className="text-muted-foreground">
-          {trajectory.allocation.toLocaleString("en-GB")}
-        </text>
-        <line x1={x(trajectory.showDayIso)} y1="12" x2={x(trajectory.showDayIso)} y2="228" stroke="var(--foreground)" strokeOpacity="0.45" />
-        <polyline
-          fill="none"
-          stroke="var(--foreground)"
-          strokeWidth="1.6"
-          points={trajectory.counts.map((count) => `${x(count.day)},${y(count.sold)}`).join(" ")}
-        />
-        {trajectory.counts.map((count) => (
-          <circle key={count.day} cx={x(count.day)} cy={y(count.sold)} r="4" fill="var(--foreground)" />
-        ))}
-        <line
-          x1={x(pace.toDay)}
-          y1={y(pace.toSold)}
-          x2={x(pace.fanDay)}
-          y2={y(pace.fanSold)}
-          stroke="var(--foreground)"
-          strokeDasharray="5 4"
-        />
-        {cases.map((item) => (
-          <line
-            key={item.id}
-            x1={x(pace.fanDay)}
-            y1={y(pace.fanSold)}
-            x2={x(trajectory.showDayIso!)}
-            y2={y(item.value)}
-            stroke={CASE_COLOR[item.id]}
+      <div className="relative h-64 w-full">
+        <svg viewBox={`0 0 ${CHART_PLOT} ${CHART_PLOT}`} preserveAspectRatio="none" role="img" aria-label="Trajectory to show day" className="absolute inset-0 h-full w-full">
+          <line x1="0" y1={allocationY} x2={CHART_PLOT} y2={allocationY} stroke="var(--foreground)" strokeOpacity="0.35" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+          <line x1={x(trajectory.showDayIso)} y1="0" x2={x(trajectory.showDayIso)} y2={CHART_PLOT} stroke="var(--foreground)" strokeOpacity="0.45" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+          <polyline
+            fill="none"
+            stroke="var(--foreground)"
             strokeWidth="1.6"
+            vectorEffect="non-scaling-stroke"
+            points={trajectory.counts.map((count) => `${x(count.day)},${y(count.sold)}`).join(" ")}
           />
-        ))}
-        <line
-          x1={x(pace.toDay)}
-          y1={y(pace.toSold)}
-          x2={x(trajectory.showDayIso)}
-          y2={y(needed.showDaySold)}
-          stroke="var(--foreground)"
-          strokeDasharray="1 3"
-          strokeOpacity="0.7"
-        />
-      </svg>
-      <div className="mt-1 flex justify-between text-xs text-muted-foreground">
-        {[...new Set(dates)].map((day) => (
-          <span key={day} className="whitespace-nowrap">{keepDate(shortDay(day))}</span>
+          <line
+            x1={x(pace.toDay)}
+            y1={y(pace.toSold)}
+            x2={x(pace.fanDay)}
+            y2={y(pace.fanSold)}
+            stroke="var(--foreground)"
+            strokeWidth="1.6"
+            strokeDasharray="5 4"
+            vectorEffect="non-scaling-stroke"
+          />
+          {cases.map((item) => (
+            <line
+              key={item.id}
+              x1={x(pace.fanDay)}
+              y1={y(pace.fanSold)}
+              x2={x(trajectory.showDayIso!)}
+              y2={y(item.value)}
+              stroke={CASE_COLOR[item.id]}
+              strokeWidth="1.6"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          <line
+            x1={x(pace.toDay)}
+            y1={y(pace.toSold)}
+            x2={x(trajectory.showDayIso)}
+            y2={y(needed.showDaySold)}
+            stroke="var(--foreground)"
+            strokeWidth="1.6"
+            strokeDasharray="1 3"
+            strokeOpacity="0.7"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+        <span
+          className="absolute left-1 text-xs text-muted-foreground"
+          style={{ top: `${(allocationY / CHART_PLOT) * 100}%`, transform: allocationY < CHART_PLOT * 0.1 ? "translateY(2px)" : "translateY(-100%)" }}
+        >
+          {trajectory.allocation.toLocaleString("en-GB")}
+        </span>
+        {trajectory.counts.map((count) => (
+          <ChartDot key={count.day} x={x(count.day)} y={y(count.sold)} color="var(--foreground)" />
         ))}
       </div>
+      <ChartDateLabels
+        ticks={[...new Set(dates)].map((day) => ({ key: day, x: x(day), label: shortDay(day) }))}
+      />
     </figure>
   );
 }
