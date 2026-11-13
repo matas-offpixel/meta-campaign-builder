@@ -35,6 +35,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import type { MessageSummary } from "../lib/gmail/client.ts";
 import { PROPOSED_COUNT_ALIASES } from "../lib/internal-counts/aliases.ts";
+import { CONFIRMED_NOT_OURS, CONFIRMED_SHEET_ALIASES } from "../lib/internal-counts/seed-names.ts";
 import { loadRunContext, offlineContext } from "../lib/internal-counts/context.ts";
 import { openGmailSession, operatorForMailbox } from "../lib/internal-counts/gmail-session.ts";
 import {
@@ -55,12 +56,13 @@ const value = (name: string) => {
 
 const apply = flag("--apply");
 const assumeProposed = flag("--assume-proposed");
+const assumeConfirmed = flag("--assume-confirmed-names");
 const since = value("--since");
 const fromDir = value("--from-dir");
 const noDb = flag("--no-db");
 const jsonOut = value("--json");
-if (apply && (assumeProposed || fromDir || noDb)) {
-  console.error("--assume-proposed, --from-dir and --no-db are for dry runs only");
+if (apply && (assumeProposed || assumeConfirmed || fromDir || noDb)) {
+  console.error("--assume-proposed, --assume-confirmed-names, --from-dir and --no-db are for dry runs only");
   process.exit(2);
 }
 if (since && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
@@ -149,12 +151,15 @@ async function main(): Promise<void> {
     }
     userId = owner ?? "dry-run";
   }
-  const ctx = offline ? offlineContext(assumeProposed ? PROPOSED_COUNT_ALIASES : undefined) : await loadRunContext(sb);
+  // --assume-confirmed-names: the names seed (16 aliases, 8 not ours) applied in memory, nothing written.
+  const assumed = assumeConfirmed ? CONFIRMED_SHEET_ALIASES : assumeProposed ? PROPOSED_COUNT_ALIASES : undefined;
+  const ctx = offline ? offlineContext(assumed) : await loadRunContext(sb);
+  if (assumeConfirmed) for (const n of CONFIRMED_NOT_OURS) ctx.notOurs.add(n);
   const summary = await runInternalCountsPull(sb, ctx, source, {
     userId,
     since,
     dryRun: !apply,
-    confirmedAliases: assumeProposed ? PROPOSED_COUNT_ALIASES : undefined,
+    confirmedAliases: assumed,
     onMessage: (l) => console.log(lineText(l)),
   });
   printSummary(summary);

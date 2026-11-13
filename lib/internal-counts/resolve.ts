@@ -248,34 +248,63 @@ async function saveName(sb: Db, name: string, eventId: string | null, who: Resol
 }
 
 /** "Match to {event}": every held block with this exact name joins the event; the same name's other open items are checked by the same choice. */
-async function matchName(sb: Db, ctx: RunContext, item: ItemRow, eventId: string, who: Resolver): Promise<void> {
-  const name = item.show_name ?? "";
-  const event = ctx.eventsById.get(eventId);
-  if (!event || !name) throw new Error("Choose an event.");
-  await saveName(sb, name, eventId, who);
-  ctx.aliases[name] = event.eventCode;
-  const others = (await openItemsNamed(sb, "unmatched_show", name)).filter((id) => id !== item.id);
-  await markResolved(sb, others, "match", who, { eventId, via: item.id });
-  for (const block of await heldBlocksNamed(sb, name)) {
-    const { error } = await sb.from("internal_count_blocks").update({ event_id: eventId }).eq("id", block.id);
-    if (error) throw new Error(`Matching the block failed: ${error.message}`);
-    await releaseBlock(sb, ctx, block.id, { except: item.id });
-  }
-}
-
-/** "Not a show we run": never asks again for this name. */
-async function markNotOurs(sb: Db, ctx: RunContext, item: ItemRow, who: Resolver): Promise<void> {
-  const name = item.show_name ?? "";
+/**
+ * The one path a sheet-name decision takes, from the review list ("Match to
+ * {event}" / "Not a show we run") or the confirmed-names seed: the name is
+ * saved; that name's other open items are checked by the same choice; its
+ * held blocks join the event and are released (oldest first), or are marked
+ * not ours. `via` is the item the choice was made on, if any (resolved by
+ * the caller).
+ */
+export async function decideName(
+  sb: Db,
+  ctx: RunContext,
+  name: string,
+  eventId: string | null,
+  who: Resolver,
+  via: string | null = null,
+): Promise<{ itemsChecked: number; blocks: number }> {
   if (!name) throw new Error("This item has no name.");
+  const detail = via ? { via } : { seeded: true };
+  if (eventId) {
+    const event = ctx.eventsById.get(eventId);
+    if (!event) throw new Error("Choose an event.");
+    await saveName(sb, name, eventId, who);
+    ctx.aliases[name] = event.eventCode;
+    const others = (await openItemsNamed(sb, "unmatched_show", name)).filter((id) => id !== via);
+    await markResolved(sb, others, "match", who, { eventId, ...detail });
+    const held = await heldBlocksNamed(sb, name);
+    for (const block of held) {
+      const { error } = await sb.from("internal_count_blocks").update({ event_id: eventId }).eq("id", block.id);
+      if (error) throw new Error(`Matching the block failed: ${error.message}`);
+      await releaseBlock(sb, ctx, block.id, { except: via ?? "" });
+    }
+    return { itemsChecked: others.length, blocks: held.length };
+  }
   await saveName(sb, name, null, who);
   ctx.notOurs.add(name);
   const others = [
     ...(await openItemsNamed(sb, "unmatched_show", name)),
     ...(await openItemsNamed(sb, "sale_mention", name)),
-  ].filter((id) => id !== item.id);
-  await markResolved(sb, others, "not_ours", who, { via: item.id });
-  const { error } = await sb.from("internal_count_blocks").update({ status: "not_ours" }).eq("show_name", name).eq("status", "held");
+  ].filter((id) => id !== via);
+  await markResolved(sb, others, "not_ours", who, detail);
+  const { data, error } = await sb
+    .from("internal_count_blocks")
+    .update({ status: "not_ours" })
+    .eq("show_name", name)
+    .eq("status", "held")
+    .select("id");
   if (error) throw new Error(`Updating the blocks failed: ${error.message}`);
+  return { itemsChecked: others.length, blocks: (data ?? []).length };
+}
+
+async function matchName(sb: Db, ctx: RunContext, item: ItemRow, eventId: string, who: Resolver): Promise<void> {
+  await decideName(sb, ctx, item.show_name ?? "", eventId, who, item.id);
+}
+
+/** "Not a show we run": never asks again for this name. */
+async function markNotOurs(sb: Db, ctx: RunContext, item: ItemRow, who: Resolver): Promise<void> {
+  await decideName(sb, ctx, item.show_name ?? "", null, who, item.id);
 }
 
 async function applyChosenDate(sb: Db, ctx: RunContext, item: ItemRow, date: string): Promise<void> {
