@@ -127,8 +127,7 @@ export async function resolveItem(sb: Db, itemId: string, action: ResolveAction,
 }
 
 function actionDetail(action: ResolveAction): Record<string, unknown> {
-  const { kind: _kind, ...rest } = action;
-  return rest;
+  return Object.fromEntries(Object.entries(action).filter(([k]) => k !== "kind"));
 }
 
 type Effect<A extends ResolveAction> = (sb: Db, ctx: RunContext, item: ItemRow, action: A, who: Resolver) => Promise<void>;
@@ -151,7 +150,7 @@ const EFFECTS: { [K in ResolveAction["kind"]]: Effect<Extract<ResolveAction, { k
   add_manual: async (sb, ctx, item, a) => addManualEntry(sb, ctx, item, a.eventId, a.figure),
   match: async (sb, ctx, item, a, who) => matchName(sb, ctx, item, a.eventId, who),
   not_ours: async (sb, ctx, item, _a, who) => markNotOurs(sb, ctx, item, who),
-  use_date: async (sb, ctx, item, a) => useDate(sb, ctx, item, a.date),
+  use_date: async (sb, ctx, item, a) => applyChosenDate(sb, ctx, item, a.date),
   use_total: async (sb, ctx, item, a) => {
     if (!item.block_id) throw new Error("The sum item has no show block.");
     const { error } = await sb.from("internal_count_blocks").update({ chosen_total: a.total }).eq("id", item.block_id);
@@ -253,7 +252,7 @@ async function markNotOurs(sb: Db, ctx: RunContext, item: ItemRow, who: Resolver
   if (error) throw new Error(`Updating the blocks failed: ${error.message}`);
 }
 
-async function useDate(sb: Db, ctx: RunContext, item: ItemRow, date: string): Promise<void> {
+async function applyChosenDate(sb: Db, ctx: RunContext, item: ItemRow, date: string): Promise<void> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Pick a date.");
   const sheetDate = item.detail.sheetDate as string | null;
   const { data, error } = await sb

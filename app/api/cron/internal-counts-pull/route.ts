@@ -46,10 +46,11 @@ async function handleGET(req: NextRequest) {
       userId: session.connection.user_id,
     });
     await recordPull(sb, connectionId, null);
-    const { lines, priceFirings: _firings, ...rest } = summary;
+    const { lines, ...rest } = summary;
     return NextResponse.json({
       ok: true,
       ...rest,
+      priceFirings: rest.priceFirings.length,
       messages: lines.map((l) => ({ id: l.messageId, subject: l.subject, kind: l.kind, status: l.result?.status ?? null })),
     });
   } catch (err) {
