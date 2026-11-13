@@ -14,6 +14,7 @@ export default defineConfig({
       "components/dashboard/events/creative-lab/__tests__/**/*.test.tsx",
       "components/steps/__tests__/**/*.test.tsx",
       "components/dashboard/events/__tests__/**/*.test.tsx",
+      "components/dashboard/sales/__tests__/**/*.test.tsx",
     ],
   },
 });

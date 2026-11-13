@@ -431,7 +431,14 @@ describe("HD3 parity with the sales-vs-spend model on 12 Nov", () => {
     const { entries } = buildLibrary(buildSeries(input), [], input.today);
     assert.deepEqual(
       entries.map((e) => [e.code, e.finalPaid, e.compsExcluded, Number(e.lift.toFixed(2))]),
-      [["NX26-DJEZ", 305, 218, 3.32], ["NX26-MF", 996, 0, 4.52], ["NX26-FOLAMOUR", 1292, 0, 2.23], ["NX26-AZYR", 1309, 0, 2.95]],
+      [
+        ["NX26-DJEZ", 305, 218, 3.32],
+        ["NX26-MF", 996, 0, 4.52],
+        ["NX26-FOLAMOUR", 1292, 0, 2.23],
+        ["ES26-GDS", 922, 0, 1.81],
+        ["ES26-FEVER105", 242, 0, 3.25],
+        ["NX26-AZYR", 1309, 0, 2.95],
+      ],
     );
   });
 
@@ -453,13 +460,43 @@ describe("HD3 parity with the sales-vs-spend model on 12 Nov", () => {
     assert.equal(Number(fol.lift.toFixed(3)), 2.229);
   });
 
-  it("the cases read as design wrote them, from the 4 NX shows", () => {
-    const build = buildSalesDashboard(loadProdFixture());
+  it("the cases read from the data: the client-wide library, Sheffield included (Matas, 14 Nov)", () => {
+    const input = loadProdFixture();
+    const build = buildSalesDashboard(input);
+    const lifts = build.library.map((e) => e.lift);
+    assert.equal(lifts.length, 6);
+    const average = lifts.reduce((a, b) => a + b, 0) / lifts.length;
+    const best = build.library.reduce((a, b) => (b.lift > a.lift ? b : a));
     const t = build.model.views["nx26-ipc"].trajectory;
     assert.ok(t.kind === "single");
     if (t.kind !== "single") return;
-    assert.deepEqual(t.cases.map((c) => c.label), ["Holds", "Like your average finish (×3.25, 4 shows)", "Like your best finish (×4.52, Modern Funktion)"]);
-    assert.equal(t.libraryNote, "Average and best from 4 finished shows: DJ EZ (2 Oct), Modern Funktion (16 Oct), Folamour (23 Oct), AZYR b2b Partiboi69 (7 Nov).");
+    assert.deepEqual(t.cases.map((c) => c.label), [
+      "Holds",
+      `Like your average finish (×${Number(average.toFixed(2))}, 6 shows)`,
+      `Like your best finish (×${Number(best.lift.toFixed(2))}, ${best.name})`,
+    ]);
+    assert.equal(best.name, "Modern Funktion");
+    assert.equal(
+      t.libraryNote,
+      "Average and best from 6 finished shows: DJ EZ (2 Oct), Modern Funktion (16 Oct), Folamour (23 Oct), Girls Don't Sync (31 Oct), Sheffield Fever 105 (6 Nov), AZYR b2b Partiboi69 (7 Nov).",
+    );
+  });
+
+  it("an event's own reference shows override the library for that event only", () => {
+    const input = loadProdFixture();
+    const djez = input.shows.find((s) => s.code === "NX26-DJEZ")!.eventId;
+    const fol = input.shows.find((s) => s.code === "NX26-FOLAMOUR")!.eventId;
+    const shows = input.shows.map((s) => (s.code === "NX26-IPC" ? { ...s, referenceEventIds: [djez, fol] } : s));
+    const build = buildSalesDashboard({ ...input, shows });
+    const ipc = build.model.views["nx26-ipc"].trajectory;
+    const dod = build.model.views["nx26-dod"].trajectory;
+    assert.ok(ipc.kind === "single" && dod.kind === "single");
+    if (ipc.kind !== "single" || dod.kind !== "single") return;
+    const own = build.library.filter((e) => e.eventId === djez || e.eventId === fol);
+    const avg = (own[0].lift + own[1].lift) / 2;
+    assert.equal(ipc.cases[1].label, `Like your average finish (×${Number(avg.toFixed(2))}, 2 shows)`);
+    assert.equal(ipc.cases[2].label, `Like your best finish (×${Number(own[0].lift.toFixed(2))}, DJ EZ)`);
+    assert.match(dod.cases[1].label, /, 6 shows\)$/);
   });
 
   it("DJ EZ's lift is the model's ×3.32 (305 paid, 218 comps out)", () => {

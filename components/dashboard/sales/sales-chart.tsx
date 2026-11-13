@@ -7,6 +7,7 @@ import {
   PICK_A_METRIC,
   keepDate,
   formatSalesNumber,
+  metricRuns,
   planAxes,
   salesMetric,
   type AllocationStep,
@@ -37,8 +38,12 @@ type Drawn = {
   dashed: boolean;
   color: string;
   unit: SalesUnit;
-  coords: { x: number; y: number; note: string | null; count: boolean }[];
+  coords: Coord[];
+  /** Unbroken runs of coords. An empty day ends a run: one polyline each, never bridged. */
+  runs: Coord[][];
 };
+
+type Coord = { x: number; y: number; note: string | null; count: boolean };
 
 export function SalesChart({
   points,
@@ -67,19 +72,23 @@ export function SalesChart({
       <div className="relative h-72 w-full border border-border">
         <svg viewBox={`0 0 ${CHART_PLOT} ${CHART_PLOT}`} preserveAspectRatio="none" role="img" aria-label="Sales and spend" className="absolute inset-0 h-full w-full">
           {band}
-          {drawn.map((series) => (
-            <polyline
-              key={series.id}
-              fill="none"
-              stroke={series.color}
-              strokeWidth="1.6"
-              vectorEffect="non-scaling-stroke"
-              strokeDasharray={series.dashed ? "4 3" : undefined}
-              points={series.coords.map((coord) => `${coord.x},${coord.y}`).join(" ")}
-            >
-              {series.id === "sold" && series.coords.some((coord) => coord.note) ? <title>{series.coords.find((coord) => coord.note)?.note}</title> : null}
-            </polyline>
-          ))}
+          {drawn.flatMap((series) => {
+            const noted = series.runs.findIndex((run) => run.some((coord) => coord.note));
+            return series.runs.map((run, index) => (
+              <polyline
+                key={index === 0 ? series.id : `${series.id}-${index}`}
+                fill="none"
+                stroke={series.color}
+                strokeWidth="1.6"
+                strokeLinecap={run.length === 1 ? "round" : undefined}
+                vectorEffect="non-scaling-stroke"
+                strokeDasharray={series.dashed ? "4 3" : undefined}
+                points={(run.length === 1 ? [run[0], run[0]] : run).map((coord) => `${coord.x},${coord.y}`).join(" ")}
+              >
+                {series.id === "sold" && index === noted ? <title>{run.find((coord) => coord.note)?.note}</title> : null}
+              </polyline>
+            ));
+          })}
         </svg>
         {drawn.filter((series) => series.id === "sold").flatMap((series) =>
           series.coords.filter((coord) => coord.count).map((coord) => (
@@ -153,12 +162,12 @@ function drawSeries(points: SalesChartPoint[], selected: SalesMetricId[], plan: 
   return selected.map((id) => {
     const metric = salesMetric(id);
     const max = peakFor(points, selected, id, plan, allocation);
-    const coords = points.map((point, index) => {
-      const value = point.values[id];
-      const x = xAt(index, points.length);
-      const y = value == null ? yAt(0) : yAt(value / max);
-      return { x, y, note: point.estimated ? point.estimateNote : null, count: point.count };
-    }).filter((_, index) => points[index].values[id] != null);
+    const coordAt = (index: number): Coord => {
+      const point = points[index];
+      return { x: xAt(index, points.length), y: yAt((point.values[id] as number) / max), note: point.estimated ? point.estimateNote : null, count: point.count };
+    };
+    const runs = metricRuns(points, id).map((run) => run.map(coordAt));
+    const coords = runs.flat();
     return {
       id,
       label: metric.label,
@@ -166,6 +175,7 @@ function drawSeries(points: SalesChartPoint[], selected: SalesMetricId[], plan: 
       color: colorFor(metric.costOf ?? id),
       unit: metric.unit,
       coords,
+      runs,
     };
   });
 }

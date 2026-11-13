@@ -445,3 +445,12 @@ describe("query params", () => {
     assert.equal(pickPeriod("90"), undefined);
   });
 });
+
+describe("chart runs", () => {
+  it("an empty day ends a run; nulls at the start, middle and end", async () => {
+    const { metricRuns } = await import("../sales-vs-spend.ts");
+    const pts = [null, 1, 2, null, null, 3, null].map((v, i) => ({ day: `2026-11-0${i + 1}`, estimated: false, count: false, estimateNote: null, values: { cpc: v } }));
+    assert.deepEqual(metricRuns(pts, "cpc"), [[1, 2], [5]]);
+    assert.deepEqual(metricRuns(pts, "clicks"), []);
+  });
+});

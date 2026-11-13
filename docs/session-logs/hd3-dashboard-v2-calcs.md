@@ -8,16 +8,17 @@
 ## Design rulings (14 Nov, recorded here)
 
 1. **The 8 unruled figures: the server is right.** D4's window is two consecutive counts for one show, and All shows takes each show's value for the day from that show's own window. Logged as "the model drops windows by end day; corrected": 2–5 Oct, 56.82 tickets a day, £0.99 per ticket. They're tagged ALL in the table below.
-2. **Reference library: PASS.** The cases read "Like your average finish (×3.25, 4 shows)" and "Like your best finish (×4.52, Modern Funktion)", and the note under them lists the four shows. A show is in only if it meets D10:
-   - it's Electric's show;
+2. **Reference library: PASS, client-wide across venues** (Matas, 14 Nov). It holds all of Electric's finished shows that meet D10, Sheffield included. A show is in only if:
    - it has counts on both sides of D−21 and D−7, so both interpolate (a show with no count before an interpolation point is out until it has one);
    - it didn't reach its allocation before D−7.
 
-   AZYR is in on those terms (final 9 Nov, 1,309). Folamour's lift uses the 26 Oct final (1,292) as the show-day value: (1,292 − 1,202) ÷ 7 = 12.857 a day, over (1,202 − 1,121.25) ÷ 14 = 5.768 a day, giving ×2.229. Enzo is out.
+   That gives 6 shows: DJ EZ ×3.3231, Modern Funktion ×4.5167, Folamour ×2.2291, Girls Don't Sync ×1.8082, Sheffield Fever 105 ×3.2500, AZYR ×2.9511 (final 9 Nov, 1,309). The average is **×3.0130**, so the cases read "Like your average finish (×3.01, 6 shows)" and "Like your best finish (×4.52, Modern Funktion)". The labels are built from the data, and the note under them lists the six shows. Per-event reference shows (the edit page) still override the library for that event.
+
+   Folamour's lift uses the 26 Oct final (1,292) as the show-day value: (1,292 − 1,202) ÷ 7 = 12.857 a day, over (1,202 − 1,121.25) ÷ 14 = 5.768 a day, giving ×2.229. Enzo is out.
 3. **Fix, D13c:** outside the signup window the daily £ per registration is empty (null), not £0.00, and a day with no spend is empty too. All shows has no one signup window (each show's closes at its own on-sale), so its daily figure is always empty; its period figure stays windowed per show.
    - The 58 All-shows rows now read "→ —".
    - 18 single-show days the model drew as £0.00 (signups on a day with no spend) now read "→ —".
-   - **The chart:** it already never draws a null as 0, because `components/dashboard/sales/sales-chart.tsx` skips null points. It does join the points on either side of a gap, though. Breaking the line is in Cursor's chart file, outside this PR's waiver, so the coordinating thread has the question.
+   - **The chart** (`components/dashboard/sales/sales-chart.tsx`, Rule 3 waived by Matas, 14 Nov): each series is drawn as its unbroken runs (`metricRuns`), one polyline per run. An empty day breaks the line: no bridge and no £0. A lone day shows as a dot.
 
 ## Parity with the model, 12 Nov data (full table)
 
@@ -25,7 +26,7 @@ Produced by `PARITY_OUT=… node --conditions react-server --experimental-strip-
 The model's calcs (artifact 1WbbWGeA1hvTfx7dkS9duj, page v13) are ported in `lib/dashboard/__tests__/sales-calc-model-reference.ts` and run on the same rows as the server calc (`fixtures/sales-12-nov.json`, read from prod on 13 Nov, reads only, show names and counts only). The fixture's Meta spend per show matches the model's `meta_daily` SQL run on 13 Nov to the penny (asserted).
 
 Part A, calc logic: both sides read the model's CSV counts. Part B: the server reads the live Internal Counts.
-Rules: D12 all channels · D13a since-launch CPT capped at the latest count · D13b straddling window pro-rated · D13c daily £/registration empty outside the signup window · D6 projection capped at allocation · D10 library cases · ALL the model drops windows by end day; corrected · COUNT the live counts differ from the CSV on a day the figure depends on · D8 paid only · FINAL latest count on or after show day.
+Rules: D12 all channels · D13a since-launch CPT capped at the latest count · D13b straddling window pro-rated · D13c daily £/registration empty outside the signup window · D6 projection capped at allocation · D10 library cases (the model's Enzo / DJ EZ against the 6-show client library) · ALL the model drops windows by end day; corrected · COUNT the live counts differ from the CSV on a day the figure depends on · D8 paid only · FINAL latest count on or after show day.
 
 7338 figures compared; 7177 match; 161 differ, each by a rule.
 
@@ -176,20 +177,20 @@ Rules: D12 all channels · D13a since-launch CPT capped at the latest count · D
 | NX27-JULIANFIJMA | holds | 2266 | 2000 | D6 |
 | NX27-JULIANFIJMA | case 2 (model: like Enzo; server: average finish) | 2285 | 2000 | D10 |
 | NX27-JULIANFIJMA | case 3 (model: like DJ EZ; server: best finish) | 2482 | 2000 | D10 |
-| NX26-IPC | case 2 (model: like Enzo; server: average finish) | 1873 | 1934 | D10 |
+| NX26-IPC | case 2 (model: like Enzo; server: average finish) | 1873 | 1927 | D10 |
 | NX26-IPC | case 3 (model: like DJ EZ; server: best finish) | 1936 | 1972 | D10 |
-| NX26-EED | case 2 (model: like Enzo; server: average finish) | 1784 | 1876 | D10 |
+| NX26-EED | case 2 (model: like Enzo; server: average finish) | 1784 | 1865 | D10 |
 | NX26-EED | case 3 (model: like DJ EZ; server: best finish) | 1879 | 1932 | D10 |
-| NX26-LOCKLEAD | case 2 (model: like Enzo; server: average finish) | 1112 | 1462 | D10 |
+| NX26-LOCKLEAD | case 2 (model: like Enzo; server: average finish) | 1112 | 1421 | D10 |
 | NX26-LOCKLEAD | case 3 (model: like DJ EZ; server: best finish) | 1473 | 1677 | D10 |
-| NX26-ROBBIEDOHERTY | case 2 (model: like Enzo; server: average finish) | 694 | 866 | D10 |
+| NX26-ROBBIEDOHERTY | case 2 (model: like Enzo; server: average finish) | 694 | 846 | D10 |
 | NX26-ROBBIEDOHERTY | case 3 (model: like DJ EZ; server: best finish) | 872 | 972 | D10 |
 | NX26-SCHAK | holds | 2035 | 2000 | D6 |
 | NX26-SCHAK | case 2 (model: like Enzo; server: average finish) | 2041 | 2000 | D10 |
 | NX26-SCHAK | case 3 (model: like DJ EZ; server: best finish) | 2109 | 2000 | D10 |
-| NX26-RUDIMENTAL | case 2 (model: like Enzo; server: average finish) | 874 | 946 | D10 |
+| NX26-RUDIMENTAL | case 2 (model: like Enzo; server: average finish) | 874 | 937 | D10 |
 | NX26-RUDIMENTAL | case 3 (model: like DJ EZ; server: best finish) | 948 | 990 | D10 |
-| NX26-DOD | case 2 (model: like Enzo; server: average finish) | 1059 | 1137 | D10 |
+| NX26-DOD | case 2 (model: like Enzo; server: average finish) | 1059 | 1128 | D10 |
 | NX26-DOD | case 3 (model: like DJ EZ; server: best finish) | 1140 | 1185 | D10 |
 | Library | Enzo lift (the model's case 2) | 1.20 | — | D10 |
 

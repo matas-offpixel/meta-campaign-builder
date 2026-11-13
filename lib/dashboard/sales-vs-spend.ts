@@ -278,6 +278,24 @@ export function planAxes(units: SalesUnit[], indexRequested: boolean): AxisPlan 
   return { mode: "single", unit: unique[0] ?? "count" };
 }
 
+/**
+ * A metric's unbroken runs of days with a value, as point indexes. An
+ * empty day (null) ends a run, so the chart breaks the line there: no
+ * bridge across the gap and no £0 (design, D13c, 14 Nov).
+ */
+export function metricRuns(points: readonly SalesChartPoint[], id: SalesMetricId): number[][] {
+  const runs: number[][] = [];
+  let run: number[] = [];
+  points.forEach((point, index) => {
+    if (point.values[id] == null) {
+      if (run.length) runs.push(run);
+      run = [];
+    } else run.push(index);
+  });
+  if (run.length) runs.push(run);
+  return runs;
+}
+
 export function slicePoints(points: SalesChartPoint[], period: SalesPeriod, endDay: string): SalesChartPoint[] {
   if (period === "launch") return points.filter((point) => point.day <= endDay);
   const days = SALES_PERIODS.find((item) => item.id === period)?.days ?? null;
