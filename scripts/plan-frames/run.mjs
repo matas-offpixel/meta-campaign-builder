@@ -293,7 +293,9 @@ async function main() {
           if (probe.count !== 6 || !probe.last.includes("🔥") || probe.whiteSpace !== "pre") {
             throw new Error(`${shot.id}: quote rendered ${probe.count} lines, last ${JSON.stringify(probe.last)}. Not a baseline.`);
           }
-          if (delta > 0.02) {
+          // Cell size hinting lands a few percent off the advance table.
+          // A fallback face is much further out.
+          if (delta > 0.05) {
             throw new Error(
               `${shot.id}: first line is ${probe.width.toFixed(1)}px, ${(delta * 100).toFixed(1)}% from the TikTok Sans advance of ${JSON.stringify(probe.first)}. Face ${probe.family}. Not a baseline.`,
             );
