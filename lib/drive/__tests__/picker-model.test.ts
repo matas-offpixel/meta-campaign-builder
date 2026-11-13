@@ -19,6 +19,7 @@ import {
   ratioOf,
   rowLine,
   splitFileName,
+  wrapFileName,
   type PickerFile,
   type RowState,
 } from "../picker-model.ts";
@@ -275,5 +276,58 @@ describe("file names keep their end (G2)", () => {
     assert.deepEqual(splitFileName("x_r2_4x5_winner.jpg"), { head: "x_r2", tail: "_4x5_winner.jpg" });
     assert.deepEqual(splitFileName("enzo-ibiza-terrace.mov"), { head: "enzo-ibiza-terrace", tail: ".mov" });
     assert.deepEqual(splitFileName("Enzo - UGC 4"), { head: "Enzo - UGC 4", tail: "" });
+  });
+});
+
+describe("a tile's name wraps to two lines (N1)", () => {
+  // Six pixels a character: 205 px holds 34, 157 holds 26 (the record's boxes at 1280 and 393).
+  const mono = (text: string) => text.length * 6;
+  const NAMES = [
+    "P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16.mp4",
+    "P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16.mp4",
+    "P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16.mp4",
+    "P26-BDAY_enzo-siragusa-2_caption-artist-on-sale_r1_9x16.mp4",
+  ];
+  const PART = ["siragusa-1_quote", "siragusa-4_quote", "siragusa-5_caption", "siragusa-2_caption"];
+
+  it("each of the four P26-BDAY names is whole on two lines, breaking only after _ or -", () => {
+    for (const width of [205, 210]) {
+      NAMES.forEach((name, i) => {
+        const lines = wrapFileName(name, width, mono);
+        assert.equal(lines.length, 2, `${name} at ${width}`);
+        assert.equal(lines.join(""), name, "no character dropped, no …");
+        assert.match(lines[0]!, /[_-]$/, "line 1 ends at a _ or -");
+        assert.ok(lines.every((l) => mono(l) <= width));
+        assert.ok(lines.join("").includes(PART[i]!));
+      });
+    }
+    assert.deepEqual(wrapFileName(NAMES[0]!, 205, mono), ["P26-BDAY_enzo-siragusa-1_quote-on-", "sale_r1_9x16.mp4"]);
+    assert.deepEqual(wrapFileName(NAMES[2]!, 205, mono), ["P26-BDAY_enzo-siragusa-5_caption-", "artist-on-sale_r1_9x16.mp4"]);
+  });
+
+  it("cuts in the middle only when line 2 still runs over, the tail kept at the end", () => {
+    assert.deepEqual(wrapFileName(NAMES[2]!, 157, mono), ["P26-BDAY_enzo-siragusa-5_", "caption-artist…r1_9x16.mp4"]);
+    assert.deepEqual(wrapFileName(NAMES[2]!, 120, mono), ["P26-BDAY_enzo-", "siragusa-5…_9x16.mp4"]);
+    // The quote names fit at 157, so they are not cut.
+    assert.deepEqual(wrapFileName(NAMES[1]!, 157, mono), ["P26-BDAY_enzo-siragusa-4_", "quote-on-sale_r1_9x16.mp4"]);
+    for (const name of NAMES) {
+      for (let width = 60; width <= 400; width += 7) {
+        const lines = wrapFileName(name, width, mono);
+        assert.ok(lines.length <= 2);
+        assert.ok(lines.every((l) => mono(l) <= width), `${name} at ${width}`);
+        assert.ok(lines.at(-1)!.endsWith("_9x16.mp4"), "the tail is whole, at the end");
+        if (lines.length === 2) assert.ok(!lines[0]!.includes("9x16"), "the tail never wraps on its own");
+        if (lines.join("") !== name) assert.ok(lines[1]!.includes("…"), "only line 2 is cut");
+      }
+    }
+  });
+
+  it("one line when it fits; a word with no break is cut by characters", () => {
+    assert.deepEqual(wrapFileName("enzo-ibiza-terrace.mov", 205, mono), ["enzo-ibiza-terrace.mov"]);
+    const lines = wrapFileName("enzofullsetfourkaynoseparators.mp4", 60, mono);
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0], "enzofullse");
+    assert.ok(lines[1]!.endsWith(".mp4") && lines[1]!.includes("…"));
+    assert.ok(lines.every((l) => mono(l) <= 60));
   });
 });

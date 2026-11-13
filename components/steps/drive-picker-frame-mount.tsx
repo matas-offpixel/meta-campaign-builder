@@ -88,9 +88,12 @@ const DL3_ROWS: PickerBatchRow[] = [
   { rowId: "r3", name: "P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16", state: { kind: "copying", pct: 40 } },
   { rowId: "r4", name: "enzo-crowd-pov.mp4", state: { kind: "copy_failed" } },
   { rowId: "r5", name: "P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16 (again)", state: { kind: "skipped" } },
+  // R5: a 4:5 static outside Dual / Full reads the static sentence.
+  { rowId: "r6", name: "P26-BDAY_enzo-siragusa-6_quote-on-sale_r1_4x5.png", state: { kind: "not_916", static: true } },
 ];
 
-const DL4_ROWS: PickerBatchRow[] = DL3_ROWS.map((row) => ({
+// DL4 is the batch design passed (without R5's static row), every copy settled.
+const DL4_ROWS: PickerBatchRow[] = DL3_ROWS.filter((row) => row.rowId !== "r6").map((row) => ({
   ...row,
   state: (row.rowId === "r2" || row.rowId === "r3" ? { kind: "ready" } : row.state) as RowState,
 }));
@@ -110,6 +113,8 @@ export function DrivePickerFrameMount({ id }: { id: string }) {
 function PickerFrame({ frameId }: { frameId: string }) {
   const frame = DRIVE_PICKER_FRAMES[frameId] ?? DRIVE_PICKER_FRAMES.DL1!;
   const [fields, setFields] = useState(FIXTURE_FIELDS);
+  // R4: a crumb or Next: click dismisses the batch here as it does in the step.
+  const [rows, setRows] = useState(frame.rows);
   const [ready, setReady] = useState(false);
   return (
     <div className="min-h-screen bg-background" {...(ready ? { "data-frame-ready": frameId } : {})}>
@@ -127,9 +132,9 @@ function PickerFrame({ frameId }: { frameId: string }) {
         existingNames={["Enzo - UGC 3"]}
         existingDriveIds={new Set()}
         onPrepare={() => {}}
-        batch={frame.rows}
+        batch={rows}
         onRetryFailed={() => {}}
-        onDismissBatch={() => {}}
+        onDismissBatch={() => setRows(null)}
         loadView={async () => {
           // Ready once the fixture view is in and painted.
           requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));

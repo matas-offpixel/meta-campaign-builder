@@ -170,6 +170,59 @@ export function splitFileName(name: string): { head: string; tail: string } {
   return { head: name.slice(0, m.index), tail: m[1] };
 }
 
+/**
+ * A tile's file name on at most two lines (N1, design fix round 2). Lines
+ * break only after "_" or "-"; the tail (ratio token and extension, see
+ * `splitFileName`) is glued to the last word, so it never splits or wraps on
+ * its own. Only when the name still runs past line 2 is line 2 cut in the
+ * middle with "…", keeping the tail attached to the end.
+ *
+ * `measure` returns a string's width in the box's font; `width` is the box.
+ * A word wider than a whole line (no break inside it) is broken by
+ * characters, so a line is never wider than the box.
+ */
+export function wrapFileName(name: string, width: number, measure: (text: string) => number): string[] {
+  if (!name) return [""];
+  if (measure(name) <= width) return [name];
+  const { head, tail } = splitFileName(name);
+  const words = head.match(/[^_-]*[_-]|[^_-]+$/g) ?? [head];
+  if (tail) {
+    if (words.length) words[words.length - 1] += tail;
+    else words.push(tail);
+  }
+  const fits = (text: string) => measure(text) <= width;
+
+  // Line 1: as many whole words as fit; else the longest run of characters that does.
+  let line1 = "";
+  let i = 0;
+  while (i < words.length && fits(line1 + words[i])) line1 += words[i++];
+  let rest = words.slice(i).join("");
+  if (!line1) {
+    let n = 1;
+    while (n < rest.length && fits(rest.slice(0, n + 1))) n += 1;
+    line1 = rest.slice(0, n);
+    rest = rest.slice(n);
+  }
+  if (!rest) return [line1];
+  if (fits(rest)) return [line1, rest];
+
+  // Line 2 runs over: cut in the middle, the end kept whole from the tail on.
+  const ellipsis = "…";
+  const keep = tail && rest.endsWith(tail) ? tail : rest.slice(-Math.min(rest.length, 8));
+  let end = keep;
+  // Give the end up to ~45% of the line (the start reads first, so it gets the rest).
+  while (end.length < rest.length && measure(rest.slice(rest.length - end.length - 1)) <= width * 0.45) {
+    end = rest.slice(rest.length - end.length - 1);
+  }
+  let start = "";
+  while (start.length < rest.length - end.length && fits(rest.slice(0, start.length + 1) + ellipsis + end)) {
+    start = rest.slice(0, start.length + 1);
+  }
+  // A box too narrow even for the tail: keep the end, drop characters from its front.
+  while (!fits(start + ellipsis + end) && end.length > 1) end = end.slice(1);
+  return [line1, `${start}${ellipsis}${end}`];
+}
+
 // ─── S14 names (lib/drive/tree.ts renderFileName) ───────────────────────────
 
 /** {code}_{artist}-{n}_{angle}{k}-{stage}_r{n}[_v{k}]_{format}[_winner].{ext}: the format token and the name around it. */

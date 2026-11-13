@@ -873,6 +873,8 @@ function CreativesBody({
                       updateAd(active.id, { name: e.target.value, nameSource: "operator" })
                     }
                     placeholder="e.g. J2 — Artist Artwork A"
+                    // File-derived names carry "9x16"; typed glyphs, not the font's × ligature.
+                    style={{ fontFeatureSettings: '"calt" 0' }}
                   />
 
                   {/* Source type */}

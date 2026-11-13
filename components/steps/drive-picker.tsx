@@ -8,7 +8,7 @@
  * the dialog never stops it. 960 px at 1280, full-screen at 393.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 
 import { Datum, StatusLine } from "@/components/steps/step-surface";
@@ -22,6 +22,7 @@ import {
   isFailed,
   rowLine,
   splitFileName,
+  wrapFileName,
   type AssetModeName,
   type BatchFields,
   type PickerOwner,
@@ -462,6 +463,66 @@ function FileName({ name, className }: { name: string; className?: string }) {
   );
 }
 
+let measureCanvas: HTMLCanvasElement | null = null;
+
+/**
+ * N1: a tile's name on two lines, breaking after "_" or "-", cut in the
+ * middle only past line 2 with the tail kept at the end (`wrapFileName`).
+ * The box is always two lines tall, so tiles in a row keep one height.
+ * Before the box is measured (and with no canvas) the name wraps at the same
+ * breaks and clips at line 2.
+ */
+function TileName({ name, className }: { name: string; className?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [lines, setLines] = useState<string[] | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof window === "undefined") return;
+    const run = () => {
+      // The box's real width: a 393 column is 156.5 px, which clientWidth rounds either way.
+      const width = el.getBoundingClientRect().width || el.clientWidth;
+      if (!width) return;
+      measureCanvas ??= document.createElement("canvas");
+      const ctx = measureCanvas.getContext("2d");
+      if (!ctx) return;
+      const cs = window.getComputedStyle(el);
+      ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      // Lines never wrap (whitespace-pre), so a quarter pixel of slack is enough.
+      setLines(wrapFileName(name, width - 0.25, (text) => ctx.measureText(text).width));
+    };
+    run();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(run);
+    observer?.observe(el);
+    let live = true;
+    document.fonts?.ready.then(() => live && run()).catch(() => {});
+    return () => {
+      live = false;
+      observer?.disconnect();
+    };
+  }, [name]);
+  return (
+    <span
+      ref={ref}
+      className={`block h-[28px] overflow-hidden leading-[14px] ${className ?? ""}`}
+      title={name}
+      style={{ fontFeatureSettings: '"calt" 0' }}
+    >
+      {lines
+        ? lines.map((line, i) => (
+            <span key={i} className="block whitespace-pre">
+              {line}
+            </span>
+          ))
+        : name.split(/(?<=[_-])/).map((part, i) => (
+            <Fragment key={i}>
+              {part}
+              <wbr />
+            </Fragment>
+          ))}
+    </span>
+  );
+}
+
 function FileTile({ tile, mode, on, onToggle, thumb }: { tile: Tile; mode: AssetModeName; on: boolean; onToggle: () => void; thumb: string | null }) {
   const duration = tile.kind === "video" ? formatDuration(tile.file.durationMs) : null;
   const meta = [tile.kind === "video" ? "Video" : "Static", duration, formatBytes(tile.file.size)].filter(Boolean).join(" · ");
@@ -486,7 +547,7 @@ function FileTile({ tile, mode, on, onToggle, thumb }: { tile: Tile; mode: Asset
         ) : null}
       </div>
       <div className="space-y-0.5 p-2">
-        <FileName name={tile.file.name} className="text-[11px] font-medium" />
+        <TileName name={tile.file.name} className="text-[11px] font-medium" />
         <Datum className="text-[10px] text-muted-foreground">{meta}</Datum>
         {tile.reason ? <StatusLine className="text-[10px] font-medium text-destructive">{tile.reason}</StatusLine> : null}
         {tile.note ? <StatusLine className="text-[10px] text-muted-foreground">{tile.note}</StatusLine> : null}

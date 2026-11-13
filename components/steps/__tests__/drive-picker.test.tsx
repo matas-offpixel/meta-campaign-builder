@@ -82,19 +82,50 @@ describe("the end screen (G7)", () => {
   });
 });
 
-describe("tiles (G2)", () => {
-  it("a file name keeps its ratio token and extension in a fixed tail, typed glyphs", async () => {
+describe("tiles (G2, N1)", () => {
+  // jsdom lays nothing out: give each name box the record's 205 px and the canvas a 6 px-a-character font.
+  function withLayout() {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(206);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      font: "",
+      measureText: (text: string) => ({ width: text.length * 6 }),
+    } as unknown as CanvasRenderingContext2D);
+  }
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a tile's name is whole on two lines, breaking after _ or -; typed glyphs; the box is two lines tall", async () => {
+    withLayout();
     mount();
-    const tail = (await screen.findAllByText("_9x16.mp4"))[0]!;
+    const box = await screen.findByTitle("P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16.mp4");
+    const lines = [...box.children].map((line) => line.textContent);
+    expect(lines).toEqual(["P26-BDAY_enzo-siragusa-5_caption-", "artist-on-sale_r1_9x16.mp4"]);
+    expect(box.style.fontFeatureSettings).toBe('"calt" 0');
+    expect(box.className).toContain("h-[28px]");
+    for (const [name, part] of [
+      ["P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16.mp4", "siragusa-1_quote"],
+      ["P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16.mp4", "siragusa-4_quote"],
+      ["P26-BDAY_enzo-siragusa-2_caption-artist-on-sale_r1_9x16.mp4", "siragusa-2_caption"],
+    ] as const) {
+      const text = screen.getByTitle(name).textContent!;
+      expect(text).toBe(name);
+      expect(text).toContain(part);
+    }
+  });
+
+  it("a batch row's name keeps its ratio token and extension in a fixed tail, typed glyphs", async () => {
+    mount({ batch: [readyRow, { ...failedRow, state: { kind: "copying", pct: 40 } }] });
+    const tail = await screen.findByText("_9x16");
     const name = tail.parentElement!;
-    expect(name.getAttribute("title")).toMatch(/_9x16\.mp4$/);
+    expect(name.getAttribute("title")).toBe(readyRow.name);
     expect(name.style.fontFeatureSettings).toBe('"calt" 0');
     expect(tail.className).toContain("shrink-0");
   });
 
   it("video tiles say Video runs as 9:16 only in Dual or Full, not in Single", async () => {
     mount();
-    await screen.findAllByText("_9x16.mp4");
+    await screen.findByTitle("P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16.mp4");
     expect(screen.queryByText("Video runs as 9:16 only")).toBeNull();
     await userEvent.selectOptions(screen.getByLabelText("Mode"), "dual");
     expect(screen.getAllByText("Video runs as 9:16 only").length).toBe(4);
