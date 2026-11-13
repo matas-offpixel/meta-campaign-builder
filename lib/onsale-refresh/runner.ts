@@ -128,7 +128,7 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
   try {
     purchases = await loaders.purchases({
       db: input.db,
-      events: events.map((event) => ({ id: event.id, event_code: event.event_code, client_id: event.client_id, event_date: event.event_date, signup_url: event.signup_url ?? null, ticket_url: event.ticket_url ?? null })),
+      events: events.map((event) => ({ id: event.id, event_code: event.event_code, client_id: event.client_id, event_date: event.event_date, signup_url: event.signup_url ?? null, ticket_url: event.ticket_url ?? null, presale_at: event.presale_at ?? null, general_sale_at: event.general_sale_at })),
       raw,
       day,
       shadow,
@@ -428,6 +428,10 @@ export function inputsSnapshot(campaign: CampaignInput): Record<string, unknown>
           onDomain: campaign.purchases.onDomain,
           pixelWide: campaign.purchases.pixelWide,
           historyDays: campaign.purchases.historyDays,
+          // T1–T4: the platform path's evidence — the ticket platform, its share of the pixel's purchases, and the count Meta credits to these ads on the resolved pixel from the on-sale date.
+          platform: campaign.purchases.platform,
+          platformShare: campaign.purchases.platformShare,
+          attributedOnPixel: campaign.purchases.attributedOnPixel,
           attributedPurchases: { count: campaign.last14.purchases, scope: "any_show_on_pixel" },
           ticketsSold14: campaign.purchases.ticketsSold14,
           notRead: campaign.purchases.notRead,

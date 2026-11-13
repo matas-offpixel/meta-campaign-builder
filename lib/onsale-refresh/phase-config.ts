@@ -67,6 +67,17 @@ export type PhaseConfig = {
   purchaseHistoryDays: number;
   /** E4: a second pixel carrying at least this share of the delivering spend is named in the setup line. */
   secondPixelSpendShare: number;
+  /**
+   * T1 (ticket-platform purchases): the sites that sell every show and
+   * where a Purchase campaign may optimise on the pixel's shared Purchase
+   * event. Matas's four plus Universe and Ingresse (confirmed 13 Nov).
+   * Ops extend the list here; a host matches itself and its subdomains.
+   */
+  ticketPlatforms: readonly { name: string; hosts: readonly string[] }[];
+  /** T2: this many purchases attributed to the show's ads in 14 days (from its on-sale date) proposes the Purchase campaign on the platform path. */
+  platformPurchasesMinIn14Days: number;
+  /** T2's guard: the show's platform must carry at least this share of the resolved pixel's purchases in the breakdown's history. */
+  platformShareMin: number;
   /** The Drive folders a cycle's adds come from, under {owner} / Videos | Statics. */
   supplyFolders: readonly string[];
   claimsLadder: "on_sale" | "presale";
@@ -100,6 +111,16 @@ export const ONSALE_PHASE: PhaseConfig = {
   ownDomainPurchasesMinIn14Days: 15,
   purchaseHistoryDays: 28,
   secondPixelSpendShare: 0.1,
+  ticketPlatforms: [
+    { name: "Skiddle", hosts: ["skiddle.com"] },
+    { name: "RA", hosts: ["ra.co", "residentadvisor.net"] },
+    { name: "See Tickets", hosts: ["seetickets.com"] },
+    { name: "Dice", hosts: ["dice.fm"] },
+    { name: "Universe", hosts: ["universe.com"] },
+    { name: "Ingresse", hosts: ["ingresse.com"] },
+  ],
+  platformPurchasesMinIn14Days: 15,
+  platformShareMin: 0.5,
   supplyFolders: ["UGC", "CTA", "No CTA"],
   claimsLadder: "on_sale",
 };

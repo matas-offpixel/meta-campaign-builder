@@ -165,8 +165,12 @@ export type Proposal = {
     ticketing: string | null;
     pixel?: string[];
     pixelNarrow?: string[];
-    attributed?: string;
-    attributedNarrow?: string;
+    /** Null on the platform path, where the attributed figure is the count (T4 of the ticket-platform record). */
+    attributed?: string | null;
+    attributedNarrow?: string | null;
+    /** T4: the platform's share of the pixel's purchases, under the platform states. */
+    context?: string | null;
+    contextNarrow?: string | null;
   };
   /** R5: only the budget blocks a line. Ticketing is a stated input, said under Objective (F9). */
   blockers: { kind: "budget"; text: string; action: string }[];

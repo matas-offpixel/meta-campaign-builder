@@ -34,6 +34,8 @@ export type EventRow = {
   event_code: string | null;
   event_date: string | null;
   general_sale_at: string | null;
+  /** The show's first on-sale date when stored: T2 counts attributed purchases from it. */
+  presale_at?: string | null;
   status: string | null;
   client_id: string | null;
   budget_marketing: number | string | null;
@@ -108,7 +110,7 @@ export function resultOf(row: InsightRow, resultEvent: ResultEvent): number {
 /** Events on sale (G2's shared predicate, on-sale.ts) for an active client. */
 export async function loadOnSaleEvents(db: Db, today: string): Promise<EventRow[]> {
   const archived = await loadArchivedClientIds(db as SupabaseClient);
-  const events = await loadAll<EventRow>(db, "events", "id, name, event_code, event_date, general_sale_at, status, client_id, budget_marketing, drive_folder_id, signup_url, ticket_url", ["id"], (q) =>
+  const events = await loadAll<EventRow>(db, "events", "id, name, event_code, event_date, general_sale_at, presale_at, status, client_id, budget_marketing, drive_folder_id, signup_url, ticket_url", ["id"], (q) =>
     q.gte("event_date", today).neq("status", "cancelled"),
   );
   return events.filter((event) => event.client_id && !archived.has(event.client_id) && isOnSale(event, today));

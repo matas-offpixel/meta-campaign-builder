@@ -19,8 +19,11 @@
  * applies a line. --json FILE writes the result. --purchases prints HE1's
  * read-only table (docs/design-record/2026-11-13-per-event-purchases.html)
  * for every on-sale event and stops: the resolved pixel, the own domain or
- * why there is none, the purchases on it, the attributed figure. --also
- * CODE adds a show that is not on sale now to that table.
+ * why there is none, the purchases on it, the attributed figure, and (HT1
+ * of 2026-11-13-ticket-platform-purchases.html) the ticket platform's
+ * share of the pixel's purchases, the purchases credited to the show's
+ * ads on that pixel from its on-sale date, per campaign and in total, and
+ * the state. --also CODE adds a show that is not on sale now.
  */
 
 import { writeFileSync } from "node:fs";
@@ -36,7 +39,7 @@ import { ONSALE_PHASE } from "../lib/onsale-refresh/phase-config.ts";
 import { loadPurchaseReads, type RefreshGraph } from "../lib/onsale-refresh/purchase-read.ts";
 import { purchaseWhy, type PurchaseRead } from "../lib/onsale-refresh/purchases.ts";
 import { runOnsaleRefresh, type ProposalRecord } from "../lib/onsale-refresh/runner.ts";
-import { todayLondon } from "../lib/onsale-refresh/schedule.ts";
+import { dayMonth, todayLondon } from "../lib/onsale-refresh/schedule.ts";
 import { shortDay, weekLabel } from "../lib/onsale-refresh/schedule.ts";
 
 const argv = process.argv.slice(2);
@@ -110,8 +113,8 @@ function printProposal(record: ProposalRecord): void {
     console.log(`\nBefore it can move money`);
     for (const blocker of proposal.blockers) console.log(`- ${blocker.text} [${blocker.action}]`);
   }
-  console.log(`\nObjective${(proposal.why.pixel ?? []).map((line) => `\n[setup] ${line}`).join("")}\n${proposal.why.objective}\n${proposal.why.purchase}\n${proposal.why.attributed ?? ""} ${proposal.why.moves}${proposal.why.ticketing ? `\n${proposal.why.ticketing}` : ""}`);
-  console.log(`393: ${(proposal.why.pixelNarrow ?? []).map((line) => `[setup] ${line} · `).join("")}${proposal.why.purchaseNarrow} ${proposal.why.attributedNarrow ?? ""}`);
+  console.log(`\nObjective${(proposal.why.pixel ?? []).map((line) => `\n[setup] ${line}`).join("")}\n${proposal.why.objective}\n${proposal.why.purchase}${proposal.why.attributed ? `\n${proposal.why.attributed}` : ""} ${proposal.why.moves}${proposal.why.context ? `\n${proposal.why.context}` : ""}${proposal.why.ticketing ? `\n${proposal.why.ticketing}` : ""}`);
+  console.log(`393: ${(proposal.why.pixelNarrow ?? []).map((line) => `[setup] ${line} · `).join("")}${proposal.why.purchaseNarrow} ${proposal.why.attributedNarrow ?? ""} ${proposal.why.contextNarrow ?? ""}`);
   console.log(`\n${input.campaignKey} · ${proposal.campaignSummary}`);
   console.log(`Week: £${input.weekSpend.toFixed(2)} · ${input.weekResults} results · budget ${input.budgetGbp == null ? "not set" : `£${input.budgetGbp}`} · spend to date £${input.spendToDateGbp.toFixed(2)} · ticketing ${input.ticketingLinked ? input.ticketingProvider : "not linked"}`);
   if (proposal.notEnoughData) console.log(proposal.notEnoughData);
@@ -142,7 +145,7 @@ function label(kind: string): string {
 /** HE1: the read-only purchase table. One row per on-sale event, plus any --also show. Nothing is written anywhere. */
 async function printPurchaseTable(): Promise<void> {
   const day = shadowDay ?? todayLondon(new Date());
-  console.log(`# Per-event purchases (HE1) — read only · ${shadowDay ? `shadow run for ${day}` : `run for ${day}`}\n`);
+  console.log(`# Per-event purchases (HE1, HT1) — read only · ${shadowDay ? `shadow run for ${day}` : `run for ${day}`}\n`);
   let events: EventRow[] = await loadOnSaleEvents(db, day);
   if (eventCodes.length) {
     const wanted = new Set(eventCodes.map((code) => code.toLowerCase()));
@@ -150,14 +153,14 @@ async function printPurchaseTable(): Promise<void> {
   }
   const onSale = new Set(events.map((event) => event.id));
   if (alsoCodes.length) {
-    const extra = await db.from("events").select("id, name, event_code, event_date, general_sale_at, status, client_id, budget_marketing, drive_folder_id, signup_url, ticket_url").in("event_code", alsoCodes);
+    const extra = await db.from("events").select("id, name, event_code, event_date, general_sale_at, presale_at, status, client_id, budget_marketing, drive_folder_id, signup_url, ticket_url").in("event_code", alsoCodes);
     if (extra.error) throw new Error(`events --also: ${extra.error.message}`);
     for (const row of (extra.data ?? []) as EventRow[]) if (!onSale.has(row.id)) events.push(row);
   }
   const raw = await loadInsights(db);
   const result = await loadPurchaseReads({
     db,
-    events: events.map((event) => ({ id: event.id, event_code: event.event_code, client_id: event.client_id, event_date: event.event_date, signup_url: event.signup_url ?? null, ticket_url: event.ticket_url ?? null })),
+    events: events.map((event) => ({ id: event.id, event_code: event.event_code, client_id: event.client_id, event_date: event.event_date, signup_url: event.signup_url ?? null, ticket_url: event.ticket_url ?? null, presale_at: event.presale_at ?? null, general_sale_at: event.general_sale_at })),
     raw,
     day,
     shadow: Boolean(shadowDay),
@@ -170,14 +173,24 @@ async function printPurchaseTable(): Promise<void> {
   const rows = events
     .map((event) => ({ event, read: result.reads.get(event.id)! }))
     .sort((a, b) => (a.event.event_code ?? "").localeCompare(b.event.event_code ?? ""));
-  console.log(`| event | resolved pixel (share of spend) | stored pixel · match | own domain, or why not | on the domain 14d / 28d | pixel, every host 14d / 28d | attributed 14d, any show | state |`);
-  console.log(`|---|---|---|---|---|---|---|---|`);
+  console.log(`| event | resolved pixel (share of spend) | stored pixel · match | own domain, or why not | on the domain 14d / 28d | ticket platform · its share of the pixel's purchases, 28d | attributed on the pixel, counted from | since on sale: total (per campaign) | attributed 14d, any show | state |`);
+  console.log(`|---|---|---|---|---|---|---|---|---|---|`);
   for (const { event, read } of rows) {
     const pixel = read.pixel ? `${read.pixel.id}${read.pixelName ? ` (${read.pixelName})` : ""} · ${Math.round(read.pixel.spendShare * 100)} %${read.otherPixels.map((other) => ` · also ${other.id} ${Math.round(other.spendShare * 100)} %`).join("")}` : read.state === "not_read" ? "not read" : "none on its ad sets";
     const stored = read.pixel ? `${read.pixel.stored ?? "none stored"} · ${read.pixel.matches ? "match" : read.pixel.stored ? "MISMATCH" : "nothing to match"}` : "—";
     const onDomain = read.onDomain ? `${read.onDomain.d14} / ${read.onDomain.d28}` : "—";
-    const wide = read.pixelWide ? `${read.pixelWide.d14} / ${read.pixelWide.d28}${read.pixelWide.topHost ? ` (top: ${read.pixelWide.topHost})` : ""}` : "—";
-    console.log(`| ${cell(event.event_code ?? event.name)}${onSale.has(event.id) ? "" : " (not on sale now)"} | ${cell(pixel)} | ${cell(stored)} | ${cell(domainCell(read))} | ${onDomain} | ${cell(wide)} | ${read.attributedPurchases.count} | ${cell(stateLabel(read.state))} |`);
+    const share = read.platformShare;
+    const platform = !read.platform
+      ? "not on a platform"
+      : share
+        ? `${read.platform} · ${share.share == null ? "no purchases on the pixel" : `${Math.round(share.share * 100)} % (${share.purchases} of ${share.pixelPurchases})`}${share.elsewhereHost ? ` · rest mostly ${share.elsewhereHost}` : ""}`
+        : read.pixelWide
+          ? `${read.platform} · not on the platform path${read.pixelWide.topHost ? ` (pixel's top host ${read.pixelWide.topHost}, ${read.pixelWide.d28} in 28d)` : ""}`
+          : `${read.platform} · no pixel to read a share on`;
+    const credited = read.attributedOnPixel;
+    const trigger = credited ? `${credited.count} · from ${dayMonth(credited.fromDay)}${credited.sinceOnSale ? " (on sale under 14 days)" : " (14 days)"}` : "—";
+    const total = credited ? `${credited.total.purchases} since ${dayMonth(credited.total.fromDay)} · £${credited.total.spend.toFixed(2)}${credited.total.byCampaign.length ? ` (${credited.total.byCampaign.map((row) => `${row.campaign}: ${row.purchases} · £${row.spend.toFixed(2)}`).join("; ")})` : ""}` : "—";
+    console.log(`| ${cell(event.event_code ?? event.name)}${onSale.has(event.id) ? "" : " (not on sale now)"} | ${cell(pixel)} | ${cell(stored)} | ${cell(domainCell(read))} | ${onDomain} | ${cell(platform)} | ${cell(trigger)} | ${cell(total)} | ${read.attributedPurchases.count} | ${cell(stateLabel(read.state))} |`);
   }
   console.log(`\nEvents ${events.length} · Meta calls ${result.metaCalls} (reads only) · CIRQLIN page reads ${result.cirqlinReads} · writes 0`);
   console.log(`The domain breakdown reaches back ${ONSALE_PHASE.purchaseHistoryDays} days: Meta returns no more, so there is no 90-day figure.`);
@@ -187,8 +200,8 @@ async function printPurchaseTable(): Promise<void> {
     const why = purchaseWhy(read, false, ONSALE_PHASE);
     console.log(`${event.event_code ?? event.name}`);
     for (const line of why.pixel) console.log(`  [setup] ${line}`);
-    console.log(`  ${why.purchase}\n  ${why.attributed} ${why.moves}`);
-    console.log(`  393: ${why.pixelNarrow.map((line) => `[setup] ${line} · `).join("")}${why.purchaseNarrow} ${why.attributedNarrow}`);
+    console.log(`  ${why.purchase}${why.attributed ? `\n  ${why.attributed}` : ""} ${why.moves}${why.context ? `\n  ${why.context}` : ""}`);
+    console.log(`  393: ${why.pixelNarrow.map((line) => `[setup] ${line} · `).join("")}${why.purchaseNarrow}${why.attributedNarrow ? ` ${why.attributedNarrow}` : ""}${why.contextNarrow ? ` ${why.contextNarrow}` : ""}`);
   }
   if (jsonOut) {
     writeFileSync(jsonOut, JSON.stringify({ day, metaCalls: result.metaCalls, cirqlinReads: result.cirqlinReads, notes: result.notes, rows: rows.map(({ event, read }) => ({ eventCode: event.event_code, onSale: onSale.has(event.id), read })) }, null, 2));
@@ -201,12 +214,14 @@ function stateLabel(state: PurchaseRead["state"]): string {
     not_read: "not read",
     no_pixel: "no pixel",
     no_url: "no page or ticket URL",
-    ticket_site_only: "ticket site only",
     no_own_domain: "no domain of its own",
     shared_domain: "shared domain",
     nothing_reaches: "nothing reaches",
     under_bar: "under the bar",
-    proposed: "proposed",
+    proposed: "proposed (own domain)",
+    pixel_sells_elsewhere: "platform: pixel sells elsewhere",
+    platform_under_bar: "platform: under the bar",
+    platform_proposed: "platform: proposed",
   }[state];
 }
 
@@ -219,7 +234,7 @@ function domainCell(read: PurchaseRead): string {
     case "no_own_domain":
       return `no domain of its own${read.cirqlinPage ? " (crqln.com page, no custom domain)" : ""}${read.ticketSite ? ` · tickets ${read.ticketSite}` : ""}`;
     case "ticket_site_only":
-      return `ticket site only (${read.ticketSite ?? "—"})`;
+      return `no page; tickets ${read.ticketSite ?? "—"}`;
     case "no_url":
       return "no page or ticket URL";
     default:

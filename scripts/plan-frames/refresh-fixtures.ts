@@ -10,21 +10,26 @@ import { purchaseWhy, type PurchaseRead, type PurchaseState } from "../../lib/on
  *
  * OR1: F1 / F2 of docs/design-record/2026-11-12-on-sale-refresh.html as
  * drawn — a shadow run on Thu 12 Nov over the data to Wed 11 Nov, read as
- * the w/c 9 Nov cycle refresh would read it. Its Objective block is the
- * per-event purchases record's F1 for P26-BDAY (13 Nov): the real IC pair
- * and "no domain of its own".
+ * the w/c 9 Nov cycle refresh would read it. Its Objective block is
+ * P26-BDAY's (OR2).
  *
- * OR2 / OR3: F1 of docs/design-record/2026-11-13-per-event-purchases.html,
- * the Objective block for P26-BDAY and NX26-LOCKLEAD. LOCKLEAD's domain
- * count (6) is the record's example (the 13 Nov read found none on its
- * domain: "nothing reaches", drawn in OR4). Its IC line and its pixel's
- * name are its 12 Nov read: Meta names pixel …2763 "NX Live Skiddle".
+ * OR2 / OR3 / OR5: the Objective block for three real shows, each as its
+ * 12 Nov run read it (F2 of
+ * docs/design-record/2026-11-13-ticket-platform-purchases.html). P26-BDAY
+ * and NX26-LOCKLEAD sell on Skiddle and take the platform path, under the
+ * bar; NX27-JULIANFIJMA sells on Universe while its ads' pixel sells on
+ * skiddle.com, so its pixel sells elsewhere. The counts and shares are
+ * the read's, not the record's examples.
  *
- * OR4: F2 of that record — every purchase-line state in E3's order, with
- * the attributed line under each and the ticketing check where it shows,
- * then the ninth state: a read that failed. Its fixture carries a raw
- * reason, which the frame must not show.
+ * OR4: every purchase-line state (F2 of the per-event purchases record,
+ * F1 of the ticket-platform record): the own-domain states, the three
+ * platform states and the under-14-days form, what is left, and the read
+ * that failed. "Ticket site only" is retired. The failed read's fixture
+ * carries a raw reason, which the frame must not show.
  */
+
+const NX_PIXEL = "645185673672763";
+const BRIXTON_PIXEL = "1283861880364565";
 
 function read(state: PurchaseState, overrides: Partial<PurchaseRead> = {}): PurchaseRead {
   return {
@@ -42,6 +47,9 @@ function read(state: PurchaseState, overrides: Partial<PurchaseRead> = {}): Purc
     onDomain: null,
     pixelWide: null,
     historyDays: ONSALE_PHASE.purchaseHistoryDays,
+    platform: null,
+    platformShare: null,
+    attributedOnPixel: null,
     attributedPurchases: { count: 21, scope: "any_show_on_pixel" },
     ticketsSold14: null,
     notRead: null,
@@ -49,16 +57,42 @@ function read(state: PurchaseState, overrides: Partial<PurchaseRead> = {}): Purc
   };
 }
 
-/** P26-BDAY, real: crqln.com/l/puzzle-4th-birthday with no custom domain, tickets on Skiddle, 1 attributed purchase. */
-const BDAY_READ = read("no_own_domain", { domainKind: "no_own_domain", cirqlinPage: true, attributedPurchases: { count: 1, scope: "any_show_on_pixel" } });
+/** T2's count on the resolved pixel: `count` from `fromDay`; `sinceOnSale` when the show has been on sale under 14 days. */
+function credited(count: number, fromDay: string, sinceOnSale: boolean): PurchaseRead["attributedOnPixel"] {
+  return { count, fromDay, sinceOnSale, total: { fromDay, purchases: count, spend: 0, byCampaign: [] } };
+}
 
-/** NX26-LOCKLEAD: its own domain and the real pixel mismatch; the count of 6 is the record's example. */
-const LOCKLEAD_READ = read("under_bar", {
-  pixel: { id: "645185673672763", source: "ad_sets", spendShare: 1, stored: "1283861880364565", matches: false },
-  pixelName: "NX Live Skiddle",
+const NX_MISMATCH = { pixel: { id: NX_PIXEL, source: "ad_sets" as const, spendShare: 1, stored: BRIXTON_PIXEL, matches: false }, pixelName: "NX Live Skiddle" };
+
+/** P26-BDAY, 12 Nov: crqln.com page with no custom domain, tickets on Skiddle, 1 purchase credited in 14 days, all 32 of its pixel's purchases on Skiddle. */
+const BDAY_READ = read("platform_under_bar", {
+  domainKind: "no_own_domain",
+  cirqlinPage: true,
+  platform: "Skiddle",
+  platformShare: { purchases: 32, pixelPurchases: 32, share: 1, elsewhereHost: null },
+  attributedOnPixel: credited(1, "2026-10-29", false),
+  attributedPurchases: { count: 1, scope: "any_show_on_pixel" },
+});
+
+/** NX26-LOCKLEAD, 12 Nov: on sale 6 Nov, 8 purchases credited since, on the NX pixel whose 844 purchases are all on Skiddle. */
+const LOCKLEAD_READ = read("platform_under_bar", {
+  ...NX_MISMATCH,
   domain: "locklead-newcastle.com",
   domainVia: "signup_url",
-  onDomain: { d14: 6, d28: 6, history: 6 },
+  onDomain: { d14: 0, d28: 0, history: 0 },
+  platform: "Skiddle",
+  platformShare: { purchases: 844, pixelPurchases: 844, share: 1, elsewhereHost: null },
+  attributedOnPixel: credited(8, "2026-11-06", true),
+});
+
+/** NX27-JULIANFIJMA, 12 Nov: tickets on Universe, ads on the NX pixel, none of whose 844 purchases are on Universe. */
+const JULIAN_READ = read("pixel_sells_elsewhere", {
+  ...NX_MISMATCH,
+  domainKind: "ticket_site_only",
+  ticketSite: "Universe",
+  platform: "Universe",
+  platformShare: { purchases: 0, pixelPurchases: 844, share: 0, elsewhereHost: "skiddle.com" },
+  attributedOnPixel: credited(5, "2026-11-03", true),
 });
 
 export const OR2_WHY: PanelProposal["why"] = {
@@ -71,18 +105,28 @@ export const OR3_WHY: PanelProposal["why"] = {
   ...purchaseWhy(LOCKLEAD_READ, false, ONSALE_PHASE),
 };
 
+export const OR5_WHY: PanelProposal["why"] = {
+  objective: "Landing Page View — the pixel logged 5 Initiate Checkout in 14 days, under 10. Last 14 days: 1461 LPV.",
+  ...purchaseWhy(JULIAN_READ, false, ONSALE_PHASE),
+};
+
 const DOMAIN = "locklead-newcastle.com";
 const counted = (d14: number) => ({ domain: DOMAIN, domainVia: "signup_url" as const, onDomain: { d14, d28: d14, history: d14 }, ticketsSold14: 40 });
+/** The record's F1 example: the NX pixel, 677 of its 836 purchases (81 %) on Skiddle. */
+const onSkiddle = { pixel: { id: NX_PIXEL, source: "ad_sets" as const, spendShare: 1, stored: NX_PIXEL, matches: true }, platform: "Skiddle", platformShare: { purchases: 677, pixelPurchases: 836, share: 677 / 836, elsewhereHost: "ra.co" } };
 
-/** F2's rows, in E3's order from the state that applies last to the one that applies first, then the failed read. Ticketing is linked in all of them. */
+/** Every state, grouped as the record's order groups them. Ticketing is linked in all of them. */
 export const OR4_STATES: { label: string; why: PanelProposal["why"] }[] = (
   [
-    ["Proposed", read("proposed", counted(18))],
-    ["Under the bar", read("under_bar", counted(6))],
-    ["Nothing reaches", read("nothing_reaches", { domain: DOMAIN, domainVia: "signup_url", landsOn: "Skiddle", onDomain: { d14: 0, d28: 0, history: 0 } })],
+    ["Own domain · proposed", read("proposed", counted(18))],
+    ["Own domain · under the bar", read("under_bar", counted(6))],
+    ["Platform · proposed", read("platform_proposed", { ...onSkiddle, attributedOnPixel: credited(17, "2026-10-29", false) })],
+    ["Platform · under the bar", read("platform_under_bar", { ...onSkiddle, attributedOnPixel: credited(6, "2026-10-29", false) })],
+    ["Platform · on sale under 14 days", read("platform_under_bar", { ...onSkiddle, attributedOnPixel: credited(6, "2026-11-06", true) })],
+    ["Platform · pixel sells elsewhere", read("pixel_sells_elsewhere", { ...onSkiddle, platformShare: { purchases: 26, pixelPurchases: 836, share: 26 / 836, elsewhereHost: "universe.com" }, attributedOnPixel: credited(6, "2026-10-29", false) })],
+    ["Nothing reaches", read("nothing_reaches", { domain: DOMAIN, domainVia: "signup_url", landsOn: "Skiddle", ticketSite: null, onDomain: { d14: 0, d28: 0, history: 0 } })],
     ["Shared domain", read("shared_domain", { domain: DOMAIN, domainKind: "shared_domain", sharedWith: 2 })],
     ["No own domain", read("no_own_domain", { domainKind: "no_own_domain", cirqlinPage: true })],
-    ["Ticket site only", read("ticket_site_only", { domainKind: "ticket_site_only" })],
     ["No page or ticket URL", read("no_url", { domainKind: "no_url", ticketSite: null })],
     ["No pixel", read("no_pixel", { pixel: null })],
     ["Not read", read("not_read", { pixel: null, domainKind: "not_read", notRead: "the ad sets' pixels couldn't be read: (#17) User request limit reached" })],
@@ -172,5 +216,5 @@ export const OR1_PROPOSALS: PanelProposal[] = [
   },
 ];
 
-export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4"] as const;
+export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5"] as const;
 export const REFRESH_FRAME_WIDTHS = [1280, 393] as const;
