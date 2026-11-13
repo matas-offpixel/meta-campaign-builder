@@ -81,6 +81,15 @@ describe("lookupCirqlinPage: failures save nothing upstream", () => {
     });
   }
 
+  it("matches on the body's error, the shape CIRQLIN shipped", async () => {
+    // A proxy in front could change the status; the body's error code wins.
+    assert.equal(((await lookup({ url: "crqln.com/x" }, fakeFetch(500, { error: "no_page" }))) as { reason: string }).reason, "no_page");
+    assert.equal(((await lookup({ url: "crqln.com/x" }, fakeFetch(403, { error: "unauthorized" }))) as { reason: string }).reason, "unauthorized");
+    // An error code it doesn't know falls back to the status.
+    assert.equal(((await lookup({ url: "crqln.com/x" }, fakeFetch(404, { error: "something_new" }))) as { reason: string }).reason, "no_page");
+    assert.equal(((await lookup({ url: "crqln.com/x" }, fakeFetch(500, { error: "toString" }))) as { reason: string }).reason, "read_failed");
+  });
+
   it("the shared-budget 429 is its own reason, so the panel can say to wait", async () => {
     const found = await lookup({ id: PAGE.id }, fakeFetch(429, { error: "rate_limited", retryAfterSeconds: 412 }));
     assert.equal(!found.ok && found.reason, "rate_limited");

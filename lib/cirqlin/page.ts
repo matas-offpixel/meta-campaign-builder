@@ -70,7 +70,19 @@ function pageFrom(body: unknown): CirqlinPageRef | null {
   return { id: b.id.toLowerCase(), slug: b.slug, title: b.title, customDomain };
 }
 
-function failureFor(status: number): CirqlinPageFailure {
+/** The shipped error bodies are { error: "unauthorized" | "no_page" | "rate_limited" | "read_failed" | "bad_request" }. */
+const ERROR_CODES: Record<string, CirqlinPageFailure> = {
+  no_page: "no_page",
+  unauthorized: "unauthorized",
+  rate_limited: "rate_limited",
+  read_failed: "read_failed",
+  bad_request: "read_failed",
+};
+
+/** Match on the body's `error`; the status only when the body has none we know. */
+function failureFor(status: number, body: unknown): CirqlinPageFailure {
+  const code = body != null && typeof body === "object" ? (body as Record<string, unknown>).error : undefined;
+  if (typeof code === "string" && Object.hasOwn(ERROR_CODES, code)) return ERROR_CODES[code]!;
   if (status === 404) return "no_page";
   if (status === 401 || status === 403) return "unauthorized";
   if (status === 429) return "rate_limited";
@@ -89,8 +101,9 @@ export async function lookupCirqlinPage(query: CirqlinPageQuery, opts: CirqlinPa
       headers: { authorization: `Bearer ${secret}`, accept: "application/json" },
       signal: AbortSignal.timeout(opts.timeoutMs ?? CIRQLIN_FETCH_TIMEOUT_MS),
     });
-    if (res.status !== 200) return { ok: false, reason: failureFor(res.status), status: res.status };
-    const page = pageFrom(await res.json().catch(() => null));
+    const body: unknown = await res.json().catch(() => null);
+    if (res.status !== 200) return { ok: false, reason: failureFor(res.status, body), status: res.status };
+    const page = pageFrom(body);
     return page ? { ok: true, page } : { ok: false, reason: "read_failed", status: 200 };
   } catch {
     return { ok: false, reason: "read_failed" };
