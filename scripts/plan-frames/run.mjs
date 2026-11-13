@@ -42,6 +42,7 @@ import { LAB_SHOTS } from "./lab-shots.mjs";
 import { RAIL_GUARD_PATHS, RAIL_SHOTS } from "./rail-shots.mjs";
 import { REFRESH_SHOTS } from "./refresh-shots.mjs";
 import { DRIVE_PICKER_SHOTS } from "./drive-picker-shots.mjs";
+import { EVENT_CONFIG_SHOTS } from "./event-config-shots.mjs";
 
 const PLAYWRIGHT_PIN = "1.63.0";
 const require = createRequire(import.meta.url);
@@ -75,7 +76,7 @@ const ONLY = (() => {
   const at = process.argv.indexOf("--only");
   return at >= 0 ? process.argv[at + 1] ?? "" : "";
 })();
-const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS, ...BANK_SHOTS, ...QUOTE_SHOTS, ...PLACEMENT_SHOTS, ...VOICE_SHOTS, ...SELECTION_SHOTS, ...AUDIO_SHOTS, ...FOOTAGE_SHOTS, ...REFRESH_SHOTS, ...DRIVE_PICKER_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
+const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS, ...BANK_SHOTS, ...QUOTE_SHOTS, ...PLACEMENT_SHOTS, ...VOICE_SHOTS, ...SELECTION_SHOTS, ...AUDIO_SHOTS, ...FOOTAGE_SHOTS, ...REFRESH_SHOTS, ...DRIVE_PICKER_SHOTS, ...EVENT_CONFIG_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
 const RUN_GUARD = !ONLY || "IR0".startsWith(ONLY);
 const TIKTOK_SANS = path.join(ROOT, "src/remotion/fonts/TikTokSans[opsz,slnt,wdth,wght].ttf");
 
