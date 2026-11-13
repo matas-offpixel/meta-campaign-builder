@@ -13,7 +13,7 @@ import {
   salesForSurface,
   salesMetric,
   slicePoints,
-  tilesForPeriod,
+  viewForPeriod,
   visibleShows,
   type SalesDashboardModel,
   type SalesMetricId,
@@ -49,7 +49,7 @@ export function SalesDashboard({
   const view = presented.views[activeId] ?? presented.views[presented.initialShowId];
   if (!view) return null;
   const points = slicePoints(view.points, period, view.endDay);
-  const tiles = tilesForPeriod(view.tiles, view.points, period, view.endDay);
+  const { tiles, campaigns } = viewForPeriod(view, period);
   const units = selected.map((id) => salesMetric(id).unit);
   const axes = planAxes(units, indexRequested);
   const indexForced = axes.mode === "index" && new Set(units).size >= 3;
@@ -205,7 +205,7 @@ export function SalesDashboard({
         reviewLine={presented.reviewLine}
       />
 
-      <Campaigns rows={view.campaigns} />
+      <Campaigns rows={campaigns} />
     </section>
   );
 }

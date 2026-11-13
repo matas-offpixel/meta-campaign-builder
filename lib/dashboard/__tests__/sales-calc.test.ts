@@ -348,14 +348,18 @@ describe("words and surfaces", () => {
     assert.equal(share.crossClientNote, null);
     assert.equal(share.reviewLine, null);
     assert.ok(share.views["a-1"].campaigns.every((r) => !r.unlinked));
+    for (const slice of Object.values(share.views["a-1"].periods ?? {})) assert.ok(slice!.campaigns.every((r) => !r.unlinked));
+    assert.ok(build.model.views["a-1"].periods?.["7"]?.campaigns.some((r) => r.unlinked));
     assert.equal(build.model.crossClientNote, null);
   });
 
-  it("every period has its own tiles and campaigns; the view carries 14 days", () => {
+  it("every period has its own tiles and campaigns; the view carries 14 days", async () => {
     const build = buildSalesDashboard(data);
     assert.deepEqual(Object.keys(build.periods["a-1"]).sort(), ["14", "3", "30", "7", "launch", "yesterday"]);
     assert.equal(build.model.views["a-1"].tiles, build.periods["a-1"]["14"].tiles);
     assert.equal(build.periods["a-1"].yesterday.campaigns[0].periodSpend, "£100");
+    const { viewForPeriod } = await import("../sales-vs-spend.ts");
+    assert.equal(viewForPeriod(build.model.views["a-1"], "launch").tiles, build.periods["a-1"].launch.tiles);
   });
 
   it("freshness stamps turn amber more than 2 days behind yesterday", () => {

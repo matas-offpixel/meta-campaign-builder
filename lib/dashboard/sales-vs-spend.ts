@@ -227,6 +227,17 @@ export type SalesShowView = {
   allocation: AllocationStep[];
   trajectory: SalesTrajectory;
   campaigns: SalesCampaignRow[];
+  /**
+   * The server calc's tiles and campaign rows for each period (HD3). When a
+   * period is here the layout shows it as is; otherwise `tilesForPeriod`
+   * works it out from the points, as for the fixture.
+   */
+  periods?: Partial<Record<SalesPeriod, SalesPeriodView>>;
+};
+
+export type SalesPeriodView = {
+  tiles: SalesTile[];
+  campaigns: SalesCampaignRow[];
 };
 
 /**
@@ -288,16 +299,20 @@ export function salesForSurface(model: SalesDashboardModel, surface: SalesSurfac
   if (surface === "internal") return model;
   const views: Record<string, SalesShowView> = {};
   for (const [id, view] of Object.entries(model.views)) {
-    views[id] = {
-      ...view,
-      campaigns: view.campaigns.map((row) =>
-        row.unlinked
-          ? { ...row, unlinked: false, title: `${row.periodSpend} in this period. ${row.sinceLaunch} since launch.` }
-          : row,
-      ),
-    };
+    const periods = view.periods
+      ? Object.fromEntries(
+          Object.entries(view.periods).map(([period, slice]) => [period, slice ? { ...slice, campaigns: shareCampaigns(slice.campaigns) } : slice]),
+        )
+      : undefined;
+    views[id] = { ...view, campaigns: shareCampaigns(view.campaigns), ...(periods ? { periods } : {}) };
   }
   return { ...model, crossClientNote: null, reviewLine: null, views };
+}
+
+function shareCampaigns(rows: SalesCampaignRow[]): SalesCampaignRow[] {
+  return rows.map((row) =>
+    row.unlinked ? { ...row, unlinked: false, title: `${row.periodSpend} in this period. ${row.sinceLaunch} since launch.` } : row,
+  );
 }
 
 export function formatSalesNumber(unit: SalesUnit, value: number): string {
@@ -309,6 +324,13 @@ export function formatSalesNumber(unit: SalesUnit, value: number): string {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   }).format(value);
+}
+
+/** The tiles and campaign rows for a period: the server calc's when it sent them, else worked out from the points. */
+export function viewForPeriod(view: SalesShowView, period: SalesPeriod): SalesPeriodView {
+  const slice = view.periods?.[period];
+  if (slice) return slice;
+  return { tiles: tilesForPeriod(view.tiles, view.points, period, view.endDay), campaigns: view.campaigns };
 }
 
 export function tilesForPeriod(tiles: SalesTile[], points: SalesChartPoint[], period: SalesPeriod, endDay: string): SalesTile[] {

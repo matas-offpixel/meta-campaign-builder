@@ -81,7 +81,7 @@ export interface PeriodView {
   campaigns: SalesCampaignRow[];
 }
 
-/** The model, plus each view's tiles and campaigns for every period (the layout seam is pending). */
+/** The model (each view carries every period's tiles and campaigns in `periods`), plus the D10 library this run used. */
 export interface SalesBuild {
   model: SalesDashboardModel;
   periods: Record<string, Record<SalesPeriod, PeriodView>>;
@@ -478,6 +478,7 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       allocation,
       trajectory,
       campaigns: perPeriod[BASE_PERIOD].campaigns,
+      periods: perPeriod,
     };
   };
 

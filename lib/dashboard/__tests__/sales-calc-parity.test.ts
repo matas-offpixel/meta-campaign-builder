@@ -105,7 +105,7 @@ interface Row {
 const close = (a: number | string | null, b: number | string | null) =>
   typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-6 * Math.max(1, Math.abs(a)) : a === b;
 
-function compare(): { rows: Row[]; unexplained: Row[] } {
+function compare(): { rows: Row[]; unexplained: Row[]; compared: number } {
   const input = loadFixture();
   const meta = metaOnly(input);
   const md = metaDaily(input);
@@ -125,7 +125,9 @@ function compare(): { rows: Row[]; unexplained: Row[] } {
 
   const rows: Row[] = [];
   const unexplained: Row[] = [];
+  let compared = 0;
   const add = (show: string, figure: string, model: number | string | null, server: number | string | null, rule: Rule | null) => {
+    compared += 1;
     if (close(model, server)) return;
     const row = { show, figure, model, server, rule };
     rows.push(row);
@@ -216,7 +218,7 @@ function compare(): { rows: Row[]; unexplained: Row[] } {
   }
   add("Library", "DJ EZ lift", djez.lift, library.find((e) => e.code === "NX26-DJEZ")?.lift ?? null, null);
   add("Library", "Enzo lift (the model's case 2)", enzo.lift, null, "D10");
-  return { rows, unexplained };
+  return { rows, unexplained, compared };
 }
 
 /** The model's reference_counts_v2.csv (DJ EZ, Enzo), as it read them on 13 Nov. */
@@ -255,7 +257,7 @@ const REFERENCE_CSV = [
 const fmt = (v: number | string | null) => (v == null ? "—" : typeof v === "number" ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : v);
 
 describe("HD3 parity with the sales-vs-spend model on 12 Nov", () => {
-  const { rows, unexplained } = compare();
+  const { rows, unexplained, compared } = compare();
 
   it("the fixture is the model's own data: Meta spend per show matches its meta_daily SQL run on 13 Nov", () => {
     const md = metaDaily(loadFixture());
@@ -299,7 +301,7 @@ describe("HD3 parity with the sales-vs-spend model on 12 Nov", () => {
   it("writes the parity table when PARITY_OUT is set", () => {
     const out = process.env.PARITY_OUT;
     if (!out) return;
-    const lines = ["| Show | Figure | Model | Server | Rule |", "|---|---|---|---|---|"];
+    const lines = [`${compared} figures compared; ${compared - rows.length} match; ${rows.length} differ, each by a rule.`, "", "| Show | Figure | Model | Server | Rule |", "|---|---|---|---|---|"];
     for (const r of rows) lines.push(`| ${r.show} | ${r.figure} | ${fmt(r.model)} | ${fmt(r.server)} | ${r.rule ?? "**none**"} |`);
     writeFileSync(out, `${lines.join("\n")}\n`);
   });
