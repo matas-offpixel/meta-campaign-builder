@@ -110,44 +110,25 @@ describe("sales vs spend layout contract", () => {
   });
 
   it("404s the live sales routes unless the flag is exactly 1, and keeps the fixture on the frames route", async () => {
-    const internalSource = readFileSync("app/(dashboard)/clients/[id]/sales/page.ts", "utf8");
-    const shareSource = readFileSync("app/share/client/[token]/sales/page.ts", "utf8");
+    const internalSource = readFileSync("app/(dashboard)/clients/[id]/sales/page.tsx", "utf8");
+    const shareSource = readFileSync("app/share/client/[token]/sales/page.tsx", "utf8");
     const framesSource = readFileSync("components/dashboard/sales/frame-mount.tsx", "utf8");
     assert.equal(internalSource.includes("sales-vs-spend-fixture"), false);
     assert.equal(shareSource.includes("sales-vs-spend-fixture"), false);
     assert.equal(framesSource.includes("sales-vs-spend-fixture"), true);
 
-    const previous = process.env.DASHBOARD_V2_ENABLED;
-    function is404(error: unknown) {
-      assert.equal(error instanceof Error && "digest" in error ? String(error.digest) : "", "NEXT_HTTP_ERROR_FALLBACK;404");
-      return true;
-    }
-    const load = (source: string, name: string) => {
-      const body = source
-        .replace(/import\s+\{\s*notFound\s*\}\s+from\s+"next\/navigation";/, "")
-        .replace("export default ", "");
-      const notFound = () => {
-        const error = new Error("NEXT_HTTP_ERROR_FALLBACK;404") as Error & { digest: string };
-        error.digest = "NEXT_HTTP_ERROR_FALLBACK;404";
-        throw error;
-      };
-      return new Function("notFound", `${body}\nreturn ${name};`)(notFound) as () => null;
-    };
-    const internal = load(internalSource, "ClientSalesPage");
-    const share = load(shareSource, "ShareSalesPage");
-    try {
-      delete process.env.DASHBOARD_V2_ENABLED;
-      await assert.rejects(async () => internal(), is404);
-      await assert.rejects(async () => share(), is404);
-      process.env.DASHBOARD_V2_ENABLED = "true";
-      await assert.rejects(async () => internal(), is404);
-      await assert.rejects(async () => share(), is404);
-      process.env.DASHBOARD_V2_ENABLED = "1";
-      assert.equal(internal(), null);
-      assert.equal(share(), null);
-    } finally {
-      if (previous === undefined) delete process.env.DASHBOARD_V2_ENABLED;
-      else process.env.DASHBOARD_V2_ENABLED = previous;
+    // HD3 wired both routes to the server calc. The gate is still the first statement, before any read.
+    const { dashboardV2Enabled } = await import("../sales-calc/gate.ts");
+    assert.equal(dashboardV2Enabled({}), false);
+    assert.equal(dashboardV2Enabled({ DASHBOARD_V2_ENABLED: "true" }), false);
+    assert.equal(dashboardV2Enabled({ DASHBOARD_V2_ENABLED: "1" }), true);
+    for (const [source, name] of [
+      [internalSource, "ClientSalesPage"],
+      [shareSource, "ShareSalesPage"],
+    ] as const) {
+      const body = source.slice(source.indexOf(`export default async function ${name}(`));
+      const first = body.split("\n").slice(1).find((line) => line.trim() !== "");
+      assert.equal(first?.trim(), "if (!dashboardV2Enabled()) notFound();", name);
     }
   });
 

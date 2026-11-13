@@ -227,6 +227,17 @@ export type SalesShowView = {
   allocation: AllocationStep[];
   trajectory: SalesTrajectory;
   campaigns: SalesCampaignRow[];
+  /**
+   * The server calc's tiles and campaign rows for each period (HD3). When a
+   * period is here, `tilesForPeriod` and `campaignsForPeriod` return it as
+   * is; otherwise they behave as before (the fixture sends none).
+   */
+  periods?: Partial<Record<SalesPeriod, SalesPeriodView>>;
+};
+
+export type SalesPeriodView = {
+  tiles: SalesTile[];
+  campaigns: SalesCampaignRow[];
 };
 
 /**
@@ -267,6 +278,24 @@ export function planAxes(units: SalesUnit[], indexRequested: boolean): AxisPlan 
   return { mode: "single", unit: unique[0] ?? "count" };
 }
 
+/**
+ * A metric's unbroken runs of days with a value, as point indexes. An
+ * empty day (null) ends a run, so the chart breaks the line there: no
+ * bridge across the gap and no £0 (design, D13c, 14 Nov).
+ */
+export function metricRuns(points: readonly SalesChartPoint[], id: SalesMetricId): number[][] {
+  const runs: number[][] = [];
+  let run: number[] = [];
+  points.forEach((point, index) => {
+    if (point.values[id] == null) {
+      if (run.length) runs.push(run);
+      run = [];
+    } else run.push(index);
+  });
+  if (run.length) runs.push(run);
+  return runs;
+}
+
 export function slicePoints(points: SalesChartPoint[], period: SalesPeriod, endDay: string): SalesChartPoint[] {
   if (period === "launch") return points.filter((point) => point.day <= endDay);
   const days = SALES_PERIODS.find((item) => item.id === period)?.days ?? null;
@@ -288,16 +317,20 @@ export function salesForSurface(model: SalesDashboardModel, surface: SalesSurfac
   if (surface === "internal") return model;
   const views: Record<string, SalesShowView> = {};
   for (const [id, view] of Object.entries(model.views)) {
-    views[id] = {
-      ...view,
-      campaigns: view.campaigns.map((row) =>
-        row.unlinked
-          ? { ...row, unlinked: false, title: `${row.periodSpend} in this period. ${row.sinceLaunch} since launch.` }
-          : row,
-      ),
-    };
+    const periods = view.periods
+      ? Object.fromEntries(
+          Object.entries(view.periods).map(([period, slice]) => [period, slice ? { ...slice, campaigns: shareCampaigns(slice.campaigns) } : slice]),
+        )
+      : undefined;
+    views[id] = { ...view, campaigns: shareCampaigns(view.campaigns), ...(periods ? { periods } : {}) };
   }
   return { ...model, crossClientNote: null, reviewLine: null, views };
+}
+
+function shareCampaigns(rows: SalesCampaignRow[]): SalesCampaignRow[] {
+  return rows.map((row) =>
+    row.unlinked ? { ...row, unlinked: false, title: `${row.periodSpend} in this period. ${row.sinceLaunch} since launch.` } : row,
+  );
 }
 
 export function formatSalesNumber(unit: SalesUnit, value: number): string {
@@ -311,7 +344,20 @@ export function formatSalesNumber(unit: SalesUnit, value: number): string {
   }).format(value);
 }
 
-export function tilesForPeriod(tiles: SalesTile[], points: SalesChartPoint[], period: SalesPeriod, endDay: string): SalesTile[] {
+/** The campaign rows for a period: the server calc's when it sent them (HD3), else the view's own. */
+export function campaignsForPeriod(view: Pick<SalesShowView, "campaigns" | "periods">, period: SalesPeriod): SalesCampaignRow[] {
+  return view.periods?.[period]?.campaigns ?? view.campaigns;
+}
+
+export function tilesForPeriod(
+  tiles: SalesTile[],
+  points: SalesChartPoint[],
+  period: SalesPeriod,
+  endDay: string,
+  periods?: SalesShowView["periods"],
+): SalesTile[] {
+  const sent = periods?.[period]?.tiles;
+  if (sent) return sent;
   if (period === "14") return tiles;
   const slice = slicePoints(points, period, endDay);
   const phrase = period === "yesterday" ? "yesterday" : period === "launch" ? "since launch" : `in ${period} days`;
