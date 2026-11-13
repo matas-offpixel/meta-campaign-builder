@@ -17,6 +17,7 @@
  */
 
 import { loadCountAliasMap } from "../event-config/aliases.ts";
+import { cleanWrites } from "./clean-writes.ts";
 import type { Db, RunContext } from "./context.ts";
 import { decideName, type Resolver } from "./resolve.ts";
 
@@ -117,6 +118,7 @@ export async function planSeed(
  * are skipped.
  */
 export async function applySeed(sb: Db, ctx: RunContext, plan: SeedPlan, who: Resolver): Promise<{ aliasesWritten: number; decided: number }> {
+  sb = cleanWrites(sb);
   const fresh = plan.aliases.filter((a) => a.state === "new");
   let decided = 0;
   for (const a of plan.aliases) {
