@@ -15,7 +15,7 @@
 
 import { createSign } from "node:crypto";
 
-import { parseServiceAccountJson } from "../clients/asset-queue/drive-auth.ts";
+import { loadExportServiceAccount } from "../drive/client.ts";
 
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -48,14 +48,12 @@ export function delegatedAccountFromEnv(env: NodeJS.ProcessEnv = process.env): D
   const raw = env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON;
   const missing = [!raw?.trim() && "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON", !mailbox && "GMAIL_INGEST_MAILBOX"].filter(Boolean);
   if (missing.length) throw new GmailAccessError("not_configured", 0, `${missing.join(", ")} not set`);
-  let sa: { client_email?: string; private_key?: string; token_uri?: string };
+  // The same reader the Drive export uses, so a key pasted without its quotes still works.
+  let sa: { client_email: string; private_key: string; token_uri?: string };
   try {
-    sa = parseServiceAccountJson(raw!);
+    sa = loadExportServiceAccount(raw);
   } catch {
     throw new GmailAccessError("not_configured", 0, "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON isn't a service-account key");
-  }
-  if (!sa.client_email || !sa.private_key) {
-    throw new GmailAccessError("not_configured", 0, "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON has no client_email or private_key");
   }
   return { clientEmail: sa.client_email, privateKey: sa.private_key, tokenUri: sa.token_uri || TOKEN_ENDPOINT, mailbox: mailbox! };
 }

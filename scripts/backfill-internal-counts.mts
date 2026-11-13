@@ -168,6 +168,7 @@ async function main(): Promise<void> {
             id: l.messageId,
             receivedAt: l.receivedAt,
             subject: l.subject,
+            from: l.from,
             kind: l.kind,
             status: l.result?.status ?? null,
             blocks: l.result?.plan?.blocks.map((b) => ({
