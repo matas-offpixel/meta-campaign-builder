@@ -6,7 +6,7 @@ import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creativ
 import { heldQuoteSentence, postsForQuote, quoteLines } from "@/lib/creative-lab/quote";
 
 const ENZO = "Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥";
-const SHORT = "Southampton, this one's going to be special.\nSee you on the 27th 🔥";
+const SHORT = "Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥";
 const LUKE = "Been waiting all year to play Circuit again. Bring the energy 👊";
 
 /**
@@ -66,6 +66,7 @@ export function QuoteFrameMount({ id }: { id: string }) {
           page="Puzzle"
           copy="Enzo Siragusa on the 4th Birthday, 27 Dec at Circuit."
           words={SHORT}
+          placementScale={0.75}
           time="0:14"
           headline="Puzzle 4th Birthday"
           sub="Circuit · 27 Dec"

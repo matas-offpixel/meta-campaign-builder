@@ -119,12 +119,12 @@ export function LabRound({
                     {captions.map((caption) => {
                       const cell = matrix.cells.find((item) => item.clipId === clip.id && item.captionId === caption.id);
                       return (
-                        <td key={caption.id}>
+                        <td key={caption.id} className="align-top">
                           <button type="button" className={`w-16 rounded border p-1 ${cell?.on ? "border-border bg-card" : "border-dashed border-border text-muted-foreground"}`} onClick={() => toggle(`${clip.id}:${caption.id}`)}>
                             <CaptionOverlay lines={[]} src={clip.previewUrl} poster={clip.thumbnailUrl} compact />
                             <span className="mt-1 block text-xs">{cell?.on ? "On" : "Off — tap to include"}</span>
-                            {cell?.on ? <PlacementLine note={placementNoteFor(lab, clip.id, caption.id)} busy={faceRetry === clip.id} onRetry={() => void retryFaces(clip.id)} /> : null}
                           </button>
+                          {cell?.on ? <PlacementLine note={placementNoteFor(lab, clip.id, caption.id)} busy={faceRetry === clip.id} onRetry={() => void retryFaces(clip.id)} /> : null}
                         </td>
                       );
                     })}
@@ -141,11 +141,9 @@ export function LabRound({
                 <li key={`${cell.clipId}:${cell.captionId}`}>
                   <button type="button" className="flex items-center gap-2 text-left text-sm" onClick={() => toggle(`${cell.clipId}:${cell.captionId}`)}>
                     <span className="w-10 shrink-0"><CaptionOverlay lines={[]} src={clip?.previewUrl} poster={clip?.thumbnailUrl ?? null} compact /></span>
-                    <span>
-                      {pairingLabel(clip, caption)} · {cell.on ? "On" : "Off"}
-                      {cell.on && clip && caption ? <PlacementLine note={placementNoteFor(lab, clip.id, caption.id)} busy={faceRetry === clip.id} onRetry={() => void retryFaces(clip.id)} /> : null}
-                    </span>
+                    <span>{pairingLabel(clip, caption)} · {cell.on ? "On" : "Off"}</span>
                   </button>
+                  {cell.on && clip && caption ? <PlacementLine note={placementNoteFor(lab, clip.id, caption.id)} busy={faceRetry === clip.id} onRetry={() => void retryFaces(clip.id)} /> : null}
                 </li>
               );
             })}
@@ -240,28 +238,12 @@ function placementNoteFor(lab: CreativeLabCardData, clipId: string, captionId: s
 function PlacementLine({ note, busy, onRetry }: { note: { text: string; failed: boolean } | null; busy?: boolean; onRetry?: () => void }) {
   if (!note) return null;
   return (
-    <span className={`mt-1 block font-mono text-[11px] ${note.failed ? "text-destructive" : "text-muted-foreground"}`}>
+    <p className={`mt-1 font-mono text-[11px] ${note.failed ? "text-destructive" : "text-muted-foreground"}`}>
       {note.text}
       {note.failed && onRetry ? (
-        <span
-          role="button"
-          tabIndex={0}
-          className="ml-1 underline"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (!busy) onRetry();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.stopPropagation();
-              if (!busy) onRetry();
-            }
-          }}
-        >
-          Retry
-        </span>
+        <button type="button" className="ml-1 underline" disabled={busy} onClick={onRetry}>Retry</button>
       ) : null}
-    </span>
+    </p>
   );
 }
 
