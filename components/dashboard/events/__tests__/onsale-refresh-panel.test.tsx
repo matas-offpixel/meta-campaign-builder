@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
-import { OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_HELD, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR_APPLY_LIVE } from "@/scripts/plan-frames/refresh-fixtures";
+import { OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_CLUSTER, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR8_RETARGETING, OR8_SEED, OR9_PROPOSALS, OR9_RESULTS, OR_APPLY_LIVE } from "@/scripts/plan-frames/refresh-fixtures";
 
 afterEach(() => {
   cleanup();
@@ -78,19 +78,41 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     expect(within(back).getByText("Applied · on")).toBeTruthy();
   });
 
-  it("OR8: one bring-back acceptable, one held by the plan guard, a move held by the 20 % cap, a new ad set held; Apply counts the accepted drop", () => {
+  it("OR8: bring-backs (one held by the plan guard), the cluster and the defaults as new ad sets, the seed and the cap holds; Apply counts the accepted drop", () => {
     render(<OnSaleRefreshPanelView eventId="e1" proposals={OR8_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
     const accept = (title: string) => within(lineEl(title)).getByRole("button", { name: "Accept" }) as HTMLButtonElement;
     expect(accept("Electronic dance music, Electronic music").disabled).toBe(false);
     expect(accept("Lineup Suggestion — Primary").disabled).toBe(true);
     expect(within(lineEl("Lineup Suggestion — Primary")).getByText(OR8_PLAN_GUARD)).toBeTruthy();
+    // The cluster: a new ad set, its interests on a second line, its write line in design's words.
+    const cluster = lineEl("Disc Genre");
+    expect(accept("Disc Genre").disabled).toBe(false);
+    expect(within(cluster).getByText(OR8_CLUSTER.extra)).toBeTruthy();
+    expect(within(cluster).getByText(OR8_CLUSTER.write)).toBeTruthy();
+    // The standing defaults: labelled as such; the lookalike held by its seed.
+    const retargeting = lineEl("Retargeting");
+    expect(within(retargeting).getByText("Standing default")).toBeTruthy();
+    expect(within(retargeting).getByText(OR8_RETARGETING.extra)).toBeTruthy();
+    expect(accept("Retargeting").disabled).toBe(false);
+    expect(accept("Registrations lookalike").disabled).toBe(true);
+    expect(within(lineEl("Registrations lookalike")).getByText(OR8_SEED)).toBeTruthy();
     expect(accept("Broad — Primary → Retargeting — 30d").disabled).toBe(true);
     expect(within(lineEl("Broad — Primary → Retargeting — 30d")).getByText(OR8_MOVE_CAP)).toBeTruthy();
-    expect(accept("Disc Genre").disabled).toBe(true);
-    expect(within(lineEl("Disc Genre")).getByText(OR8_HELD).getAttribute("data-block")).toBe("held");
-    expect((within(lineEl("Disc Genre")).getByRole("button", { name: "Reject" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(within(lineEl("Lineup — Primary → Adv+")).getByText("Applied · £40.00 a week moved")).toBeTruthy();
+    expect(within(lineEl("Lineup — Primary → Adv+")).getByText("Applied · £100.00 a week moved")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Apply accepted (1)" })).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Not applied yet");
+  });
+
+  it("OR9: the new ad sets' F3 results — applied with a retired interest, an audience made, one still building (Retry), a partial", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR9_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
+    expect(within(lineEl("Disc Genre")).getByText(`Applied · ${OR9_RESULTS.cluster}`)).toBeTruthy();
+    expect(within(lineEl("Retargeting")).getByText(`Applied · ${OR9_RESULTS.retargeting}`)).toBeTruthy();
+    const building = lineEl("Registrations lookalike");
+    expect(within(building).getByText(`Failed — ${OR9_RESULTS.building}`)).toBeTruthy();
+    expect(within(building).getByRole("button", { name: "Retry" })).toBeTruthy();
+    // A partial reads as design draws it, without "Failed —".
+    expect(within(lineEl("Melodic Techno")).getByText(OR9_RESULTS.partial)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry failed (2)" })).toBeTruthy();
   });
 
   it("an accepted drop or move waits while its own gate is off: Apply accepted doesn't count it", () => {
@@ -119,7 +141,7 @@ describe("OnSaleRefreshPanelView (P2)", () => {
 
   it("every date the panel renders keeps together, in the wide and the narrow wording", () => {
     const broken = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]* \d|\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}|w\/c \d/;
-    for (const proposals of [OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS]) {
+    for (const proposals of [OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS, OR9_PROPOSALS]) {
       render(<OnSaleRefreshPanelView eventId="e1" proposals={proposals} apply={OR_APPLY_LIVE} actions={{}} />);
       // Both wordings are in the DOM (the viewport hides one), so this reads 1280's and 393's text.
       const section = document.getElementById("onsale-refresh")!;

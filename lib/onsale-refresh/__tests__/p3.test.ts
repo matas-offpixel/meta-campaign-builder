@@ -13,11 +13,12 @@ import { AdSetStatusWritesDisabledError, adsetStatusWritesEnabled, writeAdSetSta
 import { APPLY_ENV, applyGates } from "../apply-gates.ts";
 import { applyAccepted, movedText, type ApplyDeps, type AdSetNow, type RefreshMeta } from "../apply.ts";
 import { LAST_ADSET_STAYS, RETARGETING_STAYS, acceptBlock, decideLine } from "../decide.ts";
-import { NEW_ADSET_NOT_YET, appliesNow, heldText } from "../line-states.ts";
+import { appliesNow, heldText } from "../line-states.ts";
+import { NO_BUDGET_TO_START } from "../new-adset.ts";
 import { MOVE_NEEDS_BUDGET, SPEND_NEEDS_BUDGET, daysToShow, moveGuard, planGuard, projectedSpend, spendLineBlock } from "../plan-guard.ts";
 import { loadEventProposals } from "../read.ts";
 import { memoryDb, type MemoryDb } from "./memory-db.ts";
-import { OR8_HELD, OR8_MOVE_CAP, OR8_PLAN_GUARD } from "../../../scripts/plan-frames/refresh-fixtures.ts";
+import { OR8_MOVE_CAP, OR8_PLAN_GUARD } from "../../../scripts/plan-frames/refresh-fixtures.ts";
 
 const EMBEDS = { onsale_refresh_proposals: { table: "onsale_refresh_proposals", key: "proposal_id" } };
 const ALL_ENV = { [APPLY_ENV]: "1", OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLED: "true", ENABLE_OPTIMISATION_WRITES: "1" };
@@ -151,10 +152,10 @@ describe("on-sale refresh P3: each write's own gate; new ad sets held", () => {
     assert.equal(appliesNow({ kind: "bring_back_audience", state: "accepted", writeKind: "adset_status" }, all), true);
     assert.equal(appliesNow({ kind: "drop_audience", state: "accepted", writeKind: "adset_status" }, all), true);
     assert.equal(appliesNow({ kind: "move_budget", state: "accepted", writeKind: "adset_budget_move" }, all), true);
-    assert.equal(appliesNow({ kind: "bring_back_audience", state: "accepted", writeKind: "new_adset" }, all), false, "a cluster bring-back makes a new ad set: held");
-    assert.equal(appliesNow({ kind: "missing_default", state: "accepted", writeKind: "new_adset" }, all), false);
-    assert.equal(heldText({ kind: "missing_default", writeKind: "new_adset" }), NEW_ADSET_NOT_YET);
-    assert.equal(heldText({ kind: "bring_back_audience", writeKind: "adset_status" }), null);
+    assert.equal(appliesNow({ kind: "bring_back_audience", state: "accepted", writeKind: "new_adset" }, all), true, "a cluster's new ad set: the ad-set gate");
+    assert.equal(appliesNow({ kind: "missing_default", state: "accepted", writeKind: "new_adset" }, all), false, "a default also needs the audience gate");
+    assert.equal(appliesNow({ kind: "missing_default", state: "accepted", writeKind: "new_adset" }, live({ ...ALL_ENV, OFFPIXEL_META_AUDIENCE_WRITES_ENABLED: "true" })), true);
+    for (const kind of ["missing_default", "bring_back_audience", "drop_audience", "move_budget"] as const) assert.equal(heldText({ kind, writeKind: "new_adset" }), null, `${kind}: P3 applies it`);
   });
 
   it("with a write's gate off, its accepted line waits, untouched, and nothing is read", async () => {
@@ -354,13 +355,14 @@ describe("on-sale refresh P3: within-campaign moves (the optimisation budget wri
 // ── The panel's read ─────────────────────────────────────────────────────────
 
 describe("on-sale refresh P3: the panel draws the blocks Accept enforces", () => {
-  it("a bring-back over the plan, a move over the cap, a held new ad set; a drop with room is clear", async () => {
+  it("a bring-back over the plan, a move over the cap, a new ad set with no money; a drop with room is clear", async () => {
     const lines = [
       bringBack("bb", { state: "to_review", evidence: { dailySpend: 70 } }),
       move("mv", 30, { state: "to_review" }),
       { ...move("done", 490), state: "applied", position: 9 },
       drop("dr", { state: "to_review" }),
-      line("cl", "bring_back_audience", { state: "to_review", write: { kind: "new_adset", clusterId: "x" } }),
+      line("cl", "bring_back_audience", { state: "to_review", write: { kind: "new_adset", clusterId: "x", budgetLevel: "ad_set", copyFrom: { dailyGbp: 200 }, giver: null } }),
+      line("cbo", "bring_back_audience", { state: "to_review", write: { kind: "new_adset", clusterId: "y", budgetLevel: "campaign", copyFrom: { dailyGbp: 200 }, giver: null } }),
     ].map((row) => ({ ...row, write_text: "w", detail: "d" }));
     const mem = seed(lines);
     mem.tables.onsale_refresh_proposals![0] = { ...mem.tables.onsale_refresh_proposals![0]!, run_kind: "cycle", created_at: "2026-11-16T06:00:00Z", cycle_kind: "payday" };
@@ -368,31 +370,35 @@ describe("on-sale refresh P3: the panel draws the blocks Accept enforces", () =>
     const block = (id: string) => proposal!.lines.find((row) => row.id === id)!.blockedReason;
     assert.equal(block("bb"), "Turning it on would spend about £2870.00 before the show, more than the £2505.85 left in the plan.");
     assert.equal(block("mv"), "Moving £30.00 would take this refresh past 20 % of the £2505.85 left (£501.17, £11.17 still free).");
-    assert.equal(block("cl"), NEW_ADSET_NOT_YET);
+    assert.equal(block("cl"), NO_BUDGET_TO_START, "£200 a day × 41 days is past the plan, and a week of it is past the cap");
+    assert.equal(block("cbo"), null, "under a campaign budget it shares it");
     assert.equal(block("dr"), null);
     assert.equal(proposal!.lines.find((row) => row.id === "cl")!.writeKind, "new_adset");
   });
 });
 
 describe("on-sale refresh P3: OR8's sentences are the guards' own", () => {
-  it("the plan guard, the cap and the hold, from OR8's figures", () => {
-    // £4,500 budget, £4,180.00 spent, w/c 7 Dec: 20 days to the show.
-    assert.equal(planGuard("bring_back_audience", 4500, 4180, projectedSpend({ dailySpend: 18.4 }, "2026-12-07", "2026-12-27")), OR8_PLAN_GUARD);
-    assert.equal(planGuard("bring_back_audience", 4500, 4180, projectedSpend({ dailySpend: 9.1 }, "2026-12-07", "2026-12-27")), null, "the other bring-back fits");
-    assert.equal(moveGuard(30, 4500, 4180, 40), OR8_MOVE_CAP);
-    assert.equal(moveGuard(40, 4500, 4180, 0), null, "the applied move fitted when it went");
-    assert.equal(OR8_HELD, NEW_ADSET_NOT_YET);
+  it("the plan guard and the cap, from OR8's figures", () => {
+    // £4,500 budget, £3,860.00 spent, w/c 7 Dec: 20 days to the show, £100 moved already.
+    assert.equal(planGuard("bring_back_audience", 4500, 3860, projectedSpend({ dailySpend: 34 }, "2026-12-07", "2026-12-27")), OR8_PLAN_GUARD);
+    assert.equal(planGuard("bring_back_audience", 4500, 3860, projectedSpend({ dailySpend: 9.1 }, "2026-12-07", "2026-12-27")), null, "the other bring-back fits");
+    assert.equal(moveGuard(30, 4500, 3860, 100), OR8_MOVE_CAP);
+    assert.equal(moveGuard(100, 4500, 3860, 0), null, "the applied move fitted when it went");
   });
 });
 
 // ── Migration and routes ─────────────────────────────────────────────────────
 
 describe("on-sale refresh P3: migration 237 and the wiring", () => {
-  it("migration 237 keeps every ledger kind and adds the two new ones", () => {
+  it("migration 237 keeps every ledger kind, adds the three new ones and the stored-audience table", () => {
     const sql = readFileSync("supabase/migrations/237_onsale_refresh_p3_ledger.sql", "utf8");
-    for (const kind of ["campaign_create", "adset_create", "ad_create", "creative_upload", "adset_targeting_update", "adset_destination_update", "refresh_creative_create", "refresh_ad_create", "ad_status_update", "adset_status_update", "refresh_adset_budget_update"]) assert.ok(sql.includes(`'${kind}'`), kind);
+    for (const kind of ["campaign_create", "adset_create", "ad_create", "creative_upload", "adset_targeting_update", "adset_destination_update", "refresh_creative_create", "refresh_ad_create", "ad_status_update", "adset_status_update", "refresh_adset_budget_update", "refresh_adset_create"]) assert.ok(sql.includes(`'${kind}'`), kind);
     assert.match(sql, /drop constraint if exists meta_write_idempotency_op_kind_check/);
-    assert.doesNotMatch(sql, /create policy|for (all|insert|update|delete)/i);
+    // The stored audiences and ad sets: on the event, read-only RLS, writes by the service role.
+    assert.match(sql, /create table if not exists public\.onsale_refresh_audiences/);
+    assert.match(sql, /unique \(event_id, kind, part, campaign_key\)/);
+    assert.match(sql, /for select using \(auth\.uid\(\) = user_id\)/);
+    assert.doesNotMatch(sql, /for (all|insert|update|delete)/i);
   });
 
   it("the apply route wires the reads, the budget POST and the ad-set status POST, after the Live check", () => {

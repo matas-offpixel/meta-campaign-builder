@@ -9,6 +9,30 @@
  * over, then the move. A rule's track record (R6) is not sorted on yet.
  */
 
+import {
+  MAX_REUSED_CREATIVES,
+  MIN_LOOKALIKE_SEED,
+  NO_BUDGET_TO_START,
+  NO_COPY_SOURCE,
+  SIGNUP_NOT_READ,
+  clusterEvidence,
+  clusterNarrow,
+  clusterWrite,
+  decideFunding,
+  defaultNarrowWrite,
+  defaultWhy,
+  defaultWrite,
+  interestsLine,
+  lookalikeEvidence,
+  newAdSetNarrowWrite,
+  pickCopySource,
+  pickGiver,
+  retargetingEvidence,
+  seedTooSmall,
+  type CopySource,
+  type Funding,
+  type Giver,
+} from "./new-adset.ts";
 import { RESULT_LABEL, type PhaseConfig, type ResultEvent } from "./phase-config.ts";
 import { purchaseWhy, unreadPurchases, type PurchaseRead } from "./purchases.ts";
 import { dayMonth, shortDay, type RunPlan } from "./schedule.ts";
@@ -45,6 +69,8 @@ export type AdSetInput = {
   delivering: boolean;
   /** P3: its spend over its last 7 days of delivery, per day — what a bring-back would spend each day (R5's plan guard). */
   recentDailySpend?: number;
+  /** P3: its ads that delivered on the window's last two days (a copy reuses their creatives). */
+  deliveringAds?: number;
 };
 
 export type ClusterInput = {
@@ -58,6 +84,8 @@ export type ClusterInput = {
   confidence: number;
   confidenceWord: "thin" | "ok" | "strong";
   usedOnEvent: boolean;
+  /** P3: the cluster's interests, which the new ad set targets. */
+  interestList?: { id: string; name: string }[];
 };
 
 export type SupplyMix = "ugc" | "cta" | "no_cta" | "unknown";
@@ -93,7 +121,7 @@ export type AddCopy = {
 };
 
 /** R5 "where to write": the event's draft for this campaign on this account. */
-export type CampaignDraftRef = { draftId: string; adAccountId: string; copy: AddCopy | null };
+export type CampaignDraftRef = { draftId: string; adAccountId: string; copy: AddCopy | null; /** P3: the draft's budget level; "campaign" is CBO. Null = not stored. */ budgetLevel?: "campaign" | "ad_set" | null };
 
 export type ClaimInput = {
   id: string;
@@ -111,6 +139,16 @@ export type CampaignInput = {
   /** The campaign name; a rebuilt campaign under the same name is the same campaign. */
   campaignKey: string;
   campaignIds: string[];
+  /** P3: the show's date (a new ad set's or bring-back's days left). */
+  eventDate?: string | null;
+  /** P3: the page's signup event on the pixel and our counts (signupFacts). */
+  signup?: { event: "CompleteRegistration" | "Lead" | null; registrations180: number; landing30: number; ticket30: number };
+  /** P3: the lookalike's country. */
+  country?: string;
+  landingUrl?: string | null;
+  ticketUrl?: string | null;
+  /** P3: standing defaults / clusters whose ad set the refresh already made for this campaign. */
+  storedDefaults?: string[];
   /** P2: the account the campaign runs on (act_…), from its ad-days. */
   adAccountId?: string | null;
   /** P2: this event's draft for the campaign on that account; null = nothing can be applied to it. */
@@ -459,34 +497,23 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
       supply: false,
     });
   }
-  // G1: bring back a cluster that ran for this client (its own perClient figures, registration stage) and is not used on this event.
+  // G1 / P3: bring back a cluster that ran for this client (its own perClient figures) and isn't used on this event: a new ad set.
+  const newSets = newAdSetContext(input);
   for (const cluster of input.clusters) {
     if (cluster.usedOnEvent || cluster.index == null || !cluster.client) continue;
     if (cluster.index > config.bringBackClusterCprIndexAtMost || cluster.confidence < config.bringBackClusterConfidenceAtLeast) continue;
-    lines.push({
-      kind: "bring_back_audience",
-      ruleId: "bring_back.client_cluster",
-      title: cluster.name,
-      detail: `Ran for ${cluster.client} at ${cluster.index}× its cost per registration · confidence ${cluster.confidenceWord} · not used on this event`,
-      writeText: "New ad set through the launch path · its own budget",
-      narrow: { detail: `${cluster.index}× ${cluster.client}'s cost per registration · confidence ${cluster.confidenceWord}`, writeText: null },
-      target: { clusterId: cluster.id, name: cluster.name },
-      evidence: { client: cluster.client, stage: "registration", cprIndex: cluster.index, confidence: cluster.confidenceWord, atMost: config.bringBackClusterCprIndexAtMost },
-      write: { kind: "new_adset", clusterId: cluster.id },
-      addsSpend: true,
-      blockedReason: spendBlock,
-      supply: false,
-    });
+    if (input.storedDefaults?.includes(`cluster:${cluster.id}`)) continue;
+    lines.push(clusterLine(input, cluster, newSets, config));
   }
   lines.sort((a, b) => Number(a.evidence.cprRatio ?? 9) - Number(b.evidence.cprRatio ?? 9));
 
   // Missing standing default.
   const delivering = input.adSets.filter((set) => set.delivering);
-  if (delivering.length && !delivering.some((set) => RETARGETING.test(set.name))) {
-    lines.push(missingDefault("retargeting", "A retargeting ad set", spendBlock));
+  if (delivering.length && !delivering.some((set) => RETARGETING.test(set.name)) && !input.storedDefaults?.includes("retargeting")) {
+    lines.push(defaultLine(input, "retargeting", newSets));
   }
-  if (delivering.length && !delivering.some((set) => REG_LOOKALIKE.test(set.name))) {
-    lines.push(missingDefault("registrations_lookalike", "The registrations lookalike in its own ad set", spendBlock));
+  if (delivering.length && !delivering.some((set) => REG_LOOKALIKE.test(set.name)) && !input.storedDefaults?.includes("registrations_lookalike")) {
+    lines.push(defaultLine(input, "registrations_lookalike", newSets));
   }
 
   // Drop a delivering ad set.
@@ -556,19 +583,88 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
   return { lines, watch, note };
 }
 
-function missingDefault(which: string, title: string, spendBlock: string | null): ProposalLine {
+type NewSetContext = { copy: CopySource | null; giver: Giver | null; funding: Funding; budgetLevel: "campaign" | "ad_set" | null };
+
+/** P3: what a new ad set would copy, and how it would be funded (design's ruling), read at proposal time. */
+function newAdSetContext(input: CampaignInput): NewSetContext {
+  const label = RESULT_LABEL[input.resultEvent].short;
+  const source = pickCopySource(input.adSets, input.plan.window.end);
+  const budgetLevel = input.draft?.budgetLevel ?? null;
+  if (!source) return { copy: null, giver: null, funding: { mode: "none" }, budgetLevel };
+  const copy: CopySource = {
+    adsetId: source.adsetId,
+    name: source.name,
+    cprGbp: source.weekResults > 0 ? round2(source.weekSpend / source.weekResults) : null,
+    resultLabel: label,
+    dailyGbp: round2(source.recentDailySpend ?? source.weekSpend / 7),
+    creatives: Math.max(1, Math.min(MAX_REUSED_CREATIVES, source.deliveringAds ?? 1)),
+  };
+  const giverSet = pickGiver(input.adSets, source.adsetId);
+  const giver = giverSet ? { adsetId: giverSet.adsetId, name: giverSet.name } : null;
+  const funding = decideFunding({ budgetLevel, dailyGbp: copy.dailyGbp, budget: input.budgetGbp, spend: input.spendToDateGbp, today: input.plan.day, eventDate: input.eventDate ?? null, appliedMovesGbp: 0, giver });
+  return { copy, giver, funding, budgetLevel };
+}
+
+function newAdSetWrite(input: CampaignInput, ctx: NewSetContext, extra: Record<string, unknown>): Record<string, unknown> {
+  return {
+    kind: "new_adset",
+    copyFrom: ctx.copy,
+    giver: ctx.giver,
+    budgetLevel: ctx.budgetLevel,
+    funding: ctx.funding,
+    eventCode: input.eventCode,
+    ...extra,
+    ...whereTo(input),
+  };
+}
+
+/** The block a new ad set's line shows before Accept (re-checked live at Accept and Apply). */
+function newAdSetBlock(input: CampaignInput, ctx: NewSetContext): string | null {
+  return notOurs(input) ?? (ctx.copy ? null : NO_COPY_SOURCE) ?? (ctx.funding.mode === "none" ? NO_BUDGET_TO_START : null);
+}
+
+function clusterLine(input: CampaignInput, cluster: ClusterInput, ctx: NewSetContext, config: PhaseConfig): ProposalLine {
+  const interests = cluster.interestList ?? [];
+  const names = interests.map((interest) => interest.name);
+  const copy = ctx.copy;
+  return {
+    kind: "bring_back_audience",
+    ruleId: "bring_back.client_cluster",
+    title: cluster.name,
+    detail: clusterEvidence(cluster.index!, cluster.confidenceWord),
+    writeText: copy ? clusterWrite(copy, ctx.funding) : "New ad set through the launch path",
+    narrow: { detail: clusterNarrow(cluster.index!, interests.length), writeText: copy ? newAdSetNarrowWrite(copy, ctx.funding) : null },
+    target: { clusterId: cluster.id, name: cluster.name, extra: interestsLine(names) },
+    evidence: { client: cluster.client, stage: "registration", cprIndex: cluster.index, confidence: cluster.confidenceWord, atMost: config.bringBackClusterCprIndexAtMost, interests: interests.length, copyFrom: copy, funding: ctx.funding },
+    write: newAdSetWrite(input, ctx, { source: "cluster", clusterId: cluster.id, clusterName: cluster.name, interests }),
+    addsSpend: false,
+    blockedReason: newAdSetBlock(input, ctx),
+    supply: false,
+  };
+}
+
+/** P3: a missing standing default — a new audience (pixel and video sources only) and a new ad set aimed at it. */
+function defaultLine(input: CampaignInput, which: "retargeting" | "registrations_lookalike", ctx: NewSetContext): ProposalLine {
+  const signup = input.signup ?? { event: null, registrations180: 0, landing30: 0, ticket30: 0 };
+  const country = input.country ?? "GB";
+  const copy = ctx.copy;
+  const extra =
+    which === "retargeting"
+      ? retargetingEvidence({ landing: input.landingUrl ? signup.landing30 : null, ticket: input.ticketUrl ? signup.ticket30 : null, registrations: signup.event ? signup.registrations180 : null })
+      : lookalikeEvidence(signup.registrations180, country);
+  const seedBlock = which === "registrations_lookalike" ? (signup.event ? (signup.registrations180 < MIN_LOOKALIKE_SEED ? seedTooSmall(signup.registrations180) : null) : SIGNUP_NOT_READ) : null;
   return {
     kind: "missing_default",
     ruleId: `missing_default.${which}`,
-    title,
-    detail: "Standing default · not in the campaign",
-    writeText: "New ad set through the launch path · its own budget",
-    narrow: { detail: "Standing default · not in the campaign", writeText: null },
-    target: { default: which },
-    evidence: {},
-    write: { kind: "new_adset", default: which },
-    addsSpend: true,
-    blockedReason: spendBlock,
+    title: which === "retargeting" ? "Retargeting" : "Registrations lookalike",
+    detail: defaultWhy(which),
+    writeText: copy ? defaultWrite(copy, ctx.funding) : "New audience and ad set through the launch path",
+    narrow: { detail: defaultWhy(which), writeText: copy ? defaultNarrowWrite(copy, ctx.funding) : null },
+    target: { default: which, extra },
+    evidence: { signupEvent: signup.event, registrations180: signup.registrations180, landing30: signup.landing30, ticket30: signup.ticket30, country, copyFrom: copy, funding: ctx.funding },
+    write: newAdSetWrite(input, ctx, { source: which, signupEvent: signup.event, seed: signup.registrations180, country, landingUrl: input.landingUrl ?? null, ticketUrl: input.ticketUrl ?? null }),
+    addsSpend: false,
+    blockedReason: notOurs(input) ?? seedBlock ?? newAdSetBlock(input, ctx),
     supply: false,
   };
 }

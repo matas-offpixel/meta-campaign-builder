@@ -977,7 +977,7 @@ describe("per-event purchases: Slack and the guards", () => {
     assert.match(route, /maxAttempts: 1/, "one attempt per call, so metaCalls is the true cost");
     // P2/P3: only Apply (apply.ts) and its gates may reach lib/meta, and only the gated status writes and the ledger;
     // the Graph calls themselves are injected by the apply route. Nothing in this folder posts to Graph.
-    const applyFiles = new Set(["apply.ts", "apply-gates.ts"]);
+    const applyFiles = new Set(["apply.ts", "apply-gates.ts", "apply-adsets.ts"]);
     for (const file of readdirSync("lib/onsale-refresh").filter((name) => name.endsWith(".ts"))) {
       const source = readFileSync(`lib/onsale-refresh/${file}`, "utf8");
       assert.doesNotMatch(source, /graphPost|graphDelete|customconversions/, `${file}: no Meta write helper, no custom conversion`);

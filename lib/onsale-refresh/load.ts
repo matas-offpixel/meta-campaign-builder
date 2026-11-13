@@ -43,6 +43,8 @@ export type EventRow = {
   /** The show's page and ticket link: E1's own-domain test reads them. */
   signup_url?: string | null;
   ticket_url?: string | null;
+  /** P3: the lookalike's country (ISO-2 or a name; GB when unknown). */
+  venue_country?: string | null;
 };
 
 type InsightRow = {
@@ -58,6 +60,8 @@ type InsightRow = {
   landing_page_views: number | string;
   purchases: number | string;
   actions: { action_type?: string; value?: string | number }[] | null;
+  /** The ad set's promoted_object.custom_event_type (migration 187), e.g. COMPLETE_REGISTRATION or LEAD. */
+  promoted_event?: string | null;
 };
 
 const PAGE = 1000;
@@ -110,7 +114,7 @@ export function resultOf(row: InsightRow, resultEvent: ResultEvent): number {
 /** Events on sale (G2's shared predicate, on-sale.ts) for an active client. */
 export async function loadOnSaleEvents(db: Db, today: string): Promise<EventRow[]> {
   const archived = await loadArchivedClientIds(db as SupabaseClient);
-  const events = await loadAll<EventRow>(db, "events", "id, name, event_code, event_date, general_sale_at, presale_at, status, client_id, budget_marketing, drive_folder_id, signup_url, ticket_url", ["id"], (q) =>
+  const events = await loadAll<EventRow>(db, "events", "id, name, event_code, event_date, general_sale_at, presale_at, status, client_id, budget_marketing, drive_folder_id, signup_url, ticket_url, venue_country", ["id"], (q) =>
     q.gte("event_date", today).neq("status", "cancelled"),
   );
   return events.filter((event) => event.client_id && !archived.has(event.client_id) && isOnSale(event, today));
@@ -126,7 +130,7 @@ export type RawInsights = { rows: InsightRow[]; context: AdContextIndex };
  */
 export async function loadInsights(db: Db): Promise<RawInsights> {
   const [rows, context] = await Promise.all([
-    loadAll<InsightRow>(db, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, ad_account_id, date, ad_name, adset_name, campaign_name, spend, landing_page_views, purchases, actions", ["date", "meta_ad_id"]),
+    loadAll<InsightRow>(db, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, ad_account_id, date, ad_name, adset_name, campaign_name, spend, landing_page_views, purchases, actions, promoted_event", ["date", "meta_ad_id"]),
     loadAdContextIndex(db as SupabaseClient),
   ]);
   return { rows, context };
@@ -145,6 +149,8 @@ export type Aux = {
   refreshDriveIds?: Map<string, Set<string>>;
   /** P2: the events' Meta drafts — the campaign guard and the copy a new ad carries. */
   drafts?: DraftRow[];
+  /** P3: the new ad sets a standing default or a cluster bring-back made (migration 237), so they aren't proposed again. */
+  storedAdSets?: { event_id: string; kind: string; campaign_key: string; meta_adset_id: string | null }[];
 };
 
 export type DraftRow = {
@@ -155,6 +161,8 @@ export type DraftRow = {
   meta_campaign_id: string | null;
   import_campaign_id: string | null;
   creatives: unknown;
+  /** draft_json.budgetSchedule.budgetLevel: "campaign" is CBO. */
+  budget_level?: string | null;
 };
 
 type AppliedAddRow = { id: string; target: { driveFileId?: string } | null; onsale_refresh_proposals: { event_id: string | null } | null };
@@ -163,7 +171,7 @@ type LaunchedRenderRow = { drive_file_id: string | null; creative_lab_round_ads:
 
 export async function loadAux(db: Db, eventIds: readonly string[], clientIds: readonly string[]): Promise<Aux> {
   const inEvents = (q: any) => q.in("event_id", eventIds);
-  const [scores, clusters, launchedAdSets, warnings, ticketing, driveFolders, launchedRenders, drafts, appliedAdds] = await Promise.all([
+  const [scores, clusters, launchedAdSets, warnings, ticketing, driveFolders, launchedRenders, drafts, appliedAdds, storedAdSets] = await Promise.all([
     eventIds.length
       ? loadAll<Aux["scores"][number] & { id: string; axis: string; fetched_at: string }>(db, "creative_scores", "id, event_id, creative_name, axis, score, significance, fetched_at", ["id"], (q) => inEvents(q).eq("axis", "convert"))
       : Promise.resolve([]),
@@ -174,12 +182,16 @@ export async function loadAux(db: Db, eventIds: readonly string[], clientIds: re
     eventIds.length ? loadAll<Aux["driveFolders"][number] & { id: string }>(db, "drive_folders", "id, event_id, key, name, drive_folder_id", ["id"], (q) => inEvents(q).like("key", "03/3/wc/%")) : Promise.resolve([]),
     loadAll<LaunchedRenderRow & { id: string }>(db, "creative_lab_renders", "id, drive_file_id, creative_lab_round_ads!inner(launch_state, round:creative_lab_rounds(event_id))", ["id"], (q) => q.not("drive_file_id", "is", null).eq("creative_lab_round_ads.launch_state", "launched")).catch(() => [] as (LaunchedRenderRow & { id: string })[]),
     eventIds.length
-      ? loadAll<DraftRow>(db, "campaign_drafts", "id, event_id, ad_account_id, status, meta_campaign_id:draft_json->>metaCampaignId, import_campaign_id:draft_json->importMeta->>sourceCampaignId, creatives:draft_json->creatives", ["id"], inEvents)
+      ? loadAll<DraftRow>(db, "campaign_drafts", "id, event_id, ad_account_id, status, meta_campaign_id:draft_json->>metaCampaignId, import_campaign_id:draft_json->importMeta->>sourceCampaignId, creatives:draft_json->creatives, budget_level:draft_json->budgetSchedule->>budgetLevel", ["id"], inEvents)
       : Promise.resolve([] as DraftRow[]),
     // Before migration 236 the table has no applied rows; a failed read only costs the duplicate check its refresh half.
     eventIds.length
       ? loadAll<AppliedAddRow>(db, "onsale_refresh_lines", "id, target, onsale_refresh_proposals!inner(event_id)", ["id"], (q) => q.eq("kind", "add_creative").eq("state", "applied").in("onsale_refresh_proposals.event_id", eventIds)).catch(() => [] as AppliedAddRow[])
       : Promise.resolve([] as AppliedAddRow[]),
+    // Before migration 237 the table doesn't exist: no stored ad sets.
+    eventIds.length
+      ? loadAll<NonNullable<Aux["storedAdSets"]>[number] & { id: string }>(db, "onsale_refresh_audiences", "id, event_id, kind, campaign_key, meta_adset_id", ["id"], (q) => inEvents(q).eq("part", "adset")).catch(() => [])
+      : Promise.resolve([]),
   ]);
   const refreshDriveIds = new Map<string, Set<string>>();
   for (const row of appliedAdds) {
@@ -211,7 +223,58 @@ export async function loadAux(db: Db, eventIds: readonly string[], clientIds: re
     ),
     refreshDriveIds,
     drafts,
+    storedAdSets,
   };
+}
+
+/** The lookalike's country: an ISO-2 code, the UK's names as GB, else the builder's default (GB). */
+export function lookalikeCountry(raw: string | null | undefined): string {
+  const value = (raw ?? "").trim();
+  if (/^[A-Za-z]{2}$/.test(value)) return value.toUpperCase() === "UK" ? "GB" : value.toUpperCase();
+  if (/^(united kingdom|great britain|england|scotland|wales|northern ireland)$/i.test(value)) return "GB";
+  return "GB";
+}
+
+const CR_ACTION = "offsite_conversion.fb_pixel_complete_registration";
+const LEAD_ACTION = "offsite_conversion.fb_pixel_lead";
+
+/**
+ * Which signup event the page fires on the pixel, read from the event's
+ * own ad-days (never guessed): the signup ad sets' promoted event
+ * (migration 187) first, else the pixel action they recorded. Null when
+ * neither shows one. Registrations are that event's count over 180 days;
+ * landing-page and ticket-link visitors are our ads' LPV and IC over 30.
+ */
+export function signupFacts(rows: readonly InsightRow[], windowEnd: string): { event: "CompleteRegistration" | "Lead" | null; registrations180: number; landing30: number; ticket30: number } {
+  const since180 = addDaysIso(windowEnd, -179);
+  const since30 = addDaysIso(windowEnd, -29);
+  let promotedCr = 0;
+  let promotedLead = 0;
+  let cr = 0;
+  let lead = 0;
+  let landing30 = 0;
+  let ticket30 = 0;
+  const cr180 = { cr: 0, lead: 0 };
+  for (const row of rows) {
+    if (row.date > windowEnd) continue;
+    const promoted = (row.promoted_event ?? "").toUpperCase();
+    if (promoted === "COMPLETE_REGISTRATION") promotedCr += 1;
+    if (promoted === "LEAD") promotedLead += 1;
+    const rowCr = actionCount(row.actions, CR_ACTION);
+    const rowLead = actionCount(row.actions, LEAD_ACTION);
+    cr += rowCr;
+    lead += rowLead;
+    if (row.date >= since180) {
+      cr180.cr += rowCr;
+      cr180.lead += rowLead;
+    }
+    if (row.date >= since30) {
+      landing30 += num(row.landing_page_views);
+      ticket30 += actionCount(row.actions, IC_ACTION);
+    }
+  }
+  const event = promotedCr || promotedLead ? (promotedCr >= promotedLead ? "CompleteRegistration" : "Lead") : cr || lead ? (cr >= lead ? "CompleteRegistration" : "Lead") : null;
+  return { event, registrations180: event === "Lead" ? cr180.lead : event ? cr180.cr : 0, landing30, ticket30 };
 }
 
 const bareAccount = (id: string | null | undefined): string | null => (id ? id.replace(/^act_/, "") : null);
@@ -260,7 +323,8 @@ export function draftForCampaign(args: { eventId: string; adAccountId: string | 
           fromCreative: template.name ?? null,
         }
       : null;
-  return { draftId: match.id, adAccountId: `act_${account}`, copy };
+  const level = match.budget_level === "campaign" ? "campaign" : match.budget_level === "ad_set" ? "ad_set" : null;
+  return { draftId: match.id, adAccountId: `act_${account}`, copy, budgetLevel: level };
 }
 
 /** The ad-days of one event, by the learning loop's join. */
@@ -381,6 +445,9 @@ export async function buildEventInputs(args: {
       confidence: own ? (CONFIDENCE_SCORE[own.confidence] ?? 0) : 0,
       confidenceWord: own?.confidence ?? "thin",
       usedOnEvent: interests.length > 0 && interests.every((id) => usedInterests.has(id)),
+      interestList: (Array.isArray(cluster.interests) ? cluster.interests : [])
+        .map((item) => (item && typeof item === "object" ? { id: String((item as { id?: unknown }).id ?? ""), name: String((item as { name?: unknown }).name ?? "") } : { id: String(item), name: String(item) }))
+        .filter((item) => item.id),
     };
   });
   const claims: ClaimInput[] = aux.warnings
@@ -388,6 +455,8 @@ export async function buildEventInputs(args: {
     .map((row) => ({ id: row.id, claim: row.claim, approvedAt: row.approved_at, runsFrom: row.runs_from, runsTo: row.runs_to, renderId: row.render_id }));
 
   const supply = plan.runKind === "mid_cycle" || plan.showWeek ? { files: [], driveCalls: 0, reason: null } : await loadCycleSupply(args.drive, aux.driveFolders, event.id, plan.cycleMonday, aux.renderDriveIds, aux.refreshDriveIds?.get(event.id));
+
+  const signup = signupFacts(rows, plan.window.end);
 
   // Campaigns by name; a rebuilt campaign under the same name is the same campaign.
   const byName = new Map<string, InsightRow[]>();
@@ -461,6 +530,8 @@ export async function buildEventInputs(args: {
       if (spend > 0 && lastTwo.includes(row.date)) set.delivering = true;
       adSets.set(setKey, set);
     }
+    // P3: each ad set's delivering ads (spend on the window's last two days): the creatives a copy would reuse.
+    for (const set of adSets.values()) set.deliveringAds = [...ads.values()].filter((ad) => set.adsetIds.includes(ad.adsetId) && ad.lastDay >= lastTwo[1]! && ad.weekSpend > 0).length;
     // P3: each ad set's spend over its last 7 days of delivery, per day (a bring-back's projected daily spend).
     for (const set of adSets.values()) {
       const from = addDaysIso(set.lastDay, -6);
@@ -477,6 +548,16 @@ export async function buildEventInputs(args: {
       campaignIds,
       adAccountId: adAccountId ? `act_${bareAccount(adAccountId)}` : null,
       draft: draftForCampaign({ eventId: event.id, adAccountId, campaignIds, drafts: aux.drafts ?? [], launchedAdSets: aux.launchedAdSets }),
+      eventDate: event.event_date,
+      // P3: the standing defaults' inputs, from the event's own ad-days and stored rows.
+      signup,
+      country: lookalikeCountry(event.venue_country),
+      landingUrl: event.signup_url ?? null,
+      ticketUrl: event.ticket_url ?? null,
+      // A default's ad set is stored under the campaign's name; a cluster's under "{campaign}::{cluster id}".
+      storedDefaults: (aux.storedAdSets ?? [])
+        .filter((row) => row.event_id === event.id && row.meta_adset_id && (row.campaign_key === campaignKey || row.campaign_key.startsWith(`${campaignKey}::`)))
+        .map((row) => (row.campaign_key === campaignKey ? row.kind : `cluster:${row.campaign_key.slice(campaignKey.length + 2)}`)),
       onSaleDay,
       plan,
       resultEvent,

@@ -38,8 +38,10 @@ export type PanelLine = {
   appliedAt?: string | null;
   /** P2: who clicked Apply: a first name or an email's local part, never a full email. */
   appliedBy?: string | null;
-  /** P3: the write it would make (`write.kind`): a new ad set's lines are held. */
+  /** P3: the write it would make (`write.kind`). */
   writeKind?: string | null;
+  /** P3: a new ad set's second evidence line (a cluster's interests, a default's sources or seed). */
+  extra?: string | null;
 };
 
 /** The panel's gates (R4): live only with the deployment gate and the event's arm. */
@@ -52,6 +54,8 @@ export type PanelApply = {
   adsetStatusWritesEnabled?: boolean;
   /** P3: a move's own gate (the optimisation budget write). */
   budgetWritesEnabled?: boolean;
+  /** P3: a standing default's audience gate. */
+  audienceWritesEnabled?: boolean;
   budgetSet: boolean;
 };
 
@@ -105,7 +109,7 @@ type ProposalRow = {
   created_at: string;
 };
 
-type LineRow = Omit<PanelLine, "writeText" | "addsSpend" | "blockedReason" | "narrow" | "copy" | "carried" | "appliedAt"> & { proposal_id: string; position: number; write_text: string; narrow: PanelLine["narrow"] | null; adds_spend: boolean; blocked_reason: string | null; target?: { copy?: AddCopy | null } | null; applied_at?: string | null; applied_result?: { appliedBy?: string | null } | null; evidence?: Record<string, unknown> | null; write?: Record<string, unknown> | null };
+type LineRow = Omit<PanelLine, "writeText" | "addsSpend" | "blockedReason" | "narrow" | "copy" | "carried" | "appliedAt"> & { proposal_id: string; position: number; write_text: string; narrow: PanelLine["narrow"] | null; adds_spend: boolean; blocked_reason: string | null; target?: { copy?: AddCopy | null; extra?: string | null } | null; applied_at?: string | null; applied_result?: { appliedBy?: string | null; movedWeeklyGbp?: number } | null; evidence?: Record<string, unknown> | null; write?: Record<string, unknown> | null };
 
 const CARRIED: readonly LineState[] = ["accepted", "applying", "failed"];
 
@@ -132,6 +136,7 @@ function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | n
     ...(line.applied_at ? { appliedAt: line.applied_at } : {}),
     ...(line.applied_result?.appliedBy && !line.applied_result.appliedBy.includes("@") ? { appliedBy: line.applied_result.appliedBy } : {}),
     ...(writeKind ? { writeKind } : {}),
+    ...(line.target?.extra ? { extra: line.target.extra } : {}),
   };
 }
 
@@ -176,9 +181,10 @@ export async function loadEventProposals(db: Db, eventId: string, opts: { budget
   for (const line of loaded) {
     const from = owner.get(line.proposal_id);
     if (!from) continue;
-    if (line.kind === "move_budget" && (line.state === "applied" || line.state === "applying")) {
+    const moved = line.kind === "move_budget" ? Number(line.write?.amountGbp) || 0 : Number((line.applied_result as { movedWeeklyGbp?: number } | null)?.movedWeeklyGbp) || 0;
+    if (moved > 0 && (line.state === "applied" || line.state === "applying")) {
       const list = movedByWindow.get(from.window_end) ?? [];
-      list.push({ id: line.id, amount: Number(line.write?.amountGbp) || 0 });
+      list.push({ id: line.id, amount: moved });
       movedByWindow.set(from.window_end, list);
     }
     if (line.kind === "drop_audience" && ["accepted", "applying", "applied"].includes(line.state)) dropsByProposal.set(line.proposal_id, [...(dropsByProposal.get(line.proposal_id) ?? []), line.id]);
@@ -247,7 +253,7 @@ export async function loadPanel(db: Db, eventId: string, env: Record<string, str
   const plan: PanelPlan = { budget, spend: budgetSet ? await spendToDate(db, eventId) : 0, today: todayLondon(new Date()), eventDate: row?.event_date ?? null };
   // R5: the "no marketing budget" blocker was the proposal's; once a budget is set it is gone.
   const proposals = (await loadEventProposals(db, eventId, { budgetSet, plan })).map((proposal) => (budgetSet ? { ...proposal, blockers: proposal.blockers.filter((blocker) => blocker.kind !== "budget") } : proposal));
-  return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, budgetSet } };
+  return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, budgetSet } };
 }
 
 /** The canvas chip (R4): lines still To review on the event's latest proposals. */

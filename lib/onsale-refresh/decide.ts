@@ -25,6 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ApplyGates } from "./apply-gates.ts";
 import { REJECT_REASONS, heldText, isRejectReason, type RejectReason } from "./line-states.ts";
+import { NO_BUDGET_TO_START, decideFunding, type Giver } from "./new-adset.ts";
 import { MOVE_NEEDS_BUDGET, SPEND_NEEDS_BUDGET, appliedMovesGbp, moveGuard, spendLineBlock, spendToDate } from "./plan-guard.ts";
 import { RETARGETING, type LineKind } from "./rules.ts";
 import { todayLondon } from "./schedule.ts";
@@ -62,8 +63,15 @@ export function acceptBlock(line: BlockLine, ctx: BlockCtx): string | null {
   const writeKind = typeof line.write?.kind === "string" ? line.write.kind : null;
   const held = heldText({ kind: line.kind as LineKind, writeKind, supply: line.supply });
   if (held) return held;
-  // Blocks the proposal stored that aren't about the budget (not this event's draft, no copy) stand.
-  if (line.blocked_reason && line.blocked_reason !== SPEND_NEEDS_BUDGET && line.blocked_reason !== MOVE_NEEDS_BUDGET) return line.blocked_reason;
+  // Blocks the proposal stored that aren't about the budget (not this event's draft, no copy, seed too small) stand.
+  if (line.blocked_reason && line.blocked_reason !== SPEND_NEEDS_BUDGET && line.blocked_reason !== MOVE_NEEDS_BUDGET && line.blocked_reason !== NO_BUDGET_TO_START) return line.blocked_reason;
+  // P3: a new ad set's money, read live (design's ruling): CBO shares the campaign budget; ABO needs headroom or a move inside the cap.
+  if (writeKind === "new_adset") {
+    const copy = line.write?.copyFrom as { dailyGbp?: number } | null | undefined;
+    const level = line.write?.budgetLevel === "campaign" ? "campaign" : line.write?.budgetLevel === "ad_set" ? "ad_set" : null;
+    const funding = decideFunding({ budgetLevel: level, dailyGbp: Number(copy?.dailyGbp) || 0, budget: ctx.budget, spend: ctx.spend, today: ctx.today, eventDate: ctx.eventDate, appliedMovesGbp: ctx.appliedMovesGbp, giver: (line.write?.giver as Giver | null | undefined) ?? null });
+    return funding.mode === "none" ? NO_BUDGET_TO_START : null;
+  }
   if (line.adds_spend) return spendLineBlock({ kind: line.kind, evidence: line.evidence }, ctx);
   if (line.kind === "drop_audience") {
     if (RETARGETING.test(line.title)) return RETARGETING_STAYS;
@@ -116,10 +124,11 @@ export function liveBlockedReason(line: { adds_spend: boolean; blocked_reason: s
 }
 
 /** The live context Accept checks a line against: the plan, the refresh's applied moves, the proposal's other drops. */
-export async function blockCtx(db: Db, line: Pick<LineRow, "id" | "kind" | "adds_spend" | "proposal_id"> & { window_end?: string | null }, args: { eventId: string; budget: number | null; eventDate: string | null; today: string }): Promise<BlockCtx> {
-  const needsSpend = line.adds_spend || line.kind === "move_budget";
+export async function blockCtx(db: Db, line: Pick<LineRow, "id" | "kind" | "adds_spend" | "proposal_id" | "write"> & { window_end?: string | null }, args: { eventId: string; budget: number | null; eventDate: string | null; today: string }): Promise<BlockCtx> {
+  const newSet = line.kind === "missing_default" || (line as { write?: Record<string, unknown> | null }).write?.kind === "new_adset";
+  const needsSpend = line.adds_spend || line.kind === "move_budget" || newSet;
   const spend = needsSpend && args.budget != null ? await spendToDate(db, args.eventId) : 0;
-  const moved = line.kind === "move_budget" && line.window_end ? await appliedMovesGbp(db, args.eventId, line.window_end, line.id) : 0;
+  const moved = (line.kind === "move_budget" || newSet) && line.window_end ? await appliedMovesGbp(db, args.eventId, line.window_end, line.id) : 0;
   let otherDrops = 0;
   if (line.kind === "drop_audience") {
     const drops = await db.from("onsale_refresh_lines").select("id").eq("proposal_id", line.proposal_id).eq("kind", "drop_audience").in("state", ["accepted", "applying", "applied"]).neq("id", line.id);

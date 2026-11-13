@@ -235,13 +235,23 @@ export const OR1_PROPOSALS: PanelProposal[] = [
  * figures are illustrative, as the record's F3 says. P3: the bring-back
  * was applied ("Applied · on"); the drop was rejected as too early.
  *
- * OR8 (P3) is the audience and budget lines live on the w/c 7 Dec content
- * cycle, two campaigns, figures illustrative: £4,500 budget, £4,180.00
- * spent, so £320.00 left and a £64.00 move cap. The On Sale campaign's
- * move (£40.00) is applied; the Purchase campaign's (£30.00) is held by
- * the cap. One bring-back is acceptable (£9.10 a day × 20 days = £182.00);
- * the other is held by the plan guard (£18.40 × 20 = £368.00). The drop is
- * accepted. The client cluster would make a new ad set, so it is held.
+ * OR8 (P3) is the audience and budget lines live before Accept, on the
+ * w/c 7 Dec content cycle, two campaigns (both on ad-set budgets), figures
+ * illustrative: £4,500 budget, £3,860.00 spent, so £640.00 left, 20 days
+ * to the show and a £128.00 move cap, £100.00 of it already moved by the
+ * On Sale campaign. On Sale: one bring-back acceptable (£9.10 a day × 20 =
+ * £182.00), one held by the plan guard (£34.00 × 20 = £680.00), the drop
+ * accepted, the move applied, and the interest cluster as a new ad set
+ * copied from Adv+ (£14.50 a day from plan headroom). Purchase: the
+ * retargeting standing default (£3.80 a day from plan headroom), the
+ * registrations lookalike held at a seed of 64, and a move held by the cap
+ * (£30.00 > £28.00 free).
+ *
+ * OR9 (P3) is their F3 results after Apply, figures illustrative: the
+ * cluster's new ad set live with 6 ads and one retired interest left out;
+ * retargeting's audience made and its ad set live with 4 ads (the Purchase
+ * campaign on a campaign budget, so it shares it); the lookalike's audience
+ * still being built (Retry); and a second cluster live with 4 of 6 ads.
  *
  * The copy under each add is a stand-in: the frames never read the
  * campaign draft, whose own copy is what the real panel shows.
@@ -253,7 +263,7 @@ const OR_COPY: NonNullable<PanelProposal["lines"][number]["copy"]> = {
   destinationUrl: "https://www.skiddle.com/whats-on/London/Puzzle/Puzzle-4th-Birthday/41234567/",
 };
 
-export const OR_APPLY_LIVE: PanelApply = { mode: "live", arm: "live", globalEnabled: true, pauseWritesEnabled: false, adsetStatusWritesEnabled: true, budgetWritesEnabled: true, budgetSet: true };
+export const OR_APPLY_LIVE: PanelApply = { mode: "live", arm: "live", globalEnabled: true, pauseWritesEnabled: false, adsetStatusWritesEnabled: true, budgetWritesEnabled: true, audienceWritesEnabled: true, budgetSet: true };
 
 const OR6_ADD = (id: string, title: string, state: PanelProposal["lines"][number]["state"], reason: string | null = null): PanelProposal["lines"][number] => ({
   id,
@@ -378,56 +388,108 @@ const OR8_LINE = (line: Partial<PanelProposal["lines"][number]> & Pick<PanelProp
   ...line,
 });
 
-/** OR8's sentences are the guards' own (pinned by lib/onsale-refresh/__tests__/p3.test.ts against planGuard and moveGuard). */
-export const OR8_PLAN_GUARD = "Turning it on would spend about £368.00 before the show, more than the £320.00 left in the plan.";
-export const OR8_MOVE_CAP = "Moving £30.00 would take this refresh past 20 % of the £320.00 left (£64.00, £24.00 still free).";
-export const OR8_HELD = "Not applied yet: Apply doesn't make new ad sets yet.";
+/** OR8's and OR9's sentences are the rules' own (pinned by lib/onsale-refresh/__tests__/p3.test.ts against planGuard, moveGuard and new-adset.ts). */
+export const OR8_PLAN_GUARD = "Turning it on would spend about £680.00 before the show, more than the £640.00 left in the plan.";
+export const OR8_MOVE_CAP = "Moving £30.00 would take this refresh past 20 % of the £640.00 left (£128.00, £28.00 still free).";
+export const OR8_SEED = "Too few registrations for a lookalike yet: 64 of 100.";
+export const OR8_CLUSTER = {
+  detail: "Interest cluster · index 0.8 · confidence ok · not on this event",
+  extra: "Interests: Disc Genre, Minimal techno, Deep house +4",
+  narrow: "Cluster · index 0.8 · 7 interests",
+  write: "New ad set: a copy of Adv+ (£6.10 per IC) with these interests · 6 creatives reused · £14.50 a day from plan headroom · goes in live",
+  narrowWrite: "New ad set from Adv+ · £14.50 a day from plan headroom · live",
+};
+export const OR8_RETARGETING = {
+  detail: "This campaign has no retargeting ad set.",
+  extra: "Builds one audience: landing-page visitors 1840 · ticket-link visitors 412 · video viewers · registrations 3105 (our counts, last 30–180 days)",
+  write: "New audience and ad set: a copy of Broad — Primary aimed at this audience only · 4 creatives reused · £3.80 a day from plan headroom · goes in live",
+  narrowWrite: "New audience and ad set from Broad — Primary · £3.80 a day from plan headroom · live",
+};
+export const OR8_LOOKALIKE = {
+  detail: "The registrations lookalike isn't in its own ad set.",
+  extra: "Seed: 64 registrations on the pixel · 1 % lookalike in GB",
+  write: "New audience and ad set: a copy of Broad — Primary aimed at this audience only · 4 creatives reused · £3.80 a day from plan headroom · goes in live",
+  narrowWrite: "New audience and ad set from Broad — Primary · £3.80 a day from plan headroom · live",
+};
+
+const OR8_WEEK = { runKind: "cycle" as const, runDay: "2026-12-07", cycleMonday: "2026-12-07", cycleKind: "content" as const, windowStart: "2026-11-30", windowEnd: "2026-12-06", nextCheck: "2026-12-14", nextCycle: null, nextCycleKind: null, watch: { creatives: [], audiences: [] } };
 
 export const OR8_PROPOSALS: PanelProposal[] = [
   {
     ...OR6_PROPOSALS[0]!,
+    ...OR8_WEEK,
     id: "or8a",
-    runKind: "cycle",
-    runDay: "2026-12-07",
-    cycleMonday: "2026-12-07",
-    cycleKind: "content",
-    windowStart: "2026-11-30",
-    windowEnd: "2026-12-06",
-    nextCheck: "2026-12-14",
-    nextCycle: null,
-    nextCycleKind: null,
     campaignSummary: "30 Oct – 6 Dec · £2,870.40 · 318 IC · £9.03 each",
-    watch: { creatives: [], audiences: [] },
     notes: { pauses: "No pauses: no creative has enough evidence.", drops: "", adds: "Files uploaded by hand in Ads Manager aren't matched." },
     lines: [
       OR8_LINE({ id: "a1", kind: "bring_back_audience", title: "Electronic dance music, Electronic music", detail: "Stopped 6 Nov · £36.85 · 12 IC · £3.07 each, 0.34× the campaign", narrow: { detail: "£36.85 · 12 IC · £3.07 each, 0.34×", writeText: null }, writeText: "Ad set status → on · its own budget", addsSpend: true, writeKind: "adset_status" }),
       OR8_LINE({ id: "a2", kind: "bring_back_audience", title: "Lineup Suggestion — Primary", detail: "Stopped 3 Nov · £41.77 · 12 IC · £3.48 each, 0.39× the campaign", narrow: { detail: "£41.77 · 12 IC · £3.48 each, 0.39×", writeText: null }, writeText: "Ad set status → on · its own budget", addsSpend: true, blockedReason: OR8_PLAN_GUARD, writeKind: "adset_status" }),
+      OR8_LINE({ id: "a5", kind: "bring_back_audience", title: "Disc Genre", detail: OR8_CLUSTER.detail, extra: OR8_CLUSTER.extra, narrow: { detail: OR8_CLUSTER.narrow, writeText: OR8_CLUSTER.narrowWrite }, writeText: OR8_CLUSTER.write, writeKind: "new_adset" }),
       OR8_LINE({ id: "a3", kind: "drop_audience", title: "1% Lookalike – Data — Primary", detail: "£46.20 · 2 IC · £23.10 each, 2.56× the campaign · live 38 days", narrow: { detail: "£46.20 · 2 IC · £23.10 each, 2.56×", writeText: null }, writeText: "Ad set status → off", state: "accepted", writeKind: "adset_status" }),
-      OR8_LINE({ id: "a4", kind: "move_budget", title: "Lineup — Primary → Adv+", detail: "£14.80 per IC (1.64×) to £6.10 per IC (0.68×) · £40.00 a week · cap £64.00 (20 % of £320.00 remaining)", narrow: { detail: "£40.00 a week · cap £64.00", writeText: null }, writeText: "Ad-set budget write, both sides", state: "applied", reason: "£40.00 a week moved", appliedAt: "2026-12-07T08:52:00Z", appliedBy: "Matas", writeKind: "adset_budget_move" }),
+      OR8_LINE({ id: "a4", kind: "move_budget", title: "Lineup — Primary → Adv+", detail: "£14.80 per IC (1.64×) to £6.10 per IC (0.68×) · £100.00 a week · cap £128.00 (20 % of £640.00 remaining)", narrow: { detail: "£100.00 a week · cap £128.00", writeText: null }, writeText: "Ad-set budget write, both sides", state: "applied", reason: "£100.00 a week moved", appliedAt: "2026-12-07T08:52:00Z", appliedBy: "Matas", writeKind: "adset_budget_move" }),
     ],
   },
   {
     ...OR6_PROPOSALS[0]!,
+    ...OR8_WEEK,
     id: "or8b",
     campaignKey: "[P26-BDAY] Puzzle - 27 Dec - Purchase",
-    runKind: "cycle",
-    runDay: "2026-12-07",
-    cycleMonday: "2026-12-07",
-    cycleKind: "content",
-    windowStart: "2026-11-30",
-    windowEnd: "2026-12-06",
-    nextCheck: "2026-12-14",
-    nextCycle: null,
-    nextCycleKind: null,
     campaignSummary: "16 Nov – 6 Dec · £1,309.60 · 141 IC · £9.29 each",
-    watch: { creatives: [], audiences: [] },
     notes: { pauses: "No pauses: no creative has enough evidence.", drops: "No drops: none qualifies.", adds: "" },
     lines: [
-      OR8_LINE({ id: "b1", kind: "bring_back_audience", title: "Disc Genre", detail: "Ran for Electric Brixton at 0.8× its cost per registration · confidence ok · not used on this event", narrow: { detail: "0.8× Electric Brixton's cost per registration · confidence ok", writeText: null }, writeText: "New ad set through the launch path · its own budget", addsSpend: true, writeKind: "new_adset" }),
-      OR8_LINE({ id: "b2", kind: "move_budget", title: "Broad — Primary → Retargeting — 30d", detail: "£16.40 per IC (1.77×) to £5.20 per IC (0.56×) · £30.00 a week · cap £64.00 (20 % of £320.00 remaining)", narrow: { detail: "£30.00 a week · cap £64.00", writeText: null }, writeText: "Ad-set budget write, both sides", blockedReason: OR8_MOVE_CAP, writeKind: "adset_budget_move" }),
+      OR8_LINE({ id: "b3", kind: "missing_default", title: "Retargeting", detail: OR8_RETARGETING.detail, extra: OR8_RETARGETING.extra, narrow: { detail: OR8_RETARGETING.detail, writeText: OR8_RETARGETING.narrowWrite }, writeText: OR8_RETARGETING.write, writeKind: "new_adset" }),
+      OR8_LINE({ id: "b4", kind: "missing_default", title: "Registrations lookalike", detail: OR8_LOOKALIKE.detail, extra: OR8_LOOKALIKE.extra, narrow: { detail: OR8_LOOKALIKE.detail, writeText: OR8_LOOKALIKE.narrowWrite }, writeText: OR8_LOOKALIKE.write, blockedReason: OR8_SEED, writeKind: "new_adset" }),
+      OR8_LINE({ id: "b2", kind: "move_budget", title: "Broad — Primary → Retargeting — 30d", detail: "£16.40 per IC (1.77×) to £5.20 per IC (0.56×) · £30.00 a week · cap £128.00 (20 % of £640.00 remaining)", narrow: { detail: "£30.00 a week · cap £128.00", writeText: null }, writeText: "Ad-set budget write, both sides", blockedReason: OR8_MOVE_CAP, writeKind: "adset_budget_move" }),
     ],
   },
 ];
 
-export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8"] as const;
+/** OR9's F3 sentences (design's ruling), pinned against new-adset.ts. */
+export const OR9_RESULTS = {
+  cluster: "new ad set live, 6 ads. Left out, no longer offered by Meta: Minimal techno.",
+  retargeting: "audience made, new ad set live, 4 ads",
+  building: "Meta didn't take this — the audience is still being built. Retry in a few hours.",
+  partial: "Ad set live · 4 of 6 ads — Meta didn't take this — it's limiting calls on this account. Retry in a few minutes.",
+};
+
+export const OR9_PROPOSALS: PanelProposal[] = [
+  {
+    ...OR8_PROPOSALS[0]!,
+    id: "or9a",
+    lines: [
+      { ...OR8_PROPOSALS[0]!.lines.find((line) => line.id === "a5")!, state: "applied", reason: OR9_RESULTS.cluster, appliedAt: "2026-12-07T09:04:00Z", appliedBy: "Matas" },
+      OR8_LINE({
+        id: "a6",
+        kind: "bring_back_audience",
+        title: "Melodic Techno",
+        detail: "Interest cluster · index 0.74 · confidence ok · not on this event",
+        extra: "Interests: Melodic techno, Afterlife, Tale Of Us +2",
+        narrow: { detail: "Cluster · index 0.74 · 5 interests", writeText: "New ad set from Adv+ · £14.50 a day from plan headroom · live" },
+        writeText: "New ad set: a copy of Adv+ (£6.10 per IC) with these interests · 6 creatives reused · £14.50 a day from plan headroom · goes in live",
+        state: "failed",
+        reason: OR9_RESULTS.partial,
+        writeKind: "new_adset",
+      }),
+    ],
+  },
+  {
+    ...OR8_PROPOSALS[1]!,
+    id: "or9b",
+    campaignSummary: "16 Nov – 6 Dec · £1,309.60 · 141 IC · £9.29 each",
+    lines: [
+      { ...OR8_PROPOSALS[1]!.lines.find((line) => line.id === "b3")!, writeText: "New audience and ad set: a copy of Broad — Primary aimed at this audience only · 4 creatives reused · shares the campaign budget · goes in live", narrow: { detail: OR8_RETARGETING.detail, writeText: "New audience and ad set from Broad — Primary · shares the campaign budget · live" }, state: "applied", reason: OR9_RESULTS.retargeting, appliedAt: "2026-12-07T09:04:00Z", appliedBy: "Matas" },
+      {
+        ...OR8_PROPOSALS[1]!.lines.find((line) => line.id === "b4")!,
+        extra: "Seed: 3105 registrations on the pixel · 1 % lookalike in GB",
+        writeText: "New audience and ad set: a copy of Broad — Primary aimed at this audience only · 4 creatives reused · shares the campaign budget · goes in live",
+        narrow: { detail: OR8_LOOKALIKE.detail, writeText: "New audience and ad set from Broad — Primary · shares the campaign budget · live" },
+        blockedReason: null,
+        state: "failed",
+        reason: OR9_RESULTS.building,
+      },
+    ],
+  },
+];
+
+export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8", "OR9"] as const;
 export const REFRESH_FRAME_WIDTHS = [1280, 393] as const;

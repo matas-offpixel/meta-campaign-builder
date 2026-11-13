@@ -30,10 +30,12 @@ export type WriteGates = {
   adsetStatusWritesEnabled?: boolean;
   /** ENABLE_OPTIMISATION_WRITES: the optimisation budget write, for moves. */
   budgetWritesEnabled?: boolean;
+  /** OFFPIXEL_META_AUDIENCE_WRITES_ENABLED: the audience builder, for a standing default's audience. */
+  audienceWritesEnabled?: boolean;
 };
 
-/** P2 wrote creatives; P3 adds a stopped ad set's bring-back, drops and within-campaign moves. */
-export const APPLY_KINDS: readonly LineKind[] = ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget"];
+/** P2 wrote creatives; P3 adds bring-backs (a stopped ad set, or a cluster's new ad set), drops, within-campaign moves and standing defaults. */
+export const APPLY_KINDS: readonly LineKind[] = ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default"];
 
 /**
  * Lines that turn delivery on or raise a budget, so add spend: the plan
@@ -47,23 +49,19 @@ export function addsSpend(kind: string): boolean {
   return SPEND_KINDS.includes(kind);
 }
 
-/**
- * A line that would make a new ad set — a client cluster brought back, a
- * missing standing default — isn't applied yet: the audience and the ads
- * a new ad set carries wait for a ruling. Reject stays live.
- */
-export const NEW_ADSET_NOT_YET = "Not applied yet: Apply doesn't make new ad sets yet.";
-
-/** Accept is open to the lines Apply writes. Claims are made in the Lab; new ad sets wait. */
+/** Accept is open to the lines Apply writes; claims are made in the Lab. */
 export function acceptable(line: { kind: LineKind; writeKind?: string | null }): boolean {
-  if (!APPLY_KINDS.includes(line.kind)) return false;
-  return line.writeKind !== "new_adset";
+  return APPLY_KINDS.includes(line.kind);
 }
 
-/** The sentence under a line whose Accept is held, or null. */
+/**
+ * The sentence under a line Apply can't write in this piece, or null. P3
+ * writes every kind it proposes; P4's cross-campaign moves would be the
+ * next held kind. (P2's "Apply only writes creatives for now." is gone.)
+ */
 export function heldText(line: { kind: LineKind; writeKind?: string | null; supply?: boolean }): string | null {
   if (line.supply || line.kind === "claim_ready") return null;
-  return acceptable(line) ? null : NEW_ADSET_NOT_YET;
+  return acceptable(line) ? null : "Not applied yet.";
 }
 
 /**
@@ -78,6 +76,8 @@ export function displayState(line: { kind: LineKind; state: LineState; writeKind
 export function writeGateOpen(line: GateLine, gates: WriteGates): boolean {
   if (line.kind === "add_creative") return true;
   if (line.kind === "pause_creative") return gates.pauseWritesEnabled;
+  // A new ad set (a cluster's, a standing default's) goes in live: the ad-set gate; a default also builds an audience.
+  if (line.kind === "missing_default") return Boolean(gates.adsetStatusWritesEnabled && gates.audienceWritesEnabled);
   if (line.kind === "bring_back_audience" || line.kind === "drop_audience") return Boolean(gates.adsetStatusWritesEnabled);
   if (line.kind === "move_budget") return Boolean(gates.budgetWritesEnabled);
   return false;
@@ -121,6 +121,8 @@ export function isRejectReason(value: unknown): value is RejectReason {
 /** The line's state as F3 writes it: "Applied · 6 ads live", "Failed — {reason}", "Rejected — Too early". */
 export function stateText(state: LineState, reason: string | null): string {
   if (state === "applied") return reason ? `Applied · ${reason}` : "Applied";
+  // A new ad set that went live with some of its ads reads as the ruling draws it: "Ad set live · 4 of 6 ads — {reason}".
+  if (state === "failed" && reason?.startsWith("Ad set live · ")) return reason;
   if (state === "failed" || state === "rejected") return reason ? `${STATE_WORD[state]} — ${reason}` : STATE_WORD[state];
   if (state === "applying") return "Applying…";
   return STATE_WORD[state];

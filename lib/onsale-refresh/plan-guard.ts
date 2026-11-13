@@ -11,7 +11,7 @@
  * - A move is zero-sum inside its campaign but is capped: at most 20 % of
  *   the remaining budget moves in one refresh, counting the moves already
  *   applied for the event in that refresh (every campaign's proposal for
- *   the same window).
+ *   the same window) — a new ad set funded by a move counts a week of it.
  *
  * Pure apart from `spendToDate`, which pages the event's rollups.
  */
@@ -113,7 +113,9 @@ export async function appliedMovesGbp(db: Db, eventId: string, windowEnd: string
   if (proposals.error) throw new Error(`onsale_refresh_proposals: ${proposals.error.message}`);
   const ids = ((proposals.data ?? []) as { id: string }[]).map((row) => row.id);
   if (!ids.length) return 0;
-  const lines = await db.from("onsale_refresh_lines").select("id, write").in("proposal_id", ids).eq("kind", "move_budget").in("state", ["applying", "applied"]);
+  const lines = await db.from("onsale_refresh_lines").select("id, kind, write, applied_result").in("proposal_id", ids).in("kind", ["move_budget", "bring_back_audience", "missing_default"]).in("state", ["applying", "applied"]);
   if (lines.error) throw new Error(`onsale_refresh_lines moves: ${lines.error.message}`);
-  return ((lines.data ?? []) as { id: string; write: { amountGbp?: number } | null }[]).filter((row) => row.id !== except).reduce((sum, row) => sum + num(row.write?.amountGbp), 0);
+  return ((lines.data ?? []) as { id: string; kind: string; write: { amountGbp?: number } | null; applied_result: { movedWeeklyGbp?: number } | null }[])
+    .filter((row) => row.id !== except)
+    .reduce((sum, row) => sum + (row.kind === "move_budget" ? num(row.write?.amountGbp) : num(row.applied_result?.movedWeeklyGbp)), 0);
 }

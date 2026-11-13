@@ -26,8 +26,10 @@ export type MetaWriteOpKind =
   | "ad_status_update"
   /** The gated ad-set status write (lib/meta/adset-status-write.ts, migration 237). */
   | "adset_status_update"
-  /** On-sale refresh Apply: one side of a within-campaign budget move (migration 237). */
-  | "refresh_adset_budget_update";
+  /** On-sale refresh Apply: one side of a budget move — a within-campaign move, or a new ad set's funding (migration 237). */
+  | "refresh_adset_budget_update"
+  /** On-sale refresh Apply: the new ad set a cluster bring-back or a standing default makes (migration 237). */
+  | "refresh_adset_create";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger

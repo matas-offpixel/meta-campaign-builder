@@ -24,7 +24,7 @@ const KIND_LABEL: Record<PanelLine["kind"], string> = {
   claim_ready: "Claim",
   pause_creative: "Pause",
   bring_back_audience: "Bring back",
-  missing_default: "Missing default",
+  missing_default: "Standing default",
   drop_audience: "Drop",
   move_budget: "Move",
 };
@@ -151,6 +151,11 @@ function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine
           <p className="mt-0.5 text-xs text-muted-foreground">
             <Wide wide={line.detail} narrow={line.narrow.detail} />
           </p>
+          {line.extra ? (
+            <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block" data-extra>
+              {line.extra}
+            </p>
+          ) : null}
           {line.copy ? <CopyBlock copy={line.copy} /> : null}
           {line.state === "to_review" || line.state === "accepted" ? (
             <>
