@@ -3,9 +3,10 @@
  * scripts/plan-frames/event-config-shots.mjs.
  *
  *   EC1  a show with everything set: capacity 2,000 (no tier allocations),
- *        a CIRQLIN page, two reference shows and an alias.
+ *        two reference shows and an alias. No CIRQLIN page: the panel has
+ *        no page field until the pasted-link follow-up.
  *   EC2  the umbrella with nothing set: "Set capacity on the event to see the
- *        sell-out line", "No CIRQLIN page", no reference shows, no aliases.
+ *        sell-out line", no reference shows, no aliases.
  *   EC3  a show whose sellable allocation comes from its paid tiers.
  */
 
@@ -44,7 +45,7 @@ export const EVENT_CONFIG_FRAMES: Record<EventConfigFrameId, { eventId: string; 
         capacity: 2000,
         sellable: sellableAllocation({ capacity: 2000, allocations: [] }),
         isUmbrella: false,
-        cirqlinPageId: "5f3c2a10-8b7e-4d21-9c64-0e1a2b3c4d5e",
+        cirqlinPageId: null,
         referenceEventIds: ["ev-mf", "ev-djez"],
         countAliases: ["IPC"],
       },

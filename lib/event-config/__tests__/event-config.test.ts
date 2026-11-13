@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 
 import { isCompTier, sellableAllocation } from "../allocation.ts";
 import { getEventIdForCountAlias, loadCountAliasMap, parseAliasLines, planAliasChange } from "../aliases.ts";
-import { allowedReferenceIds, parseCapacity, parseCirqlinPageId } from "../form.ts";
+import { allowedReferenceIds, eventConfigUpdate, parseCapacity } from "../form.ts";
 import { buildEventConfigs, NO_CAPACITY, NO_CIRQLIN_PAGE } from "../read.ts";
 
 const row = (tier_name: string, allocation_count: number) => ({ tier_name, allocation_count });
@@ -145,14 +145,11 @@ describe("form inputs", () => {
     assert.equal(parseCapacity("1500.5").ok, false);
   });
 
-  it("CIRQLIN page: the page id only", () => {
-    assert.deepEqual(parseCirqlinPageId(" 5F3C2A10-0000-4000-8000-00000000AB12 "), {
-      ok: true,
-      value: "5f3c2a10-0000-4000-8000-00000000ab12",
-    });
-    assert.deepEqual(parseCirqlinPageId(""), { ok: true, value: null });
-    assert.equal(parseCirqlinPageId("nx-loves-aw26").ok, false);
-    assert.equal(parseCirqlinPageId("https://crqln.com/l/nx-loves-aw26").ok, false);
+  it("the events row it writes never carries a CIRQLIN page id, whatever it is sent", () => {
+    const sent = { capacity: 2000, isUmbrella: false, cirqlinPageId: "5f3c2a10-0000-4000-8000-00000000ab12", cirqlin_page_id: "x" };
+    const update = eventConfigUpdate(sent as Parameters<typeof eventConfigUpdate>[0]);
+    assert.deepEqual(update, { capacity: 2000, is_umbrella: false });
+    assert.equal("cirqlin_page_id" in update, false);
   });
 
   it("reference shows: never the event itself or an umbrella", () => {
@@ -185,6 +182,17 @@ describe("buildEventConfigs", () => {
     assert.equal(ipc.sellable.allocation, 2000);
     assert.deepEqual(ipc.referenceEventIds, ["djez"]);
     assert.deepEqual(ipc.countAliases, ["IPC"]);
+  });
+
+  it("reads the page link as null when none is stored: the dashboard says No CIRQLIN page", () => {
+    const configs = buildEventConfigs({
+      events: [{ id: "ipc", client_id: "nx", capacity: 2000, is_umbrella: false, cirqlin_page_id: null }],
+      allocations: [],
+      tiers: [],
+      references: [],
+      aliases: [],
+    });
+    assert.equal(configs.get("ipc")!.cirqlinPageId, null);
   });
 
   it("says missing values in D9's words", () => {
@@ -226,3 +234,21 @@ function fakeDb(rows: { alias: string; event_id: string }[], calls: unknown[]) {
     },
   };
 }
+
+describe("CIRQLIN page field (follow-up, waiting on GET /api/partner/page)", () => {
+  const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+
+  it("the panel renders no CIRQLIN page input", () => {
+    const panel = read("../../../components/dashboard/events/event-config-panel.tsx");
+    assert.doesNotMatch(panel, /event-config-cirqlin/);
+    assert.doesNotMatch(panel, /cirqlinPageId/);
+    assert.doesNotMatch(panel, /label="CIRQLIN/);
+  });
+
+  it("the save action takes no page id and writes the row through eventConfigUpdate", () => {
+    const action = read("../../actions/event-config.ts");
+    assert.doesNotMatch(action, /cirqlinPageId/);
+    assert.doesNotMatch(action, /cirqlin_page_id:/);
+    assert.match(action, /\.update\(eventConfigUpdate\(/);
+  });
+});

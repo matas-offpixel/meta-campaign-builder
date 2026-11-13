@@ -4,7 +4,9 @@
  * lib/actions/event-config.ts
  *
  * Saves the event page's config panel (D9): capacity, the umbrella flag,
- * the CIRQLIN page link, the reference shows and the count aliases. The
+ * the reference shows and the count aliases. The CIRQLIN page link is not
+ * written here: the events row is built by eventConfigUpdate, which never
+ * carries cirqlin_page_id, whatever the caller sends. The
  * caller must be signed in and own the event; every write goes through the
  * user's client, so RLS (migration 235) keeps it to their own events.
  *
@@ -15,19 +17,18 @@
 import { revalidatePath } from "next/cache";
 
 import { parseAliasLines, planAliasChange, type CountAliasRow } from "@/lib/event-config/aliases";
-import { allowedReferenceIds, parseCapacity, parseCirqlinPageId } from "@/lib/event-config/form";
+import { allowedReferenceIds, eventConfigUpdate, parseCapacity } from "@/lib/event-config/form";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export interface EventConfigInput {
   eventId: string;
   capacity: string;
   isUmbrella: boolean;
-  cirqlinPageId: string;
   referenceEventIds: string[];
   aliases: string;
 }
 
-export type EventConfigField = "capacity" | "cirqlinPageId" | "aliases";
+export type EventConfigField = "capacity" | "aliases";
 export type SaveEventConfigResult = { ok: true } | { ok: false; error: string; field?: EventConfigField };
 
 type Client = Awaited<ReturnType<typeof createClient>>;
@@ -97,8 +98,6 @@ export async function saveEventConfig(input: EventConfigInput): Promise<SaveEven
 
   const capacity = parseCapacity(input.capacity);
   if (!capacity.ok) return { ok: false, error: capacity.error, field: "capacity" };
-  const page = parseCirqlinPageId(input.cirqlinPageId);
-  if (!page.ok) return { ok: false, error: page.error, field: "cirqlinPageId" };
 
   const { data: event, error: eventError } = await sb
     .from("events")
@@ -123,7 +122,7 @@ export async function saveEventConfig(input: EventConfigInput): Promise<SaveEven
 
     const update = await sb
       .from("events")
-      .update({ capacity: capacity.value, is_umbrella: input.isUmbrella, cirqlin_page_id: page.value })
+      .update(eventConfigUpdate({ capacity: capacity.value, isUmbrella: input.isUmbrella }))
       .eq("id", input.eventId)
       .eq("user_id", user.id);
     if (update.error) return { ok: false, error: update.error.message };

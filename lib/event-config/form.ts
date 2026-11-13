@@ -5,8 +5,6 @@
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** Blank = no capacity (no default). Otherwise a whole number of tickets above 0. */
@@ -18,15 +16,13 @@ export function parseCapacity(input: string): Parsed<number | null> {
 }
 
 /**
- * Blank = no page. Otherwise the CIRQLIN page id (a uuid), lower-cased to
- * match migration 235's check. A slug or a page address is refused: the
- * page id doesn't change when the page is renamed.
+ * The events row the config panel writes: capacity and the umbrella flag,
+ * nothing else. cirqlin_page_id is never written from the panel (design
+ * rejected the raw-id field; the pasted-link field is a follow-up), so a
+ * caller that sends one has it dropped here.
  */
-export function parseCirqlinPageId(input: string): Parsed<string | null> {
-  const s = input.trim().toLowerCase();
-  if (!s) return { ok: true, value: null };
-  if (!UUID.test(s)) return { ok: false, error: "Paste the CIRQLIN page id, not the page's address." };
-  return { ok: true, value: s };
+export function eventConfigUpdate(input: { capacity: number | null; isUmbrella: boolean }): { capacity: number | null; is_umbrella: boolean } {
+  return { capacity: input.capacity, is_umbrella: input.isUmbrella === true };
 }
 
 /**

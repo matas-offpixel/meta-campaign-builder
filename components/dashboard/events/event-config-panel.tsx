@@ -1,10 +1,14 @@
 "use client";
 
 /**
- * The event page's config panel (D9, HD2): capacity, the umbrella flag, the
- * CIRQLIN page link, reference shows and count aliases. These replace the
- * NX model's constants; nothing is inferred from codes or slugs, and a
- * missing value says so in D9's words. Mounted on /events/[id]/edit.
+ * The event page's config panel (D9, HD2): capacity, the umbrella flag,
+ * reference shows and count aliases. These replace the NX model's
+ * constants; nothing is inferred from codes or slugs, and a missing value
+ * says so in D9's words. Mounted on /events/[id]/edit.
+ *
+ * The page link has no field here yet: design rejected a raw page id, and
+ * the pasted-link field waits on a CIRQLIN endpoint that turns a link into a
+ * page. Until then every event reads as having no page.
  */
 
 import { useMemo, useState } from "react";
@@ -17,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { saveEventConfig, type EventConfigField } from "@/lib/actions/event-config";
 import { parseCapacity } from "@/lib/event-config/form";
 import type { EventConfigPanelData, ReferenceOption } from "@/lib/event-config/panel";
-import { NO_CAPACITY, NO_CIRQLIN_PAGE } from "@/lib/event-config/read";
+import { NO_CAPACITY } from "@/lib/event-config/read";
 
 interface Props {
   eventId: string;
@@ -98,7 +102,6 @@ export function EventConfigPanel({ eventId, data, readOnly = false }: Props) {
   const { config, options } = data;
   const [capacity, setCapacity] = useState(config.capacity != null ? String(config.capacity) : "");
   const [isUmbrella, setIsUmbrella] = useState(config.isUmbrella);
-  const [pageId, setPageId] = useState(config.cirqlinPageId ?? "");
   const [picked, setPicked] = useState(() => new Set(config.referenceEventIds));
   const [aliases, setAliases] = useState(config.countAliases.join("\n"));
   const [saving, setSaving] = useState(false);
@@ -128,7 +131,6 @@ export function EventConfigPanel({ eventId, data, readOnly = false }: Props) {
       eventId,
       capacity,
       isUmbrella,
-      cirqlinPageId: pageId,
       referenceEventIds: [...picked],
       aliases,
     });
@@ -177,20 +179,6 @@ export function EventConfigPanel({ eventId, data, readOnly = false }: Props) {
         <p className="text-xs text-muted-foreground">
           An umbrella has no trajectory, no tickets and no cost per ticket. Its spend shows on its own.
         </p>
-      </div>
-
-      <div className="space-y-1.5">
-        <Input
-          id="event-config-cirqlin"
-          label="CIRQLIN page id"
-          value={pageId}
-          onChange={(e) => touched(setPageId)(e.target.value)}
-          autoComplete="off"
-          spellCheck={false}
-          error={fieldError("cirqlinPageId")}
-          disabled={saving}
-        />
-        {!pageId.trim() && <p className="text-xs text-muted-foreground">{NO_CIRQLIN_PAGE}.</p>}
       </div>
 
       <ReferencePicker options={options} picked={picked} onToggle={toggle} disabled={saving} />
