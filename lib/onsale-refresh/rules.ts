@@ -69,9 +69,29 @@ export type SupplyFile = {
   /** The Drive path under the cycle folder, for the line. */
   path: string;
   alreadyInCampaign: boolean;
-  /** How "already in the campaign" was decided: a Lab launch of a render with this Drive id. Hand uploads are not matched. */
-  matchedBy: "lab_launch";
+  /**
+   * How "already in the campaign" was decided: a Lab launch of a render
+   * with this Drive id, or (P2) an applied refresh add line with it. Hand
+   * uploads are not matched.
+   */
+  matchedBy: "lab_launch" | "refresh_apply";
 };
+
+/** The copy a new ad goes in with: the campaign draft's own (P2). Shown on the line before Accept. */
+export type AddCopy = {
+  primaryText: string;
+  headline: string;
+  description: string;
+  cta: string;
+  destinationUrl: string;
+  pageId: string;
+  instagramActorId: string | null;
+  /** The draft creative it was read from. */
+  fromCreative: string | null;
+};
+
+/** R5 "where to write": the event's draft for this campaign on this account. */
+export type CampaignDraftRef = { draftId: string; adAccountId: string; copy: AddCopy | null };
 
 export type ClaimInput = {
   id: string;
@@ -89,6 +109,10 @@ export type CampaignInput = {
   /** The campaign name; a rebuilt campaign under the same name is the same campaign. */
   campaignKey: string;
   campaignIds: string[];
+  /** P2: the account the campaign runs on (act_…), from its ad-days. */
+  adAccountId?: string | null;
+  /** P2: this event's draft for the campaign on that account; null = nothing can be applied to it. */
+  draft?: CampaignDraftRef | null;
   onSaleDay: string | null;
   plan: RunPlan;
   resultEvent: ResultEvent;
@@ -320,11 +344,11 @@ export function pauseLines(input: CampaignInput, config: PhaseConfig): { lines: 
       detail: `${costText} · convert ${creative.convertScore}, significant · bottom third`,
       writeText: `Pause ${adIds.length} ad${adIds.length === 1 ? "" : "s"} · ad status write`,
       narrow: { detail: `${gbp(creative.totalSpend)} · ${creative.totalResults} ${label}${creativeCpr == null ? "" : ` · ${gbp(creativeCpr)} each, ${ratioText(creativeCpr / campaignCpr)}`}`, writeText: null },
-      target: { creative: creative.name, adIds },
+      target: { creative: creative.name, adIds, ads: creative.ads.filter((ad) => adIds.includes(ad.adId)).map((ad) => ({ adId: ad.adId, adsetId: ad.adsetId })) },
       evidence,
-      write: { kind: "ad_status", adIds, status: "PAUSED" },
+      write: { kind: "ad_status", adIds, status: "PAUSED", campaignIds: input.campaignIds, adAccountId: input.adAccountId ?? null, draftId: input.draft?.draftId ?? null },
       addsSpend: false,
-      blockedReason: null,
+      blockedReason: notOurs(input),
       supply: false,
     });
   }
@@ -350,6 +374,8 @@ export function addLines(input: CampaignInput, config: PhaseConfig): ProposalLin
   }
   const delivering = input.adSets.filter((set) => set.delivering).map((set) => set.adsetId);
   const cycleWord = input.plan.cycleKind === "payday" ? "payday cycle" : "content cycle";
+  const copy = input.draft?.copy ?? null;
+  const blocked = notOurs(input) ?? (copy ? null : NO_COPY);
   return picked.map((file) => ({
     kind: "add_creative" as const,
     ruleId: "add.cycle_folder",
@@ -357,13 +383,22 @@ export function addLines(input: CampaignInput, config: PhaseConfig): ProposalLin
     detail: `${file.path} · approved final · ${cycleWord}`,
     writeText: `New ad in each delivering ad set (${delivering.length}) · launch path · goes in live`,
     narrow: { detail: `${file.path} · ${cycleWord}`, writeText: "New ad in each delivering ad set · live" },
-    target: { driveFileId: file.fileId, name: file.name, owner: file.owner, kind: file.kind, mix: MIX_LABEL[file.mix] || null },
+    target: { driveFileId: file.fileId, name: file.name, owner: file.owner, kind: file.kind, mix: MIX_LABEL[file.mix] || null, copy },
     evidence: { path: file.path, cycleMonday: input.plan.cycleMonday, cycleKind: input.plan.cycleKind, deliveringAdSets: delivering.length, matchedBy: file.matchedBy },
-    write: { kind: "add_ads", driveFileId: file.fileId, adsetIds: delivering, status: "ACTIVE" },
+    write: { kind: "add_ads", driveFileId: file.fileId, adsetIds: delivering, status: "ACTIVE", campaignIds: input.campaignIds, adAccountId: input.adAccountId ?? null, draftId: input.draft?.draftId ?? null },
     addsSpend: false,
-    blockedReason: null,
+    blockedReason: blocked,
     supply: false,
   }));
+}
+
+/** R5: only campaigns of this event's drafts on this account are written to. */
+export const NOT_OURS = "Not one of this event's drafts on this account, so nothing is written to this campaign.";
+/** An add needs the draft's page and link; without them there is no copy to show or send. */
+export const NO_COPY = "The campaign's draft has no page or link to copy, so the new ad has no copy yet.";
+
+function notOurs(input: Pick<CampaignInput, "draft">): string | null {
+  return input.draft ? null : NOT_OURS;
 }
 
 /** R2 claim ready: an approved ticket-warning claim in its window with no render. A supply line, not a Meta write. */
@@ -554,13 +589,16 @@ export function buildProposal(input: CampaignInput, config: PhaseConfig): Propos
   const claims = claimLines(input);
   const pauses = enoughData ? pauseLines(input, config) : { lines: [], watch: [], note: "No pauses: not enough data this week." };
   const audiences = enoughData ? audienceLines(input, config) : { lines: [], watch: [], note: "No drops or moves: not enough data this week." };
+  // C2 / P2: every line's evidence snapshot keeps the pixel-wide figure, labelled as any show's — never this show's purchases.
+  const attributedPurchases = { count: input.last14.purchases, scope: "any_show_on_pixel" as const };
+  const lines = [...adds, ...claims, ...pauses.lines, ...audiences.lines].map((line) => ({ ...line, evidence: { ...line.evidence, attributedPurchases } }));
   return {
     objective,
     why,
     blockers,
     enoughData,
     notEnoughData,
-    lines: [...adds, ...claims, ...pauses.lines, ...audiences.lines],
+    lines,
     watch: { creatives: pauses.watch, audiences: audiences.watch },
     notes: { pauses: pauses.note, drops: audiences.note, adds: "Files uploaded by hand in Ads Manager aren't matched." },
     campaignSummary: campaignSummary(input),

@@ -21,6 +21,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { NotifyOptions, NotifyResult } from "../notify/slack.ts";
+import { applyGates, type ArmMode } from "./apply-gates.ts";
 import { buildEventInputs, driveForRefresh, loadAux, loadInsights, loadOnSaleEvents, type EventInputs, type EventRow } from "./load.ts";
 import { ONSALE_PHASE, type PhaseConfig } from "./phase-config.ts";
 import { loadPurchaseReads, type RefreshGraph } from "./purchase-read.ts";
@@ -152,6 +153,8 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
     if (row.read.state === "not_read") console.warn(`[onsale-refresh] purchases not read event=${row.eventCode ?? row.eventId} reason=${row.read.notRead ?? "unknown"}`);
   }
 
+  // P2: an event armed Live (with the deployment gate on) gets Live proposals: the Slack post drops "Shadow".
+  const arms = dryRun ? new Map<string, ArmMode>() : await loadArms(input.db, events.map((event) => event.id));
   const proposals: ProposalRecord[] = [];
   let driveCalls = 0;
   let userId = input.userId ?? null;
@@ -179,16 +182,17 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
         continue;
       }
       const proposal = buildProposal(campaign, config);
+      const mode = applyGates(input.env, arms.get(event.id)).mode;
       const record: ProposalRecord = { proposalId: null, event, input: campaign, proposal, written: false, slack: { sent: false, reason: "dry_run" } };
       if (!dryRun) {
         try {
           userId ??= await loadOwner(input.db, event);
-          record.proposalId = await writeProposal(input.db, { userId, event, campaign, proposal });
+          record.proposalId = await writeProposal(input.db, { userId, event, campaign, proposal, mode });
           record.written = true;
           if (input.notify) {
             record.slack = await input.notify(
               slackMessage(
-                { proposalId: record.proposalId, eventName: event.name, eventCode: event.event_code, eventId: event.id, campaignKey: campaign.campaignKey, plan: campaign.plan, mode: "shadow", proposal },
+                { proposalId: record.proposalId, eventName: event.name, eventCode: event.event_code, eventId: event.id, campaignKey: campaign.campaignKey, plan: campaign.plan, mode, proposal },
                 input.appUrl ?? input.env.NEXT_PUBLIC_APP_URL ?? "https://app.offpixel.co.uk",
               ),
             );
@@ -221,6 +225,17 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
   return result;
 }
 
+/** The events' arms (migration 236). Before 236 is applied, or on any read error, every event is in Shadow. */
+async function loadArms(db: Db, eventIds: readonly string[]): Promise<Map<string, ArmMode>> {
+  try {
+    const { data, error } = await db.from("onsale_refresh_arms").select("event_id, mode").in("event_id", eventIds);
+    if (error || !Array.isArray(data)) return new Map();
+    return new Map((data as { event_id: string; mode: string }[]).filter((row) => row.mode === "live").map((row) => [row.event_id, "live" as const]));
+  } catch {
+    return new Map();
+  }
+}
+
 /** The event's owner (events.user_id), the row owner the RLS policies read. */
 async function loadOwner(db: Db, event: EventRow): Promise<string> {
   const { data, error } = await db.from("events").select("user_id").eq("id", event.id).maybeSingle();
@@ -230,8 +245,13 @@ async function loadOwner(db: Db, event: EventRow): Promise<string> {
   return userId;
 }
 
-/** Insert the proposal and its lines; expire the previous proposal's unanswered lines for the campaign. */
-export async function writeProposal(db: Db, args: { userId: string; event: EventRow; campaign: CampaignInput; proposal: Proposal }): Promise<string> {
+/**
+ * Insert (or, for the same campaign, run and window, update) the proposal
+ * and its lines. P2: only lines still To review are replaced; Matas's
+ * decisions, applied and failed lines stay, and are not proposed again.
+ * The earlier proposals' unanswered lines for the campaign expire.
+ */
+export async function writeProposal(db: Db, args: { userId: string; event: EventRow; campaign: CampaignInput; proposal: Proposal; mode?: ArmMode }): Promise<string> {
   const { campaign, proposal } = args;
   const inserted = await db
     .from("onsale_refresh_proposals")
@@ -247,7 +267,7 @@ export async function writeProposal(db: Db, args: { userId: string; event: Event
         cycle_kind: campaign.plan.cycleKind,
         window_start: campaign.plan.window.start,
         window_end: campaign.plan.window.end,
-        mode: "shadow",
+        mode: args.mode ?? "shadow",
         objective: proposal.objective,
         why: proposal.why,
         blockers: proposal.blockers,
@@ -265,14 +285,29 @@ export async function writeProposal(db: Db, args: { userId: string; event: Event
     .single();
   if (inserted.error || !inserted.data) throw new Error(`onsale_refresh_proposals: ${inserted.error?.message ?? "no row"}`);
   const proposalId = (inserted.data as { id: string }).id;
-  // Idempotent per campaign and window: replace this proposal's lines.
-  const cleared = await db.from("onsale_refresh_lines").delete().eq("proposal_id", proposalId);
+  // P2: a re-run replaces only the lines still To review. Decided, applied and failed lines stay as Matas left them,
+  // and a new line that repeats one of them (this proposal's, or an earlier proposal's still accepted, applying,
+  // applied or failed) is not written again.
+  const earlier = await db.from("onsale_refresh_proposals").select("id").eq("event_id", args.event.id).eq("campaign_key", campaign.campaignKey).neq("id", proposalId);
+  if (earlier.error) throw new Error(`earlier proposals: ${earlier.error.message}`);
+  const earlierIds = ((earlier.data ?? []) as { id: string }[]).map((row) => row.id);
+  const existing = await db.from("onsale_refresh_lines").select("id, kind, title, target, state").eq("proposal_id", proposalId);
+  if (existing.error) throw new Error(`onsale_refresh_lines read: ${existing.error.message}`);
+  const kept = ((existing.data ?? []) as KeyedLine[]).filter((line) => line.state !== "to_review");
+  if (earlierIds.length) {
+    const carried = await db.from("onsale_refresh_lines").select("id, kind, title, target, state").in("proposal_id", earlierIds).in("state", CARRIED_STATES);
+    if (carried.error) throw new Error(`onsale_refresh_lines carried: ${carried.error.message}`);
+    kept.push(...((carried.data ?? []) as KeyedLine[]));
+  }
+  const keptKeys = new Set(kept.map(lineKey));
+  const cleared = await db.from("onsale_refresh_lines").delete().eq("proposal_id", proposalId).eq("state", "to_review");
   if (cleared.error) throw new Error(`onsale_refresh_lines clear: ${cleared.error.message}`);
-  if (proposal.lines.length) {
-    const rows = proposal.lines.map((line, position) => ({
+  const fresh = proposal.lines.map((line, index) => ({ line, position: index + 1 })).filter(({ line }) => !keptKeys.has(lineKey({ kind: line.kind, title: line.title, target: line.target })));
+  if (fresh.length) {
+    const rows = fresh.map(({ line, position }) => ({
       proposal_id: proposalId,
       user_id: args.userId,
-      position: position + 1,
+      position,
       kind: line.kind,
       rule_id: line.ruleId,
       title: line.title,
@@ -291,14 +326,27 @@ export async function writeProposal(db: Db, args: { userId: string; event: Event
     if (written.error) throw new Error(`onsale_refresh_lines: ${written.error.message}`);
   }
   // R4: unanswered lines of earlier proposals for this campaign expire at the next refresh.
-  const earlier = await db.from("onsale_refresh_proposals").select("id").eq("event_id", args.event.id).eq("campaign_key", campaign.campaignKey).neq("id", proposalId);
-  if (earlier.error) throw new Error(`earlier proposals: ${earlier.error.message}`);
-  const ids = ((earlier.data ?? []) as { id: string }[]).map((row) => row.id);
-  if (ids.length) {
-    const expired = await db.from("onsale_refresh_lines").update({ state: "expired" }).in("proposal_id", ids).eq("state", "to_review");
+  if (earlierIds.length) {
+    const expired = await db.from("onsale_refresh_lines").update({ state: "expired" }).in("proposal_id", earlierIds).eq("state", "to_review");
     if (expired.error) throw new Error(`expire lines: ${expired.error.message}`);
   }
   return proposalId;
+}
+
+/** Lines of an earlier proposal the panel still carries: a decision or a write is waiting on them, or was made. */
+export const CARRIED_STATES = ["accepted", "applying", "applied", "failed"] as const;
+
+type KeyedLine = { id?: string; kind: string; title: string; target: Record<string, unknown> | null; state?: string };
+
+/** What makes two lines the same proposal: the file for an add, the creative for a pause, the claim, the ad set or cluster; else the title. */
+export function lineKey(line: Pick<KeyedLine, "kind" | "title" | "target">): string {
+  const target = line.target ?? {};
+  const pick = (key: string) => (typeof target[key] === "string" ? (target[key] as string) : null);
+  if (line.kind === "add_creative") return `add:${pick("driveFileId") ?? line.title}`;
+  if (line.kind === "pause_creative") return `pause:${pick("creative") ?? line.title}`;
+  if (line.kind === "claim_ready") return `claim:${pick("ticketWarningId") ?? line.title}`;
+  if (line.kind === "bring_back_audience" || line.kind === "drop_audience") return `${line.kind}:${pick("adsetId") ?? pick("clusterId") ?? line.title}`;
+  return `${line.kind}:${line.title}`;
 }
 
 type PendingRow = {
@@ -404,6 +452,9 @@ export async function postPendingProposals(args: {
 export function inputsSnapshot(campaign: CampaignInput): Record<string, unknown> {
   return {
     campaignIds: campaign.campaignIds,
+    // P2: the account and the event's draft the apply-time guard re-checks.
+    adAccountId: campaign.adAccountId ?? null,
+    draftId: campaign.draft?.draftId ?? null,
     resultEvent: campaign.resultEvent,
     window: campaign.plan.window,
     week: { spend: campaign.weekSpend, results: campaign.weekResults },

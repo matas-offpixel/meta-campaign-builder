@@ -1,4 +1,4 @@
-import type { PanelProposal } from "@/lib/onsale-refresh/read";
+import type { PanelApply, PanelProposal } from "@/lib/onsale-refresh/read";
 
 import { ONSALE_PHASE } from "../../lib/onsale-refresh/phase-config.ts";
 import { purchaseWhy, type PurchaseRead, type PurchaseState } from "../../lib/onsale-refresh/purchases.ts";
@@ -221,5 +221,138 @@ export const OR1_PROPOSALS: PanelProposal[] = [
   },
 ];
 
-export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5"] as const;
+/**
+ * OR6 / OR7: P2 (Accept and apply, creatives) on P26-BDAY.
+ *
+ * OR6 is F1 with Accept and Reject live: the event armed Live, the
+ * deployment gate on and the £4,500 budget set (Matas's ruling), so the
+ * budget blocker is gone. Its figures are the 12 Nov shadow run's (data to
+ * Wed 11 Nov): £650.38 · 75 IC since 30 Oct, the two Enzo quote adds, the
+ * roll-call claim, and the within-campaign move. One add is accepted, one
+ * is still to review, a third was rejected as the wrong creative.
+ *
+ * OR7 is F3: the w/c 23 Nov payday cycle after Apply accepted (2). Its
+ * figures are illustrative, as the record's F3 says. The bring-back was
+ * accepted but stays Accepted: audiences apply in P3.
+ *
+ * The copy under each add is a stand-in: the frames never read the
+ * campaign draft, whose own copy is what the real panel shows.
+ */
+const OR_COPY: NonNullable<PanelProposal["lines"][number]["copy"]> = {
+  primaryText: "Puzzle turns four. Enzo Siragusa, Luke Dean and friends close the year at Puzzle — Sunday 27 December.",
+  headline: "Puzzle 4th Birthday",
+  cta: "buy_tickets",
+  destinationUrl: "https://www.skiddle.com/whats-on/London/Puzzle/Puzzle-4th-Birthday/41234567/",
+};
+
+export const OR_APPLY_LIVE: PanelApply = { mode: "live", arm: "live", globalEnabled: true, pauseWritesEnabled: false, budgetSet: true };
+
+const OR6_ADD = (id: string, title: string, state: PanelProposal["lines"][number]["state"], reason: string | null = null): PanelProposal["lines"][number] => ({
+  id,
+  kind: "add_creative",
+  title,
+  detail: "Enzo Siragusa / Videos / UGC · approved final · content cycle",
+  writeText: "New ad in each delivering ad set (3) · launch path · goes in live",
+  narrow: { detail: "Enzo Siragusa / Videos / UGC · content cycle", writeText: "New ad in each delivering ad set · live" },
+  addsSpend: false,
+  blockedReason: null,
+  supply: false,
+  state,
+  reason,
+  copy: OR_COPY,
+});
+
+export const OR6_PROPOSALS: PanelProposal[] = [
+  {
+    ...OR1_PROPOSALS[0]!,
+    id: "or6",
+    mode: "live",
+    campaignSummary: "30 Oct – 11 Nov · £650.38 · 75 IC · £8.67 each",
+    blockers: [],
+    watch: {
+      creatives: [{ title: "Puzzle - 4th Birthday - Static", detail: "20 ads · £26.20 · 0 IC · convert 23, not yet significant", narrow: "Puzzle - 4th Birthday - Static · £26.20 · 0 IC", evidence: {} }],
+      audiences: [],
+    },
+    notes: { pauses: "No pauses: no creative has enough evidence.", drops: "No drops: none qualifies.", adds: "Files uploaded by hand in Ads Manager aren't matched." },
+    lines: [
+      OR6_ADD("l1", "P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16", "accepted"),
+      OR6_ADD("l2", "P26-BDAY_enzo-siragusa-3_quote-on-sale_r1_9x16", "to_review"),
+      { ...OR6_ADD("l3", "P26-BDAY_enzo-siragusa_roll-call-cta_r1_9x16", "rejected", "Wrong creative"), detail: "Enzo Siragusa / Videos / CTA · approved final · content cycle", narrow: { detail: "Enzo Siragusa / Videos / CTA · content cycle", writeText: "New ad in each delivering ad set · live" } },
+      { ...OR1_PROPOSALS[0]!.lines[2]!, id: "l4" },
+      {
+        id: "l5",
+        kind: "move_budget",
+        title: "Lineup — Primary → Adv+",
+        detail: "£14.18 per IC (1.72×) to £5.80 per IC (0.7×) · £14.18 a week · cap £501.17 (20 % of £2,505.85 remaining)",
+        writeText: "Ad-set budget write, both sides",
+        narrow: { detail: "£14.18 a week · cap £501.17", writeText: null },
+        addsSpend: false,
+        blockedReason: null,
+        supply: false,
+        state: "to_review",
+        reason: null,
+      },
+    ],
+  },
+];
+
+export const OR7_PROPOSALS: PanelProposal[] = [
+  {
+    ...OR6_PROPOSALS[0]!,
+    id: "or7",
+    runKind: "cycle",
+    runDay: "2026-11-23",
+    cycleMonday: "2026-11-23",
+    cycleKind: "payday",
+    windowStart: "2026-11-16",
+    windowEnd: "2026-11-22",
+    nextCheck: "2026-11-30",
+    nextCycle: "2026-12-07",
+    nextCycleKind: "content",
+    campaignSummary: "30 Oct – 22 Nov · £1,148.60 · 131 IC · £8.77 each",
+    watch: { creatives: [], audiences: [] },
+    notes: { pauses: "No pauses: no creative has enough evidence.", drops: "", adds: "Files uploaded by hand in Ads Manager aren't matched." },
+    lines: [
+      {
+        ...OR6_ADD("f1", "P26-BDAY_luke-dean_artist-card-3_on-sale_9x16_v1", "applied", "6 ads live"),
+        detail: "Luke Dean / Statics / CTA · approved final · payday cycle",
+        narrow: { detail: "Luke Dean / Statics / CTA · payday cycle", writeText: "New ad in each delivering ad set · live" },
+        appliedAt: "2026-11-23T08:41:00Z",
+      },
+      {
+        ...OR6_ADD("f2", "P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16", "failed", "Meta didn't take this file — the video is still processing."),
+        detail: "Enzo Siragusa / Videos / UGC · approved final · payday cycle",
+        narrow: { detail: "Enzo Siragusa / Videos / UGC · payday cycle", writeText: "New ad in each delivering ad set · live" },
+      },
+      {
+        id: "f3",
+        kind: "bring_back_audience",
+        title: "Electronic dance music, Electronic music",
+        detail: "Stopped 6 Nov · £36.85 · 12 IC · £3.07 each, 0.4× the campaign",
+        writeText: "Ad set status → on · its own budget",
+        narrow: { detail: "£36.85 · 12 IC · £3.07 each, 0.4×", writeText: null },
+        addsSpend: true,
+        blockedReason: null,
+        supply: false,
+        state: "accepted",
+        reason: null,
+      },
+      {
+        id: "f4",
+        kind: "drop_audience",
+        title: "Lineup — Primary",
+        detail: "£41.20 · 2 IC · £20.60 each, 2.35× the campaign · live 24 days",
+        writeText: "Ad set status → off",
+        narrow: { detail: "£41.20 · 2 IC · £20.60 each, 2.35×", writeText: null },
+        addsSpend: false,
+        blockedReason: null,
+        supply: false,
+        state: "rejected",
+        reason: "Too early",
+      },
+    ],
+  },
+];
+
+export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7"] as const;
 export const REFRESH_FRAME_WIDTHS = [1280, 393] as const;

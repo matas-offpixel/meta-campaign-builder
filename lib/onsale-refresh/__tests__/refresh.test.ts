@@ -180,7 +180,7 @@ describe("on-sale refresh: pause creative (R2)", () => {
   it("qualifies on significant + bottom third + 7 days + 2× spend; the rest go to Watch", () => {
     const { lines, watch } = pauseLines(campaign({ ads, adSets: sets }), ONSALE_PHASE);
     assert.deepEqual(lines.map((line) => line.title), ["Weak"]);
-    assert.deepEqual(lines[0]!.target, { creative: "Weak", adIds: ["a1", "a1b"] });
+    assert.deepEqual(lines[0]!.target, { creative: "Weak", adIds: ["a1", "a1b"], ads: [{ adId: "a1", adsetId: "s1" }, { adId: "a1b", adsetId: "s2" }] });
     assert.equal(lines[0]!.write?.kind, "ad_status");
     assert.equal((lines[0]!.evidence as { ads: number }).ads, 2);
     const watched = watch.map((item) => item.title);
