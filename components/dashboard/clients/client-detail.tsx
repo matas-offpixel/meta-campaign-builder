@@ -639,6 +639,12 @@ export function ClientDetail({
                 </h2>
                 <div className="flex flex-wrap items-start gap-2">
                   <Link
+                    href={`/clients/${client.id}/sales`}
+                    className="inline-flex items-center gap-1 rounded border border-border-strong px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                  >
+                    Sales vs spend
+                  </Link>
+                  <Link
                     href={`/clients/${client.id}/dashboard`}
                     prefetch
                     onMouseEnter={() =>
