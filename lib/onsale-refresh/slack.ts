@@ -42,6 +42,7 @@ export function slackMessage(args: SlackProposal, appUrl: string): NotifyOptions
     args.campaignKey,
     args.proposal.why.objective,
     args.proposal.why.purchase,
+    args.proposal.why.attributed ?? "",
     args.proposal.notEnoughData ?? breakdown,
     args.mode === "shadow" ? "Shadow: nothing here can be applied yet." : "",
     url,
@@ -53,11 +54,29 @@ export function slackMessage(args: SlackProposal, appUrl: string): NotifyOptions
     text,
     blocks: [
       { type: "section", text: { type: "mrkdwn", text: `*${head}*\n${kind} · data to ${shortDay(args.plan.window.end)}` } },
-      { type: "section", text: { type: "mrkdwn", text: `${args.campaignKey}\n${args.proposal.why.objective}\n${args.proposal.why.purchase}` } },
+      { type: "section", text: { type: "mrkdwn", text: [args.campaignKey, args.proposal.why.objective, args.proposal.why.purchase, args.proposal.why.attributed ?? ""].filter(Boolean).join("\n") } },
       { type: "section", text: { type: "mrkdwn", text: args.proposal.notEnoughData ?? breakdown } },
       { type: "section", text: { type: "mrkdwn", text: `<${url}|Open the Refresh panel>${args.mode === "shadow" ? " · Shadow: nothing applies yet." : ""}` } },
     ],
     dedupeKey: `onsale_refresh:${args.proposalId}`,
+    dedupeWindowMs: Number.MAX_SAFE_INTEGER,
+  };
+}
+
+/**
+ * E4: the pixel mismatch, once per event until the ads' pixel and the
+ * client's stored pixel match. Deduped on the event and the pair, so a
+ * later run (or the 10:05 catch-up) repeats nothing and a changed pair
+ * says so once.
+ */
+export function pixelSlackMessage(args: { eventId: string; eventName: string; eventCode: string | null; lines: readonly string[]; pixelId: string; storedPixelId: string | null }): NotifyOptions {
+  const head = `On-sale refresh · ${args.eventName}${args.eventCode ? ` [${args.eventCode}]` : ""}`;
+  const text = [head, ...args.lines].join("\n");
+  return {
+    channel: "ads_automation",
+    text,
+    blocks: [{ type: "section", text: { type: "mrkdwn", text: `*${head}*\n${args.lines.join("\n")}` } }],
+    dedupeKey: `onsale_refresh_pixel:${args.eventId}:${args.pixelId}:${args.storedPixelId ?? "none"}`,
     dedupeWindowMs: Number.MAX_SAFE_INTEGER,
   };
 }

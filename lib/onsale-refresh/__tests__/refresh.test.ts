@@ -5,11 +5,28 @@ import { describe, it } from "node:test";
 import { fakeDb, op } from "../../launched-ads/__tests__/fake-db.ts";
 import { actionCount, loadAll, loadCycleSupply, loadOnSaleEvents, resultOf } from "../load.ts";
 import { ONSALE_PHASE, PRESALE_PHASE } from "../phase-config.ts";
+import { readPurchases, type PurchaseRead } from "../purchases.ts";
 import { isOnSale, isShowWeek } from "../on-sale.ts";
 import { addLines, audienceLines, buildProposal, chooseObjective, claimLines, pauseLines, whyLines, type AdInput, type AdSetInput, type CampaignInput, type ClusterInput } from "../rules.ts";
 import { inputsSnapshot, isOnsaleRefreshEnabled, postPendingProposals, refreshRunLog, runOnsaleRefresh, writeProposal, type RunRefreshInput } from "../runner.ts";
 import { cycleKindOf, nextCycleAfter, planRun, scheduledRunKind, shortDay, weekLabel, windowFor } from "../schedule.ts";
 import { slackMessage } from "../slack.ts";
+
+/** NX26-LOCKLEAD as the 12 Nov read found it: its own domain, the NX pixel on its ad sets, the stored Brixton pixel, 6 counted (the record's example). */
+function lockleadRead(d14 = 6): PurchaseRead {
+  return readPurchases({
+    pixelError: null,
+    resolved: { pixel: { id: "645185673672763", source: "ad_sets", spendShare: 1, stored: "1283861880364565", matches: false }, others: [] },
+    pixelName: "NX Live Skiddle",
+    domain: { kind: "own", domain: "locklead-newcastle.com", via: "signup_url" },
+    ticketSite: "Skiddle",
+    stats: { rows: [{ day: "2026-11-05", host: "locklead-newcastle.com", count: d14 }, { day: "2026-11-05", host: "skiddle.com", count: 400 }] },
+    windowEnd: "2026-11-11",
+    attributed14: 21,
+    ticketsSold14: null,
+    config: ONSALE_PHASE,
+  });
+}
 
 // ── R1 schedule ──────────────────────────────────────────────────────────────
 
@@ -105,30 +122,45 @@ describe("on-sale refresh: objective and the why line (R3)", () => {
     assert.equal(chooseObjective({ last14: { ic: 3, purchases: 0, lpv: 500 } }, ONSALE_PHASE, 12), "initiate_checkout");
   });
 
-  it("the why line quotes the IC count verbatim and never reads the pixel's purchases as this show's (H1)", () => {
-    const why = whyLines(campaign(), "initiate_checkout", ONSALE_PHASE);
+  it("the why line quotes the IC count verbatim; the purchase line is the show's own-domain read, the attributed figure sits under it (E3, C2)", () => {
+    const why = whyLines(campaign({ purchases: lockleadRead() }), "initiate_checkout", ONSALE_PHASE);
     assert.equal(why.objective, "Initiate Checkout — 106 reached the pixel since 30 Oct. Last 14 days: 26 IC.");
-    assert.equal(why.purchase, "Purchase campaign not proposed — this show's own purchases aren't read yet. Attributed to these ads: 1 purchase in 14 days, any show on this pixel.");
-    assert.equal(why.purchaseNarrow, "No Purchase campaign: 1 attributed purchase in 14 days, any show.");
+    assert.deepEqual(why.pixel, ["Ads optimise on pixel …2763 (NX Live Skiddle); the client's stored pixel is …4565. Counts use …2763."]);
+    assert.deepEqual(why.pixelNarrow, ["Ads use pixel …2763; stored is …4565. Counts use …2763."]);
+    assert.equal(why.purchase, "Purchase campaign not proposed — 6 purchases on locklead-newcastle.com in 14 days, under 15.");
+    assert.equal(why.purchaseNarrow, "No Purchase campaign: 6 on locklead-newcastle.com in 14 days, under 15.");
+    assert.equal(why.attributed, "Attributed to these ads: 1 purchase in 14 days, any show on this pixel.", "the campaign's own last-14 figure, never the read's copy");
+    assert.equal(why.attributedNarrow, "1 attributed purchase in 14 days, any show.");
     assert.equal(why.moves, "Budget moves stay inside each campaign.");
     assert.equal(why.ticketing, "No linked ticketing: the pixel's purchases can't be checked against real sales.", "F9: ticketing is an input said under Objective");
-    assert.equal(whyLines(campaign({ ticketingLinked: true }), "initiate_checkout", ONSALE_PHASE).ticketing, null);
+    assert.equal(whyLines(campaign({ ticketingLinked: true, purchases: lockleadRead() }), "initiate_checkout", ONSALE_PHASE).ticketing, null, "linked, no sales figure: nothing to check");
     const lpv = whyLines(campaign({ last14: { ic: 4, purchases: 0, lpv: 900 } }), "landing_page_view", ONSALE_PHASE);
     assert.equal(lpv.objective, "Landing Page View — the pixel logged 4 Initiate Checkout in 14 days, under 10. Last 14 days: 900 LPV.");
   });
 
-  it("H1: 0, 1, 15 and 100 attributed purchases all give the same form — only the count and its plural change, nothing is proposed", () => {
-    assert.ok(!("purchaseMinIn14Days" in ONSALE_PHASE), "no purchase bar in the config");
+  it("the attributed figure decides nothing: 0, 1, 15 and 100 give the same purchase line, and only the own-domain count crosses the bar (E2)", () => {
     for (const n of [0, 1, 15, 100]) {
-      const why = whyLines(campaign({ last14: { ic: 40, purchases: n, lpv: 0 } }), "initiate_checkout", ONSALE_PHASE);
-      const word = n === 1 ? "purchase" : "purchases";
-      assert.equal(why.purchase, `Purchase campaign not proposed — this show's own purchases aren't read yet. Attributed to these ads: ${n} ${word} in 14 days, any show on this pixel.`);
-      assert.equal(why.purchaseNarrow, `No Purchase campaign: ${n} attributed ${word} in 14 days, any show.`);
+      const why = whyLines(campaign({ last14: { ic: 40, purchases: n, lpv: 0 }, purchases: lockleadRead() }), "initiate_checkout", ONSALE_PHASE);
+      assert.equal(why.purchase, "Purchase campaign not proposed — 6 purchases on locklead-newcastle.com in 14 days, under 15.");
+      assert.equal(why.attributed, `Attributed to these ads: ${n} purchase${n === 1 ? "" : "s"} in 14 days, any show on this pixel.`);
       assert.equal(why.moves, "Budget moves stay inside each campaign.");
       assert.equal(why.objective, "Initiate Checkout — 106 reached the pixel since 30 Oct. Last 14 days: 40 IC.");
-      const proposal = buildProposal(campaign({ budgetGbp: 4500, last14: { ic: 40, purchases: n, lpv: 0 } }), ONSALE_PHASE);
-      assert.ok(!proposal.lines.some((line) => /purchase/i.test(`${line.kind} ${line.ruleId} ${line.title}`)), `${n}: no purchase line`);
     }
+    const proposed = whyLines(campaign({ last14: { ic: 40, purchases: 0, lpv: 0 }, purchases: lockleadRead(18) }), "initiate_checkout", ONSALE_PHASE);
+    assert.equal(proposed.purchase, "Purchase campaign proposed — 18 purchases on locklead-newcastle.com in 14 days.");
+    assert.equal(proposed.moves, "Budget moves can cross campaigns on cost per purchase.");
+    // HE1 is the read: no Purchase campaign line and no cross-campaign move is built yet, in any state.
+    for (const read of [lockleadRead(18), lockleadRead(6)]) {
+      const proposal = buildProposal(campaign({ budgetGbp: 4500, last14: { ic: 40, purchases: 100, lpv: 0 }, purchases: read }), ONSALE_PHASE);
+      assert.ok(!proposal.lines.some((line) => /purchase/i.test(`${line.kind} ${line.ruleId} ${line.title}`)), "no purchase line");
+    }
+  });
+
+  it("a campaign built without a purchase read says the purchases were not read, never a count", () => {
+    const why = whyLines(campaign(), "initiate_checkout", ONSALE_PHASE);
+    assert.equal(why.purchase, "Purchase campaign not proposed — this show's purchases couldn't be read this run (the purchase read didn't run).");
+    assert.equal(why.purchaseNarrow, "No Purchase campaign: purchases not read this run.");
+    assert.deepEqual(why.pixel, []);
   });
 });
 
@@ -422,12 +454,14 @@ describe("on-sale refresh: runner", () => {
     events: async () => [event],
     insights: async (_db: unknown) => ({ rows: [], context: { launchedAds: new Map(), launchedAdSets: new Map(), codedEvents: [] } }),
     aux: async () => ({ scores: [], clusters: [], launchedAdSets: [], warnings: [], ticketing: [], driveFolders: [], renderDriveIds: new Set<string>() }),
-    inputs: async (args: { event: typeof event }) => ({
+    purchases: async () => ({ reads: new Map([["e1", lockleadRead()]]), metaCalls: 4, cirqlinReads: 1, notes: [] }),
+    inputs: async (args: { event: typeof event; purchases?: PurchaseRead }) => ({
       event: args.event,
       plan: PLAN,
       campaigns: [
         campaign({
           budgetGbp: 4500,
+          purchases: args.purchases,
           adSets: [adSet({ adsetId: "ret", name: "Retargeting" }), adSet({ adsetId: "ll", name: "1% LL" }), adSet({ adsetId: "edm", name: "EDM", delivering: false, lastDay: "2026-11-06", weekSpend: 0, weekResults: 0, totalSpend: 36.85, totalResults: 12 })],
         }),
         // A campaign that stopped before the window's end is skipped, not proposed into no ad set.
@@ -461,7 +495,11 @@ describe("on-sale refresh: runner", () => {
     assert.equal(result.driveCalls, 2);
     assert.equal(notified, 0);
     assert.ok(calls.every((call) => !op(call, "upsert") && !op(call, "insert") && !op(call, "update") && !op(call, "delete")));
-    assert.deepEqual(refreshRunLog(result as unknown as Record<string, unknown>), { rows: 0, detail: { events: 1, lines: result.proposals[0]!.proposal.lines.length, driveCalls: 2, pending: 0, posted: 0, errors: 0 } });
+    assert.deepEqual(refreshRunLog(result as unknown as Record<string, unknown>), { rows: 0, detail: { events: 1, lines: result.proposals[0]!.proposal.lines.length, driveCalls: 2, metaCalls: 4, cirqlinReads: 1, pending: 0, posted: 0, errors: 0 } });
+    // HE1: the run carries every event's purchase read and what the reads cost.
+    assert.deepEqual([result.metaCalls, result.cirqlinReads], [4, 1]);
+    assert.deepEqual(result.purchaseReads.map((row) => [row.eventCode, row.read.state, row.read.pixel?.id]), [["P26-BDAY", "under_bar", "645185673672763"]]);
+    assert.equal(result.proposals[0]!.proposal.why.purchase, "Purchase campaign not proposed — 6 purchases on locklead-newcastle.com in 14 days, under 15.");
   });
 
   it("a live run stores the proposal with its lines and inputs, expires the previous proposal's unanswered lines, posts once", async () => {
@@ -491,7 +529,14 @@ describe("on-sale refresh: runner", () => {
     const expired = calls.find((call) => call.table === "onsale_refresh_lines" && op(call, "update"))!;
     assert.deepEqual(op(expired, "update"), [{ state: "expired" }]);
     assert.deepEqual(op(expired, "in"), ["proposal_id", ["p0"]]);
-    assert.deepEqual(posted, ["onsale_refresh:p1"]);
+    // E4: the proposal, then the pixel line once for the event, deduped on the event and the pixel pair.
+    assert.deepEqual(posted, ["onsale_refresh:p1", "onsale_refresh_pixel:e1:645185673672763:1283861880364565"]);
+    const stored = row.inputs as { purchases: { pixel: Record<string, unknown>; attributedPurchases: unknown; state: string; domain: string; onDomain: unknown } };
+    assert.deepEqual(stored.purchases.pixel, { id: "645185673672763", source: "ad_sets", spendShare: 1, stored: "1283861880364565", matches: false }, "E4's evidence");
+    assert.deepEqual(stored.purchases.attributedPurchases, { count: 1, scope: "any_show_on_pixel" }, "C2: the attributed figure is never stored as the show's");
+    assert.deepEqual([stored.purchases.state, stored.purchases.domain, stored.purchases.onDomain], ["under_bar", "locklead-newcastle.com", { d14: 6, d28: 6, history: 6 }]);
+    assert.deepEqual((row.why as { pixel: string[] }).pixel, ["Ads optimise on pixel …2763 (NX Live Skiddle); the client's stored pixel is …4565. Counts use …2763."]);
+    assert.ok(calls.every((call) => call.table !== "clients" || (!op(call, "update") && !op(call, "upsert"))), "clients.meta_pixel_id is never written");
     assert.ok(calls.some((call) => call.table === "onsale_refresh_proposals" && op(call, "update")?.[0] && "slack_posted_at" in (op(call, "update")![0] as object)));
     // No Meta, no ad set, no ad status write anywhere.
     assert.ok(calls.every((call) => !["ads", "adsets", "campaigns"].includes(call.table)));
@@ -499,7 +544,7 @@ describe("on-sale refresh: runner", () => {
 
   it("F2: ?post=pending posts the proposals business hours held back, marks slack_posted_at only when sent, and leaves the rest", async () => {
     const pending = [
-      { id: "p1", event_id: "e1", campaign_key: "[P26-BDAY] On Sale", run_kind: "shadow", run_day: "2026-11-12", cycle_monday: "2026-11-09", cycle_kind: "content", window_start: "2026-11-05", window_end: "2026-11-11", mode: "shadow", objective: "initiate_checkout", why: whyLines(campaign(), "initiate_checkout", ONSALE_PHASE), blockers: [], enough_data: true, not_enough_data: null, campaign_summary: null, watch: { creatives: [], audiences: [] }, notes: { pauses: "", drops: "", adds: "" }, events: { id: "e1", name: "Puzzle 4th Birthday", event_code: "P26-BDAY", event_date: "2026-12-27" } },
+      { id: "p1", event_id: "e1", campaign_key: "[P26-BDAY] On Sale", run_kind: "shadow", run_day: "2026-11-12", cycle_monday: "2026-11-09", cycle_kind: "content", window_start: "2026-11-05", window_end: "2026-11-11", mode: "shadow", objective: "initiate_checkout", why: whyLines(campaign({ purchases: lockleadRead() }), "initiate_checkout", ONSALE_PHASE), inputs: inputsSnapshot(campaign({ purchases: lockleadRead() })), blockers: [], enough_data: true, not_enough_data: null, campaign_summary: null, watch: { creatives: [], audiences: [] }, notes: { pauses: "", drops: "", adds: "" }, events: { id: "e1", name: "Puzzle 4th Birthday", event_code: "P26-BDAY", event_date: "2026-12-27" } },
       { id: "p2", event_id: "e2", campaign_key: "[NX] On Sale", run_kind: "shadow", run_day: "2026-11-12", cycle_monday: "2026-11-09", cycle_kind: "content", window_start: "2026-11-05", window_end: "2026-11-11", mode: "shadow", objective: "initiate_checkout", why: whyLines(campaign(), "initiate_checkout", ONSALE_PHASE), blockers: [], enough_data: true, not_enough_data: null, campaign_summary: null, watch: { creatives: [], audiences: [] }, notes: { pauses: "", drops: "", adds: "" }, events: { id: "e2", name: "NX", event_code: "NX-1", event_date: "2026-12-05" } },
     ];
     const { db, calls } = fakeDb((call) => {
@@ -509,7 +554,8 @@ describe("on-sale refresh: runner", () => {
     });
     const keys: string[] = [];
     const result = await postPendingProposals({ db, now: new Date("2026-11-16T10:05:00Z"), appUrl: "https://app.example", notify: async (opts) => ((keys.push(opts.dedupeKey ?? "")), opts.dedupeKey === "onsale_refresh:p1" ? { sent: true } : { sent: false, reason: "outside_business_hours" }) });
-    assert.deepEqual(keys, ["onsale_refresh:p1", "onsale_refresh:p2"]);
+    // p1 was sent, so its event's pixel line follows it (E4); p2 was held back and has no pixel line to send.
+    assert.deepEqual(keys, ["onsale_refresh:p1", "onsale_refresh_pixel:e1:645185673672763:1283861880364565", "onsale_refresh:p2"]);
     assert.deepEqual(result.posted, ["p1"]);
     assert.deepEqual(result.skipped, [{ proposalId: "p2", reason: "outside_business_hours" }]);
     assert.equal(result.ok, true);
@@ -557,13 +603,14 @@ describe("on-sale refresh: migration, route and docs", () => {
     assert.doesNotMatch(sql, /for all using/);
   });
 
-  it("the cron route checks the killswitch before the service-role client, never imports Meta, and the env var is documented", () => {
+  it("the cron route checks the killswitch before the service-role client, reads Meta without a write helper, and the env var is documented", () => {
     const route = readFileSync("app/api/cron/onsale-refresh/route.ts", "utf8");
     const kill = route.indexOf("isOnsaleRefreshEnabled(process.env)");
     assert.ok(kill > 0 && kill < route.indexOf("createServiceRoleClient()"));
     assert.match(route, /skippedReason: "killswitch"/);
-    assert.doesNotMatch(route, /lib\/meta\/|graphGet|META_ACCESS_TOKEN/);
-    for (const file of ["rules", "schedule", "load", "runner", "slack", "read", "phase-config"]) {
+    // The purchase line reads Meta (purchases.test.ts guards what it may import); nothing else in the refresh does.
+    assert.doesNotMatch(route, /graphPost|graphDelete/);
+    for (const file of ["rules", "schedule", "load", "runner", "slack", "read", "phase-config", "purchases"]) {
       assert.doesNotMatch(readFileSync(`lib/onsale-refresh/${file}.ts`, "utf8"), /graph\.facebook|graphGet|from "\.\.\/meta\/client/, file);
     }
     const claude = readFileSync("CLAUDE.md", "utf8");

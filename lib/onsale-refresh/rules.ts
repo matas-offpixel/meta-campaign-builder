@@ -10,6 +10,7 @@
  */
 
 import { RESULT_LABEL, type PhaseConfig, type ResultEvent } from "./phase-config.ts";
+import { purchaseWhy, unreadPurchases, type PurchaseRead } from "./purchases.ts";
 import { dayMonth, shortDay, type RunPlan } from "./schedule.ts";
 
 export type AdInput = {
@@ -112,6 +113,8 @@ export type CampaignInput = {
   last14: { ic: number; purchases: number; lpv: number };
   /** The event's campaigns since on sale. */
   sinceOnSale: { ic: number; purchases: number; fromDay: string | null };
+  /** The show's own purchases (per-event purchases record, E1–E4), read once per event. Absent = not read. */
+  purchases?: PurchaseRead;
 };
 
 export type LineKind =
@@ -148,7 +151,23 @@ export type WatchItem = { title: string; detail: string; narrow: string; evidenc
 
 export type Proposal = {
   objective: ResultEvent;
-  why: { objective: string; purchase: string; purchaseNarrow: string; moves: string; ticketing: string | null };
+  /**
+   * The Objective block. `pixel` is E4's setup lines; `attributed` is C2's
+   * any-show figure under the purchase line. Proposals stored before the
+   * per-event purchases record carry neither (their purchase line says
+   * the attributed figure itself).
+   */
+  why: {
+    objective: string;
+    purchase: string;
+    purchaseNarrow: string;
+    moves: string;
+    ticketing: string | null;
+    pixel?: string[];
+    pixelNarrow?: string[];
+    attributed?: string;
+    attributedNarrow?: string;
+  };
   /** R5: only the budget blocks a line. Ticketing is a stated input, said under Objective (F9). */
   blockers: { kind: "budget"; text: string; action: string }[];
   enoughData: boolean;
@@ -188,15 +207,11 @@ export function whyLines(input: CampaignInput, objective: ResultEvent, config: P
     objective === "initiate_checkout"
       ? `Initiate Checkout — ${input.sinceOnSale.ic} reached the pixel${since}. Last 14 days: ${input.last14.ic} IC.`
       : `Landing Page View — the pixel logged ${input.last14.ic} Initiate Checkout in 14 days, under ${config.icMinIn14Days}. Last 14 days: ${input.last14.lpv} LPV.`;
-  // H1: the pixel's purchase count is purchases attributed to this show's ads for ANY show on the pixel, never this show's
-  // sales. One form whatever the count; it decides nothing in P1 (no bar, no branch).
-  const n = input.last14.purchases;
-  const purchaseWord = `purchase${n === 1 ? "" : "s"}`;
-  const purchaseLine = `Purchase campaign not proposed — this show's own purchases aren't read yet. Attributed to these ads: ${n} ${purchaseWord} in 14 days, any show on this pixel.`;
-  const purchaseNarrow = `No Purchase campaign: ${n} attributed ${purchaseWord} in 14 days, any show.`;
-  const movesLine = "Budget moves stay inside each campaign.";
-  const ticketing = input.ticketingLinked ? null : "No linked ticketing: the pixel's purchases can't be checked against real sales.";
-  return { objective: objectiveLine, purchase: purchaseLine, purchaseNarrow, moves: movesLine, ticketing };
+  // E1–E4: the purchase line is the show's own-domain count on the pixel its ad sets carry. The ads' attributed
+  // purchases are any show's (C2) and sit under it, labelled; they decide nothing.
+  const read = input.purchases ?? unreadPurchases(input.last14.purchases, config);
+  const lines = purchaseWhy({ ...read, attributedPurchases: { count: input.last14.purchases, scope: "any_show_on_pixel" } }, input.ticketingLinked, config);
+  return { objective: objectiveLine, ...lines };
 }
 
 export function blockersFor(input: CampaignInput): Proposal["blockers"] {

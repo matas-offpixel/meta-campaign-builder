@@ -57,6 +57,16 @@ export type PhaseConfig = {
   moveToCprRatio: number;
   /** The receiving ad set must have this many results in the window: a cheap cost on two results is not a destination. */
   moveToMinResults: number;
+  /** E2 (per-event purchases): this many purchases on the show's own domain in 14 days proposes the Purchase campaign. */
+  ownDomainPurchasesMinIn14Days: number;
+  /**
+   * E2's "nothing reaches" span. The record says 90 days; Meta's pixel
+   * stats (the domain breakdown) return the last 28 only, so the test
+   * and its sentence use 28 until a longer history is stored.
+   */
+  purchaseHistoryDays: number;
+  /** E4: a second pixel carrying at least this share of the delivering spend is named in the setup line. */
+  secondPixelSpendShare: number;
   /** The Drive folders a cycle's adds come from, under {owner} / Videos | Statics. */
   supplyFolders: readonly string[];
   claimsLadder: "on_sale" | "presale";
@@ -87,6 +97,9 @@ export const ONSALE_PHASE: PhaseConfig = {
   moveFromCprRatio: 1.5,
   moveToCprRatio: 0.75,
   moveToMinResults: 5,
+  ownDomainPurchasesMinIn14Days: 15,
+  purchaseHistoryDays: 28,
+  secondPixelSpendShare: 0.1,
   supplyFolders: ["UGC", "CTA", "No CTA"],
   claimsLadder: "on_sale",
 };
