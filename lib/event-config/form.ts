@@ -5,6 +5,9 @@
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
+import type { CirqlinPageRef } from "../cirqlin/page.ts";
+import { cirqlinPageColumns } from "./cirqlin.ts";
+
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** Blank = no capacity (no default). Otherwise a whole number of tickets above 0. */
@@ -17,12 +20,19 @@ export function parseCapacity(input: string): Parsed<number | null> {
 
 /**
  * The events row the config panel writes: capacity and the umbrella flag,
- * nothing else. cirqlin_page_id is never written from the panel (design
- * rejected the raw-id field; the pasted-link field is a follow-up), so a
- * caller that sends one has it dropped here.
+ * plus the CIRQLIN page columns only when the save resolved (or cleared) the
+ * page through CIRQLIN. A page id the caller sends is never written: the id,
+ * title and slug come from CIRQLIN's answer (cirqlinPageColumns), and the
+ * pasted link is never stored.
  */
-export function eventConfigUpdate(input: { capacity: number | null; isUmbrella: boolean }): { capacity: number | null; is_umbrella: boolean } {
-  return { capacity: input.capacity, is_umbrella: input.isUmbrella === true };
+export function eventConfigUpdate(input: {
+  capacity: number | null;
+  isUmbrella: boolean;
+  cirqlin?: { page: CirqlinPageRef | null; now: Date };
+}): Record<string, unknown> {
+  const row: Record<string, unknown> = { capacity: input.capacity, is_umbrella: input.isUmbrella === true };
+  if (input.cirqlin) Object.assign(row, cirqlinPageColumns(input.cirqlin.page, input.cirqlin.now));
+  return row;
 }
 
 /**

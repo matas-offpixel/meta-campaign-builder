@@ -13,7 +13,17 @@
 --                           table has no external_event_code column (its
 --                           main at #619 has id, org_id, title, event_date),
 --                           and a slug changes when a page is renamed. The
---                           check keeps slugs and URLs out.
+--                           check keeps slugs and URLs out. The operator
+--                           pastes a link; the server resolves it with
+--                           CIRQLIN's GET /api/partner/page and stores the
+--                           id. The pasted link is never stored.
+--   events.cirqlin_page_title / cirqlin_page_slug / cirqlin_page_checked_at
+--                           A cache of the page's title and slug as CIRQLIN
+--                           last returned them, and when. Dashboards and share
+--                           pages read these and never call CIRQLIN (the
+--                           endpoint's rate limit is shared with the signups
+--                           cron). Only the edit page refreshes them, by ?id=,
+--                           for its one event.
 --   event_reference_shows   An event's own reference set for D10. No rows =
 --                           the client's library (the default).
 --   event_count_aliases     The show name exactly as Internal Counts writes
@@ -49,10 +59,23 @@ alter table public.events
     or cirqlin_page_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   );
 
+alter table public.events
+  add column if not exists cirqlin_page_title text;
+alter table public.events
+  add column if not exists cirqlin_page_slug text;
+alter table public.events
+  add column if not exists cirqlin_page_checked_at timestamptz;
+
 comment on column public.events.is_umbrella is
   'D9: an umbrella event (shared marketing across a client''s shows). No trajectory, no tickets, no cost per ticket; its spend is shown separately. Migration 235.';
 comment on column public.events.cirqlin_page_id is
   'D9: the CIRQLIN page id (pages.id, lower-case uuid) the show''s registrations come from. Null = "No CIRQLIN page". Migration 235.';
+comment on column public.events.cirqlin_page_title is
+  'Cache: the CIRQLIN page''s title as GET /api/partner/page last returned it. Refreshed only from the edit page. Migration 235.';
+comment on column public.events.cirqlin_page_slug is
+  'Cache: the CIRQLIN page''s slug as GET /api/partner/page last returned it (shown as crqln.com/{slug}). Refreshed only from the edit page. Migration 235.';
+comment on column public.events.cirqlin_page_checked_at is
+  'When CIRQLIN last confirmed the cached title and slug. Migration 235.';
 
 
 -- ── Reference shows ─────────────────────────────────────────────────────────

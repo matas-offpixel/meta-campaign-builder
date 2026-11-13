@@ -2,13 +2,13 @@
 
 /**
  * The event page's config panel (D9, HD2): capacity, the umbrella flag,
- * reference shows and count aliases. These replace the NX model's
- * constants; nothing is inferred from codes or slugs, and a missing value
- * says so in D9's words. Mounted on /events/[id]/edit.
+ * the CIRQLIN page, reference shows and count aliases. These replace the NX
+ * model's constants; nothing is inferred from codes or slugs, and a missing
+ * value says so in D9's words. Mounted on /events/[id]/edit.
  *
- * The page link has no field here yet: design rejected a raw page id, and
- * the pasted-link field waits on a CIRQLIN endpoint that turns a link into a
- * page. Until then every event reads as having no page.
+ * The CIRQLIN page field takes a pasted link. The save action resolves it
+ * with CIRQLIN and stores the page id; the panel never calls CIRQLIN. An
+ * untouched field sends nothing, so saving other settings spends no check.
  */
 
 import { useMemo, useState } from "react";
@@ -21,13 +21,28 @@ import { Input } from "@/components/ui/input";
 import { saveEventConfig, type EventConfigField } from "@/lib/actions/event-config";
 import { parseCapacity } from "@/lib/event-config/form";
 import type { EventConfigPanelData, ReferenceOption } from "@/lib/event-config/panel";
-import { NO_CAPACITY } from "@/lib/event-config/read";
+import {
+  CIRQLIN_PAGE_LABEL,
+  CIRQLIN_PAGE_PLACEHOLDER,
+  cirqlinFieldValue,
+  cirqlinPageLine,
+} from "@/lib/event-config/cirqlin";
+import { NO_CAPACITY, NO_CIRQLIN_PAGE, type CachedCirqlinPage } from "@/lib/event-config/read";
 
 interface Props {
   eventId: string;
   data: EventConfigPanelData;
   /** Frames render the panel without a server to save to. */
   readOnly?: boolean;
+  /** Frames only: a pasted link and the error the save returned for it. */
+  initial?: { cirqlinPageLink: string; error: { message: string; field?: EventConfigField } };
+}
+
+/** The line under the CIRQLIN page field when no error is showing. */
+function cirqlinHint(page: CachedCirqlinPage | null, link: string, touched: boolean): string | null {
+  if (touched) return link.trim() ? null : NO_CIRQLIN_PAGE;
+  if (!page) return NO_CIRQLIN_PAGE;
+  return cirqlinPageLine(page);
 }
 
 const fmt = (n: number) => n.toLocaleString("en-GB");
@@ -97,16 +112,19 @@ function ReferencePicker({
   );
 }
 
-export function EventConfigPanel({ eventId, data, readOnly = false }: Props) {
+export function EventConfigPanel({ eventId, data, readOnly = false, initial }: Props) {
   const router = useRouter();
   const { config, options } = data;
   const [capacity, setCapacity] = useState(config.capacity != null ? String(config.capacity) : "");
   const [isUmbrella, setIsUmbrella] = useState(config.isUmbrella);
+  const [page, setPage] = useState<CachedCirqlinPage | null>(config.cirqlinPage);
+  const [link, setLink] = useState(initial?.cirqlinPageLink ?? cirqlinFieldValue(config.cirqlinPage));
+  const [linkTouched, setLinkTouched] = useState(initial != null);
   const [picked, setPicked] = useState(() => new Set(config.referenceEventIds));
   const [aliases, setAliases] = useState(config.countAliases.join("\n"));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<{ message: string; field?: EventConfigField } | null>(null);
+  const [error, setError] = useState<{ message: string; field?: EventConfigField } | null>(initial?.error ?? null);
 
   const line = useMemo(() => allocationLine(config.sellable.paidTierAllocation, capacity), [config.sellable.paidTierAllocation, capacity]);
   const fieldError = (f: EventConfigField) => (error?.field === f ? error.message : undefined);
@@ -131,6 +149,7 @@ export function EventConfigPanel({ eventId, data, readOnly = false }: Props) {
       eventId,
       capacity,
       isUmbrella,
+      cirqlinPageLink: linkTouched ? link : null,
       referenceEventIds: [...picked],
       aliases,
     });
@@ -138,6 +157,14 @@ export function EventConfigPanel({ eventId, data, readOnly = false }: Props) {
     if (!result.ok) {
       setError({ message: result.error, field: result.field });
       return;
+    }
+    if (result.cirqlinPage !== undefined) {
+      const next = result.cirqlinPage
+        ? { id: result.cirqlinPage.id, title: result.cirqlinPage.title, slug: result.cirqlinPage.slug, checkedAt: null }
+        : null;
+      setPage(next);
+      setLink(cirqlinFieldValue(next));
+      setLinkTouched(false);
     }
     setSaved(true);
     router.refresh();
@@ -179,6 +206,29 @@ export function EventConfigPanel({ eventId, data, readOnly = false }: Props) {
         <p className="text-xs text-muted-foreground">
           An umbrella has no trajectory, no tickets and no cost per ticket. Its spend shows on its own.
         </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Input
+          id="event-config-cirqlin-page"
+          label={CIRQLIN_PAGE_LABEL}
+          placeholder={CIRQLIN_PAGE_PLACEHOLDER}
+          value={link}
+          onChange={(e) => {
+            setSaved(false);
+            setLinkTouched(true);
+            setLink(e.target.value);
+            if (error?.field === "cirqlinPage") setError(null);
+          }}
+          autoComplete="off"
+          spellCheck={false}
+          inputMode="url"
+          error={fieldError("cirqlinPage")}
+          disabled={saving}
+        />
+        {!fieldError("cirqlinPage") && cirqlinHint(page, link, linkTouched) && (
+          <p className="text-xs text-muted-foreground">{cirqlinHint(page, link, linkTouched)}</p>
+        )}
       </div>
 
       <ReferencePicker options={options} picked={picked} onToggle={toggle} disabled={saving} />

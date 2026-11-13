@@ -3,17 +3,22 @@
  * scripts/plan-frames/event-config-shots.mjs.
  *
  *   EC1  a show with everything set: capacity 2,000 (no tier allocations),
- *        two reference shows and an alias. No CIRQLIN page: the panel has
- *        no page field until the pasted-link follow-up.
+ *        a resolved CIRQLIN page ("{page title} · crqln.com/{slug}"), two
+ *        reference shows and an alias.
  *   EC2  the umbrella with nothing set: "Set capacity on the event to see the
  *        sell-out line", no reference shows, no aliases.
  *   EC3  a show whose sellable allocation comes from its paid tiers.
+ *   EC4  a pasted link CIRQLIN can't resolve: "That link isn't a CIRQLIN
+ *        page we can see." under the field, and nothing saved.
+ *
+ * Page ids, titles and slugs are made up.
  */
 
 import type { EventConfigPanelData, ReferenceOption } from "../../lib/event-config/panel.ts";
 import { sellableAllocation } from "../../lib/event-config/allocation.ts";
+import { CIRQLIN_PAGE_NOT_FOUND } from "../../lib/event-config/cirqlin.ts";
 
-export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3"] as const;
+export const EVENT_CONFIG_FRAME_IDS = ["EC1", "EC2", "EC3", "EC4"] as const;
 export type EventConfigFrameId = (typeof EVENT_CONFIG_FRAME_IDS)[number];
 
 const NX: ReferenceOption[] = [
@@ -35,7 +40,14 @@ const NX: ReferenceOption[] = [
 
 const others = (id: string) => NX.filter((o) => o.id !== id);
 
-export const EVENT_CONFIG_FRAMES: Record<EventConfigFrameId, { eventId: string; data: EventConfigPanelData }> = {
+export interface EventConfigFrame {
+  eventId: string;
+  data: EventConfigPanelData;
+  /** A pasted link and the error the save returned for it. */
+  initial?: { cirqlinPageLink: string; error: { message: string; field: "cirqlinPage" } };
+}
+
+export const EVENT_CONFIG_FRAMES: Record<EventConfigFrameId, EventConfigFrame> = {
   EC1: {
     eventId: "ev-ipc",
     data: {
@@ -45,7 +57,13 @@ export const EVENT_CONFIG_FRAMES: Record<EventConfigFrameId, { eventId: string; 
         capacity: 2000,
         sellable: sellableAllocation({ capacity: 2000, allocations: [] }),
         isUmbrella: false,
-        cirqlinPageId: null,
+        cirqlinPageId: "5f3c2a10-8b7e-4d21-9c64-0e1a2b3c4d5e",
+        cirqlinPage: {
+          id: "5f3c2a10-8b7e-4d21-9c64-0e1a2b3c4d5e",
+          title: "Interplanetary Criminal · Newcastle",
+          slug: "ipc-newcastle-nov",
+          checkedAt: "2026-11-13T18:00:00.000Z",
+        },
         referenceEventIds: ["ev-mf", "ev-djez"],
         countAliases: ["IPC"],
       },
@@ -62,6 +80,7 @@ export const EVENT_CONFIG_FRAMES: Record<EventConfigFrameId, { eventId: string; 
         sellable: sellableAllocation({ capacity: null, allocations: [] }),
         isUmbrella: true,
         cirqlinPageId: null,
+        cirqlinPage: null,
         referenceEventIds: [],
         countAliases: [],
       },
@@ -87,10 +106,32 @@ export const EVENT_CONFIG_FRAMES: Record<EventConfigFrameId, { eventId: string; 
         }),
         isUmbrella: false,
         cirqlinPageId: null,
+        cirqlinPage: null,
         referenceEventIds: [],
         countAliases: ["D.O.D", "DOD"],
       },
       options: others("ev-dod"),
+    },
+  },
+  EC4: {
+    eventId: "ev-robbiedoherty",
+    data: {
+      config: {
+        eventId: "ev-robbiedoherty",
+        clientId: "nx",
+        capacity: 2000,
+        sellable: sellableAllocation({ capacity: 2000, allocations: [] }),
+        isUmbrella: false,
+        cirqlinPageId: null,
+        cirqlinPage: null,
+        referenceEventIds: [],
+        countAliases: ["Robbie Doherty"],
+      },
+      options: others("ev-robbiedoherty"),
+    },
+    initial: {
+      cirqlinPageLink: "crqln.com/robbie-doherty-draft",
+      error: { message: CIRQLIN_PAGE_NOT_FOUND, field: "cirqlinPage" },
     },
   },
 };

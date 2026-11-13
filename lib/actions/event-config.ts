@@ -4,9 +4,11 @@
  * lib/actions/event-config.ts
  *
  * Saves the event page's config panel (D9): capacity, the umbrella flag,
- * the reference shows and the count aliases. The CIRQLIN page link is not
- * written here: the events row is built by eventConfigUpdate, which never
- * carries cirqlin_page_id, whatever the caller sends. The
+ * the CIRQLIN page, the reference shows and the count aliases. A pasted
+ * CIRQLIN link is resolved with GET /api/partner/page (?url=) and only the
+ * page id, with its title and slug as a cache, is stored: never the link,
+ * and never a page id the caller sends. A link CIRQLIN can't resolve, or a
+ * check that fails, saves nothing and keeps the stored page. The
  * caller must be signed in and own the event; every write goes through the
  * user's client, so RLS (migration 235) keeps it to their own events.
  *
@@ -16,7 +18,9 @@
 
 import { revalidatePath } from "next/cache";
 
+import { lookupCirqlinPage, type CirqlinPageRef } from "@/lib/cirqlin/page";
 import { parseAliasLines, planAliasChange, type CountAliasRow } from "@/lib/event-config/aliases";
+import { cirqlinFailureMessage, cirqlinFieldIntent } from "@/lib/event-config/cirqlin";
 import { allowedReferenceIds, eventConfigUpdate, parseCapacity } from "@/lib/event-config/form";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -24,12 +28,32 @@ export interface EventConfigInput {
   eventId: string;
   capacity: string;
   isUmbrella: boolean;
+  /** The "CIRQLIN page" field: null when it wasn't touched, blank to remove the page, else a pasted link. */
+  cirqlinPageLink: string | null;
   referenceEventIds: string[];
   aliases: string;
 }
 
-export type EventConfigField = "capacity" | "aliases";
-export type SaveEventConfigResult = { ok: true } | { ok: false; error: string; field?: EventConfigField };
+export type EventConfigField = "capacity" | "cirqlinPage" | "aliases";
+export type SaveEventConfigResult =
+  | {
+      ok: true;
+      /** Set when the save resolved or removed the page; absent when the field wasn't touched. */
+      cirqlinPage?: CirqlinPageRef | null;
+    }
+  | { ok: false; error: string; field?: EventConfigField };
+
+/** Resolve the field before anything is written. Never logs the request. */
+async function resolveCirqlinField(
+  link: string | null,
+): Promise<{ ok: true; cirqlin?: { page: CirqlinPageRef | null; now: Date } } | { ok: false; error: string; field: EventConfigField }> {
+  const intent = cirqlinFieldIntent(link);
+  if (intent.kind === "keep") return { ok: true };
+  if (intent.kind === "clear") return { ok: true, cirqlin: { page: null, now: new Date() } };
+  const found = await lookupCirqlinPage({ url: intent.url });
+  if (!found.ok) return { ok: false, error: cirqlinFailureMessage(found.reason), field: "cirqlinPage" };
+  return { ok: true, cirqlin: { page: found.page, now: new Date() } };
+}
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
@@ -109,6 +133,11 @@ export async function saveEventConfig(input: EventConfigInput): Promise<SaveEven
   if (!event) return { ok: false, error: "This event isn't yours to change." };
   const clientId = (event as { client_id: string | null }).client_id;
 
+  // After the ownership check, so an event that isn't the caller's never
+  // spends the rate limit CIRQLIN shares with the signups read.
+  const page = await resolveCirqlinField(input.cirqlinPageLink ?? null);
+  if (!page.ok) return page;
+
   try {
     const references = allowedReferenceIds(input.referenceEventIds, input.eventId, await referenceCandidates(sb, clientId, input.referenceEventIds));
     const wanted = parseAliasLines(input.aliases);
@@ -122,7 +151,7 @@ export async function saveEventConfig(input: EventConfigInput): Promise<SaveEven
 
     const update = await sb
       .from("events")
-      .update(eventConfigUpdate({ capacity: capacity.value, isUmbrella: input.isUmbrella }))
+      .update(eventConfigUpdate({ capacity: capacity.value, isUmbrella: input.isUmbrella, cirqlin: page.cirqlin }))
       .eq("id", input.eventId)
       .eq("user_id", user.id);
     if (update.error) return { ok: false, error: update.error.message };
@@ -134,5 +163,5 @@ export async function saveEventConfig(input: EventConfigInput): Promise<SaveEven
 
   revalidatePath(`/events/${input.eventId}`);
   revalidatePath(`/events/${input.eventId}/edit`);
-  return { ok: true };
+  return page.cirqlin ? { ok: true, cirqlinPage: page.cirqlin.page } : { ok: true };
 }

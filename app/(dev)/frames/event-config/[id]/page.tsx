@@ -4,7 +4,7 @@ import { EventConfigPanel } from "@/components/dashboard/events/event-config-pan
 import { EVENT_CONFIG_FRAME_IDS, EVENT_CONFIG_FRAMES, type EventConfigFrameId } from "@/scripts/plan-frames/event-config-fixtures";
 
 /**
- * The event page's Dashboard panel frames (EC1–EC3, D9 / HD2) at
+ * The event page's Dashboard panel frames (EC1–EC4, D9 / HD2) at
  * /frames/event-config/{id}, a nested route under the public /frames/
  * prefix, while app/(dev)/frames/[id]/page.tsx sits in an open Cursor PR.
  * Fixture only: nothing here fetches, and Save does nothing.
@@ -22,7 +22,7 @@ export default async function EventConfigFramePage({ params }: { params: Promise
   return (
     <div data-frame-ready={`event-config/${id}`} className="bg-background px-4 py-6 text-foreground sm:px-6">
       <div className="mx-auto max-w-4xl">
-        <EventConfigPanel eventId={frame.eventId} data={frame.data} readOnly />
+        <EventConfigPanel eventId={frame.eventId} data={frame.data} initial={frame.initial} readOnly />
       </div>
     </div>
   );

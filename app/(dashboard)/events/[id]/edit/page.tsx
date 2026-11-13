@@ -4,6 +4,8 @@ import { ArrowLeft } from "lucide-react";
 import { EventConfigPanel } from "@/components/dashboard/events/event-config-panel";
 import { EventForm } from "@/components/dashboard/events/event-form";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { lookupCirqlinPage } from "@/lib/cirqlin/page";
+import { refreshCirqlinPageCache } from "@/lib/event-config/cirqlin-refresh";
 import { loadEventConfigPanel } from "@/lib/event-config/panel";
 import { getEventByIdServer } from "@/lib/db/events-server";
 import { createClient } from "@/lib/supabase/server";
@@ -24,6 +26,15 @@ export default async function EditEventPage({ params }: Props) {
     console.error("[EditEventPage] loadEventConfigPanel failed:", err);
     return null;
   });
+  // The one CIRQLIN call a page load may make: this event's linked page, by
+  // id, unless its cache was confirmed in the last hour. A failure keeps the
+  // cached title.
+  if (config) {
+    const cirqlinPage = await refreshCirqlinPageCache(supabase, event.id, config.config.cirqlinPage, {
+      lookup: (q) => lookupCirqlinPage(q),
+    }).catch(() => config.config.cirqlinPage);
+    config.config = { ...config.config, cirqlinPage };
+  }
 
   return (
     <>

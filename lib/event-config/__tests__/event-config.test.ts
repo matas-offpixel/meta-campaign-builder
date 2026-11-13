@@ -4,6 +4,20 @@ import { describe, it } from "node:test";
 
 import { isCompTier, sellableAllocation } from "../allocation.ts";
 import { getEventIdForCountAlias, loadCountAliasMap, parseAliasLines, planAliasChange } from "../aliases.ts";
+import type { CirqlinPageLookup, CirqlinPageQuery } from "../../cirqlin/page.ts";
+import {
+  CIRQLIN_PAGE_LABEL,
+  CIRQLIN_PAGE_NOT_FOUND,
+  CIRQLIN_PAGE_PLACEHOLDER,
+  CIRQLIN_PAGE_RATE_LIMITED,
+  CIRQLIN_PAGE_READ_FAILED,
+  CIRQLIN_PAGE_UNAUTHORIZED,
+  cirqlinFailureMessage,
+  cirqlinFieldIntent,
+  cirqlinFieldValue,
+  cirqlinPageLine,
+} from "../cirqlin.ts";
+import { refreshCirqlinPageCache } from "../cirqlin-refresh.ts";
 import { allowedReferenceIds, eventConfigUpdate, parseCapacity } from "../form.ts";
 import { buildEventConfigs, NO_CAPACITY, NO_CIRQLIN_PAGE } from "../read.ts";
 
@@ -145,11 +159,29 @@ describe("form inputs", () => {
     assert.equal(parseCapacity("1500.5").ok, false);
   });
 
-  it("the events row it writes never carries a CIRQLIN page id, whatever it is sent", () => {
+  it("the events row never carries a page id the caller sent, only CIRQLIN's answer", () => {
     const sent = { capacity: 2000, isUmbrella: false, cirqlinPageId: "5f3c2a10-0000-4000-8000-00000000ab12", cirqlin_page_id: "x" };
-    const update = eventConfigUpdate(sent as Parameters<typeof eventConfigUpdate>[0]);
-    assert.deepEqual(update, { capacity: 2000, is_umbrella: false });
-    assert.equal("cirqlin_page_id" in update, false);
+    const untouched = eventConfigUpdate(sent as Parameters<typeof eventConfigUpdate>[0]);
+    assert.deepEqual(untouched, { capacity: 2000, is_umbrella: false });
+
+    const now = new Date("2026-11-13T19:00:00Z");
+    const page = { id: "5f3c2a10-8b7e-4d21-9c64-0e1a2b3c4d5e", slug: "ipc-newcastle-nov", title: "IPC · Newcastle", customDomain: "example-promoter.co.uk" };
+    assert.deepEqual(eventConfigUpdate({ ...sent, cirqlin: { page, now } }), {
+      capacity: 2000,
+      is_umbrella: false,
+      cirqlin_page_id: page.id,
+      cirqlin_page_title: "IPC · Newcastle",
+      cirqlin_page_slug: "ipc-newcastle-nov",
+      cirqlin_page_checked_at: "2026-11-13T19:00:00.000Z",
+    });
+    assert.deepEqual(eventConfigUpdate({ ...sent, cirqlin: { page: null, now } }), {
+      capacity: 2000,
+      is_umbrella: false,
+      cirqlin_page_id: null,
+      cirqlin_page_title: null,
+      cirqlin_page_slug: null,
+      cirqlin_page_checked_at: null,
+    });
   });
 
   it("reference shows: never the event itself or an umbrella", () => {
@@ -184,6 +216,33 @@ describe("buildEventConfigs", () => {
     assert.deepEqual(ipc.countAliases, ["IPC"]);
   });
 
+  it("exposes the cached page title and slug, never calling CIRQLIN", () => {
+    const configs = buildEventConfigs({
+      events: [
+        {
+          id: "ipc",
+          client_id: "nx",
+          capacity: 2000,
+          is_umbrella: false,
+          cirqlin_page_id: "5f3c2a10-8b7e-4d21-9c64-0e1a2b3c4d5e",
+          cirqlin_page_title: "IPC · Newcastle",
+          cirqlin_page_slug: "ipc-newcastle-nov",
+          cirqlin_page_checked_at: "2026-11-13T18:00:00.000Z",
+        },
+      ],
+      allocations: [],
+      tiers: [],
+      references: [],
+      aliases: [],
+    });
+    assert.deepEqual(configs.get("ipc")!.cirqlinPage, {
+      id: "5f3c2a10-8b7e-4d21-9c64-0e1a2b3c4d5e",
+      title: "IPC · Newcastle",
+      slug: "ipc-newcastle-nov",
+      checkedAt: "2026-11-13T18:00:00.000Z",
+    });
+  });
+
   it("reads the page link as null when none is stored: the dashboard says No CIRQLIN page", () => {
     const configs = buildEventConfigs({
       events: [{ id: "ipc", client_id: "nx", capacity: 2000, is_umbrella: false, cirqlin_page_id: null }],
@@ -193,6 +252,7 @@ describe("buildEventConfigs", () => {
       aliases: [],
     });
     assert.equal(configs.get("ipc")!.cirqlinPageId, null);
+    assert.equal(configs.get("ipc")!.cirqlinPage, null);
   });
 
   it("says missing values in D9's words", () => {
@@ -235,20 +295,126 @@ function fakeDb(rows: { alias: string; event_id: string }[], calls: unknown[]) {
   };
 }
 
-describe("CIRQLIN page field (follow-up, waiting on GET /api/partner/page)", () => {
+describe("CIRQLIN page field (design's ruling)", () => {
   const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-  it("the panel renders no CIRQLIN page input", () => {
-    const panel = read("../../../components/dashboard/events/event-config-panel.tsx");
-    assert.doesNotMatch(panel, /event-config-cirqlin/);
-    assert.doesNotMatch(panel, /cirqlinPageId/);
-    assert.doesNotMatch(panel, /label="CIRQLIN/);
+  it("pins the words exactly", () => {
+    assert.equal(CIRQLIN_PAGE_LABEL, "CIRQLIN page");
+    assert.equal(CIRQLIN_PAGE_PLACEHOLDER, "crqln.com/…");
+    assert.equal(CIRQLIN_PAGE_NOT_FOUND, "That link isn't a CIRQLIN page we can see.");
+    assert.equal(NO_CIRQLIN_PAGE, "No CIRQLIN page");
+    assert.equal(CIRQLIN_PAGE_UNAUTHORIZED, "CIRQLIN didn't let us check that link. Nothing was saved.");
+    assert.equal(CIRQLIN_PAGE_RATE_LIMITED, "CIRQLIN has had too many checks in the last few minutes. Try again shortly. Nothing was saved.");
+    assert.equal(CIRQLIN_PAGE_READ_FAILED, "CIRQLIN couldn't check that link just now. Nothing was saved.");
   });
 
-  it("the save action takes no page id and writes the row through eventConfigUpdate", () => {
-    const action = read("../../actions/event-config.ts");
-    assert.doesNotMatch(action, /cirqlinPageId/);
-    assert.doesNotMatch(action, /cirqlin_page_id:/);
-    assert.match(action, /\.update\(eventConfigUpdate\(/);
+  it("resolved: '{page title} · crqln.com/{slug}', crqln.com even with a custom domain", () => {
+    assert.equal(cirqlinPageLine({ title: "IPC · Newcastle", slug: "ipc-newcastle-nov" }), "IPC · Newcastle · crqln.com/ipc-newcastle-nov");
+    assert.equal(cirqlinPageLine({ title: null, slug: "ipc-newcastle-nov" }), "crqln.com/ipc-newcastle-nov");
+    assert.equal(cirqlinPageLine(null), null);
+    assert.equal(cirqlinFieldValue({ id: "p", title: "T", slug: "ipc-newcastle-nov", checkedAt: null }), "crqln.com/ipc-newcastle-nov");
+    assert.equal(cirqlinFieldValue(null), "");
   });
+
+  it("each failure has its line; a 404 is design's words", () => {
+    assert.equal(cirqlinFailureMessage("no_page"), CIRQLIN_PAGE_NOT_FOUND);
+    assert.equal(cirqlinFailureMessage("unauthorized"), CIRQLIN_PAGE_UNAUTHORIZED);
+    assert.equal(cirqlinFailureMessage("rate_limited"), CIRQLIN_PAGE_RATE_LIMITED);
+    assert.equal(cirqlinFailureMessage("read_failed"), CIRQLIN_PAGE_READ_FAILED);
+  });
+
+  it("an untouched field keeps the stored page and calls nothing; blank removes it; text is resolved", () => {
+    assert.deepEqual(cirqlinFieldIntent(null), { kind: "keep" });
+    assert.deepEqual(cirqlinFieldIntent(undefined), { kind: "keep" });
+    assert.deepEqual(cirqlinFieldIntent("   "), { kind: "clear" });
+    assert.deepEqual(cirqlinFieldIntent(" crqln.com/ipc "), { kind: "resolve", url: "crqln.com/ipc" });
+  });
+
+  it("the panel shows the field with the ruling's label and placeholder, and never calls CIRQLIN itself", () => {
+    const panel = read("../../../components/dashboard/events/event-config-panel.tsx");
+    assert.match(panel, /label=\{CIRQLIN_PAGE_LABEL\}/);
+    assert.match(panel, /placeholder=\{CIRQLIN_PAGE_PLACEHOLDER\}/);
+    assert.match(panel, /cirqlinPageLink: linkTouched \? link : null/);
+    assert.doesNotMatch(panel, /lookupCirqlinPage|cirqlin\/page/);
+  });
+
+  it("the save action resolves before it writes, and never stores the pasted link", () => {
+    const action = read("../../actions/event-config.ts");
+    assert.ok(action.indexOf("resolveCirqlinField(input.cirqlinPageLink") < action.indexOf('.from("events")\n      .update('));
+    assert.doesNotMatch(action, /cirqlin_page_id:\s*input/);
+    assert.doesNotMatch(action, /cirqlinPageLink[^\n]*\.update|cirqlin_page_link|pasted_link/);
+    assert.match(action, /\.update\(eventConfigUpdate\(\{ capacity: capacity\.value, isUmbrella: input\.isUmbrella, cirqlin: page\.cirqlin \}\)\)/);
+  });
+
+  it("migration 235 adds the cache columns beside the page id", () => {
+    const sql = read("../../../supabase/migrations/235_event_config.sql");
+    for (const col of ["cirqlin_page_title text", "cirqlin_page_slug text", "cirqlin_page_checked_at timestamptz"]) assert.match(sql, new RegExp(`add column if not exists ${col}`));
+  });
+});
+
+describe("refreshCirqlinPageCache (edit page only)", () => {
+  const now = new Date("2026-11-13T19:00:00Z");
+  const cached = { id: "5f3c2a10-8b7e-4d21-9c64-0e1a2b3c4d5e", title: "Old title", slug: "old-slug", checkedAt: "2026-11-13T16:00:00.000Z" };
+  const fresh = { ...cached, checkedAt: "2026-11-13T18:30:00.000Z" };
+
+  function db(error: { message: string } | null = null) {
+    const writes: { row: Record<string, unknown>; eq: [string, unknown][] }[] = [];
+    return {
+      writes,
+      from(table: string) {
+        assert.equal(table, "events");
+        return {
+          update(row: Record<string, unknown>) {
+            const w = { row, eq: [] as [string, unknown][] };
+            writes.push(w);
+            const chain = {
+              eq(col: string, val: unknown) {
+                w.eq.push([col, val]);
+                return w.eq.length >= 2 ? Promise.resolve({ error }) : chain;
+              },
+            };
+            return chain;
+          },
+        };
+      },
+    };
+  }
+
+  const lookupWith = (result: CirqlinPageLookup, calls: CirqlinPageQuery[]) => async (q: CirqlinPageQuery) => {
+    calls.push(q);
+    return result;
+  };
+
+  it("no page linked: no call", async () => {
+    const calls: CirqlinPageQuery[] = [];
+    const d = db();
+    assert.equal(await refreshCirqlinPageCache(d as never, "ev", null, { lookup: lookupWith({ ok: false, reason: "read_failed" }, calls), now }), null);
+    assert.equal(calls.length, 0);
+  });
+
+  it("confirmed in the last hour: no call", async () => {
+    const calls: CirqlinPageQuery[] = [];
+    assert.deepEqual(await refreshCirqlinPageCache(db() as never, "ev", fresh, { lookup: lookupWith({ ok: false, reason: "read_failed" }, calls), now }), fresh);
+    assert.equal(calls.length, 0);
+  });
+
+  it("stale: one call by ?id=, and the new title and slug are written for that event", async () => {
+    const calls: CirqlinPageQuery[] = [];
+    const d = db();
+    const page = { id: cached.id, slug: "ipc-newcastle-nov", title: "IPC · Newcastle", customDomain: null };
+    const out = await refreshCirqlinPageCache(d as never, "ev-ipc", cached, { lookup: lookupWith({ ok: true, page }, calls), now });
+    assert.deepEqual(calls, [{ id: cached.id }]);
+    assert.deepEqual(out, { id: cached.id, title: "IPC · Newcastle", slug: "ipc-newcastle-nov", checkedAt: now.toISOString() });
+    assert.equal(d.writes.length, 1);
+    assert.deepEqual(d.writes[0]!.row, { cirqlin_page_title: "IPC · Newcastle", cirqlin_page_slug: "ipc-newcastle-nov", cirqlin_page_checked_at: now.toISOString() });
+    assert.deepEqual(d.writes[0]!.eq, [["id", "ev-ipc"], ["cirqlin_page_id", cached.id]]);
+  });
+
+  for (const reason of ["no_page", "unauthorized", "rate_limited", "read_failed"] as const) {
+    it(`a failed refresh (${reason}) shows the cached title and writes nothing`, async () => {
+      const d = db();
+      assert.deepEqual(await refreshCirqlinPageCache(d as never, "ev", cached, { lookup: lookupWith({ ok: false, reason }, []), now }), cached);
+      assert.equal(d.writes.length, 0);
+    });
+  }
 });

@@ -33,9 +33,23 @@ export interface EventConfig {
   sellable: SellableAllocation;
   isUmbrella: boolean;
   cirqlinPageId: string | null;
+  /**
+   * The linked page as CIRQLIN last described it (cached on the events row,
+   * migration 235). Null when no page is linked. Reading this never calls
+   * CIRQLIN; only the edit page refreshes it.
+   */
+  cirqlinPage: CachedCirqlinPage | null;
   /** The event's own reference set. Empty = the client's library (D10). */
   referenceEventIds: string[];
   countAliases: string[];
+}
+
+export interface CachedCirqlinPage {
+  id: string;
+  /** Null when the cache has not been filled (a link set before the cache columns). */
+  title: string | null;
+  slug: string | null;
+  checkedAt: string | null;
 }
 
 interface EventRow {
@@ -44,6 +58,21 @@ interface EventRow {
   capacity: number | null;
   is_umbrella: boolean | null;
   cirqlin_page_id: string | null;
+  cirqlin_page_title?: string | null;
+  cirqlin_page_slug?: string | null;
+  cirqlin_page_checked_at?: string | null;
+}
+
+const EVENT_COLUMNS = "id,client_id,capacity,is_umbrella,cirqlin_page_id,cirqlin_page_title,cirqlin_page_slug,cirqlin_page_checked_at";
+
+function cachedPage(e: EventRow): CachedCirqlinPage | null {
+  if (!e.cirqlin_page_id) return null;
+  return {
+    id: e.cirqlin_page_id,
+    title: e.cirqlin_page_title ?? null,
+    slug: e.cirqlin_page_slug ?? null,
+    checkedAt: e.cirqlin_page_checked_at ?? null,
+  };
 }
 
 const IN_CHUNK = 100;
@@ -100,6 +129,7 @@ export function buildEventConfigs(input: {
       }),
       isUmbrella: e.is_umbrella === true,
       cirqlinPageId: e.cirqlin_page_id ?? null,
+      cirqlinPage: cachedPage(e),
       referenceEventIds: references.get(e.id) ?? [],
       countAliases: aliases.get(e.id) ?? [],
     });
@@ -114,7 +144,7 @@ export async function loadEventConfigs(sb: Db, eventIds: readonly string[]): Pro
   const byEvent = (chunk: string[]) => (q: PagedQuery) => q.in("event_id", chunk);
   const [events, allocations, tiers, references, aliases] = await Promise.all([
     inChunks(ids, (chunk) =>
-      loadAllPaged<EventRow>(sb, "events", "id,client_id,capacity,is_umbrella,cirqlin_page_id", ["id"], (q) => q.in("id", chunk)),
+      loadAllPaged<EventRow>(sb, "events", EVENT_COLUMNS, ["id"], (q) => q.in("id", chunk)),
     ),
     inChunks(ids, (chunk) =>
       loadAllPaged<TierAllocation & { id: string; event_id: string }>(
