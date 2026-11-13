@@ -13,7 +13,7 @@
 
 import { summarise, type GmailClient, type MessageSummary } from "../gmail/client.ts";
 import type { Db, RunContext } from "./context.ts";
-import { classifyMessage, isForward, isFromCountDomain, type MessageKind } from "./message.ts";
+import { classifyMessage, isForward, isFromCountDomain, stripPrefixes, type MessageKind } from "./message.ts";
 import { chooseSheet, readPdf, type ReadPdf } from "./pdf-read.ts";
 import type { PriceFlag } from "./checks.ts";
 import { processMessageSafely, type ProcessOptions, type ProcessResult } from "./store.ts";
@@ -187,6 +187,7 @@ export async function runInternalCountsPull(
           subject: m.subject,
           body: m.body,
           forward: isForward(m.subject),
+          prefixed: stripPrefixes(m.subject) !== m.subject.trim(),
           pdf,
         },
         { dryRun: opts.dryRun, confirmedAliases: opts.confirmedAliases },

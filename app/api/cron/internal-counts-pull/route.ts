@@ -81,10 +81,11 @@ export const GET = withCronRunLog(
       blocksHeld: body.blocksHeld ?? 0,
       reviewByKind: body.reviewByKind ?? {},
     }),
+    // Every completed read is a row: the review list's "last read {time}" comes from it. The cron isn't in
+    // CRON_ALARMS, so a zero here alarms nothing.
     recordWhen: (body, status) => {
       if (status >= 400 || body.ok === false) return true;
-      if (body.skippedReason) return false;
-      return Number(body.counts ?? 0) + Number(body.replies ?? 0) + Number(body.nearMisses ?? 0) > 0;
+      return !body.skippedReason;
     },
   },
   handleGET,

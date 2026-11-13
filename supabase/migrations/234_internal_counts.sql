@@ -106,6 +106,7 @@ create table if not exists public.internal_count_blocks (
   show_name             text not null,
   event_id              uuid references public.events (id) on delete set null,
   count_date            date,
+  printed_date          date,
   paid_tickets          integer,
   comp_tickets          integer,
   total_tickets         integer,
@@ -130,6 +131,8 @@ comment on column public.internal_count_blocks.parsed is
   'The block as parsed: tiers (position, name, price, comp), outlet rows with null for a blank cell and 0 for a printed 0, the totals row and the TIER TOTALS row.';
 comment on column public.internal_count_blocks.paid_revenue_pence is
   'The sheet''s £ for paid tiers. Read only when revenue_held is false: a price that looks wrong holds it until "Revenue is right" releases it (revenue_released_by/at). Releasing never touches a count row.';
+comment on column public.internal_count_blocks.printed_date is
+  'The block''s own TIER TOTALS date when it is older than the sheet''s latest date and its figures moved: the block is filed under the sheet''s date (count_date) and this keeps what was printed, for audit (M1b). Null otherwise.';
 comment on column public.internal_count_blocks.chosen_total is
   'The total Matas picked on "tiers add to n, the sheet''s total says m" (R1). Null until then.';
 comment on column public.internal_count_blocks.since_last_count is

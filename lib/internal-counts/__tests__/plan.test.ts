@@ -25,6 +25,7 @@ function ctx(over: Partial<PlanContext> = {}): PlanContext {
     priceCeiling: () => null,
     previousTotal: () => null,
     storedOn: () => null,
+    latestStored: () => null,
     mentionSeen: () => false,
     ...over,
   };
@@ -186,5 +187,71 @@ describe("HM3 on the 30 Oct email", () => {
     );
     // The sale sentences add items only; the sheet's counts are what's written.
     assert.equal(plan.blocks.find((b) => b.showName === "IPC")!.paid, 1828);
+  });
+});
+
+describe("M1b follow-ups", () => {
+  let sheet: ParsedSheet;
+  before(async () => {
+    sheet = parseInternalCountsItems(await extractPdfTextItems(new Uint8Array(read("internal-counts-2026-11-12.pdf"))));
+  });
+  const withSchakDated = (date: string): ParsedSheet => ({
+    ...sheet,
+    blocks: sheet.blocks.map((b) => (b.showName === "SCHAK" ? { ...b, countDate: date, countDateText: "19/10/26" } : b)),
+  });
+
+  it("(a) a Re:/FW: subject's older date is ignored; the PDF date stands", () => {
+    const plan = planReport({ ...report, subject: "Re: Internal Show Count 11.11.26", prefixed: true }, sheet, ctx());
+    assert.equal(plan.reviewItems.filter((i) => i.kind === "date_mismatch").length, 0);
+    assert.ok(plan.blocks.every((b) => b.status === "write"));
+  });
+
+  it("(a) a Re:/FW: subject date later than the PDF still holds the sheet", () => {
+    const plan = planReport({ ...report, subject: "Re: Internal Show Count 13.11.26", prefixed: true, sentAt: "2026-11-13T10:00:00Z" }, sheet, ctx());
+    assert.deepEqual(plan.reviewItems.find((i) => i.kind === "date_mismatch")!.detail, { sheetDate: "2026-11-12", subjectDate: "2026-11-13" });
+    assert.ok(plan.blocks.every((b) => b.status === "held"));
+  });
+
+  it("(a) an original's subject is cross-checked as before", () => {
+    const plan = planReport({ ...report, subject: "Internal Show Count 11.11.26" }, sheet, ctx());
+    assert.equal(plan.reviewItems.filter((i) => i.kind === "date_mismatch").length, 1);
+  });
+
+  it("(b) the latest block date is the count date", () => {
+    const plan = planReport(report, withSchakDated("2026-10-19"), ctx());
+    assert.equal(plan.sheetDate, "2026-11-12");
+  });
+
+  it("(b) an older-dated block with moved figures is filed under the sheet's date, printed date kept, no item", () => {
+    const plan = planReport(
+      report,
+      withSchakDated("2026-10-19"),
+      ctx({ latestStored: (id) => (id === "id-NX26-SCHAK" ? { total: 1763, sentAt: null, blockId: "b", countDate: "2026-10-19" } : null) }),
+    );
+    const schak = plan.blocks.find((b) => b.showName === "SCHAK")!;
+    assert.equal(schak.status, "write");
+    assert.equal(schak.countDate, "2026-11-12");
+    assert.equal(schak.printedDate, "2026-10-19");
+    assert.equal(plan.reviewItems.filter((i) => i.showName === "SCHAK" && i.kind !== "since_last_mismatch").length, 0);
+  });
+
+  it("(b) an older-dated block with unchanged figures is skipped: nothing written, no SINCE LAST check", () => {
+    const plan = planReport(
+      report,
+      withSchakDated("2026-10-19"),
+      ctx({
+        latestStored: (id) => (id === "id-NX26-SCHAK" ? { total: 1870, sentAt: null, blockId: "b", countDate: "2026-10-19" } : null),
+        previousTotal: () => 1000,
+      }),
+    );
+    const schak = plan.blocks.find((b) => b.showName === "SCHAK")!;
+    assert.equal(schak.status, "repeat");
+    assert.equal(plan.reviewItems.filter((i) => i.showName === "SCHAK").length, 0);
+  });
+
+  it("(b) a block dated after the email was sent holds the sheet with the date item", () => {
+    const plan = planReport({ ...report, sentAt: "2026-11-11T18:00:00Z" }, sheet, ctx());
+    assert.deepEqual(plan.reviewItems.find((i) => i.kind === "date_mismatch")!.detail, { sheetDate: "2026-11-12", subjectDate: "2026-11-11" });
+    assert.ok(plan.blocks.every((b) => b.status === "held"));
   });
 });

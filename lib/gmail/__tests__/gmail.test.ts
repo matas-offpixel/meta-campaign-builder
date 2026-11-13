@@ -97,7 +97,11 @@ describe("openGmailSession and the status line", () => {
     assert.deepEqual(await gmailStatus(ENV, { token: denied.fetcher }, 1), { state: "not_set_up", mailbox: "matas@offpixel.co.uk" });
     const ok = tokenEndpoint({ access_token: "ya29.fake" });
     const api = async () => ({ ok: true, status: 200, json: async () => ({ emailAddress: "matas@offpixel.co.uk" }) });
-    assert.deepEqual(await gmailStatus(ENV, { token: ok.fetcher, api }, 1 + 6 * 60_000), { state: "reading", mailbox: "matas@offpixel.co.uk" });
+    assert.deepEqual(await gmailStatus(ENV, { token: ok.fetcher, api }, 1 + 6 * 60_000), {
+      state: "reading",
+      mailbox: "matas@offpixel.co.uk",
+      readAt: new Date(1 + 6 * 60_000).toISOString(),
+    });
     clearGmailStatusCache();
   });
 });

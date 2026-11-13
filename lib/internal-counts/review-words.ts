@@ -2,25 +2,52 @@
  * lib/internal-counts/review-words.ts
  *
  * R1 of docs/design-record/2026-11-13-internal-counts-matching.html: the
- * review list's words, at 1280 and at 393. Every string here is R1's,
- * filled with the item's facts, except the two marked NOT IN R1 (an open
- * "replaced" note and a SINCE LAST COUNT note), which wait on a ruling.
+ * review list's words, at 1280 and at 393, with R1a's rulings. Every
+ * string here is R1's or R1a's, filled with the item's facts, except those
+ * marked NOT RULED, which wait on design.
+ *
+ * Show names are shown exactly as stored ("IPC", "ENZO SIRAGUSA"), never
+ * re-cased. Our own figures get thousands separators (1,887); quoted email
+ * text stays as written ("1974"). Dates and times keep together at 393:
+ * their spaces are non-breaking.
  */
 
 import type { PriceFlag } from "./checks.ts";
 import type { ActionView, CheckedItemView, ReviewItemView, SourceView } from "./view-types.ts";
 
 const LONDON = "Europe/London";
+/** A non-breaking space: "12 Nov 11:33" never splits (#620). */
+export const NBSP = "\u00a0";
 
-export function dayMonth(isoDate: string): string {
-  return new Date(`${isoDate.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: LONDON });
+/** London calendar date of an ISO instant or date, yyyy-mm-dd. */
+function londonDay(iso: string): string {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00Z`) : new Date(iso);
+  return d.toLocaleDateString("en-CA", { timeZone: LONDON });
+}
+
+export function dayMonth(iso: string): string {
+  return new Date(`${londonDay(iso)}T12:00:00Z`)
+    .toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: LONDON })
+    .replace(/ /g, NBSP);
+}
+
+export function hourMinute(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: LONDON });
 }
 
 export function dayMonthTime(iso: string): string {
-  const d = new Date(iso);
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: LONDON });
-  return `${dayMonth(d.toISOString())} ${time}`;
+  return `${dayMonth(iso)}${NBSP}${hourMinute(iso)}`;
 }
+
+/** R1a's {time}: "14:05" today, else "Thu 13 Nov, 14:05". */
+export function lastReadTime(iso: string, now = new Date()): string {
+  if (londonDay(iso) === londonDay(now.toISOString())) return hourMinute(iso);
+  const weekday = new Date(iso).toLocaleDateString("en-GB", { weekday: "short", timeZone: LONDON });
+  return `${weekday}${NBSP}${dayMonth(iso)},${NBSP}${hourMinute(iso)}`;
+}
+
+/** Our own figures: 1,887. */
+export const figure = (n: unknown) => Number(n).toLocaleString("en-GB");
 
 const pounds = (pence: number) => `£${(pence / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -35,11 +62,6 @@ const OUTLET_NAMES: Record<string, string> = {
   FIXR: "Fixr",
 };
 
-/** "ENZO SIRAGUSA" → "Enzo Siragusa"; a name with lower case in it is kept as written. */
-export function displayShow(name: string): string {
-  if (/[a-z]/.test(name)) return name;
-  return name.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase());
-}
 
 export interface ItemFacts {
   id: string;
@@ -64,9 +86,9 @@ export function sourceOf(f: ItemFacts): SourceView {
   const address = (f.report.sender ?? "").match(/[^\s<>"]+@([^\s<>"]+)/);
   const upload = f.report.gmailMessageId.startsWith("upload:");
   return {
-    subject: f.report.subject,
-    // R1a: a replaced item's meta is "\"{newer subject}\" · {received}", no sender.
-    sender: f.kind === "replaced" ? "" : (address?.[1]?.toLowerCase() ?? f.report.sender ?? ""),
+    // R1a: a near miss's meta is "{received}" only; a replaced item's is "\"{newer subject}\" · {received}".
+    subject: f.kind === "near_miss" ? null : f.report.subject,
+    sender: f.kind === "replaced" || f.kind === "near_miss" ? "" : (address?.[1]?.toLowerCase() ?? f.report.sender ?? ""),
     received: dayMonthTime(f.report.receivedAt),
     emailUrl: upload
       ? null
@@ -87,12 +109,14 @@ function priceWords(f: ItemFacts, show: string): Words {
   const held = `Counts are stored; ${show}'s revenue from this sheet is held.`;
   let body = held;
   let bodyShort = "Revenue held.";
+  // R1a: "Also {n} more on this sheet." when more than one tier fires (IPC: all seven).
+  const more = flags.length > 1 ? ` Also ${figure(flags.length - 1)} more on this sheet.` : "";
   if (flag?.reason === "equals_count") {
-    body = `${flag.tierName} on ${outlet} shows ${pounds(flag.pricePence)} with ${flag.count} sold, the same number. ${held}`;
-    bodyShort = `${flag.tierName} on ${outlet}: ${pounds(flag.pricePence)} with ${flag.count} sold. Revenue held.`;
+    body = `${flag.tierName} on ${outlet} shows ${pounds(flag.pricePence)} with ${figure(flag.count)} sold, the same number.${more} ${held}`;
+    bodyShort = `${flag.tierName} on ${outlet}: ${pounds(flag.pricePence)} with ${figure(flag.count)} sold. Revenue held.`;
   } else if (flag) {
-    // NOT IN R1: the "above the event's dearest ticket" variant.
-    body = `${flag.tierName} shows ${pounds(flag.pricePence)}, above ${show}'s dearest ticket (${pounds(flag.ceilingPence)}). ${held}`;
+    // NOT RULED: the "above the event's dearest ticket" variant (R1a's string didn't reach this thread).
+    body = `${flag.tierName} shows ${pounds(flag.pricePence)}, above ${show}'s dearest ticket (${pounds(flag.ceilingPence)}).${more} ${held}`;
     bodyShort = `${flag.tierName}: ${pounds(flag.pricePence)}, above ${pounds(flag.ceilingPence)}. Revenue held.`;
   }
   return { title, titleShort: title, body, bodyShort, actions: [act("Revenue is right", "revenue_right"), act("Keep holding", "keep_holding")] };
@@ -130,7 +154,8 @@ function unmatchedWords(f: ItemFacts): Words {
 }
 
 export function itemWords(f: ItemFacts): Words {
-  const show = f.eventName ?? displayShow(f.showName ?? "");
+  // Exactly as stored: the sheet's own name, never re-cased.
+  const show = f.showName ?? f.eventName ?? "";
   const d = f.detail;
   switch (f.kind) {
     case "price_looks_wrong":
@@ -166,7 +191,7 @@ export function itemWords(f: ItemFacts): Words {
       };
     }
     case "sum_mismatch": {
-      const title = `${show}: tiers add to ${d.tiers}, the sheet's total says ${d.total}`;
+      const title = `${show}: tiers add to ${figure(d.tiers)}, the sheet's total says ${figure(d.total)}`;
       const body = "This show's count is held until you choose. Other shows on the sheet are stored.";
       return {
         title,
@@ -174,8 +199,8 @@ export function itemWords(f: ItemFacts): Words {
         body,
         bodyShort: body,
         actions: [
-          act(`Use the total (${d.total})`, "use_total", { fields: { total: String(d.total) } }),
-          act(`Use the tiers (${d.tiers})`, "use_total", { fields: { total: String(d.tiers) } }),
+          act(`Use the total (${figure(d.total)})`, "use_total", { fields: { total: String(d.total) } }),
+          act(`Use the tiers (${figure(d.tiers)})`, "use_total", { fields: { total: String(d.tiers) } }),
         ],
       };
     }
@@ -217,8 +242,8 @@ export function itemWords(f: ItemFacts): Words {
         : { ...words, actions: [act("Keep the later sheet", "keep"), act("Use the earlier sheet", "undo")] };
     }
     default: {
-      // NOT IN R1: since_last_mismatch (the first brief's cross-check).
-      const title = `${show}: SINCE LAST COUNT says ${d.theirs}, our counts give ${d.ours}`;
+      // R1a title. Body, 393 and button NOT RULED (R1a's text for them didn't reach this thread).
+      const title = `${show}: SINCE LAST COUNT says ${figure(d.theirs)}, the counts moved ${figure(d.ours)}`;
       const body = "The count is stored as the sheet gives it.";
       return { title, titleShort: title, body, bodyShort: body, actions: [act("Checked", "checked")] };
     }
@@ -239,4 +264,49 @@ export function checkedItemView(f: ItemFacts, resolvedByName: string | null, res
     by: `${resolvedByName ?? "Someone"}, ${dayMonthTime(resolvedAt)}`,
     undo: f.kind === "replaced" && resolution === "keep" ? act("Undo", "undo") : null,
   };
+}
+
+export type GmailState = "reading" | "not_set_up" | "unreachable";
+
+/**
+ * R1a's subline under "To check · {n}". The mailbox is GMAIL_INGEST_MAILBOX.
+ * NOT RULED: "Couldn't read {mailbox}" when there has never been a read to time.
+ */
+export function gmailStatusLine(state: GmailState, mailbox: string | null, lastReadAt: string | null, now = new Date()): string {
+  if (state === "not_set_up" || !mailbox) return "Gmail access isn't set up yet";
+  const last = lastReadAt ? ` · last read ${lastReadTime(lastReadAt, now)}` : "";
+  if (state === "reading") return `Reading ${mailbox}${last || ` · last read ${lastReadTime(now.toISOString(), now)}`} · internal only`;
+  return `Couldn't read ${mailbox}${last}`;
+}
+
+export interface UploadOutcome {
+  status: string;
+  file: string;
+  written?: number;
+  held?: number;
+  /** When the same PDF was first read, for "Already read {file} on {date}." */
+  firstReadAt?: string | null;
+}
+
+/** R1a's upload result lines. The three refusals before reading are NOT RULED. */
+export function uploadLine(o: UploadOutcome): string | null {
+  switch (o.status) {
+    case "processed": {
+      const toCheck = o.held ? `, ${figure(o.held)} to check` : "";
+      return `Read ${o.file} · ${figure(o.written ?? 0)} shows stored${toCheck}`;
+    }
+    case "unreadable":
+      return `Couldn't read ${o.file}. It's in To check.`;
+    case "already_read":
+    case "duplicate":
+      return `Already read ${o.file}${o.firstReadAt ? ` on ${dayMonth(o.firstReadAt)}` : ""}.`;
+    case "no_file":
+      return "Choose a PDF to upload.";
+    case "too_large":
+      return "That PDF is over 10 MB.";
+    case "not_pdf":
+      return "That file isn't a PDF.";
+    default:
+      return null;
+  }
 }

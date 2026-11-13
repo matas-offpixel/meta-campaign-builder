@@ -51,7 +51,12 @@ export async function openGmailSession(
   }
 }
 
-export type GmailStatus = { state: "reading" | "not_set_up" | "unreachable"; mailbox: string | null };
+export type GmailStatus = {
+  state: "reading" | "not_set_up" | "unreachable";
+  mailbox: string | null;
+  /** When this probe last read the mailbox successfully (ISO), if it has. */
+  readAt?: string | null;
+};
 
 let statusCache: { at: number; status: GmailStatus } | null = null;
 const STATUS_TTL_MS = 5 * 60 * 1000;
@@ -72,7 +77,7 @@ export async function gmailStatus(
     const session = await openGmailSession(env, fetchers);
     if (session.ok) {
       await session.gmail.profileEmail();
-      status = { state: "reading", mailbox: session.mailbox };
+      status = { state: "reading", mailbox: session.mailbox, readAt: new Date(now).toISOString() };
     } else {
       status = { state: "not_set_up", mailbox: session.mailbox };
     }
@@ -99,4 +104,26 @@ export async function operatorForMailbox(sb: Db, mailbox: string): Promise<strin
     if (data.users.length < 200) return null;
   }
   return null;
+}
+
+export const PULL_CRON_NAME = "internal-counts-pull";
+
+/** The last completed read of the mailbox by the hourly pull (cron_runs, service role). */
+export async function lastPullReadAt(sb: Db): Promise<string | null> {
+  const { data, error } = await sb
+    .from("cron_runs")
+    .select("finished_at")
+    .eq("cron_name", PULL_CRON_NAME)
+    .eq("ok", true)
+    .order("finished_at", { ascending: false })
+    .limit(1);
+  if (error) return null;
+  return ((data ?? [])[0] as { finished_at?: string } | undefined)?.finished_at ?? null;
+}
+
+/** The later of two ISO times, either of which may be missing. */
+export function laterOf(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return a > b ? a : b;
 }

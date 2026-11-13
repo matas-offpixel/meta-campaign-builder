@@ -224,6 +224,10 @@ export function planContext(ctx: RunContext, confirmed?: Readonly<Record<string,
       return c ? { total: c.total, sentAt: c.sentAt, blockId: c.blockId } : null;
     },
     mentionSeen: (key) => ctx.mentionKeys.has(key),
+    latestStored: (eventId) => {
+      const c = ctx.counts.filter((x) => x.eventId === eventId).sort((a, b) => b.countDate.localeCompare(a.countDate))[0];
+      return c ? { total: c.total, sentAt: c.sentAt, blockId: c.blockId, countDate: c.countDate } : null;
+    },
   };
 }
 

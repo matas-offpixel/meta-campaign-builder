@@ -13,7 +13,8 @@ export interface ActionView {
 }
 
 export interface SourceView {
-  subject: string;
+  /** Null when the meta line is "{received}" only (a near miss, R1a). */
+  subject: string | null;
   /** The sender's domain, as R1 shows it. */
   sender: string;
   received: string;
@@ -49,10 +50,9 @@ export interface EventOption {
 }
 
 export interface InternalCountsView {
-  /** The inbox the counts are read from (GMAIL_INGEST_MAILBOX), for "Internal Counts from {inbox} · internal only". */
-  inbox: string | null;
-  /** reading: a read works. not_set_up: delegation or env not there yet. unreachable: anything else. */
-  gmail: "reading" | "not_set_up" | "unreachable";
+  /** R1a's subline under "To check · {n}" (see review-words.ts gmailStatusLine). */
+  statusLine: string;
+  /** The result of the last upload or action, if any. */
   flash: string | null;
   open: ReviewItemView[];
   checked: CheckedItemView[];

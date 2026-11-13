@@ -45,6 +45,8 @@ export interface IncomingMessage {
   subject: string;
   body: string;
   forward: boolean;
+  /** Any Re:/FW:/Fwd: prefix on the subject (M1b follow-up a). */
+  prefixed?: boolean;
   /** The PDF the email is read by (pdf-read.ts chooseSheet), or for a near miss its first PDF. */
   pdf: ReadPdf | null;
 }
@@ -132,6 +134,7 @@ export async function processMessage(
       body: input.body,
       pdfFilename: input.pdf?.filename ?? null,
       forward: input.forward,
+      prefixed: input.prefixed ?? false,
       sentAt: input.sentAt,
       pdfDate: input.pdf?.pdfDate ?? null,
     },
@@ -329,6 +332,7 @@ function blockRow(reportId: string, userId: string, b: BlockPlan) {
     show_name: b.showName,
     event_id: b.eventId,
     count_date: b.countDate,
+    printed_date: b.printedDate,
     paid_tickets: b.paid,
     comp_tickets: b.comps,
     total_tickets: b.total,

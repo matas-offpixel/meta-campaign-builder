@@ -12,10 +12,10 @@
  *      near miss. Invented, because nothing in the inbox has them yet: the
  *      date mismatch (13 Nov email, 12 Nov sheet), the unreadable sheet and
  *      the replaced 12 Nov sheet.
- * R1E: "Nothing to check", before delegation is granted ("Gmail access isn't set up yet").
+ * R1E: "Nothing to check", before delegation is granted ("Gmail access isn't set up yet"), after an upload.
  */
 
-import { checkedItemView, openItemView, type ItemFacts } from "../../lib/internal-counts/review-words.ts";
+import { checkedItemView, gmailStatusLine, openItemView, uploadLine, type ItemFacts } from "../../lib/internal-counts/review-words.ts";
 import type { InternalCountsView } from "../../lib/internal-counts/view-types.ts";
 
 export const INTERNAL_COUNTS_FRAME_IDS = ["R1", "R1E"] as const;
@@ -59,8 +59,25 @@ const OPEN: ItemFacts[] = [
     "price_looks_wrong",
     {
       showName: "IPC",
+      // The real 12 Nov sheet: all seven tiers fire, so "Also 6 more on this sheet."
       detail: {
-        flags: [{ position: 1, tierName: "1ST", outlet: "SKIDDLE", pricePence: 20000, count: 200, reason: "equals_count", ceilingPence: 15000 }],
+        flags: [
+          ["1ST", 200],
+          ["2nd", 200],
+          ["3rd", 363],
+          ["4th", 579],
+          ["Final", 3],
+          ["group 2", 168],
+          ["Group", 48],
+        ].map(([tierName, count], i) => ({
+          position: i + 1,
+          tierName,
+          outlet: "SKIDDLE",
+          pricePence: Number(count) * 100,
+          count,
+          reason: "equals_count",
+          ceilingPence: 15000,
+        })),
       },
     },
     {},
@@ -94,18 +111,47 @@ const OPEN: ItemFacts[] = [
     },
   ),
   facts(
+    // Invented: a domain PDF that isn't the counts sheet (the inbox has none since M1b). Meta is "{received}" only.
     "near-miss",
     "near_miss",
     {},
     {
-      subject: "Re: Internal Counts 16.10.26",
-      sender: "Matthew Green <Matthew@electric-group.co.uk>",
-      receivedAt: "2026-10-16T17:06:23Z",
+      subject: "Internal shows: Q4 budgets",
+      sender: RACHEL,
+      receivedAt: "2026-11-10T16:20:00Z",
       sheetDate: null,
       subjectDate: null,
-      gmailMessageId: "1a145ade769c7216",
-      pdfFilename: "INTERNAL COUNTS 16.10.26.pdf",
+      gmailMessageId: "invented-near-miss",
+      pdfFilename: "Q4 budgets.pdf",
     },
+  ),
+  facts(
+    // Invented: a second email for 12 Nov with a different IPC count.
+    "replaced-open",
+    "replaced",
+    { showName: "IPC", detail: { countDate: "2026-11-12", previousTotal: 1826, total: 1828 } },
+    { subject: "Internal Show Count 12.11.26", receivedAt: "2026-11-12T15:02:00Z", gmailMessageId: "invented-12nov-2" },
+  ),
+  facts(
+    // Invented: the same, arriving as a forward: the stored sheet is kept, buttons reversed.
+    "replaced-forward",
+    "replaced",
+    { showName: "IPC", detail: { countDate: "2026-11-12", previousTotal: 1826, total: 1828, forward: true } },
+    { subject: "Fw: Internal Show Count 12.11.26", receivedAt: "2026-11-12T16:10:00Z", gmailMessageId: "invented-12nov-fw" },
+  ),
+  // Real: IPC on 30 Oct, the sheet's SINCE LAST COUNT 10, our counts moved 13.
+  facts("ipc-since", "since_last_mismatch", { showName: "IPC", detail: { theirs: 10, ours: 13, previousTotal: 1760 } }, oct30),
+  facts(
+    // Invented: a price above the event's dearest ticket (none in the inbox).
+    "dod-dearest",
+    "price_looks_wrong",
+    {
+      showName: "D.O.D",
+      detail: {
+        flags: [{ position: 7, tierName: "Group", outlet: "SKIDDLE", pricePence: 18000, count: 16, reason: "above_ceiling", ceilingPence: 2200 }],
+      },
+    },
+    {},
   ),
 ];
 
@@ -122,9 +168,10 @@ const EVENTS = [
   { id: "e-dod", label: "D.O.D · 4 Dec" },
 ];
 
+const NOW = new Date("2026-11-13T14:30:00Z");
+
 export const R1_VIEW: InternalCountsView = {
-  inbox: INBOX,
-  gmail: "reading",
+  statusLine: gmailStatusLine("reading", INBOX, "2026-11-13T14:05:00Z", NOW),
   flash: null,
   open: OPEN.map(openItemView),
   checked: [checkedItemView(REPLACED, "Matas", "2026-11-12T15:20:00Z", "keep")],
@@ -132,9 +179,8 @@ export const R1_VIEW: InternalCountsView = {
 };
 
 export const R1E_VIEW: InternalCountsView = {
-  inbox: INBOX,
-  gmail: "not_set_up",
-  flash: null,
+  statusLine: gmailStatusLine("not_set_up", INBOX, null, NOW),
+  flash: uploadLine({ status: "processed", file: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf", written: 9, held: 0 }),
   open: [],
   checked: [],
   events: EVENTS,

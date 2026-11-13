@@ -19,21 +19,27 @@ import type {
   SourceView,
 } from "@/lib/internal-counts/view-types";
 
+import { UploadCountPdfButton } from "./upload-button";
+
 export type { InternalCountsView };
 
 const BUTTON = "rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted";
+/** The manual-entry select and field look like the buttons beside them (R1a), not like page-filled inputs. */
+const CONTROL = "rounded-md border border-border bg-transparent px-3 py-1.5 text-xs font-medium";
 
 function Source({ source }: { source: SourceView }) {
-  const subject = `"${source.subject}"`;
+  const label = source.subject === null ? source.received : `"${source.subject}"`;
+  const linked = source.emailUrl ? (
+    <a href={source.emailUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+      {label}
+    </a>
+  ) : (
+    label
+  );
+  if (source.subject === null) return <p className="text-xs text-muted-foreground">{linked}</p>;
   return (
     <p className="text-xs text-muted-foreground">
-      {source.emailUrl ? (
-        <a href={source.emailUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-          {subject}
-        </a>
-      ) : (
-        subject
-      )}
+      {linked}
       {source.sender ? ` · ${source.sender}` : ""} · {source.received}
     </p>
   );
@@ -55,7 +61,7 @@ function Action({ itemId, action, events }: { itemId: string; action: ActionView
         <input key={k} type="hidden" name={k} value={v} />
       ))}
       {needs.includes("event") ? (
-        <select name="event_id" required aria-label="Event" className="max-w-[16rem] rounded-md border border-border bg-background px-2 py-1 text-xs">
+        <select name="event_id" required aria-label="Event" className={`max-w-[16rem] ${CONTROL}`}>
           <option value="">Event…</option>
           {events.map((e) => (
             <option key={e.id} value={e.id}>
@@ -72,7 +78,8 @@ function Action({ itemId, action, events }: { itemId: string; action: ActionView
           step={1}
           required
           aria-label="Tickets"
-          className="w-24 rounded-md border border-border bg-background px-2 py-1 text-xs"
+          placeholder="Tickets"
+          className={`w-24 ${CONTROL}`}
         />
       ) : null}
       <button type="submit" className={BUTTON}>
@@ -108,7 +115,8 @@ function CheckedItem({ item, events }: { item: CheckedItemView; events: EventOpt
     <li className="space-y-1 py-2.5">
       <p className="text-sm text-muted-foreground">{item.title}</p>
       <p className="text-xs text-muted-foreground">
-        &quot;{item.source.subject}&quot; · {item.source.received} · {item.by}
+        {item.source.subject === null ? "" : `"${item.source.subject}" · `}
+        {item.source.received} · {item.by}
       </p>
       {item.undo ? (
         <div className="pt-1">
@@ -119,36 +127,17 @@ function CheckedItem({ item, events }: { item: CheckedItemView; events: EventOpt
   );
 }
 
-function gmailLine(view: InternalCountsView): string {
-  if (view.gmail === "reading") return `Reading ${view.inbox}`;
-  if (view.gmail === "not_set_up") return "Gmail access isn't set up yet";
-  // NOT IN R1 or the brief: a read that failed for any reason but setup.
-  return "Gmail couldn't be read just now";
-}
-
-function InboxControls({ view }: { view: InternalCountsView }) {
-  return (
-    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-      <span role="status">{gmailLine(view)}</span>
-      <form action="/api/internal-counts/upload" method="post" encType="multipart/form-data" className="flex flex-wrap items-center gap-2">
-        <label htmlFor="count-pdf">Upload count PDF</label>
-        <input id="count-pdf" name="file" type="file" accept="application/pdf" required className="max-w-full text-xs" />
-        <button type="submit" className={BUTTON}>
-          Upload
-        </button>
-      </form>
-    </div>
-  );
-}
-
 export function InternalCountsReviewView({ view }: { view: InternalCountsView }) {
   const n = view.open.length;
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4">
       <header className="space-y-1">
-        <h1 className="text-lg font-semibold">{n ? `To check · ${n}` : "Nothing to check"}</h1>
-        <p className="hidden text-xs text-muted-foreground sm:block">
-          Internal Counts{view.inbox ? ` from ${view.inbox}` : ""} · internal only
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="text-lg font-semibold">{n ? `To check · ${n}` : "Nothing to check"}</h1>
+          <UploadCountPdfButton className={BUTTON} />
+        </div>
+        <p className="text-xs text-muted-foreground" role="status">
+          {view.statusLine}
         </p>
         {view.flash ? (
           <p className="text-sm" role="status">
@@ -173,7 +162,6 @@ export function InternalCountsReviewView({ view }: { view: InternalCountsView })
           </ul>
         </section>
       ) : null}
-      <InboxControls view={view} />
     </div>
   );
 }

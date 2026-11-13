@@ -113,6 +113,8 @@ export interface BlockPlan extends BlockWrite {
   status: BlockStatus;
   /** A write that replaces a different count already stored for this date. */
   replaces: boolean;
+  /** The block's own printed date, when it was older than the sheet's and the block is filed under the sheet's date. */
+  printedDate: string | null;
   /** Their SINCE LAST COUNT, as printed. */
   sinceLast: number | null;
   /** Our delta from the previous stored count, when there is one. */
@@ -149,6 +151,8 @@ export interface PlanContext {
   previousTotal: (eventId: string, countDate: string) => number | null;
   /** What another email already stored for this event and date, or null. */
   storedOn: (eventId: string, countDate: string) => StoredCountRef | null;
+  /** The show's latest stored count (any date), or null. */
+  latestStored: (eventId: string) => (StoredCountRef & { countDate: string }) | null;
   /** True when this sentence was already raised for this count date (M3: one item per sentence per date). */
   mentionSeen: (key: string) => boolean;
 }
@@ -166,6 +170,8 @@ export interface ReportInput {
   pdfFilename: string | null;
   /** A Fw:/Fwd: email: never replaces a stored sheet. */
   forward: boolean;
+  /** Any Re:/FW:/Fwd: prefix: an older subject date is ignored (M1b follow-up a). */
+  prefixed?: boolean;
   /** The email's Date header (ISO): "later" is this, not fetch order. */
   sentAt: string | null;
   /** The PDF's own date when it won't parse as a sheet (for "Couldn't read the {date} sheet"). */
@@ -198,11 +204,6 @@ export function blockWrite(block: ParsedBlock, check: BlockCheck, total?: number
   return { ...sums, revenueHeld: check.revenueHeld, paidRevenuePence: paidRevenuePence(block), cells };
 }
 
-function mostCommon(values: Array<string | null>): string | null {
-  const tally = new Map<string, number>();
-  for (const v of values) if (v) tally.set(v, (tally.get(v) ?? 0) + 1);
-  return [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
-}
 
 /** M3 items for an email's new text, one per sentence per count date. */
 export function mentionItems(
@@ -228,7 +229,8 @@ export function planReport(report: ReportInput, sheet: ParsedSheet | null, ctx: 
   const showNames = sheet?.blocks.map((b) => b.showName) ?? [];
   const unreadable =
     !sheet || sheet.blocks.length === 0 || sheet.blocks.some((b) => b.problems.length > 0 || !b.countDate);
-  const sheetDate = unreadable ? null : mostCommon(sheet!.blocks.map((b) => b.countDate));
+  // M1b follow-up b: the latest block date on a sheet is the count date.
+  const sheetDate = unreadable ? null : latest(sheet!.blocks.map((b) => b.countDate));
   const pdfYear = Number((sheetDate ?? report.pdfDate ?? "").slice(0, 4)) || null;
   const subjectDate = subjectCountDate(report.subject, pdfYear);
   const items = mentionItems(report.body, showNames, sheetDate ?? report.pdfDate ?? subjectDate, report.forward, ctx);
@@ -243,12 +245,35 @@ export function planReport(report: ReportInput, sheet: ParsedSheet | null, ctx: 
     return { subjectDate, sheetDate: null, unreadable: true, blocks: [], reviewItems: items };
   }
   sheet = sheet!;
-  const dateHeld = subjectDate !== null && sheetDate !== null && subjectDate !== sheetDate;
-  if (dateHeld) {
-    items.push({ kind: "date_mismatch", blockIndex: null, showName: null, detail: { sheetDate, subjectDate } });
-  }
+  const dateItem = dateHold(report, subjectDate, sheetDate);
+  const dateHeld = dateItem !== null;
+  if (dateItem) items.push({ kind: "date_mismatch", blockIndex: null, showName: null, detail: dateItem });
   const blocks = sheet.blocks.map((b) => planBlock(b, { dateHeld, sheetDate, forward: report.forward, sentAt: report.sentAt }, ctx, items));
   return { subjectDate, sheetDate, unreadable: false, blocks, reviewItems: items };
+}
+
+function latest(values: Array<string | null>): string | null {
+  const sorted = values.filter((v): v is string => !!v).sort();
+  return sorted.length ? sorted[sorted.length - 1] : null;
+}
+
+const londonDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+
+/**
+ * M2 with the M1b follow-ups. A sheet dated after the email was sent holds
+ * (the subject date in the item is the sent day). An original's subject is
+ * cross-checked as before. A Re:/FW: subject's older date is ignored (the
+ * thread keeps its first date); a later one still holds (a stale attachment).
+ */
+function dateHold(report: ReportInput, subjectDate: string | null, sheetDate: string | null): { sheetDate: string; subjectDate: string } | null {
+  if (!sheetDate) return null;
+  if (report.sentAt) {
+    const sent = londonDay(report.sentAt);
+    if (sheetDate > sent) return { sheetDate, subjectDate: sent };
+  }
+  if (!subjectDate || subjectDate === sheetDate) return null;
+  if (report.prefixed && subjectDate < sheetDate) return null;
+  return { sheetDate, subjectDate };
 }
 
 function resolveEvent(block: ParsedBlock, ctx: PlanContext): EventRef | null {
@@ -272,6 +297,7 @@ function planBlock(
     eventCode: event?.eventCode ?? null,
     eventId: event?.id ?? null,
     countDate: block.countDate,
+    printedDate: null as string | null,
     replaces: false,
     sinceLast: block.totals?.sinceLast ?? null,
     ourDelta: null as number | null,
@@ -288,7 +314,18 @@ function planBlock(
     detail,
   });
   const items: ReviewItemPlan[] = [];
-  let held = sheet.dateHeld && block.countDate === sheet.sheetDate;
+  // M1b follow-up b: an older-dated block is compared with the show's latest stored count.
+  if (block.countDate && sheet.sheetDate && block.countDate < sheet.sheetDate) {
+    const latestStored = event ? ctx.latestStored(event.id) : null;
+    if (latestStored && latestStored.total === base.total) {
+      // Unchanged: skipped, nothing written, no SINCE LAST COUNT check.
+      return { ...base, status: "repeat", ourDelta: 0 };
+    }
+    // Figures moved: filed under the sheet's date, the printed date kept for audit, no review item.
+    base.printedDate = block.countDate;
+    base.countDate = sheet.sheetDate;
+  }
+  let held = sheet.dateHeld;
   if (!event) {
     items.push(item("unmatched_show", { closest: ctx.closest(block.showName) }));
     held = true;
@@ -297,7 +334,8 @@ function planBlock(
     items.push(item("sum_mismatch", check.sum));
     held = true;
   }
-  const stored = event && block.countDate ? ctx.storedOn(event.id, block.countDate) : null;
+  const countDate = base.countDate;
+  const stored = event && countDate ? ctx.storedOn(event.id, countDate) : null;
   if (!held && stored && stored.total === base.total) {
     return { ...base, status: "repeat", ourDelta: 0 };
   }
@@ -306,23 +344,23 @@ function planBlock(
   }
   let replaces = false;
   let superseded = false;
-  if (event && block.countDate) {
+  if (event && countDate) {
     if (!held && stored) {
-      const replaced = { countDate: block.countDate, previousTotal: stored.total, total: base.total, previousBlockId: stored.blockId };
+      const replaced = { countDate, previousTotal: stored.total, total: base.total, previousBlockId: stored.blockId };
       if (sheet.forward) {
         // A forward never replaces a stored sheet: hold it and ask.
         items.push(item("replaced", { ...replaced, forward: true }));
         held = true;
       } else if (stored.sentAt && sheet.sentAt && sheet.sentAt < stored.sentAt) {
         // This email is the earlier one (Date header): the stored, later sheet stays.
-        items.push(item("replaced", { countDate: block.countDate, previousTotal: base.total, total: stored.total, previousIsThis: true }));
+        items.push(item("replaced", { countDate, previousTotal: base.total, total: stored.total, previousIsThis: true }));
         superseded = true;
       } else {
         replaces = true;
         items.push(item("replaced", replaced));
       }
     }
-    const prev = ctx.previousTotal(event.id, block.countDate);
+    const prev = ctx.previousTotal(event.id, countDate);
     const theirs = block.totals?.sinceLast ?? null;
     if (prev !== null) {
       base.ourDelta = base.total - prev;

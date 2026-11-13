@@ -33,11 +33,6 @@ export function pdfSha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-function mostCommon(values: Array<string | null>): string | null {
-  const tally = new Map<string, number>();
-  for (const v of values) if (v) tally.set(v, (tally.get(v) ?? 0) + 1);
-  return [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
-}
 
 /** The verdict from the PDF's words and its parse. Pure, for tests. */
 export function verdictFor(items: PdfTextItem[], sheet: ParsedSheet): { verdict: PdfVerdict; pdfDate: string | null } {
@@ -48,8 +43,10 @@ export function verdictFor(items: PdfTextItem[], sheet: ParsedSheet): { verdict:
     sheet.blocks.length > 0 &&
     sheet.problems.length === 0 &&
     sheet.blocks.every((b) => b.problems.length === 0 && b.countDate !== null);
+  // The latest block date is the count date (M1b follow-up b).
+  const blockDates = sheet.blocks.map((b) => b.countDate).filter((d): d is string => !!d).sort();
   const pdfDate =
-    mostCommon(sheet.blocks.map((b) => b.countDate)) ??
+    (blockDates.length ? blockDates[blockDates.length - 1] : null) ??
     items.map((i) => parseSheetDate(i.str.trim())).find((d): d is string => d !== null) ??
     null;
   if (since && tierTotals && parsed) return { verdict: "sheet", pdfDate };

@@ -55,9 +55,21 @@ export async function POST(req: NextRequest) {
     body: "",
     pdf,
   });
+  let first: string | null = null;
+  if (result.status === "already_read" || result.status === "duplicate") {
+    const { data } = await sb
+      .from("internal_count_reports")
+      .select("received_at")
+      .eq("pdf_sha256", pdf.sha256)
+      .order("received_at", { ascending: true })
+      .limit(1);
+    first = ((data ?? [])[0] as { received_at?: string } | undefined)?.received_at ?? null;
+  }
   return back(req, {
     upload: result.status,
+    file: file.name,
     written: String(result.blocksWritten),
     held: String(result.blocksHeld),
+    ...(first ? { first } : {}),
   });
 }

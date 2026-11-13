@@ -10,7 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { pageAll } from "../db/paged-read.ts";
 import { PROPOSED_COUNT_ALIASES, UMBRELLA_EVENT_CODES } from "./aliases.ts";
-import { checkedItemView, dayMonth, openItemView, type ItemFacts } from "./review-words.ts";
+import { checkedItemView, dayMonth, openItemView, uploadLine, type ItemFacts } from "./review-words.ts";
 import type { EventOption, InternalCountsView } from "./view-types.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -18,27 +18,24 @@ type Db = SupabaseClient<any, any, any>;
 
 const CHECKED_SHOWN = 30;
 
-const FLASH: Record<string, string> = {
-  "upload=no_file": "Choose a PDF to upload.",
-  "upload=too_large": "That PDF is over 10 MB.",
-  "upload=not_pdf": "That file isn't a PDF.",
-  "upload=already_read": "That PDF was uploaded before. Nothing new was written.",
-  "upload=duplicate": "That sheet was already read from an email. Nothing new was written.",
-  "upload=unreadable": "That PDF couldn't be read as an Internal Counts sheet. It's on the list below.",
-  "action=incomplete": "Choose an event, or type a figure, first.",
-  "action=failed": "That didn't go through. Nothing was changed.",
+const ACTION_FLASH: Record<string, string> = {
+  // NOT RULED: the two action results.
+  incomplete: "Choose an event, or type a figure, first.",
+  failed: "That didn't go through. Nothing was changed.",
 };
 
+/** The line after an upload (R1a) or an action, from the redirect's query. */
 export function flashFor(params: Record<string, string | undefined>): string | null {
-  for (const [k, v] of Object.entries(params)) {
-    if (!v) continue;
-    const text = FLASH[`${k}=${v}`];
-    if (text) return text;
+  if (params.upload) {
+    return uploadLine({
+      status: params.upload,
+      file: params.file ?? "the PDF",
+      written: Number(params.written ?? 0),
+      held: Number(params.held ?? 0),
+      firstReadAt: params.first ?? null,
+    });
   }
-  if (params.upload === "processed") {
-    return `Uploaded. ${params.written ?? 0} shows stored, ${params.held ?? 0} held.`;
-  }
-  return null;
+  return params.action ? (ACTION_FLASH[params.action] ?? null) : null;
 }
 
 interface ItemRow {
@@ -139,7 +136,7 @@ async function eventOptions(sb: Db, blockEventIds: string[]): Promise<{ options:
 
 export async function readReviewList(
   sb: Db,
-  input: { gmail: InternalCountsView["gmail"]; mailbox: string | null; flash: string | null },
+  input: { statusLine: string; mailbox: string | null; flash: string | null },
 ): Promise<InternalCountsView> {
   const inbox = input.mailbox;
   const open = await readItems(sb, true);
@@ -189,8 +186,7 @@ export async function readReviewList(
     };
   };
   return {
-    inbox,
-    gmail: input.gmail,
+    statusLine: input.statusLine,
     flash: input.flash,
     open: open.flatMap((i) => {
       const f = facts(i);
