@@ -36,6 +36,7 @@ function ipcPoints(): SalesChartPoint[] {
   const points: SalesChartPoint[] = [];
   for (let i = 0; i < 14; i++) {
     const day = new Date(start + i * 86_400_000).toISOString().slice(0, 10);
+    const count = day === "2026-11-05" || day === "2026-11-12";
     const estimated = day > "2026-11-05" && day < "2026-11-12";
     const values: Partial<Record<SalesMetricId, number>> = {
       spend: Math.round(dayValue(i, 13, 2060)),
@@ -49,7 +50,7 @@ function ipcPoints(): SalesChartPoint[] {
       clicks: Math.round(dayValue(i, 13, 4180)),
       cpc: 0.49,
     };
-    points.push({ day, estimated, estimateNote: estimated ? ESTIMATE : null, values });
+    points.push({ day, estimated, count, estimateNote: estimated ? ESTIMATE : null, values });
   }
   return points;
 }
@@ -59,6 +60,41 @@ const IPC_ALLOCATION: AllocationStep[] = [
   { day: "2026-11-03", value: 1200 },
   { day: "2026-11-09", value: 1500 },
 ];
+
+function allPoints(): SalesChartPoint[] {
+  return ipcPoints().map((point) => ({
+    ...point,
+    values: {
+      spend: Math.round((point.values.spend ?? 0) * (4730 / 2060)),
+      sold: Math.round((point.values.sold ?? 0) * (2327 / 812)),
+      tickets: Math.round((point.values.tickets ?? 0) * (454 / 146)),
+      costPerTicket: 10.42,
+      checkoutActions: Math.round((point.values.checkoutActions ?? 0) * (938 / 388)),
+      costPerCheckout: 5.04,
+      lpv: Math.round((point.values.lpv ?? 0) * (3090 / 1240)),
+      costPerLpv: 1.53,
+      clicks: Math.round((point.values.clicks ?? 0) * (9840 / 4180)),
+      cpc: 0.48,
+    },
+  }));
+}
+
+function allTiles(): SalesTile[] {
+  return [
+    { id: "spend", value: "£4,730", detail: "Meta £4,210 · TikTok £520 · of £9,840 since launch", narrowDetail: "Meta £4,210 · TikTok £520", title: "Meta £4,210 · TikTok £520 across the shows with counts. Umbrella is separate." },
+    { id: "sold", value: "2,327", detail: "Internal Counts, 12 Nov", narrowDetail: "Internal Counts, 12 Nov", title: "812 + 600 + 915. Locklead has no counts." },
+    { id: "tickets", value: "454", detail: "in 14 days", narrowDetail: "14 days", title: "Tickets across the shows with counts." },
+    { id: "costPerTicket", value: "£10.42", detail: "blended · complete windows", narrowDetail: "blended", title: "Spend over tickets, the shows with counts." },
+    { id: "checkoutActions", value: "938", detail: "£5.04 each", narrowDetail: "£5.04 each", title: "Checkouts and add-to-carts. One person can do both." },
+    { id: "costPerCheckout", value: "£5.04", detail: "938 actions", narrowDetail: "938 actions", title: "Checkouts and add-to-carts. One person can do both." },
+    { id: "lpv", value: "3,090", detail: "in 14 days", narrowDetail: "14 days", title: "Landing page views across the shows with counts." },
+    { id: "costPerLpv", value: "£1.53", detail: "3,090 views", narrowDetail: "3,090 views", title: "Spend divided by landing page views." },
+    { id: "clicks", value: "9,840", detail: "in 14 days", narrowDetail: "14 days", title: "Clicks across the shows with counts." },
+    { id: "cpc", value: "£0.48", detail: "blended", narrowDetail: "blended", title: "Spend divided by clicks." },
+    { id: "registrations", value: "—", detail: "signups closed at on-sale", narrowDetail: "signups closed", title: "Signups closed when the shows went on sale." },
+    { id: "costPerRegistration", value: "—", detail: "signups closed at on-sale", narrowDetail: "signups closed", title: "No signup days in this window." },
+  ];
+}
 
 function ipcTiles(): SalesTile[] {
   return [
@@ -81,31 +117,55 @@ const IPC_CAMPAIGNS: SalesCampaignRow[] = [
   {
     id: "onsale",
     name: "[NX26-IPC] On Sale — Adv+",
-    status: "spending",
-    statusLabel: "Spending",
+    delivery: "Spending",
+    unlinked: false,
     periodSpend: "£1,120",
-    sinceLaunch: null,
-    title: "£1,120 in 14 days. Still spending on 12 Nov.",
+    sinceLaunch: "£3,350",
+    title: "£1,120 in 14 days. £3,350 since launch. Still spending on 12 Nov.",
   },
   {
     id: "presale",
     name: "[NX26-IPC] Presale",
-    status: "stopped",
-    statusLabel: "Stopped 6 Nov",
+    delivery: "Stopped 6 Nov",
+    unlinked: false,
     periodSpend: "£0",
-    sinceLaunch: "£1,980 since launch",
+    sinceLaunch: "£1,980",
     title: "£0 in 14 days. £1,980 since launch. Stopped 6 Nov.",
   },
   {
     id: "tagged",
     name: "[NX26-IPC] Stories — tagged only",
-    status: "unlinked",
-    statusLabel: "Not linked to event",
+    delivery: "Spending",
+    unlinked: true,
     periodSpend: "£80",
-    sinceLaunch: null,
-    title: "Tagged NX26-IPC. Not linked to the event. £80 in 14 days.",
+    sinceLaunch: "£80",
+    title: "Tagged NX26-IPC. £80 in 14 days. £80 since launch.",
   },
 ];
+
+const IPC_PATH = {
+  showDayIso: "2026-11-21",
+  counts: [
+    { day: "2026-11-05", sold: 719 },
+    { day: "2026-11-12", sold: 812 },
+  ],
+  pace: {
+    fromDay: "2026-11-05",
+    fromSold: 719,
+    toDay: "2026-11-12",
+    toSold: 812,
+    fanDay: "2026-11-14",
+    fanSold: 839,
+  },
+  needed: { showDaySold: 1500 },
+};
+
+const NO_PATH = {
+  showDayIso: null,
+  counts: [],
+  pace: null,
+  needed: null,
+};
 
 function ipcView(): SalesShowView {
   return {
@@ -124,6 +184,7 @@ function ipcView(): SalesShowView {
       narrowRange: "1,012–1,390 of 1,500 on show day",
       narrowNote: "Needed 77 a day · 488 short at this pace.",
       showDay: "21 Nov",
+      ...IPC_PATH,
       allocation: 1500,
       sold: 812,
       cases: [
@@ -154,6 +215,13 @@ function robbieView(): SalesShowView {
       narrowRange: "870–1,320 of 1,500 on show day",
       narrowNote: null,
       showDay: "27 Nov",
+      showDayIso: "2026-11-27",
+      counts: [
+        { day: "2026-11-05", sold: 520 },
+        { day: "2026-11-12", sold: 600 },
+      ],
+      pace: { fromDay: "2026-11-05", fromSold: 520, toDay: "2026-11-12", toSold: 600, fanDay: "2026-11-20", fanSold: 680 },
+      needed: { showDaySold: 1500 },
       allocation: 1500,
       sold: 600,
       cases: [
@@ -169,11 +237,11 @@ function robbieView(): SalesShowView {
       {
         id: "robbie-onsale",
         name: "[NX26-RD] On Sale",
-        status: "spending",
-        statusLabel: "Spending",
+        delivery: "Spending",
+        unlinked: false,
         periodSpend: "£860",
-        sinceLaunch: null,
-        title: "£860 in 14 days.",
+        sinceLaunch: "£2,140",
+        title: "£860 in 14 days. £2,140 since launch.",
       },
     ],
   };
@@ -193,6 +261,13 @@ function dodView(): SalesShowView {
       narrowRange: "1,280–1,500 of 1,500 on show day",
       narrowNote: null,
       showDay: "4 Dec",
+      showDayIso: "2026-12-04",
+      counts: [
+        { day: "2026-11-05", sold: 840 },
+        { day: "2026-11-12", sold: 915 },
+      ],
+      pace: { fromDay: "2026-11-05", fromSold: 840, toDay: "2026-11-12", toSold: 915, fanDay: "2026-11-27", fanSold: 1060 },
+      needed: { showDaySold: 1500 },
       allocation: 1500,
       sold: 915,
       cases: [
@@ -208,11 +283,11 @@ function dodView(): SalesShowView {
       {
         id: "dod-onsale",
         name: "[NX26-DOD] On Sale",
-        status: "spending",
-        statusLabel: "Spending",
+        delivery: "Spending",
+        unlinked: false,
         periodSpend: "£740",
-        sinceLaunch: null,
-        title: "£740 in 14 days.",
+        sinceLaunch: "£1,860",
+        title: "£740 in 14 days. £1,860 since launch.",
       },
     ],
   };
@@ -239,6 +314,7 @@ function lockleadView(): SalesShowView {
       narrowRange: MISSING_CAPACITY,
       narrowNote: null,
       showDay: "11 Dec",
+      ...NO_PATH,
       allocation: null,
       sold: null,
       cases: [],
@@ -271,6 +347,7 @@ function umbrellaView(): SalesShowView {
       narrowRange: "Not in All shows.",
       narrowNote: null,
       showDay: null,
+      ...NO_PATH,
       allocation: null,
       sold: null,
       cases: [],
@@ -282,10 +359,10 @@ function umbrellaView(): SalesShowView {
       {
         id: "umbrella",
         name: "NX umbrella",
-        status: "spending",
-        statusLabel: "Spending",
+        delivery: "Spending",
+        unlinked: false,
         periodSpend: "£640",
-        sinceLaunch: null,
+        sinceLaunch: "£640",
         title: "£640. Kept out of All shows.",
       },
     ],
@@ -306,6 +383,7 @@ function quietLibraryView(): SalesShowView {
       narrowRange: "1,012 of 1,500 on show day",
       narrowNote: null,
       showDay: "21 Nov",
+      ...IPC_PATH,
       allocation: 1500,
       sold: 812,
       cases: [{ id: "holds", label: "Holds", value: 1012 }],
@@ -343,19 +421,19 @@ export const NX_SALES_FIXTURE: SalesDashboardModel = {
       subtitle: "3 shows with a capacity · Locklead left out",
       narrowSubtitle: "3 shows · Locklead left out",
       umbrellaLine: "Separate NX umbrella spend £640",
-      tiles: ipcTiles(),
+      tiles: allTiles(),
       endDay: "2026-11-12",
-      points: ipcPoints(),
+      points: allPoints(),
       allocation: [],
       trajectory: {
         kind: "all",
         wideRange: "Projected on show day: 3,162–4,210 of 4,500 across 3 shows (Locklead has no capacity; umbrella excluded)",
         narrowRange: "3,162–4,210 of 4,500 on show day",
         bars: [
-          { id: "ipc", label: "IPC", sold: 812, low: 1012, high: 1390, allocation: 1500, caption: "812 · 1,012–1,390" },
-          { id: "robbie", label: "Robbie Doherty", sold: 600, low: 870, high: 1320, allocation: 1500, caption: "600 · 870–1,320" },
-          { id: "dod", label: "DOD", sold: 915, low: 1280, high: 1500, allocation: 1500, caption: "915 · 1,280–1,500" },
-          { id: "locklead", label: "Locklead", sold: null, low: null, high: null, allocation: null, caption: MISSING_CAPACITY_SHORT },
+          { id: "ipc", label: "IPC · 21 Nov", sold: 812, low: 1012, high: 1390, allocation: 1500, caption: "812 · 1,012–1,390" },
+          { id: "robbie", label: "Robbie Doherty · 27 Nov", sold: 600, low: 870, high: 1320, allocation: 1500, caption: "600 · 870–1,320" },
+          { id: "dod", label: "DOD · 4 Dec", sold: 915, low: 1280, high: 1500, allocation: 1500, caption: "915 · 1,280–1,500" },
+          { id: "locklead", label: "Locklead · 11 Dec", sold: null, low: null, high: null, allocation: null, caption: MISSING_CAPACITY_SHORT },
         ],
         note: ALL_NOTE,
       },

@@ -9,6 +9,8 @@ import {
   MISSING_CAPACITY_SHORT,
   NO_TICKET_COUNTS,
   SALES_METRICS,
+  SALES_PERIODS,
+  keepDate,
   planAxes,
   salesForSurface,
   slicePoints,
@@ -82,12 +84,29 @@ describe("sales vs spend layout contract", () => {
     assert.equal(share.reviewLine, null);
     const tagged = share.views.ipc.campaigns.find((row) => row.id === "tagged") as SalesCampaignRow;
     assert.equal(tagged.name, "[NX26-IPC] Stories — tagged only");
-    assert.equal(tagged.statusLabel, null);
+    assert.equal(tagged.unlinked, false);
+    assert.equal(tagged.delivery, "Spending");
     assert.equal(tagged.title.includes("Not linked"), false);
     assert.equal(JSON.stringify(share).includes("Not linked"), false);
     const internal = salesForSurface(withLearning, "internal");
     assert.equal(internal.crossClientNote, withLearning.crossClientNote);
-    assert.equal(internal.views.ipc.campaigns.find((row) => row.id === "tagged")?.statusLabel, "Not linked to event");
+    assert.equal(internal.views.ipc.campaigns.find((row) => row.id === "tagged")?.unlinked, true);
+    assert.equal(internal.views.ipc.campaigns.find((row) => row.id === "tagged")?.delivery, "Spending");
+  });
+
+  it("sums All shows and names the trajectory fields HD3 fills", () => {
+    assert.equal(SALES_PERIODS.find((period) => period.id === "7")?.label, "7 days");
+    assert.equal(SALES_PERIODS.find((period) => period.id === "3")?.label, "3 days");
+    const all = NX_SALES_FIXTURE.views.all;
+    assert.equal(all.tiles.find((tile) => tile.id === "sold")?.value, "2,327");
+    assert.notEqual(all.tiles.find((tile) => tile.id === "spend")?.value, "£2,060");
+    assert.equal(all.trajectory.kind === "all" && all.trajectory.bars[0]?.label, "IPC · 21 Nov");
+    const ipc = NX_SALES_FIXTURE.views.ipc;
+    assert.equal(ipc.campaigns.find((row) => row.id === "onsale")?.sinceLaunch, "£3,350");
+    assert.equal(ipc.campaigns.find((row) => row.id === "presale")?.sinceLaunch, "£1,980");
+    assert.equal(ipc.trajectory.kind === "single" && ipc.trajectory.pace?.fanDay, "2026-11-14");
+    assert.equal(ipc.trajectory.kind === "single" && ipc.trajectory.needed?.showDaySold, 1500);
+    assert.equal(keepDate("Stopped 6 Nov"), "Stopped 6\u00a0Nov");
   });
 
   it("appends the DV shots on their own route, off the shared frames page", () => {

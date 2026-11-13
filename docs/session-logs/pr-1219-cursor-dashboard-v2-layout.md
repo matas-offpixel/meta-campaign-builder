@@ -29,4 +29,4 @@ The sales-vs-spend layout (DV1–DV3) is one component tree for the internal pag
 
 ## Notes
 
-No Meta or Google writes. Capacity is never defaulted. `SalesDashboardModel` stays the seam for the server calc. The DV entry is appended at the end of `FRAME_SHOTS`.
+No Meta or Google writes. Capacity is never defaulted. `SalesDashboardModel` stays the seam for the server calc. Added on a single show's trajectory: `showDayIso`, `counts`, `pace` (to D−7), and `needed`. A campaign row now has `delivery`, `unlinked`, and a since-launch figure. The DV entry is appended at the end of `FRAME_SHOTS`.

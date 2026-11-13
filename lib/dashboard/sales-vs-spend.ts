@@ -41,8 +41,8 @@ export const SALES_PERIODS: { id: SalesPeriod; label: string; days: number | nul
   { id: "launch", label: "Since launch", days: null },
   { id: "30", label: "30 days", days: 30 },
   { id: "14", label: "14 days", days: 14 },
-  { id: "7", label: "7", days: 7 },
-  { id: "3", label: "3", days: 3 },
+  { id: "7", label: "7 days", days: 7 },
+  { id: "3", label: "3 days", days: 3 },
   { id: "yesterday", label: "Yesterday", days: 1 },
 ];
 
@@ -57,17 +57,17 @@ export type SalesMetricDef = {
 
 export const SALES_METRICS: readonly SalesMetricDef[] = [
   { id: "spend", label: "Spend", narrow: "Spend", unit: "money", costOf: null },
-  { id: "sold", label: "Total sold", narrow: "Sold", unit: "count", costOf: null },
+  { id: "sold", label: "Total sold", narrow: "Total sold", unit: "count", costOf: null },
   { id: "tickets", label: "Tickets", narrow: "Tickets", unit: "count", costOf: null },
   { id: "costPerTicket", label: "Cost per ticket", narrow: "Cost / ticket", unit: "rate", costOf: "tickets" },
-  { id: "checkoutActions", label: "Checkout actions", narrow: "Checkouts", unit: "count", costOf: null },
-  { id: "costPerCheckout", label: "£ per checkout action", narrow: "£ / checkout", unit: "rate", costOf: "checkoutActions" },
+  { id: "checkoutActions", label: "Checkout actions", narrow: "Checkout actions", unit: "count", costOf: null },
+  { id: "costPerCheckout", label: "£ per checkout action", narrow: "£ / action", unit: "rate", costOf: "checkoutActions" },
   { id: "lpv", label: "LPVs", narrow: "LPVs", unit: "count", costOf: null },
   { id: "costPerLpv", label: "£ per LPV", narrow: "£ / LPV", unit: "rate", costOf: "lpv" },
   { id: "clicks", label: "Clicks", narrow: "Clicks", unit: "count", costOf: null },
   { id: "cpc", label: "CPC", narrow: "CPC", unit: "rate", costOf: "clicks" },
-  { id: "registrations", label: "Registrations", narrow: "Regs", unit: "count", costOf: null },
-  { id: "costPerRegistration", label: "£ per registration", narrow: "£ / reg", unit: "rate", costOf: "registrations" },
+  { id: "registrations", label: "Registrations", narrow: "Registrations", unit: "count", costOf: null },
+  { id: "costPerRegistration", label: "£ per registration", narrow: "£ / registration", unit: "rate", costOf: "registrations" },
 ];
 
 export const DEFAULT_ON_METRICS: readonly SalesMetricId[] = ["spend", "sold"];
@@ -109,6 +109,8 @@ export type SalesChartPoint = {
   /** ISO day, yyyy-mm-dd. Today is never included. */
   day: string;
   estimated: boolean;
+  /** A real ticket count. The chart dots Total sold on these days only. */
+  count: boolean;
   estimateNote: string | null;
   values: Partial<Record<SalesMetricId, number | null>>;
 };
@@ -125,14 +127,44 @@ export type TrajectoryCase = {
   value: number;
 };
 
+export type TrajectoryCount = {
+  day: string;
+  sold: number;
+};
+
+/**
+ * Pace measured count-to-count. The dashed line runs from the latest
+ * count to D−7 (`fanDay`); the cases fan out from there to show day.
+ */
+export type TrajectoryPace = {
+  fromDay: string;
+  fromSold: number;
+  toDay: string;
+  toSold: number;
+  fanDay: string;
+  fanSold: number;
+};
+
+/** Dotted line from the latest count to this sold on show day. */
+export type TrajectoryNeeded = {
+  showDaySold: number;
+};
+
 export type SingleTrajectory = {
   kind: "single";
   wideRange: string;
   narrowRange: string;
   narrowNote: string | null;
+  /** Display label, "21 Nov". */
   showDay: string | null;
+  /** ISO day the show-day rule is drawn on. Null when the chart is not drawn. */
+  showDayIso: string | null;
   allocation: number | null;
   sold: number | null;
+  /** Real counts. Drawn as dots. */
+  counts: TrajectoryCount[];
+  pace: TrajectoryPace | null;
+  needed: TrajectoryNeeded | null;
   cases: TrajectoryCase[];
   /** Set when fewer than two finished shows have counts. Only Holds is drawn. */
   opensAfter: string | null;
@@ -162,19 +194,24 @@ export type AllTrajectory = {
 
 export type SalesTrajectory = SingleTrajectory | AllTrajectory;
 
-export type SalesCampaignStatus = "spending" | "stopped" | "unlinked";
-
 export type SalesCampaignRow = {
   id: string;
   name: string;
-  status: SalesCampaignStatus;
-  /** "Spending", "Stopped 6 Nov", or "Not linked to event". Null hides the pill. */
-  statusLabel: string | null;
+  /** "Spending" or "Stopped 6 Nov". Shown on every row, including a tagged one. */
+  delivery: string;
+  /** Internal only. A pill beside the name. The share drops it and keeps `delivery`. */
+  unlinked: boolean;
   periodSpend: string;
-  sinceLaunch: string | null;
+  /** A money figure, "£1,980". Never the words "since launch". */
+  sinceLaunch: string;
   /** Hover: the figures behind the rounded cells. */
   title: string;
 };
+
+/** Keep a day and its month on one line (#620). */
+export function keepDate(label: string): string {
+  return label.replace(/(\d+) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/g, "$1\u00a0$2");
+}
 
 export type SalesShowView = {
   title: string;
@@ -254,8 +291,8 @@ export function salesForSurface(model: SalesDashboardModel, surface: SalesSurfac
     views[id] = {
       ...view,
       campaigns: view.campaigns.map((row) =>
-        row.status === "unlinked"
-          ? { ...row, status: "spending", statusLabel: null, title: `${row.periodSpend} in this period.` }
+        row.unlinked
+          ? { ...row, unlinked: false, title: `${row.periodSpend} in this period. ${row.sinceLaunch} since launch.` }
           : row,
       ),
     };

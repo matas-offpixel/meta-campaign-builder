@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import {
   INDEX_TO_PEAK,
   PICK_A_METRIC,
+  keepDate,
   formatSalesNumber,
   planAxes,
   salesMetric,
@@ -31,7 +32,7 @@ type Drawn = {
   dashed: boolean;
   color: string;
   unit: SalesUnit;
-  coords: { x: number; y: number; note: string | null }[];
+  coords: { x: number; y: number; note: string | null; count: boolean }[];
 };
 
 export function SalesChart({
@@ -58,8 +59,8 @@ export function SalesChart({
   return (
     <figure className="mt-2">
       <AxisCaption plan={plan} selected={selected} points={points} allocation={allocation} />
-      <svg viewBox="0 0 640 180" role="img" aria-label="Sales and spend" className="h-40 w-full">
-        <rect x="8" y="8" width="624" height="140" fill="none" stroke="currentColor" className="text-border" />
+      <svg viewBox="0 0 640 280" role="img" aria-label="Sales and spend" className="block h-72 w-full">
+        <rect x="8" y="8" width="624" height="264" fill="none" stroke="currentColor" className="text-border" />
         {band}
         {drawn.map((series) => (
           <g key={series.id}>
@@ -69,20 +70,22 @@ export function SalesChart({
               strokeWidth="1.6"
               strokeDasharray={series.dashed ? "4 3" : undefined}
               points={series.coords.map((coord) => `${coord.x},${coord.y}`).join(" ")}
-            />
-            {series.coords.filter((coord) => coord.note).map((coord, index) => (
-              <circle key={index} cx={coord.x} cy={coord.y} r="2.5" fill={series.color}>
-                <title>{coord.note}</title>
-              </circle>
-            ))}
+            >
+              {series.id === "sold" && series.coords.some((coord) => coord.note) ? <title>{series.coords.find((coord) => coord.note)?.note}</title> : null}
+            </polyline>
+            {series.id === "sold"
+              ? series.coords.filter((coord) => coord.count).map((coord, index) => (
+                <circle key={index} cx={coord.x} cy={coord.y} r="4" fill={series.color} />
+              ))
+              : null}
           </g>
         ))}
-        {ticks.map((tick) => (
-          <text key={tick.day} x={tick.x} y="168" textAnchor="middle" fontSize="10" fill="currentColor" className="text-muted-foreground">
-            {tick.label}
-          </text>
-        ))}
       </svg>
+      <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+        {ticks.map((tick) => (
+          <span key={tick.day} className="whitespace-nowrap">{keepDate(tick.label)}</span>
+        ))}
+      </div>
       <ul className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[11px] text-muted-foreground">
         {drawn.map((series) => (
           <li key={series.id} className="flex items-center gap-1.5">
@@ -100,7 +103,14 @@ export function SalesChart({
             {series.label}
           </li>
         ))}
-        {band ? <li>Allocation</li> : null}
+        {band ? (
+          <li className="flex items-center gap-1.5">
+            <svg width="18" height="8" aria-hidden>
+              <rect width="18" height="8" rx="1" fill="var(--foreground)" opacity="0.18" />
+            </svg>
+            Allocation
+          </li>
+        ) : null}
       </ul>
     </figure>
   );
@@ -145,7 +155,7 @@ function drawSeries(points: SalesChartPoint[], selected: SalesMetricId[], plan: 
       const value = point.values[id];
       const x = xAt(index, points.length);
       const y = value == null ? yAt(0) : yAt(value / max);
-      return { x, y, note: point.estimated ? point.estimateNote : null };
+      return { x, y, note: point.estimated ? point.estimateNote : null, count: point.count };
     }).filter((_, index) => points[index].values[id] != null);
     return {
       id,
@@ -204,7 +214,7 @@ function xAt(index: number, count: number): number {
 
 function yAt(fraction: number): number {
   const clamped = Math.max(0, Math.min(1, fraction));
-  return 148 - clamped * 140;
+  return 272 - clamped * 264;
 }
 
 function axisTicks(points: SalesChartPoint[]): { day: string; x: number; label: string }[] {

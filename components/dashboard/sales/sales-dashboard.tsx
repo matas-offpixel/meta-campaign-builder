@@ -7,6 +7,7 @@ import {
   DEFAULT_ON_METRICS,
   INDEX_TO_PEAK,
   SALES_METRICS,
+  keepDate,
   SALES_PERIODS,
   planAxes,
   salesForSurface,
@@ -74,7 +75,7 @@ export function SalesDashboard({
   return (
     <section className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
       <header>
-        <h2 className="font-heading text-xl tracking-wide sm:text-2xl">
+        <h2 className="text-xl font-medium tracking-tight sm:text-2xl">
           <span className="sm:hidden">{view.narrowTitle}</span>
           <span className="hidden sm:inline">{view.title}</span>
         </h2>
@@ -233,6 +234,12 @@ function Trajectory({
   );
 }
 
+const CASE_COLOR: Record<SingleTrajectory["cases"][number]["id"], string> = {
+  holds: "var(--foreground)",
+  average: "var(--warning-foreground)",
+  best: "var(--success)",
+};
+
 function SingleTrajectoryView({ trajectory }: { trajectory: SingleTrajectory }) {
   if (trajectory.missingCapacity) {
     return <p className="text-xs text-muted-foreground">{trajectory.missingCapacity}</p>;
@@ -240,6 +247,7 @@ function SingleTrajectoryView({ trajectory }: { trajectory: SingleTrajectory }) 
   const cases = trajectory.opensAfter
     ? trajectory.cases.filter((item) => item.id === "holds")
     : trajectory.cases;
+  const chart = trajectoryChart(trajectory, cases);
   return (
     <div>
       <p className="text-xs">
@@ -247,31 +255,18 @@ function SingleTrajectoryView({ trajectory }: { trajectory: SingleTrajectory }) 
         <span className="hidden sm:inline">{trajectory.wideRange}</span>
       </p>
       {trajectory.narrowNote ? <p className="mt-1 text-xs text-muted-foreground sm:hidden">{trajectory.narrowNote}</p> : null}
-      {trajectory.allocation != null && trajectory.sold != null ? (
-        <ul className="mt-3 space-y-2">
+      {chart}
+      {cases.length > 0 ? (
+        <ul className="mt-3 space-y-1 text-[11px]">
           {cases.map((item) => (
-            <li key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-[11px]">
-              <div>
-                <div className="mb-1 flex justify-between text-muted-foreground">
-                  <span>{item.label}</span>
-                  <span>{item.value.toLocaleString("en-GB")}</span>
-                </div>
-                <div className="relative h-2 rounded-full bg-muted">
-                  <span
-                    className="absolute inset-y-0 left-0 rounded-full bg-foreground/80"
-                    style={{ width: `${Math.min(100, (trajectory.sold! / trajectory.allocation!) * 100)}%` }}
-                  />
-                  <span
-                    className="absolute inset-y-0 left-0 rounded-full border-2 border-foreground"
-                    style={{ width: `${Math.min(100, (item.value / trajectory.allocation!) * 100)}%` }}
-                  />
-                </div>
-              </div>
-              {item.id === "holds" && trajectory.showDay ? (
-                <span className="text-muted-foreground">{trajectory.showDay}</span>
-              ) : (
-                <span />
-              )}
+            <li key={item.id} className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <svg width="18" height="6" aria-hidden>
+                  <line x1="0" y1="3" x2="18" y2="3" stroke={CASE_COLOR[item.id]} strokeWidth="1.6" />
+                </svg>
+                {item.label}
+              </span>
+              <span>{item.value.toLocaleString("en-GB")}</span>
             </li>
           ))}
         </ul>
@@ -280,6 +275,77 @@ function SingleTrajectoryView({ trajectory }: { trajectory: SingleTrajectory }) 
       {trajectory.libraryNote ? <p className="mt-2 max-w-xl text-[11px] text-muted-foreground">{trajectory.libraryNote}</p> : null}
     </div>
   );
+}
+
+function trajectoryChart(trajectory: SingleTrajectory, cases: SingleTrajectory["cases"]) {
+  const pace = trajectory.pace;
+  const needed = trajectory.needed;
+  if (!pace || !needed || !trajectory.showDayIso || trajectory.allocation == null) return null;
+  const start = Date.parse(`${pace.fromDay}T00:00:00Z`);
+  const end = Date.parse(`${trajectory.showDayIso}T00:00:00Z`);
+  const span = Math.max(1, end - start);
+  const yMax = Math.max(trajectory.allocation, needed.showDaySold, ...cases.map((item) => item.value), pace.fanSold);
+  const x = (day: string) => 16 + ((Date.parse(`${day}T00:00:00Z`) - start) / span) * 608;
+  const y = (sold: number) => 228 - (sold / yMax) * 212;
+  const dates = [pace.fromDay, pace.toDay, pace.fanDay, trajectory.showDayIso];
+  return (
+    <figure className="mt-3">
+      <svg viewBox="0 0 640 240" role="img" aria-label="Trajectory to show day" className="block h-64 w-full">
+        <line x1="16" y1={y(trajectory.allocation)} x2="624" y2={y(trajectory.allocation)} stroke="var(--foreground)" strokeOpacity="0.35" />
+        <text x="20" y={y(trajectory.allocation) - 6} fontSize="12" fill="currentColor" className="text-muted-foreground">
+          {trajectory.allocation.toLocaleString("en-GB")}
+        </text>
+        <line x1={x(trajectory.showDayIso)} y1="12" x2={x(trajectory.showDayIso)} y2="228" stroke="var(--foreground)" strokeOpacity="0.45" />
+        <polyline
+          fill="none"
+          stroke="var(--foreground)"
+          strokeWidth="1.6"
+          points={trajectory.counts.map((count) => `${x(count.day)},${y(count.sold)}`).join(" ")}
+        />
+        {trajectory.counts.map((count) => (
+          <circle key={count.day} cx={x(count.day)} cy={y(count.sold)} r="4" fill="var(--foreground)" />
+        ))}
+        <line
+          x1={x(pace.toDay)}
+          y1={y(pace.toSold)}
+          x2={x(pace.fanDay)}
+          y2={y(pace.fanSold)}
+          stroke="var(--foreground)"
+          strokeDasharray="5 4"
+        />
+        {cases.map((item) => (
+          <line
+            key={item.id}
+            x1={x(pace.fanDay)}
+            y1={y(pace.fanSold)}
+            x2={x(trajectory.showDayIso!)}
+            y2={y(item.value)}
+            stroke={CASE_COLOR[item.id]}
+            strokeWidth="1.6"
+          />
+        ))}
+        <line
+          x1={x(pace.toDay)}
+          y1={y(pace.toSold)}
+          x2={x(trajectory.showDayIso)}
+          y2={y(needed.showDaySold)}
+          stroke="var(--foreground)"
+          strokeDasharray="1 3"
+          strokeOpacity="0.7"
+        />
+      </svg>
+      <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+        {[...new Set(dates)].map((day) => (
+          <span key={day} className="whitespace-nowrap">{keepDate(shortDay(day))}</span>
+        ))}
+      </div>
+    </figure>
+  );
+}
+
+function shortDay(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
 function AllTrajectoryView({
@@ -326,8 +392,24 @@ function AllTrajectoryView({
 function Campaigns({ rows }: { rows: SalesDashboardModel["views"][string]["campaigns"] }) {
   if (rows.length === 0) return null;
   return (
-    <div className="mt-6 overflow-x-auto">
-      <table className="w-full text-left text-xs">
+    <div className="mt-6">
+      <h3 className="text-sm font-medium">Campaigns</h3>
+      <ul className="mt-2 space-y-3 sm:hidden">
+        {rows.map((row) => (
+          <li key={row.id} className="border-t border-border pt-2 text-xs" title={row.title}>
+            <p className="flex flex-wrap items-center gap-2">
+              <span>{row.name}</span>
+              {row.unlinked ? <UnlinkedPill /> : null}
+            </p>
+            <p className="mt-1 whitespace-nowrap text-muted-foreground">{keepDate(row.delivery)}</p>
+            <p className="mt-1 flex justify-between">
+              <span>{row.periodSpend}</span>
+              <span>{row.sinceLaunch}</span>
+            </p>
+          </li>
+        ))}
+      </ul>
+      <table className="mt-2 hidden w-full text-left text-xs sm:table">
         <thead className="text-[11px] text-muted-foreground">
           <tr>
             <th className="py-1 pr-3 font-normal">Campaign</th>
@@ -339,8 +421,13 @@ function Campaigns({ rows }: { rows: SalesDashboardModel["views"][string]["campa
         <tbody>
           {rows.map((row) => (
             <tr key={row.id} className="border-t border-border" title={row.title}>
-              <td className="py-2 pr-3">{row.name}</td>
-              <td className="py-2 pr-3 text-muted-foreground">{row.statusLabel}</td>
+              <td className="py-2 pr-3">
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  {row.name}
+                  {row.unlinked ? <UnlinkedPill /> : null}
+                </span>
+              </td>
+              <td className="whitespace-nowrap py-2 pr-3 text-muted-foreground">{keepDate(row.delivery)}</td>
               <td className="py-2 pr-3">{row.periodSpend}</td>
               <td className="py-2 text-muted-foreground">{row.sinceLaunch}</td>
             </tr>
@@ -348,5 +435,13 @@ function Campaigns({ rows }: { rows: SalesDashboardModel["views"][string]["campa
         </tbody>
       </table>
     </div>
+  );
+}
+
+function UnlinkedPill() {
+  return (
+    <span className="inline-flex items-center whitespace-nowrap rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
+      Not linked to event
+    </span>
   );
 }
