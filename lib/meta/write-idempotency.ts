@@ -23,7 +23,11 @@ export type MetaWriteOpKind =
   /** On-sale refresh Apply: one ad per accepted add line and ad set. */
   | "refresh_ad_create"
   /** The gated ad-status write (lib/meta/ad-status-write.ts). */
-  | "ad_status_update";
+  | "ad_status_update"
+  /** The gated ad-set status write (lib/meta/adset-status-write.ts, migration 237). */
+  | "adset_status_update"
+  /** On-sale refresh Apply: one side of a within-campaign budget move (migration 237). */
+  | "refresh_adset_budget_update";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger

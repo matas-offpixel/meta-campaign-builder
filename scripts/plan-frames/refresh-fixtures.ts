@@ -232,9 +232,16 @@ export const OR1_PROPOSALS: PanelProposal[] = [
  * is still to review, a third was rejected as the wrong creative.
  *
  * OR7 is F3: the w/c 23 Nov payday cycle after Apply, by Matas. Its
- * figures are illustrative, as the record's F3 says. The bring-back is
- * stored Accepted (as shadow data can be) and draws To review with Accept
- * disabled: audiences can't be accepted until P3 writes them.
+ * figures are illustrative, as the record's F3 says. P3: the bring-back
+ * was applied ("Applied · on"); the drop was rejected as too early.
+ *
+ * OR8 (P3) is the audience and budget lines live on the w/c 7 Dec content
+ * cycle, two campaigns, figures illustrative: £4,500 budget, £4,180.00
+ * spent, so £320.00 left and a £64.00 move cap. The On Sale campaign's
+ * move (£40.00) is applied; the Purchase campaign's (£30.00) is held by
+ * the cap. One bring-back is acceptable (£9.10 a day × 20 days = £182.00);
+ * the other is held by the plan guard (£18.40 × 20 = £368.00). The drop is
+ * accepted. The client cluster would make a new ad set, so it is held.
  *
  * The copy under each add is a stand-in: the frames never read the
  * campaign draft, whose own copy is what the real panel shows.
@@ -246,7 +253,7 @@ const OR_COPY: NonNullable<PanelProposal["lines"][number]["copy"]> = {
   destinationUrl: "https://www.skiddle.com/whats-on/London/Puzzle/Puzzle-4th-Birthday/41234567/",
 };
 
-export const OR_APPLY_LIVE: PanelApply = { mode: "live", arm: "live", globalEnabled: true, pauseWritesEnabled: false, budgetSet: true };
+export const OR_APPLY_LIVE: PanelApply = { mode: "live", arm: "live", globalEnabled: true, pauseWritesEnabled: false, adsetStatusWritesEnabled: true, budgetWritesEnabled: true, budgetSet: true };
 
 const OR6_ADD = (id: string, title: string, state: PanelProposal["lines"][number]["state"], reason: string | null = null): PanelProposal["lines"][number] => ({
   id,
@@ -292,6 +299,7 @@ export const OR6_PROPOSALS: PanelProposal[] = [
         supply: false,
         state: "to_review",
         reason: null,
+        writeKind: "adset_budget_move",
       },
     ],
   },
@@ -336,8 +344,11 @@ export const OR7_PROPOSALS: PanelProposal[] = [
         addsSpend: true,
         blockedReason: null,
         supply: false,
-        state: "accepted",
-        reason: null,
+        state: "applied",
+        reason: "on",
+        appliedAt: "2026-11-23T08:41:00Z",
+        appliedBy: "Matas",
+        writeKind: "adset_status",
       },
       {
         id: "f4",
@@ -351,10 +362,72 @@ export const OR7_PROPOSALS: PanelProposal[] = [
         supply: false,
         state: "rejected",
         reason: "Too early",
+        writeKind: "adset_status",
       },
     ],
   },
 ];
 
-export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7"] as const;
+const OR8_LINE = (line: Partial<PanelProposal["lines"][number]> & Pick<PanelProposal["lines"][number], "id" | "kind" | "title" | "detail" | "writeText">): PanelProposal["lines"][number] => ({
+  narrow: { detail: line.detail, writeText: null },
+  addsSpend: false,
+  blockedReason: null,
+  supply: false,
+  state: "to_review",
+  reason: null,
+  ...line,
+});
+
+/** OR8's sentences are the guards' own (pinned by lib/onsale-refresh/__tests__/p3.test.ts against planGuard and moveGuard). */
+export const OR8_PLAN_GUARD = "Turning it on would spend about £368.00 before the show, more than the £320.00 left in the plan.";
+export const OR8_MOVE_CAP = "Moving £30.00 would take this refresh past 20 % of the £320.00 left (£64.00, £24.00 still free).";
+export const OR8_HELD = "Not applied yet: Apply doesn't make new ad sets yet.";
+
+export const OR8_PROPOSALS: PanelProposal[] = [
+  {
+    ...OR6_PROPOSALS[0]!,
+    id: "or8a",
+    runKind: "cycle",
+    runDay: "2026-12-07",
+    cycleMonday: "2026-12-07",
+    cycleKind: "content",
+    windowStart: "2026-11-30",
+    windowEnd: "2026-12-06",
+    nextCheck: "2026-12-14",
+    nextCycle: null,
+    nextCycleKind: null,
+    campaignSummary: "30 Oct – 6 Dec · £2,870.40 · 318 IC · £9.03 each",
+    watch: { creatives: [], audiences: [] },
+    notes: { pauses: "No pauses: no creative has enough evidence.", drops: "", adds: "Files uploaded by hand in Ads Manager aren't matched." },
+    lines: [
+      OR8_LINE({ id: "a1", kind: "bring_back_audience", title: "Electronic dance music, Electronic music", detail: "Stopped 6 Nov · £36.85 · 12 IC · £3.07 each, 0.34× the campaign", narrow: { detail: "£36.85 · 12 IC · £3.07 each, 0.34×", writeText: null }, writeText: "Ad set status → on · its own budget", addsSpend: true, writeKind: "adset_status" }),
+      OR8_LINE({ id: "a2", kind: "bring_back_audience", title: "Lineup Suggestion — Primary", detail: "Stopped 3 Nov · £41.77 · 12 IC · £3.48 each, 0.39× the campaign", narrow: { detail: "£41.77 · 12 IC · £3.48 each, 0.39×", writeText: null }, writeText: "Ad set status → on · its own budget", addsSpend: true, blockedReason: OR8_PLAN_GUARD, writeKind: "adset_status" }),
+      OR8_LINE({ id: "a3", kind: "drop_audience", title: "1% Lookalike – Data — Primary", detail: "£46.20 · 2 IC · £23.10 each, 2.56× the campaign · live 38 days", narrow: { detail: "£46.20 · 2 IC · £23.10 each, 2.56×", writeText: null }, writeText: "Ad set status → off", state: "accepted", writeKind: "adset_status" }),
+      OR8_LINE({ id: "a4", kind: "move_budget", title: "Lineup — Primary → Adv+", detail: "£14.80 per IC (1.64×) to £6.10 per IC (0.68×) · £40.00 a week · cap £64.00 (20 % of £320.00 remaining)", narrow: { detail: "£40.00 a week · cap £64.00", writeText: null }, writeText: "Ad-set budget write, both sides", state: "applied", reason: "£40.00 a week moved", appliedAt: "2026-12-07T08:52:00Z", appliedBy: "Matas", writeKind: "adset_budget_move" }),
+    ],
+  },
+  {
+    ...OR6_PROPOSALS[0]!,
+    id: "or8b",
+    campaignKey: "[P26-BDAY] Puzzle - 27 Dec - Purchase",
+    runKind: "cycle",
+    runDay: "2026-12-07",
+    cycleMonday: "2026-12-07",
+    cycleKind: "content",
+    windowStart: "2026-11-30",
+    windowEnd: "2026-12-06",
+    nextCheck: "2026-12-14",
+    nextCycle: null,
+    nextCycleKind: null,
+    campaignSummary: "16 Nov – 6 Dec · £1,309.60 · 141 IC · £9.29 each",
+    watch: { creatives: [], audiences: [] },
+    notes: { pauses: "No pauses: no creative has enough evidence.", drops: "No drops: none qualifies.", adds: "" },
+    lines: [
+      OR8_LINE({ id: "b1", kind: "bring_back_audience", title: "Disc Genre", detail: "Ran for Electric Brixton at 0.8× its cost per registration · confidence ok · not used on this event", narrow: { detail: "0.8× Electric Brixton's cost per registration · confidence ok", writeText: null }, writeText: "New ad set through the launch path · its own budget", addsSpend: true, writeKind: "new_adset" }),
+      OR8_LINE({ id: "b2", kind: "move_budget", title: "Broad — Primary → Retargeting — 30d", detail: "£16.40 per IC (1.77×) to £5.20 per IC (0.56×) · £30.00 a week · cap £64.00 (20 % of £320.00 remaining)", narrow: { detail: "£30.00 a week · cap £64.00", writeText: null }, writeText: "Ad-set budget write, both sides", blockedReason: OR8_MOVE_CAP, writeKind: "adset_budget_move" }),
+    ],
+  },
+];
+
+export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8"] as const;
 export const REFRESH_FRAME_WIDTHS = [1280, 393] as const;

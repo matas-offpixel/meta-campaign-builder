@@ -17,14 +17,29 @@ export const STATE_WORD: Record<LineState, string> = {
   expired: "Expired",
 };
 
-/** P2 writes creatives only; audiences and budget are P3. */
-export const APPLY_KINDS: readonly LineKind[] = ["add_creative", "pause_creative"];
+/** The write a line would make (its stored `write.kind`). */
+export type WriteKind = "add_ads" | "ad_status" | "adset_status" | "new_adset" | "adset_budget_move";
+
+type GateLine = { kind: LineKind; state: string; writeKind?: string | null };
+
+/** Each write's own gate, on top of the deployment gate and the event's Live arm. */
+export type WriteGates = {
+  /** OFFPIXEL_META_AD_STATUS_WRITES_ENABLED: Pause creative. */
+  pauseWritesEnabled: boolean;
+  /** OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLED: Bring back (a stopped ad set) and Drop. */
+  adsetStatusWritesEnabled?: boolean;
+  /** ENABLE_OPTIMISATION_WRITES: the optimisation budget write, for moves. */
+  budgetWritesEnabled?: boolean;
+};
+
+/** P2 wrote creatives; P3 adds a stopped ad set's bring-back, drops and within-campaign moves. */
+export const APPLY_KINDS: readonly LineKind[] = ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget"];
 
 /**
  * Lines that turn delivery on or raise a budget, so add spend: the plan
- * guard and the no-budget sentence apply to them only. An add or a pause
- * never adds spend (the design ruling on #1220). `adset_budget_raise` is
- * P3's write kind.
+ * guard and the no-budget sentence apply to them only. An add, a pause and
+ * a drop never add spend (the design ruling on #1220).
+ * `adset_budget_raise` is a later write kind.
  */
 export const SPEND_KINDS: readonly string[] = ["bring_back_audience", "missing_default", "adset_budget_raise"];
 
@@ -32,20 +47,40 @@ export function addsSpend(kind: string): boolean {
   return SPEND_KINDS.includes(kind);
 }
 
-/** Audience and budget lines can't be accepted until P3 writes them; Reject stays live. */
-export const NOT_APPLIED_YET = "Not applied yet: Apply only writes creatives for now.";
+/**
+ * A line that would make a new ad set — a client cluster brought back, a
+ * missing standing default — isn't applied yet: the audience and the ads
+ * a new ad set carries wait for a ruling. Reject stays live.
+ */
+export const NEW_ADSET_NOT_YET = "Not applied yet: Apply doesn't make new ad sets yet.";
 
-/** Accept is open to creative lines only (P2). Claims are made in the Lab. */
-export function acceptable(kind: LineKind): boolean {
-  return APPLY_KINDS.includes(kind);
+/** Accept is open to the lines Apply writes. Claims are made in the Lab; new ad sets wait. */
+export function acceptable(line: { kind: LineKind; writeKind?: string | null }): boolean {
+  if (!APPLY_KINDS.includes(line.kind)) return false;
+  return line.writeKind !== "new_adset";
+}
+
+/** The sentence under a line whose Accept is held, or null. */
+export function heldText(line: { kind: LineKind; writeKind?: string | null; supply?: boolean }): string | null {
+  if (line.supply || line.kind === "claim_ready") return null;
+  return acceptable(line) ? null : NEW_ADSET_NOT_YET;
 }
 
 /**
- * The state the panel draws: an audience or budget line stored as
- * Accepted (shadow data, fixtures) is To review until P3 can apply it.
+ * The state the panel draws: a held line stored as Accepted (shadow data,
+ * fixtures) is To review until Apply can write it.
  */
-export function displayState(line: { kind: LineKind; state: LineState }): LineState {
-  return line.state === "accepted" && !acceptable(line.kind) && line.kind !== "claim_ready" ? "to_review" : line.state;
+export function displayState(line: { kind: LineKind; state: LineState; writeKind?: string | null }): LineState {
+  return line.state === "accepted" && !acceptable(line) && line.kind !== "claim_ready" ? "to_review" : line.state;
+}
+
+/** Whether this line's own write gate is open. */
+export function writeGateOpen(line: GateLine, gates: WriteGates): boolean {
+  if (line.kind === "add_creative") return true;
+  if (line.kind === "pause_creative") return gates.pauseWritesEnabled;
+  if (line.kind === "bring_back_audience" || line.kind === "drop_audience") return Boolean(gates.adsetStatusWritesEnabled);
+  if (line.kind === "move_budget") return Boolean(gates.budgetWritesEnabled);
+  return false;
 }
 
 /**
@@ -65,16 +100,15 @@ export function displayName(user: { email?: string | null; user_metadata?: Recor
   return local || null;
 }
 
-/** The lines Apply accepted (n) would write: accepted creative lines, pauses only when their own gate is open. */
-export function appliesNow(line: { kind: LineKind; state: string }, gates: { pauseWritesEnabled: boolean }): boolean {
+/** The lines Apply accepted (n) would write: accepted lines Apply can write, each only while its own gate is open. */
+export function appliesNow(line: GateLine, gates: WriteGates): boolean {
   if (line.state !== "accepted") return false;
-  if (line.kind === "add_creative") return true;
-  return line.kind === "pause_creative" && gates.pauseWritesEnabled;
+  return acceptable(line) && writeGateOpen(line, gates);
 }
 
 /** Failed lines Retry failed (n) would run again. */
-export function retriesNow(line: { kind: LineKind; state: string }, gates: { pauseWritesEnabled: boolean }): boolean {
-  return line.state === "failed" && appliesNow({ kind: line.kind, state: "accepted" }, gates);
+export function retriesNow(line: GateLine, gates: WriteGates): boolean {
+  return line.state === "failed" && appliesNow({ ...line, state: "accepted" }, gates);
 }
 
 export const REJECT_REASONS = { too_early: "Too early", wrong_creative: "Wrong creative", claim_not_right: "Claim not right", other: "Other" } as const;

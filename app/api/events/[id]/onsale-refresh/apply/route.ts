@@ -2,12 +2,14 @@
  * POST /api/events/[id]/onsale-refresh/apply { retry?: boolean, lineIds?: string[] }
  *
  * Apply accepted (n) — or, with retry, Retry failed (n) — for the event's
- * creative lines (P2 of docs/design-record/2026-11-12-on-sale-refresh.html).
+ * creative, audience and budget lines (P2 and P3 of docs/design-record/2026-11-12-on-sale-refresh.html).
  *
  * Gates, before any Drive, Storage or Graph call: session auth and the
  * event's owner, then Live — ONSALE_REFRESH_APPLY_ENABLED exactly "1" and
- * the event armed Live. Pause creative lines also need
- * OFFPIXEL_META_AD_STATUS_WRITES_ENABLED exactly "true". The engine
+ * the event armed Live. Each write also needs its own gate: Pause creative
+ * OFFPIXEL_META_AD_STATUS_WRITES_ENABLED = "true"; Bring back and Drop
+ * OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLED = "true"; a move
+ * ENABLE_OPTIMISATION_WRITES = "1" (P3). The engine
  * (lib/onsale-refresh/apply.ts) re-checks the campaign guard and the plan
  * guard per line and records every write on meta_write_idempotency.
  *
@@ -61,8 +63,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const validators = new Map<string, ReturnType<typeof createIgActorValidator>>();
   const meta: RefreshMeta = {
     async readAdSet(adsetId) {
-      const row = await graphGetWithToken<{ id: string; campaign_id?: string; effective_status?: string }>(`/${adsetId}`, { fields: "id,campaign_id,effective_status" }, token);
-      return row?.id ? { id: row.id, campaignId: row.campaign_id ?? null, effectiveStatus: row.effective_status ?? null } : null;
+      const row = await graphGetWithToken<{ id: string; campaign_id?: string; effective_status?: string; status?: string; name?: string; daily_budget?: string }>(
+        `/${adsetId}`,
+        { fields: "id,campaign_id,effective_status,status,name,daily_budget" },
+        token,
+        { maxAttempts: 1 },
+      );
+      const daily = Number(row?.daily_budget);
+      return row?.id
+        ? { id: row.id, campaignId: row.campaign_id ?? null, effectiveStatus: row.effective_status ?? null, status: row.status ?? null, name: row.name ?? null, dailyBudget: row.daily_budget != null && Number.isFinite(daily) && daily > 0 ? daily : null }
+        : null;
+    },
+    async listAdSets(campaignId) {
+      const res = await graphGetWithToken<{ data?: { id: string; name?: string; effective_status?: string; status?: string }[] }>(`/${campaignId}/adsets`, { fields: "id,name,effective_status,status", limit: "200" }, token, { maxAttempts: 1 });
+      return (res.data ?? []).map((set) => ({ id: set.id, campaignId, effectiveStatus: set.effective_status ?? null, status: set.status ?? null, name: set.name ?? null }));
+    },
+    // The optimisation budget write (app/api/cron/optimisation-tick): POST /{adset} { daily_budget }, single shot.
+    async updateAdSetDailyBudget(adsetId, dailyBudgetPence) {
+      await graphPostWithToken(`/${adsetId}`, { daily_budget: dailyBudgetPence }, token);
+    },
+    // The gated ad-set status write's POST (lib/meta/adset-status-write.ts).
+    async postAdSetStatus(adsetId, status) {
+      await graphPostWithToken(`/${adsetId}`, { status }, token);
     },
     async listAds(adsetId) {
       const res = await graphGetWithToken<{ data?: { id: string; effective_status?: string }[] }>(`/${adsetId}/ads`, { fields: "id,effective_status", limit: "200" }, token);

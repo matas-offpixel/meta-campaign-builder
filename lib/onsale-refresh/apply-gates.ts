@@ -4,12 +4,21 @@
  *      (default off), and
  *   b) the event is armed Live (onsale_refresh_arms.mode = 'live', default
  *      shadow).
- * Even then nothing applies without Matas's Apply click. A Pause creative
- * line also needs OFFPIXEL_META_AD_STATUS_WRITES_ENABLED = "true"
- * (lib/meta/ad-status-write.ts). Pure: no database, no Meta.
+ * Even then nothing applies without Matas's Apply click. Each write also
+ * needs its own gate:
+ *   - Pause creative: OFFPIXEL_META_AD_STATUS_WRITES_ENABLED = "true"
+ *     (lib/meta/ad-status-write.ts);
+ *   - Bring back (a stopped ad set) and Drop:
+ *     OFFPIXEL_META_ADSET_STATUS_WRITES_ENABLED = "true"
+ *     (lib/meta/adset-status-write.ts);
+ *   - a within-campaign move: ENABLE_OPTIMISATION_WRITES = "1", the
+ *     optimisation budget write's own gate (lib/optimisation/gates.ts).
+ * Pure: no database, no Meta.
  */
 
 import { adStatusWritesEnabled } from "../meta/ad-status-write.ts";
+import { adsetStatusWritesEnabled } from "../meta/adset-status-write.ts";
+import { isOptimisationWritesEnabledFromEnv } from "../optimisation/gates.ts";
 
 export { APPLY_KINDS, REJECT_REASONS, appliesNow, isRejectReason, retriesNow, type RejectReason } from "./line-states.ts";
 
@@ -30,10 +39,14 @@ export type ApplyGates = {
   mode: ArmMode;
   /** The ad-status write gate, for Pause creative lines. */
   pauseWritesEnabled: boolean;
+  /** The ad-set status write gate, for Bring back and Drop lines. */
+  adsetStatusWritesEnabled: boolean;
+  /** The optimisation budget write gate, for moves. */
+  budgetWritesEnabled: boolean;
 };
 
 export function applyGates(env: Record<string, string | undefined>, arm: ArmMode | null | undefined): ApplyGates {
   const globalEnabled = applyEnabled(env);
   const armed: ArmMode = arm === "live" ? "live" : "shadow";
-  return { globalEnabled, arm: armed, mode: globalEnabled && armed === "live" ? "live" : "shadow", pauseWritesEnabled: adStatusWritesEnabled(env) };
+  return { globalEnabled, arm: armed, mode: globalEnabled && armed === "live" ? "live" : "shadow", pauseWritesEnabled: adStatusWritesEnabled(env), adsetStatusWritesEnabled: adsetStatusWritesEnabled(env), budgetWritesEnabled: isOptimisationWritesEnabledFromEnv(env) };
 }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { NOT_APPLIED_YET, REJECT_REASONS, acceptable, appliesNow, displayState, keepDates, keepDatesDeep, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
+import { REJECT_REASONS, acceptable, appliesNow, displayState, heldText, keepDates, keepDatesDeep, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
 import type { PanelApply, PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 import { isShowWeek } from "@/lib/onsale-refresh/on-sale";
 import { appliedStamp, dayMonth, outcomeWeek, shortDay, todayLondon, weekLabel } from "@/lib/onsale-refresh/schedule";
@@ -124,11 +124,14 @@ export type PanelActions = {
   error?: string | null;
 };
 
-/** One line with P2's controls: the toggle pair while Live, the reason picker, the result and Retry. */
+/** One line with P2 / P3's controls: the toggle pair while Live, the reason picker, the result and Retry. */
 function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine; apply: PanelApply; actions: PanelActions; frozen: boolean }) {
-  // An audience or budget line stored as Accepted reads To review until P3 can apply it.
+  // A line Apply can't write yet (a new ad set) stored as Accepted reads To review.
   const line = { ...stored, state: displayState(stored) };
-  const canAccept = acceptable(line.kind);
+  const canAccept = acceptable(line);
+  // What holds Accept: the live block (plan guard, last ad set, retargeting, the 20 % cap), or a new ad set waiting.
+  const block = line.blockedReason ?? heldText(line);
+  const held = !canAccept && block === heldText(line);
   const [picking, setPicking] = useState(false);
   const [other, setOther] = useState<string | null>(null);
   const live = apply.mode === "live" && !frozen;
@@ -155,10 +158,9 @@ function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine
               {line.narrow.writeText ? <p className="mt-0.5 text-xs sm:hidden">{line.narrow.writeText}</p> : null}
             </>
           ) : null}
-          {line.blockedReason && (line.state === "to_review" || line.state === "rejected") ? <p className="mt-0.5 text-xs text-destructive">{line.blockedReason}</p> : null}
-          {!canAccept && !line.supply && (line.state === "to_review" || line.state === "rejected") ? (
-            <p className="mt-0.5 text-xs text-muted-foreground" data-not-applied-yet>
-              {NOT_APPLIED_YET}
+          {block && (line.state === "to_review" || line.state === "rejected") ? (
+            <p className={`mt-0.5 text-xs ${held ? "text-muted-foreground" : "text-destructive"}`} data-block={held ? "held" : "guard"}>
+              {block}
             </p>
           ) : null}
           {line.state !== "to_review" ? (
@@ -234,7 +236,7 @@ function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine
               size="sm"
               variant={line.state === "accepted" ? "primary" : "outline"}
               aria-pressed={line.state === "accepted"}
-              disabled={!decidable || busy || !canAccept || (line.state !== "accepted" && Boolean(line.blockedReason))}
+              disabled={!decidable || busy || !canAccept || (line.state !== "accepted" && Boolean(block))}
               title={shadowTitle}
               onClick={() => actions.onDecide?.(line.id, "accept")}
             >

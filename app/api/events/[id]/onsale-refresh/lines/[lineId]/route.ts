@@ -28,7 +28,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     body.decision === "accept"
       ? ({ decision: "accept" } as const)
       : ({ decision: "reject", reason: isRejectReason(body.reason) ? body.reason : null, note: typeof body.note === "string" ? body.note : null } as const);
-  const result = await decideLine({ db: who.db, eventId: who.event.id, userId: who.userId, lineId, decision, gates: who.gates, budgetSet: who.budgetSet });
+  const result = await decideLine({ db: who.db, eventId: who.event.id, userId: who.userId, lineId, decision, gates: who.gates, budget: who.budgetSet ? Number(who.event.budget_marketing) : null, eventDate: who.event.event_date });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
   return NextResponse.json({ ok: true, line: result.line });
 }

@@ -5,14 +5,18 @@
  * line takes it back to To review. Reject needs one of the four reasons
  * (Too early · Wrong creative · Claim not right · Other, with optional
  * text); Reject on a Rejected line with no reason takes it back. Nothing
- * here writes to Meta: Apply accepted (n) is the only write, and only for
- * creative lines (P2).
+ * here writes to Meta: Apply accepted (n) is the only write.
  *
  * Decisions are only taken while the event is Live (the global gate and
  * the arm): in Shadow the panel draws Accept and Reject disabled, and the
- * route refuses them too. A line that adds spend can't be accepted until
- * the event has a budget (R5); a line on a campaign that isn't one of
- * this event's drafts can't be accepted at all.
+ * route refuses them too. Accept is refused (`acceptBlock`, the same check
+ * the panel draws) for:
+ *  - a line Apply can't write yet (a new ad set);
+ *  - a campaign that isn't one of this event's drafts, or an add with no copy;
+ *  - a spend line without a budget, or whose spend before the show is
+ *    more than the plan has left (R5);
+ *  - a drop of retargeting, or of the last ad set delivering;
+ *  - a move past the refresh's 20 % cap, counting the moves already applied.
  *
  * The caller has checked the event's owner. `db` is the service role.
  */
@@ -20,8 +24,56 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ApplyGates } from "./apply-gates.ts";
-import { NOT_APPLIED_YET, REJECT_REASONS, acceptable, isRejectReason, type RejectReason } from "./line-states.ts";
-import type { LineKind } from "./rules.ts";
+import { REJECT_REASONS, heldText, isRejectReason, type RejectReason } from "./line-states.ts";
+import { MOVE_NEEDS_BUDGET, SPEND_NEEDS_BUDGET, appliedMovesGbp, moveGuard, spendLineBlock, spendToDate } from "./plan-guard.ts";
+import { RETARGETING, type LineKind } from "./rules.ts";
+import { todayLondon } from "./schedule.ts";
+
+export { SPEND_NEEDS_BUDGET };
+
+/** Never retargeting (R2, R5). */
+export const RETARGETING_STAYS = "Retargeting stays on: it's never dropped.";
+/** Never the last ad set (R2, R5). */
+export const LAST_ADSET_STAYS = "It's the last ad set delivering in this campaign, so it stays on.";
+
+export type BlockCtx = {
+  budget: number | null;
+  spend: number;
+  today: string;
+  eventDate: string | null;
+  /** Moves already applied for the event in this refresh (other lines). */
+  appliedMovesGbp: number;
+  /** Other drops on this proposal, accepted, applying or applied. */
+  otherDrops: number;
+};
+
+type BlockLine = {
+  kind: string;
+  title: string;
+  supply?: boolean;
+  adds_spend: boolean;
+  blocked_reason: string | null;
+  evidence?: Record<string, unknown> | null;
+  write?: Record<string, unknown> | null;
+};
+
+/** Why Accept is held on a line now, or null. The panel draws it; decideLine enforces it. */
+export function acceptBlock(line: BlockLine, ctx: BlockCtx): string | null {
+  const writeKind = typeof line.write?.kind === "string" ? line.write.kind : null;
+  const held = heldText({ kind: line.kind as LineKind, writeKind, supply: line.supply });
+  if (held) return held;
+  // Blocks the proposal stored that aren't about the budget (not this event's draft, no copy) stand.
+  if (line.blocked_reason && line.blocked_reason !== SPEND_NEEDS_BUDGET && line.blocked_reason !== MOVE_NEEDS_BUDGET) return line.blocked_reason;
+  if (line.adds_spend) return spendLineBlock({ kind: line.kind, evidence: line.evidence }, ctx);
+  if (line.kind === "drop_audience") {
+    if (RETARGETING.test(line.title)) return RETARGETING_STAYS;
+    const delivering = Number(line.evidence?.deliveringAdSets);
+    if (Number.isFinite(delivering) && delivering - ctx.otherDrops <= 1) return LAST_ADSET_STAYS;
+    return null;
+  }
+  if (line.kind === "move_budget") return moveGuard(Number(line.write?.amountGbp) || 0, ctx.budget, ctx.spend, ctx.appliedMovesGbp);
+  return null;
+}
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -32,17 +84,19 @@ export type DecideResult =
   | { ok: false; status: number; error: string };
 
 export const SHADOW_REFUSAL = "Shadow: nothing here can be applied yet.";
-export const SPEND_NEEDS_BUDGET = "Adds spend: set this event's budget to accept this.";
 
 type LineRow = {
   id: string;
   kind: string;
+  title: string;
   state: string;
   supply: boolean;
   adds_spend: boolean;
   blocked_reason: string | null;
+  evidence: Record<string, unknown> | null;
+  write: Record<string, unknown> | null;
   proposal_id: string;
-  onsale_refresh_proposals: { event_id: string } | null;
+  onsale_refresh_proposals: { event_id: string; window_end?: string | null } | null;
 };
 
 /** The words a Rejected line shows: the reason, and the note after "Other". */
@@ -61,11 +115,25 @@ export function liveBlockedReason(line: { adds_spend: boolean; blocked_reason: s
   return line.blocked_reason;
 }
 
-export async function decideLine(args: { db: Db; eventId: string; userId: string; lineId: string; decision: Decision; gates: ApplyGates; budgetSet: boolean; now?: Date }): Promise<DecideResult> {
+/** The live context Accept checks a line against: the plan, the refresh's applied moves, the proposal's other drops. */
+export async function blockCtx(db: Db, line: Pick<LineRow, "id" | "kind" | "adds_spend" | "proposal_id"> & { window_end?: string | null }, args: { eventId: string; budget: number | null; eventDate: string | null; today: string }): Promise<BlockCtx> {
+  const needsSpend = line.adds_spend || line.kind === "move_budget";
+  const spend = needsSpend && args.budget != null ? await spendToDate(db, args.eventId) : 0;
+  const moved = line.kind === "move_budget" && line.window_end ? await appliedMovesGbp(db, args.eventId, line.window_end, line.id) : 0;
+  let otherDrops = 0;
+  if (line.kind === "drop_audience") {
+    const drops = await db.from("onsale_refresh_lines").select("id").eq("proposal_id", line.proposal_id).eq("kind", "drop_audience").in("state", ["accepted", "applying", "applied"]).neq("id", line.id);
+    if (drops.error) throw new Error(`onsale_refresh_lines drops: ${drops.error.message}`);
+    otherDrops = ((drops.data ?? []) as unknown[]).length;
+  }
+  return { budget: args.budget, spend, today: args.today, eventDate: args.eventDate, appliedMovesGbp: moved, otherDrops };
+}
+
+export async function decideLine(args: { db: Db; eventId: string; userId: string; lineId: string; decision: Decision; gates: ApplyGates; budget: number | null; eventDate: string | null; now?: Date }): Promise<DecideResult> {
   if (args.gates.mode !== "live") return { ok: false, status: 409, error: SHADOW_REFUSAL };
   const found = await args.db
     .from("onsale_refresh_lines")
-    .select("id, kind, state, supply, adds_spend, blocked_reason, proposal_id, onsale_refresh_proposals!inner(event_id)")
+    .select("id, kind, title, state, supply, adds_spend, blocked_reason, evidence, write, proposal_id, onsale_refresh_proposals!inner(event_id, window_end)")
     .eq("id", args.lineId)
     .maybeSingle();
   if (found.error) return { ok: false, status: 500, error: found.error.message };
@@ -79,9 +147,8 @@ export async function decideLine(args: { db: Db; eventId: string; userId: string
     if (line.state === "accepted") {
       next = { state: "to_review", reason: null, reject_reason: null, reject_note: null };
     } else {
-      // P2 writes creatives only: an audience or budget line can be rejected, not accepted, until P3.
-      if (!acceptable(line.kind as LineKind)) return { ok: false, status: 409, error: NOT_APPLIED_YET };
-      const blocked = liveBlockedReason(line, args.budgetSet);
+      const ctx = await blockCtx(args.db, { ...line, window_end: line.onsale_refresh_proposals?.window_end ?? null }, { eventId: args.eventId, budget: args.budget, eventDate: args.eventDate, today: todayLondon(args.now ?? new Date()) });
+      const blocked = acceptBlock(line, ctx);
       if (blocked) return { ok: false, status: 409, error: blocked };
       next = { state: "accepted", reason: null, reject_reason: null, reject_note: null };
     }

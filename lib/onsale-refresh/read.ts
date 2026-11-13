@@ -9,10 +9,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { applyGates, type ArmMode } from "./apply-gates.ts";
-import { liveBlockedReason } from "./decide.ts";
+import { acceptBlock, liveBlockedReason, type BlockCtx } from "./decide.ts";
 import { displayState, type LineState } from "./line-states.ts";
+import { spendToDate } from "./plan-guard.ts";
 import type { AddCopy, LineKind, Proposal, WatchItem } from "./rules.ts";
-import { nextCycleAfter, weekLabel, type CycleKind, type RunKind } from "./schedule.ts";
+import { nextCycleAfter, todayLondon, weekLabel, type CycleKind, type RunKind } from "./schedule.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -37,6 +38,8 @@ export type PanelLine = {
   appliedAt?: string | null;
   /** P2: who clicked Apply: a first name or an email's local part, never a full email. */
   appliedBy?: string | null;
+  /** P3: the write it would make (`write.kind`): a new ad set's lines are held. */
+  writeKind?: string | null;
 };
 
 /** The panel's gates (R4): live only with the deployment gate and the event's arm. */
@@ -45,8 +48,15 @@ export type PanelApply = {
   arm: ArmMode;
   globalEnabled: boolean;
   pauseWritesEnabled: boolean;
+  /** P3: Bring back and Drop's own gate. */
+  adsetStatusWritesEnabled?: boolean;
+  /** P3: a move's own gate (the optimisation budget write). */
+  budgetWritesEnabled?: boolean;
   budgetSet: boolean;
 };
+
+/** P3: the plan the panel checks each line against (R5), read live. */
+export type PanelPlan = { budget: number | null; spend: number; today: string; eventDate: string | null };
 
 export type PanelProposal = {
   id: string;
@@ -95,11 +105,12 @@ type ProposalRow = {
   created_at: string;
 };
 
-type LineRow = Omit<PanelLine, "writeText" | "addsSpend" | "blockedReason" | "narrow" | "copy" | "carried" | "appliedAt"> & { proposal_id: string; position: number; write_text: string; narrow: PanelLine["narrow"] | null; adds_spend: boolean; blocked_reason: string | null; target?: { copy?: AddCopy | null } | null; applied_at?: string | null; applied_result?: { appliedBy?: string | null } | null };
+type LineRow = Omit<PanelLine, "writeText" | "addsSpend" | "blockedReason" | "narrow" | "copy" | "carried" | "appliedAt"> & { proposal_id: string; position: number; write_text: string; narrow: PanelLine["narrow"] | null; adds_spend: boolean; blocked_reason: string | null; target?: { copy?: AddCopy | null } | null; applied_at?: string | null; applied_result?: { appliedBy?: string | null } | null; evidence?: Record<string, unknown> | null; write?: Record<string, unknown> | null };
 
 const CARRIED: readonly LineState[] = ["accepted", "applying", "failed"];
 
-function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | null): PanelLine {
+function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | null, ctx: BlockCtx | null = null): PanelLine {
+  const writeKind = typeof line.write?.kind === "string" ? line.write.kind : null;
   const copy = line.kind === "add_creative" && line.target?.copy ? { primaryText: line.target.copy.primaryText, headline: line.target.copy.headline, cta: line.target.copy.cta, destinationUrl: line.target.copy.destinationUrl } : null;
   return {
     id: line.id,
@@ -110,15 +121,17 @@ function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | n
     narrow: line.narrow?.detail != null ? line.narrow : { detail: line.detail, writeText: line.write_text },
     addsSpend: line.adds_spend,
     // R5: the stored budget sentence was the proposal's; the event's budget now decides it.
-    blockedReason: budgetSet == null ? line.blocked_reason : liveBlockedReason(line, budgetSet),
+    // P3: with the plan, the same check Accept enforces (held, plan guard, last ad set, retargeting, the 20 % cap).
+    blockedReason: ctx ? acceptBlock(line, ctx) : budgetSet == null ? line.blocked_reason : liveBlockedReason(line, budgetSet),
     supply: line.supply,
     // P2: an audience or budget line stored as Accepted reads To review until P3 can apply it.
-    state: budgetSet == null ? line.state : displayState(line),
+    state: budgetSet == null ? line.state : displayState({ kind: line.kind, state: line.state, writeKind }),
     reason: line.reason,
     ...(copy ? { copy } : {}),
     ...(carried ? { carried } : {}),
     ...(line.applied_at ? { appliedAt: line.applied_at } : {}),
     ...(line.applied_result?.appliedBy && !line.applied_result.appliedBy.includes("@") ? { appliedBy: line.applied_result.appliedBy } : {}),
+    ...(writeKind ? { writeKind } : {}),
   };
 }
 
@@ -129,7 +142,7 @@ function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | n
  * proposals' Accepted, Applying and Failed lines are carried under the
  * latest one, marked with their week.
  */
-export async function loadEventProposals(db: Db, eventId: string, opts: { budgetSet?: boolean } = {}): Promise<PanelProposal[]> {
+export async function loadEventProposals(db: Db, eventId: string, opts: { budgetSet?: boolean; plan?: PanelPlan } = {}): Promise<PanelProposal[]> {
   const { data, error } = await db
     .from("onsale_refresh_proposals")
     .select("id, campaign_key, campaign_summary, run_kind, run_day, cycle_monday, cycle_kind, window_start, window_end, mode, objective, why, blockers, enough_data, not_enough_data, next_check, watch, notes, created_at")
@@ -149,21 +162,44 @@ export async function loadEventProposals(db: Db, eventId: string, opts: { budget
   const ids = [...rows, ...earlier].map((row) => row.id);
   const lines = await db
     .from("onsale_refresh_lines")
-    .select(`id, proposal_id, position, kind, title, detail, write_text, narrow, adds_spend, blocked_reason, supply, state, reason${p2 ? ", target, applied_at, applied_result" : ""}`)
+    .select(`id, proposal_id, position, kind, title, detail, write_text, narrow, adds_spend, blocked_reason, supply, state, reason${p2 ? ", target, applied_at, applied_result, evidence, write" : ""}`)
     .in("proposal_id", ids)
     .order("position", { ascending: true });
   if (lines.error) throw new Error(`onsale_refresh_lines: ${lines.error.message}`);
   const owner = new Map(all.map((row) => [row.id, row]));
   const byProposal = new Map<string, PanelLine[]>();
   const budgetSet = p2 ? Boolean(opts.budgetSet) : null;
-  for (const line of (lines.data ?? []) as unknown as LineRow[]) {
+  const loaded = (lines.data ?? []) as unknown as LineRow[];
+  // P3: the moves already applied in each refresh (by window), and each proposal's drops, for the live blocks.
+  const movedByWindow = new Map<string, { id: string; amount: number }[]>();
+  const dropsByProposal = new Map<string, string[]>();
+  for (const line of loaded) {
+    const from = owner.get(line.proposal_id);
+    if (!from) continue;
+    if (line.kind === "move_budget" && (line.state === "applied" || line.state === "applying")) {
+      const list = movedByWindow.get(from.window_end) ?? [];
+      list.push({ id: line.id, amount: Number(line.write?.amountGbp) || 0 });
+      movedByWindow.set(from.window_end, list);
+    }
+    if (line.kind === "drop_audience" && ["accepted", "applying", "applied"].includes(line.state)) dropsByProposal.set(line.proposal_id, [...(dropsByProposal.get(line.proposal_id) ?? []), line.id]);
+  }
+  const ctxFor = (line: LineRow): BlockCtx | null => {
+    if (!opts.plan) return null;
+    const window = owner.get(line.proposal_id)?.window_end ?? "";
+    return {
+      ...opts.plan,
+      appliedMovesGbp: (movedByWindow.get(window) ?? []).filter((row) => row.id !== line.id).reduce((sum, row) => sum + row.amount, 0),
+      otherDrops: (dropsByProposal.get(line.proposal_id) ?? []).filter((id) => id !== line.id).length,
+    };
+  };
+  for (const line of loaded) {
     const from = owner.get(line.proposal_id);
     if (!from) continue;
     const head = latest.get(from.campaign_key)!;
     const isCarried = head.id !== from.id;
     if (isCarried && !CARRIED.includes(line.state)) continue;
     const list = byProposal.get(head.id) ?? [];
-    list.push(panelLine(line, budgetSet, isCarried ? weekLabel(from.cycle_monday) : null));
+    list.push(panelLine(line, budgetSet, isCarried ? weekLabel(from.cycle_monday) : null, ctxFor(line)));
     byProposal.set(head.id, list);
   }
   return rows.map((row) => ({
@@ -201,14 +237,17 @@ export async function loadArm(db: Db, eventId: string): Promise<ArmMode> {
 
 /** Everything the panel needs (P2): the proposals, and the gates that decide whether anything can be clicked. */
 export async function loadPanel(db: Db, eventId: string, env: Record<string, string | undefined>): Promise<{ proposals: PanelProposal[]; apply: PanelApply }> {
-  const [event, arm] = await Promise.all([db.from("events").select("budget_marketing").eq("id", eventId).maybeSingle(), loadArm(db, eventId)]);
+  const [event, arm] = await Promise.all([db.from("events").select("budget_marketing, event_date").eq("id", eventId).maybeSingle(), loadArm(db, eventId)]);
   if (event.error) throw new Error(`events: ${event.error.message}`);
-  const budget = (event.data as { budget_marketing?: number | string | null } | null)?.budget_marketing;
-  const budgetSet = budget != null && Number.isFinite(Number(budget));
+  const row = event.data as { budget_marketing?: number | string | null; event_date?: string | null } | null;
+  const budgetSet = row?.budget_marketing != null && Number.isFinite(Number(row.budget_marketing));
+  const budget = budgetSet ? Number(row!.budget_marketing) : null;
   const gates = applyGates(env, arm);
+  // P3: the plan (R5), read live: budget minus spend to date from the rollups.
+  const plan: PanelPlan = { budget, spend: budgetSet ? await spendToDate(db, eventId) : 0, today: todayLondon(new Date()), eventDate: row?.event_date ?? null };
   // R5: the "no marketing budget" blocker was the proposal's; once a budget is set it is gone.
-  const proposals = (await loadEventProposals(db, eventId, { budgetSet })).map((proposal) => (budgetSet ? { ...proposal, blockers: proposal.blockers.filter((blocker) => blocker.kind !== "budget") } : proposal));
-  return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, budgetSet } };
+  const proposals = (await loadEventProposals(db, eventId, { budgetSet, plan })).map((proposal) => (budgetSet ? { ...proposal, blockers: proposal.blockers.filter((blocker) => blocker.kind !== "budget") } : proposal));
+  return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, budgetSet } };
 }
 
 /** The canvas chip (R4): lines still To review on the event's latest proposals. */

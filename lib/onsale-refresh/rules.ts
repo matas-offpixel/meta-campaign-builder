@@ -43,6 +43,8 @@ export type AdSetInput = {
   totalResults: number;
   /** Spent on the window's last two days. */
   delivering: boolean;
+  /** P3: its spend over its last 7 days of delivery, per day — what a bring-back would spend each day (R5's plan guard). */
+  recentDailySpend?: number;
 };
 
 export type ClusterInput = {
@@ -219,7 +221,7 @@ function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
 }
 
-const RETARGETING = /retarget/i;
+export const RETARGETING = /retarget/i;
 const REG_LOOKALIKE = /lookalike|\bLL\b|\bLAL\b/i;
 
 /** R3: IC when the event logged enough in 14 days; the pixel's own count is P4; else LPV. */
@@ -401,6 +403,11 @@ function notOurs(input: Pick<CampaignInput, "draft">): string | null {
   return input.draft ? null : NOT_OURS;
 }
 
+/** What every write re-checks at apply time: the campaign, its account and this event's draft for it. */
+function whereTo(input: Pick<CampaignInput, "campaignIds" | "adAccountId" | "draft">): { campaignIds: string[]; adAccountId: string | null; draftId: string | null } {
+  return { campaignIds: input.campaignIds, adAccountId: input.adAccountId ?? null, draftId: input.draft?.draftId ?? null };
+}
+
 /** R2 claim ready: an approved ticket-warning claim in its window with no render. A supply line, not a Meta write. */
 export function claimLines(input: CampaignInput): ProposalLine[] {
   if (input.plan.runKind === "mid_cycle") return [];
@@ -445,10 +452,10 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
       writeText: "Ad set status → on · its own budget",
       narrow: { detail: `${gbp(set.totalSpend)} · ${set.totalResults} ${label} · ${gbp(setCpr)} each, ${ratioText(setCpr / totalCpr)}`, writeText: null },
       target: { adsetId: set.adsetId, adsetIds: set.adsetIds, name: set.name },
-      evidence: { spend: round2(set.totalSpend), results: set.totalResults, cpr: round2(setCpr), campaignCpr: round2(totalCpr), cprRatio: round2(setCpr / totalCpr), stoppedOn: set.lastDay },
-      write: { kind: "adset_status", adsetId: set.adsetId, status: "ACTIVE" },
+      evidence: { spend: round2(set.totalSpend), results: set.totalResults, cpr: round2(setCpr), campaignCpr: round2(totalCpr), cprRatio: round2(setCpr / totalCpr), stoppedOn: set.lastDay, dailySpend: set.recentDailySpend == null ? null : round2(set.recentDailySpend) },
+      write: { kind: "adset_status", adsetId: set.adsetId, status: "ACTIVE", ...whereTo(input) },
       addsSpend: true,
-      blockedReason: spendBlock,
+      blockedReason: notOurs(input) ?? spendBlock,
       supply: false,
     });
   }
@@ -506,10 +513,10 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
         writeText: "Ad set status → off",
         narrow: { detail: `${gbp(set.weekSpend)} · ${set.weekResults} ${label}${setCpr == null ? "" : ` · ${gbp(setCpr)} each, ${ratioText(setCpr / campaignCpr)}`}`, writeText: null },
         target: { adsetId: set.adsetId, adsetIds: set.adsetIds, name: set.name },
-        evidence,
-        write: { kind: "adset_status", adsetId: set.adsetId, status: "PAUSED" },
+        evidence: { ...evidence, deliveringAdSets: delivering.length },
+        write: { kind: "adset_status", adsetId: set.adsetId, status: "PAUSED", ...whereTo(input) },
         addsSpend: false,
-        blockedReason: null,
+        blockedReason: notOurs(input),
         supply: false,
       });
     }
@@ -539,9 +546,9 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
         narrow: { detail: `${gbp(amount)} a week${cap != null ? ` · cap ${gbp(cap)}` : ""}`, writeText: null },
         target: { fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId },
         evidence: { fromCpr: round2(worst.setCpr!), toCpr: round2(best.setCpr!), campaignCpr: round2(campaignCpr), amountGbp: amount, capGbp: cap, remainingBudgetGbp: remaining },
-        write: { kind: "adset_budget_move", fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId, amountGbp: amount },
+        write: { kind: "adset_budget_move", fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId, amountGbp: amount, ...whereTo(input) },
         addsSpend: false,
-        blockedReason: remaining == null ? "Moves need the event's budget to size the cap: set this event's budget to accept this." : null,
+        blockedReason: notOurs(input) ?? (remaining == null ? "Moves need the event's budget to size the cap: set this event's budget to accept this." : null),
         supply: false,
       });
     }

@@ -92,6 +92,9 @@ function campaign(overrides: Partial<CampaignInput> = {}): CampaignInput {
     eventName: "Puzzle 4th Birthday",
     campaignKey: "[P26-BDAY] Puzzle - 27 Dec - On Sale",
     campaignIds: ["c1", "c2"],
+    // P2/P3: this event's draft for the campaign, so lines aren't blocked as "not one of this event's drafts".
+    adAccountId: "act_9",
+    draft: { draftId: "d1", adAccountId: "act_9", copy: { primaryText: "Copy", headline: "", description: "", cta: "buy_tickets", destinationUrl: "https://x.test", pageId: "101", instagramActorId: null, fromCreative: null } },
     onSaleDay: "2026-10-30",
     plan: PLAN,
     resultEvent: "initiate_checkout",
@@ -214,6 +217,16 @@ describe("on-sale refresh: pause creative (R2)", () => {
 });
 
 describe("on-sale refresh: audiences and budget (R2, R5)", () => {
+  it("P3: a bring-back keeps its recent daily spend (the plan guard's measure) and the draft every write re-checks", () => {
+    const stopped = adSet({ adsetId: "edm", name: "EDM", delivering: false, lastDay: "2026-11-06", weekSpend: 0, weekResults: 0, totalSpend: 36.85, totalResults: 12, recentDailySpend: 5.264 });
+    const { lines } = audienceLines(campaign({ adSets: [adSet({ adsetId: "s1", name: "Lineup — Primary" }), adSet({ adsetId: "s2", name: "Retargeting" }), stopped], budgetGbp: 4500 }), ONSALE_PHASE);
+    const back = lines.find((line) => line.kind === "bring_back_audience" && line.title === "EDM")!;
+    assert.equal(back.evidence.dailySpend, 5.26);
+    assert.deepEqual(back.write, { kind: "adset_status", adsetId: "edm", status: "ACTIVE", campaignIds: ["c1", "c2"], adAccountId: "act_9", draftId: "d1" });
+    assert.equal(back.blockedReason, null);
+    assert.equal(audienceLines(campaign({ adSets: [stopped, adSet({ adsetId: "s1", name: "Lineup — Primary" })], budgetGbp: 4500, draft: null }), ONSALE_PHASE).lines.find((line) => line.title === "EDM")!.blockedReason, "Not one of this event's drafts on this account, so nothing is written to this campaign.");
+  });
+
   // Campaign week cost per IC £7.69.
   const sets = [
     adSet({ adsetId: "ret", name: "Retargeting – No Suggest", weekSpend: 60, weekResults: 7 }),

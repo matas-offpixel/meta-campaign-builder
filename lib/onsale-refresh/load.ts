@@ -461,6 +461,12 @@ export async function buildEventInputs(args: {
       if (spend > 0 && lastTwo.includes(row.date)) set.delivering = true;
       adSets.set(setKey, set);
     }
+    // P3: each ad set's spend over its last 7 days of delivery, per day (a bring-back's projected daily spend).
+    for (const set of adSets.values()) {
+      const from = addDaysIso(set.lastDay, -6);
+      const recent = since.filter((row) => (row.adset_name ?? row.meta_adset_id ?? "").trim() === set.name && row.date >= from && row.date <= set.lastDay).reduce((sum, row) => sum + num(row.spend), 0);
+      set.recentDailySpend = recent / 7;
+    }
     const campaignIds = [...new Set(campaignRows.map((row) => row.meta_campaign_id).filter((id): id is string => Boolean(id)))];
     const adAccountId = campaignRows.map((row) => row.ad_account_id).find((id): id is string => Boolean(id)) ?? null;
     campaigns.push({

@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
-import { OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR_APPLY_LIVE } from "@/scripts/plan-frames/refresh-fixtures";
+import { OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_HELD, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR_APPLY_LIVE } from "@/scripts/plan-frames/refresh-fixtures";
 
 afterEach(() => {
   cleanup();
@@ -66,19 +66,36 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     expect((screen.getByRole("button", { name: /Apply accepted/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("audience and budget lines: Accept disabled with the sentence, Reject live (OR6's move, OR7's bring-back)", () => {
+  it("P3: audience and budget lines have live Accept; P2's 'Apply only writes creatives' sentence is gone (OR6's move, OR7's bring-back)", () => {
     render(<OnSaleRefreshPanelView eventId="e1" proposals={OR6_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
     const move = lineEl("Lineup — Primary → Adv+");
-    expect((within(move).getByRole("button", { name: "Accept" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((within(move).getByRole("button", { name: "Reject" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(within(move).getByText("Not applied yet: Apply only writes creatives for now.")).toBeTruthy();
+    expect((within(move).getByRole("button", { name: "Accept" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(document.body.textContent).not.toContain("Apply only writes creatives");
     cleanup();
     render(<OnSaleRefreshPanelView eventId="e1" proposals={OR7_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
     const back = lineEl("Electronic dance music, Electronic music");
-    expect(back.getAttribute("data-state")).toBe("to_review");
-    expect(within(back).queryByText("Accepted")).toBeNull();
-    expect((within(back).getByRole("button", { name: "Accept" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(within(back).getByText("Not applied yet: Apply only writes creatives for now.")).toBeTruthy();
+    expect(back.getAttribute("data-state")).toBe("applied");
+    expect(within(back).getByText("Applied · on")).toBeTruthy();
+  });
+
+  it("OR8: one bring-back acceptable, one held by the plan guard, a move held by the 20 % cap, a new ad set held; Apply counts the accepted drop", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR8_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
+    const accept = (title: string) => within(lineEl(title)).getByRole("button", { name: "Accept" }) as HTMLButtonElement;
+    expect(accept("Electronic dance music, Electronic music").disabled).toBe(false);
+    expect(accept("Lineup Suggestion — Primary").disabled).toBe(true);
+    expect(within(lineEl("Lineup Suggestion — Primary")).getByText(OR8_PLAN_GUARD)).toBeTruthy();
+    expect(accept("Broad — Primary → Retargeting — 30d").disabled).toBe(true);
+    expect(within(lineEl("Broad — Primary → Retargeting — 30d")).getByText(OR8_MOVE_CAP)).toBeTruthy();
+    expect(accept("Disc Genre").disabled).toBe(true);
+    expect(within(lineEl("Disc Genre")).getByText(OR8_HELD).getAttribute("data-block")).toBe("held");
+    expect((within(lineEl("Disc Genre")).getByRole("button", { name: "Reject" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(within(lineEl("Lineup — Primary → Adv+")).getByText("Applied · £40.00 a week moved")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Apply accepted (1)" })).toBeTruthy();
+  });
+
+  it("an accepted drop or move waits while its own gate is off: Apply accepted doesn't count it", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR8_PROPOSALS} apply={{ ...OR_APPLY_LIVE, adsetStatusWritesEnabled: false }} actions={{}} />);
+    expect(screen.getByRole("button", { name: "Apply accepted (0)" })).toBeTruthy();
   });
 
   it("adds keep live Accept and Reject under the no-budget banner; only spend lines say Adds spend", () => {
@@ -102,13 +119,13 @@ describe("OnSaleRefreshPanelView (P2)", () => {
 
   it("every date the panel renders keeps together, in the wide and the narrow wording", () => {
     const broken = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]* \d|\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}|w\/c \d/;
-    for (const proposals of [OR6_PROPOSALS, OR7_PROPOSALS]) {
+    for (const proposals of [OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS]) {
       render(<OnSaleRefreshPanelView eventId="e1" proposals={proposals} apply={OR_APPLY_LIVE} actions={{}} />);
       // Both wordings are in the DOM (the viewport hides one), so this reads 1280's and 393's text.
       const section = document.getElementById("onsale-refresh")!;
       const spans = [...section.querySelectorAll("p, span")].map((node) => node.textContent ?? "");
       for (const text of spans) expect(text).not.toMatch(broken);
-      expect(section.textContent).toMatch(/Mon\u00a0\d{1,2}\u00a0Nov/);
+      expect(section.textContent).toMatch(/Mon\u00a0\d{1,2}\u00a0(?:Nov|Dec)/);
       cleanup();
     }
   });
