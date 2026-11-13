@@ -46,7 +46,8 @@ export type ReviewKind =
   | "unreadable_pdf"
   | "near_miss"
   | "replaced"
-  | "since_last_mismatch";
+  | "since_last_mismatch"
+  | "block_after_sent";
 
 /** Kinds that hold a show's (or the sheet's) counts until resolved. */
 export const HOLDING_KINDS: ReadonlySet<ReviewKind> = new Set([
@@ -54,6 +55,7 @@ export const HOLDING_KINDS: ReadonlySet<ReviewKind> = new Set([
   "date_mismatch",
   "sum_mismatch",
   "unreadable_pdf",
+  "block_after_sent",
 ]);
 
 /** A forward's differing sheet is held too, until Matas keeps the earlier or uses the later one. */
@@ -147,8 +149,8 @@ export interface PlanContext {
   closest: (showName: string) => ClosestEvent | null;
   /** The event's highest paid ticket price in pence, or null when none is stored. */
   priceCeiling: (eventId: string) => number | null;
-  /** The latest stored total (paid + comps) for the event before this count date. */
-  previousTotal: (eventId: string, countDate: string) => number | null;
+  /** The latest stored count (paid + comps) for the event before this count date, with its date and email. */
+  previous: (eventId: string, countDate: string) => { total: number; countDate: string; messageId: string | null } | null;
   /** What another email already stored for this event and date, or null. */
   storedOn: (eventId: string, countDate: string) => StoredCountRef | null;
   /** The show's latest stored count (any date), or null. */
@@ -229,8 +231,10 @@ export function planReport(report: ReportInput, sheet: ParsedSheet | null, ctx: 
   const showNames = sheet?.blocks.map((b) => b.showName) ?? [];
   const unreadable =
     !sheet || sheet.blocks.length === 0 || sheet.blocks.some((b) => b.problems.length > 0 || !b.countDate);
-  // M1b follow-up b: the latest block date on a sheet is the count date.
-  const sheetDate = unreadable ? null : latest(sheet!.blocks.map((b) => b.countDate));
+  // The count date is the latest block date not after the email was sent (M1b follow-up b, ruling a).
+  const sentDay = report.sentAt ? londonDay(report.sentAt) : null;
+  const dates = unreadable ? [] : sheet!.blocks.map((b) => b.countDate);
+  const sheetDate = unreadable ? null : (latest(dates.filter((d) => !sentDay || (d !== null && d <= sentDay))) ?? latest(dates));
   const pdfYear = Number((sheetDate ?? report.pdfDate ?? "").slice(0, 4)) || null;
   const subjectDate = subjectCountDate(report.subject, pdfYear);
   const items = mentionItems(report.body, showNames, sheetDate ?? report.pdfDate ?? subjectDate, report.forward, ctx);
@@ -240,7 +244,8 @@ export function planReport(report: ReportInput, sheet: ParsedSheet | null, ctx: 
       kind: "unreadable_pdf",
       blockIndex: null,
       showName: null,
-      detail: { filename: report.pdfFilename, problems, date: report.pdfDate ?? subjectDate },
+      // Ruling b: the PDF's date when it has one; the words fall back to the email's sent date.
+      detail: { filename: report.pdfFilename, problems, date: report.pdfDate ?? null },
     });
     return { subjectDate, sheetDate: null, unreadable: true, blocks: [], reviewItems: items };
   }
@@ -248,7 +253,9 @@ export function planReport(report: ReportInput, sheet: ParsedSheet | null, ctx: 
   const dateItem = dateHold(report, subjectDate, sheetDate);
   const dateHeld = dateItem !== null;
   if (dateItem) items.push({ kind: "date_mismatch", blockIndex: null, showName: null, detail: dateItem });
-  const blocks = sheet.blocks.map((b) => planBlock(b, { dateHeld, sheetDate, forward: report.forward, sentAt: report.sentAt }, ctx, items));
+  const blocks = sheet.blocks.map((b) =>
+    planBlock(b, { dateHeld, sheetDate, sentDay, forward: report.forward, sentAt: report.sentAt }, ctx, items),
+  );
   return { subjectDate, sheetDate, unreadable: false, blocks, reviewItems: items };
 }
 
@@ -260,17 +267,13 @@ function latest(values: Array<string | null>): string | null {
 const londonDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/London" });
 
 /**
- * M2 with the M1b follow-ups. A sheet dated after the email was sent holds
- * (the subject date in the item is the sent day). An original's subject is
- * cross-checked as before. A Re:/FW: subject's older date is ignored (the
- * thread keeps its first date); a later one still holds (a stale attachment).
+ * M2 with the M1b follow-ups. An original's subject is cross-checked as
+ * before. A Re:/FW: subject's older date is ignored (the thread keeps its
+ * first date); a later one still holds (a stale attachment). A block dated
+ * after the email was sent is held on its own (planBlock), not the sheet.
  */
 function dateHold(report: ReportInput, subjectDate: string | null, sheetDate: string | null): { sheetDate: string; subjectDate: string } | null {
   if (!sheetDate) return null;
-  if (report.sentAt) {
-    const sent = londonDay(report.sentAt);
-    if (sheetDate > sent) return { sheetDate, subjectDate: sent };
-  }
   if (!subjectDate || subjectDate === sheetDate) return null;
   if (report.prefixed && subjectDate < sheetDate) return null;
   return { sheetDate, subjectDate };
@@ -284,7 +287,7 @@ function resolveEvent(block: ParsedBlock, ctx: PlanContext): EventRef | null {
 
 function planBlock(
   block: ParsedBlock,
-  sheet: { dateHeld: boolean; sheetDate: string | null; forward: boolean; sentAt: string | null },
+  sheet: { dateHeld: boolean; sheetDate: string | null; sentDay: string | null; forward: boolean; sentAt: string | null },
   ctx: PlanContext,
   out: ReviewItemPlan[],
 ): BlockPlan {
@@ -314,8 +317,10 @@ function planBlock(
     detail,
   });
   const items: ReviewItemPlan[] = [];
+  // Ruling a: a block dated after the email was sent is held on its own; the rest of the sheet is stored.
+  const afterSent = !!(block.countDate && sheet.sentDay && block.countDate > sheet.sentDay);
   // M1b follow-up b: an older-dated block is compared with the show's latest stored count.
-  if (block.countDate && sheet.sheetDate && block.countDate < sheet.sheetDate) {
+  if (!afterSent && block.countDate && sheet.sheetDate && block.countDate < sheet.sheetDate) {
     const latestStored = event ? ctx.latestStored(event.id) : null;
     if (latestStored && latestStored.total === base.total) {
       // Unchanged: skipped, nothing written, no SINCE LAST COUNT check.
@@ -326,6 +331,10 @@ function planBlock(
     base.countDate = sheet.sheetDate;
   }
   let held = sheet.dateHeld;
+  if (afterSent) {
+    items.push(item("block_after_sent", { blockDate: block.countDate, sheetDate: sheet.sheetDate }));
+    held = true;
+  }
   if (!event) {
     items.push(item("unmatched_show", { closest: ctx.closest(block.showName) }));
     held = true;
@@ -360,13 +369,26 @@ function planBlock(
         items.push(item("replaced", replaced));
       }
     }
-    const prev = ctx.previousTotal(event.id, countDate);
+    const prev = ctx.previous(event.id, countDate);
     const theirs = block.totals?.sinceLast ?? null;
     if (prev !== null) {
-      base.ourDelta = base.total - prev;
+      base.ourDelta = base.total - prev.total;
       if (theirs !== null && theirs !== base.ourDelta) {
-        items.push(item("since_last_mismatch", { theirs, ours: base.ourDelta, previousTotal: prev }));
+        items.push(
+          item("since_last_mismatch", {
+            theirs,
+            ours: base.ourDelta,
+            previousTotal: prev.total,
+            previousDate: prev.countDate,
+            previousMessageId: prev.messageId,
+          }),
+        );
       }
+    }
+    // Ruling d: a late arrival (a later count is already stored) is noted under this block's items; it opens none.
+    const latestNow = ctx.latestStored(event.id);
+    if (latestNow && latestNow.countDate > countDate) {
+      for (const i of items) i.detail.lateArrival = { laterDate: latestNow.countDate, filedDate: countDate };
     }
   }
   out.push(...items);

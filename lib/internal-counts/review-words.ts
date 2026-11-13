@@ -25,10 +25,12 @@ function londonDay(iso: string): string {
   return d.toLocaleDateString("en-CA", { timeZone: LONDON });
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "9 Oct", three-letter months always (en-GB would write "Sept"). */
 export function dayMonth(iso: string): string {
-  return new Date(`${londonDay(iso)}T12:00:00Z`)
-    .toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: LONDON })
-    .replace(/ /g, NBSP);
+  const [, m, d] = londonDay(iso).split("-").map(Number);
+  return `${d}${NBSP}${MONTHS[m - 1]}`;
 }
 
 export function hourMinute(iso: string): string {
@@ -82,17 +84,32 @@ export interface ItemFacts {
   inbox: string | null;
 }
 
+export function gmailUrl(messageId: string, inbox: string | null): string {
+  return `https://mail.google.com/mail/${inbox ? `?authuser=${encodeURIComponent(inbox)}` : ""}#all/${messageId}`;
+}
+
+/** The sender's name as the email gives it ("Rachel Chadwick"); never a full address. */
+export function senderName(from: string | null): string {
+  const named = (from ?? "").match(/^\s*"?([^"<]+?)"?\s*</);
+  if (named?.[1]?.trim()) return named[1].trim().replace(/\s+/g, " ");
+  const local = (from ?? "").match(/([^\s<>"@]+)@/)?.[1] ?? "";
+  return local ? local.charAt(0).toUpperCase() + local.slice(1) : "";
+}
+
+const FORWARD = /^\s*(?:(?:re|fwd?|aw|sv)\s*:\s*)*fwd?\s*:/i;
+
 export function sourceOf(f: ItemFacts): SourceView {
   const address = (f.report.sender ?? "").match(/[^\s<>"]+@([^\s<>"]+)/);
   const upload = f.report.gmailMessageId.startsWith("upload:");
+  // Ruling d: a forward's meta gains "· forwarded by {sender}, {d Mon}".
+  const forwardedBy = FORWARD.test(f.report.subject) ? `forwarded by ${senderName(f.report.sender)}, ${dayMonth(f.report.receivedAt)}` : null;
   return {
+    forwardedBy,
     // R1a: a near miss's meta is "{received}" only; a replaced item's is "\"{newer subject}\" · {received}".
     subject: f.kind === "near_miss" ? null : f.report.subject,
     sender: f.kind === "replaced" || f.kind === "near_miss" ? "" : (address?.[1]?.toLowerCase() ?? f.report.sender ?? ""),
     received: dayMonthTime(f.report.receivedAt),
-    emailUrl: upload
-      ? null
-      : `https://mail.google.com/mail/${f.inbox ? `?authuser=${encodeURIComponent(f.inbox)}` : ""}#all/${f.report.gmailMessageId}`,
+    emailUrl: upload ? null : gmailUrl(f.report.gmailMessageId, f.inbox),
   };
 }
 
@@ -113,11 +130,11 @@ function priceWords(f: ItemFacts, show: string): Words {
   const more = flags.length > 1 ? ` Also ${figure(flags.length - 1)} more on this sheet.` : "";
   if (flag?.reason === "equals_count") {
     body = `${flag.tierName} on ${outlet} shows ${pounds(flag.pricePence)} with ${figure(flag.count)} sold, the same number.${more} ${held}`;
-    bodyShort = `${flag.tierName} on ${outlet}: ${pounds(flag.pricePence)} with ${figure(flag.count)} sold. Revenue held.`;
+    bodyShort = `${flag.tierName} on ${outlet}: ${pounds(flag.pricePence)} with ${figure(flag.count)} sold.${more} Revenue held.`;
   } else if (flag) {
-    // NOT RULED: the "above the event's dearest ticket" variant (R1a's string didn't reach this thread).
-    body = `${flag.tierName} shows ${pounds(flag.pricePence)}, above ${show}'s dearest ticket (${pounds(flag.ceilingPence)}).${more} ${held}`;
-    bodyShort = `${flag.tierName}: ${pounds(flag.pricePence)}, above ${pounds(flag.ceilingPence)}. Revenue held.`;
+    // Fix 2: the dearest-ticket variant names the outlet.
+    body = `${flag.tierName} on ${outlet} shows ${pounds(flag.pricePence)}, above the dearest ticket (${pounds(flag.ceilingPence)}).${more} ${held}`;
+    bodyShort = `${flag.tierName} on ${outlet}: ${pounds(flag.pricePence)}, above ${pounds(flag.ceilingPence)}.${more} Revenue held.`;
   }
   return { title, titleShort: title, body, bodyShort, actions: [act("Revenue is right", "revenue_right"), act("Keep holding", "keep_holding")] };
 }
@@ -205,9 +222,8 @@ export function itemWords(f: ItemFacts): Words {
       };
     }
     case "unreadable_pdf": {
-      // M1b: the PDF's date, else the subject's.
-      const day = dayMonth(String(d.date ?? f.report.subjectDate ?? f.report.receivedAt));
-      const title = `Couldn't read the ${day} sheet`;
+      // Ruling b: the PDF's date when it has one, else the date the email was sent.
+      const title = d.date ? `Couldn't read the ${dayMonth(String(d.date))} sheet` : `Couldn't read the sheet sent ${dayMonth(f.report.receivedAt)}`;
       const body = `${f.report.pdfFilename ?? "No PDF"}. Nothing from it was stored.`;
       const url = sourceOf(f).emailUrl;
       return {
@@ -234,24 +250,59 @@ export function itemWords(f: ItemFacts): Words {
       const words = {
         title: `The ${day} sheet was replaced by a later email`,
         titleShort: `${day} sheet replaced`,
-        body: "Counts now come from the later sheet. The earlier one is kept.",
-        bodyShort: "Later sheet used.",
+        body:
+          d.forward === true
+            ? "Counts still come from the earlier sheet. The forwarded one is kept."
+            : "Counts now come from the later sheet. The earlier one is kept.",
+        bodyShort: d.forward === true ? "Earlier sheet kept." : "Later sheet used.",
       };
       return d.forward === true
         ? { ...words, actions: [act("Keep the earlier sheet", "keep_earlier"), act("Use the later sheet", "use_later")] }
         : { ...words, actions: [act("Keep the later sheet", "keep"), act("Use the earlier sheet", "undo")] };
     }
+    case "block_after_sent": {
+      // Ruling a.
+      const blockDate = dayMonth(String(d.blockDate));
+      const sheetDate = d.sheetDate ? dayMonth(String(d.sheetDate)) : null;
+      return {
+        title: `${show}: this block is dated ${blockDate}, after the email was sent`,
+        titleShort: `${show}: block dated after the email`,
+        body: "This show's count is held until you pick the date. Other shows on the sheet are stored.",
+        bodyShort: "Held until you pick.",
+        actions: [
+          ...(sheetDate ? [act(`Use ${sheetDate}`, "use_date", { fields: { date: String(d.sheetDate) } })] : []),
+          act(`Use ${blockDate}`, "use_date", { fields: { date: String(d.blockDate) } }),
+        ],
+      };
+    }
     default: {
-      // R1a title. Body, 393 and button NOT RULED (R1a's text for them didn't reach this thread).
-      const title = `${show}: SINCE LAST COUNT says ${figure(d.theirs)}, the counts moved ${figure(d.ours)}`;
-      const body = "The count is stored as the sheet gives it.";
-      return { title, titleShort: title, body, bodyShort: body, actions: [act("Checked", "checked")] };
+      // since_last_mismatch: R1a's title, fix 1's body, buttons and 393 title.
+      const prevDate = d.previousDate ? dayMonth(String(d.previousDate)) : null;
+      const body = `Counts are stored from the total.${prevDate ? ` Our previous count is ${prevDate}.` : ""}`;
+      const prevUrl = d.previousMessageId ? gmailUrl(String(d.previousMessageId), f.inbox) : null;
+      return {
+        title: `${show}: SINCE LAST COUNT says ${figure(d.theirs)}, the counts moved ${figure(d.ours)}`,
+        titleShort: `${show}: SINCE LAST COUNT ${figure(d.theirs)}, ours ${figure(d.ours)}`,
+        body,
+        bodyShort: body,
+        actions: [
+          act("Counts are right", "checked"),
+          ...(prevDate && prevUrl ? [{ label: `Open the ${prevDate} email`, action: null, href: prevUrl }] : []),
+        ],
+      };
     }
   }
 }
 
+/** Ruling d: under an item, when its email arrived after a later count was stored. */
+export function lateArrivalNote(detail: Record<string, unknown>): string | null {
+  const late = detail.lateArrival as { laterDate?: string; filedDate?: string } | undefined;
+  if (!late?.laterDate || !late.filedDate) return null;
+  return `Arrived after the ${dayMonth(late.laterDate)} count. Filed under ${dayMonth(late.filedDate)}; later counts are unchanged.`;
+}
+
 export function openItemView(f: ItemFacts): ReviewItemView {
-  return { id: f.id, kind: f.kind, ...itemWords(f), source: sourceOf(f) };
+  return { id: f.id, kind: f.kind, ...itemWords(f), source: sourceOf(f), note: lateArrivalNote(f.detail) };
 }
 
 export function checkedItemView(f: ItemFacts, resolvedByName: string | null, resolvedAt: string, resolution: string): CheckedItemView {

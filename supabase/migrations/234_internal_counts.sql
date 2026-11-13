@@ -115,6 +115,7 @@ create table if not exists public.internal_count_blocks (
   chosen_total          integer,
   paid_revenue_pence    bigint,
   revenue_held          boolean not null default false,
+  is_final              boolean not null default false,
   revenue_released_by   uuid references auth.users (id) on delete set null,
   revenue_released_at   timestamptz,
   parsed                jsonb not null,
@@ -133,10 +134,16 @@ comment on column public.internal_count_blocks.paid_revenue_pence is
   'The sheet''s £ for paid tiers. Read only when revenue_held is false: a price that looks wrong holds it until "Revenue is right" releases it (revenue_released_by/at). Releasing never touches a count row.';
 comment on column public.internal_count_blocks.printed_date is
   'The block''s own TIER TOTALS date when it is older than the sheet''s latest date and its figures moved: the block is filed under the sheet''s date (count_date) and this keeps what was printed, for audit (M1b). Null otherwise.';
+comment on column public.internal_count_blocks.is_final is
+  'The show''s final count: the latest written count dated on or after the event''s show day. Earlier post-show counts stay for audit. Kept by write_internal_count_block; read with lib/internal-counts/final-count.ts (HD3: "Final count · Internal Counts, {date}"; D10''s library).';
 comment on column public.internal_count_blocks.chosen_total is
   'The total Matas picked on "tiers add to n, the sheet''s total says m" (R1). Null until then.';
 comment on column public.internal_count_blocks.since_last_count is
   'Their SINCE LAST COUNT, as printed. our_delta is our own difference from the previous stored count.';
+
+create unique index if not exists internal_count_blocks_event_final_idx
+  on public.internal_count_blocks (event_id)
+  where is_final;
 
 create unique index if not exists internal_count_blocks_event_day_written_idx
   on public.internal_count_blocks (event_id, count_date)
@@ -162,7 +169,8 @@ create table if not exists public.internal_count_review_items (
   user_id           uuid not null references auth.users (id) on delete cascade,
   kind              text not null check (kind in (
                       'price_looks_wrong', 'sale_mention', 'unmatched_show', 'date_mismatch',
-                      'sum_mismatch', 'unreadable_pdf', 'near_miss', 'replaced', 'since_last_mismatch')),
+                      'sum_mismatch', 'unreadable_pdf', 'near_miss', 'replaced', 'since_last_mismatch',
+                      'block_after_sent')),
   holding           boolean not null,
   show_name         text,
   detail            jsonb not null default '{}',
@@ -287,6 +295,24 @@ begin
   update public.internal_count_blocks
      set status = 'written', written_at = now(), updated_at = now()
    where id = p_block_id;
+
+  -- The final count: the latest written count on or after show day (ruling c).
+  update public.internal_count_blocks
+     set is_final = false
+   where event_id = p_event_id and is_final;
+  update public.internal_count_blocks
+     set is_final = true
+   where id = (
+     select b.id
+       from public.internal_count_blocks b
+       join public.events e on e.id = b.event_id
+      where b.event_id = p_event_id
+        and b.status = 'written'
+        and e.event_date is not null
+        and b.count_date >= e.event_date
+      order by b.count_date desc, b.written_at desc
+      limit 1
+   );
 end;
 $$;
 

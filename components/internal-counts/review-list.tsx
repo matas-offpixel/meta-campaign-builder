@@ -41,6 +41,7 @@ function Source({ source }: { source: SourceView }) {
     <p className="text-xs text-muted-foreground">
       {linked}
       {source.sender ? ` · ${source.sender}` : ""} · {source.received}
+      {source.forwardedBy ? ` · ${source.forwardedBy}` : ""}
     </p>
   );
 }
@@ -101,6 +102,7 @@ function OpenItem({ item, events }: { item: ReviewItemView; events: EventOption[
         <span className="sm:hidden">{item.bodyShort}</span>
       </p>
       <Source source={item.source} />
+      {item.note ? <p className="text-xs text-muted-foreground">{item.note}</p> : null}
       <div className="flex flex-wrap gap-2 pt-1">
         {item.actions.map((a) => (
           <Action key={`${a.action}-${a.label}`} itemId={item.id} action={a} events={events} />

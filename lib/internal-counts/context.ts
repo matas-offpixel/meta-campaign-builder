@@ -26,6 +26,8 @@ export interface StoredCount {
   blockId: string | null;
   /** The storing email's Date header (ISO). */
   sentAt: string | null;
+  /** The storing email's Gmail message id ("Open the {date} email"). */
+  messageId?: string | null;
 }
 
 export interface RunContext {
@@ -149,11 +151,17 @@ export async function loadRunContext(sb: Db): Promise<RunContext> {
     ["id"],
     "internal_count_blocks",
   );
-  const reports = await pageAll<{ id: string; gmail_thread_id: string | null; sent_at: string | null; pdf_sha256: string | null }>(
+  const reports = await pageAll<{
+    id: string;
+    gmail_message_id: string;
+    gmail_thread_id: string | null;
+    sent_at: string | null;
+    pdf_sha256: string | null;
+  }>(
     (from, to) =>
       sb
         .from("internal_count_reports")
-        .select("id,gmail_thread_id,sent_at,pdf_sha256")
+        .select("id,gmail_message_id,gmail_thread_id,sent_at,pdf_sha256")
         .eq("kind", "count")
         .order("id", { ascending: true })
         .range(from, to),
@@ -172,6 +180,7 @@ export async function loadRunContext(sb: Db): Promise<RunContext> {
     "internal_count_review_items",
   );
   const sentAtOf = new Map(reports.map((r) => [r.id, r.sent_at]));
+  const messageOf = new Map(reports.map((r) => [r.id, r.gmail_message_id]));
   const ctx: RunContext = {
     events,
     eventsByCode: new Map(),
@@ -185,6 +194,7 @@ export async function loadRunContext(sb: Db): Promise<RunContext> {
       total: b.total_tickets,
       blockId: b.id,
       sentAt: sentAtOf.get(b.report_id) ?? null,
+      messageId: messageOf.get(b.report_id) ?? null,
     })),
     countThreads: new Map(reports.filter((t) => t.gmail_thread_id).map((t) => [t.gmail_thread_id!, t.id])),
     pdfShas: new Set(reports.map((r) => r.pdf_sha256).filter((x): x is string => !!x)),
@@ -215,10 +225,12 @@ export function planContext(ctx: RunContext, confirmed?: Readonly<Record<string,
       return ctx.offline && c ? { ...c, name: c.eventCode } : c;
     },
     priceCeiling: (eventId) => ctx.ceilings.get(eventId) ?? null,
-    previousTotal: (eventId, countDate) =>
-      ctx.counts
-        .filter((c) => c.eventId === eventId && c.countDate < countDate)
-        .sort((a, b) => b.countDate.localeCompare(a.countDate))[0]?.total ?? null,
+    previous: (eventId, countDate) => {
+      const c = ctx.counts
+        .filter((x) => x.eventId === eventId && x.countDate < countDate)
+        .sort((a, b) => b.countDate.localeCompare(a.countDate))[0];
+      return c ? { total: c.total, countDate: c.countDate, messageId: c.messageId ?? null } : null;
+    },
     storedOn: (eventId, countDate) => {
       const c = ctx.counts.find((x) => x.eventId === eventId && x.countDate === countDate);
       return c ? { total: c.total, sentAt: c.sentAt, blockId: c.blockId } : null;

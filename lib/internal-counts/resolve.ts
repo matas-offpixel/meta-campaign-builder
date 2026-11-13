@@ -46,6 +46,7 @@ export const ACTIONS: Record<ReviewKind, ReadonlyArray<ResolveAction["kind"]>> =
   // undo / keep on a written replacement; keep_earlier / use_later when a forward's sheet is held (M1b).
   replaced: ["undo", "keep", "keep_earlier", "use_later"],
   since_last_mismatch: ["checked"],
+  block_after_sent: ["use_date"],
 };
 
 export interface Resolver {
@@ -309,6 +310,14 @@ async function markNotOurs(sb: Db, ctx: RunContext, item: ItemRow, who: Resolver
 
 async function applyChosenDate(sb: Db, ctx: RunContext, item: ItemRow, date: string): Promise<void> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Pick a date.");
+  if (item.kind === "block_after_sent") {
+    // Ruling a: only this show's block waits on the date.
+    if (!item.block_id) throw new Error("The item has no show block.");
+    const { error } = await sb.from("internal_count_blocks").update({ count_date: date }).eq("id", item.block_id);
+    if (error) throw new Error(`Setting the date failed: ${error.message}`);
+    await releaseBlock(sb, ctx, item.block_id, { except: item.id });
+    return;
+  }
   const sheetDate = item.detail.sheetDate as string | null;
   const { data, error } = await sb
     .from("internal_count_blocks")

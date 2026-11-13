@@ -20,6 +20,8 @@ export interface SourceView {
   received: string;
   /** Opens the email in Gmail; null for an uploaded PDF. */
   emailUrl: string | null;
+  /** Ruling d: "forwarded by {sender}, {d Mon}" on a forward's meta line. */
+  forwardedBy?: string | null;
 }
 
 export interface ReviewItemView {
@@ -32,6 +34,8 @@ export interface ReviewItemView {
   bodyShort: string;
   source: SourceView;
   actions: ActionView[];
+  /** Ruling d: a line under the item ("Arrived after the {later date} count. …"). */
+  note?: string | null;
 }
 
 export interface CheckedItemView {

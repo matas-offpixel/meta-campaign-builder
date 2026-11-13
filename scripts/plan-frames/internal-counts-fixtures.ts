@@ -4,14 +4,19 @@
  * only. The words come from lib/internal-counts/review-words.ts, so the
  * frames show what the page shows.
  *
- * R1:  "To check · 8" with every item kind R1 words, and a "Checked" row.
+ * R1:  "To check · 15" with every item kind R1 words, and a "Checked" row.
  *      Real, from the inbox: IPC's 12 Nov price (1ST £200.00 with 200 sold),
  *      Enzo's 30 Oct "Grand total sold for this event is 1974.", DUSKY BRIS
  *      (Dusky Bristol, the sheet's own spelling), FOLAMOUR → Folamour,
  *      Enzo's 30 Oct sum (tiers 1887, total 1917) and the 16 Oct "Re:"
  *      near miss. Invented, because nothing in the inbox has them yet: the
- *      date mismatch (13 Nov email, 12 Nov sheet), the unreadable sheet and
- *      the replaced 12 Nov sheet.
+ *      date mismatch (13 Nov email, 12 Nov sheet) and the replaced 12 Nov
+ *      sheet. Real since the design FAIL at 903eb97: FEVER 105's block dated
+ *      after Matthew's 8 Oct email (ruling a), the two "Couldn't read" forms
+ *      (ruling b: Mike's 2 Oct forward with no PDF date, the 21 Oct sheet),
+ *      SCHAK's 22 Sep sum hold in Mike's 2 Oct forward with its "forwarded
+ *      by" meta and late-arrival line (ruling d), and IPC's SINCE LAST COUNT
+ *      with our previous count's 29 Oct email (fix 1).
  * R1E: "Nothing to check", before delegation is granted ("Gmail access isn't set up yet"), after an upload.
  */
 
@@ -22,6 +27,8 @@ export const INTERNAL_COUNTS_FRAME_IDS = ["R1", "R1E"] as const;
 
 const INBOX = "matas@offpixel.co.uk";
 const RACHEL = "Rachel Chadwick <Rachel@electric-group.co.uk>";
+const MIKE = "Mike Weller <mike@electric-group.co.uk>";
+const MATTHEW = "Matthew  Green <Matthew@electric-group.co.uk>";
 
 function facts(id: string, kind: string, over: Partial<ItemFacts>, report: Partial<ItemFacts["report"]>): ItemFacts {
   return {
@@ -97,17 +104,63 @@ const OPEN: ItemFacts[] = [
     { subject: "Internal Show Count 13.11.26", receivedAt: "2026-11-13T11:40:00Z", subjectDate: "2026-11-13", gmailMessageId: "invented-13nov" },
   ),
   facts("enzo-sum", "sum_mismatch", { showName: "ENZO SIRAGUSA", detail: { tiers: 1887, total: 1917 } }, oct30),
+  // Real, ruling b: no PDF date, so the email's date; and a sheet with its own date.
   facts(
-    "unreadable",
+    "unreadable-sent",
     "unreadable_pdf",
-    {},
+    { detail: { filename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (9).pdf", date: null } },
     {
-      subject: "Internal Show Count 16.11.26",
-      receivedAt: "2026-11-16T11:30:00Z",
+      subject: "FW: MIKE'S INTERNAL SHOWS",
+      sender: MIKE,
+      receivedAt: "2026-10-02T14:11:34Z",
       sheetDate: null,
-      subjectDate: "2026-11-16",
-      gmailMessageId: "invented-16nov",
-      pdfFilename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (25).pdf",
+      subjectDate: null,
+      gmailMessageId: "1a0fcf4cbd86e022",
+      pdfFilename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (9).pdf",
+    },
+  ),
+  facts(
+    "unreadable-dated",
+    "unreadable_pdf",
+    { detail: { filename: "INTERNAL COUNTS - 21.10.26.pdf", date: "2026-10-21" } },
+    {
+      subject: "Re: Internal Counts 21.10.26",
+      sender: MATTHEW,
+      receivedAt: "2026-10-21T14:41:24Z",
+      sheetDate: null,
+      subjectDate: "2026-10-21",
+      gmailMessageId: "1a15ee9104b05151",
+      pdfFilename: "INTERNAL COUNTS - 21.10.26.pdf",
+    },
+  ),
+  // Real, ruling a: Matthew's 8 Oct reply, sent 8 Oct 18:30, with FEVER 105's block printed 09/10.
+  facts(
+    "fever-after-sent",
+    "block_after_sent",
+    { showName: "FEVER 105", detail: { blockDate: "2026-10-09", sheetDate: "2026-10-08" } },
+    {
+      subject: "Re: Internal Counts 08.10.26",
+      sender: MATTHEW,
+      receivedAt: "2026-10-08T17:30:02Z",
+      sheetDate: "2026-10-08",
+      subjectDate: "2026-10-08",
+      gmailMessageId: "1a11c90aa93efcc9",
+      pdfFilename: "INTERNAL COUNTS - 08.10.26.pdf",
+    },
+  ),
+  // Real, ruling d: Mike's forward of the 22 Sep sheet arrived on 2 Oct, after the 1 Oct count.
+  facts(
+    "schak-late",
+    "sum_mismatch",
+    { showName: "SCHAK", detail: { tiers: 0, total: 993, lateArrival: { laterDate: "2026-10-01", filedDate: "2026-09-22" } } },
+    {
+      subject: "FW: INTERNAL SHOW COUNTS - 22.09.26",
+      sender: MIKE,
+      receivedAt: "2026-10-02T14:10:40Z",
+      sheetDate: "2026-09-22",
+      subjectDate: "2026-09-22",
+      gmailMessageId: "1a0fcf3fe5ea4588",
+      pdfFilename: "INTERNAL COUNTS - 22.09.26.pdf",
     },
   ),
   facts(
@@ -139,8 +192,13 @@ const OPEN: ItemFacts[] = [
     { showName: "IPC", detail: { countDate: "2026-11-12", previousTotal: 1826, total: 1828, forward: true } },
     { subject: "Fw: Internal Show Count 12.11.26", receivedAt: "2026-11-12T16:10:00Z", gmailMessageId: "invented-12nov-fw" },
   ),
-  // Real: IPC on 30 Oct, the sheet's SINCE LAST COUNT 10, our counts moved 13.
-  facts("ipc-since", "since_last_mismatch", { showName: "IPC", detail: { theirs: 10, ours: 13, previousTotal: 1760 } }, oct30),
+  // Real: IPC on 30 Oct, the sheet's SINCE LAST COUNT 10, our counts moved 13; our previous count is the 29 Oct email.
+  facts(
+    "ipc-since",
+    "since_last_mismatch",
+    { showName: "IPC", detail: { theirs: 10, ours: 13, previousTotal: 1760, previousDate: "2026-10-29", previousMessageId: "1a18773089d339d4" } },
+    oct30,
+  ),
   facts(
     // Invented: a price above the event's dearest ticket (none in the inbox).
     "dod-dearest",

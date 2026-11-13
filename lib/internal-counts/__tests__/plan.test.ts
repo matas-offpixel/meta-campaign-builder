@@ -23,7 +23,7 @@ function ctx(over: Partial<PlanContext> = {}): PlanContext {
     notOurs: new Set(),
     closest: () => null,
     priceCeiling: () => null,
-    previousTotal: () => null,
+    previous: () => null,
     storedOn: () => null,
     latestStored: () => null,
     mentionSeen: () => false,
@@ -138,7 +138,7 @@ describe("planReport on the 12 Nov sheet", () => {
   });
 
   it("cross-checks SINCE LAST COUNT against our own delta, as a note", () => {
-    const plan = planReport(report, sheet, ctx({ previousTotal: () => 1800 }));
+    const plan = planReport(report, sheet, ctx({ previous: () => ({ total: 1800, countDate: "2026-11-11", messageId: "m-11" }) }));
     const ipc = plan.blocks.find((b) => b.showName === "IPC")!;
     assert.equal(ipc.ourDelta, 28);
     assert.equal(ipc.status, "write");
@@ -241,7 +241,7 @@ describe("M1b follow-ups", () => {
       withSchakDated("2026-10-19"),
       ctx({
         latestStored: (id) => (id === "id-NX26-SCHAK" ? { total: 1870, sentAt: null, blockId: "b", countDate: "2026-10-19" } : null),
-        previousTotal: () => 1000,
+        previous: () => ({ total: 1000, countDate: "2026-10-18", messageId: "m" }),
       }),
     );
     const schak = plan.blocks.find((b) => b.showName === "SCHAK")!;
@@ -249,9 +249,43 @@ describe("M1b follow-ups", () => {
     assert.equal(plan.reviewItems.filter((i) => i.showName === "SCHAK").length, 0);
   });
 
-  it("(b) a block dated after the email was sent holds the sheet with the date item", () => {
-    const plan = planReport({ ...report, sentAt: "2026-11-11T18:00:00Z" }, sheet, ctx());
-    assert.deepEqual(plan.reviewItems.find((i) => i.kind === "date_mismatch")!.detail, { sheetDate: "2026-11-12", subjectDate: "2026-11-11" });
-    assert.ok(plan.blocks.every((b) => b.status === "held"));
+  it("ruling a: one block dated after the email was sent is held on its own; every other block is stored", () => {
+    const plan = planReport(report, withSchakDated("2026-11-13"), ctx());
+    assert.equal(plan.sheetDate, "2026-11-12");
+    assert.equal(plan.reviewItems.filter((i) => i.kind === "date_mismatch").length, 0);
+    const schak = plan.blocks.find((b) => b.showName === "SCHAK")!;
+    assert.equal(schak.status, "held");
+    assert.deepEqual(
+      plan.reviewItems.filter((i) => i.kind === "block_after_sent").map((i) => [i.showName, i.detail]),
+      [["SCHAK", { blockDate: "2026-11-13", sheetDate: "2026-11-12" }]],
+    );
+    const others = plan.blocks.filter((b) => b.showName !== "SCHAK");
+    assert.equal(others.length, 8);
+    assert.ok(others.every((b) => b.status === "write" && b.countDate === "2026-11-12"));
+  });
+
+  it("ruling a: the count date is the latest block date not after the send date", () => {
+    const plan = planReport({ ...report, subject: "Internal Show Count", sentAt: "2026-11-11T18:00:00Z" }, withSchakDated("2026-11-11"), ctx());
+    assert.equal(plan.sheetDate, "2026-11-11");
+    assert.equal(plan.blocks.find((b) => b.showName === "SCHAK")!.status, "write");
+    assert.ok(plan.blocks.filter((b) => b.showName !== "SCHAK").every((b) => b.status === "held"));
+  });
+
+  it("ruling d: a count arriving after a later one is noted on its items and opens none of its own", () => {
+    const later = ctx({ latestStored: (id) => ({ total: 1, sentAt: null, blockId: `b-${id}`, countDate: "2026-11-13" }) });
+    const plan = planReport(report, sheet, later);
+    assert.deepEqual(
+      plan.reviewItems.map((i) => [i.kind, i.showName]),
+      [["price_looks_wrong", "IPC"]],
+    );
+    assert.deepEqual(plan.reviewItems[0].detail.lateArrival, { laterDate: "2026-11-13", filedDate: "2026-11-12" });
+    assert.ok(plan.blocks.every((b) => b.status === "write"));
+  });
+
+  it("the SINCE LAST COUNT item carries our previous count's date and email", () => {
+    const plan = planReport(report, sheet, ctx({ previous: () => ({ total: 1800, countDate: "2026-11-11", messageId: "m-11" }) }));
+    const d = plan.reviewItems.find((i) => i.kind === "since_last_mismatch" && i.showName === "IPC")!.detail;
+    assert.equal(d.previousDate, "2026-11-11");
+    assert.equal(d.previousMessageId, "m-11");
   });
 });

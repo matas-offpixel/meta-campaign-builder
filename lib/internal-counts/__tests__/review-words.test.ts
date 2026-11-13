@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { checkedItemView, gmailStatusLine, openItemView, uploadLine, type ItemFacts } from "../review-words.ts";
+import { checkedItemView, gmailStatusLine, gmailUrl, openItemView, senderName, uploadLine, type ItemFacts } from "../review-words.ts";
 
 function replaced(detail: Record<string, unknown>): ItemFacts {
   return {
@@ -46,7 +46,9 @@ describe("R1a: replaced, open", () => {
     const v = openItemView(replaced({ forward: true }));
     assert.equal(v.title, "The 19\u00a0Oct sheet was replaced by a later email");
     assert.equal(v.titleShort, "19\u00a0Oct sheet replaced");
-    assert.equal(v.bodyShort, "Later sheet used.");
+    // Fix 3: for a forward, the earlier sheet is the one kept.
+    assert.equal(v.body, "Counts still come from the earlier sheet. The forwarded one is kept.");
+    assert.equal(v.bodyShort, "Earlier sheet kept.");
     assert.deepEqual(
       v.actions.map((a) => [a.label, a.action]),
       [
@@ -122,5 +124,96 @@ describe("R1a status and upload lines", () => {
     assert.equal(uploadLine({ status: "processed", file: "a.pdf", written: 8, held: 1 }), "Read a.pdf · 8 shows stored, 1 to check");
     assert.equal(uploadLine({ status: "unreadable", file: "a.pdf" }), "Couldn't read a.pdf. It's in To check.");
     assert.equal(uploadLine({ status: "duplicate", file: "a.pdf", firstReadAt: "2026-11-12T11:33:36Z" }), "Already read a.pdf on 12 Nov.");
+  });
+});
+
+describe("design FAIL at 903eb97: fixes 1-3 and rulings a, b, d at both widths", () => {
+  const base = replaced({});
+  const facts = (over: Partial<ItemFacts>): ItemFacts => ({ ...base, ...over, report: { ...base.report, ...(over.report ?? {}) } });
+  const N = "\u00a0";
+
+  it("fix 1: SINCE LAST COUNT body, buttons and 393 title", () => {
+    const v = openItemView(
+      facts({ kind: "since_last_mismatch", showName: "IPC", detail: { theirs: 10, ours: 13, previousTotal: 1815, previousDate: "2026-11-11", previousMessageId: "19a7c0ffee" } }),
+    );
+    assert.equal(v.title, "IPC: SINCE LAST COUNT says 10, the counts moved 13");
+    assert.equal(v.titleShort, "IPC: SINCE LAST COUNT 10, ours 13");
+    assert.equal(v.body, `Counts are stored from the total. Our previous count is 11${N}Nov.`);
+    assert.equal(v.bodyShort, v.body);
+    assert.deepEqual(
+      v.actions.map((a) => [a.label, a.action, a.href ?? null]),
+      [
+        ["Counts are right", "checked", null],
+        [`Open the 11${N}Nov email`, null, gmailUrl("19a7c0ffee", "matas@offpixel.co.uk")],
+      ],
+    );
+  });
+
+  it("fix 2: price above the dearest ticket names the outlet, and the 393 line keeps 'Also n more'", () => {
+    const flag = (tierName: string, position: number) => ({ position, tierName, outlet: "SKIDDLE", pricePence: 25000, count: 4, reason: "above_ceiling", ceilingPence: 15000 });
+    const one = openItemView(facts({ kind: "price_looks_wrong", showName: "SCHAK", detail: { flags: [flag("VIP", 1)] } }));
+    assert.equal(one.body, "VIP on Skiddle shows £250.00, above the dearest ticket (£150.00). Counts are stored; SCHAK's revenue from this sheet is held.");
+    assert.equal(one.bodyShort, "VIP on Skiddle: £250.00, above £150.00. Revenue held.");
+    const eq = (tierName: string, count: number, position: number) => ({ position, tierName, outlet: "SKIDDLE", pricePence: count * 100, count, reason: "equals_count", ceilingPence: 15000 });
+    const ipc = openItemView(facts({ kind: "price_looks_wrong", showName: "IPC", detail: { flags: [1, 2, 3, 4, 5, 6, 7].map((n) => eq(`T${n}`, 200 + n, n)) } }));
+    assert.equal(ipc.bodyShort, "T1 on Skiddle: £201.00 with 201 sold. Also 6 more on this sheet. Revenue held.");
+  });
+
+  it("fix 3: a forward's replaced item, both widths", () => {
+    const v = openItemView(replaced({ forward: true }));
+    assert.equal(v.body, "Counts still come from the earlier sheet. The forwarded one is kept.");
+    assert.equal(v.bodyShort, "Earlier sheet kept.");
+  });
+
+  it("ruling a: a block dated after the email was sent", () => {
+    const v = openItemView(facts({ kind: "block_after_sent", showName: "FEVER 105", detail: { blockDate: "2026-10-09", sheetDate: "2026-10-08" } }));
+    assert.equal(v.title, `FEVER 105: this block is dated 9${N}Oct, after the email was sent`);
+    assert.equal(v.titleShort, "FEVER 105: block dated after the email");
+    assert.equal(v.body, "This show's count is held until you pick the date. Other shows on the sheet are stored.");
+    assert.equal(v.bodyShort, "Held until you pick.");
+    assert.deepEqual(
+      v.actions.map((a) => [a.label, a.action, a.fields?.date]),
+      [
+        [`Use 8${N}Oct`, "use_date", "2026-10-08"],
+        [`Use 9${N}Oct`, "use_date", "2026-10-09"],
+      ],
+    );
+  });
+
+  it("ruling b: couldn't read, with no PDF date (the email's date) and with one", () => {
+    const sent = openItemView(facts({ kind: "unreadable_pdf", showName: null, detail: { date: null, filename: "INTERNAL COUNTS (9).pdf" }, report: { ...base.report, receivedAt: "2026-10-02T10:00:00Z" } }));
+    assert.equal(sent.title, `Couldn't read the sheet sent 2${N}Oct`);
+    assert.equal(sent.titleShort, sent.title);
+    const dated = openItemView(facts({ kind: "unreadable_pdf", showName: null, detail: { date: "2026-10-21", filename: "INTERNAL COUNTS - 211026.pdf" } }));
+    assert.equal(dated.title, `Couldn't read the 21${N}Oct sheet`);
+    assert.equal(dated.titleShort, dated.title);
+  });
+
+  it("ruling d: a forward's meta and the late-arrival line; neither opens an item", () => {
+    const v = openItemView(
+      facts({
+        kind: "sum_mismatch",
+        showName: "SCHAK",
+        detail: { tiers: 0, total: 993, lateArrival: { laterDate: "2026-09-24", filedDate: "2026-09-22" } },
+        report: { ...base.report, subject: "Fw: Internal Counts 22.09.26", sender: "Rachel Chadwick <rachel@electric-group.co.uk>", receivedAt: "2026-09-25T09:12:00Z" },
+      }),
+    );
+    assert.equal(v.source.forwardedBy, `forwarded by Rachel Chadwick, 25${N}Sep`);
+    assert.equal(v.note, `Arrived after the 24${N}Sep count. Filed under 22${N}Sep; later counts are unchanged.`);
+    const plain = openItemView(base);
+    assert.equal(plain.source.forwardedBy, null);
+    assert.equal(plain.note, null);
+    assert.ok(!/@/.test(v.source.forwardedBy ?? ""));
+  });
+
+  it("September is Sep, like every other month", () => {
+    const v = openItemView(facts({ kind: "unreadable_pdf", showName: null, detail: { date: "2026-09-22", filename: "a.pdf" } }));
+    assert.equal(v.title, `Couldn't read the 22${N}Sep sheet`);
+  });
+
+  it("senderName never gives a full address", () => {
+    assert.equal(senderName('"Rachel Chadwick" <rachel@electric-group.co.uk>'), "Rachel Chadwick");
+    assert.equal(senderName("mike@electric-group.co.uk"), "Mike");
+    assert.equal(senderName("Matthew  Green <Matthew@electric-group.co.uk>"), "Matthew Green");
   });
 });

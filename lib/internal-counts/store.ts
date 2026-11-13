@@ -150,7 +150,7 @@ export async function processMessage(
   if (!plan.unreadable) rememberThread(ctx, input.threadId, { reportId: null, ...threadSheet });
   if (dryRun) {
     for (const b of writes) {
-      rememberCount(ctx, { eventId: b.eventId!, countDate: b.countDate!, total: b.total, blockId: null, sentAt: input.sentAt });
+      rememberCount(ctx, { eventId: b.eventId!, countDate: b.countDate!, total: b.total, blockId: null, sentAt: input.sentAt, messageId: input.messageId });
     }
     return result(input, dryRun, { status, blocksWritten: writes.length, blocksHeld: held, plan, reviewItems: plan.reviewItems });
   }
@@ -165,7 +165,7 @@ export async function processMessage(
   if (!plan.unreadable) rememberThread(ctx, input.threadId, { reportId, ...threadSheet });
   let written: number;
   try {
-    written = await persistCountBlocks(sb, ctx, reportId, input.userId, plan, input.sentAt);
+    written = await persistCountBlocks(sb, ctx, reportId, input.userId, plan, input.sentAt, input.messageId);
   } catch (err) {
     // Unread it so the next run retries the whole email; every write restates the same rows.
     await sb.from("internal_count_reports").delete().eq("id", reportId);
@@ -364,6 +364,7 @@ export async function persistCountBlocks(
   userId: string,
   plan: ReportPlan,
   sentAt: string | null,
+  messageId: string | null = null,
 ): Promise<number> {
   const blockIds = new Map<number, string>();
   if (plan.blocks.length) {
@@ -386,7 +387,7 @@ export async function persistCountBlocks(
     const event = ctx.eventsById.get(b.eventId!)!;
     const blockId = blockIds.get(b.index)!;
     await writeBlock(sb, { blockId, reportId, event, plan: b, countDate: b.countDate!, total: b.total });
-    rememberCount(ctx, { eventId: event.id, countDate: b.countDate!, total: b.total, blockId, sentAt });
+    rememberCount(ctx, { eventId: event.id, countDate: b.countDate!, total: b.total, blockId, sentAt, messageId });
     written++;
   }
   await insertReviewItems(sb, reportId, userId, items, blockIds);
