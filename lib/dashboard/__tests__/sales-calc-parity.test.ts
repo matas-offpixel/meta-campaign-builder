@@ -52,10 +52,34 @@ type Fixture = {
   google: [string, string, number][];
   rollups: [number, string, number | null, number | null, number | null, number][];
   signups: [number, string, number][];
+  /** The live Internal Counts per show: [day, paid, comps] and the is_final final [day, paid, comps]. */
+  prodCounts: Record<string, { counts: [string, number, number | null][]; final: [string, number, number] | null }>;
 };
 
+function readFixture(): Fixture {
+  return JSON.parse(readFileSync(new URL("./fixtures/sales-12-nov.json", import.meta.url), "utf8")) as Fixture;
+}
+
+/** The same rows with the counts the ingest wrote to prod (HD1) in place of the model's hand-parsed CSV. */
+export function loadProdFixture(): SalesCalcInput {
+  const f = readFixture();
+  const input = loadFixture();
+  return {
+    ...input,
+    shows: input.shows.map((s) => {
+      const prod = f.prodCounts[s.code];
+      if (!prod) return s;
+      return {
+        ...s,
+        counts: prod.counts.map(([day, sold, comps]) => ({ day, sold, comps, source: "internal_counts" as const })),
+        finalCount: prod.final ? { day: prod.final[0], paid: prod.final[1], comps: prod.final[2], source: "internal_counts" as const, blockId: null } : null,
+      };
+    }),
+  };
+}
+
 export function loadFixture(): SalesCalcInput {
-  const f = JSON.parse(readFileSync(new URL("./fixtures/sales-12-nov.json", import.meta.url), "utf8")) as Fixture;
+  const f = readFixture();
   return {
     client: f.client,
     today: f.today,
@@ -93,7 +117,7 @@ function metaOnly(input: SalesCalcInput): SalesCalcInput {
 
 const MODEL_PERIOD: Record<PeriodId, string> = { launch: "all", "30": "30", "14": "14", "7": "7", "3": "3", yesterday: "1" };
 
-type Rule = "D12" | "D13a" | "D13b" | "D13c" | "D6" | "D10" | "ALL";
+type Rule = "D12" | "D13a" | "D13b" | "D13c" | "D6" | "D10" | "ALL" | "COUNT" | "D8" | "FINAL";
 interface Row {
   show: string;
   figure: string;
@@ -254,10 +278,128 @@ const REFERENCE_CSV = [
   excluded_at_final: excluded_at_final as number,
 }));
 
+
+/**
+ * Part B: the server on the live Internal Counts (prod, HD1) against the
+ * model on its hand-parsed CSV. First the counts themselves, show-day by
+ * show-day; then the tile and trajectory figures. A figure may differ only
+ * when the two count series differ on a day it depends on (COUNT), or by
+ * D8 (paid only) or the final-count rule (FINAL).
+ */
+function compareProd(): { rows: Row[]; unexplained: Row[]; compared: number } {
+  const csvInput = metaOnly(loadFixture());
+  const prodInput = metaOnly(loadProdFixture());
+  const endDay = endDayOf(csvInput);
+  const csv = buildSeries(csvInput);
+  const prod = buildSeries(prodInput);
+  const csvBy = new Map([...csv.values()].map((s) => [s.show.code, s]));
+  const prodBy = new Map([...prod.values()].map((s) => [s.show.code, s]));
+  const rows: Row[] = [];
+  const unexplained: Row[] = [];
+  let compared = 0;
+  const add = (show: string, figure: string, model: number | string | null, server: number | string | null, rule: Rule | null) => {
+    compared += 1;
+    if (close(model, server)) return;
+    const row = { show, figure, model, server, rule };
+    rows.push(row);
+    if (!rule) unexplained.push(row);
+  };
+
+  // The counts, every show-day either source has.
+  const differFrom = new Map<string, string | null>();
+  for (const s of csvInput.shows) {
+    const a = new Map(s.counts.map((c) => [c.day, c.sold]));
+    const p = prodInput.shows.find((x) => x.eventId === s.eventId)!;
+    const b = new Map(p.counts.map((c) => [c.day, c]));
+    let first: string | null = null;
+    for (const day of [...new Set([...a.keys(), ...b.keys()])].sort()) {
+      const m = a.get(day) ?? null;
+      const c = b.get(day);
+      if (m === (c?.sold ?? null)) continue;
+      first ??= day;
+      const comps = c?.comps ?? 0;
+      const rule: Rule = c && m != null && comps > 0 && m - c.sold === comps ? "D8" : "COUNT";
+      const prior = p.counts.filter((x) => x.day < day).at(-1);
+      const repeat = !c && prior != null && prior.sold === m;
+      const why = repeat ? " (a repeat of the last count: the ingest writes none)" : !c ? " (not in prod)" : m == null ? " (not in the CSV)" : "";
+      rows.push({ show: s.code, figure: `count ${day}${c && comps > 0 ? ` (paid; ${comps} comps)` : ""}${why}`, model: m, server: c?.sold ?? null, rule });
+      compared += 1;
+    }
+    differFrom.set(s.code, first);
+  }
+  const fol = prodInput.shows.find((s) => s.code === "NX26-FOLAMOUR");
+  const folCsv = csvInput.shows.find((s) => s.code === "NX26-FOLAMOUR");
+  if (fol?.finalCount && folCsv) {
+    add("NX26-FOLAMOUR", "final count (model: show-day count; server: latest on or after show day)", folCsv.counts.find((c) => c.day === fol.showDate)?.sold ?? null, fol.finalCount.paid, "FINAL");
+  }
+
+  const differsOnOrAfter = (codes: string[], day: string | null) =>
+    codes.some((code) => {
+      const first = differFrom.get(code);
+      return first != null && (day == null || first >= day || lastDiff(code) >= day);
+    });
+  const lastDiff = (code: string) => {
+    const a = csvBy.get(code)!.counts;
+    const b = prodBy.get(code)!.counts;
+    const days = [...new Set([...a.map((c) => c.day), ...b.map((c) => c.day)])].sort().reverse();
+    return days.find((d) => a.find((c) => c.day === d)?.sold !== b.find((c) => c.day === d)?.sold) ?? "";
+  };
+
+  const scope = csvInput.shows.filter((s) => !s.isUmbrella && s.showDate >= csvInput.today && /^NX2[67]-/.test(s.code)).map((s) => s.code);
+  for (const period of PERIOD_IDS) {
+    for (const code of [...scope, "ALL"]) {
+      const codes = code === "ALL" ? scope : [code];
+      const a = periodFigures(codes.map((c) => csvBy.get(c)!), period, endDay);
+      const b = periodFigures(codes.map((c) => prodBy.get(c)!), period, endDay);
+      const cutoff = period === "launch" ? null : periodCutoffOf(period, endDay);
+      const dependsFrom = cutoff == null ? null : earliestFrom(codes, cutoff);
+      const label = period === "launch" ? "since launch" : period === "yesterday" ? "yesterday" : `${period} days`;
+      const name = code === "ALL" ? "All shows" : code;
+      const rule: Rule | null = differsOnOrAfter(codes, dependsFrom) ? "COUNT" : null;
+      add(name, "sold to date (prod counts)", a.sold, b.sold, null);
+      add(name, `tickets · ${label} (prod counts)`, a.tickets, b.tickets, period === "launch" ? null : rule);
+      add(name, `cost per ticket · ${label} (prod counts)`, a.costPerTicket, b.costPerTicket, period === "launch" ? null : rule);
+    }
+  }
+  function earliestFrom(codes: string[], cutoff: string): string {
+    let day = cutoff;
+    for (const code of codes) for (const s of [csvBy.get(code)!, prodBy.get(code)!]) for (const w of s.windows) if (w.to >= cutoff && w.from < day) day = w.from;
+    return day;
+  }
+  for (const code of scope) {
+    const a = csvBy.get(code)!;
+    const b = prodBy.get(code)!;
+    if (!a.counts.length && !b.counts.length) continue;
+    const pa = project(a, { average: null, best: null });
+    const pb = project(b, { average: null, best: null });
+    const from = [pa?.base7.day, pb?.base7.day].filter((d): d is string => !!d).sort()[0] ?? null;
+    const base14 = (s: typeof a) => {
+      const last = s.counts.at(-1)!.day;
+      return s.counts.filter((c) => c.day <= addDaysIso(last, -14)).pop()?.day ?? s.counts[0].day;
+    };
+    const from14 = [base14(a), base14(b)].sort()[0];
+    add(code, "7-day pace (prod counts)", pa?.pace7 ?? null, pb?.pace7 ?? null, differsOnOrAfter([code], from) ? "COUNT" : null);
+    add(code, "14-day pace (prod counts)", pa?.pace14 ?? null, pb?.pace14 ?? null, differsOnOrAfter([code], from14) ? "COUNT" : null);
+    add(code, "holds (prod counts)", pa?.holds ?? null, pb?.holds ?? null, differsOnOrAfter([code], from) ? "COUNT" : null);
+    add(code, "needed a day (prod counts)", pa?.neededPerDay ?? null, pb?.neededPerDay ?? null, null);
+  }
+  return { rows, unexplained, compared };
+}
+
+function periodCutoffOf(period: PeriodId, endDay: string): string {
+  const n = { "30": 30, "14": 14, "7": 7, "3": 3, yesterday: 1 }[period as Exclude<PeriodId, "launch">];
+  return addDaysIso(endDay, -(n - 1));
+}
+
+function addDaysIso(day: string, n: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
 const fmt = (v: number | string | null) => (v == null ? "—" : typeof v === "number" ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : v);
 
 describe("HD3 parity with the sales-vs-spend model on 12 Nov", () => {
   const { rows, unexplained, compared } = compare();
+  const prodPart = compareProd();
 
   it("the fixture is the model's own data: Meta spend per show matches its meta_daily SQL run on 13 Nov", () => {
     const md = metaDaily(loadFixture());
@@ -279,6 +421,16 @@ describe("HD3 parity with the sales-vs-spend model on 12 Nov", () => {
 
   it("every difference from the model is one the record makes on purpose", () => {
     assert.deepEqual(unexplained.map((r) => `${r.show} · ${r.figure}: model ${fmt(r.model)}, server ${fmt(r.server)}`), []);
+  });
+
+  it("on the live Internal Counts, every difference from the CSV model comes from the counts themselves", () => {
+    assert.deepEqual(prodPart.unexplained.map((r) => `${r.show} · ${r.figure}: model ${fmt(r.model)}, server ${fmt(r.server)}`), []);
+    const input = loadProdFixture();
+    const { entries } = buildLibrary(buildSeries(input), [], input.today);
+    assert.deepEqual(
+      entries.map((e) => [e.code, e.finalPaid, e.compsExcluded, Number(e.lift.toFixed(2))]),
+      [["NX26-DJEZ", 305, 218, 3.32], ["NX26-MF", 996, 0, 4.52], ["NX26-FOLAMOUR", 1292, 0, 2.23], ["NX26-AZYR", 1309, 0, 2.95]],
+    );
   });
 
   it("DJ EZ's lift is the model's ×3.32 (305 paid, 218 comps out)", () => {
@@ -303,6 +455,8 @@ describe("HD3 parity with the sales-vs-spend model on 12 Nov", () => {
     if (!out) return;
     const lines = [`${compared} figures compared; ${compared - rows.length} match; ${rows.length} differ, each by a rule.`, "", "| Show | Figure | Model | Server | Rule |", "|---|---|---|---|---|"];
     for (const r of rows) lines.push(`| ${r.show} | ${r.figure} | ${fmt(r.model)} | ${fmt(r.server)} | ${r.rule ?? "**none**"} |`);
+    lines.push("", `Part B, the server on the live Internal Counts against the model on its CSV: ${prodPart.compared} figures compared; ${prodPart.compared - prodPart.rows.length} match; ${prodPart.rows.length} differ, each by a rule.`, "", "| Show | Figure | Model (CSV) | Server (prod) | Rule |", "|---|---|---|---|---|");
+    for (const r of prodPart.rows) lines.push(`| ${r.show} | ${r.figure} | ${fmt(r.model)} | ${fmt(r.server)} | ${r.rule ?? "**none**"} |`);
     writeFileSync(out, `${lines.join("\n")}\n`);
   });
 });

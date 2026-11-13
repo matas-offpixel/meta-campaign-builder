@@ -358,8 +358,16 @@ describe("words and surfaces", () => {
     assert.deepEqual(Object.keys(build.periods["a-1"]).sort(), ["14", "3", "30", "7", "launch", "yesterday"]);
     assert.equal(build.model.views["a-1"].tiles, build.periods["a-1"]["14"].tiles);
     assert.equal(build.periods["a-1"].yesterday.campaigns[0].periodSpend, "£100");
-    const { viewForPeriod } = await import("../sales-vs-spend.ts");
-    assert.equal(viewForPeriod(build.model.views["a-1"], "launch").tiles, build.periods["a-1"].launch.tiles);
+    const { campaignsForPeriod, tilesForPeriod } = await import("../sales-vs-spend.ts");
+    const view = build.model.views["a-1"];
+    // Present: the server's period, as sent.
+    assert.equal(tilesForPeriod(view.tiles, view.points, "launch", view.endDay, view.periods), build.periods["a-1"].launch.tiles);
+    assert.equal(campaignsForPeriod(view, "yesterday"), build.periods["a-1"].yesterday.campaigns);
+    // Absent: today's behaviour, unchanged.
+    const bare = { ...view, periods: undefined };
+    assert.deepEqual(tilesForPeriod(bare.tiles, bare.points, "7", bare.endDay, bare.periods), tilesForPeriod(bare.tiles, bare.points, "7", bare.endDay));
+    assert.equal(tilesForPeriod(bare.tiles, bare.points, "14", bare.endDay, undefined), bare.tiles);
+    assert.equal(campaignsForPeriod(bare, "7"), bare.campaigns);
   });
 
   it("freshness stamps turn amber more than 2 days behind yesterday", () => {

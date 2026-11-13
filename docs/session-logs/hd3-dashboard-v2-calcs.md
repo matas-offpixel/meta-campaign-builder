@@ -15,6 +15,7 @@ matches the model's `meta_daily` SQL run on 13 Nov to the penny (asserted).
 
 Rules: D12 all channels · D13a since-launch CPT capped at latest count · D13b straddling window pro-rated · D13c daily £/registration
 only inside the signup window · D6 projection capped at allocation · D10 library cases · ALL (not ruled; see PR body).
+Part B adds: COUNT (the live Internal Counts differ from the CSV on a day the figure depends on) · D8 paid only · FINAL (latest count on or after show day).
 
 7338 figures compared; 7195 match; 143 differ, each by a rule.
 
@@ -163,3 +164,37 @@ only inside the signup window · D6 projection capped at allocation · D10 libra
 | NX26-DOD | case 2 (model: like Enzo; server: average finish) | 1059 | 1137 | D10 |
 | NX26-DOD | case 3 (model: like DJ EZ; server: best finish) | 1140 | 1185 | D10 |
 | Library | Enzo lift (the model's case 2) | 1.20 | — | D10 |
+
+Part B, the server on the live Internal Counts against the model on its CSV: 241 figures compared; 212 match; 29 differ, each by a rule.
+
+| Show | Figure | Model (CSV) | Server (prod) | Rule |
+|---|---|---|---|---|
+| NX26-IPC | count 2026-10-15 (not in the CSV) | — | 1584 | COUNT |
+| NX26-IPC | count 2026-10-21 (not in prod) | 1673 | — | COUNT |
+| NX26-EED | count 2026-10-15 (not in the CSV) | — | 1099 | COUNT |
+| NX26-EED | count 2026-10-21 (not in prod) | 1172 | — | COUNT |
+| NX26-FOLAMOUR | count 2026-10-15 (not in the CSV) | — | 1200 | COUNT |
+| NX26-FOLAMOUR | count 2026-10-21 (not in prod) | 1250 | — | COUNT |
+| NX26-FOLAMOUR | count 2026-10-27 (a repeat of the last count: the ingest writes none) | 1292 | — | COUNT |
+| NX26-FOLAMOUR | count 2026-10-28 (a repeat of the last count: the ingest writes none) | 1292 | — | COUNT |
+| NX26-FOLAMOUR | count 2026-10-29 (a repeat of the last count: the ingest writes none) | 1292 | — | COUNT |
+| NX26-FOLAMOUR | count 2026-10-30 (a repeat of the last count: the ingest writes none) | 1292 | — | COUNT |
+| NX26-FOLAMOUR | count 2026-11-02 (a repeat of the last count: the ingest writes none) | 1292 | — | COUNT |
+| NX26-FOLAMOUR | count 2026-11-03 (a repeat of the last count: the ingest writes none) | 1292 | — | COUNT |
+| NX26-ROBBIEDOHERTY | count 2026-10-15 (not in the CSV) | — | 268 | COUNT |
+| NX26-ROBBIEDOHERTY | count 2026-10-21 (not in prod) | 294 | — | COUNT |
+| NX26-SCHAK | count 2026-09-22 (not in prod) | 0 | — | COUNT |
+| NX26-SCHAK | count 2026-10-15 (not in the CSV) | — | 1723 | COUNT |
+| NX26-SCHAK | count 2026-10-21 (not in prod) | 1778 | — | COUNT |
+| NX26-AZYR | count 2026-10-15 (not in the CSV) | — | 856 | COUNT |
+| NX26-AZYR | count 2026-10-21 (not in prod) | 897 | — | COUNT |
+| NX26-MF | count 2026-10-15 (not in the CSV) | — | 895 | COUNT |
+| NX26-DJEZ | count 2026-10-01 (paid; 137 comps) | 365 | 228 | D8 |
+| NX26-DJEZ | count 2026-10-05 (paid; 218 comps) (not in the CSV) | — | 305 | COUNT |
+| NX26-RUDIMENTAL | count 2026-10-01 | 438 | 277 | COUNT |
+| NX26-RUDIMENTAL | count 2026-10-05 (not in the CSV) | — | 438 | COUNT |
+| NX26-RUDIMENTAL | count 2026-10-15 (not in the CSV) | — | 536 | COUNT |
+| NX26-RUDIMENTAL | count 2026-10-21 (not in prod) | 578 | — | COUNT |
+| NX26-DOD | count 2026-10-15 (not in the CSV) | — | 778 | COUNT |
+| NX26-DOD | count 2026-10-21 (not in prod) | 814 | — | COUNT |
+| NX26-FOLAMOUR | final count (model: show-day count; server: latest on or after show day) | 1268 | 1292 | FINAL |

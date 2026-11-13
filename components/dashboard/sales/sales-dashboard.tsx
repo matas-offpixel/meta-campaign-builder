@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { CHART_PLOT, PLOT_PAD, ChartDateLabels, ChartDot, SalesChart } from "@/components/dashboard/sales/sales-chart";
 import {
+  campaignsForPeriod,
   DEFAULT_ON_METRICS,
   INDEX_TO_PEAK,
   SALES_METRICS,
@@ -13,7 +14,7 @@ import {
   salesForSurface,
   salesMetric,
   slicePoints,
-  viewForPeriod,
+  tilesForPeriod,
   visibleShows,
   type SalesDashboardModel,
   type SalesMetricId,
@@ -49,7 +50,7 @@ export function SalesDashboard({
   const view = presented.views[activeId] ?? presented.views[presented.initialShowId];
   if (!view) return null;
   const points = slicePoints(view.points, period, view.endDay);
-  const { tiles, campaigns } = viewForPeriod(view, period);
+  const tiles = tilesForPeriod(view.tiles, view.points, period, view.endDay, view.periods);
   const units = selected.map((id) => salesMetric(id).unit);
   const axes = planAxes(units, indexRequested);
   const indexForced = axes.mode === "index" && new Set(units).size >= 3;
@@ -205,7 +206,7 @@ export function SalesDashboard({
         reviewLine={presented.reviewLine}
       />
 
-      <Campaigns rows={campaigns} />
+      <Campaigns rows={campaignsForPeriod(view, period)} />
     </section>
   );
 }

@@ -229,8 +229,8 @@ export type SalesShowView = {
   campaigns: SalesCampaignRow[];
   /**
    * The server calc's tiles and campaign rows for each period (HD3). When a
-   * period is here the layout shows it as is; otherwise `tilesForPeriod`
-   * works it out from the points, as for the fixture.
+   * period is here, `tilesForPeriod` and `campaignsForPeriod` return it as
+   * is; otherwise they behave as before (the fixture sends none).
    */
   periods?: Partial<Record<SalesPeriod, SalesPeriodView>>;
 };
@@ -326,14 +326,20 @@ export function formatSalesNumber(unit: SalesUnit, value: number): string {
   }).format(value);
 }
 
-/** The tiles and campaign rows for a period: the server calc's when it sent them, else worked out from the points. */
-export function viewForPeriod(view: SalesShowView, period: SalesPeriod): SalesPeriodView {
-  const slice = view.periods?.[period];
-  if (slice) return slice;
-  return { tiles: tilesForPeriod(view.tiles, view.points, period, view.endDay), campaigns: view.campaigns };
+/** The campaign rows for a period: the server calc's when it sent them (HD3), else the view's own. */
+export function campaignsForPeriod(view: Pick<SalesShowView, "campaigns" | "periods">, period: SalesPeriod): SalesCampaignRow[] {
+  return view.periods?.[period]?.campaigns ?? view.campaigns;
 }
 
-export function tilesForPeriod(tiles: SalesTile[], points: SalesChartPoint[], period: SalesPeriod, endDay: string): SalesTile[] {
+export function tilesForPeriod(
+  tiles: SalesTile[],
+  points: SalesChartPoint[],
+  period: SalesPeriod,
+  endDay: string,
+  periods?: SalesShowView["periods"],
+): SalesTile[] {
+  const sent = periods?.[period]?.tiles;
+  if (sent) return sent;
   if (period === "14") return tiles;
   const slice = slicePoints(points, period, endDay);
   const phrase = period === "yesterday" ? "yesterday" : period === "launch" ? "since launch" : `in ${period} days`;
