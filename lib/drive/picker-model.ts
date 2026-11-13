@@ -428,12 +428,22 @@ export function isFailed(state: RowState): boolean {
   return state.kind === "copy_failed" || state.kind === "meta_failed" || state.kind === "not_916";
 }
 
-export function batchCounts(states: readonly RowState[]): { n: number; ready: number; skipped: number; failed: number; done: boolean } {
+/**
+ * A failure a retry can fix: the copy or Meta's upload. A not-9:16 file
+ * fails the same ratio check every time, so it counts as failed in the end
+ * line but is never retried (no Retry of its own, not in Retry failed).
+ */
+export function isRetryable(state: RowState): boolean {
+  return state.kind === "copy_failed" || state.kind === "meta_failed";
+}
+
+export function batchCounts(states: readonly RowState[]): { n: number; ready: number; skipped: number; failed: number; retryable: number; done: boolean } {
   const ready = states.filter((s) => s.kind === "ready").length;
   const skipped = states.filter((s) => s.kind === "skipped").length;
   const failed = states.filter(isFailed).length;
+  const retryable = states.filter(isRetryable).length;
   const done = states.every((s) => s.kind === "ready" || s.kind === "skipped" || isFailed(s));
-  return { n: states.length - skipped, ready, skipped, failed, done };
+  return { n: states.length - skipped, ready, skipped, failed, retryable, done };
 }
 
 // ─── The view the picker route returns (G1) ─────────────────────────────────

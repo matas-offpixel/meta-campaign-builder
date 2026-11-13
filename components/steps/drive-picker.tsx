@@ -226,7 +226,7 @@ export function DrivePicker(props: DrivePickerProps) {
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
         <StatusLine className="text-sm font-medium">
           {W.endLineHead(counts.ready, counts.skipped, counts.failed)}
-          {counts.failed > 0 ? (
+          {counts.retryable > 0 ? (
             <>
               {" — "}
               <button type="button" onClick={props.onRetryFailed} className="font-medium text-primary hover:underline">
@@ -371,9 +371,9 @@ export function DrivePicker(props: DrivePickerProps) {
           <div className="flex items-center gap-2">
             {inBatch || done ? (
               <>
-                {counts && counts.failed > 0 ? (
+                {counts && counts.retryable > 0 ? (
                   <button type="button" onClick={props.onRetryFailed} className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted">
-                    {W.retryFailed(counts.failed)}
+                    {W.retryFailed(counts.retryable)}
                   </button>
                 ) : null}
                 {done ? (

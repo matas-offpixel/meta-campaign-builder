@@ -71,6 +71,31 @@ describe("Retry (G6)", () => {
   });
 });
 
+describe("a not-9:16 row is not retryable (R5)", () => {
+  it("DL3's batch reads Retry failed (1); the not-9:16 row has no Retry of its own", async () => {
+    const { calls } = mount({
+      batch: [
+        readyRow,
+        { rowId: "r2", name: "b_r1_9x16", state: { kind: "sending" } },
+        failedRow,
+        { rowId: "r6", name: "P26-BDAY_enzo-siragusa-6_quote-on-sale_r1_4x5.png", state: { kind: "not_916", static: true } },
+      ],
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Retry failed (1)" }));
+    expect(calls).toContain("retryFailed");
+    const row = screen.getByText("Not 9:16 — pairs with its 9:16 in Dual or Full").closest("li")!;
+    expect(within(row).queryByRole("button")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Retry" }).length).toBe(1);
+  });
+
+  it("with only a not-9:16 failure, the end line has no Retry and there is no Retry failed", async () => {
+    mount({ batch: [readyRow, { rowId: "r6", name: "x_r1_4x5.png", state: { kind: "not_916", static: true } }] });
+    expect(await screen.findByText(/1 failed/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Retry failed/ })).toBeNull();
+  });
+});
+
 describe("the end screen (G7)", () => {
   it("a breadcrumb click leaves the batch first, then opens the folder", async () => {
     const { calls } = mount({ batch: [readyRow, failedRow] });

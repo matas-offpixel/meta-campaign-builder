@@ -224,6 +224,23 @@ describe("the batch (G6, HG6)", () => {
     assert.equal(PICKER_WORDS.endLineHead(2, 0, 1), "2 ads prepared · 0 skipped (already in this draft) · 1 failed");
   });
 
+  it("a not-9:16 row counts as failed but is never retried: not in Retry failed, no Retry of its own (R5)", () => {
+    const four = [...rows, { ...rows[0]!, rowId: "four" }];
+    const states = new Map<string, RowState>([
+      ["one", { kind: "copy_failed" }],
+      ["two", { kind: "ready" }],
+      ["three", { kind: "meta_failed", reason: "x" }],
+      ["four", { kind: "not_916", static: true }],
+    ]);
+    assert.deepEqual(retryTargets(four, states).map((r) => r.rowId), ["one", "three"]);
+    assert.deepEqual(retryTargets(four, states, "four"), []);
+    const counts = batchCounts([...states.values()]);
+    assert.equal(counts.failed, 3, "the end line still counts it as failed");
+    assert.equal(counts.retryable, 2, "Retry failed (2)");
+    assert.equal(counts.done, true);
+    assert.equal(batchCounts([{ kind: "ready" }, { kind: "not_916", static: true }]).retryable, 0);
+  });
+
   it("a static whose 4:5 fails the copy-time ratio check reads the static sentence, not the video one", async () => {
     const slotLines: string[] = [];
     const staticRow: BatchRow = {
@@ -319,6 +336,29 @@ describe("a tile's name wraps to two lines (N1)", () => {
         if (lines.length === 2) assert.ok(!lines[0]!.includes("9x16"), "the tail never wraps on its own");
         if (lines.join("") !== name) assert.ok(lines[1]!.includes("…"), "only line 2 is cut");
       }
+    }
+  });
+
+  it("at 393 (156 px, a narrow 1 as in the real font) the cut keeps its three properties", () => {
+    // 6.25 px a character, "1" 5 px: "…siragusa-1_" fits line 1, "…siragusa-4_" runs 0.25 px over.
+    const real = (text: string) => [...text].reduce((w, ch) => w + (ch === "1" ? 5 : 6.25), 0);
+    assert.deepEqual(wrapFileName(NAMES[0]!, 156, real), ["P26-BDAY_enzo-siragusa-1_", "quote-on-sale_r1_9x16.mp4"]);
+    for (const [name, lead] of [
+      [NAMES[1]!, "4_quote"],
+      [NAMES[2]!, "5_caption"],
+      [NAMES[3]!, "2_caption"],
+    ] as const) {
+      const lines = wrapFileName(name, 156, real);
+      assert.equal(lines.length, 2);
+      // 1. Cut only on line 2.
+      assert.ok(!lines[0]!.includes("…"));
+      assert.equal(lines[1]!.split("…").length, 2, "one cut, on line 2");
+      const [before, after] = lines[1]!.split("…") as [string, string];
+      // 2. The number and the angle before the "…".
+      assert.ok(before.startsWith(lead), `${before} starts with ${lead}`);
+      // 3. The round and ratio tail after it.
+      assert.ok(after.endsWith("r1_9x16.mp4"), after);
+      assert.ok(lines.every((l) => real(l) <= 156));
     }
   });
 

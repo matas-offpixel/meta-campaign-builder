@@ -6,7 +6,7 @@
  */
 
 import type { AssetModeName, PickerKind, PickerOwner, RatioName, RowState, Tile } from "./picker-model.ts";
-import { adNames, folderLabel, isFailed, ownerShortName, rowLine } from "./picker-model.ts";
+import { adNames, folderLabel, isFailed, isRetryable, ownerShortName, rowLine } from "./picker-model.ts";
 
 /** One file into one slot of the row's ad: the 9:16, or (Dual / Full statics) its 4:5 or 1:1. */
 export type BatchPart = { fileId: string; fileName: string; role: RatioName; slotAssetId: string | null };
@@ -134,7 +134,7 @@ export async function runBatch(rows: readonly BatchRow[], deps: BatchDeps): Prom
   return final;
 }
 
-/** Retry failed: only the rows whose state failed. */
+/** The rows whose state failed, a not-9:16 file included. */
 export function failedRows(rows: readonly BatchRow[], states: ReadonlyMap<string, RowState>): BatchRow[] {
   return rows.filter((row) => {
     const state = states.get(row.rowId);
@@ -142,10 +142,17 @@ export function failedRows(rows: readonly BatchRow[], states: ReadonlyMap<string
   });
 }
 
-/** A row's own Retry (rowId): that row, if it failed. Retry failed (no rowId): every failed row. */
+/**
+ * A row's own Retry (rowId): that row, if a retry can fix it. Retry failed
+ * (no rowId): every such row. A not-9:16 file is never a target: it fails
+ * the same check again.
+ */
 export function retryTargets(rows: readonly BatchRow[], states: ReadonlyMap<string, RowState>, rowId?: string): BatchRow[] {
-  const failed = failedRows(rows, states);
-  return rowId ? failed.filter((row) => row.rowId === rowId) : failed;
+  const targets = rows.filter((row) => {
+    const state = states.get(row.rowId);
+    return state ? isRetryable(state) : false;
+  });
+  return rowId ? targets.filter((row) => row.rowId === rowId) : targets;
 }
 
 // ─── Prepare (G5) ───────────────────────────────────────────────────────────
