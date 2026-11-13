@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import { CaptionOverlay } from "@/components/dashboard/events/creative-lab/caption-overlay";
 import { PLACE_REFUSAL, PLACEMENT_HOME, PLACEMENT_STEP } from "@/lib/creative-lab/caption-placement";
 
@@ -20,32 +18,12 @@ const STATES = {
  * CLP5 is the refusal, with no type.
  */
 export function PlacementFrameMount({ id }: { id: string }) {
-  const [font, setFont] = useState<"wait" | "ready" | "missing">("wait");
-  useEffect(() => {
-    const pending = (window as unknown as { __tiktokSansReady?: Promise<unknown> }).__tiktokSansReady;
-    let gone = false;
-    const done = pending ?? Promise.reject(new Error("TikTok Sans did not load"));
-    done.then(
-      () => {
-        if (!gone) setFont("ready");
-      },
-      () => {
-        if (!gone) setFont("missing");
-      },
-    );
-    return () => {
-      gone = true;
-    };
-  }, []);
   const state = STATES[id as keyof typeof STATES];
   if (!state) return null;
-  if (font === "missing") {
-    return <div className="bg-background p-4 text-sm text-foreground">TikTok Sans did not load. This shot is not a baseline.</div>;
-  }
   const refused = id === "CLP5";
   const centre = (PLACEMENT_HOME + state.step * PLACEMENT_STEP) / 1920;
   return (
-    <div data-frame-ready={font === "ready" ? id : undefined} className="bg-background p-3 text-foreground sm:p-4">
+    <div data-frame-ready={id} className="bg-background p-3 text-foreground sm:p-4">
       <div className="w-[180px]">
         <CaptionOverlay
           lines={refused ? [] : LINES}
