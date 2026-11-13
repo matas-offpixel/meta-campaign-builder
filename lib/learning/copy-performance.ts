@@ -12,6 +12,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { normalizeAdAccountId, resolveEventAdAccountId } from "../meta/ad-account.ts";
+import { loadAllPaged } from "./paged-read.ts";
 import type { CodedEvent } from "./ad-facts.ts";
 import type { LearningClient, LearningFact } from "./joins.ts";
 import type { ExtractionEvent, ExtractionWorld } from "./copy/artist-extraction.ts";
@@ -46,7 +47,7 @@ type CopyRow = {
 type MembershipRow = { id: string; event_id: string; artist_id: string; billing_order: number | null };
 type LabFactRow = { event_id: string; lineup: string[] | null; headliners: string[] | null };
 type ClientPageRow = { id: string; default_page_ids: string[] | null; meta_ad_account_id: string | null };
-type DraftPageRow = { client_id: string | null; meta_page_id: string | null };
+type DraftPageRow = { id: string; client_id: string | null; meta_page_id: string | null };
 
 /** Every table the copy jobs read, read once. */
 export type CopySources = {
@@ -65,18 +66,9 @@ export type CopyLibrary = {
   droppedNameOnly: number;
 };
 
-const PAGE = 1000;
-
-async function loadPage<T>(db: Db, table: string, columns: string, order: string): Promise<T[]> {
-  const rows: T[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db.from(table).select(columns).order(order, { ascending: true }).range(from, from + PAGE - 1);
-    if (error) throw new Error(`${table}: ${error.message}`);
-    const chunk = (data ?? []) as T[];
-    rows.push(...chunk);
-    if (chunk.length < PAGE) break;
-  }
-  return rows;
+/** Every row of a table in the order of a key unique on it, deduped on that key (paged-read.ts). */
+function loadPage<T extends Record<string, unknown>>(db: Db, table: string, columns: string, order: string): Promise<T[]> {
+  return loadAllPaged<T>(db, table, columns, [order]);
 }
 
 export async function loadCopySources(db: Db): Promise<CopySources> {
@@ -367,21 +359,8 @@ function showEvent(event: EventRow): ShowEvent {
   };
 }
 
-async function loadPublishedPromoterPages(db: Db): Promise<DraftPageRow[]> {
-  const rows: DraftPageRow[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db
-      .from("campaign_drafts")
-      .select("client_id, meta_page_id:draft_json->settings->>metaPageId")
-      .eq("status", "published")
-      .order("id", { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) throw new Error(`campaign_drafts: ${error.message}`);
-    const chunk = (data ?? []) as DraftPageRow[];
-    rows.push(...chunk);
-    if (chunk.length < PAGE) break;
-  }
-  return rows;
+function loadPublishedPromoterPages(db: Db): Promise<DraftPageRow[]> {
+  return loadAllPaged<DraftPageRow>(db, "campaign_drafts", "id, client_id, meta_page_id:draft_json->settings->>metaPageId", ["id"], (q) => q.eq("status", "published"));
 }
 
 export function computeCopyPerformance(library: CopyLibrary): CopyPerformanceRow[] {
