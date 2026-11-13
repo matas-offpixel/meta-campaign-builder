@@ -104,6 +104,43 @@ function Watch({ label, items, note }: { label: string; items: { title: string; 
   );
 }
 
+/**
+ * The Objective block (F1 of the per-event purchases record): E4's setup
+ * line when the ads' pixel is not the stored one, the objective, the
+ * purchase line in its state, the attributed figure under it, and the
+ * ticketing note or check. A proposal stored before that record has no
+ * `attributed`; its purchase line already says the figure.
+ */
+export function ObjectiveBlock({ why, heading = true }: { why: PanelProposal["why"]; heading?: boolean }) {
+  const setup = why.pixel ?? [];
+  const setupNarrow = why.pixelNarrow ?? setup;
+  return (
+    <div className={heading ? "mb-3" : undefined} data-block="objective">
+      {heading ? <p className="text-xs font-medium">Objective</p> : null}
+      {setup.length ? (
+        <div className="my-1 rounded bg-muted px-2 py-1.5 text-xs" data-setup="pixel">
+          {setup.map((line, index) => (
+            <p key={line}>
+              <Wide wide={line} narrow={setupNarrow[index] ?? line} />
+            </p>
+          ))}
+        </div>
+      ) : null}
+      {why.objective ? <p className="text-xs">{why.objective}</p> : null}
+      <p className="text-xs text-muted-foreground">
+        <Wide wide={why.purchase} narrow={why.purchaseNarrow || why.purchase} />
+        {why.attributed ? null : <span className="hidden sm:inline"> {why.moves}</span>}
+      </p>
+      {why.attributed ? (
+        <p className="text-xs text-muted-foreground">
+          <Wide wide={`${why.attributed} ${why.moves}`.trim()} narrow={why.attributedNarrow ?? why.attributed} />
+        </p>
+      ) : null}
+      {why.ticketing ? <p className="text-xs text-muted-foreground">{why.ticketing}</p> : null}
+    </div>
+  );
+}
+
 export type OnSaleRefreshPanelViewProps = {
   eventId: string;
   proposals: PanelProposal[];
@@ -155,15 +192,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false }:
         </div>
       ) : null}
 
-      <div className="mb-3">
-        <p className="text-xs font-medium">Objective</p>
-        <p className="text-xs">{head.why.objective}</p>
-        <p className="text-xs text-muted-foreground">
-          <Wide wide={head.why.purchase} narrow={head.why.purchaseNarrow || head.why.purchase} />
-          <span className="hidden sm:inline"> {head.why.moves}</span>
-        </p>
-        {head.why.ticketing ? <p className="text-xs text-muted-foreground">{head.why.ticketing}</p> : null}
-      </div>
+      <ObjectiveBlock why={head.why} />
 
       {proposals.map((proposal) => {
         const creatives = proposal.lines.filter((line) => CREATIVE_KINDS.has(line.kind));

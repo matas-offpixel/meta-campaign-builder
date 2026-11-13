@@ -22,6 +22,7 @@ import { loadAdContextIndex, resolveAdContext, type AdContextIndex } from "../le
 import { CONFIDENCE_SCORE, type Confidence } from "../learning/shrink.ts";
 import type { PhaseConfig, ResultEvent } from "./phase-config.ts";
 import { isOnSale } from "./on-sale.ts";
+import type { PurchaseRead } from "./purchases.ts";
 import { chooseObjective, type AdInput, type AdSetInput, type CampaignInput, type ClaimInput, type ClusterInput, type SupplyFile, type SupplyMix } from "./rules.ts";
 import { addDaysIso, planRun, type RunPlan } from "./schedule.ts";
 
@@ -37,6 +38,9 @@ export type EventRow = {
   client_id: string | null;
   budget_marketing: number | string | null;
   drive_folder_id: string | null;
+  /** The show's page and ticket link: E1's own-domain test reads them. */
+  signup_url?: string | null;
+  ticket_url?: string | null;
 };
 
 type InsightRow = {
@@ -104,7 +108,7 @@ export function resultOf(row: InsightRow, resultEvent: ResultEvent): number {
 /** Events on sale (G2's shared predicate, on-sale.ts) for an active client. */
 export async function loadOnSaleEvents(db: Db, today: string): Promise<EventRow[]> {
   const archived = await loadArchivedClientIds(db as SupabaseClient);
-  const events = await loadAll<EventRow>(db, "events", "id, name, event_code, event_date, general_sale_at, status, client_id, budget_marketing, drive_folder_id", ["id"], (q) =>
+  const events = await loadAll<EventRow>(db, "events", "id, name, event_code, event_date, general_sale_at, status, client_id, budget_marketing, drive_folder_id, signup_url, ticket_url", ["id"], (q) =>
     q.gte("event_date", today).neq("status", "cancelled"),
   );
   return events.filter((event) => event.client_id && !archived.has(event.client_id) && isOnSale(event, today));
@@ -247,6 +251,8 @@ export async function buildEventInputs(args: {
   raw: RawInsights;
   aux: Aux;
   drive: DriveApi | null;
+  /** The event's purchase read (purchase-read.ts); absent = not read. */
+  purchases?: PurchaseRead;
 }): Promise<EventInputs> {
   const { event, config, aux } = args;
   const plan = planRun({ day: args.day, eventDate: event.event_date, config, shadow: args.shadow });
@@ -394,6 +400,7 @@ export async function buildEventInputs(args: {
       ticketingProvider: ticketing[0]?.provider ?? null,
       last14,
       sinceOnSale,
+      purchases: args.purchases,
     });
   }
   campaigns.sort((a, b) => b.weekSpend - a.weekSpend);

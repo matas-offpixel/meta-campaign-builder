@@ -616,16 +616,45 @@ REMOTION_LAMBDA_SERVE_URL=
 > events are `lib/onsale-refresh/on-sale.ts`'s `isOnSale`: not cancelled,
 > the show still ahead, and `status = 'on_sale'` or `general_sale_at`
 > passed; the loader and the event page's panel mount share it, so every
-> event the refresh posts about shows the panel. The pixel's purchase count
-> is purchases attributed to this show's ads for any show on the same pixel,
-> never this show's sales (12 Nov: 22 of Julian Fijma's 24 landed before its
-> presale): the why line says "attributed … any show on this pixel", there
-> is no purchase bar, and no count proposes anything. Reads every `ad_daily_insights` row,
+> event the refresh posts about shows the panel. The ads' attributed
+> purchases are any show's on the same pixel, never this show's sales
+> (12 Nov: 22 of Julian Fijma's 24 landed before its presale): they sit
+> under the purchase line as "Attributed to these ads … any show on this
+> pixel" and decide nothing. The purchase line itself is the per-event
+> read of `docs/design-record/2026-11-13-per-event-purchases.html`
+> (`lib/onsale-refresh/purchases.ts` the rules, `purchase-read.ts` the
+> reads): the pixel is the one in `promoted_object.pixel_id` on the ad
+> sets that spent in the 14 days to the window end (most spend wins; a
+> second pixel at ≥ 10 % of the spend is named), never
+> `clients.meta_pixel_id`, which is read for the mismatch line ("Ads
+> optimise on pixel …2763 (NX Live Skiddle); the client's stored pixel is
+> …4565. Counts use …2763.", once per event to Slack) and never written.
+> A show's own domain is its signup URL's host when no other running or
+> upcoming event uses it, or the custom domain behind its
+> `crqln.com/l/{slug}` link (the CIRQLIN page's canonical link, one public
+> GET); `crqln.com`, ticket sites and a shared host are never a show's
+> own. The count is the pixel's Purchase events on that domain (`GET
+> /{pixel}/stats`, `aggregation=host`): 15 or more in 14 days reads
+> "Purchase campaign proposed", fewer "under 15", and none in the history
+> while the pixel has purchases "nothing reaches". Meta returns 28 days of
+> that breakdown, not the record's 90, so the history is 28
+> (`purchaseHistoryDays`). States in order: no pixel, no page or ticket
+> URL, ticket site only, no domain of its own, shared domain, nothing
+> reaches, under the bar / proposed; a read that failed says "this show's
+> purchases couldn't be read this run. The next run tries again.", never a
+> zero, and its raw reason goes to the evidence (`inputs.purchases.notRead`)
+> and the run log (`purchasesNotRead` in the cron run's detail), never the
+> panel or Slack. HE1 is the read only: no Purchase campaign line, no
+> cross-campaign move and no custom conversion is made. Reads every `ad_daily_insights` row,
 > paged in (date, meta_ad_id) order and deduped, so the spend to date is
 > the event's all-time spend (IC = `omni_initiated_checkout`, LPV = the column),
 > `creative_scores` (convert axis), `interest_clusters.live_evidence`,
 > `ticket_warnings`, `events.budget_marketing`, `client_ticketing_connections`
-> and one Drive listing per cycle type folder; never Meta. Archived clients
+> and one Drive listing per cycle type folder. Meta is read for the
+> purchase line only, with `META_ACCESS_TOKEN`, one attempt per call,
+> counted in `metaCalls` (one batch per ≤ 50 delivering ad sets, one for
+> the mismatched pixels' names, the domain breakdown once per pixel an
+> own-domain show counts on); it is never written. Archived clients
 > are excluded. Nothing is applied: Accept / Reject / Apply are P2. The panel
 > is `components/dashboard/events/onsale-refresh-panel.tsx` (read-only,
 > fetched through `GET /api/events/[id]/onsale-refresh`, mounted on the
@@ -635,8 +664,11 @@ REMOTION_LAMBDA_SERVE_URL=
 > end, then creation; missing ticketing is said under Objective, never a
 > blocker); the frames are
 > `app/(dev)/frames/onsale/[id]` until the shared frames registry takes the
-> OR series. Dry run on prod, reads only: `scripts/onsale-refresh.mts --event
-> CODE --shadow YYYY-MM-DD`; `--apply` stores the shadow proposals.
+> OR series (OR1 the panel, OR2 / OR3 the Objective block for P26-BDAY and
+> NX26-LOCKLEAD, OR4 every purchase-line state). Dry run on prod, reads only: `scripts/onsale-refresh.mts --event
+> CODE --shadow YYYY-MM-DD`; `--apply` stores the shadow proposals;
+> `--purchases` prints the per-event purchase table for every on-sale
+> event (`--also CODE` adds a show that isn't on sale).
 
 > **`ENABLE_GOOGLE_ADS_DAILY_INSIGHTS`** must be exactly `"1"` to activate
 > `/api/cron/google-ads-daily-insights` (04:00 UTC). Unset = 200 with
@@ -835,8 +867,10 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   search-term and location facts per day (see
   `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
 - `/api/cron/onsale-refresh` (Mondays 06:00 UTC) — the on-sale refresh,
-  P1 shadow proposals (see `ENABLE_ONSALE_REFRESH` above). Zero Meta calls;
-  the one call out is the cycle folder's Drive listing. "0 6 * * 1" in
+  P1 shadow proposals (see `ENABLE_ONSALE_REFRESH` above). Zero Meta
+  writes; Meta is read for the purchase line (ad-set pixels, the pixel's
+  purchases by domain), and the other calls out are the cycle folder's
+  Drive listing and one public CIRQLIN page per crqln.com signup link. "0 6 * * 1" in
   `vercel.json` (after the 03:30 UTC learning-refresh; 06:00 London in
   winter, 07:00 in summer), and `?post=pending` at "5 10 * * 1" posts the
   proposals business hours held back.
