@@ -1,0 +1,91 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import { NX_SALES_FIXTURE } from "../sales-vs-spend-fixture.ts";
+import {
+  LIBRARY_OPENS,
+  MISSING_CAPACITY,
+  MISSING_CAPACITY_SHORT,
+  NO_TICKET_COUNTS,
+  SALES_METRICS,
+  planAxes,
+  salesForSurface,
+  slicePoints,
+  visibleShows,
+  type SalesCampaignRow,
+  type SalesDashboardModel,
+} from "../sales-vs-spend.ts";
+
+describe("sales vs spend layout contract", () => {
+  it("names twelve metrics and keeps Spend and Total sold as the default pair", () => {
+    assert.equal(SALES_METRICS.length, 12);
+    assert.equal(NX_SALES_FIXTURE.views.ipc.tiles.length, 12);
+    assert.deepEqual(
+      NX_SALES_FIXTURE.views.ipc.tiles.map((tile) => tile.id),
+      SALES_METRICS.map((metric) => metric.id),
+    );
+  });
+
+  it("uses the record's 12 Nov NX words and never a default capacity", () => {
+    const ipc = NX_SALES_FIXTURE.views.ipc;
+    assert.equal(ipc.title, "Interplanetary Criminal · NX Newcastle");
+    assert.equal(ipc.subtitle, "Sat 21 Nov · allocation 1,500");
+    assert.equal(ipc.umbrellaLine, "Separate NX umbrella spend £640");
+    assert.equal(ipc.tiles.find((tile) => tile.id === "spend")?.value, "£2,060");
+    assert.equal(ipc.tiles.find((tile) => tile.id === "sold")?.detail, "Internal Counts, 12 Nov · plus 64 comps");
+    assert.equal(ipc.tiles.find((tile) => tile.id === "registrations")?.detail, "signups closed at on-sale");
+    assert.equal(NX_SALES_FIXTURE.freshness.find((stamp) => stamp.id === "signups")?.stale, true);
+    const locklead = NX_SALES_FIXTURE.views.locklead;
+    assert.equal(locklead.trajectory.kind === "single" && locklead.trajectory.missingCapacity, MISSING_CAPACITY);
+    assert.equal(locklead.trajectory.kind === "single" && locklead.trajectory.allocation, null);
+    assert.equal(locklead.tiles.find((tile) => tile.id === "sold")?.detail, NO_TICKET_COUNTS);
+    const all = NX_SALES_FIXTURE.views.all.trajectory;
+    assert.equal(all.kind, "all");
+    if (all.kind === "all") {
+      assert.equal(all.bars.find((bar) => bar.id === "locklead")?.caption, MISSING_CAPACITY_SHORT);
+      assert.equal(all.bars.some((bar) => bar.allocation === 2000), false);
+    }
+    assert.equal(NX_SALES_FIXTURE.views.quiet.trajectory.kind === "single" && NX_SALES_FIXTURE.views.quiet.trajectory.opensAfter, LIBRARY_OPENS);
+  });
+
+  it("hides finished shows until Include finished is on", () => {
+    assert.equal(visibleShows(NX_SALES_FIXTURE, false).some((chip) => chip.id === "djez"), false);
+    const shown = visibleShows(NX_SALES_FIXTURE, true);
+    assert.equal(shown.find((chip) => chip.id === "djez")?.finished, true);
+  });
+
+  it("indexes when three unit types are picked and uses two axes for two types", () => {
+    assert.equal(planAxes(["money", "count"], false).mode, "dual");
+    assert.equal(planAxes(["money", "count", "rate"], false).mode, "index");
+    assert.equal(planAxes(["money"], true).mode, "index");
+    assert.equal(planAxes(["count"], false).mode, "single");
+  });
+
+  it("slices the chart back from the last data day and leaves today out", () => {
+    const points = NX_SALES_FIXTURE.views.ipc.points;
+    assert.equal(points.at(-1)?.day, "2026-11-12");
+    assert.equal(slicePoints(points, "14", "2026-11-12").length, 14);
+    assert.equal(slicePoints(points, "yesterday", "2026-11-12").length, 1);
+    assert.equal(points.some((point) => point.day > "2026-11-12"), false);
+    assert.match(points.find((point) => point.estimated)?.estimateNote ?? "", /Estimated between counts on 5 Nov and 12 Nov/);
+  });
+
+  it("drops cross-client learnings and the Not linked pill on the share", () => {
+    const withLearning: SalesDashboardModel = {
+      ...NX_SALES_FIXTURE,
+      crossClientNote: "Across other clients, this finish runs cheaper than the pool.",
+      reviewLine: "2 campaigns to review",
+    };
+    const share = salesForSurface(withLearning, "share");
+    assert.equal(share.crossClientNote, null);
+    assert.equal(share.reviewLine, null);
+    const tagged = share.views.ipc.campaigns.find((row) => row.id === "tagged") as SalesCampaignRow;
+    assert.equal(tagged.name, "[NX26-IPC] Stories — tagged only");
+    assert.equal(tagged.statusLabel, null);
+    assert.equal(tagged.title.includes("Not linked"), false);
+    assert.equal(JSON.stringify(share).includes("Not linked"), false);
+    const internal = salesForSurface(withLearning, "internal");
+    assert.equal(internal.crossClientNote, withLearning.crossClientNote);
+    assert.equal(internal.views.ipc.campaigns.find((row) => row.id === "tagged")?.statusLabel, "Not linked to event");
+  });
+});
