@@ -4,8 +4,9 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
-import { OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_CLUSTER, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR8_RETARGETING, OR8_SEED, OR9_PROPOSALS, OR9_RESULTS, OR_APPLY_LIVE } from "@/scripts/plan-frames/refresh-fixtures";
+import { ObjectiveBlock, OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
+import { panelText } from "@/lib/onsale-refresh/line-states";
+import { OR2_WHY, OR3_WHY, OR4_STATES, OR5_WHY, OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_CLUSTER, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR8_RETARGETING, OR8_SEED, OR9_PROPOSALS, OR9_RESULTS, OR_APPLY_LIVE } from "@/scripts/plan-frames/refresh-fixtures";
 
 afterEach(() => {
   cleanup();
@@ -92,12 +93,13 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     // The standing defaults: labelled as such; the lookalike held by its seed.
     const retargeting = lineEl("Retargeting");
     expect(within(retargeting).getByText("Standing default")).toBeTruthy();
-    expect(within(retargeting).getByText(OR8_RETARGETING.extra)).toBeTruthy();
+    expect(within(retargeting).getByText(panelText(OR8_RETARGETING.extra))).toBeTruthy();
+    expect(panelText(OR8_RETARGETING.extra)).toContain("landing-page visitors 1,840");
     expect(accept("Retargeting").disabled).toBe(false);
     expect(accept("Registrations lookalike").disabled).toBe(true);
     expect(within(lineEl("Registrations lookalike")).getByText(OR8_SEED)).toBeTruthy();
-    expect(accept("Broad — Primary → Retargeting — 30d").disabled).toBe(true);
-    expect(within(lineEl("Broad — Primary → Retargeting — 30d")).getByText(OR8_MOVE_CAP)).toBeTruthy();
+    expect(accept("Broad — Primary → Lookalike 2% — Primary").disabled).toBe(true);
+    expect(within(lineEl("Broad — Primary → Lookalike 2% — Primary")).getByText(OR8_MOVE_CAP)).toBeTruthy();
     expect(within(lineEl("Lineup — Primary → Adv+")).getByText("Applied · £100.00 a week moved")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Apply accepted (1)" })).toBeTruthy();
     expect(document.body.textContent).not.toContain("Not applied yet");
@@ -156,5 +158,48 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     render(<OnSaleRefreshPanelView eventId="e1" proposals={OR1_PROPOSALS} />);
     expect(screen.queryByRole("group", { name: "Shadow or Live" })).toBeNull();
     expect(document.querySelector("[data-copy]")).toBeNull();
+  });
+
+  it("separators: no money figure and no count of 1,000 or more renders ungrouped anywhere in the panel (OR1–OR9); £ keeps its 2 decimals", () => {
+    const views = [
+      () => render(<OnSaleRefreshPanelView eventId="e1" proposals={OR1_PROPOSALS} />),
+      ...[OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS, OR9_PROPOSALS].map((proposals) => () => render(<OnSaleRefreshPanelView eventId="e1" proposals={proposals} apply={OR_APPLY_LIVE} actions={{}} />)),
+      ...[OR2_WHY, OR3_WHY, OR5_WHY, ...OR4_STATES.map((row) => row.why)].map((why) => () => render(<ObjectiveBlock why={why} />)),
+    ];
+    const ungrouped = /(?<![\d,.…#])\d{4,}(?![\d])/;
+    for (const draw of views) {
+      draw();
+      // Names (line titles, campaign names) and the ad copy are shown as written.
+      const nodes = [...document.body.querySelectorAll("p, span, li")].filter((node) => !node.closest("[data-copy]") && node.children.length === 0 && !node.classList.contains("break-words"));
+      for (const node of nodes) {
+        const text = (node.textContent ?? "").replace(/\[[^\]]*\]/g, "");
+        if (/^(P26-BDAY_|Puzzle - )/.test(text)) continue;
+        expect(text, text).not.toMatch(ungrouped);
+        for (const money of text.match(/£[\d,]+(?:\.\d+)?/g) ?? []) expect(money, text).toMatch(/^£\d{1,3}(,\d{3})*\.\d{2}$/);
+      }
+      cleanup();
+    }
+  });
+
+  it("the formatter: money and counts grouped, ids and dates left alone, twice is once", () => {
+    expect(panelText("£2505.85 left · 3105 registrations")).toBe("£2,505.85 left · 3,105 registrations");
+    expect(panelText("pixel …2763 · since 30 Oct · 2026-11-09")).toBe("pixel …2763 · since 30\u00a0Oct · 2026-11-09");
+    expect(panelText("£1,148.60 · 131 IC")).toBe("£1,148.60 · 131 IC");
+    expect(panelText(panelText("£2505.85"))).toBe("£2,505.85");
+    expect(panelText("1.52× · 0.7×")).toBe("1.52× · 0.7×");
+  });
+
+  it("held lines are muted; red is for Failed only", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR8_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
+    for (const sentence of [OR8_PLAN_GUARD, OR8_MOVE_CAP, OR8_SEED]) {
+      const node = screen.getByText(panelText(sentence));
+      expect(node.className).toContain("text-muted-foreground");
+      expect(node.className).not.toContain("text-destructive");
+    }
+    cleanup();
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR9_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
+    const reds = [...document.querySelectorAll(".text-destructive")].map((node) => node.getAttribute("data-line-state"));
+    expect(reds.length).toBeGreaterThan(0);
+    expect(reds.every((state) => state === "failed")).toBe(true);
   });
 });

@@ -124,7 +124,7 @@ type Outcome = { state: "applied" | "failed"; reason: string | null; result: Rec
 /** Meta's statuses for an ad set that is spending. */
 const DELIVERING = new Set(["ACTIVE", "LEARNING", "LEARNING_LIMITED"]);
 
-/** Meta's smallest daily budget, in minor units (£1.00). A move never takes the giving ad set under it. */
+/** The floor we keep on a giving ad set's daily budget, in minor units (£1.00). A move never takes it under. */
 export const MIN_DAILY_BUDGET_MINOR = 100;
 
 export const APPLY_SHADOW = "Shadow: nothing here can be applied yet.";
@@ -425,7 +425,7 @@ async function applyMove(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContex
   const plan: MovePlan = previous?.fromAdsetId === fromAdsetId && previous.toAdsetId === toAdsetId
     ? previous
     : { fromAdsetId, toAdsetId, deltaMinor, from: { before: from!.dailyBudget, after: from!.dailyBudget - deltaMinor }, to: { before: to!.dailyBudget, after: to!.dailyBudget + deltaMinor } };
-  if (plan.from.after < MIN_DAILY_BUDGET_MINOR) return { state: "failed", reason: "Moving it would take the giving ad set under Meta's £1.00 a day, so nothing was moved.", result: { plan } };
+  if (plan.from.after < MIN_DAILY_BUDGET_MINOR) return { state: "failed", reason: "Moving it would take the giving ad set under £1.00 a day, the floor we keep, so nothing was moved.", result: { plan } };
   const sides: [string, { before: number; after: number }, number][] = [
     [fromAdsetId, plan.from, from!.dailyBudget],
     [toAdsetId, plan.to, to!.dailyBudget],

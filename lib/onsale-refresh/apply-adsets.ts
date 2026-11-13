@@ -99,7 +99,7 @@ type Outcome = { state: "applied" | "failed"; reason: string | null; result: Rec
 const DELIVERING = new Set(["ACTIVE", "LEARNING", "LEARNING_LIMITED"]);
 const MIN_DAILY_MINOR = 100;
 
-export const MOVES_SWITCHED_OFF = "Meta didn't take this — moving budget is switched off on this deployment, so nothing was made.";
+export const MOVES_SWITCHED_OFF = "Moving budget is switched off on this deployment, so nothing was made.";
 export const COPY_GONE = "The ad set it copies isn't delivering any more, so nothing was made.";
 export const NO_PIXEL = "The copied ad set carries no pixel, so there's no audience to build.";
 export const LIFETIME_COPY = "The ad set it copies runs on a lifetime budget, so there's no daily budget to give the new one.";
@@ -149,7 +149,7 @@ async function store(db: Db, row: { event_id: string; user_id: string; kind: str
  * ticket link, video viewers, registrations. Lookalike: the registrations
  * seed, then the 1 % lookalike of it.
  */
-async function ensureDefaultAudiences(deps: NewAdSetDeps, args: { eventId: string; userId: string; lineId: string; adAccountId: string; source: Exclude<NewAdSetSource, "cluster">; write: Record<string, unknown>; pixelId: string | null; campaignIds: string[] }): Promise<{ ids: string[]; made: string[] }> {
+async function ensureDefaultAudiences(deps: NewAdSetDeps, args: { eventId: string; userId: string; lineId: string; adAccountId: string; source: Exclude<NewAdSetSource, "cluster">; write: Record<string, unknown>; pixelId: string | null; campaignIds: string[] }): Promise<{ ids: string[]; made: string[]; /** Every audience the line stands on, the lookalike's seed included. */ all: number }> {
   const code = typeof args.write.eventCode === "string" ? args.write.eventCode : null;
   const signupEvent = typeof args.write.signupEvent === "string" ? args.write.signupEvent : null;
   const country = typeof args.write.country === "string" ? args.write.country : "GB";
@@ -182,12 +182,12 @@ async function ensureDefaultAudiences(deps: NewAdSetDeps, args: { eventId: strin
     push(await ensure({ part: "video", subtype: "video_views", name: audienceName(code, "video", signupEvent, country), campaignIds: args.campaignIds, threshold: VIDEO_THRESHOLD, retentionDays: RETENTION.video }));
     if (signupEvent && args.pixelId) push(await ensure(pixel("registrations", signupEvent, [], RETENTION.registrations)));
     if (!ids.length) throw new Error(NO_PIXEL);
-    return { ids, made };
+    return { ids, made, all: ids.length };
   }
   if (!signupEvent || !args.pixelId) throw new Error(NO_PIXEL);
   const seed = (await ensure(pixel("registrations", signupEvent, [], RETENTION.registrations)))!;
   push(await ensure({ part: "lookalike", subtype: "lookalike", name: audienceName(code, "lookalike", signupEvent, country), originAudienceId: seed, ratio: LOOKALIKE_RATIO, country }));
-  return { ids, made };
+  return { ids, made, all: ids.length + 1 };
 }
 
 export async function applyNewAdSet(
@@ -235,10 +235,12 @@ export async function applyNewAdSet(
 
   // A default: its audiences (stored ids reused), and each one ready on Meta.
   let audienceIds: string[] = [];
+  let audiencesBuilt = 0;
   if (source !== "cluster") {
     try {
       const made = await ensureDefaultAudiences(deps, { eventId: ctx.eventId, userId: ctx.userId, lineId: line.id, adAccountId: ctx.adAccountId, source, write, pixelId, campaignIds: ctx.campaignIds });
       audienceIds = made.ids;
+      audiencesBuilt = made.all;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return fail(message === NO_PIXEL ? NO_PIXEL : plain(err, ctx.plainMetaReason), { ...base, error: message, step: "audience" });
@@ -297,7 +299,7 @@ export async function applyNewAdSet(
       failures.push({ creativeId: ad.creativeId!, error: err instanceof Error ? err.message : String(err), reason: ctx.plainMetaReason(err) });
     }
   }
-  const result = { ...base, adsetId, adIds, audienceIds, retired, giverPlan, interests: interests.length };
+  const result = { ...base, adsetId, adIds, audienceIds, audiencesMade: audiencesBuilt, retired, giverPlan, interests: interests.length };
   if (failures.length) return { state: "failed", reason: partialNewAdSet(adIds.length, ads.length, failures[0]!.reason), result: { ...result, failures, error: failures[0]!.error, source } };
-  return { state: "applied", reason: appliedNewAdSet(source, adIds.length, retired), result: { ...result, source } };
+  return { state: "applied", reason: appliedNewAdSet(source, adIds.length, retired, audiencesBuilt), result: { ...result, source } };
 }

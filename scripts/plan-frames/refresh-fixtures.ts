@@ -244,12 +244,15 @@ export const OR1_PROPOSALS: PanelProposal[] = [
  * accepted, the move applied, and the interest cluster as a new ad set
  * copied from Adv+ (£14.50 a day from plan headroom). Purchase: the
  * retargeting standing default (£3.80 a day from plan headroom), the
- * registrations lookalike held at a seed of 64, and a move held by the cap
- * (£30.00 > £28.00 free).
+ * registrations lookalike held at a seed of 64, and a move into its
+ * lookalike set held by the cap (£30.00 > £28.00 free). The Purchase
+ * campaign has no retargeting ad set, so nothing in it names one. Cluster
+ * indexes are design's (baseline cost ÷ the cluster's, ≥ 1.2): 1.25 and
+ * 1.35, i.e. stored cost indexes 0.8 and 0.74.
  *
  * OR9 (P3) is their F3 results after Apply, figures illustrative: the
  * cluster's new ad set live with 6 ads and one retired interest left out;
- * retargeting's audience made and its ad set live with 4 ads (the Purchase
+ * retargeting's 4 audiences made and its ad set live with 4 ads (the Purchase
  * campaign on a campaign budget, so it shares it); the lookalike's audience
  * still being built (Retry); and a second cluster live with 4 of 6 ads.
  *
@@ -390,18 +393,18 @@ const OR8_LINE = (line: Partial<PanelProposal["lines"][number]> & Pick<PanelProp
 
 /** OR8's and OR9's sentences are the rules' own (pinned by lib/onsale-refresh/__tests__/p3.test.ts against planGuard, moveGuard and new-adset.ts). */
 export const OR8_PLAN_GUARD = "Turning it on would spend about £680.00 before the show, more than the £640.00 left in the plan.";
-export const OR8_MOVE_CAP = "Moving £30.00 would take this refresh past 20 % of the £640.00 left (£128.00, £28.00 still free).";
+export const OR8_MOVE_CAP = "Moving £30.00 would pass this refresh's 20 % cap: £128.00 of the £640.00 left, £28.00 still free.";
 export const OR8_SEED = "Too few registrations for a lookalike yet: 64 of 100.";
 export const OR8_CLUSTER = {
-  detail: "Interest cluster · index 0.8 · confidence ok · not on this event",
+  detail: "Interest cluster · index 1.25 · confidence ok · not on this event",
   extra: "Interests: Disc Genre, Minimal techno, Deep house +4",
-  narrow: "Cluster · index 0.8 · 7 interests",
+  narrow: "Cluster · index 1.25 · 7 interests",
   write: "New ad set: a copy of Adv+ (£6.10 per IC) with these interests · 6 creatives reused · £14.50 a day from plan headroom · goes in live",
   narrowWrite: "New ad set from Adv+ · £14.50 a day from plan headroom · live",
 };
 export const OR8_RETARGETING = {
   detail: "This campaign has no retargeting ad set.",
-  extra: "Builds one audience: landing-page visitors 1840 · ticket-link visitors 412 · video viewers · registrations 3105 (our counts, last 30–180 days)",
+  extra: "Builds 4 audiences, targeted together: landing-page visitors 1840 · ticket-link visitors 412 · video viewers · registrations 3105 (our counts, last 30–180 days)",
   write: "New audience and ad set: a copy of Broad — Primary aimed at this audience only · 4 creatives reused · £3.80 a day from plan headroom · goes in live",
   narrowWrite: "New audience and ad set from Broad — Primary · £3.80 a day from plan headroom · live",
 };
@@ -439,7 +442,7 @@ export const OR8_PROPOSALS: PanelProposal[] = [
     lines: [
       OR8_LINE({ id: "b3", kind: "missing_default", title: "Retargeting", detail: OR8_RETARGETING.detail, extra: OR8_RETARGETING.extra, narrow: { detail: OR8_RETARGETING.detail, writeText: OR8_RETARGETING.narrowWrite }, writeText: OR8_RETARGETING.write, writeKind: "new_adset" }),
       OR8_LINE({ id: "b4", kind: "missing_default", title: "Registrations lookalike", detail: OR8_LOOKALIKE.detail, extra: OR8_LOOKALIKE.extra, narrow: { detail: OR8_LOOKALIKE.detail, writeText: OR8_LOOKALIKE.narrowWrite }, writeText: OR8_LOOKALIKE.write, blockedReason: OR8_SEED, writeKind: "new_adset" }),
-      OR8_LINE({ id: "b2", kind: "move_budget", title: "Broad — Primary → Retargeting — 30d", detail: "£16.40 per IC (1.77×) to £5.20 per IC (0.56×) · £30.00 a week · cap £128.00 (20 % of £640.00 remaining)", narrow: { detail: "£30.00 a week · cap £128.00", writeText: null }, writeText: "Ad-set budget write, both sides", blockedReason: OR8_MOVE_CAP, writeKind: "adset_budget_move" }),
+      OR8_LINE({ id: "b2", kind: "move_budget", title: "Broad — Primary → Lookalike 2% — Primary", detail: "£16.40 per IC (1.77×) to £5.20 per IC (0.56×) · £30.00 a week · cap £128.00 (20 % of £640.00 remaining)", narrow: { detail: "£30.00 a week · cap £128.00", writeText: null }, writeText: "Ad-set budget write, both sides", blockedReason: OR8_MOVE_CAP, writeKind: "adset_budget_move" }),
     ],
   },
 ];
@@ -447,7 +450,7 @@ export const OR8_PROPOSALS: PanelProposal[] = [
 /** OR9's F3 sentences (design's ruling), pinned against new-adset.ts. */
 export const OR9_RESULTS = {
   cluster: "new ad set live, 6 ads. Left out, no longer offered by Meta: Minimal techno.",
-  retargeting: "audience made, new ad set live, 4 ads",
+  retargeting: "4 audiences made, new ad set live, 4 ads",
   building: "Meta didn't take this — the audience is still being built. Retry in a few hours.",
   partial: "Ad set live · 4 of 6 ads — Meta didn't take this — it's limiting calls on this account. Retry in a few minutes.",
 };
@@ -462,9 +465,9 @@ export const OR9_PROPOSALS: PanelProposal[] = [
         id: "a6",
         kind: "bring_back_audience",
         title: "Melodic Techno",
-        detail: "Interest cluster · index 0.74 · confidence ok · not on this event",
+        detail: "Interest cluster · index 1.35 · confidence ok · not on this event",
         extra: "Interests: Melodic techno, Afterlife, Tale Of Us +2",
-        narrow: { detail: "Cluster · index 0.74 · 5 interests", writeText: "New ad set from Adv+ · £14.50 a day from plan headroom · live" },
+        narrow: { detail: "Cluster · index 1.35 · 5 interests", writeText: "New ad set from Adv+ · £14.50 a day from plan headroom · live" },
         writeText: "New ad set: a copy of Adv+ (£6.10 per IC) with these interests · 6 creatives reused · £14.50 a day from plan headroom · goes in live",
         state: "failed",
         reason: OR9_RESULTS.partial,

@@ -286,9 +286,10 @@ describe("on-sale refresh: audiences and budget (R2, R5)", () => {
     const back = lines.filter((line) => line.ruleId === "bring_back.client_cluster");
     assert.deepEqual(back.map((line) => line.title), ["Techno heads", "Edge"]);
     // P3 (design's ruling): the cluster's own words; the client's figures stay in the evidence.
-    assert.equal(back[0]!.detail, "Interest cluster · index 0.7 · confidence strong · not on this event");
-    assert.deepEqual({ ...back[0]!.evidence, copyFrom: undefined, funding: undefined, interests: undefined }, { client: "Puzzle", stage: "registration", cprIndex: 0.7, confidence: "strong", atMost: 0.83, copyFrom: undefined, funding: undefined, interests: undefined });
-    assert.equal(back[1]!.narrow.detail, "Cluster · index 0.83 · 0 interests");
+    // Design's index is the client's baseline cost ÷ the cluster's: 1 ÷ 0.7 = 1.43; the 0.83 bar reads 1.2 (R2's "≥ 1.2").
+    assert.equal(back[0]!.detail, "Interest cluster · index 1.43 · confidence strong · not on this event");
+    assert.deepEqual({ ...back[0]!.evidence, copyFrom: undefined, funding: undefined, interests: undefined }, { client: "Puzzle", stage: "registration", cprIndex: 0.7, index: 1.43, confidence: "strong", atMost: 0.83, copyFrom: undefined, funding: undefined, interests: undefined });
+    assert.equal(back[1]!.narrow.detail, "Cluster · index 1.2 · 0 interests");
   });
 
   it("missing standing defaults are proposed when no delivering ad set is retargeting or the lookalike", () => {

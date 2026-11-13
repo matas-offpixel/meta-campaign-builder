@@ -187,7 +187,7 @@ describe("on-sale refresh P3: the plan guard and the 20 % cap (R5)", () => {
   it("the cap: 20 % of the budget left, minus the moves already applied this refresh", () => {
     // £4,500 − £1,994.15 = £2,505.85 left; 20 % = £501.17.
     assert.equal(moveGuard(14.18, 4500, 1994.15, 0), null);
-    assert.equal(moveGuard(14.18, 4500, 1994.15, 490), "Moving £14.18 would take this refresh past 20 % of the £2505.85 left (£501.17, £11.17 still free).");
+    assert.equal(moveGuard(14.18, 4500, 1994.15, 490), "Moving £14.18 would pass this refresh's 20 % cap: £501.17 of the £2505.85 left, £11.17 still free.");
     assert.equal(moveGuard(14.18, null, 0, 0), MOVE_NEEDS_BUDGET);
   });
 
@@ -203,7 +203,7 @@ describe("on-sale refresh P3: the plan guard and the 20 % cap (R5)", () => {
     const meta = fakeMeta();
     await apply(mem, meta);
     assert.equal(lineOf(mem, "mv").state, "failed");
-    assert.match(String(lineOf(mem, "mv").reason), /^Moving £14\.18 would take this refresh past 20 % of the £2505\.85 left \(£501\.17, £11\.17 still free\)\.$/);
+    assert.match(String(lineOf(mem, "mv").reason), /^Moving £14\.18 would pass this refresh's 20 % cap: £501\.17 of the £2505\.85 left, £11\.17 still free\.$/);
     assert.deepEqual(writes(meta), [], "nothing moved");
   });
 });
@@ -332,21 +332,21 @@ describe("on-sale refresh P3: within-campaign moves (the optimisation budget wri
     assert.deepEqual(writes(meta), []);
   });
 
-  it("a campaign budget or a lifetime budget can't be moved; nor below Meta's £1.00 a day", async () => {
+  it("a campaign budget or a lifetime budget can't be moved; nor below the £1.00 a day floor we keep", async () => {
     const cbo = seed([move()]);
     await apply(cbo, fakeMeta({ "302": { dailyBudget: null } }));
     assert.equal(lineOf(cbo, "mv").reason, "The budget is set on the campaign or as a lifetime budget, so ad-set budgets can't be moved.");
     const floor = seed([move("mv", 14.18)]);
     const meta = fakeMeta({ "302": { dailyBudget: 250 } });
     await apply(floor, meta);
-    assert.equal(lineOf(floor, "mv").reason, "Moving it would take the giving ad set under Meta's £1.00 a day, so nothing was moved.");
+    assert.equal(lineOf(floor, "mv").reason, "Moving it would take the giving ad set under £1.00 a day, the floor we keep, so nothing was moved.");
     assert.deepEqual(writes(meta), []);
   });
 
   it("the cap at accept time counts applied moves for the refresh", async () => {
     const mem = seed([move("mv", 14.18, { state: "to_review" }), { ...move("done", 490), state: "applied" }]);
     const result = await decideLine({ db: mem.db, eventId: "e1", userId: "u1", lineId: "mv", decision: { decision: "accept" }, gates: live(), budget: 4500, eventDate: "2026-12-27", now: NOW });
-    assert.deepEqual(result, { ok: false, status: 409, error: "Moving £14.18 would take this refresh past 20 % of the £2505.85 left (£501.17, £11.17 still free)." });
+    assert.deepEqual(result, { ok: false, status: 409, error: "Moving £14.18 would pass this refresh's 20 % cap: £501.17 of the £2505.85 left, £11.17 still free." });
     const roomy = seed([move("mv", 14.18, { state: "to_review" })]);
     assert.equal(((await decideLine({ db: roomy.db, eventId: "e1", userId: "u1", lineId: "mv", decision: { decision: "accept" }, gates: live(), budget: 4500, eventDate: "2026-12-27", now: NOW })) as { ok: boolean }).ok, true);
   });
@@ -369,7 +369,7 @@ describe("on-sale refresh P3: the panel draws the blocks Accept enforces", () =>
     const [proposal] = await loadEventProposals(mem.db, "e1", { budgetSet: true, plan: { budget: 4500, spend: 1994.15, today: "2026-11-16", eventDate: "2026-12-27" } });
     const block = (id: string) => proposal!.lines.find((row) => row.id === id)!.blockedReason;
     assert.equal(block("bb"), "Turning it on would spend about £2870.00 before the show, more than the £2505.85 left in the plan.");
-    assert.equal(block("mv"), "Moving £30.00 would take this refresh past 20 % of the £2505.85 left (£501.17, £11.17 still free).");
+    assert.equal(block("mv"), "Moving £30.00 would pass this refresh's 20 % cap: £501.17 of the £2505.85 left, £11.17 still free.");
     assert.equal(block("cl"), NO_BUDGET_TO_START, "£200 a day × 41 days is past the plan, and a week of it is past the cap");
     assert.equal(block("cbo"), null, "under a campaign budget it shares it");
     assert.equal(block("dr"), null);

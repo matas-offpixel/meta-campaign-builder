@@ -21,6 +21,7 @@ import {
   appliedNewAdSet,
   audienceOnlyTargeting,
   budgetText,
+  clusterIndex,
   clusterTargeting,
   clusterWrite,
   decideFunding,
@@ -332,7 +333,7 @@ describe("P3 new ad sets: a missing standing default", () => {
     assert.equal(targeting.age_min, 18, "the 18+ floor");
     assert.deepEqual(targeting.geo_locations, SOURCE_TARGETING.geo_locations, "geography stays");
     assert.equal(fake.meta.payloads[0]!.name, "[P26-BDAY] Retargeting");
-    assert.equal(lineOf(mem, "retargeting").reason, "audience made, new ad set live, 6 ads");
+    assert.equal(lineOf(mem, "retargeting").reason, "4 audiences made, new ad set live, 6 ads");
     assert.equal(mem.tables.onsale_refresh_audiences!.filter((row) => row.part !== "adset").length, 4, "every audience id stored on the event");
   });
 
@@ -460,9 +461,21 @@ describe("P3 new ad sets: design's words, and OR8 / OR9's", () => {
     assert.equal(defaultWrite({ ...copy, name: "Broad — Primary", creatives: 4 }, { mode: "headroom", dailyGbp: 3.8 }), OR8_RETARGETING.write);
     assert.equal(retargetingEvidence({ landing: 1840, ticket: 412, registrations: 3105 }), OR8_RETARGETING.extra);
     assert.equal(lookalikeEvidence(64, "GB"), OR8_LOOKALIKE.extra);
-    assert.equal(appliedNewAdSet("retargeting", 4), OR9_RESULTS.retargeting);
+    assert.equal(appliedNewAdSet("retargeting", 4, [], 4), OR9_RESULTS.retargeting);
+    assert.equal(appliedNewAdSet("registrations_lookalike", 6, [], 2), "2 audiences made, new ad set live, 6 ads", "the lookalike stands on its seed and itself");
+    assert.equal(retargetingEvidence({ landing: null, ticket: 5, registrations: null }), "Builds 2 audiences, targeted together: ticket-link visitors 5 · video viewers (our counts, last 30–180 days)");
+    assert.equal(MOVES_SWITCHED_OFF, "Moving budget is switched off on this deployment, so nothing was made.");
     assert.equal(audienceName("P26-BDAY", "video", null, "GB"), "[P26-BDAY] 75% video views 60d");
     assert.equal(urlFragment("https://www.skiddle.com/e/41234567/?utm=1"), "skiddle.com/e/41234567");
+  });
+
+  it("cluster index (design's: baseline cost ÷ the cluster's) meets R2's ≥ 1.2 exactly where the stored cost index meets C4's ≤ 0.83; OR8 / OR9 show none under it", () => {
+    assert.equal(clusterIndex(0.83), 1.2);
+    assert.equal(clusterIndex(0.8), 1.25);
+    assert.equal(clusterIndex(0.74), 1.35);
+    const shown = [...readFileSync("scripts/plan-frames/refresh-fixtures.ts", "utf8").matchAll(/index (\d+(?:\.\d+)?) ·/g)].map((match) => Number(match[1]));
+    assert.ok(shown.length >= 4);
+    for (const index of shown) assert.ok(index >= 1.2, `index ${index}`);
   });
 
   it("targeting: a cluster keeps everything but the interests; a default its audience only, 18+", () => {

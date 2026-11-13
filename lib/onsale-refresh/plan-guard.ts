@@ -82,7 +82,7 @@ export function moveCapLeft(budget: number | null, spend: number, appliedMovesGb
 }
 
 export function moveCapText(amount: number, cap: { cap: number; left: number }, remaining: number): string {
-  return `Moving ${gbp(amount)} would take this refresh past 20 % of the ${gbp(remaining)} left (${gbp(cap.cap)}, ${gbp(cap.left)} still free).`;
+  return `Moving ${gbp(amount)} would pass this refresh's 20 % cap: ${gbp(cap.cap)} of the ${gbp(remaining)} left, ${gbp(cap.left)} still free.`;
 }
 
 /** The block a move line shows and Accept / Apply enforce. */

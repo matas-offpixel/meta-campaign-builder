@@ -101,6 +101,16 @@ export function weeklyMoved(funding: Funding): number {
 
 // ── Words (design's ruling) ──────────────────────────────────────────────────
 
+/**
+ * The cluster's index as design writes it: the client's baseline cost per
+ * result ÷ the cluster's (higher is better), so R2's "index ≥ 1.2" is the
+ * C4 bar on the stored cost index (cprIndex ≤ 0.83, lower is better) read
+ * the other way up. Two decimals at most.
+ */
+export function clusterIndex(cprIndex: number): number {
+  return cprIndex > 0 ? Math.round((1 / cprIndex) * 100) / 100 : 0;
+}
+
 export function clusterEvidence(index: number, confidence: string): string {
   return `Interest cluster · index ${index} · confidence ${confidence} · not on this event`;
 }
@@ -134,7 +144,7 @@ export function retargetingEvidence(counts: { landing: number | null; ticket: nu
   if (counts.ticket != null) parts.push(`ticket-link visitors ${counts.ticket}`);
   parts.push("video viewers");
   if (counts.registrations != null) parts.push(`registrations ${counts.registrations}`);
-  return `Builds one audience: ${parts.join(" · ")} (our counts, last 30–180 days)`;
+  return `Builds ${parts.length} audiences, targeted together: ${parts.join(" · ")} (our counts, last 30–180 days)`;
 }
 
 export function lookalikeEvidence(seed: number, country: string): string {
@@ -156,9 +166,10 @@ export function newAdSetName(source: NewAdSetSource, code: string | null, cluste
   return source === "retargeting" ? `${prefix}Retargeting` : `${prefix}Registrations lookalike 1%`;
 }
 
-/** F3. */
-export function appliedNewAdSet(source: NewAdSetSource, ads: number, retired: readonly string[] = []): string {
-  const made = source === "cluster" ? `new ad set live, ${ads} ad${ads === 1 ? "" : "s"}` : `audience made, new ad set live, ${ads} ad${ads === 1 ? "" : "s"}`;
+/** F3. `audiences`: how many audiences a default stands on (made or reused), the lookalike's seed included. */
+export function appliedNewAdSet(source: NewAdSetSource, ads: number, retired: readonly string[] = [], audiences = 1): string {
+  const adsText = `${ads} ad${ads === 1 ? "" : "s"}`;
+  const made = source === "cluster" ? `new ad set live, ${adsText}` : `${audiences} audience${audiences === 1 ? "" : "s"} made, new ad set live, ${adsText}`;
   return retired.length ? `${made}. Left out, no longer offered by Meta: ${retired.join(", ")}.` : made;
 }
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { REJECT_REASONS, acceptable, appliesNow, displayState, heldText, keepDates, keepDatesDeep, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
+import { REJECT_REASONS, acceptable, appliesNow, displayState, heldText, panelText, panelTextDeep, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
 import type { PanelApply, PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 import { isShowWeek } from "@/lib/onsale-refresh/on-sale";
 import { appliedStamp, dayMonth, outcomeWeek, shortDay, todayLondon, weekLabel } from "@/lib/onsale-refresh/schedule";
@@ -68,7 +68,7 @@ function LineRow({ line, shadow }: { line: PanelLine; shadow: boolean }) {
           </p>
           <p className="mt-0.5 hidden text-xs sm:block">{line.writeText}</p>
           {line.narrow.writeText ? <p className="mt-0.5 text-xs sm:hidden">{line.narrow.writeText}</p> : null}
-          {line.blockedReason ? <p className="mt-0.5 text-xs text-destructive">{line.blockedReason}</p> : null}
+          {line.blockedReason ? <p className="mt-0.5 text-xs text-muted-foreground">{line.blockedReason}</p> : null}
           {line.state !== "to_review" ? (
             <p className="mt-0.5 text-xs text-muted-foreground">
               {line.state === "expired" ? "Expired" : line.state[0]!.toUpperCase() + line.state.slice(1)}
@@ -164,7 +164,7 @@ function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine
             </>
           ) : null}
           {block && (line.state === "to_review" || line.state === "rejected") ? (
-            <p className={`mt-0.5 text-xs ${held ? "text-muted-foreground" : "text-destructive"}`} data-block={held ? "held" : "guard"}>
+            <p className="mt-0.5 text-xs text-muted-foreground" data-block={held ? "held" : "guard"}>
               {block}
             </p>
           ) : null}
@@ -313,7 +313,9 @@ function Watch({ label, items, note }: { label: string; items: { title: string; 
  * A proposal stored before the per-event record has no `attributed`
  * either; its purchase line already says the figure.
  */
-export function ObjectiveBlock({ why, heading = true }: { why: PanelProposal["why"]; heading?: boolean }) {
+export function ObjectiveBlock({ why: given, heading = true }: { why: PanelProposal["why"]; heading?: boolean }) {
+  // The panel's one formatter (idempotent, so a why block the view already formatted is unchanged).
+  const why = panelTextDeep(given);
   const setup = why.pixel ?? [];
   const setupNarrow = why.pixelNarrow ?? setup;
   return (
@@ -360,9 +362,9 @@ export type OnSaleRefreshPanelViewProps = {
 
 /** The panel from data; the viewport decides the wide or the narrow wording. Nothing here fetches. */
 export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = false, apply, actions = {} }: OnSaleRefreshPanelViewProps) {
-  // P2: every date the panel draws stays together (#620). P1's read-only path (OR1) draws as it did.
-  const kd = apply ? keepDates : (text: string) => text;
-  const proposals = apply ? keepDatesDeep(given) : given;
+  // One formatter for everything the panel draws, P1 and P2 alike: figures grouped (£2,505.85 · 3,105), dates kept together.
+  const kd = panelText;
+  const proposals = panelTextDeep(given);
   if (!proposals.length) {
     return (
       <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4">
@@ -429,7 +431,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
                 </p>
               ) : null}
             </div>
-            {proposal.notEnoughData ? <p className="mt-1 text-xs text-destructive">{proposal.notEnoughData}</p> : null}
+            {proposal.notEnoughData ? <p className="mt-1 text-xs text-muted-foreground">{proposal.notEnoughData}</p> : null}
 
             <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Creatives</p>
             {creatives.length ? (

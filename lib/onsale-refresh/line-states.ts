@@ -152,3 +152,41 @@ export function keepDatesDeep<T>(value: T): T {
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, keepDatesDeep(item)])) as T;
   return value;
 }
+
+/** "1234567" → "1,234,567". */
+function groupDigits(int: string): string {
+  return int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/**
+ * Thousands separators on every money figure and every count of 1,000 or
+ * more (design's ruling on #1221): £2505.85 → £2,505.85, 3105 → 3,105.
+ * Decimals are kept as written. A number glued to a word, an id after
+ * "…" or "#", a decimal's fraction and anything already grouped are left
+ * alone, so applying it twice changes nothing.
+ */
+export function groupFigures(text: string): string {
+  return text
+    .replace(/£(\d+)(\.\d+)?/g, (_match, int: string, frac: string | undefined) => `£${groupDigits(int)}${frac ?? ""}`)
+    .replace(/(?<![\w…#/.,£\-−:])(\d{4,})(?![\w\-:]|[.,]\d)/g, (_match, int: string) => groupDigits(int));
+}
+
+/** Everything the refresh panel writes: figures grouped, dates kept together. */
+export function panelText(text: string): string {
+  return keepDates(groupFigures(text));
+}
+
+/** Names and ad copy are shown as written: they keep their dates together but their digits as they are. */
+const AS_WRITTEN = new Set(["title", "campaignKey", "copy", "id", "destinationUrl", "carried"]);
+
+/** panelText on every string inside a value (a proposal, its lines, its why block); names and copy only get keepDates. */
+export function panelTextDeep<T>(value: T, asWritten = false): T {
+  if (typeof value === "string") {
+    // Data, not words: an ISO date or timestamp is left exactly as stored.
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value;
+    return (asWritten ? keepDates(value) : panelText(value)) as T;
+  }
+  if (Array.isArray(value)) return value.map((item) => panelTextDeep(item, asWritten)) as T;
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, panelTextDeep(item, asWritten || AS_WRITTEN.has(key))])) as T;
+  return value;
+}
