@@ -473,7 +473,13 @@ export interface ChartRow {
   linkClicks: number;
   cpc: number | null;
   registrations: number | null;
-  /** D13: only inside the signup window, else empty. */
+  /**
+   * D13 (design's fix, 14 Nov): only inside the show's signup window, else
+   * empty (null), never £0.00. A day with no spend is empty too. All shows
+   * has no one signup window (each show's closes at its own on-sale), so
+   * its daily figure is always empty; its period figure stays windowed
+   * per show.
+   */
   costPerRegistration: number | null;
 }
 
@@ -550,7 +556,7 @@ export function chartRows(list: readonly ShowSeries[], endDay: string): ChartRow
       linkClicks: clicks,
       cpc: ratio(metaSpend, clicks),
       registrations: paged.length ? regs : null,
-      costPerRegistration: paged.length && inSignupWindow && regs > 0 ? regSpend / regs : null,
+      costPerRegistration: list.length === 1 && paged.length && inSignupWindow && regs > 0 && regSpend > 0 ? regSpend / regs : null,
     });
   }
   return out;

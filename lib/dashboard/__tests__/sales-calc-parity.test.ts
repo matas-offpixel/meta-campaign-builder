@@ -7,13 +7,15 @@
  *   D12  spend across channels (TikTok and Google added to Meta)
  *   D13a since-launch cost per ticket: spend capped at the latest count
  *   D13b a window straddling the period start is pro-rated
- *   D13c daily £ per registration only inside the signup window
+ *   D13c daily £ per registration only inside the signup window, else
+ *        empty, never £0.00 (design, 14 Nov). All shows has no one signup
+ *        window, so its daily figure is empty
  *   D6   the projection is capped at the sellable allocation
  *   D10  the cases come from the library, not Enzo and DJ EZ
- *   ALL  All shows' daily tickets a day and cost per ticket sum every
- *        show's own window. The model grouped windows by their end day,
- *        which dropped a show counted on another day (Rudimental, 1→8 Oct,
- *        is missing from its 2–5 Oct step). Not in D13: flagged for a ruling.
+ *   ALL  "The model drops windows by end day; corrected" (design, 14 Nov):
+ *        All shows takes each show's value for the day from that show's own
+ *        window. The model grouped windows by end day and dropped
+ *        Rudimental's 1→8 Oct window from its 2–5 Oct step.
  * A difference with no rule fails the test.
  *
  * PARITY_OUT=path writes the table (both values) as Markdown.
@@ -431,6 +433,33 @@ describe("HD3 parity with the sales-vs-spend model on 12 Nov", () => {
       entries.map((e) => [e.code, e.finalPaid, e.compsExcluded, Number(e.lift.toFixed(2))]),
       [["NX26-DJEZ", 305, 218, 3.32], ["NX26-MF", 996, 0, 4.52], ["NX26-FOLAMOUR", 1292, 0, 2.23], ["NX26-AZYR", 1309, 0, 2.95]],
     );
+  });
+
+  it("D10 on the live counts: Folamour's lift worked to the number, from its 26 Oct final", () => {
+    const input = loadProdFixture();
+    const { entries } = buildLibrary(buildSeries(input), [], input.today);
+    const fol = entries.find((e) => e.code === "NX26-FOLAMOUR")!;
+    // Show 23 Oct. D−21 = 2 Oct, between 1 Oct (1,116) and 5 Oct (1,137): 1,116 + 21 × 1/4 = 1,121.25.
+    // D−7 = 16 Oct, a count: 1,202. Final 1,292 (26 Oct, the latest on or after show day), drawn on show day.
+    assert.equal(fol.d21Day, "2026-10-02");
+    assert.equal(fol.d21Sold, 1121.25);
+    assert.equal(fol.d7Day, "2026-10-16");
+    assert.equal(fol.d7Sold, 1202);
+    assert.equal(fol.finalDay, "2026-10-26");
+    assert.equal(fol.finalPaid, 1292);
+    assert.equal(fol.perDayBefore, (1202 - 1121.25) / 14);
+    assert.equal(fol.perDayFinalWeek, (1292 - 1202) / 7);
+    assert.equal(fol.lift, (90 / 7) / (80.75 / 14));
+    assert.equal(Number(fol.lift.toFixed(3)), 2.229);
+  });
+
+  it("the cases read as design wrote them, from the 4 NX shows", () => {
+    const build = buildSalesDashboard(loadProdFixture());
+    const t = build.model.views["nx26-ipc"].trajectory;
+    assert.ok(t.kind === "single");
+    if (t.kind !== "single") return;
+    assert.deepEqual(t.cases.map((c) => c.label), ["Holds", "Like your average finish (×3.25, 4 shows)", "Like your best finish (×4.52, Modern Funktion)"]);
+    assert.equal(t.libraryNote, "Average and best from 4 finished shows: DJ EZ (2 Oct), Modern Funktion (16 Oct), Folamour (23 Oct), AZYR b2b Partiboi69 (7 Nov).");
   });
 
   it("DJ EZ's lift is the model's ×3.32 (305 paid, 218 comps out)", () => {

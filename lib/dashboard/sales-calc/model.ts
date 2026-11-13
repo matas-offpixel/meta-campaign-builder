@@ -347,8 +347,8 @@ function singleTrajectory(
   const opens = lifts.best == null;
   const cases: TrajectoryCase[] = [{ id: "holds", label: "Holds", value: p.holds }];
   if (!opens && p.average != null && p.best != null && lifts.average != null && lifts.best) {
-    cases.push({ id: "average", label: `Like your average finish ${liftLabel(lifts.average)}`, value: p.average });
-    cases.push({ id: "best", label: `Like your best finish ${liftLabel(lifts.best.lift)}`, value: p.best });
+    cases.push({ id: "average", label: `Like your average finish (${liftLabel(lifts.average)}, ${lifts.used.length} shows)`, value: p.average });
+    cases.push({ id: "best", label: `Like your best finish (${liftLabel(lifts.best.lift)}, ${lifts.best.name})`, value: p.best });
   }
   const high = Math.max(...cases.map((c) => c.value));
   const alloc = count(p.allocation!);

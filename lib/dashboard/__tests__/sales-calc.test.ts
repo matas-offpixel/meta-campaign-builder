@@ -172,6 +172,41 @@ describe("D4 / D13 period figures", () => {
   });
 });
 
+describe("D13 daily £ per registration (design's fix)", () => {
+  const paged = show({ eventId: "a", code: "A-1", cirqlinPageId: "00000000-0000-4000-8000-000000000001" });
+  const data = input({
+    shows: [paged, show({ eventId: "b", code: "B-1", showDate: "2026-12-05", cirqlinPageId: "00000000-0000-4000-8000-000000000002" })],
+    rollups: [roll("a", "2026-11-02", 30), roll("a", "2026-11-03", 0), roll("a", "2026-11-06", 40), roll("b", "2026-11-02", 10)],
+    signups: [
+      { eventId: "a", day: "2026-11-02", signups: 10 },
+      { eventId: "a", day: "2026-11-03", signups: 5 },
+      { eventId: "a", day: "2026-11-04", signups: 5 },
+      { eventId: "b", day: "2026-11-02", signups: 2 },
+    ],
+  });
+
+  it("is empty outside the window and on a day with no spend, never £0.00", () => {
+    const s = buildSeries(data).get("a")!;
+    const rows = new Map(chartRows([s], "2026-11-12").map((r) => [r.day, r]));
+    assert.equal(rows.get("2026-11-02")!.costPerRegistration, 3);
+    assert.equal(rows.get("2026-11-03")!.costPerRegistration, null);
+    assert.equal(rows.get("2026-11-06")!.costPerRegistration, null);
+    const build = buildSalesDashboard(data);
+    const points = build.model.views["a-1"].points;
+    assert.ok(points.every((p) => p.values.costPerRegistration !== 0));
+    assert.equal(points.find((p) => p.day === "2026-11-06")!.values.costPerRegistration, null);
+  });
+
+  it("All shows has no one signup window, so its daily figure is empty; its period figure stays windowed", () => {
+    const build = buildSalesDashboard(data);
+    assert.ok(build.model.views.all.points.every((p) => p.values.costPerRegistration == null));
+    const tile = build.periods.all.launch.tiles.find((t) => t.id === "costPerRegistration")!;
+    assert.equal(tile.value, "£1.82");
+    const yesterday = build.periods["a-1"].yesterday.tiles.find((t) => t.id === "costPerRegistration")!;
+    assert.equal(yesterday.value, "—");
+  });
+});
+
 describe("D5 chart", () => {
   it("total sold is a straight line between counts, 0 before presale, and the hover names the counts", () => {
     const a = show({ eventId: "a", code: "A-1", presaleDate: "2026-10-30", counts: [ic("2026-11-01", 100), ic("2026-11-05", 140)] });
@@ -279,6 +314,25 @@ describe("D10 library", () => {
     assert.deepEqual(liftFor(noFinal, "2026-11-13"), { ok: false, reason: "no_final_count" });
     const late = buildSeries(input({ shows: [finished("L-1", [ic("2026-10-05", 100), ic("2026-10-15", 200)], 300)] })).get("l-1")!;
     assert.deepEqual(liftFor(late, "2026-11-13"), { ok: false, reason: "no_counts_by_d21" });
+  });
+
+  it("D10: a show is out until it has a count before each interpolation point", () => {
+    // D−21 = 1 Oct, D−7 = 15 Oct. First count 2 Oct: nothing before D−21 to interpolate from.
+    const noneBefore21 = buildSeries(input({ shows: [finished("A-1", [ic("2026-10-02", 100), ic("2026-10-14", 200)], 300)] })).get("a-1")!;
+    assert.deepEqual(liftFor(noneBefore21, "2026-11-13"), { ok: false, reason: "no_counts_by_d21" });
+    // A count exactly on D−21 is enough on that side.
+    const onD21 = buildSeries(input({ shows: [finished("B-1", [ic("2026-10-01", 100), ic("2026-10-14", 200)], 300)] })).get("b-1")!;
+    assert.ok(liftFor(onD21, "2026-11-13").ok);
+    // Then a second count lands before D−21: the show comes in.
+    const later = buildSeries(input({ shows: [finished("C-1", [ic("2026-09-28", 90), ic("2026-10-02", 100), ic("2026-10-14", 200)], 300)] })).get("c-1")!;
+    assert.ok(liftFor(later, "2026-11-13").ok);
+  });
+
+  it("D10: a show that reached its allocation before D−7 is out, even when its final is higher", () => {
+    const early = buildSeries(input({ shows: [finished("E-1", [ic("2026-09-30", 100), ic("2026-10-12", 1000)], 1000, 0, 1000)] })).get("e-1")!;
+    assert.deepEqual(liftFor(early, "2026-11-13"), { ok: false, reason: "sold_out_early" });
+    const atTheEnd = buildSeries(input({ shows: [finished("F-9", [ic("2026-09-30", 100), ic("2026-10-15", 600)], 1000, 0, 1000)] })).get("f-9")!;
+    assert.ok(liftFor(atTheEnd, "2026-11-13").ok);
   });
 
   it("a stored entry is used as stored; a new final count is a fresh entry", () => {
