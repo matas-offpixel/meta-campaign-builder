@@ -159,3 +159,23 @@ export function dayMonth(iso: string): string {
 export function weekLabel(monday: string): string {
   return `w/c ${dayMonth(monday)}`;
 }
+
+/** "Mon 23 Nov, 08:41" in London (F3's Applied line). */
+export function appliedStamp(iso: string): string {
+  const at = new Date(iso);
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hour12: false }).format(at);
+  return `${shortDay(day)}, ${time}`;
+}
+
+/**
+ * F3: an applied line is checked on the next full Monday–Sunday week from
+ * the day it was applied (that day's own week when it was a Monday), on
+ * the Monday after. Returns the Sunday it reads to and the Monday it runs.
+ */
+export function outcomeWeek(appliedIso: string): { to: string; checked: string } {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(appliedIso));
+  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+  const monday = addDays(day, weekday === 1 ? 0 : (8 - weekday) % 7);
+  return { to: addDays(monday, 6), checked: addDays(monday, 7) };
+}

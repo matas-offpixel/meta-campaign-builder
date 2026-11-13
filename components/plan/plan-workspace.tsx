@@ -1508,6 +1508,7 @@ export function PlanWorkspace({
             onOpen={(row) => void openChannel(row)}
             onOpenAnchor={(row, anchor) => void openChannel(row, undefined, anchor)}
             drawerEdit={share.drawerEdit && !noShow}
+            refreshEventId={share.drawerEdit ? plan.intent.eventId || null : null}
             openRefs={{
               meta: metaOpenRef,
               tiktok: tiktokOpenRef,

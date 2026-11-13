@@ -17,7 +17,19 @@ export type MetaWriteOpKind =
   | "ad_create"
   | "creative_upload"
   | "adset_targeting_update"
-  | "adset_destination_update";
+  | "adset_destination_update"
+  /** On-sale refresh Apply (migration 236): one creative per accepted add line and campaign. */
+  | "refresh_creative_create"
+  /** On-sale refresh Apply: one ad per accepted add line and ad set. */
+  | "refresh_ad_create"
+  /** The gated ad-status write (lib/meta/ad-status-write.ts). */
+  | "ad_status_update"
+  /** The gated ad-set status write (lib/meta/adset-status-write.ts, migration 237). */
+  | "adset_status_update"
+  /** On-sale refresh Apply: one side of a budget move — a within-campaign move, or a new ad set's funding (migration 237). */
+  | "refresh_adset_budget_update"
+  /** On-sale refresh Apply: the new ad set a cluster bring-back or a standing default makes (migration 237). */
+  | "refresh_adset_create";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger

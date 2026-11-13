@@ -92,6 +92,9 @@ function campaign(overrides: Partial<CampaignInput> = {}): CampaignInput {
     eventName: "Puzzle 4th Birthday",
     campaignKey: "[P26-BDAY] Puzzle - 27 Dec - On Sale",
     campaignIds: ["c1", "c2"],
+    // P2/P3: this event's draft for the campaign, so lines aren't blocked as "not one of this event's drafts".
+    adAccountId: "act_9",
+    draft: { draftId: "d1", adAccountId: "act_9", copy: { primaryText: "Copy", headline: "", description: "", cta: "buy_tickets", destinationUrl: "https://x.test", pageId: "101", instagramActorId: null, fromCreative: null } },
     onSaleDay: "2026-10-30",
     plan: PLAN,
     resultEvent: "initiate_checkout",
@@ -180,7 +183,7 @@ describe("on-sale refresh: pause creative (R2)", () => {
   it("qualifies on significant + bottom third + 7 days + 2× spend; the rest go to Watch", () => {
     const { lines, watch } = pauseLines(campaign({ ads, adSets: sets }), ONSALE_PHASE);
     assert.deepEqual(lines.map((line) => line.title), ["Weak"]);
-    assert.deepEqual(lines[0]!.target, { creative: "Weak", adIds: ["a1", "a1b"] });
+    assert.deepEqual(lines[0]!.target, { creative: "Weak", adIds: ["a1", "a1b"], ads: [{ adId: "a1", adsetId: "s1" }, { adId: "a1b", adsetId: "s2" }] });
     assert.equal(lines[0]!.write?.kind, "ad_status");
     assert.equal((lines[0]!.evidence as { ads: number }).ads, 2);
     const watched = watch.map((item) => item.title);
@@ -214,6 +217,16 @@ describe("on-sale refresh: pause creative (R2)", () => {
 });
 
 describe("on-sale refresh: audiences and budget (R2, R5)", () => {
+  it("P3: a bring-back keeps its recent daily spend (the plan guard's measure) and the draft every write re-checks", () => {
+    const stopped = adSet({ adsetId: "edm", name: "EDM", delivering: false, lastDay: "2026-11-06", weekSpend: 0, weekResults: 0, totalSpend: 36.85, totalResults: 12, recentDailySpend: 5.264 });
+    const { lines } = audienceLines(campaign({ adSets: [adSet({ adsetId: "s1", name: "Lineup — Primary" }), adSet({ adsetId: "s2", name: "Retargeting" }), stopped], budgetGbp: 4500 }), ONSALE_PHASE);
+    const back = lines.find((line) => line.kind === "bring_back_audience" && line.title === "EDM")!;
+    assert.equal(back.evidence.dailySpend, 5.26);
+    assert.deepEqual(back.write, { kind: "adset_status", adsetId: "edm", status: "ACTIVE", campaignIds: ["c1", "c2"], adAccountId: "act_9", draftId: "d1" });
+    assert.equal(back.blockedReason, null);
+    assert.equal(audienceLines(campaign({ adSets: [stopped, adSet({ adsetId: "s1", name: "Lineup — Primary" })], budgetGbp: 4500, draft: null }), ONSALE_PHASE).lines.find((line) => line.title === "EDM")!.blockedReason, "Not one of this event's drafts on this account, so nothing is written to this campaign.");
+  });
+
   // Campaign week cost per IC £7.69.
   const sets = [
     adSet({ adsetId: "ret", name: "Retargeting – No Suggest", weekSpend: 60, weekResults: 7 }),
@@ -272,9 +285,11 @@ describe("on-sale refresh: audiences and budget (R2, R5)", () => {
     const { lines } = audienceLines(campaign({ clusters, budgetGbp: 4500, adSets: [adSet({ adsetId: "ret", name: "Retargeting" }), adSet({ adsetId: "ll", name: "1% LL" })] }), ONSALE_PHASE);
     const back = lines.filter((line) => line.ruleId === "bring_back.client_cluster");
     assert.deepEqual(back.map((line) => line.title), ["Techno heads", "Edge"]);
-    assert.equal(back[0]!.detail, "Ran for Puzzle at 0.7× its cost per registration · confidence strong · not used on this event");
-    assert.deepEqual(back[0]!.evidence, { client: "Puzzle", stage: "registration", cprIndex: 0.7, confidence: "strong", atMost: 0.83 });
-    assert.equal(back[1]!.narrow.detail, "0.83× Puzzle's cost per registration · confidence ok");
+    // P3 (design's ruling): the cluster's own words; the client's figures stay in the evidence.
+    // Design's index is the client's baseline cost ÷ the cluster's: 1 ÷ 0.7 = 1.43; the 0.83 bar reads 1.2 (R2's "≥ 1.2").
+    assert.equal(back[0]!.detail, "Interest cluster · index 1.43 · confidence strong · not on this event");
+    assert.deepEqual({ ...back[0]!.evidence, copyFrom: undefined, funding: undefined, interests: undefined }, { client: "Puzzle", stage: "registration", cprIndex: 0.7, index: 1.43, confidence: "strong", atMost: 0.83, copyFrom: undefined, funding: undefined, interests: undefined });
+    assert.equal(back[1]!.narrow.detail, "Cluster · index 1.2 · 0 interests");
   });
 
   it("missing standing defaults are proposed when no delivering ad set is retargeting or the lookalike", () => {
