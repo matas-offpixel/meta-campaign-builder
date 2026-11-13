@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { NX_SALES_FIXTURE } from "../sales-vs-spend-fixture.ts";
@@ -87,5 +88,19 @@ describe("sales vs spend layout contract", () => {
     const internal = salesForSurface(withLearning, "internal");
     assert.equal(internal.crossClientNote, withLearning.crossClientNote);
     assert.equal(internal.views.ipc.campaigns.find((row) => row.id === "tagged")?.statusLabel, "Not linked to event");
+  });
+
+  it("appends the DV shots on their own route, off the shared frames page", () => {
+    const shots = readFileSync("scripts/plan-frames/dashboard-v2-shots.mjs", "utf8");
+    assert.match(shots, /frame: `sales\/\$\{frame\}`/);
+    const runner = readFileSync("scripts/plan-frames/run.mjs", "utf8");
+    const line = runner.split("\n").find((row) => row.startsWith("const FRAME_SHOTS"));
+    assert.ok(line?.includes("...DRIVE_PICKER_SHOTS, ...DASHBOARD_V2_SHOTS]"));
+    const page = readFileSync("app/(dev)/frames/sales/[id]/page.tsx", "utf8");
+    const imports = page.split("\n").filter((row) => row.startsWith("import "));
+    assert.ok(imports.some((row) => row.includes("SalesFrameMount")));
+    assert.equal(imports.some((row) => /footage-frame-mount|caption-facts|node:crypto/.test(row)), false);
+    const shared = readFileSync("app/(dev)/frames/[id]/page.tsx", "utf8");
+    assert.doesNotMatch(shared, /SalesFrameMount|DASHBOARD_V2/);
   });
 });

@@ -6,7 +6,7 @@ export function SalesFrameMount({ id }: { id: string }) {
   const frame = DASHBOARD_V2_FRAMES[id as DashboardV2FrameId];
   if (!frame) return null;
   return (
-    <div data-frame-ready="true" className="bg-background">
+    <div data-frame-ready={`sales/${id}`} className="bg-background">
       <SalesDashboard model={NX_SALES_FIXTURE} surface={frame.surface} initialShowId={frame.showId} initialPeriod="14" />
     </div>
   );
