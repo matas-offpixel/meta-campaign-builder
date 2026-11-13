@@ -65,7 +65,8 @@ export function sourceOf(f: ItemFacts): SourceView {
   const upload = f.report.gmailMessageId.startsWith("upload:");
   return {
     subject: f.report.subject,
-    sender: address?.[1]?.toLowerCase() ?? f.report.sender ?? "",
+    // R1a: a replaced item's meta is "\"{newer subject}\" · {received}", no sender.
+    sender: f.kind === "replaced" ? "" : (address?.[1]?.toLowerCase() ?? f.report.sender ?? ""),
     received: dayMonthTime(f.report.receivedAt),
     emailUrl: upload
       ? null
@@ -203,22 +204,17 @@ export function itemWords(f: ItemFacts): Words {
       };
     }
     case "replaced": {
-      if (d.forward === true) {
-        // Buttons from M1b ("Keep the earlier sheet" · "Use the later sheet"). Title and line NOT IN R1: R1a's words are pending.
-        const title = `A forward has a different ${dayMonth(String(d.countDate))} sheet`;
-        const body = `${show}: ${d.previousTotal} stored, ${d.total} in the forward. The stored sheet is kept until you choose.`;
-        return {
-          title,
-          titleShort: title,
-          body,
-          bodyShort: body,
-          actions: [act("Keep the earlier sheet", "keep_earlier"), act("Use the later sheet", "use_later")],
-        };
-      }
-      // NOT IN R1: R1 words this item only once checked ("Checked · the {date} sheet was replaced by a later email").
-      const title = `The ${dayMonth(String(d.countDate))} sheet was replaced by a later email`;
-      const body = `${show}: ${d.previousTotal} before, ${d.total} now. Both emails are kept; the later one is used.`;
-      return { title, titleShort: title, body, bodyShort: body, actions: [act("Undo", "undo"), act("Keep the later one", "keep")] };
+      // R1a, ruled. The forward case (M1b change 1) is the same item with the stored sheet kept and the buttons reversed.
+      const day = dayMonth(String(d.countDate));
+      const words = {
+        title: `The ${day} sheet was replaced by a later email`,
+        titleShort: `${day} sheet replaced`,
+        body: "Counts now come from the later sheet. The earlier one is kept.",
+        bodyShort: "Later sheet used.",
+      };
+      return d.forward === true
+        ? { ...words, actions: [act("Keep the earlier sheet", "keep_earlier"), act("Use the later sheet", "use_later")] }
+        : { ...words, actions: [act("Keep the later sheet", "keep"), act("Use the earlier sheet", "undo")] };
     }
     default: {
       // NOT IN R1: since_last_mismatch (the first brief's cross-check).
