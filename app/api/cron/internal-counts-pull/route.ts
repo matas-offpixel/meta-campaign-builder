@@ -16,6 +16,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { isCronAuthorized } from "@/lib/attribution/cron-auth";
 import { recordPull } from "@/lib/gmail/connection";
+import { loadRunContext } from "@/lib/internal-counts/context";
 import { openGmailSession } from "@/lib/internal-counts/gmail-session";
 import { gmailSource, PULL_QUERY, runInternalCountsPull, withinPullHours } from "@/lib/internal-counts/pull";
 import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
@@ -40,15 +41,16 @@ async function handleGET(req: NextRequest) {
     const session = await openGmailSession(sb);
     if (!session.ok) return NextResponse.json({ ok: true, skippedReason: session.reason });
     connectionId = session.connection.id;
-    const summary = await runInternalCountsPull(sb, gmailSource(session.gmail, PULL_QUERY), {
+    const ctx = await loadRunContext(sb);
+    const summary = await runInternalCountsPull(sb, ctx, gmailSource(session.gmail, PULL_QUERY), {
       userId: session.connection.user_id,
     });
     await recordPull(sb, connectionId, null);
-    const { lines, ...rest } = summary;
+    const { lines, priceFirings: _firings, ...rest } = summary;
     return NextResponse.json({
       ok: true,
       ...rest,
-      messages: lines.map((l) => ({ id: l.messageId, subject: l.subject, outcome: l.outcome })),
+      messages: lines.map((l) => ({ id: l.messageId, subject: l.subject, kind: l.kind, status: l.result?.status ?? null })),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message.replace(/https?:\/\/\S+/g, "").trim() : "Unknown error";
@@ -71,16 +73,17 @@ export const GET = withCronRunLog(
     rows: (body) => Number(body.blocksWritten ?? 0),
     detail: (body) => ({
       found: body.found ?? 0,
-      matched: body.matched ?? 0,
+      counts: body.counts ?? 0,
+      replies: body.replies ?? 0,
+      nearMisses: body.nearMisses ?? 0,
       alreadyRead: body.alreadyRead ?? 0,
-      processed: body.processed ?? 0,
-      blocksInReview: body.blocksInReview ?? 0,
+      blocksHeld: body.blocksHeld ?? 0,
       reviewByKind: body.reviewByKind ?? {},
     }),
     recordWhen: (body, status) => {
       if (status >= 400 || body.ok === false) return true;
       if (body.skippedReason) return false;
-      return Number(body.processed ?? 0) > 0;
+      return Number(body.counts ?? 0) + Number(body.replies ?? 0) + Number(body.nearMisses ?? 0) > 0;
     },
   },
   handleGET,

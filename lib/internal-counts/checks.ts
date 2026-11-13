@@ -1,125 +1,145 @@
 /**
  * lib/internal-counts/checks.ts
  *
- * The arithmetic a parsed block must pass before anything is written
- * (D8, HD1). Every blocking check has to pass, or the block goes to the
- * review list and writes nothing:
+ * M4 of docs/design-record/2026-11-13-internal-counts-matching.html: the
+ * sheet errors a parsed show block can carry.
  *
- *   - each outlet row sums to its TOTAL
- *   - each tier column sums to the column totals row
- *   - the totals row sums to its TOTAL
- *   - tier £ = count × price, to the penny, for every tier whose price
- *     doesn't look wrong
- *   - the tier £ add up to the £ total
- *
- * A price "looks wrong" when it equals that column's top-row count, or is
- * above £150. IPC on 12 Nov repeats its Skiddle counts in the price row.
- * Those counts are still stored; the show's revenue is withheld and a
- * review item says why.
+ * - Price looks wrong: a tier's price equals that column's top-row count
+ *   (IPC on 12 Nov: 1ST £200.00 with 200 sold), or is above the event's
+ *   highest ticket price (its dearest paid tier, or £150 when none is
+ *   stored). The counts are still stored; that show's revenue from that
+ *   sheet is held. One review item per show per sheet, however many tiers
+ *   fire.
+ * - −£1.00 is an unused tier: left out of counts and revenue, no review
+ *   item. A comp tier (guest list, comps, free) still counts as comps,
+ *   whatever its price: DJ EZ's 89 "VIP Free" at −£1.00 are comps.
+ * - Sums don't add up when a show's tier counts don't sum to its total.
+ *   That show's count from that sheet is held; the others are stored.
  */
 
 import type { ParsedBlock } from "./parse.ts";
 
-export const PRICE_CEILING_PENCE = 150_00;
+export const DEFAULT_PRICE_CEILING_PENCE = 150_00;
+
+export interface PriceFlag {
+  position: number;
+  tierName: string;
+  outlet: string;
+  pricePence: number;
+  /** The top-row count in that column (null when the cell is blank). */
+  count: number | null;
+  reason: "equals_count" | "above_ceiling";
+  ceilingPence: number;
+}
 
 export interface BlockCheck {
-  /** Any entry here means the block writes nothing. */
-  blocking: string[];
-  /** Tier positions (1-based) whose price looks wrong. */
-  priceLooksWrong: number[];
-  /** True when any price looks wrong: counts are stored, revenue isn't. */
-  revenueWithheld: boolean;
+  /** Layout problems: the sheet can't be read. */
+  unreadable: string[];
+  /** Set when the tier counts don't sum to the total: the show is held. */
+  sum: { tiers: number; total: number } | null;
+  priceFlags: PriceFlag[];
+  /** count × price ≠ the sheet's tier £ on a tier whose price wasn't flagged. */
+  revenueMismatch: string[];
+  /** Revenue from this sheet is held for the show. */
+  revenueHeld: boolean;
 }
 
 const sum = (xs: Array<number | null>): number => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
 
-export function priceLooksWrong(block: ParsedBlock, tierIndex: number): boolean {
-  const price = block.tiers[tierIndex].pricePence;
-  if (price === null || price < 0) return false;
-  if (price > PRICE_CEILING_PENCE) return true;
-  const top = block.outlets[0]?.cells[tierIndex] ?? null;
-  return top !== null && top > 0 && price === top * 100;
+export function isUnusedTier(block: ParsedBlock, i: number): boolean {
+  const t = block.tiers[i];
+  return !t.comp && t.pricePence !== null && t.pricePence < 0;
+}
+
+/** Per tier, the sum of its outlet cells (the cells written to tier_channel_sales). */
+export function columnSums(block: ParsedBlock): number[] {
+  return block.tiers.map((_, i) => sum(block.outlets.map((r) => r.cells[i])));
 }
 
 function pounds(pence: number): string {
-  const sign = pence < 0 ? "-" : "";
-  return `${sign}£${(Math.abs(pence) / 100).toFixed(2)}`;
+  return `${pence < 0 ? "-" : ""}£${(Math.abs(pence) / 100).toFixed(2)}`;
 }
 
-function checkCounts(block: ParsedBlock, blocking: string[]): void {
-  const totals = block.totals;
-  if (!totals) return;
-  for (const row of block.outlets) {
-    if (row.total === null) {
-      blocking.push(`${row.outlet} has no TOTAL.`);
-    } else if (sum(row.cells) !== row.total) {
-      blocking.push(`${row.outlet} tiers add up to ${sum(row.cells)}, but its TOTAL is ${row.total}.`);
-    }
-  }
+export function priceFlags(block: ParsedBlock, ceilingPence = DEFAULT_PRICE_CEILING_PENCE): PriceFlag[] {
+  const top = block.outlets[0];
+  const flags: PriceFlag[] = [];
   block.tiers.forEach((tier, i) => {
-    const columnSum = sum(block.outlets.map((r) => r.cells[i]));
-    const printed = totals.cells[i] ?? 0;
-    if (columnSum !== printed) {
-      blocking.push(`Tier ${tier.key} outlets add up to ${columnSum}, but its column total is ${printed}.`);
-    }
+    const price = tier.pricePence;
+    if (price === null || price < 0) return;
+    const count = top?.cells[i] ?? null;
+    const base = { position: tier.position, tierName: tier.name, outlet: top?.outlet ?? "", pricePence: price, count, ceilingPence };
+    if (count !== null && count > 0 && price === count * 100) flags.push({ ...base, reason: "equals_count" });
+    else if (price > ceilingPence) flags.push({ ...base, reason: "above_ceiling" });
   });
-  if (totals.total === null) {
-    blocking.push("The totals row has no TOTAL.");
-  } else if (sum(totals.cells) !== totals.total) {
-    blocking.push(`The totals row adds up to ${sum(totals.cells)}, but its TOTAL is ${totals.total}.`);
-  }
+  return flags;
 }
 
-function checkRevenue(block: ParsedBlock, wrong: number[], blocking: string[]): void {
+function sumCheck(block: ParsedBlock): BlockCheck["sum"] {
+  const total = block.totals?.total;
+  if (total === null || total === undefined) return null;
+  const grid = sum(columnSums(block));
+  if (grid !== total) return { tiers: grid, total };
+  const totalsRow = sum(block.totals?.cells ?? []);
+  if (totalsRow !== total) return { tiers: totalsRow, total };
+  return null;
+}
+
+function revenueCheck(block: ParsedBlock, flagged: Set<number>): string[] {
+  const out: string[] = [];
   const totals = block.totals;
-  if (!totals) return;
+  if (!totals) return out;
   block.tiers.forEach((tier, i) => {
-    if (wrong.includes(tier.position)) return;
+    if (flagged.has(tier.position) || isUnusedTier(block, i) || tier.comp) return;
     const count = totals.cells[i] ?? 0;
     const revenue = block.tierRevenuePence[i] ?? 0;
     const price = tier.pricePence;
     if (price === null) {
-      if (count !== 0) blocking.push(`Tier ${tier.key} has ${count} sold but no price.`);
-      else if (revenue !== 0) blocking.push(`Tier ${tier.key} has no sales but ${pounds(revenue)}.`);
+      if (count !== 0) out.push(`Tier ${tier.key} has ${count} sold but no price.`);
       return;
     }
-    // Every tier, "-£1.00" included: DJ EZ's 89 "VIP Free" at -£1.00 are -£89.00 on the sheet.
     if (count * price !== revenue) {
-      blocking.push(
-        `Tier ${tier.key}: ${count} × ${pounds(price)} is ${pounds(count * price)}, but the sheet says ${pounds(revenue)}.`,
-      );
+      out.push(`Tier ${tier.key}: ${count} × ${pounds(price)} is ${pounds(count * price)}, but the sheet says ${pounds(revenue)}.`);
     }
   });
-  const tierSum = sum(block.tierRevenuePence);
-  if (block.totalRevenuePence === null) {
-    blocking.push("The TIER TOTALS row has no £ total.");
-  } else if (tierSum !== block.totalRevenuePence) {
-    blocking.push(`Tier £ add up to ${pounds(tierSum)}, but the £ total is ${pounds(block.totalRevenuePence)}.`);
+  if (block.totalRevenuePence !== null && sum(block.tierRevenuePence) !== block.totalRevenuePence) {
+    out.push(`Tier £ add up to ${pounds(sum(block.tierRevenuePence))}, but the £ total is ${pounds(block.totalRevenuePence)}.`);
   }
+  return out;
 }
 
-export function checkBlock(block: ParsedBlock): BlockCheck {
-  const blocking = [...block.problems];
-  const priceWrong = block.tiers.filter((_, i) => priceLooksWrong(block, i)).map((t) => t.position);
-  checkCounts(block, blocking);
-  checkRevenue(block, priceWrong, blocking);
-  return { blocking, priceLooksWrong: priceWrong, revenueWithheld: priceWrong.length > 0 };
+export function checkBlock(block: ParsedBlock, ceilingPence = DEFAULT_PRICE_CEILING_PENCE): BlockCheck {
+  const unreadable = [...block.problems];
+  const flags = priceFlags(block, ceilingPence);
+  const revenueMismatch = revenueCheck(block, new Set(flags.map((f) => f.position)));
+  return {
+    unreadable,
+    sum: unreadable.length ? null : sumCheck(block),
+    priceFlags: flags,
+    revenueMismatch,
+    revenueHeld: flags.length > 0 || revenueMismatch.length > 0,
+  };
 }
 
-/** Paid and comp totals for a block. Comps never count as sold. */
-export function soldAndComps(block: ParsedBlock): { paid: number; comps: number; total: number } {
-  let paid = 0;
+/**
+ * Paid and comp tickets. `total` is the show's count (the sheet's TOTAL, or
+ * the figure Matas picked on a sum hold); comps and unused tiers come off it.
+ */
+export function soldAndComps(block: ParsedBlock, total?: number): { paid: number; comps: number; total: number } {
+  const cols = columnSums(block);
   let comps = 0;
+  let unused = 0;
   block.tiers.forEach((tier, i) => {
-    const n = block.totals?.cells[i] ?? 0;
-    if (tier.comp) comps += n;
-    else paid += n;
+    if (tier.comp) comps += cols[i];
+    else if (isUnusedTier(block, i)) unused += cols[i];
   });
-  return { paid, comps, total: paid + comps };
+  const t = total ?? block.totals?.total ?? sum(cols);
+  return { paid: t - comps - unused, comps, total: t };
 }
 
-/** Paid revenue in pence, or null when it's withheld. */
-export function paidRevenuePence(block: ParsedBlock, check: BlockCheck): number | null {
-  if (check.revenueWithheld) return null;
-  return block.tiers.reduce((acc, tier, i) => (tier.comp ? acc : acc + (block.tierRevenuePence[i] ?? 0)), 0);
+/** Paid tiers' £ in pence as the sheet prints them (unused and comp tiers left out). */
+export function paidRevenuePence(block: ParsedBlock): number {
+  return block.tiers.reduce(
+    (acc, tier, i) => (tier.comp || isUnusedTier(block, i) ? acc : acc + (block.tierRevenuePence[i] ?? 0)),
+    0,
+  );
 }

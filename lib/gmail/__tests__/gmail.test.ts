@@ -38,15 +38,15 @@ describe("Gmail OAuth", () => {
   });
 
   it("names what's missing from the env, and wants a dedicated key of 16+ characters", () => {
-    assert.deepEqual(gmailOAuthConfigFromEnv({}).missing, [
+    assert.deepEqual(gmailOAuthConfigFromEnv({} as NodeJS.ProcessEnv).missing, [
       "GMAIL_OAUTH_CLIENT_ID",
       "GMAIL_OAUTH_CLIENT_SECRET",
       "GMAIL_OAUTH_REDIRECT_URI",
       "GMAIL_OAUTH_STATE_SECRET",
     ]);
-    assert.equal(gmailTokenKey({ GMAIL_TOKEN_KEY: "short" }), null);
-    assert.equal(gmailTokenKey({ GOOGLE_ADS_TOKEN_KEY: "a-long-enough-key-123" }), null);
-    assert.equal(gmailTokenKey({ GMAIL_TOKEN_KEY: "a-long-enough-key-123" }), "a-long-enough-key-123");
+    assert.equal(gmailTokenKey({ GMAIL_TOKEN_KEY: "short" } as NodeJS.ProcessEnv), null);
+    assert.equal(gmailTokenKey({ GOOGLE_ADS_TOKEN_KEY: "a-long-enough-key-123" } as NodeJS.ProcessEnv), null);
+    assert.equal(gmailTokenKey({ GMAIL_TOKEN_KEY: "a-long-enough-key-123" } as NodeJS.ProcessEnv), "a-long-enough-key-123");
   });
 });
 
@@ -55,6 +55,7 @@ describe("summarise", () => {
     const b64 = (s: string) => Buffer.from(s).toString("base64url");
     const m: GmailMessage = {
       id: "m1",
+      threadId: "t1",
       internalDate: String(Date.UTC(2026, 10, 12, 11, 33, 36)),
       payload: {
         headers: [
@@ -76,6 +77,7 @@ describe("summarise", () => {
     };
     const s = summarise(m);
     assert.equal(s.subject, "Internal Show Count 12.11.26");
+    assert.equal(s.threadId, "t1");
     assert.equal(s.receivedAt, "2026-11-12T11:33:36.000Z");
     assert.equal(s.body, "Hello,\nPlease see today's internal show count attached.");
     assert.deepEqual(s.pdfs, [{ filename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf", attachmentId: "pdf1" }]);

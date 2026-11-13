@@ -8,7 +8,8 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
-import { pdfSha256, processReport } from "@/lib/internal-counts/store";
+import { loadRunContext } from "@/lib/internal-counts/context";
+import { pdfSha256, processMessageSafely } from "@/lib/internal-counts/store";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export const maxDuration = 120;
@@ -36,9 +37,12 @@ export async function POST(req: NextRequest) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (Buffer.from(bytes.subarray(0, 5)).toString("latin1") !== "%PDF-") return back(req, { upload: "not_pdf" });
 
-  const result = await processReport(createServiceRoleClient(), {
+  const sb = createServiceRoleClient();
+  const result = await processMessageSafely(sb, await loadRunContext(sb), {
     userId: user.id,
     source: "upload",
+    kind: "count",
+    threadId: null,
     messageId: `upload:${pdfSha256(bytes)}`,
     receivedAt: new Date().toISOString(),
     sender: user.email ?? null,
@@ -49,6 +53,6 @@ export async function POST(req: NextRequest) {
   return back(req, {
     upload: result.status,
     written: String(result.blocksWritten),
-    review: String(result.blocksInReview),
+    held: String(result.blocksHeld),
   });
 }

@@ -1,146 +1,177 @@
 /**
- * The Internal Counts review list (D8, HD1). Internal only (D11).
+ * The Internal Counts review list (M5, R1 of
+ * docs/design-record/2026-11-13-internal-counts-matching.html). Internal
+ * only (D11): never on a share link or under /admin.
  *
- * What it shows: the connected inbox, the "Upload count PDF" backstop, every
- * open review item grouped by the email it came from, and the recent
- * counts. Plain forms posting to route handlers, no client JS, so the
- * page and its frames (IC1, IC2) render the same view from props.
+ * "To check · {n}" or "Nothing to check", each item with the email's
+ * subject, sender and received time, and a "Checked" section with who and
+ * when. R1's 1280 and 393 wordings both render; the viewport picks one.
+ * Plain forms posting to route handlers, no client JS, so the page and the
+ * frames render the same view from props.
  */
 
-import type { InternalCountsView, RecentCountView, ReviewGroupView, ReviewItemView } from "@/lib/internal-counts/view-types";
+import type {
+  ActionView,
+  CheckedItemView,
+  EventOption,
+  InternalCountsView,
+  ReviewItemView,
+  SourceView,
+} from "@/lib/internal-counts/view-types";
 
-export type { InternalCountsView, RecentCountView, ReviewGroupView, ReviewItemView };
+export type { InternalCountsView };
 
-const LONDON = "Europe/London";
+const BUTTON = "rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted";
 
-export function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: LONDON });
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: LONDON });
-  return `${day}, ${time}`;
-}
-
-export function formatDay(isoDate: string): string {
-  return new Date(`${isoDate}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: LONDON });
-}
-
-function GmailLine({ view }: { view: InternalCountsView }) {
-  if (!view.gmailConfigured) {
-    return <p className="text-sm text-muted-foreground">Gmail connect isn&apos;t set up on this deployment. Upload a count PDF instead.</p>;
-  }
-  if (!view.gmail) {
-    return (
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="text-sm">Gmail isn&apos;t connected, so counts aren&apos;t read automatically.</p>
-        <a href="/api/gmail/oauth/start" className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted">
-          Connect Gmail
-        </a>
-      </div>
-    );
-  }
-  const { email, lastPullAt, lastPullError } = view.gmail;
+function Source({ source }: { source: SourceView }) {
+  const subject = `"${source.subject}"`;
   return (
-    <div className="space-y-1">
-      <p className="text-sm">
-        Reading <span className="font-medium">{email}</span>
-        {lastPullAt ? <span className="text-muted-foreground"> · last read {formatWhen(lastPullAt)}</span> : null}
-      </p>
-      {lastPullError ? <p className="text-sm text-destructive">The last read failed: {lastPullError}</p> : null}
-    </div>
+    <p className="text-xs text-muted-foreground">
+      {source.emailUrl ? (
+        <a href={source.emailUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+          {subject}
+        </a>
+      ) : (
+        subject
+      )}
+      {source.sender ? ` · ${source.sender}` : ""} · {source.received}
+    </p>
   );
 }
 
-function UploadForm() {
+function Action({ itemId, action, events }: { itemId: string; action: ActionView; events: EventOption[] }) {
+  if (!action.action) {
+    return (
+      <a href={action.href} target="_blank" rel="noreferrer" className={BUTTON}>
+        {action.label}
+      </a>
+    );
+  }
+  const needs = action.needs ?? [];
   return (
-    <form action="/api/internal-counts/upload" method="post" encType="multipart/form-data" className="flex flex-wrap items-center gap-3">
-      <label className="text-sm font-medium" htmlFor="count-pdf">
-        Upload count PDF
-      </label>
-      <input id="count-pdf" name="file" type="file" accept="application/pdf" required className="max-w-full text-sm" />
-      <button type="submit" className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted">
-        Upload
+    <form action={`/api/internal-counts/items/${itemId}`} method="post" className="flex flex-wrap items-center gap-2">
+      <input type="hidden" name="action" value={action.action} />
+      {Object.entries(action.fields ?? {}).map(([k, v]) => (
+        <input key={k} type="hidden" name={k} value={v} />
+      ))}
+      {needs.includes("event") ? (
+        <select name="event_id" required aria-label="Event" className="max-w-[16rem] rounded-md border border-border bg-background px-2 py-1 text-xs">
+          <option value="">Event…</option>
+          {events.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.label}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {needs.includes("figure") ? (
+        <input
+          name="figure"
+          type="number"
+          min={0}
+          step={1}
+          required
+          aria-label="Tickets"
+          className="w-24 rounded-md border border-border bg-background px-2 py-1 text-xs"
+        />
+      ) : null}
+      <button type="submit" className={BUTTON}>
+        {action.label}
       </button>
     </form>
   );
 }
 
-function ItemRow({ item }: { item: ReviewItemView }) {
+function OpenItem({ item, events }: { item: ReviewItemView; events: EventOption[] }) {
   return (
-    <li className="grid grid-cols-1 gap-x-4 gap-y-0.5 py-2 sm:grid-cols-[160px_minmax(0,1fr)_120px]" data-kind={item.kind}>
-      <p className="text-sm font-medium">{item.showName ?? "Whole email"}</p>
-      <p className="text-sm">{item.message}</p>
-      <p className={`text-xs sm:text-right ${item.blocking ? "text-destructive" : "text-muted-foreground"}`}>
-        {item.blocking ? "Not written" : "Written, with a note"}
+    <li className="space-y-1.5 py-3" data-kind={item.kind}>
+      <p className="text-sm font-medium">
+        <span className="hidden sm:inline">{item.title}</span>
+        <span className="sm:hidden">{item.titleShort}</span>
       </p>
+      <p className="text-sm">
+        <span className="hidden sm:inline">{item.body}</span>
+        <span className="sm:hidden">{item.bodyShort}</span>
+      </p>
+      <Source source={item.source} />
+      <div className="flex flex-wrap gap-2 pt-1">
+        {item.actions.map((a) => (
+          <Action key={`${a.action}-${a.label}`} itemId={item.id} action={a} events={events} />
+        ))}
+      </div>
     </li>
   );
 }
 
-function ReviewGroup({ group }: { group: ReviewGroupView }) {
-  const blocking = group.items.some((i) => i.blocking);
+function CheckedItem({ item, events }: { item: CheckedItemView; events: EventOption[] }) {
   return (
-    <section className="rounded-md border border-border bg-card p-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{group.subject}</p>
-          <p className="text-xs text-muted-foreground">Received {formatWhen(group.receivedAt)}</p>
+    <li className="space-y-1 py-2.5">
+      <p className="text-sm text-muted-foreground">{item.title}</p>
+      <p className="text-xs text-muted-foreground">
+        &quot;{item.source.subject}&quot; · {item.source.received} · {item.by}
+      </p>
+      {item.undo ? (
+        <div className="pt-1">
+          <Action itemId={item.id} action={item.undo} events={events} />
         </div>
-        {blocking ? (
-          <form action={`/api/internal-counts/reports/${group.reportId}/rerun`} method="post">
-            <button type="submit" className="rounded-md border border-border px-3 py-1 text-xs font-medium hover:bg-muted">
-              Run again
-            </button>
-          </form>
-        ) : null}
-      </div>
-      <ul className="mt-2 divide-y divide-border">
-        {group.items.map((item) => (
-          <ItemRow key={item.id} item={item} />
-        ))}
-      </ul>
-    </section>
+      ) : null}
+    </li>
   );
 }
 
-function RecentCounts({ recent }: { recent: RecentCountView[] }) {
-  if (recent.length === 0) return <p className="text-sm text-muted-foreground">No counts read yet.</p>;
+function InboxControls({ view }: { view: InternalCountsView }) {
   return (
-    <ul className="divide-y divide-border rounded-md border border-border bg-card">
-      {recent.map((r) => (
-        <li key={r.reportId} className="grid grid-cols-1 gap-x-4 px-4 py-2 sm:grid-cols-[minmax(0,1fr)_110px_170px]">
-          <p className="truncate text-sm">{r.subject}</p>
-          <p className="text-sm text-muted-foreground">{r.countDate ? `Count ${formatDay(r.countDate)}` : "No count date"}</p>
-          <p className="text-sm text-muted-foreground sm:text-right">
-            {r.written} written{r.inReview ? ` · ${r.inReview} to review` : ""}
-          </p>
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+      {view.gmailConfigured && !view.gmail ? (
+        <a href="/api/gmail/oauth/start" className={BUTTON}>
+          Connect Gmail
+        </a>
+      ) : null}
+      {view.gmail?.lastPullError ? <span className="text-destructive">The last read failed: {view.gmail.lastPullError}</span> : null}
+      <form action="/api/internal-counts/upload" method="post" encType="multipart/form-data" className="flex flex-wrap items-center gap-2">
+        <label htmlFor="count-pdf">Upload count PDF</label>
+        <input id="count-pdf" name="file" type="file" accept="application/pdf" required className="max-w-full text-xs" />
+        <button type="submit" className={BUTTON}>
+          Upload
+        </button>
+      </form>
+    </div>
   );
 }
 
 export function InternalCountsReviewView({ view }: { view: InternalCountsView }) {
-  const open = view.groups.reduce((n, g) => n + g.items.length, 0);
+  const n = view.open.length;
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6">
-      <header className="space-y-3">
-        <h1 className="text-xl font-semibold">Internal Counts</h1>
-        <GmailLine view={view} />
-        <UploadForm />
-        {view.flash ? <p className="text-sm text-muted-foreground" role="status">{view.flash}</p> : null}
+    <div className="mx-auto w-full max-w-4xl space-y-4">
+      <header className="space-y-1">
+        <h1 className="text-lg font-semibold">{n ? `To check · ${n}` : "Nothing to check"}</h1>
+        <p className="hidden text-xs text-muted-foreground sm:block">
+          Internal Counts{view.inbox ? ` from ${view.inbox}` : ""} · internal only
+        </p>
+        {view.flash ? (
+          <p className="text-sm" role="status">
+            {view.flash}
+          </p>
+        ) : null}
       </header>
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">To review{open ? ` · ${open}` : ""}</h2>
-        {view.groups.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing to review.</p>
-        ) : (
-          view.groups.map((g) => <ReviewGroup key={g.reportId} group={g} />)
-        )}
-      </section>
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">Recent counts</h2>
-        <RecentCounts recent={view.recent} />
-      </section>
+      {n ? (
+        <ul className="divide-y divide-border rounded-md border border-border bg-card px-4">
+          {view.open.map((item) => (
+            <OpenItem key={item.id} item={item} events={view.events} />
+          ))}
+        </ul>
+      ) : null}
+      {view.checked.length ? (
+        <section className="space-y-1">
+          <h2 className="text-sm font-semibold">Checked</h2>
+          <ul className="divide-y divide-border">
+            {view.checked.map((item) => (
+              <CheckedItem key={item.id} item={item} events={view.events} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <InboxControls view={view} />
     </div>
   );
 }

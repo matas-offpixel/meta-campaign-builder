@@ -53,6 +53,12 @@ export class GmailClient {
     return this.get<GmailMessage>(`/messages/${encodeURIComponent(id)}?format=full`);
   }
 
+  /** Every message in a thread (format=full). */
+  async thread(threadId: string): Promise<GmailMessage[]> {
+    const t = await this.get<{ messages?: GmailMessage[] }>(`/threads/${encodeURIComponent(threadId)}?format=full`);
+    return t.messages ?? [];
+  }
+
   async attachment(messageId: string, attachmentId: string): Promise<Uint8Array> {
     const a = await this.get<{ data: string }>(
       `/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
@@ -71,12 +77,14 @@ export interface GmailPart {
 
 export interface GmailMessage {
   id: string;
+  threadId?: string;
   internalDate: string;
   payload: GmailPart;
 }
 
 export interface MessageSummary {
   id: string;
+  threadId: string | null;
   subject: string;
   from: string;
   receivedAt: string;
@@ -120,6 +128,7 @@ export function summarise(m: GmailMessage): MessageSummary {
   });
   return {
     id: m.id,
+    threadId: m.threadId ?? null,
     subject: header("Subject"),
     from: header("From"),
     receivedAt: new Date(Number(m.internalDate)).toISOString(),

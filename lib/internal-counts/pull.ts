@@ -3,21 +3,19 @@
  *
  * Gmail → Internal Counts. The cron runs it hourly on UK weekdays with
  * `newer_than:3d`; the backfill runs it over the whole history. Messages
- * are read oldest first, so each count's SINCE LAST COUNT is cross-checked
- * against the count before it.
+ * are read oldest first, so a count is stored before the replies in its
+ * thread, and each count's SINCE LAST COUNT is checked against the one
+ * before it.
  *
- * The Gmail query narrows to the sender and a PDF; isInternalCountsMessage
- * decides the rest, in code.
+ * The Gmail query narrows to the domain and a PDF; classifyMessage (M1)
+ * decides the rest, in code. Replies without a PDF are fetched by thread.
  */
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 import { summarise, type GmailClient, type MessageSummary } from "../gmail/client.ts";
-import { isInternalCountsMessage } from "./message.ts";
-import { isAlreadyRead, processReport, type DryRunMemory, type ProcessResult } from "./store.ts";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Db = SupabaseClient<any, any, any>;
+import type { Db, RunContext } from "./context.ts";
+import { classifyMessage, type MessageKind } from "./message.ts";
+import type { PriceFlag } from "./checks.ts";
+import { processMessageSafely, type ProcessOptions, type ProcessResult } from "./store.ts";
 
 export const PULL_QUERY = "from:electric-group.co.uk has:attachment filename:pdf newer_than:3d";
 export const BACKFILL_QUERY = "from:electric-group.co.uk has:attachment filename:pdf";
@@ -28,12 +26,20 @@ export interface MessageSource {
   pdf(message: MessageSummary): Promise<Uint8Array | null>;
 }
 
+/** The query's messages, plus every other message in their threads (replies often carry no PDF). */
 export function gmailSource(gmail: GmailClient, query: string): MessageSource {
   return {
     async list() {
-      const out: MessageSummary[] = [];
-      for (const id of await gmail.listMessageIds(query)) out.push(summarise(await gmail.message(id)));
-      return out;
+      const out = new Map<string, MessageSummary>();
+      for (const id of await gmail.listMessageIds(query)) {
+        const m = summarise(await gmail.message(id));
+        out.set(m.id, m);
+      }
+      const threads = new Set([...out.values()].map((m) => m.threadId).filter((t): t is string => !!t));
+      for (const threadId of threads) {
+        for (const m of await gmail.thread(threadId)) if (!out.has(m.id)) out.set(m.id, summarise(m));
+      }
+      return [...out.values()];
     },
     async pdf(m) {
       const first = m.pdfs[0];
@@ -42,16 +48,10 @@ export function gmailSource(gmail: GmailClient, query: string): MessageSource {
   };
 }
 
-export interface PullOptions {
+export interface PullOptions extends ProcessOptions {
   userId: string;
   /** Only messages received on or after this ISO date. */
   since?: string;
-  dryRun?: boolean;
-  confirmedAliases?: Readonly<Record<string, string>>;
-  memory?: DryRunMemory;
-  /** Dry run without reading the database (before migration 234 is applied). */
-  offline?: boolean;
-  /** Called after each message, for the backfill's progress lines. */
   onMessage?: (line: PullLine) => void;
 }
 
@@ -59,36 +59,54 @@ export interface PullLine {
   messageId: string;
   receivedAt: string;
   subject: string;
-  outcome: "not_internal_counts" | "already_read" | "no_pdf" | "processed" | "unreadable";
+  from: string;
+  kind: MessageKind;
   result?: ProcessResult;
+}
+
+/** One row per sheet/show/tier where "price equals the column's count" fired (the add-on's false-positive watch). */
+export interface PriceFiring {
+  receivedAt: string;
+  subject: string;
+  countDate: string | null;
+  showName: string;
+  tierName: string;
+  pricePence: number;
+  count: number | null;
+  /** Every other check on that show passed (a likely false positive). */
+  otherwiseClean: boolean;
 }
 
 export interface PullSummary {
   found: number;
-  matched: number;
-  skippedSubjects: string[];
+  counts: number;
+  replies: number;
+  nearMisses: number;
+  ignored: number;
   alreadyRead: number;
-  processed: number;
   unreadable: number;
   blocksWritten: number;
-  blocksInReview: number;
+  blocksHeld: number;
   reviewItems: number;
   reviewByKind: Record<string, number>;
+  priceFirings: PriceFiring[];
   lines: PullLine[];
 }
 
 export function emptySummary(): PullSummary {
   return {
     found: 0,
-    matched: 0,
-    skippedSubjects: [],
+    counts: 0,
+    replies: 0,
+    nearMisses: 0,
+    ignored: 0,
     alreadyRead: 0,
-    processed: 0,
     unreadable: 0,
     blocksWritten: 0,
-    blocksInReview: 0,
+    blocksHeld: 0,
     reviewItems: 0,
     reviewByKind: {},
+    priceFirings: [],
     lines: [],
   };
 }
@@ -96,50 +114,74 @@ export function emptySummary(): PullSummary {
 function tally(summary: PullSummary, line: PullLine): void {
   summary.lines.push(line);
   const r = line.result;
-  if (line.outcome === "not_internal_counts") summary.skippedSubjects.push(line.subject);
-  if (line.outcome === "already_read") summary.alreadyRead++;
-  if (line.outcome === "processed") summary.processed++;
-  if (line.outcome === "unreadable" || line.outcome === "no_pdf") summary.unreadable++;
-  if (!r?.plan) return;
+  if (line.kind === "ignore") summary.ignored++;
+  if (r?.status === "already_read") {
+    summary.alreadyRead++;
+    return;
+  }
+  if (line.kind === "count") summary.counts++;
+  if (line.kind === "reply") summary.replies++;
+  if (line.kind === "near_miss") summary.nearMisses++;
+  if (!r) return;
+  if (r.status === "unreadable") summary.unreadable++;
   summary.blocksWritten += r.blocksWritten;
-  summary.blocksInReview += r.blocksInReview;
-  summary.reviewItems += r.plan.reviewItems.length;
-  for (const i of r.plan.reviewItems) summary.reviewByKind[i.kind] = (summary.reviewByKind[i.kind] ?? 0) + 1;
+  summary.blocksHeld += r.blocksHeld;
+  summary.reviewItems += r.reviewItems.length;
+  for (const i of r.reviewItems) summary.reviewByKind[i.kind] = (summary.reviewByKind[i.kind] ?? 0) + 1;
+  for (const b of r.plan?.blocks ?? []) {
+    // The sheet's own checks only (sums, the date, revenue arithmetic); an unmatched name isn't a sheet error.
+    const holds =
+      r.plan!.reviewItems.some((i) => (i.blockIndex === b.index && i.kind === "sum_mismatch") || i.kind === "date_mismatch") ||
+      ((r.plan!.reviewItems.find((i) => i.blockIndex === b.index && i.kind === "price_looks_wrong")?.detail.revenueMismatch as string[] | undefined)?.length ?? 0) > 0;
+    for (const f of b.priceFlags.filter((x: PriceFlag) => x.reason === "equals_count")) {
+      summary.priceFirings.push({
+        receivedAt: line.receivedAt,
+        subject: line.subject,
+        countDate: b.countDate,
+        showName: b.showName,
+        tierName: f.tierName,
+        pricePence: f.pricePence,
+        count: f.count,
+        otherwiseClean: !holds,
+      });
+    }
+  }
 }
 
-export async function runInternalCountsPull(sb: Db, source: MessageSource, opts: PullOptions): Promise<PullSummary> {
+export async function runInternalCountsPull(
+  sb: Db,
+  ctx: RunContext,
+  source: MessageSource,
+  opts: PullOptions,
+): Promise<PullSummary> {
   const summary = emptySummary();
   const messages = (await source.list()).filter((m) => !opts.since || m.receivedAt >= opts.since);
   summary.found = messages.length;
   messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt) || a.id.localeCompare(b.id));
   for (const m of messages) {
-    const base = { messageId: m.id, receivedAt: m.receivedAt, subject: m.subject };
-    let line: PullLine;
-    if (!isInternalCountsMessage({ subject: m.subject, from: m.from })) {
-      line = { ...base, outcome: "not_internal_counts" };
-    } else if (!opts.dryRun && (await isAlreadyRead(sb, m.id))) {
-      summary.matched++;
-      line = { ...base, outcome: "already_read" };
-    } else {
-      summary.matched++;
+    const threadHasCount = !!m.threadId && ctx.countThreads.has(m.threadId);
+    const kind = classifyMessage({ subject: m.subject, from: m.from, hasPdf: m.pdfs.length > 0 }, threadHasCount);
+    const line: PullLine = { messageId: m.id, receivedAt: m.receivedAt, subject: m.subject, from: m.from, kind };
+    if (kind !== "ignore") {
       const pdf = m.pdfs[0];
-      const bytes = pdf ? await source.pdf(m) : null;
-      const result = await processReport(
+      const bytes = pdf && kind !== "reply" ? await source.pdf(m) : null;
+      line.result = await processMessageSafely(
         sb,
+        ctx,
         {
           userId: opts.userId,
           source: "gmail",
+          kind,
           messageId: m.id,
+          threadId: m.threadId,
           receivedAt: m.receivedAt,
           sender: m.from,
           subject: m.subject,
           body: m.body,
           pdf: pdf && bytes ? { filename: pdf.filename, bytes } : null,
         },
-        { dryRun: opts.dryRun, confirmedAliases: opts.confirmedAliases, memory: opts.memory, offline: opts.offline },
+        { dryRun: opts.dryRun, confirmedAliases: opts.confirmedAliases },
       );
-      const outcome = !pdf ? "no_pdf" : result.status === "processed" ? "processed" : result.status === "already_read" ? "already_read" : "unreadable";
-      line = { ...base, outcome, result };
     }
     tally(summary, line);
     opts.onMessage?.(line);

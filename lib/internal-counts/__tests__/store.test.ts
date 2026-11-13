@@ -4,38 +4,46 @@ import { describe, it } from "node:test";
 
 import { fakeDb, op, type FakeCall } from "../../launched-ads/__tests__/fake-db.ts";
 import { PROPOSED_COUNT_ALIASES } from "../aliases.ts";
-import { cellRows, processReport, type DryRunMemory, type IncomingReport } from "../store.ts";
+import { offlineContext, type RunContext } from "../context.ts";
+import { resolveItem } from "../resolve.ts";
+import { cellRows, processMessage, type IncomingMessage } from "../store.ts";
 
 const pdf12 = new Uint8Array(readFileSync(new URL("./fixtures/internal-counts-2026-11-12.pdf", import.meta.url)));
 const pdf11 = new Uint8Array(readFileSync(new URL("./fixtures/internal-counts-2026-11-11.pdf", import.meta.url)));
 
-const EVENTS = Object.values(PROPOSED_COUNT_ALIASES).map((code) => ({
-  id: `id-${code}`,
-  event_code: code,
-  user_id: "u1",
-  client_id: "c1",
-}));
+/** A run context over real-looking events, as loadRunContext would build it. */
+function runContext(): RunContext {
+  const ctx = offlineContext(PROPOSED_COUNT_ALIASES);
+  ctx.offline = false;
+  for (const e of ctx.events) {
+    e.id = `id-${e.eventCode}`;
+    e.userId = "u1";
+    e.clientId = "c1";
+  }
+  ctx.eventsByCode = new Map(ctx.events.map((e) => [e.eventCode, e]));
+  ctx.eventsById = new Map(ctx.events.map((e) => [e.id, e]));
+  return ctx;
+}
 
 /** A tiny stateful database: reports by message id, everything else recorded. */
-function fakeStore() {
+function fakeStore(seed: { item?: Record<string, unknown> } = {}) {
   const reports = new Set<string>();
   const rpcs: Array<[string, Record<string, unknown>]> = [];
   const uploads: string[] = [];
   const { db, calls } = fakeDb((call: FakeCall) => {
-    const insert = op(call, "insert")?.[0] as Record<string, unknown> | Array<Record<string, unknown>> | undefined;
+    const insert = op(call, "insert")?.[0] as Record<string, unknown> | undefined;
     const upsert = op(call, "upsert")?.[0] as Array<Record<string, unknown>> | undefined;
     if (call.table === "internal_count_reports" && op(call, "maybeSingle")) {
-      const id = op(call, "eq")?.[1] as string;
-      return { data: reports.has(id) ? { id: "r" } : null, error: null };
+      return { data: reports.has(op(call, "eq")?.[1] as string) ? { id: "r" } : null, error: null };
     }
     if (call.table === "internal_count_reports" && insert && !Array.isArray(insert)) {
       reports.add(insert.gmail_message_id as string);
       return { data: { id: `report-${reports.size}` }, error: null };
     }
-    if (call.table === "events") return { data: EVENTS, error: null };
     if (call.table === "internal_count_blocks" && upsert) {
       return { data: upsert.map((b) => ({ id: `block-${b.block_index}`, block_index: b.block_index })), error: null };
     }
+    if (call.table === "internal_count_review_items" && op(call, "single")) return { data: seed.item ?? null, error: null };
     return { data: [], error: null };
   });
   const sb = Object.assign(db as object, {
@@ -55,21 +63,26 @@ function fakeStore() {
   return { sb: sb as never, calls, rpcs, uploads };
 }
 
-const message: IncomingReport = {
+const message: IncomingMessage = {
   userId: "u1",
   source: "gmail",
-  messageId: "1a1ca72a26a7b4f0",
-  receivedAt: "2026-11-12T11:51:09Z",
-  sender: "Rachel@electric-group.co.uk",
-  subject: "Internal Show counts 12.11.26",
-  body: "Hi, Please see today's internal show counts attached.",
-  pdf: { filename: "internal-counts.pdf", bytes: pdf12 },
+  kind: "count",
+  messageId: "1a1cf88f5009e5ff",
+  threadId: "1a1cf88f5009e5ff",
+  receivedAt: "2026-11-12T11:33:36Z",
+  sender: "Rachel Chadwick <Rachel@electric-group.co.uk>",
+  subject: "Internal Show Count 12.11.26",
+  body: "Hello, Please see today's internal show count attached.",
+  pdf: { filename: "MIKE'S INTERNAL SHOWS - INTERNAL COUNTS (23).pdf", bytes: pdf12 },
 };
 
-describe("processReport", () => {
-  it("writes each block once, then re-reading the message writes 0 rows", async () => {
+const writes = (calls: FakeCall[]) => calls.filter((c) => op(c, "insert") || op(c, "upsert") || op(c, "update") || op(c, "delete"));
+
+describe("processMessage", () => {
+  it("writes each show once; re-reading the message writes 0 rows", async () => {
     const store = fakeStore();
-    const first = await processReport(store.sb, message, { confirmedAliases: PROPOSED_COUNT_ALIASES });
+    const ctx = runContext();
+    const first = await processMessage(store.sb, ctx, message);
     assert.equal(first.status, "processed");
     assert.equal(first.blocksWritten, 9);
     assert.equal(store.rpcs.length, 9);
@@ -79,36 +92,93 @@ describe("processReport", () => {
     assert.equal((ipc.p_snapshot as { tickets_sold: number }).tickets_sold, 1828);
     assert.equal((ipc.p_snapshot as { gross_revenue_cents: number | null }).gross_revenue_cents, null);
 
-    const writesBefore = store.calls.filter((c) => op(c, "insert") || op(c, "upsert")).length;
-    const second = await processReport(store.sb, message, { confirmedAliases: PROPOSED_COUNT_ALIASES });
+    const before = writes(store.calls).length;
+    const second = await processMessage(store.sb, ctx, message);
     assert.equal(second.status, "already_read");
-    assert.equal(second.blocksWritten, 0);
     assert.equal(store.rpcs.length, 9);
     assert.equal(store.uploads.length, 1);
-    assert.equal(store.calls.filter((c) => op(c, "insert") || op(c, "upsert")).length, writesBefore);
+    assert.equal(writes(store.calls).length, before);
   });
 
-  it("dry run writes nothing and carries counts forward for the SINCE LAST check", async () => {
+  it("dry run writes nothing and carries counts forward: ours minus 11 Nov equals SINCE LAST COUNT", async () => {
     const store = fakeStore();
-    const memory: DryRunMemory = { counts: [] };
-    const opts = { dryRun: true, confirmedAliases: PROPOSED_COUNT_ALIASES, memory };
-    await processReport(store.sb, { ...message, messageId: "m11", subject: "Internal Show counts 11.11.26", pdf: { filename: "a.pdf", bytes: pdf11 } }, opts);
-    const r12 = await processReport(store.sb, message, opts);
+    const ctx = runContext();
+    await processMessage(store.sb, ctx, { ...message, messageId: "m11", subject: "Internal Show counts 11.11.26", pdf: { filename: "a.pdf", bytes: pdf11 } }, { dryRun: true });
+    const r12 = await processMessage(store.sb, ctx, message, { dryRun: true });
     assert.equal(store.rpcs.length, 0);
     assert.equal(store.uploads.length, 0);
-    assert.equal(store.calls.filter((c) => op(c, "insert") || op(c, "upsert")).length, 0);
-    assert.equal(memory.counts.length, 18);
-    assert.deepEqual(r12.plan!.reviewItems.map((i) => i.kind), ["price_looks_wrong"]);
+    assert.equal(writes(store.calls).length, 0);
+    assert.deepEqual(r12.reviewItems.map((i) => i.kind), ["price_looks_wrong"]);
     assert.ok(r12.plan!.blocks.every((b) => b.ourDelta === b.sinceLast));
   });
 
-  it("sends only paid, non-blank cells to tier_channel_sales", async () => {
+  it("a reply in a count's thread is a note; its text runs the sales check", async () => {
     const store = fakeStore();
-    const r = await processReport(store.sb, message, { dryRun: true, confirmedAliases: PROPOSED_COUNT_ALIASES });
+    const ctx = runContext();
+    ctx.countThreads.set("t6", "report-6nov");
+    const r = await processMessage(
+      store.sb,
+      ctx,
+      { ...message, kind: "reply", messageId: "r1", threadId: "t6", subject: "Re: Internal Show counts 06.11.26", body: "We sold another 40 tickets on Skiddle tonight.", pdf: null },
+      { dryRun: true },
+    );
+    assert.equal(r.status, "note");
+    assert.deepEqual(r.reviewItems.map((i) => i.kind), ["sale_mention"]);
+    assert.equal(r.blocksWritten, 0);
+  });
+
+  it("a near miss is stored with one item and nothing read from it", async () => {
+    const store = fakeStore();
+    const r = await processMessage(store.sb, runContext(), { ...message, kind: "near_miss", messageId: "nm", subject: "Re: Internal Counts 16.10.26" });
+    assert.equal(r.status, "not_read");
+    assert.deepEqual(r.reviewItems.map((i) => i.kind), ["near_miss"]);
+    assert.equal(store.rpcs.length, 0);
+  });
+
+  it("sends only paid, non-blank cells to tier_channel_sales", async () => {
+    const r = await processMessage(fakeStore().sb, runContext(), message, { dryRun: true });
     const lock = r.plan!.blocks.find((b) => b.showName === "LOCKLEAD")!;
     const rows = cellRows(lock);
     assert.equal(rows.reduce((a, c) => a + (c.tickets ?? 0), 0), 372);
     assert.ok(rows.every((c) => c.tickets !== null));
     assert.ok(rows.some((c) => c.outlet === "SKIDDLE" && c.tier_name === "7:Group" && c.tickets === 32));
+  });
+});
+
+describe("\"Revenue is right\"", () => {
+  it("releases the held revenue on the block and records who; no count row is touched", async () => {
+    const item = {
+      id: "item-1",
+      report_id: "report-1",
+      block_id: "block-0",
+      kind: "price_looks_wrong",
+      show_name: "IPC",
+      detail: {},
+      resolved_at: null,
+      resolution: null,
+    };
+    const store = fakeStore({ item });
+    await resolveItem(store.sb, "item-1", { kind: "revenue_right" }, { userId: "u1", name: "Matas" }, runContext());
+    const touched = writes(store.calls);
+    assert.deepEqual(
+      touched.map((c) => c.table),
+      ["internal_count_blocks", "internal_count_review_items"],
+    );
+    assert.deepEqual(Object.keys(op(touched[0], "update")![0] as object).sort(), ["revenue_held", "revenue_released_at", "revenue_released_by"]);
+    const resolved = op(touched[1], "update")![0] as Record<string, unknown>;
+    assert.equal(resolved.resolution, "revenue_right");
+    assert.equal(resolved.resolved_by, "u1");
+    assert.equal(resolved.resolved_by_name, "Matas");
+    assert.ok(resolved.resolved_at);
+    assert.equal(store.rpcs.length, 0);
+    assert.ok(!store.calls.some((c) => c.table === "tier_channel_sales" || c.table === "ticket_sales_snapshots"));
+  });
+
+  it("is refused on an item that's already checked: nothing resolves twice", async () => {
+    const store = fakeStore({
+      item: { id: "i", report_id: "r", block_id: "b", kind: "price_looks_wrong", show_name: "IPC", detail: {}, resolved_at: "2026-11-12T15:00:00Z", resolution: "keep_holding" },
+    });
+    await assert.rejects(resolveItem(store.sb, "i", { kind: "revenue_right" }, { userId: "u1", name: "Matas" }, runContext()));
+    assert.equal(writes(store.calls).length, 0);
   });
 });

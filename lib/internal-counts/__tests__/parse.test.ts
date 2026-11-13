@@ -87,19 +87,41 @@ describe("12 Nov sheet", () => {
     }
   });
 
-  it("passes every check except IPC's prices", () => {
+  it("passes every check except IPC's prices (every tier fires, M4)", () => {
     for (const b of sheet.blocks) {
       const check = checkBlock(b);
-      assert.deepEqual(check.blocking, [], b.showName);
-      assert.equal(check.revenueWithheld, b.showName === "IPC", b.showName);
+      assert.deepEqual(check.unreadable, [], b.showName);
+      assert.equal(check.sum, null, b.showName);
+      assert.deepEqual(check.revenueMismatch, [], b.showName);
+      assert.equal(check.revenueHeld, b.showName === "IPC", b.showName);
     }
-    assert.deepEqual(checkBlock(byShow(sheet).get("IPC")!).priceLooksWrong, [1, 2, 3, 4, 5, 6, 7]);
+    const ipc = checkBlock(byShow(sheet).get("IPC")!);
+    assert.deepEqual(ipc.priceFlags.map((f) => f.position), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(ipc.priceFlags[0], {
+      position: 1,
+      tierName: "1ST",
+      outlet: "SKIDDLE",
+      pricePence: 20000,
+      count: 200,
+      reason: "equals_count",
+      ceilingPence: 15000,
+    });
   });
 
-  it("reads both date forms from TIER TOTALS", () => {
-    assert.equal(byShow(sheet).get("IPC")!.countDateText, "12/11/2026");
-    assert.equal(byShow(sheet).get("SCHAK")!.countDateText, "12/11/26");
-    for (const b of sheet.blocks) assert.equal(b.countDate, "2026-11-12");
+  it("flags a price above the event's dearest paid tier, with £150 only as the fallback", () => {
+    const eed = byShow(sheet).get("EAST END DUBS")!;
+    assert.equal(checkBlock(eed).priceFlags.length, 0);
+    assert.deepEqual(
+      checkBlock(eed, 26_00).priceFlags.map((f) => [f.tierName, f.reason]),
+      [["3rd", "above_ceiling"]],
+    );
+  });
+
+  it("reads both date forms from TIER TOTALS, day first: 12/11/2026 on IPC, 12/11/26 elsewhere", () => {
+    for (const b of sheet.blocks) {
+      assert.equal(b.countDateText, b.showName === "IPC" ? "12/11/2026" : "12/11/26", b.showName);
+      assert.equal(b.countDate, "2026-11-12");
+    }
   });
 
   it("keys repeated tier names by position", () => {
@@ -146,12 +168,21 @@ describe("11 Nov sheet, and the delta to 12 Nov", () => {
     }
   });
 
+  it("reads 11/11/26 on every block, day first", async () => {
+    const d11 = await parseFixture("internal-counts-2026-11-11.pdf");
+    for (const b of d11.blocks) {
+      assert.equal(b.countDateText, "11/11/26", b.showName);
+      assert.equal(b.countDate, "2026-11-11", b.showName);
+    }
+  });
+
   it("passes every check; IPC's prices repeat its Skiddle counts there too", async () => {
     const d11 = await parseFixture("internal-counts-2026-11-11.pdf");
     for (const b of d11.blocks) {
       const check = checkBlock(b);
-      assert.deepEqual(check.blocking, [], b.showName);
-      assert.equal(check.revenueWithheld, b.showName === "IPC", b.showName);
+      assert.equal(check.sum, null, b.showName);
+      assert.deepEqual(check.unreadable, [], b.showName);
+      assert.equal(check.revenueHeld, b.showName === "IPC", b.showName);
     }
   });
 });
@@ -167,15 +198,16 @@ describe("5 Oct sheet (DJ EZ's final count, from the \"Fw: Internal Counts 05.10
       djez.tiers.filter((t) => t.comp).map((t) => t.name),
       ["Guest List", "VIP Free"],
     );
-    // The sheet prices VIP Free at -£1.00 and totals it -£89.00; count × price still holds.
-    assert.deepEqual(checkBlock(djez).blocking, []);
+    // VIP Free is a comp priced -£1.00: counted as comps, left out of revenue, no item.
+    const check = checkBlock(djez);
+    assert.equal(check.sum, null);
+    assert.equal(check.revenueHeld, false);
   });
 
-  it("reads 16 shows over 3 pages; payment-plan columns folded into the totals row send those blocks to review", async () => {
+  it("reads 16 shows over 3 pages; payment-plan columns don't hold a show whose tiers still sum to its total", async () => {
     const sheet = await parseFixture("internal-counts-2026-10-05.pdf");
     assert.equal(sheet.blocks.length, 16);
-    const failing = sheet.blocks.filter((b) => checkBlock(b).blocking.length > 0).map((b) => b.showName);
-    assert.deepEqual(failing, ["ENZO SIRAGUSA", "DUSKY BRIS", "SKIN ON SKIN", "DUSKY SHEFF"]);
+    assert.deepEqual(sheet.blocks.filter((b) => checkBlock(b).sum).map((b) => b.showName), []);
     assert.equal(byShow(sheet).get("RUDIMENTAL")!.countDate, "2026-10-01");
   });
 });
@@ -184,7 +216,7 @@ describe("comps", () => {
   it("never count as sold", () => {
     const sheet = parseInternalCountsItems(syntheticSheet());
     const [block] = sheet.blocks;
-    assert.deepEqual(checkBlock(block).blocking, []);
+    assert.equal(checkBlock(block).sum, null);
     assert.deepEqual(
       block.tiers.map((t) => t.comp),
       [false, true, true],

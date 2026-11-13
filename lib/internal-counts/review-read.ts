@@ -2,18 +2,21 @@
  * lib/internal-counts/review-read.ts
  *
  * Reads the review list for the signed-in operator (RLS: own rows only)
- * and shapes it for components/internal-counts/review-list.tsx.
+ * and shapes it with R1's words. Internal only (D11): nothing under the
+ * share or client-admin routes imports this (guarded by a test).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { InternalCountsView, RecentCountView, ReviewGroupView } from "./view-types.ts";
 import { pageAll } from "../db/paged-read.ts";
+import { PROPOSED_COUNT_ALIASES, UMBRELLA_EVENT_CODES } from "./aliases.ts";
+import { checkedItemView, dayMonth, openItemView, type ItemFacts } from "./review-words.ts";
+import type { EventOption, InternalCountsView } from "./view-types.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = SupabaseClient<any, any, any>;
 
-const RECENT = 30;
+const CHECKED_SHOWN = 30;
 
 const FLASH: Record<string, string> = {
   "gmail=connected": "Gmail connected. Counts are read hourly on weekdays.",
@@ -29,6 +32,8 @@ const FLASH: Record<string, string> = {
   "upload=not_pdf": "That file isn't a PDF.",
   "upload=already_read": "That PDF was uploaded before. Nothing new was written.",
   "upload=unreadable": "That PDF couldn't be read as an Internal Counts sheet. It's on the list below.",
+  "action=incomplete": "Choose an event, or type a figure, first.",
+  "action=failed": "That didn't go through. Nothing was changed.",
 };
 
 export function flashFor(params: Record<string, string | undefined>): string | null {
@@ -38,11 +43,7 @@ export function flashFor(params: Record<string, string | undefined>): string | n
     if (text) return text;
   }
   if (params.upload === "processed") {
-    return `Uploaded. ${params.written ?? 0} shows written, ${params.review ?? 0} to review.`;
-  }
-  if (params.rerun) {
-    const [written, review] = params.rerun.split(":");
-    return `Ran again. ${written} shows written, ${review} still to review.`;
+    return `Uploaded. ${params.written ?? 0} shows stored, ${params.held ?? 0} held.`;
   }
   return null;
 }
@@ -50,94 +51,165 @@ export function flashFor(params: Record<string, string | undefined>): string | n
 interface ItemRow {
   id: string;
   report_id: string;
+  block_id: string | null;
   kind: string;
-  blocking: boolean;
   show_name: string | null;
-  message: string;
+  detail: Record<string, unknown>;
+  resolution: string | null;
+  resolved_by_name: string | null;
+  resolved_at: string | null;
   created_at: string;
 }
 
 interface ReportRow {
   id: string;
   subject: string;
+  sender: string | null;
   received_at: string;
-  count_date: string | null;
+  sheet_date: string | null;
+  subject_date: string | null;
+  gmail_message_id: string;
+  pdf_filename: string | null;
 }
 
-export async function readReviewList(
-  sb: Db,
-  input: { gmailConfigured: boolean; flash: string | null },
-): Promise<InternalCountsView> {
+interface EventRow {
+  id: string;
+  event_code: string | null;
+  name: string | null;
+  event_date: string | null;
+  client_id: string | null;
+}
+
+async function readItems(sb: Db, open: boolean): Promise<ItemRow[]> {
+  const cols = "id,report_id,block_id,kind,show_name,detail,resolution,resolved_by_name,resolved_at,created_at";
+  if (open) {
+    return pageAll<ItemRow>(
+      (from, to) =>
+        sb
+          .from("internal_count_review_items")
+          .select(cols)
+          .is("resolved_at", null)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ["id"],
+      "internal_count_review_items",
+    );
+  }
+  const { data, error } = await sb
+    .from("internal_count_review_items")
+    .select(cols)
+    .not("resolved_at", "is", null)
+    .order("resolved_at", { ascending: false })
+    .order("id", { ascending: true })
+    .limit(CHECKED_SHOWN);
+  if (error) throw new Error(`internal_count_review_items read failed: ${error.message}`);
+  return (data ?? []) as ItemRow[];
+}
+
+/** Events to choose from: the clients the counts are about (matched names and the 12 Nov proposals), from 120 days back. */
+async function eventOptions(sb: Db, blockEventIds: string[]): Promise<{ options: EventOption[]; byId: Map<string, EventRow>; byCode: Map<string, EventRow> }> {
+  const seeds = await sb
+    .from("events")
+    .select("id,event_code,name,event_date,client_id")
+    .or(
+      [
+        `event_code.in.(${Object.values(PROPOSED_COUNT_ALIASES).map((c) => `"${c}"`).join(",")})`,
+        ...(blockEventIds.length ? [`id.in.(${blockEventIds.join(",")})`] : []),
+      ].join(","),
+    );
+  const clientIds = [...new Set(((seeds.data ?? []) as EventRow[]).map((e) => e.client_id).filter((c): c is string => !!c))];
+  const since = new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10);
+  const events = clientIds.length
+    ? await pageAll<EventRow>(
+        (from, to) =>
+          sb
+            .from("events")
+            .select("id,event_code,name,event_date,client_id")
+            .in("client_id", clientIds)
+            .gte("event_date", since)
+            .order("event_date", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to),
+        ["id"],
+        "events",
+      )
+    : [];
+  const all = [...events, ...((seeds.data ?? []) as EventRow[])];
+  const byId = new Map(all.map((e) => [e.id, e]));
+  const byCode = new Map(all.filter((e) => e.event_code).map((e) => [e.event_code!, e]));
+  const options = events
+    .filter((e) => !UMBRELLA_EVENT_CODES.has(e.event_code ?? ""))
+    .map((e) => ({ id: e.id, label: `${e.name ?? e.event_code} · ${e.event_date ? dayMonth(e.event_date) : "no date"}` }));
+  return { options, byId, byCode };
+}
+
+export async function readReviewList(sb: Db, input: { gmailConfigured: boolean; flash: string | null }): Promise<InternalCountsView> {
   const { data: conn } = await sb
     .from("gmail_connections")
     .select("email,last_pull_at,last_pull_error")
     .order("connected_at", { ascending: true })
     .limit(1);
-  const items = await pageAll<ItemRow>(
-    (from, to) =>
-      sb
-        .from("internal_count_review_items")
-        .select("id,report_id,kind,blocking,show_name,message,created_at")
-        .is("resolved_at", null)
-        .order("created_at", { ascending: false })
-        .order("id", { ascending: true })
-        .range(from, to),
-    ["id"],
-    "internal_count_review_items",
-  );
-  const { data: recentRows } = await sb
-    .from("internal_count_reports")
-    .select("id,subject,received_at,count_date")
-    .order("received_at", { ascending: false })
-    .order("id", { ascending: true })
-    .limit(RECENT);
-  const reportIds = [...new Set([...items.map((i) => i.report_id), ...((recentRows ?? []) as ReportRow[]).map((r) => r.id)])];
+  const inbox = (conn?.[0]?.email as string | undefined) ?? null;
+  const open = await readItems(sb, true);
+  const checked = await readItems(sb, false);
+  const items = [...open, ...checked];
+  const reportIds = [...new Set(items.map((i) => i.report_id))];
+  const blockIds = [...new Set(items.map((i) => i.block_id).filter((b): b is string => !!b))];
   const reports = new Map<string, ReportRow>();
-  const blocks = new Map<string, { written: number; inReview: number }>();
+  const blockEvent = new Map<string, string | null>();
   if (reportIds.length) {
-    const { data } = await sb.from("internal_count_reports").select("id,subject,received_at,count_date").in("id", reportIds);
+    const { data } = await sb
+      .from("internal_count_reports")
+      .select("id,subject,sender,received_at,sheet_date,subject_date,gmail_message_id,pdf_filename")
+      .in("id", reportIds);
     for (const r of (data ?? []) as ReportRow[]) reports.set(r.id, r);
-    const blockRows = await pageAll<{ id: string; report_id: string; status: string }>(
-      (from, to) =>
-        sb.from("internal_count_blocks").select("id,report_id,status").in("report_id", reportIds).order("id", { ascending: true }).range(from, to),
-      ["id"],
-      "internal_count_blocks",
-    );
-    for (const b of blockRows) {
-      const t = blocks.get(b.report_id) ?? { written: 0, inReview: 0 };
-      if (b.status === "written") t.written++;
-      else t.inReview++;
-      blocks.set(b.report_id, t);
-    }
   }
-  return {
-    gmailConfigured: input.gmailConfigured,
-    gmail: conn?.[0]
-      ? { email: conn[0].email, lastPullAt: conn[0].last_pull_at, lastPullError: conn[0].last_pull_error }
-      : null,
-    flash: input.flash,
-    groups: groupItems(items, reports),
-    recent: ((recentRows ?? []) as ReportRow[]).map(
-      (r): RecentCountView => ({
-        reportId: r.id,
+  if (blockIds.length) {
+    const { data } = await sb.from("internal_count_blocks").select("id,event_id").in("id", blockIds);
+    for (const b of (data ?? []) as Array<{ id: string; event_id: string | null }>) blockEvent.set(b.id, b.event_id);
+  }
+  const { options, byId, byCode } = await eventOptions(
+    sb,
+    [...blockEvent.values()].filter((e): e is string => !!e),
+  );
+  const facts = (i: ItemRow): ItemFacts | null => {
+    const r = reports.get(i.report_id);
+    if (!r) return null;
+    const eventId = i.block_id ? blockEvent.get(i.block_id) : null;
+    const closest = i.detail.closest as { eventCode: string } | null | undefined;
+    const detail = closest ? { ...i.detail, closest: { ...closest, id: byCode.get(closest.eventCode)?.id } } : i.detail;
+    return {
+      id: i.id,
+      kind: i.kind,
+      showName: i.show_name,
+      eventName: eventId ? (byId.get(eventId)?.name ?? null) : null,
+      detail,
+      report: {
         subject: r.subject,
+        sender: r.sender,
         receivedAt: r.received_at,
-        countDate: r.count_date,
-        ...(blocks.get(r.id) ?? { written: 0, inReview: 0 }),
-      }),
-    ),
+        sheetDate: r.sheet_date,
+        subjectDate: r.subject_date,
+        gmailMessageId: r.gmail_message_id,
+        pdfFilename: r.pdf_filename,
+      },
+      inbox,
+    };
   };
-}
-
-function groupItems(items: ItemRow[], reports: Map<string, ReportRow>): ReviewGroupView[] {
-  const groups = new Map<string, ReviewGroupView>();
-  for (const i of items) {
-    const report = reports.get(i.report_id);
-    if (!report) continue;
-    const g = groups.get(i.report_id) ?? { reportId: i.report_id, subject: report.subject, receivedAt: report.received_at, items: [] };
-    g.items.push({ id: i.id, kind: i.kind, blocking: i.blocking, showName: i.show_name, message: i.message });
-    groups.set(i.report_id, g);
-  }
-  for (const g of groups.values()) g.items.sort((a, b) => Number(b.blocking) - Number(a.blocking));
-  return [...groups.values()].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+  return {
+    inbox,
+    gmailConfigured: input.gmailConfigured,
+    gmail: conn?.[0] ? { email: conn[0].email, lastPullAt: conn[0].last_pull_at, lastPullError: conn[0].last_pull_error } : null,
+    flash: input.flash,
+    open: open.flatMap((i) => {
+      const f = facts(i);
+      return f ? [openItemView(f)] : [];
+    }),
+    checked: checked.flatMap((i) => {
+      const f = facts(i);
+      return f && i.resolved_at ? [checkedItemView(f, i.resolved_by_name, i.resolved_at, i.resolution ?? "")] : [];
+    }),
+    events: options,
+  };
 }

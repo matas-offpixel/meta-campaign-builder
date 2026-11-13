@@ -14,23 +14,25 @@
  * limits to messages received on or after that day.
  *
  * --assume-proposed (dry run only) treats the exact-name proposals in
- * lib/internal-counts/aliases.ts as confirmed, to show what the backfill
- * writes once Matas confirms them. --from-dir DIR (dry run only) reads a
+ * lib/internal-counts/aliases.ts as matched, to show what the backfill
+ * writes once Matas matches them. --from-dir DIR (dry run only) reads a
  * local export instead of Gmail: DIR/manifest.json is
- * [{ id, subject, from, receivedAt, body, pdf }] with pdf a file in DIR
- * (or null). It reads no database, so it runs before migration 234.
- * --json FILE writes the summary.
+ * [{ id, threadId, subject, from, receivedAt, body, pdf }] with pdf a file
+ * in DIR (or null). It reads no database, so it runs before migration 234.
+ * --json FILE writes the summary. The summary ends with every sheet, show
+ * and tier where "price equals the column's count" fired.
  *
  * Gmail reads use gmail.readonly only. No token is ever printed.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 
 import type { MessageSummary } from "../lib/gmail/client.ts";
 import { PROPOSED_COUNT_ALIASES } from "../lib/internal-counts/aliases.ts";
+import { loadRunContext, offlineContext } from "../lib/internal-counts/context.ts";
 import { openGmailSession } from "../lib/internal-counts/gmail-session.ts";
 import {
   BACKFILL_QUERY,
@@ -40,7 +42,6 @@ import {
   type PullLine,
   type PullSummary,
 } from "../lib/internal-counts/pull.ts";
-import type { DryRunMemory } from "../lib/internal-counts/store.ts";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => argv.includes(name);
@@ -64,12 +65,13 @@ if (since && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
 }
 
 function dirSource(dir: string): MessageSource {
-  type Entry = { id: string; subject: string; from: string; receivedAt: string; body: string; pdf: string | null };
+  type Entry = { id: string; threadId?: string; subject: string; from: string; receivedAt: string; body: string; pdf: string | null };
   const entries = JSON.parse(readFileSync(path.join(dir, "manifest.json"), "utf8")) as Entry[];
   return {
     async list(): Promise<MessageSummary[]> {
       return entries.map((e) => ({
         id: e.id,
+        threadId: e.threadId ?? e.id,
         subject: e.subject,
         from: e.from,
         receivedAt: e.receivedAt,
@@ -79,32 +81,38 @@ function dirSource(dir: string): MessageSource {
     },
     async pdf(m) {
       const name = m.pdfs[0]?.attachmentId;
-      return name ? new Uint8Array(readFileSync(path.join(dir, name))) : null;
+      const file = name ? path.join(dir, name) : null;
+      return file && existsSync(file) ? new Uint8Array(readFileSync(file)) : null;
     },
   };
 }
 
 function lineText(l: PullLine): string {
-  const head = `${l.receivedAt.slice(0, 16).replace("T", " ")}  ${l.subject}`;
-  if (l.outcome !== "processed" || !l.result?.plan) return `${head}\n    ${l.outcome}`;
-  const plan = l.result.plan;
-  const shows = plan.blocks
-    .map((b) => `${b.showName} ${b.paid}${b.comps ? `+${b.comps} comps` : ""}${b.write ? "" : " (review)"}`)
+  const head = `${l.receivedAt.slice(0, 16).replace("T", " ")}  ${l.subject}  (${l.kind})`;
+  const r = l.result;
+  if (!r) return head;
+  const notes = r.reviewItems
+    .map((i) => `      · [${i.kind}] ${i.showName ? `${i.showName}: ` : ""}${JSON.stringify(i.detail).slice(0, 160)}`)
+    .join("\n");
+  if (!r.plan) return `${head}\n    ${r.status}${notes ? `\n${notes}` : ""}`;
+  const shows = r.plan.blocks
+    .map((b) => `${b.showName} ${b.paid}${b.comps ? `+${b.comps} comps` : ""}${b.status === "write" ? "" : ` (${b.status})`}`)
     .join(", ");
-  const notes = plan.reviewItems.map((i) => `      · [${i.kind}] ${i.showName ? `${i.showName}: ` : ""}${i.message}`).join("\n");
-  return `${head}\n    ${l.result.blocksWritten} written, ${l.result.blocksInReview} to review — ${shows}${notes ? `\n${notes}` : ""}`;
+  return `${head}\n    ${r.blocksWritten} written, ${r.blocksHeld} held — ${shows}${notes ? `\n${notes}` : ""}`;
 }
 
 function printSummary(s: PullSummary): void {
   console.log("\n## Summary");
   console.log(`messages found: ${s.found}`);
-  console.log(`Internal Counts by subject: ${s.matched}`);
-  console.log(`  parsed: ${s.processed}, unreadable or no PDF: ${s.unreadable}, already read: ${s.alreadyRead}`);
-  console.log(`blocks ${apply ? "written" : "that would write"}: ${s.blocksWritten}; blocks to review: ${s.blocksInReview}`);
+  console.log(`counts read: ${s.counts} (unreadable: ${s.unreadable}); replies stored as notes: ${s.replies}; near misses: ${s.nearMisses}; not ours: ${s.ignored}; already read: ${s.alreadyRead}`);
+  console.log(`show blocks ${apply ? "written" : "that would write"}: ${s.blocksWritten}; held: ${s.blocksHeld}`);
   console.log(`review items: ${s.reviewItems}`);
   for (const [kind, n] of Object.entries(s.reviewByKind).sort()) console.log(`  ${kind}: ${n}`);
-  console.log(`skipped (subject isn't Internal Counts): ${s.skippedSubjects.length}`);
-  for (const subj of s.skippedSubjects) console.log(`  ${subj}`);
+  console.log(`\n## "Price equals the column's count" firings: ${s.priceFirings.length}`);
+  console.log("received | count date | show | tier | price | count | every other check passed");
+  for (const f of s.priceFirings) {
+    console.log(`${f.receivedAt.slice(0, 10)} | ${f.countDate} | ${f.showName} | ${f.tierName} | £${(f.pricePence / 100).toFixed(2)} | ${f.count} | ${f.otherwiseClean ? "yes" : "no"}`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -131,13 +139,11 @@ async function main(): Promise<void> {
     source = gmailSource(session.gmail, BACKFILL_QUERY);
     userId = session.connection.user_id;
   }
-  const memory: DryRunMemory = { counts: [] };
-  const summary = await runInternalCountsPull(sb, source, {
+  const ctx = offline ? offlineContext(assumeProposed ? PROPOSED_COUNT_ALIASES : undefined) : await loadRunContext(sb);
+  const summary = await runInternalCountsPull(sb, ctx, source, {
     userId,
     since,
     dryRun: !apply,
-    offline,
-    memory,
     confirmedAliases: assumeProposed ? PROPOSED_COUNT_ALIASES : undefined,
     onMessage: (l) => console.log(lineText(l)),
   });
@@ -153,7 +159,8 @@ async function main(): Promise<void> {
             id: l.messageId,
             receivedAt: l.receivedAt,
             subject: l.subject,
-            outcome: l.outcome,
+            kind: l.kind,
+            status: l.result?.status ?? null,
             blocks: l.result?.plan?.blocks.map((b) => ({
               show: b.showName,
               countDate: b.countDate,
@@ -161,9 +168,9 @@ async function main(): Promise<void> {
               comps: b.comps,
               sinceLast: b.sinceLast,
               ourDelta: b.ourDelta,
-              write: b.write,
+              status: b.status,
             })),
-            review: l.result?.plan?.reviewItems,
+            review: l.result?.reviewItems,
           })),
         },
         null,

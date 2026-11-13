@@ -1,53 +1,70 @@
 /**
  * lib/internal-counts/plan.ts
  *
- * Turns one parsed Internal Counts email into what should be written and
- * what goes to the review list (D8, HD1). Pure: the caller supplies the
- * events, the confirmed aliases and the previously stored counts, so the
- * cron, the upload, the review-list rerun and the backfill's dry run all
- * share it.
+ * Turns one parsed Internal Counts email into what's written, what's held
+ * and what goes to the review list (D8 as re-ruled by
+ * docs/design-record/2026-11-13-internal-counts-matching.html, M1–M5).
+ * Pure: the caller supplies events, aliases, names marked "Not a show we
+ * run", price ceilings and the stored counts, so the cron, the upload, the
+ * review-list actions and the backfill's dry run all share it.
  *
- * Nothing is half-written: a block either writes all its rows or none.
+ * A show block is one of:
+ *   write    stored now
+ *   held     stored only once its review item is resolved (unmatched name,
+ *            sheet date ≠ subject date, tiers ≠ total). Nothing resolves itself.
+ *   repeat   restates a stored count (same show, date and total): a finished
+ *            show stays on the sheet for weeks. Writes nothing, asks nothing.
+ *   not_ours a name Matas marked "Not a show we run". Never asks again.
+ * A write for a date that already has a different count replaces it (M1
+ * corrections); both reports are kept and a review note says so.
  */
 
 import { matchShow, UMBRELLA_EVENT_CODES } from "./aliases.ts";
-import { checkBlock, paidRevenuePence, soldAndComps, type BlockCheck } from "./checks.ts";
-import { bodyMentionsSales, subjectCountDate } from "./message.ts";
+import {
+  checkBlock,
+  DEFAULT_PRICE_CEILING_PENCE,
+  isUnusedTier,
+  paidRevenuePence,
+  soldAndComps,
+  type BlockCheck,
+  type PriceFlag,
+} from "./checks.ts";
+import { saleMentions } from "./mentions.ts";
+import { subjectCountDate } from "./message.ts";
 import type { ParsedBlock, ParsedSheet } from "./parse.ts";
 
 export type ReviewKind =
-  | "unreadable_pdf"
-  | "check_failed"
-  | "unmatched_show"
-  | "unknown_event"
-  | "umbrella"
-  | "duplicate_count_date"
   | "price_looks_wrong"
-  | "count_date_mismatch"
-  | "since_last_mismatch"
-  | "body_mentions_sales";
+  | "sale_mention"
+  | "unmatched_show"
+  | "date_mismatch"
+  | "sum_mismatch"
+  | "unreadable_pdf"
+  | "near_miss"
+  | "replaced"
+  | "since_last_mismatch";
 
-/** Kinds that stop a block from writing. The rest are notes beside a written count. */
-export const BLOCKING_KINDS: ReadonlySet<ReviewKind> = new Set([
-  "unreadable_pdf",
-  "check_failed",
+/** Kinds that hold a show's (or the sheet's) counts until resolved. */
+export const HOLDING_KINDS: ReadonlySet<ReviewKind> = new Set([
   "unmatched_show",
-  "unknown_event",
-  "umbrella",
-  "duplicate_count_date",
+  "date_mismatch",
+  "sum_mismatch",
+  "unreadable_pdf",
 ]);
 
 export interface ReviewItemPlan {
   kind: ReviewKind;
+  /** null for an item on the whole email or sheet. */
   blockIndex: number | null;
   showName: string | null;
-  message: string;
   detail: Record<string, unknown>;
 }
 
 export interface EventRef {
   id: string;
   eventCode: string;
+  name: string;
+  eventDate: string | null;
   userId: string;
   clientId: string | null;
 }
@@ -57,232 +74,96 @@ export interface CellPlan {
   tierName: string;
   tierKey: string;
   comp: boolean;
+  unused: boolean;
   outlet: string;
   /** null = blank cell (no sales in that outlet); 0 = a printed 0. */
   tickets: number | null;
   pricePence: number | null;
-  /** null when the show's revenue is withheld or the tier has no usable price. */
+  /** null when the show's revenue is held, or the tier is a comp or unused. */
   revenuePence: number | null;
 }
 
-export interface BlockPlan {
-  index: number;
-  showName: string;
-  eventCode: string | null;
-  proposedEventCode: string | null;
-  eventId: string | null;
-  countDate: string | null;
-  write: boolean;
-  /**
-   * The block restates a count already stored (same show, date and total):
-   * a finished show stays on the sheet with its last count for weeks. It
-   * writes nothing and raises nothing.
-   */
-  repeat: boolean;
+export type BlockStatus = "write" | "held" | "repeat" | "not_ours";
+
+export interface BlockWrite {
   paid: number;
   comps: number;
   total: number;
+  revenueHeld: boolean;
+  /** The sheet's paid £, kept even when held so "Revenue is right" can release it. */
+  paidRevenuePence: number;
+  cells: CellPlan[];
+}
+
+export interface BlockPlan extends BlockWrite {
+  index: number;
+  showName: string;
+  eventCode: string | null;
+  eventId: string | null;
+  countDate: string | null;
+  status: BlockStatus;
+  /** A write that replaces a different count already stored for this date. */
+  replaces: boolean;
   /** Their SINCE LAST COUNT, as printed. */
   sinceLast: number | null;
   /** Our delta from the previous stored count, when there is one. */
   ourDelta: number | null;
-  revenueWithheld: boolean;
-  paidRevenuePence: number | null;
-  cells: CellPlan[];
+  priceFlags: PriceFlag[];
   parsed: ParsedBlock;
 }
 
 export interface ReportPlan {
   subjectDate: string | null;
+  /** The count date most blocks carry. */
+  sheetDate: string | null;
+  unreadable: boolean;
   blocks: BlockPlan[];
   reviewItems: ReviewItemPlan[];
 }
 
-export interface ReportInput {
-  subject: string;
-  body: string;
+export interface ClosestEvent {
+  eventCode: string;
+  name: string;
+  eventDate: string | null;
 }
 
 export interface PlanContext {
   eventsByCode: ReadonlyMap<string, EventRef>;
   confirmedAliases?: Readonly<Record<string, string>>;
-  /** The latest stored count total (paid + comps) for the event before this count date. */
+  /** Names marked "Not a show we run", exactly as written. */
+  notOurs: ReadonlySet<string>;
+  /** The closest event to an unmatched name, for "Closest: {event} · {date}". */
+  closest: (showName: string) => ClosestEvent | null;
+  /** The event's highest paid ticket price in pence, or null when none is stored. */
+  priceCeiling: (eventId: string) => number | null;
+  /** The latest stored total (paid + comps) for the event before this count date. */
   previousTotal: (eventId: string, countDate: string) => number | null;
   /** The total another email already stored for this event and date, or null. */
   storedTotalOn: (eventId: string, countDate: string) => number | null;
 }
 
-export function planReport(report: ReportInput, sheet: ParsedSheet | null, ctx: PlanContext): ReportPlan {
-  const subjectDate = subjectCountDate(report.subject);
-  const reviewItems: ReviewItemPlan[] = [];
-  if (bodyMentionsSales(report.body)) {
-    reviewItems.push({
-      kind: "body_mentions_sales",
-      blockIndex: null,
-      showName: null,
-      message: "Email mentions sales not in the sheet",
-      detail: {},
-    });
-  }
-  if (!sheet || sheet.blocks.length === 0) {
-    reviewItems.push({
-      kind: "unreadable_pdf",
-      blockIndex: null,
-      showName: null,
-      message: sheet?.problems[0] ?? "The PDF couldn't be read.",
-      detail: { problems: sheet?.problems ?? [] },
-    });
-    return { subjectDate, blocks: [], reviewItems };
-  }
-  const blocks = sheet.blocks.map((b) => planBlock(b, subjectDate, ctx, reviewItems));
-  return { subjectDate, blocks, reviewItems };
+export interface ReportInput {
+  subject: string;
+  body: string;
+  pdfFilename: string | null;
 }
 
-function item(block: ParsedBlock, kind: ReviewKind, message: string, detail: Record<string, unknown> = {}): ReviewItemPlan {
-  return { kind, blockIndex: block.index, showName: block.showName, message, detail };
-}
-
-function planBlock(
-  block: ParsedBlock,
-  subjectDate: string | null,
-  ctx: PlanContext,
-  out: ReviewItemPlan[],
-): BlockPlan {
-  const check = checkBlock(block);
-  const items: ReviewItemPlan[] = [];
-  if (check.blocking.length) {
-    items.push(item(block, "check_failed", check.blocking[0], { failures: check.blocking }));
-  }
-  const match = matchShow(block.showName, ctx.confirmedAliases);
-  const event = resolveEvent(block, match, ctx, items);
-  const sums = soldAndComps(block);
-  const countDate = block.countDate;
-  const stored = event && countDate ? ctx.storedTotalOn(event.id, countDate) : null;
-  const repeat = stored !== null && stored === sums.total && check.blocking.length === 0;
-  if (repeat) {
-    return {
-      ...blockBase(block, match, event, countDate, sums, check),
-      write: false,
-      repeat: true,
-      ourDelta: 0,
-    };
-  }
-  addNotes(block, check, subjectDate, items);
-
-  let ourDelta: number | null = null;
-  if (event && countDate) {
-    if (stored !== null) {
-      items.push(
-        item(block, "duplicate_count_date", `${block.showName} on ${countDate} is already stored as ${stored} from another email; this one says ${sums.total}.`, {
-          stored,
-          thisEmail: sums.total,
-        }),
-      );
-    }
-    const prev = ctx.previousTotal(event.id, countDate);
-    if (prev !== null) {
-      ourDelta = sums.total - prev;
-      const theirs = block.totals?.sinceLast ?? null;
-      if (theirs !== null && theirs !== ourDelta) {
-        items.push(
-          item(block, "since_last_mismatch", `SINCE LAST COUNT says ${theirs}; our stored counts give ${ourDelta}.`, {
-            theirs,
-            ours: ourDelta,
-            previousTotal: prev,
-          }),
-        );
-      }
-    }
-  }
-  out.push(...items);
-  const write = event !== null && countDate !== null && !items.some((i) => BLOCKING_KINDS.has(i.kind));
-  return { ...blockBase(block, match, event, countDate, sums, check), write, repeat: false, ourDelta };
-}
-
-function blockBase(
-  block: ParsedBlock,
-  match: ReturnType<typeof matchShow>,
-  event: EventRef | null,
-  countDate: string | null,
-  sums: ReturnType<typeof soldAndComps>,
-  check: BlockCheck,
-) {
-  return {
-    index: block.index,
-    showName: block.showName,
-    eventCode: match.eventCode,
-    proposedEventCode: match.proposedEventCode,
-    eventId: event?.id ?? null,
-    countDate,
-    ...sums,
-    sinceLast: block.totals?.sinceLast ?? null,
-    revenueWithheld: check.revenueWithheld,
-    paidRevenuePence: check.blocking.length ? null : paidRevenuePence(block, check),
-    cells: cellsOf(block, check),
-    parsed: block,
-  };
-}
-
-function resolveEvent(
-  block: ParsedBlock,
-  match: ReturnType<typeof matchShow>,
-  ctx: PlanContext,
-  items: ReviewItemPlan[],
-): EventRef | null {
-  if (!match.eventCode) {
-    const proposal = match.proposedEventCode ? ` Proposed: ${match.proposedEventCode}.` : "";
-    items.push(
-      item(block, "unmatched_show", `No count alias for "${block.showName}".${proposal}`, {
-        proposedEventCode: match.proposedEventCode,
-      }),
-    );
-    return null;
-  }
-  if (UMBRELLA_EVENT_CODES.has(match.eventCode)) {
-    items.push(item(block, "umbrella", `${match.eventCode} is an umbrella and gets no counts.`));
-    return null;
-  }
-  const event = ctx.eventsByCode.get(match.eventCode) ?? null;
-  if (!event) {
-    items.push(item(block, "unknown_event", `"${block.showName}" maps to ${match.eventCode}, which isn't an event.`));
-  }
-  return event;
-}
-
-function addNotes(block: ParsedBlock, check: BlockCheck, subjectDate: string | null, items: ReviewItemPlan[]): void {
-  if (check.revenueWithheld) {
-    const prices = check.priceLooksWrong.map((p) => {
-      const t = block.tiers[p - 1];
-      return `${t.name || `column ${p}`} £${((t.pricePence ?? 0) / 100).toFixed(2)}`;
-    });
-    items.push(
-      item(block, "price_looks_wrong", `Prices look wrong (${prices.join(", ")}). Counts stored; revenue withheld.`, {
-        tierPositions: check.priceLooksWrong,
-      }),
-    );
-  }
-  if (block.countDate && subjectDate && block.countDate !== subjectDate) {
-    items.push(
-      item(block, "count_date_mismatch", `The sheet says ${block.countDateText}; the subject says ${subjectDate}.`, {
-        sheet: block.countDate,
-        subject: subjectDate,
-      }),
-    );
-  }
-}
-
-function cellsOf(block: ParsedBlock, check: BlockCheck): CellPlan[] {
+/** The rows a block writes, for a given total (the sheet's, or the one Matas picked). */
+export function blockWrite(block: ParsedBlock, check: BlockCheck, total?: number): BlockWrite {
+  const sums = soldAndComps(block, total);
   const cells: CellPlan[] = [];
   for (const row of block.outlets) {
     block.tiers.forEach((tier, i) => {
       const tickets = row.cells[i];
+      const unused = isUnusedTier(block, i);
       const price = tier.pricePence;
-      const priced = !check.revenueWithheld && price !== null && price >= 0;
+      const priced = !check.revenueHeld && !tier.comp && !unused && price !== null && price >= 0;
       cells.push({
         tierPosition: tier.position,
         tierName: tier.name,
         tierKey: tier.key,
         comp: tier.comp,
+        unused,
         outlet: row.outlet,
         tickets,
         pricePence: price,
@@ -290,5 +171,107 @@ function cellsOf(block: ParsedBlock, check: BlockCheck): CellPlan[] {
       });
     });
   }
-  return cells;
+  return { ...sums, revenueHeld: check.revenueHeld, paidRevenuePence: paidRevenuePence(block), cells };
+}
+
+function mostCommon(values: Array<string | null>): string | null {
+  const tally = new Map<string, number>();
+  for (const v of values) if (v) tally.set(v, (tally.get(v) ?? 0) + 1);
+  return [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
+}
+
+export function planReport(report: ReportInput, sheet: ParsedSheet | null, ctx: PlanContext): ReportPlan {
+  const subjectDate = subjectCountDate(report.subject);
+  const items: ReviewItemPlan[] = [];
+  const showNames = sheet?.blocks.map((b) => b.showName) ?? [];
+  for (const m of saleMentions(report.body, showNames)) {
+    if (m.showName && ctx.notOurs.has(m.showName)) continue;
+    items.push({ kind: "sale_mention", blockIndex: null, showName: m.showName, detail: { sentence: m.sentence } });
+  }
+  const unreadable =
+    !sheet || sheet.blocks.length === 0 || sheet.blocks.some((b) => b.problems.length > 0 || !b.countDate);
+  if (unreadable) {
+    const problems = sheet ? [...sheet.problems, ...sheet.blocks.flatMap((b) => b.problems)] : ["The PDF couldn't be read."];
+    items.push({ kind: "unreadable_pdf", blockIndex: null, showName: null, detail: { filename: report.pdfFilename, problems } });
+    return { subjectDate, sheetDate: null, unreadable: true, blocks: [], reviewItems: items };
+  }
+  const sheetDate = mostCommon(sheet.blocks.map((b) => b.countDate));
+  const dateHeld = subjectDate !== null && sheetDate !== null && subjectDate !== sheetDate;
+  if (dateHeld) {
+    items.push({ kind: "date_mismatch", blockIndex: null, showName: null, detail: { sheetDate, subjectDate } });
+  }
+  const blocks = sheet.blocks.map((b) => planBlock(b, { dateHeld, sheetDate }, ctx, items));
+  return { subjectDate, sheetDate, unreadable: false, blocks, reviewItems: items };
+}
+
+function resolveEvent(block: ParsedBlock, ctx: PlanContext): EventRef | null {
+  const { eventCode } = matchShow(block.showName, ctx.confirmedAliases);
+  if (!eventCode || UMBRELLA_EVENT_CODES.has(eventCode)) return null;
+  return ctx.eventsByCode.get(eventCode) ?? null;
+}
+
+function planBlock(
+  block: ParsedBlock,
+  sheet: { dateHeld: boolean; sheetDate: string | null },
+  ctx: PlanContext,
+  out: ReviewItemPlan[],
+): BlockPlan {
+  const event = resolveEvent(block, ctx);
+  const ceiling = (event && ctx.priceCeiling(event.id)) ?? DEFAULT_PRICE_CEILING_PENCE;
+  const check = checkBlock(block, ceiling);
+  const base = {
+    index: block.index,
+    showName: block.showName,
+    eventCode: event?.eventCode ?? null,
+    eventId: event?.id ?? null,
+    countDate: block.countDate,
+    replaces: false,
+    sinceLast: block.totals?.sinceLast ?? null,
+    ourDelta: null as number | null,
+    priceFlags: check.priceFlags,
+    parsed: block,
+    ...blockWrite(block, check),
+  };
+  if (ctx.notOurs.has(block.showName)) return { ...base, status: "not_ours" };
+
+  const item = (kind: ReviewKind, detail: Record<string, unknown> = {}): ReviewItemPlan => ({
+    kind,
+    blockIndex: block.index,
+    showName: block.showName,
+    detail,
+  });
+  const items: ReviewItemPlan[] = [];
+  let held = sheet.dateHeld && block.countDate === sheet.sheetDate;
+  if (!event) {
+    items.push(item("unmatched_show", { closest: ctx.closest(block.showName) }));
+    held = true;
+  }
+  if (check.sum) {
+    items.push(item("sum_mismatch", check.sum));
+    held = true;
+  }
+  const stored = event && block.countDate ? ctx.storedTotalOn(event.id, block.countDate) : null;
+  if (!held && stored !== null && stored === base.total) {
+    return { ...base, status: "repeat", ourDelta: 0 };
+  }
+  if (check.revenueHeld) {
+    items.push(item("price_looks_wrong", { flags: check.priceFlags, revenueMismatch: check.revenueMismatch }));
+  }
+  let replaces = false;
+  if (event && block.countDate) {
+    if (!held && stored !== null) {
+      replaces = true;
+      items.push(item("replaced", { countDate: block.countDate, previousTotal: stored, total: base.total }));
+    }
+    const prev = ctx.previousTotal(event.id, block.countDate);
+    const theirs = block.totals?.sinceLast ?? null;
+    if (prev !== null) {
+      base.ourDelta = base.total - prev;
+      if (theirs !== null && theirs !== base.ourDelta) {
+        items.push(item("since_last_mismatch", { theirs, ours: base.ourDelta, previousTotal: prev }));
+      }
+    }
+  }
+  out.push(...items);
+  return { ...base, replaces, status: held ? "held" : "write" };
 }
