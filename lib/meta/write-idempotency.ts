@@ -17,7 +17,13 @@ export type MetaWriteOpKind =
   | "ad_create"
   | "creative_upload"
   | "adset_targeting_update"
-  | "adset_destination_update";
+  | "adset_destination_update"
+  /** On-sale refresh Apply (migration 236): one creative per accepted add line and campaign. */
+  | "refresh_creative_create"
+  /** On-sale refresh Apply: one ad per accepted add line and ad set. */
+  | "refresh_ad_create"
+  /** The gated ad-status write (lib/meta/ad-status-write.ts). */
+  | "ad_status_update";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger

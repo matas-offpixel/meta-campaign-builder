@@ -1,18 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import type { PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
+import { NOT_APPLIED_YET, REJECT_REASONS, acceptable, appliesNow, displayState, keepDates, keepDatesDeep, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
+import type { PanelApply, PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 import { isShowWeek } from "@/lib/onsale-refresh/on-sale";
-import { dayMonth, shortDay, todayLondon, weekLabel } from "@/lib/onsale-refresh/schedule";
+import { appliedStamp, dayMonth, outcomeWeek, shortDay, todayLondon, weekLabel } from "@/lib/onsale-refresh/schedule";
 
 /**
- * The Refresh panel (R4, F1 at 1280, F2 at 393), read-only in P1: the
- * latest proposal per campaign, every line marked Shadow, Accept and
- * Reject drawn but disabled, Apply accepted (0) disabled. The words are
- * the record's. P2 wires the clicks.
+ * The Refresh panel (R4, F1 at 1280, F2 at 393, F3 after Apply): the
+ * latest proposal per campaign. Without its gates (the P1 frames) it is
+ * read-only, as P1 drew it. With them (P2): the Shadow / Live arm, Accept
+ * and Reject as a toggle pair while Live (Reject asks for a reason), each
+ * add line's copy before Accept, Apply accepted (n) for creative lines,
+ * the result in each applied line, and Retry failed (n). The words are
+ * the record's.
  */
 
 const KIND_LABEL: Record<PanelLine["kind"], string> = {
@@ -91,6 +95,193 @@ function LineRow({ line, shadow }: { line: PanelLine; shadow: boolean }) {
   );
 }
 
+const CTA_WORD: Record<string, string> = { sign_up: "Sign up", learn_more: "Learn more", book_now: "Book now", buy_tickets: "Buy tickets" };
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+/** The copy the new ad goes in with (R4: the line shows the creative and its copy before Accept). */
+function CopyBlock({ copy }: { copy: NonNullable<PanelLine["copy"]> }) {
+  const facts = [copy.headline, CTA_WORD[copy.cta] ?? copy.cta, hostOf(copy.destinationUrl)].filter(Boolean).join(" · ");
+  return (
+    <div className="mt-1 border-l-2 border-border pl-2 text-xs" data-copy="add">
+      {copy.primaryText ? <p className="line-clamp-3 whitespace-pre-line sm:line-clamp-2">“{copy.primaryText}”</p> : null}
+      <p className="text-muted-foreground">{facts}</p>
+    </div>
+  );
+}
+
+export type PanelActions = {
+  onArm?: (mode: "shadow" | "live") => void;
+  onDecide?: (lineId: string, decision: "accept" | "reject", reason?: RejectReason, note?: string) => void;
+  onApply?: (opts: { retry: boolean; lineIds?: string[] }) => void;
+  busy?: boolean;
+  error?: string | null;
+};
+
+/** One line with P2's controls: the toggle pair while Live, the reason picker, the result and Retry. */
+function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine; apply: PanelApply; actions: PanelActions; frozen: boolean }) {
+  // An audience or budget line stored as Accepted reads To review until P3 can apply it.
+  const line = { ...stored, state: displayState(stored) };
+  const canAccept = acceptable(line.kind);
+  const [picking, setPicking] = useState(false);
+  const [other, setOther] = useState<string | null>(null);
+  const live = apply.mode === "live" && !frozen;
+  const decidable = live && !line.supply && (line.state === "to_review" || line.state === "accepted" || line.state === "rejected");
+  const shadowTitle = apply.mode === "shadow" ? "Shadow: nothing here can be applied yet" : undefined;
+  const busy = Boolean(actions.busy);
+  const retry = retriesNow(line, apply);
+  return (
+    <li className="rounded border border-border/70 p-3" data-kind={line.kind} data-state={line.state}>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{KIND_LABEL[line.kind]}</span>
+            <span className="break-words text-sm font-medium">{line.title}</span>
+          </div>
+          {line.carried ? <p className="mt-0.5 text-xs text-muted-foreground">From the {line.carried} proposal</p> : null}
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            <Wide wide={line.detail} narrow={line.narrow.detail} />
+          </p>
+          {line.copy ? <CopyBlock copy={line.copy} /> : null}
+          {line.state === "to_review" || line.state === "accepted" ? (
+            <>
+              <p className="mt-0.5 hidden text-xs sm:block">{line.writeText}</p>
+              {line.narrow.writeText ? <p className="mt-0.5 text-xs sm:hidden">{line.narrow.writeText}</p> : null}
+            </>
+          ) : null}
+          {line.blockedReason && (line.state === "to_review" || line.state === "rejected") ? <p className="mt-0.5 text-xs text-destructive">{line.blockedReason}</p> : null}
+          {!canAccept && !line.supply && (line.state === "to_review" || line.state === "rejected") ? (
+            <p className="mt-0.5 text-xs text-muted-foreground" data-not-applied-yet>
+              {NOT_APPLIED_YET}
+            </p>
+          ) : null}
+          {line.state !== "to_review" ? (
+            <p className={`mt-0.5 text-xs ${line.state === "failed" ? "text-destructive" : line.state === "applied" ? "font-medium text-foreground" : "text-muted-foreground"}`} data-line-state={line.state}>
+              {stateText(line.state, line.reason)}
+            </p>
+          ) : null}
+          {picking ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5" data-reasons>
+              {(Object.keys(REJECT_REASONS) as RejectReason[]).map((reason) =>
+                reason === "other" ? (
+                  <Button key={reason} type="button" size="sm" variant={other != null ? "secondary" : "outline"} disabled={busy} onClick={() => setOther(other == null ? "" : null)}>
+                    {REJECT_REASONS[reason]}
+                  </Button>
+                ) : (
+                  <Button
+                    key={reason}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      setPicking(false);
+                      actions.onDecide?.(line.id, "reject", reason);
+                    }}
+                  >
+                    {REJECT_REASONS[reason]}
+                  </Button>
+                ),
+              )}
+              {other != null ? (
+                <span className="flex w-full items-center gap-1.5 sm:w-auto">
+                  <input
+                    aria-label="Why (optional)"
+                    placeholder="Why (optional)"
+                    className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-xs sm:w-56"
+                    value={other}
+                    maxLength={200}
+                    onChange={(event) => setOther(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      setPicking(false);
+                      actions.onDecide?.(line.id, "reject", "other", other);
+                      setOther(null);
+                    }}
+                  >
+                    Reject
+                  </Button>
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {line.supply ? (
+          <Link href="#lab-round" className="shrink-0 text-xs underline underline-offset-2">
+            Open Lab
+          </Link>
+        ) : line.state === "failed" ? (
+          <div className="flex shrink-0 gap-2">
+            <Button type="button" size="sm" variant="outline" disabled={!live || busy || !retry} onClick={() => actions.onApply?.({ retry: true, lineIds: [line.id] })}>
+              Retry
+            </Button>
+          </div>
+        ) : line.state === "applied" || line.state === "applying" || line.state === "expired" ? null : (
+          <div className="flex shrink-0 gap-2" role="group" aria-label="Accept or reject">
+            <Button
+              type="button"
+              size="sm"
+              variant={line.state === "accepted" ? "primary" : "outline"}
+              aria-pressed={line.state === "accepted"}
+              disabled={!decidable || busy || !canAccept || (line.state !== "accepted" && Boolean(line.blockedReason))}
+              title={shadowTitle}
+              onClick={() => actions.onDecide?.(line.id, "accept")}
+            >
+              Accept
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={line.state === "rejected" ? "secondary" : "ghost"}
+              aria-pressed={line.state === "rejected"}
+              disabled={!decidable || busy}
+              title={shadowTitle}
+              onClick={() => {
+                if (line.state === "rejected") actions.onDecide?.(line.id, "reject");
+                else setPicking(!picking);
+              }}
+            >
+              Reject
+            </Button>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/** The per-event arm (R4): Shadow / Live, as the budget tick's. Live acts only with the deployment gate on. */
+function ArmControl({ apply, actions }: { apply: PanelApply; actions: PanelActions }) {
+  const offTitle = apply.globalEnabled ? undefined : "Applying is switched off on this deployment, so the panel stays in Shadow.";
+  return (
+    <div className="flex shrink-0 overflow-hidden rounded-full border border-border text-xs" role="group" aria-label="Shadow or Live" data-arm={apply.arm} title={offTitle}>
+      {(["shadow", "live"] as const).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          aria-pressed={apply.arm === mode}
+          disabled={Boolean(actions.busy) || apply.arm === mode}
+          className={`px-2 py-0.5 ${apply.arm === mode ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}
+          onClick={() => actions.onArm?.(mode)}
+        >
+          {mode === "shadow" ? "Shadow" : "Live"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** "No pauses: … Watch: name · detail." wide; "No pauses · Watch: name · spend · results" at 393 (F2's wording). */
 function Watch({ label, items, note }: { label: string; items: { title: string; detail: string; narrow?: string }[]; note: string }) {
   if (!note && !items.length) return null;
@@ -153,12 +344,18 @@ export function ObjectiveBlock({ why, heading = true }: { why: PanelProposal["wh
 export type OnSaleRefreshPanelViewProps = {
   eventId: string;
   proposals: PanelProposal[];
-  /** G2: from show week's Monday the refresh has stopped; the empty panel says so. */
+  /** G2: from show week's Monday the refresh has stopped; the empty panel says so, and (HC4) the line sits above older proposals. */
   showWeek?: boolean;
+  /** P2: the gates. Absent = P1's read-only panel (the OR1 frame). */
+  apply?: PanelApply;
+  actions?: PanelActions;
 };
 
 /** The panel from data; the viewport decides the wide or the narrow wording. Nothing here fetches. */
-export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false }: OnSaleRefreshPanelViewProps) {
+export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = false, apply, actions = {} }: OnSaleRefreshPanelViewProps) {
+  // P2: every date the panel draws stays together (#620). P1's read-only path (OR1) draws as it did.
+  const kd = apply ? keepDates : (text: string) => text;
+  const proposals = apply ? keepDatesDeep(given) : given;
   if (!proposals.length) {
     return (
       <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4">
@@ -168,19 +365,28 @@ export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false }:
     );
   }
   const head = proposals[0]!;
-  const shadow = head.mode === "shadow";
-  const accepted = proposals.flatMap((p) => p.lines).filter((line) => line.state === "accepted").length;
+  const shadow = apply ? apply.mode === "shadow" : head.mode === "shadow";
+  const all = proposals.flatMap((p) => p.lines);
+  const accepted = apply ? all.filter((line) => appliesNow(line, apply)).length : all.filter((line) => line.state === "accepted").length;
+  const failed = apply ? all.filter((line) => retriesNow(line, apply)).length : 0;
+  // F3: the latest Apply, and the week its lines are checked on.
+  const appliedLines = apply ? all.filter((line) => line.appliedAt).sort((a, b) => (a.appliedAt! < b.appliedAt! ? -1 : 1)) : [];
+  const lastApplied = appliedLines.at(-1)?.appliedAt ?? null;
+  const appliedBy = appliedLines.at(-1)?.appliedBy?.includes("@") ? null : (appliedLines.at(-1)?.appliedBy ?? null);
+  const outcome = lastApplied ? outcomeWeek(lastApplied) : null;
   return (
-    <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4" data-mode={head.mode}>
+    <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4" data-mode={apply ? apply.mode : head.mode}>
+      {apply && showWeek ? <p className="mb-2 text-xs font-medium">Show week: the refresh has stopped.</p> : null}
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-medium">On-sale refresh · {weekLabel(head.cycleMonday)}</p>
+          <p className="text-sm font-medium">On-sale refresh · {kd(weekLabel(head.cycleMonday))}</p>
           <p className="text-xs text-muted-foreground">
-            Data to {shortDay(head.windowEnd)}
-            <Wide wide={nextLine(head, true)} narrow={nextLine(head, false)} />
+            Data to {kd(shortDay(head.windowEnd))}
+            <Wide wide={kd(nextLine(head, true))} narrow={kd(nextLine(head, false))} />
           </p>
+          {lastApplied ? <p className="text-xs text-muted-foreground">{kd(`Applied ${appliedStamp(lastApplied)}${appliedBy ? ` · by ${appliedBy}` : ""}`)}</p> : null}
         </div>
-        <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs">{shadow ? "Shadow" : "Live"}</span>
+        {apply ? <ArmControl apply={apply} actions={actions} /> : <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs">{shadow ? "Shadow" : "Live"}</span>}
       </div>
 
       {head.blockers.length ? (
@@ -221,9 +427,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false }:
             <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Creatives</p>
             {creatives.length ? (
               <ul className="mt-1 space-y-2">
-                {creatives.map((line) => (
-                  <LineRow key={line.id} line={line} shadow={shadow} />
-                ))}
+                {creatives.map((line) => (apply ? <LiveLineRow key={line.id} line={line} apply={apply} actions={actions} frozen={showWeek} /> : <LineRow key={line.id} line={line} shadow={shadow} />))}
               </ul>
             ) : null}
             {creatives.some((line) => line.kind === "add_creative") && proposal.notes.adds ? <p className="mt-1 text-xs text-muted-foreground">{proposal.notes.adds}</p> : null}
@@ -234,9 +438,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false }:
             <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Audiences</p>
             {audiences.length ? (
               <ul className="mt-1 space-y-2">
-                {audiences.map((line) => (
-                  <LineRow key={line.id} line={line} shadow={shadow} />
-                ))}
+                {audiences.map((line) => (apply ? <LiveLineRow key={line.id} line={line} apply={apply} actions={actions} frozen={showWeek} /> : <LineRow key={line.id} line={line} shadow={shadow} />))}
               </ul>
             ) : null}
             <div className="mt-2">
@@ -246,38 +448,84 @@ export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false }:
         );
       })}
 
-      <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-muted-foreground">
-          {shadow ? <Wide wide="Shadow: nothing here can be applied yet. Each line is checked against next week's data." narrow="Shadow: nothing applies yet." /> : "Outcomes are checked after the next full week."}
-        </p>
-        <Button type="button" size="sm" disabled={shadow || accepted === 0}>
-          Apply accepted ({accepted})
-        </Button>
-      </div>
+      {apply ? (
+        <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-muted-foreground">
+            <p>
+              {shadow ? (
+                <Wide wide="Shadow: nothing here can be applied yet. Each line is checked against next week's data." narrow="Shadow: nothing applies yet." />
+              ) : outcome ? (
+                <Wide wide={kd(`Outcomes are checked ${shortDay(outcome.checked)} on the week to ${shortDay(outcome.to)}.`)} narrow={kd(`Checked ${shortDay(outcome.checked)}.`)} />
+              ) : (
+                "Outcomes are checked after the next full week."
+              )}
+            </p>
+            {actions.error ? <p className="mt-0.5 text-destructive">{actions.error}</p> : null}
+          </div>
+          <div className="flex shrink-0 gap-2">
+            {failed > 0 ? (
+              <Button type="button" size="sm" variant="outline" disabled={shadow || showWeek || Boolean(actions.busy)} onClick={() => actions.onApply?.({ retry: true })}>
+                Retry failed ({failed})
+              </Button>
+            ) : null}
+            <Button type="button" size="sm" disabled={shadow || showWeek || accepted === 0 || Boolean(actions.busy)} onClick={() => actions.onApply?.({ retry: false })}>
+              {actions.busy ? "Applying…" : `Apply accepted (${accepted})`}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            {shadow ? <Wide wide="Shadow: nothing here can be applied yet. Each line is checked against next week's data." narrow="Shadow: nothing applies yet." /> : "Outcomes are checked after the next full week."}
+          </p>
+          <Button type="button" size="sm" disabled={shadow || accepted === 0}>
+            Apply accepted ({accepted})
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
 
-/** The live panel: fetches the event's proposals through the session route. Mounted by G2's on-sale predicate. */
+/** The live panel: fetches the event's proposals and gates through the session route, and wires P2's clicks. Mounted by G2's on-sale predicate. */
 export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; eventDate: string | null }) {
   const showWeek = isShowWeek(eventDate, todayLondon(new Date()));
-  const [proposals, setProposals] = useState<PanelProposal[] | null>(null);
+  const [panel, setPanel] = useState<{ proposals: PanelProposal[]; apply: PanelApply | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/events/${eventId}/onsale-refresh`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = (await res.json()) as { proposals: PanelProposal[]; apply?: PanelApply };
+    setPanel({ proposals: body.proposals ?? [], apply: body.apply ?? null });
+  }, [eventId]);
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/events/${eventId}/onsale-refresh`, { cache: "no-store" })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const body = (await res.json()) as { proposals: PanelProposal[] };
-        if (!cancelled) setProposals(body.proposals ?? []);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
-      });
+    load().catch((err) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
+    });
     return () => {
       cancelled = true;
     };
-  }, [eventId]);
+  }, [load]);
+  const act = useCallback(
+    async (path: string, body: unknown) => {
+      setBusy(true);
+      setActionError(null);
+      try {
+        const res = await fetch(`/api/events/${eventId}/onsale-refresh/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) setActionError(json.error ?? `HTTP ${res.status}`);
+        await load();
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "Failed");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [eventId, load],
+  );
   if (error) {
     return (
       <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4 text-xs text-destructive">
@@ -285,14 +533,21 @@ export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; ev
       </section>
     );
   }
-  if (!proposals) {
+  if (!panel) {
     return (
       <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4 text-xs text-muted-foreground">
         On-sale refresh…
       </section>
     );
   }
-  return <OnSaleRefreshPanelView eventId={eventId} proposals={proposals} showWeek={showWeek} />;
+  const actions: PanelActions = {
+    busy,
+    error: actionError,
+    onArm: (mode) => void act("arm", { mode }),
+    onDecide: (lineId, decision, reason, note) => void act(`lines/${lineId}`, { decision, reason, note }),
+    onApply: (opts) => void act("apply", opts),
+  };
+  return <OnSaleRefreshPanelView eventId={eventId} proposals={panel.proposals} showWeek={showWeek} apply={panel.apply ?? undefined} actions={actions} />;
 }
 
 export { dayMonth as refreshDayMonth };

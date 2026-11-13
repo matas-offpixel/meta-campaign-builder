@@ -23,7 +23,7 @@ import { CONFIDENCE_SCORE, type Confidence } from "../learning/shrink.ts";
 import type { PhaseConfig, ResultEvent } from "./phase-config.ts";
 import { isOnSale } from "./on-sale.ts";
 import type { PurchaseRead } from "./purchases.ts";
-import { chooseObjective, type AdInput, type AdSetInput, type CampaignInput, type ClaimInput, type ClusterInput, type SupplyFile, type SupplyMix } from "./rules.ts";
+import { chooseObjective, type AdInput, type AdSetInput, type CampaignDraftRef, type CampaignInput, type ClaimInput, type ClusterInput, type SupplyFile, type SupplyMix } from "./rules.ts";
 import { addDaysIso, planRun, type RunPlan } from "./schedule.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -135,29 +135,61 @@ export async function loadInsights(db: Db): Promise<RawInsights> {
 export type Aux = {
   scores: { event_id: string; creative_name: string; score: number; significance: boolean }[];
   clusters: { id: string; name: string; interests: unknown; live_evidence: { cprIndex?: number | null; confidence?: Confidence; perClient?: { clientId: string; client: string; cprIndex: number | null; confidence: Confidence }[] } | null }[];
-  launchedAdSets: { event_id: string | null; meta_adset_id: string; interest_ids: unknown }[];
+  launchedAdSets: { event_id: string | null; meta_adset_id: string; interest_ids: unknown; draft_id?: string | null; meta_campaign_id?: string | null }[];
   warnings: { id: string; event_id: string; claim: string; state: string; approved_at: string | null; runs_from: string | null; runs_to: string | null; render_id: string | null }[];
   ticketing: { client_id: string; provider: string | null; status: string | null }[];
   driveFolders: { event_id: string | null; key: string; name: string; drive_folder_id: string }[];
   /** Drive file ids of renders a Lab launch put into this event's campaigns (round_ads.launch_state = launched). */
   renderDriveIds: Set<string>;
+  /** P2: Drive file ids an applied refresh add line put into each event's campaigns, by event id. */
+  refreshDriveIds?: Map<string, Set<string>>;
+  /** P2: the events' Meta drafts — the campaign guard and the copy a new ad carries. */
+  drafts?: DraftRow[];
 };
+
+export type DraftRow = {
+  id: string;
+  event_id: string | null;
+  ad_account_id: string | null;
+  status: string | null;
+  meta_campaign_id: string | null;
+  import_campaign_id: string | null;
+  creatives: unknown;
+};
+
+type AppliedAddRow = { id: string; target: { driveFileId?: string } | null; onsale_refresh_proposals: { event_id: string | null } | null };
 
 type LaunchedRenderRow = { drive_file_id: string | null; creative_lab_round_ads: { launch_state: string | null; round: { event_id: string | null } | null }[] | null };
 
 export async function loadAux(db: Db, eventIds: readonly string[], clientIds: readonly string[]): Promise<Aux> {
   const inEvents = (q: any) => q.in("event_id", eventIds);
-  const [scores, clusters, launchedAdSets, warnings, ticketing, driveFolders, launchedRenders] = await Promise.all([
+  const [scores, clusters, launchedAdSets, warnings, ticketing, driveFolders, launchedRenders, drafts, appliedAdds] = await Promise.all([
     eventIds.length
       ? loadAll<Aux["scores"][number] & { id: string; axis: string; fetched_at: string }>(db, "creative_scores", "id, event_id, creative_name, axis, score, significance, fetched_at", ["id"], (q) => inEvents(q).eq("axis", "convert"))
       : Promise.resolve([]),
     loadAll<Aux["clusters"][number]>(db, "interest_clusters", "id, name, interests, live_evidence", ["id"], (q) => q.is("archived_at", null).not("live_evidence", "is", null)),
-    eventIds.length ? loadAll<Aux["launchedAdSets"][number]>(db, "launched_ad_sets", "event_id, meta_adset_id, interest_ids", ["meta_adset_id"], inEvents) : Promise.resolve([]),
+    eventIds.length ? loadAll<Aux["launchedAdSets"][number]>(db, "launched_ad_sets", "event_id, meta_adset_id, interest_ids, draft_id, meta_campaign_id", ["meta_adset_id"], inEvents) : Promise.resolve([]),
     eventIds.length ? loadAll<Aux["warnings"][number]>(db, "ticket_warnings", "id, event_id, claim, state, approved_at, runs_from, runs_to, render_id", ["id"], inEvents) : Promise.resolve([]),
     clientIds.length ? loadAll<Aux["ticketing"][number] & { id: string }>(db, "client_ticketing_connections", "id, client_id, provider, status", ["id"], (q) => q.in("client_id", clientIds)) : Promise.resolve([]),
     eventIds.length ? loadAll<Aux["driveFolders"][number] & { id: string }>(db, "drive_folders", "id, event_id, key, name, drive_folder_id", ["id"], (q) => inEvents(q).like("key", "03/3/wc/%")) : Promise.resolve([]),
     loadAll<LaunchedRenderRow & { id: string }>(db, "creative_lab_renders", "id, drive_file_id, creative_lab_round_ads!inner(launch_state, round:creative_lab_rounds(event_id))", ["id"], (q) => q.not("drive_file_id", "is", null).eq("creative_lab_round_ads.launch_state", "launched")).catch(() => [] as (LaunchedRenderRow & { id: string })[]),
+    eventIds.length
+      ? loadAll<DraftRow>(db, "campaign_drafts", "id, event_id, ad_account_id, status, meta_campaign_id:draft_json->>metaCampaignId, import_campaign_id:draft_json->importMeta->>sourceCampaignId, creatives:draft_json->creatives", ["id"], inEvents)
+      : Promise.resolve([] as DraftRow[]),
+    // Before migration 236 the table has no applied rows; a failed read only costs the duplicate check its refresh half.
+    eventIds.length
+      ? loadAll<AppliedAddRow>(db, "onsale_refresh_lines", "id, target, onsale_refresh_proposals!inner(event_id)", ["id"], (q) => q.eq("kind", "add_creative").eq("state", "applied").in("onsale_refresh_proposals.event_id", eventIds)).catch(() => [] as AppliedAddRow[])
+      : Promise.resolve([] as AppliedAddRow[]),
   ]);
+  const refreshDriveIds = new Map<string, Set<string>>();
+  for (const row of appliedAdds) {
+    const eventId = row.onsale_refresh_proposals?.event_id;
+    const fileId = row.target?.driveFileId;
+    if (!eventId || !fileId) continue;
+    const set = refreshDriveIds.get(eventId) ?? new Set<string>();
+    set.add(fileId);
+    refreshDriveIds.set(eventId, set);
+  }
   // The latest run's convert scores only.
   const latest = new Map<string, string>();
   for (const row of scores) {
@@ -177,7 +209,58 @@ export async function loadAux(db: Db, eventIds: readonly string[], clientIds: re
         .map((row) => row.drive_file_id)
         .filter((id): id is string => Boolean(id)),
     ),
+    refreshDriveIds,
+    drafts,
   };
+}
+
+const bareAccount = (id: string | null | undefined): string | null => (id ? id.replace(/^act_/, "") : null);
+
+type DraftCreative = {
+  name?: string;
+  identity?: { pageId?: string; instagramActorId?: string; instagramAccountId?: string };
+  captions?: { text?: string }[];
+  headline?: string;
+  description?: string;
+  destinationUrl?: string;
+  cta?: string;
+};
+
+/**
+ * R5 "where to write": the event's own draft for this campaign on this
+ * account — its launched campaign id, the live campaign it was imported
+ * from, or an ad set it launched into the campaign. Null = not one of this
+ * event's drafts, and nothing can be applied to it. The copy a new ad
+ * carries is the draft's first creative with primary text: the line shows
+ * it before Accept.
+ */
+export function draftForCampaign(args: { eventId: string; adAccountId: string | null; campaignIds: readonly string[]; drafts: readonly DraftRow[]; launchedAdSets: Aux["launchedAdSets"] }): CampaignDraftRef | null {
+  const account = bareAccount(args.adAccountId);
+  if (!account) return null;
+  const ids = new Set(args.campaignIds);
+  const launched = new Set(args.launchedAdSets.filter((set) => set.meta_campaign_id && ids.has(set.meta_campaign_id) && set.draft_id).map((set) => set.draft_id as string));
+  const mine = args.drafts.filter((draft) => draft.event_id === args.eventId && bareAccount(draft.ad_account_id) === account && draft.status !== "archived");
+  const match =
+    mine.find((draft) => draft.meta_campaign_id && ids.has(draft.meta_campaign_id)) ??
+    mine.find((draft) => draft.import_campaign_id && ids.has(draft.import_campaign_id)) ??
+    mine.find((draft) => launched.has(draft.id));
+  if (!match) return null;
+  const creatives = (Array.isArray(match.creatives) ? match.creatives : []) as DraftCreative[];
+  const template = creatives.find((creative) => (creative.captions ?? []).some((caption) => caption?.text?.trim())) ?? creatives[0] ?? null;
+  const copy =
+    template?.identity?.pageId && template.destinationUrl
+      ? {
+          primaryText: (template.captions ?? []).map((caption) => caption?.text ?? "").find((text) => text.trim()) ?? "",
+          headline: template.headline ?? "",
+          description: template.description ?? "",
+          cta: template.cta ?? "learn_more",
+          destinationUrl: template.destinationUrl,
+          pageId: template.identity.pageId,
+          instagramActorId: template.identity.instagramActorId ?? null,
+          fromCreative: template.name ?? null,
+        }
+      : null;
+  return { draftId: match.id, adAccountId: `act_${account}`, copy };
 }
 
 /** The ad-days of one event, by the learning loop's join. */
@@ -193,7 +276,7 @@ const MIX_FOLDERS: Record<string, SupplyMix> = { ugc: "ugc", cta: "cta", "no cta
  * tree has one. The legacy UGC folder straight under the cycle counts as
  * UGC. One listChildren per folder; the count is returned.
  */
-export async function loadCycleSupply(drive: DriveApi | null, folders: Aux["driveFolders"], eventId: string, cycleMonday: string, renderDriveIds: ReadonlySet<string>): Promise<{ files: SupplyFile[]; driveCalls: number; reason: string | null }> {
+export async function loadCycleSupply(drive: DriveApi | null, folders: Aux["driveFolders"], eventId: string, cycleMonday: string, renderDriveIds: ReadonlySet<string>, refreshDriveIds?: ReadonlySet<string>): Promise<{ files: SupplyFile[]; driveCalls: number; reason: string | null }> {
   if (!drive) return { files: [], driveCalls: 0, reason: "Drive is not configured" };
   const prefix = `03/3/wc/${cycleMonday}`;
   const mine = folders.filter((folder) => folder.event_id === eventId && folder.key.startsWith(prefix));
@@ -205,7 +288,8 @@ export async function loadCycleSupply(drive: DriveApi | null, folders: Aux["driv
   const add = (file: DriveFile, owner: string, kind: "video" | "static" | null, mix: SupplyMix, path: string) => {
     const resolvedKind = kind ?? kindForFile(file);
     if (!resolvedKind || file.trashed) return;
-    files.push({ fileId: file.id, name: file.name, owner, kind: resolvedKind, mix, path, alreadyInCampaign: renderDriveIds.has(file.id), matchedBy: "lab_launch" });
+    const byRefresh = refreshDriveIds?.has(file.id) ?? false;
+    files.push({ fileId: file.id, name: file.name, owner, kind: resolvedKind, mix, path, alreadyInCampaign: renderDriveIds.has(file.id) || byRefresh, matchedBy: byRefresh ? "refresh_apply" : "lab_launch" });
   };
   for (const folder of typeFolders) {
     const ownerKey = folder.key.replace(/\/(videos|statics)$/, "");
@@ -303,7 +387,7 @@ export async function buildEventInputs(args: {
     .filter((row) => row.event_id === event.id && (row.state === "live" || row.state === "scheduled") && row.approved_at)
     .map((row) => ({ id: row.id, claim: row.claim, approvedAt: row.approved_at, runsFrom: row.runs_from, runsTo: row.runs_to, renderId: row.render_id }));
 
-  const supply = plan.runKind === "mid_cycle" || plan.showWeek ? { files: [], driveCalls: 0, reason: null } : await loadCycleSupply(args.drive, aux.driveFolders, event.id, plan.cycleMonday, aux.renderDriveIds);
+  const supply = plan.runKind === "mid_cycle" || plan.showWeek ? { files: [], driveCalls: 0, reason: null } : await loadCycleSupply(args.drive, aux.driveFolders, event.id, plan.cycleMonday, aux.renderDriveIds, aux.refreshDriveIds?.get(event.id));
 
   // Campaigns by name; a rebuilt campaign under the same name is the same campaign.
   const byName = new Map<string, InsightRow[]>();
@@ -377,12 +461,16 @@ export async function buildEventInputs(args: {
       if (spend > 0 && lastTwo.includes(row.date)) set.delivering = true;
       adSets.set(setKey, set);
     }
+    const campaignIds = [...new Set(campaignRows.map((row) => row.meta_campaign_id).filter((id): id is string => Boolean(id)))];
+    const adAccountId = campaignRows.map((row) => row.ad_account_id).find((id): id is string => Boolean(id)) ?? null;
     campaigns.push({
       eventId: event.id,
       eventCode: event.event_code,
       eventName: event.name,
       campaignKey,
-      campaignIds: [...new Set(campaignRows.map((row) => row.meta_campaign_id).filter((id): id is string => Boolean(id)))],
+      campaignIds,
+      adAccountId: adAccountId ? `act_${bareAccount(adAccountId)}` : null,
+      draft: draftForCampaign({ eventId: event.id, adAccountId, campaignIds, drafts: aux.drafts ?? [], launchedAdSets: aux.launchedAdSets }),
       onSaleDay,
       plan,
       resultEvent,
