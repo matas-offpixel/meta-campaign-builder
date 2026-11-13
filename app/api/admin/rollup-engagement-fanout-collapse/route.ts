@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { dedupeOn } from "@/lib/db/paged-read";
 
 /**
  * POST /api/admin/rollup-engagement-fanout-collapse
@@ -215,6 +216,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   };
   const PAGE = 1000;
   const rows: SiblingRow[] = [];
+  const seenDays = new Set<string>();
   let pagesRead = 0;
   for (let from = 0; ; from += PAGE) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -236,10 +238,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
       break;
     }
-    const page = (pageData ?? []) as SiblingRow[];
+    const rawPage = (pageData ?? []) as SiblingRow[];
+    const page = dedupeOn(rawPage, ["event_id", "date"]).filter(
+      (row) => !seenDays.has(`${row.event_id}\u0000${row.date}`) && Boolean(seenDays.add(`${row.event_id}\u0000${row.date}`)),
+    );
     pagesRead += 1;
     for (const r of page) rows.push(r);
-    if (page.length < PAGE) break;
+    if (rawPage.length < PAGE) break;
   }
   console.log(
     `[rollup-engagement-fanout-collapse] paginated read: ${pagesRead} pages, ${rows.length} total rows`,

@@ -32,6 +32,7 @@ import {
   type CronRunFact,
 } from "./cron-alarm-rules.ts";
 import { recordCronRun } from "./cron-run-log.ts";
+import { dedupeOn } from "../db/paged-read.ts";
 
 export const CRON_ALARM_EVALUATOR_NAME = "cron-alarm-evaluator";
 
@@ -53,16 +54,22 @@ async function loadLatestRuns(db: Db, now: Date): Promise<Map<string, CronRunFac
   const longest = Math.max(...CRON_ALARMS.map((s) => s.intervalMinutes)) * 4;
   const since = new Date(now.getTime() - longest * 60_000).toISOString();
   const latest = new Map<string, CronRunFact>();
+  const seen = new Set<string>();
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db
       .from("cron_runs")
-      .select("cron_name, started_at, ok, rows_written, rows_considered, detail")
+      .select("id, cron_name, started_at, ok, rows_written, rows_considered, detail")
       .gte("started_at", since)
       .order("started_at", { ascending: false })
+      .order("id", { ascending: true })
       .range(from, from + 999);
     if (error) throw new Error(`cron_runs read failed: ${error.message}`);
     const page = data ?? [];
-    for (const row of page as Record<string, unknown>[]) {
+    for (const row of dedupeOn(page as Record<string, unknown>[], ["id"])) {
+      if (row.id != null) {
+        if (seen.has(String(row.id))) continue;
+        seen.add(String(row.id));
+      }
       const name = String(row.cron_name);
       // Ordered newest first, so the first sighting of a name is its latest run.
       if (latest.has(name)) continue;

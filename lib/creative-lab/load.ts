@@ -11,6 +11,7 @@ import { resolveAdContext, type AdContext, type AdContextIndex, type CodedEvent 
 import { currencyResolver, type CurrencyResolver } from "../learning/currency.ts";
 import type { Stage, StageEvent } from "../learning/joins.ts";
 import { normalizeAdAccountId, resolveEventAdAccountId } from "../meta/ad-account.ts";
+import { pageAll } from "../db/paged-read.ts";
 
 export type ServiceRoleDb = Pick<SupabaseClient, "from">;
 
@@ -31,15 +32,9 @@ function table(db: ServiceRoleDb, name: string): Query {
   return db.from(name) as unknown as Query;
 }
 
-async function pagedRows<T>(build: () => Query, label: string): Promise<T[]> {
-  const out: T[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await build().range(from, from + 999);
-    if (error) throw new Error(`${label}: ${error.message}`);
-    out.push(...((data ?? []) as T[]));
-    if ((data ?? []).length < 1000) break;
-  }
-  return out;
+/** Every caller orders by `id`; the shared reader dedupes on it (a row without `id` selected is kept). */
+function pagedRows<T extends object>(build: () => Query, label: string): Promise<T[]> {
+  return pageAll<T>((from, to) => build().range(from, to), ["id"], label);
 }
 
 /** The ad-day columns the judge reads. */

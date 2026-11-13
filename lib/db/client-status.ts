@@ -82,6 +82,7 @@ export function loadArchivedClientScope(supabase: Reader): Promise<ArchivedClien
           .from("events")
           .select("id")
           .in("client_id", [...clientIds])
+          .order("id", { ascending: true })
           .range(from, from + 999);
         if (error) throw new Error(error.message);
         const rows = (data ?? []) as { id: string }[];

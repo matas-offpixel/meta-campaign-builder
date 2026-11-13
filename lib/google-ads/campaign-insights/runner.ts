@@ -17,6 +17,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isArchivedClientStatus, logSkippedArchivedClients } from "../../db/client-status.ts";
+import { pageAll } from "../../db/paged-read.ts";
 import {
   countEnabledConversionActions,
   mapCampaignRow,
@@ -162,31 +163,25 @@ export type LoadedAccounts = {
   errors: string[];
 };
 
-async function readAll<T>(
+/** Every page, ordered by `keys` in the builder and deduped on them (lib/db/paged-read.ts). */
+function readAll<T extends object>(
   build: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
   label: string,
+  keys: readonly string[] = ["id"],
 ): Promise<T[]> {
-  const out: T[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await build(from, from + PAGE - 1);
-    if (error) throw new Error(`${label}: ${error.message}`);
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < PAGE) break;
-  }
-  return out;
+  return pageAll<T>((from, to) => build(from, to) as PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>, keys, label, PAGE);
 }
 
 export async function loadGoogleAdsAccounts(db: SupabaseClient): Promise<LoadedAccounts> {
   const errors: string[] = [];
   const clients = await readAll<{ id: string; status: string | null; google_ads_account_id: string | null }>(
-    (from, to) => db.from("clients").select("id, status, google_ads_account_id").range(from, to),
+    (from, to) => db.from("clients").select("id, status, google_ads_account_id").order("id", { ascending: true }).range(from, to),
     "clients",
   );
   const clientById = new Map(clients.map((c) => [c.id, c]));
   const archived = clients.filter((c) => isArchivedClientStatus(c.status));
   const events = await readAll<{ id: string; client_id: string | null; google_ads_account_id: string | null }>(
-    (from, to) => db.from("events").select("id, client_id, google_ads_account_id").range(from, to),
+    (from, to) => db.from("events").select("id, client_id, google_ads_account_id").order("id", { ascending: true }).range(from, to),
     "events",
   );
 
@@ -220,23 +215,25 @@ export async function loadGoogleAdsAccounts(db: SupabaseClient): Promise<LoadedA
 /** campaign resource name → plan. A Search push wins over a hand-filled video link. */
 export async function loadPlanLookup(db: SupabaseClient): Promise<Map<string, PlanLink>> {
   const lookup = new Map<string, PlanLink>();
-  const video = await readAll<{ plan_id: string; google_campaign_resource_name: string }>(
+  const video = await readAll<{ id: string; plan_id: string; google_campaign_resource_name: string }>(
     (from, to) =>
       db
         .from("google_video_campaigns")
-        .select("plan_id, google_campaign_resource_name")
+        .select("id, plan_id, google_campaign_resource_name")
         .not("google_campaign_resource_name", "is", null)
+        .order("id", { ascending: true })
         .range(from, to),
     "google_video_campaigns",
   );
   for (const row of video) lookup.set(row.google_campaign_resource_name, { plan_id: row.plan_id, plan_kind: "video" });
-  const search = await readAll<{ plan_id: string; pushed_resource_name: string }>(
+  const search = await readAll<{ id: string; plan_id: string; pushed_resource_name: string }>(
     (from, to) =>
       db
         .from("google_search_campaigns")
-        .select("plan_id, pushed_resource_name")
+        .select("id, plan_id, pushed_resource_name")
         .not("pushed_resource_name", "is", null)
         .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .range(from, to),
     "google_search_campaigns",
   );
@@ -263,8 +260,11 @@ export async function loadRollupGoogleSpend(
           .gte("date", w.since)
           .lte("date", w.until)
           .gt("google_ads_spend", 0)
+          .order("event_id", { ascending: true })
+          .order("date", { ascending: true })
           .range(from, to),
       "event_daily_rollups",
+      ["event_id", "date"],
     );
     for (const row of rows) {
       const account = eventAccount.get(row.event_id);

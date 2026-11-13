@@ -46,13 +46,16 @@ export async function loadEventFunnelInput(
     purchases: 0,
   };
 
+  const seenDays = new Set<string>();
   for (let from = 0; ; from += 1000) {
     let query = sb
       .from("event_daily_rollups")
       .select(
-        "meta_reach, meta_impressions, link_clicks, ad_spend, tiktok_reach, tiktok_impressions, tiktok_clicks, tiktok_spend, google_ads_impressions, google_ads_clicks, google_ads_spend, landing_page_views, tickets_sold",
+        "date, meta_reach, meta_impressions, link_clicks, ad_spend, tiktok_reach, tiktok_impressions, tiktok_clicks, tiktok_spend, google_ads_impressions, google_ads_clicks, google_ads_spend, landing_page_views, tickets_sold",
       )
-      .eq("event_id", eventId);
+      .eq("event_id", eventId)
+      // (event_id, date) is unique: date order keeps the pages disjoint.
+      .order("date", { ascending: true });
     if (options.sinceDate) {
       query = query.gte("date", options.sinceDate);
     }
@@ -63,6 +66,11 @@ export async function loadEventFunnelInput(
     }
     const page = (data ?? []) as Array<Record<string, unknown>>;
     for (const row of page) {
+      if (row.date != null) {
+        const day = String(row.date);
+        if (seenDays.has(day)) continue;
+        seenDays.add(day);
+      }
       sums.metaReach += num(row.meta_reach);
       sums.metaImpressions += num(row.meta_impressions);
       sums.metaClicks += num(row.link_clicks);
@@ -103,8 +111,9 @@ export async function loadEventFunnelInput(
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb
       .from("ticket_sales_snapshots")
-      .select("source")
+      .select("id, source")
       .eq("event_id", eventId)
+      .order("id", { ascending: true })
       .range(from, from + 999);
     if (error) {
       console.warn("[event-funnel] snapshot page failed", error.message);

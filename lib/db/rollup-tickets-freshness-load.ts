@@ -8,6 +8,7 @@ import {
   type RollupTicketsFreshnessInput,
   type SnapshotListingLife,
 } from "@/lib/ticketing/rollup-tickets-freshness";
+import { dedupeOn } from "./paged-read.ts";
 
 function windowStartIso(now: Date, days: number): string {
   const d = new Date(now);
@@ -41,35 +42,49 @@ export async function loadRollupTicketsFreshnessInput(
   const snapshotRowsInWindow = Number(snapCountRes.count ?? 0);
 
   const listings: SnapshotListingLife[] = [];
+  const seenSnapshots = new Set<string>();
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb
       .from("ticket_sales_snapshots")
-      .select("event_id, source, external_event_id, connection_id, tickets_sold")
+      .select("id, event_id, source, external_event_id, connection_id, tickets_sold")
       .gte("snapshot_at", sinceIso)
+      .order("id", { ascending: true })
       .range(from, from + 999);
     if (error) {
       console.warn("[rollup-tickets-freshness] snapshot page failed", error.message);
       break;
     }
-    const page = (data ?? []) as SnapshotListingLife[];
-    listings.push(...page);
+    const page = (data ?? []) as Array<SnapshotListingLife & { id: string }>;
+    for (const row of dedupeOn(page, ["id"])) {
+      if (row.id != null) {
+        if (seenSnapshots.has(row.id)) continue;
+        seenSnapshots.add(row.id);
+      }
+      listings.push(row);
+    }
     if (page.length < 1000) break;
   }
   const snapshotLifetimeGrowthInWindow = snapshotListingGrowth(listings);
 
   let rollupTicketsSumInWindow = 0;
+  const seenRollups = new Set<string>();
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb
       .from("event_daily_rollups")
-      .select("tickets_sold")
+      .select("id, tickets_sold")
       .gte("date", sinceDate)
+      .order("id", { ascending: true })
       .range(from, from + 999);
     if (error) {
       console.warn("[rollup-tickets-freshness] rollup page failed", error.message);
       break;
     }
-    const page = (data ?? []) as Array<{ tickets_sold: number | null }>;
+    const page = (data ?? []) as Array<{ id: string; tickets_sold: number | null }>;
     for (const row of page) {
+      if (row.id != null) {
+        if (seenRollups.has(row.id)) continue;
+        seenRollups.add(row.id);
+      }
       rollupTicketsSumInWindow += Number(row.tickets_sold ?? 0);
     }
     if (page.length < 1000) break;

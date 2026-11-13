@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { classifyLaunchMetaCode } from "../meta/launch-error-classify.ts";
+import { dedupeOn } from "../db/paged-read.ts";
 import type { GraphMultiGet } from "./fetch.ts";
 import {
   AD_COPY_FIELDS,
@@ -107,14 +108,19 @@ async function writeCopies(db: SupabaseClient, rows: readonly CopyInsert[]): Pro
 async function snapshotFallbacks(db: SupabaseClient, wanted: ReadonlySet<string>): Promise<Map<string, AdCopyFields>> {
   const found = new Map<string, AdCopyFields>();
   if (wanted.size === 0) return found;
+  const seen = new Set<string>();
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db.from("active_creatives_snapshots").select("payload").range(from, from + PAGE - 1);
+    const { data, error } = await db.from("active_creatives_snapshots").select("id, payload").order("id", { ascending: true }).range(from, from + PAGE - 1);
     if (error) {
       console.error(`[ad-copy] snapshot read failed: ${error.message}`);
       return found;
     }
-    const rows = (data ?? []) as { payload?: unknown }[];
-    for (const row of rows) {
+    const rows = (data ?? []) as { id: string; payload?: unknown }[];
+    for (const row of dedupeOn(rows, ["id"])) {
+      if (row.id != null) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+      }
       for (const [id, copy] of snapshotCopies(row.payload)) {
         if (wanted.has(id) && !found.has(id)) found.set(id, copy);
       }
