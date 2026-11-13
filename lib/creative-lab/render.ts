@@ -25,6 +25,19 @@ import { renderTripleFitClip, type TripleFitHooks } from "./triple-fit-render.ts
 import { probeMp4Url, type Probe } from "./mp4-probe.ts";
 import { clipWindow } from "./surface.ts";
 import { renderAssetId } from "./render-proxy.ts";
+import { FACE_CHECKING, QUOTE_TOO_LONG, faceSampleState, placeFromStoredSamples, readFaceSamples } from "./caption-placement.ts";
+
+/** The clip has no samples for this crop yet. The row stays queued. */
+export class SamplesPending extends Error {
+  constructor() {
+    super(FACE_CHECKING);
+    this.name = "SamplesPending";
+  }
+}
+
+export function isSamplesPending(err: unknown): boolean {
+  return err instanceof SamplesPending || (err instanceof Error && err.name === "SamplesPending");
+}
 
 export type { Probe };
 
@@ -201,23 +214,21 @@ export async function renderCaptionOnClip(
     const aspect = loaded.aspect;
     if (String(clip.triple_fit_source_id ?? "").trim()) throw new Error(TRIPLE_FIT_NOT_PAIRED);
     const quote = caption.mode === "quote" || caption.style === "quote";
-    const version = quote ? quoteVersion : captionVersion;
+    // Q10: a quote renders in the caption style. A row still stamped with the quote profile is re-rendered under it.
+    const version = captionVersion;
+    const restyle = quote && (String(caption.style_version) === quoteVersion || String(render.style_version) === quoteVersion);
     const size: CaptionSize = caption.size_variant === "long" ? "long" : "default";
     const lines = asLines(caption.lines);
-    if (quote) {
-      if (lines.some((line) => line.trim() === "")) throw new Error("empty line; a quote is at most 4");
-      if (lines.length > 4) throw new Error(`${lines.length} lines; a quote is at most 4`);
-    } else {
-      if (size === "long" && !profile.longApproved) throw new Error("long caption size is not approved");
-      const limits = captionLimits(size);
-      if (lines.some((line) => line.trim() === "")) throw new Error(`empty line; an overlay is at most ${limits.maxLines} lines`);
-      if (lines.some((line) => /^(?:more|&|w\/)$/i.test(line.trim()))) throw new Error(`a short word is its own line; an overlay is at most ${limits.maxLines} lines`);
-      if (lines.some((line) => line.includes("|") || /(^|\s)\/(\s|$)/.test(line))) throw new Error(`a line break is the only separator; an overlay is at most ${limits.maxLines} lines`);
-      if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
-      const over = lines.find((line) => line.length > limits.charsPerLine);
-      if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
-    }
-    if (caption.style_version !== version || render.style_version !== version) {
+    if (size === "long" && !profile.longApproved) throw new Error("long caption size is not approved");
+    const limits = captionLimits(size);
+    if (lines.some((line) => line.trim() === "")) throw new Error(`empty line; an overlay is at most ${limits.maxLines} lines`);
+    if (!quote && lines.some((line) => /^(?:more|&|w\/)$/i.test(line.trim()))) throw new Error(`a short word is its own line; an overlay is at most ${limits.maxLines} lines`);
+    if (!quote && lines.some((line) => line.includes("|") || /(^|\s)\/(\s|$)/.test(line))) throw new Error(`a line break is the only separator; an overlay is at most ${limits.maxLines} lines`);
+    const over = lines.find((line) => line.length > limits.charsPerLine);
+    if (quote && (lines.length > limits.maxLines || over)) throw new Error(QUOTE_TOO_LONG);
+    if (lines.length > limits.maxLines) throw new Error(`${lines.length} lines; at most ${limits.maxLines}`);
+    if (over) throw new Error(`"${over}" exceeds ${limits.charsPerLine} characters`);
+    if (!restyle && (caption.style_version !== version || render.style_version !== version)) {
       throw new Error(`style_version does not match the bundled profile ${version}`);
     }
     const quoteWeight = caption.quote_weight === 400 ? 400 : 700;
@@ -261,6 +272,27 @@ export async function renderCaptionOnClip(
       size,
       ...(quote ? { mode: "quote" as const, weight: quoteWeight as 400 | 700 } : {}),
     };
+    const baseScale = size === "long" ? 0.75 : 1;
+    const cropFocusX = props.cropFocusX ?? 0.5;
+    const cropFocusY = props.cropFocusY ?? 0.5;
+    const storedIn = clip.in_s == null ? null : Number(clip.in_s);
+    const storedOut = clip.out_s == null ? null : Number(clip.out_s);
+    const stored = readFaceSamples(clip.face_samples);
+    if (faceSampleState(stored, { cropFocusX, cropFocusY, inS: storedIn, outS: storedOut }) !== "ready" || !stored?.samples) {
+      throw new SamplesPending();
+    }
+    const place = placeFromStoredSamples({
+      lines,
+      baseScale,
+      kind: quote ? "quote" : "caption",
+      windowIn: inS,
+      windowOut: outS,
+      samples: stored.samples,
+    });
+    if (!place.ok) throw new Error(place.line);
+    props.placementCenterY = place.centre;
+    props.placementScale = place.scale;
+    props.inS = place.inS;
     const request: CaptionRenderRequest = { props, muted: audio === "muted" };
     const frame = outputSize(meta.width, meta.height, aspect);
     const rendered: RenderedClip = input.deps?.renderToFile
@@ -279,7 +311,7 @@ export async function renderCaptionOnClip(
       filename: `caption-${aspect.replace(":", "x")}.mp4`,
       mediaKind: "video",
       aspectRatio: aspect,
-      durationSeconds: Math.round((outS - inS) * 1000) / 1000,
+      durationSeconds: Math.round((outS - (props.inS ?? inS)) * 1000) / 1000,
       storageBucket: BUCKET,
       storagePath,
     });
@@ -289,6 +321,11 @@ export async function renderCaptionOnClip(
       status: "done",
       error: null,
       render_ms: renderMs,
+      ...(restyle ? { style_version: version } : {}),
+      placement_center_y: place.centre,
+      placement_scale: place.scale,
+      face_share: place.faceShare,
+      face_run_s: place.runS,
       creative_asset_id: registered.asset.id,
     });
     if (rendered.lambda && lambda) {
@@ -310,6 +347,10 @@ export async function renderCaptionOnClip(
     };
   } catch (err) {
     if (pendingDelete) await pendingDelete.lambda.deleteRender(pendingDelete.handle).catch(() => {});
+    if (isSamplesPending(err)) {
+      await patchRender(db, input.renderId, { status: "queued", error: null }).catch(() => {});
+      throw err instanceof Error ? err : new SamplesPending();
+    }
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
     await patchRender(db, input.renderId, { status: "failed", error: message, render_ms: Date.now() - started }).catch(() => {});
     throw err instanceof Error ? err : new Error(message);

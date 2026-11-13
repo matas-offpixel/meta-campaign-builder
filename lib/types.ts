@@ -561,6 +561,10 @@ export interface Asset {
   /** Object path in `storageBucket` when the original bytes were kept. */
   storagePath?: string;
   storageBucket?: string;
+  /** The Drive file this slot was copied from (the launcher's From Drive, G5); the draft never adds it twice. */
+  driveFileId?: string;
+  /** "From Drive · {owner / folder path}" on the slot (G5). */
+  sourceLabel?: string;
   uploadStatus: AssetUploadStatus;
   error?: string;
 }

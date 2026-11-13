@@ -12,6 +12,8 @@ import { clipWindow, currentRenderError, renderRoundOpen } from "../creative-lab
 import { daysUntilEvent, nextPayday } from "../creative-lab/payday.ts";
 import { failedCheckSentence, whatsWorking, type WorkingAd } from "../creative-lab/surface.ts";
 import { quoteLines, validateQuote } from "../creative-lab/quote.ts";
+import { FACE_CHECK_FAILED, FACE_CHECKING, OLD_QUOTE_STYLE, faceSampleState, placeFromStoredSamples, placementNote, readFaceSamples } from "../creative-lab/caption-placement.ts";
+import { quoteStyleVersion } from "../../src/remotion/caption-style/quote-profile.ts";
 import { isCaptionStyle } from "../creative-lab/tags.ts";
 import { loadCardVoice, type CardVoice } from "../creative-lab/voice-store.ts";
 import { loadClipSelection } from "../creative-lab/selection-store.ts";
@@ -229,6 +231,10 @@ export type CreativeLabCardData = {
     hasAudio?: boolean | null;
     cropFocusX: number;
     cropOpen: boolean;
+    /** ready: samples match this crop and window. checking: not stored yet, or stale. failed: the last detection failed. */
+    faceCheck?: "ready" | "checking" | "failed";
+    /** C6, or the refusal, per caption. Only set when faceCheck is ready. */
+    faceByCaption?: Record<string, string | null>;
     tripleFitSourceId?: string | null;
     tripleFitSourceNo?: number | null;
   }[];
@@ -255,6 +261,14 @@ export type CreativeLabCardData = {
     durationSeconds?: number | null;
     narrowLabel?: string | null;
     thumbUrl?: string | null;
+    /** C6, or the old-quote sentence. Null when the caption is at today's spot at its own size. */
+    placementNote?: string | null;
+    placementCenter?: number | null;
+    placementScale?: number | null;
+    oldQuote?: boolean;
+    /** The caption is a quote, so a length refusal uses the quote sentence. */
+    quote?: boolean;
+    faceFailed?: boolean;
   }[];
   assets: { id: string; filename: string; durationSeconds: number | null; thumbnailUrl: string | null }[];
   clientEvents: { id: string; name: string; eventDate: string | null }[];
@@ -487,6 +501,44 @@ export async function loadCreativeLabCard(
     : null;
 
   const clipSelection = await loadClipSelection(db, args.eventId);
+  const quoteVersion = await quoteStyleVersion();
+  const clipFace = (row: Row): { state: "ready" | "checking" | "failed"; lines: Record<string, string | null> } => {
+    const storedIn = row.in_s == null || row.in_s === "" ? null : Number(row.in_s);
+    const storedOut = row.out_s == null || row.out_s === "" ? null : Number(row.out_s);
+    const focusX = row.crop_focus_x == null || row.crop_focus_x === "" ? 0.5 : Number(row.crop_focus_x);
+    const focusY = row.crop_focus_y == null || row.crop_focus_y === "" ? 0.5 : Number(row.crop_focus_y);
+    const stored = readFaceSamples(row.face_samples);
+    const state = faceSampleState(stored, {
+      cropFocusX: Number.isFinite(focusX) ? focusX : 0.5,
+      cropFocusY: Number.isFinite(focusY) ? focusY : 0.5,
+      inS: storedIn != null && Number.isFinite(storedIn) ? storedIn : null,
+      outS: storedOut != null && Number.isFinite(storedOut) ? storedOut : null,
+    });
+    const lines: Record<string, string | null> = {};
+    const seconds = assetOf.get(text(row, "creative_asset_id"))?.duration_seconds;
+    const fileSeconds = seconds == null || seconds === "" ? null : Number(seconds);
+    const window = clipWindow({
+      fileSeconds: fileSeconds != null && Number.isFinite(fileSeconds) ? fileSeconds : null,
+      inS: storedIn != null && Number.isFinite(storedIn) ? storedIn : null,
+      outS: storedOut != null && Number.isFinite(storedOut) ? storedOut : null,
+    });
+    if (state === "ready" && stored?.samples && window.outS != null) {
+      for (const caption of captions) {
+        const captionLines = Array.isArray(caption.lines) ? (caption.lines as unknown[]).map((line) => String(line)) : [];
+        if (!captionLines.length) continue;
+        const quote = text(caption, "mode") === "quote" || text(caption, "style") === "quote";
+        lines[text(caption, "id")] = placeFromStoredSamples({
+          lines: captionLines,
+          baseScale: text(caption, "size_variant") === "long" ? 0.75 : 1,
+          kind: quote ? "quote" : "caption",
+          windowIn: window.inS,
+          windowOut: window.outS,
+          samples: stored.samples,
+        }).line;
+      }
+    }
+    return { state, lines };
+  };
 
   return {
     eventId: args.eventId,
@@ -583,6 +635,10 @@ export async function loadCreativeLabCard(
         audioMatch: row.audio_match === true ? true : row.audio_match === false ? false : null,
         cropFocusX: row.crop_focus_x == null ? 0.5 : Number(row.crop_focus_x),
         cropOpen: false,
+        ...(() => {
+          const face = clipFace(row);
+          return { faceCheck: face.state, faceByCaption: face.lines };
+        })(),
         tripleFitSourceId: text(row, "triple_fit_source_id") || null,
         tripleFitSourceNo: text(row, "triple_fit_source_id")
           ? Number(clipRows.find((item) => text(item, "id") === text(row, "triple_fit_source_id"))?.clip_no) || null
@@ -607,6 +663,9 @@ export async function loadCreativeLabCard(
       const artist = artists.find((item) => text(item, "id") === text(clip ?? null, "artist_id"));
       const caption = captions.find((item) => text(item, "id") === text(row, "caption_id"));
       const asset = assetOf.get(text(row, "creative_asset_id"));
+      const face = clip ? clipFace(clip) : null;
+      const waiting = text(row, "status") === "queued" || text(row, "status") === "rendering";
+      const quote = text(caption ?? null, "mode") === "quote" || text(caption ?? null, "style") === "quote";
       return {
         id: text(row, "id"),
         clipId: text(row, "clip_id"),
@@ -624,6 +683,22 @@ export async function loadCreativeLabCard(
         driveStatus: text(row, "drive_status") || null,
         driveFileName: text(row, "drive_file_name") || null,
         driveFileId: text(row, "drive_file_id") || null,
+        placementCenter: row.placement_center_y == null ? null : Number(row.placement_center_y),
+        placementScale: row.placement_scale == null ? null : Number(row.placement_scale),
+        oldQuote: text(row, "style_version") === quoteVersion,
+        quote,
+        faceFailed: waiting && face?.state === "failed",
+        placementNote: text(row, "style_version") === quoteVersion
+          ? OLD_QUOTE_STYLE
+          : waiting && face?.state === "failed"
+            ? FACE_CHECK_FAILED
+            : waiting && face?.state === "checking"
+              ? FACE_CHECKING
+              : placementNote(
+                  row.placement_center_y == null ? null : Number(row.placement_center_y),
+                  row.placement_scale == null ? null : Number(row.placement_scale),
+                  text(caption ?? null, "size_variant") === "long" ? 0.75 : 1,
+                ),
         roundOpen: renderRoundOpen(
           adRows
             .filter((ad) => text(ad, "render_id") === text(row, "id"))

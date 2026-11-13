@@ -12,9 +12,10 @@
  */
 
 import { loadArchivedClientScope } from "../db/client-status.ts";
+import { faceSampleState, readFaceSamples } from "./caption-placement.ts";
 import { MAX_LAB_RENDERS_AT_ONCE } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
-import { renderCaptionOnClip } from "./render.ts";
+import { isSamplesPending, renderCaptionOnClip } from "./render.ts";
 
 export const RENDER_STUCK_MS = 15 * 60 * 1000;
 
@@ -28,6 +29,26 @@ export type RenderTickResult = {
   busy: boolean;
   skippedReason?: string;
 };
+
+/** A clip with no row is ready: the caller has nothing to sample. One entry per clip id that exists. */
+async function clipReadiness(db: ServiceRoleDb, queued: readonly Row[]): Promise<Map<string, "ready" | "failed" | "checking">> {
+  const ids = [...new Set(queued.map((row) => String(row.clip_id ?? "")).filter(Boolean))];
+  const out = new Map<string, "ready" | "failed" | "checking">();
+  for (const id of ids) {
+    const res = await db.from("creative_lab_clips").select("crop_focus_x, crop_focus_y, in_s, out_s, face_samples").eq("id", id).maybeSingle();
+    if (res.error) throw new Error(`creative_lab_clips: ${res.error.message}`);
+    const clip = res.data as Row | null;
+    if (!clip) continue;
+    const num = (value: unknown): number | null => (value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value));
+    out.set(id, faceSampleState(readFaceSamples(clip.face_samples), {
+      cropFocusX: num(clip.crop_focus_x) ?? 0.5,
+      cropFocusY: num(clip.crop_focus_y) ?? 0.5,
+      inS: num(clip.in_s),
+      outS: num(clip.out_s),
+    }));
+  }
+  return out;
+}
 
 async function rows(db: ServiceRoleDb, table: string, column: string, value: unknown): Promise<Row[]> {
   const res = await db.from(table).select("*").eq(column, value);
@@ -103,9 +124,18 @@ export async function runRenderTick(
   const queuedRes = await db.from("creative_lab_renders").select("*").eq("status", "queued").order("created_at", { ascending: true });
   if (queuedRes.error) throw new Error(`creative_lab_renders: ${queuedRes.error.message}`);
   const queued = (queuedRes.data ?? []) as Row[];
+  const readiness = await clipReadiness(db, queued);
+  const pending = [...readiness.entries()].find(([, state]) => state === "checking");
+  if (pending && !opts.render) {
+    const { ensureClipFaces } = await import("./caption-place-run.ts");
+    const detected = await ensureClipFaces(db, pending[0]);
+    readiness.set(pending[0], detected);
+  }
   let skippedArchived = 0;
   const claimed: Row[] = [];
   for (const row of queued) {
+    const clipId = String(row.clip_id ?? "");
+    if (clipId && readiness.get(clipId) !== "ready" && readiness.has(clipId)) continue;
     if (claimed.length >= slots) break;
     const captionRes = await db.from("creative_lab_captions").select("event_id").eq("id", String(row.caption_id)).maybeSingle();
     if (captionRes.error) throw new Error(`creative_lab_captions: ${captionRes.error.message}`);
@@ -125,13 +155,20 @@ export async function runRenderTick(
     claimed.push(row);
   }
 
-  const render = opts.render ?? ((renderId: string, userId: string) => renderCaptionOnClip(db, { renderId, userId }).then(() => undefined));
+  const render = opts.render ?? (async (renderId: string, userId: string) => {
+    await renderCaptionOnClip(db, { renderId, userId });
+    const { recordPlacementContrast } = await import("./caption-place-run.ts");
+    await recordPlacementContrast(db, renderId).catch((err: unknown) => {
+      console.error("[creative-lab-render-tick] contrast", err instanceof Error ? err.message : err);
+    });
+  });
   const rounds = await Promise.all(
     claimed.map(async (row) => {
       try {
         await render(String(row.id), String(row.user_id));
         return await markAds(db, String(row.id), "ready", null);
       } catch (err) {
+        if (isSamplesPending(err)) return [];
         const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
         await db.from("creative_lab_renders").update({ status: "failed", error: message }).eq("id", row.id).eq("status", "rendering");
         return await markAds(db, String(row.id), "render_failed", message);

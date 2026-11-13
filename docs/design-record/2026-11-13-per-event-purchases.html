@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Per-event purchases — 13 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.p4{display:grid;grid-template-columns:150px minmax(0,1fr);gap:0;font-size:12.5px}
+.p4>div{padding:8px 10px;border-bottom:1px solid var(--border)}
+.p4 .lab{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+@media (max-width:700px){.p4{grid-template-columns:minmax(0,1fr)}.p4 .lab{border-bottom:0;padding-bottom:0}}
+.p4 .sm{display:block;font-size:11.5px;color:var(--ink-3);margin-top:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="k">Off/Pixel · design record · on-sale optimisation · 13 November 2026</div>
+<h1>Per-event purchases: what counts, and on which pixel</h1>
+<p class="lead">This record replaces the method in C1 of <a href="2026-11-12-on-sale-refresh-corrections.html"><code>2026-11-12-on-sale-refresh-corrections.html</code></a> (#1207). C1 counted a show's purchases on its own ticket URL, read from the pixel. That can't be read. C2–C9 stand. F2, HC2 and HC3 of that record are replaced by E3, HE1 and HE3 below.</p>
+
+<div class="k">WHAT P4'S FIRST READ FOUND (CLAUDE CODE, READ-ONLY, 12–13 NOV)</div>
+<table class="t">
+<tr><th style="width:190px">Finding</th><th>Detail</th></tr>
+<tr><td>No page-level purchases</td><td>Meta breaks a pixel's purchases down by domain, never by page or URL. Every event read 0 URL-matched purchases, because there's no URL to match.</td></tr>
+<tr><td>Domains can split</td><td>A show whose page sits on a domain of its own can still be split. Its domain's purchases are its own.</td></tr>
+<tr><td>The stored pixel is wrong for NX</td><td>NX Newcastle's ad sets optimise on pixel <code>645185673672763</code>. That's the NX LOVES pixel, the same one CIRQLIN's NX pages carry. The client record stores <code>1283861880364565</code> for Electric Brixton, so any read through the stored field counts on a pixel those ads don't use.</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>E1 · What counts as a show's purchases (a)</td><td>
+<p><b>The count that triggers is a count of exactly what the Purchase campaign would optimise on.</b> A figure Meta can't optimise on can't start a campaign that asks Meta to optimise. So the sources rank like this:</p>
+<ul>
+<li><b>1 · Purchases on the show's own domain (the only trigger).</b> The pixel's purchases whose domain is this show's own, read from Meta's domain breakdown on the pixel the ads actually use (E4). This is read-only, and history is there from the first read.</li>
+<li><b>The Purchase campaign optimises on the same thing.</b> On Accept, P4 creates a per-show custom conversion on that pixel and points the campaign at it:
+  <ul>
+  <li>the rule is <i>Purchase, domain equals the show's own domain</i>, which is the population the count measured;</li>
+  <li>it's named <code>{EVENT_CODE} · Purchase on {domain}</code>;</li>
+  <li>it's created as part of Accept's write, never in shadow.</li>
+  </ul>
+  The campaign never optimises on the pixel's plain Purchase. That would teach Meta to find buyers for any show on the pixel.</li>
+<li><b>2 · Ticketing data, where linked: a check.</b> It shows the pixel's share of real sales. It never triggers, and it never blocks (C6).</li>
+<li><b>3 · Attributed, any show: context.</b> The <code>attributedPurchases</code> figure keeps C2's label and is never the show's purchases.</li>
+</ul>
+<p><b>A show's own domain</b> is a domain that carries this show's page and no other running or upcoming show's. Two places supply it:</p>
+<ul>
+<li>the event's signup URL host, when no other event in Off/Pixel uses it;</li>
+<li>when the signup URL is a <code>crqln.com/l/{slug}</code> link, the CIRQLIN custom domain bound to that page.</li>
+</ul>
+<p>Never a show's own: <code>crqln.com</code> itself (every CIRQLIN page shares it), ticket sites (Skiddle, Universe, Ingresse), and a tour site shared by several shows. Hosts compare exactly as written, except that a leading <code>www.</code> is the same domain.</p>
+<p><b>Not used:</b></p>
+<ul>
+<li><b>CIRQLIN's own data.</b> CIRQLIN sees signups and ticket-link clicks, never the checkout. A click is not a purchase.</li>
+<li><b>A purchase event sent from CIRQLIN.</b> Rejected for the same reason: it would be a purchase invented from a click.</li>
+<li><b>A custom conversion on a ticket site's URL or parameter.</b> Not ruled. No URL is readable, and Skiddle's confirmation page doesn't name the show. If a ticket site is later proven to carry the show in a parameter, a later record can add it under source 1.</li>
+</ul></td></tr>
+<tr><td>E2 · The bar and the trigger (b)</td><td>
+<ul>
+<li><b>15 or more purchases on the show's own domain in 14 days</b>, to the window end, on the resolved pixel. That proposes the Purchase campaign (with E1's custom conversion) and lets budget moves cross campaigns on cost per purchase.</li>
+<li><b>Under 15:</b> moves stay inside each campaign, on C9's thresholds.</li>
+<li><b>Why 15 stays.</b> The narrower count makes 15 harder to reach, not easier, so the bar gets stricter in effect. It's the floor for putting a proposal in front of Matas, not a promise that Meta's learning is done. Meta's own guidance asks for more per ad set.</li>
+<li><b>An own domain that never sees a purchase isn't "under the bar".</b> If it has 0 purchases in 90 days while the pixel has purchases, the show's purchases are landing somewhere else (most often the ticket site's checkout). It takes E3's "nothing reaches" state, not "0, under 15", which would read as if the show might get there.</li>
+</ul></td></tr>
+<tr><td>E3 · What the panel says (c)</td><td>
+<p>F2 below has every state at 1280 and 393. The state is picked in this order, and the first that applies wins:</p>
+<ol>
+<li>no pixel;</li>
+<li>no page or ticket URL;</li>
+<li>ticket site only;</li>
+<li>no domain of its own;</li>
+<li>shared domain;</li>
+<li>nothing reaches the domain;</li>
+<li>under the bar or proposed.</li>
+</ol>
+<p>Every state keeps the attributed line under it (C2). The ticketing check shows only when ticketing is linked and there's a domain count to compare.</p></td></tr>
+<tr><td>E4 · The pixel (d)</td><td>
+<ul>
+<li><b>Where the true pixel comes from.</b> It's the pixel in <code>promoted_object.pixel_id</code> on the event's ad sets that delivered in the window. When ad sets disagree, it's the one carrying the most spend. If another pixel carries 10 % of the spend or more, the panel adds "{k} ad sets optimise on pixel …{last 4}".</li>
+<li><b>The refresh reads it from there, never from the stored field.</b> Every pixel-level read (the domain breakdown, E1's custom conversion, the 90-day check) uses the resolved pixel. IC stays the ads' own reported result, which Meta already ties to each ad set's pixel.</li>
+<li><b>A mismatch shows, and nothing is overwritten.</b> When the resolved pixel differs from <code>clients.meta_pixel_id</code>, Objective shows a setup line: "Ads optimise on pixel …2763 (NX LOVES); the client's stored pixel is …4565. Counts use …2763." It isn't a blocker and has no action. Slack carries the same line once per event until the two match.</li>
+<li><b>The stored field stays as it is.</b> The refresh never writes <code>clients.meta_pixel_id</code>. It holds one pixel per client, but Electric Brixton's venues each run their own (NX LOVES for Newcastle), so no single value is right for that client. It remains the launcher's default for new launches only. Fixing that default per venue is a later record (open below).</li>
+<li><b>No resolvable pixel</b> (no delivering ad set has one): no count and no proposal. The panel says so (F2).</li>
+<li><b>Evidence:</b> <code>pixel: { id, source: "ad_sets", spendShare, stored, matches }</code>.</li>
+</ul></td></tr>
+</table>
+
+<h2>F1 · Objective, two real shows (1280 and 393)</h2>
+<p class="lead"><b>P26-BDAY</b> is real. Its page is <code>crqln.com/l/puzzle-4th-birthday</code> with no custom domain, and its tickets are on Skiddle, so it can't be split. The attributed figure (1) and the IC figures are from its 12 Nov run.</p>
+<p class="lead"><b>NX26-LOCKLEAD</b> is real in its domain (<code>locklead-newcastle.com</code>, a CIRQLIN custom domain), its pixel mismatch and its attributed 21. Its domain count (6) is an example until HE1 reads it.</p>
+<div class="frame">
+<figure><figcaption>1280 · P26-BDAY · no domain of its own</figcaption>
+<div class="vp w1280">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<p class="why">Initiate Checkout — 75 reached the pixel since 30 Oct. Last 14 days: 99 IC.<small>Purchase campaign not proposed — this show has no domain of its own, so its purchases can't be told apart. A custom domain on its CIRQLIN page would let them be counted.</small><small>Attributed to these ads: 1 purchase in 14 days, any show on this pixel. Budget moves stay inside each campaign.</small><small>No linked ticketing: the pixel's purchases can't be checked against real sales.</small></p></div>
+</div></div></figure>
+<figure><figcaption>393 · P26-BDAY</figcaption>
+<div class="vp w393">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<p class="why">Initiate Checkout — 75 reached the pixel since 30 Oct. Last 14 days: 99 IC.<small>No Purchase campaign: no domain of its own. 1 attributed purchase in 14 days, any show.</small><small>No linked ticketing: the pixel's purchases can't be checked against real sales.</small></p></div>
+</div></div></figure>
+</div>
+<div class="frame">
+<figure><figcaption>1280 · NX26-LOCKLEAD · own domain, pixel mismatch</figcaption>
+<div class="vp w1280">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<div class="setup"><span>Ads optimise on pixel …2763 (NX LOVES); the client's stored pixel is …4565. Counts use …2763.</span></div>
+<p class="why">Purchase campaign not proposed — 6 purchases on locklead-newcastle.com in 14 days, under 15.<small>Attributed to these ads: 21 purchases in 14 days, any show on this pixel. Budget moves stay inside each campaign.</small><small>No linked ticketing: the pixel's purchases can't be checked against real sales.</small></p></div>
+</div></div></figure>
+<figure><figcaption>393 · NX26-LOCKLEAD</figcaption>
+<div class="vp w393">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<div class="setup"><span>Ads use pixel …2763; stored is …4565. Counts use …2763.</span></div>
+<p class="why">No Purchase campaign: 6 on locklead-newcastle.com in 14 days, under 15.<small>21 attributed purchases in 14 days, any show.</small><small>No linked ticketing: the pixel's purchases can't be checked against real sales.</small></p></div>
+</div></div></figure>
+</div>
+
+<h2>F2 · Every purchase-line state (1280, with the 393 form under each)</h2>
+<p class="lead">This replaces F2 of the corrections record. Counts and sites in braces are filled per show. The numbers shown are examples.</p>
+<div class="frame">
+<figure><figcaption>1280 · Objective · purchase line states</figcaption>
+<div class="vp w1280">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<div class="p4">
+<div class="lab">Proposed</div>
+<div>Purchase campaign proposed — 18 purchases on {domain} in 14 days. Budget moves can cross campaigns on cost per purchase.<span class="sm">393: Purchase campaign: 18 on {domain} in 14 days.</span></div>
+<div class="lab">Under the bar</div>
+<div>Purchase campaign not proposed — 6 purchases on {domain} in 14 days, under 15. Budget moves stay inside each campaign.<span class="sm">393: No Purchase campaign: 6 on {domain} in 14 days, under 15.</span></div>
+<div class="lab">Nothing reaches</div>
+<div>Purchase campaign not proposed — no purchases have reached {domain} in 90 days; they land on {ticket site}, which can't be split by show.<span class="sm">393: No Purchase campaign: purchases land on {ticket site}.</span></div>
+<div class="lab">Shared domain</div>
+<div>Purchase campaign not proposed — {domain} carries {n} other shows, so this show's purchases can't be told apart.<span class="sm">393: No Purchase campaign: {domain} is shared.</span></div>
+<div class="lab">No own domain</div>
+<div>Purchase campaign not proposed — this show has no domain of its own, so its purchases can't be told apart. A custom domain on its CIRQLIN page would let them be counted.<span class="sm">393: No Purchase campaign: no domain of its own. (The second sentence shows only when the show has a CIRQLIN page.)</span></div>
+<div class="lab">Ticket site only</div>
+<div>Purchase campaign not proposed — tickets sell on {ticket site}, which sells every show, so this show's purchases can't be told apart.<span class="sm">393: No Purchase campaign: tickets sell on {ticket site}.</span></div>
+<div class="lab">No page or ticket URL</div>
+<div>Purchase campaign not proposed — this show has no page or ticket URL set.<span class="sm">393: No Purchase campaign: no page or ticket URL.</span></div>
+<div class="lab">No pixel</div>
+<div>Purchase campaign not proposed — none of this show's ad sets optimises on a pixel yet.<span class="sm">393: No Purchase campaign: no pixel on its ad sets.</span></div>
+<div class="lab">Under every state</div>
+<div>Attributed to these ads: 21 purchases in 14 days, any show on this pixel. <span class="sm">393: 21 attributed purchases in 14 days, any show.</span></div>
+<div class="lab">Ticketing linked</div>
+<div>Ticketing: 40 sold in 14 days · the pixel saw 18 on {domain} (45 % of sales).<span class="sm">Shown only in Proposed and Under the bar.</span></div>
+</div></div></div></div></figure>
+</div>
+
+<h2>Where running shows stand today</h2>
+<p class="lead">From Off/Pixel's events (signup and ticket URLs) and CIRQLIN's custom domains, 13 Nov. This is the domain classification only. Whether purchases actually reach each own domain is HE1's read: an own domain can still fall into "nothing reaches" if its buyers check out on Skiddle.</p>
+<table class="t">
+<tr><th style="width:190px">Event</th><th>Own domain, or why not</th></tr>
+<tr><td>NX26-EED</td><td><code>eastenddubs-newcastle.com</code> · own (not CIRQLIN) · tickets Skiddle</td></tr>
+<tr><td>NX26-IPC</td><td><code>interplanetarycriminal-newcastle.com</code> · own (not CIRQLIN) · tickets Skiddle</td></tr>
+<tr><td>NX26-MF</td><td><code>modernfunktion-newcastle.com</code> · own (not CIRQLIN) · no ticket URL stored</td></tr>
+<tr><td>NX26-LOCKLEAD</td><td><code>locklead-newcastle.com</code> · own (CIRQLIN) · tickets Skiddle</td></tr>
+<tr><td>NX26-RUDIMENTAL</td><td><code>rudimental-newcastle.com</code> · own (CIRQLIN)</td></tr>
+<tr><td>ES26-GDS</td><td><code>girlsdontsync-halloween.com</code> · own (CIRQLIN) · tickets Skiddle</td></tr>
+<tr><td>ES26-FEVER105</td><td><code>crqln.com/l/fever105-sheffield</code> → custom domain <code>fever105-sheffield.com</code> · own (CIRQLIN) · tickets Skiddle</td></tr>
+<tr><td>ES27-LPRHYTHM · EBR26-KREAM · EBR27-GLITTERBOX</td><td><code>lprhythm-sheffield.com</code> · <code>kream-bristol.com</code> · <code>glitterbox-bristol.com</code> · own (CIRQLIN)</td></tr>
+<tr><td>ES26-MALLGRAB</td><td>Ticket site only (Skiddle), no page</td></tr>
+<tr><td>NX27-JULIANFIJMA</td><td>Ticket site only (Universe), no page</td></tr>
+<tr><td>DHB26-TRANCOSO</td><td>Ticket site only (Ingresse)</td></tr>
+<tr><td>P26-BDAY</td><td>No domain of its own: <code>crqln.com/l/puzzle-4th-birthday</code>, no custom domain · tickets Skiddle</td></tr>
+<tr><td>Ironworks, Louder / Parable, Black Butter, Junction 2 rows</td><td>No page or ticket URL stored on most rows</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HE1 · P4's first read (replaces HC2)</td><td>A read-only count for every running on-sale event (C8's test). No campaign and no write. It lists:
+<ul>
+<li>the resolved pixel (E4), with the stored pixel and whether they match;</li>
+<li>the own domain, or E3's reason there isn't one;</li>
+<li>purchases on that domain on the resolved pixel, over 14 days and 90 days;</li>
+<li>the attributed figure.</li>
+</ul>
+Matas picks the first Purchase-piece event from it. <b>Acceptance:</b> NX shows resolve to <code>645185673672763</code> and flag the mismatch; P26-BDAY reads "no domain of its own"; ES26-FEVER105 resolves to <code>fever105-sheffield.com</code> through its CIRQLIN page; ES26-MALLGRAB reads "ticket site only".</td></tr>
+<tr><td>HE2 · Pixel resolution</td><td>E4 in the refresh: the <code>pixel</code> evidence field, the setup line, the Slack line, and every pixel-level read going through the resolved pixel. No write to <code>clients.meta_pixel_id</code>. It can land before the rest of P4.</td></tr>
+<tr><td>HE3 · The purchase line (replaces HC3)</td><td>E3's order and F2's strings at 1280 and 393, plus the ticketing check. Cross-campaign moves on cost per purchase only in the Proposed state. One own-domain test, shared by the run and the panel, with fixtures for the five acceptance cases in HE1.</td></tr>
+<tr><td>HE4 · On Accept (P4's write, later)</td><td>Create E1's custom conversion on the resolved pixel, then the Purchase campaign optimising on it. Both are part of the gated Accept write, and nothing is created in shadow. If the custom conversion already exists by name, reuse it.</td></tr>
+<tr><td>HE5 · IC note (replaces HC4's third note)</td><td>IC stays the On Sale campaign's own reported result. Domain treatment applies to purchases only, because nothing triggers on IC. If IC ever triggers something, it gets E1's treatment first.</td></tr>
+</table>
+
+<h2>Supersedes</h2>
+<ul class="notes">
+<li>C1's method ("its own ticket URL, read from the pixel") and its "P4 starts with a count" bullet, from the corrections record. C1's two principles stand, now under E1: ticketing checks and never triggers, and no split means no proposal.</li>
+<li>F2, HC2, HC3, and HC4's third note, from the same record.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>E1's principle that the triggering count is the population the campaign optimises on, and the per-show custom conversion with its name.</li>
+<li>The own-domain definition, including the CIRQLIN custom-domain lookup and the <code>www.</code> exception.</li>
+<li>E2's 90-day "nothing reaches" test, E4's 10 % second-pixel line, and the <code>pixel</code> evidence shape.</li>
+<li>Every string in E3, F1 and F2, the CIRQLIN custom-domain hint among them.</li>
+<li>LOCKLEAD's 6 and all of F2's numbers, which are examples.</li>
+</ul>
+
+<h2>Open for Matas</h2>
+<ul class="notes">
+<li>The first Purchase-piece event, picked from HE1's read.</li>
+<li>The launcher's default pixel for multi-venue clients (Electric Brixton's NX, Sheffield, Bristol): per venue, or per event. A later record.</li>
+<li>Whether P26-BDAY's CIRQLIN page gets a custom domain so its purchases can be counted. That's only worth it if HE1 shows purchases reaching CIRQLIN domains at all, rather than landing on Skiddle.</li>
+</ul>
+
+</div>
+</body>
+</html>

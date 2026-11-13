@@ -25,14 +25,15 @@ function toNodeReadable(source: ByteSource): Readable {
   return Readable.from(source as AsyncIterable<Uint8Array>, { objectMode: false });
 }
 
-/** Streams `source` into `filePath` (created or replaced) and returns the sha256 and byte count of what was written. */
-export async function writeStreamToFile(source: ByteSource, filePath: string): Promise<ContentIdentity> {
+/** Streams `source` into `filePath` (created or replaced) and returns the sha256 and byte count of what was written. `onBytes` hears the running count. */
+export async function writeStreamToFile(source: ByteSource, filePath: string, onBytes?: (written: number) => void): Promise<ContentIdentity> {
   const hash = createHash("sha256");
   let byteSize = 0;
   const tap = new Transform({
     transform(chunk: Buffer, _encoding, done) {
       hash.update(chunk);
       byteSize += chunk.byteLength;
+      onBytes?.(byteSize);
       done(null, chunk);
     },
   });

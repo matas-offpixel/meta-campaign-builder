@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 
-import { CaptionPlate, QuoteGenerator, QuotePlate, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
+import { QuoteGenerator, QuotePost } from "@/components/dashboard/events/creative-lab/quote-surface";
 import { heldQuoteSentence, postsForQuote, quoteLines } from "@/lib/creative-lab/quote";
 
 const ENZO = "Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥";
-const SHORT = "Southampton, this one's going to be special.\nSee you on the 27th 🔥";
+const SHORT = "Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥";
 const LUKE = "Been waiting all year to play Circuit again. Bring the energy 👊";
 
 /**
@@ -51,7 +51,7 @@ export function QuoteFrameMount({ id }: { id: string }) {
             chip="@enzosiragusa · post, 12 Oct"
             chipNarrow="@enzosiragusa · 12 Oct"
             picked="read from the post · 3 sentences picked of 4"
-            lineLabel={`${quoteLines(ENZO).length} of 4 lines`}
+            lineLabel={`${quoteLines(ENZO).length} of 5 lines`}
             pairNote="Pairs with Enzo's best clip (More to change). Nothing is written by the Lab: the words are the artist's, as posted, with the source kept."
             handle="enzosiragusa"
             posts={postsForQuote([
@@ -65,7 +65,8 @@ export function QuoteFrameMount({ id }: { id: string }) {
         <QuotePost
           page="Puzzle"
           copy="Enzo Siragusa on the 4th Birthday, 27 Dec at Circuit."
-          words={ENZO}
+          words={SHORT}
+          placementScale={0.75}
           time="0:14"
           headline="Puzzle 4th Birthday"
           sub="Circuit · 27 Dec"
@@ -80,13 +81,6 @@ export function QuoteFrameMount({ id }: { id: string }) {
           ]}
           held={null}
         />
-      ) : null}
-      {id === "CLQ3" ? (
-        <div className="flex items-start gap-4 overflow-x-auto">
-          <CaptionPlate lines={["Southampton, this one's going to be special.", "See you on the 27th 🔥"]} marker="caption centre · 0.355 H" label="caption · rule 13 · unchanged" />
-          <QuotePlate words={SHORT} weight={700} label="quote · Q2 · bold 700" />
-          <QuotePlate words={SHORT} weight={400} label="quote · Q2 · regular 400" />
-        </div>
       ) : null}
       {id === "CLQ4" ? (
         <QuotePost

@@ -212,7 +212,25 @@ describe("a Lab render reads the proxy", () => {
     });
     const fake = fakeDb({
       creative_lab_renders: [{ id: "r1", user_id: USER, clip_id: "clip-4", caption_id: "cap-1", style_version: version, aspect: "9:16", kind: "video", status: "queued" }],
-      creative_lab_clips: [{ id: "clip-4", creative_asset_id: "orig", render_asset_id: renderAssetIdValue, audio_status: "original", in_s: 0, out_s: 2, crop_focus_y: 0.5 }],
+      creative_lab_clips: [{
+        id: "clip-4",
+        creative_asset_id: "orig",
+        render_asset_id: renderAssetIdValue,
+        audio_status: "original",
+        in_s: 0,
+        out_s: 8,
+        crop_focus_x: 0.5,
+        crop_focus_y: 0.5,
+        face_samples: {
+          detector: "test",
+          fps: 5,
+          cropFocusX: 0.5,
+          cropFocusY: 0.5,
+          inS: 0,
+          outS: 8,
+          samples: [{ t: 0, faces: [] }, { t: 0.2, faces: [] }],
+        },
+      }],
       creative_lab_captions: [{ id: "cap-1", lines: ["Luke Dean joins", "our 4th Birthday"], style_version: version }],
       creative_assets: [asset("orig", "videos/creative-lab/luke/4k.mp4"), asset("proxy", "videos/creative-lab/luke/proxy-1080/4k.mp4")],
     });

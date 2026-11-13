@@ -1,10 +1,13 @@
 /** In-memory Shared Drive for the export tests. It has no delete: nothing in the export may delete. */
 
 import { writeStreamToFile } from "../../creatives/stream-file.ts";
-import { DriveApiError, FOLDER_MIME, SHORTCUT_MIME, type DriveApi, type DriveChange, type DriveFile } from "../client.ts";
+import { DriveApiError, FOLDER_MIME, SHORTCUT_MIME, type DriveApi, type DriveChange, type DriveFile, type DriveMediaFile } from "../client.ts";
+
+/** Drive's measurements for a dropped file (files.list video/imageMediaMetadata, thumbnailLink). */
+export type FakeMeta = { width?: number; height?: number; rotation?: number; durationMs?: number; thumbnailLink?: string };
 
 export type FakeDrive = DriveApi & {
-  files: Map<string, DriveFile & { bytes?: Uint8Array }>;
+  files: Map<string, DriveFile & { bytes?: Uint8Array; meta?: FakeMeta }>;
   calls: string[];
   failUploads: number;
   /** Every write lands in the changes feed, like Drive's own. */
@@ -15,7 +18,7 @@ export type FakeDrive = DriveApi & {
   /** Next shareReader throws this. */
   refuseShare: DriveApiError | null;
   /** A file put in the drive by someone else (an operator dropping a clip). */
-  drop(parentId: string, name: string, opts?: { mimeType?: string; appProperties?: Record<string, string>; bytes?: Uint8Array; size?: number }): DriveFile;
+  drop(parentId: string, name: string, opts?: { mimeType?: string; appProperties?: Record<string, string>; bytes?: Uint8Array; size?: number; meta?: FakeMeta }): DriveFile;
   /** Next fetchMedia throws this. */
   failMedia: Error | null;
   trash(fileId: string): void;
@@ -28,10 +31,22 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
   const calls: string[] = [];
   let next = 1;
   const changeLog: DriveChange[] = [];
-  const add = (file: DriveFile & { bytes?: Uint8Array }) => {
+  const add = (file: DriveFile & { bytes?: Uint8Array; meta?: FakeMeta }) => {
     files.set(file.id, file);
     changeLog.push({ fileId: file.id, removed: false, file: { ...file } });
     return { ...file };
+  };
+  const media = (file: DriveFile & { bytes?: Uint8Array; meta?: FakeMeta }): DriveMediaFile => {
+    const { meta, ...rest } = file;
+    delete (rest as { bytes?: Uint8Array }).bytes;
+    return {
+      ...rest,
+      thumbnailLink: meta?.thumbnailLink ?? null,
+      width: meta?.width ?? null,
+      height: meta?.height ?? null,
+      rotation: meta?.rotation ?? null,
+      durationMs: meta?.durationMs ?? null,
+    };
   };
   const self: FakeDrive = {
     driveId,
@@ -44,7 +59,7 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
     refuseShare: null,
     failMedia: null,
     drop(parentId, name, opts = {}) {
-      return add({ id: `d${next++}`, name, mimeType: opts.mimeType ?? "video/mp4", parents: [parentId], appProperties: opts.appProperties, bytes: opts.bytes ?? new Uint8Array([9]), size: opts.size ?? 1 });
+      return add({ id: `d${next++}`, name, mimeType: opts.mimeType ?? "video/mp4", parents: [parentId], appProperties: opts.appProperties, bytes: opts.bytes ?? new Uint8Array([9]), size: opts.size ?? 1, meta: opts.meta });
     },
     trash(fileId) {
       const file = files.get(fileId)!;
@@ -78,12 +93,25 @@ export function fakeDrive(driveId = "ROOT"): FakeDrive {
         headers: { "content-length": String(end - start + 1), "content-range": `bytes ${start}-${end}/${bytes.byteLength}` },
       });
     },
-    async downloadTo(fileId, filePath) {
+    async downloadTo(fileId, filePath, dlOpts = {}) {
       calls.push(`downloadTo ${fileId}`);
       const file = files.get(fileId);
       if (!file) throw new Error("Drive download failed: HTTP 404 notFound");
       const bytes = file.bytes ?? new Uint8Array();
-      return writeStreamToFile((async function* () { yield bytes; })(), filePath);
+      return writeStreamToFile((async function* () { yield bytes; })(), filePath, dlOpts.onBytes);
+    },
+    async listMedia(parentId) {
+      calls.push(`listMedia ${parentId}`);
+      return [...files.values()].filter((file) => file.parents?.includes(parentId) && file.mimeType !== FOLDER_MIME && !file.trashed).map(media);
+    },
+    async getMediaFile(fileId) {
+      calls.push(`getMedia ${fileId}`);
+      const file = files.get(fileId);
+      return file ? media(file) : null;
+    },
+    async fetchThumbnail(link) {
+      calls.push(`thumbnail ${link}`);
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff]), { status: 200, headers: { "content-type": "image/jpeg" } });
     },
     async startPageToken() {
       calls.push("startPageToken");

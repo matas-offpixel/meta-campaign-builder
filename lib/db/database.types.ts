@@ -3488,6 +3488,8 @@ export type Database = {
           crop_focus_x: number
           crop_focus_y: number
           event_id: string | null
+          face_samples: Json | null
+          face_samples_at: string | null
           external_id: string | null
           fetched_at: string | null
           id: string
@@ -3521,6 +3523,8 @@ export type Database = {
           crop_focus_x?: number
           crop_focus_y?: number
           event_id?: string | null
+          face_samples?: Json | null
+          face_samples_at?: string | null
           external_id?: string | null
           fetched_at?: string | null
           id?: string
@@ -3554,6 +3558,8 @@ export type Database = {
           crop_focus_x?: number
           crop_focus_y?: number
           event_id?: string | null
+          face_samples?: Json | null
+          face_samples_at?: string | null
           external_id?: string | null
           fetched_at?: string | null
           id?: string
