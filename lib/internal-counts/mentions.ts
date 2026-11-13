@@ -84,7 +84,8 @@ export function newText(body: string, opts: { forward: boolean }): string {
 
 /** One item per sentence per count date. */
 export function mentionKey(sentence: string, countDate: string | null): string {
-  return `${countDate ?? ""}\u0000${sentence.replace(/\s+/g, " ").trim().toLowerCase()}`;
+  // "|" after a fixed-width date (or nothing): unambiguous, and storable in jsonb (U+0000 is not).
+  return `${countDate ?? ""}|${sentence.replace(/\s+/g, " ").trim().toLowerCase()}`;
 }
 
 export function saleMentions(body: string, showNames: readonly string[], opts: { forward?: boolean } = {}): SaleMention[] {
