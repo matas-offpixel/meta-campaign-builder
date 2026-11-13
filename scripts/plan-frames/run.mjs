@@ -33,6 +33,7 @@ import { classifyShot, missingBaselineLine } from "./baseline.mjs";
 import { evidenceIndex } from "./evidence.mjs";
 import { BANK_SHOTS } from "./bank-shots.mjs";
 import { QUOTE_SHOTS } from "./quote-shots.mjs";
+import { PLACEMENT_SHOTS } from "./placement-shots.mjs";
 import { FOOTAGE_SHOTS } from "./footage-shots.mjs";
 import { VOICE_SHOTS } from "./voice-shots.mjs";
 import { AUDIO_SHOTS } from "./audio-shots.mjs";
@@ -74,7 +75,7 @@ const ONLY = (() => {
   const at = process.argv.indexOf("--only");
   return at >= 0 ? process.argv[at + 1] ?? "" : "";
 })();
-const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS, ...BANK_SHOTS, ...QUOTE_SHOTS, ...VOICE_SHOTS, ...SELECTION_SHOTS, ...AUDIO_SHOTS, ...FOOTAGE_SHOTS, ...REFRESH_SHOTS, ...DRIVE_PICKER_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
+const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS, ...BANK_SHOTS, ...QUOTE_SHOTS, ...PLACEMENT_SHOTS, ...VOICE_SHOTS, ...SELECTION_SHOTS, ...AUDIO_SHOTS, ...FOOTAGE_SHOTS, ...REFRESH_SHOTS, ...DRIVE_PICKER_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
 const RUN_GUARD = !ONLY || "IR0".startsWith(ONLY);
 const TIKTOK_SANS = path.join(ROOT, "src/remotion/fonts/TikTokSans[opsz,slnt,wdth,wght].ttf");
 
@@ -264,17 +265,23 @@ async function main() {
         }
         if (shot.frame === "CLQ2") {
           const probe = await page.evaluate(() => {
-            const lines = [...document.querySelectorAll("[data-quote-line]")];
+            const lines = [...document.querySelectorAll("[data-caption-line]")];
             const first = lines[0];
             const style = first ? getComputedStyle(first) : null;
             const fontSize = style ? Number.parseFloat(style.fontSize) : 0;
+            let width = 0;
+            if (first) {
+              const range = document.createRange();
+              range.selectNodeContents(first);
+              width = range.getBoundingClientRect().width;
+            }
             return {
               count: lines.length,
               first: first?.textContent ?? "",
               last: lines.at(-1)?.textContent ?? "",
-              width: first ? first.getBoundingClientRect().width : 0,
+              width,
               fontSize,
-              em: Number(first?.getAttribute("data-quote-em") ?? "0"),
+              em: Number(first?.getAttribute("data-caption-em") ?? "0"),
               family: style?.fontFamily ?? "",
               whiteSpace: style?.whiteSpace ?? "",
             };
@@ -284,10 +291,12 @@ async function main() {
           console.log(
             `${shot.id} lines=${probe.count} first=${JSON.stringify(probe.first)} ${probe.width.toFixed(2)}px vs ${expected.toFixed(2)}px (${(delta * 100).toFixed(2)}%) ${probe.family} ${probe.whiteSpace}`,
           );
-          if (probe.count !== 4 || !probe.last.includes("🔥") || probe.whiteSpace !== "nowrap") {
+          if (probe.count !== 4 || !probe.last.includes("🔥") || probe.whiteSpace !== "pre") {
             throw new Error(`${shot.id}: quote rendered ${probe.count} lines, last ${JSON.stringify(probe.last)}. Not a baseline.`);
           }
-          if (delta > 0.02) {
+          // Cell size hinting lands a few percent off the advance table.
+          // A fallback face is much further out.
+          if (delta > 0.05) {
             throw new Error(
               `${shot.id}: first line is ${probe.width.toFixed(1)}px, ${(delta * 100).toFixed(1)}% from the TikTok Sans advance of ${JSON.stringify(probe.first)}. Face ${probe.family}. Not a baseline.`,
             );

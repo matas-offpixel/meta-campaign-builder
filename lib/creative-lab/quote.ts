@@ -4,27 +4,38 @@
  * taken from the source. The stored text is that slice, verbatim.
  */
 
-import { validateCaption, type EventFacts } from "./caption-facts.ts";
-import { quoteLinesAt } from "../../src/remotion/caption-style/quote-measure.ts";
-import { quoteProfile, type QuoteWeight } from "../../src/remotion/caption-style/quote-profile.ts";
+import { quoteFactErrors, type CaptionError, type EventFacts } from "./caption-facts.ts";
+import { fitQuote, QUOTE_TOO_LONG } from "./caption-placement.ts";
+import type { QuoteWeight } from "../../src/remotion/caption-style/quote-profile.ts";
 
 export type QuoteSource = "press_kit" | "post" | "typed";
 export type QuoteMode = "caption" | "quote";
 
-export const QUOTE_MAX_LINES = quoteProfile.maxLines;
-
-const FACT_CODES = new Set([
+const TICKET_CODES = new Set([
   "scarcity_without_tiers",
   "remaining_unknown",
   "final_not_true",
   "count_not_true",
   "sold_out_not_true",
-  "unknown_name",
-  "date_not_in_facts",
-  "weekday_mismatch",
   "price_not_in_facts",
-  "crowd_unproven",
 ]);
+
+/** Q17. The words are never edited. The person checks with the artist's team, or drops a sentence. */
+export function quoteHoldSentence(text: string, error: CaptionError): string {
+  if (error.code === "unknown_name") {
+    const name = error.detail.match(/"([^"]+)"/)?.[1] ?? "someone";
+    return `This quote names ${name}, who isn't on this event — check it with the artist's team.`;
+  }
+  if (error.code === "date_not_in_facts" || error.code === "weekday_mismatch") {
+    return "This quote's date doesn't match the event — check it with the artist's team.";
+  }
+  if (TICKET_CODES.has(error.code)) {
+    const quoted = error.detail.match(/"([^"]+)"/)?.[1];
+    const found = text.match(/\d+\s*%\s*sold(?:\s+out)?|\bsold\s+out\b|\bselling\s+fast\b|\bfinal\b/i);
+    return `This quote says ${quoted ?? found?.[0] ?? "that"}, which isn't true of this event's tickets yet.`;
+  }
+  return error.detail;
+}
 
 export type CaptionGenerator = {
   angle: "lineup" | "artist" | "artist_first_person" | "pov" | "scarcity";
@@ -71,9 +82,20 @@ export function heldQuoteSentence(artistName: string, pronouns?: unknown): strin
   return `These are ${artistName}'s own words, so they run only once ${subject} cleared for ${possessive} own channels.`;
 }
 
-/** Rendered lines at the quote's weight. The meter and the stored `lines` are this list. */
-export function quoteLines(text: string, weight: QuoteWeight = 700): string[] {
-  return quoteLinesAt(text, weight);
+/**
+ * Q12. Wrapped once at the starting size's measure (18, or 24 when it needs
+ * the long size). The weight is not read (Q14). A quote that doesn't fit
+ * still returns the 24-character wrap so the meter can show it.
+ */
+export function quoteLines(text: string, _weight: QuoteWeight = 700): string[] {
+  const fit = fitQuote(text);
+  if (fit.ok) return fit.lines;
+  return text.replace(/\s+/g, " ").trim().split(/\s+/).reduce<string[]>((lines, word) => {
+    const last = lines[lines.length - 1];
+    if (last && `${last} ${word}`.length <= 24) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+    return lines;
+  }, []);
 }
 
 function sentences(text: string): string[] {
@@ -203,10 +225,9 @@ export function acceptQuote(input: {
   const words = exactPost ? input.words : input.words.replace(/^\s+|\s+$/g, "");
   if (!words.trim()) return { ok: false, sentence: "These words are empty." };
   if (emojiOnly(words)) return { ok: false, sentence: "A quote that is only emoji is not used." };
-  const lines = quoteLines(words, input.weight === 400 ? 400 : 700);
-  if (lines.length > QUOTE_MAX_LINES) {
-    return { ok: false, sentence: "This is five lines. Pick a shorter passage. The words are not changed." };
-  }
+  const fit = fitQuote(words);
+  if (!fit.ok) return { ok: false, sentence: QUOTE_TOO_LONG };
+  const lines = fit.lines;
   const sourceText = exactPost ? input.words : (input.sourceText?.replace(/^\s+|\s+$/g, "") ?? "");
   if (!exactPost && input.source !== "typed" && sourceText) {
     const slice = input.source === "press_kit" ? isKitLineSlice(sourceText, words) : isSentenceSlice(sourceText, words);
@@ -218,14 +239,14 @@ export function acceptQuote(input: {
 export type QuoteCheck = { ok: boolean; sentence: string | null };
 
 /**
- * Scarcity, names, dates and crowd claims use caption-facts as captions
- * do. Overlay rules that quotes are allowed to break (emoji, the 18-character
- * wrap) are not applied: Q7 keeps emoji inline, and Q3 counts lines.
+ * Q16 and Q17. Fit, then a name on this event, a matching date, and the
+ * ticket-truth checks. The writer's other checks do not run.
  */
 export function validateQuote(text: string, facts: EventFacts): QuoteCheck {
-  const check = validateCaption(text, "lineup", [], facts, { version: "quote" });
-  const errors = check.errors.filter((error) => FACT_CODES.has(error.code));
-  return { ok: errors.length === 0, sentence: errors[0]?.detail ?? null };
+  const fit = fitQuote(text);
+  if (!fit.ok) return { ok: false, sentence: fit.sentence };
+  const errors = quoteFactErrors(text, facts);
+  return { ok: errors.length === 0, sentence: errors[0] ? quoteHoldSentence(text, errors[0]) : null };
 }
 
 export type QuoteInsert = {
@@ -242,7 +263,7 @@ export type QuoteInsert = {
   status: "proposed";
   primary_text: string;
   declared_names: string[];
-  size_variant: "default";
+  size_variant: "default" | "long";
 };
 
 export function quoteInsert(input: {
@@ -257,6 +278,7 @@ export function quoteInsert(input: {
 }): { ok: true; row: QuoteInsert } | { ok: false; sentence: string } {
   const accepted = acceptQuote({ ...input, weight: input.weight });
   if (!accepted.ok) return accepted;
+  const fit = fitQuote(accepted.text);
   if (input.source === "typed" && !input.sourceNote?.trim()) {
     return { ok: false, sentence: "Say where these words were said." };
   }
@@ -277,7 +299,7 @@ export function quoteInsert(input: {
       status: "proposed",
       primary_text: input.primaryText?.trim() ?? "",
       declared_names: [],
-      size_variant: "default",
+      size_variant: fit.ok ? fit.size : "default",
     },
   };
 }

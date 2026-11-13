@@ -279,15 +279,16 @@ export function clipBucket(clip: ClipForGroup): ClipBucket {
  * not saving, and replaced audio. A superseded row is an old path, not a
  * refusal.
  */
-export function renderRefusalSentence(error: string | null | undefined): string | null {
+export function renderRefusalSentence(error: string | null | undefined, kind: "caption" | "quote" = "caption"): string | null {
   const value = (error ?? "").trim();
   if (!value || isSupersededRender(value)) return null;
+  if (value === "This quote is too long — drop a sentence from the start or end.") return value;
   const lower = value.toLowerCase();
   if (lower.includes("9:16 only") || lower.includes("isn't vertical") || lower.includes("is not rendered")) {
     return "This clip isn't vertical — use a 9:16 file.";
   }
   if (lower.includes("does not fit") || lower.includes("too long") || lower.includes("exceeds") || lower.includes("at most") || lower.includes("not approved")) {
-    return "This caption is too long — shorten it.";
+    return kind === "quote" ? "This quote is too long — drop a sentence from the start or end." : "This caption is too long — shorten it.";
   }
   if (lower.includes("caption lines are missing")) return "This caption has no lines — generate it again.";
   if (lower.includes("style_version") || lower.includes("old style")) return "This caption is on an old style — generate it again.";
@@ -381,10 +382,11 @@ export function cantRunReason(clip: ClipForGroup): string | null {
 export function failedRenderSentence(
   error: string | null | undefined,
   clip: Pick<ClipForGroup, "sourceWidth" | "sourceHeight" | "tripleFitSourceId"> | null | undefined,
+  kind: "caption" | "quote" = "caption",
 ): string {
   if (clip && tripleFitOnlySentence(clip)) return `The renderer failed · ${LANDSCAPE_TRIPLE_FIT_ONLY}`;
   if (clip && tooSmall916Sentence(clip)) return `The renderer failed · ${TOO_SMALL_FOR_916}`;
-  return renderRefusalSentence(error) ?? "This render failed — try it again.";
+  return renderRefusalSentence(error, kind) ?? "This render failed — try it again.";
 }
 
 /** The lead clip for the feed post and for Best clip. A refused clip, and a crop under 540 px, is never returned. */
@@ -774,7 +776,7 @@ export function renderRowWord(
   now: string,
 ): string {
   if (row.status === "done") return "Ready";
-  if (row.status === "failed") return renderRefusalSentence(row.error) ?? "This render failed — try it again.";
+  if (row.status === "failed") return renderRefusalSentence(row.error, "quote" in row && row.quote ? "quote" : "caption") ?? "This render failed — try it again.";
   const waiting = rows.filter((item) => item.status === "queued" || item.status === "rendering");
   const index = waiting.findIndex((item) => item.id === row.id);
   if (row.status === "queued") return `queued · ${queueOrdinal(Math.max(1, index + 1))}`;

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { quoteTextEm, quoteWrapEm } from "../../../src/remotion/caption-style/quote-measure.ts";
 import { generateCaptions } from "../writer.ts";
 import type { CaptionStyle } from "../tags.ts";
 import type { ServiceRoleDb } from "../load.ts";
@@ -92,11 +91,10 @@ describe("quote mode", () => {
     const rewritten = acceptQuote({ words: "One sentence. Two changed. Three sentence.", source: "post", sourceText: source });
     assert.equal(rewritten.ok, false);
     if (!rewritten.ok) assert.equal(rewritten.sentence, "The Lab doesn't rewrite a quote.");
-    const fiveWords = Array.from({ length: 5 }, () => "x".repeat(70)).join(" ");
+    const fiveWords = Array.from({ length: 6 }, () => "word".repeat(4)).join(" ");
     const five = acceptQuote({ words: fiveWords, source: "typed" });
     assert.equal(five.ok, false);
-    if (!five.ok) assert.match(five.sentence, /five lines/);
-    assert.equal(quoteLines(fiveWords).length, 5);
+    if (!five.ok) assert.equal(five.sentence, "This quote is too long — drop a sentence from the start or end.");
     const emoji = acceptQuote({ words: "🔥 👊", source: "typed" });
     assert.equal(emoji.ok, false);
   });
@@ -104,7 +102,7 @@ describe("quote mode", () => {
   it("holds a scarcity quote unless a live claim covers it", () => {
     const held = validateQuote("90% sold out", FACTS);
     assert.equal(held.ok, false);
-    assert.match(held.sentence ?? "", /ticket tiers/);
+    assert.match(held.sentence ?? "", /isn't true of this event's tickets yet/);
     const live = validateQuote("90% sold out", {
       ...FACTS,
       captionRelease: "2nd release",
@@ -170,33 +168,24 @@ describe("quote mode", () => {
     );
   });
 
-  it("refuses a passage the font wraps to five lines, and the meter is that wrap", () => {
-    const bit = "records";
-    const words: string[] = [];
-    while (quoteLines(words.join(" ")).length < 5) words.push(bit);
-    const five = words.join(" ");
-    assert.equal(quoteLines(five).length, 5);
-    const refused = acceptQuote({ words: five, source: "typed" });
+  it("wraps a quote once at 24 and keeps a line that fits", () => {
+    const luke = "Back in Southampton for this one… Closing out the year with Puzzle on 27th December. See you there";
+    const lines = quoteLines(luke);
+    assert.equal(lines.length, 5);
+    assert.equal(lines.join(" "), luke);
+    assert.equal(acceptQuote({ words: luke, source: "typed" }).ok, true);
+    const sixth = `${luke} and one more sentence here`;
+    const refused = acceptQuote({ words: sixth, source: "typed" });
     assert.equal(refused.ok, false);
-    if (!refused.ok) assert.match(refused.sentence, /five lines/);
-    const fitted = words.slice(0, -1).join(" ");
-    const lines = quoteLines(fitted);
-    assert.ok(lines.length <= 4);
-    assert.equal(lines.length, quoteLines(lines.join("\n")).length);
-    for (const line of lines) assert.ok(quoteTextEm(line, 700) <= quoteWrapEm() + 1e-9);
-    const enzo = "Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥";
-    const rendered = quoteLines(enzo);
-    assert.equal(rendered.length, 4);
-    assert.equal(rendered[0], "Southampton, this one's going to be special.");
-    assert.equal(rendered.length, quoteLines(rendered.join("\n")).length);
-    assert.match(rendered[rendered.length - 1] ?? "", /🔥/);
+    if (!refused.ok) assert.equal(refused.sentence, "This quote is too long — drop a sentence from the start or end.");
     const overlay = readFileSync("components/dashboard/events/creative-lab/caption-overlay.tsx", "utf8");
     const surface = readFileSync("components/dashboard/events/creative-lab/quote-surface.tsx", "utf8");
     const composition = readFileSync("src/remotion/compositions/CaptionOnClip.tsx", "utf8");
     assert.match(surface, /lines=\{quoteLines\(words, weight\)\}/);
-    assert.match(overlay, /whiteSpace: "nowrap"/);
+    assert.match(overlay, /WebkitTextStroke/);
     assert.doesNotMatch(overlay, /whitespace-pre-line/);
-    assert.match(composition, /whiteSpace: "nowrap"/);
+    assert.match(composition, /whiteSpace: "pre"/);
+    assert.doesNotMatch(composition, /quoteProfile/);
   });
 
   it("uses the cleared-gate sentence", () => {
