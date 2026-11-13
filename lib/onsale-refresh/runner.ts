@@ -147,6 +147,10 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
     const read = purchases.reads.get(event.id);
     return read ? [{ eventId: event.id, eventCode: event.event_code, eventName: event.name, read }] : [];
   });
+  // A read that failed: the panel says only that it wasn't read. The reason is here, in the run log and in the stored evidence.
+  for (const row of purchaseReads) {
+    if (row.read.state === "not_read") console.warn(`[onsale-refresh] purchases not read event=${row.eventCode ?? row.eventId} reason=${row.read.notRead ?? "unknown"}`);
+  }
 
   const proposals: ProposalRecord[] = [];
   let driveCalls = 0;
@@ -439,8 +443,11 @@ export function inputsSnapshot(campaign: CampaignInput): Record<string, unknown>
 /** cron_runs rows_written for the route: proposals stored. */
 export function refreshRunLog(body: Record<string, unknown>): { rows: number; detail: Record<string, unknown> } {
   const proposals = Array.isArray(body.proposals) ? (body.proposals as { written?: boolean; proposal?: { lines?: unknown[] } }[]) : [];
+  const reads = Array.isArray(body.purchaseReads) ? (body.purchaseReads as { eventId?: string; eventCode?: string | null; read?: { state?: string; notRead?: string | null } }[]) : [];
+  // The ops log's copy of why a show's purchases weren't read (cron_runs detail); the panel never shows it.
+  const purchasesNotRead = reads.filter((row) => row.read?.state === "not_read").map((row) => ({ event: row.eventCode ?? row.eventId ?? null, reason: row.read?.notRead ?? null }));
   return {
     rows: proposals.filter((row) => row.written).length + (Array.isArray(body.posted) ? body.posted.length : 0),
-    detail: { events: body.events ?? 0, lines: proposals.reduce((n, row) => n + (row.proposal?.lines?.length ?? 0), 0), driveCalls: body.driveCalls ?? 0, metaCalls: body.metaCalls ?? 0, cirqlinReads: body.cirqlinReads ?? 0, pending: body.pending ?? 0, posted: Array.isArray(body.posted) ? body.posted.length : 0, errors: Array.isArray(body.errors) ? body.errors.length : 0 },
+    detail: { events: body.events ?? 0, lines: proposals.reduce((n, row) => n + (row.proposal?.lines?.length ?? 0), 0), driveCalls: body.driveCalls ?? 0, metaCalls: body.metaCalls ?? 0, cirqlinReads: body.cirqlinReads ?? 0, purchasesNotRead, pending: body.pending ?? 0, posted: Array.isArray(body.posted) ? body.posted.length : 0, errors: Array.isArray(body.errors) ? body.errors.length : 0 },
   };
 }

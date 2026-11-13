@@ -215,6 +215,7 @@ export type PurchaseRead = {
   /** C2: the ads' attributed purchases are any show's, never this show's. */
   attributedPurchases: { count: number; scope: "any_show_on_pixel" };
   ticketsSold14: number | null;
+  /** Why the read failed, raw. Evidence and the ops log only: the panel, the why line and Slack never show it. */
   notRead: string | null;
 };
 
@@ -366,7 +367,8 @@ export function purchaseWhy(read: PurchaseRead, ticketingLinked: boolean, config
       purchaseNarrow = `${no} no pixel on its ad sets.`;
       break;
     default:
-      purchase = `${not} this show's purchases couldn't be read this run${read.notRead ? ` (${read.notRead})` : ""}.`;
+      // Fixed text (design, 13 Nov). The raw reason is in `read.notRead`: it goes to the evidence and the ops log, never the panel.
+      purchase = `${not} this show's purchases couldn't be read this run. The next run tries again.`;
       purchaseNarrow = `${no} purchases not read this run.`;
   }
 

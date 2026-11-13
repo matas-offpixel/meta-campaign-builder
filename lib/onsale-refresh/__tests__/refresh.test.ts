@@ -158,7 +158,7 @@ describe("on-sale refresh: objective and the why line (R3)", () => {
 
   it("a campaign built without a purchase read says the purchases were not read, never a count", () => {
     const why = whyLines(campaign(), "initiate_checkout", ONSALE_PHASE);
-    assert.equal(why.purchase, "Purchase campaign not proposed — this show's purchases couldn't be read this run (the purchase read didn't run).");
+    assert.equal(why.purchase, "Purchase campaign not proposed — this show's purchases couldn't be read this run. The next run tries again.");
     assert.equal(why.purchaseNarrow, "No Purchase campaign: purchases not read this run.");
     assert.deepEqual(why.pixel, []);
   });
@@ -495,7 +495,7 @@ describe("on-sale refresh: runner", () => {
     assert.equal(result.driveCalls, 2);
     assert.equal(notified, 0);
     assert.ok(calls.every((call) => !op(call, "upsert") && !op(call, "insert") && !op(call, "update") && !op(call, "delete")));
-    assert.deepEqual(refreshRunLog(result as unknown as Record<string, unknown>), { rows: 0, detail: { events: 1, lines: result.proposals[0]!.proposal.lines.length, driveCalls: 2, metaCalls: 4, cirqlinReads: 1, pending: 0, posted: 0, errors: 0 } });
+    assert.deepEqual(refreshRunLog(result as unknown as Record<string, unknown>), { rows: 0, detail: { events: 1, lines: result.proposals[0]!.proposal.lines.length, driveCalls: 2, metaCalls: 4, cirqlinReads: 1, purchasesNotRead: [], pending: 0, posted: 0, errors: 0 } });
     // HE1: the run carries every event's purchase read and what the reads cost.
     assert.deepEqual([result.metaCalls, result.cirqlinReads], [4, 1]);
     assert.deepEqual(result.purchaseReads.map((row) => [row.eventCode, row.read.state, row.read.pixel?.id]), [["P26-BDAY", "under_bar", "645185673672763"]]);

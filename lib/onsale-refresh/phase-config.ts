@@ -62,7 +62,7 @@ export type PhaseConfig = {
   /**
    * E2's "nothing reaches" span. The record says 90 days; Meta's pixel
    * stats (the domain breakdown) return the last 28 only, so the test
-   * and its sentence use 28 until a longer history is stored.
+   * and its sentence use 28 (Matas, 13 Nov). No daily counts are stored.
    */
   purchaseHistoryDays: number;
   /** E4: a second pixel carrying at least this share of the delivering spend is named in the setup line. */

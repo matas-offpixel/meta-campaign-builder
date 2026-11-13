@@ -24,7 +24,10 @@ import {
   type PurchaseRead,
   type ReadPurchasesInput,
 } from "../purchases.ts";
-import { pixelSlackMessage } from "../slack.ts";
+import { buildProposal, type CampaignInput } from "../rules.ts";
+import { inputsSnapshot, refreshRunLog, runOnsaleRefresh } from "../runner.ts";
+import { planRun } from "../schedule.ts";
+import { pixelSlackMessage, slackMessage } from "../slack.ts";
 
 /**
  * docs/design-record/2026-11-13-per-event-purchases.html: E1 the own
@@ -304,10 +307,25 @@ describe("per-event purchases: the words (F1, F2)", () => {
     assert.equal(why(readPurchases(input({ domain: { kind: "no_own_domain", cirqlinPage: true } })), false).ticketing, UNLINKED_TICKETING);
   });
 
-  it("a read that failed says so in both widths", () => {
-    const lines = why(readPurchases(input({ pixelError: "META_ACCESS_TOKEN is not configured", resolved: null })));
-    assert.equal(lines.purchase, "Purchase campaign not proposed — this show's purchases couldn't be read this run (META_ACCESS_TOKEN is not configured).");
-    assert.equal(lines.purchaseNarrow, "No Purchase campaign: purchases not read this run.");
+  it("a read that failed says one fixed sentence at each width, whatever the reason; the raw reason is never in the words", () => {
+    const reasons = ["META_ACCESS_TOKEN is not configured", "(#17) User request limit reached", "the CIRQLIN page couldn't be read: HTTP 503"];
+    const reads = [
+      ...reasons.map((reason) => readPurchases(input({ pixelError: reason, resolved: null }))),
+      readPurchases(input({ stats: { error: "(#100) Missing permissions" } })),
+      readPurchases(input({ domain: { kind: "not_read", reason: "the CIRQLIN page couldn't be read: socket hang up" } })),
+      unreadPurchases(3, ONSALE_PHASE),
+    ];
+    for (const read of reads) {
+      assert.equal(read.state, "not_read");
+      assert.ok(read.notRead, "the reason is kept on the read, for the evidence and the ops log");
+      for (const linked of [false, true]) {
+        const lines = why(read, linked);
+        assert.equal(lines.purchase, "Purchase campaign not proposed — this show's purchases couldn't be read this run. The next run tries again.");
+        assert.equal(lines.purchaseNarrow, "No Purchase campaign: purchases not read this run.");
+        const said = JSON.stringify(lines);
+        for (const leak of [read.notRead!, "META_ACCESS_TOKEN", "#17", "#100", "HTTP 503", "socket hang up", "CIRQLIN page couldn't"]) assert.ok(!said.includes(leak), `the panel's words never carry "${leak}"`);
+      }
+    }
   });
 });
 
@@ -526,6 +544,100 @@ describe("per-event purchases: HE1's read across a run", () => {
     assert.deepEqual(calls.filter((call) => call.kind === "get").map((call) => call.path).sort(), [`/${NX_PIXEL}/stats`, `/${PUZZLE_PIXEL}/stats`, `/${STUDIOS_PIXEL}/stats`].sort());
     assert.equal(result.reads.get("bday")!.pixelWide!.history, 473);
     assert.equal(result.reads.get("bday")!.state, "no_own_domain", "the pixel-wide figure is context: it never changes the state");
+  });
+});
+
+describe("per-event purchases: a failed read's reason goes to the evidence and the ops log, never the panel", () => {
+  const REASON = "the ad sets' pixels couldn't be read: (#17) User request limit reached";
+  const failed = () => readPurchases(input({ pixelError: REASON, resolved: null }));
+  const campaignInput = (purchases: PurchaseRead): CampaignInput => ({
+    eventId: "e1",
+    eventCode: "NX26-LOCKLEAD",
+    eventName: "Locklead",
+    campaignKey: "[NX26-LOCKLEAD] On Sale",
+    campaignIds: ["c1"],
+    onSaleDay: "2026-11-06",
+    plan: planRun({ day: "2026-11-12", eventDate: "2026-12-11", config: ONSALE_PHASE, shadow: true }),
+    resultEvent: "initiate_checkout",
+    weekSpend: 200,
+    weekResults: 26,
+    totalSpend: 300,
+    totalResults: 40,
+    totalFirstDay: "2026-11-06",
+    ads: [],
+    adSets: [],
+    clusters: [],
+    supply: [],
+    claims: [],
+    budgetGbp: 3000,
+    spendToDateGbp: 300,
+    ticketingLinked: false,
+    ticketingProvider: null,
+    last14: { ic: 96, purchases: 21, lpv: 300 },
+    sinceOnSale: { ic: 93, purchases: 21, fromDay: "2026-11-06" },
+    purchases,
+  });
+
+  it("the proposal's why, the stored panel line and the Slack post say the fixed sentence and nothing of the reason", () => {
+    const proposal = buildProposal(campaignInput(failed()), ONSALE_PHASE);
+    assert.equal(proposal.why.purchase, "Purchase campaign not proposed — this show's purchases couldn't be read this run. The next run tries again.");
+    assert.equal(proposal.why.purchaseNarrow, "No Purchase campaign: purchases not read this run.");
+    const shown = JSON.stringify({ why: proposal.why, blockers: proposal.blockers, notes: proposal.notes, watch: proposal.watch, lines: proposal.lines.map((line) => [line.title, line.detail, line.writeText, line.narrow, line.blockedReason]) });
+    assert.ok(!shown.includes("#17") && !shown.includes("User request limit") && !shown.includes("couldn't be read:"), "everything the panel reads is clean");
+    const slack = slackMessage({ proposalId: "p1", eventName: "Locklead", eventCode: "NX26-LOCKLEAD", eventId: "e1", campaignKey: "[NX26-LOCKLEAD] On Sale", plan: campaignInput(failed()).plan, mode: "shadow", proposal }, "https://app.example");
+    assert.ok(!JSON.stringify(slack).includes("#17") && !JSON.stringify(slack).includes("User request limit"), "nor does Slack");
+    assert.match(slack.text, /couldn't be read this run\. The next run tries again\./);
+    // The panel draws `why` and the lines only: it has no path to the read or its reason.
+    for (const file of ["components/dashboard/events/onsale-refresh-panel.tsx", "components/dashboard/events/onsale-refresh-frame-mount.tsx", "lib/onsale-refresh/read.ts", "lib/onsale-refresh/slack.ts"]) {
+      assert.doesNotMatch(readFileSync(file, "utf8"), /notRead|inputs\b.*purchases/, `${file} never reads the reason`);
+    }
+  });
+
+  it("the reason is in the stored evidence and in the run's ops log", () => {
+    const snapshot = inputsSnapshot(campaignInput(failed())) as { purchases: { state: string; notRead: string } };
+    assert.deepEqual([snapshot.purchases.state, snapshot.purchases.notRead], ["not_read", REASON], "evidence: onsale_refresh_proposals.inputs.purchases.notRead");
+    const log = refreshRunLog({ events: 2, proposals: [], purchaseReads: [{ eventId: "e1", eventCode: "NX26-LOCKLEAD", read: failed() }, { eventId: "e2", eventCode: "P26-BDAY", read: readPurchases(input({ domain: { kind: "no_own_domain", cirqlinPage: true } })) }] });
+    assert.deepEqual(log.detail.purchasesNotRead, [{ event: "NX26-LOCKLEAD", reason: REASON }], "ops log: the cron run's detail names the show and the reason; a show that was read is not listed");
+  });
+
+  it("a run whose Meta read fails stores the fixed sentence, keeps the reason in evidence, and logs it", async () => {
+    const event = { id: "locklead", name: "Locklead", event_code: "NX26-LOCKLEAD", event_date: "2026-12-11", general_sale_at: "2026-11-06T10:00:00Z", status: "on_sale", client_id: "brixton", budget_marketing: 3000, drive_folder_id: null, signup_url: LOCKLEAD.signup_url, ticket_url: LOCKLEAD.ticket_url };
+    const { db, calls } = fakeDb((call) => {
+      if (call.table === "onsale_refresh_proposals" && op(call, "upsert")) return { data: { id: "p1" }, error: null };
+      return { data: [], error: null };
+    });
+    const { graph } = fakeGraph({ multi: () => Promise.reject(new Error("(#17) User request limit reached")) });
+    const warned: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => void warned.push(args.join(" "));
+    let result: Awaited<ReturnType<typeof runOnsaleRefresh>>;
+    try {
+      result = await runOnsaleRefresh({
+        env: { ENABLE_ONSALE_REFRESH: "1" },
+        db,
+        shadowDay: "2026-11-12",
+        userId: "op",
+        graph,
+        fetchImpl: cirqlinFetch,
+        loaders: {
+          events: async () => [event],
+          insights: async () => rawInsights() as never,
+          aux: async () => ({ scores: [], clusters: [], launchedAdSets: [], warnings: [], ticketing: [], driveFolders: [], renderDriveIds: new Set<string>() }),
+          inputs: async (args) => ({ event: args.event, plan: planRun({ day: "2026-11-12", eventDate: "2026-12-11", config: ONSALE_PHASE, shadow: true }), campaigns: [{ ...campaignInput(args.purchases!), adSets: [{ adsetId: "as-locklead", adsetIds: ["as-locklead"], name: "Retargeting", firstDay: "2026-11-06", lastDay: "2026-11-11", weekSpend: 40, weekResults: 5, totalSpend: 100, totalResults: 12, delivering: true }] }], driveCalls: 0, driveReason: null }),
+        },
+      });
+    } finally {
+      console.warn = warn;
+    }
+    if ("skippedReason" in result) throw new Error("enabled");
+    const upsert = calls.find((call) => call.table === "onsale_refresh_proposals" && op(call, "upsert"))!;
+    const row = op(upsert, "upsert")![0] as { why: Record<string, unknown>; inputs: { purchases: { notRead: string; state: string } } };
+    assert.equal(row.why.purchase, "Purchase campaign not proposed — this show's purchases couldn't be read this run. The next run tries again.");
+    assert.ok(!JSON.stringify(row.why).includes("#17"), "the stored why is what the panel shows");
+    assert.equal(row.inputs.purchases.state, "not_read");
+    assert.match(row.inputs.purchases.notRead, /\(#17\) User request limit reached/, "the stored evidence has the reason");
+    assert.ok(warned.some((line) => /purchases not read event=NX26-LOCKLEAD reason=.*#17/.test(line)), "the run log names the show and the reason");
+    assert.match(JSON.stringify(refreshRunLog(result as unknown as Record<string, unknown>).detail.purchasesNotRead), /NX26-LOCKLEAD.*#17/);
   });
 });
 

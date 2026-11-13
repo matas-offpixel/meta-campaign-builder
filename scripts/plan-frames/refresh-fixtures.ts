@@ -21,7 +21,9 @@ import { purchaseWhy, type PurchaseRead, type PurchaseState } from "../../lib/on
  * name are its 12 Nov read: Meta names pixel …2763 "NX Live Skiddle".
  *
  * OR4: F2 of that record — every purchase-line state in E3's order, with
- * the attributed line under each and the ticketing check where it shows.
+ * the attributed line under each and the ticketing check where it shows,
+ * then the ninth state: a read that failed. Its fixture carries a raw
+ * reason, which the frame must not show.
  */
 
 function read(state: PurchaseState, overrides: Partial<PurchaseRead> = {}): PurchaseRead {
@@ -72,7 +74,7 @@ export const OR3_WHY: PanelProposal["why"] = {
 const DOMAIN = "locklead-newcastle.com";
 const counted = (d14: number) => ({ domain: DOMAIN, domainVia: "signup_url" as const, onDomain: { d14, d28: d14, history: d14 }, ticketsSold14: 40 });
 
-/** F2's rows, in E3's order from the state that applies last to the one that applies first. Ticketing is linked in all of them. */
+/** F2's rows, in E3's order from the state that applies last to the one that applies first, then the failed read. Ticketing is linked in all of them. */
 export const OR4_STATES: { label: string; why: PanelProposal["why"] }[] = (
   [
     ["Proposed", read("proposed", counted(18))],
@@ -83,6 +85,7 @@ export const OR4_STATES: { label: string; why: PanelProposal["why"] }[] = (
     ["Ticket site only", read("ticket_site_only", { domainKind: "ticket_site_only" })],
     ["No page or ticket URL", read("no_url", { domainKind: "no_url", ticketSite: null })],
     ["No pixel", read("no_pixel", { pixel: null })],
+    ["Not read", read("not_read", { pixel: null, domainKind: "not_read", notRead: "the ad sets' pixels couldn't be read: (#17) User request limit reached" })],
   ] as const
 ).map(([label, state]) => ({ label, why: { objective: "", ...purchaseWhy(state, true, ONSALE_PHASE) } }));
 

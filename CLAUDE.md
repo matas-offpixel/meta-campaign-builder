@@ -640,8 +640,11 @@ REMOTION_LAMBDA_SERVE_URL=
 > that breakdown, not the record's 90, so the history is 28
 > (`purchaseHistoryDays`). States in order: no pixel, no page or ticket
 > URL, ticket site only, no domain of its own, shared domain, nothing
-> reaches, under the bar / proposed; a read that failed says "couldn't be
-> read", never a zero. HE1 is the read only: no Purchase campaign line, no
+> reaches, under the bar / proposed; a read that failed says "this show's
+> purchases couldn't be read this run. The next run tries again.", never a
+> zero, and its raw reason goes to the evidence (`inputs.purchases.notRead`)
+> and the run log (`purchasesNotRead` in the cron run's detail), never the
+> panel or Slack. HE1 is the read only: no Purchase campaign line, no
 > cross-campaign move and no custom conversion is made. Reads every `ad_daily_insights` row,
 > paged in (date, meta_ad_id) order and deduped, so the spend to date is
 > the event's all-time spend (IC = `omni_initiated_checkout`, LPV = the column),
