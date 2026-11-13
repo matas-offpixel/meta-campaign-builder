@@ -170,7 +170,11 @@ export function EventForm({
       slug: slug || slugifyEvent(name),
       client_id: clientId,
       event_code: eventCode || null,
-      capacity: capacity ? Number.parseInt(capacity, 10) : null,
+      // On edit, capacity is set in the Dashboard panel below the form
+      // (D9), so a save here never overwrites it with a stale value.
+      ...(mode === "create"
+        ? { capacity: capacity ? Number.parseInt(capacity, 10) : null }
+        : {}),
       genres: genres
         .split(",")
         .map((g) => g.trim())
@@ -363,14 +367,21 @@ export function EventForm({
               automatically.
             </p>
           </div>
-          <Input
-            id="event-capacity"
-            label="Capacity"
-            type="number"
-            value={capacity}
-            onChange={(e) => setCapacity(e.target.value)}
-            min={0}
-          />
+          {mode === "create" ? (
+            <Input
+              id="event-capacity"
+              label="Capacity"
+              type="number"
+              value={capacity}
+              onChange={(e) => setCapacity(e.target.value)}
+              min={0}
+            />
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-foreground">Capacity</span>
+              <p className="text-xs text-muted-foreground">Set under Dashboard, below.</p>
+            </div>
+          )}
           <Select
             id="event-status"
             label="Status"
