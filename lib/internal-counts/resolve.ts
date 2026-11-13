@@ -14,6 +14,7 @@
 import { getEventIdForCountAlias } from "../event-config/aliases.ts";
 import { loadRunContext, planContext, rememberCount, type Db, type RunContext } from "./context.ts";
 import { checkBlock, DEFAULT_PRICE_CEILING_PENCE } from "./checks.ts";
+import { cleanWrites } from "./clean-writes.ts";
 import type { ParsedBlock } from "./parse.ts";
 import { blockWrite, planReport, type ReviewKind } from "./plan.ts";
 import { INTERNAL_COUNTS_BUCKET, insertReviewItems, parsePdf, persistCountBlocks, writeBlock } from "./store.ts";
@@ -113,6 +114,7 @@ async function markResolved(sb: Db, ids: string[], resolution: string, who: Reso
 
 /** Resolve one item with one action. Throws on an action the item doesn't offer. */
 export async function resolveItem(sb: Db, itemId: string, action: ResolveAction, who: Resolver, ctx?: RunContext): Promise<void> {
+  sb = cleanWrites(sb);
   const item = await must<ItemRow>(
     sb.from("internal_count_review_items").select("id,report_id,block_id,kind,show_name,detail,resolved_at,resolution").eq("id", itemId).single(),
     "review item",

@@ -169,6 +169,47 @@ describe("processMessage", () => {
     assert.equal(store.rpcs.length, 0);
   });
 
+  it("an email body, subject and sender with U+0000 and a lone surrogate are written clean, sale items included", async () => {
+    const store = fakeStore();
+    await processMessage(store.sb, runContext(), {
+      ...message,
+      messageId: "nul-1",
+      subject: "Internal Show Count 12.11.26\uD83D",
+      sender: "Alex\u0000 Mercer <alex.mercer@electric-group.co.uk>",
+      body: "Hello.\u0000\n\nWe have sold an additional 57 tickets on IPC tonight.\u0000",
+    });
+    const payloads = store.calls.flatMap((c) => ["insert", "upsert", "update"].map((k) => op(c, k)?.[0]).filter(Boolean));
+    const bad = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    assert.ok(payloads.length > 0);
+    assert.ok(!bad.test(JSON.stringify(payloads)));
+    assert.ok(!bad.test(JSON.stringify(store.rpcs)));
+    const report = payloads.find((p) => (p as Record<string, unknown>).body_text !== undefined) as Record<string, string>;
+    assert.equal(report.subject, "Internal Show Count 12.11.26");
+    assert.equal(report.sender, "Alex Mercer <alex.mercer@electric-group.co.uk>");
+    const items = store.calls.filter((c) => c.table === "internal_count_review_items").flatMap((c) => (op(c, "insert")?.[0] as unknown[]) ?? []);
+    assert.ok(items.some((i) => (i as { kind: string }).kind === "sale_mention"));
+  });
+
+  it("a reply whose items fail to write is unread again: its report row is deleted, so the next run retries it", async () => {
+    const { db, calls } = fakeDb((call: FakeCall) => {
+      const insert = op(call, "insert")?.[0] as Record<string, unknown> | Array<unknown> | undefined;
+      if (call.table === "internal_count_reports" && op(call, "maybeSingle")) return { data: null, error: null };
+      if (call.table === "internal_count_reports" && insert && !Array.isArray(insert)) return { data: { id: "report-r" }, error: null };
+      if (call.table === "internal_count_review_items" && insert) return { data: null, error: { message: "unsupported Unicode escape sequence" } };
+      return { data: [], error: null };
+    });
+    const ctx = runContext();
+    ctx.countThreads.set("t6", "report-6nov");
+    await assert.rejects(
+      processMessage(db as never, ctx, { ...message, kind: "reply", messageId: "r2", threadId: "t6", subject: "Re: Internal Show counts 06.11.26", body: "We sold another 40 tickets on Skiddle tonight.", pdf: null }),
+      /unsupported Unicode/,
+    );
+    const del = calls.find((c) => c.table === "internal_count_reports" && op(c, "delete"));
+    assert.ok(del);
+    assert.deepEqual(op(del!, "eq"), ["id", "report-r"]);
+    assert.equal(ctx.countThreads.get("t6"), "report-6nov");
+  });
+
   it("sends only paid, non-blank cells to tier_channel_sales", async () => {
     const r = await processMessage(fakeStore().sb, runContext(), message, { dryRun: true });
     const lock = r.plan!.blocks.find((b) => b.showName === "LOCKLEAD")!;

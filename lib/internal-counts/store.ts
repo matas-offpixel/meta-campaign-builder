@@ -19,6 +19,7 @@
  * PDF library loads lazily inside pdf-text.ts.
  */
 
+import { cleanWrites } from "./clean-writes.ts";
 import { planContext, rememberCount, type Db, type RunContext } from "./context.ts";
 import { pdfSha256, readPdf, type ReadPdf } from "./pdf-read.ts";
 import type { ParsedSheet } from "./parse.ts";
@@ -119,12 +120,14 @@ export async function processMessage(
   input: IncomingMessage,
   opts: ProcessOptions = {},
 ): Promise<ProcessResult> {
+  // The one write boundary for text: no U+0000 or lone surrogate reaches Postgres.
+  sb = cleanWrites(sb);
   const dryRun = opts.dryRun ?? false;
   if (!ctx.offline && (await isAlreadyRead(sb, input.messageId))) {
     return result(input, dryRun, { status: "already_read" });
   }
   if (input.kind === "reply") return processReply(sb, ctx, input, dryRun);
-  if (input.kind === "near_miss") return processNearMiss(sb, input, dryRun);
+  if (input.kind === "near_miss") return processNearMiss(sb, ctx, input, dryRun);
   if (input.kind === "count" && input.pdf && ctx.pdfShas.has(input.pdf.sha256)) return processDuplicate(sb, ctx, input, dryRun);
 
   const pctx = planContext(ctx, opts.confirmedAliases);
@@ -192,8 +195,22 @@ async function processDuplicate(sb: Db, ctx: RunContext, input: IncomingMessage,
     sheetDate: input.pdf!.pdfDate,
     parentReportId: null,
   });
-  await insertReviewItems(sb, reportId, input.userId, items, new Map());
+  await itemsOrUnread(sb, ctx, input, reportId, items);
   return result(input, dryRun, { status: "duplicate", reviewItems: items });
+}
+
+/**
+ * A report's items, or the report is unread again: a failed insert deletes the report row, so the next run reads
+ * the whole email again (as a count's failed blocks do) and nothing is left half-written.
+ */
+async function itemsOrUnread(sb: Db, ctx: RunContext, input: IncomingMessage, reportId: string, items: ReviewItemPlan[]): Promise<void> {
+  try {
+    await insertReviewItems(sb, reportId, input.userId, items, new Map());
+  } catch (err) {
+    await sb.from("internal_count_reports").delete().eq("id", reportId);
+    if (input.threadId && ctx.countThreads.get(input.threadId) === reportId) ctx.countThreads.delete(input.threadId);
+    throw err;
+  }
 }
 
 async function threadSheetFor(sb: Db, ctx: RunContext, threadId: string | null): Promise<ThreadSheet | null> {
@@ -220,11 +237,11 @@ async function processReply(sb: Db, ctx: RunContext, input: IncomingMessage, dry
     sheetDate: parent?.sheetDate ?? null,
     parentReportId: parent?.reportId ?? null,
   });
-  await insertReviewItems(sb, reportId, input.userId, items, new Map());
+  await itemsOrUnread(sb, ctx, input, reportId, items);
   return result(input, dryRun, { status: "note", reviewItems: items });
 }
 
-async function processNearMiss(sb: Db, input: IncomingMessage, dryRun: boolean): Promise<ProcessResult> {
+async function processNearMiss(sb: Db, ctx: RunContext, input: IncomingMessage, dryRun: boolean): Promise<ProcessResult> {
   const items: ReviewItemPlan[] = [
     { kind: "near_miss", blockIndex: null, showName: null, detail: { subject: input.subject, filename: input.pdf?.filename ?? null } },
   ];
@@ -236,7 +253,7 @@ async function processNearMiss(sb: Db, input: IncomingMessage, dryRun: boolean):
     sheetDate: null,
     parentReportId: null,
   });
-  await insertReviewItems(sb, reportId, input.userId, items, new Map());
+  await itemsOrUnread(sb, ctx, input, reportId, items);
   return result(input, dryRun, { status: "not_read", reviewItems: items });
 }
 
