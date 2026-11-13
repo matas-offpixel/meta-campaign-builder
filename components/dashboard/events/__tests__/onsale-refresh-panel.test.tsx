@@ -66,6 +66,53 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     expect((screen.getByRole("button", { name: /Apply accepted/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("audience and budget lines: Accept disabled with the sentence, Reject live (OR6's move, OR7's bring-back)", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR6_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
+    const move = lineEl("Lineup — Primary → Adv+");
+    expect((within(move).getByRole("button", { name: "Accept" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(move).getByRole("button", { name: "Reject" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(within(move).getByText("Not applied yet: Apply only writes creatives for now.")).toBeTruthy();
+    cleanup();
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR7_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
+    const back = lineEl("Electronic dance music, Electronic music");
+    expect(back.getAttribute("data-state")).toBe("to_review");
+    expect(within(back).queryByText("Accepted")).toBeNull();
+    expect((within(back).getByRole("button", { name: "Accept" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(back).getByText("Not applied yet: Apply only writes creatives for now.")).toBeTruthy();
+  });
+
+  it("adds keep live Accept and Reject under the no-budget banner; only spend lines say Adds spend", () => {
+    const noBudget = OR6_PROPOSALS.map((proposal) => ({ ...proposal, blockers: [{ kind: "budget" as const, text: "This event has no marketing budget, so nothing that adds spend can be accepted.", action: "Set budget" }] }));
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={noBudget} apply={{ ...OR_APPLY_LIVE, budgetSet: false }} actions={{}} />);
+    const add = lineEl("P26-BDAY_enzo-siragusa-3_quote-on-sale_r1_9x16");
+    expect((within(add).getByRole("button", { name: "Accept" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(within(add).queryByText(/Adds spend/)).toBeNull();
+  });
+
+  it("F3's header: Applied {when} · by {first name}; a full email never renders", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR7_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
+    const exact = () => [...document.querySelectorAll("#onsale-refresh p")].map((node) => node.textContent);
+    expect(exact()).toContain("Applied Mon\u00a023\u00a0Nov, 08:41 · by Matas");
+    cleanup();
+    const leaked = OR7_PROPOSALS.map((proposal) => ({ ...proposal, lines: proposal.lines.map((line) => (line.appliedAt ? { ...line, appliedBy: "matas@offpixel.co.uk" } : line)) }));
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={leaked} apply={OR_APPLY_LIVE} actions={{}} />);
+    expect(document.getElementById("onsale-refresh")!.textContent).not.toContain("@");
+    expect(exact()).toContain("Applied Mon\u00a023\u00a0Nov, 08:41");
+  });
+
+  it("every date the panel renders keeps together, in the wide and the narrow wording", () => {
+    const broken = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]* \d|\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}|w\/c \d/;
+    for (const proposals of [OR6_PROPOSALS, OR7_PROPOSALS]) {
+      render(<OnSaleRefreshPanelView eventId="e1" proposals={proposals} apply={OR_APPLY_LIVE} actions={{}} />);
+      // Both wordings are in the DOM (the viewport hides one), so this reads 1280's and 393's text.
+      const section = document.getElementById("onsale-refresh")!;
+      const spans = [...section.querySelectorAll("p, span")].map((node) => node.textContent ?? "");
+      for (const text of spans) expect(text).not.toMatch(broken);
+      expect(section.textContent).toMatch(/Mon\u00a0\d{1,2}\u00a0Nov/);
+      cleanup();
+    }
+  });
+
   it("without its gates the panel is P1's (OR1): no arm, no copy block", () => {
     render(<OnSaleRefreshPanelView eventId="e1" proposals={OR1_PROPOSALS} />);
     expect(screen.queryByRole("group", { name: "Shadow or Live" })).toBeNull();

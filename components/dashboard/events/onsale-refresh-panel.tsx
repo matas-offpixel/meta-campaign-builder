@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { REJECT_REASONS, appliesNow, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
+import { NOT_APPLIED_YET, REJECT_REASONS, acceptable, appliesNow, displayState, keepDates, keepDatesDeep, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
 import type { PanelApply, PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 import { isShowWeek } from "@/lib/onsale-refresh/on-sale";
 import { appliedStamp, dayMonth, outcomeWeek, shortDay, todayLondon, weekLabel } from "@/lib/onsale-refresh/schedule";
@@ -125,7 +125,10 @@ export type PanelActions = {
 };
 
 /** One line with P2's controls: the toggle pair while Live, the reason picker, the result and Retry. */
-function LiveLineRow({ line, apply, actions, frozen }: { line: PanelLine; apply: PanelApply; actions: PanelActions; frozen: boolean }) {
+function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine; apply: PanelApply; actions: PanelActions; frozen: boolean }) {
+  // An audience or budget line stored as Accepted reads To review until P3 can apply it.
+  const line = { ...stored, state: displayState(stored) };
+  const canAccept = acceptable(line.kind);
   const [picking, setPicking] = useState(false);
   const [other, setOther] = useState<string | null>(null);
   const live = apply.mode === "live" && !frozen;
@@ -153,6 +156,11 @@ function LiveLineRow({ line, apply, actions, frozen }: { line: PanelLine; apply:
             </>
           ) : null}
           {line.blockedReason && (line.state === "to_review" || line.state === "rejected") ? <p className="mt-0.5 text-xs text-destructive">{line.blockedReason}</p> : null}
+          {!canAccept && !line.supply && (line.state === "to_review" || line.state === "rejected") ? (
+            <p className="mt-0.5 text-xs text-muted-foreground" data-not-applied-yet>
+              {NOT_APPLIED_YET}
+            </p>
+          ) : null}
           {line.state !== "to_review" ? (
             <p className={`mt-0.5 text-xs ${line.state === "failed" ? "text-destructive" : line.state === "applied" ? "font-medium text-foreground" : "text-muted-foreground"}`} data-line-state={line.state}>
               {stateText(line.state, line.reason)}
@@ -226,7 +234,7 @@ function LiveLineRow({ line, apply, actions, frozen }: { line: PanelLine; apply:
               size="sm"
               variant={line.state === "accepted" ? "primary" : "outline"}
               aria-pressed={line.state === "accepted"}
-              disabled={!decidable || busy || (line.state !== "accepted" && Boolean(line.blockedReason))}
+              disabled={!decidable || busy || !canAccept || (line.state !== "accepted" && Boolean(line.blockedReason))}
               title={shadowTitle}
               onClick={() => actions.onDecide?.(line.id, "accept")}
             >
@@ -344,7 +352,10 @@ export type OnSaleRefreshPanelViewProps = {
 };
 
 /** The panel from data; the viewport decides the wide or the narrow wording. Nothing here fetches. */
-export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false, apply, actions = {} }: OnSaleRefreshPanelViewProps) {
+export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = false, apply, actions = {} }: OnSaleRefreshPanelViewProps) {
+  // P2: every date the panel draws stays together (#620). P1's read-only path (OR1) draws as it did.
+  const kd = apply ? keepDates : (text: string) => text;
+  const proposals = apply ? keepDatesDeep(given) : given;
   if (!proposals.length) {
     return (
       <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4">
@@ -359,19 +370,21 @@ export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false, a
   const accepted = apply ? all.filter((line) => appliesNow(line, apply)).length : all.filter((line) => line.state === "accepted").length;
   const failed = apply ? all.filter((line) => retriesNow(line, apply)).length : 0;
   // F3: the latest Apply, and the week its lines are checked on.
-  const lastApplied = apply ? all.map((line) => line.appliedAt ?? "").filter(Boolean).sort().at(-1) ?? null : null;
+  const appliedLines = apply ? all.filter((line) => line.appliedAt).sort((a, b) => (a.appliedAt! < b.appliedAt! ? -1 : 1)) : [];
+  const lastApplied = appliedLines.at(-1)?.appliedAt ?? null;
+  const appliedBy = appliedLines.at(-1)?.appliedBy?.includes("@") ? null : (appliedLines.at(-1)?.appliedBy ?? null);
   const outcome = lastApplied ? outcomeWeek(lastApplied) : null;
   return (
     <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4" data-mode={apply ? apply.mode : head.mode}>
       {apply && showWeek ? <p className="mb-2 text-xs font-medium">Show week: the refresh has stopped.</p> : null}
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-medium">On-sale refresh · {weekLabel(head.cycleMonday)}</p>
+          <p className="text-sm font-medium">On-sale refresh · {kd(weekLabel(head.cycleMonday))}</p>
           <p className="text-xs text-muted-foreground">
-            Data to {shortDay(head.windowEnd)}
-            <Wide wide={nextLine(head, true)} narrow={nextLine(head, false)} />
+            Data to {kd(shortDay(head.windowEnd))}
+            <Wide wide={kd(nextLine(head, true))} narrow={kd(nextLine(head, false))} />
           </p>
-          {lastApplied ? <p className="text-xs text-muted-foreground">Applied {appliedStamp(lastApplied)}</p> : null}
+          {lastApplied ? <p className="text-xs text-muted-foreground">{kd(`Applied ${appliedStamp(lastApplied)}${appliedBy ? ` · by ${appliedBy}` : ""}`)}</p> : null}
         </div>
         {apply ? <ArmControl apply={apply} actions={actions} /> : <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs">{shadow ? "Shadow" : "Live"}</span>}
       </div>
@@ -442,7 +455,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals, showWeek = false, a
               {shadow ? (
                 <Wide wide="Shadow: nothing here can be applied yet. Each line is checked against next week's data." narrow="Shadow: nothing applies yet." />
               ) : outcome ? (
-                <Wide wide={`Outcomes are checked ${shortDay(outcome.checked)} on the week to ${shortDay(outcome.to)}.`} narrow={`Checked ${shortDay(outcome.checked)}.`} />
+                <Wide wide={kd(`Outcomes are checked ${shortDay(outcome.checked)} on the week to ${shortDay(outcome.to)}.`)} narrow={kd(`Checked ${shortDay(outcome.checked)}.`)} />
               ) : (
                 "Outcomes are checked after the next full week."
               )}

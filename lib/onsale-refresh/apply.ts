@@ -40,7 +40,7 @@ import { writeAdStatus, type AdStatusGraph } from "../meta/ad-status-write.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
 import type { AdCreativeDraft, CTAType } from "../types.ts";
 import type { ApplyGates } from "./apply-gates.ts";
-import { appliesNow } from "./line-states.ts";
+import { addsSpend, appliesNow } from "./line-states.ts";
 import { draftForCampaign, loadAll, type DraftRow } from "./load.ts";
 import type { AddCopy } from "./rules.ts";
 
@@ -105,6 +105,11 @@ class DriveCopyError extends Error {
 }
 export const MAX_PAUSES_PER_REFRESH = 3;
 
+/** The ruled sentence when a refresh has paused its most. */
+export function pauseCapText(n: number): string {
+  return `${n} creatives are already paused in this campaign this refresh, the most one refresh pauses.`;
+}
+
 const num = (value: unknown): number => {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -123,12 +128,12 @@ export function plainMetaReason(err: unknown): string {
   const user = typeof e.userMsg === "string" && e.userMsg.trim() ? e.userMsg.trim() : null;
   const text = `${message} ${user ?? ""}`.toLowerCase();
   if (text.includes("processing") || text.includes("not ready") || code === 352 || Number(e.subcode) === 1885252) return "Meta didn't take this file — the video is still processing.";
-  if ([4, 17, 32, 613, 80004].includes(code) || text.includes("rate limit") || text.includes("too many calls")) return "Meta is limiting calls on this account right now. Retry in a few minutes.";
-  if (code === 190 || text.includes("access token")) return "The Facebook connection has expired. Reconnect Facebook, then retry.";
-  if (code === 10 || code === 200 || text.includes("permission")) return "Meta refused it: this account's permissions don't allow the change.";
-  if (text.includes("ads per ad set") || text.includes("too many ads")) return "Meta refused it: the ad set already holds as many ads as Meta allows.";
+  if ([4, 17, 32, 613, 80004].includes(code) || text.includes("rate limit") || text.includes("too many calls")) return "Meta didn't take this — it's limiting calls on this account. Retry in a few minutes.";
+  if (code === 190 || text.includes("access token")) return "Meta didn't take this — the Facebook connection has expired. Reconnect Facebook, then retry.";
+  if (code === 10 || code === 200 || text.includes("permission")) return "Meta didn't take this — this account's permissions don't allow it.";
+  if (text.includes("ads per ad set") || text.includes("too many ads")) return "Meta didn't take this — the ad set already holds as many ads as Meta allows.";
   const said = (user ?? message).replace(/\s+/g, " ").trim();
-  return said ? `Meta refused it: ${said.length > 140 ? `${said.slice(0, 137)}…` : said}` : "Meta refused it without a reason.";
+  return said ? `Meta didn't take this — ${said.length > 140 ? `${said.slice(0, 137)}…` : said}` : "Meta didn't take this, and gave no reason.";
 }
 
 /** "Applied · 6 ads live" / "Applied · 2 ads paused" (F3). */
@@ -143,12 +148,15 @@ export async function spendToDate(db: Db, eventId: string): Promise<number> {
 }
 
 /**
- * R5's plan guard at apply time. A pause lowers spend and always passes.
- * An add needs the event's budget, and budget left after the spend to
- * date: "spend never goes above plan".
+ * R5's plan guard (the design ruling on #1220): only a line that turns
+ * delivery on or raises a budget adds spend — a bring-back, a new ad set,
+ * a budget raise. It needs the event's budget, and budget left after the
+ * spend to date. An add puts a new ad into an ad set whose budget doesn't
+ * change, and a pause lowers spend: neither is guarded. Moves keep their
+ * 20 % cap instead.
  */
 export function planGuard(kind: string, budget: number | null, spend: number): string | null {
-  if (kind === "pause_creative") return null;
+  if (!addsSpend(kind)) return null;
   if (budget == null) return "Set this event's budget to apply this.";
   if (spend >= budget) return `This event has spent its budget (£${spend.toFixed(2)} of £${budget.toFixed(2)}), so nothing new goes live.`;
   return null;
@@ -306,7 +314,7 @@ async function applyAdd(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContext
 }
 
 async function applyPause(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContext, guard: Extract<Guarded, { ok: true }>, alreadyPaused: number): Promise<{ state: "applied" | "failed"; reason: string | null; result: Record<string, unknown> }> {
-  if (alreadyPaused >= MAX_PAUSES_PER_REFRESH) return { state: "failed", reason: `${MAX_PAUSES_PER_REFRESH} creatives are already paused in this campaign this refresh.`, result: {} };
+  if (alreadyPaused >= MAX_PAUSES_PER_REFRESH) return { state: "failed", reason: pauseCapText(MAX_PAUSES_PER_REFRESH), result: {} };
   const target = line.target ?? {};
   const ads = (Array.isArray(target.ads) ? target.ads : strings(target.adIds).map((adId) => ({ adId, adsetId: null }))) as { adId: string; adsetId: string | null }[];
   const byAdSet = new Map<string, string[]>();
@@ -346,7 +354,7 @@ async function applyPause(deps: ApplyDeps, line: LineRow, ledger: MetaWriteConte
  * Apply the event's accepted creative lines (or, with `retry`, its failed
  * ones). `lineIds` narrows it. The caller has checked the owner.
  */
-export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; userId: string; gates: ApplyGates; retry?: boolean; lineIds?: readonly string[] }): Promise<ApplyResult> {
+export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; userId: string; gates: ApplyGates; retry?: boolean; lineIds?: readonly string[]; /** F3's "by {name}": a first name or an email's local part, never a full email. */ appliedByName?: string | null }): Promise<ApplyResult> {
   const { deps, gates } = args;
   const db = deps.db;
   if (gates.mode !== "live") return { ok: false, status: 409, error: APPLY_SHADOW };
@@ -376,7 +384,8 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
   if (!lines.length) return { ok: true, applied: 0, failed: 0, lines: [] };
 
   const budget = event.budget_marketing == null ? null : num(event.budget_marketing);
-  const spend = await spendToDate(db, event.id);
+  // Only a spend-adding line reads the spend to date; P2's creative lines never do.
+  const spend = lines.some((line) => addsSpend(line.kind)) ? await spendToDate(db, event.id) : 0;
   const outcomes: ApplyLineOutcome[] = [];
   for (const line of lines) {
     // Claim it: only one click gets to run a line.
@@ -408,6 +417,7 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
     } catch (err) {
       outcome = { state: "failed", reason: plainMetaReason(err), result: { error: err instanceof Error ? err.message : String(err) } };
     }
+    outcome.result = { ...outcome.result, appliedBy: args.appliedByName?.includes("@") ? null : (args.appliedByName ?? null) };
     await finish(db, line, outcome, now);
     outcomes.push({ id: line.id, kind: line.kind, state: outcome.state, reason: outcome.reason });
   }

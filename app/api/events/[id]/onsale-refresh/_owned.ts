@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { applyGates, type ApplyGates } from "@/lib/onsale-refresh/apply-gates";
+import { displayName } from "@/lib/onsale-refresh/line-states";
 import { loadArm } from "@/lib/onsale-refresh/read";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -10,6 +11,8 @@ export type OwnedRefreshEvent = {
   db: ReturnType<typeof createServiceRoleClient>;
   session: Awaited<ReturnType<typeof createClient>>;
   userId: string;
+  /** "by {name}": the profile's first name, else the email's local part (never the full email). */
+  userName: string | null;
   event: { id: string; name: string; event_code: string | null; status: string | null; event_date: string | null; drive_folder_id: string | null; budget_marketing: number | string | null };
   gates: ApplyGates;
   budgetSet: boolean;
@@ -34,5 +37,5 @@ export async function ownedRefreshEvent(eventId: string): Promise<{ error: NextR
   const event = data as OwnedRefreshEvent["event"];
   const gates = applyGates(process.env, await loadArm(db, event.id));
   const budgetSet = event.budget_marketing != null && Number.isFinite(Number(event.budget_marketing));
-  return { db, session, userId: user.id, event, gates, budgetSet };
+  return { db, session, userId: user.id, userName: displayName(user), event, gates, budgetSet };
 }

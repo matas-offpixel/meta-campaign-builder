@@ -20,7 +20,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ApplyGates } from "./apply-gates.ts";
-import { REJECT_REASONS, isRejectReason, type RejectReason } from "./line-states.ts";
+import { NOT_APPLIED_YET, REJECT_REASONS, acceptable, isRejectReason, type RejectReason } from "./line-states.ts";
+import type { LineKind } from "./rules.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -78,6 +79,8 @@ export async function decideLine(args: { db: Db; eventId: string; userId: string
     if (line.state === "accepted") {
       next = { state: "to_review", reason: null, reject_reason: null, reject_note: null };
     } else {
+      // P2 writes creatives only: an audience or budget line can be rejected, not accepted, until P3.
+      if (!acceptable(line.kind as LineKind)) return { ok: false, status: 409, error: NOT_APPLIED_YET };
       const blocked = liveBlockedReason(line, args.budgetSet);
       if (blocked) return { ok: false, status: 409, error: blocked };
       next = { state: "accepted", reason: null, reject_reason: null, reject_note: null };

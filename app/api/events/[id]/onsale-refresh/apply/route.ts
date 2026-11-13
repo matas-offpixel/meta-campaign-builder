@@ -131,6 +131,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     deps: { db: who.db, env: process.env, meta, copyFromDrive, upload },
     eventId: who.event.id,
     userId: who.userId,
+    appliedByName: who.userName,
     gates: who.gates,
     retry: body.retry === true,
     lineIds,

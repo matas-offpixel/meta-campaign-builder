@@ -231,9 +231,10 @@ export const OR1_PROPOSALS: PanelProposal[] = [
  * roll-call claim, and the within-campaign move. One add is accepted, one
  * is still to review, a third was rejected as the wrong creative.
  *
- * OR7 is F3: the w/c 23 Nov payday cycle after Apply accepted (2). Its
- * figures are illustrative, as the record's F3 says. The bring-back was
- * accepted but stays Accepted: audiences apply in P3.
+ * OR7 is F3: the w/c 23 Nov payday cycle after Apply, by Matas. Its
+ * figures are illustrative, as the record's F3 says. The bring-back is
+ * stored Accepted (as shadow data can be) and draws To review with Accept
+ * disabled: audiences can't be accepted until P3 writes them.
  *
  * The copy under each add is a stand-in: the frames never read the
  * campaign draft, whose own copy is what the real panel shows.
@@ -318,6 +319,7 @@ export const OR7_PROPOSALS: PanelProposal[] = [
         detail: "Luke Dean / Statics / CTA · approved final · payday cycle",
         narrow: { detail: "Luke Dean / Statics / CTA · payday cycle", writeText: "New ad in each delivering ad set · live" },
         appliedAt: "2026-11-23T08:41:00Z",
+        appliedBy: "Matas",
       },
       {
         ...OR6_ADD("f2", "P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16", "failed", "Meta didn't take this file — the video is still processing."),

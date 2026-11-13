@@ -395,7 +395,7 @@ export function addLines(input: CampaignInput, config: PhaseConfig): ProposalLin
 /** R5: only campaigns of this event's drafts on this account are written to. */
 export const NOT_OURS = "Not one of this event's drafts on this account, so nothing is written to this campaign.";
 /** An add needs the draft's page and link; without them there is no copy to show or send. */
-export const NO_COPY = "The campaign's draft has no page or link to copy, so the new ad has no copy yet.";
+export const NO_COPY = "The campaign's draft has no page or link to copy, so this can't go in until the draft has them.";
 
 function notOurs(input: Pick<CampaignInput, "draft">): string | null {
   return input.draft ? null : NOT_OURS;

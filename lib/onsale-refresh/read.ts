@@ -10,7 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { applyGates, type ArmMode } from "./apply-gates.ts";
 import { liveBlockedReason } from "./decide.ts";
-import type { LineState } from "./line-states.ts";
+import { displayState, type LineState } from "./line-states.ts";
 import type { AddCopy, LineKind, Proposal, WatchItem } from "./rules.ts";
 import { nextCycleAfter, weekLabel, type CycleKind, type RunKind } from "./schedule.ts";
 
@@ -35,6 +35,8 @@ export type PanelLine = {
   carried?: string | null;
   /** P2: when Apply wrote it (ISO). */
   appliedAt?: string | null;
+  /** P2: who clicked Apply: a first name or an email's local part, never a full email. */
+  appliedBy?: string | null;
 };
 
 /** The panel's gates (R4): live only with the deployment gate and the event's arm. */
@@ -93,7 +95,7 @@ type ProposalRow = {
   created_at: string;
 };
 
-type LineRow = Omit<PanelLine, "writeText" | "addsSpend" | "blockedReason" | "narrow" | "copy" | "carried" | "appliedAt"> & { proposal_id: string; position: number; write_text: string; narrow: PanelLine["narrow"] | null; adds_spend: boolean; blocked_reason: string | null; target?: { copy?: AddCopy | null } | null; applied_at?: string | null };
+type LineRow = Omit<PanelLine, "writeText" | "addsSpend" | "blockedReason" | "narrow" | "copy" | "carried" | "appliedAt"> & { proposal_id: string; position: number; write_text: string; narrow: PanelLine["narrow"] | null; adds_spend: boolean; blocked_reason: string | null; target?: { copy?: AddCopy | null } | null; applied_at?: string | null; applied_result?: { appliedBy?: string | null } | null };
 
 const CARRIED: readonly LineState[] = ["accepted", "applying", "failed"];
 
@@ -110,11 +112,13 @@ function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | n
     // R5: the stored budget sentence was the proposal's; the event's budget now decides it.
     blockedReason: budgetSet == null ? line.blocked_reason : liveBlockedReason(line, budgetSet),
     supply: line.supply,
-    state: line.state,
+    // P2: an audience or budget line stored as Accepted reads To review until P3 can apply it.
+    state: budgetSet == null ? line.state : displayState(line),
     reason: line.reason,
     ...(copy ? { copy } : {}),
     ...(carried ? { carried } : {}),
     ...(line.applied_at ? { appliedAt: line.applied_at } : {}),
+    ...(line.applied_result?.appliedBy && !line.applied_result.appliedBy.includes("@") ? { appliedBy: line.applied_result.appliedBy } : {}),
   };
 }
 
@@ -145,7 +149,7 @@ export async function loadEventProposals(db: Db, eventId: string, opts: { budget
   const ids = [...rows, ...earlier].map((row) => row.id);
   const lines = await db
     .from("onsale_refresh_lines")
-    .select(`id, proposal_id, position, kind, title, detail, write_text, narrow, adds_spend, blocked_reason, supply, state, reason${p2 ? ", target, applied_at" : ""}`)
+    .select(`id, proposal_id, position, kind, title, detail, write_text, narrow, adds_spend, blocked_reason, supply, state, reason${p2 ? ", target, applied_at, applied_result" : ""}`)
     .in("proposal_id", ids)
     .order("position", { ascending: true });
   if (lines.error) throw new Error(`onsale_refresh_lines: ${lines.error.message}`);

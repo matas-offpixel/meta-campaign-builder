@@ -11,7 +11,7 @@ import { AdStatusWritesDisabledError, adStatusWritesEnabled, writeAdStatus } fro
 import { APPLY_ENV, applyEnabled, applyGates } from "../apply-gates.ts";
 import { MAX_PAUSES_PER_REFRESH, appliedText, applyAccepted, planGuard, plainMetaReason, refreshCreative, type ApplyDeps, type RefreshMeta } from "../apply.ts";
 import { SHADOW_REFUSAL, SPEND_NEEDS_BUDGET, decideLine, liveBlockedReason, rejectText } from "../decide.ts";
-import { appliesNow, retriesNow, stateText } from "../line-states.ts";
+import { NOT_APPLIED_YET, appliesNow, displayName, displayState, keepDates, retriesNow, stateText } from "../line-states.ts";
 import { draftForCampaign } from "../load.ts";
 import { ONSALE_PHASE } from "../phase-config.ts";
 import { countToReview, loadEventProposals, loadPanel } from "../read.ts";
@@ -274,10 +274,27 @@ describe("on-sale refresh P2: Accept and Reject (HR5)", () => {
     assert.equal(rejectText("wrong_creative", null), "Wrong creative");
   });
 
-  it("a spend line can't be accepted without the event's budget, and can once it has one (R5)", async () => {
-    const mem = seed({ lines: [{ ...addLine("l1", "to_review"), kind: "bring_back_audience", adds_spend: true, blocked_reason: SPEND_NEEDS_BUDGET }] });
-    assert.deepEqual(await decide(mem, "l1", { decision: "accept" }, { budgetSet: false }), { ok: false, status: 409, error: SPEND_NEEDS_BUDGET });
-    assert.equal(((await decide(mem, "l1", { decision: "accept" }, { budgetSet: true })) as { line: { state: string } }).line.state, "accepted");
+  it("audience and budget lines can't be accepted until P3, with or without a budget; Reject stays live", async () => {
+    for (const kind of ["bring_back_audience", "drop_audience", "move_budget", "missing_default"]) {
+      const mem = seed({ lines: [{ ...addLine("l1", "to_review"), kind, adds_spend: kind === "bring_back_audience" || kind === "missing_default", blocked_reason: null }] });
+      assert.deepEqual(await decide(mem, "l1", { decision: "accept" }, { budgetSet: true }), { ok: false, status: 409, error: "Not applied yet: Apply only writes creatives for now." }, kind);
+      assert.equal(lineOf(mem, "l1").state, "to_review");
+      assert.deepEqual(await decide(mem, "l1", { decision: "reject", reason: "too_early" }), { ok: true, line: { id: "l1", state: "rejected", reason: "Too early" } }, `${kind}: its reasons feed R6`);
+    }
+    assert.equal(NOT_APPLIED_YET, "Not applied yet: Apply only writes creatives for now.");
+    assert.equal(SPEND_NEEDS_BUDGET, "Adds spend: set this event's budget to accept this.");
+  });
+
+  it("the plan guard is off add and pause lines at accept time: Accept is live under the no-budget banner", async () => {
+    for (const line of [addLine("l1", "to_review"), pauseLine("l2", "to_review")]) {
+      const mem = seed({ lines: [line], budget: null });
+      const result = await decide(mem, line.id, { decision: "accept" }, { budgetSet: false });
+      assert.deepEqual(result, { ok: true, line: { id: line.id, state: "accepted", reason: null } }, line.kind);
+    }
+    assert.equal(liveBlockedReason({ adds_spend: false, blocked_reason: null }, false), null, "an add or a pause never says Adds spend");
+  });
+
+  it("the spend sentence follows the event's budget (R5)", () => {
     assert.equal(liveBlockedReason({ adds_spend: true, blocked_reason: SPEND_NEEDS_BUDGET }, true), null);
     assert.equal(liveBlockedReason({ adds_spend: true, blocked_reason: null }, false), SPEND_NEEDS_BUDGET);
     assert.equal(liveBlockedReason({ adds_spend: false, blocked_reason: NOT_OURS }, true), NOT_OURS, "not this event's draft stays blocked");
@@ -351,7 +368,7 @@ describe("on-sale refresh P2: Apply accepted (n)", () => {
     const first = await applyAccepted({ deps: deps(mem, meta), eventId: "e1", userId: "u1", gates: live() });
     assert.ok(first.ok);
     assert.equal(lineOf(mem, "l1").state, "failed");
-    assert.equal(lineOf(mem, "l1").reason, "1 of 2 ads live — Meta is limiting calls on this account right now. Retry in a few minutes.");
+    assert.equal(lineOf(mem, "l1").reason, "1 of 2 ads live — Meta didn't take this — it's limiting calls on this account. Retry in a few minutes.");
     assert.match(String((lineOf(mem, "l1").applied_result as { error: string }).error), /User request limit/, "Meta's raw message is kept beside the plain words");
     assert.equal(lineOf(mem, "l4").state, "applied", "the next line still ran");
     const before = meta.calls.filter((call) => call.startsWith("ad:") || call.startsWith("creative:")).length;
@@ -387,15 +404,42 @@ describe("on-sale refresh P2: Apply accepted (n)", () => {
     assert.ok(!meta.calls.some((call) => call.startsWith("creative:") || call.startsWith("ad:")));
   });
 
-  it("the plan guard: no budget, or the budget spent, and no add goes in; a pause still can", async () => {
-    assert.equal(planGuard("add_creative", null, 0), "Set this event's budget to apply this.");
-    assert.equal(planGuard("add_creative", 4500, 4500.01), "This event has spent its budget (£4500.01 of £4500.00), so nothing new goes live.");
-    assert.equal(planGuard("add_creative", 4500, 1994.15), null);
-    assert.equal(planGuard("pause_creative", null, 9999), null, "a pause lowers spend");
-    const mem = seed({ lines: [addLine("l1")], rollups: [{ event_id: "e1", date: "2026-11-11", ad_spend: 4600 }] });
+  it("the plan guard: off add and pause lines; on bring-back, new-ad-set and budget-raise lines", () => {
+    for (const kind of ["add_creative", "pause_creative"]) {
+      assert.equal(planGuard(kind, null, 0), null, `${kind}: no budget`);
+      assert.equal(planGuard(kind, 4500, 9999), null, `${kind}: budget spent`);
+    }
+    for (const kind of ["bring_back_audience", "missing_default", "adset_budget_raise"]) {
+      assert.equal(planGuard(kind, null, 0), "Set this event's budget to apply this.", kind);
+      assert.equal(planGuard(kind, 4500, 4500.01), "This event has spent its budget (£4500.01 of £4500.00), so nothing new goes live.", kind);
+      assert.equal(planGuard(kind, 4500, 1994.15), null, kind);
+    }
+    assert.equal(planGuard("move_budget", null, 9999), null, "moves keep their 20 % cap instead");
+  });
+
+  it("at apply time an add goes in with no budget, and with the budget spent; the spend isn't even read", async () => {
+    for (const overrides of [{ budget: null }, { rollups: [{ event_id: "e1", date: "2026-11-11", ad_spend: 4600 }] }]) {
+      const mem = seed({ lines: [addLine("l1")], ...overrides });
+      mem.failOn("event_daily_rollups", "select", "must not be read");
+      const meta = fakeMeta();
+      await applyAccepted({ deps: deps(mem, meta), eventId: "e1", userId: "u1", gates: live() });
+      assert.equal(lineOf(mem, "l1").state, "applied");
+      assert.equal(lineOf(mem, "l1").reason, "2 ads live");
+    }
+  });
+
+  it("at apply time a pause goes through with no budget", async () => {
+    const mem = seed({ lines: [pauseLine("l2")], budget: null });
+    const meta = fakeMeta();
+    await applyAccepted({ deps: deps(mem, meta, PAUSE_ENV), eventId: "e1", userId: "u1", gates: live(PAUSE_ENV) });
+    assert.equal(lineOf(mem, "l2").state, "applied");
+  });
+
+  it("the other apply-time re-checks stay with no budget: a draft of another event still fails", async () => {
+    const mem = seed({ lines: [addLine("l1")], budget: null, drafts: [{ id: "d1", event_id: "e-other", user_id: "u1", ad_account_id: "act_9", meta_campaign_id: "c1", creatives: [] }] });
     const meta = fakeMeta();
     await applyAccepted({ deps: deps(mem, meta), eventId: "e1", userId: "u1", gates: live() });
-    assert.match(String(lineOf(mem, "l1").reason), /spent its budget/);
+    assert.equal(lineOf(mem, "l1").reason, "Not one of this event's drafts on this account, so nothing was written.");
     assert.deepEqual(meta.calls, []);
   });
 
@@ -414,7 +458,8 @@ describe("on-sale refresh P2: Apply accepted (n)", () => {
     const meta2 = fakeMeta();
     await applyAccepted({ deps: deps(capped, meta2, PAUSE_ENV), eventId: "e1", userId: "u1", gates: live(PAUSE_ENV) });
     assert.equal(lineOf(capped, "l9").state, "failed");
-    assert.equal(lineOf(capped, "l9").reason, `${MAX_PAUSES_PER_REFRESH} creatives are already paused in this campaign this refresh.`);
+    assert.equal(lineOf(capped, "l9").reason, "3 creatives are already paused in this campaign this refresh, the most one refresh pauses.");
+    assert.equal(MAX_PAUSES_PER_REFRESH, 3);
     assert.ok(!meta2.calls.some((call) => call.startsWith("status:")));
   });
 
@@ -436,9 +481,46 @@ describe("on-sale refresh P2: Apply accepted (n)", () => {
 
   it("Meta's reasons in plain words", () => {
     assert.equal(plainMetaReason(Object.assign(new Error("Video not ready for use in an ad"), { code: 100 })), "Meta didn't take this file — the video is still processing.");
-    assert.equal(plainMetaReason(Object.assign(new Error("Error validating access token"), { code: 190 })), "The Facebook connection has expired. Reconnect Facebook, then retry.");
-    assert.equal(plainMetaReason(Object.assign(new Error("(#80004) There have been too many calls"), { code: 80004 })), "Meta is limiting calls on this account right now. Retry in a few minutes.");
-    assert.equal(plainMetaReason(Object.assign(new Error("Invalid parameter"), { code: 100, userMsg: "The link is not a valid URL." })), "Meta refused it: The link is not a valid URL.");
+    assert.equal(plainMetaReason(Object.assign(new Error("Error validating access token"), { code: 190 })), "Meta didn't take this — the Facebook connection has expired. Reconnect Facebook, then retry.");
+    assert.equal(plainMetaReason(Object.assign(new Error("(#80004) There have been too many calls"), { code: 80004 })), "Meta didn't take this — it's limiting calls on this account. Retry in a few minutes.");
+    assert.equal(plainMetaReason(Object.assign(new Error("(#10) Permission denied"), { code: 10 })), "Meta didn't take this — this account's permissions don't allow it.");
+    assert.equal(plainMetaReason(Object.assign(new Error("Invalid parameter"), { code: 100, userMsg: "The link is not a valid URL." })), "Meta didn't take this — The link is not a valid URL.");
+  });
+
+  it("the ruled no-copy sentences: before Accept, and at apply time", async () => {
+    assert.equal(NO_COPY, "The campaign's draft has no page or link to copy, so this can't go in until the draft has them.");
+    const mem = seed({ lines: [addLine("l1", "accepted", { target: { driveFileId: "drive-l1", copy: null } })] });
+    await applyAccepted({ deps: deps(mem, fakeMeta()), eventId: "e1", userId: "u1", gates: live() });
+    assert.equal(lineOf(mem, "l1").reason, "The campaign's draft has no page or link to copy, so nothing was written.");
+  });
+
+  it("Apply stores who clicked: a first name or an email's local part, never a full email", async () => {
+    assert.equal(displayName({ email: "matas@offpixel.co.uk", user_metadata: { full_name: "Matas Liebus" } }), "Matas");
+    assert.equal(displayName({ email: "matas@offpixel.co.uk", user_metadata: { first_name: "Matas" } }), "Matas");
+    assert.equal(displayName({ email: "matas@offpixel.co.uk", user_metadata: {} }), "matas");
+    assert.equal(displayName({ email: "matas@offpixel.co.uk", user_metadata: { name: "matas@offpixel.co.uk" } }), "matas", "a name that is an email falls back to the local part");
+    assert.equal(displayName({ email: null, user_metadata: null }), null);
+    const mem = seed({ lines: [addLine("l1")] });
+    await applyAccepted({ deps: deps(mem, fakeMeta()), eventId: "e1", userId: "u1", gates: live(), appliedByName: "Matas" });
+    assert.equal((lineOf(mem, "l1").applied_result as { appliedBy: string }).appliedBy, "Matas");
+    const leaked = seed({ lines: [addLine("l1")] });
+    await applyAccepted({ deps: deps(leaked, fakeMeta()), eventId: "e1", userId: "u1", gates: live(), appliedByName: "matas@offpixel.co.uk" });
+    assert.equal((lineOf(leaked, "l1").applied_result as { appliedBy: string | null }).appliedBy, null, "a full email is never stored as the name");
+  });
+
+  it("dates keep together: weekday and day, day and month, month and year, w/c and day", () => {
+    const nb = "\u00a0";
+    assert.equal(keepDates("Data to Wed 11 Nov · next: Mon 16 Nov (budget and audiences)"), `Data to Wed${nb}11${nb}Nov · next: Mon${nb}16${nb}Nov (budget and audiences)`);
+    assert.equal(keepDates("On-sale refresh · w/c 9 Nov"), `On-sale refresh · w/c${nb}9${nb}Nov`);
+    assert.equal(keepDates("Sunday 27 December 2026"), `Sunday${nb}27${nb}December${nb}2026`);
+    assert.equal(keepDates("30 Oct – 11 Nov · £650.38 · 75 IC"), `30${nb}Oct – 11${nb}Nov · £650.38 · 75 IC`);
+    assert.equal(keepDates("20 ads · £26.20 · 0 IC"), "20 ads · £26.20 · 0 IC", "a count isn't a date");
+  });
+
+  it("an audience line stored as Accepted reads To review", () => {
+    assert.equal(displayState({ kind: "bring_back_audience", state: "accepted" }), "to_review");
+    assert.equal(displayState({ kind: "add_creative", state: "accepted" }), "accepted");
+    assert.equal(displayState({ kind: "drop_audience", state: "rejected" }), "rejected");
   });
 
   it("the new ad's creative is the file and the line's copy, enhancements off, never an edit of a live ad", () => {
