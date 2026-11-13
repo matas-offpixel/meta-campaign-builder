@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Internal Counts matching — 13 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.rv{background:var(--edit);border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:12.5px}
+.rv-hd{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.rv-hd h4{margin:0;font:600 15px var(--sans)}
+.rv-hd .sub{font-size:12px;color:var(--ink-2)}
+.it{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.it .t1{font-weight:600}
+.it .t2{color:var(--ink-2);margin-top:2px;overflow-wrap:anywhere}
+.it .t3{font:11px/1.4 var(--mono);color:var(--ink-3);margin-top:4px;overflow-wrap:anywhere}
+.it .acts{flex-wrap:wrap;justify-content:flex-end}
+.w393 .it{grid-template-columns:minmax(0,1fr)}
+.w393 .it .acts{justify-content:flex-start;white-space:normal}
+@media (max-width:700px){.it{grid-template-columns:minmax(0,1fr)}.it .acts{justify-content:flex-start;white-space:normal}}
+.code{font:12px var(--mono);background:var(--muted);padding:6px 8px;border-radius:6px;overflow-wrap:anywhere;display:block;margin:6px 0}
+.v{font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;padding:3px 6px;border-radius:4px;border:1px solid var(--border-strong);margin-right:6px}
+.v.pass{color:var(--olive);border-color:var(--olive)}
+.v.mine{color:var(--ochre);border-color:var(--ochre)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="k">Off/Pixel · design record · dashboard v2 · 13 November 2026</div>
+<h1>Internal Counts: how the emails are matched</h1>
+<p class="lead">This record re-rules D8 of <a href="2026-11-13-dashboard-v2.html"><code>2026-11-13-dashboard-v2.html</code></a>, which stays as merged. Here it rules how an email becomes a count. The rest of D8 stands: paid vs comps, show, tier and outlet rows, the priority, and one source per show-day.</p>
+<p class="lead"><b>Matas:</b> the ingest reads <code>matas@offpixel.co.uk</code>. Ops read the real emails and found four facts that D8's exact-subject rule gets wrong. Items 1–4 below take ops' proposals, each marked <span class="v pass">pass</span> or <span class="v mine">changed</span>. Item 5 is the review list, which is a new surface.</p>
+<div class="open">The two sample sheets (11 and 12 Nov, in Claude Code's <code>.scratch/dashboard-v2/internal-counts-samples/</code>) couldn't be opened from here: GitHub and the bridge to Matas's computer are down. The PDF details below (the TIER TOTALS row, the two date formats and IPC's price row) are ops' reading. The build checks them against the samples.</div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>M1 · Which emails are counts</td><td>
+<p><span class="v mine">changed</span>Ops' rule, with the pattern widened by two cases. An email is a count when all four hold:</p>
+<ul>
+<li>the sender's address is at <code>electric-group.co.uk</code> (that domain exactly, not its subdomains);</li>
+<li>it carries a PDF attachment;</li>
+<li>its subject doesn't start with a reply or forward prefix, matched by <code class="code">/^\s*(re|fwd?|aw|sv)\s*:/i</code></li>
+<li>its subject matches <code class="code">/^\s*internal\s+(shows?\s+)?(\(?ticket\)?\s+)?counts?\b/i</code></li>
+</ul>
+<p>The widening adds "Shows" and "(ticket)". All ten real subjects since 30 Oct match, and so do the D8 wordings "Internal Counts" and "Internal Show (ticket) counts". "Internal comms update" doesn't match. Checked 13 Nov.</p>
+<ul>
+<li><b>Replies are not counts.</b> A reply from the domain in the same thread ("Re: Internal Show counts 06.11.26") is stored as a note on that day's count. Its text runs M3's check, so an inline "sold another 40" still reaches the review list. It is never parsed into the counts.</li>
+<li><b>Near misses.</b> An email from the domain with a PDF and "count" in its subject that fails the pattern doesn't become a count. It goes to the review list as "Looks like a count but wasn't read as one".</li>
+<li><b>Corrections.</b> A second count email for the same count date replaces the first for that date. Both are kept, the newer one is used, and a review note says so.</li>
+<li><b>Idempotent on the message id</b>, as D8 already rules.</li>
+</ul></td></tr>
+<tr><td>M2 · The count date</td><td>
+<p><span class="v pass">pass</span>The PDF's TIER TOTALS date is the count date. If it disagrees with the subject's date, that sheet's counts are <b>held</b>, not stored, and the review list asks which date is right.</p>
+<ul>
+<li><b>Dates are always read day first</b> (UK): <code>dd.mm.yy</code> in the subject; <code>dd/mm/yy</code> and <code>dd/mm/yyyy</code> in the PDF.</li>
+<li><b>With no date in the subject,</b> the PDF date stands alone.</li>
+<li><b>With no date in the PDF,</b> the sheet is unreadable (M5). The subject's date is never used on its own.</li>
+</ul></td></tr>
+<tr><td>M3 · Sales mentioned only in the email</td><td>
+<p><span class="v pass">pass</span>The body is stored with the count. A body (or a reply in the thread) that mentions tickets, sold or total next to a number puts one review item on that count, quoting the sentence. Matas confirms it as a manual entry, typing the figure himself. It's never parsed into the counts.</p>
+<ul>
+<li>A confirmed entry is <code>manual</code>, so it outranks the sheet for that show and day (D8's priority).</li>
+<li>Example: 30 Oct's "Grand total sold for this event is 1974". If he confirms it, Enzo reads 1,974 from manual for 30 Oct.</li>
+<li>A sale for a show we don't run ("Dusky Bristol") gets "Not a show we run" (M5), so it never asks again for that name.</li>
+</ul></td></tr>
+<tr><td>M4 · Sheet errors</td><td>
+<p><span class="v mine">changed</span>Ops' checks, with the £150 ceiling made per event:</p>
+<ul>
+<li><b>Price looks wrong</b> when a tier's price equals that column's top-row count (IPC on 12 Nov: 1st £200.00 with 200 sold, 3rd £363.00 with 363, 4th £579.00 with 579). It's also flagged when a price is above the event's highest ticket price: the dearest paid tier in its allocations, or £150 when none is set.
+  <ul>
+  <li>A flat £150 would flag a real VIP table, so it's only the fallback.</li>
+  <li>The counts are still stored. That show's revenue from that sheet is withheld, and the review list says so.</li>
+  </ul></li>
+<li><b>−£1.00 is an unused tier,</b> not a refund. It's left out of counts and revenue, with no review item.</li>
+<li><b>Sums don't add up</b> when a show's tier counts don't sum to its TIER TOTALS count. That show's count from that sheet is held, and the review list asks which to use. Other shows on the same sheet are stored as normal.</li>
+</ul></td></tr>
+<tr><td>M5 · The review list</td><td>
+<p>An internal-only list on the dashboard (D11: never on a client link), headed "To check · {n}". When there's nothing, it reads "Nothing to check".</p>
+<ul>
+<li>Every item shows the email's subject, sender and received time, and opens the email.</li>
+<li>Resolving an item moves it to "Checked" with who and when.</li>
+<li>Nothing resolves itself.</li>
+<li>Held counts enter the dashboard only when their item is resolved.</li>
+</ul>
+<p>The words for each item are in R1.</p></td></tr>
+</table>
+
+<h2>R1 · The review list's words (1280)</h2>
+<p class="lead">The IPC, Enzo and Dusky examples are real. Other figures are marked with braces.</p>
+<div class="frame">
+<figure><figcaption>1280 · to check</figcaption>
+<div class="vp w1280">
+<div class="rv">
+<div class="rv-hd"><h4>To check · 8</h4><span class="sub">Internal Counts from matas@offpixel.co.uk · internal only</span></div>
+<div class="it">
+<div>
+<div class="t1">IPC: a price on the 12 Nov sheet looks wrong</div>
+<div class="t2">1st on Skiddle shows £200.00 with 200 sold, the same number. Counts are stored; IPC's revenue from this sheet is held.</div>
+<div class="t3">"Internal Show Count 12.11.26" · electric-group.co.uk · 12 Nov</div></div>
+<div class="acts"><span class="btn">Revenue is right</span><span class="btn">Keep holding</span></div></div>
+<div class="it">
+<div>
+<div class="t1">Email mentions sales not in the sheet</div>
+<div class="t2">"Grand total sold for this event is 1974." · Enzo Siragusa</div>
+<div class="t3">"Internal Show Count 30.10.26" · 30 Oct</div></div>
+<div class="acts"><span class="btn solid">Add as a manual entry</span><span class="btn">Not a sale</span></div></div>
+<div class="it">
+<div>
+<div class="t1">"Dusky Bristol" isn't matched to an event</div>
+<div class="t2">From the 30 Oct email. Closest: none of Electric's running shows.</div>
+<div class="t3">"Internal Show Count 30.10.26" · 30 Oct</div></div>
+<div class="acts"><span class="btn">Choose an event</span><span class="btn">Not a show we run</span></div></div>
+<div class="it">
+<div>
+<div class="t1">"{name on the sheet}" isn't matched to an event</div>
+<div class="t2">Closest: {event} · {date}.</div>
+<div class="t3">"{subject}" · {received}</div></div>
+<div class="acts"><span class="btn solid">Match to {event}</span><span class="btn">Choose another</span><span class="btn">Not a show we run</span></div></div>
+<div class="it">
+<div>
+<div class="t1">The {subject date} email's sheet is dated {sheet date}</div>
+<div class="t2">Counts from this sheet are held until you pick the date.</div>
+<div class="t3">"{subject}" · {received}</div></div>
+<div class="acts"><span class="btn">Use {sheet date}</span><span class="btn">Use {subject date}</span></div></div>
+<div class="it">
+<div>
+<div class="t1">{show}: tiers add to {n}, the sheet's total says {m}</div>
+<div class="t2">This show's count is held until you choose. Other shows on the sheet are stored.</div>
+<div class="t3">"{subject}" · {received}</div></div>
+<div class="acts"><span class="btn">Use the total ({m})</span><span class="btn">Use the tiers ({n})</span></div></div>
+<div class="it">
+<div>
+<div class="t1">Couldn't read the {date} sheet</div>
+<div class="t2">{file name}. Nothing from it was stored.</div>
+<div class="t3">"{subject}" · {received}</div></div>
+<div class="acts"><span class="btn">Open the email</span><span class="btn">Not a count</span></div></div>
+<div class="it">
+<div>
+<div class="t1">Looks like a count but wasn't read as one</div>
+<div class="t2">An email from Electric with a PDF: "{subject}".</div>
+<div class="t3">{received}</div></div>
+<div class="acts"><span class="btn">Read it as a count</span><span class="btn">Not a count</span></div></div>
+<div class="it">
+<div>
+<div class="t1" style="font-weight:400;color:var(--ink-2)">Checked · the {date} sheet was replaced by a later email</div>
+<div class="t3">"{newer subject}" · {received} · Matas, {when}</div></div>
+<div class="acts"><span class="btn">Undo</span></div></div>
+</div></div></figure>
+</div>
+
+<h2>R1 · At 393</h2>
+<div class="frame">
+<figure><figcaption>393 · the same items</figcaption>
+<div class="vp w393">
+<div class="rv">
+<div class="rv-hd"><h4>To check · 8</h4></div>
+<div class="it">
+<div>
+<div class="t1">IPC: a price on the 12 Nov sheet looks wrong</div>
+<div class="t2">1st on Skiddle: £200.00 with 200 sold. Revenue held.</div></div>
+<div class="acts"><span class="btn">Revenue is right</span><span class="btn">Keep holding</span></div></div>
+<div class="it">
+<div>
+<div class="t1">Email mentions sales not in the sheet</div>
+<div class="t2">"Grand total sold for this event is 1974." · Enzo</div></div>
+<div class="acts"><span class="btn solid">Add as a manual entry</span><span class="btn">Not a sale</span></div></div>
+<div class="it">
+<div>
+<div class="t1">"Dusky Bristol" isn't matched</div>
+<div class="t2">30 Oct email · no close event</div></div>
+<div class="acts"><span class="btn">Choose an event</span><span class="btn">Not a show we run</span></div></div>
+</div></div></figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build (with HD1)</th></tr>
+<tr><td>HM1 · Matching</td><td>M1's four conditions, replies stored as notes, near misses and corrections. Tests: all ten real subjects match; "Re:", "Fwd:" and "FW:" don't; "Internal Shows Count" and "Internal Show (ticket) counts" do; a non-domain sender with a matching subject doesn't.</td></tr>
+<tr><td>HM2 · Dates</td><td>M2, day-first parsing of all three formats. Tests: the 11 and 12 Nov samples' sheet dates; a mismatch holds the sheet.</td></tr>
+<tr><td>HM3 · Mentions</td><td>M3: body and reply text stored, and one review item per sentence that names a number with tickets, sold or total. Test: 30 Oct's two sentences give two items, and neither writes a count.</td></tr>
+<tr><td>HM4 · Checks</td><td>M4. Test on the 12 Nov sample: IPC's counts are stored, its revenue is held, one "price looks wrong" item is written (not one per tier), and −£1.00 tiers are skipped silently.</td></tr>
+<tr><td>HM5 · Review list</td><td>R1's words at 1280 and 393, internal only, with "Checked" history. Nothing resolves itself.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The pattern's two widenings and the reply-prefix pattern.</li>
+<li>Replies stored as notes and run through M3.</li>
+<li>The near-miss item, and the corrections rule.</li>
+<li>Holding (not storing) on a date mismatch or a sum mismatch.</li>
+<li>The per-event price ceiling with £150 as the fallback.</li>
+<li>"Not a show we run" remembering a name.</li>
+<li>Every string in R1.</li>
+</ul>
+
+</div>
+</body>
+</html>
