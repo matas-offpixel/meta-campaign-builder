@@ -14,7 +14,7 @@
  * Pure. Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
-/** The same names HD1's parser flags as comps (lib/internal-counts/parse.ts). */
+/** Comp tier names; HD1's parser uses this one regex too (isCompTierName in lib/internal-counts/parse.ts). */
 export const COMP_TIER_NAME = /\b(guest|guests|guestlist|gl|comp|comps|complimentary|free)\b/i;
 
 export function isCompTier(tierName: string, price: number | null | undefined): boolean {

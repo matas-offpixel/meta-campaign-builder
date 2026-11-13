@@ -419,7 +419,8 @@ export interface InsertSnapshotInput {
     | "fourthefans"
     | "manual"
     | "xlsx_import"
-    | "foursomething";
+    | "foursomething"
+    | "internal_counts";
   rawPayload: unknown;
 }
 

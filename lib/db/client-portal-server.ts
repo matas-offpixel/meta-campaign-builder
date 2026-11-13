@@ -235,7 +235,8 @@ export interface WeeklyTicketSnapshotRow {
     | "fourthefans"
     | "manual"
     | "xlsx_import"
-    | "foursomething";
+    | "foursomething"
+    | "internal_counts";
 }
 
 type TicketSnapshotSource = WeeklyTicketSnapshotRow["source"];
@@ -1519,7 +1520,8 @@ function normalizeTicketSource(source: string): TicketSnapshotSource {
     source === "fourthefans" ||
     source === "manual" ||
     source === "xlsx_import" ||
-    source === "foursomething"
+    source === "foursomething" ||
+    source === "internal_counts"
   ) {
     return source;
   }
@@ -1535,7 +1537,8 @@ function ticketSourceForProvider(provider: string): TicketSnapshotSource | null 
 }
 
 function sourcePriority(source: string): number {
-  if (source === "manual") return 4;
+  if (source === "manual") return 5;
+  if (source === "internal_counts") return 4;
   if (source === "xlsx_import") return 3;
   if (source === "foursomething" || source === "fourthefans") return 2;
   return 1;

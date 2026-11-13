@@ -21,7 +21,8 @@ import { revalidatePath } from "next/cache";
 import { lookupCirqlinPage, type CirqlinPageRef } from "@/lib/cirqlin/page";
 import { parseAliasLines, planAliasChange, type CountAliasRow } from "@/lib/event-config/aliases";
 import { resolveCirqlinField } from "@/lib/event-config/cirqlin";
-import { allowedReferenceIds, eventConfigUpdate, londonToday, parseCapacity } from "@/lib/event-config/form";
+import { allowedReferenceIds, eventConfigUpdate, parseCapacity } from "@/lib/event-config/form";
+import { loadFinalCounts } from "@/lib/internal-counts/final-count";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export interface EventConfigInput {
@@ -69,13 +70,11 @@ async function aliasConflicts(eventId: string, wanted: string[]): Promise<{ stor
 
 async function referenceCandidates(sb: Client, clientId: string | null, picked: string[]) {
   if (!clientId || picked.length === 0) return [];
-  const { data, error } = await sb.from("events").select("id,is_umbrella,event_date").eq("client_id", clientId).in("id", picked);
+  const { data, error } = await sb.from("events").select("id,is_umbrella").eq("client_id", clientId).in("id", picked);
   if (error) throw new Error(error.message);
-  return ((data ?? []) as { id: string; is_umbrella: boolean | null; event_date: string | null }[]).map((r) => ({
-    id: r.id,
-    isUmbrella: r.is_umbrella === true,
-    eventDate: r.event_date,
-  }));
+  const rows = (data ?? []) as { id: string; is_umbrella: boolean | null }[];
+  const finals = await loadFinalCounts(sb, rows.map((r) => r.id));
+  return rows.map((r) => ({ id: r.id, isUmbrella: r.is_umbrella === true, hasFinalCount: finals.has(r.id) }));
 }
 
 async function saveReferences(sb: Client, eventId: string, next: string[]): Promise<void> {
@@ -135,7 +134,6 @@ export async function saveEventConfig(input: EventConfigInput): Promise<SaveEven
       input.referenceEventIds,
       input.eventId,
       await referenceCandidates(sb, clientId, input.referenceEventIds),
-      londonToday(),
     );
     const wanted = parseAliasLines(input.aliases);
     const { stored, names } = await aliasConflicts(input.eventId, wanted);

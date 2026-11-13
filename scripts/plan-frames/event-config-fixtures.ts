@@ -18,8 +18,8 @@
  *   EC7  a stored page whose ?id= refresh came back 404: "{stored title} ·
  *        not live now". The stored id and cache are kept.
  *
- * Reference shows are the finished shows only (canBeReferenceShow), on the
- * frames' fixed day, 13 Nov 2026.
+ * Reference shows are the shows with a final count only (canBeReferenceShow):
+ * on the frames' fixed day, 13 Nov 2026, the finished shows.
  *
  * Page ids, titles and slugs are made up.
  */
@@ -36,23 +36,23 @@ export const EVENT_CONFIG_FRAME_TODAY = "2026-11-13";
 export type EventConfigFrameId = (typeof EVENT_CONFIG_FRAME_IDS)[number];
 
 const NX: ReferenceOption[] = [
-  { id: "ev-julianfijma", name: "Julian Fijma", eventDate: "2027-03-19", isUmbrella: false },
-  { id: "ev-ewanmcvicar", name: "Ewan McVicar", eventDate: "2027-02-26", isUmbrella: false },
-  { id: "ev-schak", name: "Schak", eventDate: "2026-12-18", isUmbrella: false },
-  { id: "ev-rudimental", name: "Rudimental", eventDate: "2026-12-12", isUmbrella: false },
-  { id: "ev-locklead", name: "Locklead", eventDate: "2026-12-11", isUmbrella: false },
-  { id: "ev-dod", name: "D.O.D", eventDate: "2026-12-04", isUmbrella: false },
-  { id: "ev-global", name: "Global Marketing", eventDate: "2026-11-27", isUmbrella: true },
-  { id: "ev-robbiedoherty", name: "Robbie Doherty", eventDate: "2026-11-27", isUmbrella: false },
-  { id: "ev-ipc", name: "Interplanetary Criminal", eventDate: "2026-11-21", isUmbrella: false },
-  { id: "ev-eed", name: "East End Dubs", eventDate: "2026-11-13", isUmbrella: false },
-  { id: "ev-azyr", name: "AZYR b2b Partiboi69", eventDate: "2026-11-07", isUmbrella: false },
-  { id: "ev-folamour", name: "Folamour", eventDate: "2026-10-23", isUmbrella: false },
-  { id: "ev-mf", name: "Modern Funktion", eventDate: "2026-10-16", isUmbrella: false },
-  { id: "ev-djez", name: "DJ EZ", eventDate: "2026-10-02", isUmbrella: false },
+  { id: "ev-julianfijma", name: "Julian Fijma", eventDate: "2027-03-19", isUmbrella: false, hasFinalCount: false },
+  { id: "ev-ewanmcvicar", name: "Ewan McVicar", eventDate: "2027-02-26", isUmbrella: false, hasFinalCount: false },
+  { id: "ev-schak", name: "Schak", eventDate: "2026-12-18", isUmbrella: false, hasFinalCount: false },
+  { id: "ev-rudimental", name: "Rudimental", eventDate: "2026-12-12", isUmbrella: false, hasFinalCount: false },
+  { id: "ev-locklead", name: "Locklead", eventDate: "2026-12-11", isUmbrella: false, hasFinalCount: false },
+  { id: "ev-dod", name: "D.O.D", eventDate: "2026-12-04", isUmbrella: false, hasFinalCount: false },
+  { id: "ev-global", name: "Global Marketing", eventDate: "2026-11-27", isUmbrella: true, hasFinalCount: false },
+  { id: "ev-robbiedoherty", name: "Robbie Doherty", eventDate: "2026-11-27", isUmbrella: false, hasFinalCount: false },
+  { id: "ev-ipc", name: "Interplanetary Criminal", eventDate: "2026-11-21", isUmbrella: false, hasFinalCount: false },
+  { id: "ev-eed", name: "East End Dubs", eventDate: "2026-11-13", isUmbrella: false, hasFinalCount: false },
+  { id: "ev-azyr", name: "AZYR b2b Partiboi69", eventDate: "2026-11-07", isUmbrella: false, hasFinalCount: true },
+  { id: "ev-folamour", name: "Folamour", eventDate: "2026-10-23", isUmbrella: false, hasFinalCount: true },
+  { id: "ev-mf", name: "Modern Funktion", eventDate: "2026-10-16", isUmbrella: false, hasFinalCount: true },
+  { id: "ev-djez", name: "DJ EZ", eventDate: "2026-10-02", isUmbrella: false, hasFinalCount: true },
 ];
 
-const others = (id: string) => NX.filter((o) => o.id !== id && canBeReferenceShow(o, EVENT_CONFIG_FRAME_TODAY));
+const others = (id: string) => NX.filter((o) => o.id !== id && canBeReferenceShow(o));
 
 export interface EventConfigFrame {
   eventId: string;
