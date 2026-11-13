@@ -172,10 +172,11 @@ table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
 <ol>
 <li><b>Email signups.</b> CIRQLIN signups on the show's linked page (D9) when it has one. Otherwise the Mailchimp event tag's member count, labelled "Mailchimp tag, today's subscribers". "Still subscribed" comes from Mailchimp.</li>
 <li><b>WhatsApp opt-ins.</b> CIRQLIN signups whose consent snapshot includes WhatsApp and who left a phone number. This is cross-checked against the show's <code>CQ-{slug}</code> Bird list, and when the two differ by more than 2 %, both are shown.</li>
-<li><b>Community members.</b> WhatsApp communities have no API, so the count is <b>entered by hand</b> per show, with its date. That's how the report got it.
+<li><b>Community members</b> (Matas, 13 Nov). WhatsApp communities have no API, so this step has two sources, and the tile names both.
   <ul>
-  <li>CIRQLIN's own "Community" figure is taps on the confirmation page's community link, so it shows as <b>"community link taps"</b>, never as members.</li>
-  <li>Electric's taps are 623 against 12,387 signups.</li>
+  <li><b>By default, the CIRQLIN estimate:</b> clicks on the post-signup follow-up to join the community group (the confirmation page's community link). It's labelled <b>"community link clicks · est."</b>. Electric's are 623 against 12,387 signups.</li>
+  <li><b>A hand-entered member count replaces it when present,</b> per show, with who entered it and when. The tile then reads "{n} members · entered {date}", with the estimate under it as a second line: "CIRQLIN est. {n} link clicks".</li>
+  <li>The join rate uses whichever figure the tile shows, and carries "est." when that's the estimate.</li>
   </ul></li>
 </ol>
 <ul>
@@ -188,13 +189,13 @@ table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
   Ironworks shows why both matter: £0.85 for all paid vs £1.34 ad-tracked.</li>
 <li><b>Consent and partner opt-ins:</b> CIRQLIN's consent snapshot counts per channel (email, SMS, WhatsApp), plus a partner opt-in count where the form carries one.</li>
 </ul>
-<p class="src">Invented: the 2 % cross-check line and the "community link taps" label.</p></td></tr>
+<p class="src">Invented: the 2 % cross-check line. The estimate-then-entered rule and its labels are Matas's (13 Nov).</p></td></tr>
 <tr><td>E3 · Presale engine</td><td>
 <p><b>What is counted, and what is entered. Proposal:</b></p>
 <table class="mt" style="margin:6px 0 10px">
 <tr><th>Figure</th><th>Source</th><th>How</th></tr>
 <tr><td>Signups at presale</td><td>CIRQLIN</td><td>Counted: signups on the page up to presale open</td></tr>
-<tr><td>Community at presale</td><td>Entered</td><td>The E2 member count nearest before presale</td></tr>
+<tr><td>Community at presale</td><td>Entered, else CIRQLIN est.</td><td>The E2 member count nearest before presale. Without one, the CIRQLIN link-click estimate, marked "est."</td></tr>
 <tr><td>Presale-day tickets</td><td>Internal Counts (D8)</td><td>Counted, only when a count lands within 24 h after presale open. Otherwise entered, and marked so</td></tr>
 <tr><td>Sold in community window</td><td>Entered</td><td>Snapshot counts can't split a 30-minute window. A linked source with order timestamps (Eventbrite, 4TheFans) counts it instead</td></tr>
 <tr><td>Window start</td><td>Brief / entered</td><td>Defaults to presale open − 30 min. The link drop is pasted by hand, so it has no Bird timestamp</td></tr>
@@ -235,13 +236,13 @@ table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
 <li><b>Clicks are the like-for-like comparison.</b> The headline compares click rates ("WhatsApp 13.4 % vs email 3.8 %"), never open rates across channels.</li>
 <li><b>Channel cost per click:</b>
   <ul>
-  <li>WhatsApp: delivered × the client's Bird per-message rate (config), or the invoice when entered.</li>
+  <li>WhatsApp: messages delivered × the client's Bird per-message rate, a config value per client (Matas, 13 Nov). Cost per click is that cost ÷ clicks. There's no invoice entry.</li>
   <li>SMS: entered.</li>
   <li>Email: "—", because the plan cost isn't per send.</li>
   </ul></li>
 <li><b>Per show:</b> the broadcasts carrying the show's tag or list. A send to the whole list shows under the client, not under every show.</li>
 </ul>
-<p class="src">Invented: "read" as Bird's open word, the per-message rate in config, and putting whole-list sends at client level.</p></td></tr>
+<p class="src">Invented: "read" as Bird's open word, and putting whole-list sends at client level. The per-client rate with no invoice entry is Matas's (13 Nov). Counting delivered messages, not sent, is invented.</p></td></tr>
 <tr><td>E6 · Objective split and budget</td><td>
 <p><b>Proposal:</b></p>
 <ul>
@@ -270,9 +271,9 @@ table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
 <tr><td>E8 · Build pieces, after D's HD1–HD5</td><td>
 <ol>
 <li><b>HE1 · Audience breakdowns (Claude Code):</b> Meta age, gender and region results per campaign-day, and TikTok's audience report, stored per show. Read-only from the platforms.</li>
-<li><b>HE2 · CIRQLIN first-party read (Claude Code):</b> per page, signups by geography and consent channel, phone present, and community link taps. Read server-side from CIRQLIN, aggregated with the 10-signup floor.</li>
-<li><b>HE3 · Direct-to-fan ingest (Claude Code):</b> Bird broadcast stats and Mailchimp campaign reports per show and client, with the bot-filtered rate where given. Read-only. Bird deletes nothing (standing rule).</li>
-<li><b>HE4 · Presale log (Claude Code + Cursor):</b> the entered fields in E3, with who and when; the derived figures; and the community member entries (E2).</li>
+<li><b>HE2 · CIRQLIN first-party read (Claude Code):</b> per page, signups by geography and consent channel, phone present, and community link clicks (the E2 estimate). Read server-side from CIRQLIN, aggregated with the 10-signup floor.</li>
+<li><b>HE3 · Direct-to-fan ingest (Claude Code):</b> Bird broadcast stats and Mailchimp campaign reports per show and client, with the bot-filtered rate where given, and Bird cost as delivered × the client's per-message rate (a config field). Read-only. Bird deletes nothing (standing rule).</li>
+<li><b>HE4 · Presale log (Claude Code + Cursor):</b> the entered fields in E3, with who and when; the derived figures; and the hand-entered community member counts that replace the estimate (E2).</li>
 <li><b>HE5 · Creative section (Cursor, reading HD3):</b> the E4 surfaces on <code>creative_scores</code>, linked to the Lab and the refresh.</li>
 <li><b>HE6 · Objective and budget (Claude Code + Cursor):</b> E6.</li>
 <li><b>HE7 · Saved views (Claude Code + Cursor):</b> E7, then Ironworks Season 1 re-made as the first saved view. Its numbers should match the hand-built report, except where a figure was entered.</li>
@@ -339,8 +340,8 @@ table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
 <div class="tile">
 <div class="l">3 · Community members</div>
 <div class="v">22,600</div>
-<div class="s">joined an event or venue community</div>
-<div class="src">Entered · per show, with its date</div></div>
+<div class="s">members · entered 4 Nov</div>
+<div class="src">Entered · replaces the CIRQLIN est. (community link clicks)</div></div>
 <div class="tile">
 <div class="l">Opt-in → community</div>
 <div class="v">43.1 %</div>
@@ -352,7 +353,7 @@ table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
 <table class="mt">
 <tr><th>Figure</th><th>Value</th><th>Source</th></tr>
 <tr><td>Signups at presale</td><td>14,500</td><td>Counted · CIRQLIN in the build</td></tr>
-<tr><td>Community at presale</td><td>7,100</td><td>Entered</td></tr>
+<tr><td>Community at presale</td><td>7,100</td><td>Entered · replaces the CIRQLIN est.</td></tr>
 <tr><td>Sold in community window</td><td>4,000 · 56.3 %</td><td>Entered</td></tr>
 <tr><td>Sold presale day</td><td>6,600 · 77.6 % of all sold</td><td>Counted · Internal Counts in the build</td></tr>
 <tr><td>Signup spend per presale ticket</td><td>£0.87</td><td>Derived</td></tr>
@@ -373,7 +374,7 @@ table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
 <div class="tile">
 <div class="l">3 · Community members</div>
 <div class="v">22,600</div>
-<div class="src">Entered</div></div>
+<div class="src">Entered · else CIRQLIN est.</div></div>
 <div class="tile">
 <div class="l">Opt-in → community</div>
 <div class="v">43.1 %</div>
@@ -433,21 +434,20 @@ table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
 <h2>Invented here</h2>
 <ul class="notes">
 <li><b>E1:</b> the home-region-vs-travelling split, the 10-signup city floor, and the TikTok sentence.</li>
-<li><b>E2:</b> the 2 % cross-check and "community link taps".</li>
+<li><b>E2:</b> the 2 % cross-check.</li>
 <li><b>E3:</b> the 24-hour rule and the presale log form.</li>
 <li><b>E4:</b> "least impact" tied to the refresh's R2.</li>
-<li><b>E5:</b> "read" for Bird, the per-message rate in config, and whole-list sends at client level.</li>
+<li><b>E5:</b> "read" for Bird, whole-list sends at client level, and counting delivered messages for cost.</li>
 <li><b>E6:</b> the variance formula.</li>
 <li><b>E7:</b> the saved view's shape.</li>
 <li><b>Thresholds taken from the report, not measured here:</b> £500 for a format cost and £150 for least impact.</li>
 <li>Every string in EV1–EV4 that isn't a figure from the two sources named above.</li>
 </ul>
 
-<h2>Open for Matas</h2>
+<h2>Matas's answers, and the follow-up</h2>
 <ul class="notes">
-<li><b>Community members are entered by hand</b> (no API). Who enters them, and how often: weekly, or at each presale?</li>
-<li><b>The Bird per-message rate per client,</b> or invoices entered monthly.</li>
-<li><b>Puzzle 4th Birthday's first-party frame</b> once the database connector is back. It replaces Electric's in EV1 if he'd rather the frame showed Puzzle.</li>
+<li><b>Ruled 13 Nov:</b> community members (the estimate first, an entered count replacing it) and Bird cost (a per-client rate, no invoices). EV1 keeps Electric's geography.</li>
+<li><b>Follow-up, not a blocker:</b> swap Puzzle 4th Birthday into EV1 once the database connector is back.</li>
 </ul>
 
 </div>
