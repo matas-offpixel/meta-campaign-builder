@@ -23,7 +23,7 @@ A UGC caption or quote finds a place on the clip that keeps it off faces, and on
 
 - [x] Placement, quote and caption-facts unit tests
 - [ ] `npm run build` — CI
-- [x] Frame baselines from the Ubuntu `plan-frames` artifact on run 43334746833: CLP1–CLP5 at 1280 and 393, and the quote shots that moved (CLQ2, CLQ3-1280, CLQ4, CLW2-1280)
+- [x] Frame baselines from the Ubuntu `plan-frames` artifact. The fix round rebaselined CLP1 and CLQ2 at both widths from run 43405266416 and removed CLQ3.
 
 ## Notes
 
