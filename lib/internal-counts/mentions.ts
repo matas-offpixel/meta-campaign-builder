@@ -31,7 +31,7 @@ function sentences(paragraph: string): string[] {
     .filter(Boolean);
 }
 
-const words = (s: string) => s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+const words = (s: string): string[] => s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 
 /** The show a sentence names: every word of the sheet name is a prefix of a word in the sentence, in order of the name. */
 function showNamed(sentence: string, showNames: readonly string[]): string | null {
