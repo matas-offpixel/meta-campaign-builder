@@ -13,7 +13,7 @@ function db(opts: { aliasTable?: boolean; events?: Array<{ id: string; event_cod
     if (call.table === "event_count_aliases" && op(call, "limit")) {
       return opts.aliasTable === false ? { data: null, error: { code: "42P01", message: 'relation "event_count_aliases" does not exist' } } : { data: [], error: null };
     }
-    if (call.table === "event_count_aliases" && op(call, "in")) return { data: opts.existing ?? [], error: null };
+    if (call.table === "event_count_aliases" && op(call, "range")) return { data: opts.existing ?? [], error: null };
     if (call.table === "events") return { data: events, error: null };
     return { data: [], error: null };
   });
@@ -42,7 +42,7 @@ describe("the confirmed names seed", () => {
     assert.equal(writes(calls).length, 0);
   });
 
-  it("plans new, already and conflict; applying writes only the new aliases and skips the conflict", async () => {
+  it("plans new, already and conflict; applying decides every non-conflict name and skips the conflict", async () => {
     const { db: sb, calls } = db({
       existing: [
         { alias: "IPC", event_id: "id-NX26-IPC" },
@@ -63,11 +63,12 @@ describe("the confirmed names seed", () => {
     const result = await applySeed(sb, ctx, plan, { userId: "u1", name: "Matas" });
     assert.equal(result.aliasesWritten, 14);
     assert.equal(result.decided, 15 + 8);
-    const aliasWrite = writes(calls).find((c) => c.table === "event_count_aliases")!;
-    const rows = op(aliasWrite, "upsert")![0] as Array<{ alias: string }>;
-    assert.equal(rows.length, 14);
-    assert.ok(!rows.some((r) => r.alias === "KREAM" || r.alias === "IPC"));
-    assert.deepEqual(op(aliasWrite, "upsert")![1], { onConflict: "alias", ignoreDuplicates: true });
+    // decideName writes each new alias through #1218's table, the way "Match to {event}" does.
+    const aliasWrites = writes(calls).filter((c) => c.table === "event_count_aliases");
+    const rows = aliasWrites.map((c) => op(c, "upsert")![0] as { alias: string; event_id: string });
+    assert.equal(rows.length, 15);
+    assert.ok(!rows.some((r) => r.alias === "KREAM"));
+    assert.deepEqual(op(aliasWrites[0], "upsert")![1], { onConflict: "alias", ignoreDuplicates: true });
     const names = writes(calls).filter((c) => c.table === "internal_count_show_names").map((c) => (op(c, "upsert")![0] as { name: string; not_ours: boolean }));
     assert.equal(names.length, 23);
     assert.ok(names.some((n) => n.name === "DUSKY BRIS" && n.not_ours));

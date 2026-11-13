@@ -19,6 +19,7 @@
  * arithmetic checks live in checks.ts.
  */
 
+import { COMP_TIER_NAME } from "../event-config/allocation.ts";
 import type { PdfTextItem } from "./pdf-text.ts";
 
 export const OUTLETS = ["SKIDDLE", "UNIVERSE", "FATSOMA", "DICE", "SEE", "GIGANTIC", "RA", "FIXR"] as const;
@@ -73,7 +74,6 @@ export interface ParsedSheet {
   problems: string[];
 }
 
-const COMP_NAME = /\b(guest|guests|guestlist|gl|comp|comps|complimentary|free)\b/i;
 const ROW_Y_TOLERANCE = 1.5;
 const SHOW_NAME_Y_TOLERANCE = 4;
 /** A value further than this from every header column starts a new column. */
@@ -92,8 +92,9 @@ interface Row {
   cells: Cell[];
 }
 
+/** Guest list, comps and free tiers: the one regex, shared with #1218 (lib/event-config/allocation.ts). */
 export function isCompTierName(name: string): boolean {
-  return COMP_NAME.test(name);
+  return COMP_TIER_NAME.test(name);
 }
 
 export function parseMoneyPence(s: string): number | null {

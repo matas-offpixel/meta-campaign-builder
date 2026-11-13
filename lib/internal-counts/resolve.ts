@@ -11,6 +11,7 @@
  * touches no count row (tier_channel_sales, ticket_sales_snapshots).
  */
 
+import { getEventIdForCountAlias } from "../event-config/aliases.ts";
 import { loadRunContext, planContext, rememberCount, type Db, type RunContext } from "./context.ts";
 import { checkBlock, DEFAULT_PRICE_CEILING_PENCE } from "./checks.ts";
 import type { ParsedBlock } from "./parse.ts";
@@ -246,6 +247,16 @@ async function saveName(sb: Db, name: string, eventId: string | null, who: Resol
     { onConflict: "name" },
   );
   if (error) throw new Error(`Saving the name failed: ${error.message}`);
+  if (eventId) await saveAlias(sb, name, eventId);
+}
+
+/** A match is an alias on the event (#1218's event_count_aliases), so the event page and the next read both see it. */
+async function saveAlias(sb: Db, alias: string, eventId: string): Promise<void> {
+  const current = await getEventIdForCountAlias(sb, alias);
+  if (current === eventId) return;
+  if (current) throw new Error(`"${alias}" is already another show's alias.`);
+  const { error } = await sb.from("event_count_aliases").upsert({ event_id: eventId, alias }, { onConflict: "alias", ignoreDuplicates: true });
+  if (error) throw new Error(`Saving the alias failed: ${error.message}`);
 }
 
 /** "Match to {event}": every held block with this exact name joins the event; the same name's other open items are checked by the same choice. */

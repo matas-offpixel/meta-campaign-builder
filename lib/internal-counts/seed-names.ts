@@ -7,10 +7,8 @@
  * resolve.ts), and adds the 16 to #1218's `event_count_aliases` (migration
  * 235: event_id, alias; unique on alias).
  *
- * Until the alias switch (whichever of #1217 / #1218 merges second moves
- * aliases.ts onto getEventIdForCountAlias / loadCountAliasMap), the ingest
- * reads internal_count_show_names, which `decideName` writes; the
- * event_count_aliases rows are what it will read after.
+ * The ingest reads event_count_aliases (loadCountAliasMap), the same table
+ * the event page edits; `decideName` writes it and internal_count_show_names.
  *
  * Planning reads only. Events resolve by event_code: a code with no event,
  * or more than one, fails the whole plan and nothing is written. An alias
@@ -18,6 +16,7 @@
  * pointing at a different event is a conflict, reported and not written.
  */
 
+import { loadCountAliasMap } from "../event-config/aliases.ts";
 import type { Db, RunContext } from "./context.ts";
 import { decideName, type Resolver } from "./resolve.ts";
 
@@ -92,9 +91,7 @@ export async function planSeed(
     );
   }
   const names = Object.keys(aliases);
-  const { data: existing, error: aErr } = await sb.from("event_count_aliases").select("alias,event_id").in("alias", names);
-  if (aErr) throw new SeedError(`event_count_aliases read failed: ${aErr.message}`);
-  const existingBy = new Map(((existing ?? []) as Array<{ alias: string; event_id: string }>).map((r) => [r.alias, r.event_id]));
+  const existingBy = await loadCountAliasMap(sb);
   const { data: decided, error: nErr } = await sb
     .from("internal_count_show_names")
     .select("name,event_id,not_ours")
@@ -114,18 +111,13 @@ export async function planSeed(
   };
 }
 
-/** Writes the plan: event_count_aliases for new aliases, and every decision through decideName. Conflicts are skipped. */
+/**
+ * Writes the plan: every decision through decideName, which writes a new
+ * alias to event_count_aliases the way "Match to {event}" does. Conflicts
+ * are skipped.
+ */
 export async function applySeed(sb: Db, ctx: RunContext, plan: SeedPlan, who: Resolver): Promise<{ aliasesWritten: number; decided: number }> {
   const fresh = plan.aliases.filter((a) => a.state === "new");
-  if (fresh.length) {
-    const { error } = await sb
-      .from("event_count_aliases")
-      .upsert(
-        fresh.map((a) => ({ event_id: a.eventId, alias: a.alias })),
-        { onConflict: "alias", ignoreDuplicates: true },
-      );
-    if (error) throw new SeedError(`event_count_aliases insert failed: ${error.message}`);
-  }
   let decided = 0;
   for (const a of plan.aliases) {
     if (a.state === "conflict") continue;

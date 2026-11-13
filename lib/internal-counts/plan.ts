@@ -23,7 +23,7 @@
  * earlier sheet" · "Use the later sheet".
  */
 
-import { matchShow, UMBRELLA_EVENT_CODES } from "./aliases.ts";
+import { matchShow } from "./aliases.ts";
 import {
   checkBlock,
   DEFAULT_PRICE_CEILING_PENCE,
@@ -78,6 +78,8 @@ export interface EventRef {
   eventDate: string | null;
   userId: string;
   clientId: string | null;
+  /** events.is_umbrella: never written to (D1, D9). */
+  isUmbrella?: boolean;
 }
 
 export interface CellPlan {
@@ -280,9 +282,9 @@ function dateHold(report: ReportInput, subjectDate: string | null, sheetDate: st
 }
 
 function resolveEvent(block: ParsedBlock, ctx: PlanContext): EventRef | null {
-  const { eventCode } = matchShow(block.showName, ctx.confirmedAliases);
-  if (!eventCode || UMBRELLA_EVENT_CODES.has(eventCode)) return null;
-  return ctx.eventsByCode.get(eventCode) ?? null;
+  const { eventCode } = matchShow(block.showName, ctx.confirmedAliases ?? {});
+  const event = eventCode ? ctx.eventsByCode.get(eventCode) : undefined;
+  return event && event.isUmbrella !== true ? event : null;
 }
 
 function planBlock(

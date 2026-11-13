@@ -3,20 +3,19 @@
  *
  * Show name (exactly as Internal Counts writes it) → event code.
  *
- * TEMPORARY. HD2 adds count aliases to the event (D9); when it lands, this
- * module reads them instead and nothing else changes. Until then a name
- * matches through CONFIRMED_COUNT_ALIASES (empty) or a decision Matas made
- * on the review list ("Match to {event}" / "Not a show we run"), stored in
- * internal_count_show_names (migration 234) and passed in as `confirmed`.
+ * The aliases live on the event: #1218's event_count_aliases (migration
+ * 235), read with loadCountAliasMap / getEventIdForCountAlias
+ * (lib/event-config/aliases.ts). A "Match to {event}" on the review list
+ * writes one there too (decideName). Decisions made before the switch are
+ * still read from internal_count_show_names, which also keeps the "Not a
+ * show we run" names. context.ts builds the name → code map passed to
+ * matchShow as `confirmed`; umbrellas come from events.is_umbrella.
  *
- * A name with no decision goes to the review list with its closest event;
- * it never auto-matches. Names match exactly as written: nothing is
- * trimmed, upper-cased or normalised ("Folamour" and "FOLAMOUR" are two
- * names, and both occur).
+ * A name with no alias goes to the review list with its closest event; it
+ * never auto-matches. Names match exactly as written: nothing is trimmed,
+ * upper-cased or normalised ("Folamour" and "FOLAMOUR" are two names, and
+ * both occur).
  */
-
-/** Confirmed by Matas. Empty until he confirms each proposal below. */
-export const CONFIRMED_COUNT_ALIASES: Readonly<Record<string, string>> = {};
 
 /** Exact-name proposals from the 12 Nov sheet: the "Closest" on the review list. */
 export const PROPOSED_COUNT_ALIASES: Readonly<Record<string, string>> = {
@@ -31,18 +30,12 @@ export const PROPOSED_COUNT_ALIASES: Readonly<Record<string, string>> = {
   KREAM: "EBR26-KREAM",
 };
 
-/** Umbrella events never get counts (D1, D9). */
-export const UMBRELLA_EVENT_CODES: ReadonlySet<string> = new Set(["NX26-GLOBAL"]);
-
 export interface ShowMatch {
   eventCode: string | null;
   proposedEventCode: string | null;
 }
 
-export function matchShow(
-  showName: string,
-  confirmed: Readonly<Record<string, string>> = CONFIRMED_COUNT_ALIASES,
-): ShowMatch {
+export function matchShow(showName: string, confirmed: Readonly<Record<string, string>>): ShowMatch {
   const eventCode = Object.prototype.hasOwnProperty.call(confirmed, showName) ? confirmed[showName] : null;
   const proposed = Object.prototype.hasOwnProperty.call(PROPOSED_COUNT_ALIASES, showName)
     ? PROPOSED_COUNT_ALIASES[showName]
@@ -54,6 +47,8 @@ export interface NamedEvent {
   eventCode: string;
   name: string;
   eventDate: string | null;
+  /** events.is_umbrella: umbrellas never get counts (D1, D9). */
+  isUmbrella?: boolean;
 }
 
 const letters = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -65,7 +60,7 @@ const letters = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
  * Partiboi69"). Never an umbrella. Null when nothing is close.
  */
 export function closestEvent(showName: string, events: readonly NamedEvent[]): NamedEvent | null {
-  const usable = events.filter((e) => !UMBRELLA_EVENT_CODES.has(e.eventCode));
+  const usable = events.filter((e) => e.isUmbrella !== true);
   const proposed = Object.prototype.hasOwnProperty.call(PROPOSED_COUNT_ALIASES, showName)
     ? usable.find((e) => e.eventCode === PROPOSED_COUNT_ALIASES[showName])
     : undefined;

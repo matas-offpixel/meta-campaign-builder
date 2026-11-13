@@ -12,7 +12,7 @@ const read = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import
 const events = new Map<string, EventRef>(
   [...Object.values(PROPOSED_COUNT_ALIASES), "NX26-GLOBAL"].map((code) => [
     code,
-    { id: `id-${code}`, eventCode: code, name: code, eventDate: null, userId: "u1", clientId: "c1" },
+    { id: `id-${code}`, eventCode: code, name: code, eventDate: null, userId: "u1", clientId: "c1", isUmbrella: code === "NX26-GLOBAL" },
   ]),
 );
 
@@ -145,7 +145,7 @@ describe("planReport on the 12 Nov sheet", () => {
     assert.ok(plan.reviewItems.some((i) => i.kind === "since_last_mismatch" && i.showName === "IPC"));
   });
 
-  it("never writes to the umbrella", () => {
+  it("never writes to the umbrella (events.is_umbrella)", () => {
     const plan = planReport(report, sheet, ctx({ confirmedAliases: { ...PROPOSED_COUNT_ALIASES, KREAM: "NX26-GLOBAL" } }));
     assert.equal(plan.blocks.find((b) => b.showName === "KREAM")!.status, "held");
   });

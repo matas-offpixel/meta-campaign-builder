@@ -9,7 +9,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { pageAll } from "../db/paged-read.ts";
-import { PROPOSED_COUNT_ALIASES, UMBRELLA_EVENT_CODES } from "./aliases.ts";
+import { PROPOSED_COUNT_ALIASES } from "./aliases.ts";
 import { checkedItemView, dayMonth, openItemView, uploadLine, type ItemFacts } from "./review-words.ts";
 import type { EventOption, InternalCountsView } from "./view-types.ts";
 
@@ -68,6 +68,7 @@ interface EventRow {
   name: string | null;
   event_date: string | null;
   client_id: string | null;
+  is_umbrella?: boolean | null;
 }
 
 async function readItems(sb: Db, open: boolean): Promise<ItemRow[]> {
@@ -101,7 +102,7 @@ async function readItems(sb: Db, open: boolean): Promise<ItemRow[]> {
 async function eventOptions(sb: Db, blockEventIds: string[]): Promise<{ options: EventOption[]; byId: Map<string, EventRow>; byCode: Map<string, EventRow> }> {
   const seeds = await sb
     .from("events")
-    .select("id,event_code,name,event_date,client_id")
+    .select("id,event_code,name,event_date,client_id,is_umbrella")
     .or(
       [
         `event_code.in.(${Object.values(PROPOSED_COUNT_ALIASES).map((c) => `"${c}"`).join(",")})`,
@@ -115,7 +116,7 @@ async function eventOptions(sb: Db, blockEventIds: string[]): Promise<{ options:
         (from, to) =>
           sb
             .from("events")
-            .select("id,event_code,name,event_date,client_id")
+            .select("id,event_code,name,event_date,client_id,is_umbrella")
             .in("client_id", clientIds)
             .gte("event_date", since)
             .order("event_date", { ascending: true })
@@ -129,7 +130,7 @@ async function eventOptions(sb: Db, blockEventIds: string[]): Promise<{ options:
   const byId = new Map(all.map((e) => [e.id, e]));
   const byCode = new Map(all.filter((e) => e.event_code).map((e) => [e.event_code!, e]));
   const options = events
-    .filter((e) => !UMBRELLA_EVENT_CODES.has(e.event_code ?? ""))
+    .filter((e) => e.is_umbrella !== true)
     .map((e) => ({ id: e.id, label: `${e.name ?? e.event_code} · ${e.event_date ? dayMonth(e.event_date) : "no date"}` }));
   return { options, byId, byCode };
 }

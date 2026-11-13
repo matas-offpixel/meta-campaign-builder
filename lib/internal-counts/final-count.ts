@@ -16,8 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { pageAll } from "../db/paged-read.ts";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Db = SupabaseClient<any, any, any>;
+type Db = Pick<SupabaseClient, "from">;
 
 export interface FinalCount {
   eventId: string;

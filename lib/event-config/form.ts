@@ -41,18 +41,15 @@ export function londonToday(now: Date = new Date()): string {
 }
 
 /**
- * D10: can this show be a reference? A reference needs a final count, so
- * only finished shows qualify, never an umbrella.
- *
- * Until the alias switch (HD1, #1217) "has a final count" is "the show's
- * date has passed". #1217 stores a final-count flag (design ruling c): at
- * the alias switch, replace the date test below with that flag. This is the
- * one place the rule lives; the panel's list, the save action and the frame
- * fixtures all call it.
+ * D10: can this show be a reference? A reference needs a final count, never
+ * an umbrella. "Has a final count" is HD1's flag (design ruling c,
+ * internal_count_blocks.is_final, read with loadFinalCounts in
+ * lib/internal-counts/final-count.ts): the show's latest Internal Counts
+ * count dated on or after show day. This is the one place the rule lives;
+ * the panel's list, the save action and the frame fixtures all call it.
  */
-export function canBeReferenceShow(show: { eventDate: string | null; isUmbrella: boolean }, today: string): boolean {
-  if (show.isUmbrella || !show.eventDate) return false;
-  return show.eventDate.slice(0, 10) < today;
+export function canBeReferenceShow(show: { isUmbrella: boolean; hasFinalCount: boolean }): boolean {
+  return !show.isUmbrella && show.hasFinalCount;
 }
 
 /**
@@ -63,9 +60,8 @@ export function canBeReferenceShow(show: { eventDate: string | null; isUmbrella:
 export function allowedReferenceIds(
   picked: readonly string[],
   eventId: string,
-  candidates: readonly { id: string; isUmbrella: boolean; eventDate: string | null }[],
-  today: string,
+  candidates: readonly { id: string; isUmbrella: boolean; hasFinalCount: boolean }[],
 ): string[] {
-  const ok = new Set(candidates.filter((c) => c.id !== eventId && canBeReferenceShow(c, today)).map((c) => c.id));
+  const ok = new Set(candidates.filter((c) => c.id !== eventId && canBeReferenceShow(c)).map((c) => c.id));
   return [...new Set(picked)].filter((id) => ok.has(id));
 }

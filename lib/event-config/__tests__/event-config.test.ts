@@ -187,29 +187,21 @@ describe("form inputs", () => {
     });
   });
 
-  it("reference shows: finished shows of the client's only, never the event itself or an umbrella", () => {
+  it("reference shows: shows with a final count only, never the event itself or an umbrella", () => {
     const candidates = [
-      { id: "djez", isUmbrella: false, eventDate: "2026-10-02" },
-      { id: "global", isUmbrella: true, eventDate: "2026-10-01" },
-      { id: "ipc", isUmbrella: false, eventDate: "2026-10-09" },
-      { id: "fijma", isUmbrella: false, eventDate: "2027-03-19" },
-      { id: "tonight", isUmbrella: false, eventDate: "2026-11-13" },
-      { id: "undated", isUmbrella: false, eventDate: null },
+      { id: "djez", isUmbrella: false, hasFinalCount: true },
+      { id: "global", isUmbrella: true, hasFinalCount: true },
+      { id: "ipc", isUmbrella: false, hasFinalCount: true },
+      { id: "fijma", isUmbrella: false, hasFinalCount: false },
+      { id: "tonight", isUmbrella: false, hasFinalCount: false },
     ];
-    assert.deepEqual(
-      allowedReferenceIds(["ipc", "djez", "global", "ipc", "stranger", "fijma", "tonight", "undated"], "ipc", candidates, "2026-11-13"),
-      ["djez"],
-    );
+    assert.deepEqual(allowedReferenceIds(["ipc", "djez", "global", "ipc", "stranger", "fijma", "tonight"], "ipc", candidates), ["djez"]);
   });
 
-  it("canBeReferenceShow: the date has passed (stand-in for a final count until #1217's alias switch)", () => {
-    const today = "2026-11-13";
-    assert.equal(canBeReferenceShow({ eventDate: "2026-11-12", isUmbrella: false }, today), true);
-    assert.equal(canBeReferenceShow({ eventDate: "2026-11-12T21:00:00Z", isUmbrella: false }, today), true);
-    assert.equal(canBeReferenceShow({ eventDate: "2026-11-13", isUmbrella: false }, today), false);
-    assert.equal(canBeReferenceShow({ eventDate: "2027-03-19", isUmbrella: false }, today), false);
-    assert.equal(canBeReferenceShow({ eventDate: null, isUmbrella: false }, today), false);
-    assert.equal(canBeReferenceShow({ eventDate: "2026-10-01", isUmbrella: true }, today), false);
+  it("canBeReferenceShow: HD1's final count (ruling c), never an umbrella", () => {
+    assert.equal(canBeReferenceShow({ isUmbrella: false, hasFinalCount: true }), true);
+    assert.equal(canBeReferenceShow({ isUmbrella: false, hasFinalCount: false }), false);
+    assert.equal(canBeReferenceShow({ isUmbrella: true, hasFinalCount: true }), false);
   });
 
   it("londonToday is the London calendar day", () => {

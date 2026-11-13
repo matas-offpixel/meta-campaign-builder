@@ -11,7 +11,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { loadAllPaged } from "../db/paged-read.ts";
-import { canBeReferenceShow, londonToday } from "./form.ts";
+import { loadFinalCounts } from "../internal-counts/final-count.ts";
+import { canBeReferenceShow } from "./form.ts";
 import { loadEventConfig, type EventConfig } from "./read.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -21,6 +22,8 @@ export interface ReferenceOption {
   name: string;
   eventDate: string | null;
   isUmbrella: boolean;
+  /** HD1's final count (ruling c) is stored for this show. */
+  hasFinalCount: boolean;
 }
 
 export interface EventConfigPanelData {
@@ -33,7 +36,6 @@ export async function loadEventConfigPanel(
   sb: Db,
   eventId: string,
   clientId: string | null,
-  today: string = londonToday(),
 ): Promise<EventConfigPanelData | null> {
   const config = await loadEventConfig(sb, eventId);
   if (!config) return null;
@@ -47,9 +49,10 @@ export async function loadEventConfigPanel(
         { orderBy: [{ column: "event_date", ascending: false, nullsFirst: false }] },
       )
     : [];
-  const options = rows
-    .filter((r) => r.id !== eventId)
-    .map((r) => ({ id: r.id, name: r.name, eventDate: r.event_date, isUmbrella: r.is_umbrella === true }))
-    .filter((o) => canBeReferenceShow(o, today));
+  const others = rows.filter((r) => r.id !== eventId);
+  const finals = await loadFinalCounts(sb, others.map((r) => r.id));
+  const options = others
+    .map((r) => ({ id: r.id, name: r.name, eventDate: r.event_date, isUmbrella: r.is_umbrella === true, hasFinalCount: finals.has(r.id) }))
+    .filter((o) => canBeReferenceShow(o));
   return { config, options };
 }

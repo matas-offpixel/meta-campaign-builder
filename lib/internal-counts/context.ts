@@ -13,7 +13,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { pageAll } from "../db/paged-read.ts";
-import { closestEvent, CONFIRMED_COUNT_ALIASES, PROPOSED_COUNT_ALIASES } from "./aliases.ts";
+import { loadCountAliasMap } from "../event-config/aliases.ts";
+import { closestEvent, PROPOSED_COUNT_ALIASES } from "./aliases.ts";
 import type { EventRef, PlanContext } from "./plan.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -56,6 +57,7 @@ interface EventRow {
   event_date: string | null;
   user_id: string;
   client_id: string | null;
+  is_umbrella?: boolean | null;
 }
 
 function toRef(e: EventRow): EventRef {
@@ -66,6 +68,7 @@ function toRef(e: EventRow): EventRef {
     eventDate: e.event_date,
     userId: e.user_id,
     clientId: e.client_id,
+    isUmbrella: e.is_umbrella === true,
   };
 }
 
@@ -74,7 +77,7 @@ function indexEvents(ctx: RunContext): void {
   ctx.eventsById = new Map(ctx.events.map((e) => [e.id, e]));
 }
 
-export function offlineContext(confirmed: Readonly<Record<string, string>> = CONFIRMED_COUNT_ALIASES): RunContext {
+export function offlineContext(confirmed: Readonly<Record<string, string>> = {}): RunContext {
   const codes = new Set([...Object.values(confirmed), ...Object.values(PROPOSED_COUNT_ALIASES)]);
   const ctx: RunContext = {
     events: [...codes].map((code) => ({
@@ -129,7 +132,7 @@ export async function loadRunContext(sb: Db): Promise<RunContext> {
   const events = (
     await pageAll<EventRow>(
       (from, to) =>
-        sb.from("events").select("id,event_code,name,event_date,user_id,client_id").order("id", { ascending: true }).range(from, to),
+        sb.from("events").select("id,event_code,name,event_date,user_id,client_id,is_umbrella").order("id", { ascending: true }).range(from, to),
       ["id"],
       "events",
     )
@@ -185,7 +188,7 @@ export async function loadRunContext(sb: Db): Promise<RunContext> {
     events,
     eventsByCode: new Map(),
     eventsById: new Map(),
-    aliases: { ...CONFIRMED_COUNT_ALIASES },
+    aliases: {},
     notOurs: new Set(names.filter((n) => n.not_ours).map((n) => n.name)),
     ceilings: new Map(),
     counts: blocks.map((b) => ({
@@ -206,6 +209,11 @@ export async function loadRunContext(sb: Db): Promise<RunContext> {
     const code = n.event_id ? ctx.eventsById.get(n.event_id)?.eventCode : null;
     if (code) ctx.aliases[n.name] = code;
   }
+  // The event's own aliases (#1218, D9) win over a decision stored before the switch.
+  for (const [alias, eventId] of await loadCountAliasMap(sb)) {
+    const code = ctx.eventsById.get(eventId)?.eventCode;
+    if (code) ctx.aliases[alias] = code;
+  }
   const aliased = [...new Set(Object.values(ctx.aliases))].map((c) => ctx.eventsByCode.get(c)?.id).filter((x): x is string => !!x);
   ctx.ceilings = await loadCeilings(sb, aliased);
   return ctx;
@@ -220,7 +228,7 @@ export function planContext(ctx: RunContext, confirmed?: Readonly<Record<string,
     closest: (name) => {
       const c = closestEvent(
         name,
-        ctx.events.filter((e) => e.eventCode).map((e) => ({ eventCode: e.eventCode, name: e.name, eventDate: e.eventDate })),
+        ctx.events.filter((e) => e.eventCode).map((e) => ({ eventCode: e.eventCode, name: e.name, eventDate: e.eventDate, isUmbrella: e.isUmbrella })),
       );
       return ctx.offline && c ? { ...c, name: c.eventCode } : c;
     },
