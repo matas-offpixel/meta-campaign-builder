@@ -66,27 +66,67 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  * without one maps to null; an ad set Meta did not return is absent.
  * Stops at the first whole-batch failure and says so.
  */
-export async function fetchAdSetPixels(multiGet: GraphMultiGet, ids: readonly string[]): Promise<{ pixels: Map<string, string | null>; calls: number; error: string | null }> {
+export async function fetchAdSetPixels(multiGet: GraphMultiGet, ids: readonly string[]): Promise<{ pixels: Map<string, string | null>; adSets: Map<string, AdSetBudget>; calls: number; error: string | null }> {
   const pixels = new Map<string, string | null>();
+  const adSets = new Map<string, AdSetBudget>();
   let calls = 0;
   for (let start = 0; start < ids.length; start += BATCH) {
     const chunk = ids.slice(start, start + BATCH);
     calls += 1;
     let body: unknown;
     try {
-      body = await multiGet("/", { ids: chunk.join(","), fields: "promoted_object" });
+      // P4 (HP1): the same call carries each ad set's campaign and budget, for the Purchase campaign's headroom. No extra call.
+      body = await multiGet("/", { ids: chunk.join(","), fields: AD_SET_FIELDS });
     } catch (err) {
-      return { pixels, calls, error: message(err) };
+      return { pixels, adSets, calls, error: message(err) };
     }
-    const byId = (body ?? {}) as Record<string, { promoted_object?: { pixel_id?: string | number } } | undefined>;
+    const byId = (body ?? {}) as Record<string, { promoted_object?: { pixel_id?: string | number }; campaign_id?: string | number; daily_budget?: string | number; lifetime_budget?: string | number } | undefined>;
     for (const id of chunk) {
       const row = byId[id];
       if (!row) continue;
       const pixel = row.promoted_object?.pixel_id;
-      pixels.set(id, pixel == null || String(pixel).trim() === "" ? null : String(pixel).trim());
+      const pixelId = pixel == null || String(pixel).trim() === "" ? null : String(pixel).trim();
+      pixels.set(id, pixelId);
+      adSets.set(id, { campaignId: row.campaign_id == null ? null : String(row.campaign_id), daily: minorToGbp(row.daily_budget), lifetime: minorToGbp(row.lifetime_budget), pixelId });
     }
   }
-  return { pixels, calls, error: null };
+  return { pixels, adSets, calls, error: null };
+}
+
+/** The ad-set batch's fields: E4's pixel, and P4's campaign and budget. */
+export const AD_SET_FIELDS = "promoted_object,campaign_id,daily_budget,lifetime_budget";
+
+export type AdSetBudget = { campaignId: string | null; daily: number | null; lifetime: number | null; pixelId: string | null };
+export type CampaignBudget = { daily: number | null; lifetime: number | null };
+
+/** Meta's budgets are in minor units; 0 or absent is no budget. */
+export function minorToGbp(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) / 100 : null;
+}
+
+/**
+ * P4 (HP1): the campaigns' budgets, only for events whose purchase signal
+ * holds (a Purchase campaign could be proposed). One batch per ≤ 50
+ * campaigns, counted. Read only.
+ */
+export async function fetchCampaignBudgets(multiGet: GraphMultiGet, ids: readonly string[]): Promise<{ campaigns: Map<string, CampaignBudget>; calls: number; error: string | null }> {
+  const campaigns = new Map<string, CampaignBudget>();
+  let calls = 0;
+  for (let start = 0; start < ids.length; start += BATCH) {
+    const chunk = ids.slice(start, start + BATCH);
+    calls += 1;
+    try {
+      const byId = ((await multiGet("/", { ids: chunk.join(","), fields: "daily_budget,lifetime_budget" })) ?? {}) as Record<string, { daily_budget?: string | number; lifetime_budget?: string | number } | undefined>;
+      for (const id of chunk) {
+        const row = byId[id];
+        if (row) campaigns.set(id, { daily: minorToGbp(row.daily_budget), lifetime: minorToGbp(row.lifetime_budget) });
+      }
+    } catch (err) {
+      return { campaigns, calls, error: message(err) };
+    }
+  }
+  return { campaigns, calls, error: null };
 }
 
 /** The pixels' names, for the setup line. A pixel the token cannot read is absent; the line then leaves the name out. */
@@ -197,7 +237,7 @@ export function firstOnSaleDay(event: Pick<PurchaseEvent, "presale_at" | "genera
   return stamp ? stamp.slice(0, 10) : null;
 }
 
-type SpendRow = { meta_ad_id: string; meta_adset_id: string | null; campaign_name: string | null; ad_account_id: string | null; date: string; spend: number | string; purchases: number | string };
+type SpendRow = { meta_ad_id: string; meta_adset_id: string | null; meta_campaign_id?: string | null; campaign_name: string | null; ad_account_id: string | null; date: string; spend: number | string; purchases: number | string };
 
 export type PurchaseReads = {
   reads: Map<string, PurchaseRead>;
@@ -205,6 +245,8 @@ export type PurchaseReads = {
   cirqlinReads: number;
   /** What could not be read, for the run's log. */
   notes: string[];
+  /** P4 (HP1): budgets for the Purchase campaign's cap and headroom; campaigns only for events whose signal holds. */
+  budgets: { campaigns: Map<string, CampaignBudget>; adSets: Map<string, AdSetBudget> };
 };
 
 export type LoadPurchaseReadsInput = {
@@ -237,7 +279,8 @@ export async function loadPurchaseReads(input: LoadPurchaseReadsInput): Promise<
   const notes: string[] = [];
   let metaCalls = 0;
   let cirqlinReads = 0;
-  if (!events.length) return { reads, metaCalls, cirqlinReads, notes };
+  const budgets = { campaigns: new Map<string, CampaignBudget>(), adSets: new Map<string, AdSetBudget>() };
+  if (!events.length) return { reads, metaCalls, cirqlinReads, notes, budgets };
 
   const eventIds = events.map((event) => event.id);
   const wanted = new Set(eventIds);
@@ -248,6 +291,7 @@ export async function loadPurchaseReads(input: LoadPurchaseReadsInput): Promise<
   const adSetSpend = new Map<string, Map<string, number>>();
   const attributed = new Map<string, number>();
   const adDays = new Map<string, AttributedRow[]>();
+  const campaignIds = new Map<string, Set<string>>();
   for (const row of input.raw.rows) {
     const eventId = resolveAdContext({ meta_ad_id: row.meta_ad_id, meta_adset_id: row.meta_adset_id, campaign_name: row.campaign_name, ad_account_id: row.ad_account_id }, input.raw.context).eventId;
     if (!eventId || !wanted.has(eventId)) continue;
@@ -260,6 +304,7 @@ export async function loadPurchaseReads(input: LoadPurchaseReadsInput): Promise<
     days.push({ date: row.date, adsetId: row.meta_adset_id, campaign: (row.campaign_name ?? "—").trim(), spend, purchases: num(row.purchases) });
     adDays.set(eventId, days);
     if (row.date < from14) continue;
+    if (row.meta_campaign_id && spend > 0) campaignIds.set(eventId, (campaignIds.get(eventId) ?? new Set<string>()).add(row.meta_campaign_id));
     attributed.set(eventId, (attributed.get(eventId) ?? 0) + num(row.purchases));
     if (!row.meta_adset_id || spend <= 0) continue;
     const sets = adSetSpend.get(eventId) ?? new Map<string, number>();
@@ -293,6 +338,7 @@ export async function loadPurchaseReads(input: LoadPurchaseReadsInput): Promise<
     const fetched = await fetchAdSetPixels(input.graph.multiGet, allAdSets);
     metaCalls += fetched.calls;
     pixelOf = fetched.pixels;
+    for (const [id, row] of fetched.adSets) budgets.adSets.set(id, row);
     if (fetched.error) {
       pixelError = `the ad sets' pixels couldn't be read: ${fetched.error}`;
       notes.push(pixelError);
@@ -363,5 +409,14 @@ export async function loadPurchaseReads(input: LoadPurchaseReadsInput): Promise<
       }),
     );
   }
-  return { reads, metaCalls, cirqlinReads, notes };
+  // P4 (HP1): the campaigns' budgets, only where a Purchase campaign could be proposed (the signal holds).
+  const signal = events.filter((event) => ["proposed", "platform_proposed"].includes(reads.get(event.id)?.state ?? ""));
+  const wantedCampaigns = [...new Set(signal.flatMap((event) => [...(campaignIds.get(event.id) ?? [])]))];
+  if (input.graph && wantedCampaigns.length) {
+    const fetched = await fetchCampaignBudgets(input.graph.multiGet, wantedCampaigns);
+    metaCalls += fetched.calls;
+    for (const [id, row] of fetched.campaigns) budgets.campaigns.set(id, row);
+    if (fetched.error) notes.push(`campaign budgets: ${fetched.error}`);
+  }
+  return { reads, metaCalls, cirqlinReads, notes, budgets };
 }

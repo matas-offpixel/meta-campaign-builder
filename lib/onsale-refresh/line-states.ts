@@ -111,11 +111,16 @@ export function retriesNow(line: GateLine, gates: WriteGates): boolean {
   return line.state === "failed" && appliesNow({ ...line, state: "accepted" }, gates);
 }
 
-export const REJECT_REASONS = { too_early: "Too early", wrong_creative: "Wrong creative", claim_not_right: "Claim not right", other: "Other" } as const;
+export const REJECT_REASONS = { too_early: "Too early", wrong_creative: "Wrong creative", claim_not_right: "Claim not right", other: "Other", not_this_show: "Not this show" } as const;
 export type RejectReason = keyof typeof REJECT_REASONS;
 
 export function isRejectReason(value: unknown): value is RejectReason {
   return typeof value === "string" && Object.hasOwn(REJECT_REASONS, value);
+}
+
+/** The reasons Reject offers on a line: R4's four, plus "Not this show" on a Purchase campaign line (PC2). */
+export function rejectReasonsFor(kind: LineKind): RejectReason[] {
+  return (Object.keys(REJECT_REASONS) as RejectReason[]).filter((reason) => reason !== "not_this_show" || kind === "purchase_campaign");
 }
 
 /** The line's state as F3 writes it: "Applied · 6 ads live", "Failed — {reason}", "Rejected — Too early". */
@@ -177,7 +182,7 @@ export function panelText(text: string): string {
 }
 
 /** Names and ad copy are shown as written: they keep their dates together but their digits as they are. */
-const AS_WRITTEN = new Set(["title", "campaignKey", "copy", "id", "destinationUrl", "carried"]);
+const AS_WRITTEN = new Set(["title", "campaignKey", "copy", "id", "destinationUrl", "carried", "card"]);
 
 /** panelText on every string inside a value (a proposal, its lines, its why block); names and copy only get keepDates. */
 export function panelTextDeep<T>(value: T, asWritten = false): T {

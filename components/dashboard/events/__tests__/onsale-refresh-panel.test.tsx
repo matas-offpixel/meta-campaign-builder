@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ObjectiveBlock, OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
 import { panelText } from "@/lib/onsale-refresh/line-states";
 import { LOW_TRACK_RECORD } from "@/lib/onsale-refresh/track-labels";
-import { OR2_WHY, OR3_WHY, OR4_STATES, OR5_WHY, OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_CLUSTER, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR8_RETARGETING, OR8_SEED, OR9_PROPOSALS, OR9_RESULTS, OR10_PROPOSALS, OR10_STOPPED, OR_APPLY_LIVE } from "@/scripts/plan-frames/refresh-fixtures";
+import { OR2_WHY, OR3_WHY, OR4_STATES, OR5_WHY, OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_CLUSTER, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR8_RETARGETING, OR8_SEED, OR9_PROPOSALS, OR9_RESULTS, OR10_PROPOSALS, OR10_STOPPED, OR_APPLY_LIVE, PF1_PROPOSALS, PF2_PROPOSALS } from "@/scripts/plan-frames/refresh-fixtures";
 
 afterEach(() => {
   cleanup();
@@ -241,5 +241,54 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     const reds = [...document.querySelectorAll(".text-destructive")].map((node) => node.getAttribute("data-line-state"));
     expect(reds.length).toBeGreaterThan(0);
     expect(reds.every((state) => state === "failed")).toBe(true);
+  });
+});
+
+
+describe("P4: the Purchase campaign card and the Budget block (PF1–PF3)", () => {
+  it("PF1: P26-BDAY under the bar, the plan sentence and the On Sale row; no card", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={PF1_PROPOSALS} objectiveOnly />);
+    expect(screen.getAllByText(/under 15/).length).toBeGreaterThan(0);
+    expect(screen.getByText("£4,500 for this event · £2,025.66 spent to 12 Nov · £2,474.34 left in the plan")).toBeTruthy();
+    expect(screen.getByText("30 Oct – 12 Nov · £669.95 · 76 IC · £8.82 each · 1 attributed purchase")).toBeTruthy();
+    expect(document.querySelector('[data-kind="purchase_campaign"]')).toBeNull();
+    expect(screen.queryByText(/Creatives/i)).toBeNull();
+  });
+
+  it("PF2: the card in Objective says what Accept builds; £10 is over the cap and can't be picked; Accept is off in shadow", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={PF2_PROPOSALS} objectiveOnly />);
+    const card = document.querySelector('[data-kind="purchase_campaign"]') as HTMLElement;
+    expect(card).toBeTruthy();
+    expect(card.closest('[data-block="objective"]')).toBeTruthy();
+    const scope = within(card);
+    expect(scope.getAllByText("Creates 1 campaign · 2 ad sets · 3 ads · goes in live").length).toBeGreaterThan(0);
+    expect(scope.getByText(/Purchase on pixel …2763 \(NX Live Skiddle\), the standard event/)).toBeTruthy();
+    expect(scope.getByText("Lineup - Suggested · 8 attributed purchases · £27.22 each")).toBeTruthy();
+    expect(scope.getByText("Venue · 13 IC · £1.44 each")).toBeTruthy();
+    expect(scope.getByText("Artist - UGC 3 · Artist - Static · Artist - UGC 2 (same posts)")).toBeTruthy();
+    expect(scope.getByText(/26 days × £5 = £130 lifetime/)).toBeTruthy();
+    expect(scope.getByText("Writes: campaign create (£130 lifetime) · 2 ad sets · 3 ads (launch path) · On Sale lifetime_budget £1,500 → £1,370")).toBeTruthy();
+    const ten = scope.getAllByLabelText(/£10/) as HTMLInputElement[];
+    expect(ten.every((input) => input.disabled)).toBe(true);
+    expect((scope.getAllByLabelText("£5 a day")[0] as HTMLInputElement).checked).toBe(true);
+    expect((scope.getByRole("button", { name: "Accept" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("at 393 the card steps into the full card and back; Reject offers \"Not this show\" on this card only", async () => {
+    const user = userEvent.setup();
+    const onDecide = vi.fn();
+    const live = { ...PF2_PROPOSALS[0]!, mode: "live" as const };
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={[live]} apply={OR_APPLY_LIVE} actions={{ onDecide }} />);
+    const card = document.querySelector('[data-kind="purchase_campaign"]') as HTMLElement;
+    const full = card.querySelector('[data-card="full"]') as HTMLElement;
+    expect(full.className).toContain("hidden sm:block");
+    await user.click(within(card).getByRole("button", { name: "See what it builds ›" }));
+    expect(full.className.split(" ")).toContain("block");
+    expect(within(card).getByRole("button", { name: "‹ Back" })).toBeTruthy();
+    await user.click(within(card).getByRole("button", { name: "‹ Back" }));
+    expect(full.className).toContain("hidden sm:block");
+    await user.click(within(card).getByRole("button", { name: "Reject" }));
+    await user.click(within(card).getByRole("button", { name: "Not this show" }));
+    expect(onDecide).toHaveBeenCalledWith("pf2", "reject", "not_this_show");
   });
 });

@@ -167,6 +167,8 @@ export async function decideLine(args: { db: Db; eventId: string; userId: string
       next = { state: "to_review", reason: null, reject_reason: null, reject_note: null };
     } else {
       if (!isRejectReason(reason)) return { ok: false, status: 400, error: "Pick a reason: Too early, Wrong creative, Claim not right or Other." };
+      // PC2: "Not this show" is the Purchase campaign line's own reason.
+      if (reason === "not_this_show" && line.kind !== "purchase_campaign") return { ok: false, status: 400, error: "Pick a reason: Too early, Wrong creative, Claim not right or Other." };
       const note = args.decision.note?.trim().slice(0, 200) || null;
       next = { state: "rejected", reason: rejectText(reason, note), reject_reason: reason, reject_note: note };
     }

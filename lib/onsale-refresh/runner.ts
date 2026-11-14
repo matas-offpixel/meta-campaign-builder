@@ -128,7 +128,7 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
   if (driveReason) skipped.push({ eventCode: null, reason: `Drive: ${driveReason} — no add lines this run` });
 
   // E1–E4: each event's purchase read, before any proposal. A failure here costs the purchase line its count, never the run.
-  let purchases: Awaited<ReturnType<typeof loadPurchaseReads>> = { reads: new Map(), metaCalls: 0, cirqlinReads: 0, notes: [] };
+  let purchases: Awaited<ReturnType<typeof loadPurchaseReads>> = { reads: new Map(), metaCalls: 0, cirqlinReads: 0, notes: [], budgets: { campaigns: new Map(), adSets: new Map() } };
   try {
     purchases = await loaders.purchases({
       db: input.db,
@@ -173,7 +173,7 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
   for (const event of events) {
     let inputs: EventInputs;
     try {
-      inputs = await loaders.inputs({ event, day, shadow, config, raw, aux, drive, purchases: purchases.reads.get(event.id) });
+      inputs = await loaders.inputs({ event, day, shadow, config, raw, aux, drive, purchases: purchases.reads.get(event.id), purchaseBudgets: purchases.budgets });
     } catch (err) {
       errors.push(`${event.event_code ?? event.id}: ${err instanceof Error ? err.message : String(err)}`);
       continue;

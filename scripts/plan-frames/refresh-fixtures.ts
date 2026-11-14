@@ -1,6 +1,7 @@
 import type { PanelApply, PanelProposal } from "@/lib/onsale-refresh/read";
 
 import { ONSALE_PHASE } from "../../lib/onsale-refresh/phase-config.ts";
+import { mainRow, planPurchaseCampaign, planSentence, type PcMain } from "../../lib/onsale-refresh/purchase-campaign.ts";
 import { purchaseWhy, type PurchaseRead, type PurchaseState } from "../../lib/onsale-refresh/purchases.ts";
 
 /**
@@ -520,5 +521,139 @@ export const OR10_PROPOSALS: PanelProposal[] = [
   },
 ];
 
-export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8", "OR9", "OR10"] as const;
+/**
+ * PF1–PF3 (P4, docs/design-record/2026-11-14-purchase-campaigns.html): the
+ * Objective and Budget blocks only, built by the rules (purchaseWhy,
+ * planPurchaseCampaign, planSentence, mainRow), never typed.
+ *
+ * PF1 (and PF3a at 393): P26-BDAY as the record reads it — data to Thu 12
+ * Nov, the On Sale campaign's 30 Oct – 12 Nov at £669.95 and 76 IC, 1
+ * attributed purchase, the £4,500 budget and £2,025.66 spent to 12 Nov (PC11: the
+ * day shown is the last day the figure covers; £2,051.30 is to 13 Nov). Skiddle's
+ * share (74 % of 389) is the record's example.
+ *
+ * PF2 (and PF3b at 393): NX26-LOCKLEAD Proposed. Real: On Sale's ad sets
+ * 6 – 12 Nov (Lineup - Suggested 8 attributed purchases for £217.77 and 80
+ * IC; Venue 13 IC for £18.72), its £247.32 and 97 IC, its spend to date
+ * £272.41, the pixel and its name, the 11 Dec show and no event budget.
+ * The record's examples: the count of 17, On Sale's £1,500 lifetime (so
+ * the cap, £245.52), Skiddle's 81 % of 836, and the ads' convert scores.
+ */
+const PF_BDAY_READ = read("platform_under_bar", {
+  domainKind: "no_own_domain",
+  cirqlinPage: true,
+  platform: "Skiddle",
+  platformShare: { purchases: 288, pixelPurchases: 389, share: 288 / 389, elsewhereHost: null },
+  attributedOnPixel: credited(1, "2026-10-30", false),
+  attributedPurchases: { count: 1, scope: "any_show_on_pixel" },
+});
+
+const PF_BDAY_MAIN: PcMain = {
+  campaignKey: "[P26-BDAY] Puzzle - 27 Dec - On Sale",
+  campaignId: null,
+  resultEvent: "initiate_checkout",
+  from: "2026-10-30",
+  to: "2026-11-12",
+  spend: 669.95,
+  results: 76,
+  purchases: 1,
+  adSets: [],
+  ads: [],
+  spentToDate: 669.95,
+  last7Daily: 0,
+  lifetimeGbp: null,
+  draftId: null,
+  adAccountId: null,
+};
+
+export const PF1_WHY: PanelProposal["why"] = {
+  objective: "Initiate Checkout — 76 reached the pixel since 30 Oct. Last 14 days: 76 IC.",
+  ...purchaseWhy(PF_BDAY_READ, false, ONSALE_PHASE),
+  purchaseCampaign: { state: "not_proposed", sentence: null, sentenceNarrow: null },
+  budget: { plan: planSentence(4500, 2025.66, "2026-11-12"), main: mainRow(PF_BDAY_MAIN, "platform") },
+};
+
+const PF_LOCKLEAD_READ = read("platform_proposed", {
+  ...NX_MISMATCH,
+  domain: "locklead-newcastle.com",
+  domainVia: "signup_url",
+  onDomain: { d14: 0, d28: 0, history: 0 },
+  platform: "Skiddle",
+  platformShare: { purchases: 677, pixelPurchases: 836, share: 677 / 836, elsewhereHost: "ra.co" },
+  attributedOnPixel: credited(17, "2026-11-06", true),
+});
+
+const set = (name: string, spend: number, results: number, purchases: number, adsetId: string) => ({ adsetId, adsetIds: [adsetId], name, spend, results, purchases, delivering: true });
+const ad = (name: string, convertScore: number, adId: string) => ({ adId, adsetId: "120252504502750755", name, convertScore, deliveringNow: true });
+
+export const PF_LOCKLEAD_MAIN: PcMain = {
+  campaignKey: "[NX26-LOCKLEAD] On Sale",
+  campaignId: "120252504416990755",
+  resultEvent: "initiate_checkout",
+  from: "2026-11-06",
+  to: "2026-11-12",
+  spend: 247.32,
+  results: 97,
+  purchases: 8,
+  adSets: [
+    set("Lineup - Suggested", 217.77, 80, 8, "120252504502750755"),
+    set("Venue", 18.72, 13, 0, "120252504417580755"),
+    set("Tech House Pages", 2.74, 1, 0, "120252504419380755"),
+    set("Disco Pages", 2.54, 1, 0, "120252504418370755"),
+    set("Electronic dance music (music), Disco", 1.56, 1, 0, "120252504421700755"),
+    set("Lineup - direct", 0.37, 0, 0, "120252504417890755"),
+  ],
+  ads: [ad("Artist - UGC 3", 71, "a1"), ad("Artist - Static", 64, "a2"), ad("Artist - UGC 2", 58, "a3"), ad("Artist - UGC 1", 41, "a4"), ad("Venue - Static", 37, "a5"), ad("Lineup - Static", 30, "a6")],
+  spentToDate: 272.41,
+  last7Daily: Math.round((247.32 / 7) * 100) / 100,
+  lifetimeGbp: 1500,
+  draftId: "fixture",
+  adAccountId: "act_1073273492854557",
+};
+
+export const PF2_PLAN = planPurchaseCampaign({
+  eventCode: "NX26-LOCKLEAD",
+  eventName: "Locklead",
+  runDay: "2026-11-16",
+  eventDate: "2026-12-11",
+  read: PF_LOCKLEAD_READ,
+  existing: null,
+  main: PF_LOCKLEAD_MAIN,
+  budgetGbp: null,
+  spendToDateGbp: 349.53,
+  committedGbp: null,
+});
+
+export const PF2_WHY: PanelProposal["why"] = {
+  objective: "Initiate Checkout — 97 reached the pixel since 6 Nov. Last 14 days: 97 IC.",
+  ...purchaseWhy(PF_LOCKLEAD_READ, false, ONSALE_PHASE),
+  purchaseCampaign: { state: PF2_PLAN.state, sentence: PF2_PLAN.sentence, sentenceNarrow: PF2_PLAN.sentenceNarrow },
+  budget: { plan: null, main: mainRow(PF_LOCKLEAD_MAIN, "platform") },
+};
+
+const PF2_CARD = PF2_PLAN.card!;
+const PF2_LINE: PanelProposal["lines"][number] = {
+  id: "pf2",
+  kind: "purchase_campaign",
+  title: PF2_CARD.campaignName,
+  detail: PF2_CARD.optimises,
+  writeText: PF2_CARD.byRate[String(PF2_CARD.defaultRate)]!.writes,
+  narrow: { detail: PF2_CARD.optimisesNarrow, writeText: null },
+  addsSpend: false,
+  blockedReason: null,
+  supply: false,
+  state: "to_review",
+  reason: null,
+  writeKind: "purchase_campaign_create",
+  card: PF2_CARD,
+  dailyGbp: null,
+};
+
+const PF_WEEK = { runKind: "shadow" as const, runDay: "2026-11-14", cycleMonday: "2026-11-16", cycleKind: "content" as const, windowStart: "2026-11-06", windowEnd: "2026-11-12", nextCheck: "2026-11-16", nextCycle: "2026-11-23", nextCycleKind: "payday" as const };
+const PF_EMPTY = { createdAt: "2026-11-14T08:00:00Z", blockers: [], enoughData: true, notEnoughData: null, watch: { creatives: [], audiences: [] }, notes: { pauses: "", drops: "", adds: "" }, mode: "shadow" as const, objective: "initiate_checkout" as const };
+
+export const PF1_PROPOSALS: PanelProposal[] = [{ id: "pf1", campaignKey: "[P26-BDAY] Puzzle - 27 Dec - On Sale", campaignSummary: null, ...PF_WEEK, ...PF_EMPTY, why: PF1_WHY, lines: [] }];
+export const PF2_PROPOSALS: PanelProposal[] = [{ id: "pf2", campaignKey: "[NX26-LOCKLEAD] On Sale", campaignSummary: null, ...PF_WEEK, ...PF_EMPTY, why: PF2_WHY, lines: [PF2_LINE] }];
+
+export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8", "OR9", "OR10", "PF1", "PF2"] as const;
 export const REFRESH_FRAME_WIDTHS = [1280, 393] as const;

@@ -8,6 +8,18 @@
 export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8", "OR9", "OR10"];
 export const REFRESH_WIDTHS = [1280, 393];
 
-export const REFRESH_SHOTS = REFRESH_FRAME_IDS.flatMap((frame) =>
-  REFRESH_WIDTHS.map((width) => ({ id: `${frame}-${width}`, frame: `onsale/${frame}`, width, lab: false, before: null })),
-);
+/**
+ * P4's PF frames (docs/design-record/2026-11-14-purchase-campaigns.html):
+ * PF1 and PF2 at 1280; PF3a and PF3b are the same two at 393.
+ */
+export const PURCHASE_CAMPAIGN_SHOTS = [
+  { id: "PF1-1280", frame: "onsale/PF1", width: 1280, lab: false, before: null },
+  { id: "PF2-1280", frame: "onsale/PF2", width: 1280, lab: false, before: null },
+  { id: "PF3a-393", frame: "onsale/PF1", width: 393, lab: false, before: null },
+  { id: "PF3b-393", frame: "onsale/PF2", width: 393, lab: false, before: null },
+];
+
+export const REFRESH_SHOTS = [
+  ...REFRESH_FRAME_IDS.flatMap((frame) => REFRESH_WIDTHS.map((width) => ({ id: `${frame}-${width}`, frame: `onsale/${frame}`, width, lab: false, before: null }))),
+  ...PURCHASE_CAMPAIGN_SHOTS,
+];

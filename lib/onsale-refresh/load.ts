@@ -22,6 +22,7 @@ import { loadAdContextIndex, resolveAdContext, type AdContextIndex } from "../le
 import { CONFIDENCE_SCORE, type Confidence } from "../learning/shrink.ts";
 import type { PhaseConfig, ResultEvent } from "./phase-config.ts";
 import { isOnSale } from "./on-sale.ts";
+import { mainRow, planPurchaseCampaign, planSentence, purchaseCampaignInput, type PcBudgets } from "./purchase-campaign.ts";
 import type { PurchaseRead } from "./purchases.ts";
 import { chooseObjective, type AdInput, type AdSetInput, type CampaignDraftRef, type CampaignInput, type ClaimInput, type ClusterInput, type SupplyFile, type SupplyMix } from "./rules.ts";
 import { addDaysIso, planRun, type RunPlan } from "./schedule.ts";
@@ -62,6 +63,8 @@ type InsightRow = {
   actions: { action_type?: string; value?: string | number }[] | null;
   /** The ad set's promoted_object.custom_event_type (migration 187), e.g. COMPLETE_REGISTRATION or LEAD. */
   promoted_event?: string | null;
+  /** The ad set's optimisation goal (migration 187): P4 tells a Purchase campaign and the main IC / LPV campaign by it. */
+  optimization_goal?: string | null;
 };
 
 const PAGE = 1000;
@@ -130,7 +133,7 @@ export type RawInsights = { rows: InsightRow[]; context: AdContextIndex };
  */
 export async function loadInsights(db: Db): Promise<RawInsights> {
   const [rows, context] = await Promise.all([
-    loadAll<InsightRow>(db, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, ad_account_id, date, ad_name, adset_name, campaign_name, spend, landing_page_views, purchases, actions, promoted_event", ["date", "meta_ad_id"]),
+    loadAll<InsightRow>(db, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, ad_account_id, date, ad_name, adset_name, campaign_name, spend, landing_page_views, purchases, actions, promoted_event, optimization_goal", ["date", "meta_ad_id"]),
     loadAdContextIndex(db as SupabaseClient),
   ]);
   return { rows, context };
@@ -403,6 +406,8 @@ export async function buildEventInputs(args: {
   drive: DriveApi | null;
   /** The event's purchase read (purchase-read.ts); absent = not read. */
   purchases?: PurchaseRead;
+  /** P4 (HP1): the budgets the purchase read fetched; absent = not read. */
+  purchaseBudgets?: PcBudgets;
 }): Promise<EventInputs> {
   const { event, config, aux } = args;
   const plan = planRun({ day: args.day, eventDate: event.event_date, config, shadow: args.shadow });
@@ -582,6 +587,30 @@ export async function buildEventInputs(args: {
     });
   }
   campaigns.sort((a, b) => b.weekSpend - a.weekSpend);
+  // P4 (PC1, PC2): one Purchase campaign plan per event, on every campaign's Objective; the line goes on the main campaign.
+  const pcInput = purchaseCampaignInput({
+    rows,
+    eventCode: event.event_code,
+    eventName: event.name,
+    runDay: plan.day,
+    eventDate: event.event_date,
+    windowStart: plan.window.start,
+    windowEnd: plan.window.end,
+    onSaleDay,
+    read: args.purchases,
+    scores: new Map([...scores].map(([name, row]) => [name, row.score ?? null])),
+    budgets: args.purchaseBudgets ?? null,
+    budgetGbp: budget,
+    spendToDateGbp: spendToDate,
+    draftOf: (key) => {
+      const draft = campaigns.find((campaign) => campaign.campaignKey === key)?.draft;
+      return draft ? { draftId: draft.draftId, adAccountId: draft.adAccountId } : null;
+    },
+  });
+  const pcPlan = planPurchaseCampaign(pcInput);
+  const path = args.purchases?.state === "platform_proposed" ? "platform" : args.purchases?.state === "proposed" ? "own_domain" : args.purchases?.platform ? "platform" : null;
+  const budgetBlock = { plan: planSentence(budget, spendToDate, plan.window.end), main: pcInput.main ? mainRow(pcInput.main, path) : null };
+  for (const campaign of campaigns) campaign.purchaseCampaign = { plan: pcPlan, isMain: campaign.campaignKey === pcInput.main?.campaignKey, budget: budgetBlock };
   return { event, plan, campaigns, driveCalls: supply.driveCalls, driveReason: supply.reason };
 }
 
