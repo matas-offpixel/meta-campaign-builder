@@ -169,15 +169,13 @@ export function appliedStamp(iso: string): string {
 }
 
 /**
- * F3, as ruled for P5 (2d): an applied line is checked on the first full
- * Monday–Sunday week that starts after the day it was applied (a week
- * starting on the Apply day doesn't count), on the Monday after. Returns
- * the Sunday it reads to and the Monday it runs. The scoring job
- * (scoring.ts judgedWeek) judges the same week.
+ * F3: an applied line is checked on the next full Monday–Sunday week from
+ * the day it was applied (that day's own week when it was a Monday), on
+ * the Monday after. Returns the Sunday it reads to and the Monday it runs.
  */
 export function outcomeWeek(appliedIso: string): { to: string; checked: string } {
   const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(appliedIso));
   const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
-  const monday = addDays(day, weekday === 1 ? 7 : (8 - weekday) % 7);
+  const monday = addDays(day, weekday === 1 ? 0 : (8 - weekday) % 7);
   return { to: addDays(monday, 6), checked: addDays(monday, 7) };
 }

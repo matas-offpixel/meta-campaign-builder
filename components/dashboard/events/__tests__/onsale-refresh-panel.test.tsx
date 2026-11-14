@@ -54,7 +54,7 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     expect(screen.getByText("Applied · 6 ads live")).toBeTruthy();
     expect(screen.getByText("Failed — Meta didn't take this file — the video is still processing.")).toBeTruthy();
     expect(screen.getByText("Rejected — Too early")).toBeTruthy();
-    expect(screen.getAllByText(/Outcomes are checked Mon 7 Dec on the week to Sun 6 Dec\./).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Outcomes are checked Mon 30 Nov on the week to Sun 29 Nov\./).length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole("button", { name: "Retry failed (1)" }));
     expect(onApply).toHaveBeenLastCalledWith({ retry: true });
     await userEvent.click(within(lineEl("P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16")).getByRole("button", { name: "Retry" }));

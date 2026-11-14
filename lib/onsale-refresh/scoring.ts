@@ -3,8 +3,8 @@
  *
  * Every refresh line (shadow, rejected and applied alike) is judged once
  * its week is in ad_daily_insights: the first full Monday–Sunday week that
- * starts after the proposal's run day, or after the Apply day for an
- * applied line (a week starting on that day doesn't count). From the
+ * starts on or after the proposal's run day, or on or after the Apply day
+ * for an applied line (so a run Monday's own week counts). From the
  * line's stored evidence:
  *   - Pause: right if the campaign's cost per result held or improved, and
  *     the creative had kept running worse than 1.5× the campaign. Not
@@ -126,9 +126,10 @@ export function wasApplied(line: Pick<ScoreLine, "state" | "kind" | "applied_res
 
 /**
  * The week a line is judged on (2d): the first full Monday–Sunday week
- * that starts after its Apply day (applied) or its proposal's run day; a
- * week starting on that day doesn't count. The same week the panel's F3
- * sentence names (schedule.ts outcomeWeek).
+ * that starts on or after its Apply day (applied) or its proposal's run
+ * day, so a run Monday's own week counts and a line applied Tuesday–Sunday
+ * is judged on the following week. The same week the panel's F3 sentence
+ * names (schedule.ts outcomeWeek).
  */
 export function judgedWeek(line: Pick<ScoreLine, "state" | "kind" | "applied_result" | "applied_at">, proposal: Pick<ScoreProposal, "run_day">): { from: string; to: string } {
   const { to } = outcomeWeek(wasApplied(line) && line.applied_at ? line.applied_at : `${proposal.run_day}T12:00:00Z`);

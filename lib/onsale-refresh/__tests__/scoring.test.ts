@@ -143,16 +143,18 @@ describe("P5 scoring: never guess", () => {
 // ── The week, due lines, idempotence ─────────────────────────────────────────
 
 describe("P5 scoring: the judged week and which lines are due", () => {
-  const proposal: ScoreProposal = { id: "p1", event_id: "e1", user_id: "u1", campaign_key: "On Sale", campaign_ids: ["c1"], run_day: "2026-11-09", window_end: "2026-11-08", objective: IC };
-  it("2d: the first full Monday–Sunday week that starts after the run day, or after the Apply day; a week starting on that day doesn't count", () => {
-    assert.deepEqual(judgedWeek(line("pause_creative"), proposal), { from: "2026-11-16", to: "2026-11-22" }, "a Monday run: its own week doesn't count");
-    assert.deepEqual(judgedWeek(line("pause_creative"), { run_day: "2026-11-12" }), { from: "2026-11-16", to: "2026-11-22" }, "a Thursday shadow run");
+  const proposal: ScoreProposal = { id: "p1", event_id: "e1", user_id: "u1", campaign_key: "On Sale", campaign_ids: ["c1"], run_day: "2026-11-16", window_end: "2026-11-15", objective: IC };
+  it("2d: the first full Monday–Sunday week starting on or after the run day, or on or after the Apply day", () => {
+    assert.deepEqual(judgedWeek(line("pause_creative"), proposal), { from: "2026-11-16", to: "2026-11-22" }, "a Monday run: its own week counts");
+    assert.deepEqual(judgedWeek(line("pause_creative"), { run_day: "2026-11-12" }), { from: "2026-11-16", to: "2026-11-22" }, "a Thursday shadow run: the next week");
     assert.deepEqual(judgedWeek(line("pause_creative"), { run_day: "2026-11-15" }), { from: "2026-11-16", to: "2026-11-22" }, "a Sunday run: the next day's week");
-    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-11-18T09:00:00Z" }), proposal), { from: "2026-11-23", to: "2026-11-29" });
-    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-11-23T08:41:00Z" }), proposal), { from: "2026-11-30", to: "2026-12-06" }, "applied on a Monday: that week doesn't count");
+    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-11-16T09:00:00Z" }), proposal), { from: "2026-11-16", to: "2026-11-22" }, "applied on the run Monday: that same week");
+    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-11-17T09:00:00Z" }), proposal), { from: "2026-11-23", to: "2026-11-29" }, "applied Tuesday: the following week");
     assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-11-22T23:30:00Z" }), proposal), { from: "2026-11-23", to: "2026-11-29" }, "the Apply day is London's: Sunday 22 Nov");
-    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-06-14T23:30:00Z" }), proposal), { from: "2026-06-22", to: "2026-06-28" }, "in BST 23:30 UTC on Sunday is Monday 15 Jun in London, so that week doesn't count");
-    assert.deepEqual(outcomeWeek("2026-11-23T08:41:00Z"), { to: "2026-12-06", checked: "2026-12-07" }, "the panel's F3 sentence names the same week");
+    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-11-23T08:41:00Z" }), proposal), { from: "2026-11-23", to: "2026-11-29" }, "applied on a Monday: that week counts");
+    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-06-14T23:30:00Z" }), proposal), { from: "2026-06-15", to: "2026-06-21" }, "in BST 23:30 UTC on Sunday is Monday 15 Jun in London, so that week counts");
+    assert.deepEqual(judgedWeek(line("pause_creative", { state: "rejected", applied_at: "2026-11-25T09:00:00Z" }), proposal), { from: "2026-11-16", to: "2026-11-22" }, "a line not applied goes by the run day");
+    assert.deepEqual(outcomeWeek("2026-11-23T08:41:00Z"), { to: "2026-11-29", checked: "2026-11-30" }, "the panel's F3 sentence names the same week (OR7)");
   });
 
   it("due once the week's last day is in ad_daily_insights; a right / wrong is never re-judged; an unknown is retried for 14 days", () => {
