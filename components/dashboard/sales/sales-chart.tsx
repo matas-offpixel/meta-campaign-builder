@@ -345,7 +345,7 @@ function IndexToggle({
   className: string;
 }) {
   return (
-    <label className={`${className} shrink-0 items-center gap-1.5 text-muted-foreground`}>
+    <label className={`${className} shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground`}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onIndex(event.target.checked)} />
       Index each line to its own peak
     </label>

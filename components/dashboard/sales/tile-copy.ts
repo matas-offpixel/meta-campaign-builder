@@ -22,11 +22,20 @@ export function periodSpan(period: SalesPeriod): string {
   return `in ${period} days`;
 }
 
-/** Every subline starts with its span. Sold is always to date. */
-export function tileSubline(id: SalesMetricId, detail: string, period: SalesPeriod, endLabel: string): string {
+export type ShowCountScope = { showsWithCounts: number; shows: number };
+
+/** Every subline starts with its span. Sold is always the count date, whatever the period. */
+export function tileSubline(
+  id: SalesMetricId,
+  detail: string,
+  period: SalesPeriod,
+  endLabel: string,
+  scope: ShowCountScope | null = null,
+): string {
   const text = detail.trim();
   const span = periodSpan(period);
-  if (id === "sold") return text.toLowerCase().startsWith("to date") ? text : `to date · ${text}`;
+  if (id === "sold") return soldSubline(text, endLabel);
+  if (id === "costPerTicket") return costPerTicketSubline(span, scope);
   if (id === "tickets" && period === "launch") return `since launch, to ${endLabel}`;
   if (id === "checkoutActions") return `${span} · actions, one person can do both`;
   if (id === "costPerRegistration") return `${span} · show pages, inside their signup windows`;
@@ -37,4 +46,16 @@ export function tileSubline(id: SalesMetricId, detail: string, period: SalesPeri
   }
   if (text.toLowerCase().startsWith(span)) return text;
   return `${span} · ${text}`;
+}
+
+function soldSubline(detail: string, endLabel: string): string {
+  const line = `to date · Internal Counts, ${endLabel}`;
+  const comps = detail.match(/plus\s+([\d,]+)\s+comps/i);
+  return comps ? `${line} · plus ${comps[1]} comps` : line;
+}
+
+/** N3: name the shows that have no counts. A single show, or a set where every show has a count, stays "blended". */
+function costPerTicketSubline(span: string, scope: ShowCountScope | null): string {
+  if (scope && scope.showsWithCounts < scope.shows) return `${span} · the ${scope.showsWithCounts} shows with counts`;
+  return `${span} · blended`;
 }

@@ -19,17 +19,19 @@ export function capacityTicks(max: number, step: number): number[] {
   return ticks;
 }
 
-export function barOutcome(bar: AllShowBar): string {
-  if (bar.allocation == null) return "Set capacity on the event";
-  if (bar.sold == null) return "No ticket counts yet";
+export type BarOutcome = { text: string; sellout: "at this pace" | "if best" | null };
+
+export function barOutcome(bar: AllShowBar): BarOutcome {
+  if (bar.allocation == null) return { text: "Set capacity on the event", sellout: null };
+  if (bar.sold == null) return { text: "No ticket counts yet", sellout: null };
   const sold = formatCount(bar.sold);
   const cap = bar.allocation;
-  if (bar.low != null && bar.low >= cap) return `${sold} → SELLS OUT at this pace`;
+  if (bar.low != null && bar.low >= cap) return { text: `${sold} →`, sellout: "at this pace" };
   if (bar.high != null && bar.high >= cap && bar.low != null) {
-    return `${sold} → ${formatCount(bar.low)}–${formatCount(cap)} · SELLS OUT if best`;
+    return { text: `${sold} → ${formatCount(bar.low)}–${formatCount(cap)} ·`, sellout: "if best" };
   }
-  if (bar.low != null && bar.high != null) return `${sold} → ${formatCount(bar.low)}–${formatCount(bar.high)}`;
-  return sold;
+  if (bar.low != null && bar.high != null) return { text: `${sold} → ${formatCount(bar.low)}–${formatCount(bar.high)}`, sellout: null };
+  return { text: sold, sellout: null };
 }
 
 export type TrajectorySums = {

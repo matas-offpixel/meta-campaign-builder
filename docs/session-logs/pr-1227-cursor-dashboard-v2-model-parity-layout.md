@@ -29,3 +29,5 @@ Layout part 1 of dashboard v2 against the model (record #1226): chart axes, Sinc
 ## Notes
 
 The layout reads `SalesDashboardModel` as it is. Pace, the registrations "plus n" line, the umbrella page, and a 2,000 capacity are not in the fixture, so the frames keep the 12 Nov NX fixture figures. `lib/dashboard/sales-vs-spend.ts` and `lib/dashboard/sales-calc/**` were not edited.
+
+Design fail at 6441e59: the index control matches the caption size, tile values do not inherit the heading uppercase, SELLS OUT is mono caps in the destructive colour, Total sold stays "to date · Internal Counts, {date}" (plus comps when the authored detail has them), and Cost per ticket says "the {n} shows with counts" when a show in the all-shows bars has no count. The all-shows pace is still "— a day"; the model has no 7-day or 14-day pace on that view.

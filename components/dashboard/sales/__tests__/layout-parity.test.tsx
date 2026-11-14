@@ -35,14 +35,16 @@ describe("N6 trajectory", () => {
 
   it("caps a show at its own capacity and says when the pace sells out", () => {
     const dod = bars.find((bar) => bar.id === "dod");
-    expect(barOutcome(dod!)).toBe("915 → 1,280–1,500 · SELLS OUT if best");
-    expect(barOutcome({ id: "x", label: "x", sold: 1870, low: 2000, high: 2100, allocation: 2000, caption: "" })).toBe(
-      "1,870 → SELLS OUT at this pace",
-    );
-    expect(barOutcome({ id: "y", label: "y", sold: null, low: null, high: null, allocation: 2000, caption: "" })).toBe(
-      "No ticket counts yet",
-    );
-    expect(barOutcome(bars.find((bar) => bar.sold == null)!)).toBe("Set capacity on the event");
+    expect(barOutcome(dod!)).toEqual({ text: "915 → 1,280–1,500 ·", sellout: "if best" });
+    expect(barOutcome({ id: "x", label: "x", sold: 1870, low: 2000, high: 2100, allocation: 2000, caption: "" })).toEqual({
+      text: "1,870 →",
+      sellout: "at this pace",
+    });
+    expect(barOutcome({ id: "y", label: "y", sold: null, low: null, high: null, allocation: 2000, caption: "" })).toEqual({
+      text: "No ticket counts yet",
+      sellout: null,
+    });
+    expect(barOutcome(bars.find((bar) => bar.sold == null)!)).toEqual({ text: "Set capacity on the event", sellout: null });
   });
 
   it("sums only the shows with a count, each projection capped", () => {
@@ -53,7 +55,15 @@ describe("N6 trajectory", () => {
 
 describe("N7 tile sublines", () => {
   it("starts every subline with its span, and keeps sold as to date", () => {
-    expect(tileSubline("sold", "Internal Counts, 12 Nov", "launch", "12 Nov")).toBe("to date · Internal Counts, 12 Nov");
+    expect(tileSubline("sold", "since launch", "launch", "12 Nov")).toBe("to date · Internal Counts, 12 Nov");
+    expect(tileSubline("sold", "Internal Counts, 12 Nov · plus 64 comps", "14", "12 Nov")).toBe(
+      "to date · Internal Counts, 12 Nov · plus 64 comps",
+    );
+    expect(tileSubline("costPerTicket", "blended · complete windows", "launch", "12 Nov", { showsWithCounts: 3, shows: 4 })).toBe(
+      "since launch · the 3 shows with counts",
+    );
+    expect(tileSubline("costPerTicket", "blended · complete windows", "launch", "12 Nov")).toBe("since launch · blended");
+    expect(tileSubline("costPerTicket", "blended", "14", "12 Nov", { showsWithCounts: 3, shows: 3 })).toBe("in 14 days · blended");
     expect(tileSubline("tickets", "since launch", "launch", "12 Nov")).toBe("since launch, to 12 Nov");
     expect(tileSubline("checkoutActions", "£5.31 each", "launch", "12 Nov")).toBe(
       "since launch · actions, one person can do both",

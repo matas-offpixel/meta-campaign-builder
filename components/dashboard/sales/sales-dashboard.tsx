@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { CHART_PLOT, PLOT_PAD, ChartDateLabels, ChartDot, SalesChart } from "@/components/dashboard/sales/sales-chart";
 import { TILE_NAMES, tileSubline } from "@/components/dashboard/sales/tile-copy";
@@ -58,6 +58,12 @@ export function SalesDashboard({
   if (!view) return null;
   const points = slicePoints(view.points, period, view.endDay);
   const tiles = tilesForPeriod(view.tiles, view.points, period, view.endDay, view.periods);
+  const showScope = view.trajectory.kind === "all"
+    ? {
+        showsWithCounts: view.trajectory.bars.filter((bar) => bar.sold != null).length,
+        shows: view.trajectory.bars.length,
+      }
+    : null;
 
   function chooseShow(id: string) {
     setShowId(id);
@@ -169,6 +175,10 @@ export function SalesDashboard({
           const on = selected.includes(tile.id);
           const names = TILE_NAMES[tile.id];
           const endLabel = shortDay(view.endDay);
+          const authored = view.tiles.find((item) => item.id === tile.id);
+          const soldDetail = tile.id === "sold" ? (authored?.detail ?? tile.detail) : null;
+          const wideDetail = soldDetail ?? tile.detail;
+          const narrowDetail = soldDetail ?? tile.narrowDetail;
           return (
             <li key={tile.id}>
               <button
@@ -184,10 +194,10 @@ export function SalesDashboard({
                   <span className="sm:hidden">{names.narrow}</span>
                   <span className="hidden sm:inline">{names.wide}</span>
                 </span>
-                <span className="mt-1 block font-heading text-lg leading-none">{tile.value}</span>
+                <TileValue className="mt-1 block">{tile.value}</TileValue>
                 <span className="mt-1 block text-[11px] text-muted-foreground">
-                  <span className="sm:hidden">{tileSubline(tile.id, tile.narrowDetail, period, endLabel)}</span>
-                  <span className="hidden sm:inline">{tileSubline(tile.id, tile.detail, period, endLabel)}</span>
+                  <span className="sm:hidden">{tileSubline(tile.id, narrowDetail, period, endLabel, showScope)}</span>
+                  <span className="hidden sm:inline">{tileSubline(tile.id, wideDetail, period, endLabel, showScope)}</span>
                 </span>
               </button>
             </li>
@@ -392,21 +402,24 @@ function AllTrajectoryView({
       <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
         <li className="rounded-md border border-border px-2.5 py-2">
           <p className="text-[11px] text-muted-foreground">Sold · count of {counted}</p>
-          <p className="mt-1 font-heading text-lg leading-none">{formatCount(sums.sold)}</p>
+          <TileValue className="mt-1">{formatCount(sums.sold)}</TileValue>
           <p className="mt-1 text-[11px] text-muted-foreground">
             {soldShare == null ? "—" : `${soldShare}% of ${formatCount(sums.capacity)} across ${sums.shows} shows`}
           </p>
         </li>
         <li className="rounded-md border border-border px-2.5 py-2">
           <p className="text-[11px] text-muted-foreground">Projected on show day</p>
-          <p className="mt-1 font-heading text-lg leading-none">{formatCount(sums.holds)}–{formatCount(sums.high)}</p>
+          <TileValue className="mt-1">{formatCount(sums.holds)}–{formatCount(sums.high)}</TileValue>
           <p className="mt-1 text-[11px] text-muted-foreground">
             {highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show capped at its capacity`}
           </p>
         </li>
         <li className="rounded-md border border-border px-2.5 py-2">
           <p className="text-[11px] text-muted-foreground">Pace, last 7 days</p>
-          <p className="mt-1 font-heading text-lg leading-none">— <span className="font-sans text-[11px] font-normal text-muted-foreground">a day</span></p>
+          <p className="mt-1 leading-none">
+            <TileValue>—</TileValue>
+            <span className="text-[11px] font-normal text-muted-foreground"> a day</span>
+          </p>
           <p className="mt-1 text-[11px] text-muted-foreground">14-day — a day</p>
         </li>
       </ul>
@@ -429,6 +442,28 @@ function AllTrajectoryView({
   );
 }
 
+function TileValue({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <span
+      className={`text-lg leading-none ${className}`}
+      style={{ fontFamily: 'var(--font-bebas, "Bebas Neue"), "Arial Narrow", sans-serif', letterSpacing: "0.04em" }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function BarOutcomeText({ outcome }: { outcome: ReturnType<typeof barOutcome> }) {
+  if (!outcome.sellout) return <span className="text-muted-foreground">{outcome.text}</span>;
+  return (
+    <span className="text-muted-foreground">
+      {outcome.text}{" "}
+      <span className="font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-destructive">SELLS OUT</span>
+      {" "}{outcome.sellout}
+    </span>
+  );
+}
+
 function ShowBar({ bar, axisMax, onSelect }: { bar: AllShowBar; axisMax: number; onSelect: () => void }) {
   const outcome = barOutcome(bar);
   const scale = axisMax > 0 ? axisMax : 1;
@@ -444,7 +479,7 @@ function ShowBar({ bar, axisMax, onSelect }: { bar: AllShowBar; axisMax: number;
         <span className="relative hidden h-2 rounded-full bg-muted sm:block">
           <BarLayers soldEnd={soldEnd} holdEnd={holdEnd} highEnd={highEnd} cap={cap} scale={scale} />
         </span>
-        <span className="text-muted-foreground">{outcome}</span>
+        <BarOutcomeText outcome={outcome} />
       </span>
       <span className="relative mt-1 block h-2 rounded-full bg-muted sm:hidden">
         <BarLayers soldEnd={soldEnd} holdEnd={holdEnd} highEnd={highEnd} cap={cap} scale={scale} />
