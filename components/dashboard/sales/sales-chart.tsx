@@ -209,7 +209,7 @@ export function SalesChart({
                   return (
                     <span key={tick.day} className="absolute top-0" style={{ left: `${percent}%` }}>
                       <span className="absolute -top-1 left-0 h-1 w-px bg-current opacity-60" />
-                      <span className={`absolute top-0 whitespace-nowrap ${ANCHOR_SHIFT[tick.anchor]}`}>{keepDate(tick.label)}</span>
+                      <span data-date-label className={`absolute top-0 whitespace-nowrap ${ANCHOR_SHIFT[tick.anchor]}`}>{keepDate(tick.label)}</span>
                     </span>
                   );
                 })}

@@ -186,7 +186,9 @@ export function PhoneChart({
     let frames = 0;
     let raf = requestAnimationFrame(function tick() {
       settle();
-      if ((frames += 1) < 30) raf = requestAnimationFrame(tick);
+      // At least 30 frames, and on until the content is actually scrollable (its stylesheet has landed), up to 5 s.
+      frames += 1;
+      if (frames < 30 || (el.scrollWidth <= el.clientWidth && frames < 300)) raf = requestAnimationFrame(tick);
     });
     return () => {
       cancelAnimationFrame(raf);
@@ -332,6 +334,7 @@ export function PhoneChart({
                 {phoneDateLabels(days, contentWidth, view, (label) => measureDateLabel(label, 11)).map((tick) => (
                   <span
                     key={tick.day}
+                    data-date-label
                     className="absolute top-1 whitespace-nowrap"
                     style={{ left: `${tick.percent}%`, transform: tick.anchor === "end" ? "translateX(-100%)" : tick.anchor === "start" ? "none" : "translateX(-50%)" }}
                   >
