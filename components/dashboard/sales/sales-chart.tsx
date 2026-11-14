@@ -405,6 +405,7 @@ function HoverCard({
         );
       })}
       {point.estimated && point.estimateNote ? <p className="text-muted-foreground">{point.estimateNote}</p> : null}
+      {!point.estimated && point.carryNote ? <p className="text-muted-foreground">{point.carryNote}</p> : null}
     </div>
   );
 }

@@ -60,7 +60,7 @@ export function readoutText(point: SalesChartPoint, selected: readonly SalesMetr
     const value = point.values[id];
     return `${TILE_NAMES[id].wide} ${value == null ? "—" : formatSalesNumber(salesMetric(id).unit, value)}`;
   });
-  const tail = point.count ? "Internal Count" : point.estimated && point.estimateNote ? point.estimateNote : null;
+  const tail = point.count ? "Internal Count" : point.estimated && point.estimateNote ? point.estimateNote : (point.carryNote ?? null);
   return [shortDay(point.day), ...figures, tail].filter(Boolean).join(" · ");
 }
 
@@ -218,11 +218,12 @@ export function PhoneChart({
   const thumbWidth = scroll.width > 0 ? (scroll.client / scroll.width) * 100 : (PHONE_WINDOW_DAYS / Math.max(points.length, 1)) * 100;
 
   return (
-    <figure className="mt-1" data-phone-chart>
-      <div className="flex min-h-5 items-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+    <figure className="mt-0.5" data-phone-chart>
+      {/* Two lines' height at rest; the readout replaces it in place, so the plot never moves under the finger. */}
+      <div className="flex h-7 items-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground" data-titles>
         {active != null ? (
           // The readout sits over the titles row, above the plot, so a finger never covers it. It wraps rather than lose the estimate words.
-          <p className="min-w-0 flex-1 text-[11px] normal-case leading-snug tracking-normal text-foreground" data-readout>
+          <p className="line-clamp-2 min-w-0 flex-1 text-[11px] normal-case leading-[14px] tracking-normal text-foreground" data-readout>
             {keepDate(readoutText(points[active], selected))}
           </p>
         ) : (

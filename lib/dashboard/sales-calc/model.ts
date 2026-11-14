@@ -315,6 +315,7 @@ function chartPoints(list: readonly ShowSeries[], endDay: string): SalesChartPoi
     estimated: r.estimatedBetween != null,
     count: r.count,
     estimateNote: r.estimatedBetween ? `Estimated between counts on ${shortDay(r.estimatedBetween.from)} and ${shortDay(r.estimatedBetween.to)}` : null,
+    carryNote: r.carriedFrom ? `carried over from the ${shortDay(r.carriedFrom)} count` : null,
     values: {
       spend: r.spend,
       sold: r.sold,

@@ -417,7 +417,8 @@ export function SalesDashboard({
                   <span className="block truncate font-mono text-[9px] sm:hidden">{names.narrow}</span>
                   <span className="hidden sm:inline">{names.wide}</span>
                 </span>
-                <TileValue className="mt-0.5 block whitespace-nowrap sm:mt-1">{value}</TileValue>
+                {/* MB3: below 640 px the value is always ink; "on" is the outline alone. From 640 px up, as before. */}
+                <TileValue className="mt-0.5 block whitespace-nowrap text-foreground sm:mt-1 sm:text-inherit">{value}</TileValue>
                 <span className="mt-0.5 block text-[11px] text-muted-foreground sm:mt-1">
                   <span className="block truncate sm:hidden">{span}</span>
                   <span className="hidden sm:inline">{wideSub}</span>
@@ -459,7 +460,7 @@ export function SalesDashboard({
 
       {points.length > PHONE_WINDOW_DAYS ? (
         <>
-          <div className="mt-2 border-t border-border pt-1 sm:hidden">
+          <div className="mt-2 border-t border-border pt-0.5 sm:hidden">
             <PhoneChart
               points={points}
               allocation={view.allocation}
@@ -936,12 +937,16 @@ function FinishedToggle({ includeFinished, onToggle }: { includeFinished: boolea
 
 /** MB3: Pace and Projected move into the phone grid. They have no chart line, so a tap does nothing and they show no outline. */
 function SummaryTile({ order, label, tile, span }: { order: number; label: string; tile: TrajectoryTile | null; span: string }) {
+  // No pace (or no projection) reads "—" alone, with no span line.
+  const none = !tile || tile.value.startsWith("—");
   return (
     <li className="order-[var(--phone-order)] sm:hidden" style={{ "--phone-order": order } as CSSProperties}>
       <div className="h-full rounded-md border border-border bg-card px-[9px] py-[6px] text-muted-foreground">
         <span className="block truncate font-mono text-[9px]">{label}</span>
-        {tile ? <SummaryValue value={tile.value} compact /> : <TileValue className="mt-0.5 block">—</TileValue>}
-        <span className="mt-0.5 block truncate text-[11px]">{span}</span>
+        <div className="text-foreground">
+          {none ? <TileValue className="mt-0.5 block">—</TileValue> : <SummaryValue value={tile.value} compact />}
+        </div>
+        <span className="mt-0.5 block truncate text-[11px]">{none ? "\u00a0" : span}</span>
       </div>
     </li>
   );

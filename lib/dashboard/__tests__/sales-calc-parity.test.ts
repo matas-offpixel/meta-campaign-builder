@@ -119,7 +119,8 @@ function metaOnly(input: SalesCalcInput): SalesCalcInput {
 
 const MODEL_PERIOD: Record<PeriodId, string> = { launch: "all", "30": "30", "14": "14", "7": "7", "3": "3", yesterday: "1" };
 
-type Rule = "D12" | "D13a" | "D13b" | "D13c" | "D6" | "D10" | "ALL" | "COUNT" | "D8" | "FINAL";
+/** PRE: Total sold isn't drawn before the first count in scope (design's note on #1233); the model draws a flat 0. */
+type Rule = "D12" | "D13a" | "D13b" | "D13c" | "D6" | "D10" | "ALL" | "COUNT" | "D8" | "FINAL" | "PRE";
 interface Row {
   show: string;
   figure: string;
@@ -193,6 +194,7 @@ function compare(): { rows: Row[]; unexplained: Row[]; compared: number } {
   for (const code of [...scope, "ALL"]) {
     const list = code === "ALL" ? upcoming.map((c) => byCode.get(c)!) : [byCode.get(code)!];
     const mine = new Map(chartRows(list, endDay).map((r) => [r.day, r]));
+    const firstCount = list.flatMap((s) => (s.counts.length ? [s.counts[0].day] : [])).sort()[0] ?? null;
     for (const ref of chart.filter((r) => r.event_code === code)) {
       const r = mine.get(ref.day);
       const name = code === "ALL" ? "All shows" : code;
@@ -203,7 +205,7 @@ function compare(): { rows: Row[]; unexplained: Row[]; compared: number } {
       add(name, `daily checkout actions ${at}`, ref.checkout_actions, r?.checkoutActions ?? 0, null);
       add(name, `daily CPC ${at}`, ref.cost_per_click, r?.cpc ?? null, null);
       if (code === "NX26-GLOBAL") continue;
-      add(name, `daily total sold ${at}`, ref.tickets_total, r?.sold ?? null, null);
+      add(name, `daily total sold ${at}`, ref.tickets_total, r?.sold ?? null, firstCount != null && ref.day < firstCount && ref.tickets_total === 0 && r?.sold == null ? "PRE" : null);
       const all = code === "ALL" ? "ALL" : null;
       add(name, `daily tickets a day ${at}`, ref.tickets_per_day, r?.ticketsPerDay ?? null, all);
       add(name, `daily cost per ticket ${at}`, ref.cost_per_ticket, r?.costPerTicket ?? null, all);

@@ -505,6 +505,8 @@ export interface ChartRow {
   count: boolean;
   /** Between two counts: the line is a straight-line estimate. */
   estimatedBetween: { from: string; to: string } | null;
+  /** After the last count in scope: Total sold carries that count over (design's note on #1233). */
+  carriedFrom: string | null;
   ticketsPerDay: number | null;
   costPerTicket: number | null;
   checkoutActions: number;
@@ -561,6 +563,7 @@ export function chartRows(list: readonly ShowSeries[], endDay: string): ChartRow
   const scope = list.length > 1;
   const scopeFirst = counted.map((s) => s.counts[0].day).sort()[0] ?? null;
   const countDays = [...new Set(counted.flatMap((s) => s.counts.map((c) => c.day)))].sort();
+  const lastCountDay = countDays[countDays.length - 1] ?? null;
   const paged = list.filter((s) => s.show.cirqlinPageId != null);
   const out: ChartRow[] = [];
   for (const day of daysBetween(starts[0], last)) {
@@ -621,6 +624,8 @@ export function chartRows(list: readonly ShowSeries[], endDay: string): ChartRow
         if (day < w.to && list.length === 1) between = { from: w.from, to: w.to };
       }
     }
+    // Design's note on #1233: Total sold isn't drawn before the first count in scope (no flat 0 before it).
+    if (scopeFirst == null || day < scopeFirst) sold = null;
     if (scope && scopeEstimate && sold != null) {
       // D5 for a scope: the count days either side of this day, across its shows.
       const from = countDays.filter((d) => d < day).pop() ?? scopeFirst!;
@@ -633,6 +638,7 @@ export function chartRows(list: readonly ShowSeries[], endDay: string): ChartRow
       sold: sold == null ? null : Math.round(sold),
       count: scope ? count && !scopeEstimate && sold != null : count,
       estimatedBetween: between,
+      carriedFrom: sold != null && lastCountDay != null && day > lastCountDay && !scopeEstimate ? lastCountDay : null,
       ticketsPerDay: anyWindow ? perDay : null,
       costPerTicket: anyWindow && windowComplete && windowTickets > 0 ? windowSpend / windowTickets : null,
       checkoutActions: ca,

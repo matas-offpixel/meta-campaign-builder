@@ -208,11 +208,12 @@ describe("D13 daily £ per registration (design's fix)", () => {
 });
 
 describe("D5 chart", () => {
-  it("total sold is a straight line between counts, 0 before presale, and the hover names the counts", () => {
+  it("total sold is a straight line between counts, not drawn before the first count, and the hover names the counts", () => {
     const a = show({ eventId: "a", code: "A-1", presaleDate: "2026-10-30", counts: [ic("2026-11-01", 100), ic("2026-11-05", 140)] });
     const s = buildSeries(input({ shows: [a], rollups: [roll("a", "2026-10-29", 5), roll("a", "2026-11-03", 5)] })).get("a")!;
     const rows = chartRows([s], "2026-11-12");
-    assert.equal(rows.find((r) => r.day === "2026-10-29")!.sold, 0);
+    // Design's note on #1233: before the first count, Total sold isn't drawn (it was 0 before presale under D5).
+    assert.equal(rows.find((r) => r.day === "2026-10-29")!.sold, null);
     assert.equal(rows.find((r) => r.day === "2026-10-31")!.sold, null);
     assert.equal(rows.find((r) => r.day === "2026-11-03")!.sold, 120);
     assert.deepEqual(rows.find((r) => r.day === "2026-11-03")!.estimatedBetween, { from: "2026-11-01", to: "2026-11-05" });
