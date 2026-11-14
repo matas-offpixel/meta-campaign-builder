@@ -112,6 +112,8 @@ export type SalesChartPoint = {
   /** A real ticket count. The chart dots Total sold on these days only. */
   count: boolean;
   estimateNote: string | null;
+  /** After the last count: "carried over from the 12 Nov count" (design's note on #1233). */
+  carryNote?: string | null;
   values: Partial<Record<SalesMetricId, number | null>>;
 };
 
@@ -174,6 +176,8 @@ export type SingleTrajectory = {
   missingCapacity: string | null;
   /** N6: the projection reaches capacity at the holds pace, or only in the best case. */
   sellsOut?: "holds" | "best" | null;
+  /** MB3: the phone's Pace and Projected tiles for this show. Absent when there is no projection. */
+  summary?: { pace: TrajectoryTile; projected: TrajectoryTile };
 };
 
 export type AllShowBar = {

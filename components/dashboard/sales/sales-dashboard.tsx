@@ -1,8 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 
 import { CHART_PLOT, PLOT_PAD, ChartDateLabels, ChartDot, SalesChart } from "@/components/dashboard/sales/sales-chart";
+import { CollapsedRow, PeriodSelect, useRemembered } from "@/components/dashboard/sales/phone";
+import { PHONE_WINDOW_DAYS, PhoneChart } from "@/components/dashboard/sales/phone-chart";
+import {
+  KEY_TILE_IDS,
+  MORE_TILE_IDS,
+  TRAJECTORY_KEY,
+  UMBRELLA_KEY_TILE_IDS,
+  campaignsRow,
+  moreFiguresLabel,
+  phoneBar,
+  phoneSpan,
+  projectedSpan,
+  stampLine,
+  trajectoryTitle,
+} from "@/components/dashboard/sales/phone-copy";
 import { TILE_NAMES, spendScopeLine, tileSubline } from "@/components/dashboard/sales/tile-copy";
 import type { SalesQueryUpdate } from "@/components/dashboard/sales/venue-query";
 import { shortDay } from "@/lib/dashboard/sales-calc/days";
@@ -27,7 +42,12 @@ import {
   type SalesTrajectory,
   type SalesVenue,
   type SingleTrajectory,
+  type TrajectoryTile,
 } from "@/lib/dashboard/sales-vs-spend";
+
+/** MB5: a row that scrolls sideways fades over its last 28 px on a phone, so it's clear there's more. */
+const ROW_FADE = "[mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)] sm:[mask-image:none]";
+const HOLD_MS = 300;
 
 export function SalesDashboard({
   model,
@@ -39,6 +59,10 @@ export function SalesDashboard({
   pinSpend = false,
   initialVenueKey,
   onQuery,
+  phoneMoreOpen,
+  phoneCampaignsOpen,
+  phoneHoldDay = null,
+  phoneChartOpenAt = "end",
 }: {
   model: SalesDashboardModel;
   surface: SalesSurface;
@@ -54,6 +78,12 @@ export function SalesDashboard({
   /** Pages pass this to keep `show`, `period` and `venue` in the query string. */
   /** Every key a click changes, in one call. */
   onQuery?: (updates: SalesQueryUpdate) => void;
+  /** Frames only: pin the phone's More figures and Campaigns open (MB4, MB7). */
+  phoneMoreOpen?: boolean;
+  phoneCampaignsOpen?: boolean;
+  /** Frames only: a day held on the phone chart, and where its scroller opens (MB6). */
+  phoneHoldDay?: string | null;
+  phoneChartOpenAt?: string;
 }) {
   const presented = salesForSurface(model, surface);
   const venues = (presented.venues ?? []).filter((venue) => venue.liveShows > 0);
@@ -68,10 +98,21 @@ export function SalesDashboard({
   const [indexRequested, setIndexRequested] = useState(initialIndex);
   const [spendHover, setSpendHover] = useState<"tile" | "header" | null>(pinSpend ? "tile" : null);
   const venueButtonRef = useRef<HTMLButtonElement>(null);
+  const chipButtonRef = useRef<HTMLButtonElement>(null);
+  const [moreOpen, setMoreOpen] = useRemembered("sales-v2:more-figures", phoneMoreOpen);
+  const [campaignsOpen, setCampaignsOpen] = useRemembered("sales-v2:campaigns", phoneCampaignsOpen);
+  const [heldTile, setHeldTile] = useState<string | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdFired = useRef(false);
 
   useEffect(() => {
     venueButtonRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [venueKey]);
+
+  // MB5: on load the picked show is scrolled into view too.
+  useEffect(() => {
+    chipButtonRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [showId, venueKey]);
 
   const selectedVenue = venues.find((venue) => venueToken(venue) === venueKey) ?? null;
   const grouped = multiVenue && venueKey === "all";
@@ -141,26 +182,63 @@ export function SalesDashboard({
     setSelected((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
   }
 
+  // MB3: on a phone, a press and hold on a tile shows its full subline (and Spend's breakdown) while held.
+  function startHold(id: string, pointerType: string) {
+    if (pointerType !== "touch") return;
+    holdFired.current = false;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => {
+      holdFired.current = true;
+      setHeldTile(id);
+    }, HOLD_MS);
+  }
+
+  function endHold() {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    setHeldTile(null);
+  }
+
+  const summary = view.trajectory.summary ?? null;
+  const chartSelected = umbrella ? selected.filter((id) => id !== "sold" && id !== "tickets" && id !== "costPerTicket") : selected;
+  const keyIds = umbrella ? UMBRELLA_KEY_TILE_IDS : KEY_TILE_IDS;
+  const shownTiles = tiles.filter((tile) => !umbrella || (tile.id !== "sold" && tile.id !== "tickets" && tile.id !== "costPerTicket"));
+  const moreTiles = shownTiles.filter((tile) => !keyIds.includes(tile.id));
+  const moreWords = moreFiguresLabel(moreOpen, moreTiles.length);
+  const countLabel = shortDay(view.countDay ?? view.endDay);
+  // MB3 order on a phone: the key figures 1–6, the fold action 7, the chart toggles 8, then the rest in N7's order.
+  const phoneOrder = (id: SalesMetricId) => {
+    const key = keyIds.indexOf(id);
+    if (key >= 0) return key + 1;
+    const more = MORE_TILE_IDS.indexOf(id);
+    return 9 + (more >= 0 ? more : MORE_TILE_IDS.length);
+  };
+
   return (
     // MB1: w-full min-w-0, or mx-auto in the page's flex column sizes the section to its widest row (894 px at 375).
-    <section className="mx-auto w-full min-w-0 max-w-6xl px-4 py-4 sm:px-6" style={{ WebkitTextSizeAdjust: "100%" }}>
+    <section className="mx-auto w-full min-w-0 max-w-6xl px-3 pb-3 pt-2 sm:px-6 sm:py-4" style={{ WebkitTextSizeAdjust: "100%" }}>
       <header>
-        <h2 className="text-xl font-medium tracking-tight sm:text-2xl">
-          {umbrella ? `${presented.clientName} umbrella` : (
-            <>
-              <span className="sm:hidden">{view.narrowTitle}</span>
-              <span className="hidden sm:inline">{view.title}</span>
-            </>
-          )}
-        </h2>
+        {/* MB2: the scope name, with the period as one select chip on the right (phone). */}
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="min-w-0 text-xl font-medium tracking-tight sm:text-2xl">
+            {umbrella ? `${presented.clientName} umbrella` : (
+              <>
+                <span className="sm:hidden">{view.narrowTitle}</span>
+                <span className="hidden sm:inline">{view.title}</span>
+              </>
+            )}
+          </h2>
+          <PeriodSelect period={period} onChange={choosePeriod} />
+        </div>
+        <p className="mt-1 font-mono text-[10px] text-muted-foreground sm:hidden">{stampLine(presented.freshness)}</p>
         {umbrella && view.header ? (
           <p className="mt-1 text-xs text-muted-foreground">{view.subtitle}</p>
         ) : null}
         {view.header ? (
           <div className="relative" onMouseEnter={() => hoverSpend("header")} onMouseLeave={leaveSpend}>
-            <p className="mt-1 max-w-3xl text-sm leading-snug [overflow-wrap:anywhere]">{view.header.sentence}</p>
+            <p className="mt-1 max-w-3xl text-[13px] leading-snug [overflow-wrap:anywhere] sm:text-sm">{view.header.sentence}</p>
             {channelLineHasSplit(view.header.channelLine) ? (
-              <p className="mt-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">{view.header.channelLine}</p>
+              <p className="mt-1 line-clamp-2 font-mono text-[11px] uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere] sm:line-clamp-none">{view.header.channelLine}</p>
             ) : null}
             {spendHover === "header" && launchTotal ? <SpendHover total={launchTotal} /> : null}
           </div>
@@ -175,7 +253,7 @@ export function SalesDashboard({
             ) : null}
           </>
         )}
-        <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+        <ul className="mt-2 hidden flex-wrap gap-x-3 gap-y-1 text-[11px] sm:flex">
           {presented.freshness.map((stamp) => (
             <li key={stamp.id} className={stamp.stale ? "text-warning" : "text-muted-foreground"}>
               <span className="sm:hidden">{stamp.narrow}</span>
@@ -186,9 +264,9 @@ export function SalesDashboard({
       </header>
 
       {multiVenue ? (
-        <div className="mt-4 flex min-w-0 max-w-full items-center gap-2">
-          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Venue</span>
-          <div className="flex min-w-0 max-w-full overflow-x-auto">
+        <div className="mt-2.5 flex min-w-0 max-w-full items-center gap-2 sm:mt-4">
+          <span className="hidden shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground sm:inline">Venue</span>
+          <div className={`flex min-w-0 max-w-full overflow-x-auto ${ROW_FADE}`}>
             {venues.map((venue, index) => {
               const on = venueToken(venue) === venueKey;
               return (
@@ -222,18 +300,25 @@ export function SalesDashboard({
       ) : null}
 
       {grouped ? (
-        <div className="mt-3 min-w-0 space-y-2">
+        <div className={`mt-2 flex min-w-0 max-w-full items-center gap-2 overflow-x-auto sm:mt-3 sm:block sm:space-y-2 sm:overflow-visible ${ROW_FADE}`}>
           {venues.map((venue) => (
-            <div key={venue.viewId} className="flex min-w-0 max-w-full items-center gap-2 overflow-x-auto">
+            <div key={venue.viewId} className="contents sm:flex sm:min-w-0 sm:max-w-full sm:items-center sm:gap-2 sm:overflow-x-auto">
               <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{venue.name}</span>
               <ShowChip
                 chip={{ id: venue.viewId, wide: `All ${venue.name}`, narrow: "All", kind: "all", finished: false }}
                 on={activeId === venue.viewId}
                 label={`All ${venue.name}`}
                 onSelect={() => chooseShow(venue.viewId)}
+                buttonRef={activeId === venue.viewId ? chipButtonRef : undefined}
               />
               {venue.shows.filter((chip) => chip.kind !== "all").map((chip) => (
-                <ShowChip key={`${venue.viewId}-${chip.id}`} chip={chip} on={chip.id === activeId} onSelect={() => chooseShow(chip.id)} />
+                <ShowChip
+                  key={`${venue.viewId}-${chip.id}`}
+                  chip={chip}
+                  on={chip.id === activeId}
+                  onSelect={() => chooseShow(chip.id)}
+                  buttonRef={chip.id === activeId ? chipButtonRef : undefined}
+                />
               ))}
               {includeFinished
                 ? venue.finishedShows.map((chip) => (
@@ -245,20 +330,21 @@ export function SalesDashboard({
           <FinishedToggle includeFinished={includeFinished} onToggle={() => setIncludeFinished((value) => !value)} />
         </div>
       ) : (
-        <div className="mt-4 flex min-w-0 max-w-full items-center gap-2 overflow-x-auto">
+        <div className={`mt-2 flex min-w-0 max-w-full items-center gap-2 overflow-x-auto sm:mt-4 ${ROW_FADE}`}>
           {chips.map((chip) => (
             <ShowChip
               key={`${chip.id}-${chip.finished ? "fin" : "live"}-${chip.kind}`}
               chip={chip}
               on={chip.id === activeId}
               onSelect={() => chooseShow(chip.id)}
+              buttonRef={chip.id === activeId ? chipButtonRef : undefined}
             />
           ))}
           <FinishedToggle includeFinished={includeFinished} onToggle={() => setIncludeFinished((value) => !value)} />
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 hidden flex-wrap gap-2 sm:flex">
         {SALES_PERIODS.map((item) => (
           <button
             key={item.id}
@@ -274,7 +360,7 @@ export function SalesDashboard({
         ))}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+      <div className="mt-4 hidden flex-wrap items-center gap-2 text-xs sm:flex">
         <button type="button" className="rounded border border-border px-2 py-1" onClick={() => setSelected(SALES_METRICS.map((metric) => metric.id))}>
           All
         </button>
@@ -283,63 +369,132 @@ export function SalesDashboard({
         </button>
       </div>
 
-      <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {tiles.filter((tile) => !umbrella || (tile.id !== "sold" && tile.id !== "tickets" && tile.id !== "costPerTicket")).map((tile) => {
+      <ul className="mt-2.5 grid grid-cols-2 gap-1.5 sm:mt-3 sm:grid-cols-3 sm:gap-2 lg:grid-cols-6">
+        {shownTiles.map((tile) => {
           const on = selected.includes(tile.id);
           const names = TILE_NAMES[tile.id];
-          // The count date, never the spend date: Total sold and Sales since launch read the latest count.
-          const countLabel = shortDay(view.countDay ?? view.endDay);
           const authored = view.tiles.find((item) => item.id === tile.id);
           const soldDetail = tile.id === "sold" ? (authored?.detail ?? tile.detail) : null;
           const wideDetail = soldDetail ?? tile.detail;
-          const narrowDetail = soldDetail ?? tile.narrowDetail;
           const spendTotal = tile.id === "spend" ? periodTotal : null;
           const wideSub = spendTotal ? spendScopeLine(spendTotal, period, launchTotal) : tileSubline(tile.id, wideDetail, period, countLabel, showScope, true);
-          const narrowSub = spendTotal ? spendScopeLine(spendTotal, period, launchTotal) : tileSubline(tile.id, narrowDetail, period, countLabel, showScope, false);
+          // MB3: the phone's span is one short line; the full subline moves to a press and hold.
+          const span = phoneSpan(tile.id, period, countLabel, { narrowDetail: authored?.narrowDetail ?? tile.narrowDetail, title: tile.title });
           const hovered = tile.id === "spend" && spendHover === "tile" && spendTotal;
+          const folded = !keyIds.includes(tile.id);
+          const value = spendTotal ? spendTotal.text : tile.value;
           return (
             <li
               key={tile.id}
-              className="relative"
+              className={`relative order-[var(--phone-order)] sm:order-none ${folded && !moreOpen ? "hidden sm:block" : ""}`}
+              style={{ "--phone-order": phoneOrder(tile.id) } as CSSProperties}
               onMouseEnter={tile.id === "spend" ? () => hoverSpend("tile") : undefined}
               onMouseLeave={tile.id === "spend" ? leaveSpend : undefined}
             >
               <button
                 type="button"
                 aria-pressed={on}
+                aria-label={`${names.wide}, ${value}, ${wideSub}`}
                 title={tile.title}
-                onClick={() => toggleMetric(tile.id)}
+                onClick={() => {
+                  if (holdFired.current) {
+                    holdFired.current = false;
+                    return;
+                  }
+                  toggleMetric(tile.id);
+                }}
+                onPointerDown={(event) => startHold(tile.id, event.pointerType)}
+                onPointerUp={endHold}
+                onPointerCancel={endHold}
+                onPointerLeave={endHold}
                 onFocus={tile.id === "spend" ? () => hoverSpend("tile") : undefined}
                 onBlur={tile.id === "spend" ? leaveSpend : undefined}
-                className={`h-full w-full rounded-md border px-2.5 py-2 text-left ${
+                className={`h-full w-full rounded-md border px-[9px] py-[6px] text-left [-webkit-touch-callout:none] sm:px-2.5 sm:py-2 ${
                   on ? "border-foreground bg-card" : "border-border bg-card text-muted-foreground"
                 }`}
               >
                 <span className="block text-[11px]">
-                  <span className="sm:hidden">{names.narrow}</span>
+                  <span className="block truncate font-mono text-[9px] sm:hidden">{names.narrow}</span>
                   <span className="hidden sm:inline">{names.wide}</span>
                 </span>
-                <TileValue className="mt-1 block">{spendTotal ? spendTotal.text : tile.value}</TileValue>
-                <span className="mt-1 block text-[11px] text-muted-foreground">
-                  <span className="sm:hidden">{narrowSub}</span>
+                {/* MB3: below 640 px the value is always ink; "on" is the outline alone. From 640 px up, as before. */}
+                <TileValue className="mt-0.5 block whitespace-nowrap text-foreground sm:mt-1 sm:text-inherit">{value}</TileValue>
+                <span className="mt-0.5 block text-[11px] text-muted-foreground sm:mt-1">
+                  <span className="block truncate sm:hidden">{span}</span>
                   <span className="hidden sm:inline">{wideSub}</span>
                 </span>
               </button>
               {hovered && spendTotal ? <SpendHover total={spendTotal} /> : null}
+              {heldTile === tile.id ? <TileHold sub={wideSub} title={tile.title} total={spendTotal} /> : null}
             </li>
           );
         })}
+        {!umbrella ? (
+          <>
+            <SummaryTile order={5} label="Pace · 7 days" tile={summary?.pace ?? null} span={summary?.pace.detail ?? ""} />
+            <SummaryTile order={6} label="Projected" tile={summary?.projected ?? null} span={summary ? projectedSpan(summary.projected) : ""} />
+          </>
+        ) : null}
+        {moreTiles.length > 0 ? (
+          <li className="order-[7] col-span-2 sm:hidden">
+            {/* MB4: the other figures fold under one text action, closed by default and remembered per device. */}
+            <button type="button" data-more-figures aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)} className="flex w-full items-baseline gap-2 py-0.5 text-left">
+              <span className="text-xs underline underline-offset-2">{moreWords.action}</span>
+              <span className="truncate text-[11px] text-muted-foreground">{moreWords.hint}</span>
+            </button>
+          </li>
+        ) : null}
+        {moreOpen && moreTiles.length > 0 ? (
+          <li className="order-[8] col-span-2 flex items-center gap-2 text-[11px] sm:hidden">
+            <span className="font-mono text-[9px] text-muted-foreground">Chart lines</span>
+            <button type="button" className="underline underline-offset-2" onClick={() => setSelected(SALES_METRICS.map((metric) => metric.id))}>
+              All
+            </button>
+            <span aria-hidden className="text-muted-foreground">·</span>
+            <button type="button" className="underline underline-offset-2" onClick={() => setSelected([])}>
+              None
+            </button>
+          </li>
+        ) : null}
       </ul>
 
-      <SalesChart
-        points={points}
-        allocation={view.allocation}
-        selected={umbrella ? selected.filter((id) => id !== "sold" && id !== "tickets" && id !== "costPerTicket") : selected}
-        indexRequested={indexRequested}
-        onIndex={setIndexRequested}
-        showAllocation={view.allocation.length > 0 && !umbrella}
-        pinnedDay={pinHover ? points.at(-1)?.day ?? null : null}
-      />
+      {points.length > PHONE_WINDOW_DAYS ? (
+        <>
+          <div className="mt-2 border-t border-border pt-0.5 sm:hidden">
+            <PhoneChart
+              points={points}
+              allocation={view.allocation}
+              selected={chartSelected}
+              indexRequested={indexRequested}
+              onIndex={setIndexRequested}
+              showAllocation={view.allocation.length > 0 && !umbrella}
+              pinnedHoldDay={phoneHoldDay}
+              openAt={phoneChartOpenAt}
+            />
+          </div>
+          <div className="hidden sm:block">
+            <SalesChart
+              points={points}
+              allocation={view.allocation}
+              selected={chartSelected}
+              indexRequested={indexRequested}
+              onIndex={setIndexRequested}
+              showAllocation={view.allocation.length > 0 && !umbrella}
+              pinnedDay={pinHover ? points.at(-1)?.day ?? null : null}
+            />
+          </div>
+        </>
+      ) : (
+        <SalesChart
+          points={points}
+          allocation={view.allocation}
+          selected={chartSelected}
+          indexRequested={indexRequested}
+          onIndex={setIndexRequested}
+          showAllocation={view.allocation.length > 0 && !umbrella}
+          pinnedDay={pinHover ? points.at(-1)?.day ?? null : null}
+        />
+      )}
 
       {umbrella ? (
         <p className="mt-4 text-xs text-muted-foreground">An umbrella has no Total sold, Sales or Cost per ticket tile, and no trajectory.</p>
@@ -353,7 +508,7 @@ export function SalesDashboard({
         />
       )}
 
-      <Campaigns rows={campaignsForPeriod(view, period)} />
+      <Campaigns rows={campaignsForPeriod(view, period)} open={campaignsOpen} onToggle={() => setCampaignsOpen(!campaignsOpen)} />
     </section>
   );
 }
@@ -372,7 +527,7 @@ function Trajectory({
   reviewLine: string | null;
 }) {
   return (
-    <div className="mt-4">
+    <div className="mt-4 border-t border-border pt-3 sm:border-t-0 sm:pt-0">
       {trajectory.kind === "all" ? (
         <AllTrajectoryView trajectory={trajectory} countDay={countDay} onSelectShow={onSelectShow} />
       ) : (
@@ -535,8 +690,11 @@ function AllTrajectoryView({
   };
   return (
     <div>
-      <h3 className="text-sm font-medium">Sales trajectory</h3>
-      <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <h3 className="text-sm font-medium">
+        <span className="sm:hidden">{trajectoryTitle(trajectory.bars)}</span>
+        <span className="hidden sm:inline">Sales trajectory</span>
+      </h3>
+      <ul className="mt-3 hidden grid-cols-1 gap-2 sm:grid sm:grid-cols-3">
         {[soldTile, projectedTile, paceTile].map((tile) => (
           <li key={tile.label} className="rounded-md border border-border px-2.5 py-2">
             <p className="text-[11px] text-muted-foreground">{tile.label}</p>
@@ -545,7 +703,7 @@ function AllTrajectoryView({
           </li>
         ))}
       </ul>
-      <ul className="mt-3 space-y-2">
+      <ul className="mt-2 space-y-2 sm:mt-3">
         {trajectory.bars.map((bar) => (
           <li key={bar.id}>
             <ShowBar bar={bar} axisMax={axisMax} onSelect={() => onSelectShow(bar.id)} />
@@ -553,13 +711,14 @@ function AllTrajectoryView({
         ))}
       </ul>
       <CapacityAxis max={axisMax} />
-      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+      <p className="mt-2 text-[11px] text-muted-foreground sm:hidden">{TRAJECTORY_KEY}</p>
+      <ul className="mt-2 hidden flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground sm:flex">
         <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground" />Sold, count of {counted}</li>
         <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/45" />Holds at the last 7 days&apos; pace</li>
         <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/20" />Like your best finish</li>
         <li className="flex items-center gap-1.5"><span className="inline-block h-3 border-l border-dashed border-foreground" />Capacity</li>
       </ul>
-      <p className="mt-2 max-w-xl text-[11px] text-muted-foreground">{trajectory.note}</p>
+      <p className="mt-2 hidden max-w-xl text-[11px] text-muted-foreground sm:block">{trajectory.note}</p>
     </div>
   );
 }
@@ -588,6 +747,7 @@ function BarOutcomeText({ outcome }: { outcome: ReturnType<typeof barOutcome> })
 
 function ShowBar({ bar, axisMax, onSelect }: { bar: AllShowBar; axisMax: number; onSelect: () => void }) {
   const outcome = barOutcome(bar);
+  const phone = phoneBar(bar);
   const scale = axisMax > 0 ? axisMax : 1;
   const cap = bar.allocation;
   const sold = bar.sold;
@@ -597,11 +757,19 @@ function ShowBar({ bar, axisMax, onSelect }: { bar: AllShowBar; axisMax: number;
   return (
     <button type="button" onClick={onSelect} className="w-full text-left">
       <span className="flex flex-wrap items-baseline justify-between gap-x-3 text-[11px] sm:grid sm:grid-cols-[9rem_minmax(0,1fr)_14rem] sm:items-center sm:gap-3">
-        <span>{bar.label}</span>
+        <span>
+          <span className="sm:hidden">{phone.name}</span>
+          <span className="hidden sm:inline">{bar.label}</span>
+        </span>
         <span className="relative hidden h-2 rounded-full bg-muted sm:block">
           <BarLayers soldEnd={soldEnd} holdEnd={holdEnd} highEnd={highEnd} cap={cap} scale={scale} />
         </span>
-        <BarOutcomeText outcome={outcome} />
+        <span>
+          <span className="text-muted-foreground sm:hidden">{phone.figures}</span>
+          <span className="hidden sm:inline">
+            <BarOutcomeText outcome={outcome} />
+          </span>
+        </span>
       </span>
       <span className="relative mt-1 block h-2 rounded-full bg-muted sm:hidden">
         <BarLayers soldEnd={soldEnd} holdEnd={holdEnd} highEnd={highEnd} cap={cap} scale={scale} />
@@ -642,7 +810,7 @@ function CapacityAxis({ max }: { max: number }) {
   if (max <= 0) return null;
   return (
     <>
-      <div className="relative mt-1 h-4 text-[10px] text-muted-foreground sm:hidden">
+      <div className="hidden">
         {capacityTicks(max, 1000).map((tick) => (
           <span key={tick} className={`absolute whitespace-nowrap ${tick === 0 ? "" : tick === max ? "right-0" : "-translate-x-1/2"}`} style={tick === 0 || tick === max ? undefined : { left: `${(tick / max) * 100}%` }}>
             {tick === max ? `${formatCount(tick)} capacity` : formatCount(tick)}
@@ -664,52 +832,58 @@ function CapacityAxis({ max }: { max: number }) {
   );
 }
 
-function Campaigns({ rows }: { rows: SalesDashboardModel["views"][string]["campaigns"] }) {
+function Campaigns({
+  rows,
+  open,
+  onToggle,
+}: {
+  rows: SalesDashboardModel["views"][string]["campaigns"];
+  open: boolean;
+  onToggle: () => void;
+}) {
   if (rows.length === 0) return null;
   return (
-    <div className="mt-6">
-      <h3 className="text-sm font-medium">Campaigns</h3>
-      <ul className="mt-2 space-y-3 sm:hidden">
+    <>
+      <div className="mt-6 hidden sm:block">
+        <h3 className="text-sm font-medium">Campaigns</h3>
+        <CampaignTable rows={rows} className="mt-2 w-full text-left text-xs" />
+      </div>
+      <CollapsedRow label={campaignsRow(rows)} open={open} onToggle={onToggle}>
+        <div className="mt-2 min-w-0 max-w-full overflow-x-auto">
+          <CampaignTable rows={rows} className="w-max min-w-full text-left text-xs" />
+        </div>
+      </CollapsedRow>
+    </>
+  );
+}
+
+function CampaignTable({ rows, className }: { rows: SalesDashboardModel["views"][string]["campaigns"]; className: string }) {
+  return (
+    <table className={className}>
+      <thead className="text-[11px] text-muted-foreground">
+        <tr>
+          <th className="py-1 pr-3 font-normal">Campaign</th>
+          <th className="py-1 pr-3 font-normal">Status</th>
+          <th className="py-1 pr-3 font-normal">In this period</th>
+          <th className="py-1 font-normal">Since launch</th>
+        </tr>
+      </thead>
+      <tbody>
         {rows.map((row) => (
-          <li key={row.id} className="border-t border-border pt-2 text-xs" title={row.title}>
-            <p className="flex flex-wrap items-center gap-2">
-              <span>{row.name}</span>
-              {row.unlinked ? <UnlinkedPill /> : null}
-            </p>
-            <p className="mt-1 whitespace-nowrap text-muted-foreground">{keepDate(row.delivery)}</p>
-            <p className="mt-1 flex justify-between">
-              <span>{row.periodSpend}</span>
-              <span>{row.sinceLaunch}</span>
-            </p>
-          </li>
-        ))}
-      </ul>
-      <table className="mt-2 hidden w-full text-left text-xs sm:table">
-        <thead className="text-[11px] text-muted-foreground">
-          <tr>
-            <th className="py-1 pr-3 font-normal">Campaign</th>
-            <th className="py-1 pr-3 font-normal">Status</th>
-            <th className="py-1 pr-3 font-normal">In this period</th>
-            <th className="py-1 font-normal">Since launch</th>
+          <tr key={row.id} className="border-t border-border" title={row.title}>
+            <td className="py-2 pr-3">
+              <span className="inline-flex flex-wrap items-center gap-2">
+                {row.name}
+                {row.unlinked ? <UnlinkedPill /> : null}
+              </span>
+            </td>
+            <td className="whitespace-nowrap py-2 pr-3 text-muted-foreground">{keepDate(row.delivery)}</td>
+            <td className="py-2 pr-3">{row.periodSpend}</td>
+            <td className="py-2 text-muted-foreground">{row.sinceLaunch}</td>
           </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id} className="border-t border-border" title={row.title}>
-              <td className="py-2 pr-3">
-                <span className="inline-flex flex-wrap items-center gap-2">
-                  {row.name}
-                  {row.unlinked ? <UnlinkedPill /> : null}
-                </span>
-              </td>
-              <td className="whitespace-nowrap py-2 pr-3 text-muted-foreground">{keepDate(row.delivery)}</td>
-              <td className="py-2 pr-3">{row.periodSpend}</td>
-              <td className="py-2 text-muted-foreground">{row.sinceLaunch}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -718,14 +892,17 @@ function ShowChip({
   on,
   label,
   onSelect,
+  buttonRef,
 }: {
   chip: SalesShowChip;
   on: boolean;
   label?: string;
   onSelect: () => void;
+  buttonRef?: Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-pressed={on}
       onClick={onSelect}
@@ -755,6 +932,34 @@ function FinishedToggle({ includeFinished, onToggle }: { includeFinished: boolea
     >
       Include finished
     </button>
+  );
+}
+
+/** MB3: Pace and Projected move into the phone grid. They have no chart line, so a tap does nothing and they show no outline. */
+function SummaryTile({ order, label, tile, span }: { order: number; label: string; tile: TrajectoryTile | null; span: string }) {
+  // No pace (or no projection) reads "—" alone, with no span line.
+  const none = !tile || tile.value.startsWith("—");
+  return (
+    <li className="order-[var(--phone-order)] sm:hidden" style={{ "--phone-order": order } as CSSProperties}>
+      <div className="h-full rounded-md border border-border bg-card px-[9px] py-[6px] text-muted-foreground">
+        <span className="block truncate font-mono text-[9px]">{label}</span>
+        <div className="text-foreground">
+          {none ? <TileValue className="mt-0.5 block">—</TileValue> : <SummaryValue value={tile.value} compact />}
+        </div>
+        <span className="mt-0.5 block truncate text-[11px]">{none ? "\u00a0" : span}</span>
+      </div>
+    </li>
+  );
+}
+
+/** MB3: a press and hold on a phone tile shows the full subline and, for Spend, the breakdown. */
+function TileHold({ sub, title, total }: { sub: string; title: string; total: SalesTotal | null }) {
+  if (total) return <SpendHover total={total} />;
+  return (
+    <div className="absolute left-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-24px)] border border-border bg-card p-2 text-[11px] leading-snug shadow-sm sm:hidden">
+      <p>{sub}</p>
+      {title ? <p className="mt-1 text-muted-foreground">{title}</p> : null}
+    </div>
   );
 }
 
@@ -802,11 +1007,11 @@ function SpendLine({ label, amount, indent = false, nest = false }: { label: str
   );
 }
 
-function SummaryValue({ value }: { value: string }) {
+function SummaryValue({ value, compact = false }: { value: string; compact?: boolean }) {
   const pace = /^(.*) a day$/.exec(value);
-  if (!pace) return <TileValue className="mt-1 block">{value}</TileValue>;
+  if (!pace) return <TileValue className={`${compact ? "mt-0.5 whitespace-nowrap" : "mt-1"} block`}>{value}</TileValue>;
   return (
-    <p className="mt-1 leading-none">
+    <p className={`${compact ? "mt-0.5 whitespace-nowrap" : "mt-1"} leading-none`}>
       <TileValue>{pace[1]}</TileValue>
       <span className="text-[11px] font-normal text-muted-foreground"> a day</span>
     </p>

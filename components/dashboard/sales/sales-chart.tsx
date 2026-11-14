@@ -35,7 +35,7 @@ const GROUP_COLOR = [
   "var(--foreground)",
 ];
 
-type Drawn = {
+export type Drawn = {
   id: SalesMetricId;
   label: string;
   dashed: boolean;
@@ -46,7 +46,7 @@ type Drawn = {
   runs: Coord[][];
 };
 
-type Coord = { x: number; y: number; note: string | null; count: boolean };
+export type Coord = { x: number; y: number; note: string | null; count: boolean };
 
 export function SalesChart({
   points,
@@ -252,7 +252,7 @@ export function SalesChart({
   );
 }
 
-type Scales = {
+export type Scales = {
   leftUnit: SalesUnit | "percent";
   leftPeak: number;
   leftCeiling: number;
@@ -262,7 +262,7 @@ type Scales = {
   count: number | null;
 };
 
-function axisScales(
+export function axisScales(
   points: SalesChartPoint[],
   selected: SalesMetricId[],
   plan: AxisPlan,
@@ -297,7 +297,7 @@ function unitPeak(points: SalesChartPoint[], selected: SalesMetricId[], unit: Sa
   return peak;
 }
 
-function formatTick(unit: SalesUnit | "percent", value: number, narrow: boolean): string {
+export function formatTick(unit: SalesUnit | "percent", value: number, narrow: boolean): string {
   if (unit === "percent") return `${Math.round(value)}%`;
   if (unit === "count") return formatCountTick(value, narrow);
   return formatMoneyTick(value, narrow);
@@ -321,14 +321,14 @@ function plainAxis(ids: SalesMetricId[]): string {
   }).join(", ");
 }
 
-function moneyOnTheLeft(plan: AxisPlan): AxisPlan {
+export function moneyOnTheLeft(plan: AxisPlan): AxisPlan {
   if (plan.mode !== "dual") return plan;
   const rank = (unit: SalesUnit) => (unit === "money" ? 0 : unit === "rate" ? 1 : 2);
   if (rank(plan.left) <= rank(plan.right)) return plan;
   return { mode: "dual", left: plan.right, right: plan.left };
 }
 
-function axisTitle(unit: SalesUnit | "percent", selected: SalesMetricId[]): string {
+export function axisTitle(unit: SalesUnit | "percent", selected: SalesMetricId[]): string {
   if (unit === "percent") return "% of own peak";
   const ids = selected.filter((id) => salesMetric(id).unit === unit);
   if (unit === "count") return countTitle(ids);
@@ -405,11 +405,12 @@ function HoverCard({
         );
       })}
       {point.estimated && point.estimateNote ? <p className="text-muted-foreground">{point.estimateNote}</p> : null}
+      {!point.estimated && point.carryNote ? <p className="text-muted-foreground">{point.carryNote}</p> : null}
     </div>
   );
 }
 
-function drawSeries(
+export function drawSeries(
   points: SalesChartPoint[],
   selected: SalesMetricId[],
   plan: AxisPlan,
@@ -438,7 +439,7 @@ function drawSeries(
   });
 }
 
-function allocationBand(points: SalesChartPoint[], steps: AllocationStep[], peak: number): ReactNode {
+export function allocationBand(points: SalesChartPoint[], steps: AllocationStep[], peak: number): ReactNode {
   if (steps.length === 0 || points.length === 0) return null;
   const plot = points.map((point, index) => {
     const step = [...steps].reverse().find((item) => item.day <= point.day) ?? steps[0];
@@ -477,12 +478,12 @@ function colorFor(id: SalesMetricId): string {
   return GROUP_COLOR[index % GROUP_COLOR.length];
 }
 
-function xAt(index: number, count: number): number {
+export function xAt(index: number, count: number): number {
   if (count <= 1) return CHART_PLOT / 2;
   return PLOT_PAD + (index / (count - 1)) * (CHART_PLOT - PLOT_PAD * 2);
 }
 
-function yAt(fraction: number): number {
+export function yAt(fraction: number): number {
   const clamped = Math.max(0, Math.min(1, fraction));
   return PLOT_PAD + (1 - clamped) * (CHART_PLOT - PLOT_PAD * 2);
 }
