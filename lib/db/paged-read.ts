@@ -27,6 +27,8 @@ export type PagedQuery = {
   gte(column: string, value: unknown): PagedQuery;
   lte(column: string, value: unknown): PagedQuery;
   in(column: string, values: readonly unknown[]): PagedQuery;
+  /** PostgREST `or` filter, e.g. "a.not.is.null,b.not.is.null". */
+  or(filters: string): PagedQuery;
   order(column: string, options: { ascending: boolean; nullsFirst?: boolean }): PagedQuery;
   range(from: number, to: number): PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
 };
