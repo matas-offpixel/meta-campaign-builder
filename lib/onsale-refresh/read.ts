@@ -12,6 +12,7 @@ import { applyGates, type ArmMode } from "./apply-gates.ts";
 import { acceptBlock, liveBlockedReason, type BlockCtx } from "./decide.ts";
 import { displayState, type LineState } from "./line-states.ts";
 import { spendToDate } from "./plan-guard.ts";
+import type { PurchaseCard } from "./purchase-campaign.ts";
 import type { AddCopy, LineKind, Proposal, WatchItem } from "./rules.ts";
 import { nextCycleAfter, todayLondon, weekLabel, type CycleKind, type RunKind } from "./schedule.ts";
 import { standingStops } from "./restart.ts";
@@ -46,6 +47,10 @@ export type PanelLine = {
   trackRecord?: "low" | null;
   /** P3: a new ad set's second evidence line (a cluster's interests, a default's sources or seed). */
   extra?: string | null;
+  /** P4 (PC2): a Purchase campaign line's card, drawn in Objective. */
+  card?: PurchaseCard | null;
+  /** P4 (PC3): the daily rate picked on the card (write.dailyGbp). */
+  dailyGbp?: number | null;
 };
 
 /** The panel's gates (R4): live only with the deployment gate and the event's arm. */
@@ -142,6 +147,7 @@ function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | n
     ...(writeKind ? { writeKind } : {}),
     ...(line.target?.extra ? { extra: line.target.extra } : {}),
     ...((line.evidence?.trackRecord as { state?: string } | undefined)?.state === "low" ? { trackRecord: "low" as const } : {}),
+    ...(line.kind === "purchase_campaign" && line.evidence?.card ? { card: line.evidence.card as PurchaseCard, dailyGbp: typeof line.write?.dailyGbp === "number" ? line.write.dailyGbp : null } : {}),
   };
 }
 

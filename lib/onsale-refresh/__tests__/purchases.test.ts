@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 
 import { fakeDb, op } from "../../launched-ads/__tests__/fake-db.ts";
 import { ONSALE_PHASE } from "../phase-config.ts";
-import { canonicalHost, fetchAdSetPixels, fetchPurchaseHosts, firstOnSaleDay, loadPurchaseReads, resolveCirqlinDomain, type RefreshGraph } from "../purchase-read.ts";
+import { AD_SET_FIELDS, canonicalHost, fetchAdSetPixels, fetchPurchaseHosts, firstOnSaleDay, loadPurchaseReads, resolveCirqlinDomain, type RefreshGraph } from "../purchase-read.ts";
 import {
   attributedOnPixel,
   classifyDomain,
@@ -633,7 +633,7 @@ describe("per-event purchases: the Meta and CIRQLIN reads", () => {
     });
     const result = await fetchAdSetPixels(graph.multiGet, ids);
     assert.equal(result.calls, 2);
-    assert.deepEqual(calls.map((call) => [call.params.fields, call.params.ids.split(",").length]), [["promoted_object", 50], ["promoted_object", 1]]);
+    assert.deepEqual(calls.map((call) => [call.params.fields, call.params.ids.split(",").length]), [[AD_SET_FIELDS, 50], [AD_SET_FIELDS, 1]]);
     assert.equal(result.pixels.get("s0"), NX_PIXEL);
     assert.equal(result.pixels.get("s1"), null);
     assert.equal(result.pixels.has("s2"), false);
@@ -817,7 +817,7 @@ describe("per-event and ticket-platform purchases: the read across a run (HE1, H
 
     // Reads only, counted: one ad-set batch, the breakdown of the three pixels a domain or a platform link counts on, one names batch.
     assert.equal(result.metaCalls, graphCalls.length);
-    assert.deepEqual(graphCalls.map((call) => (call.kind === "multi" ? `batch:${call.params.fields}` : call.path)).sort(), ["batch:name", "batch:promoted_object", `/${NX_PIXEL}/stats`, `/${PUZZLE_PIXEL}/stats`, `/${STUDIOS_PIXEL}/stats`].sort());
+    assert.deepEqual(graphCalls.map((call) => (call.kind === "multi" ? `batch:${call.params.fields}` : call.path)).sort(), ["batch:name", `batch:${AD_SET_FIELDS}`, `/${NX_PIXEL}/stats`, `/${PUZZLE_PIXEL}/stats`, `/${STUDIOS_PIXEL}/stats`].sort());
     assert.equal(result.cirqlinReads, 2, "one page read per crqln.com link");
     assert.ok(calls.every((call) => !op(call, "insert") && !op(call, "update") && !op(call, "upsert") && !op(call, "delete")), "nothing is written: clients.meta_pixel_id least of all");
   });

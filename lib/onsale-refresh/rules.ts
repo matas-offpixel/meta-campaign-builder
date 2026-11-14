@@ -36,6 +36,7 @@ import {
 } from "./new-adset.ts";
 import { RESULT_LABEL, type PhaseConfig, type ResultEvent } from "./phase-config.ts";
 import { stoppedText, trackKey, type TrackRecords } from "./track-record.ts";
+import { runningForm, type PcState, type PurchaseCampaignPlan } from "./purchase-campaign.ts";
 import { purchaseWhy, unreadPurchases, type PurchaseRead } from "./purchases.ts";
 import { dayMonth, shortDay, type RunPlan } from "./schedule.ts";
 
@@ -183,6 +184,12 @@ export type CampaignInput = {
   sinceOnSale: { ic: number; purchases: number; fromDay: string | null };
   /** The show's own purchases (per-event purchases record, E1–E4), read once per event. Absent = not read. */
   purchases?: PurchaseRead;
+  /**
+   * P4 (PC1, PC2): the event's Purchase campaign plan, the same on every
+   * campaign of the event; `isMain` marks the campaign the line goes on.
+   * Absent on inputs built before P4.
+   */
+  purchaseCampaign?: { plan: PurchaseCampaignPlan; isMain: boolean; budget: { plan: { wide: string; narrow: string } | null; main: { campaignKey: string; detail: string } | null } };
 };
 
 export type LineKind =
@@ -192,7 +199,8 @@ export type LineKind =
   | "bring_back_audience"
   | "missing_default"
   | "drop_audience"
-  | "move_budget";
+  | "move_budget"
+  | "purchase_campaign";
 
 export type ProposalLine = {
   kind: LineKind;
@@ -241,6 +249,10 @@ export type Proposal = {
     /** T4: the platform's share of the pixel's purchases, under the platform states. */
     context?: string | null;
     contextNarrow?: string | null;
+    /** P4 (PC1): the Purchase campaign's state, and the second sentence when the signal holds but a later check fails. */
+    purchaseCampaign?: { state: PcState; sentence: string | null; sentenceNarrow: string | null };
+    /** P4 (PF1, PF2): the Budget block — the plan sentence (with an event budget) and the main campaign's comparison row. */
+    budget?: { plan: { wide: string; narrow: string } | null; main: { campaignKey: string; detail: string } | null };
   };
   /** R5: only the budget blocks a line. Ticketing is a stated input, said under Objective (F9). */
   blockers: { kind: "budget"; text: string; action: string }[];
@@ -718,9 +730,46 @@ export function applyTrackRecords(lines: ProposalLine[], clientId: string | null
   return { lines: [...kept, ...low], stopped };
 }
 
+/** P4 (PC1): the running form, PC1's state sentence and the Budget block on the Objective. */
+export function withPurchaseCampaign(why: Proposal["why"], input: CampaignInput): Proposal["why"] {
+  const pc = input.purchaseCampaign;
+  if (!pc) return why;
+  const running = pc.plan.state === "running" ? runningForm(why.purchase, why.purchaseNarrow) : null;
+  return {
+    ...why,
+    ...(running ?? {}),
+    purchaseCampaign: { state: pc.plan.state, sentence: pc.plan.sentence, sentenceNarrow: pc.plan.sentenceNarrow },
+    budget: pc.budget,
+  };
+}
+
+/** P4 (PC2): the Purchase campaign line, on the main campaign only, when PC1 proposes it. */
+export function purchaseCampaignLine(input: CampaignInput): ProposalLine | null {
+  const pc = input.purchaseCampaign;
+  const card = pc?.plan.card;
+  const build = pc?.plan.build;
+  if (!pc?.isMain || pc.plan.state !== "proposed" || !card || !build) return null;
+  const rate = String(card.defaultRate);
+  const funding = card.byRate[rate]!;
+  return {
+    kind: "purchase_campaign",
+    ruleId: "purchase_campaign.proposed",
+    title: card.campaignName,
+    detail: card.optimises,
+    writeText: funding.writes,
+    narrow: { detail: card.optimisesNarrow, writeText: null },
+    target: { campaignName: card.campaignName, mainCampaignKey: card.mainCampaignKey },
+    evidence: { card, path: build.path, pixelId: build.pixelId, picks: build.picks, noPurchasePick: build.noPurchasePick, cap: build.cap, capOf: build.capOf, floor: build.floor, days: build.days },
+    write: { kind: "purchase_campaign_create", dailyGbp: card.defaultRate, ...build, ...whereTo(input) },
+    addsSpend: funding.headroom > 0,
+    blockedReason: notOurs(input) ?? card.held,
+    supply: false,
+  };
+}
+
 export function buildProposal(input: CampaignInput, config: PhaseConfig, trackRecords?: TrackRecords): Proposal {
   const objective = input.resultEvent;
-  const why = whyLines(input, objective, config);
+  const why = withPurchaseCampaign(whyLines(input, objective, config), input);
   const blockers = blockersFor(input);
   const enoughData = input.weekResults >= config.minResultsPerWeek;
   const notEnoughData = enoughData
@@ -733,6 +782,9 @@ export function buildProposal(input: CampaignInput, config: PhaseConfig, trackRe
   // C2 / P2: every line's evidence snapshot keeps the pixel-wide figure, labelled as any show's — never this show's purchases.
   const attributedPurchases = { count: input.last14.purchases, scope: "any_show_on_pixel" as const };
   const proposed = [...adds, ...claims, ...pauses.lines, ...audiences.lines].map((line) => ({ ...line, evidence: { ...line.evidence, attributedPurchases } }));
+  // P4: the Purchase campaign line leads the main campaign's lines; it adds spend only from plan headroom.
+  const purchase = purchaseCampaignLine(input);
+  if (purchase) proposed.unshift({ ...purchase, evidence: { ...purchase.evidence, attributedPurchases } });
   const tracked = applyTrackRecords(proposed, input.clientId, trackRecords);
   const lines = tracked.lines;
   return {

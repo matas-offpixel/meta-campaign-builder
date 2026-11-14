@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { LOW_TRACK_RECORD } from "@/lib/onsale-refresh/track-labels";
-import { REJECT_REASONS, acceptable, appliesNow, displayState, heldText, panelText, panelTextDeep, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
+import { REJECT_REASONS, acceptable, appliesNow, displayState, heldText, panelText, panelTextDeep, rejectReasonsFor, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
 import type { PanelApply, PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 import { isShowWeek } from "@/lib/onsale-refresh/on-sale";
 import { appliedStamp, dayMonth, outcomeWeek, shortDay, todayLondon, weekLabel } from "@/lib/onsale-refresh/schedule";
@@ -28,6 +28,7 @@ const KIND_LABEL: Record<PanelLine["kind"], string> = {
   missing_default: "Standing default",
   drop_audience: "Drop",
   move_budget: "Move",
+  purchase_campaign: "Purchase campaign",
 };
 
 const CREATIVE_KINDS = new Set<PanelLine["kind"]>(["add_creative", "claim_ready", "pause_creative"]);
@@ -124,7 +125,7 @@ function CopyBlock({ copy }: { copy: NonNullable<PanelLine["copy"]> }) {
 
 export type PanelActions = {
   onArm?: (mode: "shadow" | "live") => void;
-  onDecide?: (lineId: string, decision: "accept" | "reject", reason?: RejectReason, note?: string) => void;
+  onDecide?: (lineId: string, decision: "accept" | "reject", reason?: RejectReason, note?: string, choice?: { dailyGbp?: number }) => void;
   onApply?: (opts: { retry: boolean; lineIds?: string[] }) => void;
   /** P5: Propose again under a stop notice — restarts the rule for this client. */
   onProposeAgain?: (ruleId: string) => void;
@@ -188,7 +189,7 @@ function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine
           ) : null}
           {picking ? (
             <div className="mt-2 flex flex-wrap items-center gap-1.5" data-reasons>
-              {(Object.keys(REJECT_REASONS) as RejectReason[]).map((reason) =>
+              {rejectReasonsFor(line.kind).map((reason) =>
                 reason === "other" ? (
                   <Button key={reason} type="button" size="sm" variant={other != null ? "secondary" : "outline"} disabled={busy} onClick={() => setOther(other == null ? "" : null)}>
                     {REJECT_REASONS[reason]}
@@ -326,7 +327,7 @@ function Watch({ label, items, note }: { label: string; items: { title: string; 
  * A proposal stored before the per-event record has no `attributed`
  * either; its purchase line already says the figure.
  */
-export function ObjectiveBlock({ why: given, heading = true }: { why: PanelProposal["why"]; heading?: boolean }) {
+export function ObjectiveBlock({ why: given, heading = true, children }: { why: PanelProposal["why"]; heading?: boolean; children?: ReactNode }) {
   // The panel's one formatter (idempotent, so a why block the view already formatted is unchanged).
   const why = panelTextDeep(given);
   const setup = why.pixel ?? [];
@@ -358,7 +359,221 @@ export function ObjectiveBlock({ why: given, heading = true }: { why: PanelPropo
           <Wide wide={why.context} narrow={why.contextNarrow ?? why.context} />
         </p>
       ) : null}
+      {why.purchaseCampaign?.sentence ? (
+        <p className="text-xs" data-purchase-campaign={why.purchaseCampaign.state}>
+          <Wide wide={why.purchaseCampaign.sentence} narrow={why.purchaseCampaign.sentenceNarrow ?? why.purchaseCampaign.sentence} />
+        </p>
+      ) : null}
       {why.ticketing ? <p className="text-xs text-muted-foreground">{why.ticketing}</p> : null}
+      {children}
+    </div>
+  );
+}
+
+
+const H6 = ({ children }: { children: ReactNode }) => <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{children}</p>;
+
+/**
+ * P4 (PC2): the Purchase campaign card, in Objective. At 1280 it says
+ * exactly what Accept would build; at 393 the write line, what it
+ * optimises on, the two picks and the budget, and "See what it builds ›"
+ * steps into the full card (one header, one back). The rate is a choice of
+ * £5 or £10 a day; £10 reads "over the cap" and can't be picked when it
+ * doesn't fit. Accept carries the picked rate.
+ */
+export function PurchaseCampaignCard({ line: stored, shadow, apply, actions = {}, frozen = false }: { line: PanelLine; shadow: boolean; apply?: PanelApply; actions?: PanelActions; frozen?: boolean }) {
+  const card = stored.card!;
+  const line = apply ? { ...stored, state: displayState(stored) } : stored;
+  const [rate, setRate] = useState<number>(stored.dailyGbp ?? card.defaultRate);
+  const [open, setOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [other, setOther] = useState<string | null>(null);
+  const live = Boolean(apply && apply.mode === "live" && !frozen);
+  const busy = Boolean(actions.busy);
+  const decidable = live && (line.state === "to_review" || line.state === "accepted" || line.state === "rejected");
+  const funding = card.byRate[String(rate)] ?? card.byRate[String(card.defaultRate)]!;
+  // What holds Accept: shown only while Live (in Shadow the panel's foot says nothing applies).
+  const block = live && (line.state === "to_review" || line.state === "rejected") ? line.blockedReason : null;
+  const shadowTitle = shadow ? "Shadow: nothing here can be applied yet" : undefined;
+  const choice = () => (
+    <span role="radiogroup" aria-label="Daily rate" className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      {card.rates.map((option) => (
+        <label key={option.rate} className={`inline-flex items-baseline gap-1 whitespace-nowrap ${option.fits ? "" : "opacity-55"}`}>
+          <input type="radio" name={`rate-${line.id}`} className="accent-foreground" checked={rate === option.rate} disabled={!option.fits || line.state !== "to_review"} onChange={() => setRate(option.rate)} />
+          {option.label}
+        </label>
+      ))}
+    </span>
+  );
+  const full = (
+    <div className={open ? "block" : "hidden sm:block"} data-card="full">
+      <H6>Optimises on</H6>
+      <p className="text-xs">{card.optimises}</p>
+      <H6>{card.picksHeading}</H6>
+      <ul className="mt-0.5 space-y-0.5 text-xs">
+        {card.pickLines.map((pick) => (
+          <li key={`${pick.label}:${pick.text}`}>
+            <span className="font-medium">{pick.label}:</span> {pick.text} <span className="text-muted-foreground">{pick.aside}</span>
+          </li>
+        ))}
+        {card.picksNote ? <li className="text-muted-foreground">{card.picksNote}</li> : null}
+        <li className="text-muted-foreground">{card.retargetingLine}</li>
+      </ul>
+      <H6>{card.adsHeading}</H6>
+      <p className="text-xs">{card.adsLine}</p>
+      <H6>Budget</H6>
+      <div className="mt-0.5 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
+        {choice()}
+        {card.rateNote ? <span className="text-muted-foreground">{card.rateNote}</span> : null}
+      </div>
+      <p className="mt-1 text-xs">{funding.budget}</p>
+      <p className="mt-1 font-mono text-[11px] text-muted-foreground">{funding.writes}</p>
+      {card.note ? <p className="mt-1.5 text-xs text-muted-foreground">{card.note}</p> : null}
+    </div>
+  );
+  return (
+    <div className="mt-2 rounded border border-border/70 p-3" data-kind="purchase_campaign" data-state={line.state}>
+      {open ? (
+        <div className="mb-1 flex items-baseline gap-2 sm:hidden">
+          <button type="button" className="text-xs underline underline-offset-2" onClick={() => setOpen(false)}>
+            ‹ Back
+          </button>
+          <span className="text-sm font-medium">Purchase campaign</span>
+        </div>
+      ) : null}
+      <div className={`flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 ${open ? "hidden sm:flex" : "flex"}`}>
+        <span className="text-sm font-medium">
+          Purchase campaign<span className="hidden sm:inline"> · {card.campaignName}</span>
+        </span>
+        <span className="font-mono text-[11px] text-muted-foreground">
+          <Wide wide={card.header} narrow={card.headerNarrow} />
+        </span>
+      </div>
+      {open ? <p className="font-mono text-[11px] text-muted-foreground sm:hidden">{card.headerNarrow}</p> : null}
+      {full}
+      {open ? null : (
+        <div className="sm:hidden" data-card="narrow">
+          <p className="mt-1.5 text-xs">{card.optimisesNarrow}</p>
+          <p className="mt-1 text-xs">
+            {card.rates.map((option) => (
+              <label key={option.rate} className={`mr-3 inline-flex items-baseline gap-1 whitespace-nowrap ${option.fits ? "" : "opacity-55"}`}>
+                <input type="radio" name={`rate-narrow-${line.id}`} className="accent-foreground" checked={rate === option.rate} disabled={!option.fits || line.state !== "to_review"} onChange={() => setRate(option.rate)} />
+                {option.labelNarrow}
+              </label>
+            ))}
+            · {funding.narrow}
+          </p>
+          {card.noteNarrow ? <p className="mt-1 text-xs text-muted-foreground">{card.noteNarrow}</p> : null}
+          <button type="button" className="mt-1.5 text-xs underline underline-offset-2" onClick={() => setOpen(true)}>
+            See what it builds ›
+          </button>
+        </div>
+      )}
+      {block ? (
+        <p className="mt-1 text-xs text-muted-foreground" data-block="held">
+          {block}
+        </p>
+      ) : null}
+      {line.state !== "to_review" ? (
+        <p className={`mt-1 text-xs ${line.state === "failed" ? "text-destructive" : line.state === "applied" ? "font-medium text-foreground" : "text-muted-foreground"}`} data-line-state={line.state}>
+          {stateText(line.state, line.reason)}
+        </p>
+      ) : null}
+      {picking ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5" data-reasons>
+          {rejectReasonsFor(line.kind).map((reason) =>
+            reason === "other" ? (
+              <Button key={reason} type="button" size="sm" variant={other != null ? "secondary" : "outline"} disabled={busy} onClick={() => setOther(other == null ? "" : null)}>
+                {REJECT_REASONS[reason]}
+              </Button>
+            ) : (
+              <Button
+                key={reason}
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  setPicking(false);
+                  actions.onDecide?.(line.id, "reject", reason);
+                }}
+              >
+                {REJECT_REASONS[reason]}
+              </Button>
+            ),
+          )}
+          {other != null ? (
+            <span className="flex w-full items-center gap-1.5 sm:w-auto">
+              <input aria-label="Why (optional)" placeholder="Why (optional)" className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-xs sm:w-56" value={other} maxLength={200} onChange={(event) => setOther(event.target.value)} />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  setPicking(false);
+                  actions.onDecide?.(line.id, "reject", "other", other);
+                  setOther(null);
+                }}
+              >
+                Reject
+              </Button>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {line.state === "applied" || line.state === "applying" || line.state === "expired" ? null : (
+        <div className="mt-2 flex gap-2" role="group" aria-label="Accept or reject">
+          <Button
+            type="button"
+            size="sm"
+            variant={line.state === "accepted" ? "primary" : "outline"}
+            aria-pressed={line.state === "accepted"}
+            disabled={!decidable || busy || (line.state !== "accepted" && Boolean(line.blockedReason))}
+            title={shadowTitle}
+            onClick={() => actions.onDecide?.(line.id, "accept", undefined, undefined, { dailyGbp: rate })}
+          >
+            Accept
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={line.state === "rejected" ? "secondary" : "ghost"}
+            aria-pressed={line.state === "rejected"}
+            disabled={!decidable || busy}
+            title={shadowTitle}
+            onClick={() => {
+              if (line.state === "rejected") actions.onDecide?.(line.id, "reject");
+              else setPicking(!picking);
+            }}
+          >
+            Reject
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** P4 (PF1, PF2): the Budget block — the plan sentence with an event budget, and the main campaign's comparison row (not at 393). */
+function BudgetBlock({ budget }: { budget: NonNullable<PanelProposal["why"]["budget"]> }) {
+  if (!budget.plan && !budget.main) return null;
+  return (
+    <div className="mb-3" data-block="budget">
+      {budget.plan ? (
+        <>
+          <p className="text-xs font-medium">Budget</p>
+          <p className="text-xs">
+            <Wide wide={budget.plan.wide} narrow={budget.plan.narrow} />
+          </p>
+        </>
+      ) : null}
+      {budget.main ? (
+        <p className="mt-1 hidden flex-wrap items-baseline gap-x-2 text-xs sm:flex" data-main-row>
+          <span className="font-medium">{budget.main.campaignKey}</span>
+          <span className="text-muted-foreground">{budget.main.detail}</span>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -371,10 +586,12 @@ export type OnSaleRefreshPanelViewProps = {
   /** P2: the gates. Absent = P1's read-only panel (the OR1 frame). */
   apply?: PanelApply;
   actions?: PanelActions;
+  /** P4's PF frames: the header, Objective and Budget only. */
+  objectiveOnly?: boolean;
 };
 
 /** The panel from data; the viewport decides the wide or the narrow wording. Nothing here fetches. */
-export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = false, apply, actions = {} }: OnSaleRefreshPanelViewProps) {
+export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = false, apply, actions = {}, objectiveOnly = false }: OnSaleRefreshPanelViewProps) {
   // One formatter for everything the panel draws, P1 and P2 alike: figures grouped (£2,505.85 · 3,105), dates kept together.
   const kd = panelText;
   const proposals = panelTextDeep(given);
@@ -411,7 +628,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
         {apply ? <ArmControl apply={apply} actions={actions} /> : <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs">{shadow ? "Shadow" : "Live"}</span>}
       </div>
 
-      {head.blockers.length ? (
+      {head.blockers.length && !objectiveOnly ? (
         <div className="mb-3 rounded border border-dashed border-border p-3">
           <p className="text-xs font-medium">Before it can move money</p>
           <ul className="mt-1 space-y-1">
@@ -429,11 +646,19 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
         </div>
       ) : null}
 
-      <ObjectiveBlock why={head.why} />
+      <ObjectiveBlock why={head.why}>
+        {all
+          .filter((line) => line.kind === "purchase_campaign" && line.card)
+          .map((line) => (
+            <PurchaseCampaignCard key={line.id} line={line} shadow={shadow} apply={apply} actions={actions} frozen={showWeek} />
+          ))}
+      </ObjectiveBlock>
+      {head.why.budget ? <BudgetBlock budget={head.why.budget} /> : null}
 
-      {proposals.map((proposal) => {
+      {objectiveOnly ? null : proposals.map((proposal) => {
         const creatives = proposal.lines.filter((line) => CREATIVE_KINDS.has(line.kind));
-        const audiences = proposal.lines.filter((line) => !CREATIVE_KINDS.has(line.kind));
+        // P4: the Purchase campaign line is drawn in Objective, not in a campaign's lists.
+        const audiences = proposal.lines.filter((line) => !CREATIVE_KINDS.has(line.kind) && line.kind !== "purchase_campaign");
         return (
           <div key={proposal.id} className="mb-3 border-t border-border pt-3">
             <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between">
@@ -488,7 +713,7 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
         );
       })}
 
-      {apply ? (
+      {objectiveOnly ? null : apply ? (
         <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-muted-foreground">
             <p>
@@ -584,7 +809,7 @@ export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; ev
     busy,
     error: actionError,
     onArm: (mode) => void act("arm", { mode }),
-    onDecide: (lineId, decision, reason, note) => void act(`lines/${lineId}`, { decision, reason, note }),
+    onDecide: (lineId, decision, reason, note, choice) => void act(`lines/${lineId}`, { decision, reason, note, ...(choice?.dailyGbp ? { dailyGbp: choice.dailyGbp } : {}) }),
     onApply: (opts) => void act("apply", opts),
     onProposeAgain: (ruleId) => void act("restart", { ruleId }),
   };
