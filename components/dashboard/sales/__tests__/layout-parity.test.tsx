@@ -59,11 +59,17 @@ describe("N7 tile sublines", () => {
     expect(tileSubline("sold", "Internal Counts, 12 Nov · plus 64 comps", "14", "12 Nov")).toBe(
       "to date · Internal Counts, 12 Nov · plus 64 comps",
     );
-    expect(tileSubline("costPerTicket", "blended · complete windows", "launch", "12 Nov", { showsWithCounts: 3, shows: 4 })).toBe(
+    expect(tileSubline("costPerTicket", "blended · complete windows", "launch", "12 Nov", { showsWithCounts: 3, shows: 4 }, true)).toBe(
       "since launch · the 3 shows with counts",
     );
-    expect(tileSubline("costPerTicket", "blended · complete windows", "launch", "12 Nov")).toBe("since launch · blended");
-    expect(tileSubline("costPerTicket", "blended", "14", "12 Nov", { showsWithCounts: 3, shows: 3 })).toBe("in 14 days · blended");
+    expect(tileSubline("costPerTicket", "blended · complete windows", "launch", "12 Nov", null, true)).toBe("since launch · blended");
+    expect(tileSubline("costPerTicket", "blended", "14", "12 Nov", null, true)).toBe("in 14 days · blended · complete windows");
+    expect(tileSubline("costPerTicket", "blended", "14", "12 Nov", { showsWithCounts: 3, shows: 4 }, true)).toBe(
+      "in 14 days · the 3 shows with counts · complete windows",
+    );
+    expect(tileSubline("costPerTicket", "blended", "14", "12 Nov", { showsWithCounts: 3, shows: 4 })).toBe(
+      "in 14 days · the 3 shows with counts",
+    );
     expect(tileSubline("tickets", "since launch", "launch", "12 Nov")).toBe("since launch, to 12 Nov");
     expect(tileSubline("checkoutActions", "£5.31 each", "launch", "12 Nov")).toBe(
       "since launch · actions, one person can do both",

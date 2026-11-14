@@ -31,11 +31,12 @@ export function tileSubline(
   period: SalesPeriod,
   endLabel: string,
   scope: ShowCountScope | null = null,
+  wide = false,
 ): string {
   const text = detail.trim();
   const span = periodSpan(period);
   if (id === "sold") return soldSubline(text, endLabel);
-  if (id === "costPerTicket") return costPerTicketSubline(span, scope);
+  if (id === "costPerTicket") return costPerTicketSubline(span, scope, wide);
   if (id === "tickets" && period === "launch") return `since launch, to ${endLabel}`;
   if (id === "checkoutActions") return `${span} · actions, one person can do both`;
   if (id === "costPerRegistration") return `${span} · show pages, inside their signup windows`;
@@ -54,8 +55,16 @@ function soldSubline(detail: string, endLabel: string): string {
   return comps ? `${line} · plus ${comps[1]} comps` : line;
 }
 
-/** N3: name the shows that have no counts. A single show, or a set where every show has a count, stays "blended". */
-function costPerTicketSubline(span: string, scope: ShowCountScope | null): string {
-  if (scope && scope.showsWithCounts < scope.shows) return `${span} · the ${scope.showsWithCounts} shows with counts`;
-  return `${span} · blended`;
+/**
+ * N3 names the shows that have no counts. A single show, or a set where every
+ * show has a count, stays "blended". Wide keeps "complete windows" on every
+ * period except Since launch; 393 drops it.
+ */
+function costPerTicketSubline(span: string, scope: ShowCountScope | null, wide: boolean): string {
+  const body = scope && scope.showsWithCounts < scope.shows
+    ? `the ${scope.showsWithCounts} shows with counts`
+    : "blended";
+  const line = `${span} · ${body}`;
+  if (wide && span !== "since launch") return `${line} · complete windows`;
+  return line;
 }

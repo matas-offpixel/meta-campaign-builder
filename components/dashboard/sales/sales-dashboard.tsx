@@ -196,8 +196,8 @@ export function SalesDashboard({
                 </span>
                 <TileValue className="mt-1 block">{tile.value}</TileValue>
                 <span className="mt-1 block text-[11px] text-muted-foreground">
-                  <span className="sm:hidden">{tileSubline(tile.id, narrowDetail, period, endLabel, showScope)}</span>
-                  <span className="hidden sm:inline">{tileSubline(tile.id, wideDetail, period, endLabel, showScope)}</span>
+                  <span className="sm:hidden">{tileSubline(tile.id, narrowDetail, period, endLabel, showScope, false)}</span>
+                  <span className="hidden sm:inline">{tileSubline(tile.id, wideDetail, period, endLabel, showScope, true)}</span>
                 </span>
               </button>
             </li>
