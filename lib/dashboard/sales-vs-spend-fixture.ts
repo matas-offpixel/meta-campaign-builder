@@ -16,6 +16,7 @@ import {
   type SalesMetricId,
   type SalesShowView,
   type SalesTile,
+  type SalesTotal,
 } from "./sales-vs-spend.ts";
 
 const ESTIMATE = "Estimated between counts on 5 Nov and 12 Nov";
@@ -326,14 +327,100 @@ function lockleadView(): SalesShowView {
   };
 }
 
+const NX_LAUNCH: SalesTotal = {
+  scope: "NX Newcastle",
+  amount: 9840,
+  text: "£9,840",
+  channels: [
+    { platform: "meta", label: "Meta", amount: 4210, text: "£4,210" },
+    { platform: "tiktok", label: "TikTok", amount: 520, text: "£520" },
+  ],
+  parts: [
+    {
+      id: "ipc",
+      label: "Interplanetary Criminal",
+      amount: 5410,
+      text: "£5,410",
+      channels: [
+        { platform: "meta", label: "Meta", amount: 1840, text: "£1,840" },
+        { platform: "tiktok", label: "TikTok", amount: 220, text: "£220" },
+      ],
+    },
+  ],
+  headline: "£9,840 since launch · to 12 Nov",
+  notIncluded: "Not in this total: NX Newcastle umbrella £640. Finished shows (Include finished adds them).",
+};
+
+const NX_WINDOW: SalesTotal = {
+  scope: "NX Newcastle",
+  amount: 4730,
+  text: "£4,730",
+  channels: [
+    { platform: "meta", label: "Meta", amount: 4210, text: "£4,210" },
+    { platform: "tiktok", label: "TikTok", amount: 520, text: "£520" },
+  ],
+  parts: [
+    {
+      id: "ipc",
+      label: "Interplanetary Criminal",
+      amount: 2060,
+      text: "£2,060",
+      channels: [
+        { platform: "meta", label: "Meta", amount: 1840, text: "£1,840" },
+        { platform: "tiktok", label: "TikTok", amount: 220, text: "£220" },
+      ],
+    },
+  ],
+  headline: "£4,730 in 14 days · to 12 Nov",
+  notIncluded: "Not in this total: NX Newcastle umbrella £640. Finished shows (Include finished adds them).",
+};
+
+const ALL_VENUES_LAUNCH: SalesTotal = {
+  ...NX_LAUNCH,
+  scope: "All venues",
+  parts: [{ id: "venue:nx newcastle", label: "NX Newcastle", amount: 9840, text: "£9,840", channels: NX_LAUNCH.channels }],
+};
+
+const NX_HEADER = {
+  sentence:
+    "NX Newcastle to date: £9,840 spend since launch, 2,327 tickets sold across 3 shows (Internal Counts, 12 Nov), so £4.23 of spend per ticket. Separate NX Newcastle umbrella spend: £640.",
+  channelLine: "Meta £4,210 · TikTok £520 · to 12 Nov · finished shows not included",
+};
+
+const ALL_VENUES_HEADER = {
+  sentence:
+    "NX Newcastle to date, 2 venues: £9,840 spend since launch. 2,327 tickets sold on the 3 shows with counts (Internal Counts, 12 Nov), so £4.23 of spend per ticket on those shows. Separate umbrella spend: NX Newcastle £640.",
+  channelLine: "Meta £4,210 · TikTok £520 · to 12 Nov · finished shows not included",
+};
+
+function allTrajectory(): SalesShowView["trajectory"] {
+  return {
+    kind: "all",
+    wideRange: "Projected on show day: 3,162–4,210 of 4,500 across 3 shows (Locklead has no capacity; umbrella excluded)",
+    narrowRange: "3,162–4,210 of 4,500 on show day",
+    bars: [
+      { id: "ipc", label: "IPC · 21 Nov", sold: 812, low: 1012, high: 1390, allocation: 1500, caption: "812 · 1,012–1,390", sellsOut: null },
+      { id: "robbie", label: "Robbie Doherty · 27 Nov", sold: 600, low: 870, high: 1320, allocation: 1500, caption: "600 · 870–1,320", sellsOut: null },
+      { id: "dod", label: "DOD · 4 Dec", sold: 915, low: 1280, high: 1500, allocation: 1500, caption: "915 · 1,280–1,500", sellsOut: "best" },
+      { id: "locklead", label: "Locklead · 11 Dec", sold: null, low: null, high: null, allocation: null, caption: MISSING_CAPACITY_SHORT, sellsOut: null },
+    ],
+    note: ALL_NOTE,
+    summary: {
+      sold: { label: "Sold · count of 12 Nov", value: "2,327", detail: "52% of 4,500 across 3 shows" },
+      projected: { label: "Projected on show day", value: "3,162–4,210", detail: "up to 94% of 4,500 · each show capped at its capacity" },
+      pace: { label: "Pace, last 7 days", value: "— a day", detail: "14-day — a day" },
+    },
+  };
+}
+
 function umbrellaView(): SalesShowView {
   const view = ipcView();
   return {
     ...view,
     title: "NX umbrella",
     narrowTitle: "NX umbrella",
-    subtitle: "Not in All shows",
-    narrowSubtitle: "Not in All shows",
+    subtitle: "NX umbrella · not a show: no tickets and no trajectory",
+    narrowSubtitle: "NX umbrella · not a show: no tickets and no trajectory",
     umbrellaLine: null,
     tiles: view.tiles.map((tile) =>
       tile.id === "spend"
@@ -366,6 +453,19 @@ function umbrellaView(): SalesShowView {
         title: "£640. Kept out of All shows.",
       },
     ],
+    header: {
+      sentence: "NX Newcastle umbrella to date: £640 spend since launch, kept out of every show total.",
+      channelLine: "to 12 Nov",
+    },
+    spendTotal: {
+      scope: "NX Newcastle umbrella",
+      amount: 640,
+      text: "£640",
+      channels: [],
+      parts: [],
+      headline: "£640 since launch · to 12 Nov",
+      notIncluded: null,
+    },
   };
 }
 
@@ -412,10 +512,54 @@ export const NX_SALES_FIXTURE: SalesDashboardModel = {
   finishedShows: [{ id: "djez", wide: "DJ EZ · 2 Oct", narrow: "DJ EZ", kind: "show", finished: true }],
   initialShowId: "ipc",
   initialPeriod: "14",
+  initialVenueViewId: "venue:nx newcastle",
   crossClientNote: null,
   reviewLine: null,
+  venues: [
+    {
+      key: "nx newcastle",
+      name: "NX Newcastle",
+      liveShows: 3,
+      viewId: "venue:nx newcastle",
+      shows: [
+        { id: "venue:nx newcastle", wide: "All shows", narrow: "All", kind: "all", finished: false },
+        { id: "ipc", wide: "IPC · 21 Nov", narrow: "IPC", kind: "show", finished: false },
+        { id: "robbie", wide: "Robbie Doherty · 27 Nov", narrow: "Robbie", kind: "show", finished: false },
+        { id: "dod", wide: "DOD · 4 Dec", narrow: "DOD", kind: "show", finished: false },
+        { id: "umbrella", wide: "NX umbrella", narrow: "Umbrella", kind: "umbrella", finished: false },
+      ],
+      finishedShows: [{ id: "djez", wide: "DJ EZ · 2 Oct", narrow: "DJ EZ", kind: "show", finished: true }],
+    },
+    {
+      key: "electric bristol",
+      name: "Electric Bristol",
+      liveShows: 1,
+      viewId: "locklead",
+      shows: [{ id: "locklead", wide: "Locklead · 11 Dec", narrow: "Locklead", kind: "show", finished: false }],
+      finishedShows: [],
+    },
+  ],
   views: {
     all: {
+      title: "All venues · NX Newcastle",
+      narrowTitle: "All venues",
+      subtitle: "3 shows with a capacity · Locklead left out",
+      narrowSubtitle: "3 shows · Locklead left out",
+      umbrellaLine: "Separate NX umbrella spend £640",
+      tiles: allTiles(),
+      endDay: "2026-11-12",
+      points: allPoints(),
+      allocation: [],
+      trajectory: allTrajectory(),
+      campaigns: IPC_CAMPAIGNS,
+      venueKey: null,
+      header: ALL_VENUES_HEADER,
+      spendTotal: ALL_VENUES_LAUNCH,
+      periods: {
+        "14": { tiles: allTiles(), campaigns: IPC_CAMPAIGNS, spendTotal: { ...NX_WINDOW, scope: "All venues" } },
+      },
+    },
+    "venue:nx newcastle": {
       title: "All shows · NX Newcastle",
       narrowTitle: "All shows",
       subtitle: "3 shows with a capacity · Locklead left out",
@@ -425,21 +569,52 @@ export const NX_SALES_FIXTURE: SalesDashboardModel = {
       endDay: "2026-11-12",
       points: allPoints(),
       allocation: [],
-      trajectory: {
-        kind: "all",
-        wideRange: "Projected on show day: 3,162–4,210 of 4,500 across 3 shows (Locklead has no capacity; umbrella excluded)",
-        narrowRange: "3,162–4,210 of 4,500 on show day",
-        bars: [
-          { id: "ipc", label: "IPC · 21 Nov", sold: 812, low: 1012, high: 1390, allocation: 1500, caption: "812 · 1,012–1,390" },
-          { id: "robbie", label: "Robbie Doherty · 27 Nov", sold: 600, low: 870, high: 1320, allocation: 1500, caption: "600 · 870–1,320" },
-          { id: "dod", label: "DOD · 4 Dec", sold: 915, low: 1280, high: 1500, allocation: 1500, caption: "915 · 1,280–1,500" },
-          { id: "locklead", label: "Locklead · 11 Dec", sold: null, low: null, high: null, allocation: null, caption: MISSING_CAPACITY_SHORT },
-        ],
-        note: ALL_NOTE,
-      },
+      trajectory: allTrajectory(),
       campaigns: IPC_CAMPAIGNS,
+      venueKey: "nx newcastle",
+      header: NX_HEADER,
+      spendTotal: NX_LAUNCH,
+      periods: {
+        "14": { tiles: allTiles(), campaigns: IPC_CAMPAIGNS, spendTotal: NX_WINDOW },
+      },
     },
-    ipc: ipcView(),
+    ipc: {
+      ...ipcView(),
+      header: {
+        sentence: "Interplanetary Criminal to date: £5,410 spend since launch, 812 tickets sold (Internal Counts, 12 Nov), so £6.66 per ticket.",
+        channelLine: "Meta £1,840 · TikTok £220 · to 12 Nov",
+      },
+      spendTotal: {
+        scope: "Interplanetary Criminal",
+        amount: 5410,
+        text: "£5,410",
+        channels: [
+          { platform: "meta", label: "Meta", amount: 1840, text: "£1,840" },
+          { platform: "tiktok", label: "TikTok", amount: 220, text: "£220" },
+        ],
+        parts: [],
+        headline: "£5,410 since launch · to 12 Nov",
+        notIncluded: "Not in this total: NX Newcastle umbrella £640.",
+      },
+      periods: {
+        "14": {
+          tiles: ipcTiles(),
+          campaigns: IPC_CAMPAIGNS,
+          spendTotal: {
+            scope: "Interplanetary Criminal",
+            amount: 2060,
+            text: "£2,060",
+            channels: [
+              { platform: "meta", label: "Meta", amount: 1840, text: "£1,840" },
+              { platform: "tiktok", label: "TikTok", amount: 220, text: "£220" },
+            ],
+            parts: [],
+            headline: "£2,060 in 14 days · to 12 Nov",
+            notIncluded: "Not in this total: NX Newcastle umbrella £640.",
+          },
+        },
+      },
+    },
     robbie: robbieView(),
     dod: dodView(),
     locklead: lockleadView(),

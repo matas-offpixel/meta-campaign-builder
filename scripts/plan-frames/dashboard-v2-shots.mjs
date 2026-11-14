@@ -3,7 +3,7 @@
  * is "sales/DV1": the nested route app/(dev)/frames/sales/[id], which does
  * not import the shared frames page.
  */
-export const DASHBOARD_V2_FRAME_IDS = ["DV1", "DV2", "DV3"];
+export const DASHBOARD_V2_FRAME_IDS = ["DV1", "DV2", "DV3", "NV1", "NV2", "NV5", "NV6"];
 export const DASHBOARD_V2_WIDTHS = [1280, 393];
 
 export const DASHBOARD_V2_SHOTS = DASHBOARD_V2_FRAME_IDS.flatMap((frame) =>

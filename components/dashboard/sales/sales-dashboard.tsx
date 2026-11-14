@@ -1,26 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { CHART_PLOT, PLOT_PAD, ChartDateLabels, ChartDot, SalesChart } from "@/components/dashboard/sales/sales-chart";
+import { TILE_NAMES, spendScopeLine, tileSubline } from "@/components/dashboard/sales/tile-copy";
+import { barOutcome, capacityTicks, formatCount, shareOf, trajectoryAxisMax, trajectorySums } from "@/components/dashboard/sales/trajectory-bars";
 import {
   campaignsForPeriod,
   DEFAULT_ON_METRICS,
-  INDEX_TO_PEAK,
   SALES_METRICS,
   keepDate,
   SALES_PERIODS,
-  planAxes,
   salesForSurface,
-  salesMetric,
   slicePoints,
   tilesForPeriod,
   visibleShows,
+  type AllShowBar,
   type SalesDashboardModel,
   type SalesMetricId,
   type SalesPeriod,
+  type SalesShowChip,
   type SalesSurface,
+  type SalesTotal,
   type SalesTrajectory,
+  type SalesVenue,
   type SingleTrajectory,
 } from "@/lib/dashboard/sales-vs-spend";
 
@@ -29,31 +32,70 @@ export function SalesDashboard({
   surface,
   initialShowId,
   initialPeriod,
+  initialIndex = false,
+  pinHover = false,
+  pinSpend = false,
+  initialVenueKey,
   onQuery,
 }: {
   model: SalesDashboardModel;
   surface: SalesSurface;
   initialShowId?: string;
+  /** Since launch when the URL has no period (N5). */
   initialPeriod?: SalesPeriod;
-  /** Pages pass this to keep `show` and `period` in the query string. */
-  onQuery?: (key: "show" | "period", value: string) => void;
+  initialIndex?: boolean;
+  pinHover?: boolean;
+  /** NV5 leaves the spend breakdown open. */
+  pinSpend?: boolean;
+  /** `venue` in the URL: a venue key, or "all". */
+  initialVenueKey?: string;
+  /** Pages pass this to keep `show`, `period` and `venue` in the query string. */
+  onQuery?: (key: "show" | "period" | "venue", value: string) => void;
 }) {
   const presented = salesForSurface(model, surface);
+  const venues = (presented.venues ?? []).filter((venue) => venue.liveShows > 0);
+  const multiVenue = venues.length >= 2;
   const [showId, setShowId] = useState(initialShowId ?? presented.initialShowId);
-  const [period, setPeriod] = useState<SalesPeriod>(initialPeriod ?? presented.initialPeriod);
+  const [venueKey, setVenueKey] = useState(() =>
+    startingVenueKey(presented, initialShowId ?? presented.initialShowId, initialVenueKey),
+  );
+  const [period, setPeriod] = useState<SalesPeriod>(initialPeriod ?? "launch");
   const [includeFinished, setIncludeFinished] = useState(false);
   const [selected, setSelected] = useState<SalesMetricId[]>([...DEFAULT_ON_METRICS]);
-  const [indexRequested, setIndexRequested] = useState(false);
+  const [indexRequested, setIndexRequested] = useState(initialIndex);
+  const [spendHover, setSpendHover] = useState<"tile" | "header" | null>(pinSpend ? "tile" : null);
+  const venueButtonRef = useRef<HTMLButtonElement>(null);
 
-  const chips = visibleShows(presented, includeFinished);
-  const activeId = chips.some((chip) => chip.id === showId) ? showId : presented.initialShowId;
+  useEffect(() => {
+    venueButtonRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [venueKey]);
+
+  const selectedVenue = venues.find((venue) => venueToken(venue) === venueKey) ?? null;
+  const grouped = multiVenue && venueKey === "all";
+  const chips = !multiVenue
+    ? visibleShows(presented, includeFinished)
+    : grouped
+      ? venues.flatMap((venue) => [...venue.shows, ...(includeFinished ? venue.finishedShows : [])])
+      : [...(selectedVenue?.shows ?? []), ...(includeFinished ? selectedVenue?.finishedShows ?? [] : [])];
+  const activeId = chips.some((chip) => chip.id === showId)
+    ? showId
+    : grouped
+      ? showId
+      : selectedVenue?.viewId ?? presented.initialShowId;
+  const activeChip = chips.find((chip) => chip.id === activeId);
+  const umbrella = activeChip?.kind === "umbrella";
   const view = presented.views[activeId] ?? presented.views[presented.initialShowId];
   if (!view) return null;
   const points = slicePoints(view.points, period, view.endDay);
   const tiles = tilesForPeriod(view.tiles, view.points, period, view.endDay, view.periods);
-  const units = selected.map((id) => salesMetric(id).unit);
-  const axes = planAxes(units, indexRequested);
-  const indexForced = axes.mode === "index" && new Set(units).size >= 3;
+  const showScope = view.trajectory.kind === "all"
+    ? {
+        showsWithCounts: view.trajectory.bars.filter((bar) => bar.sold != null).length,
+        shows: view.trajectory.bars.length,
+      }
+    : null;
+  const launchTotal = view.spendTotal ?? null;
+  const periodTotal = period === "launch" ? launchTotal : (view.periods?.[period]?.spendTotal ?? null);
 
   function chooseShow(id: string) {
     setShowId(id);
@@ -65,8 +107,30 @@ export function SalesDashboard({
     writeQuery("period", next);
   }
 
-  function writeQuery(key: "show" | "period", value: string) {
+  function chooseVenue(venue: SalesVenue | "all") {
+    if (venue === "all") {
+      setVenueKey("all");
+      setShowId("all");
+      writeQuery("venue", "all");
+      writeQuery("show", "all");
+      return;
+    }
+    setVenueKey(venueToken(venue));
+    setShowId(venue.viewId);
+    writeQuery("venue", venue.key ?? venue.viewId);
+    writeQuery("show", venue.viewId);
+  }
+
+  function writeQuery(key: "show" | "period" | "venue", value: string) {
     onQuery?.(key, value);
+  }
+
+  function hoverSpend(which: "tile" | "header") {
+    setSpendHover(which);
+  }
+
+  function leaveSpend() {
+    if (!pinSpend) setSpendHover(null);
   }
 
   function toggleMetric(id: SalesMetricId) {
@@ -77,16 +141,35 @@ export function SalesDashboard({
     <section className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
       <header>
         <h2 className="text-xl font-medium tracking-tight sm:text-2xl">
-          <span className="sm:hidden">{view.narrowTitle}</span>
-          <span className="hidden sm:inline">{view.title}</span>
+          {umbrella ? `${presented.clientName} umbrella` : (
+            <>
+              <span className="sm:hidden">{view.narrowTitle}</span>
+              <span className="hidden sm:inline">{view.title}</span>
+            </>
+          )}
         </h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          <span className="sm:hidden">{view.narrowSubtitle}</span>
-          <span className="hidden sm:inline">{view.subtitle}</span>
-        </p>
-        {view.umbrellaLine ? (
-          <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block">{view.umbrellaLine}</p>
+        {umbrella && view.header ? (
+          <p className="mt-1 text-xs text-muted-foreground">{view.subtitle}</p>
         ) : null}
+        {view.header ? (
+          <div className="relative" onMouseEnter={() => hoverSpend("header")} onMouseLeave={leaveSpend}>
+            <p className="mt-1 max-w-3xl text-sm leading-snug">{view.header.sentence}</p>
+            {channelLineHasSplit(view.header.channelLine) ? (
+              <p className="mt-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{view.header.channelLine}</p>
+            ) : null}
+            {spendHover === "header" && launchTotal ? <SpendHover total={launchTotal} /> : null}
+          </div>
+        ) : (
+          <>
+            <p className="mt-1 text-xs text-muted-foreground">
+              <span className="sm:hidden">{view.narrowSubtitle}</span>
+              <span className="hidden sm:inline">{view.subtitle}</span>
+            </p>
+            {view.umbrellaLine ? (
+              <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block">{view.umbrellaLine}</p>
+            ) : null}
+          </>
+        )}
         <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
           {presented.freshness.map((stamp) => (
             <li key={stamp.id} className={stamp.stale ? "text-warning" : "text-muted-foreground"}>
@@ -97,35 +180,78 @@ export function SalesDashboard({
         </ul>
       </header>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {chips.map((chip) => {
-          const on = chip.id === activeId;
-          return (
+      {multiVenue ? (
+        <div className="mt-4 flex items-center gap-2">
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Venue</span>
+          <div className="flex overflow-x-auto">
+            {venues.map((venue, index) => {
+              const on = venueToken(venue) === venueKey;
+              return (
+                <button
+                  key={venue.viewId}
+                  ref={on ? venueButtonRef : undefined}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => chooseVenue(venue)}
+                  className={`shrink-0 border border-border px-3 py-1 text-xs ${index === 0 ? "rounded-l-full" : "-ml-px"} ${
+                    on ? "relative z-10 bg-foreground text-background" : "bg-card"
+                  }`}
+                >
+                  {venue.name}
+                </button>
+              );
+            })}
             <button
-              key={chip.id}
+              ref={venueKey === "all" ? venueButtonRef : undefined}
               type="button"
-              aria-pressed={on}
-              onClick={() => chooseShow(chip.id)}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                chip.kind === "umbrella" ? "border-dashed" : "border-border"
-              } ${chip.finished ? "text-muted-foreground" : ""} ${
-                on ? "border-foreground bg-foreground text-background" : "bg-card"
+              aria-pressed={venueKey === "all"}
+              onClick={() => chooseVenue("all")}
+              className={`-ml-px shrink-0 rounded-r-full border border-border px-3 py-1 text-xs ${
+                venueKey === "all" ? "relative z-10 bg-foreground text-background" : "bg-card"
               }`}
             >
-              <span className="sm:hidden">{chip.narrow}</span>
-              <span className="hidden sm:inline">{chip.wide}</span>
+              All venues
             </button>
-          );
-        })}
-        <button
-          type="button"
-          aria-pressed={includeFinished}
-          onClick={() => setIncludeFinished((value) => !value)}
-          className={`rounded-full border border-border px-3 py-1 text-xs ${includeFinished ? "bg-muted" : "bg-card text-muted-foreground"}`}
-        >
-          Include finished
-        </button>
-      </div>
+          </div>
+        </div>
+      ) : null}
+
+      {grouped ? (
+        <div className="mt-3 space-y-2">
+          {venues.map((venue) => (
+            <div key={venue.viewId} className="flex items-center gap-2 overflow-x-auto">
+              <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{venue.name}</span>
+              <ShowChip
+                chip={{ id: venue.viewId, wide: `All ${venue.name}`, narrow: "All", kind: "all", finished: false }}
+                on={activeId === venue.viewId}
+                label={`All ${venue.name}`}
+                onSelect={() => chooseShow(venue.viewId)}
+              />
+              {venue.shows.filter((chip) => chip.kind !== "all").map((chip) => (
+                <ShowChip key={`${venue.viewId}-${chip.id}`} chip={chip} on={chip.id === activeId} onSelect={() => chooseShow(chip.id)} />
+              ))}
+              {includeFinished
+                ? venue.finishedShows.map((chip) => (
+                    <ShowChip key={`${venue.viewId}-fin-${chip.id}`} chip={chip} on={chip.id === activeId} onSelect={() => chooseShow(chip.id)} />
+                  ))
+                : null}
+            </div>
+          ))}
+          <FinishedToggle includeFinished={includeFinished} onToggle={() => setIncludeFinished((value) => !value)} />
+        </div>
+      ) : (
+        <div className="mt-4 flex items-center gap-2 overflow-x-auto">
+          {chips.map((chip) => (
+            <ShowChip
+              key={`${chip.id}-${chip.finished ? "fin" : "live"}-${chip.kind}`}
+              chip={chip}
+              on={chip.id === activeId}
+              onSelect={() => chooseShow(chip.id)}
+            />
+          ))}
+          <FinishedToggle includeFinished={includeFinished} onToggle={() => setIncludeFinished((value) => !value)} />
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {SALES_PERIODS.map((item) => (
@@ -150,42 +276,50 @@ export function SalesDashboard({
         <button type="button" className="rounded border border-border px-2 py-1" onClick={() => setSelected([])}>
           None
         </button>
-        <label className="ml-1 flex items-center gap-1.5 text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={axes.mode === "index"}
-            disabled={indexForced}
-            onChange={(event) => setIndexRequested(event.target.checked)}
-          />
-          {INDEX_TO_PEAK}
-        </label>
       </div>
 
       <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {tiles.map((tile) => {
+        {tiles.filter((tile) => !umbrella || (tile.id !== "sold" && tile.id !== "tickets" && tile.id !== "costPerTicket")).map((tile) => {
           const on = selected.includes(tile.id);
-          const metric = salesMetric(tile.id);
+          const names = TILE_NAMES[tile.id];
+          const endLabel = shortDay(view.endDay);
+          const authored = view.tiles.find((item) => item.id === tile.id);
+          const soldDetail = tile.id === "sold" ? (authored?.detail ?? tile.detail) : null;
+          const wideDetail = soldDetail ?? tile.detail;
+          const narrowDetail = soldDetail ?? tile.narrowDetail;
+          const spendTotal = tile.id === "spend" ? periodTotal : null;
+          const wideSub = spendTotal ? spendScopeLine(spendTotal, period, launchTotal) : tileSubline(tile.id, wideDetail, period, endLabel, showScope, true);
+          const narrowSub = spendTotal ? spendScopeLine(spendTotal, period, launchTotal) : tileSubline(tile.id, narrowDetail, period, endLabel, showScope, false);
+          const hovered = tile.id === "spend" && spendHover === "tile" && spendTotal;
           return (
-            <li key={tile.id}>
+            <li
+              key={tile.id}
+              className="relative"
+              onMouseEnter={tile.id === "spend" ? () => hoverSpend("tile") : undefined}
+              onMouseLeave={tile.id === "spend" ? leaveSpend : undefined}
+            >
               <button
                 type="button"
                 aria-pressed={on}
                 title={tile.title}
                 onClick={() => toggleMetric(tile.id)}
+                onFocus={tile.id === "spend" ? () => hoverSpend("tile") : undefined}
+                onBlur={tile.id === "spend" ? leaveSpend : undefined}
                 className={`h-full w-full rounded-md border px-2.5 py-2 text-left ${
                   on ? "border-foreground bg-card" : "border-border bg-card text-muted-foreground"
                 }`}
               >
                 <span className="block text-[11px]">
-                  <span className="sm:hidden">{metric.narrow}</span>
-                  <span className="hidden sm:inline">{metric.label}</span>
+                  <span className="sm:hidden">{names.narrow}</span>
+                  <span className="hidden sm:inline">{names.wide}</span>
                 </span>
-                <span className="mt-1 block font-heading text-lg leading-none">{tile.value}</span>
+                <TileValue className="mt-1 block">{spendTotal ? spendTotal.text : tile.value}</TileValue>
                 <span className="mt-1 block text-[11px] text-muted-foreground">
-                  <span className="sm:hidden">{tile.narrowDetail}</span>
-                  <span className="hidden sm:inline">{tile.detail}</span>
+                  <span className="sm:hidden">{narrowSub}</span>
+                  <span className="hidden sm:inline">{wideSub}</span>
                 </span>
               </button>
+              {hovered && spendTotal ? <SpendHover total={spendTotal} /> : null}
             </li>
           );
         })}
@@ -194,17 +328,24 @@ export function SalesDashboard({
       <SalesChart
         points={points}
         allocation={view.allocation}
-        selected={selected}
+        selected={umbrella ? selected.filter((id) => id !== "sold" && id !== "tickets" && id !== "costPerTicket") : selected}
         indexRequested={indexRequested}
-        showAllocation={view.allocation.length > 0}
+        onIndex={setIndexRequested}
+        showAllocation={view.allocation.length > 0 && !umbrella}
+        pinnedDay={pinHover ? points.at(-1)?.day ?? null : null}
       />
 
-      <Trajectory
-        trajectory={view.trajectory}
-        onSelectShow={chooseShow}
-        crossClientNote={presented.crossClientNote}
-        reviewLine={presented.reviewLine}
-      />
+      {umbrella ? (
+        <p className="mt-4 text-xs text-muted-foreground">An umbrella has no Total sold, Sales or Cost per ticket tile, and no trajectory.</p>
+      ) : (
+        <Trajectory
+          trajectory={view.trajectory}
+          endDay={view.endDay}
+          onSelectShow={chooseShow}
+          crossClientNote={presented.crossClientNote}
+          reviewLine={presented.reviewLine}
+        />
+      )}
 
       <Campaigns rows={campaignsForPeriod(view, period)} />
     </section>
@@ -213,11 +354,13 @@ export function SalesDashboard({
 
 function Trajectory({
   trajectory,
+  endDay,
   onSelectShow,
   crossClientNote,
   reviewLine,
 }: {
   trajectory: SalesTrajectory;
+  endDay: string;
   onSelectShow: (id: string) => void;
   crossClientNote: string | null;
   reviewLine: string | null;
@@ -225,7 +368,7 @@ function Trajectory({
   return (
     <div className="mt-4">
       {trajectory.kind === "all" ? (
-        <AllTrajectoryView trajectory={trajectory} onSelectShow={onSelectShow} />
+        <AllTrajectoryView trajectory={trajectory} endDay={endDay} onSelectShow={onSelectShow} />
       ) : (
         <SingleTrajectoryView trajectory={trajectory} />
       )}
@@ -361,42 +504,161 @@ function shortDay(iso: string): string {
 
 function AllTrajectoryView({
   trajectory,
+  endDay,
   onSelectShow,
 }: {
   trajectory: Extract<SalesTrajectory, { kind: "all" }>;
+  endDay: string;
   onSelectShow: (id: string) => void;
 }) {
+  const sums = trajectorySums(trajectory.bars);
+  const axisMax = trajectoryAxisMax(trajectory.bars);
+  const soldShare = shareOf(sums.sold, sums.capacity);
+  const highShare = shareOf(sums.high, sums.capacity);
+  const counted = shortDay(endDay);
+  const soldTile = trajectory.summary?.sold ?? {
+    label: `Sold · count of ${counted}`,
+    value: formatCount(sums.sold),
+    detail: soldShare == null ? "—" : `${soldShare}% of ${formatCount(sums.capacity)} across ${sums.shows} shows`,
+  };
+  const projectedTile = trajectory.summary?.projected ?? {
+    label: "Projected on show day",
+    value: `${formatCount(sums.holds)}–${formatCount(sums.high)}`,
+    detail: highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show capped at its capacity`,
+  };
+  const paceTile = trajectory.summary?.pace ?? {
+    label: "Pace, last 7 days",
+    value: "— a day",
+    detail: "14-day — a day",
+  };
   return (
     <div>
-      <p className="text-xs">
-        <span className="sm:hidden">{trajectory.narrowRange}</span>
-        <span className="hidden sm:inline">{trajectory.wideRange}</span>
-      </p>
-      <ul className="mt-3 space-y-2">
-        {trajectory.bars.map((bar) => (
-          <li key={bar.id}>
-            <button type="button" onClick={() => onSelectShow(bar.id)} className="w-full text-left">
-              <span className="flex justify-between text-[11px]">
-                <span>{bar.label}</span>
-                <span className="text-muted-foreground">{bar.caption}</span>
-              </span>
-              {bar.allocation != null && bar.sold != null ? (
-                <span className="relative mt-1 block h-2 rounded-full bg-muted">
-                  <span className="absolute inset-y-0 left-0 rounded-full bg-foreground/80" style={{ width: `${(bar.sold / bar.allocation) * 100}%` }} />
-                  {bar.low != null ? (
-                    <span className="absolute top-0 h-2 w-px bg-foreground/50" style={{ left: `${(bar.low / bar.allocation) * 100}%` }} />
-                  ) : null}
-                  {bar.high != null ? (
-                    <span className="absolute top-0 h-2 w-px bg-foreground/50" style={{ left: `${(bar.high / bar.allocation) * 100}%` }} />
-                  ) : null}
-                </span>
-              ) : null}
-            </button>
+      <h3 className="text-sm font-medium">Sales trajectory</h3>
+      <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {[soldTile, projectedTile, paceTile].map((tile) => (
+          <li key={tile.label} className="rounded-md border border-border px-2.5 py-2">
+            <p className="text-[11px] text-muted-foreground">{tile.label}</p>
+            <SummaryValue value={tile.value} />
+            <p className="mt-1 text-[11px] text-muted-foreground">{tile.detail}</p>
           </li>
         ))}
       </ul>
+      <ul className="mt-3 space-y-2">
+        {trajectory.bars.map((bar) => (
+          <li key={bar.id}>
+            <ShowBar bar={bar} axisMax={axisMax} onSelect={() => onSelectShow(bar.id)} />
+          </li>
+        ))}
+      </ul>
+      <CapacityAxis max={axisMax} />
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground" />Sold, count of {counted}</li>
+        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/45" />Holds at the last 7 days&apos; pace</li>
+        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/20" />Like your best finish</li>
+        <li className="flex items-center gap-1.5"><span className="inline-block h-3 border-l border-dashed border-foreground" />Capacity</li>
+      </ul>
       <p className="mt-2 max-w-xl text-[11px] text-muted-foreground">{trajectory.note}</p>
     </div>
+  );
+}
+
+function TileValue({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <span
+      className={`text-lg leading-none ${className}`}
+      style={{ fontFamily: 'var(--font-bebas, "Bebas Neue"), "Arial Narrow", sans-serif', letterSpacing: "0.04em" }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function BarOutcomeText({ outcome }: { outcome: ReturnType<typeof barOutcome> }) {
+  if (!outcome.sellout) return <span className="text-muted-foreground">{outcome.text}</span>;
+  return (
+    <span className="text-muted-foreground">
+      {outcome.text}{" "}
+      <span className="font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-destructive">SELLS OUT</span>
+      {" "}{outcome.sellout}
+    </span>
+  );
+}
+
+function ShowBar({ bar, axisMax, onSelect }: { bar: AllShowBar; axisMax: number; onSelect: () => void }) {
+  const outcome = barOutcome(bar);
+  const scale = axisMax > 0 ? axisMax : 1;
+  const cap = bar.allocation;
+  const sold = bar.sold;
+  const holdEnd = cap == null || bar.low == null ? null : Math.min(bar.low, cap);
+  const highEnd = cap == null || bar.high == null ? null : Math.min(bar.high, cap);
+  const soldEnd = sold == null || cap == null ? null : Math.min(sold, cap);
+  return (
+    <button type="button" onClick={onSelect} className="w-full text-left">
+      <span className="flex flex-wrap items-baseline justify-between gap-x-3 text-[11px] sm:grid sm:grid-cols-[9rem_minmax(0,1fr)_14rem] sm:items-center sm:gap-3">
+        <span>{bar.label}</span>
+        <span className="relative hidden h-2 rounded-full bg-muted sm:block">
+          <BarLayers soldEnd={soldEnd} holdEnd={holdEnd} highEnd={highEnd} cap={cap} scale={scale} />
+        </span>
+        <BarOutcomeText outcome={outcome} />
+      </span>
+      <span className="relative mt-1 block h-2 rounded-full bg-muted sm:hidden">
+        <BarLayers soldEnd={soldEnd} holdEnd={holdEnd} highEnd={highEnd} cap={cap} scale={scale} />
+      </span>
+    </button>
+  );
+}
+
+function BarLayers({
+  soldEnd,
+  holdEnd,
+  highEnd,
+  cap,
+  scale,
+}: {
+  soldEnd: number | null;
+  holdEnd: number | null;
+  highEnd: number | null;
+  cap: number | null;
+  scale: number;
+}) {
+  const width = (value: number) => `${Math.max(0, Math.min(100, (value / scale) * 100))}%`;
+  return (
+    <>
+      {soldEnd != null ? <span className="absolute inset-y-0 left-0 bg-foreground" style={{ width: width(soldEnd) }} /> : null}
+      {soldEnd != null && holdEnd != null && holdEnd > soldEnd ? (
+        <span className="absolute inset-y-0 bg-foreground/45" style={{ left: width(soldEnd), width: width(holdEnd - soldEnd) }} />
+      ) : null}
+      {holdEnd != null && highEnd != null && highEnd > holdEnd ? (
+        <span className="absolute inset-y-0 bg-foreground/20" style={{ left: width(holdEnd), width: width(highEnd - holdEnd) }} />
+      ) : null}
+      {cap != null ? <span className="absolute inset-y-0 border-l border-dashed border-foreground" style={{ left: width(cap) }} /> : null}
+    </>
+  );
+}
+
+function CapacityAxis({ max }: { max: number }) {
+  if (max <= 0) return null;
+  return (
+    <>
+      <div className="relative mt-1 h-4 text-[10px] text-muted-foreground sm:hidden">
+        {capacityTicks(max, 1000).map((tick) => (
+          <span key={tick} className={`absolute whitespace-nowrap ${tick === 0 ? "" : tick === max ? "right-0" : "-translate-x-1/2"}`} style={tick === 0 || tick === max ? undefined : { left: `${(tick / max) * 100}%` }}>
+            {tick === max ? `${formatCount(tick)} capacity` : formatCount(tick)}
+          </span>
+        ))}
+      </div>
+      <div className="mt-1 hidden sm:grid sm:grid-cols-[9rem_minmax(0,1fr)_14rem] sm:gap-3">
+        <span />
+        <div className="relative h-4 text-[10px] text-muted-foreground">
+          {capacityTicks(max, 500).map((tick) => (
+            <span key={tick} className={`absolute whitespace-nowrap ${tick === 0 ? "" : tick === max ? "right-0" : "-translate-x-1/2"}`} style={tick === 0 || tick === max ? undefined : { left: `${(tick / max) * 100}%` }}>
+              {tick === max ? `${formatCount(tick)} capacity` : formatCount(tick)}
+            </span>
+          ))}
+        </div>
+        <span />
+      </div>
+    </>
   );
 }
 
@@ -447,6 +709,135 @@ function Campaigns({ rows }: { rows: SalesDashboardModel["views"][string]["campa
       </table>
     </div>
   );
+}
+
+function ShowChip({
+  chip,
+  on,
+  label,
+  onSelect,
+}: {
+  chip: SalesShowChip;
+  on: boolean;
+  label?: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onSelect}
+      className={`shrink-0 rounded-full border px-3 py-1 text-xs ${
+        chip.kind === "umbrella" ? "border-dashed" : "border-border"
+      } ${chip.finished ? "text-muted-foreground" : ""} ${
+        on ? "border-foreground bg-foreground text-background" : "bg-card"
+      }`}
+    >
+      {label ?? (chip.kind === "umbrella" ? "Umbrella" : (
+        <>
+          <span className="sm:hidden">{chip.narrow}</span>
+          <span className="hidden sm:inline">{chip.wide}</span>
+        </>
+      ))}
+    </button>
+  );
+}
+
+function FinishedToggle({ includeFinished, onToggle }: { includeFinished: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={includeFinished}
+      onClick={onToggle}
+      className={`shrink-0 rounded-full border border-border px-3 py-1 text-xs ${includeFinished ? "bg-muted" : "bg-card text-muted-foreground"}`}
+    >
+      Include finished
+    </button>
+  );
+}
+
+function SpendHover({ total }: { total: SalesTotal }) {
+  return (
+    <div className="absolute left-0 top-full z-20 mt-1 w-72 border border-border bg-card p-3 text-left text-[11px] leading-snug shadow-sm">
+      <p className="font-mono text-[9px] font-bold uppercase leading-none tracking-[0.16em] text-muted-foreground">{total.headline}</p>
+      <div className="mt-2 space-y-1">
+        {total.parts.map((part) => (
+          <div key={part.id}>
+            <SpendLine label={part.label} amount={part.text} />
+            {part.channels.length > 0 ? (
+              <SpendLine
+                indent
+                label={part.channels.map((channel) => channel.label).join(" · ")}
+                amount={part.channels.map((channel) => channel.text).join(" · ")}
+              />
+            ) : null}
+            {part.children?.map((child) => (
+              <div key={child.id}>
+                <SpendLine nest label={child.label} amount={child.text} />
+                {child.channels.length > 0 ? (
+                  <SpendLine
+                    nest
+                    label={child.channels.map((channel) => channel.label).join(" · ")}
+                    amount={child.channels.map((channel) => channel.text).join(" · ")}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      {total.notIncluded ? <p className="mt-2 text-muted-foreground">{total.notIncluded}</p> : null}
+    </div>
+  );
+}
+
+function SpendLine({ label, amount, indent = false, nest = false }: { label: string; amount: string; indent?: boolean; nest?: boolean }) {
+  return (
+    <p className={`flex justify-between gap-4 ${nest ? "pl-6 text-muted-foreground" : indent ? "pl-3 text-muted-foreground" : ""}`}>
+      <span>{label}</span>
+      <span className="shrink-0">{amount}</span>
+    </p>
+  );
+}
+
+function SummaryValue({ value }: { value: string }) {
+  const pace = /^(.*) a day$/.exec(value);
+  if (!pace) return <TileValue className="mt-1 block">{value}</TileValue>;
+  return (
+    <p className="mt-1 leading-none">
+      <TileValue>{pace[1]}</TileValue>
+      <span className="text-[11px] font-normal text-muted-foreground"> a day</span>
+    </p>
+  );
+}
+
+/** A date alone ("to 12 Nov") is not a channel split. The line needs a money figure. */
+function channelLineHasSplit(line: string): boolean {
+  return line.includes("£");
+}
+
+function venueToken(venue: SalesVenue): string {
+  return venue.key ?? venue.viewId;
+}
+
+/** Default is the venue with the most live shows. "all" is All venues. */
+function startingVenueKey(model: SalesDashboardModel, showId: string, explicit?: string): string {
+  const venues = (model.venues ?? []).filter((venue) => venue.liveShows > 0);
+  if (venues.length < 2) return "all";
+  if (explicit === "all") return "all";
+  if (explicit) {
+    const found = venues.find((venue) => venue.key === explicit || venue.viewId === explicit);
+    if (found) return venueToken(found);
+  }
+  const owner = venues.find(
+    (venue) =>
+      venue.viewId === showId ||
+      venue.shows.some((chip) => chip.id === showId) ||
+      venue.finishedShows.some((chip) => chip.id === showId),
+  );
+  if (owner) return venueToken(owner);
+  const initial = venues.find((venue) => venue.viewId === model.initialVenueViewId);
+  return initial ? venueToken(initial) : "all";
 }
 
 function UnlinkedPill() {
