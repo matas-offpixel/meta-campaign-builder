@@ -24,6 +24,9 @@ export function periodSpan(period: SalesPeriod): string {
 
 export type ShowCountScope = { showsWithCounts: number; shows: number };
 
+/** The model's NO_COUNT_YESTERDAY (lib/dashboard/sales-calc/model.ts), kept in step by a test. */
+export const NO_COUNT_YESTERDAY_WORDS = "no count yesterday";
+
 /** Every subline starts with its span. Sold and Sales since launch are always the count date (`countLabel`), whatever the period, never the spend date. */
 export function tileSubline(
   id: SalesMetricId,
@@ -36,7 +39,11 @@ export function tileSubline(
   const text = detail.trim();
   const span = periodSpan(period);
   if (id === "sold") return soldSubline(text, countLabel);
-  if (id === "costPerTicket") return costPerTicketSubline(span, scope, wide);
+  if (id === "costPerTicket") {
+    // Yesterday with no count: the same words as Sales (design, 14 Nov).
+    if (text.endsWith(NO_COUNT_YESTERDAY_WORDS)) return `${span} · ${NO_COUNT_YESTERDAY_WORDS}`;
+    return costPerTicketSubline(span, scope, wide, capOf(text));
+  }
   if (id === "tickets" && period === "launch") return `since launch, to ${countLabel}`;
   if (id === "checkoutActions") return `${span} · actions, one person can do both`;
   if (id === "costPerRegistration") return `${span} · show pages, inside their signup windows`;
@@ -57,8 +64,9 @@ function soldSubline(detail: string, countLabel: string): string {
 
 /**
  * N3 names the shows that have no counts. A single show, or a set where every
- * show has a count, stays "blended". Wide keeps "complete windows" on every
- * period except Since launch; 393 drops it.
+ * show has a count, stays "blended". In a period, wide adds D13's cap in the
+ * header's words ("on spend to the 12 Nov count") where the period's spend
+ * runs past a show's last count; 393 drops it.
  */
 /** N3: "{scope} · Meta £x · TikTok £y". A period adds "of £{since launch} since launch". */
 export function spendScopeLine(total: SalesTotal, period: SalesPeriod, launch: SalesTotal | null): string {
@@ -68,11 +76,16 @@ export function spendScopeLine(total: SalesTotal, period: SalesPeriod, launch: S
   return line;
 }
 
-function costPerTicketSubline(span: string, scope: ShowCountScope | null, wide: boolean): string {
+function costPerTicketSubline(span: string, scope: ShowCountScope | null, wide: boolean, cap: string): string {
   const body = scope && scope.showsWithCounts < scope.shows
     ? `the ${scope.showsWithCounts} shows with counts`
     : "blended";
-  const line = `${span} · ${body}`;
-  if (wide && span !== "since launch") return `${line} · complete windows`;
-  return line;
+  // D13 in a period, in the header's words: wide names the cap where the period's spend runs past a count.
+  if (wide && span !== "since launch" && cap) return `${span} · ${body} · ${cap}`;
+  return `${span} · ${body}`;
+}
+
+/** "on spend to the 12 Nov count" / "on spend to each show's last count (latest 12 Nov)" when the model's detail carries it. */
+function capOf(detail: string): string {
+  return /on spend to (?:the \d{1,2} \w{3} count|each show's last count \(latest \d{1,2} \w{3}\))/.exec(detail)?.[0] ?? "";
 }

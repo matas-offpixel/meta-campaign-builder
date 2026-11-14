@@ -87,7 +87,7 @@ function allTiles(): SalesTile[] {
     { id: "spend", value: "£4,730", detail: "Meta £4,210 · TikTok £520 · of £9,840 since launch", narrowDetail: "Meta £4,210 · TikTok £520", title: "Meta £4,210 · TikTok £520 across the shows with counts. Umbrella is separate." },
     { id: "sold", value: "2,327", detail: "Internal Counts, 12 Nov", narrowDetail: "Internal Counts, 12 Nov", title: "812 + 600 + 915. Locklead has no counts." },
     { id: "tickets", value: "454", detail: "in 14 days", narrowDetail: "14 days", title: "Tickets across the shows with counts." },
-    { id: "costPerTicket", value: "£10.42", detail: "blended · complete windows", narrowDetail: "blended", title: "Spend over tickets, the shows with counts." },
+    { id: "costPerTicket", value: "£10.42", detail: "blended", narrowDetail: "blended", title: "Spend over tickets, the shows with counts." },
     { id: "checkoutActions", value: "938", detail: "£5.04 each", narrowDetail: "£5.04 each", title: "Checkouts and add-to-carts. One person can do both." },
     { id: "costPerCheckout", value: "£5.04", detail: "938 actions", narrowDetail: "938 actions", title: "Checkouts and add-to-carts. One person can do both." },
     { id: "lpv", value: "3,090", detail: "in 14 days", narrowDetail: "14 days", title: "Landing page views across the shows with counts." },
@@ -104,7 +104,7 @@ function ipcTiles(): SalesTile[] {
     { id: "spend", value: "£2,060", detail: "Meta £1,840 · TikTok £220 · of £5,410 since launch", narrowDetail: "Meta £1,840 · TikTok £220", title: "Meta £1,840 · TikTok £220. Google has no spend in this window." },
     { id: "sold", value: "812", detail: "Internal Counts, 12 Nov · plus 64 comps", narrowDetail: "Internal Counts, 12 Nov", title: "Internal Counts, 12 Nov. 64 comps on top." },
     { id: "tickets", value: "146", detail: "in 14 days", narrowDetail: "14 days", title: "146 tickets in the 14 days to 12 Nov." },
-    { id: "costPerTicket", value: "£14.11", detail: "blended · complete windows", narrowDetail: "blended", title: "Blended cost per ticket, complete windows only." },
+    { id: "costPerTicket", value: "£14.11", detail: "blended", narrowDetail: "blended", title: "Spend over tickets sold in the same days." },
     { id: "checkoutActions", value: "388", detail: "£5.31 each", narrowDetail: "£5.31 each", title: "Checkouts and add-to-carts. One person can do both." },
     { id: "costPerCheckout", value: "£5.31", detail: "388 actions", narrowDetail: "388 actions", title: "Checkouts and add-to-carts. One person can do both." },
     { id: "lpv", value: "1,240", detail: "in 14 days", narrowDetail: "14 days", title: "Landing page views in the 14 days to 12 Nov." },
@@ -409,7 +409,7 @@ function allTrajectory(): SalesShowView["trajectory"] {
     note: ALL_NOTE,
     summary: {
       sold: { label: "Sold · count of 12 Nov", value: "2,327", detail: "52% of 4,500 across 3 shows" },
-      projected: { label: "Projected on show day", value: "3,162–4,210", detail: "up to 94% of 4,500 · each show capped at its capacity" },
+      projected: { label: "Projected on show day", value: "3,162–4,210", detail: "up to 94% of 4,500 · each show at its recent pace" },
       pace: { label: "Pace, last 7 days", value: "— a day", detail: "14-day — a day" },
     },
   };

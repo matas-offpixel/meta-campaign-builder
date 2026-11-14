@@ -681,7 +681,7 @@ function AllTrajectoryView({
   const projectedTile = trajectory.summary?.projected ?? {
     label: "Projected on show day",
     value: `${formatCount(sums.holds)}–${formatCount(sums.high)}`,
-    detail: highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show capped at its capacity`,
+    detail: highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show at its recent pace`,
   };
   const paceTile = trajectory.summary?.pace ?? {
     label: "Pace, last 7 days",
@@ -714,7 +714,7 @@ function AllTrajectoryView({
       <p className="mt-2 text-[11px] text-muted-foreground sm:hidden">{TRAJECTORY_KEY}</p>
       <ul className="mt-2 hidden flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground sm:flex">
         <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground" />Sold, count of {counted}</li>
-        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/45" />Holds at the last 7 days&apos; pace</li>
+        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/45" />Holds at each show&apos;s recent pace</li>
         <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/20" />Like your best finish</li>
         <li className="flex items-center gap-1.5"><span className="inline-block h-3 border-l border-dashed border-foreground" />Capacity</li>
       </ul>

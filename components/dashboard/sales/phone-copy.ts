@@ -28,7 +28,7 @@ export const MORE_FIGURES_HINT = "sales, checkouts, LPVs, clicks, costs";
 export const CHART_HOW = "Swipe for earlier dates · press and hold for a day.";
 export const CHART_DOT = "A dot is a real Internal Count; between counts the line is a straight estimate.";
 export const INDEX_LABEL = "Index to own peak";
-export const TRAJECTORY_KEY = "Dark: sold. Mid: holds at the last 7 days' pace. Light: like your best finish. Dashed: capacity.";
+export const TRAJECTORY_KEY = "Dark: sold. Mid: holds at each show's recent pace. Light: like your best finish. Dashed: capacity.";
 
 export function moreFiguresLabel(open: boolean, count: number): { action: string; hint: string } {
   return open ? { action: "Fewer figures", hint: `${count} more shown` } : { action: `More figures (${count})`, hint: MORE_FIGURES_HINT };
@@ -57,7 +57,8 @@ export function phoneSpan(
     case "sold":
       return tile.narrowDetail.replace(/^to date · /, "") || `Internal Counts, ${countLabel}`;
     case "costPerTicket":
-      if (!launch) return span;
+      // D13: since launch always; in a period, where its spend runs past a count (the hover carries the cap).
+      if (!launch && !/on spend to/.test(tile.title)) return span;
       return /each show's last count/.test(tile.title) ? "spend to each show's last count" : `spend to the ${countLabel} count`;
     case "registrations":
       return launch ? "show pages, to date" : span;
@@ -76,7 +77,7 @@ export function phoneSpan(
   }
 }
 
-/** MB3: Projected's span, short for "up to 77% of 14,000 · each show capped at its capacity". */
+/** MB3: Projected's span, short for "up to 77% of 14,000 · each show at its recent pace". */
 export function projectedSpan(tile: TrajectoryTile): string {
   const share = /up to (\d+%)/.exec(tile.detail);
   return share ? `on show day · up to ${share[1]}` : "on show day";
@@ -90,7 +91,7 @@ export function trajectoryTitle(bars: readonly AllShowBar[]): string {
 
 /** MB7: the show's name without its date, and the figures in short ("1,870 → sells out"). */
 export function phoneBar(bar: AllShowBar): { name: string; figures: string } {
-  return { name: bar.label.replace(/ · \d{1,2} \w{3}$/, ""), figures: bar.caption.replace(/ at this pace$/, "") };
+  return { name: bar.label.replace(/ · \d{1,2} \w{3}$/, ""), figures: bar.caption.replace(/ at its recent pace$/, "") };
 }
 
 /** MB7: "Campaigns · 29 · 7 spending". */

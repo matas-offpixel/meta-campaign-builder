@@ -134,12 +134,14 @@ describe("D4 / D13 period figures", () => {
   const a = show({ eventId: "a", code: "A-1", counts });
   const base = input({ shows: [a], rollups: days.map((d) => roll("a", d, 10)) });
 
-  it("D13b: a window straddling the period start counts by its days inside, tickets and spend", () => {
+  it("a period's sales and cost per ticket cover the same days, ending on the last count (period-calc ticket)", () => {
     const s = buildSeries(base).get("a")!;
-    // 3 days to 12 Nov: cutoff 10 Nov. Window 6→11 Nov has 2 of its 5 days inside.
+    // 3 days to the 11 Nov count: 9–11 Nov. Sold 200 on 11 Nov less 170 on 8 Nov (6→11 Nov's line, 3 of 5 days in).
     const f = periodFigures([s], "3", "2026-11-12");
-    assert.equal(f.tickets, 50 * (2 / 5));
-    assert.equal(f.costPerTicket, (50 * (2 / 5)) / (50 * (2 / 5)));
+    assert.deepEqual(f.ticketDays, { from: "2026-11-09", to: "2026-11-11" });
+    assert.equal(f.tickets, 30);
+    // Spend over the same three days (£10 a day), over those tickets. The 12 Nov spend, after the count, is not in it.
+    assert.equal(f.costPerTicket, 30 / 30);
   });
 
   it("D13a: since launch, spend stops at the latest count", () => {
@@ -150,12 +152,43 @@ describe("D4 / D13 period figures", () => {
     assert.equal(f.spend, 110);
   });
 
-  it("a window whose count is after the last spend day is incomplete and stays out of cost per ticket", () => {
+  it("a count dated after the spend date: the period ends on the spend date, its sold read off the line", () => {
     const b = show({ eventId: "b", code: "B-1", counts: [ic("2026-11-10", 0), ic("2026-11-13", 30)] });
     const s = buildSeries(input({ shows: [b], rollups: [roll("b", "2026-11-11", 20), roll("b", "2026-11-12", 20)] })).get("b")!;
     const f = periodFigures([s], "7", "2026-11-12");
-    assert.equal(f.tickets, 30);
-    assert.equal(f.costPerTicket, null);
+    assert.deepEqual(f.ticketDays, { from: "2026-11-06", to: "2026-11-12" });
+    assert.equal(f.tickets, 20);
+    assert.equal(f.costPerTicket, 40 / 20);
+  });
+
+  it("a show that went on sale inside the period counts its first count's tickets (Locklead)", () => {
+    const c = show({ eventId: "c", code: "C-1", presaleDate: "2026-11-06", counts: [ic("2026-11-06", 226), ic("2026-11-12", 372)] });
+    const s = buildSeries(input({ shows: [c], rollups: days.map((d) => roll("c", d, 10)) })).get("c")!;
+    const f = periodFigures([s], "14", "2026-11-12");
+    assert.equal(f.tickets, 372);
+    // Spend 30 Oct–12 Nov on the show (£10 a day from 2 Nov: 11 days), presale spend before its first count included.
+    assert.equal(f.costPerTicket, 110 / 372);
+  });
+
+  it("Keep D13: counts on different days, each show's days end on its own last count", () => {
+    const a = show({ eventId: "a", code: "A-1", counts: [ic("2026-10-01", 100), ic("2026-11-12", 200)] });
+    const b = show({ eventId: "b", code: "B-1", counts: [ic("2026-10-01", 50), ic("2026-11-09", 120)] });
+    const both = buildSeries(input({ shows: [a, b], rollups: days.flatMap((d) => [roll("a", d, 10), roll("b", d, 10)]) }));
+    const f = periodFigures([both.get("a")!, both.get("b")!], "3", "2026-11-12");
+    assert.equal(f.ticketDaysDiffer, true);
+    assert.deepEqual(f.ticketDays, { from: "2026-11-10", to: "2026-11-12" });
+    // A: 10–12 Nov, £30. B: 7–9 Nov (its own last count), £30; its 10–12 Nov spend is past its count, left out.
+    assert.equal(f.spendPastCount, true);
+    const aSold = 200 - (100 + (100 * 39) / 42);
+    const bSold = 120 - (50 + (70 * 36) / 39);
+    assert.ok(Math.abs(f.tickets! - (aSold + bSold)) < 1e-9);
+    assert.ok(Math.abs(f.costPerTicket! - 60 / (aSold + bSold)) < 1e-9);
+  });
+
+  it("yesterday's sales need a count yesterday", () => {
+    const s = buildSeries(base).get("a")!;
+    assert.equal(periodFigures([s], "yesterday", "2026-11-12").tickets, null);
+    assert.equal(periodFigures([s], "yesterday", "2026-11-11").tickets, 10);
   });
 
   it("registrations: null without a page; £ per registration only counts spend inside the signup window", () => {

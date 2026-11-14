@@ -332,6 +332,15 @@ export interface PeriodFigures {
   soldSources: CountSource[];
   soldIsFinal: boolean;
   tickets: number | null;
+  /**
+   * A period's Sales and Cost per ticket cover the same days: the period's
+   * length, ending on the last count in scope (to = the count date, which can
+   * be a day before the spend date). Null since launch, and when there is no
+   * count to end on.
+   */
+  ticketDays: { from: string; to: string } | null;
+  /** In a period: the counted shows' own last counts fall on more than one day (each show's days end on its own). */
+  ticketDaysDiffer: boolean;
   costPerTicket: number | null;
   checkoutActions: number;
   costPerCheckout: number | null;
@@ -409,6 +418,8 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
   }
 
   let tickets: number | null = null;
+  let ticketDays: { from: string; to: string } | null = null;
+  let ticketDaysDiffer = false;
   let costPerTicket: number | null = null;
   let spendPastCount = false;
   if (period === "launch") {
@@ -426,27 +437,48 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
       }
       costPerTicket = ratio(capped, sold);
     }
-  } else if (cutoff != null) {
-    let t = 0;
-    let completeTickets = 0;
-    let completeSpend = 0;
-    let any = false;
-    for (const s of counted) {
-      for (const w of s.windows) {
-        if (w.to < cutoff) continue;
-        any = true;
-        const inside = Math.min(w.days, dayDiff(cutoff, w.to) + 1);
-        const share = inside / w.days;
-        t += w.tickets * share;
-        if (w.complete) {
-          completeTickets += w.tickets * share;
-          completeSpend += w.spend * share;
+  } else if (cutoff != null && counted.length) {
+    // The period's sales: each counted show's sold at the last count in scope, less its sold the
+    // period's length before (D5: 0 before presale, a straight line between counts). A show that
+    // went on sale inside the period counts every ticket it sold in it, its first count included.
+    // Cost per ticket is those shows' spend over the same days, over those tickets. Before
+    // 14 Nov this was count-to-count windows from the period start: a show's first count was no
+    // window (Locklead's 226 presale tickets), spend before a first count or after the last count
+    // was in no window (Locklead's £1,196), so Sales, Pace and Cost per ticket disagreed.
+    const n = PERIOD_DAYS[period]!;
+    // Each show's days end on its own last count (Matas, 14 Nov: "Keep D13"), never past the spend
+    // date: a count dated later is read off its line on the spend date.
+    const endOf = (s: ShowSeries) => {
+      const last = s.counts[s.counts.length - 1].day;
+      return last > endDay ? endDay : last;
+    };
+    // Yesterday's sales need a count yesterday: only the shows counted on it.
+    const inScope = period === "yesterday" ? counted.filter((s) => endOf(s) === endDay) : counted;
+    if (inScope.length) {
+      let t = 0;
+      let spendOnTicketDays = 0;
+      let latest = "";
+      let earliest = "";
+      for (const s of inScope) {
+        const end = endOf(s);
+        const start = addDays(end, -n);
+        const last = s.counts[s.counts.length - 1];
+        const at = (day: string) => (day >= last.day ? last.sold : soldOn(s, day));
+        // On sale before a non-zero first count, with no presale date: its sales before that count can't be placed.
+        const from = at(start) ?? s.counts[0].sold;
+        t += (at(end) ?? last.sold) - from;
+        for (const f of s.days.values()) {
+          if (f.day > start && f.day <= end) spendOnTicketDays += f.spend;
+          // D13: spend in the period after the show's own last count is left out, and the words say so.
+          else if (f.day > end && f.day <= endDay && f.spend > 0) spendPastCount = true;
         }
+        if (end > latest) latest = end;
+        if (!earliest || end < earliest) earliest = end;
       }
-    }
-    if (any) {
       tickets = t;
-      costPerTicket = ratio(completeSpend, completeTickets);
+      ticketDays = { from: addDays(latest, -n + 1), to: latest };
+      ticketDaysDiffer = earliest !== latest;
+      costPerTicket = ratio(spendOnTicketDays, t);
     }
   }
 
@@ -484,6 +516,8 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
     soldSources: [...sources],
     soldIsFinal: counted.length > 0 && counted.every((s) => s.finalDay != null),
     tickets,
+    ticketDays,
+    ticketDaysDiffer,
     costPerTicket,
     checkoutActions,
     costPerCheckout: ratio(metaSpend, checkoutActions),

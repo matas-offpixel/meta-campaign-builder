@@ -97,13 +97,17 @@ describe("HN2 against the record's expected figures (NX Newcastle, to 12 Nov)", 
     assert.ok(t.kind === "all" && t.summary);
     if (t.kind !== "all" || !t.summary) return;
     assert.deepEqual(t.summary.sold, { label: "Sold · count of 12 Nov", value: "8,526", detail: "53% of 16,000 across 8 shows" });
-    assert.equal(t.summary.pace.value, "113.3 a day");
-    assert.equal(t.summary.pace.detail, "14-day 155.3 a day");
+    // "Keep D13, explain": the period Cost per ticket names its cap in the header's words.
+    assert.match(tile(nx, "costPerTicket", "14").detail, /^in 14 days · the \d+ shows with counts( · on spend to the 12 Nov count)?$/);
+    // Pace ties to Sales: the 7- and 14-day Sales over their days (period-calc ticket).
+    const sales = (period: "7" | "14") => Number(tile(nx, "tickets", period as "14").value.replace(/,/g, ""));
+    assert.equal(t.summary.pace.value, `${(sales("7") / 7).toFixed(1)} a day`);
+    assert.equal(t.summary.pace.detail, `14-day ${(sales("14") / 14).toFixed(1)} a day`);
     assert.match(t.summary.projected.value, /^11,315–/);
     const bar = (name: string) => t.bars.find((b) => b.label.startsWith(name))!;
-    assert.equal(bar("Schak").caption, "1,870 → sells out at this pace");
+    assert.equal(bar("Schak").caption, "1,870 → sells out at its recent pace");
     assert.equal(bar("Schak").sellsOut, "holds");
-    assert.equal(bar("Julian Fijma").caption, "579 → sells out at this pace");
+    assert.equal(bar("Julian Fijma").caption, "579 → sells out at its recent pace");
     assert.equal(bar("Ewan McVicar").caption, "No ticket counts yet");
     assert.match(bar("East End Dubs").caption, /^1,731 → 1,775–/);
     assert.ok(t.bars.every((b) => b.high == null || b.allocation == null || b.high <= b.allocation));
@@ -195,12 +199,12 @@ describe("live-check fixes: one count date, the spend-to-count clause, the umbre
 
   it("3. spend past the count: the header and the Cost per ticket hover name it; the subline doesn't change", () => {
     assert.match(v.header!.sentence, /, so £[\d.]+ of spend per ticket, on spend to the 12 Nov count\./);
-    assert.equal(tile(v, "costPerTicket").title, "All channels' spend to each show's latest count, over tickets sold, on spend to the 12 Nov count.");
+    assert.equal(tile(v, "costPerTicket").title, "All channels' spend over tickets sold, on spend to the 12 Nov count.");
     assert.match(tile(v, "costPerTicket").detail, /^since launch · /);
     assert.doesNotMatch(tile(v, "costPerTicket").detail, /on spend to/);
     // Dates match (the 12 Nov build): no clause, the sentence as before.
     assert.doesNotMatch(nx.header!.sentence, /on spend to the/);
-    assert.equal(tile(nx, "costPerTicket").title, "All channels' spend to each show's latest count, over tickets sold.");
+    assert.equal(tile(nx, "costPerTicket").title, "All channels' spend over tickets sold.");
   });
 
   it("3. D13 in the live calc: spend after the count is in the total, never in cost per ticket", () => {
@@ -246,6 +250,8 @@ describe("headerSentence: the count date and the spend-to-count clause (D13)", (
     soldSources: ["internal_counts"],
     soldIsFinal: false,
     tickets: 6795,
+    ticketDays: null,
+    ticketDaysDiffer: false,
     costPerTicket: 14134 / 6795,
     checkoutActions: 0,
     costPerCheckout: null,
