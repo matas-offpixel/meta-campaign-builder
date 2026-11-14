@@ -172,6 +172,8 @@ export type SingleTrajectory = {
   libraryNote: string | null;
   /** Set when the event has no capacity. No sell-out line is drawn. */
   missingCapacity: string | null;
+  /** N6: the projection reaches capacity at the holds pace, or only in the best case. */
+  sellsOut?: "holds" | "best" | null;
 };
 
 export type AllShowBar = {
@@ -182,6 +184,15 @@ export type AllShowBar = {
   high: number | null;
   allocation: number | null;
   caption: string;
+  /** N6: the holds case reaches capacity ("holds"), or only the best case does ("best"). */
+  sellsOut?: "holds" | "best" | null;
+};
+
+/** N6: one of the three tiles above the All shows bars. */
+export type TrajectoryTile = {
+  label: string;
+  value: string;
+  detail: string;
 };
 
 export type AllTrajectory = {
@@ -190,6 +201,8 @@ export type AllTrajectory = {
   narrowRange: string;
   bars: AllShowBar[];
   note: string;
+  /** N6: "Sold · count of {date}", "Projected on show day", "Pace, last 7 days". */
+  summary?: { sold: TrajectoryTile; projected: TrajectoryTile; pace: TrajectoryTile };
 };
 
 export type SalesTrajectory = SingleTrajectory | AllTrajectory;
@@ -227,6 +240,12 @@ export type SalesShowView = {
   allocation: AllocationStep[];
   trajectory: SalesTrajectory;
   campaigns: SalesCampaignRow[];
+  /** N2: the venue this view is scoped to; null for All venues. */
+  venueKey?: string | null;
+  /** N4: always to date. */
+  header?: SalesHeader;
+  /** N3: since-launch spend with its breakdown (each period's is in `periods`). */
+  spendTotal?: SalesTotal;
   /**
    * The server calc's tiles and campaign rows for each period (HD3). When a
    * period is here, `tilesForPeriod` and `campaignsForPeriod` return it as
@@ -238,6 +257,69 @@ export type SalesShowView = {
 export type SalesPeriodView = {
   tiles: SalesTile[];
   campaigns: SalesCampaignRow[];
+  /** N3: the period's spend total with its scope, channels, parts and exclusions. */
+  spendTotal?: SalesTotal;
+};
+
+export type SalesPlatform = "meta" | "tiktok" | "google";
+
+/** One channel's part of a total. A platform with no data isn't listed; a real £0 is (D12). */
+export type SalesChannelAmount = {
+  platform: SalesPlatform;
+  label: string;
+  /** Unrounded. */
+  amount: number;
+  /** "£16,736". Rounded from its own amount, never fudged to sum (N3). */
+  text: string;
+};
+
+export type SalesTotalPart = {
+  /** A venue key (under All venues) or a show id (under a venue). */
+  id: string;
+  label: string;
+  amount: number;
+  text: string;
+  channels: SalesChannelAmount[];
+};
+
+/**
+ * N3: a money total that ties out. `parts` sum to `amount` before rounding:
+ * by venue under All venues, by show under a venue, empty for one show.
+ */
+export type SalesTotal = {
+  /** "NX Newcastle", "All venues", or the show's name. */
+  scope: string;
+  amount: number;
+  text: string;
+  channels: SalesChannelAmount[];
+  parts: SalesTotalPart[];
+  /** "£18,860 since launch · to 12 Nov". */
+  headline: string;
+  /** "Not in this total: NX Newcastle umbrella £4,220. Finished shows (Include finished adds them)." Null when nothing is left out. */
+  notIncluded: string | null;
+};
+
+/** N4: the sentence the view opens with, always to date, and its channel line. */
+export type SalesHeader = {
+  sentence: string;
+  /** "Meta £16,736 · TikTok £12 · Google £32 · to 12 Nov · finished shows not included". */
+  channelLine: string;
+};
+
+/**
+ * N2: one venue (events.venue_key, exactly as stored). `name` is venue_name
+ * as written on its next show. `key` null is "Venue not set" (internal only;
+ * the share drops it).
+ */
+export type SalesVenue = {
+  key: string | null;
+  name: string;
+  liveShows: number;
+  /** The venue's All shows view. */
+  viewId: string;
+  /** "All shows", the shows by date, the venue's umbrella last. */
+  shows: SalesShowChip[];
+  finishedShows: SalesShowChip[];
 };
 
 /**
@@ -258,6 +340,13 @@ export type SalesDashboardModel = {
   /** Audit or review line. The share variant never renders this. */
   reviewLine: string | null;
   views: Record<string, SalesShowView>;
+  /**
+   * N2: the venue row, most live shows first; "All venues" is `shows` /
+   * the "all" view. Shown when two or more venues have live shows.
+   */
+  venues?: SalesVenue[];
+  /** N2: the default venue's All shows view (most live shows, then spend). */
+  initialVenueViewId?: string;
 };
 
 export type AxisPlan =
@@ -324,7 +413,9 @@ export function salesForSurface(model: SalesDashboardModel, surface: SalesSurfac
       : undefined;
     views[id] = { ...view, campaigns: shareCampaigns(view.campaigns), ...(periods ? { periods } : {}) };
   }
-  return { ...model, crossClientNote: null, reviewLine: null, views };
+  // "Venue not set" is internal only (N2).
+  const venues = model.venues?.filter((venue) => venue.key != null);
+  return { ...model, crossClientNote: null, reviewLine: null, views, ...(model.venues ? { venues } : {}) };
 }
 
 function shareCampaigns(rows: SalesCampaignRow[]): SalesCampaignRow[] {

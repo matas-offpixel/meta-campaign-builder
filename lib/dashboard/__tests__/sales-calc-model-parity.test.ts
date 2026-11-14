@@ -1,0 +1,162 @@
+/**
+ * Dashboard v2 against the model (docs/design-record/2026-11-13-dashboard-v2-
+ * against-the-model.html, HN2) and #1225's reconciliation, on the 12 Nov
+ * fixture. HN1's data changes (venue_key on NX26-GLOBAL and
+ * NX27-EWANMCVICAR, the umbrella's page) are applied in memory here; the
+ * SQL for ops is in the PR body.
+ *
+ * Expected figures are the record's table (database to 12 Nov). Spend to
+ * the pound, tickets exact, registrations within 2.
+ */
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, it } from "node:test";
+
+import { tiktokCampaignCountsForEvent } from "../../tiktok/rollup-insights.ts";
+import { buildSalesDashboard } from "../sales-calc/model.ts";
+import type { SalesCalcInput } from "../sales-calc/types.ts";
+import { loadProdFixture } from "./sales-calc-parity.test.ts";
+
+function withHn1(input: SalesCalcInput): SalesCalcInput {
+  return {
+    ...input,
+    shows: input.shows.map((s) =>
+      s.code === "NX26-GLOBAL" || s.code === "NX27-EWANMCVICAR" ? { ...s, venueKey: "nx newcastle", ...(s.code === "NX26-GLOBAL" ? { cirqlinPageSlug: "nx-loves-aw26" } : {}) } : s,
+    ),
+  };
+}
+
+const build = buildSalesDashboard(withHn1(loadProdFixture()));
+const nx = build.model.views["venue:nx newcastle"];
+const tile = (view: typeof nx, id: string, period?: "14") => (period ? view.periods![period]!.tiles : view.tiles).find((t) => t.id === id)!;
+const near = (a: number, b: number, tol = 0.005) => Math.abs(a - b) <= tol;
+
+describe("HN2 against the record's expected figures (NX Newcastle, to 12 Nov)", () => {
+  it("N2: venues come from venue_key; the default is the venue with the most live shows", () => {
+    assert.equal(build.model.initialShowId, "venue:nx newcastle");
+    assert.equal(build.model.initialVenueViewId, "venue:nx newcastle");
+    const venue = build.model.venues![0];
+    assert.equal(venue.name, "NX Newcastle");
+    assert.equal(venue.liveShows, 9);
+    assert.equal(venue.shows.at(-1)!.wide, "Umbrella");
+    assert.equal(venue.shows[0].id, "venue:nx newcastle");
+  });
+
+  it("N3: spend ties out, and NX + Meta is still the model's £16,736.19", () => {
+    const total = nx.spendTotal!;
+    assert.ok(near(total.amount, 16780.14), String(total.amount));
+    assert.deepEqual(total.channels.map((c) => [c.label, Number(c.amount.toFixed(2))]), [["Meta", 16736.19], ["TikTok", 12], ["Google", 31.95]]);
+    assert.ok(near(total.parts.reduce((a, p) => a + p.amount, 0), total.amount, 1e-6));
+    assert.equal(total.text, "£16,780");
+    assert.equal(total.notIncluded, "Not in this total: NX Newcastle umbrella £4,220. Finished shows (Include finished adds them).");
+    assert.equal(nx.periods!["14"]!.spendTotal!.text, "£3,377");
+    assert.equal(tile(nx, "spend").detail, "NX Newcastle · Meta £16,736 · TikTok £12 · Google £32");
+    // In a period: the same scope, its channel split, then "of £{since launch} since launch" in that scope (N3).
+    assert.match(tile(nx, "spend", "14").detail, /^NX Newcastle · Meta £[\d,]+ · TikTok £\d+ · Google £\d+ · of £16,780 since launch$/);
+    assert.equal(tile(nx, "spend", "14").value, "£3,377");
+  });
+
+  it("N4: the header sentence and its channel line", () => {
+    assert.equal(
+      nx.header!.sentence,
+      "NX Newcastle to date: £16,780 spend since launch, 8,526 tickets sold across 8 shows (Internal Counts, 12 Nov), so £1.97 of spend per ticket. Separate NX Newcastle umbrella spend: £4,220.",
+    );
+    assert.equal(nx.header!.channelLine, "Meta £16,736 · TikTok £12 · Google £32 · to 12 Nov · finished shows not included");
+    assert.equal(build.model.views["nx26-eed"].header!.sentence, "East End Dubs to date: £2,767 spend since launch, 1,731 tickets sold (Internal Counts, 12 Nov), so £1.60 per ticket.");
+  });
+
+  it("N5 and N7: since launch by default, every subline starts with its span", () => {
+    assert.equal(build.model.initialPeriod, "launch");
+    assert.equal(tile(nx, "sold").value, "8,526");
+    assert.match(tile(nx, "sold").detail, /^to date · Internal Counts, 12 Nov/);
+    assert.equal(tile(nx, "tickets").detail, "since launch, to 12 Nov");
+    assert.equal(tile(nx, "costPerTicket").value, "£1.97");
+    assert.deepEqual(
+      ["checkoutActions", "costPerCheckout", "lpv", "costPerLpv", "clicks", "cpc"].map((id) => tile(nx, id).value),
+      ["2,672", "£6.26", "53,881", "£0.31", "65,821", "£0.25"],
+    );
+    assert.equal(tile(nx, "checkoutActions").detail, "since launch · actions, one person can do both");
+    assert.equal(tile(nx, "costPerRegistration").value, "£1.15");
+    assert.equal(tile(nx, "costPerRegistration").detail, "show pages, inside their signup windows");
+  });
+
+  it("registrations by page: 6,068 within 2, the umbrella's 808 apart and never added", () => {
+    const regs = Number(tile(nx, "registrations").value.replace(/,/g, ""));
+    assert.ok(Math.abs(regs - 6068) <= 2, String(regs));
+    assert.match(tile(nx, "registrations").detail, /^to date · signup pages close at on-sale · plus 808 on the umbrella page$/);
+    assert.equal(tile(nx, "registrations", "14").value, "392");
+    assert.match(tile(nx, "registrations", "14").detail, /^in 14 days · [\d,]+ to date · plus 57 on the umbrella page$/);
+  });
+
+  it("N6: the trajectory's three tiles, capped bars and the sells-out flags", () => {
+    const t = nx.trajectory;
+    assert.ok(t.kind === "all" && t.summary);
+    if (t.kind !== "all" || !t.summary) return;
+    assert.deepEqual(t.summary.sold, { label: "Sold · count of 12 Nov", value: "8,526", detail: "53% of 16,000 across 8 shows" });
+    assert.equal(t.summary.pace.value, "113.3 a day");
+    assert.equal(t.summary.pace.detail, "14-day 155.3 a day");
+    assert.match(t.summary.projected.value, /^11,315–/);
+    const bar = (name: string) => t.bars.find((b) => b.label.startsWith(name))!;
+    assert.equal(bar("Schak").caption, "1,870 → sells out at this pace");
+    assert.equal(bar("Schak").sellsOut, "holds");
+    assert.equal(bar("Julian Fijma").caption, "579 → sells out at this pace");
+    assert.equal(bar("Ewan McVicar").caption, "No ticket counts yet");
+    assert.match(bar("East End Dubs").caption, /^1,731 → 1,775–/);
+    assert.ok(t.bars.every((b) => b.high == null || b.allocation == null || b.high <= b.allocation));
+  });
+
+  it("N8: the umbrella, named by its venue, with its page's signups", () => {
+    const u = build.model.views["nx26-global"];
+    assert.equal(u.title, "NX Newcastle umbrella");
+    assert.equal(u.subtitle, "Global Marketing · not a show: no tickets and no trajectory");
+    assert.equal(u.header!.sentence, "NX Newcastle umbrella to date: £4,220 spend since launch, kept out of every show total. 808 signups on its page.");
+    assert.equal(u.header!.channelLine, "Meta £3,854 · TikTok £328 · Google £38 · to 12 Nov");
+    assert.equal(tile(u, "registrations").value, "808");
+    assert.equal(tile(u, "registrations").detail, "to date · nx-loves-aw26");
+    assert.equal(tile(u, "costPerRegistration").value, "£5.22");
+    assert.equal(tile(u, "costPerRegistration").detail, "all umbrella spend, 18 Sep–12 Nov");
+    assert.equal(tile(u, "sold").value, "—");
+  });
+});
+
+describe("TikTok after the overrides (#1225)", () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/sales-12-nov.json", import.meta.url), "utf8")) as { tiktokCampaigns: [string, string, number][] };
+  const input = loadProdFixture();
+  const id = (code: string) => input.shows.find((s) => s.code === code)!.eventId;
+  const seed = new Map([
+    ["1880462786907170", id("NX26-LOCKLEAD")],
+    ["1879669080323249", id("NX26-AZYR")],
+    ["1875856480493234", id("NX26-AZYR")],
+  ]);
+  const byEvent = (overrides?: Map<string, string>) => {
+    const out: Record<string, number> = {};
+    for (const s of input.shows) {
+      let sum = 0;
+      for (const [campaignId, name, spend] of fixture.tiktokCampaigns) {
+        if (tiktokCampaignCountsForEvent({ campaignId, name, eventCode: s.code, eventId: s.eventId, overrides })) sum += spend;
+      }
+      if (sum) out[s.code] = Number(sum.toFixed(2));
+    }
+    return out;
+  };
+  const total = (m: Record<string, number>) => Number(Object.values(m).reduce((a, b) => a + b, 0).toFixed(2));
+
+  it("today, stored: £455.37 (the £8.01 double count is a stale 29 Oct row the leg now clears)", () => {
+    const stored = input.rollups.reduce((a, r) => a + (r.tiktok ?? 0), 0);
+    assert.equal(Number(stored.toFixed(2)), 455.37);
+  });
+
+  it("the leg without the seed: £447.36 (stale day cleared), AZYR still holds Locklead's £106.98", () => {
+    const m = byEvent();
+    assert.deepEqual(m, { "NX26-LOCKLEAD": 12, "NX26-GLOBAL": 328.38, "NX26-AZYR": 106.98 });
+    assert.equal(total(m), 447.36);
+  });
+
+  it("with the seed applied in memory: £540.65, the advertiser's own total", () => {
+    const m = byEvent(seed);
+    assert.deepEqual(m, { "NX26-LOCKLEAD": 118.98, "NX26-GLOBAL": 328.38, "NX26-AZYR": 93.29 });
+    assert.equal(total(m), 540.65);
+    assert.equal(total(m), Number(fixture.tiktokCampaigns.reduce((a, [, , s]) => a + s, 0).toFixed(2)));
+  });
+});

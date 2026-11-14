@@ -55,6 +55,12 @@ export interface ShowInput {
   isUmbrella: boolean;
   /** CIRQLIN page link (D9). Null → "No CIRQLIN page". */
   cirqlinPageId: string | null;
+  /** The linked page's cached slug ("nx-loves-aw26"). */
+  cirqlinPageSlug?: string | null;
+  /** N2: events.venue_key exactly as stored. Null → "Venue not set". Never inferred. */
+  venueKey?: string | null;
+  /** events.venue_name exactly as written. */
+  venueName?: string | null;
   /** events.meta_campaign_id, split. Linked beats tagged (D1). */
   linkedCampaignIds: string[];
   /** The event's own reference set (D9). Empty → the client's library. */
@@ -78,9 +84,12 @@ export interface MetaCampaignDay {
 
 /** One Google campaign on one day (google_ads_daily_snapshots), keyed by the [CODE] in its name. */
 export interface GoogleCampaignDay {
+  /** The first [CODE] in the name, exactly as written. Matched case-insensitively (HN2). */
   eventCode: string;
   day: string;
   spend: number;
+  /** The campaign id (from its resource name), for an override. */
+  campaignId?: string | null;
 }
 
 /** event_daily_rollups, one row per show per day. A null column is "no figure", not £0. */
@@ -135,4 +144,6 @@ export interface SalesCalcInput {
   signups: SignupDay[];
   /** Stored library entries for this client's shows. Missing ones are computed in memory. */
   library: LiftEntry[];
+  /** campaign_event_overrides (migration 240), campaign id → event id, per platform. Read before name matching. */
+  overrides?: { meta?: Record<string, string>; google?: Record<string, string> };
 }

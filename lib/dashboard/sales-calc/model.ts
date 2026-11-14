@@ -19,7 +19,6 @@ import {
   MISSING_CAPACITY_SHORT,
   NO_CIRQLIN_PAGE,
   NO_TICKET_COUNTS,
-  SALES_METRICS,
   formatSalesNumber,
   type AllShowBar,
   type AllocationStep,
@@ -32,11 +31,15 @@ import {
   type SalesShowChip,
   type SalesShowView,
   type SalesTile,
+  type SalesPeriodView,
+  type SalesVenue,
+  type SingleTrajectory,
   type SalesTrajectory,
   type TrajectoryCase,
 } from "../sales-vs-spend.ts";
 import { dayDiff, shortDay, weekdayDay } from "./days.ts";
 import {
+  PERIOD_DAYS,
   PERIOD_IDS,
   buildLibrary,
   buildSeries,
@@ -53,10 +56,11 @@ import {
   type ShowSeries,
 } from "./figures.ts";
 import { PLATFORM_LABEL, type CountSource, type LiftEntry, type SalesCalcInput } from "./types.ts";
+import { defaultVenue, groupVenues, headerSentence, spendTotal, type VenueGroup } from "./scope.ts";
 
 export const ALL_SHOWS_ID = "all";
-/** The tiles and campaigns the view carries are this period's (the layout's `tilesForPeriod` treats them as 14 days). */
-export const BASE_PERIOD: SalesPeriod = "14";
+/** N5: v2 opens on since launch; the view's own tiles and campaigns are that period's (every period is in `periods`). */
+export const BASE_PERIOD: SalesPeriod = "launch";
 /** D13: a stamp turns amber when its source is more than 2 days behind yesterday. */
 export const STALE_AFTER_DAYS = 2;
 
@@ -72,14 +76,10 @@ export const SOURCE_LABEL: Record<CountSource, string> = {
 const ALL_NOTE =
   "Each show is capped at its own allocation before summing. A show with no capacity is left out of the total and says why.";
 const CHECKOUT_TITLE = "Checkouts and add-to-carts. One person can do both.";
-const UMBRELLA_TILE = "Not in All shows";
 /** A finished show whose counts stop before show day. New words: listed for design. */
 export const NO_FINAL_COUNT = "No final count yet";
 
-export interface PeriodView {
-  tiles: SalesTile[];
-  campaigns: SalesCampaignRow[];
-}
+export type PeriodView = SalesPeriodView;
 
 /** The model (each view carries every period's tiles and campaigns in `periods`), plus the D10 library this run used. */
 export interface SalesBuild {
@@ -94,11 +94,6 @@ export interface SalesBuild {
 const count = (n: number) => formatSalesNumber("count", n);
 const money = (n: number) => formatSalesNumber("money", n);
 const rate = (n: number) => formatSalesNumber("rate", n);
-
-/** "1 action", "388 actions". */
-function several(n: number, word: string): string {
-  return `${count(n)} ${Math.round(n) === 1 ? word : `${word}s`}`;
-}
 
 function liftLabel(n: number): string {
   return `×${Number(n.toFixed(2))}`;
@@ -123,106 +118,155 @@ function platformSplit(f: PeriodFigures): string {
   return f.platformsWithData.map((p) => `${PLATFORM_LABEL[p]} ${money(f.byPlatform[p])}`).join(" · ");
 }
 
-function tilesFor(
-  f: PeriodFigures,
-  sinceLaunch: PeriodFigures,
-  period: SalesPeriod,
-  endDay: string,
-  opts: { soldTitle: string; umbrella: boolean },
-): SalesTile[] {
-  const phrase = periodPhrase(period);
+/** N7: every subline starts with its span. */
+function span(period: SalesPeriod): { wide: string; narrow: string } {
+  if (period === "launch") return { wide: "since launch", narrow: "since launch" };
+  if (period === "yesterday") return { wide: "yesterday", narrow: "yesterday" };
+  return { wide: `in ${period} days`, narrow: `${period} days` };
+}
+
+const oneDecimal = (n: number) => new Intl.NumberFormat("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
+
+export const NO_COUNTS_BAR = "No ticket counts yet";
+export const NOT_A_SHOW = "not a show";
+
+interface TileContext {
+  /** The scope named on the Spend tile ("NX Newcastle", "All venues", a show). Null for the umbrella. */
+  scope: string | null;
+  soldTitle: string;
+  /** The umbrella's own view: its page slug and signup window. */
+  umbrella: { pageSlug: string | null; window: string | null } | null;
+  /** The venue's umbrella page signups, shown apart on Registrations (N8). Never added in. */
+  umbrellaPage: { launch: number; byPeriod: Partial<Record<SalesPeriod, number>> } | null;
+  shows: number;
+  countedShows: number;
+}
+
+function tilesFor(f: PeriodFigures, sinceLaunch: PeriodFigures, period: SalesPeriod, endDay: string, ctx: TileContext): SalesTile[] {
+  const sp = span(period);
   const split = platformSplit(f);
-  const spendDetail = [split, period === "launch" ? null : `of ${money(sinceLaunch.spend)} since launch`].filter(Boolean).join(" · ");
+  const dash = (id: SalesMetricId, detail: string, narrow = detail, title = ""): SalesTile => ({ id, value: "—", detail, narrowDetail: narrow, title });
   const spendTile: SalesTile = {
     id: "spend",
     value: money(f.spend),
-    detail: opts.umbrella ? "Separate from the shows" : spendDetail || phrase.wide,
-    narrowDetail: opts.umbrella ? "Separate from the shows" : split || phrase.narrow,
+    detail: [ctx.scope, split, period === "launch" ? null : `of ${money(sinceLaunch.spend)} since launch`].filter(Boolean).join(" · ") || sp.wide,
+    narrowDetail: split || sp.narrow,
     title: split ? `${split}.` : "",
   };
-  if (opts.umbrella) {
-    return SALES_METRICS.map((metric) =>
-      metric.id === "spend" ? spendTile : { id: metric.id, value: "—", detail: UMBRELLA_TILE, narrowDetail: UMBRELLA_TILE, title: "" },
-    );
+  const per = (value: number | null, id: SalesMetricId, title: string): SalesTile =>
+    value == null ? dash(id, sp.wide, sp.narrow) : { id, value: rate(value), detail: sp.wide, narrowDetail: sp.narrow, title };
+  const checkout: SalesTile = {
+    id: "checkoutActions",
+    value: count(f.checkoutActions),
+    detail: `${sp.wide} · actions, one person can do both`,
+    narrowDetail: `${sp.narrow} · actions`,
+    title: CHECKOUT_TITLE,
+  };
+  const lpv: SalesTile = { id: "lpv", value: count(f.landingPageViews), detail: sp.wide, narrowDetail: sp.narrow, title: "Landing page views on Meta." };
+  const clicks: SalesTile = { id: "clicks", value: count(f.linkClicks), detail: sp.wide, narrowDetail: sp.narrow, title: "Link clicks on Meta." };
+  const engagement = [
+    checkout,
+    per(f.costPerCheckout, "costPerCheckout", "Meta spend divided by checkouts and add-to-carts."),
+    lpv,
+    per(f.costPerLpv, "costPerLpv", "Meta spend divided by landing page views."),
+    clicks,
+    per(f.cpc, "cpc", "Meta spend divided by clicks."),
+  ];
+
+  if (ctx.umbrella) {
+    const slug = ctx.umbrella.pageSlug;
+    const regs: SalesTile =
+      f.registrations == null
+        ? dash("registrations", NO_CIRQLIN_PAGE)
+        : {
+            id: "registrations",
+            value: count(f.registrations),
+            detail: [period === "launch" ? "to date" : `${sp.wide} · ${count(sinceLaunch.registrations ?? 0)} to date`, slug].filter(Boolean).join(" · "),
+            narrowDetail: period === "launch" ? "to date" : sp.narrow,
+            title: "",
+          };
+    const cpr: SalesTile =
+      f.costPerRegistration == null
+        ? dash("costPerRegistration", f.registrations == null ? NO_CIRQLIN_PAGE : sp.wide)
+        : {
+            id: "costPerRegistration",
+            value: rate(f.costPerRegistration),
+            detail: `all umbrella spend${ctx.umbrella.window ? `, ${ctx.umbrella.window}` : ""}`,
+            narrowDetail: "all umbrella spend",
+            title: "All umbrella spend inside its page's signup window, over the page's signups. Umbrella spend also drives show sales.",
+          };
+    return [
+      spendTile,
+      dash("sold", NOT_A_SHOW),
+      dash("tickets", NOT_A_SHOW),
+      dash("costPerTicket", NOT_A_SHOW),
+      ...engagement,
+      regs,
+      cpr,
+    ];
   }
 
-  const dash = (id: SalesMetricId, detail: string, narrow = detail, title = ""): SalesTile => ({ id, value: "—", detail, narrowDetail: narrow, title });
   const soldTile: SalesTile =
     f.sold == null || f.soldDay == null
       ? dash("sold", NO_TICKET_COUNTS)
       : (() => {
           const source = `${sourcesLabel(f.soldSources)}, ${shortDay(f.soldDay)}`;
-          const named = f.soldIsFinal ? `Final count · ${source}` : source;
+          const named = `to date · ${f.soldIsFinal ? `Final count · ${source}` : source}`;
+          const shows = ctx.shows > 1 ? ` · ${ctx.countedShows} shows` : "";
           return {
             id: "sold",
             value: count(f.sold),
-            detail: f.soldComps ? `${named} · plus ${count(f.soldComps)} comps` : named,
+            detail: `${named}${shows}${f.soldComps ? ` · plus ${count(f.soldComps)} comps` : ""}`,
             narrowDetail: named,
-            title: opts.soldTitle,
+            title: ctx.soldTitle,
           };
         })();
-  const endLabel = shortDay(endDay);
+  const days = PERIOD_DAYS[period as PeriodId];
   const ticketsTile: SalesTile =
     f.tickets == null
       ? dash("tickets", NO_TICKET_COUNTS)
       : {
           id: "tickets",
           value: count(f.tickets),
-          detail: phrase.wide,
-          narrowDetail: phrase.narrow,
-          title: period === "launch" ? "" : `${count(f.tickets)} tickets ${phrase.wide === "yesterday" ? "yesterday" : `in the ${period} days to ${endLabel}`}.`,
+          detail: period === "launch" ? `since launch, to ${shortDay(f.soldDay ?? endDay)}` : `${sp.wide} · ${oneDecimal(f.tickets / (days ?? 1))} a day`,
+          narrowDetail: sp.narrow,
+          title: "",
         };
   const cptTile: SalesTile =
     f.costPerTicket == null
-      ? dash("costPerTicket", f.tickets == null ? NO_TICKET_COUNTS : "—")
+      ? dash("costPerTicket", f.tickets == null ? NO_TICKET_COUNTS : sp.wide)
       : {
           id: "costPerTicket",
           value: rate(f.costPerTicket),
-          detail: period === "launch" ? "blended · to the latest count" : "blended · complete windows",
-          narrowDetail: "blended",
-          title: period === "launch" ? "Spend to the latest count over tickets sold." : "Blended cost per ticket, complete windows only.",
+          detail: `${sp.wide} · ${ctx.countedShows < ctx.shows ? `the ${ctx.countedShows} shows with counts` : "blended"}`,
+          narrowDetail: `${sp.narrow} · blended`,
+          title: period === "launch" ? "All channels' spend to each show's latest count, over tickets sold." : "Blended cost per ticket, complete windows only.",
         };
+  const umbrellaPart = (n: number | undefined) => (ctx.umbrellaPage && n != null ? ` · plus ${count(n)} on the umbrella page` : "");
   const regsTile: SalesTile =
     f.registrations == null
       ? dash("registrations", NO_CIRQLIN_PAGE)
-      : f.signupsClosed
-        ? dash("registrations", "signups closed at on-sale", "signups closed", "Signups closed when the show went on sale.")
-        : { id: "registrations", value: count(f.registrations), detail: phrase.wide, narrowDetail: phrase.narrow, title: "" };
+      : {
+          id: "registrations",
+          value: count(f.registrations),
+          detail:
+            period === "launch"
+              ? `to date · signup pages close at on-sale${umbrellaPart(ctx.umbrellaPage?.launch)}`
+              : `${sp.wide} · ${count(sinceLaunch.registrations ?? 0)} to date${umbrellaPart(ctx.umbrellaPage?.byPeriod[period])}`,
+          narrowDetail: period === "launch" ? "to date" : sp.narrow,
+          title: "",
+        };
   const cprTile: SalesTile =
-    f.registrations == null
-      ? dash("costPerRegistration", NO_CIRQLIN_PAGE)
-      : f.costPerRegistration == null
-        ? dash("costPerRegistration", f.signupsClosed ? "signups closed at on-sale" : "—", f.signupsClosed ? "signups closed" : "—", "No signup days in this window.")
-        : {
-            id: "costPerRegistration",
-            value: rate(f.costPerRegistration),
-            detail: several(f.registrations, "signup"),
-            narrowDetail: several(f.registrations, "signup"),
-            title: "Spend between the first and last signup day, over signups.",
-          };
-  const per = (value: number | null, detail: string, title: string, id: SalesMetricId): SalesTile =>
-    value == null ? dash(id, "—") : { id, value: rate(value), detail, narrowDetail: detail, title };
-
-  return [
-    spendTile,
-    soldTile,
-    ticketsTile,
-    cptTile,
-    {
-      id: "checkoutActions",
-      value: count(f.checkoutActions),
-      detail: f.costPerCheckout == null ? phrase.wide : `${rate(f.costPerCheckout)} each`,
-      narrowDetail: f.costPerCheckout == null ? phrase.narrow : `${rate(f.costPerCheckout)} each`,
-      title: CHECKOUT_TITLE,
-    },
-    per(f.costPerCheckout, several(f.checkoutActions, "action"), CHECKOUT_TITLE, "costPerCheckout"),
-    { id: "lpv", value: count(f.landingPageViews), detail: phrase.wide, narrowDetail: phrase.narrow, title: "Landing page views on Meta." },
-    per(f.costPerLpv, several(f.landingPageViews, "view"), "Meta spend divided by landing page views.", "costPerLpv"),
-    { id: "clicks", value: count(f.linkClicks), detail: phrase.wide, narrowDetail: phrase.narrow, title: "Link clicks on Meta." },
-    per(f.cpc, "blended", "Meta spend divided by clicks.", "cpc"),
-    regsTile,
-    cprTile,
-  ];
+    f.costPerRegistration == null
+      ? dash("costPerRegistration", f.registrations == null ? NO_CIRQLIN_PAGE : sp.wide)
+      : {
+          id: "costPerRegistration",
+          value: rate(f.costPerRegistration),
+          detail: "show pages, inside their signup windows",
+          narrowDetail: "show pages",
+          title: "Spend between each show page's first and last signup day, over its signups.",
+        };
+  return [spendTile, soldTile, ticketsTile, cptTile, ...engagement, regsTile, cprTile];
 }
 
 function campaignRows(list: readonly ShowSeries[], period: SalesPeriod, endDay: string): SalesCampaignRow[] {
@@ -351,6 +395,7 @@ function singleTrajectory(
     cases.push({ id: "best", label: `Like your best finish (${liftLabel(lifts.best.lift)}, ${lifts.best.name})`, value: p.best });
   }
   const high = Math.max(...cases.map((c) => c.value));
+  const sellsOut: SingleTrajectory["sellsOut"] = p.holds >= p.allocation! ? "holds" : high >= p.allocation! ? "best" : null;
   const alloc = count(p.allocation!);
   const range = high > p.holds ? `${count(p.holds)}–${count(high)}` : count(p.holds);
   const needed = p.neededPerDay != null ? `needed ${count(Math.ceil(p.neededPerDay))} a day` : null;
@@ -375,6 +420,7 @@ function singleTrajectory(
     cases,
     opensAfter: opens ? LIBRARY_OPENS : null,
     libraryNote: opens ? null : libraryNote(lifts.used, excluded),
+    sellsOut,
   };
 }
 
@@ -387,38 +433,63 @@ function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "co
   let low = 0;
   let high = 0;
   let alloc = 0;
+  let sold = 0;
+  let pace7 = 0;
+  let pace14 = 0;
   let n = 0;
+  let asOf: string | null = null;
   const left: string[] = [];
   for (const s of list) {
     const label = `${s.show.name} · ${shortDay(s.show.showDate)}`;
     const id = chipId(s.show.code);
     if (s.show.allocation == null) {
-      bars.push({ id, label, sold: null, low: null, high: null, allocation: null, caption: MISSING_CAPACITY_SHORT });
+      bars.push({ id, label, sold: null, low: null, high: null, allocation: null, caption: MISSING_CAPACITY_SHORT, sellsOut: null });
       left.push(`${s.show.name} has no capacity`);
       continue;
     }
     const lifts = liftsFor(s.show, library);
     const p = project(s, { average: lifts.average, best: lifts.best?.lift ?? null });
     if (!p || p.holds == null) {
-      bars.push({ id, label, sold: null, low: null, high: null, allocation: s.show.allocation, caption: NO_TICKET_COUNTS });
+      bars.push({ id, label, sold: null, low: null, high: null, allocation: s.show.allocation, caption: NO_COUNTS_BAR, sellsOut: null });
       left.push(`${s.show.name} has ${NO_TICKET_COUNTS}`);
       continue;
     }
+    const cap = p.allocation!;
     const top = Math.max(p.holds, p.average ?? p.holds, p.best ?? p.holds);
-    bars.push({ id, label, sold: p.sold, low: p.holds, high: top, allocation: p.allocation, caption: `${count(p.sold)} · ${top > p.holds ? `${count(p.holds)}–${count(top)}` : count(p.holds)}` });
+    // N6: capped at capacity; say when the pace (or only the best case) sells it out.
+    const sellsOut: AllShowBar["sellsOut"] = p.holds >= cap ? "holds" : top >= cap ? "best" : null;
+    const caption =
+      sellsOut === "holds"
+        ? `${count(p.sold)} → sells out at this pace`
+        : sellsOut === "best"
+          ? `${count(p.sold)} → ${count(p.holds)}–${count(cap)} · sells out if best`
+          : `${count(p.sold)} → ${top > p.holds ? `${count(p.holds)}–${count(top)}` : count(p.holds)}`;
+    bars.push({ id, label, sold: p.sold, low: p.holds, high: top, allocation: cap, caption, sellsOut });
     low += p.holds;
     high += top;
-    alloc += p.allocation!;
+    alloc += cap;
+    sold += p.sold;
+    pace7 += p.pace7 ?? 0;
+    pace14 += p.pace14 ?? 0;
+    if (asOf == null || p.asOf > asOf) asOf = p.asOf;
     n += 1;
   }
   const range = high > low ? `${count(low)}–${count(high)}` : count(low);
   const why = [...left, "umbrella excluded"].join("; ");
+  const pct = (x: number) => `${Math.round((100 * x) / alloc)}%`;
   return {
     kind: "all",
     wideRange: n ? `Projected on show day: ${range} of ${count(alloc)} across ${n} shows (${why})` : MISSING_CAPACITY,
     narrowRange: n ? `${range} of ${count(alloc)} on show day` : MISSING_CAPACITY,
     bars,
     note: ALL_NOTE,
+    summary: n
+      ? {
+          sold: { label: `Sold · count of ${shortDay(asOf!)}`, value: count(sold), detail: `${pct(sold)} of ${count(alloc)} across ${n} shows` },
+          projected: { label: "Projected on show day", value: range, detail: `up to ${pct(high)} of ${count(alloc)} · each show capped at its capacity` },
+          pace: { label: "Pace, last 7 days", value: `${oneDecimal(pace7)} a day`, detail: `14-day ${oneDecimal(pace14)} a day` },
+        }
+      : undefined,
   };
 }
 
@@ -453,20 +524,80 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
   const umbrellas = ordered.filter((s) => s.show.isUmbrella && !s.finished);
   const finished = ordered.filter((s) => s.finished && !s.show.isUmbrella && (s.counts.length > 0 || s.days.size > 0));
   const clientName = input.client.name;
+  const launchOf = new Map<string, PeriodFigures>();
+  const launch = (s: ShowSeries) => {
+    let f = launchOf.get(s.show.eventId);
+    if (!f) launchOf.set(s.show.eventId, (f = periodFigures([s], "launch", endDay)));
+    return f;
+  };
 
-  const umbrellaSpend = umbrellas.reduce((sum, s) => sum + periodFigures([s], "launch", endDay).spend, 0);
-  const umbrellaLine = umbrellas.length && umbrellaSpend > 0 ? `Separate ${clientName} umbrella spend ${money(umbrellaSpend)}` : null;
+  // N2: venues from venue_key only.
+  const groups = groupVenues(ordered, (s) => launch(s).spend);
+  const live = groups.filter((g) => g.live.length > 0);
+  const multiVenue = live.length > 1;
+  const venueOf = new Map<string, VenueGroup>();
+  for (const g of groups) for (const s of [...g.live, ...g.umbrellas, ...g.finished]) venueOf.set(s.show.eventId, g);
+  // N8: "{Venue} umbrella". With no venue_key yet, the client's name stands in (D1's wording).
+  const umbrellaVenue = (s: ShowSeries) => {
+    const g = venueOf.get(s.show.eventId);
+    return g?.key != null ? g.name : clientName;
+  };
+  const umbrellaName = (s: ShowSeries) => `${umbrellaVenue(s)} umbrella`;
+  const umbrellaAmounts = (list: readonly ShowSeries[]) => list.map((u) => ({ venue: umbrellaVenue(u), amount: launch(u).spend }));
+  const umbrellaLineFor = (list: readonly ShowSeries[]) => {
+    const amounts = umbrellaAmounts(list).filter((u) => u.amount > 0);
+    if (!amounts.length) return null;
+    return amounts.length === 1 ? `Separate ${amounts[0].venue} umbrella spend ${money(amounts[0].amount)}` : `Separate umbrella spend: ${amounts.map((u) => `${u.venue} ${money(u.amount)}`).join(", ")}`;
+  };
+  const umbrellaPageFor = (list: readonly ShowSeries[]): TileContext["umbrellaPage"] => {
+    const paged = list.filter((u) => u.show.cirqlinPageId != null);
+    if (!paged.length) return null;
+    const byPeriod: Partial<Record<SalesPeriod, number>> = {};
+    for (const period of PERIOD_IDS) byPeriod[period] = periodFigures(paged, period, endDay).registrations ?? 0;
+    return { launch: byPeriod.launch ?? 0, byPeriod };
+  };
 
   const views: Record<string, SalesShowView> = {};
   const periods: Record<string, Record<SalesPeriod, PeriodView>> = {};
 
-  const fill = (id: string, list: ShowSeries[], header: Pick<SalesShowView, "title" | "narrowTitle" | "subtitle" | "narrowSubtitle" | "umbrellaLine">, trajectory: SalesTrajectory, umbrella: boolean, allocation: AllocationStep[]) => {
-    const launch = periodFigures(list, "launch", endDay);
-    const soldTitle = soldHover(list, launch);
+  const fill = (
+    id: string,
+    list: ShowSeries[],
+    header: Pick<SalesShowView, "title" | "narrowTitle" | "subtitle" | "narrowSubtitle" | "umbrellaLine">,
+    trajectory: SalesTrajectory,
+    ctx: Omit<TileContext, "soldTitle" | "shows" | "countedShows">,
+    allocation: AllocationStep[],
+    totals: {
+      scope: string;
+      venueKey: string | null;
+      kind: "venue" | "all" | "show" | "umbrella";
+      parts: { id: string; label: string; list: ShowSeries[] }[];
+      leftOut: ShowSeries[];
+      finishedLeftOut: boolean;
+      sentenceName: string;
+      venues?: number;
+    },
+  ) => {
+    const launchF = periodFigures(list, "launch", endDay);
+    const soldTitle = soldHover(list, launchF);
+    const shows = list.length;
+    const countedShows = list.filter((s) => s.counts.length > 0).length;
     const perPeriod = {} as Record<SalesPeriod, PeriodView>;
     for (const period of PERIOD_IDS) {
-      const f = period === "launch" ? launch : periodFigures(list, period, endDay);
-      perPeriod[period] = { tiles: tilesFor(f, launch, period, endDay, { soldTitle, umbrella }), campaigns: campaignRows(list, period, endDay) };
+      const f = period === "launch" ? launchF : periodFigures(list, period, endDay);
+      perPeriod[period] = {
+        tiles: tilesFor(f, launchF, period, endDay, { ...ctx, soldTitle, shows, countedShows }),
+        campaigns: campaignRows(list, period, endDay),
+        spendTotal: spendTotal({
+          scope: totals.scope,
+          figures: f,
+          parts: totals.parts.map((part) => ({ id: part.id, label: part.label, figures: periodFigures(part.list, period, endDay) })),
+          span: span(period).wide,
+          endDay,
+          leftOut: totals.leftOut.map((u) => ({ label: umbrellaName(u), amount: periodFigures([u], period, endDay).spend })),
+          finishedLeftOut: totals.finishedLeftOut,
+        }),
+      };
     }
     periods[id] = perPeriod;
     const lastDay = list.map((s) => s.lastDay).sort().pop() ?? endDay;
@@ -478,49 +609,104 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       allocation,
       trajectory,
       campaigns: perPeriod[BASE_PERIOD].campaigns,
+      venueKey: totals.venueKey,
+      header: headerSentence({
+        kind: totals.kind,
+        name: totals.sentenceName,
+        launch: launchF,
+        endDay,
+        sourceLabels: SOURCE_LABEL,
+        countedShows,
+        venues: totals.venues,
+        umbrellas: umbrellaAmounts(totals.leftOut),
+        pageSignups: totals.kind === "umbrella" ? launchF.registrations : undefined,
+        finishedLeftOut: totals.finishedLeftOut,
+      }),
+      spendTotal: perPeriod.launch.spendTotal,
       periods: perPeriod,
     };
   };
 
-  const noCapacity = upcoming.filter((s) => s.show.allocation == null).map((s) => s.show.name);
-  const withCapacity = upcoming.length - noCapacity.length;
+  const capacityNote = (list: ShowSeries[]) => {
+    const noCapacity = list.filter((s) => s.show.allocation == null).map((s) => s.show.name);
+    const withCapacity = list.length - noCapacity.length;
+    return {
+      subtitle: noCapacity.length ? `${withCapacity} shows with a capacity · ${noCapacity.join(", ")} left out` : `${list.length} shows`,
+      narrowSubtitle: noCapacity.length ? `${withCapacity} shows · ${noCapacity.join(", ")} left out` : `${list.length} shows`,
+    };
+  };
+
+  // All venues (the client): "all", as before.
   fill(
     ALL_SHOWS_ID,
     upcoming,
-    {
-      title: viewTitle("All shows", clientName),
-      narrowTitle: "All shows",
-      subtitle: noCapacity.length ? `${withCapacity} shows with a capacity · ${noCapacity.join(", ")} left out` : `${upcoming.length} shows`,
-      narrowSubtitle: noCapacity.length ? `${withCapacity} shows · ${noCapacity.join(", ")} left out` : `${upcoming.length} shows`,
-      umbrellaLine,
-    },
+    { title: viewTitle(multiVenue ? "All venues" : "All shows", clientName), narrowTitle: multiVenue ? "All venues" : "All shows", ...capacityNote(upcoming), umbrellaLine: umbrellaLineFor(umbrellas) },
     allTrajectory(upcoming, library),
-    false,
+    { scope: multiVenue ? "All venues" : live[0]?.name ?? clientName, umbrella: null, umbrellaPage: umbrellaPageFor(umbrellas) },
     [],
+    {
+      scope: multiVenue ? "All venues" : live[0]?.name ?? clientName,
+      venueKey: null,
+      kind: multiVenue ? "all" : "venue",
+      parts: multiVenue
+        ? live.map((g) => ({ id: g.key ?? "unset", label: g.name, list: g.live }))
+        : upcoming.map((s) => ({ id: chipId(s.show.code), label: s.show.name, list: [s] })),
+      leftOut: umbrellas,
+      finishedLeftOut: true,
+      sentenceName: multiVenue ? clientName : live[0]?.name ?? clientName,
+      venues: live.length,
+    },
   );
+
+  // One All shows view per venue.
+  for (const g of groups) {
+    if (!g.live.length && !g.umbrellas.length) continue;
+    fill(
+      g.viewId,
+      g.live,
+      { title: viewTitle("All shows", g.name), narrowTitle: g.name, ...capacityNote(g.live), umbrellaLine: umbrellaLineFor(g.umbrellas) },
+      allTrajectory(g.live, library),
+      { scope: g.name, umbrella: null, umbrellaPage: umbrellaPageFor(g.umbrellas) },
+      [],
+      {
+        scope: g.name,
+        venueKey: g.key,
+        kind: "venue",
+        parts: g.live.map((s) => ({ id: chipId(s.show.code), label: s.show.name, list: [s] })),
+        leftOut: g.umbrellas,
+        finishedLeftOut: true,
+        sentenceName: g.name,
+      },
+    );
+  }
 
   for (const s of [...upcoming, ...finished]) {
     const when = weekdayDay(s.show.showDate);
     const sub = s.finished ? `${when} · finished` : s.show.allocation != null ? `${when} · allocation ${count(s.show.allocation)}` : when;
+    const g = venueOf.get(s.show.eventId);
     fill(
       chipId(s.show.code),
       [s],
-      { title: viewTitle(s.show.name, clientName), narrowTitle: viewTitle(s.show.name, clientName), subtitle: sub, narrowSubtitle: sub, umbrellaLine: s.finished ? null : umbrellaLine },
+      { title: viewTitle(s.show.name, clientName), narrowTitle: viewTitle(s.show.name, clientName), subtitle: sub, narrowSubtitle: sub, umbrellaLine: s.finished ? null : umbrellaLineFor(g?.umbrellas ?? []) },
       singleTrajectory(s, library, excluded),
-      false,
+      { scope: s.show.name, umbrella: null, umbrellaPage: null },
       allocationSteps(s),
+      { scope: s.show.name, venueKey: g?.key ?? null, kind: "show", parts: [], leftOut: [], finishedLeftOut: false, sentenceName: s.show.name },
     );
   }
 
   for (const s of umbrellas) {
+    const g = venueOf.get(s.show.eventId);
+    const name = umbrellaName(s);
+    const w = s.signupWindow;
     fill(
       chipId(s.show.code),
       [s],
-      { title: viewTitle(s.show.name, clientName), narrowTitle: s.show.name, subtitle: UMBRELLA_TILE, narrowSubtitle: UMBRELLA_TILE, umbrellaLine: null },
+      { title: name, narrowTitle: name, subtitle: `${s.show.name} · not a show: no tickets and no trajectory`, narrowSubtitle: s.show.name, umbrellaLine: null },
       {
         kind: "single",
-        wideRange: `${UMBRELLA_TILE}.`,
-        narrowRange: `${UMBRELLA_TILE}.`,
+        wideRange: "An umbrella has no Total sold, Sales or Cost per ticket, and no trajectory.",
+        narrowRange: "Not a show: no trajectory.",
         narrowNote: null,
         showDay: null,
         showDayIso: null,
@@ -533,34 +719,55 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
         opensAfter: null,
         libraryNote: null,
         missingCapacity: null,
+        sellsOut: null,
       },
-      true,
+      { scope: null, umbrella: { pageSlug: s.show.cirqlinPageSlug ?? null, window: w ? `${shortDay(w.first)}–${shortDay(w.last)}` : null }, umbrellaPage: null },
       [],
+      { scope: name, venueKey: g?.key ?? null, kind: "umbrella", parts: [], leftOut: [], finishedLeftOut: false, sentenceName: name },
     );
   }
 
-  const chip = (s: ShowSeries, kind: SalesShowChip["kind"]): SalesShowChip => ({
+  const chip = (s: ShowSeries, kind: SalesShowChip["kind"], inVenue = false): SalesShowChip => ({
     id: chipId(s.show.code),
-    wide: kind === "umbrella" ? s.show.name : `${s.show.name} · ${shortDay(s.show.showDate)}`,
-    narrow: s.show.name,
+    wide: kind === "umbrella" ? (inVenue ? "Umbrella" : umbrellaName(s)) : `${s.show.name} · ${shortDay(s.show.showDate)}`,
+    narrow: kind === "umbrella" ? "Umbrella" : s.show.name,
     kind,
     finished: s.finished,
   });
+
+  const venues: SalesVenue[] = groups
+    .filter((g) => g.live.length || g.umbrellas.length)
+    .map((g) => ({
+      key: g.key,
+      name: g.name,
+      liveShows: g.live.length,
+      viewId: g.viewId,
+      shows: [
+        { id: g.viewId, wide: "All shows", narrow: "All", kind: "all" as const, finished: false },
+        ...g.live.map((s) => chip(s, "show", true)),
+        ...g.umbrellas.map((s) => chip(s, "umbrella", true)),
+      ],
+      finishedShows: g.finished.map((s) => chip(s, "show", true)),
+    }));
+  const initial = defaultVenue(groups);
 
   const model: SalesDashboardModel = {
     clientName,
     freshness: freshness(ordered, endDay),
     shows: [
-      { id: ALL_SHOWS_ID, wide: "All shows", narrow: "All", kind: "all", finished: false },
+      { id: ALL_SHOWS_ID, wide: multiVenue ? "All venues" : "All shows", narrow: "All", kind: "all", finished: false },
       ...upcoming.map((s) => chip(s, "show")),
       ...umbrellas.map((s) => chip(s, "umbrella")),
     ],
     finishedShows: finished.map((s) => chip(s, "show")),
-    initialShowId: ALL_SHOWS_ID,
+    // N2: open on the venue with the most live shows; N5: since launch.
+    initialShowId: initial?.viewId ?? ALL_SHOWS_ID,
     initialPeriod: BASE_PERIOD,
     crossClientNote: null,
     reviewLine: null,
     views,
+    venues,
+    initialVenueViewId: initial?.viewId ?? ALL_SHOWS_ID,
   };
   return { model, periods, freshLibrary: fresh, library, excludedFromLibrary: excluded };
 }
