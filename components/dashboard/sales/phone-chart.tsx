@@ -145,8 +145,24 @@ export function PhoneChart({
     userMoved.current = false;
     const el = scrollerRef.current;
     if (!el) return;
-    placeScroller(el, openAt, days);
-    setScroll({ left: el.scrollLeft, client: el.clientWidth, width: el.scrollWidth });
+    const settle = () => {
+      if (userMoved.current) return;
+      placeScroller(el, openAt, days);
+      setScroll({ left: el.scrollLeft, client: el.clientWidth, width: el.scrollWidth });
+    };
+    settle();
+    // The scroller only becomes scrollable once its stylesheet applies, which can be after hydration and
+    // changes no element's size (so no resize fires). Place it again on load and for the first frames.
+    if (document.readyState !== "complete") window.addEventListener("load", settle, { once: true });
+    let frames = 0;
+    let raf = requestAnimationFrame(function tick() {
+      settle();
+      if ((frames += 1) < 30) raf = requestAnimationFrame(tick);
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("load", settle);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openAt, points.length]);
 
