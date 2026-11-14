@@ -33,8 +33,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildCampaignPayload } from "../meta/campaign.ts";
-import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
-import { daysInclusive, money, PC, type PurchaseBuild } from "./purchase-campaign.ts";
+import { MetaWriteLedgerRequiredError, withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
+import { campaignFloor, daysInclusive, floorBracket, money, PC, type PurchaseBuild } from "./purchase-campaign.ts";
 import { dayMonth } from "./schedule.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -53,7 +53,9 @@ export type PurchaseMeta = {
   /** GET /{campaign}: daily_budget, lifetime_budget, in minor units. */
   readCampaignBudget(campaignId: string): Promise<{ daily: number | null; lifetime: number | null }>;
   /** GET /{ad}: its name, creative id and effective status. */
-  readAd(adId: string): Promise<{ id: string; name: string; creativeId: string | null; effectiveStatus: string | null } | null>;
+  readAd(adId: string): Promise<{ id: string; name: string; creativeId: string | null; effectiveStatus: string | null; /** PC9's fallback: the creative's post. */ objectStoryId?: string | null } | null>;
+  /** PC9's one fallback: a new creative from the source creative's post (POST /act_{id}/adcreatives { object_story_id }). Returns the id. */
+  createCreativeFromPost(adAccountId: string, spec: { name: string; objectStoryId: string }): Promise<string>;
   /** POST /act_{id}/campaigns. Returns the id. */
   createCampaign(adAccountId: string, payload: Record<string, unknown>): Promise<string>;
   /** POST /act_{id}/adsets. Returns the id. */
@@ -88,6 +90,8 @@ export type PurchaseProgress = {
   /** Source ad set id → the copy's id, its pick and its name (PC6 reads the pick). */
   adSets?: Record<string, { id: string; role: string; name: string }>;
   ads?: string[];
+  /** PC9: each ad's path — the source creative ("creative_id") or a new creative from its post ("post"). The ledger keeps it too. */
+  adPaths?: Record<string, "creative_id" | "post">;
   main?: { before: number; after: number; moved: number };
   active?: boolean;
   rate?: number;
@@ -217,8 +221,9 @@ export async function applyPurchaseCampaign(deps: PurchaseDeps, line: PurchaseLi
     if (move > 0) {
       if (mainLifetime == null) return fail(`${short} has no lifetime budget to move from`);
       if (build.mainLifetimeGbp != null && Math.abs(mainLifetime - build.mainLifetimeGbp) > 0.005) return fail(`${short}'s budget changed in Ads Manager since the proposal`);
-      const floor = round2(deps.mainSpentNow + PC.floorDays * (build.mainLast7Daily ?? 0));
-      if (mainLifetime - move < floor - 1e-9) return fail(`${short} would go under ${money(floor)} (spent ${money(deps.mainSpentNow)} + ${PC.floorDays} days)`);
+      // PC7: the larger of spend + 3 days and Meta's 1.1 × spend, on live spend.
+      const floor = campaignFloor(deps.mainSpentNow, build.mainLast7Daily ?? 0);
+      if (mainLifetime - move < floor.floor - 1e-9) return fail(`${short} would go under ${money(floor.floor)} ${floorBracket(floor)}`);
     }
   }
   progress.rate = rate;
@@ -249,18 +254,20 @@ export async function applyPurchaseCampaign(deps: PurchaseDeps, line: PurchaseLi
       progress.adSets[pick.adsetId] = { id, role: pick.role, name: String(payload.name) };
       await storeProgress(deps.db, line.id, progress);
     }
-    // 4. The ads: each reused ad's creative, in each copy.
-    const creatives: { name: string; creativeId: string }[] = [];
+    // 4. The ads: each reused ad's creative, in each copy (PC9: the creative id, else one new creative from the same post).
+    const creatives: ReusedCreative[] = [];
     for (const ad of build.ads ?? []) {
       const live = await deps.meta.readAd(ad.adId);
       if (!live?.creativeId) return fail(`The ad it reuses (${ad.name}) can't be read`, { step: "ad" });
-      creatives.push({ name: live.name || ad.name, creativeId: live.creativeId });
+      creatives.push({ name: live.name || ad.name, creativeId: live.creativeId, objectStoryId: live.objectStoryId ?? null });
     }
     const adIds = new Set(progress.ads ?? []);
+    progress.adPaths ??= {};
     for (const copy of Object.values(progress.adSets)) {
       for (const creative of creatives) {
-        const id = await withMetaWriteIdempotency(ctx.ledger, "refresh_ad_create", { ...keyBase, adset_id: copy.id, creative_id: creative.creativeId }, () => deps.meta.createAd(ctx.adAccountId, { name: creative.name, adset_id: copy.id, creative: { creative_id: creative.creativeId }, status: "ACTIVE" }), { required: true });
-        adIds.add(id);
+        const made = await reuseAd(deps.meta, ctx.ledger, { lineId: line.id, adAccountId: ctx.adAccountId, adsetId: copy.id, creative });
+        adIds.add(made.adId);
+        progress.adPaths[made.adId] = made.path;
       }
     }
     progress.ads = [...adIds];
@@ -300,6 +307,30 @@ export async function applyPurchaseCampaign(deps: PurchaseDeps, line: PurchaseLi
     reason: appliedText({ adSets: Object.keys(progress.adSets ?? {}).length, ads: build.ads?.length ?? 0, rate, lifetime, endDay: build.endDay, headroom, moved: progress.main?.moved ?? 0, mainShort: short }),
     result: { purchase: progress },
   };
+}
+
+export type ReusedCreative = { name: string; creativeId: string; objectStoryId: string | null };
+
+/**
+ * PC9 (docs/design-record/2026-11-14-purchase-campaigns-2.html): reuse a
+ * source ad in an ad set. First by its creative_id (the creative belongs to
+ * the account and carries the same post); if Meta refuses, one fallback: a
+ * new creative from the source creative's effective_object_story_id (the
+ * same post, so likes and comments carry over), then the ad. If both fail,
+ * the fallback's error is thrown and step 4 fails. Nothing is rebuilt from
+ * the creative's parts. The path is in each ledger payload, per ad.
+ */
+export async function reuseAd(meta: Pick<PurchaseMeta, "createAd" | "createCreativeFromPost">, ledger: MetaWriteContext, args: { lineId: string; adAccountId: string; adsetId: string; creative: ReusedCreative }): Promise<{ adId: string; path: "creative_id" | "post"; creativeId: string }> {
+  const { creative } = args;
+  try {
+    const adId = await withMetaWriteIdempotency(ledger, "refresh_ad_create", { line_id: args.lineId, adset_id: args.adsetId, creative_id: creative.creativeId, path: "creative_id" }, () => meta.createAd(args.adAccountId, { name: creative.name, adset_id: args.adsetId, creative: { creative_id: creative.creativeId }, status: "ACTIVE" }), { required: true });
+    return { adId, path: "creative_id", creativeId: creative.creativeId };
+  } catch (refused) {
+    if (refused instanceof MetaWriteLedgerRequiredError || !creative.objectStoryId) throw refused;
+  }
+  const fromPost = await withMetaWriteIdempotency(ledger, "refresh_creative_create", { line_id: args.lineId, source_creative_id: creative.creativeId, object_story_id: creative.objectStoryId }, () => meta.createCreativeFromPost(args.adAccountId, { name: creative.name, objectStoryId: creative.objectStoryId! }), { required: true });
+  const adId = await withMetaWriteIdempotency(ledger, "refresh_ad_create", { line_id: args.lineId, adset_id: args.adsetId, creative_id: fromPost, path: "post" }, () => meta.createAd(args.adAccountId, { name: creative.name, adset_id: args.adsetId, creative: { creative_id: fromPost }, status: "ACTIVE" }), { required: true });
+  return { adId, path: "post", creativeId: fromPost };
 }
 
 /** The main campaign's spend to date (ad_daily_insights), paged by a unique key. */

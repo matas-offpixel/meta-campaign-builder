@@ -35,7 +35,11 @@ function fakeMeta(overrides: Partial<Record<keyof PurchaseMeta, (...args: never[
     },
     async readAd(adId) {
       calls.push(["readAd", adId]);
-      return { id: adId, name: `name-${adId}`, creativeId: `cr-${adId}`, effectiveStatus: "ACTIVE" };
+      return { id: adId, name: `name-${adId}`, creativeId: `cr-${adId}`, effectiveStatus: "ACTIVE", objectStoryId: `page_post-${adId}` };
+    },
+    async createCreativeFromPost(adAccountId, spec) {
+      calls.push(["createCreativeFromPost", adAccountId, spec]);
+      return id("crnew");
     },
     async createCampaign(adAccountId, payload) {
       calls.push(["createCampaign", adAccountId, payload]);
@@ -192,7 +196,7 @@ describe("P4 PR B: the plan and the floor, again, on live figures", () => {
     const fake = fakeMeta();
     const { deps, ctx } = setup(ON, { budget: 10000, spend: 0 });
     const out = await applyPurchaseCampaign({ ...deps(fake.meta), mainSpentNow: 1300 }, LINE(), ctx);
-    assert.match(out.reason!, /^On Sale would go under £1,405\.99 \(spent £1,300 \+ 3 days\)/);
+    assert.match(out.reason!, /^On Sale would go under £1,430 \(Meta's minimum: 1\.1 × £1,300\.00 spent\)/, "PC7: Meta's 1.1 × £1,300 = £1,430 beats £1,300 + 3 × £35.33");
     assert.deepEqual(fake.writes(), []);
   });
 });
@@ -281,5 +285,54 @@ describe("P4 PR B: PC5's Purchase campaign words, the picked rate, the end time,
     for (const kind of ["campaign_create", "adset_create", "ad_create", "creative_upload", "adset_targeting_update", "adset_destination_update", "refresh_creative_create", "refresh_ad_create", "ad_status_update", "adset_status_update", "refresh_adset_budget_update", "refresh_adset_create", "refresh_custom_conversion_create", "refresh_campaign_create", "refresh_campaign_lifetime_budget_update", "refresh_campaign_status_update"]) {
       assert.match(sql, new RegExp(`'${kind}'`), kind);
     }
+  });
+});
+
+
+describe("P4 PR B PC9: reusing the ads — the creative id, else one new creative from the same post", () => {
+  it("the creative id first: no new creative, the path in the ledger", async () => {
+    const fake = fakeMeta();
+    const { mem, deps, ctx } = setup();
+    const out = await applyPurchaseCampaign(deps(fake.meta), LINE(), ctx);
+    assert.equal(out.state, "applied");
+    assert.equal(fake.calls.some(([name]) => name === "createCreativeFromPost"), false);
+    const paths = (out.result.purchase as { adPaths: Record<string, string> }).adPaths;
+    assert.deepEqual([...new Set(Object.values(paths))], ["creative_id"]);
+    assert.ok(mem.tables.meta_write_idempotency!.filter((row) => row.op_kind === "refresh_ad_create").length === 6);
+  });
+
+  it("Meta refuses the creative id: one new creative from the post, then the ad; the creative is made once and reused across the copies", async () => {
+    const fake = fakeMeta({
+      createAd: async (_account: string, ad: { creative: { creative_id: string } }) => {
+        if (ad.creative.creative_id.startsWith("cr-")) throw new Error("Meta refused: this creative can't be used here");
+        fake.calls.push(["createAd", _account, ad]);
+        return `ad-${ad.creative.creative_id}-${fake.calls.length}`;
+      },
+    } as never);
+    const { deps, ctx } = setup();
+    const out = await applyPurchaseCampaign(deps(fake.meta), LINE(), ctx);
+    assert.equal(out.state, "applied");
+    const made = fake.calls.filter(([name]) => name === "createCreativeFromPost").map(([, , spec]) => (spec as { objectStoryId: string }).objectStoryId);
+    assert.deepEqual(made, ["page_post-a1", "page_post-a2", "page_post-a3"], "one per source creative, the same post");
+    assert.equal(fake.calls.filter(([name]) => name === "createAd").length, 6);
+    assert.deepEqual([...new Set(Object.values((out.result.purchase as { adPaths: Record<string, string> }).adPaths))], ["post"]);
+    assert.equal(out.reason, "live · 2 ad sets · 3 ads · £5 a day, £130 lifetime to 11 Dec (£0 from plan headroom + £130 from On Sale)", "the applied line doesn't say which path");
+  });
+
+  it("both fail: step 4 fails with Meta's reason; everything stays paused and On Sale is unchanged", async () => {
+    const fake = fakeMeta({
+      createAd: async () => {
+        throw new Error("Meta refused the ad");
+      },
+      createCreativeFromPost: async () => {
+        throw new Error("Meta refused the post");
+      },
+    } as never);
+    const { deps, ctx } = setup();
+    const out = await applyPurchaseCampaign(deps(fake.meta), LINE(), ctx);
+    assert.equal(out.state, "failed");
+    assert.equal(out.reason, "Meta refused the post. Created paused: the campaign and 2 ad sets. On Sale's budget is unchanged.");
+    assert.equal(fake.calls.some(([name, target]) => name === "updateCampaign" && target === MAIN), false);
+    assert.equal(fake.calls.some(([name]) => name === "setAdSetActive"), false);
   });
 });
