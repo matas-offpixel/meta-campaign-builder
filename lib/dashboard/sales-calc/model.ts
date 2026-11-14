@@ -36,6 +36,7 @@ import {
   type SingleTrajectory,
   type SalesTrajectory,
   type TrajectoryCase,
+  type TrajectoryTile,
 } from "../sales-vs-spend.ts";
 import { dayDiff, shortDay, weekdayDay } from "./days.ts";
 import {
@@ -130,6 +131,8 @@ const oneDecimal = (n: number) => new Intl.NumberFormat("en-GB", { minimumFracti
 
 export const NO_COUNTS_BAR = "No ticket counts yet";
 export const NOT_A_SHOW = "not a show";
+/** Yesterday had no count (the last one is older): no sales or cost per ticket for it. Invented here (period-calc ticket). */
+export const NO_COUNT_YESTERDAY = "no count yesterday";
 
 interface TileContext {
   /** The scope named on the Spend tile ("NX Newcastle", "All venues", a show). Null for the umbrella. */
@@ -223,28 +226,30 @@ function tilesFor(f: PeriodFigures, sinceLaunch: PeriodFigures, period: SalesPer
           };
         })();
   const days = PERIOD_DAYS[period as PeriodId];
+  const toCount = f.ticketDays && f.ticketDays.to < endDay ? ` to the ${shortDay(f.ticketDays.to)} count` : "";
+  const noCount = period === "yesterday" && f.tickets == null && f.sold != null ? NO_COUNT_YESTERDAY : NO_TICKET_COUNTS;
   const ticketsTile: SalesTile =
     f.tickets == null
-      ? dash("tickets", NO_TICKET_COUNTS)
+      ? dash("tickets", noCount)
       : {
           id: "tickets",
           value: count(f.tickets),
-          detail: period === "launch" ? `since launch, to ${shortDay(f.soldDay ?? endDay)}` : `${sp.wide} · ${oneDecimal(f.tickets / (days ?? 1))} a day`,
+          detail: period === "launch" ? `since launch, to ${shortDay(f.soldDay ?? endDay)}` : `${sp.wide}${toCount} · ${oneDecimal(f.tickets / (days ?? 1))} a day`,
           narrowDetail: sp.narrow,
           title: "",
         };
   const cptTile: SalesTile =
     f.costPerTicket == null
-      ? dash("costPerTicket", f.tickets == null ? NO_TICKET_COUNTS : sp.wide)
+      ? dash("costPerTicket", f.tickets == null ? noCount : sp.wide)
       : {
           id: "costPerTicket",
           value: rate(f.costPerTicket),
-          detail: `${sp.wide} · ${ctx.countedShows < ctx.shows ? `the ${ctx.countedShows} shows with counts` : "blended"}`,
+          detail: `${sp.wide}${toCount} · ${ctx.countedShows < ctx.shows ? `the ${ctx.countedShows} shows with counts` : "blended"}`,
           narrowDetail: `${sp.narrow} · blended`,
           title:
             period === "launch"
               ? `All channels' spend to each show's latest count, over tickets sold${spendToCountClause(f)}.`
-              : "Blended cost per ticket, complete windows only.",
+              : periodCptTitle(f, ctx.countedShows, days ?? 1),
         };
   // N4: only when the umbrella page has signups; at 0, or before its first sync, the clause is dropped.
   const umbrellaPart = (n: number | undefined) => (ctx.umbrellaPage && n != null && n > 0 ? ` · plus ${count(n)} on the umbrella page` : "");
@@ -352,6 +357,7 @@ function singleTrajectory(
   s: ShowSeries,
   library: Omit<LiftEntry, "computedAt">[],
   excluded: { name: string; reason: string }[],
+  endDay: string,
 ): SalesTrajectory {
   const show = s.show;
   const base = {
@@ -434,7 +440,7 @@ function singleTrajectory(
         value: range,
         detail: `up to ${Math.round((100 * Math.min(high, p.allocation!)) / p.allocation!)}% of ${alloc}`,
       },
-      pace: { label: "Pace, last 7 days", value: `${oneDecimal(p.pace7 ?? 0)} a day`, detail: `14-day ${oneDecimal(p.pace14 ?? 0)} a day` },
+      pace: paceTile([s], endDay),
     },
   };
 }
@@ -443,14 +449,36 @@ function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "computedAt">[]): SalesTrajectory {
+/**
+ * N6 / MB3 "Pace, last 7 days" and its 14-day line: the period's Sales over
+ * its days (the same sales the 7- and 14-day Sales tiles show), so the two tie
+ * out. D6's projection keeps its own count-to-count pace.
+ */
+function paceTile(list: readonly ShowSeries[], endDay: string): TrajectoryTile {
+  const a = periodFigures(list, "7", endDay).tickets;
+  const b = periodFigures(list, "14", endDay).tickets;
+  return {
+    label: "Pace, last 7 days",
+    value: a == null ? "— a day" : `${oneDecimal(a / 7)} a day`,
+    detail: `14-day ${b == null ? "—" : oneDecimal(b / 14)} a day`,
+  };
+}
+
+/** The period Cost per ticket's hover: which spend, which days, which tickets. */
+function periodCptTitle(f: PeriodFigures, countedShows: number, days: number): string {
+  if (!f.ticketDays) return "";
+  const span = `${shortDay(f.ticketDays.from)}–${shortDay(f.ticketDays.to)}`;
+  const which = countedShows === 1 ? "this show's" : `the ${countedShows} shows with counts'`;
+  const toCount = ` (the ${days === 1 ? "day" : `${days} days`} to the ${shortDay(f.ticketDays.to)} count)`;
+  return `Spend on ${which} days ${span}${toCount}, over the ${count(Math.round(f.tickets ?? 0))} tickets they sold in those days.`;
+}
+
+function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "computedAt">[], endDay: string): SalesTrajectory {
   const bars: AllShowBar[] = [];
   let low = 0;
   let high = 0;
   let alloc = 0;
   let sold = 0;
-  let pace7 = 0;
-  let pace14 = 0;
   let n = 0;
   // The one count date (the same as the view's countDay), not each projection's own.
   const countDay = latestCountDay(list);
@@ -485,8 +513,6 @@ function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "co
     high += top;
     alloc += cap;
     sold += p.sold;
-    pace7 += p.pace7 ?? 0;
-    pace14 += p.pace14 ?? 0;
     n += 1;
   }
   const range = high > low ? `${count(low)}–${count(high)}` : count(low);
@@ -502,7 +528,7 @@ function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "co
       ? {
           sold: { label: `Sold · count of ${shortDay(countDay!)}`, value: count(sold), detail: `${pct(sold)} of ${count(alloc)} across ${n} shows` },
           projected: { label: "Projected on show day", value: range, detail: `up to ${pct(high)} of ${count(alloc)} · each show capped at its capacity` },
-          pace: { label: "Pace, last 7 days", value: `${oneDecimal(pace7)} a day`, detail: `14-day ${oneDecimal(pace14)} a day` },
+          pace: paceTile(list, endDay),
         }
       : undefined,
   };
@@ -663,7 +689,7 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
     ALL_SHOWS_ID,
     upcoming,
     { title: viewTitle(multiVenue ? "All venues" : "All shows", clientName), narrowTitle: multiVenue ? "All venues" : "All shows", ...capacityNote(upcoming), umbrellaLine: umbrellaLineFor(umbrellas) },
-    allTrajectory(upcoming, library),
+    allTrajectory(upcoming, library, endDay),
     { scope: multiVenue ? "All venues" : live[0]?.name ?? clientName, umbrella: null, umbrellaPage: umbrellaPageFor(umbrellas) },
     [],
     {
@@ -693,7 +719,7 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       g.viewId,
       g.live,
       { title: viewTitle("All shows", g.name), narrowTitle: g.name, ...capacityNote(g.live), umbrellaLine: umbrellaLineFor(g.umbrellas) },
-      allTrajectory(g.live, library),
+      allTrajectory(g.live, library, endDay),
       { scope: g.name, umbrella: null, umbrellaPage: umbrellaPageFor(g.umbrellas) },
       [],
       {
@@ -716,7 +742,7 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       chipId(s.show.code),
       [s],
       { title: viewTitle(s.show.name, clientName), narrowTitle: viewTitle(s.show.name, clientName), subtitle: sub, narrowSubtitle: sub, umbrellaLine: s.finished ? null : umbrellaLineFor(g?.umbrellas ?? []) },
-      singleTrajectory(s, library, excluded),
+      singleTrajectory(s, library, excluded, endDay),
       { scope: s.show.name, umbrella: null, umbrellaPage: null },
       allocationSteps(s),
       { scope: s.show.name, venueKey: g?.key ?? null, kind: "show", parts: [], leftOut: [], finishedLeftOut: false, sentenceName: s.show.name },

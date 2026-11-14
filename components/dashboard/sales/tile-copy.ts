@@ -36,7 +36,7 @@ export function tileSubline(
   const text = detail.trim();
   const span = periodSpan(period);
   if (id === "sold") return soldSubline(text, countLabel);
-  if (id === "costPerTicket") return costPerTicketSubline(span, scope, wide);
+  if (id === "costPerTicket") return costPerTicketSubline(span, scope, wide, toCountOf(text));
   if (id === "tickets" && period === "launch") return `since launch, to ${countLabel}`;
   if (id === "checkoutActions") return `${span} · actions, one person can do both`;
   if (id === "costPerRegistration") return `${span} · show pages, inside their signup windows`;
@@ -57,8 +57,9 @@ function soldSubline(detail: string, countLabel: string): string {
 
 /**
  * N3 names the shows that have no counts. A single show, or a set where every
- * show has a count, stays "blended". Wide keeps "complete windows" on every
- * period except Since launch; 393 drops it.
+ * show has a count, stays "blended". In a period, wide adds "to the {count}
+ * count" when the period's days end on a count before the spend date
+ * (period-calc ticket); 393 drops it.
  */
 /** N3: "{scope} · Meta £x · TikTok £y". A period adds "of £{since launch} since launch". */
 export function spendScopeLine(total: SalesTotal, period: SalesPeriod, launch: SalesTotal | null): string {
@@ -68,11 +69,16 @@ export function spendScopeLine(total: SalesTotal, period: SalesPeriod, launch: S
   return line;
 }
 
-function costPerTicketSubline(span: string, scope: ShowCountScope | null, wide: boolean): string {
+function costPerTicketSubline(span: string, scope: ShowCountScope | null, wide: boolean, toCount: string): string {
   const body = scope && scope.showsWithCounts < scope.shows
     ? `the ${scope.showsWithCounts} shows with counts`
     : "blended";
-  const line = `${span} · ${body}`;
-  if (wide && span !== "since launch") return `${line} · complete windows`;
-  return line;
+  // A period's sales and their spend end on the count date; wide says so when that's before the spend date.
+  if (wide && span !== "since launch" && toCount) return `${span}${toCount} · ${body}`;
+  return `${span} · ${body}`;
+}
+
+/** " to the 12 Nov count" when the model's detail carries it. */
+function toCountOf(detail: string): string {
+  return / to the \d{1,2} \w{3} count/.exec(detail)?.[0] ?? "";
 }
