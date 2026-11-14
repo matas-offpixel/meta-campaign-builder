@@ -243,6 +243,12 @@ export type SalesShowView = {
    * fixture sends none, and the page then falls back to `endDay`.
    */
   countDay?: string | null;
+  /**
+   * Shows in this scope, and those with counts: the one count the header
+   * sentence, the Cost per ticket tile and its subline all use. The fixture
+   * sends none; the page then counts trajectory bars.
+   */
+  showCounts?: { counted: number; shows: number };
   points: SalesChartPoint[];
   allocation: AllocationStep[];
   trajectory: SalesTrajectory;

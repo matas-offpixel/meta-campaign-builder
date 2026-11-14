@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { CHART_PLOT, PLOT_PAD, ChartDateLabels, ChartDot, SalesChart } from "@/components/dashboard/sales/sales-chart";
 import { TILE_NAMES, spendScopeLine, tileSubline } from "@/components/dashboard/sales/tile-copy";
+import type { SalesQueryUpdate } from "@/components/dashboard/sales/venue-query";
 import { shortDay } from "@/lib/dashboard/sales-calc/days";
 import { barOutcome, capacityTicks, formatCount, shareOf, trajectoryAxisMax, trajectorySums } from "@/components/dashboard/sales/trajectory-bars";
 import {
@@ -51,7 +52,8 @@ export function SalesDashboard({
   /** `venue` in the URL: a venue key, or "all". */
   initialVenueKey?: string;
   /** Pages pass this to keep `show`, `period` and `venue` in the query string. */
-  onQuery?: (key: "show" | "period" | "venue", value: string) => void;
+  /** Every key a click changes, in one call. */
+  onQuery?: (updates: SalesQueryUpdate) => void;
 }) {
   const presented = salesForSurface(model, surface);
   const venues = (presented.venues ?? []).filter((venue) => venue.liveShows > 0);
@@ -89,41 +91,42 @@ export function SalesDashboard({
   if (!view) return null;
   const points = slicePoints(view.points, period, view.endDay);
   const tiles = tilesForPeriod(view.tiles, view.points, period, view.endDay, view.periods);
-  const showScope = view.trajectory.kind === "all"
-    ? {
-        showsWithCounts: view.trajectory.bars.filter((bar) => bar.sold != null).length,
-        shows: view.trajectory.bars.length,
-      }
-    : null;
+  // The model's count, the same one the header uses. A show with counts but no capacity has a bar with no sold figure, so bars can't be counted here.
+  const showScope = view.showCounts
+    ? { showsWithCounts: view.showCounts.counted, shows: view.showCounts.shows }
+    : view.trajectory.kind === "all"
+      ? {
+          showsWithCounts: view.trajectory.bars.filter((bar) => bar.sold != null).length,
+          shows: view.trajectory.bars.length,
+        }
+      : null;
   const launchTotal = view.spendTotal ?? null;
   const periodTotal = period === "launch" ? launchTotal : (view.periods?.[period]?.spendTotal ?? null);
 
   function chooseShow(id: string) {
     setShowId(id);
-    writeQuery("show", id);
+    writeQuery({ show: id });
   }
 
   function choosePeriod(next: SalesPeriod) {
     setPeriod(next);
-    writeQuery("period", next);
+    writeQuery({ period: next });
   }
 
   function chooseVenue(venue: SalesVenue | "all") {
     if (venue === "all") {
       setVenueKey("all");
       setShowId("all");
-      writeQuery("venue", "all");
-      writeQuery("show", "all");
+      writeQuery({ venue: "all", show: "all" });
       return;
     }
     setVenueKey(venueToken(venue));
     setShowId(venue.viewId);
-    writeQuery("venue", venue.key ?? venue.viewId);
-    writeQuery("show", venue.viewId);
+    writeQuery({ venue: venue.key ?? venue.viewId, show: venue.viewId });
   }
 
-  function writeQuery(key: "show" | "period" | "venue", value: string) {
-    onQuery?.(key, value);
+  function writeQuery(updates: SalesQueryUpdate) {
+    onQuery?.(updates);
   }
 
   function hoverSpend(which: "tile" | "header") {

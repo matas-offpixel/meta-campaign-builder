@@ -343,3 +343,30 @@ describe("the one date formatter", () => {
     }
   });
 });
+
+describe("one show count per view (design FAIL 1 on 160e017)", () => {
+  it("the header, the Cost per ticket tile and showCounts name the same number of counted shows, in every view", () => {
+    const live = buildSalesDashboard({ ...withHn1(loadProdFixture()), today: "2026-11-14" });
+    let checked = 0;
+    for (const [id, view] of Object.entries(live.model.views)) {
+      if (!view.showCounts || !view.header) continue;
+      const said = view.header.sentence.match(/(?:across|on the) (\d+) shows/);
+      if (said) {
+        assert.equal(Number(said[1]), view.showCounts.counted, `${id}: ${view.header.sentence}`);
+        checked += 1;
+      }
+      const cpt = tile(view, "costPerTicket").detail.match(/the (\d+) shows with counts/);
+      if (cpt) assert.equal(Number(cpt[1]), view.showCounts.counted, `${id}: ${tile(view, "costPerTicket").detail}`);
+    }
+    assert.ok(checked > 0);
+  });
+
+  it("a show with counts but no capacity still counts (its trajectory bar has no sold figure)", () => {
+    const live = buildSalesDashboard({ ...withHn1(loadProdFixture()), today: "2026-11-14" });
+    for (const view of Object.values(live.model.views)) {
+      if (view.trajectory.kind !== "all" || !view.showCounts) continue;
+      const bars = view.trajectory.bars.filter((b) => b.sold != null).length;
+      assert.ok(view.showCounts.counted >= bars);
+    }
+  });
+});

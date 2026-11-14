@@ -616,6 +616,7 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       tiles: perPeriod[BASE_PERIOD].tiles,
       endDay: lastDay < endDay ? lastDay : endDay,
       countDay: launchF.soldDay,
+      showCounts: { counted: countedShows, shows },
       points: chartPoints(list, endDay),
       allocation,
       trajectory,
