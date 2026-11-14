@@ -406,7 +406,7 @@ function AllTrajectoryView({
         </li>
         <li className="rounded-md border border-border px-2.5 py-2">
           <p className="text-[11px] text-muted-foreground">Pace, last 7 days</p>
-          <p className="mt-1 font-heading text-lg leading-none">— a day</p>
+          <p className="mt-1 font-heading text-lg leading-none">— <span className="font-sans text-[11px] font-normal text-muted-foreground">a day</span></p>
           <p className="mt-1 text-[11px] text-muted-foreground">14-day — a day</p>
         </li>
       </ul>
@@ -501,6 +501,7 @@ function CapacityAxis({ max }: { max: number }) {
             </span>
           ))}
         </div>
+        <span />
       </div>
     </>
   );

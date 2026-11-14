@@ -104,9 +104,15 @@ export function SalesChart({
       </div>
       {selected.length === 0 ? <p className="px-2 py-8 text-center text-xs text-muted-foreground">{PICK_A_METRIC}</p> : (
         <>
-          <div className="mt-4 flex items-start">
-            <div className="relative h-72 w-12 shrink-0 text-[10px] text-muted-foreground">
-              <span className="absolute -top-3 left-0 font-mono uppercase tracking-wide">{axisTitle(scales.leftUnit, selected)}</span>
+          <div className="mt-3 flex text-[10px] font-mono uppercase tracking-wide text-muted-foreground">
+            <span className="w-14 shrink-0 whitespace-nowrap">{axisTitle(scales.leftUnit, selected)}</span>
+            <span className="min-w-0 flex-1" />
+            <span className="w-14 shrink-0 whitespace-nowrap text-right">
+              {scales.rightUnit && plan.mode !== "index" ? axisTitle(scales.rightUnit, selected) : ""}
+            </span>
+          </div>
+          <div className="flex items-start">
+            <div className="relative h-72 w-14 shrink-0 text-[10px] text-muted-foreground">
               {grid.map((tick) => (
                 <span
                   key={tick}
@@ -190,16 +196,13 @@ export function SalesChart({
                   return (
                     <span key={tick.day} className="absolute top-0" style={{ left: `${percent}%` }}>
                       <span className="absolute -top-1 left-0 h-1 w-px bg-current opacity-60" />
-                      <span className="absolute top-0 whitespace-nowrap" style={{ transform: labelShift(percent) }}>{keepDate(tick.label)}</span>
+                      <span className="absolute top-0 -translate-x-1/2 whitespace-nowrap">{keepDate(tick.label)}</span>
                     </span>
                   );
                 })}
               </div>
             </div>
-            <div className="relative h-72 w-12 shrink-0 text-[10px] text-muted-foreground">
-              {scales.rightUnit && plan.mode !== "index" ? (
-                <span className="absolute -top-3 right-0 text-right font-mono uppercase tracking-wide">{axisTitle(scales.rightUnit, selected)}</span>
-              ) : null}
+            <div className="relative h-72 w-14 shrink-0 text-[10px] text-muted-foreground">
               {plan.mode !== "index" && scales.rightUnit
                 ? axisTicks(scales.rightPeak, intervals).map((tick) => (
                   <span
