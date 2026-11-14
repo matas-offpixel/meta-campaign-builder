@@ -102,7 +102,7 @@ table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
 <div class="wrap">
 <p class="k">Off/Pixel · design record · on-sale optimisation · 14 November 2026</p>
 <h1>Purchase campaigns: when one is proposed, what Accept builds, and how money moves</h1>
-<p class="lead">Matas, 12 Nov: once a show is on sale, the main campaign optimises for Initiate Checkout (or LPV where IC doesn't fire). A Purchase campaign runs alongside, and budget moves between campaigns by best-performing audience, as he did by hand for Ironworks. Matas, 13 Nov: on ticket platforms, the Purchase campaign may optimise on the pixel's shared purchases.</p>
+<p class="lead">Matas, 12 Nov: once a show is on sale, the main campaign optimises for Initiate Checkout (or LPV where IC doesn't fire). A Purchase campaign runs alongside, and budget moves between campaigns by best-performing audience, as he did by hand for Ironworks. Matas, 13 Nov: on ticket platforms, the Purchase campaign may optimise on the pixel's shared purchases. Matas, 14 Nov: <i>"purchase campaign start with £5 or £10 a day and scale up, depending on results"</i>.</p>
 <p class="lead">This record rules P4's write side, which <code>2026-11-12-on-sale-refresh.html</code> (R3, P4) only sketched. It builds on that record, the corrections (C2, C9), <code>2026-11-13-per-event-purchases.html</code> (E1–E4) and <code>2026-11-13-ticket-platform-purchases.html</code> (T1–T6). All of those stand. What triggers a proposal is unchanged: E2's bar on the own-domain path, and T2's bar and 50 % guard on the platform path. P4's read side is live (#1212, #1214). Nothing here applies without Matas's click (R4), and shadow is still the default.</p>
 <p class="lead">Figures marked <span class="ex">dashed</span> are examples. Everything else is a read of the live tables on 14 Nov, with data to Thu 12 Nov. No show qualifies today: the most attributed purchases since on-sale on any running show is Locklead's 11. So the Proposed frame uses an example count on Locklead's real campaign.</p>
 
@@ -117,14 +117,14 @@ table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
 <li><b>No Purchase campaign yet:</b> none of the event's campaigns optimises for Purchase. That means a campaign whose delivering ad sets have <code>optimization_goal</code> OFFSITE_CONVERSIONS and a promoted event of PURCHASE, or the event's own custom conversion. If one exists, nothing is proposed, and the event goes straight to moves (PC4). The purchase sentence then opens "Purchase campaign running — " in place of "Purchase campaign proposed — " and keeps the rest; at 393, "Purchase campaign running: {n} attributed in 14 days".</li>
 <li><b>A main campaign to copy:</b> the event has a delivering IC or LPV campaign (R3) with at least 2 ad sets that each logged 5 or more results in the 14 days.</li>
 <li><b>Time to learn:</b> the show is at least 21 days after the run day. That's 2 weeks for Meta to learn, plus a week of moves before 4 Show week's Monday, when the refresh stops.</li>
-<li><b>Money to start it:</b> PC3 can find a starting budget of at least £100.</li>
+<li><b>Money to start it:</b> PC3 can fund £5 a day from Apply to the end of the main campaign.</li>
 </ol>
 <p>A Purchase campaign is a budget line, so it's proposed on both the cycle refresh and the mid-cycle check. It reuses live creatives and adds no new files (R1).</p>
 <p><b>When the signal holds but a later check fails,</b> the purchase sentence keeps its Proposed wording and a second sentence says why nothing is built. These three states are new, and they come after T's state order:</p>
 <ul>
 <li><b>Too close to the show:</b> "A Purchase campaign needs 21 days to learn and to be worth moving money into; the show is in {n} days." At 393: "Too close to the show for a Purchase campaign."</li>
 <li><b>Nothing to copy:</b> "{Main campaign} has no two ad sets with 5 results in 14 days to copy." At 393: "Not enough in {campaign} to copy."</li>
-<li><b>No money to start it:</b> "No budget to start it: the plan has £{h} left unallocated and {main campaign} can give £{m} (20 % of what it has left)." At 393: "No budget to start a Purchase campaign."</li>
+<li><b>No money to start it:</b> "No budget to start it: £5 a day to {end} needs £{c}; the plan has £{h} left unallocated and {main campaign} can give £{m} (20 % of what it has left)." At 393: "No budget to start a Purchase campaign."</li>
 </ul></td></tr>
 
 <tr><td>PC2 · What the line shows before Accept</td><td>
@@ -136,7 +136,7 @@ table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
 <li>the path and what the campaign optimises on. That's "Purchase on pixel …{last 4} ({Meta's name}), the standard event — the signal is shared on {platform}", or on the own-domain path "{EVENT_CODE} · Purchase on {domain}, a custom conversion made on Accept" (E1);</li>
 <li>the platform-share line (T4), on the platform path;</li>
 <li>the main campaign's 14-day spend, results and cost per result, for comparison.</li></ul></li>
-<li><b>The build</b>: the campaign name, each ad set it copies with its 14-day results and cost per result, the ads it reuses, the budget and where the money comes from (PC3), and the run dates.</li>
+<li><b>The build</b>: the campaign name, each ad set it copies with its 14-day results and cost per result, the ads it reuses, the daily rate as a choice of two (£5 or £10 a day), what that commits to the end and where the money comes from (PC3), and the run dates.</li>
 <li><b>The write</b>: one mono line, "Creates 1 campaign · {k} ad sets · {n} ads · goes in live", plus the move write when money moves.</li>
 </ul>
 <p><b>At 393</b> the card shows the write line, what it optimises on and the budget. "See what it builds ›" steps into the full card, with one header and one back.</p>
@@ -144,7 +144,7 @@ table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
 
 <tr><td>PC3 · What Accept builds</td><td>
 <ul>
-<li><b>One campaign with Advantage campaign budget (CBO) and a lifetime budget,</b> named "[{EVENT_CODE}] {show name} - Purchase". It uses CBO so Meta can put the money behind whichever copied audience buys, which is the same thing Matas did by hand across ad sets. It uses a lifetime budget so PC4's moves use R4's lifetime_budget write, the same as the main campaign's.</li>
+<li><b>One campaign with Advantage campaign budget (CBO) and a daily budget,</b> named "[{EVENT_CODE}] {show name} - Purchase". It uses CBO so Meta can put the money behind whichever copied audience buys, which is the same thing Matas did by hand across ad sets. It uses a daily budget because Matas starts and scales it a day at a time (PC4).</li>
 <li><b>It optimises on</b> OFFSITE_CONVERSIONS with the resolved pixel (E4):
 <ul>
 <li>on the platform path, the standard Purchase event (T2, HT4);</li>
@@ -157,14 +157,10 @@ The attribution setting is copied from the main campaign.</li>
 <li>That's 3 at most: fewer ad sets learn faster on a thin signal.</li></ul>
 Each copy keeps its source's audiences, exclusions, placements, age, location and schedule exactly, and takes the name "{source name} · Purchase". The source ad sets keep running: nothing in the main campaign changes except its budget (below).</li>
 <li><b>Ads: the main campaign's live creatives, reused.</b> Up to 6: the ads delivering now whose convert-axis score is in the campaign's top half, best first. The new ads reuse the same post (its <code>object_story_id</code>), so likes and comments carry over. Copy and creative are never edited (R5). The ad name stays the source ad's name.</li>
-<li><b>The starting budget</b> is the smaller of these two:
-<ul>
-<li>20 % of the event's remaining plan (R5's cap; with no event budget, 20 % of what the main campaign has left);</li>
-<li>14 days of the main campaign's last-7-day daily spend.</li></ul>
-It's rounded down to £5. Under £100, PC1's "No money to start it" applies.</li>
-<li><b>Where the money comes from,</b> in this order, and the card shows both parts:
+<li><b>It starts small:</b> £5 a day, or £10 a day when the main campaign spent £50 or more a day over the last 7 days. The card shows both as a choice, with that one picked, and Matas can switch before Accept.</li>
+<li><b>What it commits:</b> the daily rate × the days from Apply to the main campaign's end. Here's where that comes from, in this order, and the card shows both parts:
 <ol>
-<li>Plan headroom: the event's budget less spend to date, less what every live campaign of the event still has in its lifetime budget.</li>
+<li>Plan headroom: the event's budget less spend to date, less what every live campaign of the event still has committed (its lifetime budget left, or its daily rate × its days left).</li>
 <li>Whatever headroom doesn't cover, as a named move out of the main campaign's lifetime budget. That's a lifetime_budget write on the main campaign. It can't take the main campaign below its spend to date plus 3 days at its last-7-day daily spend.</li></ol>
 With no event budget, only the move can fund it, and it doesn't count as adding spend (R5).</li>
 <li><b>Dates:</b> it starts when applied and ends when the main campaign ends.</li>
@@ -178,51 +174,54 @@ With no event budget, only the move can fund it, and it doesn't count as adding 
 <li>the main campaign's lifetime budget, lowered (only when money moves);</li>
 <li>the campaign, set active.</li></ol>
 If any step fails, everything created so far stays paused. The main campaign's budget is touched only at step 5, and a failure there leaves nothing active. Retry picks up from the failed step and never creates a second campaign. The campaign's Meta id is stored on the line from step 2.</li>
-<li><b>It's one new gated write:</b> campaign create, behind its own environment gate, default off (HR4's pattern). It uses the launch path's ad set and ad creation, and R4's lifetime_budget write for step 5. Every step checks the event's draft, the account and the plan again at apply time.</li>
+<li><b>Two new gated writes:</b> campaign create, and a campaign daily-budget write for PC4's steps. Each sits behind its own environment gate, default off (HR4's pattern). Accept uses the launch path's ad set and ad creation, and R4's lifetime_budget write for step 5. Every step checks the event's draft, the account and the plan again at apply time.</li>
 </ul></td></tr>
 
-<tr><td>PC4 · Moves once both run</td><td>
-<p>Once the event has a Purchase campaign and its main campaign, both delivering, budget can move between them in either direction. Moves exist only while the purchase line's state is Proposed (the signal still holds).</p>
+<tr><td>PC4 · Scaling it, depending on results</td><td>
+<p>Once the Purchase campaign runs, money moves between it and the main campaign through one line kind: <b>Scale Purchase</b>. It raises or lowers the Purchase campaign's daily budget, and the main campaign's lifetime budget moves the other way by the same commitment. There are no separate lifetime moves between the two. C9's moves still apply inside each campaign.</p>
 <ul>
-<li><b>What's compared:</b> cost per purchase over the last full week (R1), on the same measure for both campaigns.
+<li><b>When it's checked:</b> at every refresh (cycle or mid-cycle), once the Purchase campaign has run 7 full days since it started or since its last step, and while the purchase line's state is Proposed or running (the signal still holds).</li>
+<li><b>What's compared:</b> the Purchase campaign's cost per purchase since it started or since its last step, against the main campaign's over the same days. Both use the same measure and the same resolved pixel (T3): cost per attributed purchase on the platform path, or the custom conversion's count on the own-domain path.</li>
+<li><b>The step:</b>
 <ul>
-<li>On the platform path, that's cost per attributed purchase: the campaign's spend over the purchases credited to it, counted from the on-sale date (T3).</li>
-<li>On the own-domain path, it's the custom conversion's count for both.</li>
-<li>Both campaigns must optimise on the same resolved pixel (T3).</li></ul></li>
-<li><b>When a move qualifies:</b> each campaign has 5 or more purchases in the week (T3). The giver's cost per purchase is at least 1.5× the event's, and the receiver's is at most 0.75× (C9, both campaigns pooled).</li>
-<li><b>Not yet:</b> no move into or out of a Purchase campaign until it has run 7 full days since it was applied, and never in the refresh that created it.</li>
-<li><b>How much:</b> up to R5's 20 % of the remaining budget, shared with every other move in the same refresh.
+<li><b>Up, doubling the daily budget</b> (£5 → £10 → £20 → £40 …) when it ran at or below the main campaign's cost per purchase, with 3 or more purchases.</li>
+<li><b>Hold</b> when it ran above the main campaign's but within 1.5×, or when it has fewer than 3 purchases. This is a note on the panel, not a line.</li>
+<li><b>Down, halving the daily budget,</b> never below £5 a day, when it ran above 1.5× the main campaign's, with 3 or more purchases.</li></ul></li>
+<li><b>How much it may commit:</b> the step's extra daily × the days left. That comes from plan headroom first, then from the main campaign's lifetime budget.
 <ul>
-<li>The giver never drops below its spend to date plus 3 days at its last-7-day daily spend.</li>
-<li>A move is the same amount out and in, so total spend never goes above plan.</li>
-<li>With no event budget, the cap is 20 % of what the giver has left.</li></ul></li>
+<li>R5's 20 % cap applies to that extra commitment, shared with every other move in the refresh. With no event budget, it's 20 % of what the main campaign has left.</li>
+<li>The main campaign keeps its floor (spend to date plus 3 days).</li>
+<li>When the cap or the floor allows less than double, the step goes to the largest whole £5 that fits. Under +£5 a day, it holds and says why.</li>
+<li>A step down gives its commitment back to the main campaign's lifetime budget.</li></ul></li>
 <li><b>Copy an audience into Purchase.</b> This new line kind is how "by best-performing audience" crosses campaigns. A main-campaign ad set qualifies when it isn't already copied and logged 5 or more purchases in the week, at no more than 0.75× the event's cost per purchase. It's copied into the Purchase campaign with the same rules as PC3. It adds no money, because CBO shares the campaign's budget.</li>
 <li><b>The line's words:</b>
 <ul>
-<li>"Move £{x} from {giver} to {receiver}"</li>
-<li>Evidence: "Last week: {giver} £{a} per attributed purchase ({p} purchases), {receiver} £{b} ({q}) · {r}× apart"</li>
-<li>The write: "Lifetime budgets: {giver} £{g0} → £{g1} · {receiver} £{r0} → £{r1}"</li>
+<li>"Scale Purchase up: £{a} → £{b} a day" (or "down").</li>
+<li>Evidence: "Since {d Mon}: Purchase £{x} per attributed purchase ({p}), {main campaign} £{y} ({q}) · {r}×"</li>
+<li>The write: "Purchase £{a} → £{b} a day · {main campaign} lifetime £{l0} → £{l1} ({n} days × £{extra})"</li>
+<li>The hold note: "Purchase holds at £{a} a day: {p} purchases since {d Mon}; a step needs 3." or "… £{x} per attributed purchase, within 1.5× of {main campaign}."</li>
 <li>"Attributed" drops out on the own-domain path.</li></ul></li>
-<li><b>The write order:</b> the giver is lowered first, then the receiver raised. If raising the receiver fails, the giver's budget goes back and the line reads Failed with Meta's reason.</li>
+<li><b>The write order:</b> up lowers the main campaign first, then raises Purchase. Down lowers Purchase first, then raises the main campaign. If the second write fails, the first is put back and the line reads Failed with Meta's reason.</li>
 </ul></td></tr>
 
 <tr><td>PC5 · Applied and failed (F3)</td><td>
 <p>R4's line states and F3's form stand. The words are new:</p>
 <ul>
-<li><b>Purchase campaign, applied:</b> "Applied · live · {k} ad sets · {n} ads · £{B} lifetime ({h} from plan headroom + £{m} from {main campaign})".</li>
+<li><b>Purchase campaign, applied:</b> "Applied · live · {k} ad sets · {n} ads · £{r} a day to {end} (£{c}: £{h} from plan headroom + £{m} from {main campaign})".</li>
 <li><b>Failed before anything went live:</b> "Failed — {Meta's reason in plain words}. Created paused: {what}. {Main campaign}'s budget is unchanged. Retry".</li>
 <li><b>Failed at step 6</b> (made, not switched on): "Failed — built and paused, not switched on: {reason}. {Main campaign} already gave £{m}. Retry switches it on."</li>
-<li><b>Move, applied:</b> "Applied · {giver} £{g0} → £{g1} · {receiver} £{r0} → £{r1}".</li>
-<li><b>Move, failed:</b> "Failed — {reason}. Both budgets are as they were."</li>
+<li><b>Scale, applied:</b> "Applied · Purchase £{a} → £{b} a day · {main campaign} £{l0} → £{l1}".</li>
+<li><b>Scale, failed:</b> "Failed — {reason}. Both budgets are as they were."</li>
 <li><b>Copy audience, applied:</b> "Applied · {source ad set} · Purchase is live".</li>
 </ul></td></tr>
 
 <tr><td>PC6 · How P5 scores it</td><td>
 <p>Lines are judged as #1229 judges them: on the first full week starting on or after the apply day, or the run day for shadow and rejected lines. The tests are new:</p>
 <ul>
-<li><b>Purchase campaign, applied:</b> judged on the second full week, because the first is learning. It's right if its cost per purchase came in at or below the main campaign's over that week, with 5 or more purchases. Under 5 purchases is no verdict: it's recorded, and doesn't count towards the hit rate.</li>
+<li><b>Purchase campaign, applied:</b> judged on its first 14 days, because at £5 or £10 a day one week holds too few purchases. It's right if its cost per purchase came in at or below the main campaign's over the same days, with 3 or more purchases. Under 3 is no verdict: it's recorded, and doesn't count towards the hit rate.</li>
 <li><b>Purchase campaign, shadow or rejected:</b> there's nothing to compare it against, so the test is whether the signal held. It's right if the event still met the bar (15 in 14 days, guard passing) at the end of the next full week.</li>
-<li><b>Move:</b> right if the receiver's cost per purchase on the next full week stayed within 20 % of what it was, with 5 or more purchases (R6's test, on purchases).</li>
+<li><b>Scale up:</b> right if, on the next full week, the Purchase campaign's cost per purchase stayed within 20 % of what it was before the step, with 3 or more purchases (R6's test, on purchases).</li>
+<li><b>Scale down:</b> right if, on the next full week, its cost per purchase came in lower than before the step, with 3 or more purchases.</li>
 <li><b>Copy an audience:</b> right if the copied ad set's cost per purchase in the Purchase campaign is at or below the campaign's after 7 days.</li>
 </ul>
 <p>Hit rates per rule × client, the low-track-record sort, stopping and rejection streaks are R6's, unchanged.</p></td></tr>
@@ -247,7 +246,7 @@ If any step fails, everything created so far stays paused. The main campaign's b
 </div></div></figure>
 
 <h3>PF2 · NX26-LOCKLEAD, Proposed: the card before Accept (1280)</h3>
-<p class="lead">Real: On Sale's ad sets and ads 6–12 Nov, the pixel and its name, the 11 Dec show date and the missing event budget. Examples: the count of 17 (Locklead has 11), On Sale's lifetime budget and so the move.</p>
+<p class="lead">Real: On Sale's ad sets and ads 6–12 Nov, the pixel and its name, the 11 Dec show date and the missing event budget. Examples: the count of 17 (Locklead has 11), and On Sale's lifetime budget. £5 a day is picked because On Sale spent £35.33 a day over its last 7 days, under £50.</p>
 <figure><figcaption>PF2 · 1280 · NX26-LOCKLEAD · Proposed · the card before Accept · shadow</figcaption>
 <div class="vp w1280">
 <div class="rf">
@@ -260,7 +259,7 @@ If any step fails, everything created so far stays paused. The main campaign's b
 <div class="pv">
 <div class="hd"><b>Purchase campaign · [NX26-LOCKLEAD] Locklead - Purchase</b><span class="m">Creates 1 campaign · 2 ad sets · 3 ads · goes in live</span></div>
 <h6>Optimises on</h6>
-<p class="bud">Purchase on pixel …2763 (NX Live Skiddle), the standard event — the signal is shared on Skiddle. Advantage campaign budget, lifetime.</p>
+<p class="bud">Purchase on pixel …2763 (NX Live Skiddle), the standard event — the signal is shared on Skiddle. Advantage campaign budget, daily.</p>
 <h6>Ad sets, copied from On Sale (lowest cost per IC, 5+ IC in 14 days)</h6>
 <ul>
 <li>Venue · 13 IC · £1.44 each</li>
@@ -270,8 +269,9 @@ If any step fails, everything created so far stays paused. The main campaign's b
 <ul>
 <li>Artist - UGC 3 · Artist - Static · Artist - UGC 2 <span class="m">(same posts)</span></li></ul>
 <h6>Budget</h6>
-<p class="bud">£<span class="ex">245</span> lifetime, from Apply to Thu 11 Dec 23:59. No plan headroom (no event budget), so all of it moves from On Sale: lifetime £<span class="ex">1,500</span> → £<span class="ex">1,255</span>, 20 % of what On Sale has left. On Sale keeps at least £<span class="ex">378</span> (spent £272.41 + 3 days at £35.33).</p>
-<p class="m" style="margin-top:4px">Writes: campaign create · 2 ad sets · 3 ads (launch path) · On Sale lifetime_budget £<span class="ex">1,500</span> → £<span class="ex">1,255</span></p>
+<p class="bud" style="display:flex;gap:16px;align-items:center;margin-bottom:6px"><span>◉ £5 a day</span><span>○ £10 a day</span><span class="m">£5 picked: On Sale spends £35.33 a day</span></p>
+<p class="bud">From Apply (Mon 16 Nov) to Thu 11 Dec 23:59: 26 days × £5 = £130. No plan headroom (no event budget), so all of it moves from On Sale: lifetime £<span class="ex">1,500</span> → £<span class="ex">1,370</span>. On Sale keeps at least £378 (spent £272.41 + 3 days at £35.33). It scales from here on results (PC4).</p>
+<p class="m" style="margin-top:4px">Writes: campaign create (£5 a day) · 2 ad sets · 3 ads (launch path) · On Sale lifetime_budget £<span class="ex">1,500</span> → £<span class="ex">1,370</span></p>
 <p class="gate" style="font-size:11.5px;color:var(--ink-2);margin:6px 0 0">This event has no budget, so only a move out of On Sale can fund it.</p>
 <div class="acts"><span class="btn dis">Accept</span><span class="btn dis">Reject</span></div></div></div>
 <div class="camp"><b>[NX26-LOCKLEAD] On Sale</b><span class="m">6 – 12 Nov · £247.32 · 97 IC · £2.55 each · 8 attributed purchases</span></div>
@@ -301,15 +301,15 @@ If any step fails, everything created so far stays paused. The main campaign's b
 <p class="why">Initiate Checkout — 97 reached the pixel since 6 Nov.<small>Purchase campaign: <span class="ex">17</span> attributed since 6 Nov · shared on Skiddle.</small><small>Skiddle: <span class="ex">81 %</span> of the pixel's purchases in 28 days.</small></p>
 <div class="pv">
 <div class="hd"><b>Purchase campaign</b><span class="m">Creates 1 campaign · 2 ad sets · 3 ads · live</span></div>
-<p class="bud" style="margin-top:6px">Purchase on pixel …2763, shared on Skiddle · £<span class="ex">245</span> lifetime, moved from On Sale</p>
+<p class="bud" style="margin-top:6px">Purchase on pixel …2763, shared on Skiddle · ◉ £5 a day ○ £10 · £130 to 11 Dec, moved from On Sale</p>
 <p class="gate" style="font-size:11.5px;color:var(--ink-2);margin:4px 0 0">No event budget: only a move out of On Sale can fund it.</p>
 <p class="bud" style="margin-top:6px"><u>See what it builds ›</u></p>
 <div class="acts"><span class="btn dis">Accept</span><span class="btn dis">Reject</span></div></div></div>
 </div></div></figure></div>
 
-<h3>PF4 · Locklead, two weeks later: moves, then after Apply (1280)</h3>
-<p class="lead">All figures are examples. The Mon 30 Nov mid-cycle check, on the week to Sun 29 Nov.</p>
-<figure><figcaption>PF4 · 1280 · NX26-LOCKLEAD · Mon 30 Nov · moves, then after Apply · all figures examples</figcaption>
+<h3>PF4 · Locklead, two weeks later: scaling up, then after Apply (1280)</h3>
+<p class="lead">All figures are examples. The Mon 30 Nov mid-cycle check: the Purchase campaign has run 14 days at £5 a day.</p>
+<figure><figcaption>PF4 · 1280 · NX26-LOCKLEAD · Mon 30 Nov · scaling up, then after Apply · all figures examples</figcaption>
 <div class="vp w1280">
 <div class="rf">
 <div class="rf-hd">
@@ -318,15 +318,15 @@ If any step fails, everything created so far stays paused. The main campaign's b
 <div class="sec"><h5>Objective</h5>
 <p class="why">Purchase campaign running — <span class="ex">31</span> purchases attributed to these ads in 14 days, on pixel …2763. Budget moves can cross campaigns on cost per attributed purchase.<small>Skiddle took <span class="ex">81 %</span> of this pixel's <span class="ex">836</span> purchases in 28 days.</small></p></div>
 <div class="sec"><h5>Budget</h5>
-<div class="ln"><span class="kind">Move</span>
+<div class="ln"><span class="kind">Scale</span>
 <div>
-<div class="what">Move £<span class="ex">80</span> from On Sale to Purchase</div>
-<div class="ev">Last week: On Sale £<span class="ex">41.25</span> per attributed purchase (<span class="ex">8</span> purchases), Purchase £<span class="ex">13.46</span> (<span class="ex">13</span>) · <span class="ex">3.1</span>× apart · event £<span class="ex">24.05</span></div>
-<div class="wr">Lifetime budgets: On Sale £<span class="ex">1,255</span> → £<span class="ex">1,175</span> · Purchase £<span class="ex">245</span> → £<span class="ex">325</span> · On Sale keeps at least £<span class="ex">991</span> (spent £<span class="ex">850</span> + 3 days at £<span class="ex">47.14</span>)</div></div>
+<div class="what">Scale Purchase up: £5 → £10 a day</div>
+<div class="ev">Since Mon 16 Nov: Purchase £<span class="ex">11.67</span> per attributed purchase (<span class="ex">6</span>), On Sale £<span class="ex">40.00</span> (<span class="ex">14</span>) · <span class="ex">0.29</span>×</div>
+<div class="wr">Purchase £5 → £10 a day · On Sale lifetime £<span class="ex">1,370</span> → £<span class="ex">1,310</span> (12 days × £5) · On Sale keeps at least £<span class="ex">970</span> (spent £<span class="ex">850</span> + 3 days at £<span class="ex">40</span>)</div></div>
 <div class="acts"><span class="btn on">Accept</span><span class="btn">Reject</span></div></div>
 <p class="why" style="margin:6px 0 0"><small>No audience to copy into Purchase: none had 5 purchases at 0.75× the event's cost last week.</small></p>
 </div>
-<div class="rf-ft"><span class="note">The move is 20 % of what On Sale has left; this event has no budget.</span><span class="btn solid">Apply accepted (1)</span></div>
+<div class="rf-ft"><span class="note">The extra £60 is within 20 % of what On Sale has left (£<span class="ex">104</span>); this event has no budget.</span><span class="btn solid">Apply accepted (1)</span></div>
 </div></div>
 <div class="vp w1280" style="margin-top:18px">
 <div class="rf">
@@ -337,17 +337,17 @@ If any step fails, everything created so far stays paused. The main campaign's b
 <div class="ln"><span class="kind">Purchase</span>
 <div>
 <div class="what">[NX26-LOCKLEAD] Locklead - Purchase</div>
-<div class="ev">Applied Mon 16 Nov, 08:37 · by Matas</div></div><span class="st ok">Applied · live · 2 ad sets · 3 ads · £<span class="ex">245</span> lifetime (£0 from plan headroom + £<span class="ex">245</span> from On Sale)</span></div>
+<div class="ev">Applied Mon 16 Nov, 08:37 · by Matas</div></div><span class="st ok">Applied · live · 2 ad sets · 3 ads · £5 a day to 11 Dec (£130: £0 from plan headroom + £130 from On Sale)</span></div>
 <div class="ln"><span class="kind">Purchase</span>
 <div>
 <div class="what">The same line, had step 3 failed</div>
 <div class="ev">For reference</div></div><span class="st no">Failed — Meta refused an ad set: its audience is too small. Created paused: the campaign. On Sale's budget is unchanged. Retry</span></div>
-<div class="ln"><span class="kind">Move</span>
+<div class="ln"><span class="kind">Scale</span>
 <div>
-<div class="what">£<span class="ex">80</span> from On Sale to Purchase</div>
-<div class="ev">Applied Mon 30 Nov, 08:44</div></div><span class="st ok">Applied · On Sale £<span class="ex">1,255</span> → £<span class="ex">1,175</span> · Purchase £<span class="ex">245</span> → £<span class="ex">325</span></span></div>
+<div class="what">Scale Purchase up: £5 → £10 a day</div>
+<div class="ev">Applied Mon 30 Nov, 08:44</div></div><span class="st ok">Applied · Purchase £5 → £10 a day · On Sale £<span class="ex">1,370</span> → £<span class="ex">1,310</span></span></div>
 </div>
-<div class="rf-ft"><span class="note">The Purchase line is judged on the week to Sun 29 Nov (its second full week); the move on the week to Sun 6 Dec.</span><span class="btn dis">Retry failed (0)</span></div>
+<div class="rf-ft"><span class="note">The Purchase line is judged on 16–29 Nov (its first 14 days); the step up on the week to Sun 6 Dec.</span><span class="btn dis">Retry failed (0)</span></div>
 </div></div></figure>
 
 <h2>Hand-back</h2>
@@ -379,8 +379,8 @@ If any step fails, everything created so far stays paused. The main campaign's b
 <li>the plan and account checked again at each step.</li>
 </ul>
 <p>Mapping notes from Claude Code still to land: Meta's lifetime minimums, reusing <code>object_story_id</code>, and the permissions needed to create a custom conversion. If any of those can't be done, the item comes back to design rather than being worked around.</p></td></tr>
-<tr><td>HP4 · Moves and copy audience</td><td>
-<p>PC4: the same-measure and same-pixel checks, the 7-day wait, the 20 % cap shared per refresh, the giver floor, and the write order with the budget put back on failure.</p></td></tr>
+<tr><td>HP4 · Scale and copy audience</td><td>
+<p>PC4: the same-measure and same-pixel checks, the 7-day wait since the start or the last step, double / hold / halve with the 3-purchase minimum and the £5 floor, the 20 % cap on the extra commitment shared per refresh, the main campaign's floor, the write order with the first write put back on failure, and the campaign daily-budget gate.</p></td></tr>
 <tr><td>HP5 · F3 and P5</td><td>
 <p>PC5's strings, and PC6's tests in the nightly job, with "no verdict" stored apart from right and wrong.</p></td></tr>
 <tr><td>HP6 · Frames</td><td>
@@ -394,18 +394,20 @@ If any step fails, everything created so far stays paused. The main campaign's b
 
 <h2>Invented here</h2>
 <ul class="notes">
-<li>PC1's checks after the signal: 2 ad sets with 5 results to copy, 21 days to the show, a £100 minimum start. Its three new states, the "running" form, and all their words.</li>
-<li>The build: CBO with a lifetime budget, the top 2 ad sets plus retargeting (3 at most), up to 6 reused ads by score, the same post, and the names "{…} - Purchase" and "{source} · Purchase".</li>
-<li>Budget: the smaller of 20 % of the plan or 14 days of the main campaign's daily spend, rounded to £5. Headroom first, then a named move. The giver floor of spend to date plus 3 days. Funding by a move with no event budget.</li>
-<li>The six-step write order and the new campaign-create gate.</li>
-<li>Moves: the 7-day wait, the copy-audience line kind and its 5 purchases at 0.75×, and the budget put back when the receiver's raise fails.</li>
-<li>PC5's and PC6's words, and the test of learning in week 2 with "no verdict" under 5 purchases. The reject reason "Not this show".</li>
+<li>PC1's checks after the signal: 2 ad sets with 5 results to copy, 21 days to the show, and enough money for £5 a day to the main campaign's end. Its three new states, the "running" form, and all their words.</li>
+<li>The build: CBO, the top 2 ad sets plus retargeting (3 at most), up to 6 reused ads by score, the same post, and the names "{…} - Purchase" and "{source} · Purchase".</li>
+<li>Budget: a daily CBO budget, £10 rather than £5 a day when the main campaign spends £50 or more a day, the commitment as rate × days left, headroom first, then a named move. The main campaign's floor of spend to date plus 3 days. Funding by a move with no event budget. (The £5 / £10 start and scaling on results are Matas's.)</li>
+<li>The six-step write order, and the two new gates: campaign create and the campaign daily budget.</li>
+<li>Scaling: double at or below the main campaign's cost per purchase, hold within 1.5×, halve above it, 3 purchases and 7 days per step, the £5 floor and the largest-£5 rule under the cap. The copy-audience line kind and its 5 purchases at 0.75×.</li>
+<li>PC5's and PC6's words, the 14-day judgement with "no verdict" under 3 purchases, and the scale tests. The reject reason "Not this show".</li>
 <li>Every figure marked dashed in PF1–PF4.</li>
 </ul>
 
 <h2>Open for Matas</h2>
 <ul class="notes">
-<li>The starting budget: is the smaller of 20 % of the plan or 14 days of the main campaign's spend right for his accounts? Ironworks' Purchase campaign took 23 purchases in 3 days (8–10 Oct). What did he give it?</li>
+<li>£5 or £10: this record picks £10 when the main campaign spends £50 or more a day, and he can switch on the card. Is £50 the right line?</li>
+<li>The step: doubling at or below the main campaign's cost per purchase, holding within 1.5×, halving above it, each after 7 days and 3 purchases. At £5 a day, 3 purchases can take more than a week.</li>
+<li>A Purchase campaign that sits at £5 a day with no purchases: hold it (this record), or propose stopping it after 14 days? Stopping a campaign needs a status write this record doesn't add.</li>
 <li>21 days to the show: Robbie Doherty (27 Nov) is already inside it.</li>
 <li>Should the copied ad sets come from the main campaign's best on cost per IC (this record), or on cost per attributed purchase where an ad set has 5 or more?</li>
 <li>Locklead and most NX shows have no event budget. Funding by a move out of On Sale works without one, but the plan guard can't protect a total that isn't set.</li>
