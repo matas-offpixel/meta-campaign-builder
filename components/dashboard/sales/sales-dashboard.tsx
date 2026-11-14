@@ -3,19 +3,19 @@
 import { useState } from "react";
 
 import { CHART_PLOT, PLOT_PAD, ChartDateLabels, ChartDot, SalesChart } from "@/components/dashboard/sales/sales-chart";
+import { TILE_NAMES, tileSubline } from "@/components/dashboard/sales/tile-copy";
+import { barOutcome, capacityTicks, formatCount, shareOf, trajectoryAxisMax, trajectorySums } from "@/components/dashboard/sales/trajectory-bars";
 import {
   campaignsForPeriod,
   DEFAULT_ON_METRICS,
-  INDEX_TO_PEAK,
   SALES_METRICS,
   keepDate,
   SALES_PERIODS,
-  planAxes,
   salesForSurface,
-  salesMetric,
   slicePoints,
   tilesForPeriod,
   visibleShows,
+  type AllShowBar,
   type SalesDashboardModel,
   type SalesMetricId,
   type SalesPeriod,
@@ -29,31 +29,35 @@ export function SalesDashboard({
   surface,
   initialShowId,
   initialPeriod,
+  initialIndex = false,
+  pinHover = false,
   onQuery,
 }: {
   model: SalesDashboardModel;
   surface: SalesSurface;
   initialShowId?: string;
+  /** Since launch when the URL has no period (N5). */
   initialPeriod?: SalesPeriod;
+  initialIndex?: boolean;
+  pinHover?: boolean;
   /** Pages pass this to keep `show` and `period` in the query string. */
   onQuery?: (key: "show" | "period", value: string) => void;
 }) {
   const presented = salesForSurface(model, surface);
   const [showId, setShowId] = useState(initialShowId ?? presented.initialShowId);
-  const [period, setPeriod] = useState<SalesPeriod>(initialPeriod ?? presented.initialPeriod);
+  const [period, setPeriod] = useState<SalesPeriod>(initialPeriod ?? "launch");
   const [includeFinished, setIncludeFinished] = useState(false);
   const [selected, setSelected] = useState<SalesMetricId[]>([...DEFAULT_ON_METRICS]);
-  const [indexRequested, setIndexRequested] = useState(false);
+  const [indexRequested, setIndexRequested] = useState(initialIndex);
 
   const chips = visibleShows(presented, includeFinished);
   const activeId = chips.some((chip) => chip.id === showId) ? showId : presented.initialShowId;
+  const activeChip = chips.find((chip) => chip.id === activeId);
+  const umbrella = activeChip?.kind === "umbrella";
   const view = presented.views[activeId] ?? presented.views[presented.initialShowId];
   if (!view) return null;
   const points = slicePoints(view.points, period, view.endDay);
   const tiles = tilesForPeriod(view.tiles, view.points, period, view.endDay, view.periods);
-  const units = selected.map((id) => salesMetric(id).unit);
-  const axes = planAxes(units, indexRequested);
-  const indexForced = axes.mode === "index" && new Set(units).size >= 3;
 
   function chooseShow(id: string) {
     setShowId(id);
@@ -77,8 +81,12 @@ export function SalesDashboard({
     <section className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
       <header>
         <h2 className="text-xl font-medium tracking-tight sm:text-2xl">
-          <span className="sm:hidden">{view.narrowTitle}</span>
-          <span className="hidden sm:inline">{view.title}</span>
+          {umbrella ? `${presented.clientName} umbrella` : (
+            <>
+              <span className="sm:hidden">{view.narrowTitle}</span>
+              <span className="hidden sm:inline">{view.title}</span>
+            </>
+          )}
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
           <span className="sm:hidden">{view.narrowSubtitle}</span>
@@ -112,8 +120,12 @@ export function SalesDashboard({
                 on ? "border-foreground bg-foreground text-background" : "bg-card"
               }`}
             >
-              <span className="sm:hidden">{chip.narrow}</span>
-              <span className="hidden sm:inline">{chip.wide}</span>
+              {chip.kind === "umbrella" ? "Umbrella" : (
+                <>
+                  <span className="sm:hidden">{chip.narrow}</span>
+                  <span className="hidden sm:inline">{chip.wide}</span>
+                </>
+              )}
             </button>
           );
         })}
@@ -150,21 +162,13 @@ export function SalesDashboard({
         <button type="button" className="rounded border border-border px-2 py-1" onClick={() => setSelected([])}>
           None
         </button>
-        <label className="ml-1 flex items-center gap-1.5 text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={axes.mode === "index"}
-            disabled={indexForced}
-            onChange={(event) => setIndexRequested(event.target.checked)}
-          />
-          {INDEX_TO_PEAK}
-        </label>
       </div>
 
       <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {tiles.map((tile) => {
+        {tiles.filter((tile) => !umbrella || (tile.id !== "sold" && tile.id !== "tickets" && tile.id !== "costPerTicket")).map((tile) => {
           const on = selected.includes(tile.id);
-          const metric = salesMetric(tile.id);
+          const names = TILE_NAMES[tile.id];
+          const endLabel = shortDay(view.endDay);
           return (
             <li key={tile.id}>
               <button
@@ -177,13 +181,13 @@ export function SalesDashboard({
                 }`}
               >
                 <span className="block text-[11px]">
-                  <span className="sm:hidden">{metric.narrow}</span>
-                  <span className="hidden sm:inline">{metric.label}</span>
+                  <span className="sm:hidden">{names.narrow}</span>
+                  <span className="hidden sm:inline">{names.wide}</span>
                 </span>
                 <span className="mt-1 block font-heading text-lg leading-none">{tile.value}</span>
                 <span className="mt-1 block text-[11px] text-muted-foreground">
-                  <span className="sm:hidden">{tile.narrowDetail}</span>
-                  <span className="hidden sm:inline">{tile.detail}</span>
+                  <span className="sm:hidden">{tileSubline(tile.id, tile.narrowDetail, period, endLabel)}</span>
+                  <span className="hidden sm:inline">{tileSubline(tile.id, tile.detail, period, endLabel)}</span>
                 </span>
               </button>
             </li>
@@ -194,17 +198,24 @@ export function SalesDashboard({
       <SalesChart
         points={points}
         allocation={view.allocation}
-        selected={selected}
+        selected={umbrella ? selected.filter((id) => id !== "sold" && id !== "tickets" && id !== "costPerTicket") : selected}
         indexRequested={indexRequested}
-        showAllocation={view.allocation.length > 0}
+        onIndex={setIndexRequested}
+        showAllocation={view.allocation.length > 0 && !umbrella}
+        pinnedDay={pinHover ? points.at(-1)?.day ?? null : null}
       />
 
-      <Trajectory
-        trajectory={view.trajectory}
-        onSelectShow={chooseShow}
-        crossClientNote={presented.crossClientNote}
-        reviewLine={presented.reviewLine}
-      />
+      {umbrella ? (
+        <p className="mt-4 text-xs text-muted-foreground">An umbrella has no Total sold, Sales or Cost per ticket tile, and no trajectory.</p>
+      ) : (
+        <Trajectory
+          trajectory={view.trajectory}
+          endDay={view.endDay}
+          onSelectShow={chooseShow}
+          crossClientNote={presented.crossClientNote}
+          reviewLine={presented.reviewLine}
+        />
+      )}
 
       <Campaigns rows={campaignsForPeriod(view, period)} />
     </section>
@@ -213,11 +224,13 @@ export function SalesDashboard({
 
 function Trajectory({
   trajectory,
+  endDay,
   onSelectShow,
   crossClientNote,
   reviewLine,
 }: {
   trajectory: SalesTrajectory;
+  endDay: string;
   onSelectShow: (id: string) => void;
   crossClientNote: string | null;
   reviewLine: string | null;
@@ -225,7 +238,7 @@ function Trajectory({
   return (
     <div className="mt-4">
       {trajectory.kind === "all" ? (
-        <AllTrajectoryView trajectory={trajectory} onSelectShow={onSelectShow} />
+        <AllTrajectoryView trajectory={trajectory} endDay={endDay} onSelectShow={onSelectShow} />
       ) : (
         <SingleTrajectoryView trajectory={trajectory} />
       )}
@@ -361,42 +374,135 @@ function shortDay(iso: string): string {
 
 function AllTrajectoryView({
   trajectory,
+  endDay,
   onSelectShow,
 }: {
   trajectory: Extract<SalesTrajectory, { kind: "all" }>;
+  endDay: string;
   onSelectShow: (id: string) => void;
 }) {
+  const sums = trajectorySums(trajectory.bars);
+  const axisMax = trajectoryAxisMax(trajectory.bars);
+  const soldShare = shareOf(sums.sold, sums.capacity);
+  const highShare = shareOf(sums.high, sums.capacity);
+  const counted = shortDay(endDay);
   return (
     <div>
-      <p className="text-xs">
-        <span className="sm:hidden">{trajectory.narrowRange}</span>
-        <span className="hidden sm:inline">{trajectory.wideRange}</span>
-      </p>
+      <h3 className="text-sm font-medium">Sales trajectory</h3>
+      <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <li className="rounded-md border border-border px-2.5 py-2">
+          <p className="text-[11px] text-muted-foreground">Sold · count of {counted}</p>
+          <p className="mt-1 font-heading text-lg leading-none">{formatCount(sums.sold)}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {soldShare == null ? "—" : `${soldShare}% of ${formatCount(sums.capacity)} across ${sums.shows} shows`}
+          </p>
+        </li>
+        <li className="rounded-md border border-border px-2.5 py-2">
+          <p className="text-[11px] text-muted-foreground">Projected on show day</p>
+          <p className="mt-1 font-heading text-lg leading-none">{formatCount(sums.holds)}–{formatCount(sums.high)}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show capped at its capacity`}
+          </p>
+        </li>
+        <li className="rounded-md border border-border px-2.5 py-2">
+          <p className="text-[11px] text-muted-foreground">Pace, last 7 days</p>
+          <p className="mt-1 font-heading text-lg leading-none">— a day</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">14-day — a day</p>
+        </li>
+      </ul>
       <ul className="mt-3 space-y-2">
         {trajectory.bars.map((bar) => (
           <li key={bar.id}>
-            <button type="button" onClick={() => onSelectShow(bar.id)} className="w-full text-left">
-              <span className="flex justify-between text-[11px]">
-                <span>{bar.label}</span>
-                <span className="text-muted-foreground">{bar.caption}</span>
-              </span>
-              {bar.allocation != null && bar.sold != null ? (
-                <span className="relative mt-1 block h-2 rounded-full bg-muted">
-                  <span className="absolute inset-y-0 left-0 rounded-full bg-foreground/80" style={{ width: `${(bar.sold / bar.allocation) * 100}%` }} />
-                  {bar.low != null ? (
-                    <span className="absolute top-0 h-2 w-px bg-foreground/50" style={{ left: `${(bar.low / bar.allocation) * 100}%` }} />
-                  ) : null}
-                  {bar.high != null ? (
-                    <span className="absolute top-0 h-2 w-px bg-foreground/50" style={{ left: `${(bar.high / bar.allocation) * 100}%` }} />
-                  ) : null}
-                </span>
-              ) : null}
-            </button>
+            <ShowBar bar={bar} axisMax={axisMax} onSelect={() => onSelectShow(bar.id)} />
           </li>
         ))}
       </ul>
+      <CapacityAxis max={axisMax} />
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground" />Sold, count of {counted}</li>
+        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/45" />Holds at the last 7 days&apos; pace</li>
+        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/20" />Like your best finish</li>
+        <li className="flex items-center gap-1.5"><span className="inline-block h-3 border-l border-dashed border-foreground" />Capacity</li>
+      </ul>
       <p className="mt-2 max-w-xl text-[11px] text-muted-foreground">{trajectory.note}</p>
     </div>
+  );
+}
+
+function ShowBar({ bar, axisMax, onSelect }: { bar: AllShowBar; axisMax: number; onSelect: () => void }) {
+  const outcome = barOutcome(bar);
+  const scale = axisMax > 0 ? axisMax : 1;
+  const cap = bar.allocation;
+  const sold = bar.sold;
+  const holdEnd = cap == null || bar.low == null ? null : Math.min(bar.low, cap);
+  const highEnd = cap == null || bar.high == null ? null : Math.min(bar.high, cap);
+  const soldEnd = sold == null || cap == null ? null : Math.min(sold, cap);
+  return (
+    <button type="button" onClick={onSelect} className="w-full text-left">
+      <span className="flex flex-wrap items-baseline justify-between gap-x-3 text-[11px] sm:grid sm:grid-cols-[9rem_minmax(0,1fr)_14rem] sm:items-center sm:gap-3">
+        <span>{bar.label}</span>
+        <span className="relative hidden h-2 rounded-full bg-muted sm:block">
+          <BarLayers soldEnd={soldEnd} holdEnd={holdEnd} highEnd={highEnd} cap={cap} scale={scale} />
+        </span>
+        <span className="text-muted-foreground">{outcome}</span>
+      </span>
+      <span className="relative mt-1 block h-2 rounded-full bg-muted sm:hidden">
+        <BarLayers soldEnd={soldEnd} holdEnd={holdEnd} highEnd={highEnd} cap={cap} scale={scale} />
+      </span>
+    </button>
+  );
+}
+
+function BarLayers({
+  soldEnd,
+  holdEnd,
+  highEnd,
+  cap,
+  scale,
+}: {
+  soldEnd: number | null;
+  holdEnd: number | null;
+  highEnd: number | null;
+  cap: number | null;
+  scale: number;
+}) {
+  const width = (value: number) => `${Math.max(0, Math.min(100, (value / scale) * 100))}%`;
+  return (
+    <>
+      {soldEnd != null ? <span className="absolute inset-y-0 left-0 bg-foreground" style={{ width: width(soldEnd) }} /> : null}
+      {soldEnd != null && holdEnd != null && holdEnd > soldEnd ? (
+        <span className="absolute inset-y-0 bg-foreground/45" style={{ left: width(soldEnd), width: width(holdEnd - soldEnd) }} />
+      ) : null}
+      {holdEnd != null && highEnd != null && highEnd > holdEnd ? (
+        <span className="absolute inset-y-0 bg-foreground/20" style={{ left: width(holdEnd), width: width(highEnd - holdEnd) }} />
+      ) : null}
+      {cap != null ? <span className="absolute inset-y-0 border-l border-dashed border-foreground" style={{ left: width(cap) }} /> : null}
+    </>
+  );
+}
+
+function CapacityAxis({ max }: { max: number }) {
+  if (max <= 0) return null;
+  return (
+    <>
+      <div className="relative mt-1 h-4 text-[10px] text-muted-foreground sm:hidden">
+        {capacityTicks(max, 1000).map((tick) => (
+          <span key={tick} className={`absolute whitespace-nowrap ${tick === 0 ? "" : tick === max ? "right-0" : "-translate-x-1/2"}`} style={tick === 0 || tick === max ? undefined : { left: `${(tick / max) * 100}%` }}>
+            {tick === max ? `${formatCount(tick)} capacity` : formatCount(tick)}
+          </span>
+        ))}
+      </div>
+      <div className="mt-1 hidden sm:grid sm:grid-cols-[9rem_minmax(0,1fr)_14rem] sm:gap-3">
+        <span />
+        <div className="relative h-4 text-[10px] text-muted-foreground">
+          {capacityTicks(max, 500).map((tick) => (
+            <span key={tick} className={`absolute whitespace-nowrap ${tick === 0 ? "" : tick === max ? "right-0" : "-translate-x-1/2"}`} style={tick === 0 || tick === max ? undefined : { left: `${(tick / max) * 100}%` }}>
+              {tick === max ? `${formatCount(tick)} capacity` : formatCount(tick)}
+            </span>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 

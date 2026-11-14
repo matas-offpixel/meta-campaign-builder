@@ -7,7 +7,13 @@ export function SalesFrameMount({ id }: { id: string }) {
   if (!frame) return null;
   return (
     <div data-frame-ready={`sales/${id}`} className="bg-background">
-      <SalesDashboard model={NX_SALES_FIXTURE} surface={frame.surface} initialShowId={frame.showId} initialPeriod="14" />
+      <SalesDashboard
+        model={NX_SALES_FIXTURE}
+        surface={frame.surface}
+        initialShowId={frame.showId}
+        initialPeriod={frame.period}
+        pinHover={frame.pinHover === true}
+      />
     </div>
   );
 }
