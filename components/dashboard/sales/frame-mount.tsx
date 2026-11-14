@@ -13,6 +13,8 @@ export function SalesFrameMount({ id }: { id: string }) {
         initialShowId={frame.showId}
         initialPeriod={frame.period}
         pinHover={frame.pinHover === true}
+        pinSpend={frame.pinSpend === true}
+        initialVenueKey={frame.venueKey}
       />
     </div>
   );

@@ -1,10 +1,37 @@
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { anchoredDateIndexes, axisStep, dateStepDays, daySpan } from "@/components/dashboard/sales/chart-axes";
-import { tileSubline } from "@/components/dashboard/sales/tile-copy";
+import { SalesDashboard } from "@/components/dashboard/sales/sales-dashboard";
+import { spendScopeLine, tileSubline } from "@/components/dashboard/sales/tile-copy";
 import { barOutcome, trajectoryAxisMax, trajectorySums } from "@/components/dashboard/sales/trajectory-bars";
 import { NX_SALES_FIXTURE } from "@/lib/dashboard/sales-vs-spend-fixture";
 import type { AllShowBar } from "@/lib/dashboard/sales-vs-spend";
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("N2 venue row and N3 spend hover", () => {
+  it("puts the venues above the chips and pins the All venues breakdown", () => {
+    render(
+      <SalesDashboard
+        model={NX_SALES_FIXTURE}
+        surface="internal"
+        initialShowId="all"
+        initialPeriod="launch"
+        initialVenueKey="all"
+        pinSpend
+      />,
+    );
+    expect(screen.getByRole("button", { name: "All venues" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "NX Newcastle" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "All NX Newcastle" })).toBeTruthy();
+    expect(screen.getByText("£9,840 since launch · to 12 Nov")).toBeTruthy();
+    expect(screen.getByText("Not in this total: NX Newcastle umbrella £640. Finished shows (Include finished adds them).")).toBeTruthy();
+    expect(screen.getByText(/NX Newcastle to date, 2 venues/)).toBeTruthy();
+  });
+});
 
 describe("N1 axes", () => {
   it("picks the round step that covers the peak", () => {
@@ -45,6 +72,19 @@ describe("N6 trajectory", () => {
       sellout: null,
     });
     expect(barOutcome(bars.find((bar) => bar.sold == null)!)).toEqual({ text: "Set capacity on the event", sellout: null });
+    expect(barOutcome({ id: "z", label: "z", sold: 100, low: 200, high: 300, allocation: 1000, caption: "", sellsOut: "holds" })).toEqual({
+      text: "100 →",
+      sellout: "at this pace",
+    });
+  });
+
+  it("reads the all-shows pace from the model's summary", () => {
+    const trajectory = NX_SALES_FIXTURE.views["venue:nx newcastle"].trajectory;
+    expect(trajectory.kind === "all" && trajectory.summary?.pace).toEqual({
+      label: "Pace, last 7 days",
+      value: "— a day",
+      detail: "14-day — a day",
+    });
   });
 
   it("sums only the shows with a count, each projection capped", () => {
@@ -69,6 +109,15 @@ describe("N7 tile sublines", () => {
     );
     expect(tileSubline("costPerTicket", "blended", "14", "12 Nov", { showsWithCounts: 3, shows: 4 })).toBe(
       "in 14 days · the 3 shows with counts",
+    );
+    const launch = NX_SALES_FIXTURE.views.all.spendTotal;
+    const period = NX_SALES_FIXTURE.views.all.periods?.["14"]?.spendTotal;
+    expect(launch && spendScopeLine(launch, "launch", launch)).toBe("All venues · Meta £4,210 · TikTok £520");
+    expect(launch && period && spendScopeLine(period, "14", launch)).toBe(
+      "All venues · Meta £4,210 · TikTok £520 · of £9,840 since launch",
+    );
+    expect(NX_SALES_FIXTURE.views["venue:nx newcastle"].header?.sentence).toBe(
+      "NX Newcastle to date: £9,840 spend since launch, 2,327 tickets sold across 3 shows (Internal Counts, 12 Nov), so £4.23 of spend per ticket. Separate NX Newcastle umbrella spend: £640.",
     );
     expect(tileSubline("tickets", "since launch", "launch", "12 Nov")).toBe("since launch, to 12 Nov");
     expect(tileSubline("checkoutActions", "£5.31 each", "launch", "12 Nov")).toBe(

@@ -8,7 +8,7 @@
 
 ## Summary
 
-Layout part 1 of dashboard v2 against the model (record #1226): chart axes, Since launch as the default period, all-shows trajectory bars, the model's tile names, and the umbrella chip. Venue row, totals hover, and the header sentence wait on the new model fields.
+Layout of dashboard v2 against the model (record #1226). Part 1 is the chart, Since launch, the bars, the tile names and the umbrella chip. Part 2, after #1228, reads the new fields: the venue row, the totals and their hover, the header sentence, and the all-shows pace.
 
 ## Scope / files
 
@@ -28,6 +28,8 @@ Layout part 1 of dashboard v2 against the model (record #1226): chart axes, Sinc
 
 ## Notes
 
-The layout reads `SalesDashboardModel` as it is. Pace, the registrations "plus n" line, the umbrella page, and a 2,000 capacity are not in the fixture, so the frames keep the 12 Nov NX fixture figures. `lib/dashboard/sales-vs-spend.ts` and `lib/dashboard/sales-calc/**` were not edited.
+The layout reads the model fields and does not edit `lib/dashboard/sales-vs-spend.ts` or `lib/dashboard/sales-calc/**`.
 
-Design fail at 6441e59: the index control matches the caption size, tile values do not inherit the heading uppercase, SELLS OUT is mono caps in the destructive colour, Total sold stays "to date · Internal Counts, {date}" (plus comps when the authored detail has them), and Cost per ticket says "the {n} shows with counts" when a show in the all-shows bars has no count. The all-shows pace is still "— a day"; the model has no 7-day or 14-day pace on that view.
+Cost per ticket at 1280 keeps "complete windows" on every period except Since launch. At 393 that phrase stays off.
+
+The venue row, the header sentence, the spend scope line and the spend hover render `venues`, `header`, `spendTotal` and `summary` when the model sends them. `summary.pace.value` is shown as "{n} a day". `sellsOut` on a bar wins over the inferred range. The fixture is still the 12 Nov NX series, so its pace tile is "— a day"; 113.3 / 155.3 is the live calc's pace, not a number this layout writes. The fixture's channel split is the 14-day one (£4,210 + £520) and does not sum to the £9,840 since-launch total.

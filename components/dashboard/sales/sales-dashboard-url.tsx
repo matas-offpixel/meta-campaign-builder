@@ -11,11 +11,13 @@ export function SalesDashboardUrl({
   surface,
   initialShowId,
   initialPeriod,
+  initialVenueKey,
 }: {
   model: SalesDashboardModel;
   surface: SalesSurface;
   initialShowId?: string;
   initialPeriod?: SalesPeriod;
+  initialVenueKey?: string;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -25,6 +27,7 @@ export function SalesDashboardUrl({
       surface={surface}
       initialShowId={initialShowId}
       initialPeriod={initialPeriod}
+      initialVenueKey={initialVenueKey}
       onQuery={(key, value) => {
         const next = new URLSearchParams(params.toString());
         next.set(key, value);

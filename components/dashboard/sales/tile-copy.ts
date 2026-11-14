@@ -1,4 +1,4 @@
-import type { SalesMetricId, SalesPeriod } from "@/lib/dashboard/sales-vs-spend";
+import type { SalesMetricId, SalesPeriod, SalesTotal } from "@/lib/dashboard/sales-vs-spend";
 
 /** N7 names. The metric table in the model still has the earlier labels. */
 export const TILE_NAMES: Record<SalesMetricId, { wide: string; narrow: string }> = {
@@ -60,6 +60,14 @@ function soldSubline(detail: string, endLabel: string): string {
  * show has a count, stays "blended". Wide keeps "complete windows" on every
  * period except Since launch; 393 drops it.
  */
+/** N3: "{scope} · Meta £x · TikTok £y". A period adds "of £{since launch} since launch". */
+export function spendScopeLine(total: SalesTotal, period: SalesPeriod, launch: SalesTotal | null): string {
+  const channels = total.channels.map((channel) => `${channel.label} ${channel.text}`).join(" · ");
+  const line = channels ? `${total.scope} · ${channels}` : total.scope;
+  if (period !== "launch" && launch) return `${line} · of ${launch.text} since launch`;
+  return line;
+}
+
 function costPerTicketSubline(span: string, scope: ShowCountScope | null, wide: boolean): string {
   const body = scope && scope.showsWithCounts < scope.shows
     ? `the ${scope.showsWithCounts} shows with counts`

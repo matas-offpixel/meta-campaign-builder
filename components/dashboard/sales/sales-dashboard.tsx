@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { CHART_PLOT, PLOT_PAD, ChartDateLabels, ChartDot, SalesChart } from "@/components/dashboard/sales/sales-chart";
-import { TILE_NAMES, tileSubline } from "@/components/dashboard/sales/tile-copy";
+import { TILE_NAMES, spendScopeLine, tileSubline } from "@/components/dashboard/sales/tile-copy";
 import { barOutcome, capacityTicks, formatCount, shareOf, trajectoryAxisMax, trajectorySums } from "@/components/dashboard/sales/trajectory-bars";
 import {
   campaignsForPeriod,
@@ -19,8 +19,11 @@ import {
   type SalesDashboardModel,
   type SalesMetricId,
   type SalesPeriod,
+  type SalesShowChip,
   type SalesSurface,
+  type SalesTotal,
   type SalesTrajectory,
+  type SalesVenue,
   type SingleTrajectory,
 } from "@/lib/dashboard/sales-vs-spend";
 
@@ -31,6 +34,8 @@ export function SalesDashboard({
   initialPeriod,
   initialIndex = false,
   pinHover = false,
+  pinSpend = false,
+  initialVenueKey,
   onQuery,
 }: {
   model: SalesDashboardModel;
@@ -40,18 +45,43 @@ export function SalesDashboard({
   initialPeriod?: SalesPeriod;
   initialIndex?: boolean;
   pinHover?: boolean;
-  /** Pages pass this to keep `show` and `period` in the query string. */
-  onQuery?: (key: "show" | "period", value: string) => void;
+  /** NV5 leaves the spend breakdown open. */
+  pinSpend?: boolean;
+  /** `venue` in the URL: a venue key, or "all". */
+  initialVenueKey?: string;
+  /** Pages pass this to keep `show`, `period` and `venue` in the query string. */
+  onQuery?: (key: "show" | "period" | "venue", value: string) => void;
 }) {
   const presented = salesForSurface(model, surface);
+  const venues = (presented.venues ?? []).filter((venue) => venue.liveShows > 0);
+  const multiVenue = venues.length >= 2;
   const [showId, setShowId] = useState(initialShowId ?? presented.initialShowId);
+  const [venueKey, setVenueKey] = useState(() =>
+    startingVenueKey(presented, initialShowId ?? presented.initialShowId, initialVenueKey),
+  );
   const [period, setPeriod] = useState<SalesPeriod>(initialPeriod ?? "launch");
   const [includeFinished, setIncludeFinished] = useState(false);
   const [selected, setSelected] = useState<SalesMetricId[]>([...DEFAULT_ON_METRICS]);
   const [indexRequested, setIndexRequested] = useState(initialIndex);
+  const [spendHover, setSpendHover] = useState<"tile" | "header" | null>(pinSpend ? "tile" : null);
+  const venueButtonRef = useRef<HTMLButtonElement>(null);
 
-  const chips = visibleShows(presented, includeFinished);
-  const activeId = chips.some((chip) => chip.id === showId) ? showId : presented.initialShowId;
+  useEffect(() => {
+    venueButtonRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [venueKey]);
+
+  const selectedVenue = venues.find((venue) => venueToken(venue) === venueKey) ?? null;
+  const grouped = multiVenue && venueKey === "all";
+  const chips = !multiVenue
+    ? visibleShows(presented, includeFinished)
+    : grouped
+      ? venues.flatMap((venue) => [...venue.shows, ...(includeFinished ? venue.finishedShows : [])])
+      : [...(selectedVenue?.shows ?? []), ...(includeFinished ? selectedVenue?.finishedShows ?? [] : [])];
+  const activeId = chips.some((chip) => chip.id === showId)
+    ? showId
+    : grouped
+      ? showId
+      : selectedVenue?.viewId ?? presented.initialShowId;
   const activeChip = chips.find((chip) => chip.id === activeId);
   const umbrella = activeChip?.kind === "umbrella";
   const view = presented.views[activeId] ?? presented.views[presented.initialShowId];
@@ -64,6 +94,8 @@ export function SalesDashboard({
         shows: view.trajectory.bars.length,
       }
     : null;
+  const launchTotal = view.spendTotal ?? null;
+  const periodTotal = period === "launch" ? launchTotal : (view.periods?.[period]?.spendTotal ?? null);
 
   function chooseShow(id: string) {
     setShowId(id);
@@ -75,8 +107,30 @@ export function SalesDashboard({
     writeQuery("period", next);
   }
 
-  function writeQuery(key: "show" | "period", value: string) {
+  function chooseVenue(venue: SalesVenue | "all") {
+    if (venue === "all") {
+      setVenueKey("all");
+      setShowId("all");
+      writeQuery("venue", "all");
+      writeQuery("show", "all");
+      return;
+    }
+    setVenueKey(venueToken(venue));
+    setShowId(venue.viewId);
+    writeQuery("venue", venue.key ?? venue.viewId);
+    writeQuery("show", venue.viewId);
+  }
+
+  function writeQuery(key: "show" | "period" | "venue", value: string) {
     onQuery?.(key, value);
+  }
+
+  function hoverSpend(which: "tile" | "header") {
+    setSpendHover(which);
+  }
+
+  function leaveSpend() {
+    if (!pinSpend) setSpendHover(null);
   }
 
   function toggleMetric(id: SalesMetricId) {
@@ -94,13 +148,23 @@ export function SalesDashboard({
             </>
           )}
         </h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          <span className="sm:hidden">{view.narrowSubtitle}</span>
-          <span className="hidden sm:inline">{view.subtitle}</span>
-        </p>
-        {view.umbrellaLine ? (
-          <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block">{view.umbrellaLine}</p>
-        ) : null}
+        {view.header ? (
+          <div className="relative" onMouseEnter={() => hoverSpend("header")} onMouseLeave={leaveSpend}>
+            <p className="mt-1 max-w-3xl text-sm leading-snug">{view.header.sentence}</p>
+            <p className="mt-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{view.header.channelLine}</p>
+            {spendHover === "header" && launchTotal ? <SpendHover total={launchTotal} /> : null}
+          </div>
+        ) : (
+          <>
+            <p className="mt-1 text-xs text-muted-foreground">
+              <span className="sm:hidden">{view.narrowSubtitle}</span>
+              <span className="hidden sm:inline">{view.subtitle}</span>
+            </p>
+            {view.umbrellaLine ? (
+              <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block">{view.umbrellaLine}</p>
+            ) : null}
+          </>
+        )}
         <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
           {presented.freshness.map((stamp) => (
             <li key={stamp.id} className={stamp.stale ? "text-warning" : "text-muted-foreground"}>
@@ -111,39 +175,78 @@ export function SalesDashboard({
         </ul>
       </header>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {chips.map((chip) => {
-          const on = chip.id === activeId;
-          return (
+      {multiVenue ? (
+        <div className="mt-4 flex items-center gap-2">
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Venue</span>
+          <div className="flex overflow-x-auto">
+            {venues.map((venue, index) => {
+              const on = venueToken(venue) === venueKey;
+              return (
+                <button
+                  key={venue.viewId}
+                  ref={on ? venueButtonRef : undefined}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => chooseVenue(venue)}
+                  className={`shrink-0 border border-border px-3 py-1 text-xs ${index === 0 ? "rounded-l-full" : "-ml-px"} ${
+                    on ? "relative z-10 bg-foreground text-background" : "bg-card"
+                  }`}
+                >
+                  {venue.name}
+                </button>
+              );
+            })}
             <button
-              key={chip.id}
+              ref={venueKey === "all" ? venueButtonRef : undefined}
               type="button"
-              aria-pressed={on}
-              onClick={() => chooseShow(chip.id)}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                chip.kind === "umbrella" ? "border-dashed" : "border-border"
-              } ${chip.finished ? "text-muted-foreground" : ""} ${
-                on ? "border-foreground bg-foreground text-background" : "bg-card"
+              aria-pressed={venueKey === "all"}
+              onClick={() => chooseVenue("all")}
+              className={`-ml-px shrink-0 rounded-r-full border border-border px-3 py-1 text-xs ${
+                venueKey === "all" ? "relative z-10 bg-foreground text-background" : "bg-card"
               }`}
             >
-              {chip.kind === "umbrella" ? "Umbrella" : (
-                <>
-                  <span className="sm:hidden">{chip.narrow}</span>
-                  <span className="hidden sm:inline">{chip.wide}</span>
-                </>
-              )}
+              All venues
             </button>
-          );
-        })}
-        <button
-          type="button"
-          aria-pressed={includeFinished}
-          onClick={() => setIncludeFinished((value) => !value)}
-          className={`rounded-full border border-border px-3 py-1 text-xs ${includeFinished ? "bg-muted" : "bg-card text-muted-foreground"}`}
-        >
-          Include finished
-        </button>
-      </div>
+          </div>
+        </div>
+      ) : null}
+
+      {grouped ? (
+        <div className="mt-3 space-y-2">
+          {venues.map((venue) => (
+            <div key={venue.viewId} className="flex items-center gap-2 overflow-x-auto">
+              <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{venue.name}</span>
+              <ShowChip
+                chip={{ id: venue.viewId, wide: `All ${venue.name}`, narrow: "All", kind: "all", finished: false }}
+                on={activeId === venue.viewId}
+                label={`All ${venue.name}`}
+                onSelect={() => chooseShow(venue.viewId)}
+              />
+              {venue.shows.filter((chip) => chip.kind !== "all").map((chip) => (
+                <ShowChip key={`${venue.viewId}-${chip.id}`} chip={chip} on={chip.id === activeId} onSelect={() => chooseShow(chip.id)} />
+              ))}
+              {includeFinished
+                ? venue.finishedShows.map((chip) => (
+                    <ShowChip key={`${venue.viewId}-fin-${chip.id}`} chip={chip} on={chip.id === activeId} onSelect={() => chooseShow(chip.id)} />
+                  ))
+                : null}
+            </div>
+          ))}
+          <FinishedToggle includeFinished={includeFinished} onToggle={() => setIncludeFinished((value) => !value)} />
+        </div>
+      ) : (
+        <div className="mt-4 flex items-center gap-2 overflow-x-auto">
+          {chips.map((chip) => (
+            <ShowChip
+              key={`${chip.id}-${chip.finished ? "fin" : "live"}-${chip.kind}`}
+              chip={chip}
+              on={chip.id === activeId}
+              onSelect={() => chooseShow(chip.id)}
+            />
+          ))}
+          <FinishedToggle includeFinished={includeFinished} onToggle={() => setIncludeFinished((value) => !value)} />
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {SALES_PERIODS.map((item) => (
@@ -179,13 +282,24 @@ export function SalesDashboard({
           const soldDetail = tile.id === "sold" ? (authored?.detail ?? tile.detail) : null;
           const wideDetail = soldDetail ?? tile.detail;
           const narrowDetail = soldDetail ?? tile.narrowDetail;
+          const spendTotal = tile.id === "spend" ? periodTotal : null;
+          const wideSub = spendTotal ? spendScopeLine(spendTotal, period, launchTotal) : tileSubline(tile.id, wideDetail, period, endLabel, showScope, true);
+          const narrowSub = spendTotal ? spendScopeLine(spendTotal, period, launchTotal) : tileSubline(tile.id, narrowDetail, period, endLabel, showScope, false);
+          const hovered = tile.id === "spend" && spendHover === "tile" && spendTotal;
           return (
-            <li key={tile.id}>
+            <li
+              key={tile.id}
+              className="relative"
+              onMouseEnter={tile.id === "spend" ? () => hoverSpend("tile") : undefined}
+              onMouseLeave={tile.id === "spend" ? leaveSpend : undefined}
+            >
               <button
                 type="button"
                 aria-pressed={on}
                 title={tile.title}
                 onClick={() => toggleMetric(tile.id)}
+                onFocus={tile.id === "spend" ? () => hoverSpend("tile") : undefined}
+                onBlur={tile.id === "spend" ? leaveSpend : undefined}
                 className={`h-full w-full rounded-md border px-2.5 py-2 text-left ${
                   on ? "border-foreground bg-card" : "border-border bg-card text-muted-foreground"
                 }`}
@@ -194,12 +308,13 @@ export function SalesDashboard({
                   <span className="sm:hidden">{names.narrow}</span>
                   <span className="hidden sm:inline">{names.wide}</span>
                 </span>
-                <TileValue className="mt-1 block">{tile.value}</TileValue>
+                <TileValue className="mt-1 block">{spendTotal ? spendTotal.text : tile.value}</TileValue>
                 <span className="mt-1 block text-[11px] text-muted-foreground">
-                  <span className="sm:hidden">{tileSubline(tile.id, narrowDetail, period, endLabel, showScope, false)}</span>
-                  <span className="hidden sm:inline">{tileSubline(tile.id, wideDetail, period, endLabel, showScope, true)}</span>
+                  <span className="sm:hidden">{narrowSub}</span>
+                  <span className="hidden sm:inline">{wideSub}</span>
                 </span>
               </button>
+              {hovered && spendTotal ? <SpendHover total={spendTotal} /> : null}
             </li>
           );
         })}
@@ -396,32 +511,32 @@ function AllTrajectoryView({
   const soldShare = shareOf(sums.sold, sums.capacity);
   const highShare = shareOf(sums.high, sums.capacity);
   const counted = shortDay(endDay);
+  const soldTile = trajectory.summary?.sold ?? {
+    label: `Sold · count of ${counted}`,
+    value: formatCount(sums.sold),
+    detail: soldShare == null ? "—" : `${soldShare}% of ${formatCount(sums.capacity)} across ${sums.shows} shows`,
+  };
+  const projectedTile = trajectory.summary?.projected ?? {
+    label: "Projected on show day",
+    value: `${formatCount(sums.holds)}–${formatCount(sums.high)}`,
+    detail: highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show capped at its capacity`,
+  };
+  const paceTile = trajectory.summary?.pace ?? {
+    label: "Pace, last 7 days",
+    value: "— a day",
+    detail: "14-day — a day",
+  };
   return (
     <div>
       <h3 className="text-sm font-medium">Sales trajectory</h3>
       <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <li className="rounded-md border border-border px-2.5 py-2">
-          <p className="text-[11px] text-muted-foreground">Sold · count of {counted}</p>
-          <TileValue className="mt-1">{formatCount(sums.sold)}</TileValue>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {soldShare == null ? "—" : `${soldShare}% of ${formatCount(sums.capacity)} across ${sums.shows} shows`}
-          </p>
-        </li>
-        <li className="rounded-md border border-border px-2.5 py-2">
-          <p className="text-[11px] text-muted-foreground">Projected on show day</p>
-          <TileValue className="mt-1">{formatCount(sums.holds)}–{formatCount(sums.high)}</TileValue>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show capped at its capacity`}
-          </p>
-        </li>
-        <li className="rounded-md border border-border px-2.5 py-2">
-          <p className="text-[11px] text-muted-foreground">Pace, last 7 days</p>
-          <p className="mt-1 leading-none">
-            <TileValue>—</TileValue>
-            <span className="text-[11px] font-normal text-muted-foreground"> a day</span>
-          </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">14-day — a day</p>
-        </li>
+        {[soldTile, projectedTile, paceTile].map((tile) => (
+          <li key={tile.label} className="rounded-md border border-border px-2.5 py-2">
+            <p className="text-[11px] text-muted-foreground">{tile.label}</p>
+            <SummaryValue value={tile.value} />
+            <p className="mt-1 text-[11px] text-muted-foreground">{tile.detail}</p>
+          </li>
+        ))}
       </ul>
       <ul className="mt-3 space-y-2">
         {trajectory.bars.map((bar) => (
@@ -589,6 +704,130 @@ function Campaigns({ rows }: { rows: SalesDashboardModel["views"][string]["campa
       </table>
     </div>
   );
+}
+
+function ShowChip({
+  chip,
+  on,
+  label,
+  onSelect,
+}: {
+  chip: SalesShowChip;
+  on: boolean;
+  label?: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onSelect}
+      className={`shrink-0 rounded-full border px-3 py-1 text-xs ${
+        chip.kind === "umbrella" ? "border-dashed" : "border-border"
+      } ${chip.finished ? "text-muted-foreground" : ""} ${
+        on ? "border-foreground bg-foreground text-background" : "bg-card"
+      }`}
+    >
+      {label ?? (chip.kind === "umbrella" ? "Umbrella" : (
+        <>
+          <span className="sm:hidden">{chip.narrow}</span>
+          <span className="hidden sm:inline">{chip.wide}</span>
+        </>
+      ))}
+    </button>
+  );
+}
+
+function FinishedToggle({ includeFinished, onToggle }: { includeFinished: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={includeFinished}
+      onClick={onToggle}
+      className={`shrink-0 rounded-full border border-border px-3 py-1 text-xs ${includeFinished ? "bg-muted" : "bg-card text-muted-foreground"}`}
+    >
+      Include finished
+    </button>
+  );
+}
+
+function SpendHover({ total }: { total: SalesTotal }) {
+  return (
+    <div className="absolute left-0 top-full z-20 mt-1 w-72 border border-border bg-card p-3 text-left text-[11px] leading-snug shadow-sm">
+      <p className="font-medium">{total.headline}</p>
+      <div className="mt-2 space-y-1">
+        {total.parts.map((part) => (
+          <div key={part.id}>
+            <SpendLine label={part.label} amount={part.text} />
+            {part.channels.length > 0 ? (
+              <SpendLine
+                indent
+                label={part.channels.map((channel) => channel.label).join(" · ")}
+                amount={part.channels.map((channel) => channel.text).join(" · ")}
+              />
+            ) : null}
+            {part.children?.map((child) => (
+              <div key={child.id}>
+                <SpendLine nest label={child.label} amount={child.text} />
+                {child.channels.length > 0 ? (
+                  <SpendLine
+                    nest
+                    label={child.channels.map((channel) => channel.label).join(" · ")}
+                    amount={child.channels.map((channel) => channel.text).join(" · ")}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      {total.notIncluded ? <p className="mt-2 text-muted-foreground">{total.notIncluded}</p> : null}
+    </div>
+  );
+}
+
+function SpendLine({ label, amount, indent = false, nest = false }: { label: string; amount: string; indent?: boolean; nest?: boolean }) {
+  return (
+    <p className={`flex justify-between gap-4 ${nest ? "pl-6 text-muted-foreground" : indent ? "pl-3 text-muted-foreground" : ""}`}>
+      <span>{label}</span>
+      <span className="shrink-0">{amount}</span>
+    </p>
+  );
+}
+
+function SummaryValue({ value }: { value: string }) {
+  const pace = /^(.*) a day$/.exec(value);
+  if (!pace) return <TileValue className="mt-1 block">{value}</TileValue>;
+  return (
+    <p className="mt-1 leading-none">
+      <TileValue>{pace[1]}</TileValue>
+      <span className="text-[11px] font-normal text-muted-foreground"> a day</span>
+    </p>
+  );
+}
+
+function venueToken(venue: SalesVenue): string {
+  return venue.key ?? venue.viewId;
+}
+
+/** Default is the venue with the most live shows. "all" is All venues. */
+function startingVenueKey(model: SalesDashboardModel, showId: string, explicit?: string): string {
+  const venues = (model.venues ?? []).filter((venue) => venue.liveShows > 0);
+  if (venues.length < 2) return "all";
+  if (explicit === "all") return "all";
+  if (explicit) {
+    const found = venues.find((venue) => venue.key === explicit || venue.viewId === explicit);
+    if (found) return venueToken(found);
+  }
+  const owner = venues.find(
+    (venue) =>
+      venue.viewId === showId ||
+      venue.shows.some((chip) => chip.id === showId) ||
+      venue.finishedShows.some((chip) => chip.id === showId),
+  );
+  if (owner) return venueToken(owner);
+  const initial = venues.find((venue) => venue.viewId === model.initialVenueViewId);
+  return initial ? venueToken(initial) : "all";
 }
 
 function UnlinkedPill() {

@@ -26,6 +26,15 @@ export function barOutcome(bar: AllShowBar): BarOutcome {
   if (bar.sold == null) return { text: "No ticket counts yet", sellout: null };
   const sold = formatCount(bar.sold);
   const cap = bar.allocation;
+  if (bar.sellsOut === "holds") return { text: `${sold} →`, sellout: "at this pace" };
+  if (bar.sellsOut === "best") {
+    const low = bar.low != null ? `${formatCount(bar.low)}–${formatCount(cap)} ·` : "";
+    return { text: low ? `${sold} → ${low}` : `${sold} →`, sellout: "if best" };
+  }
+  if (bar.sellsOut === null) {
+    if (bar.low != null && bar.high != null) return { text: `${sold} → ${formatCount(bar.low)}–${formatCount(bar.high)}`, sellout: null };
+    return { text: sold, sellout: null };
+  }
   if (bar.low != null && bar.low >= cap) return { text: `${sold} →`, sellout: "at this pace" };
   if (bar.high != null && bar.high >= cap && bar.low != null) {
     return { text: `${sold} → ${formatCount(bar.low)}–${formatCount(cap)} ·`, sellout: "if best" };

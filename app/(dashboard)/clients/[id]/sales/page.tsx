@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-url";
+import { venueViewFromQuery } from "@/components/dashboard/sales/venue-query";
 import { loadInternalSalesDashboard } from "@/lib/dashboard/sales-calc/server";
 import { dashboardV2Enabled } from "@/lib/dashboard/sales-calc/gate";
 import { pickPeriod, pickShow } from "@/lib/dashboard/sales-calc/query";
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ show?: string; period?: string }>;
+  searchParams: Promise<{ show?: string; period?: string; venue?: string }>;
 }
 
 export default async function ClientSalesPage({ params, searchParams }: Props) {
@@ -36,8 +37,15 @@ export default async function ClientSalesPage({ params, searchParams }: Props) {
       <SalesDashboardUrl
         model={build.model}
         surface="internal"
-        initialShowId={pickShow(build.model, query.show)}
+        initialShowId={
+          query.show
+            ? pickShow(build.model, query.show)
+            : query.venue === "all"
+              ? "all"
+              : venueViewFromQuery(build.model, query.venue) ?? pickShow(build.model, undefined)
+        }
         initialPeriod={pickPeriod(query.period)}
+        initialVenueKey={query.venue}
       />
     </Suspense>
   );
