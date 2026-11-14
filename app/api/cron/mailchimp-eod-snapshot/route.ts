@@ -18,9 +18,10 @@ import {
   cirqlinCronOverBudget,
 } from "@/lib/cirqlin/cron-budget";
 import {
-  syncCirqlinSignupsForEvent,
+  syncCirqlinSignupsForEventByPage,
   type CirqlinSyncResult,
 } from "@/lib/cirqlin/sync";
+import { loadAllPaged } from "@/lib/db/paged-read";
 import { notify } from "@/lib/notify/slack";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import { daySnapshotAt, isCronAuthorized, todayUtc } from "@/lib/mailchimp/tag-tracking";
@@ -205,20 +206,25 @@ async function handleGET(req: NextRequest) {
     `[mailchimp-eod-snapshot] processed=${results.length} corrected=${results.filter((r) => r.action === "corrected").length}`,
   );
 
-  const { data: taggedForCirqlin } = await sb
-    .from("events")
-    .select("id, client_id, mailchimp_tag")
-    .not("mailchimp_tag", "is", null);
+  // Dashboard v2 (HN2): events with a linked CIRQLIN page sync by page id
+  // first; the Mailchimp tag is the fallback, and the only path for an
+  // event with no page.
+  const taggedForCirqlin = await loadAllPaged<{ id: string; client_id: string | null; mailchimp_tag: string | null; cirqlin_page_id: string | null }>(
+    sb,
+    "events",
+    "id,client_id,mailchimp_tag,cirqlin_page_id",
+    ["id"],
+    (q) => q.or("mailchimp_tag.not.is.null,cirqlin_page_id.not.is.null"),
+  );
 
-  const cirqlinEvents: { id: string; mailchimp_tag: string }[] = [];
-  for (const raw of dropArchivedClientRows(
-    (taggedForCirqlin ?? []) as { client_id: string | null }[],
-    archivedClientIds,
-  )) {
-    const event = raw as { id?: unknown; mailchimp_tag?: unknown };
+  const cirqlinEvents: { id: string; mailchimp_tag: string | null; cirqlin_page_id: string | null }[] = [];
+  for (const raw of dropArchivedClientRows(taggedForCirqlin, archivedClientIds)) {
+    const event = raw as { id?: unknown; mailchimp_tag?: unknown; cirqlin_page_id?: unknown };
     if (typeof event.id !== "string") continue;
-    if (typeof event.mailchimp_tag !== "string" || !event.mailchimp_tag) continue;
-    cirqlinEvents.push({ id: event.id, mailchimp_tag: event.mailchimp_tag });
+    const tag = typeof event.mailchimp_tag === "string" && event.mailchimp_tag ? event.mailchimp_tag : null;
+    const pageId = typeof event.cirqlin_page_id === "string" && event.cirqlin_page_id ? event.cirqlin_page_id : null;
+    if (!tag && !pageId) continue;
+    cirqlinEvents.push({ id: event.id, mailchimp_tag: tag, cirqlin_page_id: pageId });
   }
   const cirqlinResults: CirqlinSyncResult[] = [];
   // EOD is 23:55 UTC — outside ads_ops business hours. Skip the gate
@@ -243,9 +249,9 @@ async function handleGET(req: NextRequest) {
     const ev = cirqlinEvents[i]!;
     try {
       cirqlinResults.push(
-        await syncCirqlinSignupsForEvent(
+        await syncCirqlinSignupsForEventByPage(
           supabase,
-          { eventId: ev.id, tag: ev.mailchimp_tag },
+          { eventId: ev.id, pageId: ev.cirqlin_page_id, tag: ev.mailchimp_tag },
           { notify: notifyCirqlin },
         ),
       );

@@ -28,9 +28,12 @@ export function daysBetween(a: string, b: string): string[] {
   return out;
 }
 
-/** "12 Nov". */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** "12 Nov", "18 Sep". Fixed month words: en-GB's own short month is "Sept", which the records never write. */
 export function shortDay(day: string): string {
-  return new Date(ms(day)).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  const d = new Date(ms(day));
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
 /** "Sat 21 Nov". */

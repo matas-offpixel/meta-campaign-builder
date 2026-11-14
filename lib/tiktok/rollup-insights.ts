@@ -1,5 +1,5 @@
 import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
-import { campaignNameMatchesEventCode } from "./matching.ts";
+import { nameCarriesCode } from "../attribution/campaign-owner.ts";
 import { buildMetricsForCampaign } from "./insights.ts";
 import { resolveRollupCountsFromMetrics } from "./optimization-goal-map.ts";
 
@@ -60,6 +60,33 @@ export interface FetchTikTokDailyRollupInsightsInput {
   eventId?: string;
   /** Test hook only — production callers use the default `tiktokGet`. */
   request?: TikTokGet;
+  /**
+   * campaign id → event id (campaign_event_overrides, migration 240), read
+   * before the name: a campaign with an override counts for that event only.
+   * Needs `eventId`.
+   */
+  campaignOverrides?: ReadonlyMap<string, string>;
+}
+
+/**
+ * Whether a campaign's rows count for this event: its override, else its
+ * name carrying "[CODE]" exactly as written (Matas, 14 Nov). This replaces
+ * the rollup's old case-insensitive, bracket-free substring match; on 14 Nov
+ * the only campaign that changes on any client is "[NX26-Locklead] Locklead
+ * - SIGNUP", which now needs its override row.
+ */
+export function tiktokCampaignCountsForEvent(input: {
+  campaignId: string;
+  name: string | null;
+  eventCode: string;
+  eventId?: string;
+  overrides?: ReadonlyMap<string, string>;
+}): boolean {
+  const owner = input.overrides?.get(input.campaignId);
+  if (owner != null) return input.eventId != null && owner === input.eventId;
+  // No enriched name: kept, as before overrides existed.
+  if (input.name == null) return true;
+  return nameCarriesCode(input.name, input.eventCode);
 }
 
 /**
@@ -230,7 +257,15 @@ export async function fetchTikTokDailyRollupInsights(
 
   for (const row of rawRows) {
     const name = names.get(row.campaignId) ?? "(unnamed)";
-    if (hasEnrichedNames && !campaignNameMatchesEventCode(name, input.eventCode)) {
+    if (
+      !tiktokCampaignCountsForEvent({
+        campaignId: row.campaignId,
+        name: hasEnrichedNames ? name : null,
+        eventCode: input.eventCode,
+        eventId: input.eventId,
+        overrides: input.campaignOverrides,
+      })
+    ) {
       continue;
     }
     const existing = byDate.get(row.date) ?? {

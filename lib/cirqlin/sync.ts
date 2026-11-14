@@ -210,3 +210,58 @@ export async function syncCirqlinSignupsForEvent(
     daysWritten: rows.length,
   };
 }
+
+/**
+ * Dashboard v2 (HN2): sync by the event's linked CIRQLIN page first, the
+ * Mailchimp tag only as a fallback (lib/cirqlin/page-signups.ts). A page
+ * lookup that fails and has no tag to fall back to writes nothing, never a
+ * 0 and never a marker row, and reports why.
+ */
+export async function syncCirqlinSignupsForEventByPage(
+  supabase: AnySupabase,
+  input: { eventId: string; pageId: string | null; tag: string | null },
+  opts?: {
+    now?: Date;
+    notify?: CirqlinSyncNotify;
+    fetchImpl?: typeof fetch;
+    secret?: string;
+    base?: string;
+    timeoutMs?: number;
+  },
+): Promise<CirqlinSyncResult & { via: "page_id" | "tag" | null; pageReason?: string }> {
+  const { fetchCirqlinSignupsByPage, fallsBackToTag, pageSnapshotRows } = await import("./page-signups.ts");
+  const now = opts?.now ?? new Date();
+  if (input.pageId) {
+    const fetched = await fetchCirqlinSignupsByPage(input.pageId, {
+      fetchImpl: opts?.fetchImpl,
+      secret: opts?.secret,
+      base: opts?.base,
+      timeoutMs: opts?.timeoutMs,
+    });
+    if (fetched.ok) {
+      const rows = pageSnapshotRows(input.eventId, fetched.payload, now.toISOString());
+      if (rows.length) {
+        const { error } = await supabase.from("signup_source_snapshots").upsert(rows, { onConflict: "event_id,source,day" });
+        if (error) {
+          await alertCirqlinFailure({ eventId: input.eventId, reason: "upsert", message: error.message, notify: opts?.notify });
+          return { eventId: input.eventId, ok: false, reason: "upsert", error: error.message, via: "page_id" };
+        }
+      }
+      return { eventId: input.eventId, ok: true, counted: fetched.payload.total, daysWritten: rows.length, via: "page_id" };
+    }
+    if (!input.tag || !fallsBackToTag(fetched.reason)) {
+      return {
+        eventId: input.eventId,
+        ok: false,
+        reason: fetched.reason === "unauthorized" ? "unauthorized" : fetched.reason === "not_configured" ? "not_configured" : "error",
+        error: `page ${fetched.reason}${fetched.message ? `: ${fetched.message}` : ""}`,
+        via: null,
+        pageReason: fetched.reason,
+      };
+    }
+    const viaTag = await syncCirqlinSignupsForEvent(supabase, { eventId: input.eventId, tag: input.tag }, opts);
+    return { ...viaTag, via: "tag", pageReason: fetched.reason };
+  }
+  if (!input.tag) return { eventId: input.eventId, ok: false, reason: "no_page", via: null };
+  return { ...(await syncCirqlinSignupsForEvent(supabase, { eventId: input.eventId, tag: input.tag }, opts)), via: "tag" };
+}
