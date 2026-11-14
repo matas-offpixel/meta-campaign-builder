@@ -66,6 +66,13 @@ export function readoutText(point: SalesChartPoint, selected: readonly SalesMetr
 
 const DATE_HALF_PX = 26;
 
+/** MB6: the latest day at the right end; frames can open at the start or with a day in the middle. */
+function placeScroller(el: HTMLElement, openAt: string, days: readonly string[]) {
+  const at = /^\d{4}-\d{2}-\d{2}$/.test(openAt) ? days.indexOf(openAt) : -1;
+  el.scrollLeft =
+    openAt === "start" ? 0 : at >= 0 ? (xAt(at, days.length) / CHART_PLOT) * el.scrollWidth - el.clientWidth / 2 : el.scrollWidth;
+}
+
 /** MB6: a centred date label at `percent` of the content would be cut by the frame's edge where the scroller now sits. */
 export function labelCut(percent: number, scroll: { left: number; client: number; width: number }): boolean {
   if (scroll.width <= 0 || scroll.client <= 0) return percent < 2;
@@ -130,24 +137,31 @@ export function PhoneChart({
     if (el) setScroll({ left: el.scrollLeft, client: el.clientWidth, width: el.scrollWidth });
   }
 
-  // Opens on the latest day: scrolled to the right end.
+  // Opens on the latest day: scrolled to the right end. Placed again whenever the frame or its content changes
+  // size (the stylesheet can land after hydration, when the content isn't wide yet), until the person moves it.
+  const userMoved = useRef(false);
+
   useLayoutEffect(() => {
+    userMoved.current = false;
     const el = scrollerRef.current;
     if (!el) return;
-    const at = /^\d{4}-\d{2}-\d{2}$/.test(openAt) ? points.findIndex((p) => p.day === openAt) : -1;
-    el.scrollLeft =
-      openAt === "start" ? 0 : at >= 0 ? (xAt(at, points.length) / CHART_PLOT) * el.scrollWidth - el.clientWidth / 2 : el.scrollWidth;
-    measure();
+    placeScroller(el, openAt, days);
+    setScroll({ left: el.scrollLeft, client: el.clientWidth, width: el.scrollWidth });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openAt, points.length]);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => {
+      if (!userMoved.current) placeScroller(el, openAt, days);
+      setScroll({ left: el.scrollLeft, client: el.clientWidth, width: el.scrollWidth });
+    });
     observer.observe(el);
+    if (contentRef.current) observer.observe(contentRef.current);
     return () => observer.disconnect();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openAt, points.length]);
 
   function fractionOf(event: PointerEvent<HTMLDivElement>): number {
     const rect = contentRef.current?.getBoundingClientRect();
@@ -222,6 +236,9 @@ export function PhoneChart({
           <div
             ref={scrollerRef}
             onScroll={measure}
+            onPointerDownCapture={() => (userMoved.current = true)}
+            onWheel={() => (userMoved.current = true)}
+            onKeyDown={() => (userMoved.current = true)}
             className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             style={{ touchAction: "pan-x pan-y" }}
           >
