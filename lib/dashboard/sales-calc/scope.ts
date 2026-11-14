@@ -130,6 +130,15 @@ function sourceWords(sources: readonly CountSource[], labels: Record<CountSource
   return [...new Set(sources.map((s) => labels[s]))].join(" and ");
 }
 
+/**
+ * D13 in words: ", on spend to the 12 Nov count" when spend runs past the
+ * last count, else nothing. The header and the Cost per ticket tile's hover
+ * both use it.
+ */
+export function spendToCountClause(countDay: string, endDay: string): string {
+  return endDay > countDay ? `, on spend to the ${shortDay(countDay)} count` : "";
+}
+
 /** N4: the sentence and its channel line, always to date (since-launch figures). */
 export function headerSentence(input: {
   kind: "venue" | "all" | "show" | "umbrella";
@@ -148,8 +157,11 @@ export function headerSentence(input: {
   const f = input.launch;
   const spend = `${money(f.spend)} spend since launch`;
   const counted = f.sold != null && f.soldDay != null;
-  const source = counted ? `${sourceWords(f.soldSources, input.sourceLabels)}, ${shortDay(f.soldDay!)}` : "";
+  // One count date: the latest count in scope. "to {date}" when the shows were last counted on different days.
+  const source = counted ? `${sourceWords(f.soldSources, input.sourceLabels)}, ${f.soldDaysDiffer ? "to " : ""}${shortDay(f.soldDay!)}` : "";
   const cpt = f.costPerTicket != null ? rate(f.costPerTicket) : null;
+  // D13: cost per ticket stops at the last count, so say so when spend runs past it.
+  const capped = counted && cpt != null ? spendToCountClause(f.soldDay!, input.endDay) : "";
   const umbrellas = (input.umbrellas ?? []).filter((u) => u.amount > 0);
   let sentence: string;
   if (input.kind === "umbrella") {
@@ -157,17 +169,17 @@ export function headerSentence(input: {
     if (input.pageSignups != null) sentence += ` ${count(input.pageSignups)} signups on its page.`;
   } else if (input.kind === "show") {
     sentence = counted
-      ? `${input.name} to date: ${spend}, ${count(f.sold!)} tickets sold (${source})${cpt ? `, so ${cpt} per ticket` : ""}.`
+      ? `${input.name} to date: ${spend}, ${count(f.sold!)} tickets sold (${source})${cpt ? `, so ${cpt} per ticket${capped}` : ""}.`
       : `${input.name} to date: ${spend}. No ticket counts yet.`;
   } else if (input.kind === "all") {
     const lead = `${input.name} to date${input.venues && input.venues > 1 ? `, ${input.venues} venues` : ""}: ${spend}.`;
     sentence = counted
-      ? `${lead} ${count(f.sold!)} tickets sold on the ${input.countedShows} shows with counts (${source})${cpt ? `, so ${cpt} of spend per ticket on those shows` : ""}.`
+      ? `${lead} ${count(f.sold!)} tickets sold on the ${input.countedShows} shows with counts (${source})${cpt ? `, so ${cpt} of spend per ticket on those shows${capped}` : ""}.`
       : `${lead} No ticket counts yet.`;
     if (umbrellas.length) sentence += ` Separate umbrella spend: ${umbrellas.map((u) => `${u.venue} ${money(u.amount)}`).join(", ")}.`;
   } else {
     sentence = counted
-      ? `${input.name} to date: ${spend}, ${count(f.sold!)} tickets sold across ${input.countedShows} shows (${source})${cpt ? `, so ${cpt} of spend per ticket` : ""}.`
+      ? `${input.name} to date: ${spend}, ${count(f.sold!)} tickets sold across ${input.countedShows} shows (${source})${cpt ? `, so ${cpt} of spend per ticket${capped}` : ""}.`
       : `${input.name} to date: ${spend}. No ticket counts yet.`;
     if (umbrellas.length) sentence += ` Separate ${umbrellas[0].venue} umbrella spend: ${money(umbrellas[0].amount)}.`;
   }

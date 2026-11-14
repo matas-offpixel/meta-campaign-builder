@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { anchoredDateIndexes, axisCeiling, axisTicks, dateStepDays, daySpan, formatCountTick, formatMoneyTick } from "@/components/dashboard/sales/chart-axes";
 import { TILE_NAMES } from "@/components/dashboard/sales/tile-copy";
+// The one date formatter, with fixed month words (en-GB's own short month is "Sept"). The chart never formats a date itself.
+import { shortDay } from "@/lib/dashboard/sales-calc/days";
 import {
   PICK_A_METRIC,
   keepDate,
@@ -519,7 +521,3 @@ function labelShift(percent: number): string {
   return "translateX(-50%)";
 }
 
-function shortDay(iso: string): string {
-  const [year, month, day] = iso.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
-}

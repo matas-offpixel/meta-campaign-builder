@@ -14,7 +14,10 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { tiktokCampaignCountsForEvent } from "../../tiktok/rollup-insights.ts";
-import { buildSalesDashboard } from "../sales-calc/model.ts";
+import { shortDay } from "../sales-calc/days.ts";
+import type { PeriodFigures } from "../sales-calc/figures.ts";
+import { SOURCE_LABEL, buildSalesDashboard } from "../sales-calc/model.ts";
+import { headerSentence } from "../sales-calc/scope.ts";
 import type { SalesCalcInput } from "../sales-calc/types.ts";
 import { loadProdFixture } from "./sales-calc-parity.test.ts";
 
@@ -159,5 +162,114 @@ describe("TikTok after the overrides (#1225)", () => {
     assert.deepEqual(m, { "NX26-LOCKLEAD": 118.98, "NX26-GLOBAL": 328.38, "NX26-AZYR": 93.29 });
     assert.equal(total(m), 540.65);
     assert.equal(total(m), Number(fixture.tiktokCampaigns.reduce((a, [, , s]) => a + s, 0).toFixed(2)));
+  });
+});
+
+// ─── Live-check fixes (14 Nov, design-ruled) ─────────────────────────────
+// Prod on 14 Nov: spend to 13 Nov, the last Internal Counts on 12 Nov. The
+// fixture's data ends on 12 Nov, so "today 14 Nov" puts the spend date a day
+// past the count date, as it was live.
+
+describe("live-check fixes: one count date, the spend-to-count clause, the umbrella clause", () => {
+  const live = buildSalesDashboard({ ...withHn1(loadProdFixture()), today: "2026-11-14" });
+  const v = live.model.views["venue:nx newcastle"];
+
+  it("1. one count date: the view's countDay is the latest count, not the spend date", () => {
+    assert.equal(v.endDay, "2026-11-13"); // the spend date, as live
+    assert.equal(v.countDay, "2026-11-12");
+    assert.match(v.header!.channelLine, / · to 13 Nov · /);
+    assert.match(v.header!.sentence, /\(Internal Counts, 12 Nov\)/);
+    assert.match(tile(v, "sold").detail, /^to date · Internal Counts, 12 Nov/);
+    const t = v.trajectory;
+    assert.ok(t.kind === "all" && t.summary);
+    if (t.kind === "all" && t.summary) assert.equal(t.summary.sold.label, `Sold · count of 12 Nov`);
+    // Every view: the trajectory tile's date is the view's countDay.
+    for (const view of Object.values(live.model.views)) {
+      if (view.trajectory.kind === "all" && view.trajectory.summary) {
+        assert.equal(view.trajectory.summary.sold.label, `Sold · count of ${shortDay(view.countDay!)}`);
+      }
+    }
+  });
+
+  it("3. spend past the count: the header and the Cost per ticket hover name it; the subline doesn't change", () => {
+    assert.match(v.header!.sentence, /, so £[\d.]+ of spend per ticket, on spend to the 12 Nov count\./);
+    assert.equal(tile(v, "costPerTicket").title, "All channels' spend to each show's latest count, over tickets sold, on spend to the 12 Nov count.");
+    assert.match(tile(v, "costPerTicket").detail, /^since launch · /);
+    assert.doesNotMatch(tile(v, "costPerTicket").detail, /on spend to/);
+    // Dates match (the 12 Nov build): no clause, the sentence as before.
+    assert.doesNotMatch(nx.header!.sentence, /on spend to the/);
+    assert.equal(tile(nx, "costPerTicket").title, "All channels' spend to each show's latest count, over tickets sold.");
+  });
+
+  it("4. the umbrella clause shows only when its page has signups", () => {
+    assert.match(tile(nx, "registrations").detail, /plus 808 on the umbrella page$/);
+    const input = withHn1(loadProdFixture());
+    const umbrella = input.shows.find((s) => s.code === "NX26-GLOBAL")!;
+    const zero = buildSalesDashboard({ ...input, signups: input.signups.filter((d) => d.eventId !== umbrella.eventId) });
+    const z = zero.model.views["venue:nx newcastle"];
+    assert.equal(tile(z, "registrations").detail, "to date · signup pages close at on-sale");
+    assert.doesNotMatch(tile(z, "registrations", "14").detail, /umbrella page/);
+  });
+});
+
+describe("headerSentence: the count date and the spend-to-count clause (D13)", () => {
+  const figures = (over: Partial<PeriodFigures> = {}): PeriodFigures => ({
+    spend: 14216,
+    byPlatform: { meta: 14216, tiktok: 0, google: 0 },
+    platformsWithData: ["meta"],
+    sold: 6795,
+    soldComps: null,
+    soldDay: "2026-11-12",
+    soldDaysDiffer: false,
+    soldSources: ["internal_counts"],
+    soldIsFinal: false,
+    tickets: 6795,
+    costPerTicket: 14216 / 6795,
+    checkoutActions: 0,
+    costPerCheckout: null,
+    landingPageViews: 0,
+    costPerLpv: null,
+    linkClicks: 0,
+    cpc: null,
+    registrations: null,
+    costPerRegistration: null,
+    signupsClosed: false,
+    ...over,
+  });
+  const sentence = (endDay: string, over: Partial<PeriodFigures> = {}, kind: "venue" | "all" | "show" = "venue") =>
+    headerSentence({ kind, name: "Fixture Hall", launch: figures(over), endDay, sourceLabels: SOURCE_LABEL, countedShows: 3, venues: 2 }).sentence;
+
+  it("£14,216 / 6,795 with spend to 13 Nov and the count to 12 Nov names the count", () => {
+    assert.equal(
+      sentence("2026-11-13"),
+      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.09 of spend per ticket, on spend to the 12 Nov count.",
+    );
+    assert.match(sentence("2026-11-13", {}, "show"), /, so £2\.09 per ticket, on spend to the 12 Nov count\.$/);
+    assert.match(sentence("2026-11-13", {}, "all"), /, so £2\.09 of spend per ticket on those shows, on spend to the 12 Nov count\.$/);
+  });
+
+  it("when the dates match, the sentence is unchanged", () => {
+    assert.equal(
+      sentence("2026-11-12"),
+      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.09 of spend per ticket.",
+    );
+  });
+
+  it("shows last counted on different days read \"to {latest}\"", () => {
+    assert.match(sentence("2026-11-12", { soldDaysDiffer: true }), /\(Internal Counts, to 12 Nov\), so £2\.09 of spend per ticket\.$/);
+  });
+});
+
+describe("the one date formatter", () => {
+  it("writes Sep, never en-GB's Sept", () => {
+    assert.equal(shortDay("2026-09-04"), "4 Sep");
+    assert.equal(shortDay("2026-11-12"), "12 Nov");
+  });
+
+  it("no dashboard component formats a date itself", () => {
+    for (const file of ["sales-chart.tsx", "sales-dashboard.tsx", "tile-copy.ts", "chart-axes.ts", "trajectory-bars.ts"]) {
+      const src = readFileSync(`components/dashboard/sales/${file}`, "utf8");
+      assert.doesNotMatch(src, /toLocaleDateString|DateTimeFormat|month:\s*"short"/, file);
+    }
   });
 });
