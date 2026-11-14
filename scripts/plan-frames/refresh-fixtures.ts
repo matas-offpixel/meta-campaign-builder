@@ -494,5 +494,31 @@ export const OR9_PROPOSALS: PanelProposal[] = [
   },
 ];
 
-export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8", "OR9"] as const;
+/**
+ * OR10 (P5): the refresh learning from its own moves, on OR6's live panel.
+ * The move's rule has a low track record for this client (right 3 of 10:
+ * under 40 %), so it sorts last and says "low track record" (the record's
+ * words). Two rules are stopped for the client, and the panel says so:
+ * pauses on their hit rate (right 4 of 21: under 25 % over 20) and
+ * interest-cluster bring-backs on a rejection streak (Too early, 5 times
+ * in a row). Design's words (#1229 verdict), pinned against stoppedText by
+ * lib/onsale-refresh/__tests__/scoring.test.ts. Each notice has its
+ * "Propose again" action under it.
+ */
+export const OR10_STOPPED = [
+  { ruleId: "pause.significant_bottom_third", text: "Pause creative lines stopped for this client: right 4 of 21 times." },
+  { ruleId: "bring_back.client_cluster", text: "Bring back an interest cluster lines stopped for this client: rejected as “Too early” 5 times in a row." },
+];
+
+export const OR10_PROPOSALS: PanelProposal[] = [
+  {
+    ...OR6_PROPOSALS[0]!,
+    id: "or10",
+    notes: { ...OR6_PROPOSALS[0]!.notes, stopped: OR10_STOPPED },
+    // The move sorts last among the lines (it already was) and carries the record's words.
+    lines: OR6_PROPOSALS[0]!.lines.map((line) => (line.kind === "move_budget" ? { ...line, trackRecord: "low" as const } : line)),
+  },
+];
+
+export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8", "OR9", "OR10"] as const;
 export const REFRESH_FRAME_WIDTHS = [1280, 393] as const;

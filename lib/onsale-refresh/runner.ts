@@ -29,6 +29,8 @@ import type { PurchaseRead } from "./purchases.ts";
 import { buildProposal, type CampaignInput, type Proposal } from "./rules.ts";
 import { planRun, todayLondon, type CycleKind, type RunKind } from "./schedule.ts";
 import { pixelSlackMessage, slackMessage } from "./slack.ts";
+import { isScoringEnabled } from "./scoring.ts";
+import { loadTrackRecords, type TrackRecords } from "./track-record.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -94,6 +96,7 @@ export type RunRefreshInput = {
     aux: typeof loadAux;
     inputs: typeof buildEventInputs;
     purchases: typeof loadPurchaseReads;
+    trackRecords: typeof loadTrackRecords;
   }>;
   appUrl?: string;
 };
@@ -153,6 +156,15 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
     if (row.read.state === "not_read") console.warn(`[onsale-refresh] purchases not read event=${row.eventCode ?? row.eventId} reason=${row.read.notRead ?? "unknown"}`);
   }
 
+  // P5 (R6): the track records order and filter the lines, only while scoring is on. Off: exactly today's proposals.
+  let trackRecords: TrackRecords | null = null;
+  if (isScoringEnabled(input.env)) {
+    try {
+      trackRecords = await (loaders.trackRecords ?? loadTrackRecords)(input.db);
+    } catch (err) {
+      skipped.push({ eventCode: null, reason: `Track records not read: ${err instanceof Error ? err.message : String(err)} — lines are ordered as without them` });
+    }
+  }
   // P2: an event armed Live (with the deployment gate on) gets Live proposals: the Slack post drops "Shadow".
   const arms = dryRun ? new Map<string, ArmMode>() : await loadArms(input.db, events.map((event) => event.id));
   const proposals: ProposalRecord[] = [];
@@ -181,7 +193,7 @@ export async function runOnsaleRefresh(input: RunRefreshInput): Promise<RefreshR
         skipped.push({ eventCode: event.event_code, reason: `${campaign.campaignKey}: stopped — no spend since ${lastDay ?? "the window"}` });
         continue;
       }
-      const proposal = buildProposal(campaign, config);
+      const proposal = buildProposal(campaign, config, trackRecords ?? undefined);
       const mode = applyGates(input.env, arms.get(event.id)).mode;
       const record: ProposalRecord = { proposalId: null, event, input: campaign, proposal, written: false, slack: { sent: false, reason: "dry_run" } };
       if (!dryRun) {

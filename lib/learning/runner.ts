@@ -16,6 +16,11 @@
  *      the names job 5 is linking as if already linked.
  *   7. copy_features             (lib/learning/copy-features.ts), the same
  *      library re-keyed from words to shape labels
+ * and, after them and only while ENABLE_ONSALE_REFRESH_SCORING is "1",
+ *   8. onsale_refresh_scoring    (lib/onsale-refresh/scoring.ts): R6's
+ *      outcome for each on-sale refresh line on its next full week, into
+ *      onsale_refresh_outcomes. DB-only like the rest. With the switch off
+ *      the job isn't run and the result carries no entry for it.
  * `dryRun` computes everything and writes nothing.
  */
 
@@ -52,6 +57,7 @@ import { spotifyConfirmer, type ArtistConfirmer } from "./copy/artist-confirm.ts
 import { planArtistLibrary, writeArtistPlan, type ArtistPlan } from "./copy/artist-plan.ts";
 import { passesCopyMinimum, type CopyPerformanceRow } from "./copy/score.ts";
 import { computeTagPerformance, TAG_WINDOW_DAYS, windowStart, writeTagPerformance, type TagPerformanceRow } from "./tag-performance.ts";
+import { isScoringEnabled, scoreOnsaleRefresh } from "../onsale-refresh/scoring.ts";
 
 export function isLearningRefreshEnabled(env: Record<string, string | undefined>): boolean {
   return env.ENABLE_LEARNING_REFRESH === "1";
@@ -109,7 +115,8 @@ export type LearningRefreshResult =
   | {
       ok: boolean;
       dryRun: boolean;
-      jobs: Record<LearningJobName, JobOutcome>;
+      /** The seven jobs, plus `onsale_refresh_scoring` only while ENABLE_ONSALE_REFRESH_SCORING is "1". */
+      jobs: Record<LearningJobName, JobOutcome> & { onsale_refresh_scoring?: JobOutcome };
       adDays: number;
       dropped: LearningInputs["dropped"];
       joinRates: Record<string, JoinRate>;
@@ -204,7 +211,7 @@ function spendCounts(facts: LearningInputs["facts"]): Record<string, { total: nu
   return out;
 }
 
-async function job(name: LearningJobName, run: () => Promise<JobOutcome>): Promise<JobOutcome> {
+async function job(name: LearningJobName | "onsale_refresh_scoring", run: () => Promise<JobOutcome>): Promise<JobOutcome> {
   try {
     const outcome = await run();
     console.log(`[learning-refresh] job=${name} ok=${outcome.ok} rows=${outcome.rows}${outcome.detail ? ` ${JSON.stringify(outcome.detail)}` : ""}`);
@@ -229,6 +236,8 @@ export async function runLearningRefresh(input: {
   load?: LoadLearningOptions;
   /** Tests: the artist confirmer. Default: Spotify from `env`, or null when the credentials are not set. */
   confirm?: ArtistConfirmer | null;
+  /** Tests: the on-sale refresh scoring job. Default: scoreOnsaleRefresh. */
+  scoreRefresh?: typeof scoreOnsaleRefresh;
 }): Promise<LearningRefreshResult> {
   const dryRun = input.dryRun === true;
   if (!dryRun && !isLearningRefreshEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
@@ -252,7 +261,7 @@ export async function runLearningRefresh(input: {
   let copyLibrary: CopyLibrary | null = null;
   let featureRows: CopyFeatureRow[] = [];
 
-  const jobs = {} as Record<LearningJobName, JobOutcome>;
+  const jobs = {} as Record<LearningJobName, JobOutcome> & { onsale_refresh_scoring?: JobOutcome };
   jobs.creative_scores = await job("creative_scores", async () => {
     const rows = computeCreativeScores(inputs.facts, { userId: await operator(), fetchedAt: runAt });
     const events = new Set(rows.map((r) => r.eventId)).size;
@@ -332,9 +341,18 @@ export async function runLearningRefresh(input: {
     return { ok: true, rows: written.written, detail: { ...detail, staleDeleted: written.deleted } };
   });
 
+  // 8. After the others, behind its own switch: a failure here is caught by job() and leaves them as they ran.
+  if (isScoringEnabled(input.env)) {
+    jobs.onsale_refresh_scoring = await job("onsale_refresh_scoring", async () => {
+      const scored = await (input.scoreRefresh ?? scoreOnsaleRefresh)(input.db, { now, dryRun });
+      const detail = { due: scored.due, right: scored.right, wrong: scored.wrong, unknown: scored.unknown, latestDay: scored.latestDay, ...(dryRun ? { dryRun } : {}) };
+      return { ok: true, rows: scored.scored, detail };
+    });
+  }
+
   const ticketSales = ticketSaleResultCounts(inputs.facts, windowStart(now, TAG_WINDOW_DAYS));
   const result: LearningRefreshResult = {
-    ok: LEARNING_JOBS.every((name) => jobs[name].ok),
+    ok: LEARNING_JOBS.every((name) => jobs[name].ok) && (jobs.onsale_refresh_scoring?.ok ?? true),
     dryRun,
     jobs,
     adDays: inputs.facts.length,

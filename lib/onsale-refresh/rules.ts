@@ -35,6 +35,7 @@ import {
   type Giver,
 } from "./new-adset.ts";
 import { RESULT_LABEL, type PhaseConfig, type ResultEvent } from "./phase-config.ts";
+import { stoppedText, trackKey, type TrackRecords } from "./track-record.ts";
 import { purchaseWhy, unreadPurchases, type PurchaseRead } from "./purchases.ts";
 import { dayMonth, shortDay, type RunPlan } from "./schedule.ts";
 
@@ -140,6 +141,8 @@ export type CampaignInput = {
   /** The campaign name; a rebuilt campaign under the same name is the same campaign. */
   campaignKey: string;
   campaignIds: string[];
+  /** P5: the event's client — a track record is per rule × client. */
+  clientId?: string | null;
   /** P3: the show's date (a new ad set's or bring-back's days left). */
   eventDate?: string | null;
   /** P3: the page's signup event on the pixel and our counts (signupFacts). */
@@ -210,6 +213,8 @@ export type ProposalLine = {
   blockedReason: string | null;
   /** A supply line points to the Lab, not Meta. */
   supply: boolean;
+  /** P5: the rule's track record for this client when it is low (R6): the line sorts last and says "low track record". */
+  trackRecord?: { state: "low"; right: number; judged: number; rate: number };
 };
 
 export type WatchItem = { title: string; detail: string; narrow: string; evidence: Record<string, unknown> };
@@ -245,7 +250,13 @@ export type Proposal = {
   lines: ProposalLine[];
   watch: { creatives: WatchItem[]; audiences: WatchItem[] };
   /** Sentences the panel shows when a section has no line, and the adds' matching caveat (F7). */
-  notes: { pauses: string; drops: string; adds: string };
+  notes: {
+    pauses: string;
+    drops: string;
+    adds: string;
+    /** P5: rules stopped for this client (R6), each with the sentence the panel shows. Absent while scoring is off. */
+    stopped?: { ruleId: string; text: string }[];
+  };
   campaignSummary: string;
 };
 
@@ -681,7 +692,33 @@ export function campaignSummary(input: CampaignInput): string {
   return `${from ? `${from} – ` : ""}${dayMonth(input.plan.window.end)} · ${gbp(input.totalSpend)} · ${input.totalResults} ${label}${totalCpr == null ? "" : ` · ${gbp(totalCpr)} each`}`;
 }
 
-export function buildProposal(input: CampaignInput, config: PhaseConfig): Proposal {
+/**
+ * P5 (R6): a rule stopped for this client proposes nothing and the panel
+ * says so; a rule with a low track record sorts last and is marked. With
+ * no track records (scoring off) the lines are returned as they came.
+ */
+export function applyTrackRecords(lines: ProposalLine[], clientId: string | null | undefined, records: TrackRecords | undefined): { lines: ProposalLine[]; stopped: { ruleId: string; text: string }[] | null } {
+  if (!records) return { lines, stopped: null };
+  const kept: ProposalLine[] = [];
+  const low: ProposalLine[] = [];
+  const stopped: { ruleId: string; text: string }[] = [];
+  for (const line of lines) {
+    const record = records.get(trackKey(clientId, line.ruleId));
+    if (record?.state === "stopped") {
+      if (!stopped.some((row) => row.ruleId === line.ruleId)) stopped.push({ ruleId: line.ruleId, text: stoppedText(line.ruleId, record) });
+      continue;
+    }
+    if (record?.state === "low" && record.rate != null) {
+      const trackRecord = { state: "low" as const, right: record.right, judged: record.judged, rate: Math.round(record.rate * 100) / 100 };
+      low.push({ ...line, trackRecord, evidence: { ...line.evidence, trackRecord } });
+      continue;
+    }
+    kept.push(line);
+  }
+  return { lines: [...kept, ...low], stopped };
+}
+
+export function buildProposal(input: CampaignInput, config: PhaseConfig, trackRecords?: TrackRecords): Proposal {
   const objective = input.resultEvent;
   const why = whyLines(input, objective, config);
   const blockers = blockersFor(input);
@@ -695,7 +732,9 @@ export function buildProposal(input: CampaignInput, config: PhaseConfig): Propos
   const audiences = enoughData ? audienceLines(input, config) : { lines: [], watch: [], note: "No drops or moves: not enough data this week." };
   // C2 / P2: every line's evidence snapshot keeps the pixel-wide figure, labelled as any show's — never this show's purchases.
   const attributedPurchases = { count: input.last14.purchases, scope: "any_show_on_pixel" as const };
-  const lines = [...adds, ...claims, ...pauses.lines, ...audiences.lines].map((line) => ({ ...line, evidence: { ...line.evidence, attributedPurchases } }));
+  const proposed = [...adds, ...claims, ...pauses.lines, ...audiences.lines].map((line) => ({ ...line, evidence: { ...line.evidence, attributedPurchases } }));
+  const tracked = applyTrackRecords(proposed, input.clientId, trackRecords);
+  const lines = tracked.lines;
   return {
     objective,
     why,
@@ -704,7 +743,7 @@ export function buildProposal(input: CampaignInput, config: PhaseConfig): Propos
     notEnoughData,
     lines,
     watch: { creatives: pauses.watch, audiences: audiences.watch },
-    notes: { pauses: pauses.note, drops: audiences.note, adds: "Files uploaded by hand in Ads Manager aren't matched." },
+    notes: { pauses: pauses.note, drops: audiences.note, adds: "Files uploaded by hand in Ads Manager aren't matched.", ...(tracked.stopped?.length ? { stopped: tracked.stopped } : {}) },
     campaignSummary: campaignSummary(input),
   };
 }
