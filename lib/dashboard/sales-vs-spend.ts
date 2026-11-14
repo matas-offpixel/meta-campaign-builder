@@ -174,6 +174,8 @@ export type SingleTrajectory = {
   missingCapacity: string | null;
   /** N6: the projection reaches capacity at the holds pace, or only in the best case. */
   sellsOut?: "holds" | "best" | null;
+  /** MB3: the phone's Pace and Projected tiles for this show. Absent when there is no projection. */
+  summary?: { pace: TrajectoryTile; projected: TrajectoryTile };
 };
 
 export type AllShowBar = {

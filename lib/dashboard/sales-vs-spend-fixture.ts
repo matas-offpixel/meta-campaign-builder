@@ -670,8 +670,166 @@ const LIVE_LAUNCH: SalesTotal = {
   notIncluded: "Not in this total: NX Newcastle umbrella £4,309. Finished shows (Include finished adds them).",
 };
 
+
+/**
+ * The live-like NX Newcastle view for the phone frames (MBV1–MBV4): the
+ * record's live figures from the #1230 preview at 160e017 (14 Nov), and a
+ * since-launch series long enough for the phone's 30-day scroller. The line
+ * shape is schematic, as in the record; count days are the real NX ones.
+ */
+const LIVE_COUNT_DAYS = new Set([
+  "2026-09-11", "2026-09-14", "2026-09-17", "2026-09-18", "2026-09-22", "2026-09-24", "2026-09-30",
+  "2026-10-01", "2026-10-05", "2026-10-08", "2026-10-09", "2026-10-12", "2026-10-13", "2026-10-14",
+  "2026-10-15", "2026-10-16", "2026-10-19", "2026-10-23", "2026-10-26", "2026-10-27", "2026-10-28",
+  "2026-10-29", "2026-10-30", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06",
+  "2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12",
+]);
+const LIVE_SOLD_ANCHORS: [string, number][] = [
+  ["2026-09-11", 3300],
+  ["2026-09-30", 4173],
+  ["2026-10-23", 5170],
+  ["2026-11-12", 6795],
+];
+
+function liveDay(i: number): string {
+  return new Date(Date.parse("2026-08-14T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10);
+}
+
+function liveSold(day: string): number | null {
+  if (day < LIVE_SOLD_ANCHORS[0][0]) return null;
+  for (let k = 1; k < LIVE_SOLD_ANCHORS.length; k++) {
+    const [d0, v0] = LIVE_SOLD_ANCHORS[k - 1];
+    const [d1, v1] = LIVE_SOLD_ANCHORS[k];
+    if (day <= d1) {
+      const t = (Date.parse(day) - Date.parse(d0)) / (Date.parse(d1) - Date.parse(d0));
+      return Math.round(v0 + (v1 - v0) * t);
+    }
+  }
+  return LIVE_SOLD_ANCHORS[LIVE_SOLD_ANCHORS.length - 1][1];
+}
+
+function livePoints(): SalesChartPoint[] {
+  const days = Array.from({ length: 91 }, (_, i) => liveDay(i));
+  const counts = days.filter((d) => LIVE_COUNT_DAYS.has(d));
+  return days.map((day, i) => {
+    const count = LIVE_COUNT_DAYS.has(day);
+    const prev = counts.filter((d) => d < day).pop() ?? null;
+    const next = counts.find((d) => d > day) ?? null;
+    const estimated = !count && prev != null && next != null;
+    const spend = day === "2026-09-30" ? 164 : Math.round(60 + i * 2.6 + (i % 7 === 3 ? 40 : 0));
+    const sold = liveSold(day);
+    return {
+      day,
+      count,
+      estimated,
+      estimateNote: estimated ? `Estimated between counts on ${shortLabel(prev!)} and ${shortLabel(next!)}` : null,
+      values: {
+        spend,
+        sold: sold ?? undefined,
+        tickets: sold == null ? undefined : 40 + (i % 5) * 6,
+        costPerTicket: sold == null ? undefined : 2.08,
+        checkoutActions: 18 + (i % 9),
+        costPerCheckout: 5.26,
+        lpv: 380 + i * 3,
+        costPerLpv: 0.31,
+        clicks: 470 + i * 4,
+        cpc: 0.25,
+      },
+    };
+  });
+}
+
+function shortLabel(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  return `${d.getUTCDate()} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()]}`;
+}
+
+function liveTiles(): SalesTile[] {
+  return [
+    { id: "spend", value: "£14,216", detail: "NX Newcastle · Meta £14,078 · TikTok £119 · Google £19", narrowDetail: "Meta £14,078 · TikTok £119 · Google £19", title: "" },
+    { id: "sold", value: "6,795", detail: "to date · Internal Counts, 12 Nov · 7 shows", narrowDetail: "to date · Internal Counts, 12 Nov", title: "" },
+    { id: "tickets", value: "6,795", detail: "since launch, to 12 Nov", narrowDetail: "since launch", title: "" },
+    {
+      id: "costPerTicket",
+      value: "£2.08",
+      detail: "since launch · the 7 shows with counts",
+      narrowDetail: "since launch · blended",
+      title: "All channels' spend to each show's latest count, over tickets sold, on spend to the 12 Nov count.",
+    },
+    { id: "checkoutActions", value: "2,674", detail: "since launch · actions, one person can do both", narrowDetail: "since launch · actions", title: "" },
+    { id: "costPerCheckout", value: "£5.26", detail: "since launch", narrowDetail: "since launch", title: "Meta spend divided by checkouts and add-to-carts." },
+    { id: "lpv", value: "46,023", detail: "since launch", narrowDetail: "since launch", title: "Landing page views on Meta." },
+    { id: "costPerLpv", value: "£0.31", detail: "since launch", narrowDetail: "since launch", title: "Meta spend divided by landing page views." },
+    { id: "clicks", value: "57,144", detail: "since launch", narrowDetail: "since launch", title: "Link clicks on Meta." },
+    { id: "cpc", value: "£0.25", detail: "since launch", narrowDetail: "since launch", title: "Meta spend divided by clicks." },
+    { id: "registrations", value: "4,276", detail: "to date · signup pages close at on-sale", narrowDetail: "to date", title: "" },
+    { id: "costPerRegistration", value: "£1.24", detail: "show pages, inside their signup windows", narrowDetail: "show pages", title: "" },
+  ];
+}
+
+function liveTrajectory(): SalesShowView["trajectory"] {
+  const bar = (id: string, label: string, sold: number | null, low: number | null, high: number | null, caption: string, sellsOut: "holds" | null = null) => ({
+    id,
+    label,
+    sold,
+    low,
+    high,
+    allocation: 2000,
+    caption,
+    sellsOut,
+  });
+  return {
+    kind: "all",
+    wideRange: "Projected on show day: 9,540–10,796 of 14,000 across 7 shows (Ewan McVicar has no ticket counts yet; umbrella excluded)",
+    narrowRange: "9,540–10,796 of 14,000 on show day",
+    bars: [
+      bar("ipc", "Interplanetary Criminal · 21 Nov", 1828, 1867, 1972, "1,828 → 1,867–1,972"),
+      bar("robbie", "Robbie Doherty · 27 Nov", 497, 677, 972, "497 → 677–972"),
+      bar("dod", "D.O.D · 4 Dec", 932, 1051, 1185, "932 → 1,051–1,185"),
+      bar("locklead", "Locklead · 11 Dec", 372, 1078, 1677, "372 → 1,078–1,677"),
+      bar("rudimental", "Rudimental · 12 Dec", 717, 867, 990, "717 → 867–990"),
+      bar("schak", "Schak · 18 Dec", 1870, 2000, 2000, "1,870 → sells out at this pace", "holds"),
+      bar("ewan", "Ewan McVicar · 26 Feb", null, null, null, "No ticket counts yet"),
+      bar("julian", "Julian Fijma · 19 Mar", 579, 2000, 2000, "579 → sells out at this pace", "holds"),
+    ],
+    note: ALL_NOTE,
+    summary: {
+      sold: { label: "Sold · count of 12 Nov", value: "6,795", detail: "49% of 14,000 across 7 shows" },
+      projected: { label: "Projected on show day", value: "9,540–10,796", detail: "up to 77% of 14,000 · each show capped at its capacity" },
+      pace: { label: "Pace, last 7 days", value: "68.9 a day", detail: "14-day 121.7 a day" },
+    },
+  };
+}
+
+function liveCampaigns(): SalesCampaignRow[] {
+  const shows = LIVE_NX_SHOWS.slice(0, 8);
+  const kinds = ["On Sale — Adv+", "Presale", "Stories", "Retargeting"];
+  const rows: SalesCampaignRow[] = [];
+  for (const show of shows) {
+    for (const kind of kinds) {
+      if (rows.length >= 29) break;
+      const spending = rows.filter((r) => r.delivery === "Spending").length < 7 && kind === "On Sale — Adv+";
+      rows.push({
+        id: `${show.id}-${kind}`,
+        name: `[NX26-${show.id.toUpperCase()}] ${kind}`,
+        delivery: spending ? "Spending" : "Stopped 6 Nov",
+        unlinked: false,
+        periodSpend: spending ? "£420" : "£0",
+        sinceLaunch: spending ? "£1,980" : "£310",
+        title: "",
+      });
+    }
+  }
+  return rows;
+}
+
 export const NX_SALES_LIVE_LIKE: SalesDashboardModel = {
   ...NX_SALES_FIXTURE,
+  freshness: [
+    { id: "counts", wide: "Counts to 12 Nov", narrow: "Counts 12 Nov", stale: false },
+    { id: "spend", wide: "Spend to 13 Nov", narrow: "Spend 13 Nov", stale: false },
+    { id: "signups", wide: "Signups to 13 Nov", narrow: "Signups 13 Nov", stale: false },
+  ],
   shows: LIVE_NX_CHIPS,
   initialShowId: "venue:nx newcastle",
   venues: [
@@ -703,9 +861,16 @@ export const NX_SALES_LIVE_LIKE: SalesDashboardModel = {
         channelLine: "Meta £14,078 · TikTok £119 · Google £19 · to 13 Nov · finished shows not included",
       },
       spendTotal: LIVE_LAUNCH,
+      tiles: liveTiles(),
+      points: livePoints(),
+      endDay: "2026-11-12",
+      countDay: "2026-11-12",
+      trajectory: liveTrajectory(),
+      campaigns: liveCampaigns(),
+      showCounts: { counted: 7, shows: 8 },
       periods: {
         ...NX_SALES_FIXTURE.views["venue:nx newcastle"].periods,
-        launch: { tiles: allTiles(), campaigns: IPC_CAMPAIGNS, spendTotal: LIVE_LAUNCH },
+        launch: { tiles: liveTiles(), campaigns: liveCampaigns(), spendTotal: LIVE_LAUNCH },
       },
     },
   },

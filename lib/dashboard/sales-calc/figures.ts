@@ -524,12 +524,43 @@ export interface ChartRow {
   costPerRegistration: number | null;
 }
 
+/** A count is on that day. */
+function countedOn(s: Pick<ShowSeries, "counts">, day: string): boolean {
+  return s.counts.some((c) => c.day === day);
+}
+
+/** D5: strictly between two of the show's counts, so its value is a straight-line estimate. */
+function betweenCounts(s: Pick<ShowSeries, "counts">, day: string): boolean {
+  const c = s.counts;
+  return c.length > 1 && day > c[0].day && day < c[c.length - 1].day && !countedOn(s, day);
+}
+
+/**
+ * HMB3 (phone record, 14 Nov): in a scope of several shows, a show that is on
+ * sale but not counted yet (presale before a non-zero first count) has no
+ * value under D5, which emptied the whole scope's Total sold for those days
+ * (All venues, 24–26 Oct). Inside a scope it is a straight line from 0 on
+ * its presale (never before the scope's first count) to its first count:
+ * an estimate, and said so. Its own single-show view keeps D5.
+ */
+function rampToFirstCount(s: Pick<ShowSeries, "counts" | "show">, day: string, scopeFirst: string): number {
+  const first = s.counts[0];
+  const presale = s.show.presaleDate;
+  const start = presale && presale > scopeFirst ? presale : scopeFirst;
+  const span = dayDiff(start, first.day);
+  if (span <= 0 || day < start) return 0;
+  return (first.sold * dayDiff(start, day)) / span;
+}
+
 /** D5 daily rows over one or several shows, from the first active day to the last day. */
 export function chartRows(list: readonly ShowSeries[], endDay: string): ChartRow[] {
   const starts = list.map((s) => s.startDay).filter((d): d is string => d != null).sort();
   if (!starts.length) return [];
   const last = list.map((s) => s.lastDay).sort().pop() ?? endDay;
   const counted = list.filter((s) => s.counts.length > 0);
+  const scope = list.length > 1;
+  const scopeFirst = counted.map((s) => s.counts[0].day).sort()[0] ?? null;
+  const countDays = [...new Set(counted.flatMap((s) => s.counts.map((c) => c.day)))].sort();
   const paged = list.filter((s) => s.show.cirqlinPageId != null);
   const out: ChartRow[] = [];
   for (const day of daysBetween(starts[0], last)) {
@@ -566,12 +597,20 @@ export function chartRows(list: readonly ShowSeries[], endDay: string): ChartRow
     let windowSpend = 0;
     let windowComplete = true;
     let anyWindow = false;
+    // HMB3: in a scope, a dot only where a real count is in and no show's value is an estimate.
+    let scopeEstimate = false;
     for (const s of counted) {
       if (sold != null) {
-        const v = day > s.lastDay ? s.counts[s.counts.length - 1].sold : soldOn(s, day);
+        let v = day > s.lastDay ? s.counts[s.counts.length - 1].sold : soldOn(s, day);
+        if (v == null && scope && scopeFirst != null && day >= scopeFirst) {
+          v = rampToFirstCount(s, day, scopeFirst);
+          scopeEstimate = true;
+        } else if (scope && day <= s.lastDay && betweenCounts(s, day)) {
+          scopeEstimate = true;
+        }
         sold = v == null ? null : sold + v;
       }
-      if (s.counts.some((c) => c.day === day)) count = true;
+      if (countedOn(s, day)) count = true;
       const w = day <= s.lastDay ? windowOn(s.windows, day) : null;
       if (w) {
         anyWindow = true;
@@ -582,11 +621,17 @@ export function chartRows(list: readonly ShowSeries[], endDay: string): ChartRow
         if (day < w.to && list.length === 1) between = { from: w.from, to: w.to };
       }
     }
+    if (scope && scopeEstimate && sold != null) {
+      // D5 for a scope: the count days either side of this day, across its shows.
+      const from = countDays.filter((d) => d < day).pop() ?? scopeFirst!;
+      const to = countDays.find((d) => d > day) ?? day;
+      between = { from, to };
+    }
     out.push({
       day,
       spend,
       sold: sold == null ? null : Math.round(sold),
-      count: list.length === 1 ? count : false,
+      count: scope ? count && !scopeEstimate && sold != null : count,
       estimatedBetween: between,
       ticketsPerDay: anyWindow ? perDay : null,
       costPerTicket: anyWindow && windowComplete && windowTickets > 0 ? windowSpend / windowTickets : null,

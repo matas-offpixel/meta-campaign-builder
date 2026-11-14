@@ -426,6 +426,15 @@ function singleTrajectory(
     opensAfter: opens ? LIBRARY_OPENS : null,
     libraryNote: opens ? null : libraryNote(lifts.used, excluded),
     sellsOut,
+    // MB3: the phone's Pace and Projected tiles, in N6's words, for one show.
+    summary: {
+      projected: {
+        label: "Projected on show day",
+        value: range,
+        detail: `up to ${Math.round((100 * Math.min(high, p.allocation!)) / p.allocation!)}% of ${alloc}`,
+      },
+      pace: { label: "Pace, last 7 days", value: `${oneDecimal(p.pace7 ?? 0)} a day`, detail: `14-day ${oneDecimal(p.pace14 ?? 0)} a day` },
+    },
   };
 }
 

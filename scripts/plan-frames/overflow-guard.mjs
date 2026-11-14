@@ -30,8 +30,18 @@ const argBase = process.argv.indexOf("--base");
 const PORT = Number(process.env.OVERFLOW_GUARD_PORT ?? 3311);
 const BASE = argBase >= 0 ? process.argv[argBase + 1] : `http://127.0.0.1:${PORT}`;
 
-export const OVERFLOW_FRAMES = ["sales/MBO", "sales/MBS"];
+export const OVERFLOW_FRAMES = ["sales/MBO", "sales/MBS", "sales/MBF375", "sales/MBM", "sales/MBA", "sales/MBH1"];
 export const OVERFLOW_WIDTHS = [320, 375, 390, 430];
+
+/**
+ * MB2 budgets: on the first screen, everything to "More figures" fits at
+ * 375 × 548 and 390 × 664, and at 430 × 739 the chart with its axes fits too.
+ */
+export const FOLD_BUDGETS = [
+  { frame: "sales/MBF375", width: 375, height: 548, until: "[data-more-figures]", what: "More figures" },
+  { frame: "sales/MBF390", width: 390, height: 664, until: "[data-more-figures]", what: "More figures" },
+  { frame: "sales/MBF430", width: 430, height: 739, until: "[data-phone-plot]", what: "the chart and its axes" },
+];
 
 async function waitForServer(url, timeoutMs = 90_000) {
   const started = Date.now();
@@ -80,6 +90,7 @@ async function main() {
       ? null
       : spawn("npx", ["next", "start", "-p", String(PORT)], { cwd: ROOT, env: { ...process.env, ENABLE_PLAN_FRAMES: "1" }, stdio: "inherit" });
   const rows = [];
+  const folds = [];
   let failed = false;
   try {
     await waitForServer(`${BASE}/frames/${OVERFLOW_FRAMES[0]}`);
@@ -101,6 +112,22 @@ async function main() {
           console.log(`${ok ? "ok  " : "FAIL"} ${frame} @ ${width}: scroll width ${m.scrollWidth} / ${m.vw}${m.past.length ? `, ${m.past.length} past the edge: ${m.past.slice(0, 3).map((p) => `${p.el} → ${p.right}`).join("; ")}` : ""}`);
         }
       }
+      for (const budget of FOLD_BUDGETS) {
+        const page = await browser.newPage({ viewport: { width: budget.width, height: budget.height }, deviceScaleFactor: 1, locale: "en-GB" });
+        await page.goto(`${BASE}/frames/${budget.frame}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+        await page.waitForSelector(`[data-frame-ready="${budget.frame}"]`, { timeout: 30_000 });
+        await page.evaluate(() => Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 2000))]));
+        await page.waitForTimeout(150);
+        const bottom = await page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          return el ? Math.ceil(el.getBoundingClientRect().bottom + window.scrollY) : null;
+        }, budget.until);
+        await page.close();
+        const ok = bottom != null && bottom <= budget.height;
+        if (!ok) failed = true;
+        folds.push({ ...budget, bottom, ok });
+        console.log(`${ok ? "ok  " : "FAIL"} fold ${budget.width}×${budget.height}: ${budget.what} ends at ${bottom ?? "missing"}`);
+      }
     } finally {
       await browser.close();
     }
@@ -108,13 +135,19 @@ async function main() {
     server?.kill("SIGTERM");
   }
   await mkdir(EVIDENCE, { recursive: true });
-  await writeFile(path.join(EVIDENCE, "overflow-guard.json"), JSON.stringify(rows, null, 2));
+  await writeFile(path.join(EVIDENCE, "overflow-guard.json"), JSON.stringify({ overflow: rows, folds }, null, 2));
   const md = [
     "# Overflow guard (MB1)",
     "",
     "| Frame | Width | Scroll width | Past the edge | Result |",
     "|---|---|---|---|---|",
     ...rows.map((r) => `| ${r.frame} | ${r.width} | ${r.scrollWidth} | ${r.pastCount} | ${r.ok ? "ok" : "FAIL"} |`),
+    "",
+    "## First screen (MB2)",
+    "",
+    "| Viewport | Must fit | Ends at | Result |",
+    "|---|---|---|---|",
+    ...folds.map((f) => `| ${f.width}×${f.height} | ${f.what} | ${f.bottom ?? "missing"} | ${f.ok ? "ok" : "FAIL"} |`),
     "",
     ...rows.filter((r) => !r.ok).flatMap((r) => [`## ${r.frame} @ ${r.width}`, ...r.past.map((p) => `- ${p.el} → right ${p.right}`), ""]),
   ].join("\n");

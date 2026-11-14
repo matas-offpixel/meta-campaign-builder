@@ -15,7 +15,11 @@ describe("MB1 overflow guard", () => {
   it("checks the internal page and the share link at 320, 375, 390 and 430, in CI", () => {
     const guard = readFileSync("scripts/plan-frames/overflow-guard.mjs", "utf8");
     assert.match(guard, /OVERFLOW_WIDTHS = \[320, 375, 390, 430\]/);
-    assert.match(guard, /OVERFLOW_FRAMES = \["sales\/MBO", "sales\/MBS"\]/);
+    assert.match(guard, /OVERFLOW_FRAMES = \["sales\/MBO", "sales\/MBS"/);
+    // MB2: the first-screen budgets, 375 × 548, 390 × 664 and 430 × 739.
+    assert.match(guard, /width: 375, height: 548/);
+    assert.match(guard, /width: 390, height: 664/);
+    assert.match(guard, /width: 430, height: 739/);
     assert.equal(DASHBOARD_V2_FRAMES.MBO.surface, "internal");
     assert.equal(DASHBOARD_V2_FRAMES.MBS.surface, "share");
     assert.equal(DASHBOARD_V2_FRAMES.MBO.fixture, "live");
@@ -37,14 +41,18 @@ describe("MB1 overflow guard", () => {
   });
 
   it("the frames put the section in a flex column, as the pages do, so the bug can show", () => {
-    assert.match(readFileSync("components/dashboard/sales/frame-mount.tsx", "utf8"), /className="flex flex-col bg-background"/);
+    assert.match(readFileSync("components/dashboard/sales/frame-mount.tsx", "utf8"), /className="relative flex flex-col bg-background"/);
   });
 
   it("the section fills its column and every scrolling row has min-w-0", () => {
     const src = readFileSync("components/dashboard/sales/sales-dashboard.tsx", "utf8");
     assert.match(src, /<section className="mx-auto w-full min-w-0 max-w-6xl/);
-    const rows = src.match(/className="[^"]*overflow-x-auto[^"]*"/g) ?? [];
-    assert.ok(rows.length >= 3);
+    const chart = readFileSync("components/dashboard/sales/phone-chart.tsx", "utf8");
+    // Plain and template-literal classes alike.
+    const rows = [...src.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g), ...chart.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)]
+      .map((m) => m[1] ?? m[2])
+      .filter((cls) => /(^|\s)overflow-x-auto(\s|$)/.test(cls));
+    assert.ok(rows.length >= 5, String(rows.length));
     for (const row of rows) assert.match(row, /min-w-0/, row);
   });
 });

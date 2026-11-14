@@ -18,9 +18,23 @@ export const MB_OVERFLOW_SHOTS = [
   { id: "MB-375-overflow-internal", frame: "sales/MBO", width: 375 },
 ].map((shot) => ({ ...shot, lab: false, before: null }));
 
+/** HMB2 / HMB3 (dashboard v2 on a phone): the phone layout on the live-like share link. */
+export const MB_PHONE_SHOTS = [
+  { id: "MB-375-first", frame: "sales/MBF375", width: 375 },
+  { id: "MB-390-first", frame: "sales/MBF390", width: 390 },
+  { id: "MB-430-first", frame: "sales/MBF430", width: 430 },
+  { id: "MB-375-more", frame: "sales/MBM", width: 375 },
+  { id: "MB-375-allvenues", frame: "sales/MBA", width: 375 },
+  { id: "MB-375-chart", frame: "sales/MBC", width: 375 },
+  { id: "MB-375-chart-swiped", frame: "sales/MBH1", width: 375 },
+  { id: "MB-375-chart-swiped-estimate", frame: "sales/MBH2", width: 375 },
+  { id: "MB-375-chart-14d", frame: "sales/MB14", width: 375 },
+].map((shot) => ({ ...shot, lab: false, before: null }));
+
 export const DASHBOARD_V2_SHOTS = [
   ...DASHBOARD_V2_FRAME_IDS.flatMap((frame) =>
     DASHBOARD_V2_WIDTHS.map((width) => ({ id: `${frame}-${width}`, frame: `sales/${frame}`, width, lab: false, before: null })),
   ),
   ...MB_OVERFLOW_SHOTS,
+  ...MB_PHONE_SHOTS,
 ];

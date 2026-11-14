@@ -370,3 +370,63 @@ describe("one show count per view (design FAIL 1 on 160e017)", () => {
     }
   });
 });
+
+describe("HMB3 chart fixes (phone record, 14 Nov)", () => {
+  const point = (view: { points: { day: string }[] }, day: string) => view.points.find((p) => p.day === day) as (typeof nx.points)[number];
+
+  it("dots on real Internal Counts in a venue view: a day every counted show was counted, never an estimate", () => {
+    const v = build.model.views["venue:nx newcastle"];
+    assert.equal(point(v, "2026-11-12").count, true);
+    assert.equal(point(v, "2026-11-12").estimated, false);
+    // Saturday 7 Nov: no show counted; the line between 6 and 9 Nov is an estimate.
+    assert.equal(point(v, "2026-11-07").count, false);
+    assert.equal(point(v, "2026-11-07").estimated, true);
+    assert.equal(point(v, "2026-11-07").estimateNote, "Estimated between counts on 6 Nov and 9 Nov");
+    // Every dot is a count day of some show in scope, and never an estimated day.
+    for (const p of v.points) if (p.count) assert.equal(p.estimated, false, p.day);
+  });
+
+  it("a single show keeps D5: its own count days are dots", () => {
+    const ipc = build.model.views["nx26-ipc"];
+    assert.equal(point(ipc, "2026-11-12").count, true);
+    assert.equal(point(ipc, "2026-11-07").count, false);
+  });
+
+  it("no break in All venues' Total sold for a show on sale before a non-zero first count (Kream-like, 24–26 Oct)", () => {
+    const input = withHn1(loadProdFixture());
+    const gds = input.shows.find((s) => s.code === "ES26-GDS")!;
+    const kream = {
+      ...gds,
+      eventId: "00000000-0000-4000-8000-00000000kre4".replace("kre4", "0004"),
+      code: "EB26-KREAM",
+      name: "Kream",
+      venueKey: "electric bristol",
+      venueName: "Electric Bristol",
+      showDate: "2026-12-05",
+      presaleDate: "2026-10-24",
+      counts: [
+        { day: "2026-10-26", sold: 120, comps: 0, source: "internal_counts" as const },
+        { day: "2026-11-12", sold: 336, comps: 0, source: "internal_counts" as const },
+      ],
+      finalCount: null,
+      linkedCampaignIds: [],
+    };
+    const b = buildSalesDashboard({ ...input, shows: [...input.shows, kream] });
+    const all = b.model.views["all"];
+    // From the scope's first Internal Count (11 Sep) on, no day is empty. Before it, D5 still leaves the line empty.
+    const first = all.points.find((p) => p.count)!.day;
+    assert.equal(first, "2026-09-11");
+    const gap = all.points.filter((p) => p.day >= first && p.values.sold == null).map((p) => p.day);
+    assert.deepEqual(gap, [], `no empty day after ${first}`);
+    // 24 and 25 Oct: Kream's line runs from 0 on its presale to its first count, and the day says it's an estimate.
+    const d24 = point(all, "2026-10-24");
+    const d25 = point(all, "2026-10-25");
+    assert.equal(d24.estimated, true);
+    assert.equal(d25.estimated, true);
+    assert.ok(d25.values.sold! > d24.values.sold!);
+    assert.equal(d25.count, false);
+    // Kream's own view keeps D5: empty before its non-zero first count.
+    const own = b.model.views["eb26-kream"];
+    assert.equal(point(own, "2026-10-25")?.values.sold ?? null, null);
+  });
+});
