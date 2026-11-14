@@ -238,8 +238,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     readAdSetForCopy: (adsetId) => graphGetWithToken<Record<string, unknown>>(`/${adsetId}`, { fields: "id,name,campaign_id,targeting,billing_event,attribution_spec,destination_type,pacing_type,adset_schedule" }, token, { maxAttempts: 1 }),
     readCampaignBudget: (campaignId) => adsets.meta.readCampaignBudget(campaignId),
     async readAd(adId) {
-      const ad = await graphGetWithToken<{ id: string; name?: string; effective_status?: string; creative?: { id?: string } }>(`/${adId}`, { fields: "id,name,effective_status,creative{id}" }, token, { maxAttempts: 1 });
-      return ad?.id ? { id: ad.id, name: ad.name ?? ad.id, creativeId: ad.creative?.id ?? null, effectiveStatus: ad.effective_status ?? null } : null;
+      const ad = await graphGetWithToken<{ id: string; name?: string; effective_status?: string; creative?: { id?: string; effective_object_story_id?: string } }>(`/${adId}`, { fields: "id,name,effective_status,creative{id,effective_object_story_id}" }, token, { maxAttempts: 1 });
+      return ad?.id ? { id: ad.id, name: ad.name ?? ad.id, creativeId: ad.creative?.id ?? null, effectiveStatus: ad.effective_status ?? null, objectStoryId: ad.creative?.effective_object_story_id ?? null } : null;
+    },
+    async createCreativeFromPost(adAccountId, spec) {
+      // PC9's one fallback: the same post, nothing edited.
+      const res = await graphPostWithToken<{ id: string }>(`/${adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`}/adcreatives`, { name: spec.name, object_story_id: spec.objectStoryId }, token);
+      return res.id;
     },
     async createCampaign(adAccountId, payload) {
       const res = await graphPostWithToken<{ id: string }>(`/${adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`}/campaigns`, payload, token);

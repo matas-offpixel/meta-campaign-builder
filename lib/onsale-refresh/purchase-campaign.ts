@@ -220,6 +220,39 @@ export function shortCampaign(key: string): string {
 
 const RESULT_SHORT: Record<PcResult, string> = { initiate_checkout: "IC", landing_page_view: "LPV" };
 
+// ── PC7: the floor ───────────────────────────────────────────────────────────
+
+/** Up to the penny, ignoring float noise (272.41 + 105.99 is 378.40, not 378.41). */
+export function ceilPenny(value: number): number {
+  return Math.ceil(Math.round(value * 1e6) / 1e4) / 100;
+}
+
+export type CampaignFloor = { floor: number; by: "days" | "meta"; spent: number; daily: number };
+
+/**
+ * PC7 (docs/design-record/2026-11-14-purchase-campaigns-2.html): a
+ * campaign's floor is the larger of its spend to date + 3 days at its
+ * last-7-day daily spend, and 1.1 × its spend to date (Meta's minimum for
+ * lowering a lifetime budget), rounded up to the penny. The one floor the
+ * proposal (PC1, PC2), the apply re-check (PC3 step 5) and Scale Purchase
+ * (PC4, both campaigns) use.
+ */
+export function campaignFloor(spent: number, daily: number): CampaignFloor {
+  const days = spent + PC.floorDays * daily;
+  const meta = 1.1 * spent;
+  return { floor: ceilPenny(Math.max(days, meta)), by: meta > days + 1e-9 ? "meta" : "days", spent, daily };
+}
+
+/** PC7's bracket, naming the term that won: "(spent £272.41 + 3 days at £35.33)" or "(Meta's minimum: 1.1 × £2,000.00 spent)". */
+export function floorBracket(floor: CampaignFloor): string {
+  return floor.by === "meta" ? `(Meta's minimum: 1.1 × ${each(floor.spent)} spent)` : `(spent ${money(floor.spent)} + ${PC.floorDays} days at ${money(floor.daily)})`;
+}
+
+/** "{campaign} keeps at least £{f} {bracket}". On the card the floor is to the penny (PC11); PC4's write draws it as money(). */
+export function keepsAtLeast(short: string, floor: CampaignFloor, opts: { pence?: boolean } = {}): string {
+  return `${short} keeps at least ${opts.pence ? each(floor.floor) : money(floor.floor)} ${floorBracket(floor)}`;
+}
+
 // ── PC3's picks ──────────────────────────────────────────────────────────────
 
 const cost = (spend: number, n: number) => (n > 0 ? spend / n : Infinity);
@@ -297,7 +330,8 @@ export function planPurchaseCampaign(input: PcInput): PurchaseCampaignPlan {
   const capOf: "plan" | "main" = input.budgetGbp != null ? "plan" : "main";
   const capBase = capOf === "plan" ? remainingPlan : mainLeft;
   const capPhrase = capOf === "plan" ? "the plan left" : `what ${short} has left`;
-  const floor = round2(main.spentToDate + PC.floorDays * main.last7Daily);
+  const mainFloor = campaignFloor(main.spentToDate, main.last7Daily);
+  const floor = mainFloor.floor;
   if (capBase == null) {
     return none("no_money", `No budget to start it: ${short} has no lifetime budget to move from.`, "No budget to start a Purchase campaign.");
   }
@@ -327,7 +361,7 @@ export function planPurchaseCampaign(input: PcInput): PurchaseCampaignPlan {
   const ten = funding.find((row) => row.rate === 10)!;
   if (!five.fits) {
     const sentence = five.fitsCap
-      ? `No budget to start it: £5 a day to the show needs ${money(five.lifetime)}; ${short} keeps at least ${money(floor)} and can give ${money(maxMove)}.`
+      ? `No budget to start it: £5 a day to the show needs ${money(five.lifetime)}; ${short} keeps at least ${each(floor)} and can give ${money(maxMove)}.`
       : `No budget to start it: £5 a day to the show needs ${money(five.lifetime)}; 20 % of ${capPhrase} is ${money(cap)}.`;
     return none("no_money", sentence, "No budget to start a Purchase campaign.");
   }
@@ -370,13 +404,13 @@ export function planPurchaseCampaign(input: PcInput): PurchaseCampaignPlan {
   const rateNote = ten.fits
     ? null
     : ten.fitsCap
-      ? `£5 picked: £10 a day to ${dayMonth(showDay)} needs ${money(ten.move)} from ${short}, which keeps at least ${money(floor)}.`
+      ? `£5 picked: £10 a day to ${dayMonth(showDay)} needs ${money(ten.move)} from ${short}, which keeps at least ${each(floor)}.`
       : `£5 picked: £10 a day to ${dayMonth(showDay)} is ${money(ten.lifetime)}, over 20 % of ${capPhrase} (${money(cap)})`;
   const noBudget = input.budgetGbp == null;
   const byRate: PurchaseCard["byRate"] = {};
   for (const row of funding.filter((entry) => entry.fits)) {
     const lead = `From Apply (${shortDay(input.runDay)}) to the show, ${shortDay(showDay)} 23:59: ${days} days × £${row.rate} = ${money(row.lifetime)} lifetime.`;
-    const keeps = `${short} keeps at least ${money(floor)} (spent ${money(main.spentToDate)} + ${PC.floorDays} days at ${each(main.last7Daily)}).`;
+    const keeps = `${keepsAtLeast(short, mainFloor, { pence: true })}.`;
     const moveClause = row.move > 0 && row.mainBefore != null && row.mainAfter != null ? `lifetime ${money(row.mainBefore)} → ${money(row.mainAfter)}` : "";
     const budget = noBudget
       ? `${lead} No event budget, so all of it moves from ${short}: ${moveClause}. ${keeps} It scales from here on results.`

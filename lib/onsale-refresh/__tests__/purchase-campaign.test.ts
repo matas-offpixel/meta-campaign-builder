@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 
 import { PF1_WHY, PF2_PLAN, PF_LOCKLEAD_MAIN } from "../../../scripts/plan-frames/refresh-fixtures.ts";
 import { ONSALE_PHASE } from "../phase-config.ts";
-import { daysInclusive, mainRow, money, pickAdSets, planPurchaseCampaign, planSentence, purchaseCampaignInput, reusedAds, runningForm, shortCampaign, type PcAdSet, type PcInput, type PcMain, type PcRow } from "../purchase-campaign.ts";
+import { campaignFloor, ceilPenny, daysInclusive, floorBracket, keepsAtLeast, mainRow, money, pickAdSets, planPurchaseCampaign, planSentence, purchaseCampaignInput, reusedAds, runningForm, shortCampaign, type PcAdSet, type PcInput, type PcMain, type PcRow } from "../purchase-campaign.ts";
 import { purchaseWhy, type PurchaseRead } from "../purchases.ts";
 import { rejectReasonsFor, REJECT_REASONS } from "../line-states.ts";
 import { fetchAdSetPixels, fetchCampaignBudgets, AD_SET_FIELDS } from "../purchase-read.ts";
@@ -237,7 +237,8 @@ describe("P4 PC2: PF2's card, exactly (HP2's acceptance fixture)", () => {
 
 describe("P4 PF1 / PF2: the Budget block", () => {
   it("the plan sentence at both widths, only with an event budget", () => {
-    assert.deepEqual(planSentence(4500, 2051.3, "2026-11-12"), { wide: "£4,500 for this event · £2,051.30 spent to 12 Nov · £2,448.70 left in the plan", narrow: "£4,500 · £2,051 spent · £2,449 left" });
+    // PC11: the day is the last day the spend covers — P26-BDAY's £2,025.66 is to 12 Nov.
+    assert.deepEqual(planSentence(4500, 2025.66, "2026-11-12"), { wide: "£4,500 for this event · £2,025.66 spent to 12 Nov · £2,474.34 left in the plan", narrow: "£4,500 · £2,026 spent · £2,474 left" });
     assert.equal(planSentence(null, 100, "2026-11-12"), null);
   });
 
@@ -373,5 +374,38 @@ describe("P4: the line and the Objective on the proposals", async () => {
     const close = withPurchaseCampaign(why, input(true, planPurchaseCampaign(base({ eventDate: "2026-11-28" }))));
     assert.equal(close.purchaseCampaign!.sentence, "A Purchase campaign needs 14 days to learn; it would run 13 days before the show.");
     assert.equal(withPurchaseCampaign(why, {} as never), why, "an input built before P4 is unchanged");
+  });
+});
+
+
+describe("P4 PC7: the floor is the larger of two, rounded up to the penny (HC1)", () => {
+  it("Locklead's real figures: £378.40, the 3-day term, its bracket", () => {
+    const floor = campaignFloor(272.41, 35.33);
+    assert.deepEqual([floor.floor, floor.by], [378.4, "days"]);
+    assert.equal(keepsAtLeast("On Sale", floor), "On Sale keeps at least £378.40 (spent £272.41 + 3 days at £35.33)");
+    assert.equal(PF2_PLAN.card!.byRate["5"]!.budget.includes("On Sale keeps at least £378.40 (spent £272.41 + 3 days at £35.33)."), true);
+  });
+
+  it("the record's example: £2,000 spent at £20 a day → £2,200.00, Meta's minimum, with its bracket", () => {
+    const floor = campaignFloor(2000, 20);
+    assert.deepEqual([floor.floor, floor.by], [2200, "meta"]);
+    assert.equal(floorBracket(floor), "(Meta's minimum: 1.1 × £2,000.00 spent)");
+    assert.equal(ceilPenny(1.1 * 123.457), 135.81, "rounded up to the penny");
+    assert.equal(ceilPenny(272.41 + 105.99), 378.4, "float noise isn't a penny");
+  });
+
+  it("a £10 or £5 that would take the main campaign under Meta's minimum isn't offered", () => {
+    // £2,000 spent at £20 a day: the 3-day term is £2,060, Meta's £2,200. A £2,400 lifetime can give £200 by Meta's floor, not £340.
+    const main = { ...PF_LOCKLEAD_MAIN, spentToDate: 2000, last7Daily: 20, lifetimeGbp: 2400 };
+    const big = { budgetGbp: 100000, spendToDateGbp: 0, committedGbp: 100000 };
+    // 26 days: £10 a day is £260 (over the £200 it can give), £5 is £130 (fits).
+    const plan = planPurchaseCampaign(base({ ...big, main }));
+    assert.equal(plan.card!.defaultRate, 5);
+    assert.deepEqual(plan.card!.rates.map((row) => row.fits), [true, false]);
+    assert.equal(plan.card!.rateNote, "£5 picked: £10 a day to 11 Dec needs £260 from On Sale, which keeps at least £2,200.00.");
+    assert.match(plan.card!.byRate["5"]!.budget, /On Sale keeps at least £2,200\.00 \(Meta's minimum: 1\.1 × £2,000\.00 spent\)\./);
+    // £2,300 lifetime gives £100: not even £5 a day (PC8's floor sentence).
+    const none = planPurchaseCampaign(base({ ...big, main: { ...main, lifetimeGbp: 2300 } }));
+    assert.equal(none.sentence, "No budget to start it: £5 a day to the show needs £130; On Sale keeps at least £2,200.00 and can give £100.");
   });
 });

@@ -249,7 +249,7 @@ describe("P4: the Purchase campaign card and the Budget block (PF1–PF3)", () =
   it("PF1: P26-BDAY under the bar, the plan sentence and the On Sale row; no card", () => {
     render(<OnSaleRefreshPanelView eventId="e1" proposals={PF1_PROPOSALS} objectiveOnly />);
     expect(screen.getAllByText(/under 15/).length).toBeGreaterThan(0);
-    expect(screen.getByText("£4,500 for this event · £2,051.30 spent to 12 Nov · £2,448.70 left in the plan")).toBeTruthy();
+    expect(screen.getByText("£4,500 for this event · £2,025.66 spent to 12 Nov · £2,474.34 left in the plan")).toBeTruthy();
     expect(screen.getByText("30 Oct – 12 Nov · £669.95 · 76 IC · £8.82 each · 1 attributed purchase")).toBeTruthy();
     expect(document.querySelector('[data-kind="purchase_campaign"]')).toBeNull();
     expect(screen.queryByText(/Creatives/i)).toBeNull();

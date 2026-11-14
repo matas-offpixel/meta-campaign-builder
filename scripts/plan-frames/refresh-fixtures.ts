@@ -530,7 +530,8 @@ export const OR10_PROPOSALS: PanelProposal[] = [
  *
  * PF1 (and PF3a at 393): P26-BDAY as the record reads it — data to Thu 12
  * Nov, the On Sale campaign's 30 Oct – 12 Nov at £669.95 and 76 IC, 1
- * attributed purchase, the £4,500 budget and £2,051.30 spent. Skiddle's
+ * attributed purchase, the £4,500 budget and £2,025.66 spent to 12 Nov (PC11: the
+ * day shown is the last day the figure covers; £2,051.30 is to 13 Nov). Skiddle's
  * share (74 % of 389) is the record's example.
  *
  * PF2 (and PF3b at 393): NX26-LOCKLEAD Proposed. Real: On Sale's ad sets
@@ -571,7 +572,7 @@ export const PF1_WHY: PanelProposal["why"] = {
   objective: "Initiate Checkout — 76 reached the pixel since 30 Oct. Last 14 days: 76 IC.",
   ...purchaseWhy(PF_BDAY_READ, false, ONSALE_PHASE),
   purchaseCampaign: { state: "not_proposed", sentence: null, sentenceNarrow: null },
-  budget: { plan: planSentence(4500, 2051.3, "2026-11-12"), main: mainRow(PF_BDAY_MAIN, "platform") },
+  budget: { plan: planSentence(4500, 2025.66, "2026-11-12"), main: mainRow(PF_BDAY_MAIN, "platform") },
 };
 
 const PF_LOCKLEAD_READ = read("platform_proposed", {
