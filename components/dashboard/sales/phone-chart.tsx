@@ -12,8 +12,9 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 
-import { anchoredDateIndexes, axisTicks } from "@/components/dashboard/sales/chart-axes";
+import { anchoredDateIndexes, axisTicks, fitDateLabels, measureDateLabel, type DateAnchor } from "@/components/dashboard/sales/chart-axes";
 import { CHART_DOT, CHART_HOW, INDEX_LABEL } from "@/components/dashboard/sales/phone-copy";
+import { useFontsVersion } from "@/components/dashboard/sales/use-fonts-ready";
 import {
   CHART_PLOT,
   ChartDot,
@@ -80,6 +81,33 @@ export function labelCut(percent: number, scroll: { left: number; client: number
   return x - DATE_HALF_PX < 0 || x + DATE_HALF_PX > scroll.client;
 }
 
+/**
+ * MB6 dates: every 7 days back from the last day, then N1's 6 px rule on the
+ * real boxes (design-ruled 14 Nov): the end label always stays, end-anchored;
+ * a label within 6 px of the one to its right isn't drawn; nor is one the
+ * scroll window's edge would cut. `contentWidth` is the scrolling content in px.
+ */
+export function phoneDateLabels(
+  days: readonly string[],
+  contentWidth: number,
+  view: { left: number; right: number } | undefined,
+  width: (label: string) => number,
+): { day: string; percent: number; label: string; anchor: DateAnchor; left: number; right: number }[] {
+  const candidates = anchoredDateIndexes(days, 7).map((index) => ({
+    index,
+    x: (xAt(index, days.length) / CHART_PLOT) * contentWidth,
+    label: shortDay(days[index]),
+  }));
+  return fitDateLabels(candidates, days.length - 1, { rowWidth: contentWidth, width, viewLeft: view?.left, viewRight: view?.right }).map((f) => ({
+    day: days[f.index],
+    percent: (f.x / contentWidth) * 100,
+    label: f.label,
+    anchor: f.anchor,
+    left: f.left,
+    right: f.right,
+  }));
+}
+
 /** The point nearest an x (0–1 across the whole content). */
 export function indexAt(fraction: number, count: number): number {
   if (count <= 1) return 0;
@@ -114,6 +142,8 @@ export function PhoneChart({
   const start = useRef<{ x: number; fraction: number } | null>(null);
   const [scroll, setScroll] = useState({ left: 0, client: 0, width: 0 });
   const [hold, setHold] = useState<number | null>(null);
+  // Re-fit the date labels in the real font once it has loaded (N1's 6 px rule measures it).
+  useFontsVersion();
 
   const units = selected.map((id) => salesMetric(id).unit);
   const indexForced = new Set(units).size >= 3;
@@ -126,7 +156,9 @@ export function PhoneChart({
   const leftTicks = plan.mode === "index" ? [0, 50, 100] : axisTicks(scales.leftPeak, INTERVALS);
   const rightTicks = plan.mode !== "index" && scales.rightUnit ? axisTicks(scales.rightPeak, INTERVALS) : [];
   const days = points.map((p) => p.day);
-  const dateIndexes = anchoredDateIndexes(days, 7);
+  // Before the first measure (the server render), the frame is taken as 275 px (375 less the gutters and axes).
+  const contentWidth = scroll.width > 0 ? scroll.width : (275 * Math.max(points.length, PHONE_WINDOW_DAYS)) / PHONE_WINDOW_DAYS;
+  const view = scroll.width > 0 ? { left: scroll.left, right: scroll.left + scroll.client } : undefined;
   const pinned = pinnedHoldDay == null ? -1 : days.indexOf(pinnedHoldDay);
   const active = hold ?? (pinned >= 0 ? pinned : null);
   const [first, last] = visibleRange(points.length, scroll.left, scroll.client, scroll.width);
@@ -157,7 +189,9 @@ export function PhoneChart({
     let frames = 0;
     let raf = requestAnimationFrame(function tick() {
       settle();
-      if ((frames += 1) < 30) raf = requestAnimationFrame(tick);
+      // At least 30 frames, and on until the content is actually scrollable (its stylesheet has landed), up to 5 s.
+      frames += 1;
+      if (frames < 30 || (el.scrollWidth <= el.clientWidth && frames < 300)) raf = requestAnimationFrame(tick);
     });
     return () => {
       cancelAnimationFrame(raf);
@@ -300,17 +334,16 @@ export function PhoneChart({
                   .flatMap((series) => series.coords.filter((coord) => coord.count).map((coord) => <ChartDot key={`${coord.x}-${coord.y}`} x={coord.x} y={coord.y} color={series.color} />))}
               </div>
               <div className="relative h-[22px] text-[11px] text-muted-foreground">
-                {dateIndexes.map((index) => {
-                  const percent = (xAt(index, points.length) / CHART_PLOT) * 100;
-                  const isLast = index === points.length - 1;
-                  // A label the frame's edge would cut in half isn't drawn. The last day sits flush right.
-                  if (!isLast && labelCut(percent, scroll)) return null;
-                  return (
-                    <span key={days[index]} className="absolute top-1 whitespace-nowrap" style={{ left: `${percent}%`, transform: isLast ? "translateX(-100%)" : "translateX(-50%)" }}>
-                      {keepDate(shortDay(days[index]))}
-                    </span>
-                  );
-                })}
+                {phoneDateLabels(days, contentWidth, view, (label) => measureDateLabel(label, 11)).map((tick) => (
+                  <span
+                    key={tick.day}
+                    data-date-label
+                    className="absolute top-1 whitespace-nowrap"
+                    style={{ left: `${tick.percent}%`, transform: tick.anchor === "end" ? "translateX(-100%)" : tick.anchor === "start" ? "none" : "translateX(-50%)" }}
+                  >
+                    {keepDate(tick.label)}
+                  </span>
+                ))}
               </div>
             </div>
           </div>

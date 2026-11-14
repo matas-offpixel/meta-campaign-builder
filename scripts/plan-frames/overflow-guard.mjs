@@ -43,6 +43,11 @@ export const FOLD_BUDGETS = [
   { frame: "sales/MBF430", width: 430, height: 739, until: "[data-phone-plot]", what: "the chart and its axes" },
 ];
 
+/** N1's 6 px rule, measured: the scroller as it opens (MBC) and the fitting chart (MB14), every width 320–430. */
+export const LABEL_FRAMES = ["sales/MBC", "sales/MB14"];
+export const LABEL_WIDTHS = Array.from({ length: 12 }, (_, i) => 320 + i * 10);
+const LABEL_END = "13 Nov";
+
 /** MB6: the chart as it opens (MBC) shows the period's last day at the right end. */
 export const OPENS_ON_LATEST = { frame: "sales/MBC", lastDay: "13 Nov" };
 
@@ -95,6 +100,7 @@ async function main() {
   const rows = [];
   const folds = [];
   const opens = [];
+  const labels = [];
   let failed = false;
   try {
     await waitForServer(`${BASE}/frames/${OVERFLOW_FRAMES[0]}`);
@@ -131,6 +137,36 @@ async function main() {
         opens.push({ ...OPENS_ON_LATEST, range, ok });
         console.log(`${ok ? "ok  " : "FAIL"} chart opens on the latest day: range "${range}"`);
       }
+      // N1's 6 px rule on rendered boxes (design-ruled 14 Nov): every width 320–430, the scroller as it
+      // opens (Since launch) and the fitting chart (14 days). The labels in view never come within 6 px
+      // of each other and the end label is always drawn. The gap before the end label is reported.
+      for (const frame of LABEL_FRAMES) {
+        for (const width of LABEL_WIDTHS) {
+          const page = await browser.newPage({ viewport: { width, height: 900 }, deviceScaleFactor: 1, locale: "en-GB" });
+          await page.goto(`${BASE}/frames/${frame}`, { waitUntil: "load", timeout: 30_000 });
+          await page.waitForSelector(`[data-frame-ready="${frame}"]`, { timeout: 30_000 });
+          await page.evaluate(() => Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 2000))]));
+          await page.waitForTimeout(300);
+          const m = await page.evaluate(() => {
+            const chart = document.querySelector("[data-phone-chart]") ?? document.querySelector("figure");
+            const frameBox = chart?.querySelector(".overflow-x-auto")?.getBoundingClientRect() ?? null;
+            const spans = [...(chart?.querySelectorAll("[data-date-label]") ?? [])];
+            const boxes = spans
+              .map((el) => ({ label: (el.textContent ?? "").replace(/ /g, " "), ...el.getBoundingClientRect().toJSON() }))
+              .filter((b) => b.width > 0 && (!frameBox || (b.right > frameBox.left && b.left < frameBox.right)))
+              .sort((a, b) => a.left - b.left);
+            return boxes.map((b) => ({ label: b.label, left: b.left, right: b.right }));
+          });
+          await page.close();
+          const gaps = m.slice(1).map((b, i) => b.left - m[i].right);
+          const minGap = gaps.length ? Math.min(...gaps) : null;
+          const end = m[m.length - 1]?.label ?? null;
+          const ok = end === LABEL_END && (minGap == null || minGap >= 6);
+          if (!ok) failed = true;
+          labels.push({ frame, width, ok, shown: m.map((b) => b.label), endGap: gaps.length ? gaps[gaps.length - 1] : null, minGap });
+          console.log(`${ok ? "ok  " : "FAIL"} ${frame} @ ${width}: ${m.map((b) => b.label).join(" · ")} (gap before the end label ${gaps.length ? gaps[gaps.length - 1].toFixed(1) : "—"} px, least ${minGap?.toFixed(1) ?? "—"} px)`);
+        }
+      }
       for (const budget of FOLD_BUDGETS) {
         const page = await browser.newPage({ viewport: { width: budget.width, height: budget.height }, deviceScaleFactor: 1, locale: "en-GB" });
         await page.goto(`${BASE}/frames/${budget.frame}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -154,7 +190,7 @@ async function main() {
     server?.kill("SIGTERM");
   }
   await mkdir(EVIDENCE, { recursive: true });
-  await writeFile(path.join(EVIDENCE, "overflow-guard.json"), JSON.stringify({ overflow: rows, folds, opens }, null, 2));
+  await writeFile(path.join(EVIDENCE, "overflow-guard.json"), JSON.stringify({ overflow: rows, folds, opens, labels }, null, 2));
   const md = [
     "# Overflow guard (MB1)",
     "",
@@ -167,6 +203,12 @@ async function main() {
     "| Viewport | Must fit | Ends at | Result |",
     "|---|---|---|---|",
     ...folds.map((f) => `| ${f.width}×${f.height} | ${f.what} | ${f.bottom ?? "missing"} | ${f.ok ? "ok" : "FAIL"} |`),
+    "",
+    "## Date labels: N1's 6 px rule on rendered boxes",
+    "",
+    "| Frame | Width | Labels in view | Gap before the end label | Least gap | Result |",
+    "|---|---|---|---|---|---|",
+    ...labels.map((l) => `| ${l.frame} | ${l.width} | ${l.shown.join(" · ")} | ${l.endGap == null ? "—" : `${l.endGap.toFixed(1)} px`} | ${l.minGap == null ? "—" : `${l.minGap.toFixed(1)} px`} | ${l.ok ? "ok" : "FAIL"} |`),
     "",
     "## Phone chart opens on the latest day (MB6)",
     "",
