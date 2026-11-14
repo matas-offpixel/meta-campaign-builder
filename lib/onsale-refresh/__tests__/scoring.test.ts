@@ -18,8 +18,10 @@ import { ONSALE_PHASE } from "../phase-config.ts";
 import { applyTrackRecords, buildProposal, type CampaignInput, type ProposalLine } from "../rules.ts";
 import { runOnsaleRefresh, type RunRefreshInput } from "../runner.ts";
 import { planRun } from "../schedule.ts";
-import { MOVE_HOLD_RATIO, PAUSE_WORSE_RATIO, dueLines, isScoringEnabled, judgeLine, judgedWeek, scoreOnsaleRefresh, wasApplied, type InsightRow, type ScoreLine, type ScoreProposal } from "../scoring.ts";
-import { LOW_TRACK_RECORD, MIN_JUDGED, REJECT_STREAK, STOP_JUDGED, computeTrackRecords, stoppedText, trackKey } from "../track-record.ts";
+import { outcomeWeek } from "../schedule.ts";
+import { MOVE_HOLD_RATIO, PAUSE_WORSE_RATIO, SPENT_UNDER_ONE_RESULT, addedAdNames, dueLines, isScoringEnabled, judgeLine, judgedWeek, scoreOnsaleRefresh, wasApplied, type InsightRow, type ScoreLine, type ScoreProposal } from "../scoring.ts";
+import { LOW_TRACK_RECORD, MIN_JUDGED, REJECT_STREAK, STOP_JUDGED, computeTrackRecords, latestRestarts, loadTrackRecords, stoppedText, trackKey } from "../track-record.ts";
+import { isKnownRule, proposeAgain, standingStops } from "../restart.ts";
 import { OR10_STOPPED } from "../../../scripts/plan-frames/refresh-fixtures.ts";
 import { memoryDb } from "./memory-db.ts";
 
@@ -40,7 +42,7 @@ function line(kind: string, extra: Partial<ScoreLine> = {}): ScoreLine {
   return { id: `l-${kind}`, proposal_id: "p1", user_id: "u1", kind, rule_id: `${kind}.rule`, state: "to_review", target: {}, evidence: {}, write: {}, applied_result: null, applied_at: null, ...extra };
 }
 
-const judge = (l: ScoreLine, rows: InsightRow[], scores: Map<string, number> = new Map()) => judgeLine(l, { objective: IC, rows, scores });
+const judge = (l: ScoreLine, rows: InsightRow[], scores: Map<string, number> = new Map(), addedBySameProposal?: Set<string>) => judgeLine(l, { objective: IC, rows, scores, addedBySameProposal });
 
 // Campaign in the week: £100 over 10 IC = £10 each, unless a test says otherwise.
 const CAMPAIGN = [row({ meta_ad_id: "x1", ad_name: "Other", meta_adset_id: "s9", spend: 60, ic: 6 }), row({ meta_ad_id: "x2", ad_name: "Weak", meta_adset_id: "s1", spend: 40, ic: 4 })];
@@ -141,11 +143,16 @@ describe("P5 scoring: never guess", () => {
 // ── The week, due lines, idempotence ─────────────────────────────────────────
 
 describe("P5 scoring: the judged week and which lines are due", () => {
-  const proposal: ScoreProposal = { id: "p1", event_id: "e1", user_id: "u1", campaign_key: "On Sale", campaign_ids: ["c1"], run_day: "2026-11-16", window_end: "2026-11-15", objective: IC };
-  it("the first full Monday–Sunday week from the proposal's run day, or from Apply", () => {
-    assert.deepEqual(judgedWeek(line("pause_creative"), proposal), { from: "2026-11-16", to: "2026-11-22" });
-    assert.deepEqual(judgedWeek(line("pause_creative"), { run_day: "2026-11-12" }), { from: "2026-11-16", to: "2026-11-22" }, "a Thursday shadow run is judged on the next full week");
+  const proposal: ScoreProposal = { id: "p1", event_id: "e1", user_id: "u1", campaign_key: "On Sale", campaign_ids: ["c1"], run_day: "2026-11-09", window_end: "2026-11-08", objective: IC };
+  it("2d: the first full Monday–Sunday week that starts after the run day, or after the Apply day; a week starting on that day doesn't count", () => {
+    assert.deepEqual(judgedWeek(line("pause_creative"), proposal), { from: "2026-11-16", to: "2026-11-22" }, "a Monday run: its own week doesn't count");
+    assert.deepEqual(judgedWeek(line("pause_creative"), { run_day: "2026-11-12" }), { from: "2026-11-16", to: "2026-11-22" }, "a Thursday shadow run");
+    assert.deepEqual(judgedWeek(line("pause_creative"), { run_day: "2026-11-15" }), { from: "2026-11-16", to: "2026-11-22" }, "a Sunday run: the next day's week");
     assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-11-18T09:00:00Z" }), proposal), { from: "2026-11-23", to: "2026-11-29" });
+    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-11-23T08:41:00Z" }), proposal), { from: "2026-11-30", to: "2026-12-06" }, "applied on a Monday: that week doesn't count");
+    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-11-22T23:30:00Z" }), proposal), { from: "2026-11-23", to: "2026-11-29" }, "the Apply day is London's: Sunday 22 Nov");
+    assert.deepEqual(judgedWeek(line("add_creative", { state: "applied", applied_at: "2026-06-14T23:30:00Z" }), proposal), { from: "2026-06-22", to: "2026-06-28" }, "in BST 23:30 UTC on Sunday is Monday 15 Jun in London, so that week doesn't count");
+    assert.deepEqual(outcomeWeek("2026-11-23T08:41:00Z"), { to: "2026-12-06", checked: "2026-12-07" }, "the panel's F3 sentence names the same week");
   });
 
   it("due once the week's last day is in ad_daily_insights; a right / wrong is never re-judged; an unknown is retried for 14 days", () => {
@@ -393,5 +400,177 @@ describe("P5: migration 241", () => {
     assert.match(sql, /figures\s+jsonb/);
     assert.match(sql, /for select using \(auth\.uid\(\) = user_id\)/);
     assert.doesNotMatch(sql, /for (all|insert|update|delete)/i);
+  });
+});
+
+// ── #1229 design verdict: 2b, 2e, 2g, item 1 ─────────────────────────────────
+
+describe("2b: spend with no results", () => {
+  // The campaign in the week: £100 over 10 IC = £10 a result.
+  const withSide = (adset: string, spend: number, ad = "Side") => [row({ meta_ad_id: "x1", ad_name: "Other", meta_adset_id: "s9", spend: 100 - spend, ic: 10 }), row({ meta_ad_id: "x2", ad_name: ad, meta_adset_id: adset, spend, ic: 0 })];
+
+  it("a new ad set (cluster bring-back or standing default) that spent one result's worth and got none is wrong; under that, unknown", () => {
+    for (const kind of ["bring_back_audience", "missing_default"]) {
+      const made = line(kind, { write: { kind: "new_adset" }, state: "applied", applied_result: { adsetId: "new1" } });
+      assert.equal(judge(made, withSide("new1", 10)).outcome, "wrong", `${kind}: £10 ≥ £10`);
+      const short = judge(made, withSide("new1", 9.99));
+      assert.deepEqual([short.outcome, short.reason], ["unknown", SPENT_UNDER_ONE_RESULT], kind);
+    }
+    assert.equal(SPENT_UNDER_ONE_RESULT, "spent less than one result's worth");
+  });
+
+  it("a bring-back of a stopped ad set: the same", () => {
+    const back = line("bring_back_audience", { target: { adsetIds: ["s1"] }, write: { kind: "adset_status" }, state: "applied" });
+    assert.equal(judge(back, withSide("s1", 12)).outcome, "wrong");
+    assert.equal(judge(back, withSide("s1", 5)).reason, SPENT_UNDER_ONE_RESULT);
+  });
+
+  it("a creative that wasn't paused counts as running worse than 1.5× once it spent one result's worth with none", () => {
+    const pause = line("pause_creative", { target: { creative: "Weak" }, evidence: { campaignCpr: 12, cprRatio: 1.8 } });
+    assert.equal(judge(pause, withSide("s1", 10, "Weak")).outcome, "right");
+    assert.equal(judge(pause, withSide("s1", 4, "Weak")).reason, SPENT_UNDER_ONE_RESULT, "it was wrong before 2b");
+  });
+
+  it("a drop that wasn't applied: no results on one result's worth is dearer (right); under, unknown", () => {
+    const drop = line("drop_audience", { target: { adsetIds: ["s1"] }, write: { kind: "adset_status" } });
+    assert.equal(judge(drop, withSide("s1", 15)).outcome, "right");
+    assert.equal(judge(drop, withSide("s1", 3)).reason, SPENT_UNDER_ONE_RESULT);
+  });
+
+  it("a move's receiving side with no results: wrong on one result's worth, unknown under", () => {
+    const move = line("move_budget", { target: { toAdsetId: "s1" }, evidence: { toCpr: 5 }, state: "applied" });
+    assert.equal(judge(move, withSide("s1", 10)).outcome, "wrong");
+    assert.equal(judge(move, withSide("s1", 2)).reason, SPENT_UNDER_ONE_RESULT);
+  });
+
+  it("an applied pause whose creative had no results before: worse only from one result's worth", () => {
+    const pause = (spend: number) => line("pause_creative", { state: "applied", target: { creative: "Weak" }, evidence: { campaignCpr: 12, spend, results: 0 } });
+    assert.equal(judge(pause(12), CAMPAIGN).outcome, "right", "£12 spent with none, the campaign £12 a result: worse; then the campaign held at £10");
+    assert.equal(judge(pause(6), CAMPAIGN).reason, SPENT_UNDER_ONE_RESULT);
+  });
+});
+
+describe("2e: the Add median leaves out every ad the same proposal added", () => {
+  const add = (file: string) => line("add_creative", { id: `l-${file}`, target: { name: file }, state: "applied", applied_result: { adIds: [{ adId: file, adsetId: "s1" }] } });
+  const rows = ["A", "B", "New-1", "New-2"].map((name) => row({ meta_ad_id: name, ad_name: name }));
+  const scores = new Map([["A", 60], ["B", 80], ["New-1", 65], ["New-2", 10]]);
+
+  it("two new ads can't lower each other's bar", () => {
+    // With New-2 in the median, New-1's bar is 60 (A 60, B 80, New-2 10 → 60) and it passes; without it the bar is 70.
+    assert.equal(judge(add("New-1.mp4"), rows, scores).outcome, "right", "the old median, for contrast");
+    const added = addedAdNames([add("New-1.mp4"), add("New-2.mp4"), line("add_creative", { target: { name: "Never.mp4" }, state: "rejected" })]);
+    assert.deepEqual([...added], ["New-1", "New-2"], "applied adds only, by the ad name Apply gave them");
+    const judged = judge(add("New-1.mp4"), rows, scores, added);
+    assert.deepEqual([judged.outcome, (judged.figures as { median: number }).median, (judged.figures as { compared: number }).compared], ["wrong", 70, 2]);
+  });
+
+  it("the nightly job passes each line its own proposal's adds", async () => {
+    const proposal: ScoreProposal = { id: "p1", event_id: "e1", user_id: "u1", campaign_key: "On Sale", campaign_ids: ["c1"], run_day: "2026-11-09", window_end: "2026-11-08", objective: IC };
+    const mem = memoryDb({
+      ad_daily_insights: rows.map((r) => ({ ...r, date: "2026-11-22" })),
+      onsale_refresh_proposals: [proposal],
+      onsale_refresh_lines: [add("New-1.mp4"), add("New-2.mp4")].map((l) => ({ ...l, applied_at: "2026-11-10T09:00:00Z" })),
+      onsale_refresh_outcomes: [],
+      events: [{ id: "e1", client_id: "client-a" }],
+      creative_scores: [...scores].map(([creative_name, score], i) => ({ id: `cs${i}`, event_id: "e1", creative_name, score, axis: "convert", fetched_at: "2026-11-24T03:00:00Z" })),
+    });
+    const result = await scoreOnsaleRefresh(mem.db, { now: new Date("2026-11-25T03:30:00Z") });
+    const byLine = new Map(result.rows.map((r) => [r.line_id, r]));
+    assert.equal(byLine.get("l-New-1.mp4")!.outcome, "wrong", "65 under the median of A and B, 70");
+    assert.equal((byLine.get("l-New-1.mp4")!.figures as { median: number }).median, 70);
+    assert.equal((byLine.get("l-New-2.mp4")!.figures as { median: number }).median, 70);
+  });
+});
+
+describe("2g: the rejection streak", () => {
+  const decided = (states: [string, string | null][]) => states.map(([state, reason], i) => ({ client_id: "c", rule_id: "r", state, reject_reason: reason, decided_at: `2026-11-${String(10 + i).padStart(2, "0")}T09:00:00Z` }));
+  const fiveTooEarly = Array.from({ length: 5 }, () => ["rejected", "too_early"] as [string, string]);
+  it("a failed apply breaks it", () => {
+    assert.equal(computeTrackRecords([], decided([...fiveTooEarly.slice(0, 2), ["failed", null], ...fiveTooEarly.slice(0, 2)])).get(trackKey("c", "r")), undefined);
+  });
+  it("shadow lines are never decided, so they neither count nor break it", () => {
+    const shadow = { client_id: "c", rule_id: "r", state: "to_review", reject_reason: null, decided_at: null };
+    assert.equal(computeTrackRecords([], [...decided(fiveTooEarly), shadow, shadow]).get(trackKey("c", "r"))!.stoppedBy, "streak");
+    assert.equal(computeTrackRecords([], [...decided(fiveTooEarly.slice(0, 4)), shadow]).get(trackKey("c", "r")), undefined);
+  });
+});
+
+describe("Item 1: the stop words, and Propose again", () => {
+  it("the words, with \"lines\"", () => {
+    assert.equal(stoppedText("pause.significant_bottom_third", { right: 4, wrong: 17, judged: 21, rate: 4 / 21, state: "stopped", stoppedBy: "rate" }), "Pause creative lines stopped for this client: right 4 of 21 times.");
+    assert.equal(stoppedText("bring_back.client_cluster", { right: 0, wrong: 0, judged: 0, rate: null, state: "stopped", stoppedBy: "streak", streakReason: "too_early" }), "Bring back an interest cluster lines stopped for this client: rejected as “Too early” 5 times in a row.");
+  });
+
+  it("a restart: the count starts again from that day (earlier outcomes stop counting) and the streak clears", () => {
+    const old = outcomes("c", "r", 2, 20).map((row) => ({ ...row, proposed_on: "2026-11-09" }));
+    const newer = outcomes("c", "r", 3, 0).map((row) => ({ ...row, proposed_on: "2026-11-23" }));
+    const sameDay = outcomes("c", "r", 1, 0).map((row) => ({ ...row, proposed_on: "2026-11-18" }));
+    assert.equal(computeTrackRecords([...old, ...newer]).get(trackKey("c", "r"))!.state, "stopped");
+    const restarts = new Map([[trackKey("c", "r"), "2026-11-18T14:00:00Z"]]);
+    const after = computeTrackRecords([...old, ...newer, ...sameDay], [], restarts).get(trackKey("c", "r"))!;
+    assert.deepEqual([after.state, after.right, after.judged], ["ok", 4, 4], "only lines proposed from 18 Nov on");
+    const streak = [0, 1, 2, 3, 4].map((i) => ({ client_id: "c", rule_id: "r", state: "rejected", reject_reason: "too_early", decided_at: `2026-11-1${i}T09:00:00Z` }));
+    assert.equal(computeTrackRecords([], streak).get(trackKey("c", "r"))!.stoppedBy, "streak");
+    assert.equal(computeTrackRecords([], streak, restarts).get(trackKey("c", "r")), undefined, "cleared");
+    assert.equal(computeTrackRecords(outcomes("c2", "r", 0, 25), [], restarts).get(trackKey("c2", "r"))!.state, "stopped", "another client's restart");
+  });
+
+  it("the latest restart per rule × client wins", () => {
+    const latest = latestRestarts([
+      { client_id: "c", rule_id: "r", restarted_at: "2026-11-18T14:00:00Z" },
+      { client_id: "c", rule_id: "r", restarted_at: "2026-11-25T10:00:00Z" },
+      { client_id: null, rule_id: "r", restarted_at: "2026-11-01T10:00:00Z" },
+    ]);
+    assert.deepEqual([...latest], [[trackKey("c", "r"), "2026-11-25T10:00:00Z"], [trackKey(null, "r"), "2026-11-01T10:00:00Z"]]);
+  });
+
+  it("proposeAgain stores who and when; an unknown rule is refused with nothing written", async () => {
+    const mem = memoryDb({ onsale_refresh_rule_restarts: [] });
+    const now = new Date("2026-11-18T14:00:00Z");
+    assert.deepEqual(await proposeAgain({ db: mem.db, userId: "u1", eventId: "e1", clientId: "client-a", ruleId: "not.a.rule", now }), { ok: false, status: 400, error: "Unknown rule." });
+    assert.equal(mem.writes.length, 0);
+    assert.deepEqual(await proposeAgain({ db: mem.db, userId: "u1", eventId: "e1", clientId: "client-a", ruleId: "pause.significant_bottom_third", now }), { ok: true, restartedAt: "2026-11-18T14:00:00.000Z" });
+    const [stored] = mem.tables.onsale_refresh_rule_restarts!;
+    assert.deepEqual([stored!.user_id, stored!.restarted_by, stored!.client_id, stored!.rule_id, stored!.event_id, stored!.restarted_at], ["u1", "u1", "client-a", "pause.significant_bottom_third", "e1", "2026-11-18T14:00:00.000Z"]);
+    assert.equal(isKnownRule("toString"), false, "only the refresh's own rules");
+  });
+
+  it("the route runs the refresh's owner check before it writes", () => {
+    const source = readFileSync("app/api/events/[id]/onsale-refresh/restart/route.ts", "utf8");
+    assert.match(source, /import \{ ownedRefreshEvent \} from "\.\.\/_owned"/);
+    assert.ok(source.indexOf("ownedRefreshEvent(id)") < source.indexOf("proposeAgain("), "owner check first");
+    assert.match(source, /if \(who\.error\) return who\.error;/);
+    assert.match(source, /clientId: who\.event\.client_id/, "the client is the owned event's, never the request's");
+  });
+
+  it("loadTrackRecords reads the restarts and the proposals' run days", async () => {
+    const mem = memoryDb({
+      onsale_refresh_outcomes: Array.from({ length: 22 }, (_, i) => ({ line_id: `o${i}`, proposal_id: "p-old", client_id: "client-a", rule_id: "r", outcome: i < 2 ? "right" : "wrong" })),
+      onsale_refresh_lines: [],
+      onsale_refresh_proposals: [{ id: "p-old", event_id: "e1", run_day: "2026-11-09" }],
+      events: [{ id: "e1", client_id: "client-a" }],
+      onsale_refresh_rule_restarts: [],
+    });
+    assert.equal((await loadTrackRecords(mem.db)).get(trackKey("client-a", "r"))!.state, "stopped");
+    mem.tables.onsale_refresh_rule_restarts!.push({ id: "rr1", client_id: "client-a", rule_id: "r", restarted_at: "2026-11-18T14:00:00Z" });
+    assert.equal((await loadTrackRecords(mem.db)).get(trackKey("client-a", "r")), undefined, "the old outcomes stay stored, and stop counting");
+    assert.equal(mem.tables.onsale_refresh_outcomes!.length, 22);
+  });
+
+  it("a stored notice stops standing once its rule is restarted after the proposal", () => {
+    const stopped = [{ ruleId: "a", text: "A" }, { ruleId: "b", text: "B" }];
+    const restarts = new Map([[trackKey("client-a", "a"), "2026-11-18T14:00:00Z"], [trackKey("client-a", "b"), "2026-11-15T14:00:00Z"]]);
+    assert.deepEqual(standingStops(stopped, "client-a", "2026-11-16T06:00:00Z", restarts).map((row) => row.ruleId), ["b"], "b was restarted before this proposal, and stopped again");
+    assert.deepEqual(standingStops(stopped, "client-b", "2026-11-16T06:00:00Z", restarts).length, 2);
+  });
+});
+
+describe("Migration 241: the restarts", () => {
+  it("who and when, per client × rule, owner read RLS only", () => {
+    const sql = readFileSync("supabase/migrations/241_onsale_refresh_outcomes.sql", "utf8");
+    assert.match(sql, /create table if not exists public\.onsale_refresh_rule_restarts/);
+    assert.match(sql, /restarted_by\s+uuid not null/);
+    assert.match(sql, /restarted_at\s+timestamptz not null default now\(\)/);
+    assert.match(sql, /on public\.onsale_refresh_rule_restarts for select using \(auth\.uid\(\) = user_id\)/);
   });
 });

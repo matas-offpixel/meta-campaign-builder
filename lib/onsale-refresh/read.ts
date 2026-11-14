@@ -14,6 +14,8 @@ import { displayState, type LineState } from "./line-states.ts";
 import { spendToDate } from "./plan-guard.ts";
 import type { AddCopy, LineKind, Proposal, WatchItem } from "./rules.ts";
 import { nextCycleAfter, todayLondon, weekLabel, type CycleKind, type RunKind } from "./schedule.ts";
+import { standingStops } from "./restart.ts";
+import { latestRestarts } from "./track-record.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -237,6 +239,14 @@ export async function loadEventProposals(db: Db, eventId: string, opts: { budget
   }));
 }
 
+/** The client's Propose again restarts (migration 241). Before 241 is applied there are none. */
+async function loadRestarts(db: Db, clientId: string | null): Promise<Map<string, string>> {
+  const query = db.from("onsale_refresh_rule_restarts").select("client_id, rule_id, restarted_at");
+  const { data, error } = await (clientId ? query.eq("client_id", clientId) : query.is("client_id", null)).order("restarted_at", { ascending: false }).limit(1000);
+  if (error) return new Map();
+  return latestRestarts((data ?? []) as { client_id: string | null; rule_id: string; restarted_at: string }[]);
+}
+
 /** The event's arm (migration 236). Before 236 is applied, or with no row, the event is in Shadow. */
 export async function loadArm(db: Db, eventId: string): Promise<ArmMode> {
   const { data, error } = await db.from("onsale_refresh_arms").select("mode").eq("event_id", eventId).maybeSingle();
@@ -246,16 +256,24 @@ export async function loadArm(db: Db, eventId: string): Promise<ArmMode> {
 
 /** Everything the panel needs (P2): the proposals, and the gates that decide whether anything can be clicked. */
 export async function loadPanel(db: Db, eventId: string, env: Record<string, string | undefined>): Promise<{ proposals: PanelProposal[]; apply: PanelApply }> {
-  const [event, arm] = await Promise.all([db.from("events").select("budget_marketing, event_date").eq("id", eventId).maybeSingle(), loadArm(db, eventId)]);
+  const [event, arm] = await Promise.all([db.from("events").select("budget_marketing, event_date, client_id").eq("id", eventId).maybeSingle(), loadArm(db, eventId)]);
   if (event.error) throw new Error(`events: ${event.error.message}`);
-  const row = event.data as { budget_marketing?: number | string | null; event_date?: string | null } | null;
+  const row = event.data as { budget_marketing?: number | string | null; event_date?: string | null; client_id?: string | null } | null;
   const budgetSet = row?.budget_marketing != null && Number.isFinite(Number(row.budget_marketing));
   const budget = budgetSet ? Number(row!.budget_marketing) : null;
   const gates = applyGates(env, arm);
   // P3: the plan (R5), read live: budget minus spend to date from the rollups.
   const plan: PanelPlan = { budget, spend: budgetSet ? await spendToDate(db, eventId) : 0, today: todayLondon(new Date()), eventDate: row?.event_date ?? null };
   // R5: the "no marketing budget" blocker was the proposal's; once a budget is set it is gone.
-  const proposals = (await loadEventProposals(db, eventId, { budgetSet, plan })).map((proposal) => (budgetSet ? { ...proposal, blockers: proposal.blockers.filter((blocker) => blocker.kind !== "budget") } : proposal));
+  const loaded = (await loadEventProposals(db, eventId, { budgetSet, plan })).map((proposal) => (budgetSet ? { ...proposal, blockers: proposal.blockers.filter((blocker) => blocker.kind !== "budget") } : proposal));
+  // P5: a stop notice whose rule was restarted (Propose again) after the proposal no longer stands.
+  const clientId = row?.client_id ?? null;
+  const restarts = loaded.some((proposal) => proposal.notes.stopped?.length) ? await loadRestarts(db, clientId) : new Map<string, string>();
+  const proposals = loaded.map((proposal) => {
+    if (!proposal.notes.stopped?.length) return proposal;
+    const stopped = standingStops(proposal.notes.stopped, clientId, proposal.createdAt, restarts);
+    return { ...proposal, notes: { ...proposal.notes, stopped } };
+  });
   return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, budgetSet } };
 }
 

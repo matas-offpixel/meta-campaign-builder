@@ -501,12 +501,13 @@ export const OR9_PROPOSALS: PanelProposal[] = [
  * words). Two rules are stopped for the client, and the panel says so:
  * pauses on their hit rate (right 4 of 21: under 25 % over 20) and
  * interest-cluster bring-backs on a rejection streak (Too early, 5 times
- * in a row). Those two sentences are proposed words, pinned against
- * stoppedText by lib/onsale-refresh/__tests__/scoring.test.ts.
+ * in a row). Design's words (#1229 verdict), pinned against stoppedText by
+ * lib/onsale-refresh/__tests__/scoring.test.ts. Each notice has its
+ * "Propose again" action under it.
  */
 export const OR10_STOPPED = [
-  { ruleId: "pause.significant_bottom_third", text: "Pause creative stopped for this client: right 4 of 21 times." },
-  { ruleId: "bring_back.client_cluster", text: "Bring back an interest cluster stopped for this client: rejected as “Too early” 5 times in a row." },
+  { ruleId: "pause.significant_bottom_third", text: "Pause creative lines stopped for this client: right 4 of 21 times." },
+  { ruleId: "bring_back.client_cluster", text: "Bring back an interest cluster lines stopped for this client: rejected as “Too early” 5 times in a row." },
 ];
 
 export const OR10_PROPOSALS: PanelProposal[] = [

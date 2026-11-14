@@ -8,7 +8,13 @@
  * - Under 25 % over 20 judged outcomes: the rule stops proposing for that
  *   client, and the panel says so.
  * - The same reject reason 5 times in a row for a client (that rule's last
- *   five decisions) stops it the same way.
+ *   five decided lines, all rejected with that reason) stops it the same
+ *   way. An accept or a failed apply breaks the streak; shadow lines are
+ *   never decided, so they don't count.
+ * - "Propose again" (migration 241's onsale_refresh_rule_restarts) restarts
+ *   a rule for a client: only outcomes of lines proposed from that day
+ *   count, and only decisions after it, so the streak clears. Earlier
+ *   outcomes stay stored.
  *
  * Pure apart from `loadTrackRecords`, which pages the outcomes and the
  * decided lines. The generator reads track records only while
@@ -20,6 +26,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { loadAllPaged } from "../db/paged-read.ts";
 import { REJECT_REASONS, type RejectReason } from "./line-states.ts";
+import { todayLondon } from "./schedule.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -47,11 +54,15 @@ export type TrackRecords = ReadonlyMap<string, TrackRecord>;
 
 export const trackKey = (clientId: string | null | undefined, ruleId: string) => `${clientId ?? ""}|${ruleId}`;
 
-type OutcomeFact = { client_id: string | null; rule_id: string; outcome: string };
+/** `proposed_on`: the line's proposal's run day, for a restart (Propose again). */
+type OutcomeFact = { client_id: string | null; rule_id: string; outcome: string; proposed_on?: string | null };
 type DecisionFact = { client_id: string | null; rule_id: string; state: string; reject_reason: string | null; decided_at: string | null };
 
-/** Hit rates and states from outcomes; streaks from the decisions (most recent first). */
-export function computeTrackRecords(outcomes: readonly OutcomeFact[], decisions: readonly DecisionFact[] = []): Map<string, TrackRecord> {
+/** The latest Propose again per rule × client: trackKey → when. */
+export type Restarts = ReadonlyMap<string, string>;
+
+/** Hit rates and states from outcomes; streaks from the decisions (most recent first); both from the latest restart on. */
+export function computeTrackRecords(outcomes: readonly OutcomeFact[], decisions: readonly DecisionFact[] = [], restarts: Restarts = new Map()): Map<string, TrackRecord> {
   const records = new Map<string, TrackRecord>();
   const get = (key: string) => {
     let record = records.get(key);
@@ -63,7 +74,11 @@ export function computeTrackRecords(outcomes: readonly OutcomeFact[], decisions:
   };
   for (const row of outcomes) {
     if (row.outcome !== "right" && row.outcome !== "wrong") continue;
-    const record = get(trackKey(row.client_id, row.rule_id));
+    const key = trackKey(row.client_id, row.rule_id);
+    const restarted = restarts.get(key);
+    // After Propose again the count starts from that day: earlier lines' outcomes stay stored but stop counting.
+    if (restarted && !(row.proposed_on && row.proposed_on >= todayLondon(new Date(restarted)))) continue;
+    const record = get(key);
     if (row.outcome === "right") record.right += 1;
     else record.wrong += 1;
     record.judged += 1;
@@ -83,6 +98,8 @@ export function computeTrackRecords(outcomes: readonly OutcomeFact[], decisions:
   for (const row of decisions) {
     if (!row.decided_at || !["rejected", "accepted", "applying", "applied", "failed"].includes(row.state)) continue;
     const key = trackKey(row.client_id, row.rule_id);
+    const restarted = restarts.get(key);
+    if (restarted && row.decided_at < restarted) continue; // the streak clears on Propose again
     byKey.set(key, [...(byKey.get(key) ?? []), row]);
   }
   for (const [key, rows] of byKey) {
@@ -112,26 +129,39 @@ export const RULE_LABEL: Record<string, string> = {
   "missing_default.registrations_lookalike": "Registrations lookalike default",
 };
 
-/**
- * The stop notice (proposed words — the record says only that the panel
- * tells Matas; listed in the PR body for design).
- */
+/** The stop notice (design's words, #1229 verdict item 1). */
 export function stoppedText(ruleId: string, record: TrackRecord): string {
   const rule = RULE_LABEL[ruleId] ?? ruleId;
-  if (record.stoppedBy === "streak" && record.streakReason) return `${rule} stopped for this client: rejected as “${REJECT_REASONS[record.streakReason]}” ${REJECT_STREAK} times in a row.`;
-  return `${rule} stopped for this client: right ${record.right} of ${record.judged} times.`;
+  if (record.stoppedBy === "streak" && record.streakReason) return `${rule} lines stopped for this client: rejected as “${REJECT_REASONS[record.streakReason]}” ${REJECT_STREAK} times in a row.`;
+  return `${rule} lines stopped for this client: right ${record.right} of ${record.judged} times.`;
+}
+
+/** The latest restart per rule × client from the restart rows. */
+export function latestRestarts(rows: readonly { client_id: string | null; rule_id: string; restarted_at: string }[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    const key = trackKey(row.client_id, row.rule_id);
+    if (!out.has(key) || row.restarted_at > out.get(key)!) out.set(key, row.restarted_at);
+  }
+  return out;
 }
 
 /** Every outcome and every decided line, for the track records. Paged, unique-key order, deduped. */
 export async function loadTrackRecords(db: Db): Promise<Map<string, TrackRecord>> {
-  const [outcomes, lines, proposals, events] = await Promise.all([
-    loadAllPaged<OutcomeFact & { line_id: string }>(db as never, "onsale_refresh_outcomes", "line_id, client_id, rule_id, outcome", ["line_id"]),
+  const [outcomes, lines, proposals, events, restarts] = await Promise.all([
+    loadAllPaged<OutcomeFact & { line_id: string; proposal_id: string }>(db as never, "onsale_refresh_outcomes", "line_id, proposal_id, client_id, rule_id, outcome", ["line_id"]),
     loadAllPaged<{ id: string; proposal_id: string; rule_id: string; state: string; reject_reason: string | null; decided_at: string | null }>(db as never, "onsale_refresh_lines", "id, proposal_id, rule_id, state, reject_reason, decided_at", ["id"], (q) => q.not("decided_at", "is", null)),
-    loadAllPaged<{ id: string; event_id: string }>(db as never, "onsale_refresh_proposals", "id, event_id", ["id"]),
+    loadAllPaged<{ id: string; event_id: string; run_day: string }>(db as never, "onsale_refresh_proposals", "id, event_id, run_day", ["id"]),
     loadAllPaged<{ id: string; client_id: string | null }>(db as never, "events", "id, client_id", ["id"], (q) => q.not("client_id", "is", null)),
+    loadAllPaged<{ id: string; client_id: string | null; rule_id: string; restarted_at: string }>(db as never, "onsale_refresh_rule_restarts", "id, client_id, rule_id, restarted_at", ["id"]),
   ]);
   const eventOf = new Map(proposals.map((row) => [row.id, row.event_id]));
+  const runDayOf = new Map(proposals.map((row) => [row.id, row.run_day]));
   const clientOf = new Map(events.map((row) => [row.id, row.client_id]));
   const decisions = lines.map((row) => ({ client_id: clientOf.get(eventOf.get(row.proposal_id) ?? "") ?? null, rule_id: row.rule_id, state: row.state, reject_reason: row.reject_reason, decided_at: row.decided_at }));
-  return computeTrackRecords(outcomes, decisions);
+  return computeTrackRecords(
+    outcomes.map((row) => ({ ...row, proposed_on: runDayOf.get(row.proposal_id) ?? null })),
+    decisions,
+    latestRestarts(restarts),
+  );
 }

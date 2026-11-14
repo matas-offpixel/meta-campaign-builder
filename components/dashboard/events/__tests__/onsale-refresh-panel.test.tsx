@@ -54,7 +54,7 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     expect(screen.getByText("Applied · 6 ads live")).toBeTruthy();
     expect(screen.getByText("Failed — Meta didn't take this file — the video is still processing.")).toBeTruthy();
     expect(screen.getByText("Rejected — Too early")).toBeTruthy();
-    expect(screen.getAllByText(/Outcomes are checked Mon 30 Nov on the week to Sun 29 Nov\./).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Outcomes are checked Mon 7 Dec on the week to Sun 6 Dec\./).length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole("button", { name: "Retry failed (1)" }));
     expect(onApply).toHaveBeenLastCalledWith({ retry: true });
     await userEvent.click(within(lineEl("P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16")).getByRole("button", { name: "Retry" }));
@@ -190,7 +190,7 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     expect(panelText("1.52× · 0.7×")).toBe("1.52× · 0.7×");
   });
 
-  it("OR10 (P5): a low track record sorts last and says so, muted; each stopped rule gets its notice", () => {
+  it("OR10 (P5): a low track record sorts last and says so, muted; each stopped rule gets its notice and Propose again", async () => {
     render(<OnSaleRefreshPanelView eventId="e1" proposals={OR10_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
     const labels = [...document.querySelectorAll("[data-track-record]")];
     expect(labels.map((node) => node.textContent)).toEqual([LOW_TRACK_RECORD]);
@@ -206,10 +206,27 @@ describe("OnSaleRefreshPanelView (P2)", () => {
       expect(node.className).toContain("text-muted-foreground");
       expect(node.className).not.toContain("text-destructive");
     }
+    // Propose again: a mono text action under each notice, wired to that notice's rule.
+    const buttons = screen.getAllByRole("button", { name: "Propose again" });
+    expect(buttons.map((node) => node.getAttribute("data-propose-again"))).toEqual(OR10_STOPPED.map((row) => row.ruleId));
+    for (const [i, row] of OR10_STOPPED.entries()) {
+      const notice = document.querySelector(`[data-stopped="${row.ruleId}"]`)!;
+      expect(notice.nextElementSibling).toBe(buttons[i]);
+      expect(buttons[i]!.className).toContain("font-mono");
+    }
+    cleanup();
+    const onProposeAgain = vi.fn();
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR10_PROPOSALS} apply={OR_APPLY_LIVE} actions={{ onProposeAgain }} />);
+    await userEvent.click(screen.getAllByRole("button", { name: "Propose again" })[1]!);
+    expect(onProposeAgain).toHaveBeenCalledWith(OR10_STOPPED[1]!.ruleId);
+    cleanup();
+    // The read-only panel (no gates) has no action to take.
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR10_PROPOSALS} />);
+    expect(screen.queryByRole("button", { name: "Propose again" })).toBeNull();
     cleanup();
     // Without a track record the panel is OR6's: no label, no notice.
     render(<OnSaleRefreshPanelView eventId="e1" proposals={OR6_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
-    expect(document.querySelector("[data-track-record], [data-stopped]")).toBeNull();
+    expect(document.querySelector("[data-track-record], [data-stopped], [data-propose-again]")).toBeNull();
   });
 
   it("held lines are muted; red is for Failed only", () => {

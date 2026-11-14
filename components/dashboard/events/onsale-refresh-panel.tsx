@@ -126,6 +126,8 @@ export type PanelActions = {
   onArm?: (mode: "shadow" | "live") => void;
   onDecide?: (lineId: string, decision: "accept" | "reject", reason?: RejectReason, note?: string) => void;
   onApply?: (opts: { retry: boolean; lineIds?: string[] }) => void;
+  /** P5: Propose again under a stop notice — restarts the rule for this client. */
+  onProposeAgain?: (ruleId: string) => void;
   busy?: boolean;
   error?: string | null;
 };
@@ -444,9 +446,22 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
             </div>
             {proposal.notEnoughData ? <p className="mt-1 text-xs text-muted-foreground">{proposal.notEnoughData}</p> : null}
             {(proposal.notes.stopped ?? []).map((row) => (
-              <p key={row.ruleId} className="mt-1 text-xs text-muted-foreground" data-stopped={row.ruleId}>
-                {row.text}
-              </p>
+              <div key={row.ruleId} className="mt-1">
+                <p className="text-xs text-muted-foreground" data-stopped={row.ruleId}>
+                  {row.text}
+                </p>
+                {apply ? (
+                  <button
+                    type="button"
+                    className="mt-0.5 font-mono text-[11px] text-foreground underline underline-offset-2 hover:text-foreground/80 disabled:cursor-not-allowed disabled:opacity-50"
+                    data-propose-again={row.ruleId}
+                    disabled={Boolean(actions.busy)}
+                    onClick={() => actions.onProposeAgain?.(row.ruleId)}
+                  >
+                    Propose again
+                  </button>
+                ) : null}
+              </div>
             ))}
 
             <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Creatives</p>
@@ -571,6 +586,7 @@ export function OnSaleRefreshPanel({ eventId, eventDate }: { eventId: string; ev
     onArm: (mode) => void act("arm", { mode }),
     onDecide: (lineId, decision, reason, note) => void act(`lines/${lineId}`, { decision, reason, note }),
     onApply: (opts) => void act("apply", opts),
+    onProposeAgain: (ruleId) => void act("restart", { ruleId }),
   };
   return <OnSaleRefreshPanelView eventId={eventId} proposals={panel.proposals} showWeek={showWeek} apply={panel.apply ?? undefined} actions={actions} />;
 }

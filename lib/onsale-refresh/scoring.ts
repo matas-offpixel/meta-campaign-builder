@@ -2,14 +2,16 @@
  * R6 / HR6 — the on-sale refresh learning from its own moves.
  *
  * Every refresh line (shadow, rejected and applied alike) is judged once
- * the next full Monday–Sunday week of ad_daily_insights exists after its
- * proposal (after Apply, for an applied line), from the line's stored
- * evidence:
+ * its week is in ad_daily_insights: the first full Monday–Sunday week that
+ * starts after the proposal's run day, or after the Apply day for an
+ * applied line (a week starting on that day doesn't count). From the
+ * line's stored evidence:
  *   - Pause: right if the campaign's cost per result held or improved, and
  *     the creative had kept running worse than 1.5× the campaign. Not
  *     applied: did the creative keep running worse than 1.5× in the week?
  *   - Add: right if the new ad's convert score is at or above the
- *     campaign's median after 7 days. Not applied: no ad ran — unknown.
+ *     campaign's median after 7 days; the median leaves out every ad the
+ *     same proposal added. Not applied: no ad ran — unknown.
  *   - Bring back / drop: right if the audience's cost per result came in on
  *     the predicted side of the campaign's (a bring-back cheaper, a drop
  *     dearer). A bring-back not applied, or a drop applied, has no week of
@@ -19,6 +21,9 @@
  *   - New ad set (cluster bring-back, standing default; the record has no
  *     rule for them): right if the new ad set's cost per result is at or
  *     below the campaign's after 7 days. Not applied — unknown.
+ * A side that spent and got no results did worse when it spent at least
+ * the campaign's cost per result in the week; below that it is unknown,
+ * "spent less than one result's worth".
  * Where a line can't be judged the outcome is unknown with its reason;
  * nothing is guessed, and unknown never counts towards a track record.
  *
@@ -47,6 +52,8 @@ export const PAUSE_WORSE_RATIO = 1.5;
 export const MOVE_HOLD_RATIO = 1.2;
 /** An unknown is looked at again for this long after its week, in case a late figure (a convert score) arrives. */
 export const UNKNOWN_RETRY_DAYS = 14;
+/** Design's words (2b): a side with no results that spent under the campaign's cost per result. */
+export const SPENT_UNDER_ONE_RESULT = "spent less than one result's worth";
 
 export type Outcome = "right" | "wrong" | "unknown";
 
@@ -117,10 +124,14 @@ export function wasApplied(line: Pick<ScoreLine, "state" | "kind" | "applied_res
   return (Array.isArray(result.adIds) && result.adIds.length > 0) || (Array.isArray(result.pausedAdIds) && result.pausedAdIds.length > 0) || typeof result.adsetId === "string";
 }
 
-/** The week a line is judged on: the first full Monday–Sunday week from its Apply (applied) or its proposal's run day. */
+/**
+ * The week a line is judged on (2d): the first full Monday–Sunday week
+ * that starts after its Apply day (applied) or its proposal's run day; a
+ * week starting on that day doesn't count. The same week the panel's F3
+ * sentence names (schedule.ts outcomeWeek).
+ */
 export function judgedWeek(line: Pick<ScoreLine, "state" | "kind" | "applied_result" | "applied_at">, proposal: Pick<ScoreProposal, "run_day">): { from: string; to: string } {
-  const base = wasApplied(line) && line.applied_at ? line.applied_at : `${proposal.run_day}T12:00:00Z`;
-  const { to } = outcomeWeek(base);
+  const { to } = outcomeWeek(wasApplied(line) && line.applied_at ? line.applied_at : `${proposal.run_day}T12:00:00Z`);
   return { from: addDaysIso(to, -6), to };
 }
 
@@ -132,18 +143,39 @@ function median(values: readonly number[]): number | null {
 }
 
 /** The ad's name as Apply created it: the file name without its extension (apply.ts adName). */
-function adNameOf(fileName: string): string {
+export function adNameOf(fileName: string): string {
   return fileName.replace(/\.[a-z0-9]{2,5}$/i, "").slice(0, 380) || "Ad";
 }
 
 const unknown = (reason: string, figures: Record<string, unknown> = {}): Judgement => ({ outcome: "unknown", reason, figures });
 
 /**
+ * 2b: a side that spent and got no results. "worse" when it spent at least
+ * one result's worth (the campaign's cost per result in the week), "short"
+ * below that, null when it has results (or nothing to compare against).
+ */
+export function noResults(own: Totals, campaignCpr: number | null): "worse" | "short" | null {
+  if (own.results > 0 || own.spend <= 0 || campaignCpr == null) return null;
+  return own.spend >= campaignCpr ? "worse" : "short";
+}
+
+/** The names of the ads a proposal's applied Add lines created, so they're left out of each other's median (2e). */
+export function addedAdNames(lines: readonly Pick<ScoreLine, "kind" | "state" | "target" | "applied_result">[]): Set<string> {
+  const names = new Set<string>();
+  for (const line of lines) {
+    if (line.kind !== "add_creative" || !wasApplied(line)) continue;
+    const name = line.target?.name;
+    if (typeof name === "string" && name) names.add(adNameOf(name));
+  }
+  return names;
+}
+
+/**
  * Judge one line on its week. `rows` are the proposal's campaigns'
  * ad-days in that week; `scores` the event's latest convert scores by
  * creative name. Pure.
  */
-export function judgeLine(line: ScoreLine, ctx: { objective: string; rows: readonly InsightRow[]; scores: ReadonlyMap<string, number> }): Judgement {
+export function judgeLine(line: ScoreLine, ctx: { objective: string; rows: readonly InsightRow[]; scores: ReadonlyMap<string, number>; addedBySameProposal?: ReadonlySet<string> }): Judgement {
   const applied = wasApplied(line);
   const campaign = totals(ctx.rows, ctx.objective);
   const evidence = line.evidence ?? {};
@@ -164,7 +196,9 @@ export function judgeLine(line: ScoreLine, ctx: { objective: string; rows: reado
     if (applied) {
       // R6: the campaign's cost held or improved, and the creative had kept running worse than 1.5×.
       if (campaign.cpr == null || before == null) return unknown("No cost per result for the campaign in the week, or none stored before.", { ...base, before });
-      const workedBefore = ratioBefore == null ? num(evidence.results) === 0 && num(evidence.spend) > 0 : ratioBefore >= PAUSE_WORSE_RATIO;
+      // 2b: no results before counts as worse than 1.5× once it had spent one result's worth.
+      if (ratioBefore == null && num(evidence.results) === 0 && num(evidence.spend) > 0 && num(evidence.spend) < before) return unknown(SPENT_UNDER_ONE_RESULT, { ...base, before, spendBefore: num(evidence.spend) });
+      const workedBefore = ratioBefore == null ? num(evidence.results) === 0 && num(evidence.spend) >= before : ratioBefore >= PAUSE_WORSE_RATIO;
       const held = campaign.cpr <= before;
       return { outcome: held && workedBefore ? "right" : "wrong", reason: held ? (workedBefore ? "The campaign's cost held or improved, and the creative had run worse than 1.5×." : "The campaign's cost held, but the creative hadn't run worse than 1.5×.") : "The campaign's cost rose after the pause.", figures: { ...base, before, ratioBefore, bar: PAUSE_WORSE_RATIO } };
     }
@@ -172,8 +206,10 @@ export function judgeLine(line: ScoreLine, ctx: { objective: string; rows: reado
     const own = totals(ctx.rows.filter((row) => row.ad_name === creative), ctx.objective);
     if (own.spend <= 0) return unknown("Not paused, and the creative didn't run in the week.", { ...base, creative: own });
     if (campaign.cpr == null) return unknown("No cost per result for the campaign in the week.", { ...base, creative: own });
+    const none = noResults(own, campaign.cpr);
+    if (none === "short") return unknown(SPENT_UNDER_ONE_RESULT, { ...base, creative: own });
     const ratio = own.cpr == null ? null : round2(own.cpr / campaign.cpr);
-    const worse = own.cpr == null ? own.spend >= campaign.cpr : ratio! >= PAUSE_WORSE_RATIO;
+    const worse = none === "worse" || ratio! >= PAUSE_WORSE_RATIO;
     return { outcome: worse ? "right" : "wrong", reason: worse ? "Not paused: the creative kept running worse than 1.5× the campaign." : "Not paused: the creative ran better than 1.5× the campaign.", figures: { ...base, creative: own, ratio, bar: PAUSE_WORSE_RATIO } };
   }
 
@@ -184,7 +220,9 @@ export function judgeLine(line: ScoreLine, ctx: { objective: string; rows: reado
     const name = adNameOf(fileName);
     const own = ctx.scores.get(name);
     if (own == null) return unknown("The new ad has no convert score yet.", { ...base, ad: name });
-    const others = [...new Set(ctx.rows.map((row) => row.ad_name).filter((n): n is string => Boolean(n) && n !== name))].map((n) => ctx.scores.get(n)).filter((score): score is number => score != null);
+    // 2e: the median leaves out this ad and every other ad the same proposal added.
+    const added = ctx.addedBySameProposal ?? new Set<string>();
+    const others = [...new Set(ctx.rows.map((row) => row.ad_name).filter((n): n is string => typeof n === "string" && n.length > 0 && n !== name && !added.has(n)))].map((n) => ctx.scores.get(n)).filter((score): score is number => score != null);
     const mid = median(others);
     if (mid == null) return unknown("No other creative in the campaign has a convert score.", { ...base, ad: name, score: own });
     return { outcome: own >= mid ? "right" : "wrong", reason: own >= mid ? "The new ad's convert score is at or above the campaign's median." : "The new ad's convert score is under the campaign's median.", figures: { ...base, ad: name, score: own, median: mid, compared: others.length } };
@@ -195,8 +233,12 @@ export function judgeLine(line: ScoreLine, ctx: { objective: string; rows: reado
     const adsetId = typeof result.adsetId === "string" ? result.adsetId : null;
     if (!adsetId) return unknown("The new ad set's id wasn't stored.", base);
     const own = totals(ctx.rows.filter((row) => row.meta_adset_id === adsetId), ctx.objective);
-    if (own.cpr == null || campaign.cpr == null) return unknown("No cost per result for the new ad set, or the campaign, in the week.", { ...base, adset: own });
-    const right = own.cpr <= campaign.cpr;
+    if (own.spend <= 0) return unknown("The new ad set didn't spend in the week.", { ...base, adset: own });
+    if (campaign.cpr == null) return unknown("No cost per result for the campaign in the week.", { ...base, adset: own });
+    const none = noResults(own, campaign.cpr);
+    if (none === "short") return unknown(SPENT_UNDER_ONE_RESULT, { ...base, adset: own });
+    if (none === "worse") return { outcome: "wrong", reason: "The new ad set spent at least one result's worth and got no results.", figures: { ...base, adset: own } };
+    const right = own.cpr! <= campaign.cpr;
     return { outcome: right ? "right" : "wrong", reason: right ? "The new ad set's cost per result was at or below the campaign's." : "The new ad set's cost per result was above the campaign's.", figures: { ...base, adset: own } };
   }
 
@@ -208,7 +250,9 @@ export function judgeLine(line: ScoreLine, ctx: { objective: string; rows: reado
     const own = totals(ctx.rows.filter((row) => row.meta_adset_id && ids.includes(row.meta_adset_id)), ctx.objective);
     if (own.spend <= 0) return unknown("The ad set didn't spend in the week.", { ...base, adset: own });
     if (campaign.cpr == null) return unknown("No cost per result for the campaign in the week.", { ...base, adset: own });
-    // Predicted side: a bring-back cheaper than the campaign, a drop dearer. No results at all reads as dearer.
+    // Predicted side: a bring-back cheaper than the campaign, a drop dearer. No results reads as dearer once it spent one result's worth (2b).
+    const none = noResults(own, campaign.cpr);
+    if (none === "short") return unknown(SPENT_UNDER_ONE_RESULT, { ...base, adset: own });
     const cheaper = own.cpr != null && own.cpr < campaign.cpr;
     const right = bringBack ? cheaper : !cheaper;
     return { outcome: right ? "right" : "wrong", reason: right ? (bringBack ? "Its cost per result came in under the campaign's, as predicted." : "Not dropped: its cost per result stayed over the campaign's, as predicted.") : bringBack ? "Its cost per result came in over the campaign's." : "Not dropped: its cost per result came in under the campaign's.", figures: { ...base, adset: own, predicted: bringBack ? "under" : "over" } };
@@ -220,6 +264,10 @@ export function judgeLine(line: ScoreLine, ctx: { objective: string; rows: reado
     const before = num(evidence.toCpr) || null;
     if (!toId || before == null) return unknown("The line stores no receiving ad set or its cost before.", base);
     const own = totals(ctx.rows.filter((row) => row.meta_adset_id === toId), ctx.objective);
+    if (own.spend <= 0) return unknown("The receiving ad set didn't spend in the week.", { ...base, receiving: own });
+    const none = noResults(own, campaign.cpr);
+    if (none === "short") return unknown(SPENT_UNDER_ONE_RESULT, { ...base, receiving: own });
+    if (none === "worse") return { outcome: "wrong", reason: "The receiving ad set spent at least one result's worth and got no results.", figures: { ...base, receiving: own, before, bar: MOVE_HOLD_RATIO } };
     if (own.cpr == null) return unknown("The receiving ad set had no cost per result in the week.", { ...base, receiving: own });
     const held = own.cpr <= before * MOVE_HOLD_RATIO;
     return { outcome: held ? "right" : "wrong", reason: held ? "The receiving ad set held its cost per result within 20 %." : "The receiving ad set's cost per result rose more than 20 %.", figures: { ...base, receiving: own, before, bar: MOVE_HOLD_RATIO } };
@@ -288,6 +336,8 @@ export async function scoreOnsaleRefresh(db: Db, opts: { now: Date; dryRun?: boo
     loadAllPaged<ExistingOutcome>(db as never, "onsale_refresh_outcomes", "line_id, outcome, week_to", ["line_id"]),
   ]);
   const byProposal = new Map(proposals.map((row) => [row.id, row]));
+  const linesOf = new Map<string, ScoreLine[]>();
+  for (const line of lines) linesOf.set(line.proposal_id, [...(linesOf.get(line.proposal_id) ?? []), line]);
   const due = dueLines(lines, byProposal, new Map(existing.map((row) => [row.line_id, row])), latestDay, today);
   if (!due.length) return { ...empty, due: 0 };
 
@@ -320,7 +370,7 @@ export async function scoreOnsaleRefresh(db: Db, opts: { now: Date; dryRun?: boo
   const scoredAt = opts.now.toISOString();
   const rows: OutcomeRow[] = [];
   for (const { line, proposal, week } of due) {
-    const judgement = judgeLine(line, { objective: proposal.objective, rows: await rowsFor(proposal.campaign_ids ?? [], week), scores: scoresFor(proposal.event_id) });
+    const judgement = judgeLine(line, { objective: proposal.objective, rows: await rowsFor(proposal.campaign_ids ?? [], week), scores: scoresFor(proposal.event_id), addedBySameProposal: addedAdNames(linesOf.get(proposal.id) ?? []) });
     rows.push({
       line_id: line.id,
       proposal_id: proposal.id,
