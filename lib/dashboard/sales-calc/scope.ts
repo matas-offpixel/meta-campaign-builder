@@ -131,12 +131,16 @@ function sourceWords(sources: readonly CountSource[], labels: Record<CountSource
 }
 
 /**
- * D13 in words: ", on spend to the 12 Nov count" when spend runs past the
- * last count, else nothing. The header and the Cost per ticket tile's hover
- * both use it.
+ * D13 in words (design-ruled, 14 Nov). Shown when any show's spend in scope
+ * runs past that show's own last count, else nothing:
+ *   every show last counted the same day: ", on spend to the 12 Nov count";
+ *   mixed count days: ", on spend to each show's last count (latest 12 Nov)".
+ * The header and the Cost per ticket tile's hover both use it.
  */
-export function spendToCountClause(countDay: string, endDay: string): string {
-  return endDay > countDay ? `, on spend to the ${shortDay(countDay)} count` : "";
+export function spendToCountClause(f: Pick<PeriodFigures, "soldDay" | "soldDaysDiffer" | "spendPastCount">): string {
+  if (!f.spendPastCount || f.soldDay == null) return "";
+  const latest = shortDay(f.soldDay);
+  return f.soldDaysDiffer ? `, on spend to each show's last count (latest ${latest})` : `, on spend to the ${latest} count`;
 }
 
 /** N4: the sentence and its channel line, always to date (since-launch figures). */
@@ -161,7 +165,7 @@ export function headerSentence(input: {
   const source = counted ? `${sourceWords(f.soldSources, input.sourceLabels)}, ${f.soldDaysDiffer ? "to " : ""}${shortDay(f.soldDay!)}` : "";
   const cpt = f.costPerTicket != null ? rate(f.costPerTicket) : null;
   // D13: cost per ticket stops at the last count, so say so when spend runs past it.
-  const capped = counted && cpt != null ? spendToCountClause(f.soldDay!, input.endDay) : "";
+  const capped = counted && cpt != null ? spendToCountClause(f) : "";
   const umbrellas = (input.umbrellas ?? []).filter((u) => u.amount > 0);
   let sentence: string;
   if (input.kind === "umbrella") {

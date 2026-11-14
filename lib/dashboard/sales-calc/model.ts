@@ -243,7 +243,7 @@ function tilesFor(f: PeriodFigures, sinceLaunch: PeriodFigures, period: SalesPer
           narrowDetail: `${sp.narrow} · blended`,
           title:
             period === "launch"
-              ? `All channels' spend to each show's latest count, over tickets sold${f.soldDay ? spendToCountClause(f.soldDay, endDay) : ""}.`
+              ? `All channels' spend to each show's latest count, over tickets sold${spendToCountClause(f)}.`
               : "Blended cost per ticket, complete windows only.",
         };
   // N4: only when the umbrella page has signups; at 0, or before its first sync, the clause is dropped.

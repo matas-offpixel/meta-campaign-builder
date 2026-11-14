@@ -15,7 +15,7 @@ import { describe, it } from "node:test";
 
 import { tiktokCampaignCountsForEvent } from "../../tiktok/rollup-insights.ts";
 import { shortDay } from "../sales-calc/days.ts";
-import type { PeriodFigures } from "../sales-calc/figures.ts";
+import { buildSeries, periodFigures, type PeriodFigures } from "../sales-calc/figures.ts";
 import { SOURCE_LABEL, buildSalesDashboard } from "../sales-calc/model.ts";
 import { headerSentence } from "../sales-calc/scope.ts";
 import type { SalesCalcInput } from "../sales-calc/types.ts";
@@ -242,6 +242,7 @@ describe("headerSentence: the count date and the spend-to-count clause (D13)", (
     soldComps: null,
     soldDay: "2026-11-12",
     soldDaysDiffer: false,
+    spendPastCount: false,
     soldSources: ["internal_counts"],
     soldIsFinal: false,
     tickets: 6795,
@@ -257,27 +258,75 @@ describe("headerSentence: the count date and the spend-to-count clause (D13)", (
     signupsClosed: false,
     ...over,
   });
-  const sentence = (endDay: string, over: Partial<PeriodFigures> = {}, kind: "venue" | "all" | "show" = "venue") =>
-    headerSentence({ kind, name: "Fixture Hall", launch: figures(over), endDay, sourceLabels: SOURCE_LABEL, countedShows: 3, venues: 2 }).sentence;
+  const sentence = (over: Partial<PeriodFigures> = {}, kind: "venue" | "all" | "show" = "venue") =>
+    headerSentence({ kind, name: "Fixture Hall", launch: figures(over), endDay: "2026-11-13", sourceLabels: SOURCE_LABEL, countedShows: 3, venues: 2 }).sentence;
 
-  it("£14,216 spend to 13 Nov, 6,795 at the 12 Nov count: £2.08 on spend to the count, and the clause says so", () => {
+  it("every show last counted the same day: £2.08, on spend to the 12 Nov count", () => {
     assert.equal(
-      sentence("2026-11-13"),
+      sentence({ spendPastCount: true }),
       "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.08 of spend per ticket, on spend to the 12 Nov count.",
     );
-    assert.match(sentence("2026-11-13", {}, "show"), /, so £2\.08 per ticket, on spend to the 12 Nov count\.$/);
-    assert.match(sentence("2026-11-13", {}, "all"), /, so £2\.08 of spend per ticket on those shows, on spend to the 12 Nov count\.$/);
+    assert.match(sentence({ spendPastCount: true }, "show"), /, so £2\.08 per ticket, on spend to the 12 Nov count\.$/);
+    assert.match(sentence({ spendPastCount: true }, "all"), /, so £2\.08 of spend per ticket on those shows, on spend to the 12 Nov count\.$/);
   });
 
-  it("when the dates match, the sentence is unchanged", () => {
+  it("mixed count days: £2.08, on spend to each show's last count (latest 12 Nov)", () => {
     assert.equal(
-      sentence("2026-11-12"),
-      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.08 of spend per ticket.",
+      sentence({ spendPastCount: true, soldDaysDiffer: true }),
+      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, to 12 Nov), so £2.08 of spend per ticket, on spend to each show's last count (latest 12 Nov).",
     );
   });
 
-  it("shows last counted on different days read \"to {latest}\"", () => {
-    assert.match(sentence("2026-11-12", { soldDaysDiffer: true }), /\(Internal Counts, to 12 Nov\), so £2\.08 of spend per ticket\.$/);
+  it("no show's spend runs past its own last count: no clause", () => {
+    assert.equal(
+      sentence({ spendPastCount: false, costPerTicket: 14216 / 6795 }),
+      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.09 of spend per ticket.",
+    );
+    assert.equal(sentence({ spendPastCount: false, soldDaysDiffer: true, costPerTicket: 14216 / 6795 }).includes("on spend to"), false);
+  });
+});
+
+describe("D13 on the prod fixture: AZYR (9 Nov) with the shows counted 12 Nov", () => {
+  // The model has no scope that sums a finished show with live ones (Include
+  // finished adds chips only), so this is the calc over that list directly.
+  const input = { ...withHn1(loadProdFixture()), today: "2026-11-14" };
+  const series = [...buildSeries(input).values()];
+  const endDay = "2026-11-13";
+  const azyr = series.find((s) => s.show.code === "NX26-AZYR")!;
+  const counted12 = series.filter((s) => !s.show.isUmbrella && s.counts.at(-1)?.day === "2026-11-12");
+
+  it("each show's spend stops at its own last count, and the mixed form names it", () => {
+    // AZYR (7 Nov) is finished; its final Internal Count is 9 Nov.
+    assert.equal(azyr.finalDay, "2026-11-09");
+    assert.ok(counted12.length >= 2);
+    const list = [azyr, ...counted12];
+    const f = periodFigures(list, "launch", endDay);
+    assert.equal(f.soldDay, "2026-11-12");
+    assert.equal(f.soldDaysDiffer, true);
+    let capped = 0;
+    for (const s of list) {
+      const last = s.finalDay ?? s.counts.at(-1)!.day;
+      for (const d of s.days.values()) if (d.day <= last && d.day <= endDay) capped += d.spend;
+    }
+    assert.ok(near(f.costPerTicket!, capped / f.sold!, 1e-9));
+    assert.ok(f.spend > capped, "spend after each show's own count is in the total, not in cost per ticket");
+    assert.equal(f.spendPastCount, true);
+    const h = headerSentence({ kind: "venue", name: "NX Newcastle", launch: f, endDay, sourceLabels: SOURCE_LABEL, countedShows: list.length });
+    assert.match(h.sentence, /\(Internal Counts, to 12 Nov\), so £[\d.]+ of spend per ticket, on spend to each show's last count \(latest 12 Nov\)\.$/);
+  });
+
+  it("the shows counted 12 Nov alone: the single-date form", () => {
+    const f = periodFigures(counted12, "launch", endDay);
+    assert.equal(f.soldDaysDiffer, false);
+    const h = headerSentence({ kind: "venue", name: "NX Newcastle", launch: f, endDay, sourceLabels: SOURCE_LABEL, countedShows: counted12.length });
+    assert.match(h.sentence, /\(Internal Counts, 12 Nov\), so £[\d.]+ of spend per ticket, on spend to the 12 Nov count\.$/);
+  });
+
+  it("to the count date only (end 12 Nov): no spend past any count, no clause", () => {
+    const f = periodFigures(counted12, "launch", "2026-11-12");
+    assert.equal(f.spendPastCount, false);
+    const h = headerSentence({ kind: "venue", name: "NX Newcastle", launch: f, endDay: "2026-11-12", sourceLabels: SOURCE_LABEL, countedShows: counted12.length });
+    assert.doesNotMatch(h.sentence, /on spend to/);
   });
 });
 

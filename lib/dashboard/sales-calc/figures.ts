@@ -327,6 +327,8 @@ export interface PeriodFigures {
   soldDay: string | null;
   /** The counted shows' latest counts fall on more than one day (the header then reads "to {soldDay}"). */
   soldDaysDiffer: boolean;
+  /** Since launch: some counted show has spend after its own last count (D13: that spend is left out of cost per ticket). */
+  spendPastCount: boolean;
   soldSources: CountSource[];
   soldIsFinal: boolean;
   tickets: number | null;
@@ -408,13 +410,19 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
 
   let tickets: number | null = null;
   let costPerTicket: number | null = null;
+  let spendPastCount = false;
   if (period === "launch") {
     if (counted.length && sold != null) {
       tickets = sold;
       let capped = 0;
+      // D13: each show's spend stops at its own last count (a finished show's final count), the day its count date reads.
       for (const s of counted) {
-        const last = s.counts[s.counts.length - 1].day;
-        for (const f of s.days.values()) if (f.day <= last && f.day <= endDay) capped += f.spend;
+        const last = s.finalDay ?? s.counts[s.counts.length - 1].day;
+        for (const f of s.days.values()) {
+          if (f.day > endDay) continue;
+          if (f.day <= last) capped += f.spend;
+          else if (f.spend > 0) spendPastCount = true;
+        }
       }
       costPerTicket = ratio(capped, sold);
     }
@@ -472,6 +480,7 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
     soldComps: soldComps && soldComps > 0 ? soldComps : null,
     soldDay,
     soldDaysDiffer: soldDays.size > 1,
+    spendPastCount,
     soldSources: [...sources],
     soldIsFinal: counted.length > 0 && counted.every((s) => s.finalDay != null),
     tickets,
