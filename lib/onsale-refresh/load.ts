@@ -23,6 +23,7 @@ import { CONFIDENCE_SCORE, type Confidence } from "../learning/shrink.ts";
 import type { PhaseConfig, ResultEvent } from "./phase-config.ts";
 import { isOnSale } from "./on-sale.ts";
 import { mainRow, planPurchaseCampaign, planSentence, purchaseCampaignInput, type PcBudgets } from "./purchase-campaign.ts";
+import { copyCandidates, copyLineText, NO_AUDIENCE_TO_COPY, runningFrom, scalePurchase, type CopyCandidate, type ScaleResult } from "./purchase-scale.ts";
 import type { PurchaseRead } from "./purchases.ts";
 import { chooseObjective, type AdInput, type AdSetInput, type CampaignDraftRef, type CampaignInput, type ClaimInput, type ClusterInput, type SupplyFile, type SupplyMix } from "./rules.ts";
 import { addDaysIso, planRun, type RunPlan } from "./schedule.ts";
@@ -154,6 +155,8 @@ export type Aux = {
   drafts?: DraftRow[];
   /** P3: the new ad sets a standing default or a cluster bring-back made (migration 237), so they aren't proposed again. */
   storedAdSets?: { event_id: string; kind: string; campaign_key: string; meta_adset_id: string | null }[];
+  /** P4 PR C: the event's applied Purchase campaign, Scale and Copy audience lines (their writes and results). */
+  purchaseLines?: PurchaseLineRow[];
 };
 
 export type DraftRow = {
@@ -168,13 +171,15 @@ export type DraftRow = {
   budget_level?: string | null;
 };
 
+export type PurchaseLineRow = { id: string; kind: string; write: Record<string, unknown> | null; applied_result: Record<string, unknown> | null; applied_at: string | null; onsale_refresh_proposals: { event_id: string | null } | null };
+
 type AppliedAddRow = { id: string; target: { driveFileId?: string } | null; onsale_refresh_proposals: { event_id: string | null } | null };
 
 type LaunchedRenderRow = { drive_file_id: string | null; creative_lab_round_ads: { launch_state: string | null; round: { event_id: string | null } | null }[] | null };
 
 export async function loadAux(db: Db, eventIds: readonly string[], clientIds: readonly string[]): Promise<Aux> {
   const inEvents = (q: any) => q.in("event_id", eventIds);
-  const [scores, clusters, launchedAdSets, warnings, ticketing, driveFolders, launchedRenders, drafts, appliedAdds, storedAdSets] = await Promise.all([
+  const [scores, clusters, launchedAdSets, warnings, ticketing, driveFolders, launchedRenders, drafts, appliedAdds, storedAdSets, purchaseLines] = await Promise.all([
     eventIds.length
       ? loadAll<Aux["scores"][number] & { id: string; axis: string; fetched_at: string }>(db, "creative_scores", "id, event_id, creative_name, axis, score, significance, fetched_at", ["id"], (q) => inEvents(q).eq("axis", "convert"))
       : Promise.resolve([]),
@@ -195,6 +200,10 @@ export async function loadAux(db: Db, eventIds: readonly string[], clientIds: re
     eventIds.length
       ? loadAll<NonNullable<Aux["storedAdSets"]>[number] & { id: string }>(db, "onsale_refresh_audiences", "id, event_id, kind, campaign_key, meta_adset_id", ["id"], (q) => inEvents(q).eq("part", "adset")).catch(() => [])
       : Promise.resolve([]),
+    // P4 PR C: the applied Purchase campaign, Scale and Copy lines; before migration 242 there are none.
+    eventIds.length
+      ? loadAll<PurchaseLineRow>(db, "onsale_refresh_lines", "id, kind, write, applied_result, applied_at, onsale_refresh_proposals!inner(event_id)", ["id"], (q) => q.in("kind", ["purchase_campaign", "scale_purchase", "copy_audience"]).eq("state", "applied").in("onsale_refresh_proposals.event_id", eventIds)).catch(() => [] as PurchaseLineRow[])
+      : Promise.resolve([] as PurchaseLineRow[]),
   ]);
   const refreshDriveIds = new Map<string, Set<string>>();
   for (const row of appliedAdds) {
@@ -227,6 +236,7 @@ export async function loadAux(db: Db, eventIds: readonly string[], clientIds: re
     refreshDriveIds,
     drafts,
     storedAdSets,
+    purchaseLines,
   };
 }
 
@@ -607,13 +617,81 @@ export async function buildEventInputs(args: {
       return draft ? { draftId: draft.draftId, adAccountId: draft.adAccountId } : null;
     },
   });
+  // P4 PR C: the refresh-made Purchase campaign, if one runs: PC1 reads it as running, and PC4 scales it.
+  const running = runningFrom((aux.purchaseLines ?? []).filter((line) => line.onsale_refresh_proposals?.event_id === event.id));
+  if (running && !pcInput.existing) pcInput.existing = running.campaignName;
   const pcPlan = planPurchaseCampaign(pcInput);
+  const scale = running ? scaleFor({ running, rows, plan, event, read: args.purchases, budgets: args.purchaseBudgets ?? null, budget, spendToDate, committed: pcInput.committedGbp }) : null;
   const path = args.purchases?.state === "platform_proposed" ? "platform" : args.purchases?.state === "proposed" ? "own_domain" : args.purchases?.platform ? "platform" : null;
   const budgetBlock = { plan: planSentence(budget, spendToDate, plan.window.end), main: pcInput.main ? mainRow(pcInput.main, path) : null };
-  for (const campaign of campaigns) campaign.purchaseCampaign = { plan: pcPlan, isMain: campaign.campaignKey === pcInput.main?.campaignKey, budget: budgetBlock };
+  const mainKey = running?.mainCampaignKey || pcInput.main?.campaignKey;
+  for (const campaign of campaigns) campaign.purchaseCampaign = { plan: pcPlan, isMain: campaign.campaignKey === mainKey, budget: budgetBlock, ...(scale ? { scale } : {}) };
   return { event, plan, campaigns, driveCalls: supply.driveCalls, driveReason: supply.reason };
 }
 
 export function driveForRefresh(env: Record<string, string | undefined>): { drive: DriveApi | null; reason: string | null } {
   return driveFromEnv(env);
+}
+
+
+/** P4 PR C (PC4, HP4): the event's Scale step or hold note, and the audiences to copy into Purchase, from its ad-days and budgets. */
+export type PurchaseScalePlan = {
+  running: NonNullable<ReturnType<typeof runningFrom>>;
+  scale: ScaleResult;
+  copies: { candidate: CopyCandidate; text: ReturnType<typeof copyLineText>; cpp: number; ratio: number }[];
+  copyNote: string | null;
+};
+
+function scaleFor(args: { running: NonNullable<ReturnType<typeof runningFrom>>; rows: readonly InsightRow[]; plan: RunPlan; event: EventRow; read: PurchaseRead | undefined; budgets: PcBudgets | null; budget: number | null; spendToDate: number; committed: number | null }): PurchaseScalePlan {
+  const { running, rows, plan } = args;
+  const end = plan.window.end;
+  const since = running.lastStepOn ?? running.startedOn;
+  const sum = (list: readonly InsightRow[], key: "spend" | "purchases") => list.reduce((total, row) => total + num(row[key]), 0);
+  const upTo = rows.filter((row) => row.date <= end);
+  const purchaseRows = upTo.filter((row) => row.meta_campaign_id === running.campaignId);
+  const mainRows = running.mainCampaignId ? upTo.filter((row) => row.meta_campaign_id === running.mainCampaignId) : [];
+  const fromSince = (list: readonly InsightRow[]) => list.filter((row) => row.date >= since);
+  const inWeek = (list: readonly InsightRow[]) => list.filter((row) => row.date >= plan.window.start);
+  const signal = args.read?.state === "proposed" || args.read?.state === "platform_proposed";
+  const scale = scalePurchase({
+    running,
+    runDay: plan.day,
+    windowEnd: end,
+    eventDate: args.event.event_date ?? running.endDay,
+    signalHolds: signal,
+    purchase: { spend: sum(fromSince(purchaseRows), "spend"), purchases: sum(fromSince(purchaseRows), "purchases"), spentToDate: sum(purchaseRows, "spend"), lifetime: args.budgets?.campaigns.get(running.campaignId)?.lifetime ?? null },
+    main: {
+      spend: sum(fromSince(mainRows), "spend"),
+      purchases: sum(fromSince(mainRows), "purchases"),
+      spentToDate: sum(mainRows, "spend"),
+      lifetime: running.mainCampaignId ? (args.budgets?.campaigns.get(running.mainCampaignId)?.lifetime ?? null) : null,
+      last7Daily: Math.round((sum(inWeek(mainRows), "spend") / 7) * 100) / 100,
+    },
+    budgetGbp: args.budget,
+    spendToDateGbp: args.spendToDate,
+    committedGbp: args.committed,
+  });
+  // Copy an audience: the main campaign's ad sets over the week, purchases on the resolved pixel only (T3).
+  const pixelId = args.read?.pixel?.id ?? null;
+  const onPixel = (adsetId: string | null) => {
+    const meta = adsetId ? args.budgets?.adSets.get(adsetId) : undefined;
+    return !meta || !pixelId || meta.pixelId === pixelId;
+  };
+  const bySet = new Map<string, CopyCandidate>();
+  for (const row of inWeek(mainRows)) {
+    const name = (row.adset_name ?? row.meta_adset_id ?? "").trim();
+    const set = bySet.get(name) ?? { adsetId: row.meta_adset_id ?? "", name, spend: 0, purchases: 0 };
+    if (row.meta_adset_id && num(row.spend) > 0) set.adsetId = row.meta_adset_id;
+    set.spend += num(row.spend);
+    if (onPixel(row.meta_adset_id)) set.purchases += num(row.purchases);
+    bySet.set(name, set);
+  }
+  const eventWeek = inWeek(upTo);
+  const candidates = signal ? copyCandidates([...bySet.values()], running, { spend: sum(eventWeek, "spend"), purchases: sum(eventWeek, "purchases") }) : [];
+  return {
+    running,
+    scale,
+    copies: candidates.map((row) => ({ candidate: row.set, text: copyLineText(row, running), cpp: row.cpp, ratio: row.ratio })),
+    copyNote: signal && !candidates.length ? NO_AUDIENCE_TO_COPY : null,
+  };
 }

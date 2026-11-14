@@ -51,6 +51,8 @@ export type PanelLine = {
   card?: PurchaseCard | null;
   /** P4 (PC3): the daily rate picked on the card (write.dailyGbp). */
   dailyGbp?: number | null;
+  /** P4 PR C: a Purchase campaign line's show date (write.endDay), for F3's "judged on" sentence. */
+  endDay?: string | null;
 };
 
 /** The panel's gates (R4): live only with the deployment gate and the event's arm. */
@@ -67,6 +69,8 @@ export type PanelApply = {
   audienceWritesEnabled?: boolean;
   /** P4 PR B: the Purchase campaign's create gate. */
   campaignCreateEnabled?: boolean;
+  /** P4 PR C: the cross-campaign move gate. */
+  lifetimeBudgetWritesEnabled?: boolean;
   budgetSet: boolean;
 };
 
@@ -149,7 +153,7 @@ function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | n
     ...(writeKind ? { writeKind } : {}),
     ...(line.target?.extra ? { extra: line.target.extra } : {}),
     ...((line.evidence?.trackRecord as { state?: string } | undefined)?.state === "low" ? { trackRecord: "low" as const } : {}),
-    ...(line.kind === "purchase_campaign" && line.evidence?.card ? { card: line.evidence.card as PurchaseCard, dailyGbp: typeof line.write?.dailyGbp === "number" ? line.write.dailyGbp : null } : {}),
+    ...(line.kind === "purchase_campaign" && line.evidence?.card ? { card: line.evidence.card as PurchaseCard, dailyGbp: typeof line.write?.dailyGbp === "number" ? line.write.dailyGbp : null, endDay: typeof line.write?.endDay === "string" ? line.write.endDay : null } : {}),
   };
 }
 
@@ -282,7 +286,7 @@ export async function loadPanel(db: Db, eventId: string, env: Record<string, str
     const stopped = standingStops(proposal.notes.stopped, clientId, proposal.createdAt, restarts);
     return { ...proposal, notes: { ...proposal.notes, stopped } };
   });
-  return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, campaignCreateEnabled: gates.campaignCreateEnabled, budgetSet } };
+  return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, campaignCreateEnabled: gates.campaignCreateEnabled, lifetimeBudgetWritesEnabled: gates.lifetimeBudgetWritesEnabled, budgetSet } };
 }
 
 /** The canvas chip (R4): lines still To review on the event's latest proposals. */

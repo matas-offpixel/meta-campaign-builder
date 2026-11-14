@@ -1,6 +1,6 @@
 import { ObjectiveBlock, OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
 import type { PanelProposal } from "@/lib/onsale-refresh/read";
-import { OR1_PROPOSALS, OR2_WHY, OR3_WHY, OR4_STATES, OR5_WHY, OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS, OR9_PROPOSALS, OR10_PROPOSALS, OR_APPLY_LIVE, PF1_PROPOSALS, PF2_PROPOSALS } from "@/scripts/plan-frames/refresh-fixtures";
+import { OR1_PROPOSALS, OR2_WHY, OR3_WHY, OR4_STATES, OR5_WHY, OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS, OR9_PROPOSALS, OR10_PROPOSALS, OR_APPLY_LIVE, OR_APPLY_P4, PF1_PROPOSALS, PF2_PROPOSALS, PF4_AFTER, PF4_PROPOSALS } from "@/scripts/plan-frames/refresh-fixtures";
 
 /** The Objective block alone, in the panel's own card. */
 function ObjectiveFrame({ why }: { why: PanelProposal["why"] }) {
@@ -61,6 +61,11 @@ export function OnSaleRefreshFrameMount({ id }: { id: string }) {
         <OnSaleRefreshPanelView eventId="fixture" proposals={PF1_PROPOSALS} objectiveOnly />
       ) : id === "PF2" ? (
         <OnSaleRefreshPanelView eventId="fixture" proposals={PF2_PROPOSALS} objectiveOnly />
+      ) : id === "PF4" ? (
+        <div className="space-y-4">
+          <OnSaleRefreshPanelView eventId="fixture" proposals={PF4_PROPOSALS} apply={OR_APPLY_P4} objectiveOnly />
+          <OnSaleRefreshPanelView eventId="fixture" proposals={PF4_AFTER} apply={OR_APPLY_P4} objectiveOnly />
+        </div>
       ) : id === "OR10" ? (
         <OnSaleRefreshPanelView eventId="fixture" proposals={OR10_PROPOSALS} apply={OR_APPLY_LIVE} />
       ) : (

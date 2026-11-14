@@ -34,10 +34,12 @@ export type WriteGates = {
   audienceWritesEnabled?: boolean;
   /** P4 PR B: the Purchase campaign's create gate. */
   campaignCreateEnabled?: boolean;
+  /** P4 PR C: the cross-campaign move gate (Scale Purchase). */
+  lifetimeBudgetWritesEnabled?: boolean;
 };
 
 /** P2 wrote creatives; P3 adds bring-backs (a stopped ad set, or a cluster's new ad set), drops, within-campaign moves and standing defaults. */
-export const APPLY_KINDS: readonly LineKind[] = ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default", "purchase_campaign"];
+export const APPLY_KINDS: readonly LineKind[] = ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default", "purchase_campaign", "scale_purchase", "copy_audience"];
 
 /**
  * Lines that turn delivery on or raise a budget, so add spend: the plan
@@ -84,6 +86,9 @@ export function writeGateOpen(line: GateLine, gates: WriteGates): boolean {
   if (line.kind === "move_budget") return Boolean(gates.budgetWritesEnabled);
   // P4 PR B: the campaign-create gate; a move out of the main campaign and a custom conversion are checked again, per step, at apply time.
   if (line.kind === "purchase_campaign") return Boolean(gates.campaignCreateEnabled);
+  // P4 PR C: Scale moves lifetime between campaigns (the cross-campaign move gate); a copied audience builds into the Purchase campaign (the create gate).
+  if (line.kind === "scale_purchase") return Boolean(gates.lifetimeBudgetWritesEnabled);
+  if (line.kind === "copy_audience") return Boolean(gates.campaignCreateEnabled);
   return false;
 }
 

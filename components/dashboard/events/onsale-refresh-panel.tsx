@@ -9,6 +9,7 @@ import { REJECT_REASONS, acceptable, appliesNow, displayState, heldText, panelTe
 import type { PanelApply, PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 import { isShowWeek } from "@/lib/onsale-refresh/on-sale";
 import { appliedStamp, dayMonth, outcomeWeek, shortDay, todayLondon, weekLabel } from "@/lib/onsale-refresh/schedule";
+import { purchaseJudgedText } from "@/lib/onsale-refresh/purchase-scale";
 
 /**
  * The Refresh panel (R4, F1 at 1280, F2 at 393, F3 after Apply): the
@@ -29,9 +30,13 @@ const KIND_LABEL: Record<PanelLine["kind"], string> = {
   drop_audience: "Drop",
   move_budget: "Move",
   purchase_campaign: "Purchase campaign",
+  scale_purchase: "Scale",
+  copy_audience: "Copy into Purchase",
 };
 
 const CREATIVE_KINDS = new Set<PanelLine["kind"]>(["add_creative", "claim_ready", "pause_creative"]);
+/** P4: drawn in Objective (the Purchase campaign) and the Budget block (Scale, Copy into Purchase), never in a campaign's lists. */
+const PURCHASE_LINE_KINDS = new Set<PanelLine["kind"]>(["purchase_campaign", "scale_purchase", "copy_audience"]);
 
 function nextLine(proposal: PanelProposal, wide: boolean): string {
   const parts: string[] = [];
@@ -384,7 +389,38 @@ const H6 = ({ children }: { children: ReactNode }) => <p className="mt-2 text-[1
 export function PurchaseCampaignCard({ line: stored, shadow, apply, actions = {}, frozen = false }: { line: PanelLine; shadow: boolean; apply?: PanelApply; actions?: PanelActions; frozen?: boolean }) {
   const card = stored.card!;
   const line = apply ? { ...stored, state: displayState(stored) } : stored;
-  const [rate, setRate] = useState<number>(stored.dailyGbp ?? card.defaultRate);
+  if (line.state === "applied" || line.state === "failed" || line.state === "applying" || line.state === "expired") return <PurchaseCampaignResult line={line} apply={apply} actions={actions} frozen={frozen} />;
+  return <PurchaseCampaignProposed line={line} card={card} shadow={shadow} apply={apply} actions={actions} frozen={frozen} />;
+}
+
+/** P4 PR C (PC5, F3): the Purchase campaign line after Apply — its name and the result; Retry on a failure. */
+function PurchaseCampaignResult({ line, apply, actions, frozen }: { line: PanelLine; apply?: PanelApply; actions: PanelActions; frozen: boolean }) {
+  const live = Boolean(apply && apply.mode === "live" && !frozen);
+  const retry = apply ? retriesNow(line, apply) : false;
+  return (
+    <div className="mt-2 rounded border border-border/70 p-3" data-kind="purchase_campaign" data-state={line.state}>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Purchase</span>
+            <span className="break-words text-sm font-medium">{line.title}</span>
+          </div>
+          <p className={`mt-0.5 text-xs ${line.state === "failed" ? "text-destructive" : line.state === "applied" ? "font-medium text-foreground" : "text-muted-foreground"}`} data-line-state={line.state}>
+            {stateText(line.state, line.reason)}
+          </p>
+        </div>
+        {line.state === "failed" ? (
+          <Button type="button" size="sm" variant="outline" disabled={!live || Boolean(actions.busy) || !retry} onClick={() => actions.onApply?.({ retry: true, lineIds: [line.id] })}>
+            Retry
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PurchaseCampaignProposed({ line, card, shadow, apply, actions = {}, frozen = false }: { line: PanelLine; card: NonNullable<PanelLine["card"]>; shadow: boolean; apply?: PanelApply; actions?: PanelActions; frozen?: boolean }) {
+  const [rate, setRate] = useState<number>(line.dailyGbp ?? card.defaultRate);
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [other, setOther] = useState<string | null>(null);
@@ -556,17 +592,36 @@ export function PurchaseCampaignCard({ line: stored, shadow, apply, actions = {}
 }
 
 /** P4 (PF1, PF2): the Budget block — the plan sentence with an event budget, and the main campaign's comparison row (not at 393). */
-function BudgetBlock({ budget }: { budget: NonNullable<PanelProposal["why"]["budget"]> }) {
-  if (!budget.plan && !budget.main) return null;
+function BudgetBlock({ budget, lines = [], notes = null, children }: { budget: NonNullable<PanelProposal["why"]["budget"]>; lines?: PanelLine[]; notes?: { hold: string | null; copy: string | null; cap: string | null } | null; children?: ReactNode }) {
+  const scaling = lines.length > 0 || Boolean(notes?.hold || notes?.copy);
+  if (!budget.plan && !budget.main && !scaling) return null;
   return (
     <div className="mb-3" data-block="budget">
+      {budget.plan || scaling ? <p className="text-xs font-medium">Budget</p> : null}
       {budget.plan ? (
-        <>
-          <p className="text-xs font-medium">Budget</p>
-          <p className="text-xs">
-            <Wide wide={budget.plan.wide} narrow={budget.plan.narrow} />
-          </p>
-        </>
+        <p className="text-xs">
+          <Wide wide={budget.plan.wide} narrow={budget.plan.narrow} />
+        </p>
+      ) : null}
+      {scaling ? (
+        <div className="mt-1" data-block="scale">
+          {children}
+          {notes?.hold ? (
+            <p className="mt-1 text-xs text-muted-foreground" data-purchase-hold>
+              {notes.hold}
+            </p>
+          ) : null}
+          {notes?.copy ? (
+            <p className="mt-1 text-xs text-muted-foreground" data-copy-note>
+              {notes.copy}
+            </p>
+          ) : null}
+          {notes?.cap && lines.some((line) => line.kind === "scale_purchase" && (line.state === "to_review" || line.state === "accepted")) ? (
+            <p className="mt-1 text-xs text-muted-foreground" data-scale-cap>
+              {notes.cap}
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {budget.main ? (
         <p className="mt-1 hidden flex-wrap items-baseline gap-x-2 text-xs sm:flex" data-main-row>
@@ -613,6 +668,14 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
   const lastApplied = appliedLines.at(-1)?.appliedAt ?? null;
   const appliedBy = appliedLines.at(-1)?.appliedBy?.includes("@") ? null : (appliedLines.at(-1)?.appliedBy ?? null);
   const outcome = lastApplied ? outcomeWeek(lastApplied) : null;
+  // P4 PR C: the Scale and Copy lines sit in the Budget block; the Purchase campaign's F3 sentence says what's judged when (PC6).
+  const scaleLines = all.filter((line) => line.kind === "scale_purchase" || line.kind === "copy_audience");
+  const purchaseNotes = proposals.map((proposal) => proposal.notes.purchase).find(Boolean) ?? null;
+  const appliedPurchase = appliedLines.filter((line) => line.kind === "purchase_campaign" && line.appliedAt && line.endDay).at(-1);
+  const appliedStep = appliedLines.filter((line) => line.kind === "scale_purchase" && line.appliedAt).at(-1);
+  const judged = appliedPurchase
+    ? purchaseJudgedText({ startedOn: todayLondon(new Date(appliedPurchase.appliedAt!)), endDay: appliedPurchase.endDay! }, appliedStep ? { appliedOn: todayLondon(new Date(appliedStep.appliedAt!)), direction: appliedStep.title.includes(" down:") ? "down" : "up" } : null)
+    : null;
   return (
     <section id="onsale-refresh" className="rounded-md border border-border bg-card p-4" data-mode={apply ? apply.mode : head.mode}>
       {apply && showWeek ? <p className="mb-2 text-xs font-medium">Show week: the refresh has stopped.</p> : null}
@@ -653,12 +716,20 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
             <PurchaseCampaignCard key={line.id} line={line} shadow={shadow} apply={apply} actions={actions} frozen={showWeek} />
           ))}
       </ObjectiveBlock>
-      {head.why.budget ? <BudgetBlock budget={head.why.budget} /> : null}
+      {head.why.budget || scaleLines.length || purchaseNotes ? (
+        <BudgetBlock budget={head.why.budget ?? { plan: null, main: null }} lines={scaleLines} notes={purchaseNotes}>
+          {scaleLines.length ? (
+            <ul className="space-y-2">
+              {scaleLines.map((line) => (apply ? <LiveLineRow key={line.id} line={line} apply={apply} actions={actions} frozen={showWeek} /> : <LineRow key={line.id} line={line} shadow={shadow} />))}
+            </ul>
+          ) : null}
+        </BudgetBlock>
+      ) : null}
 
       {objectiveOnly ? null : proposals.map((proposal) => {
         const creatives = proposal.lines.filter((line) => CREATIVE_KINDS.has(line.kind));
         // P4: the Purchase campaign line is drawn in Objective, not in a campaign's lists.
-        const audiences = proposal.lines.filter((line) => !CREATIVE_KINDS.has(line.kind) && line.kind !== "purchase_campaign");
+        const audiences = proposal.lines.filter((line) => !CREATIVE_KINDS.has(line.kind) && !PURCHASE_LINE_KINDS.has(line.kind));
         return (
           <div key={proposal.id} className="mb-3 border-t border-border pt-3">
             <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between">
@@ -713,12 +784,14 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
         );
       })}
 
-      {objectiveOnly ? null : apply ? (
+      {objectiveOnly && !apply ? null : apply ? (
         <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-muted-foreground">
             <p>
               {shadow ? (
                 <Wide wide="Shadow: nothing here can be applied yet. Each line is checked against next week's data." narrow="Shadow: nothing applies yet." />
+              ) : judged ? (
+                <span data-purchase-judged>{kd(judged)}</span>
               ) : outcome ? (
                 <Wide wide={kd(`Outcomes are checked ${shortDay(outcome.checked)} on the week to ${shortDay(outcome.to)}.`)} narrow={kd(`Checked ${shortDay(outcome.checked)}.`)} />
               ) : (

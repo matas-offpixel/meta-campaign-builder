@@ -17,6 +17,7 @@ export const PURCHASE_CAMPAIGN_SHOTS = [
   { id: "PF2-1280", frame: "onsale/PF2", width: 1280, lab: false, before: null },
   { id: "PF3a-393", frame: "onsale/PF1", width: 393, lab: false, before: null },
   { id: "PF3b-393", frame: "onsale/PF2", width: 393, lab: false, before: null },
+  { id: "PF4-1280", frame: "onsale/PF4", width: 1280, lab: false, before: null },
 ];
 
 export const REFRESH_SHOTS = [

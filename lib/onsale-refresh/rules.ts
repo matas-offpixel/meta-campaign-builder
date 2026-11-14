@@ -36,6 +36,7 @@ import {
 } from "./new-adset.ts";
 import { RESULT_LABEL, type PhaseConfig, type ResultEvent } from "./phase-config.ts";
 import { stoppedText, trackKey, type TrackRecords } from "./track-record.ts";
+import type { PurchaseScalePlan } from "./load.ts";
 import { runningForm, type PcState, type PurchaseCampaignPlan } from "./purchase-campaign.ts";
 import { purchaseWhy, unreadPurchases, type PurchaseRead } from "./purchases.ts";
 import { dayMonth, shortDay, type RunPlan } from "./schedule.ts";
@@ -189,7 +190,7 @@ export type CampaignInput = {
    * campaign of the event; `isMain` marks the campaign the line goes on.
    * Absent on inputs built before P4.
    */
-  purchaseCampaign?: { plan: PurchaseCampaignPlan; isMain: boolean; budget: { plan: { wide: string; narrow: string } | null; main: { campaignKey: string; detail: string } | null } };
+  purchaseCampaign?: { plan: PurchaseCampaignPlan; isMain: boolean; budget: { plan: { wide: string; narrow: string } | null; main: { campaignKey: string; detail: string } | null }; /** P4 PR C (PC4): the running Purchase campaign's step and copies. */ scale?: PurchaseScalePlan };
 };
 
 export type LineKind =
@@ -200,7 +201,9 @@ export type LineKind =
   | "missing_default"
   | "drop_audience"
   | "move_budget"
-  | "purchase_campaign";
+  | "purchase_campaign"
+  | "scale_purchase"
+  | "copy_audience";
 
 export type ProposalLine = {
   kind: LineKind;
@@ -268,6 +271,8 @@ export type Proposal = {
     adds: string;
     /** P5: rules stopped for this client (R6), each with the sentence the panel shows. Absent while scoring is off. */
     stopped?: { ruleId: string; text: string }[];
+    /** P4 PR C (PC4): the Purchase campaign's hold note, the "no audience to copy" note and the Scale line's cap sentence. */
+    purchase?: { hold: string | null; copy: string | null; cap: string | null };
   };
   campaignSummary: string;
 };
@@ -767,6 +772,48 @@ export function purchaseCampaignLine(input: CampaignInput): ProposalLine | null 
   };
 }
 
+/** P4 PR C (PC4): the Scale Purchase line and the Copy audience lines, on the main campaign only. */
+export function purchaseScaleLines(input: CampaignInput): { lines: ProposalLine[]; notes: { hold: string | null; copy: string | null; cap: string | null } | null } {
+  const pc = input.purchaseCampaign;
+  const plan = pc?.scale;
+  if (!pc?.isMain || !plan) return { lines: [], notes: null };
+  const lines: ProposalLine[] = [];
+  const { running, scale } = plan;
+  if (scale.kind === "line") {
+    lines.push({
+      kind: "scale_purchase",
+      ruleId: `scale_purchase.${scale.write.direction}`,
+      title: scale.title,
+      detail: scale.detail,
+      writeText: scale.writeText,
+      narrow: { detail: scale.narrowDetail, writeText: scale.narrowWrite },
+      target: { purchaseCampaignId: running.campaignId, since: scale.write.since },
+      evidence: { ...scale.write.before, capText: scale.capText, direction: scale.write.direction },
+      write: { ...scale.write, mainShort: running.mainShort, mainCampaignKey: running.mainCampaignKey, ...whereTo(input) },
+      addsSpend: scale.write.headroom > 0,
+      blockedReason: notOurs(input),
+      supply: false,
+    });
+  }
+  for (const copy of plan.copies) {
+    lines.push({
+      kind: "copy_audience",
+      ruleId: "copy_audience.winner",
+      title: copy.text.title,
+      detail: copy.text.detail,
+      writeText: copy.text.writeText,
+      narrow: { detail: copy.text.narrowDetail, writeText: null },
+      target: { sourceAdsetId: copy.candidate.adsetId, purchaseCampaignId: running.campaignId },
+      evidence: { purchases: copy.candidate.purchases, spend: Math.round(copy.candidate.spend * 100) / 100, cpp: Math.round(copy.cpp * 100) / 100, ratio: Math.round(copy.ratio * 100) / 100 },
+      write: { kind: "purchase_copy_audience", purchaseCampaignId: running.campaignId, purchaseCampaignName: running.campaignName, sourceAdsetId: copy.candidate.adsetId, sourceName: copy.candidate.name, pixelId: running.pixelId, customConversionId: running.customConversionId, endDay: running.endDay, ads: running.ads, mainShort: running.mainShort, ...whereTo(input) },
+      addsSpend: false,
+      blockedReason: notOurs(input),
+      supply: false,
+    });
+  }
+  return { lines, notes: { hold: scale.kind === "hold" ? scale.note : null, copy: plan.copyNote, cap: scale.kind === "line" ? scale.capText : null } };
+}
+
 export function buildProposal(input: CampaignInput, config: PhaseConfig, trackRecords?: TrackRecords): Proposal {
   const objective = input.resultEvent;
   const why = withPurchaseCampaign(whyLines(input, objective, config), input);
@@ -785,6 +832,9 @@ export function buildProposal(input: CampaignInput, config: PhaseConfig, trackRe
   // P4: the Purchase campaign line leads the main campaign's lines; it adds spend only from plan headroom.
   const purchase = purchaseCampaignLine(input);
   if (purchase) proposed.unshift({ ...purchase, evidence: { ...purchase.evidence, attributedPurchases } });
+  // P4 PR C: Scale Purchase and Copy audience, on the main campaign (budget lines: they run on the mid-cycle check too).
+  const scaled = purchaseScaleLines(input);
+  proposed.push(...scaled.lines.map((line) => ({ ...line, evidence: { ...line.evidence, attributedPurchases } })));
   const tracked = applyTrackRecords(proposed, input.clientId, trackRecords);
   const lines = tracked.lines;
   return {
@@ -795,7 +845,7 @@ export function buildProposal(input: CampaignInput, config: PhaseConfig, trackRe
     notEnoughData,
     lines,
     watch: { creatives: pauses.watch, audiences: audiences.watch },
-    notes: { pauses: pauses.note, drops: audiences.note, adds: "Files uploaded by hand in Ads Manager aren't matched.", ...(tracked.stopped?.length ? { stopped: tracked.stopped } : {}) },
+    notes: { pauses: pauses.note, drops: audiences.note, adds: "Files uploaded by hand in Ads Manager aren't matched.", ...(tracked.stopped?.length ? { stopped: tracked.stopped } : {}), ...(scaled.notes ? { purchase: scaled.notes } : {}) },
     campaignSummary: campaignSummary(input),
   };
 }

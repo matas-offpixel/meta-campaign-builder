@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ObjectiveBlock, OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
 import { panelText } from "@/lib/onsale-refresh/line-states";
 import { LOW_TRACK_RECORD } from "@/lib/onsale-refresh/track-labels";
-import { OR2_WHY, OR3_WHY, OR4_STATES, OR5_WHY, OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_CLUSTER, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR8_RETARGETING, OR8_SEED, OR9_PROPOSALS, OR9_RESULTS, OR10_PROPOSALS, OR10_STOPPED, OR_APPLY_LIVE, PF1_PROPOSALS, PF2_PROPOSALS } from "@/scripts/plan-frames/refresh-fixtures";
+import { OR2_WHY, OR3_WHY, OR4_STATES, OR5_WHY, OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_CLUSTER, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR8_RETARGETING, OR8_SEED, OR9_PROPOSALS, OR9_RESULTS, OR10_PROPOSALS, OR10_STOPPED, OR_APPLY_LIVE, OR_APPLY_P4, PF1_PROPOSALS, PF2_PROPOSALS, PF4_AFTER, PF4_PROPOSALS } from "@/scripts/plan-frames/refresh-fixtures";
 
 afterEach(() => {
   cleanup();
@@ -290,5 +290,30 @@ describe("P4: the Purchase campaign card and the Budget block (PF1–PF3)", () =
     await user.click(within(card).getByRole("button", { name: "Reject" }));
     await user.click(within(card).getByRole("button", { name: "Not this show" }));
     expect(onDecide).toHaveBeenCalledWith("pf2", "reject", "not_this_show");
+  });
+});
+
+
+describe("P4 PR C: PF4 — Scale Purchase in the Budget block, then F3 after Apply", () => {
+  it("the running sentence, the Scale line with its evidence and write, the copy note and the cap sentence", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={PF4_PROPOSALS} apply={OR_APPLY_P4} objectiveOnly />);
+    expect(screen.getAllByText(/^Purchase campaign running — 31 purchases attributed to these ads in 14 days/).length).toBeGreaterThan(0);
+    const budget = document.querySelector('[data-block="budget"]') as HTMLElement;
+    const scope = within(budget);
+    expect(scope.getByText("Scale Purchase up: £5 → £10 a day")).toBeTruthy();
+    expect(scope.getAllByText("Since Mon 16 Nov: Purchase £11.67 per attributed purchase (6), On Sale £40.00 (14) · 0.29×").length).toBeGreaterThan(0);
+    expect(scope.getByText("Purchase £5 → £10 a day: lifetime £130 → £190 · On Sale lifetime £1,370 → £1,310 (12 days × £5) · On Sale keeps at least £970 (spent £850 + 3 days at £40)")).toBeTruthy();
+    expect(scope.getByText("No audience to copy into Purchase: none had 5 purchases at 0.75× the event's cost last week.")).toBeTruthy();
+    expect(scope.getByText("The extra £60 is within 20 % of what On Sale has left (£104); this event has no budget.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Apply accepted (1)" })).toBeTruthy();
+  });
+
+  it("after Apply: the Purchase line's result, a failed one with Retry, the step's result, and what's judged when", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={PF4_AFTER} apply={OR_APPLY_P4} objectiveOnly />);
+    expect(screen.getByText("Applied · live · 2 ad sets · 3 ads · £5 a day, £130 lifetime to 11 Dec (£0 from plan headroom + £130 from On Sale)")).toBeTruthy();
+    expect(screen.getByText("Failed — Meta refused an ad set: its audience is too small. Created paused: the campaign. On Sale's budget is unchanged.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(screen.getByText("Applied · Purchase £5 → £10 a day (£130 → £190) · On Sale £1,370 → £1,310")).toBeTruthy();
+    expect(screen.getByText("The Purchase line is judged on 16–29 Nov (its first 14 days), with which pick won; the step up on the week to Sun 6 Dec.")).toBeTruthy();
   });
 });

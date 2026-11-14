@@ -1,7 +1,9 @@
 import type { PanelApply, PanelProposal } from "@/lib/onsale-refresh/read";
 
 import { ONSALE_PHASE } from "../../lib/onsale-refresh/phase-config.ts";
-import { mainRow, planPurchaseCampaign, planSentence, type PcMain } from "../../lib/onsale-refresh/purchase-campaign.ts";
+import { mainRow, planPurchaseCampaign, planSentence, runningForm, type PcMain } from "../../lib/onsale-refresh/purchase-campaign.ts";
+import { appliedText, failedBeforeLive } from "../../lib/onsale-refresh/apply-purchase.ts";
+import { NO_AUDIENCE_TO_COPY, scaleAppliedText, scalePurchase } from "../../lib/onsale-refresh/purchase-scale.ts";
 import { purchaseWhy, type PurchaseRead, type PurchaseState } from "../../lib/onsale-refresh/purchases.ts";
 
 /**
@@ -654,5 +656,82 @@ const PF_EMPTY = { createdAt: "2026-11-14T08:00:00Z", blockers: [], enoughData: 
 export const PF1_PROPOSALS: PanelProposal[] = [{ id: "pf1", campaignKey: "[P26-BDAY] Puzzle - 27 Dec - On Sale", campaignSummary: null, ...PF_WEEK, ...PF_EMPTY, why: PF1_WHY, lines: [] }];
 export const PF2_PROPOSALS: PanelProposal[] = [{ id: "pf2", campaignKey: "[NX26-LOCKLEAD] On Sale", campaignSummary: null, ...PF_WEEK, ...PF_EMPTY, why: PF2_WHY, lines: [PF2_LINE] }];
 
-export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8", "OR9", "OR10", "PF1", "PF2"] as const;
+/**
+ * PF4 (P4 PR C): Locklead two weeks later, every figure the record's
+ * example. The Mon 30 Nov mid-cycle check: the Purchase campaign has run
+ * 14 days at £5 a day, £70 of its £130 spent for 6 attributed purchases;
+ * On Sale £560 for 14 since Mon 16 Nov, £850 spent to date at £40 a day,
+ * lifetime £1,370. The Scale line is built by scalePurchase; then the same
+ * lines after Apply, in F3's form.
+ */
+const PF4_SCALE = scalePurchase({
+  running: { campaignId: "120253000000000755", campaignName: "[NX26-LOCKLEAD] Locklead - Purchase", mainCampaignId: "120252504416990755", mainCampaignKey: "[NX26-LOCKLEAD] On Sale", mainShort: "On Sale", startedOn: "2026-11-16", lastStepOn: null, rate: 5, copied: { ids: [], names: [] }, ads: [], pixelId: NX_PIXEL, path: "platform" },
+  runDay: "2026-11-30",
+  windowEnd: "2026-11-29",
+  eventDate: "2026-12-11",
+  signalHolds: true,
+  purchase: { spend: 70, purchases: 6, spentToDate: 70, lifetime: 130 },
+  main: { spend: 560, purchases: 14, spentToDate: 850, lifetime: 1370, last7Daily: 40 },
+  budgetGbp: null,
+  spendToDateGbp: 920,
+  committedGbp: null,
+});
+if (PF4_SCALE.kind !== "line") throw new Error("PF4's figures must step up");
+
+const PF4_RUNNING_READ = read("platform_proposed", { ...NX_MISMATCH, pixel: { id: NX_PIXEL, source: "ad_sets" as const, spendShare: 1, stored: NX_PIXEL, matches: true }, platform: "Skiddle", platformShare: { purchases: 677, pixelPurchases: 836, share: 677 / 836, elsewhereHost: "ra.co" }, attributedOnPixel: credited(31, "2026-11-16", false) });
+const PF4_WHY_BASE = purchaseWhy(PF4_RUNNING_READ, false, ONSALE_PHASE);
+export const PF4_WHY: PanelProposal["why"] = {
+  ...PF4_WHY_BASE,
+  ...runningForm(PF4_WHY_BASE.purchase, PF4_WHY_BASE.purchaseNarrow),
+  objective: "",
+  ticketing: null,
+  pixel: [],
+  pixelNarrow: [],
+  purchaseCampaign: { state: "running", sentence: null, sentenceNarrow: null },
+  budget: { plan: null, main: null },
+};
+
+const PF4_LINE = (over: Partial<PanelProposal["lines"][number]> & Pick<PanelProposal["lines"][number], "id" | "kind" | "title" | "state">): PanelProposal["lines"][number] => ({
+  detail: "",
+  writeText: "",
+  narrow: { detail: "", writeText: null },
+  addsSpend: false,
+  blockedReason: null,
+  supply: false,
+  reason: null,
+  ...over,
+});
+
+const PF4_WEEK = { runKind: "mid_cycle" as const, runDay: "2026-11-30", cycleMonday: "2026-11-23", cycleKind: "payday" as const, windowStart: "2026-11-23", windowEnd: "2026-11-29", nextCheck: "2026-12-07", nextCycle: "2026-12-07", nextCycleKind: "content" as const };
+const PF4_BASE = { createdAt: "2026-11-30T06:00:00Z", blockers: [], enoughData: true, notEnoughData: null, watch: { creatives: [], audiences: [] }, mode: "live" as const, objective: "initiate_checkout" as const, campaignSummary: null, campaignKey: "[NX26-LOCKLEAD] On Sale" };
+
+export const PF4_PROPOSALS: PanelProposal[] = [
+  {
+    id: "pf4",
+    ...PF4_WEEK,
+    ...PF4_BASE,
+    why: PF4_WHY,
+    notes: { pauses: "", drops: "", adds: "", purchase: { hold: null, copy: NO_AUDIENCE_TO_COPY, cap: PF4_SCALE.capText } },
+    lines: [PF4_LINE({ id: "pf4-scale", kind: "scale_purchase", title: PF4_SCALE.title, detail: PF4_SCALE.detail, writeText: PF4_SCALE.writeText, narrow: { detail: PF4_SCALE.narrowDetail, writeText: PF4_SCALE.narrowWrite }, state: "accepted", writeKind: "purchase_scale" })],
+  },
+];
+
+export const PF4_AFTER: PanelProposal[] = [
+  {
+    id: "pf4-after",
+    ...PF4_WEEK,
+    ...PF4_BASE,
+    why: { ...PF4_WHY, purchase: "", purchaseNarrow: "", attributed: null, context: null, contextNarrow: null, moves: "", purchaseCampaign: { state: "running", sentence: null, sentenceNarrow: null } },
+    notes: { pauses: "", drops: "", adds: "" },
+    lines: [
+      PF4_LINE({ id: "pf4-pc", kind: "purchase_campaign", title: "[NX26-LOCKLEAD] Locklead - Purchase", state: "applied", reason: appliedText({ adSets: 2, ads: 3, rate: 5, lifetime: 130, endDay: "2026-12-11", headroom: 0, moved: 130, mainShort: "On Sale" }), appliedAt: "2026-11-16T08:37:00Z", card: PF2_CARD, endDay: "2026-12-11", writeKind: "purchase_campaign_create" }),
+      PF4_LINE({ id: "pf4-pc-failed", kind: "purchase_campaign", title: "[NX26-LOCKLEAD] Locklead - Purchase", state: "failed", reason: failedBeforeLive("Meta refused an ad set: its audience is too small", { campaignId: "c" }, "On Sale"), card: PF2_CARD, endDay: "2026-12-11", writeKind: "purchase_campaign_create" }),
+      PF4_LINE({ id: "pf4-scale-applied", kind: "scale_purchase", title: PF4_SCALE.title, state: "applied", reason: scaleAppliedText(PF4_SCALE.write, "On Sale"), appliedAt: "2026-11-30T08:44:00Z", writeKind: "purchase_scale" }),
+    ],
+  },
+];
+
+export const OR_APPLY_P4: PanelApply = { ...OR_APPLY_LIVE, campaignCreateEnabled: true, lifetimeBudgetWritesEnabled: true };
+
+export const REFRESH_FRAME_IDS = ["OR1", "OR2", "OR3", "OR4", "OR5", "OR6", "OR7", "OR8", "OR9", "OR10", "PF1", "PF2", "PF4"] as const;
 export const REFRESH_FRAME_WIDTHS = [1280, 393] as const;

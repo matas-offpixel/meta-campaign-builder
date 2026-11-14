@@ -24,7 +24,7 @@ import { adStatusWritesEnabled } from "../meta/ad-status-write.ts";
 import { adsetStatusWritesEnabled } from "../meta/adset-status-write.ts";
 import { isOptimisationWritesEnabledFromEnv } from "../optimisation/gates.ts";
 
-import { campaignCreateEnabled } from "./apply-purchase.ts";
+import { campaignCreateEnabled, lifetimeBudgetWritesEnabled } from "./apply-purchase.ts";
 
 export { APPLY_KINDS, REJECT_REASONS, appliesNow, isRejectReason, retriesNow, type RejectReason } from "./line-states.ts";
 
@@ -53,6 +53,8 @@ export type ApplyGates = {
   audienceWritesEnabled: boolean;
   /** P4 PR B: the Purchase campaign's own gate (ONSALE_REFRESH_CAMPAIGN_CREATE_ENABLED). */
   campaignCreateEnabled?: boolean;
+  /** P4 PR C: the cross-campaign move gate (ONSALE_REFRESH_LIFETIME_BUDGET_WRITES_ENABLED): Scale Purchase. */
+  lifetimeBudgetWritesEnabled?: boolean;
 };
 
 /** The audience builder's own gate (lib/meta/audience-write.ts reads the same variable). */
@@ -63,5 +65,5 @@ export function audienceWritesEnabledFrom(env: Record<string, string | undefined
 export function applyGates(env: Record<string, string | undefined>, arm: ArmMode | null | undefined): ApplyGates {
   const globalEnabled = applyEnabled(env);
   const armed: ArmMode = arm === "live" ? "live" : "shadow";
-  return { globalEnabled, arm: armed, mode: globalEnabled && armed === "live" ? "live" : "shadow", pauseWritesEnabled: adStatusWritesEnabled(env), adsetStatusWritesEnabled: adsetStatusWritesEnabled(env), budgetWritesEnabled: isOptimisationWritesEnabledFromEnv(env), audienceWritesEnabled: audienceWritesEnabledFrom(env), campaignCreateEnabled: campaignCreateEnabled(env) };
+  return { globalEnabled, arm: armed, mode: globalEnabled && armed === "live" ? "live" : "shadow", pauseWritesEnabled: adStatusWritesEnabled(env), adsetStatusWritesEnabled: adsetStatusWritesEnabled(env), budgetWritesEnabled: isOptimisationWritesEnabledFromEnv(env), audienceWritesEnabled: audienceWritesEnabledFrom(env), campaignCreateEnabled: campaignCreateEnabled(env), lifetimeBudgetWritesEnabled: lifetimeBudgetWritesEnabled(env) };
 }
