@@ -234,7 +234,7 @@ describe("D5 chart", () => {
     assert.equal(chartRows([s], "2026-11-12").at(-1)!.day, "2026-11-07");
     const build = buildSalesDashboard(input({ shows: [a], rollups: [roll("a", "2026-11-02", 5)] }));
     const sold = build.model.views["a-1"].tiles.find((t) => t.id === "sold")!;
-    assert.equal(sold.detail, "Final count · Internal Counts, 9 Nov · plus 40 comps");
+    assert.equal(sold.detail, "to date · Final count · Internal Counts, 9 Nov · plus 40 comps");
   });
 });
 
@@ -383,14 +383,22 @@ describe("words and surfaces", () => {
     rollups: [roll("a", "2026-11-12", 100, 10)],
   });
 
-  it("names the one source on the Sold tile, comps as context", () => {
-    const view = buildSalesDashboard(data).model.views["a-1"];
+  it("names the one source on the Sold tile, comps as context; sublines start with their span (N7)", () => {
+    const build = buildSalesDashboard(data);
+    const view = build.model.views["a-1"];
     assert.equal(view.title, "Show A · NX Newcastle");
     assert.equal(view.subtitle, "Sat 21 Nov · allocation 1,500");
     const sold = view.tiles.find((t) => t.id === "sold")!;
     assert.equal(sold.value, "812");
-    assert.equal(sold.detail, "Internal Counts, 12 Nov · plus 64 comps");
-    assert.equal(view.tiles.find((t) => t.id === "spend")!.detail, "Meta £120 · TikTok £10 · of £130 since launch");
+    assert.equal(sold.detail, "to date · Internal Counts, 12 Nov · plus 64 comps");
+    // N5: the view's own tiles are since launch.
+    assert.equal(view.tiles.find((t) => t.id === "spend")!.detail, "Show A · Meta £120 · TikTok £10");
+    const fourteen = build.periods["a-1"]["14"].tiles;
+    assert.equal(fourteen.find((t) => t.id === "spend")!.detail, "Show A · Meta £120 · TikTok £10 · of £130 since launch");
+    assert.equal(fourteen.find((t) => t.id === "sold")!.detail, "to date · Internal Counts, 12 Nov · plus 64 comps");
+    assert.equal(fourteen.find((t) => t.id === "tickets")!.detail, "in 14 days · 6.6 a day");
+    assert.equal(fourteen.find((t) => t.id === "checkoutActions")!.detail, "in 14 days · actions, one person can do both");
+    assert.equal(view.tiles.find((t) => t.id === "tickets")!.detail, "since launch, to 12 Nov");
     assert.equal(view.tiles.find((t) => t.id === "registrations")!.detail, NO_CIRQLIN_PAGE);
   });
 
@@ -407,10 +415,11 @@ describe("words and surfaces", () => {
     assert.equal(build.model.crossClientNote, null);
   });
 
-  it("every period has its own tiles and campaigns; the view carries 14 days", async () => {
+  it("every period has its own tiles and campaigns; the view carries since launch (N5)", async () => {
     const build = buildSalesDashboard(data);
     assert.deepEqual(Object.keys(build.periods["a-1"]).sort(), ["14", "3", "30", "7", "launch", "yesterday"]);
-    assert.equal(build.model.views["a-1"].tiles, build.periods["a-1"]["14"].tiles);
+    assert.equal(build.model.views["a-1"].tiles, build.periods["a-1"].launch.tiles);
+    assert.equal(build.model.initialPeriod, "launch");
     assert.equal(build.periods["a-1"].yesterday.campaigns[0].periodSpend, "£100");
     const { campaignsForPeriod, tilesForPeriod } = await import("../sales-vs-spend.ts");
     const view = build.model.views["a-1"];
@@ -452,5 +461,68 @@ describe("chart runs", () => {
     const pts = [null, 1, 2, null, null, 3, null].map((v, i) => ({ day: `2026-11-0${i + 1}`, estimated: false, count: false, estimateNote: null, values: { cpc: v } }));
     assert.deepEqual(metricRuns(pts, "cpc"), [[1, 2], [5]]);
     assert.deepEqual(metricRuns(pts, "clicks"), []);
+  });
+});
+
+describe("Meta attribution in the calc (HN2)", () => {
+  it("an override beats the name and the linked list; with no override only the exact [CODE] matches", () => {
+    const a = show({ eventId: "a", code: "NX26-AZYR" });
+    const b = show({ eventId: "b", code: "NX26-LOCKLEAD", showDate: "2026-12-11" });
+    const series = buildSeries(
+      input({
+        shows: [a, b],
+        metaCampaignDays: [
+          meta("m1", "[NX26-AZYR] Locklead signup", "2026-11-10", 10),
+          meta("m2", "[nx26-locklead] On sale", "2026-11-10", 5),
+          meta("m3", "[NX26-AZYR[ Presale", "2026-11-10", 2),
+        ],
+        overrides: { meta: { m1: "b" } },
+      }),
+    );
+    // m2 "[nx26-locklead]" and m3 "[NX26-AZYR[" carry no exact code: unattributed until an override says.
+    assert.deepEqual(series.get("b")!.campaigns.map((c) => [c.campaignId, c.unlinked]), [["m1", false]]);
+    assert.deepEqual(series.get("a")!.campaigns.map((c) => c.campaignId), []);
+  });
+
+  it("an override to an event outside the client is ignored, never re-matched by name", () => {
+    const a = show({ eventId: "a", code: "NX26-AZYR" });
+    const series = buildSeries(input({ shows: [a], metaCampaignDays: [meta("m1", "[NX26-AZYR] x", "2026-11-10", 10)], overrides: { meta: { m1: "elsewhere" } } }));
+    assert.equal(series.get("a")!.campaigns.length, 0);
+  });
+});
+
+describe("venues on the share (N2, design Q6)", () => {
+  const data = input({
+    client: { id: "c1", name: "Electric" },
+    shows: [
+      show({ eventId: "n1", code: "NX-1", venueKey: "nx newcastle", venueName: "NX Newcastle", showDate: "2026-12-01" }),
+      show({ eventId: "n2", code: "NX-2", venueKey: "nx newcastle", venueName: "NX Newcastle", showDate: "2026-12-02" }),
+      show({ eventId: "b1", code: "EB-1", venueKey: "electric bristol", venueName: "Electric Bristol", showDate: "2026-12-03" }),
+      show({ eventId: "u1", code: "EB-2", name: "Glitterbox", venueKey: null, venueName: "Electric Bristol", showDate: "2027-02-27" }),
+      show({ eventId: "g", code: "NX-G", name: "Global Marketing", isUmbrella: true, venueKey: "nx newcastle", capacity: null, allocation: null }),
+    ],
+    rollups: [roll("n1", "2026-11-10", 10), roll("b1", "2026-11-10", 5), roll("u1", "2026-11-10", 3), roll("g", "2026-11-10", 7)],
+  });
+
+  it("internal keeps \"Venue not set\"; the share never says it and names the show instead", async () => {
+    const { salesForSurface: present } = await import("../sales-vs-spend.ts");
+    const build = buildSalesDashboard(data);
+    const internalParts = build.model.views.all.spendTotal!.parts.map((p) => p.label);
+    assert.deepEqual(internalParts, ["NX Newcastle", "Electric Bristol", "Venue not set"]);
+    const share = present(build.model, "share");
+    assert.doesNotMatch(JSON.stringify(share), /Venue not set/);
+    assert.deepEqual(share.views.all.spendTotal!.parts.map((p) => [p.label, p.text]), [["NX Newcastle", "£10"], ["Electric Bristol", "£5"], ["Glitterbox", "£3"]]);
+    assert.equal(share.views["venue:unset"], undefined);
+    assert.ok(share.venues!.every((v) => v.key != null));
+    // The internal model is untouched by the share copy.
+    assert.equal(build.model.views.all.spendTotal!.parts.at(-1)!.label, "Venue not set");
+  });
+
+  it("the umbrella chip reads \"Umbrella\" in every chip row; \"{Venue} umbrella\" stays in titles and sentences", () => {
+    const build = buildSalesDashboard(data);
+    assert.equal(build.model.shows.find((c) => c.kind === "umbrella")!.wide, "Umbrella");
+    assert.equal(build.model.venues!.find((v) => v.key === "nx newcastle")!.shows.at(-1)!.wide, "Umbrella");
+    assert.equal(build.model.views["nx-g"].title, "NX Newcastle umbrella");
+    assert.match(build.model.views["venue:nx newcastle"].header!.sentence, /Separate NX Newcastle umbrella spend: £7\./);
   });
 });

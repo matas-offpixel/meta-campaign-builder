@@ -14,6 +14,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { loadCampaignOverrides } from "../../attribution/campaign-owner.ts";
 import { loadAllPaged, type PagedQuery } from "../../db/paged-read.ts";
 import { loadEventConfigs } from "../../event-config/read.ts";
 import { loadFinalCounts } from "../../internal-counts/final-count.ts";
@@ -43,6 +44,8 @@ interface EventRow {
   meta_campaign_id: string | null;
   meta_ad_account_id: string | null;
   status: string | null;
+  venue_key: string | null;
+  venue_name: string | null;
 }
 
 interface InsightRow {
@@ -107,7 +110,7 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
     await loadAllPaged<EventRow>(
       sb,
       "events",
-      "id,user_id,client_id,event_code,name,event_date,presale_at,general_sale_at,meta_campaign_id,meta_ad_account_id,status",
+      "id,user_id,client_id,event_code,name,event_date,presale_at,general_sale_at,meta_campaign_id,meta_ad_account_id,status,venue_key,venue_name",
       ["id"],
       (q) => q.eq("client_id", clientId),
     )
@@ -118,7 +121,7 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
   const accounts = [...new Set([c.meta_ad_account_id, ...events.map((e) => e.meta_ad_account_id)].filter((a): a is string => !!a).map(actId))];
 
   const byEvent = (chunk: string[]) => (q: PagedQuery) => q.in("event_id", chunk);
-  const [configs, finals, snapshots, rollups, signups, insights, google, library] = await Promise.all([
+  const [configs, finals, snapshots, rollups, signups, insights, google, library, metaOverrides, googleOverrides] = await Promise.all([
     loadEventConfigs(sb, eventIds),
     loadFinalCounts(sb, eventIds),
     inChunks(eventIds, (chunk) =>
@@ -169,17 +172,22 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
       : Promise.resolve([] as InsightRow[]),
     codes.length
       ? inChunks(codes, (chunk) =>
-          loadAllPaged<{ id: string; event_code: string; date: string; cost_micros: number | string | null }>(
+          loadAllPaged<{ id: string; event_code: string; date: string; cost_micros: number | string | null; campaign_resource_name: string | null }>(
             sb,
             "google_ads_daily_snapshots",
-            "id,event_code,date,cost_micros",
+            "id,event_code,date,cost_micros,campaign_resource_name",
             ["id"],
             (q) => q.in("event_code", chunk),
           ),
         )
       : Promise.resolve([]),
     loadLibrary(sb, clientId),
+    loadCampaignOverrides(sb, "meta"),
+    loadCampaignOverrides(sb, "google"),
   ]);
+  // Only this client's events: the share reads with the service role (D11).
+  const own = new Set(eventIds);
+  const ownOverrides = (m: Map<string, string>) => Object.fromEntries([...m].filter(([, eventId]) => own.has(eventId)));
 
   const snapsByEvent = new Map<string, SnapshotRow[]>();
   for (const s of snapshots) {
@@ -203,6 +211,9 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
       allocationFromTiers: config?.sellable.source === "tiers",
       isUmbrella: config?.isUmbrella ?? false,
       cirqlinPageId: config?.cirqlinPageId ?? null,
+      cirqlinPageSlug: config?.cirqlinPage?.slug ?? null,
+      venueKey: e.venue_key ?? null,
+      venueName: e.venue_name ?? null,
       linkedCampaignIds: (e.meta_campaign_id ?? "").split(",").map((id) => id.trim()).filter(Boolean),
       referenceEventIds: config?.referenceEventIds ?? [],
       counts: collapseCounts(snapsByEvent.get(e.id) ?? []),
@@ -217,7 +228,12 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
     today,
     shows,
     metaCampaignDays: campaignDays(insights),
-    googleCampaignDays: google.map((g) => ({ eventCode: g.event_code, day: g.date, spend: (num(g.cost_micros) ?? 0) / 1_000_000 })),
+    googleCampaignDays: google.map((g) => ({
+      eventCode: g.event_code,
+      day: g.date,
+      spend: (num(g.cost_micros) ?? 0) / 1_000_000,
+      campaignId: g.campaign_resource_name?.split("/").pop() ?? null,
+    })),
     rollups: rollups.map((r) => ({
       eventId: r.event_id,
       day: r.date,
@@ -232,6 +248,7 @@ export async function loadSalesCalcInput(sb: Db, clientId: string, opts: LoadOpt
       .filter((s) => s.reason == null && s.day >= "2000-01-01")
       .map((s) => ({ eventId: s.event_id, day: s.day, signups: num(s.signups_day) ?? 0 })),
     library,
+    overrides: { meta: ownOverrides(metaOverrides), google: ownOverrides(googleOverrides) },
   };
 }
 

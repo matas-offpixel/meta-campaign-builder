@@ -17,6 +17,7 @@
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
+import { NO_OVERRIDES, campaignOwner } from "../../attribution/campaign-owner.ts";
 import { addDays, dayDiff, daysBetween } from "./days.ts";
 import type { CountSource, LiftEntry, Platform, SalesCalcInput, ShowCount, ShowInput } from "./types.ts";
 
@@ -115,17 +116,33 @@ export function mapCampaigns(input: SalesCalcInput): Map<string, { eventId: stri
   for (const show of ordered) {
     for (const id of show.linkedCampaignIds) if (!linkedTo.has(id)) linkedTo.set(id, show.eventId);
   }
+  const overrides = input.overrides?.meta ?? {};
+  const known = new Set(input.shows.map((s) => s.eventId));
   const out = new Map<string, { eventId: string; linked: boolean; name: string }>();
   for (const [campaignId, name] of names) {
+    // An override (migration 240) is read first; it's an explicit link, so no "Not linked" pill.
+    const override = overrides[campaignId];
+    if (override != null) {
+      if (known.has(override)) out.set(campaignId, { eventId: override, linked: true, name });
+      continue;
+    }
     const linked = linkedTo.get(campaignId);
     if (linked) {
       out.set(campaignId, { eventId: linked, linked: true, name });
       continue;
     }
-    const tagged = ordered.find((show) => name.includes(`[${show.code}]`));
+    // The [CODE] exactly as written (Matas, 14 Nov); anything else needs an override row.
+    const tagged = campaignOwner(ordered, { id: campaignId, name }, NO_OVERRIDES);
     if (tagged) out.set(campaignId, { eventId: tagged.eventId, linked: false, name });
   }
   return out;
+}
+
+/** Google: the override, else the stored first [CODE] exactly as written. */
+export function googleOwner(input: SalesCalcInput, row: { eventCode: string; campaignId?: string | null }): ShowInput | null {
+  const override = row.campaignId ? input.overrides?.google?.[row.campaignId] : undefined;
+  if (override != null) return input.shows.find((s) => s.eventId === override) ?? null;
+  return input.shows.find((s) => s.code === row.eventCode) ?? null;
 }
 
 /**
@@ -171,7 +188,6 @@ export function buildSeries(input: SalesCalcInput): Map<string, ShowSeries> {
   const insightsMeta = new Map<string, number>();
   const googleOwn = new Map<string, number>();
   const rollupByKey = new Map<string, SalesCalcInput["rollups"][number]>();
-  const showByCode = new Map(input.shows.map((s) => [s.code, s]));
 
   const dayOf = (eventId: string, day: string): DayFigures => {
     let days = byShowDay.get(eventId);
@@ -217,7 +233,7 @@ export function buildSeries(input: SalesCalcInput): Map<string, ShowSeries> {
 
   for (const g of input.googleCampaignDays) {
     if (g.day >= input.today) continue;
-    const show = showByCode.get(g.eventCode);
+    const show = googleOwner(input, g);
     if (!show) continue;
     const key = `${show.eventId}|${g.day}`;
     googleOwn.set(key, (googleOwn.get(key) ?? 0) + g.spend);
