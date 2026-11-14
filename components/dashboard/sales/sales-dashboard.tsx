@@ -142,7 +142,8 @@ export function SalesDashboard({
   }
 
   return (
-    <section className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
+    // MB1: w-full min-w-0, or mx-auto in the page's flex column sizes the section to its widest row (894 px at 375).
+    <section className="mx-auto w-full min-w-0 max-w-6xl px-4 py-4 sm:px-6" style={{ WebkitTextSizeAdjust: "100%" }}>
       <header>
         <h2 className="text-xl font-medium tracking-tight sm:text-2xl">
           {umbrella ? `${presented.clientName} umbrella` : (
@@ -157,9 +158,9 @@ export function SalesDashboard({
         ) : null}
         {view.header ? (
           <div className="relative" onMouseEnter={() => hoverSpend("header")} onMouseLeave={leaveSpend}>
-            <p className="mt-1 max-w-3xl text-sm leading-snug">{view.header.sentence}</p>
+            <p className="mt-1 max-w-3xl text-sm leading-snug [overflow-wrap:anywhere]">{view.header.sentence}</p>
             {channelLineHasSplit(view.header.channelLine) ? (
-              <p className="mt-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{view.header.channelLine}</p>
+              <p className="mt-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">{view.header.channelLine}</p>
             ) : null}
             {spendHover === "header" && launchTotal ? <SpendHover total={launchTotal} /> : null}
           </div>
@@ -185,9 +186,9 @@ export function SalesDashboard({
       </header>
 
       {multiVenue ? (
-        <div className="mt-4 flex items-center gap-2">
+        <div className="mt-4 flex min-w-0 max-w-full items-center gap-2">
           <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Venue</span>
-          <div className="flex overflow-x-auto">
+          <div className="flex min-w-0 max-w-full overflow-x-auto">
             {venues.map((venue, index) => {
               const on = venueToken(venue) === venueKey;
               return (
@@ -221,9 +222,9 @@ export function SalesDashboard({
       ) : null}
 
       {grouped ? (
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 min-w-0 space-y-2">
           {venues.map((venue) => (
-            <div key={venue.viewId} className="flex items-center gap-2 overflow-x-auto">
+            <div key={venue.viewId} className="flex min-w-0 max-w-full items-center gap-2 overflow-x-auto">
               <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{venue.name}</span>
               <ShowChip
                 chip={{ id: venue.viewId, wide: `All ${venue.name}`, narrow: "All", kind: "all", finished: false }}
@@ -244,7 +245,7 @@ export function SalesDashboard({
           <FinishedToggle includeFinished={includeFinished} onToggle={() => setIncludeFinished((value) => !value)} />
         </div>
       ) : (
-        <div className="mt-4 flex items-center gap-2 overflow-x-auto">
+        <div className="mt-4 flex min-w-0 max-w-full items-center gap-2 overflow-x-auto">
           {chips.map((chip) => (
             <ShowChip
               key={`${chip.id}-${chip.finished ? "fin" : "live"}-${chip.kind}`}

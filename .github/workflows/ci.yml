@@ -87,6 +87,13 @@ jobs:
         env:
           # On a PR, GITHUB_SHA is the merge ref; the index names the PR head.
           FRAMES_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # MB1 (dashboard v2 on a phone): fails when a dashboard v2 page is
+      # wider than the phone at 320, 375, 390 or 430 px, on the internal
+      # page and the share link (live-like fixture). Runs even when the
+      # diff fails; writes frames-evidence/overflow-guard.md.
+      - name: Overflow guard (dashboard v2, 320–430 px)
+        if: success() || failure()
+        run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/overflow-guard.mjs
       - name: Upload plan-frames evidence
         if: always()
         uses: actions/upload-artifact@v4

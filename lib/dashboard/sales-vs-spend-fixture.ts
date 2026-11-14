@@ -631,3 +631,82 @@ export const NX_SALES_FIXTURE: SalesDashboardModel = {
 };
 
 export const NX_SHARE_FIXTURE_TOKEN = "nx-12-nov";
+
+/**
+ * Live-like (dashboard v2 on a phone, MB1): the widest rows the live NX page
+ * has. Four venue options, nine shows with their real long names, a
+ * five-figure spend, and the longest header sentence (the "each show's last
+ * count" clause). The overflow guard and the MB overflow frames mount it;
+ * NX_SALES_FIXTURE and its DV/NV frames are unchanged.
+ */
+const LIVE_NX_SHOWS: { id: string; name: string; day: string }[] = [
+  { id: "ipc", name: "Interplanetary Criminal", day: "21 Nov" },
+  { id: "robbie", name: "Robbie Doherty", day: "27 Nov" },
+  { id: "dod", name: "D.O.D", day: "4 Dec" },
+  { id: "locklead", name: "Locklead", day: "11 Dec" },
+  { id: "rudimental", name: "Rudimental", day: "12 Dec" },
+  { id: "schak", name: "Schak", day: "18 Dec" },
+  { id: "ewan", name: "Ewan McVicar", day: "26 Feb" },
+  { id: "julian", name: "Julian Fijma", day: "19 Mar" },
+  { id: "eed", name: "East End Dubs", day: "13 Nov" },
+];
+
+const LIVE_NX_CHIPS: SalesDashboardModel["shows"] = [
+  { id: "venue:nx newcastle", wide: "All shows", narrow: "All", kind: "all", finished: false },
+  ...LIVE_NX_SHOWS.map((s) => ({ id: s.id, wide: `${s.name} · ${s.day}`, narrow: s.name, kind: "show" as const, finished: false })),
+  { id: "umbrella", wide: "Umbrella", narrow: "Umbrella", kind: "umbrella" as const, finished: false },
+];
+
+const LIVE_LAUNCH: SalesTotal = {
+  ...NX_LAUNCH,
+  amount: 14216,
+  text: "£14,216",
+  channels: [
+    { platform: "meta", label: "Meta", amount: 14078, text: "£14,078" },
+    { platform: "tiktok", label: "TikTok", amount: 119, text: "£119" },
+    { platform: "google", label: "Google", amount: 19, text: "£19" },
+  ],
+  headline: "£14,216 since launch · to 13 Nov",
+  notIncluded: "Not in this total: NX Newcastle umbrella £4,309. Finished shows (Include finished adds them).",
+};
+
+export const NX_SALES_LIVE_LIKE: SalesDashboardModel = {
+  ...NX_SALES_FIXTURE,
+  shows: LIVE_NX_CHIPS,
+  initialShowId: "venue:nx newcastle",
+  venues: [
+    { key: "nx newcastle", name: "NX Newcastle", liveShows: 9, viewId: "venue:nx newcastle", shows: LIVE_NX_CHIPS, finishedShows: NX_SALES_FIXTURE.finishedShows },
+    {
+      key: "electric bristol",
+      name: "Electric Bristol",
+      liveShows: 1,
+      viewId: "locklead",
+      shows: [{ id: "locklead", wide: "Locklead · 11 Dec", narrow: "Locklead", kind: "show", finished: false }],
+      finishedShows: [],
+    },
+    {
+      key: "electric studios",
+      name: "Electric Studios",
+      liveShows: 1,
+      viewId: "dod",
+      shows: [{ id: "dod", wide: "D.O.D · 4 Dec", narrow: "D.O.D", kind: "show", finished: false }],
+      finishedShows: [],
+    },
+  ],
+  views: {
+    ...NX_SALES_FIXTURE.views,
+    "venue:nx newcastle": {
+      ...NX_SALES_FIXTURE.views["venue:nx newcastle"],
+      header: {
+        sentence:
+          "NX Newcastle to date: £14,216 spend since launch, 6,795 tickets sold across 8 shows (Internal Counts, to 12 Nov), so £2.08 of spend per ticket, on spend to each show's last count (latest 12 Nov). Separate NX Newcastle umbrella spend: £4,309.",
+        channelLine: "Meta £14,078 · TikTok £119 · Google £19 · to 13 Nov · finished shows not included",
+      },
+      spendTotal: LIVE_LAUNCH,
+      periods: {
+        ...NX_SALES_FIXTURE.views["venue:nx newcastle"].periods,
+        launch: { tiles: allTiles(), campaigns: IPC_CAMPAIGNS, spendTotal: LIVE_LAUNCH },
+      },
+    },
+  },
+};
