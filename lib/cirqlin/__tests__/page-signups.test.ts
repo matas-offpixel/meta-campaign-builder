@@ -42,9 +42,14 @@ describe("CIRQLIN signups by page id (HN2)", () => {
     assert.equal(r(401, {}), "unauthorized");
     assert.equal(r(429, {}), "rate_limited");
     assert.equal(r(200, { ok: true }), "error");
+    assert.equal(r(400, { error: "something_new" }), "unsupported");
+    assert.equal(r(500, {}), "error");
+    // Live: the tag stands in only on missing_tag, no_page or an unnamed 400.
     assert.equal(fallsBackToTag("unsupported"), true);
-    assert.equal(fallsBackToTag("rate_limited"), false);
-    assert.equal(fallsBackToTag("unauthorized"), false);
+    assert.equal(fallsBackToTag("no_page"), true);
+    for (const reason of ["ambiguous_key", "bad_range", "error", "rate_limited", "unauthorized", "not_configured"] as const) {
+      assert.equal(fallsBackToTag(reason), false, reason);
+    }
   });
 
   it("sends page_id and the range, with the bearer", async () => {
@@ -76,7 +81,7 @@ describe("CIRQLIN signups by page id (HN2)", () => {
     assert.equal(upserts[0].rows.length, 2);
   });
 
-  it("until the page endpoint ships (400 missing_tag), it falls back to the tag", async () => {
+  it("a 400 missing_tag falls back to the tag", async () => {
     const { sb } = fakeSb();
     const calls: string[] = [];
     const fetchImpl = (async (url: string) => {
@@ -97,6 +102,20 @@ describe("CIRQLIN signups by page id (HN2)", () => {
     const out = await syncCirqlinSignupsForEventByPage(sb, { eventId: "ev", pageId: PAGE, tag: null }, { secret: "s", base: "https://cirqlin.test", fetchImpl: respond(400, { error: "missing_tag" }) });
     assert.equal(out.ok, false);
     assert.equal(out.via, null);
+    assert.equal(upserts.length, 0);
+  });
+
+  it("a server error writes nothing and doesn't spend a second call on the tag", async () => {
+    const { sb, upserts } = fakeSb();
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      return new Response("{}", { status: 503 });
+    }) as unknown as typeof fetch;
+    const out = await syncCirqlinSignupsForEventByPage(sb, { eventId: "ev", pageId: PAGE, tag: "CQ-x" }, { secret: "s", base: "https://cirqlin.test", fetchImpl });
+    assert.equal(out.ok, false);
+    assert.equal(out.pageReason, "error");
+    assert.equal(calls, 1);
     assert.equal(upserts.length, 0);
   });
 

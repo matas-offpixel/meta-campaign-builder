@@ -6,12 +6,15 @@
  * fallback. #1225 found Schak's 1,792 signups reading 0 because v2 synced
  * by tag and Schak has no tag.
  *
- * Contract (cirqlin, being built by Cursor on 14 Nov):
+ * Contract (cirqlin #627, live since 14 Nov):
  *   GET {CIRQLIN_API_BASE}/api/partner/signups?page_id={uuid}[&from=&to=]
  *   200 → { page_id, daily_timezone, days: [{ date, signups }], total }
  *   404 no_page · 400 ambiguous_key / bad_range / missing_tag · 401 · 429
- * Until it is deployed the page-id call answers 400 missing_tag: that reads
- * as "unsupported", and the sync falls back to the tag.
+ * The page id is the live path. The tag stands in only when the page call
+ * says it can't answer: 400 missing_tag (the route older deploys answer),
+ * 404 no_page, or a 400 it doesn't name. A bad range, an ambiguous key, a
+ * 401, a 429 or a server error is our problem or CIRQLIN's, not the
+ * page's: nothing is written and the next run tries again.
  *
  * Counts only; no PII crosses. The daily counts are cached in
  * signup_source_snapshots by the EOD cron. A dashboard render never calls
@@ -43,9 +46,9 @@ export type CirqlinPageFetchResult =
   | { ok: true; payload: CirqlinPagePayload }
   | { ok: false; reason: CirqlinPageFetchReason; status?: number; message?: string };
 
-/** A lookup that the tag path can stand in for. 401 and 429 would fail the tag call too. */
+/** The tag stands in only on missing_tag, no_page or an unnamed 400 ("unsupported"). */
 export function fallsBackToTag(reason: CirqlinPageFetchReason): boolean {
-  return reason === "unsupported" || reason === "no_page" || reason === "ambiguous_key" || reason === "bad_range" || reason === "error";
+  return reason === "unsupported" || reason === "no_page";
 }
 
 export function isCirqlinPagePayload(value: unknown): value is CirqlinPagePayload {
@@ -79,7 +82,8 @@ export function classifyPageResponse(status: number, body: unknown): CirqlinPage
     if (word === "missing_tag") return { ok: false, reason: "unsupported", status, message: word };
     if (word === "ambiguous_key") return { ok: false, reason: "ambiguous_key", status, message: word };
     if (word === "bad_range") return { ok: false, reason: "bad_range", status, message: word };
-    return { ok: false, reason: "error", status, message: word ?? "bad request" };
+    // missing_tag, or a 400 this client doesn't know: the page call can't answer it.
+    return { ok: false, reason: "unsupported", status, message: word ?? "bad request" };
   }
   return { ok: false, reason: "error", status, message: status === 200 ? "response did not match the page payload shape" : `unexpected status ${status}` };
 }
