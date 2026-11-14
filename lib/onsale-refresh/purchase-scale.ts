@@ -10,7 +10,8 @@
  *   - up, doubling the daily rate, when it ran at or below the main
  *     campaign's cost per purchase, with 3 or more purchases;
  *   - hold (a note, not a line) within 1.5×, or under 3 purchases;
- *   - down, halving it (never below £5), above 1.5×, with 3 or more.
+ *   - down, halving it (up to the next whole £5, never below £5), above 1.5×,
+ *     with 3 or more (PC13).
  * Both sides use the same measure on the same resolved pixel (T3). A step
  * moves lifetime by the change × the days left: from plan headroom first,
  * then the main campaign's lifetime; R5's 20 % cap on the extra, and the
@@ -161,7 +162,8 @@ export function scalePurchase(input: ScaleInput): ScaleResult {
     capText = `The extra ${money(extra)} is within 20 % of ${input.budgetGbp != null ? "the plan left" : `what ${short} has left`} (${money(cap)})${input.budgetGbp == null ? "; this event has no budget." : "."}`;
   } else {
     if (a <= SCALE.floorRate) return hold(`${each(cpp)} ${word}, over 1.5× of ${short}, and £5 a day is the floor.`);
-    b = Math.max(SCALE.floorRate, Math.floor(a / 2 / SCALE.stepUnit) * SCALE.stepUnit || SCALE.floorRate);
+    // PC13: halving rounds UP to the next whole £5, so a step down never cuts more than half (£15 → £10, £25 → £15); never below £5.
+    b = Math.max(SCALE.floorRate, Math.ceil(a / 2 / SCALE.stepUnit) * SCALE.stepUnit);
     const giveBack = (a - b) * daysLeft;
     // PC7: the Purchase campaign's own lifetime never goes below 1.1 × its spend (Meta's minimum for lowering it).
     const room = Math.max(0, purchaseBefore - ceilPenny(1.1 * input.purchase.spentToDate));
