@@ -164,6 +164,11 @@ export type PurchaseBuild = {
   customConversion: { name: string; domain: string } | null;
   mainCampaignKey: string;
   mainCampaignId: string | null;
+  /** PR B rechecks these at apply time: the main campaign's lifetime (£), spend to date and last-7-day daily spend when proposed. */
+  mainLifetimeGbp: number | null;
+  mainSpentToDate: number;
+  mainLast7Daily: number;
+  mainShort: string;
   draftId: string | null;
   adAccountId: string | null;
   picks: PcPick[];
@@ -418,6 +423,10 @@ export function planPurchaseCampaign(input: PcInput): PurchaseCampaignPlan {
     customConversion,
     mainCampaignKey: main.campaignKey,
     mainCampaignId: main.campaignId,
+    mainLifetimeGbp: main.lifetimeGbp,
+    mainSpentToDate: main.spentToDate,
+    mainLast7Daily: main.last7Daily,
+    mainShort: short,
     draftId: main.draftId,
     adAccountId: main.adAccountId,
     picks: copies,

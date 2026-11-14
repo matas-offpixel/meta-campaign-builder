@@ -85,7 +85,17 @@ export function acceptBlock(line: BlockLine, ctx: BlockCtx): string | null {
 
 type Db = Pick<SupabaseClient, "from">;
 
-export type Decision = { decision: "accept" } | { decision: "reject"; reason?: RejectReason | null; note?: string | null };
+export type Decision = { decision: "accept"; /** P4: the daily rate picked on a Purchase campaign card (PC3). */ dailyGbp?: number | null } | { decision: "reject"; reason?: RejectReason | null; note?: string | null };
+
+/** PC3: a Purchase campaign is accepted at £5 or £10 a day; £10 only when the card offered it (it fit the cap). Null = the card's default. */
+export function pickedRate(line: { kind: string; evidence?: Record<string, unknown> | null }, dailyGbp: number | null | undefined): { ok: true; rate: number | null } | { ok: false; error: string } {
+  if (line.kind !== "purchase_campaign" || dailyGbp == null) return { ok: true, rate: null };
+  const rates = ((line.evidence?.card as { rates?: { rate: number; fits: boolean }[] } | undefined)?.rates ?? []);
+  const offered = rates.find((row) => row.rate === dailyGbp);
+  if (!offered) return { ok: false, error: "Pick £5 or £10 a day." };
+  if (!offered.fits) return { ok: false, error: `£${dailyGbp} a day is over the cap, so it can't be picked.` };
+  return { ok: true, rate: dailyGbp };
+}
 
 export type DecideResult =
   | { ok: true; line: { id: string; state: "to_review" | "accepted" | "rejected"; reason: string | null } }
@@ -152,6 +162,8 @@ export async function decideLine(args: { db: Db; eventId: string; userId: string
   if (!["to_review", "accepted", "rejected"].includes(line.state)) return { ok: false, status: 409, error: "This line has already been applied or has expired." };
 
   let next: { state: "to_review" | "accepted" | "rejected"; reason: string | null; reject_reason: RejectReason | null; reject_note: string | null };
+  // P4: a Purchase campaign's picked rate rides on the line's write (no new column).
+  let writePatch: Record<string, unknown> | null = null;
   if (args.decision.decision === "accept") {
     if (line.state === "accepted") {
       next = { state: "to_review", reason: null, reject_reason: null, reject_note: null };
@@ -159,6 +171,9 @@ export async function decideLine(args: { db: Db; eventId: string; userId: string
       const ctx = await blockCtx(args.db, { ...line, window_end: line.onsale_refresh_proposals?.window_end ?? null }, { eventId: args.eventId, budget: args.budget, eventDate: args.eventDate, today: todayLondon(args.now ?? new Date()) });
       const blocked = acceptBlock(line, ctx);
       if (blocked) return { ok: false, status: 409, error: blocked };
+      const picked = pickedRate(line, args.decision.dailyGbp);
+      if (!picked.ok) return { ok: false, status: 400, error: picked.error };
+      if (picked.rate != null) writePatch = { ...(line.write ?? {}), dailyGbp: picked.rate };
       next = { state: "accepted", reason: null, reject_reason: null, reject_note: null };
     }
   } else {
@@ -177,7 +192,7 @@ export async function decideLine(args: { db: Db; eventId: string; userId: string
   // Only from the state read above: a click racing an Apply finds the line gone from under it and changes nothing.
   const updated = await args.db
     .from("onsale_refresh_lines")
-    .update({ ...next, decided_by: next.state === "to_review" ? null : args.userId, decided_at: next.state === "to_review" ? null : decidedAt })
+    .update({ ...next, ...(writePatch ? { write: writePatch } : {}), decided_by: next.state === "to_review" ? null : args.userId, decided_at: next.state === "to_review" ? null : decidedAt })
     .eq("id", line.id)
     .eq("state", line.state)
     .select("id");

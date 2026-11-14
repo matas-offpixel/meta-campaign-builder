@@ -7,7 +7,7 @@ import { ownedRefreshEvent } from "../../_owned";
 
 /**
  * POST /api/events/[id]/onsale-refresh/lines/[lineId]
- *   { decision: "accept" }                                    — Accept, or back to To review if accepted
+ *   { decision: "accept", dailyGbp?: 5 | 10 }                — Accept (a Purchase campaign at the picked rate), or back to To review if accepted
  *   { decision: "reject", reason?: "too_early" | …, note? }   — Reject with a reason, or back if rejected and no reason
  *
  * The toggle pair of HR5. No Meta write: Apply accepted (n) is the only
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id, lineId } = await ctx.params;
   const who = await ownedRefreshEvent(id);
   if (who.error) return who.error;
-  let body: { decision?: unknown; reason?: unknown; note?: unknown };
+  let body: { decision?: unknown; reason?: unknown; note?: unknown; dailyGbp?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (body.decision !== "accept" && body.decision !== "reject") return NextResponse.json({ ok: false, error: "decision must be accept or reject" }, { status: 400 });
   const decision =
     body.decision === "accept"
-      ? ({ decision: "accept" } as const)
+      ? ({ decision: "accept", dailyGbp: typeof body.dailyGbp === "number" ? body.dailyGbp : null } as const)
       : ({ decision: "reject", reason: isRejectReason(body.reason) ? body.reason : null, note: typeof body.note === "string" ? body.note : null } as const);
   const result = await decideLine({ db: who.db, eventId: who.event.id, userId: who.userId, lineId, decision, gates: who.gates, budget: who.budgetSet ? Number(who.event.budget_marketing) : null, eventDate: who.event.event_date });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
