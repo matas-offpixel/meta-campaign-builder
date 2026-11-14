@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { LOW_TRACK_RECORD } from "@/lib/onsale-refresh/track-labels";
 import { REJECT_REASONS, acceptable, appliesNow, displayState, heldText, panelText, panelTextDeep, retriesNow, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
 import type { PanelApply, PanelLine, PanelProposal } from "@/lib/onsale-refresh/read";
 import { isShowWeek } from "@/lib/onsale-refresh/on-sale";
@@ -61,6 +62,11 @@ function LineRow({ line, shadow }: { line: PanelLine; shadow: boolean }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{KIND_LABEL[line.kind]}</span>
+            {line.trackRecord === "low" ? (
+              <span className="text-xs text-muted-foreground" data-track-record="low">
+                {LOW_TRACK_RECORD}
+              </span>
+            ) : null}
             <span className="break-words text-sm font-medium">{line.title}</span>
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -145,6 +151,11 @@ function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{KIND_LABEL[line.kind]}</span>
+            {line.trackRecord === "low" ? (
+              <span className="text-xs text-muted-foreground" data-track-record="low">
+                {LOW_TRACK_RECORD}
+              </span>
+            ) : null}
             <span className="break-words text-sm font-medium">{line.title}</span>
           </div>
           {line.carried ? <p className="mt-0.5 text-xs text-muted-foreground">From the {line.carried} proposal</p> : null}
@@ -432,6 +443,11 @@ export function OnSaleRefreshPanelView({ eventId, proposals: given, showWeek = f
               ) : null}
             </div>
             {proposal.notEnoughData ? <p className="mt-1 text-xs text-muted-foreground">{proposal.notEnoughData}</p> : null}
+            {(proposal.notes.stopped ?? []).map((row) => (
+              <p key={row.ruleId} className="mt-1 text-xs text-muted-foreground" data-stopped={row.ruleId}>
+                {row.text}
+              </p>
+            ))}
 
             <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Creatives</p>
             {creatives.length ? (

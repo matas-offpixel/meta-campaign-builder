@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ObjectiveBlock, OnSaleRefreshPanelView } from "@/components/dashboard/events/onsale-refresh-panel";
 import { panelText } from "@/lib/onsale-refresh/line-states";
-import { OR2_WHY, OR3_WHY, OR4_STATES, OR5_WHY, OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_CLUSTER, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR8_RETARGETING, OR8_SEED, OR9_PROPOSALS, OR9_RESULTS, OR_APPLY_LIVE } from "@/scripts/plan-frames/refresh-fixtures";
+import { LOW_TRACK_RECORD } from "@/lib/onsale-refresh/track-labels";
+import { OR2_WHY, OR3_WHY, OR4_STATES, OR5_WHY, OR1_PROPOSALS, OR6_PROPOSALS, OR7_PROPOSALS, OR8_CLUSTER, OR8_MOVE_CAP, OR8_PLAN_GUARD, OR8_PROPOSALS, OR8_RETARGETING, OR8_SEED, OR9_PROPOSALS, OR9_RESULTS, OR10_PROPOSALS, OR10_STOPPED, OR_APPLY_LIVE } from "@/scripts/plan-frames/refresh-fixtures";
 
 afterEach(() => {
   cleanup();
@@ -143,7 +144,7 @@ describe("OnSaleRefreshPanelView (P2)", () => {
 
   it("every date the panel renders keeps together, in the wide and the narrow wording", () => {
     const broken = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]* \d|\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}|w\/c \d/;
-    for (const proposals of [OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS, OR9_PROPOSALS]) {
+    for (const proposals of [OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS, OR9_PROPOSALS, OR10_PROPOSALS]) {
       render(<OnSaleRefreshPanelView eventId="e1" proposals={proposals} apply={OR_APPLY_LIVE} actions={{}} />);
       // Both wordings are in the DOM (the viewport hides one), so this reads 1280's and 393's text.
       const section = document.getElementById("onsale-refresh")!;
@@ -160,10 +161,10 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     expect(document.querySelector("[data-copy]")).toBeNull();
   });
 
-  it("separators: no money figure and no count of 1,000 or more renders ungrouped anywhere in the panel (OR1–OR9); £ keeps its 2 decimals", () => {
+  it("separators: no money figure and no count of 1,000 or more renders ungrouped anywhere in the panel (OR1–OR10); £ keeps its 2 decimals", () => {
     const views = [
       () => render(<OnSaleRefreshPanelView eventId="e1" proposals={OR1_PROPOSALS} />),
-      ...[OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS, OR9_PROPOSALS].map((proposals) => () => render(<OnSaleRefreshPanelView eventId="e1" proposals={proposals} apply={OR_APPLY_LIVE} actions={{}} />)),
+      ...[OR6_PROPOSALS, OR7_PROPOSALS, OR8_PROPOSALS, OR9_PROPOSALS, OR10_PROPOSALS].map((proposals) => () => render(<OnSaleRefreshPanelView eventId="e1" proposals={proposals} apply={OR_APPLY_LIVE} actions={{}} />)),
       ...[OR2_WHY, OR3_WHY, OR5_WHY, ...OR4_STATES.map((row) => row.why)].map((why) => () => render(<ObjectiveBlock why={why} />)),
     ];
     const ungrouped = /(?<![\d,.…#])\d{4,}(?![\d])/;
@@ -187,6 +188,28 @@ describe("OnSaleRefreshPanelView (P2)", () => {
     expect(panelText("£1,148.60 · 131 IC")).toBe("£1,148.60 · 131 IC");
     expect(panelText(panelText("£2505.85"))).toBe("£2,505.85");
     expect(panelText("1.52× · 0.7×")).toBe("1.52× · 0.7×");
+  });
+
+  it("OR10 (P5): a low track record sorts last and says so, muted; each stopped rule gets its notice", () => {
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR10_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
+    const labels = [...document.querySelectorAll("[data-track-record]")];
+    expect(labels.map((node) => node.textContent)).toEqual([LOW_TRACK_RECORD]);
+    expect(LOW_TRACK_RECORD).toBe("low track record");
+    expect(labels[0]!.className).toContain("text-muted-foreground");
+    const move = lineEl("Lineup — Primary → Adv+");
+    expect(within(move).getByText(LOW_TRACK_RECORD)).toBeTruthy();
+    const items = [...move.parentElement!.children].filter((node) => node.tagName === "LI");
+    expect(items.at(-1)).toBe(move);
+    for (const row of OR10_STOPPED) {
+      const node = document.querySelector(`[data-stopped="${row.ruleId}"]`)!;
+      expect(node.textContent).toBe(panelText(row.text));
+      expect(node.className).toContain("text-muted-foreground");
+      expect(node.className).not.toContain("text-destructive");
+    }
+    cleanup();
+    // Without a track record the panel is OR6's: no label, no notice.
+    render(<OnSaleRefreshPanelView eventId="e1" proposals={OR6_PROPOSALS} apply={OR_APPLY_LIVE} actions={{}} />);
+    expect(document.querySelector("[data-track-record], [data-stopped]")).toBeNull();
   });
 
   it("held lines are muted; red is for Failed only", () => {

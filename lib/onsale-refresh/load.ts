@@ -549,6 +549,7 @@ export async function buildEventInputs(args: {
       adAccountId: adAccountId ? `act_${bareAccount(adAccountId)}` : null,
       draft: draftForCampaign({ eventId: event.id, adAccountId, campaignIds, drafts: aux.drafts ?? [], launchedAdSets: aux.launchedAdSets }),
       eventDate: event.event_date,
+      clientId: event.client_id,
       // P3: the standing defaults' inputs, from the event's own ad-days and stored rows.
       signup,
       country: lookalikeCountry(event.venue_country),

@@ -97,18 +97,20 @@ export function memoryDb(seed: Record<string, Row[]>, embeds: Record<string, { t
         }
         writes.push([table, "insert", state.payload]);
       } else if (state.op === "upsert") {
-        const item = state.payload as Row;
         const keys = state.conflict ?? ["id"];
-        const have = rows.find((row) => keys.every((key) => row[key] === item[key]));
-        if (have) {
-          Object.assign(have, item);
-          out.push({ ...have });
-        } else {
-          const row = { id: `m${++ids}`, ...item };
-          rows.push(row);
-          out.push({ ...row });
+        const items = Array.isArray(state.payload) ? (state.payload as Row[]) : [state.payload as Row];
+        for (const item of items) {
+          const have = rows.find((row) => keys.every((key) => row[key] === item[key]));
+          if (have) {
+            Object.assign(have, item);
+            out.push({ ...have });
+          } else {
+            const row = { id: `m${++ids}`, ...item };
+            rows.push(row);
+            out.push({ ...row });
+          }
+          writes.push([table, "upsert", item]);
         }
-        writes.push([table, "upsert", item]);
       } else if (state.op === "update") {
         for (const row of rows.filter(matches)) {
           Object.assign(row, state.payload as Row);

@@ -40,6 +40,8 @@ export type PanelLine = {
   appliedBy?: string | null;
   /** P3: the write it would make (`write.kind`). */
   writeKind?: string | null;
+  /** P5 (R6): the rule's track record for this client is low; the panel says "low track record". */
+  trackRecord?: "low" | null;
   /** P3: a new ad set's second evidence line (a cluster's interests, a default's sources or seed). */
   extra?: string | null;
 };
@@ -109,7 +111,7 @@ type ProposalRow = {
   created_at: string;
 };
 
-type LineRow = Omit<PanelLine, "writeText" | "addsSpend" | "blockedReason" | "narrow" | "copy" | "carried" | "appliedAt"> & { proposal_id: string; position: number; write_text: string; narrow: PanelLine["narrow"] | null; adds_spend: boolean; blocked_reason: string | null; target?: { copy?: AddCopy | null; extra?: string | null } | null; applied_at?: string | null; applied_result?: { appliedBy?: string | null; movedWeeklyGbp?: number } | null; evidence?: Record<string, unknown> | null; write?: Record<string, unknown> | null };
+type LineRow = Omit<PanelLine, "writeText" | "addsSpend" | "blockedReason" | "narrow" | "copy" | "carried" | "appliedAt" | "trackRecord"> & { proposal_id: string; position: number; write_text: string; narrow: PanelLine["narrow"] | null; adds_spend: boolean; blocked_reason: string | null; target?: { copy?: AddCopy | null; extra?: string | null } | null; applied_at?: string | null; applied_result?: { appliedBy?: string | null; movedWeeklyGbp?: number } | null; evidence?: Record<string, unknown> | null; write?: Record<string, unknown> | null };
 
 const CARRIED: readonly LineState[] = ["accepted", "applying", "failed"];
 
@@ -137,6 +139,7 @@ function panelLine(line: LineRow, budgetSet: boolean | null, carried: string | n
     ...(line.applied_result?.appliedBy && !line.applied_result.appliedBy.includes("@") ? { appliedBy: line.applied_result.appliedBy } : {}),
     ...(writeKind ? { writeKind } : {}),
     ...(line.target?.extra ? { extra: line.target.extra } : {}),
+    ...((line.evidence?.trackRecord as { state?: string } | undefined)?.state === "low" ? { trackRecord: "low" as const } : {}),
   };
 }
 
