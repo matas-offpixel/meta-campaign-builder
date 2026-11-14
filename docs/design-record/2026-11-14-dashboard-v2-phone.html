@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard v2 on a phone — 14 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}}
+</style>
+<style>
+.wide{overflow-x:auto;max-width:100%}
+.frame{gap:32px}
+.frame > figure{overflow-x:auto;max-width:100%}
+/* phone frames */
+.ph{position:relative;background:var(--edit);border:1px solid var(--border-strong);border-radius:14px;overflow:hidden;flex:none}
+.ph .clip{overflow:hidden;position:relative}
+.fold{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--brick);z-index:3}
+.fold span{position:absolute;right:6px;top:-18px;font:700 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--brick);background:var(--edit);padding:3px 5px;border-radius:3px}
+.below{position:absolute;left:0;right:0;bottom:0;background:rgba(240,201,168,.55);z-index:2}
+.pg{padding:10px 12px 14px;font-size:12.5px;-webkit-text-size-adjust:100%}
+.pg > *{min-width:0}
+.t1{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.t1 h4{margin:0;font:600 16px/1.3 var(--sans);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sel{flex:none;font-size:12px;border:1px solid var(--border-strong);border-radius:999px;padding:4px 10px;white-space:nowrap;background:var(--paper)}
+.stm{font:700 9px/1.5 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin:2px 0 6px}
+.pg .lede{font-size:13px;line-height:1.42;margin:0;max-width:none;overflow-wrap:anywhere}
+.pg .chan{font:700 9px/1.45 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:4px 0 0;overflow-wrap:anywhere}
+.sc{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:8px -12px 0;padding:0 12px;
+  -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}
+.sc::-webkit-scrollbar{display:none}
+.sc .chip{flex:none}
+.sc .seg{flex:none}
+.kg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.kt{background:var(--card);border-radius:7px;padding:6px 9px 6px;min-width:0}
+.kt.on{box-shadow:inset 0 0 0 2px var(--ink)}
+.kt .l{font:700 9px/1.35 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kt .v{font:600 18px/1.25 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kt .s{font-size:11px;line-height:1.3;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mf{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12.5px;padding:6px 0}
+.mf u{font-weight:600;text-underline-offset:3px}
+.mf small{color:var(--ink-3);font-size:11px}
+.cb{border-top:1px solid var(--border);margin:6px -12px 0;padding:8px 12px 0}
+.cbt{display:flex;justify-content:space-between;align-items:baseline;gap:8px;height:18px}
+.cbt .at{font:700 9px/1 var(--mono);letter-spacing:.12em;color:var(--ink-3)}
+.cbt .rng{font-size:11px;color:var(--ink-2);white-space:nowrap}
+.cbt.ro{background:var(--paper);border:1px solid var(--border-strong);border-radius:6px;height:auto;padding:4px 8px;font-size:11.5px;justify-content:flex-start;gap:10px;flex-wrap:wrap}
+.cbt.ro b{font-weight:600}
+.crow{display:flex;align-items:flex-start;margin-top:4px}
+.crow svg.ch{display:block;max-width:none;height:auto}
+.csc{position:relative;flex:none;overflow:hidden}
+.csc.fadeL::before{content:"";position:absolute;left:0;top:0;bottom:22px;width:18px;background:linear-gradient(to right,var(--edit),rgba(246,235,224,0));z-index:1}
+.thumb{height:3px;background:var(--muted);border-radius:2px;margin:2px 0 0;position:relative}
+.thumb i{position:absolute;top:0;bottom:0;background:rgba(30,24,16,.35);border-radius:2px}
+.pcap{font-size:11px;color:var(--ink-2);margin:6px 0 0;max-width:none;line-height:1.35}
+.pcap .ix{white-space:nowrap}
+svg.ch .tk{font:10.5px var(--sans);fill:#6f6052}
+.sect{border-top:1px solid var(--border);margin:10px -12px 0;padding:8px 12px 0}
+.sect h5{margin:0 0 4px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.pb{margin:6px 0 0}
+.pb .r{display:flex;justify-content:space-between;gap:8px;font-size:12px}
+.pb .r span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pb .r .n{font:11px var(--mono);color:var(--ink-2);white-space:nowrap}
+.pb .bar{height:10px;margin:3px 0 0}
+.pb .bar .cap{position:absolute;top:-3px;bottom:-3px;right:0;border-left:1px dashed var(--brick)}
+.so{font:700 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--brick)}
+.coll{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);margin:10px -12px 0;padding:11px 12px 0;font-size:13px;font-weight:600}
+.coll span:last-child{font-weight:400;color:var(--ink-3)}
+.anno{font-size:11.5px;color:var(--ink-2);max-width:430px;margin:8px 0 0}
+.vp.w1280x{width:1280px;padding:24px}
+.tiles.t12{grid-template-columns:repeat(6,minmax(0,1fr))}
+.db .lede{font-size:13.5px;line-height:1.5;margin:0;max-width:none}
+.db .chan{font:700 9px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-top:4px}
+.vrow{display:flex;gap:6px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center}
+.vrow .k{margin-right:6px}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:999px;overflow:hidden}
+.seg span{font-size:12px;padding:4px 11px;white-space:nowrap;border-left:1px solid var(--border-strong)}
+.seg span:first-child{border-left:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.cmp{width:100%;max-width:620px;border-collapse:collapse;font-size:12px;margin:8px 0 12px;background:var(--edit);border-radius:8px;overflow:hidden}
+.cmp th,.cmp td{text-align:left;padding:5px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+.cmp th{font:700 9px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t .cmp td:first-child{font-weight:400;width:auto}
+.cmp td.n{font-family:var(--mono);white-space:nowrap}
+table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
+
+.db{background:var(--edit);border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:12.5px}
+.db-hd{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border)}
+.db-hd h4{margin:0;font:600 15px var(--sans)}
+.db-hd .sub{font-size:12px;color:var(--ink-2)}
+.fresh{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start}
+.fr{font:700 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--border-strong);border-radius:999px;padding:5px 8px;color:var(--ink-2);white-space:nowrap}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border)}
+.chip{font-size:12px;border:1px solid var(--border-strong);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.chip.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.chip.fin{opacity:.5}
+.chip.umb{border-style:dashed}
+.tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.tile{background:var(--card);border-radius:8px;padding:8px 10px;min-width:0}
+.tile .l{font:700 9px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.tile .v{font:600 18px/1.3 var(--sans)}
+.tile .s{font-size:11px;color:var(--ink-2);overflow-wrap:anywhere}
+.tile.on{outline:2px solid var(--ink)}
+.bar{position:relative;height:14px;background:var(--card);border-radius:3px;margin:6px 0 2px}
+.bar i{position:absolute;top:0;bottom:0;left:0;border-radius:3px}
+.bar .sold{background:var(--ink)}
+.bar .hold{background:rgba(30,24,16,.45)}
+.bar .high{background:rgba(30,24,16,.18)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="k">Off/Pixel · design record · dashboard v2 · 14 November 2026</p>
+<h1>Dashboard v2 on a phone: no sideways page, key figures on one screen</h1>
+<p class="lead">Matas opened #1230's preview share link on his iPhone: <i>"not great on mobile — can't view all key info at once, a lot of empty space with large boxes feels unnecessary and could be compacted, the graph could have a slider to scroll left / right so the rest can fit in one screen."</i> His screenshot also shows the page wider than the phone. The header sentence, channel line, venue row and the Spend tile's right edge are cut off.</p>
+<p class="lead">This record rules a compact layout for phones and the overflow fix. It builds on <code>2026-11-13-dashboard-v2.html</code> (D1–D13) and <code>2026-11-13-dashboard-v2-against-the-model.html</code> (N1–N8). Both stand. Nothing here changes a figure, a word of the header sentence, or the layout at desktop widths. Records aren't edited after merge, so this one carries the change.</p>
+<p class="lead">All figures are live, read from the #1230 preview share link at head <code>160e017</code> on 14 Nov: NX Newcastle, All shows, Since launch. One thing isn't live, and the frames say so: the chart's line shape, which comes from #1226's 12 Nov series and is schematic. The campaign count (29, 7 spending) is from the same preview's campaigns table.</p>
+
+<h2>Why the page is wider than the phone</h2>
+<p>Reproduced on the preview at 375 px. The page lays out <b>894 px wide</b>, and everything is drawn at that width and cut off at the screen edge.</p>
+<ul class="notes">
+<li><b>The cause:</b> <code>&lt;body&gt;</code> is <code>flex flex-col</code>, and the page's <code>&lt;section class="mx-auto max-w-6xl …"&gt;</code> is a flex item. Its auto side margins stop it stretching to the body's width, so it sizes to its content. Its widest content is the show-chip row. That row scrolls (<code>overflow-x-auto</code>), but its chips are <code>shrink-0</code> and the row has no width of its own, so its minimum width is all its chips laid side by side.</li>
+<li><b>Checked:</b> hiding only the show-chip row brings the section back to 375. Adding <code>width:100%; min-width:0</code> to the section, and nothing else, brings the page's scroll width from 894 to 375, with every row in place.</li>
+<li><b>Why CI missed it:</b> the 393 fixture's show names are short, so the chip row fitted. The live NX row is 9 shows with names like "Interplanetary Criminal".</li>
+<li><b>At 1280</b> the cap of <code>max-w-6xl</code> (1152 px) is narrower than the window, so the bug never shows on a desktop.</li>
+</ul>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>MB1 · Nothing wider than the phone</td><td>
+<p>No page-level sideways scroll at any width from 320 px up. Every row wraps or scrolls inside itself.</p>
+<ul>
+<li><b>The fix:</b> the page section gets <code>w-full min-w-0</code>. Every scrolling row gets <code>min-w-0</code> and <code>max-w-full</code>, so it can never widen its parent. Do the same on any flex or grid child that holds text or a scroller. Grid tracks are <code>minmax(0,1fr)</code>.</li>
+<li><b>Text wraps:</b> the header sentence wraps normally. The channel line also breaks inside long items (<code>overflow-wrap:anywhere</code>).</li>
+<li><b>The chart</b> never sets a pixel width wider than its frame (MB6).</li>
+<li><code>-webkit-text-size-adjust:100%</code> on the page, so iOS doesn't enlarge text when the phone turns sideways.</li>
+<li><b>Guard in CI:</b> a test at 320, 375, 390 and 430, on the internal page and the share link. It fails if the document's scroll width is more than the viewport width. It also fails if any element outside a scrolling row has a right edge past the viewport.
+<ul>
+<li>The fixture must be live-like: 4 options in the venue row, 9 shows with the longest names, a five-figure spend, and the longest header sentence (with the "each show's last count" clause).</li></ul></li>
+</ul></td></tr>
+
+<tr><td>MB2 · The first screen</td><td>
+<p>On a phone, the first screen answers "how is it going?" without a scroll. In order, top to bottom:</p>
+<ol>
+<li><b>Title row:</b> the scope name, as now ("NX Newcastle"), with the period on the right as one compact select chip, "Since launch ▾" (MB5).</li>
+<li><b>Stamps:</b> one muted mono line, "Counts 12 Nov · Spend 13 Nov · Signups 13 Nov".</li>
+<li><b>The header sentence</b> (N4), word for word, at 13 px. It wraps to about five lines at 375.</li>
+<li><b>The channel line</b> (N4), at most two lines.</li>
+<li><b>The venue row:</b> one scrolling row.</li>
+<li><b>The show chips:</b> one scrolling row.</li>
+<li><b>The six key figures</b> (MB3), then "More figures (8)" (MB4).</li>
+</ol>
+<p><b>Budget:</b> the first screen is 375 × 548 at the small end (iPhone SE in Safari with its bars showing) and 430 × 739 at the large end (Pro Max). At 375, everything to "More figures" fits, and the chart starts below it. At 430, the chart fits too. MBV1 and MBV2 show the fold.</p>
+<p><b>The page loses its outer card on a phone:</b> no border or rounded panel around the dashboard. Sections are split by hairlines and the side gutter is 12 px. That gives the content 351 px at 375.</p></td></tr>
+
+<tr><td>MB3 · Six key figures, compact</td><td>
+<p>A two-up grid of six tiles, in this order:</p>
+<table class="cmp">
+<tr><th>Tile label</th><th>Live value</th><th>Span line</th></tr>
+<tr><td>Spend</td><td class="n">£14,216</td><td>since launch</td></tr>
+<tr><td>Total sold</td><td class="n">6,795</td><td>Internal Counts, 12 Nov</td></tr>
+<tr><td>Cost / ticket</td><td class="n">£2.08</td><td>spend to the 12 Nov count</td></tr>
+<tr><td>Registrations</td><td class="n">4,276</td><td>show pages, to date</td></tr>
+<tr><td>Pace · 7 days</td><td class="n">68.9 a day</td><td>14-day 121.7 a day</td></tr>
+<tr><td>Projected</td><td class="n">9,540–10,796</td><td>on show day · up to 77%</td></tr>
+</table>
+<ul>
+<li><b>Each tile is three lines:</b>
+<ul>
+<li>a mono 9 px label;</li>
+<li>the value at 18 px, on one line;</li>
+<li>a span line at 11 px, on one line, cut with an ellipsis if it's too long.</li></ul>
+Padding is 6 × 9 px and the gap is 6 px, so a tile is about 60 px tall against today's 90–110.</li>
+<li><b>The span line is the short form.</b> The full subline (N3, N7) moves to a press-and-hold on the tile, together with the hover breakdown. On a phone the channel split is already in the channel line, so the Spend span is just the period.</li>
+<li><b>Labels</b> are the short forms the build already uses on phones ("Cost / ticket", "Checkouts + carts", "LPVs"…). The full N7 name goes in the tile's accessible name.</li>
+<li><b>Pace and Projected move up</b> from the trajectory section's three summary tiles. On a phone those tiles go, because Sold, Pace and Projected are now in the grid. Their wording is unchanged: Projected's span line is short for "up to 77% of 14,000 · each show capped at its capacity".</li>
+<li><b>A tap still toggles</b> the tile's line on the chart, with the same outline for "on" (D7). Pace and Projected have no chart line, so a tap does nothing. They don't show the outline either.</li>
+</ul></td></tr>
+
+<tr><td>MB4 · More figures</td><td>
+<p>The other eight tiles fold under one text action directly below the grid: "More figures (8)", with a muted hint of what's inside. Opening it shows them in the same two-up grid, in N7's order:</p>
+<ul>
+<li>Sales</li>
+<li>Checkouts + carts</li>
+<li>Cost / checkout</li>
+<li>LPVs</li>
+<li>Cost / LPV</li>
+<li>Clicks</li>
+<li>Cost / click</li>
+<li>Cost / registration</li>
+</ul>
+<p>The action then reads "Fewer figures".</p>
+<ul>
+<li><b>Closed by default.</b> The open state is remembered per device (browser storage). A tile that's on in the chart stays on while folded.</li>
+<li>The "All · None" chart toggles move into this fold, above the eight tiles. On a phone they only make sense with every tile visible.</li>
+</ul></td></tr>
+
+<tr><td>MB5 · Filters on a phone</td><td>
+<ul>
+<li><b>The venue row and show chips:</b> one row each that scrolls sideways, never wrapping. The row's right edge fades over 28 px, so it's clear there's more. On load, the picked venue and the picked show are scrolled into view. There's no "VENUE" label on a phone; the segmented control speaks for itself.</li>
+<li><b>All venues</b> keeps N2's grouping inside the one scrolling row: venue labels between the groups.</li>
+<li><b>The period</b> becomes one select chip in the title row ("Since launch ▾"). A tap opens a sheet listing the six periods. That saves the period row, which wraps to two lines at 375.</li>
+</ul></td></tr>
+
+<tr><td>MB6 · The chart scrolls inside its frame</td><td>
+<p>On a phone, the chart shows 30 days at a time and scrolls sideways inside its own frame. The page doesn't scroll sideways.</p>
+<ul>
+<li><b>Size:</b> a fixed plot height of 176 px, plus a 22 px date row. The width is the content width minus the two axes.</li>
+<li><b>Pinned axes:</b> the left and right axis labels sit in fixed columns (40 px and 36 px) outside the scroller. Only the plot and its dates move. The axis titles "SPEND (£)" and "TOTAL SOLD" sit above the axes, as N1 rules.</li>
+<li><b>One scale for the whole period:</b> the axes are computed from the whole period, so nothing rescales as you swipe. N1's three intervals stand.</li>
+<li><b>Opens on the latest day:</b> the scroller starts scrolled to its right end. Dates follow N1's rule against the 30-day density: at 375 that's every 7 days, ending on the last day. A date label that the frame's edge would cut in half isn't drawn.</li>
+<li><b>Where you are:</b>
+<ul>
+<li>the range in view sits between the axis titles, "14 Oct – 12 Nov", and updates as you swipe;</li>
+<li>a 3 px bar under the plot shows where the window sits in the period;</li>
+<li>a left-edge fade appears once there are earlier dates.</li></ul></li>
+<li><b>Gestures:</b> a swipe scrolls. A press and hold (about 300 ms) puts the dotted rule on that day and shows the readout in a strip over the titles row, above the plot: "30 Sep · Spend £164 · Total sold 4,173 · Internal Count". A finger never covers the readout. Releasing puts the titles and range back. A day between two counts says it's an estimate (D5).</li>
+<li><b>Short periods:</b> when the period is 30 days or less, there's no scroller. The chart fits the width, as now.</li>
+<li><b>Captions</b> fold to one paragraph under the chart: "Swipe for earlier dates · press and hold for a day." followed by N1's dot sentence. The "Index to own peak" toggle ends the same paragraph.</li>
+<li><b>Desktop doesn't change.</b> At 1280 the whole period stays in view, with hover, as N1.</li>
+</ul></td></tr>
+
+<tr><td>MB7 · Below the chart</td><td>
+<ul>
+<li><b>Sales trajectory:</b> the bars only, one row per show: name and figures on one line, then the bar. The section title carries the capacity ("Sales trajectory · capacity 2,000 each"), and a one-line key replaces the legend row.</li>
+<li><b>Campaigns:</b> collapsed to one row, "Campaigns · 29 · 7 spending ›". A tap opens the table, which scrolls sideways inside its own frame.</li>
+<li><b>By show:</b> collapsed the same way, "By show · 8 ›".</li>
+<li>Both collapsed rows remember their state per device, as MB4 does.</li>
+</ul></td></tr>
+
+<tr><td>MB8 · Where it applies</td><td>
+<ul>
+<li><b>MB2–MB7 apply below 640 px.</b></li>
+<li><b>From 640 px up,</b> the current layout stands, with MB1's overflow rules.</li>
+<li><b>MB1 applies at every width.</b></li>
+<li><b>1280 is unchanged:</b> MBV5 must match today's 1280 baselines.</li>
+</ul></td></tr>
+
+<tr><td>MB9 · The share link</td><td>
+<p>The client share link gets the same layout at the same widths, with whatever controls its token allows (D11). It's the link Matas tested, so it's the first acceptance surface.</p></td></tr>
+</table>
+
+<h2>Frames</h2>
+<p class="lead">The fold line is the first screen. The part below it is dimmed, so you can see what a scroll brings. Every figure is live from the preview, except the chart's line shape (schematic, from #1226's 12 Nov series). The axis scale in these frames comes from that series; live, it's computed from live data.</p>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><marker id="pm275" viewBox="0 0 6 6" refX="3" refY="3" markerWidth="3.8" markerHeight="3.8" markerUnits="userSpaceOnUse"><circle cx="3" cy="3" r="3" fill="#7a5a1e"/></marker><g id="pl275"><line x1="0" x2="937" y1="184" y2="184" stroke="rgba(30,24,16,.45)"/><line x1="0" x2="937" y1="125" y2="125" stroke="rgba(30,24,16,.10)"/><line x1="0" x2="937" y1="67" y2="67" stroke="rgba(30,24,16,.10)"/><line x1="0" x2="937" y1="8" y2="8" stroke="rgba(30,24,16,.10)"/><polyline points="4,171 13,127 23,41 32,68 42,20 51,56 61,118 70,146 80,159 89,161 99,159 108,159 118,159 127,156 137,158 146,163 156,168 165,162 175,165 184,164 194,158 203,146 213,146 222,143 232,132 241,135 251,140 260,148 270,144 279,151 288,127 298,114 307,111 317,95 326,95 336,60 345,67 355,48 364,90 374,126 383,140 393,140 402,148 412,165 421,176 431,178 440,178 450,178 459,150 469,87 478,122 488,123 497,125 507,109 516,129 526,136 535,62 545,131 554,107 563,103 573,131 582,147 592,159 601,163 611,163 620,160 630,160 639,165 649,162 658,162 668,163 677,166 687,167 696,168 706,169 715,170 725,167 734,170 744,167 753,164 763,162 772,168 782,151 791,133 801,113 810,56 820,72 829,62 838,41 848,76 857,112 867,124 876,138 886,149 895,148 905,151 914,151 924,152 933,154" fill="none" stroke="#1e1810" stroke-width="1.6" stroke-linejoin="round"/><polyline points="345,142 374,140 402,138 412,136 450,134 469,133 526,102 535,95 573,88 601,78 611,76 639,70 649,69 658,68 668,67 677,65 706,62 744,59 772,57 782,57 791,56 801,54 810,53 838,50 848,49 857,38 867,37 876,31 905,24 914,22 924,19 933,17" fill="none" stroke="#7a5a1e" stroke-width="1.8" stroke-linejoin="round" marker-start="url(#pm275)" marker-mid="url(#pm275)" marker-end="url(#pm275)"/></g><marker id="pm330" viewBox="0 0 6 6" refX="3" refY="3" markerWidth="3.8" markerHeight="3.8" markerUnits="userSpaceOnUse"><circle cx="3" cy="3" r="3" fill="#7a5a1e"/></marker><g id="pl330"><line x1="0" x2="1123" y1="184" y2="184" stroke="rgba(30,24,16,.45)"/><line x1="0" x2="1123" y1="125" y2="125" stroke="rgba(30,24,16,.10)"/><line x1="0" x2="1123" y1="67" y2="67" stroke="rgba(30,24,16,.10)"/><line x1="0" x2="1123" y1="8" y2="8" stroke="rgba(30,24,16,.10)"/><polyline points="4,171 15,127 27,41 38,68 50,20 61,56 72,118 84,146 95,159 106,161 118,159 129,159 141,159 152,156 163,158 175,163 186,168 197,162 209,165 220,164 232,158 243,146 254,146 266,143 277,132 288,135 300,140 311,148 323,144 334,151 345,127 357,114 368,111 380,95 391,95 402,60 414,67 425,48 436,90 448,126 459,140 471,140 482,148 493,165 505,176 516,178 527,178 539,178 550,150 562,87 573,122 584,123 596,125 607,109 618,129 630,136 641,62 653,131 664,107 675,103 687,131 698,147 710,159 721,163 732,163 744,160 755,160 766,165 778,162 789,162 801,163 812,166 823,167 835,168 846,169 857,170 869,167 880,170 892,167 903,164 914,162 926,168 937,151 948,133 960,113 971,56 983,72 994,62 1005,41 1017,76 1028,112 1040,124 1051,138 1062,149 1074,148 1085,151 1096,151 1108,152 1119,154" fill="none" stroke="#1e1810" stroke-width="1.6" stroke-linejoin="round"/><polyline points="414,142 448,140 482,138 493,136 539,134 562,133 630,102 641,95 687,88 721,78 732,76 766,70 778,69 789,68 801,67 812,65 846,62 892,59 926,57 937,57 948,56 960,54 971,53 1005,50 1017,49 1028,38 1040,37 1051,31 1085,24 1096,22 1108,19 1119,17" fill="none" stroke="#7a5a1e" stroke-width="1.8" stroke-linejoin="round" marker-start="url(#pm330)" marker-mid="url(#pm330)" marker-end="url(#pm330)"/></g></defs></svg>
+<div class="frame">
+<figure><figcaption>MBV1 · 375 · NX Newcastle · All shows · Since launch · the first screen</figcaption>
+<div class="ph" style="width:375px">
+<div class="clip" style="height:720px">
+<div class="pg">
+<div class="t1"><h4>NX Newcastle</h4><span class="sel">Since launch ▾</span></div>
+<div class="stm">Counts 12 Nov · Spend 13 Nov · Signups 13 Nov</div>
+<p class="lede">NX Newcastle to date: £14,216 spend since launch, 6,795 tickets sold across 7 shows (Internal Counts, 12 Nov), so £2.08 of spend per ticket, on spend to the 12 Nov count. Separate NX Newcastle umbrella spend: £4,309.</p>
+<div class="chan">Meta £14,078 · TikTok £119 · Google £19 · to 13 Nov · finished shows not included</div>
+<div class="sc"><span class="seg"><span class="on">NX Newcastle</span><span>Electric Bristol</span><span>Electric Studios</span><span>All venues</span></span></div>
+<div class="sc"><span class="chip on">All</span><span class="chip">Interplanetary Criminal</span><span class="chip">Robbie Doherty</span><span class="chip">D.O.D</span><span class="chip">Locklead</span><span class="chip">Rudimental</span><span class="chip">Schak</span><span class="chip">Ewan McVicar</span><span class="chip">Julian Fijma</span><span class="chip umb">Umbrella</span><span class="chip fin">Include finished</span></div>
+<div class="kg">
+<div class="kt on">
+<div class="l">Spend</div>
+<div class="v">£14,216</div>
+<div class="s">since launch</div></div>
+<div class="kt on">
+<div class="l">Total sold</div>
+<div class="v">6,795</div>
+<div class="s">Internal Counts, 12 Nov</div></div>
+<div class="kt">
+<div class="l">Cost / ticket</div>
+<div class="v">£2.08</div>
+<div class="s">spend to the 12 Nov count</div></div>
+<div class="kt">
+<div class="l">Registrations</div>
+<div class="v">4,276</div>
+<div class="s">show pages, to date</div></div>
+<div class="kt">
+<div class="l">Pace · 7 days</div>
+<div class="v">68.9 a day</div>
+<div class="s">14-day 121.7 a day</div></div>
+<div class="kt">
+<div class="l">Projected</div>
+<div class="v">9,540–10,796</div>
+<div class="s">on show day · up to 77%</div></div></div>
+<div class="mf"><u>More figures (8)</u><small>sales, checkouts, LPVs, clicks, costs</small></div>
+<div class="cb">
+<div class="cbt"><span class="at">SPEND (£)</span><span class="rng">14 Oct – 12 Nov</span><span class="at">TOTAL SOLD</span></div>
+<div class="crow">
+<svg width="40" height="206" class="ch ax" aria-hidden="true"><text x="35" y="188" class="tk" text-anchor="end">£0</text><text x="35" y="129" class="tk" text-anchor="end">£200</text><text x="35" y="70" class="tk" text-anchor="end">£400</text><text x="35" y="12" class="tk" text-anchor="end">£600</text></svg>
+<div class="csc fadeL" style="width:275px">
+<svg viewBox="662.3 0 275 206" width="275" height="206" class="ch" role="img" aria-label="Spend and Total sold by day"><use href="#pl275"/><line x1="933" x2="933" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="936" y="200" class="tk" text-anchor="end">12 Nov</text><line x1="867" x2="867" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="867" y="200" class="tk" text-anchor="middle">5 Nov</text><line x1="801" x2="801" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="801" y="200" class="tk" text-anchor="middle">29 Oct</text><line x1="734" x2="734" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="734" y="200" class="tk" text-anchor="middle">22 Oct</text></svg>
+<div class="thumb"><i style="left:69.7%;width:30.3%"></i></div></div>
+<svg width="36" height="206" class="ch ax" aria-hidden="true"><text x="5" y="188" class="tk" text-anchor="start">0</text><text x="5" y="129" class="tk" text-anchor="start">3k</text><text x="5" y="70" class="tk" text-anchor="start">6k</text><text x="5" y="12" class="tk" text-anchor="start">9k</text></svg></div>
+<p class="pcap">Swipe for earlier dates · press and hold for a day. A dot is a real Internal Count; between counts the line is a straight estimate. <span class="ix">☐ Index to own peak</span></p></div></div>
+<div class="fold" style="top:548px"><span>fold · 375×548</span></div>
+<div class="below" style="top:548px"></div></div></div>
+<p class="anno">Everything above the dashed line is on screen without scrolling at 375 × 548 (iPhone SE in Safari, the smallest common case). The header sentence, all six key figures and More figures fit, and the chart starts just below.</p></figure>
+<figure><figcaption>MBV2 · 430 · the same · the first screen</figcaption>
+<div class="ph" style="width:430px">
+<div class="clip" style="height:800px">
+<div class="pg">
+<div class="t1"><h4>NX Newcastle</h4><span class="sel">Since launch ▾</span></div>
+<div class="stm">Counts 12 Nov · Spend 13 Nov · Signups 13 Nov</div>
+<p class="lede">NX Newcastle to date: £14,216 spend since launch, 6,795 tickets sold across 7 shows (Internal Counts, 12 Nov), so £2.08 of spend per ticket, on spend to the 12 Nov count. Separate NX Newcastle umbrella spend: £4,309.</p>
+<div class="chan">Meta £14,078 · TikTok £119 · Google £19 · to 13 Nov · finished shows not included</div>
+<div class="sc"><span class="seg"><span class="on">NX Newcastle</span><span>Electric Bristol</span><span>Electric Studios</span><span>All venues</span></span></div>
+<div class="sc"><span class="chip on">All</span><span class="chip">Interplanetary Criminal</span><span class="chip">Robbie Doherty</span><span class="chip">D.O.D</span><span class="chip">Locklead</span><span class="chip">Rudimental</span><span class="chip">Schak</span><span class="chip">Ewan McVicar</span><span class="chip">Julian Fijma</span><span class="chip umb">Umbrella</span><span class="chip fin">Include finished</span></div>
+<div class="kg">
+<div class="kt on">
+<div class="l">Spend</div>
+<div class="v">£14,216</div>
+<div class="s">since launch</div></div>
+<div class="kt on">
+<div class="l">Total sold</div>
+<div class="v">6,795</div>
+<div class="s">Internal Counts, 12 Nov</div></div>
+<div class="kt">
+<div class="l">Cost / ticket</div>
+<div class="v">£2.08</div>
+<div class="s">spend to the 12 Nov count</div></div>
+<div class="kt">
+<div class="l">Registrations</div>
+<div class="v">4,276</div>
+<div class="s">show pages, to date</div></div>
+<div class="kt">
+<div class="l">Pace · 7 days</div>
+<div class="v">68.9 a day</div>
+<div class="s">14-day 121.7 a day</div></div>
+<div class="kt">
+<div class="l">Projected</div>
+<div class="v">9,540–10,796</div>
+<div class="s">on show day · up to 77%</div></div></div>
+<div class="mf"><u>More figures (8)</u><small>sales, checkouts, LPVs, clicks, costs</small></div>
+<div class="cb">
+<div class="cbt"><span class="at">SPEND (£)</span><span class="rng">14 Oct – 12 Nov</span><span class="at">TOTAL SOLD</span></div>
+<div class="crow">
+<svg width="40" height="206" class="ch ax" aria-hidden="true"><text x="35" y="188" class="tk" text-anchor="end">£0</text><text x="35" y="129" class="tk" text-anchor="end">£200</text><text x="35" y="70" class="tk" text-anchor="end">£400</text><text x="35" y="12" class="tk" text-anchor="end">£600</text></svg>
+<div class="csc fadeL" style="width:330px">
+<svg viewBox="793.2 0 330 206" width="330" height="206" class="ch" role="img" aria-label="Spend and Total sold by day"><use href="#pl330"/><line x1="1119" x2="1119" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="1122" y="200" class="tk" text-anchor="end">12 Nov</text><line x1="1040" x2="1040" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="1040" y="200" class="tk" text-anchor="middle">5 Nov</text><line x1="960" x2="960" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="960" y="200" class="tk" text-anchor="middle">29 Oct</text><line x1="880" x2="880" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="880" y="200" class="tk" text-anchor="middle">22 Oct</text></svg>
+<div class="thumb"><i style="left:69.7%;width:30.3%"></i></div></div>
+<svg width="36" height="206" class="ch ax" aria-hidden="true"><text x="5" y="188" class="tk" text-anchor="start">0</text><text x="5" y="129" class="tk" text-anchor="start">3k</text><text x="5" y="70" class="tk" text-anchor="start">6k</text><text x="5" y="12" class="tk" text-anchor="start">9k</text></svg></div>
+<p class="pcap">Swipe for earlier dates · press and hold for a day. A dot is a real Internal Count; between counts the line is a straight estimate. <span class="ix">☐ Index to own peak</span></p></div></div>
+<div class="fold" style="top:739px"><span>fold · 430×739</span></div>
+<div class="below" style="top:739px"></div></div></div>
+<p class="anno">At 430 × 739 (Pro Max in Safari, toolbar showing) the first screen also takes the whole chart with its axes.</p></figure>
+</div>
+<div class="frame">
+<figure><figcaption>MBV3a · 375 · the chart, as it opens</figcaption>
+<div class="ph" style="width:375px">
+<div class="clip" style="height:760px">
+<div class="pg">
+<div class="cb">
+<div class="cbt"><span class="at">SPEND (£)</span><span class="rng">14 Oct – 12 Nov</span><span class="at">TOTAL SOLD</span></div>
+<div class="crow">
+<svg width="40" height="206" class="ch ax" aria-hidden="true"><text x="35" y="188" class="tk" text-anchor="end">£0</text><text x="35" y="129" class="tk" text-anchor="end">£200</text><text x="35" y="70" class="tk" text-anchor="end">£400</text><text x="35" y="12" class="tk" text-anchor="end">£600</text></svg>
+<div class="csc fadeL" style="width:275px">
+<svg viewBox="662.3 0 275 206" width="275" height="206" class="ch" role="img" aria-label="Spend and Total sold by day"><use href="#pl275"/><line x1="933" x2="933" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="936" y="200" class="tk" text-anchor="end">12 Nov</text><line x1="867" x2="867" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="867" y="200" class="tk" text-anchor="middle">5 Nov</text><line x1="801" x2="801" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="801" y="200" class="tk" text-anchor="middle">29 Oct</text><line x1="734" x2="734" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="734" y="200" class="tk" text-anchor="middle">22 Oct</text></svg>
+<div class="thumb"><i style="left:69.7%;width:30.3%"></i></div></div>
+<svg width="36" height="206" class="ch ax" aria-hidden="true"><text x="5" y="188" class="tk" text-anchor="start">0</text><text x="5" y="129" class="tk" text-anchor="start">3k</text><text x="5" y="70" class="tk" text-anchor="start">6k</text><text x="5" y="12" class="tk" text-anchor="start">9k</text></svg></div>
+<p class="pcap">Swipe for earlier dates · press and hold for a day. A dot is a real Internal Count; between counts the line is a straight estimate. <span class="ix">☐ Index to own peak</span></p></div>
+<div class="sect"><h5>Sales trajectory · capacity 2,000 each</h5>
+<div class="pb">
+<div class="r"><span>Interplanetary Criminal</span><span class="n">1,828 → 1,867–1,972</span></div>
+<div class="bar"><i class="sold" style="width:91.40%"></i><i class="hold" style="left:91.40%;width:1.95%"></i><i class="high" style="left:93.35%;width:5.25%"></i><span class="cap"></span></div></div>
+<div class="pb">
+<div class="r"><span>Robbie Doherty</span><span class="n">497 → 677–972</span></div>
+<div class="bar"><i class="sold" style="width:24.85%"></i><i class="hold" style="left:24.85%;width:9.00%"></i><i class="high" style="left:33.85%;width:14.75%"></i><span class="cap"></span></div></div>
+<div class="pb">
+<div class="r"><span>D.O.D</span><span class="n">932 → 1,051–1,185</span></div>
+<div class="bar"><i class="sold" style="width:46.60%"></i><i class="hold" style="left:46.60%;width:5.95%"></i><i class="high" style="left:52.55%;width:6.70%"></i><span class="cap"></span></div></div>
+<div class="pb">
+<div class="r"><span>Locklead</span><span class="n">372 → 1,078–1,677</span></div>
+<div class="bar"><i class="sold" style="width:18.60%"></i><i class="hold" style="left:18.60%;width:35.30%"></i><i class="high" style="left:53.90%;width:29.95%"></i><span class="cap"></span></div></div>
+<div class="pb">
+<div class="r"><span>Rudimental</span><span class="n">717 → 867–990</span></div>
+<div class="bar"><i class="sold" style="width:35.85%"></i><i class="hold" style="left:35.85%;width:7.50%"></i><i class="high" style="left:43.35%;width:6.15%"></i><span class="cap"></span></div></div>
+<div class="pb">
+<div class="r"><span>Schak</span><span class="n">1,870 → <span class="so">sells out</span></span></div>
+<div class="bar"><i class="sold" style="width:93.50%"></i><i class="hold" style="left:93.50%;width:6.50%"></i><i class="high" style="left:100.00%;width:0.00%"></i><span class="cap"></span></div></div>
+<div class="pb">
+<div class="r"><span>Ewan McVicar</span><span class="n">No ticket counts yet</span></div>
+<div class="bar"></div></div>
+<div class="pb">
+<div class="r"><span>Julian Fijma</span><span class="n">579 → <span class="so">sells out</span></span></div>
+<div class="bar"><i class="sold" style="width:28.95%"></i><i class="hold" style="left:28.95%;width:71.05%"></i><i class="high" style="left:100.00%;width:0.00%"></i><span class="cap"></span></div></div>
+<p class="pcap">Dark: sold. Mid: holds at the last 7 days' pace. Light: like your best finish. Dashed: capacity.</p></div>
+<div class="coll"><span>Campaigns · 29 · 7 spending</span><span>›</span></div>
+<div class="coll"><span>By show · 8</span><span>›</span></div></div></div></div>
+<p class="anno">Latest day in view. The axes stay put; only the plot moves. The thin bar under the plot shows where the 30 days sit in the period. Below: the bars, then two collapsed rows.</p></figure>
+<figure><figcaption>MBV3b · 375 · swiped to earlier dates, holding on 30 Sep</figcaption>
+<div class="ph" style="width:375px">
+<div class="clip" style="height:348px">
+<div class="pg">
+<div class="cb">
+<div class="cbt ro"><b>30 Sep</b><span>Spend £164</span><span>Total sold 4,173</span><span style="color:var(--ink-3)">Internal Count</span></div>
+<div class="crow">
+<svg width="40" height="206" class="ch ax" aria-hidden="true"><text x="35" y="188" class="tk" text-anchor="end">£0</text><text x="35" y="129" class="tk" text-anchor="end">£200</text><text x="35" y="70" class="tk" text-anchor="end">£400</text><text x="35" y="12" class="tk" text-anchor="end">£600</text></svg>
+<div class="csc fadeL" style="width:275px">
+<svg viewBox="368.3 0 275 206" width="275" height="206" class="ch" role="img" aria-label="Spend and Total sold by day"><use href="#pl275"/><line x1="601" x2="601" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="601" y="200" class="tk" text-anchor="middle">8 Oct</text><line x1="535" x2="535" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="535" y="200" class="tk" text-anchor="middle">1 Oct</text><line x1="469" x2="469" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="469" y="200" class="tk" text-anchor="middle">24 Sep</text><line x1="402" x2="402" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="402" y="200" class="tk" text-anchor="middle">17 Sep</text><line x1="526" x2="526" y1="8" y2="184" stroke="#1e1810" stroke-dasharray="2 3"/></svg>
+<div class="thumb"><i style="left:38.4%;width:30.3%"></i></div></div>
+<svg width="36" height="206" class="ch ax" aria-hidden="true"><text x="5" y="188" class="tk" text-anchor="start">0</text><text x="5" y="129" class="tk" text-anchor="start">3k</text><text x="5" y="70" class="tk" text-anchor="start">6k</text><text x="5" y="12" class="tk" text-anchor="start">9k</text></svg></div>
+<p class="pcap">Swipe for earlier dates · press and hold for a day. A dot is a real Internal Count; between counts the line is a straight estimate. <span class="ix">☐ Index to own peak</span></p></div></div></div></div>
+<p class="anno">A press and hold puts the day's figures in a strip over the titles row, above the plot, so a finger never covers them. A left fade shows there are earlier dates.</p></figure>
+</div>
+<div class="frame">
+<figure><figcaption>MBV4 · 375 · More figures open</figcaption>
+<div class="ph" style="width:375px">
+<div class="clip" style="height:860px">
+<div class="pg">
+<div class="kg">
+<div class="kt on">
+<div class="l">Spend</div>
+<div class="v">£14,216</div>
+<div class="s">since launch</div></div>
+<div class="kt on">
+<div class="l">Total sold</div>
+<div class="v">6,795</div>
+<div class="s">Internal Counts, 12 Nov</div></div>
+<div class="kt">
+<div class="l">Cost / ticket</div>
+<div class="v">£2.08</div>
+<div class="s">spend to the 12 Nov count</div></div>
+<div class="kt">
+<div class="l">Registrations</div>
+<div class="v">4,276</div>
+<div class="s">show pages, to date</div></div>
+<div class="kt">
+<div class="l">Pace · 7 days</div>
+<div class="v">68.9 a day</div>
+<div class="s">14-day 121.7 a day</div></div>
+<div class="kt">
+<div class="l">Projected</div>
+<div class="v">9,540–10,796</div>
+<div class="s">on show day · up to 77%</div></div></div>
+<div class="mf"><u>Fewer figures</u><small>8 more shown</small></div>
+<div class="mf" style="padding:0 0 4px;font-size:12px"><small>Chart lines</small><span><u>All</u> · <u>None</u></span></div>
+<div class="kg" style="margin-top:4px">
+<div class="kt">
+<div class="l">Sales</div>
+<div class="v">6,795</div>
+<div class="s">since launch, to 12 Nov</div></div>
+<div class="kt">
+<div class="l">Checkouts + carts</div>
+<div class="v">2,674</div>
+<div class="s">since launch · actions</div></div>
+<div class="kt">
+<div class="l">Cost / checkout</div>
+<div class="v">£5.26</div>
+<div class="s">Meta spend only</div></div>
+<div class="kt">
+<div class="l">LPVs</div>
+<div class="v">46,023</div>
+<div class="s">since launch</div></div>
+<div class="kt">
+<div class="l">Cost / LPV</div>
+<div class="v">£0.31</div>
+<div class="s">Meta spend only</div></div>
+<div class="kt">
+<div class="l">Clicks</div>
+<div class="v">57,144</div>
+<div class="s">since launch</div></div>
+<div class="kt">
+<div class="l">Cost / click</div>
+<div class="v">£0.25</div>
+<div class="s">Meta spend only</div></div>
+<div class="kt">
+<div class="l">Cost / registration</div>
+<div class="v">£1.24</div>
+<div class="s">inside signup windows</div></div></div>
+<div class="cb">
+<div class="cbt"><span class="at">SPEND (£)</span><span class="rng">14 Oct – 12 Nov</span><span class="at">TOTAL SOLD</span></div>
+<div class="crow">
+<svg width="40" height="206" class="ch ax" aria-hidden="true"><text x="35" y="188" class="tk" text-anchor="end">£0</text><text x="35" y="129" class="tk" text-anchor="end">£200</text><text x="35" y="70" class="tk" text-anchor="end">£400</text><text x="35" y="12" class="tk" text-anchor="end">£600</text></svg>
+<div class="csc fadeL" style="width:275px">
+<svg viewBox="662.3 0 275 206" width="275" height="206" class="ch" role="img" aria-label="Spend and Total sold by day"><use href="#pl275"/><line x1="933" x2="933" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="936" y="200" class="tk" text-anchor="end">12 Nov</text><line x1="867" x2="867" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="867" y="200" class="tk" text-anchor="middle">5 Nov</text><line x1="801" x2="801" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="801" y="200" class="tk" text-anchor="middle">29 Oct</text><line x1="734" x2="734" y1="184" y2="188" stroke="rgba(30,24,16,.45)"/><text x="734" y="200" class="tk" text-anchor="middle">22 Oct</text></svg>
+<div class="thumb"><i style="left:69.7%;width:30.3%"></i></div></div>
+<svg width="36" height="206" class="ch ax" aria-hidden="true"><text x="5" y="188" class="tk" text-anchor="start">0</text><text x="5" y="129" class="tk" text-anchor="start">3k</text><text x="5" y="70" class="tk" text-anchor="start">6k</text><text x="5" y="12" class="tk" text-anchor="start">9k</text></svg></div>
+<p class="pcap">Swipe for earlier dates · press and hold for a day. A dot is a real Internal Count; between counts the line is a straight estimate. <span class="ix">☐ Index to own peak</span></p></div></div></div></div>
+<p class="anno">The eight tiles open under the six, in N7's order. Fewer figures closes them. The scroll position stays where it was.</p></figure>
+</div>
+<figure class="wide"><figcaption>MBV5 · 1280 · unchanged: the top of the page as #1226 ruled it, live figures</figcaption>
+<div class="vp w1280x">
+<div class="db">
+<div class="db-hd">
+<div style="max-width:880px"><h4 style="margin-bottom:6px">All shows · NX Newcastle</h4>
+<p class="lede">NX Newcastle to date: £14,216 spend since launch, 6,795 tickets sold across 7 shows (Internal Counts, 12 Nov), so £2.08 of spend per ticket, on spend to the 12 Nov count. Separate NX Newcastle umbrella spend: £4,309.</p>
+<div class="chan">Meta £14,078 · TikTok £119 · Google £19 · to 13 Nov · finished shows not included</div></div>
+<div class="fresh"><span class="fr">Counts to 12 Nov</span><span class="fr">Spend to 13 Nov</span><span class="fr">Signups to 13 Nov</span></div></div>
+<div class="vrow"><span class="k">Venue</span><span class="seg"><span class="on">NX Newcastle</span><span>Electric Bristol</span><span>Electric Studios</span><span>All venues</span></span></div>
+<div class="chips"><span class="chip on">All shows</span><span class="chip">Interplanetary Criminal · 21 Nov</span><span class="chip">Robbie Doherty · 27 Nov</span><span class="chip">D.O.D · 4 Dec</span><span class="chip">Locklead · 11 Dec</span><span class="chip">Rudimental · 12 Dec</span><span class="chip">Schak · 18 Dec</span><span class="chip">Ewan McVicar · 26 Feb</span><span class="chip">Julian Fijma · 19 Mar</span><span class="chip umb">Umbrella</span><span class="chip fin">Include finished</span></div>
+<div class="chips"><span class="chip on">Since launch</span><span class="chip">30 days</span><span class="chip">14 days</span><span class="chip">7 days</span><span class="chip">3 days</span><span class="chip">Yesterday</span></div>
+<div class="chips" style="font-size:12px"><u>All</u> · <u>None</u></div>
+<div class="tiles t12">
+<div class="tile on">
+<div class="l">Spend</div>
+<div class="v">£14,216</div>
+<div class="s">NX Newcastle · Meta £14,078 · TikTok £119 · Google £19</div></div>
+<div class="tile on">
+<div class="l">Total sold</div>
+<div class="v">6,795</div>
+<div class="s">to date · Internal Counts, 12 Nov</div></div>
+<div class="tile">
+<div class="l">Sales</div>
+<div class="v">6,795</div>
+<div class="s">since launch, to 12 Nov</div></div>
+<div class="tile">
+<div class="l">Cost per ticket</div>
+<div class="v">£2.08</div>
+<div class="s">since launch · the 7 shows with counts</div></div>
+<div class="tile">
+<div class="l">Checkouts + add to cart</div>
+<div class="v">2,674</div>
+<div class="s">since launch · actions, one person can do both</div></div>
+<div class="tile">
+<div class="l">Cost per checkout / cart</div>
+<div class="v">£5.26</div>
+<div class="s">since launch</div></div>
+<div class="tile">
+<div class="l">Landing page views</div>
+<div class="v">46,023</div>
+<div class="s">since launch</div></div>
+<div class="tile">
+<div class="l">Cost per LPV</div>
+<div class="v">£0.31</div>
+<div class="s">since launch</div></div>
+<div class="tile">
+<div class="l">Clicks</div>
+<div class="v">57,144</div>
+<div class="s">since launch</div></div>
+<div class="tile">
+<div class="l">Cost per click</div>
+<div class="v">£0.25</div>
+<div class="s">since launch</div></div>
+<div class="tile">
+<div class="l">Registrations (CIRQLIN)</div>
+<div class="v">4,276</div>
+<div class="s">to date · signup pages close at on-sale</div></div>
+<div class="tile">
+<div class="l">Cost per registration</div>
+<div class="v">£1.24</div>
+<div class="s">since launch · show pages, inside their signup windows</div></div></div>
+</div></div></figure>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HMB1 · Overflow fix (Cursor, first, on its own)</td><td>
+<p>MB1 only: <code>w-full min-w-0</code> on the page section, plus <code>min-w-0</code> on the scroll rows and their flex parents, plus the CI guard. Small enough to ship ahead of the rest.</p>
+<p><b>Acceptance:</b></p>
+<ul>
+<li>The guard passes at 320, 375, 390 and 430, on the internal page and the share link.</li>
+<li>1280 baselines are unchanged.</li>
+<li>Shot <code>MB-375-overflow</code>: the share link at 375, with no clipped sentence, channel line, venue row or tile.</li>
+</ul></td></tr>
+<tr><td>HMB2 · Compact layout (Cursor)</td><td>
+<p>In <code>components/dashboard/sales/</code>, below 640 px:</p>
+<ul>
+<li>MB2's order and the full-bleed page.</li>
+<li>MB3's six tiles.</li>
+<li>MB4's fold.</li>
+<li>MB5's scrolling rows and the period select.</li>
+<li>MB7's collapsed sections.</li>
+</ul>
+<p>Shots, share link, live-like fixture:</p>
+<ul>
+<li><code>MB-375-first</code> (MBV1), at 375 × 548, with no scroll</li>
+<li><code>MB-430-first</code> (MBV2), at 430 × 739, with no scroll</li>
+<li><code>MB-390-first</code>, at 390 × 664</li>
+<li><code>MB-375-more</code> (MBV4)</li>
+<li><code>MB-375-allvenues</code>: the grouped scrolling row</li>
+<li><code>MB-1280-unchanged</code>: a pixel diff against main</li>
+</ul></td></tr>
+<tr><td>HMB3 · Phone chart (Cursor)</td><td>
+<p>MB6: pinned axes, the 30-day scroller opening at the latest day, the range text, the position bar, the fade, press and hold with the readout strip, and no scroller at 30 days or less.</p>
+<p>Shots:</p>
+<ul>
+<li><code>MB-375-chart</code> (MBV3a)</li>
+<li><code>MB-375-chart-swiped</code> (MBV3b), with the readout on a count day and on a day between counts. The second must say it's an estimate (D5).</li>
+<li><code>MB-375-chart-14d</code>: no scroller</li>
+</ul></td></tr>
+<tr><td>HMB4 · Real phone (Matas)</td><td>
+<p>Open the preview share link on the iPhone and screenshot four things:</p>
+<ul>
+<li>the first screen;</li>
+<li>the chart after one swipe;</li>
+<li>a press and hold;</li>
+<li>More figures open.</li>
+</ul>
+<p>The design thread judges these against MBV1–MBV4. A CI pass alone isn't enough: this bug passed CI.</p></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The 640 px breakpoint.</li>
+<li>The fold budgets, 375 × 548 and 430 × 739. These are typical Safari viewports with the bars showing, not measurements of Matas's phone.</li>
+<li>The choice and order of the six key figures. Moving Pace and Projected into the grid, and dropping the three summary tiles on a phone.</li>
+<li>"More figures (8)" and "Fewer figures", the hint line, and moving "All · None" into the fold.</li>
+<li>The period as a select chip with a sheet.</li>
+<li>The 30-day window, the 176 px plot, the axis column widths, the position bar, and the 300 ms press and hold.</li>
+<li>The words "Swipe for earlier dates · press and hold for a day", and the readout strip above the plot.</li>
+<li>"Campaigns · {n} · {n} spending" and "By show · {n}", collapsed by default, and the open states remembered per device.</li>
+<li>The full-bleed page on a phone, the 12 px gutter, and dropping the "VENUE" label.</li>
+</ul>
+
+</div>
+</body>
+</html>
