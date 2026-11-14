@@ -22,7 +22,8 @@ export const DASHBOARD_V2_FRAMES: Record<
     pinHover?: boolean;
     pinSpend?: boolean;
     venueKey?: string;
-    fixture?: "live";
+    /** "live": the live-like rows through the calc; "live-mixed": the same with mixed count days (the longest sentence). */
+    fixture?: "live" | "live-mixed";
     /** The first-screen line: the record's budget for this width (MB2). */
     fold?: { width: number; height: number };
     moreOpen?: boolean;
@@ -41,8 +42,8 @@ export const DASHBOARD_V2_FRAMES: Record<
   NV5: { surface: "internal", showId: "all", period: "launch", pinSpend: true, venueKey: "all" },
   NV6: { surface: "internal", showId: "umbrella", period: "launch" },
   /** MB1: NX Newcastle, Since launch, on the live-like fixture (nine long show names, four venue options). */
-  MBO: { surface: "internal", showId: "venue:nx newcastle", period: "launch", fixture: "live" },
-  MBS: { surface: "share", showId: "venue:nx newcastle", period: "launch", fixture: "live" },
+  MBO: { surface: "internal", showId: "venue:nx newcastle", period: "launch", fixture: "live-mixed" },
+  MBS: { surface: "share", showId: "venue:nx newcastle", period: "launch", fixture: "live-mixed" },
   /** MBV1 / MBV2 and 390: the first screen, with the fold at 375×548, 390×664 and 430×739. */
   MBF375: { surface: "share", showId: "venue:nx newcastle", period: "launch", fixture: "live", fold: { width: 375, height: 548 } },
   MBF390: { surface: "share", showId: "venue:nx newcastle", period: "launch", fixture: "live", fold: { width: 390, height: 664 } },

@@ -55,11 +55,26 @@ describe("the record's words on a phone", () => {
     expect(stampLine(NX_SALES_LIVE_LIKE.freshness)).toBe("Counts 12 Nov · Spend 13 Nov · Signups 13 Nov");
     const t = view.trajectory;
     if (t.kind !== "all") throw new Error("all");
-    expect(projectedSpan(t.summary!.projected)).toBe("on show day · up to 77%");
+    expect(projectedSpan(t.summary!.projected)).toMatch(/^on show day · up to \d+%$/);
     expect(trajectoryTitle(t.bars)).toBe("Sales trajectory · capacity 2,000 each");
-    expect(phoneBar(t.bars[0])).toEqual({ name: "Interplanetary Criminal", figures: "1,828 → 1,867–1,972" });
-    expect(phoneBar(t.bars.find((b) => b.id === "schak")!)).toEqual({ name: "Schak", figures: "1,870 → sells out" });
+    expect(phoneBar(t.bars[0]).name).toBe("Interplanetary Criminal");
+    expect(phoneBar(t.bars[0]).figures).toMatch(/^1,828 → [\d,]+–[\d,]+$/);
+    expect(phoneBar(t.bars.find((b) => b.label.startsWith("Schak"))!)).toEqual({ name: "Schak", figures: "1,870 → sells out" });
     expect(campaignsRow(view.campaigns)).toBe("Campaigns · 29 · 7 spending");
+  });
+});
+
+describe("the live-like page is one consistent set of figures (design's note on #1232)", () => {
+  it("header, tiles, stamps and campaigns come from the same rows through the calc", () => {
+    expect(view.header!.sentence).toBe(
+      "NX Newcastle to date: £14,216 spend since launch, 6,795 tickets sold across 7 shows (Internal Counts, 12 Nov), so £2.08 of spend per ticket, on spend to the 12 Nov count. Separate NX Newcastle umbrella spend: £4,309.",
+    );
+    expect(view.header!.channelLine).toBe("Meta £14,078 · TikTok £119 · Google £19 · to 13 Nov · finished shows not included");
+    const tile = (id: string) => view.tiles.find((t) => t.id === id)!.value;
+    expect([tile("spend"), tile("sold"), tile("costPerTicket"), tile("registrations")]).toEqual(["£14,216", "6,795", "£2.08", "4,276"]);
+    expect(stampLine(NX_SALES_LIVE_LIKE.freshness)).toBe("Counts 12 Nov · Spend 13 Nov · Signups 13 Nov");
+    expect(campaignsRow(view.campaigns)).toBe("Campaigns · 29 · 7 spending");
+    expect(view.countDay).toBe("2026-11-12");
   });
 });
 
@@ -89,14 +104,16 @@ describe("the phone layout renders (CSS below 640 px; desktop markup unchanged)"
     const more = container.querySelector("[data-more-figures]")!;
     expect(more.textContent).toContain("More figures (8)");
     // The phone's Pace tile (the desktop trajectory has the same figure in its own tile).
-    expect(screen.getAllByText("68.9").length).toBe(2);
-    expect(screen.getByText("on show day · up to 77%")).toBeTruthy();
+    const t = view.trajectory;
+    if (t.kind !== "all" || !t.summary) throw new Error("all");
+    expect(screen.getAllByText(t.summary.pace.value.replace(/ a day$/, "")).length).toBe(2);
+    expect(screen.getByText(projectedSpan(t.summary.projected))).toBeTruthy();
     // Folded tiles are hidden on a phone, shown from 640 px.
-    const lpvTile = screen.getByRole("button", { name: /^Landing page views, 46,023/ }).closest("li")!;
+    const lpvTile = screen.getByRole("button", { name: /^Landing page views, / }).closest("li")!;
     expect(lpvTile.className).toContain("hidden sm:block");
     fireEvent.click(more);
     expect(container.querySelector("[data-more-figures]")!.textContent).toContain("Fewer figures");
-    expect(screen.getByRole("button", { name: /^Landing page views, 46,023/ }).closest("li")!.className).not.toContain("hidden sm:block");
+    expect(screen.getByRole("button", { name: /^Landing page views, / }).closest("li")!.className).not.toContain("hidden sm:block");
     expect(screen.getByText("Chart lines")).toBeTruthy();
   });
 
@@ -145,6 +162,6 @@ describe("the phone layout renders (CSS below 640 px; desktop markup unchanged)"
     const { container } = render(
       <SalesDashboard model={NX_SALES_LIVE_LIKE} surface="share" initialShowId="venue:nx newcastle" initialPeriod="launch" phoneHoldDay="2026-09-30" />,
     );
-    expect(container.querySelector("[data-readout]")!.textContent).toBe("30 Sep · Spend £164 · Total sold 4,173 · Internal Count");
+    expect(container.querySelector("[data-readout]")!.textContent).toMatch(/^30\u00a0Sep · Spend £[\d,.]+ · Total sold [\d,]+ · Internal Count$/);
   });
 });

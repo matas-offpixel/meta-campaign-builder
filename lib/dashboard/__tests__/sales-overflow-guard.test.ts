@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { DASHBOARD_V2_FRAMES } from "../../../scripts/plan-frames/dashboard-v2-ids.ts";
-import { NX_SALES_LIVE_LIKE } from "../sales-vs-spend-fixture.ts";
+import { NX_SALES_LIVE_LIKE, NX_SALES_LIVE_LIKE_MIXED } from "../sales-vs-spend-fixture.ts";
 
 describe("MB1 overflow guard", () => {
   it("checks the internal page and the share link at 320, 375, 390 and 430, in CI", () => {
@@ -22,8 +22,11 @@ describe("MB1 overflow guard", () => {
     assert.match(guard, /width: 430, height: 739/);
     assert.equal(DASHBOARD_V2_FRAMES.MBO.surface, "internal");
     assert.equal(DASHBOARD_V2_FRAMES.MBS.surface, "share");
-    assert.equal(DASHBOARD_V2_FRAMES.MBO.fixture, "live");
-    assert.equal(DASHBOARD_V2_FRAMES.MBS.fixture, "live");
+    assert.equal(DASHBOARD_V2_FRAMES.MBO.fixture, "live-mixed");
+    assert.equal(DASHBOARD_V2_FRAMES.MBS.fixture, "live-mixed");
+    // Design's note on #1232: All venues (three grouped chip rows) is in the guard too.
+    assert.match(guard, /"sales\/MBA"/);
+    assert.equal(DASHBOARD_V2_FRAMES.MBA.venueKey, "all");
     const ci = readFileSync(".github/workflows/ci.yml", "utf8");
     assert.match(ci, /node scripts\/plan-frames\/overflow-guard\.mjs/);
   });
@@ -33,11 +36,14 @@ describe("MB1 overflow guard", () => {
     assert.equal(venues.length + 1, 4, "three venues plus All venues");
     const nx = venues.find((v) => v.key === "nx newcastle")!;
     const shows = nx.shows.filter((c) => c.kind === "show");
-    assert.equal(shows.length, 9);
+    // MBV1's row: eight NX shows and the umbrella.
+    assert.equal(shows.length, 8);
+    assert.equal(nx.shows.filter((c) => c.kind === "umbrella").length, 1);
     assert.ok(shows.some((c) => c.narrow === "Interplanetary Criminal" && c.wide === "Interplanetary Criminal · 21 Nov"));
     const view = NX_SALES_LIVE_LIKE.views["venue:nx newcastle"];
     assert.ok(view.spendTotal!.amount >= 10_000, "a five-figure spend");
-    assert.match(view.header!.sentence, /on spend to each show's last count \(latest 12 Nov\)/);
+    // The guard's frames use the mixed-count rows: the longest header sentence.
+    assert.match(NX_SALES_LIVE_LIKE_MIXED.views["venue:nx newcastle"].header!.sentence, /on spend to each show's last count \(latest 12 Nov\)/);
   });
 
   it("the frames put the section in a flex column, as the pages do, so the bug can show", () => {

@@ -1,5 +1,5 @@
 import { SalesDashboard } from "@/components/dashboard/sales/sales-dashboard";
-import { NX_SALES_FIXTURE, NX_SALES_LIVE_LIKE } from "@/lib/dashboard/sales-vs-spend-fixture";
+import { NX_SALES_FIXTURE, NX_SALES_LIVE_LIKE, NX_SALES_LIVE_LIKE_MIXED } from "@/lib/dashboard/sales-vs-spend-fixture";
 import { DASHBOARD_V2_FRAMES, type DashboardV2FrameId } from "@/scripts/plan-frames/dashboard-v2-ids";
 
 /** The record's fold: a dashed line at the first screen's height, the part below dimmed. Frames only. */
@@ -24,7 +24,7 @@ export function SalesFrameMount({ id }: { id: string }) {
     // never shows, which is how CI missed it.
     <div data-frame-ready={`sales/${id}`} className="relative flex flex-col bg-background">
       <SalesDashboard
-        model={frame.fixture === "live" ? NX_SALES_LIVE_LIKE : NX_SALES_FIXTURE}
+        model={frame.fixture === "live" ? NX_SALES_LIVE_LIKE : frame.fixture === "live-mixed" ? NX_SALES_LIVE_LIKE_MIXED : NX_SALES_FIXTURE}
         surface={frame.surface}
         initialShowId={frame.showId}
         initialPeriod={frame.period}
