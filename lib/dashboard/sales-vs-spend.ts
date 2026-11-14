@@ -236,6 +236,19 @@ export type SalesShowView = {
   tiles: SalesTile[];
   /** Last day with data. Periods count back from here. Today is already excluded. */
   endDay: string;
+  /**
+   * The one count date: the latest Internal Counts day across the shows in
+   * scope. The header, Total sold, Sales since launch and the trajectory's
+   * "count of" read this, never `endDay`. Null when no show has counts; the
+   * fixture sends none, and the page then falls back to `endDay`.
+   */
+  countDay?: string | null;
+  /**
+   * Shows in this scope, and those with counts: the one count the header
+   * sentence, the Cost per ticket tile and its subline all use. The fixture
+   * sends none; the page then counts trajectory bars.
+   */
+  showCounts?: { counted: number; shows: number };
   points: SalesChartPoint[];
   allocation: AllocationStep[];
   trajectory: SalesTrajectory;

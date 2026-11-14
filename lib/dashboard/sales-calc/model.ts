@@ -45,6 +45,7 @@ import {
   buildSeries,
   chartRows,
   endDayOf,
+  latestCountDay,
   liftsFor,
   orderShows,
   periodCutoff,
@@ -56,7 +57,7 @@ import {
   type ShowSeries,
 } from "./figures.ts";
 import { PLATFORM_LABEL, type CountSource, type LiftEntry, type SalesCalcInput } from "./types.ts";
-import { defaultVenue, groupVenues, headerSentence, spendTotal, type VenueGroup } from "./scope.ts";
+import { defaultVenue, groupVenues, headerSentence, spendToCountClause, spendTotal, type VenueGroup } from "./scope.ts";
 
 export const ALL_SHOWS_ID = "all";
 /** N5: v2 opens on since launch; the view's own tiles and campaigns are that period's (every period is in `periods`). */
@@ -240,9 +241,13 @@ function tilesFor(f: PeriodFigures, sinceLaunch: PeriodFigures, period: SalesPer
           value: rate(f.costPerTicket),
           detail: `${sp.wide} · ${ctx.countedShows < ctx.shows ? `the ${ctx.countedShows} shows with counts` : "blended"}`,
           narrowDetail: `${sp.narrow} · blended`,
-          title: period === "launch" ? "All channels' spend to each show's latest count, over tickets sold." : "Blended cost per ticket, complete windows only.",
+          title:
+            period === "launch"
+              ? `All channels' spend to each show's latest count, over tickets sold${spendToCountClause(f)}.`
+              : "Blended cost per ticket, complete windows only.",
         };
-  const umbrellaPart = (n: number | undefined) => (ctx.umbrellaPage && n != null ? ` · plus ${count(n)} on the umbrella page` : "");
+  // N4: only when the umbrella page has signups; at 0, or before its first sync, the clause is dropped.
+  const umbrellaPart = (n: number | undefined) => (ctx.umbrellaPage && n != null && n > 0 ? ` · plus ${count(n)} on the umbrella page` : "");
   const regsTile: SalesTile =
     f.registrations == null
       ? dash("registrations", NO_CIRQLIN_PAGE)
@@ -437,7 +442,8 @@ function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "co
   let pace7 = 0;
   let pace14 = 0;
   let n = 0;
-  let asOf: string | null = null;
+  // The one count date (the same as the view's countDay), not each projection's own.
+  const countDay = latestCountDay(list);
   const left: string[] = [];
   for (const s of list) {
     const label = `${s.show.name} · ${shortDay(s.show.showDate)}`;
@@ -471,7 +477,6 @@ function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "co
     sold += p.sold;
     pace7 += p.pace7 ?? 0;
     pace14 += p.pace14 ?? 0;
-    if (asOf == null || p.asOf > asOf) asOf = p.asOf;
     n += 1;
   }
   const range = high > low ? `${count(low)}–${count(high)}` : count(low);
@@ -485,7 +490,7 @@ function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "co
     note: ALL_NOTE,
     summary: n
       ? {
-          sold: { label: `Sold · count of ${shortDay(asOf!)}`, value: count(sold), detail: `${pct(sold)} of ${count(alloc)} across ${n} shows` },
+          sold: { label: `Sold · count of ${shortDay(countDay!)}`, value: count(sold), detail: `${pct(sold)} of ${count(alloc)} across ${n} shows` },
           projected: { label: "Projected on show day", value: range, detail: `up to ${pct(high)} of ${count(alloc)} · each show capped at its capacity` },
           pace: { label: "Pace, last 7 days", value: `${oneDecimal(pace7)} a day`, detail: `14-day ${oneDecimal(pace14)} a day` },
         }
@@ -610,6 +615,8 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       ...header,
       tiles: perPeriod[BASE_PERIOD].tiles,
       endDay: lastDay < endDay ? lastDay : endDay,
+      countDay: launchF.soldDay,
+      showCounts: { counted: countedShows, shows },
       points: chartPoints(list, endDay),
       allocation,
       trajectory,

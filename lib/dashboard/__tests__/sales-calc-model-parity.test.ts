@@ -14,7 +14,10 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { tiktokCampaignCountsForEvent } from "../../tiktok/rollup-insights.ts";
-import { buildSalesDashboard } from "../sales-calc/model.ts";
+import { shortDay } from "../sales-calc/days.ts";
+import { buildSeries, periodFigures, type PeriodFigures } from "../sales-calc/figures.ts";
+import { SOURCE_LABEL, buildSalesDashboard } from "../sales-calc/model.ts";
+import { headerSentence } from "../sales-calc/scope.ts";
 import type { SalesCalcInput } from "../sales-calc/types.ts";
 import { loadProdFixture } from "./sales-calc-parity.test.ts";
 
@@ -159,5 +162,211 @@ describe("TikTok after the overrides (#1225)", () => {
     assert.deepEqual(m, { "NX26-LOCKLEAD": 118.98, "NX26-GLOBAL": 328.38, "NX26-AZYR": 93.29 });
     assert.equal(total(m), 540.65);
     assert.equal(total(m), Number(fixture.tiktokCampaigns.reduce((a, [, , s]) => a + s, 0).toFixed(2)));
+  });
+});
+
+// ─── Live-check fixes (14 Nov, design-ruled) ─────────────────────────────
+// Prod on 14 Nov: spend to 13 Nov, the last Internal Counts on 12 Nov. The
+// fixture's data ends on 12 Nov, so "today 14 Nov" puts the spend date a day
+// past the count date, as it was live.
+
+describe("live-check fixes: one count date, the spend-to-count clause, the umbrella clause", () => {
+  const live = buildSalesDashboard({ ...withHn1(loadProdFixture()), today: "2026-11-14" });
+  const v = live.model.views["venue:nx newcastle"];
+
+  it("1. one count date: the view's countDay is the latest count, not the spend date", () => {
+    assert.equal(v.endDay, "2026-11-13"); // the spend date, as live
+    assert.equal(v.countDay, "2026-11-12");
+    assert.match(v.header!.channelLine, / · to 13 Nov · /);
+    // The default scope's live shows were all last counted on 12 Nov, so no "to 12 Nov" here.
+    assert.match(v.header!.sentence, /\(Internal Counts, 12 Nov\)/);
+    assert.doesNotMatch(v.header!.sentence, /Internal Counts, to /);
+    assert.match(tile(v, "sold").detail, /^to date · Internal Counts, 12 Nov/);
+    const t = v.trajectory;
+    assert.ok(t.kind === "all" && t.summary);
+    if (t.kind === "all" && t.summary) assert.equal(t.summary.sold.label, `Sold · count of 12 Nov`);
+    // Every view: the trajectory tile's date is the view's countDay.
+    for (const view of Object.values(live.model.views)) {
+      if (view.trajectory.kind === "all" && view.trajectory.summary) {
+        assert.equal(view.trajectory.summary.sold.label, `Sold · count of ${shortDay(view.countDay!)}`);
+      }
+    }
+  });
+
+  it("3. spend past the count: the header and the Cost per ticket hover name it; the subline doesn't change", () => {
+    assert.match(v.header!.sentence, /, so £[\d.]+ of spend per ticket, on spend to the 12 Nov count\./);
+    assert.equal(tile(v, "costPerTicket").title, "All channels' spend to each show's latest count, over tickets sold, on spend to the 12 Nov count.");
+    assert.match(tile(v, "costPerTicket").detail, /^since launch · /);
+    assert.doesNotMatch(tile(v, "costPerTicket").detail, /on spend to/);
+    // Dates match (the 12 Nov build): no clause, the sentence as before.
+    assert.doesNotMatch(nx.header!.sentence, /on spend to the/);
+    assert.equal(tile(nx, "costPerTicket").title, "All channels' spend to each show's latest count, over tickets sold.");
+  });
+
+  it("3. D13 in the live calc: spend after the count is in the total, never in cost per ticket", () => {
+    // £500 more Meta spend on Schak's 13 Nov rollup, after every show's 12 Nov count.
+    const input = { ...withHn1(loadProdFixture()), today: "2026-11-14" };
+    const schak = input.shows.find((s) => s.code === "NX26-SCHAK")!;
+    const row = input.rollups.find((r) => r.eventId === schak.eventId && r.day === "2026-11-13")!;
+    assert.ok(row, "the fixture has Schak's 13 Nov rollup");
+    const after = buildSalesDashboard({
+      ...input,
+      rollups: input.rollups.map((r) => (r === row ? { ...r, meta: (r.meta ?? 0) + 500 } : r)),
+    });
+    const w = after.model.views["venue:nx newcastle"];
+    assert.ok(near(w.spendTotal!.amount, v.spendTotal!.amount + 500, 1e-6));
+    const cpt = tile(v, "costPerTicket").value;
+    assert.equal(tile(w, "costPerTicket").value, cpt);
+    assert.ok(w.header!.sentence.includes(`so ${cpt} of spend per ticket, on spend to the 12 Nov count.`), w.header!.sentence);
+  });
+
+  it("4. the umbrella clause shows only when its page has signups", () => {
+    assert.match(tile(nx, "registrations").detail, /plus 808 on the umbrella page$/);
+    const input = withHn1(loadProdFixture());
+    const umbrella = input.shows.find((s) => s.code === "NX26-GLOBAL")!;
+    const zero = buildSalesDashboard({ ...input, signups: input.signups.filter((d) => d.eventId !== umbrella.eventId) });
+    const z = zero.model.views["venue:nx newcastle"];
+    assert.equal(tile(z, "registrations").detail, "to date · signup pages close at on-sale");
+    assert.doesNotMatch(tile(z, "registrations", "14").detail, /umbrella page/);
+  });
+});
+
+describe("headerSentence: the count date and the spend-to-count clause (D13)", () => {
+  // D13: £14,216 is spend to 13 Nov (the header's total); cost per ticket is
+  // spend to the 12 Nov count, £14,134, over the 6,795 tickets at that count: £2.08.
+  const figures = (over: Partial<PeriodFigures> = {}): PeriodFigures => ({
+    spend: 14216,
+    byPlatform: { meta: 14216, tiktok: 0, google: 0 },
+    platformsWithData: ["meta"],
+    sold: 6795,
+    soldComps: null,
+    soldDay: "2026-11-12",
+    soldDaysDiffer: false,
+    spendPastCount: false,
+    soldSources: ["internal_counts"],
+    soldIsFinal: false,
+    tickets: 6795,
+    costPerTicket: 14134 / 6795,
+    checkoutActions: 0,
+    costPerCheckout: null,
+    landingPageViews: 0,
+    costPerLpv: null,
+    linkClicks: 0,
+    cpc: null,
+    registrations: null,
+    costPerRegistration: null,
+    signupsClosed: false,
+    ...over,
+  });
+  const sentence = (over: Partial<PeriodFigures> = {}, kind: "venue" | "all" | "show" = "venue") =>
+    headerSentence({ kind, name: "Fixture Hall", launch: figures(over), endDay: "2026-11-13", sourceLabels: SOURCE_LABEL, countedShows: 3, venues: 2 }).sentence;
+
+  it("every show last counted the same day: £2.08, on spend to the 12 Nov count", () => {
+    assert.equal(
+      sentence({ spendPastCount: true }),
+      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.08 of spend per ticket, on spend to the 12 Nov count.",
+    );
+    assert.match(sentence({ spendPastCount: true }, "show"), /, so £2\.08 per ticket, on spend to the 12 Nov count\.$/);
+    assert.match(sentence({ spendPastCount: true }, "all"), /, so £2\.08 of spend per ticket on those shows, on spend to the 12 Nov count\.$/);
+  });
+
+  it("mixed count days: £2.08, on spend to each show's last count (latest 12 Nov)", () => {
+    assert.equal(
+      sentence({ spendPastCount: true, soldDaysDiffer: true }),
+      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, to 12 Nov), so £2.08 of spend per ticket, on spend to each show's last count (latest 12 Nov).",
+    );
+  });
+
+  it("no show's spend runs past its own last count: no clause", () => {
+    assert.equal(
+      sentence({ spendPastCount: false, costPerTicket: 14216 / 6795 }),
+      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.09 of spend per ticket.",
+    );
+    assert.equal(sentence({ spendPastCount: false, soldDaysDiffer: true, costPerTicket: 14216 / 6795 }).includes("on spend to"), false);
+  });
+});
+
+describe("D13 on the prod fixture: AZYR (9 Nov) with the shows counted 12 Nov", () => {
+  // The model has no scope that sums a finished show with live ones (Include
+  // finished adds chips only), so this is the calc over that list directly.
+  const input = { ...withHn1(loadProdFixture()), today: "2026-11-14" };
+  const series = [...buildSeries(input).values()];
+  const endDay = "2026-11-13";
+  const azyr = series.find((s) => s.show.code === "NX26-AZYR")!;
+  const counted12 = series.filter((s) => !s.show.isUmbrella && s.counts.at(-1)?.day === "2026-11-12");
+
+  it("each show's spend stops at its own last count, and the mixed form names it", () => {
+    // AZYR (7 Nov) is finished; its final Internal Count is 9 Nov.
+    assert.equal(azyr.finalDay, "2026-11-09");
+    assert.ok(counted12.length >= 2);
+    const list = [azyr, ...counted12];
+    const f = periodFigures(list, "launch", endDay);
+    assert.equal(f.soldDay, "2026-11-12");
+    assert.equal(f.soldDaysDiffer, true);
+    let capped = 0;
+    for (const s of list) {
+      const last = s.finalDay ?? s.counts.at(-1)!.day;
+      for (const d of s.days.values()) if (d.day <= last && d.day <= endDay) capped += d.spend;
+    }
+    assert.ok(near(f.costPerTicket!, capped / f.sold!, 1e-9));
+    assert.ok(f.spend > capped, "spend after each show's own count is in the total, not in cost per ticket");
+    assert.equal(f.spendPastCount, true);
+    const h = headerSentence({ kind: "venue", name: "NX Newcastle", launch: f, endDay, sourceLabels: SOURCE_LABEL, countedShows: list.length });
+    assert.match(h.sentence, /\(Internal Counts, to 12 Nov\), so £[\d.]+ of spend per ticket, on spend to each show's last count \(latest 12 Nov\)\.$/);
+  });
+
+  it("the shows counted 12 Nov alone: the single-date form", () => {
+    const f = periodFigures(counted12, "launch", endDay);
+    assert.equal(f.soldDaysDiffer, false);
+    const h = headerSentence({ kind: "venue", name: "NX Newcastle", launch: f, endDay, sourceLabels: SOURCE_LABEL, countedShows: counted12.length });
+    assert.match(h.sentence, /\(Internal Counts, 12 Nov\), so £[\d.]+ of spend per ticket, on spend to the 12 Nov count\.$/);
+  });
+
+  it("to the count date only (end 12 Nov): no spend past any count, no clause", () => {
+    const f = periodFigures(counted12, "launch", "2026-11-12");
+    assert.equal(f.spendPastCount, false);
+    const h = headerSentence({ kind: "venue", name: "NX Newcastle", launch: f, endDay: "2026-11-12", sourceLabels: SOURCE_LABEL, countedShows: counted12.length });
+    assert.doesNotMatch(h.sentence, /on spend to/);
+  });
+});
+
+describe("the one date formatter", () => {
+  it("writes Sep, never en-GB's Sept", () => {
+    assert.equal(shortDay("2026-09-04"), "4 Sep");
+    assert.equal(shortDay("2026-11-12"), "12 Nov");
+  });
+
+  it("no dashboard component formats a date itself", () => {
+    for (const file of ["sales-chart.tsx", "sales-dashboard.tsx", "tile-copy.ts", "chart-axes.ts", "trajectory-bars.ts"]) {
+      const src = readFileSync(`components/dashboard/sales/${file}`, "utf8");
+      assert.doesNotMatch(src, /toLocaleDateString|DateTimeFormat|month:\s*"short"/, file);
+    }
+  });
+});
+
+describe("one show count per view (design FAIL 1 on 160e017)", () => {
+  it("the header, the Cost per ticket tile and showCounts name the same number of counted shows, in every view", () => {
+    const live = buildSalesDashboard({ ...withHn1(loadProdFixture()), today: "2026-11-14" });
+    let checked = 0;
+    for (const [id, view] of Object.entries(live.model.views)) {
+      if (!view.showCounts || !view.header) continue;
+      const said = view.header.sentence.match(/(?:across|on the) (\d+) shows/);
+      if (said) {
+        assert.equal(Number(said[1]), view.showCounts.counted, `${id}: ${view.header.sentence}`);
+        checked += 1;
+      }
+      const cpt = tile(view, "costPerTicket").detail.match(/the (\d+) shows with counts/);
+      if (cpt) assert.equal(Number(cpt[1]), view.showCounts.counted, `${id}: ${tile(view, "costPerTicket").detail}`);
+    }
+    assert.ok(checked > 0);
+  });
+
+  it("a show with counts but no capacity still counts (its trajectory bar has no sold figure)", () => {
+    const live = buildSalesDashboard({ ...withHn1(loadProdFixture()), today: "2026-11-14" });
+    for (const view of Object.values(live.model.views)) {
+      if (view.trajectory.kind !== "all" || !view.showCounts) continue;
+      const bars = view.trajectory.bars.filter((b) => b.sold != null).length;
+      assert.ok(view.showCounts.counted >= bars);
+    }
   });
 });

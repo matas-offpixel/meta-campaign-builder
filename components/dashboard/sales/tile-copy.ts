@@ -24,20 +24,20 @@ export function periodSpan(period: SalesPeriod): string {
 
 export type ShowCountScope = { showsWithCounts: number; shows: number };
 
-/** Every subline starts with its span. Sold is always the count date, whatever the period. */
+/** Every subline starts with its span. Sold and Sales since launch are always the count date (`countLabel`), whatever the period, never the spend date. */
 export function tileSubline(
   id: SalesMetricId,
   detail: string,
   period: SalesPeriod,
-  endLabel: string,
+  countLabel: string,
   scope: ShowCountScope | null = null,
   wide = false,
 ): string {
   const text = detail.trim();
   const span = periodSpan(period);
-  if (id === "sold") return soldSubline(text, endLabel);
+  if (id === "sold") return soldSubline(text, countLabel);
   if (id === "costPerTicket") return costPerTicketSubline(span, scope, wide);
-  if (id === "tickets" && period === "launch") return `since launch, to ${endLabel}`;
+  if (id === "tickets" && period === "launch") return `since launch, to ${countLabel}`;
   if (id === "checkoutActions") return `${span} · actions, one person can do both`;
   if (id === "costPerRegistration") return `${span} · show pages, inside their signup windows`;
   if (id === "registrations" && period === "launch") {
@@ -49,8 +49,8 @@ export function tileSubline(
   return `${span} · ${text}`;
 }
 
-function soldSubline(detail: string, endLabel: string): string {
-  const line = `to date · Internal Counts, ${endLabel}`;
+function soldSubline(detail: string, countLabel: string): string {
+  const line = `to date · Internal Counts, ${countLabel}`;
   const comps = detail.match(/plus\s+([\d,]+)\s+comps/i);
   return comps ? `${line} · plus ${comps[1]} comps` : line;
 }

@@ -2,9 +2,9 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-url";
-import { venueViewFromQuery } from "@/components/dashboard/sales/venue-query";
+import { initialFromQuery } from "@/components/dashboard/sales/venue-query";
 import { dashboardV2Enabled } from "@/lib/dashboard/sales-calc/gate";
-import { pickPeriod, pickShow } from "@/lib/dashboard/sales-calc/query";
+import { pickPeriod } from "@/lib/dashboard/sales-calc/query";
 import { loadShareSalesDashboard } from "@/lib/dashboard/sales-calc/server";
 
 /**
@@ -29,20 +29,15 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
   const query = await searchParams;
   const result = await loadShareSalesDashboard(token);
   if (!result.ok) notFound();
+  const initial = initialFromQuery(result.model, query);
   return (
     <Suspense>
       <SalesDashboardUrl
         model={result.model}
         surface="share"
-        initialShowId={
-          query.show
-            ? pickShow(result.model, query.show)
-            : query.venue === "all"
-              ? "all"
-              : venueViewFromQuery(result.model, query.venue) ?? pickShow(result.model, undefined)
-        }
+        initialShowId={initial.showId}
         initialPeriod={pickPeriod(query.period)}
-        initialVenueKey={query.venue}
+        initialVenueKey={initial.venueKey}
       />
     </Suspense>
   );

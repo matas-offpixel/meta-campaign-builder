@@ -325,6 +325,10 @@ export interface PeriodFigures {
   sold: number | null;
   soldComps: number | null;
   soldDay: string | null;
+  /** The counted shows' latest counts fall on more than one day (the header then reads "to {soldDay}"). */
+  soldDaysDiffer: boolean;
+  /** Since launch: some counted show has spend after its own last count (D13: that spend is left out of cost per ticket). */
+  spendPastCount: boolean;
   soldSources: CountSource[];
   soldIsFinal: boolean;
   tickets: number | null;
@@ -343,6 +347,17 @@ export interface PeriodFigures {
 }
 
 const ratio = (a: number, b: number): number | null => (b > 0 ? a / b : null);
+
+/** The scope's one count date: the latest count (a finished show's final count) across the shows with counts. */
+export function latestCountDay(list: readonly ShowSeries[]): string | null {
+  let out: string | null = null;
+  for (const s of list) {
+    if (!s.counts.length) continue;
+    const day = s.finalDay ?? s.counts[s.counts.length - 1].day;
+    if (out == null || day > out) out = day;
+  }
+  return out;
+}
 
 /**
  * D4 period figures over one or several shows (All shows sums the shows,
@@ -378,6 +393,7 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
   let sold: number | null = null;
   let soldComps: number | null = null;
   let soldDay: string | null = null;
+  const soldDays = new Set<string>();
   const sources = new Set<CountSource>();
   if (counted.length) {
     sold = 0;
@@ -387,19 +403,26 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
       if (last.comps != null) soldComps = (soldComps ?? 0) + last.comps;
       const day = s.finalDay ?? last.day;
       if (soldDay == null || day > soldDay) soldDay = day;
+      soldDays.add(day);
       sources.add(last.source);
     }
   }
 
   let tickets: number | null = null;
   let costPerTicket: number | null = null;
+  let spendPastCount = false;
   if (period === "launch") {
     if (counted.length && sold != null) {
       tickets = sold;
       let capped = 0;
+      // D13: each show's spend stops at its own last count (a finished show's final count), the day its count date reads.
       for (const s of counted) {
-        const last = s.counts[s.counts.length - 1].day;
-        for (const f of s.days.values()) if (f.day <= last && f.day <= endDay) capped += f.spend;
+        const last = s.finalDay ?? s.counts[s.counts.length - 1].day;
+        for (const f of s.days.values()) {
+          if (f.day > endDay) continue;
+          if (f.day <= last) capped += f.spend;
+          else if (f.spend > 0) spendPastCount = true;
+        }
       }
       costPerTicket = ratio(capped, sold);
     }
@@ -456,6 +479,8 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
     sold,
     soldComps: soldComps && soldComps > 0 ? soldComps : null,
     soldDay,
+    soldDaysDiffer: soldDays.size > 1,
+    spendPastCount,
     soldSources: [...sources],
     soldIsFinal: counted.length > 0 && counted.every((s) => s.finalDay != null),
     tickets,
