@@ -22,8 +22,8 @@
  */
 
 import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-idempotency.ts";
-import { campaignCreateEnabled, lifetimeBudgetWritesEnabled, purchaseAdSetPayload, type PurchaseMeta } from "./apply-purchase.ts";
-import { money, PC } from "./purchase-campaign.ts";
+import { campaignCreateEnabled, lifetimeBudgetWritesEnabled, purchaseAdSetPayload, reuseAd, type PurchaseMeta } from "./apply-purchase.ts";
+import { campaignFloor, ceilPenny, floorBracket, money, PC } from "./purchase-campaign.ts";
 import { copyAppliedText, scaleAppliedText, scaleFailedText, type ScaleWrite } from "./purchase-scale.ts";
 
 type Outcome = { state: "applied" | "failed"; reason: string | null; result: Record<string, unknown> };
@@ -69,12 +69,13 @@ export async function applyScalePurchase(deps: ScaleDeps, line: { id: string; wr
     const cap = round2(capBase * PC.capShare - deps.plan.appliedMovesGbp);
     if (extra > cap + 1e-9) return fail(`${money(extra)} is over this refresh's 20 % cap (${money(Math.max(0, cap))} free)`);
     if (touchesMain) {
-      // The main campaign's floor on today's spend: spent to date + 3 days at its last-7-day daily spend.
-      const floor = round2(deps.mainSpentNow + PC.floorDays * (write.mainDaily ?? 0));
-      if ((write.mainAfter ?? 0) < floor - 1e-9) return fail(`${short} would go under ${money(floor)} (spent ${money(deps.mainSpentNow)} + ${PC.floorDays} days)`);
+      // PC7: the main campaign's floor on today's spend — the larger of spend + 3 days and Meta's 1.1 × spend.
+      const floor = campaignFloor(deps.mainSpentNow, write.mainDaily ?? 0);
+      if ((write.mainAfter ?? 0) < floor.floor - 1e-9) return fail(`${short} would go under ${money(floor.floor)} ${floorBracket(floor)}`);
     }
-  } else if (write.purchaseAfter < deps.purchaseSpentNow - 1e-9) {
-    return fail(`the Purchase campaign has already spent ${money(deps.purchaseSpentNow)}`);
+  } else if (write.purchaseAfter < ceilPenny(1.1 * deps.purchaseSpentNow) - 1e-9) {
+    // PC7: a step down never takes the Purchase campaign under Meta's 1.1 × its own spend.
+    return fail(`the Purchase campaign would go under ${money(ceilPenny(1.1 * deps.purchaseSpentNow))} (Meta's minimum: 1.1 × ${money(deps.purchaseSpentNow)} spent)`);
   }
   const sides: { id: string; before: number; after: number }[] = [];
   if (write.direction === "up") {
@@ -111,7 +112,7 @@ export async function applyScalePurchase(deps: ScaleDeps, line: { id: string; wr
   return { state: "applied", reason: scaleAppliedText(write, short), result: { purchase: { before: write.purchaseBefore, after: write.purchaseAfter }, main: { before: write.mainBefore, after: write.mainAfter } } };
 }
 
-export type CopyDeps = { env: Record<string, string | undefined>; meta: Pick<PurchaseMeta, "readAdSetForCopy" | "readAd" | "createAdSet" | "createAd" | "setAdSetActive"> };
+export type CopyDeps = { env: Record<string, string | undefined>; meta: Pick<PurchaseMeta, "readAdSetForCopy" | "readAd" | "createAdSet" | "createAd" | "createCreativeFromPost" | "setAdSetActive"> };
 
 export const COPY_SWITCHED_OFF = "Building into the Purchase campaign is switched off on this deployment, so nothing was copied.";
 
@@ -133,7 +134,8 @@ export async function applyCopyAudience(deps: CopyDeps, line: { id: string; writ
     for (const ad of ads) {
       const live = await deps.meta.readAd(ad.adId);
       if (!live?.creativeId) continue;
-      adIds.push(await withMetaWriteIdempotency(ctx.ledger, "refresh_ad_create", { line_id: line.id, adset_id: adsetId, creative_id: live.creativeId }, () => deps.meta.createAd(ctx.adAccountId, { name: live.name || ad.name, adset_id: adsetId!, creative: { creative_id: live.creativeId! }, status: "ACTIVE" }), { required: true }));
+      // PC9: the creative id, else one new creative from the same post.
+      adIds.push((await reuseAd(deps.meta, ctx.ledger, { lineId: line.id, adAccountId: ctx.adAccountId, adsetId: adsetId!, creative: { name: live.name || ad.name, creativeId: live.creativeId, objectStoryId: live.objectStoryId ?? null } })).adId);
     }
     await withMetaWriteIdempotency(ctx.ledger, "adset_status_update", { line_id: line.id, adset_id: adsetId, status: "ACTIVE" }, async () => {
       await deps.meta.setAdSetActive(adsetId!);

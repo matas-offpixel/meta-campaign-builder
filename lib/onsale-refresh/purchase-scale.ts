@@ -23,7 +23,7 @@
  * event's cost per purchase. No money moves (CBO shares the budget).
  */
 
-import { daysInclusive, money, PC } from "./purchase-campaign.ts";
+import { campaignFloor, ceilPenny, daysInclusive, keepsAtLeast, money, PC } from "./purchase-campaign.ts";
 import { addDaysIso, shortDay } from "./schedule.ts";
 
 export const SCALE = {
@@ -129,7 +129,9 @@ export function scalePurchase(input: ScaleInput): ScaleResult {
   else direction = "down";
   const daysLeft = Math.max(0, daysInclusive(input.runDay, input.eventDate));
   if (daysLeft < 1) return { kind: "none" };
-  const floor = round2(input.main.spentToDate + PC.floorDays * input.main.last7Daily);
+  // PC7: the main campaign's floor — the larger of spend + 3 days and Meta's 1.1 × spend, up to the penny.
+  const mainFloor = campaignFloor(input.main.spentToDate, input.main.last7Daily);
+  const floor = mainFloor.floor;
   const purchaseBefore = input.purchase.lifetime;
   if (purchaseBefore == null) return hold(`the Purchase campaign's lifetime budget couldn't be read.`);
 
@@ -161,8 +163,8 @@ export function scalePurchase(input: ScaleInput): ScaleResult {
     if (a <= SCALE.floorRate) return hold(`${each(cpp)} ${word}, over 1.5× of ${short}, and £5 a day is the floor.`);
     b = Math.max(SCALE.floorRate, Math.floor(a / 2 / SCALE.stepUnit) * SCALE.stepUnit || SCALE.floorRate);
     const giveBack = (a - b) * daysLeft;
-    // The Purchase lifetime never goes below its spend to date.
-    const room = Math.max(0, purchaseBefore - input.purchase.spentToDate);
+    // PC7: the Purchase campaign's own lifetime never goes below 1.1 × its spend (Meta's minimum for lowering it).
+    const room = Math.max(0, purchaseBefore - ceilPenny(1.1 * input.purchase.spentToDate));
     move = -round2(Math.min(giveBack, room));
   }
   const purchaseAfter = round2(purchaseBefore + (direction === "up" ? headroom + move : move));
@@ -174,7 +176,7 @@ export function scalePurchase(input: ScaleInput): ScaleResult {
   const detail = `Since ${shortDay(since)}: Purchase ${each(cpp)} ${word} (${p}), ${short} ${each(mainCpp)} (${input.main.purchases}) · ${ratioText(ratio)}`;
   const mainPart = mainBefore != null && mainAfter != null && move !== 0 ? ` · ${short} lifetime ${money(mainBefore)} → ${money(mainAfter)} (${daysLeft} days × £${changed})` : "";
   const headroomPart = headroom > 0 ? ` · ${money(headroom)} from plan headroom` : "";
-  const keeps = direction === "up" && move > 0 ? ` · ${short} keeps at least ${money(floor)} (spent ${money(input.main.spentToDate)} + ${PC.floorDays} days at ${money(input.main.last7Daily)})` : "";
+  const keeps = direction === "up" && move > 0 ? ` · ${keepsAtLeast(short, mainFloor)}` : "";
   const writeText = `Purchase £${a} → £${b} a day: lifetime ${money(purchaseBefore)} → ${money(purchaseAfter)}${mainPart}${headroomPart}${keeps}`;
   return {
     kind: "line",

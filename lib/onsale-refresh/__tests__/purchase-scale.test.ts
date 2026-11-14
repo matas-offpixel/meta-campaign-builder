@@ -55,7 +55,7 @@ describe("P4 PC4: Scale Purchase", () => {
     assert.deepEqual(scalePurchase(input({}, { spend: 180, purchases: 4 })), { kind: "hold", note: "Purchase holds at £5 a day: £45.00 per attributed purchase, within 1.5× of On Sale." });
   });
 
-  it("down, halving above 1.5× with 3+ purchases, never below £5; the commitment goes back to the main campaign, never under Purchase's spend", () => {
+  it("down, halving above 1.5× with 3+ purchases, never below £5; the commitment goes back to the main campaign, never under 1.1 × Purchase's spend (PC7)", () => {
     const down = scalePurchase(input({ running: { ...running, rate: 20 } }, { spend: 400, purchases: 4, lifetime: 600, spentToDate: 400 }));
     assert.equal(down.kind, "line");
     if (down.kind !== "line") return;
@@ -63,7 +63,7 @@ describe("P4 PC4: Scale Purchase", () => {
     // £10 × 12 days = £120 back; Purchase £600 → £480, On Sale £1,370 → £1,490.
     assert.deepEqual([down.write.move, down.write.purchaseAfter, down.write.mainAfter], [-120, 480, 1490]);
     const capped = scalePurchase(input({ running: { ...running, rate: 20 } }, { spend: 400, purchases: 4, lifetime: 450, spentToDate: 400 }));
-    assert.equal(capped.kind === "line" && capped.write.purchaseAfter, 400, "never under its spend to date");
+    assert.equal(capped.kind === "line" && capped.write.purchaseAfter, 440, "PC7: never under 1.1 × its own £400 spend");
     assert.deepEqual(scalePurchase(input({}, { spend: 400, purchases: 4 })), { kind: "hold", note: "Purchase holds at £5 a day: £100.00 per attributed purchase, over 1.5× of On Sale, and £5 a day is the floor." });
   });
 
@@ -197,7 +197,7 @@ describe("P4 PC4: Scale's write order, with the first write put back on failure"
     assert.equal((await applyScalePurchase(scaleDeps(changed.meta), { id: "l1", write: scaleWrite() }, ledgerFor())).reason, "On Sale's budget changed in Ads Manager since the proposal. Both budgets are as they were.");
     const fake = fakeBudgets({ [MAIN]: 137000, [PURCHASE]: 13000 });
     const floor = await applyScalePurchase({ ...scaleDeps(fake.meta), plan: { budget: 100000, spend: 0, appliedMovesGbp: 0 }, mainSpentNow: 1250 }, { id: "l1", write: scaleWrite() }, ledgerFor());
-    assert.match(floor.reason!, /^On Sale would go under £1,370 \(spent £1,250 \+ 3 days\)/);
+    assert.match(floor.reason!, /^On Sale would go under £1,375 \(Meta's minimum: 1\.1 × £1,250\.00 spent\)/, "PC7: 1.1 × £1,250 beats £1,250 + 3 × £40");
     const cap = await applyScalePurchase({ ...scaleDeps(fake.meta), plan: { budget: null, spend: 0, appliedMovesGbp: 80 } }, { id: "l1", write: scaleWrite() }, ledgerFor());
     assert.match(cap.reason!, /over this refresh's 20 % cap/);
     assert.deepEqual(fake.calls, []);
@@ -339,5 +339,45 @@ describe("P4 PC4: the lines on the proposals", async () => {
     assert.deepEqual(out.lines.map((line) => [line.kind, line.ruleId]), [["scale_purchase", "scale_purchase.up"], ["copy_audience", "copy_audience.winner"]]);
     assert.deepEqual([out.lines[0]!.write!.kind, out.lines[0]!.write!.toRate, out.lines[1]!.write!.kind, out.lines[1]!.write!.sourceAdsetId], ["purchase_scale", 10, "purchase_copy_audience", "s-b"]);
     assert.equal(out.notes!.cap, "The extra £60 is within 20 % of what On Sale has left (£104); this event has no budget.");
+  });
+});
+
+
+describe("P4 PR C, PC7 and PC9 on Scale and Copy", () => {
+  it("Scale up keeps the main campaign at Meta's 1.1 × when it's the larger, and says so", () => {
+    // £2,000 spent at £20 a day: the floor is £2,200 (Meta's), not £2,060.
+    const result = scalePurchase(input({}, {}, { spentToDate: 2000, last7Daily: 20, lifetime: 2600 }));
+    assert.equal(result.kind === "line" && result.writeText.endsWith("On Sale keeps at least £2,200 (Meta's minimum: 1.1 × £2,000.00 spent)"), true);
+    // A £2,250 lifetime can give only £50 by Meta's floor: under £5 a day for 12 days, so it holds.
+    assert.equal(scalePurchase(input({}, {}, { spentToDate: 2000, last7Daily: 20, lifetime: 2250 })).kind, "hold");
+  });
+
+  it("a step down that would take Purchase under 1.1 × its live spend is refused at apply", async () => {
+    const down = scalePurchase(input({ running: { ...running, rate: 20 } }, { spend: 400, purchases: 4, lifetime: 600, spentToDate: 400 }));
+    if (down.kind !== "line") throw new Error("steps down");
+    const fake = fakeBudgets({ [MAIN]: 137000, [PURCHASE]: 60000 });
+    const out = await applyScalePurchase({ ...scaleDeps(fake.meta), purchaseSpentNow: 450 }, { id: "l1", write: { ...down.write, mainShort: "On Sale" } }, ledgerFor());
+    assert.equal(out.reason, "the Purchase campaign would go under £495 (Meta's minimum: 1.1 × £450 spent). Both budgets are as they were.");
+    assert.deepEqual(fake.calls, []);
+  });
+
+  it("a copied audience reuses the ads by PC9: the creative id, else a new creative from the same post", async () => {
+    const calls: string[] = [];
+    const meta = {
+      readAdSetForCopy: async () => ({ targeting: { age_min: 18 } }),
+      readAd: async (adId: string) => ({ id: adId, name: "Artist - UGC 3", creativeId: "cr1", effectiveStatus: "ACTIVE", objectStoryId: "page_post1" }),
+      createAdSet: async () => "set9",
+      createAd: async (_: string, ad: { creative: { creative_id: string } }) => {
+        if (ad.creative.creative_id === "cr1") throw new Error("Meta refused the creative");
+        calls.push(`ad:${ad.creative.creative_id}`);
+        return "ad9";
+      },
+      createCreativeFromPost: async (_: string, spec: { objectStoryId: string }) => (calls.push(`post:${spec.objectStoryId}`), "crnew"),
+      setAdSetActive: async () => void calls.push("active"),
+    };
+    const write = { kind: "purchase_copy_audience", purchaseCampaignId: PURCHASE, sourceAdsetId: "s-a", sourceName: "Disco Pages", pixelId: "p", customConversionId: null, endDay: "2026-12-11", ads: [{ adId: "a1", name: "Artist - UGC 3" }] };
+    const out = await applyCopyAudience({ env: ON, meta: meta as never }, { id: "l4", write }, { ...ledgerFor(), adAccountId: "act_1" });
+    assert.equal(out.state, "applied");
+    assert.deepEqual(calls, ["post:page_post1", "ad:crnew", "active"]);
   });
 });

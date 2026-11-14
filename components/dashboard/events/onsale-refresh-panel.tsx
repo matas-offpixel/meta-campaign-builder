@@ -405,6 +405,11 @@ function PurchaseCampaignResult({ line, apply, actions, frozen }: { line: PanelL
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Purchase</span>
             <span className="break-words text-sm font-medium">{line.title}</span>
           </div>
+          {line.appliedAt ? (
+            <p className="mt-0.5 text-xs text-muted-foreground" data-applied-at>
+              {panelText(`Applied ${appliedStamp(line.appliedAt)}${line.appliedBy ? ` · by ${line.appliedBy}` : ""}`)}
+            </p>
+          ) : null}
           <p className={`mt-0.5 text-xs ${line.state === "failed" ? "text-destructive" : line.state === "applied" ? "font-medium text-foreground" : "text-muted-foreground"}`} data-line-state={line.state}>
             {stateText(line.state, line.reason)}
           </p>

@@ -311,6 +311,7 @@ describe("P4 PR C: PF4 — Scale Purchase in the Budget block, then F3 after App
   it("after Apply: the Purchase line's result, a failed one with Retry, the step's result, and what's judged when", () => {
     render(<OnSaleRefreshPanelView eventId="e1" proposals={PF4_AFTER} apply={OR_APPLY_P4} objectiveOnly />);
     expect(screen.getByText("Applied · live · 2 ad sets · 3 ads · £5 a day, £130 lifetime to 11 Dec (£0 from plan headroom + £130 from On Sale)")).toBeTruthy();
+    expect(screen.getByText("Applied Mon 16 Nov, 08:37")).toBeTruthy();
     expect(screen.getByText("Failed — Meta refused an ad set: its audience is too small. Created paused: the campaign. On Sale's budget is unchanged.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
     expect(screen.getByText("Applied · Purchase £5 → £10 a day (£130 → £190) · On Sale £1,370 → £1,310")).toBeTruthy();
