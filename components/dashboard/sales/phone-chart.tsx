@@ -14,6 +14,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 
 
 import { anchoredDateIndexes, axisTicks, fitDateLabels, measureDateLabel, type DateAnchor } from "@/components/dashboard/sales/chart-axes";
 import { CHART_DOT, CHART_HOW, INDEX_LABEL } from "@/components/dashboard/sales/phone-copy";
+import { useFontsVersion } from "@/components/dashboard/sales/use-fonts-ready";
 import {
   CHART_PLOT,
   ChartDot,
@@ -141,6 +142,8 @@ export function PhoneChart({
   const start = useRef<{ x: number; fraction: number } | null>(null);
   const [scroll, setScroll] = useState({ left: 0, client: 0, width: 0 });
   const [hold, setHold] = useState<number | null>(null);
+  // Re-fit the date labels in the real font once it has loaded (N1's 6 px rule measures it).
+  useFontsVersion();
 
   const units = selected.map((id) => salesMetric(id).unit);
   const indexForced = new Set(units).size >= 3;

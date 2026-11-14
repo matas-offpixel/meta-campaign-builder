@@ -15,6 +15,7 @@ import {
   type DateAnchor,
 } from "@/components/dashboard/sales/chart-axes";
 import { TILE_NAMES } from "@/components/dashboard/sales/tile-copy";
+import { useFontsVersion } from "@/components/dashboard/sales/use-fonts-ready";
 // The one date formatter, with fixed month words (en-GB's own short month is "Sept"). The chart never formats a date itself.
 import { shortDay } from "@/lib/dashboard/sales-calc/days";
 import {
@@ -80,6 +81,8 @@ export function SalesChart({
   const plotRef = useRef<HTMLDivElement>(null);
   const [plotWidth, setPlotWidth] = useState(960);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  // Re-fit the date labels in the real font once it has loaded (N1's 6 px rule measures it).
+  useFontsVersion();
   useEffect(() => {
     const el = plotRef.current;
     if (!el) return;
