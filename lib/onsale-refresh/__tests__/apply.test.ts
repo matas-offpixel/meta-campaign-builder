@@ -713,7 +713,7 @@ describe("on-sale refresh P2: what the panel reads", () => {
 
   it("loadPanel: gates from the env and the arm; the stale budget blocker goes once a budget is set", async () => {
     const panel = await loadPanel(panelDb().db, "e1", LIVE_ENV);
-    assert.deepEqual(panel.apply, { mode: "live", arm: "live", globalEnabled: true, pauseWritesEnabled: false, adsetStatusWritesEnabled: false, budgetWritesEnabled: false, audienceWritesEnabled: false, budgetSet: true });
+    assert.deepEqual(panel.apply, { mode: "live", arm: "live", globalEnabled: true, pauseWritesEnabled: false, adsetStatusWritesEnabled: false, budgetWritesEnabled: false, audienceWritesEnabled: false, campaignCreateEnabled: false, budgetSet: true });
     assert.deepEqual(panel.proposals[0]!.blockers, []);
     assert.equal((await loadPanel(panelDb().db, "e1", {})).apply.mode, "shadow", "the deployment gate off");
   });

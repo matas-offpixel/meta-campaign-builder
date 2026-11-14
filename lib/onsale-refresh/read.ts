@@ -65,6 +65,8 @@ export type PanelApply = {
   budgetWritesEnabled?: boolean;
   /** P3: a standing default's audience gate. */
   audienceWritesEnabled?: boolean;
+  /** P4 PR B: the Purchase campaign's create gate. */
+  campaignCreateEnabled?: boolean;
   budgetSet: boolean;
 };
 
@@ -280,7 +282,7 @@ export async function loadPanel(db: Db, eventId: string, env: Record<string, str
     const stopped = standingStops(proposal.notes.stopped, clientId, proposal.createdAt, restarts);
     return { ...proposal, notes: { ...proposal.notes, stopped } };
   });
-  return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, budgetSet } };
+  return { proposals, apply: { mode: gates.mode, arm: gates.arm, globalEnabled: gates.globalEnabled, pauseWritesEnabled: gates.pauseWritesEnabled, adsetStatusWritesEnabled: gates.adsetStatusWritesEnabled, budgetWritesEnabled: gates.budgetWritesEnabled, audienceWritesEnabled: gates.audienceWritesEnabled, campaignCreateEnabled: gates.campaignCreateEnabled, budgetSet } };
 }
 
 /** The canvas chip (R4): lines still To review on the event's latest proposals. */

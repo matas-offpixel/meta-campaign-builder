@@ -36,6 +36,7 @@ import { resolvePageIdentity } from "@/lib/meta/page-token";
 import { handleUploadAsset } from "@/lib/meta/upload-asset-handler";
 import { APPLY_SHADOW, applyAccepted, type DriveCopy, type RefreshMeta } from "@/lib/onsale-refresh/apply";
 import type { AudienceSpec, NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
+import type { PurchaseMeta } from "@/lib/onsale-refresh/apply-purchase";
 
 import { ownedRefreshEvent } from "../_owned";
 
@@ -232,8 +233,45 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     },
   };
 
+  // P4 PR B: the Purchase campaign's create path (gated by ONSALE_REFRESH_CAMPAIGN_CREATE_ENABLED inside applyPurchaseCampaign).
+  const purchase: PurchaseMeta = {
+    readAdSetForCopy: (adsetId) => graphGetWithToken<Record<string, unknown>>(`/${adsetId}`, { fields: "id,name,campaign_id,targeting,billing_event,attribution_spec,destination_type,pacing_type,adset_schedule" }, token, { maxAttempts: 1 }),
+    readCampaignBudget: (campaignId) => adsets.meta.readCampaignBudget(campaignId),
+    async readAd(adId) {
+      const ad = await graphGetWithToken<{ id: string; name?: string; effective_status?: string; creative?: { id?: string; effective_object_story_id?: string } }>(`/${adId}`, { fields: "id,name,effective_status,creative{id,effective_object_story_id}" }, token, { maxAttempts: 1 });
+      return ad?.id ? { id: ad.id, name: ad.name ?? ad.id, creativeId: ad.creative?.id ?? null, effectiveStatus: ad.effective_status ?? null, objectStoryId: ad.creative?.effective_object_story_id ?? null } : null;
+    },
+    async createCreativeFromPost(adAccountId, spec) {
+      // PC9's one fallback: the same post, nothing edited.
+      const res = await graphPostWithToken<{ id: string }>(`/${adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`}/adcreatives`, { name: spec.name, object_story_id: spec.objectStoryId }, token);
+      return res.id;
+    },
+    async createCampaign(adAccountId, payload) {
+      const res = await graphPostWithToken<{ id: string }>(`/${adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`}/campaigns`, payload, token);
+      return res.id;
+    },
+    createAdSet: (adAccountId, payload) => adsets.meta.createAdSet(adAccountId, payload),
+    createAd: (adAccountId, ad) => meta.createAd(adAccountId, ad),
+    async updateCampaign(campaignId, fields) {
+      await graphPostWithToken(`/${campaignId}`, fields, token);
+    },
+    async setAdSetActive(adsetId) {
+      await graphPostWithToken(`/${adsetId}`, { status: "ACTIVE" }, token);
+    },
+    async findCustomConversion(adAccountId, name) {
+      const res = await graphGetWithToken<{ data?: { id: string; name?: string }[] }>(`/${adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`}/customconversions`, { fields: "id,name", limit: "200" }, token, { maxAttempts: 1 });
+      return (res.data ?? []).find((row) => row.name === name)?.id ?? null;
+    },
+    async createCustomConversion(adAccountId, spec) {
+      // E1: Purchase on the pixel whose URL is on the show's own domain. The rule's exact form is unverified against a live write (PR B body).
+      const rule = JSON.stringify({ and: [{ event: { eq: "Purchase" } }, { or: [{ URL: { i_contains: spec.domain } }] }] });
+      const res = await graphPostWithToken<{ id: string }>(`/${adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`}/customconversions`, { name: spec.name, event_source_id: spec.pixelId, custom_event_type: "PURCHASE", rule }, token);
+      return res.id;
+    },
+  };
+
   const result = await applyAccepted({
-    deps: { db: who.db, env: process.env, meta, copyFromDrive, upload, adsets },
+    deps: { db: who.db, env: process.env, meta, copyFromDrive, upload, adsets, purchase },
     eventId: who.event.id,
     userId: who.userId,
     appliedByName: who.userName,

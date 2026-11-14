@@ -45,6 +45,7 @@ import { addsSpend, appliesNow } from "./line-states.ts";
 import { draftForCampaign, type DraftRow } from "./load.ts";
 import { LAST_ADSET_STAYS, RETARGETING_STAYS } from "./decide.ts";
 import { applyNewAdSet, type NewAdSetDeps } from "./apply-adsets.ts";
+import { applyPurchaseCampaign, campaignSpendGbp, type PurchaseMeta } from "./apply-purchase.ts";
 import { appliedMovesGbp, moveGuard, planGuard, projectedSpend, spendToDate } from "./plan-guard.ts";
 import { RETARGETING, type AddCopy } from "./rules.ts";
 import { todayLondon } from "./schedule.ts";
@@ -94,6 +95,8 @@ export type ApplyDeps = {
   upload(input: { storagePath: string; storageBucket: string; type: "video" | "image"; adAccountId: string; fileName: string; aspectRatio: string }): Promise<{ videoId?: string; imageHash?: string }>;
   /** P3: the new-ad-set lines' Meta calls and the audience builder. Absent = those lines fail without a write. */
   adsets?: Pick<NewAdSetDeps, "meta" | "ensureAudience">;
+  /** P4 PR B: the Purchase campaign's Meta calls. Absent = that line fails without a write. */
+  purchase?: PurchaseMeta;
   now?: Date;
 };
 
@@ -110,7 +113,7 @@ type ProposalRow = { id: string; campaign_key: string; campaign_ids: string[] | 
 type LineRow = {
   id: string;
   proposal_id: string;
-  kind: "add_creative" | "pause_creative" | "bring_back_audience" | "drop_audience" | "move_budget" | "missing_default";
+  kind: "add_creative" | "pause_creative" | "bring_back_audience" | "drop_audience" | "move_budget" | "missing_default" | "purchase_campaign";
   state: string;
   title: string;
   target: Record<string, unknown> | null;
@@ -472,7 +475,7 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
     .from("onsale_refresh_lines")
     .select("id, proposal_id, kind, state, title, target, evidence, write, applied_result")
     .in("proposal_id", [...proposals.keys()])
-    .in("kind", ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default"])
+    .in("kind", ["add_creative", "pause_creative", "bring_back_audience", "drop_audience", "move_budget", "missing_default", "purchase_campaign"])
     .eq("state", from)
     .order("position", { ascending: true });
   if (lineRead.error) return { ok: false, status: 500, error: lineRead.error.message };
@@ -498,8 +501,8 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
     let outcome: { state: "applied" | "failed"; reason: string | null; result: Record<string, unknown> };
     try {
       // R5 at apply time: the plan guard on spend lines (their spend before the show), the 20 % cap on moves.
-      const planned = isNewAdSet(line)
-        ? null // a new ad set's money is decided by its own rule (apply-adsets.ts), re-read there
+      const planned = isNewAdSet(line) || line.kind === "purchase_campaign"
+        ? null // a new ad set's or a Purchase campaign's money is decided by its own rule (apply-adsets.ts, apply-purchase.ts), re-read there
         : line.kind === "move_budget"
           ? moveGuard(num(line.write?.amountGbp), budget, spend, proposal.window_end ? await appliedMovesGbp(db, event.id, proposal.window_end, line.id) : 0)
           : planGuard(line.kind, budget, spend, projectedSpend(line.evidence, today, event.event_date ?? null));
@@ -508,7 +511,19 @@ export async function applyAccepted(args: { deps: ApplyDeps; eventId: string; us
         outcome = { state: "failed", reason: guard.reason, result: { guard: guard.reason } };
       } else {
         const ledger: MetaWriteContext = { supabase: db, userId: event.user_id, draftId: guard.draftId, eventId: event.id };
-        if (isNewAdSet(line)) {
+        if (line.kind === "purchase_campaign") {
+          if (!deps.purchase) {
+            outcome = { state: "failed", reason: "Making a Purchase campaign isn't wired on this deployment, so nothing was built.", result: {} };
+          } else {
+            const mainId = typeof line.write?.mainCampaignId === "string" ? line.write.mainCampaignId : null;
+            const moved = proposal.window_end ? await appliedMovesGbp(db, event.id, proposal.window_end, line.id) : 0;
+            outcome = await applyPurchaseCampaign(
+              { db, env: deps.env, meta: deps.purchase, plan: { budget, spend: budget != null ? spend || (await spendToDate(db, event.id)) : 0, today, appliedMovesGbp: moved }, mainSpentNow: mainId ? await campaignSpendGbp(db, mainId) : 0 },
+              { id: line.id, write: line.write, applied_result: line.applied_result },
+              { ledger, adAccountId: guard.adAccountId, plainMetaReason },
+            );
+          }
+        } else if (isNewAdSet(line)) {
           if (!deps.adsets) {
             outcome = { state: "failed", reason: "Making new ad sets isn't wired on this deployment, so nothing was made.", result: {} };
           } else {
