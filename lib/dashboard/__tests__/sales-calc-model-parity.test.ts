@@ -178,7 +178,9 @@ describe("live-check fixes: one count date, the spend-to-count clause, the umbre
     assert.equal(v.endDay, "2026-11-13"); // the spend date, as live
     assert.equal(v.countDay, "2026-11-12");
     assert.match(v.header!.channelLine, / · to 13 Nov · /);
+    // The default scope's live shows were all last counted on 12 Nov, so no "to 12 Nov" here.
     assert.match(v.header!.sentence, /\(Internal Counts, 12 Nov\)/);
+    assert.doesNotMatch(v.header!.sentence, /Internal Counts, to /);
     assert.match(tile(v, "sold").detail, /^to date · Internal Counts, 12 Nov/);
     const t = v.trajectory;
     assert.ok(t.kind === "all" && t.summary);
@@ -201,6 +203,23 @@ describe("live-check fixes: one count date, the spend-to-count clause, the umbre
     assert.equal(tile(nx, "costPerTicket").title, "All channels' spend to each show's latest count, over tickets sold.");
   });
 
+  it("3. D13 in the live calc: spend after the count is in the total, never in cost per ticket", () => {
+    // £500 more Meta spend on Schak's 13 Nov rollup, after every show's 12 Nov count.
+    const input = { ...withHn1(loadProdFixture()), today: "2026-11-14" };
+    const schak = input.shows.find((s) => s.code === "NX26-SCHAK")!;
+    const row = input.rollups.find((r) => r.eventId === schak.eventId && r.day === "2026-11-13")!;
+    assert.ok(row, "the fixture has Schak's 13 Nov rollup");
+    const after = buildSalesDashboard({
+      ...input,
+      rollups: input.rollups.map((r) => (r === row ? { ...r, meta: (r.meta ?? 0) + 500 } : r)),
+    });
+    const w = after.model.views["venue:nx newcastle"];
+    assert.ok(near(w.spendTotal!.amount, v.spendTotal!.amount + 500, 1e-6));
+    const cpt = tile(v, "costPerTicket").value;
+    assert.equal(tile(w, "costPerTicket").value, cpt);
+    assert.ok(w.header!.sentence.includes(`so ${cpt} of spend per ticket, on spend to the 12 Nov count.`), w.header!.sentence);
+  });
+
   it("4. the umbrella clause shows only when its page has signups", () => {
     assert.match(tile(nx, "registrations").detail, /plus 808 on the umbrella page$/);
     const input = withHn1(loadProdFixture());
@@ -213,6 +232,8 @@ describe("live-check fixes: one count date, the spend-to-count clause, the umbre
 });
 
 describe("headerSentence: the count date and the spend-to-count clause (D13)", () => {
+  // D13: £14,216 is spend to 13 Nov (the header's total); cost per ticket is
+  // spend to the 12 Nov count, £14,134, over the 6,795 tickets at that count: £2.08.
   const figures = (over: Partial<PeriodFigures> = {}): PeriodFigures => ({
     spend: 14216,
     byPlatform: { meta: 14216, tiktok: 0, google: 0 },
@@ -224,7 +245,7 @@ describe("headerSentence: the count date and the spend-to-count clause (D13)", (
     soldSources: ["internal_counts"],
     soldIsFinal: false,
     tickets: 6795,
-    costPerTicket: 14216 / 6795,
+    costPerTicket: 14134 / 6795,
     checkoutActions: 0,
     costPerCheckout: null,
     landingPageViews: 0,
@@ -239,24 +260,24 @@ describe("headerSentence: the count date and the spend-to-count clause (D13)", (
   const sentence = (endDay: string, over: Partial<PeriodFigures> = {}, kind: "venue" | "all" | "show" = "venue") =>
     headerSentence({ kind, name: "Fixture Hall", launch: figures(over), endDay, sourceLabels: SOURCE_LABEL, countedShows: 3, venues: 2 }).sentence;
 
-  it("£14,216 / 6,795 with spend to 13 Nov and the count to 12 Nov names the count", () => {
+  it("£14,216 spend to 13 Nov, 6,795 at the 12 Nov count: £2.08 on spend to the count, and the clause says so", () => {
     assert.equal(
       sentence("2026-11-13"),
-      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.09 of spend per ticket, on spend to the 12 Nov count.",
+      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.08 of spend per ticket, on spend to the 12 Nov count.",
     );
-    assert.match(sentence("2026-11-13", {}, "show"), /, so £2\.09 per ticket, on spend to the 12 Nov count\.$/);
-    assert.match(sentence("2026-11-13", {}, "all"), /, so £2\.09 of spend per ticket on those shows, on spend to the 12 Nov count\.$/);
+    assert.match(sentence("2026-11-13", {}, "show"), /, so £2\.08 per ticket, on spend to the 12 Nov count\.$/);
+    assert.match(sentence("2026-11-13", {}, "all"), /, so £2\.08 of spend per ticket on those shows, on spend to the 12 Nov count\.$/);
   });
 
   it("when the dates match, the sentence is unchanged", () => {
     assert.equal(
       sentence("2026-11-12"),
-      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.09 of spend per ticket.",
+      "Fixture Hall to date: £14,216 spend since launch, 6,795 tickets sold across 3 shows (Internal Counts, 12 Nov), so £2.08 of spend per ticket.",
     );
   });
 
   it("shows last counted on different days read \"to {latest}\"", () => {
-    assert.match(sentence("2026-11-12", { soldDaysDiffer: true }), /\(Internal Counts, to 12 Nov\), so £2\.09 of spend per ticket\.$/);
+    assert.match(sentence("2026-11-12", { soldDaysDiffer: true }), /\(Internal Counts, to 12 Nov\), so £2\.08 of spend per ticket\.$/);
   });
 });
 
