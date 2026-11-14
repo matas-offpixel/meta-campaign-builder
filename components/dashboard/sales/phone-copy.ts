@@ -57,7 +57,8 @@ export function phoneSpan(
     case "sold":
       return tile.narrowDetail.replace(/^to date · /, "") || `Internal Counts, ${countLabel}`;
     case "costPerTicket":
-      if (!launch) return span;
+      // D13: since launch always; in a period, where its spend runs past a count (the hover carries the cap).
+      if (!launch && !/on spend to/.test(tile.title)) return span;
       return /each show's last count/.test(tile.title) ? "spend to each show's last count" : `spend to the ${countLabel} count`;
     case "registrations":
       return launch ? "show pages, to date" : span;

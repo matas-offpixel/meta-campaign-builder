@@ -170,6 +170,21 @@ describe("D4 / D13 period figures", () => {
     assert.equal(f.costPerTicket, 110 / 372);
   });
 
+  it("Keep D13: counts on different days, each show's days end on its own last count", () => {
+    const a = show({ eventId: "a", code: "A-1", counts: [ic("2026-10-01", 100), ic("2026-11-12", 200)] });
+    const b = show({ eventId: "b", code: "B-1", counts: [ic("2026-10-01", 50), ic("2026-11-09", 120)] });
+    const both = buildSeries(input({ shows: [a, b], rollups: days.flatMap((d) => [roll("a", d, 10), roll("b", d, 10)]) }));
+    const f = periodFigures([both.get("a")!, both.get("b")!], "3", "2026-11-12");
+    assert.equal(f.ticketDaysDiffer, true);
+    assert.deepEqual(f.ticketDays, { from: "2026-11-10", to: "2026-11-12" });
+    // A: 10–12 Nov, £30. B: 7–9 Nov (its own last count), £30; its 10–12 Nov spend is past its count, left out.
+    assert.equal(f.spendPastCount, true);
+    const aSold = 200 - (100 + (100 * 39) / 42);
+    const bSold = 120 - (50 + (70 * 36) / 39);
+    assert.ok(Math.abs(f.tickets! - (aSold + bSold)) < 1e-9);
+    assert.ok(Math.abs(f.costPerTicket! - 60 / (aSold + bSold)) < 1e-9);
+  });
+
   it("yesterday's sales need a count yesterday", () => {
     const s = buildSeries(base).get("a")!;
     assert.equal(periodFigures([s], "yesterday", "2026-11-12").tickets, null);

@@ -226,7 +226,15 @@ function tilesFor(f: PeriodFigures, sinceLaunch: PeriodFigures, period: SalesPer
           };
         })();
   const days = PERIOD_DAYS[period as PeriodId];
-  const toCount = f.ticketDays && f.ticketDays.to < endDay ? ` to the ${shortDay(f.ticketDays.to)} count` : "";
+  const toCount = !f.ticketDays
+    ? ""
+    : f.ticketDaysDiffer
+      ? " to each show's last count"
+      : f.ticketDays.to < endDay
+        ? ` to the ${shortDay(f.ticketDays.to)} count`
+        : "";
+  // D13 in the header's own words, where the period's spend runs past a show's last count.
+  const capClause = period !== "launch" && f.ticketDays ? spendToCountClause({ soldDay: f.ticketDays.to, soldDaysDiffer: f.ticketDaysDiffer, spendPastCount: f.spendPastCount }) : "";
   const noCount = period === "yesterday" && f.tickets == null && f.sold != null ? NO_COUNT_YESTERDAY : NO_TICKET_COUNTS;
   const ticketsTile: SalesTile =
     f.tickets == null
@@ -244,12 +252,12 @@ function tilesFor(f: PeriodFigures, sinceLaunch: PeriodFigures, period: SalesPer
       : {
           id: "costPerTicket",
           value: rate(f.costPerTicket),
-          detail: `${sp.wide}${toCount} · ${ctx.countedShows < ctx.shows ? `the ${ctx.countedShows} shows with counts` : "blended"}`,
+          detail: `${sp.wide} · ${ctx.countedShows < ctx.shows ? `the ${ctx.countedShows} shows with counts` : "blended"}${capClause.replace(/^, /, " · ")}`,
           narrowDetail: `${sp.narrow} · blended`,
           title:
             period === "launch"
               ? `All channels' spend to each show's latest count, over tickets sold${spendToCountClause(f)}.`
-              : periodCptTitle(f, ctx.countedShows, days ?? 1),
+              : periodCptTitle(f, ctx.countedShows, days ?? 1, capClause),
         };
   // N4: only when the umbrella page has signups; at 0, or before its first sync, the clause is dropped.
   const umbrellaPart = (n: number | undefined) => (ctx.umbrellaPage && n != null && n > 0 ? ` · plus ${count(n)} on the umbrella page` : "");
@@ -464,13 +472,18 @@ function paceTile(list: readonly ShowSeries[], endDay: string): TrajectoryTile {
   };
 }
 
-/** The period Cost per ticket's hover: which spend, which days, which tickets. */
-function periodCptTitle(f: PeriodFigures, countedShows: number, days: number): string {
+/**
+ * The period Cost per ticket's hover: which spend, which days, which tickets,
+ * and D13's cap in the header's words ("on spend to the 12 Nov count").
+ */
+function periodCptTitle(f: PeriodFigures, countedShows: number, days: number, capClause: string): string {
   if (!f.ticketDays) return "";
-  const span = `${shortDay(f.ticketDays.from)}–${shortDay(f.ticketDays.to)}`;
   const which = countedShows === 1 ? "this show's" : `the ${countedShows} shows with counts'`;
-  const toCount = ` (the ${days === 1 ? "day" : `${days} days`} to the ${shortDay(f.ticketDays.to)} count)`;
-  return `Spend on ${which} days ${span}${toCount}, over the ${count(Math.round(f.tickets ?? 0))} tickets they sold in those days.`;
+  const span = days === 1 ? "day" : `${days} days`;
+  const daysWords = f.ticketDaysDiffer
+    ? `${span} to each show's last count`
+    : `${span} ${shortDay(f.ticketDays.from)}–${shortDay(f.ticketDays.to)}`;
+  return `Spend on ${which} ${daysWords}, over the ${count(Math.round(f.tickets ?? 0))} tickets they sold in those days${capClause}.`;
 }
 
 function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "computedAt">[], endDay: string): SalesTrajectory {

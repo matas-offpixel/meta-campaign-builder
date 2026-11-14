@@ -97,6 +97,8 @@ describe("HN2 against the record's expected figures (NX Newcastle, to 12 Nov)", 
     assert.ok(t.kind === "all" && t.summary);
     if (t.kind !== "all" || !t.summary) return;
     assert.deepEqual(t.summary.sold, { label: "Sold · count of 12 Nov", value: "8,526", detail: "53% of 16,000 across 8 shows" });
+    // "Keep D13, explain": the period Cost per ticket names its cap in the header's words.
+    assert.match(tile(nx, "costPerTicket", "14").detail, /^in 14 days · the \d+ shows with counts( · on spend to the 12 Nov count)?$/);
     // Pace ties to Sales: the 7- and 14-day Sales over their days (period-calc ticket).
     const sales = (period: "7" | "14") => Number(tile(nx, "tickets", period as "14").value.replace(/,/g, ""));
     assert.equal(t.summary.pace.value, `${(sales("7") / 7).toFixed(1)} a day`);
@@ -249,6 +251,7 @@ describe("headerSentence: the count date and the spend-to-count clause (D13)", (
     soldIsFinal: false,
     tickets: 6795,
     ticketDays: null,
+    ticketDaysDiffer: false,
     costPerTicket: 14134 / 6795,
     checkoutActions: 0,
     costPerCheckout: null,

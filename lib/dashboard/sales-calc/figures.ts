@@ -339,6 +339,8 @@ export interface PeriodFigures {
    * count to end on.
    */
   ticketDays: { from: string; to: string } | null;
+  /** In a period: the counted shows' own last counts fall on more than one day (each show's days end on its own). */
+  ticketDaysDiffer: boolean;
   costPerTicket: number | null;
   checkoutActions: number;
   costPerCheckout: number | null;
@@ -417,6 +419,7 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
 
   let tickets: number | null = null;
   let ticketDays: { from: string; to: string } | null = null;
+  let ticketDaysDiffer = false;
   let costPerTicket: number | null = null;
   let spendPastCount = false;
   if (period === "launch") {
@@ -443,24 +446,38 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
     // window (Locklead's 226 presale tickets), spend before a first count or after the last count
     // was in no window (Locklead's £1,196), so Sales, Pace and Cost per ticket disagreed.
     const n = PERIOD_DAYS[period]!;
-    // Never past the spend date: a count dated later is read off its line on the spend date.
-    const lastCount = counted.map((s) => s.counts[s.counts.length - 1].day).sort().pop()!;
-    const countEnd = lastCount > endDay ? endDay : lastCount;
-    // Yesterday's sales need a count yesterday.
-    if (period !== "yesterday" || countEnd === endDay) {
-      const start = addDays(countEnd, -n);
+    // Each show's days end on its own last count (Matas, 14 Nov: "Keep D13"), never past the spend
+    // date: a count dated later is read off its line on the spend date.
+    const endOf = (s: ShowSeries) => {
+      const last = s.counts[s.counts.length - 1].day;
+      return last > endDay ? endDay : last;
+    };
+    // Yesterday's sales need a count yesterday: only the shows counted on it.
+    const inScope = period === "yesterday" ? counted.filter((s) => endOf(s) === endDay) : counted;
+    if (inScope.length) {
       let t = 0;
       let spendOnTicketDays = 0;
-      for (const s of counted) {
+      let latest = "";
+      let earliest = "";
+      for (const s of inScope) {
+        const end = endOf(s);
+        const start = addDays(end, -n);
         const last = s.counts[s.counts.length - 1];
         const at = (day: string) => (day >= last.day ? last.sold : soldOn(s, day));
         // On sale before a non-zero first count, with no presale date: its sales before that count can't be placed.
         const from = at(start) ?? s.counts[0].sold;
-        t += (at(countEnd) ?? last.sold) - from;
-        for (const f of s.days.values()) if (f.day > start && f.day <= countEnd) spendOnTicketDays += f.spend;
+        t += (at(end) ?? last.sold) - from;
+        for (const f of s.days.values()) {
+          if (f.day > start && f.day <= end) spendOnTicketDays += f.spend;
+          // D13: spend in the period after the show's own last count is left out, and the words say so.
+          else if (f.day > end && f.day <= endDay && f.spend > 0) spendPastCount = true;
+        }
+        if (end > latest) latest = end;
+        if (!earliest || end < earliest) earliest = end;
       }
       tickets = t;
-      ticketDays = { from: addDays(start, 1), to: countEnd };
+      ticketDays = { from: addDays(latest, -n + 1), to: latest };
+      ticketDaysDiffer = earliest !== latest;
       costPerTicket = ratio(spendOnTicketDays, t);
     }
   }
@@ -500,6 +517,7 @@ export function periodFigures(list: readonly ShowSeries[], period: PeriodId, end
     soldIsFinal: counted.length > 0 && counted.every((s) => s.finalDay != null),
     tickets,
     ticketDays,
+    ticketDaysDiffer,
     costPerTicket,
     checkoutActions,
     costPerCheckout: ratio(metaSpend, checkoutActions),

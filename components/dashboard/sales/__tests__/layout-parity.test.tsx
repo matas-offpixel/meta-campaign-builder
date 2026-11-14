@@ -115,12 +115,15 @@ describe("N7 tile sublines", () => {
       "since launch · the 3 shows with counts",
     );
     expect(tileSubline("costPerTicket", "blended · complete windows", "launch", "12 Nov", null, true)).toBe("since launch · blended");
-    // Period-calc ticket: no "complete windows" any more; wide names the count date when the days end on it.
+    // Period-calc ticket, "Keep D13, explain": no "complete windows"; wide names the cap in the header's words.
     expect(tileSubline("costPerTicket", "blended", "14", "12 Nov", null, true)).toBe("in 14 days · blended");
-    expect(tileSubline("costPerTicket", "in 14 days to the 12 Nov count · the 3 shows with counts", "14", "12 Nov", { showsWithCounts: 3, shows: 4 }, true)).toBe(
-      "in 14 days to the 12 Nov count · the 3 shows with counts",
+    expect(tileSubline("costPerTicket", "in 14 days · the 3 shows with counts · on spend to the 12 Nov count", "14", "12 Nov", { showsWithCounts: 3, shows: 4 }, true)).toBe(
+      "in 14 days · the 3 shows with counts · on spend to the 12 Nov count",
     );
-    expect(tileSubline("costPerTicket", "in 14 days to the 12 Nov count · blended", "14", "12 Nov", { showsWithCounts: 3, shows: 4 })).toBe(
+    expect(
+      tileSubline("costPerTicket", "in 14 days · blended · on spend to each show's last count (latest 12 Nov)", "14", "12 Nov", null, true),
+    ).toBe("in 14 days · blended · on spend to each show's last count (latest 12 Nov)");
+    expect(tileSubline("costPerTicket", "in 14 days · blended · on spend to the 12 Nov count", "14", "12 Nov", { showsWithCounts: 3, shows: 4 })).toBe(
       "in 14 days · the 3 shows with counts",
     );
     expect(tileSubline("costPerTicket", "blended", "14", "12 Nov", { showsWithCounts: 3, shows: 4 })).toBe(
