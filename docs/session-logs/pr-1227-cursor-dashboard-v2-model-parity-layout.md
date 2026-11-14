@@ -33,3 +33,5 @@ The layout reads the model fields and does not edit `lib/dashboard/sales-vs-spen
 Cost per ticket at 1280 keeps "complete windows" on every period except Since launch. At 393 that phrase stays off.
 
 The venue row, the header sentence, the spend scope line and the spend hover render `venues`, `header`, `spendTotal` and `summary` when the model sends them. `summary.pace.value` is shown as "{n} a day". `sellsOut` on a bar wins over the inferred range. The fixture is still the 12 Nov NX series, so its pace tile is "— a day"; 113.3 / 155.3 is the live calc's pace, not a number this layout writes. The fixture's channel split is the 14-day one (£4,210 + £520) and does not sum to the £9,840 since-launch total.
+
+The umbrella view shows its subtitle (the event name, then "not a show: no tickets and no trajectory") under the title and above the header sentence. A channel line with no money figure is left out. The spend hover headline is mono caps.

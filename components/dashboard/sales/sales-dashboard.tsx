@@ -148,10 +148,15 @@ export function SalesDashboard({
             </>
           )}
         </h2>
+        {umbrella && view.header ? (
+          <p className="mt-1 text-xs text-muted-foreground">{view.subtitle}</p>
+        ) : null}
         {view.header ? (
           <div className="relative" onMouseEnter={() => hoverSpend("header")} onMouseLeave={leaveSpend}>
             <p className="mt-1 max-w-3xl text-sm leading-snug">{view.header.sentence}</p>
-            <p className="mt-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{view.header.channelLine}</p>
+            {channelLineHasSplit(view.header.channelLine) ? (
+              <p className="mt-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{view.header.channelLine}</p>
+            ) : null}
             {spendHover === "header" && launchTotal ? <SpendHover total={launchTotal} /> : null}
           </div>
         ) : (
@@ -754,7 +759,7 @@ function FinishedToggle({ includeFinished, onToggle }: { includeFinished: boolea
 function SpendHover({ total }: { total: SalesTotal }) {
   return (
     <div className="absolute left-0 top-full z-20 mt-1 w-72 border border-border bg-card p-3 text-left text-[11px] leading-snug shadow-sm">
-      <p className="font-medium">{total.headline}</p>
+      <p className="font-mono text-[9px] font-bold uppercase leading-none tracking-[0.16em] text-muted-foreground">{total.headline}</p>
       <div className="mt-2 space-y-1">
         {total.parts.map((part) => (
           <div key={part.id}>
@@ -804,6 +809,11 @@ function SummaryValue({ value }: { value: string }) {
       <span className="text-[11px] font-normal text-muted-foreground"> a day</span>
     </p>
   );
+}
+
+/** A date alone ("to 12 Nov") is not a channel split. The line needs a money figure. */
+function channelLineHasSplit(line: string): boolean {
+  return line.includes("£");
 }
 
 function venueToken(venue: SalesVenue): string {

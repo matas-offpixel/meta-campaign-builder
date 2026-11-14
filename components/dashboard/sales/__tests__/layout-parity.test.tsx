@@ -33,6 +33,18 @@ describe("N2 venue row and N3 spend hover", () => {
   });
 });
 
+describe("N8 umbrella", () => {
+  it("puts the event name under the title and drops a channel line with no split", () => {
+    render(
+      <SalesDashboard model={NX_SALES_FIXTURE} surface="internal" initialShowId="umbrella" initialPeriod="launch" />,
+    );
+    const subtitle = screen.getByText("NX umbrella · not a show: no tickets and no trajectory");
+    const sentence = screen.getByText(/NX Newcastle umbrella to date/);
+    expect(subtitle.compareDocumentPosition(sentence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("to 12 Nov")).toBeNull();
+  });
+});
+
 describe("N1 axes", () => {
   it("picks the round step that covers the peak", () => {
     expect(axisStep(600, 6)).toBe(100);

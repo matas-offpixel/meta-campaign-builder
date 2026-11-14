@@ -419,8 +419,8 @@ function umbrellaView(): SalesShowView {
     ...view,
     title: "NX umbrella",
     narrowTitle: "NX umbrella",
-    subtitle: "Not in All shows",
-    narrowSubtitle: "Not in All shows",
+    subtitle: "NX umbrella · not a show: no tickets and no trajectory",
+    narrowSubtitle: "NX umbrella · not a show: no tickets and no trajectory",
     umbrellaLine: null,
     tiles: view.tiles.map((tile) =>
       tile.id === "spend"
