@@ -2,7 +2,18 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { anchoredDateIndexes, axisCeiling, axisTicks, dateStepDays, daySpan, formatCountTick, formatMoneyTick } from "@/components/dashboard/sales/chart-axes";
+import {
+  anchoredDateIndexes,
+  axisCeiling,
+  axisTicks,
+  dateStepDays,
+  daySpan,
+  fitDateLabels,
+  formatCountTick,
+  formatMoneyTick,
+  measureDateLabel,
+  type DateAnchor,
+} from "@/components/dashboard/sales/chart-axes";
 import { TILE_NAMES } from "@/components/dashboard/sales/tile-copy";
 // The one date formatter, with fixed month words (en-GB's own short month is "Sept"). The chart never formats a date itself.
 import { shortDay } from "@/lib/dashboard/sales-calc/days";
@@ -198,7 +209,7 @@ export function SalesChart({
                   return (
                     <span key={tick.day} className="absolute top-0" style={{ left: `${percent}%` }}>
                       <span className="absolute -top-1 left-0 h-1 w-px bg-current opacity-60" />
-                      <span className="absolute top-0 -translate-x-1/2 whitespace-nowrap">{keepDate(tick.label)}</span>
+                      <span className={`absolute top-0 whitespace-nowrap ${ANCHOR_SHIFT[tick.anchor]}`}>{keepDate(tick.label)}</span>
                     </span>
                   );
                 })}
@@ -369,15 +380,42 @@ function captionBelow(selected: SalesMetricId[]): string {
   return parts.join(" ");
 }
 
-function dateLabels(points: SalesChartPoint[], plotWidth: number): { day: string; x: number; label: string }[] {
-  if (points.length === 0) return [];
-  const step = dateStepDays(daySpan(points.map((point) => point.day)), plotWidth);
-  return anchoredDateIndexes(points.map((point) => point.day), step).map((index) => ({
-    day: points[index].day,
-    x: xAt(index, points.length),
-    label: shortDay(points[index].day),
+function dateLabels(points: SalesChartPoint[], plotWidth: number): { day: string; x: number; label: string; anchor: DateAnchor }[] {
+  return salesChartDateLabels(
+    points.map((point) => point.day),
+    plotWidth,
+    (label) => measureDateLabel(label, 12),
+  );
+}
+
+/**
+ * N1 dates on the chart that fits its width (desktop, and phone periods of
+ * 30 days or less): placed by the step, then N1's 6 px rule on the real boxes
+ * (design-ruled 14 Nov). Below 640 px the end label is end-anchored and a
+ * label at the start edge start-anchored; wider, every label stays centred,
+ * as at 1280 today. `x` is in the plot's 0–1000 space.
+ */
+export function salesChartDateLabels(
+  days: readonly string[],
+  plotWidth: number,
+  width: (label: string) => number,
+): { day: string; x: number; label: string; anchor: DateAnchor }[] {
+  if (days.length === 0) return [];
+  const step = dateStepDays(daySpan(days), plotWidth);
+  const candidates = anchoredDateIndexes(days, step).map((index) => ({
+    index,
+    x: (xAt(index, days.length) / CHART_PLOT) * plotWidth,
+    label: shortDay(days[index]),
+  }));
+  return fitDateLabels(candidates, days.length - 1, { rowWidth: plotWidth, width, centred: plotWidth >= 640 }).map((f) => ({
+    day: days[f.index],
+    x: xAt(f.index, days.length),
+    label: f.label,
+    anchor: f.anchor,
   }));
 }
+
+const ANCHOR_SHIFT: Record<DateAnchor, string> = { start: "left-0", center: "-translate-x-1/2", end: "-translate-x-full" };
 
 function HoverCard({
   point,

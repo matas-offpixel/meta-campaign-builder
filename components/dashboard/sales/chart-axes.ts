@@ -6,6 +6,92 @@ export const DATE_STEPS = [1, 2, 3, 7, 14, 21, 28] as const;
 export const DATE_LABEL_PX = 35;
 export const DATE_CLEAR_PX = 6;
 
+export type DateAnchor = "start" | "center" | "end";
+export type DateCandidate = { index: number; x: number; label: string };
+export type FittedDateLabel = DateCandidate & { anchor: DateAnchor; left: number; right: number };
+
+/**
+ * A date label's width as drawn, from per-character advances of the UI sans
+ * at `fontPx`, rounded up so the 6 px check errs wide. The browser measures
+ * the real text instead (`measureDateLabel`); this is the fallback (tests,
+ * the server render).
+ */
+export function estimateDateLabelWidth(label: string, fontPx: number): number {
+  let em = 0;
+  for (const ch of label) {
+    // Measured against the 375 frames: "13 Nov" is about 40 px and "6 Nov" about 30 px at 11 px.
+    if (/[0-9]/.test(ch)) em += 0.62;
+    else if (ch === " " || ch === "\u00a0") em += 0.32;
+    else if (/[A-Z]/.test(ch)) em += 0.78;
+    else em += 0.6;
+  }
+  return Math.ceil(em * fontPx) + 1;
+}
+
+let canvas: HTMLCanvasElement | null = null;
+
+/** The label's real rendered width in the page's own font, else the estimate. */
+export function measureDateLabel(label: string, fontPx: number): number {
+  try {
+    if (typeof document === "undefined") return estimateDateLabelWidth(label, fontPx);
+    canvas ??= document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return estimateDateLabelWidth(label, fontPx);
+    ctx.font = `${fontPx}px ${getComputedStyle(document.body).fontFamily}`;
+    const width = ctx.measureText(label).width;
+    return width > 0 ? Math.ceil(width) : estimateDateLabelWidth(label, fontPx);
+  } catch {
+    return estimateDateLabelWidth(label, fontPx);
+  }
+}
+
+/** Where a label sits on its x: the last day end-anchored; a label whose centred box would cross an edge, anchored to that edge; else centred. */
+export function dateAnchor(index: number, lastIndex: number, x: number, rowWidth: number, width: number): DateAnchor {
+  if (index === lastIndex) return "end";
+  if (x - width / 2 < 0) return "start";
+  if (x + width / 2 > rowWidth) return "end";
+  return "center";
+}
+
+/**
+ * N1's 6 px rule on where labels really land (design-ruled, 14 Nov). Labels
+ * are placed by the step first (the caller's candidates); then, from the end
+ * leftwards, a label whose rendered box comes within `gap` of the label to
+ * its right is not drawn. The end label always stays, end-anchored at the
+ * last day; it is never stepped inward and the step never varies. In a scroll
+ * window, a label the window's edge would cut is not drawn either.
+ */
+export function fitDateLabels(
+  candidates: readonly DateCandidate[],
+  lastIndex: number,
+  opts: {
+    rowWidth: number;
+    width: (label: string) => number;
+    gap?: number;
+    viewLeft?: number;
+    viewRight?: number;
+    /** The desktop chart draws every label centred (1280 is unchanged); the check still runs on those boxes. */
+    centred?: boolean;
+  },
+): FittedDateLabel[] {
+  const gap = opts.gap ?? DATE_CLEAR_PX;
+  const kept: FittedDateLabel[] = [];
+  for (const c of [...candidates].sort((a, b) => b.x - a.x)) {
+    const w = opts.width(c.label);
+    const anchor = opts.centred ? "center" : dateAnchor(c.index, lastIndex, c.x, opts.rowWidth, w);
+    const left = anchor === "start" ? c.x : anchor === "end" ? c.x - w : c.x - w / 2;
+    const box = { ...c, anchor, left, right: left + w };
+    if (c.index !== lastIndex) {
+      const next = kept[kept.length - 1];
+      if (next && box.right + gap > next.left) continue;
+      if (opts.viewLeft != null && box.left < opts.viewLeft) continue;
+      if (opts.viewRight != null && box.right > opts.viewRight) continue;
+    }
+    kept.push(box);
+  }
+  return kept.reverse();
+}
+
 /** Smallest step from the mantissa set whose `intervals` cover `peak`. */
 export function axisStep(peak: number, intervals: number): number {
   if (!(peak > 0) || intervals < 1) return 1;
