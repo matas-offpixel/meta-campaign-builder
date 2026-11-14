@@ -19,14 +19,15 @@ export function capacityTicks(max: number, step: number): number[] {
   return ticks;
 }
 
-export type BarOutcome = { text: string; sellout: "at this pace" | "if best" | null };
+/** "at its recent pace": D6's per-show rate between counts, not the Pace tile (design, 14 Nov). */
+export type BarOutcome = { text: string; sellout: "at its recent pace" | "if best" | null };
 
 export function barOutcome(bar: AllShowBar): BarOutcome {
   if (bar.allocation == null) return { text: "Set capacity on the event", sellout: null };
   if (bar.sold == null) return { text: "No ticket counts yet", sellout: null };
   const sold = formatCount(bar.sold);
   const cap = bar.allocation;
-  if (bar.sellsOut === "holds") return { text: `${sold} →`, sellout: "at this pace" };
+  if (bar.sellsOut === "holds") return { text: `${sold} →`, sellout: "at its recent pace" };
   if (bar.sellsOut === "best") {
     const low = bar.low != null ? `${formatCount(bar.low)}–${formatCount(cap)} ·` : "";
     return { text: low ? `${sold} → ${low}` : `${sold} →`, sellout: "if best" };
@@ -35,7 +36,7 @@ export function barOutcome(bar: AllShowBar): BarOutcome {
     if (bar.low != null && bar.high != null) return { text: `${sold} → ${formatCount(bar.low)}–${formatCount(bar.high)}`, sellout: null };
     return { text: sold, sellout: null };
   }
-  if (bar.low != null && bar.low >= cap) return { text: `${sold} →`, sellout: "at this pace" };
+  if (bar.low != null && bar.low >= cap) return { text: `${sold} →`, sellout: "at its recent pace" };
   if (bar.high != null && bar.high >= cap && bar.low != null) {
     return { text: `${sold} → ${formatCount(bar.low)}–${formatCount(cap)} ·`, sellout: "if best" };
   }

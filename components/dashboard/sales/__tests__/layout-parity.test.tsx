@@ -77,7 +77,7 @@ describe("N6 trajectory", () => {
     expect(barOutcome(dod!)).toEqual({ text: "915 → 1,280–1,500 ·", sellout: "if best" });
     expect(barOutcome({ id: "x", label: "x", sold: 1870, low: 2000, high: 2100, allocation: 2000, caption: "" })).toEqual({
       text: "1,870 →",
-      sellout: "at this pace",
+      sellout: "at its recent pace",
     });
     expect(barOutcome({ id: "y", label: "y", sold: null, low: null, high: null, allocation: 2000, caption: "" })).toEqual({
       text: "No ticket counts yet",
@@ -86,7 +86,7 @@ describe("N6 trajectory", () => {
     expect(barOutcome(bars.find((bar) => bar.sold == null)!)).toEqual({ text: "Set capacity on the event", sellout: null });
     expect(barOutcome({ id: "z", label: "z", sold: 100, low: 200, high: 300, allocation: 1000, caption: "", sellsOut: "holds" })).toEqual({
       text: "100 →",
-      sellout: "at this pace",
+      sellout: "at its recent pace",
     });
   });
 

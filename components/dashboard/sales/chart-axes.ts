@@ -33,7 +33,8 @@ let canvas: HTMLCanvasElement | null = null;
 /** The label's real rendered width in the page's own font, else the estimate. */
 export function measureDateLabel(label: string, fontPx: number): number {
   try {
-    if (typeof document === "undefined") return estimateDateLabelWidth(label, fontPx);
+    // No layout engine (the server render, jsdom in tests): the estimate.
+    if (typeof document === "undefined" || /jsdom/i.test(navigator.userAgent)) return estimateDateLabelWidth(label, fontPx);
     canvas ??= document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return estimateDateLabelWidth(label, fontPx);

@@ -105,9 +105,9 @@ describe("HN2 against the record's expected figures (NX Newcastle, to 12 Nov)", 
     assert.equal(t.summary.pace.detail, `14-day ${(sales("14") / 14).toFixed(1)} a day`);
     assert.match(t.summary.projected.value, /^11,315–/);
     const bar = (name: string) => t.bars.find((b) => b.label.startsWith(name))!;
-    assert.equal(bar("Schak").caption, "1,870 → sells out at this pace");
+    assert.equal(bar("Schak").caption, "1,870 → sells out at its recent pace");
     assert.equal(bar("Schak").sellsOut, "holds");
-    assert.equal(bar("Julian Fijma").caption, "579 → sells out at this pace");
+    assert.equal(bar("Julian Fijma").caption, "579 → sells out at its recent pace");
     assert.equal(bar("Ewan McVicar").caption, "No ticket counts yet");
     assert.match(bar("East End Dubs").caption, /^1,731 → 1,775–/);
     assert.ok(t.bars.every((b) => b.high == null || b.allocation == null || b.high <= b.allocation));
@@ -199,12 +199,12 @@ describe("live-check fixes: one count date, the spend-to-count clause, the umbre
 
   it("3. spend past the count: the header and the Cost per ticket hover name it; the subline doesn't change", () => {
     assert.match(v.header!.sentence, /, so £[\d.]+ of spend per ticket, on spend to the 12 Nov count\./);
-    assert.equal(tile(v, "costPerTicket").title, "All channels' spend to each show's latest count, over tickets sold, on spend to the 12 Nov count.");
+    assert.equal(tile(v, "costPerTicket").title, "All channels' spend over tickets sold, on spend to the 12 Nov count.");
     assert.match(tile(v, "costPerTicket").detail, /^since launch · /);
     assert.doesNotMatch(tile(v, "costPerTicket").detail, /on spend to/);
     // Dates match (the 12 Nov build): no clause, the sentence as before.
     assert.doesNotMatch(nx.header!.sentence, /on spend to the/);
-    assert.equal(tile(nx, "costPerTicket").title, "All channels' spend to each show's latest count, over tickets sold.");
+    assert.equal(tile(nx, "costPerTicket").title, "All channels' spend over tickets sold.");
   });
 
   it("3. D13 in the live calc: spend after the count is in the total, never in cost per ticket", () => {

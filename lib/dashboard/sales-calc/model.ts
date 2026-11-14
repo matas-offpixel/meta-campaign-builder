@@ -256,7 +256,7 @@ function tilesFor(f: PeriodFigures, sinceLaunch: PeriodFigures, period: SalesPer
           narrowDetail: `${sp.narrow} · blended`,
           title:
             period === "launch"
-              ? `All channels' spend to each show's latest count, over tickets sold${spendToCountClause(f)}.`
+              ? `All channels' spend over tickets sold${spendToCountClause(f)}.`
               : periodCptTitle(f, ctx.countedShows, days ?? 1, capClause),
         };
   // N4: only when the umbrella page has signups; at 0, or before its first sync, the clause is dropped.
@@ -517,7 +517,7 @@ function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "co
     const sellsOut: AllShowBar["sellsOut"] = p.holds >= cap ? "holds" : top >= cap ? "best" : null;
     const caption =
       sellsOut === "holds"
-        ? `${count(p.sold)} → sells out at this pace`
+        ? `${count(p.sold)} → sells out at its recent pace`
         : sellsOut === "best"
           ? `${count(p.sold)} → ${count(p.holds)}–${count(cap)} · sells out if best`
           : `${count(p.sold)} → ${top > p.holds ? `${count(p.holds)}–${count(top)}` : count(p.holds)}`;
@@ -540,7 +540,7 @@ function allTrajectory(list: readonly ShowSeries[], library: Omit<LiftEntry, "co
     summary: n
       ? {
           sold: { label: `Sold · count of ${shortDay(countDay!)}`, value: count(sold), detail: `${pct(sold)} of ${count(alloc)} across ${n} shows` },
-          projected: { label: "Projected on show day", value: range, detail: `up to ${pct(high)} of ${count(alloc)} · each show capped at its capacity` },
+          projected: { label: "Projected on show day", value: range, detail: `up to ${pct(high)} of ${count(alloc)} · each show at its recent pace` },
           pace: paceTile(list, endDay),
         }
       : undefined,

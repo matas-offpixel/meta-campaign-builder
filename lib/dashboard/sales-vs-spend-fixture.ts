@@ -409,7 +409,7 @@ function allTrajectory(): SalesShowView["trajectory"] {
     note: ALL_NOTE,
     summary: {
       sold: { label: "Sold · count of 12 Nov", value: "2,327", detail: "52% of 4,500 across 3 shows" },
-      projected: { label: "Projected on show day", value: "3,162–4,210", detail: "up to 94% of 4,500 · each show capped at its capacity" },
+      projected: { label: "Projected on show day", value: "3,162–4,210", detail: "up to 94% of 4,500 · each show at its recent pace" },
       pace: { label: "Pace, last 7 days", value: "— a day", detail: "14-day — a day" },
     },
   };
