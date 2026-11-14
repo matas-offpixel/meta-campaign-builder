@@ -126,6 +126,7 @@ describe("TikTok after the overrides (#1225)", () => {
   const id = (code: string) => input.shows.find((s) => s.code === code)!.eventId;
   const seed = new Map([
     ["1880462786907170", id("NX26-LOCKLEAD")],
+    ["1880403187534530", id("NX26-LOCKLEAD")],
     ["1879669080323249", id("NX26-AZYR")],
     ["1875856480493234", id("NX26-AZYR")],
   ]);
@@ -147,10 +148,10 @@ describe("TikTok after the overrides (#1225)", () => {
     assert.equal(Number(stored.toFixed(2)), 455.37);
   });
 
-  it("the leg without the seed: £447.36 (stale day cleared), AZYR still holds Locklead's £106.98", () => {
+  it("the leg without the seed, exact [CODE]: £435.36; AZYR holds Locklead's £106.98 and \"[NX26-Locklead]\" matches nothing", () => {
     const m = byEvent();
-    assert.deepEqual(m, { "NX26-LOCKLEAD": 12, "NX26-GLOBAL": 328.38, "NX26-AZYR": 106.98 });
-    assert.equal(total(m), 447.36);
+    assert.deepEqual(m, { "NX26-GLOBAL": 328.38, "NX26-AZYR": 106.98 });
+    assert.equal(total(m), 435.36);
   });
 
   it("with the seed applied in memory: £540.65, the advertiser's own total", () => {

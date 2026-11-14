@@ -12,13 +12,13 @@
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
-import { formatSalesNumber, type SalesChannelAmount, type SalesHeader, type SalesTotal, type SalesTotalPart } from "../sales-vs-spend.ts";
+import { VENUE_NOT_SET_ID, formatSalesNumber, type SalesChannelAmount, type SalesHeader, type SalesTotal, type SalesTotalPart } from "../sales-vs-spend.ts";
 import { shortDay } from "./days.ts";
 import { PLATFORMS, type PeriodFigures, type ShowSeries } from "./figures.ts";
 import { PLATFORM_LABEL, type CountSource } from "./types.ts";
 
 export const VENUE_NOT_SET = "Venue not set";
-export const UNSET_VENUE_ID = "venue:unset";
+export const UNSET_VENUE_ID = VENUE_NOT_SET_ID;
 
 export interface VenueGroup {
   key: string | null;
@@ -97,19 +97,20 @@ export function channelSplit(channels: readonly SalesChannelAmount[]): string {
 export function spendTotal(input: {
   scope: string;
   figures: PeriodFigures;
-  parts: { id: string; label: string; figures: PeriodFigures }[];
+  parts: { id: string; label: string; figures: PeriodFigures; children?: { id: string; label: string; figures: PeriodFigures }[] }[];
   span: string;
   endDay: string;
   leftOut: { label: string; amount: number }[];
   finishedLeftOut: boolean;
 }): SalesTotal {
-  const parts: SalesTotalPart[] = input.parts.map((p) => ({
+  const part = (p: { id: string; label: string; figures: PeriodFigures }): SalesTotalPart => ({
     id: p.id,
     label: p.label,
     amount: p.figures.spend,
     text: money(p.figures.spend),
     channels: channelAmounts(p.figures),
-  }));
+  });
+  const parts: SalesTotalPart[] = input.parts.map((p) => ({ ...part(p), ...(p.children ? { children: p.children.map(part) } : {}) }));
   const out = [
     ...input.leftOut.filter((l) => l.amount > 0).map((l) => `${l.label} ${money(l.amount)}`),
     ...(input.finishedLeftOut ? ["Finished shows (Include finished adds them)"] : []),

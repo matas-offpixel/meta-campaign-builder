@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { createClient } from "@/lib/supabase/server";
-import { syncCirqlinSignupsForEvent } from "@/lib/cirqlin/sync";
+import { syncCirqlinSignupsForEventByPage } from "@/lib/cirqlin/sync";
 import { notify } from "@/lib/notify/slack";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import {
@@ -65,7 +65,7 @@ export async function POST(
   const { data: eventRow, error: eventError } = await supabase
     .from("events")
     .select(
-      "id, user_id, kind, mailchimp_audience_id, mailchimp_tag, client_id, client:clients ( mailchimp_account_id, mailchimp_audience_id )",
+      "id, user_id, kind, mailchimp_audience_id, mailchimp_tag, cirqlin_page_id, client_id, client:clients ( mailchimp_account_id, mailchimp_audience_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -140,9 +140,10 @@ export async function POST(
 
     let cirqlin = null;
     try {
-      cirqlin = await syncCirqlinSignupsForEvent(
+      // Like the EOD cron (dashboard v2, HN2): the linked CIRQLIN page first, the tag as fallback.
+      cirqlin = await syncCirqlinSignupsForEventByPage(
         supabase,
-        { eventId, tag: mailchimpTag },
+        { eventId, pageId: ev.cirqlin_page_id ?? null, tag: mailchimpTag },
         {
           notify: (opts) => notify(opts, buildLiveNotifyDeps(supabase)),
         },

@@ -280,7 +280,12 @@ export type SalesTotalPart = {
   amount: number;
   text: string;
   channels: SalesChannelAmount[];
+  /** "Venue not set" only: its shows, one part each. The share lists these by name instead (Q6). */
+  children?: SalesTotalPart[];
 };
+
+/** The id of the "Venue not set" part and view (N2: internal only). */
+export const VENUE_NOT_SET_ID = "venue:unset";
 
 /**
  * N3: a money total that ties out. `parts` sum to `amount` before rounding:
@@ -413,9 +418,23 @@ export function salesForSurface(model: SalesDashboardModel, surface: SalesSurfac
       : undefined;
     views[id] = { ...view, campaigns: shareCampaigns(view.campaigns), ...(periods ? { periods } : {}) };
   }
-  // "Venue not set" is internal only (N2).
+  // "Venue not set" is internal only (N2, Q6): no venue row entry, no view, and in a hover its shows by their own names.
   const venues = model.venues?.filter((venue) => venue.key != null);
+  delete views[VENUE_NOT_SET_ID];
+  for (const view of Object.values(views)) {
+    if (view.spendTotal) view.spendTotal = shareTotal(view.spendTotal);
+    if (view.periods) {
+      for (const [period, slice] of Object.entries(view.periods)) {
+        if (slice?.spendTotal) view.periods[period as SalesPeriod] = { ...slice, spendTotal: shareTotal(slice.spendTotal) };
+      }
+    }
+  }
   return { ...model, crossClientNote: null, reviewLine: null, views, ...(model.venues ? { venues } : {}) };
+}
+
+function shareTotal(total: SalesTotal): SalesTotal {
+  if (!total.parts.some((p) => p.id === VENUE_NOT_SET_ID)) return total;
+  return { ...total, parts: total.parts.flatMap((p) => (p.id === VENUE_NOT_SET_ID ? (p.children ?? []) : [p])) };
 }
 
 function shareCampaigns(rows: SalesCampaignRow[]): SalesCampaignRow[] {

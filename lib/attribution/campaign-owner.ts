@@ -5,18 +5,10 @@
  *
  * 1. An override (campaign_event_overrides, migration 240) wins: the
  *    campaign counts for the event it names, and for no other.
- * 2. Otherwise the name: it carries the event's code in brackets, matched
- *    case-insensitively, with en and em dashes read as hyphens, and a
- *    closing "[" accepted for "]" ("[NX26-ROBBIEDOHERTY[ Signup" is
- *    Robbie Doherty's). The code must end at the bracket, so "[NX26-DO]"
- *    never matches NX26-DOD.
- *
- *    Case is ignored unless two of the events in play have codes that differ
- *    only by case (prod has UTB0046-New and UTB0046-NEW, two events): those
- *    codes match exactly as written, so neither takes the other's campaigns.
- *    The shared Meta rollup matcher (lib/insights/meta-event-code-match.ts)
- *    stays case-sensitive for the same reason; TikTok's was already
- *    case-insensitive.
+ * 2. Otherwise the name carries "[CODE]" exactly as the event's code is
+ *    written: same case, same characters, both brackets. Nothing is
+ *    normalised (Matas, 14 Nov). A campaign named "[NX26-Locklead]", or
+ *    "[NX26-ROBBIEDOHERTY[", or with no code at all, needs an override row.
  *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
@@ -32,27 +24,10 @@ export type CampaignOverrides = ReadonlyMap<string, string>;
 
 export const NO_OVERRIDES: CampaignOverrides = new Map();
 
-function normalise(text: string): string {
-  return text.replace(/[–—−]/g, "-").toLowerCase();
-}
-
-/** The name carries "[CODE]" (or the "[CODE[" typo); case-insensitive unless `exactCase`. */
-export function nameCarriesCode(campaignName: string, eventCode: string, opts: { exactCase?: boolean } = {}): boolean {
-  const dashes = (t: string) => t.replace(/[\u2013\u2014\u2212]/g, "-");
-  const code = opts.exactCase ? dashes(eventCode.trim()) : normalise(eventCode.trim());
-  if (!code) return false;
-  const name = opts.exactCase ? dashes(campaignName) : normalise(campaignName);
-  return name.includes(`[${code}]`) || name.includes(`[${code}[`);
-}
-
-/** Lower-cased codes that two or more of `codes` share: these match exactly as written. */
-export function caseCollisions(codes: readonly string[]): Set<string> {
-  const seen = new Map<string, Set<string>>();
-  for (const c of codes) {
-    const k = c.trim().toLowerCase();
-    seen.set(k, (seen.get(k) ?? new Set()).add(c.trim()));
-  }
-  return new Set([...seen].filter(([, v]) => v.size > 1).map(([k]) => k));
+/** The name carries "[CODE]" exactly as written. No case folding, no dash folding, no "[CODE[". */
+export function nameCarriesCode(campaignName: string, eventCode: string): boolean {
+  if (!eventCode) return false;
+  return campaignName.includes(`[${eventCode}]`);
 }
 
 /** Override first, then the name. */
@@ -75,11 +50,10 @@ export function campaignOwner<T extends { eventId: string; code: string }>(
   events: readonly T[],
   campaign: { id: string; name: string },
   overrides: CampaignOverrides,
-  collisions: ReadonlySet<string> = caseCollisions(events.map((e) => e.code)),
 ): T | null {
   const owner = overrides.get(campaign.id);
   if (owner != null) return events.find((e) => e.eventId === owner) ?? null;
-  return events.find((e) => nameCarriesCode(campaign.name, e.code, { exactCase: collisions.has(e.code.trim().toLowerCase()) })) ?? null;
+  return events.find((e) => nameCarriesCode(campaign.name, e.code)) ?? null;
 }
 
 type Db = Pick<SupabaseClient, "from">;

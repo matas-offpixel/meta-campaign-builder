@@ -571,7 +571,7 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       scope: string;
       venueKey: string | null;
       kind: "venue" | "all" | "show" | "umbrella";
-      parts: { id: string; label: string; list: ShowSeries[] }[];
+      parts: { id: string; label: string; list: ShowSeries[]; children?: { id: string; label: string; list: ShowSeries[] }[] }[];
       leftOut: ShowSeries[];
       finishedLeftOut: boolean;
       sentenceName: string;
@@ -591,7 +591,12 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
         spendTotal: spendTotal({
           scope: totals.scope,
           figures: f,
-          parts: totals.parts.map((part) => ({ id: part.id, label: part.label, figures: periodFigures(part.list, period, endDay) })),
+          parts: totals.parts.map((part) => ({
+            id: part.id,
+            label: part.label,
+            figures: periodFigures(part.list, period, endDay),
+            ...(part.children ? { children: part.children.map((c) => ({ id: c.id, label: c.label, figures: periodFigures(c.list, period, endDay) })) } : {}),
+          })),
           span: span(period).wide,
           endDay,
           leftOut: totals.leftOut.map((u) => ({ label: umbrellaName(u), amount: periodFigures([u], period, endDay).spend })),
@@ -649,7 +654,13 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       venueKey: null,
       kind: multiVenue ? "all" : "venue",
       parts: multiVenue
-        ? live.map((g) => ({ id: g.key ?? "unset", label: g.name, list: g.live }))
+        ? live.map((g) => ({
+            id: g.viewId,
+            label: g.name,
+            list: g.live,
+            // "Venue not set": its shows by name, for the share's hover (Q6).
+            ...(g.key == null ? { children: g.live.map((s) => ({ id: chipId(s.show.code), label: s.show.name, list: [s] })) } : {}),
+          }))
         : upcoming.map((s) => ({ id: chipId(s.show.code), label: s.show.name, list: [s] })),
       leftOut: umbrellas,
       finishedLeftOut: true,
@@ -727,9 +738,10 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
     );
   }
 
-  const chip = (s: ShowSeries, kind: SalesShowChip["kind"], inVenue = false): SalesShowChip => ({
+  const chip = (s: ShowSeries, kind: SalesShowChip["kind"]): SalesShowChip => ({
     id: chipId(s.show.code),
-    wide: kind === "umbrella" ? (inVenue ? "Umbrella" : umbrellaName(s)) : `${s.show.name} · ${shortDay(s.show.showDate)}`,
+    // N8: the chip reads "Umbrella" in every chip row; "{Venue} umbrella" is for text outside a chip row.
+    wide: kind === "umbrella" ? "Umbrella" : `${s.show.name} · ${shortDay(s.show.showDate)}`,
     narrow: kind === "umbrella" ? "Umbrella" : s.show.name,
     kind,
     finished: s.finished,
@@ -744,10 +756,10 @@ export function buildSalesDashboard(input: SalesCalcInput): SalesBuild {
       viewId: g.viewId,
       shows: [
         { id: g.viewId, wide: "All shows", narrow: "All", kind: "all" as const, finished: false },
-        ...g.live.map((s) => chip(s, "show", true)),
-        ...g.umbrellas.map((s) => chip(s, "umbrella", true)),
+        ...g.live.map((s) => chip(s, "show")),
+        ...g.umbrellas.map((s) => chip(s, "umbrella")),
       ],
-      finishedShows: g.finished.map((s) => chip(s, "show", true)),
+      finishedShows: g.finished.map((s) => chip(s, "show")),
     }));
   const initial = defaultVenue(groups);
 

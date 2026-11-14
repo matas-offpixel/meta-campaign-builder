@@ -465,7 +465,7 @@ describe("chart runs", () => {
 });
 
 describe("Meta attribution in the calc (HN2)", () => {
-  it("an override beats the name and the linked list; a campaign with no override still matches by [CODE], any case", () => {
+  it("an override beats the name and the linked list; with no override only the exact [CODE] matches", () => {
     const a = show({ eventId: "a", code: "NX26-AZYR" });
     const b = show({ eventId: "b", code: "NX26-LOCKLEAD", showDate: "2026-12-11" });
     const series = buildSeries(
@@ -479,13 +479,50 @@ describe("Meta attribution in the calc (HN2)", () => {
         overrides: { meta: { m1: "b" } },
       }),
     );
-    assert.deepEqual(series.get("b")!.campaigns.map((c) => [c.campaignId, c.unlinked]).sort(), [["m1", false], ["m2", true]]);
-    assert.deepEqual(series.get("a")!.campaigns.map((c) => c.campaignId), ["m3"]);
+    // m2 "[nx26-locklead]" and m3 "[NX26-AZYR[" carry no exact code: unattributed until an override says.
+    assert.deepEqual(series.get("b")!.campaigns.map((c) => [c.campaignId, c.unlinked]), [["m1", false]]);
+    assert.deepEqual(series.get("a")!.campaigns.map((c) => c.campaignId), []);
   });
 
   it("an override to an event outside the client is ignored, never re-matched by name", () => {
     const a = show({ eventId: "a", code: "NX26-AZYR" });
     const series = buildSeries(input({ shows: [a], metaCampaignDays: [meta("m1", "[NX26-AZYR] x", "2026-11-10", 10)], overrides: { meta: { m1: "elsewhere" } } }));
     assert.equal(series.get("a")!.campaigns.length, 0);
+  });
+});
+
+describe("venues on the share (N2, design Q6)", () => {
+  const data = input({
+    client: { id: "c1", name: "Electric" },
+    shows: [
+      show({ eventId: "n1", code: "NX-1", venueKey: "nx newcastle", venueName: "NX Newcastle", showDate: "2026-12-01" }),
+      show({ eventId: "n2", code: "NX-2", venueKey: "nx newcastle", venueName: "NX Newcastle", showDate: "2026-12-02" }),
+      show({ eventId: "b1", code: "EB-1", venueKey: "electric bristol", venueName: "Electric Bristol", showDate: "2026-12-03" }),
+      show({ eventId: "u1", code: "EB-2", name: "Glitterbox", venueKey: null, venueName: "Electric Bristol", showDate: "2027-02-27" }),
+      show({ eventId: "g", code: "NX-G", name: "Global Marketing", isUmbrella: true, venueKey: "nx newcastle", capacity: null, allocation: null }),
+    ],
+    rollups: [roll("n1", "2026-11-10", 10), roll("b1", "2026-11-10", 5), roll("u1", "2026-11-10", 3), roll("g", "2026-11-10", 7)],
+  });
+
+  it("internal keeps \"Venue not set\"; the share never says it and names the show instead", async () => {
+    const { salesForSurface: present } = await import("../sales-vs-spend.ts");
+    const build = buildSalesDashboard(data);
+    const internalParts = build.model.views.all.spendTotal!.parts.map((p) => p.label);
+    assert.deepEqual(internalParts, ["NX Newcastle", "Electric Bristol", "Venue not set"]);
+    const share = present(build.model, "share");
+    assert.doesNotMatch(JSON.stringify(share), /Venue not set/);
+    assert.deepEqual(share.views.all.spendTotal!.parts.map((p) => [p.label, p.text]), [["NX Newcastle", "£10"], ["Electric Bristol", "£5"], ["Glitterbox", "£3"]]);
+    assert.equal(share.views["venue:unset"], undefined);
+    assert.ok(share.venues!.every((v) => v.key != null));
+    // The internal model is untouched by the share copy.
+    assert.equal(build.model.views.all.spendTotal!.parts.at(-1)!.label, "Venue not set");
+  });
+
+  it("the umbrella chip reads \"Umbrella\" in every chip row; \"{Venue} umbrella\" stays in titles and sentences", () => {
+    const build = buildSalesDashboard(data);
+    assert.equal(build.model.shows.find((c) => c.kind === "umbrella")!.wide, "Umbrella");
+    assert.equal(build.model.venues!.find((v) => v.key === "nx newcastle")!.shows.at(-1)!.wide, "Umbrella");
+    assert.equal(build.model.views["nx-g"].title, "NX Newcastle umbrella");
+    assert.match(build.model.views["venue:nx newcastle"].header!.sentence, /Separate NX Newcastle umbrella spend: £7\./);
   });
 });

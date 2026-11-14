@@ -1,5 +1,5 @@
 import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
-import { campaignNameMatchesEventCode } from "./matching.ts";
+import { nameCarriesCode } from "../attribution/campaign-owner.ts";
 import { buildMetricsForCampaign } from "./insights.ts";
 import { resolveRollupCountsFromMetrics } from "./optimization-goal-map.ts";
 
@@ -68,7 +68,13 @@ export interface FetchTikTokDailyRollupInsightsInput {
   campaignOverrides?: ReadonlyMap<string, string>;
 }
 
-/** Whether a campaign's rows count for this event: its override, else its name. */
+/**
+ * Whether a campaign's rows count for this event: its override, else its
+ * name carrying "[CODE]" exactly as written (Matas, 14 Nov). This replaces
+ * the rollup's old case-insensitive, bracket-free substring match; on 14 Nov
+ * the only campaign that changes on any client is "[NX26-Locklead] Locklead
+ * - SIGNUP", which now needs its override row.
+ */
 export function tiktokCampaignCountsForEvent(input: {
   campaignId: string;
   name: string | null;
@@ -80,7 +86,7 @@ export function tiktokCampaignCountsForEvent(input: {
   if (owner != null) return input.eventId != null && owner === input.eventId;
   // No enriched name: kept, as before overrides existed.
   if (input.name == null) return true;
-  return campaignNameMatchesEventCode(input.name, input.eventCode);
+  return nameCarriesCode(input.name, input.eventCode);
 }
 
 /**

@@ -17,7 +17,7 @@
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
-import { NO_OVERRIDES, campaignOwner, caseCollisions } from "../../attribution/campaign-owner.ts";
+import { NO_OVERRIDES, campaignOwner } from "../../attribution/campaign-owner.ts";
 import { addDays, dayDiff, daysBetween } from "./days.ts";
 import type { CountSource, LiftEntry, Platform, SalesCalcInput, ShowCount, ShowInput } from "./types.ts";
 
@@ -118,7 +118,6 @@ export function mapCampaigns(input: SalesCalcInput): Map<string, { eventId: stri
   }
   const overrides = input.overrides?.meta ?? {};
   const known = new Set(input.shows.map((s) => s.eventId));
-  const collisions = caseCollisions(input.shows.map((s) => s.code));
   const out = new Map<string, { eventId: string; linked: boolean; name: string }>();
   for (const [campaignId, name] of names) {
     // An override (migration 240) is read first; it's an explicit link, so no "Not linked" pill.
@@ -132,23 +131,18 @@ export function mapCampaigns(input: SalesCalcInput): Map<string, { eventId: stri
       out.set(campaignId, { eventId: linked, linked: true, name });
       continue;
     }
-    // HN2: the [CODE] matched case-insensitively ("[CODE[" accepted), unless two codes differ only by case.
-    const tagged = campaignOwner(ordered, { id: campaignId, name }, NO_OVERRIDES, collisions);
+    // The [CODE] exactly as written (Matas, 14 Nov); anything else needs an override row.
+    const tagged = campaignOwner(ordered, { id: campaignId, name }, NO_OVERRIDES);
     if (tagged) out.set(campaignId, { eventId: tagged.eventId, linked: false, name });
   }
   return out;
 }
 
-/** Google: the override, else the stored [CODE] matched case-insensitively (unless two codes differ only by case). */
+/** Google: the override, else the stored first [CODE] exactly as written. */
 export function googleOwner(input: SalesCalcInput, row: { eventCode: string; campaignId?: string | null }): ShowInput | null {
   const override = row.campaignId ? input.overrides?.google?.[row.campaignId] : undefined;
   if (override != null) return input.shows.find((s) => s.eventId === override) ?? null;
-  const exact = input.shows.find((s) => s.code === row.eventCode);
-  if (exact) return exact;
-  const collisions = caseCollisions(input.shows.map((s) => s.code));
-  const k = row.eventCode.trim().toLowerCase();
-  if (collisions.has(k)) return null;
-  return input.shows.find((s) => s.code.trim().toLowerCase() === k) ?? null;
+  return input.shows.find((s) => s.code === row.eventCode) ?? null;
 }
 
 /**
