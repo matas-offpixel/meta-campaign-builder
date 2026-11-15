@@ -2,13 +2,16 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AudiencePanelsUrl } from "@/components/dashboard/audience-panels/audience-panels";
+import { ObjectiveBudgetPanel } from "@/components/dashboard/objective-budget-panel/panel";
+import { PresalePanel } from "@/components/dashboard/presale-panel/presale-panel";
+import { loadSalesPanels } from "@/lib/dashboard/he-panels/server";
 import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-url";
 import { initialFromQuery } from "@/components/dashboard/sales/venue-query";
 import { loadInternalAudiencePanels } from "@/lib/dashboard/audience-panels-server";
 import { loadInternalSalesDashboard } from "@/lib/dashboard/sales-calc/server";
 import { dashboardV2Enabled } from "@/lib/dashboard/sales-calc/gate";
 import { pickPeriod } from "@/lib/dashboard/sales-calc/query";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
  * Internal sales vs spend (dashboard v2, D11). The server calc
@@ -37,6 +40,7 @@ export default async function ClientSalesPage({ params, searchParams }: Props) {
   const initial = initialFromQuery(build.model, query);
   // HE1 + HE3: read only after the owner's session has read this client's dashboard.
   const panels = await loadInternalAudiencePanels(supabase, id, build.model);
+  const he = await loadSalesPanels(createServiceRoleClient(), id, initial.showId, "internal");
   return (
     <Suspense>
       <SalesDashboardUrl
@@ -47,6 +51,8 @@ export default async function ClientSalesPage({ params, searchParams }: Props) {
         initialVenueKey={initial.venueKey}
       />
       {panels ? <AudiencePanelsUrl byView={panels} initialViewId={initial.showId} /> : null}
+      {he.presale ? <PresalePanel model={he.presale} /> : null}
+      {he.budget ? <ObjectiveBudgetPanel model={he.budget} /> : null}
     </Suspense>
   );
 }

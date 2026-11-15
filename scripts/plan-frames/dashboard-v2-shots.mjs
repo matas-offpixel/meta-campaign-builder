@@ -4,6 +4,7 @@
  * not import the shared frames page.
  */
 import { AUDIENCE_PANEL_SHOTS } from "./audience-panels-shots.mjs";
+import { HE_PANEL_SHOTS } from "./he-panels-shots.mjs";
 
 export const DASHBOARD_V2_FRAME_IDS = ["DV1", "DV2", "DV3", "NV1", "NV2", "NV5", "NV6"];
 export const DASHBOARD_V2_WIDTHS = [1280, 393];
@@ -41,4 +42,5 @@ export const DASHBOARD_V2_SHOTS = [
   ...MB_PHONE_SHOTS,
   // HE1 + HE3 panels (WR1, DF1), here so run.mjs is unchanged.
   ...AUDIENCE_PANEL_SHOTS,
+  ...HE_PANEL_SHOTS,
 ];
