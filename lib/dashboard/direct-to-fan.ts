@@ -116,7 +116,7 @@ function count(v: number | null): string {
 export function ratePct(v: number | null): string {
   if (v == null) return DASH;
   const p = v * 100;
-  return `${p < 1 ? p.toFixed(2) : p.toFixed(1)} %`;
+  return `${p > 0 && p < 1 ? p.toFixed(2) : p.toFixed(1)} %`;
 }
 /** "2026-11-13T18:00:00Z" → "13 Nov" (London date). */
 export function sendDay(iso: string | null): string {
