@@ -15,7 +15,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAllPaged } from "@/lib/db/paged-read";
 import { listCreativeTagAssignmentsByEvents } from "@/lib/db/creative-tags";
 import { resolveAdContext, type AdContextIndex } from "@/lib/learning/ad-facts";
-import { getCreativeScores } from "@/lib/learning/read";
 import { normalizeAdAccountId, resolveEventAdAccountId } from "@/lib/meta/ad-account";
 import { isOnSale, isShowWeek } from "@/lib/onsale-refresh/on-sale";
 import { loadEventProposals } from "@/lib/onsale-refresh/read";
@@ -68,6 +67,23 @@ function viewsOf(model: SalesDashboardModel): { viewIds: string[]; venues: Panel
     venues.push({ key: null, name: "Venue not set", viewId: VENUE_NOT_SET_VIEW });
   }
   return { viewIds: Object.keys(model.views), venues };
+}
+
+/**
+ * The latest creative_scores snapshot for one event: the same rows
+ * getCreativeScores keeps (latest fetched_at only). Inlined so the share
+ * page does not import lib/learning/read.ts, which reaches the copy library.
+ */
+async function latestScoreNames(db: SupabaseClient, eventId: string): Promise<string[]> {
+  const { data, error } = await db
+    .from("creative_scores")
+    .select("creative_name, fetched_at")
+    .eq("event_id", eventId)
+    .order("fetched_at", { ascending: false });
+  if (error) throw new Error(`creative_scores read: ${error.message}`);
+  const rows = (data ?? []) as { creative_name: string; fetched_at: string }[];
+  const fetchedAt = rows[0]?.fetched_at ?? null;
+  return [...new Set(rows.filter((row) => row.fetched_at === fetchedAt).map((row) => row.creative_name))];
 }
 
 function accountIds(raw: readonly (string | null)[]): string[] {
@@ -186,8 +202,8 @@ async function load(
       });
       daysByEvent.set(resolved.eventId, list);
     }
-    const scores = await Promise.all(eventIds.map(async (eventId) => ({ eventId, scores: await getCreativeScores(db, eventId) })));
-    const scoredByEvent = new Map(scores.map((row) => [row.eventId, row.scores.creatives.map((creative) => creative.creativeName)]));
+    const scores = await Promise.all(eventIds.map(async (eventId) => ({ eventId, names: await latestScoreNames(db, eventId) })));
+    const scoredByEvent = new Map(scores.map((row) => [row.eventId, row.names]));
     const tagsByEvent = new Map<string, CreativeTagRef[]>();
     for (const assignment of assignments) {
       const dimension = assignment.tag?.dimension;
