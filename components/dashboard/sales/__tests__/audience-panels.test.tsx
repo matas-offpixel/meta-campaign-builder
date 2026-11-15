@@ -45,6 +45,17 @@ describe("Direct-to-fan (HE3)", () => {
     expect(container.textContent).toContain("Whole list");
   });
 
+  it("the 1 Dec 2022 row's Sent cell never wraps; the sends table scrolls in its own row", () => {
+    const { container } = render(<DirectToFanPanel model={electric("internal")} />);
+    const table = container.querySelector("[data-d2c-sends]") as HTMLElement;
+    const last = [...table.querySelectorAll("tbody tr")].at(-1)!;
+    const sent = last.querySelector("td")!;
+    expect(sent.textContent).toBe("1 Dec 2022");
+    expect(sent.className).toContain("whitespace-nowrap");
+    expect(last.textContent).toContain("Whole list");
+    expect(table.parentElement!.className).toContain("overflow-x-auto");
+  });
+
   it("share: no 'Rate not set', no link, '—' instead", () => {
     const { container } = render(<DirectToFanPanel model={electric("share")} />);
     expect(container.textContent).not.toContain("Rate not set");

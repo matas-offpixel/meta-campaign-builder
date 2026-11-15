@@ -297,9 +297,17 @@ describe("Direct-to-fan · dates and the year rule", () => {
     assert.deepEqual(later.sends.map((s) => s.dayText).sort(), ["1 Dec 2022", "13 Nov 2026"]);
   });
 
-  it("DF1's rows are this year's, so none shows a year", () => {
+  it("DF1 shows the real first send, 1 Dec 2022, as a whole-list row; its 2026 rows show no year", () => {
     const m = electric("internal");
-    assert.ok(m.sends.every((s) => !/\d{4}$/.test(s.dayText)));
+    assert.equal(m.sends.length, 8);
+    const first = m.sends[m.sends.length - 1]!;
+    assert.equal(first.name, "World Cup - End v Sen (copy 02)");
+    assert.equal(first.dayText, "1 Dec 2022");
+    assert.equal(first.showText, WHOLE_LIST);
+    assert.equal(first.deliveredText, "1,601");
+    assert.equal(first.clickedText, "12");
+    assert.ok(m.sends.slice(0, -1).every((s) => !/\d{4}$/.test(s.dayText)));
+    assert.match(m.totalsLine, / · 1 Dec 2022 – 13 Nov 2026 · /);
   });
 });
 

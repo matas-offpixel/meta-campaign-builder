@@ -22,7 +22,10 @@
  *     "Locklead- Announcement" (2 Nov, the NX Loves master tag, same
  *     audience). The frame shows Electric once ops has set its
  *     `clients.d2c_whole_list_tags` to {NX Loves}; until then that send
- *     reads not tied. Electric's WhatsApp rate
+ *     reads not tied. The last row is the earliest of the 281, "World
+ *     Cup - End v Sen (copy 02)" (1 Dec 2022, NX Newcastle's whole
+ *     audience; re-read 15 Nov, nothing written), in place of "Kream
+ *     presale" so the frame keeps eight rows. Electric's WhatsApp rate
  *     isn't set, which is the PI5 state.
  *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
@@ -205,9 +208,11 @@ export const ELECTRIC_D2C: D2CStatsSummary = {
     send("bird-3", "Locklead - presale reminder", "2026-11-05", "whatsapp", "show-locklead", 627, 585, 331, 68),
     send("mc-2", "Locklead- Announcement", "2026-11-02", "email", null, 19_789, 19_715, 571, 54),
     send("bird-4", "Azyr - presale live v2", "2026-10-23", "whatsapp", "show-azyr", 1750, 1571, 545, 47),
-    send("bird-5", "Kream presale", "2026-10-23", "whatsapp", "show-kream", 591, 539, 323, 113),
     // PT5: not tied to a show. Its fourth list, CQ-folamour-newcastle-opt-in-fever-105, isn't one of the show's.
     send("bird-6", "Folamour - Presale", "2026-09-10", "whatsapp", NOT_TIED_SEND, 1312, 1222, 643, 0),
+    // The earliest of the 281: NX Newcastle's whole audience, no segment (read-only re-read, 15 Nov).
+    // It replaces "Kream presale" so the frame keeps eight rows and Kream still shows by "Kream lineup".
+    send("mc-3", "World Cup - End v Sen (copy 02)", "2022-12-01", "email", null, 1621, 1601, 567, 12),
   ],
 };
 
