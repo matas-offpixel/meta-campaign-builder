@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard v2 presale, creatives, budget — 15 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.ex{border-bottom:1px dashed var(--ink-3)}
+.pv{margin:8px 0 4px;border:1px solid var(--border-strong);border-radius:8px;background:var(--paper);padding:10px 12px}
+.pv .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.pv .hd b{font-weight:600;font-size:13px}
+.pv h6{margin:10px 0 4px;font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.pv ul{margin:0;padding:0 0 0 16px;font-size:12px}.pv li{margin:0 0 3px}
+.pv .m{font:11.5px/1.45 var(--mono);color:var(--ink-2)}
+.pv .acts{margin-top:10px}
+.bud{font-size:12px;color:var(--ink-2);margin:0}
+.why b{font-weight:600}
+.w393 .pv .hd{flex-direction:column}
+table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · dashboard v2 phase 2 · 15 November 2026</p>
+<h1>Dashboard v2 phase 2: presale log, creatives, objectives and budget</h1>
+<p class="lead">This record amends <code>2026-11-13-dashboard-v2-phase-2.html</code> (E3, E4, E6) and <code>2026-11-13-dashboard-v2-against-the-model.html</code> (N3). Both stand except where they're named here. It collects the rulings given in the reviews of these PRs:</p>
+<ul class="notes">
+<li>#1255 and #1257 (HE4, the presale log);</li>
+<li>#1254 (HE5, the creative section);</li>
+<li>#1256 (HE6, objective and budget);</li>
+<li>#1250 (the year rule).</li>
+</ul>
+<p class="lead">It also carries Matas's answers of 15 Nov on HE6's credits and brand campaigns.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>PH1 · Signups at presale</td><td>
+<p>Amends E3's first row.</p>
+<ul>
+<li><b>The count stops at the day before the presale day.</b> A daily count can't be split at the open.</li>
+<li><b>The figure names its last day:</b> "Signups at presale · to Tue 4 Aug". The weekday is worked out from the date.</li>
+<li><b>The source is CIRQLIN.</b> When there's no CIRQLIN count on or before that day, it's the show's Mailchimp tag count for that same day, sourced "Mailchimp · {tag} · {day}". That covers a show with no page and a page that launched after the presale.</li>
+<li><b>A CIRQLIN count of 0 stays 0.</b> It never falls back.</li>
+<li><b>The Mailchimp count</b> is the latest row stored that day, and an end-of-day read wins. When the only row is a read during the day, the label names its time in the show's time zone: "to Tue 4 Aug, 13:00". A ramp-estimated row is marked "est.".</li>
+<li><b>It's never today's count, and never a nearer day.</b> With no row for that day, the figure is missing.</li>
+</ul>
+<p>Charlotte de Witte (Ironworks) reads 12,868 from Mailchimp, "to Tue 4 Aug". The season report's 14,500 is a later figure, picked by hand.</p></td></tr>
+
+<tr><td>PH2 · The rest of the presale log</td><td>
+<ul>
+<li><b>Signup spend per presale ticket</b> is Meta only until TikTok's campaign objective is stored. Its source reads <b>"Meta signup spend"</b>.</li>
+<li><b>"77.6 % of all sold"</b> (EV2) isn't shown, because E3 doesn't list it.</li>
+<li><b>Entered figures</b> read "entered by {first name}, {date}", or "entered {date}" when the name isn't known.</li>
+<li><b>Community at presale</b> is the entered member count nearest before presale (PB4). Without one, it's missing. It's never today's all-time <code>community_joined</code>, until CIRQLIN gives a dated read.</li>
+</ul></td></tr>
+
+<tr><td>PH3 · Creatives (E4)</td><td>
+<ul>
+<li><b>Source line:</b> "{client} · {show} · {channels} · to {day}". It names only the channels that have data in scope: "Meta", "Meta and TikTok" or "TikTok". No table names or internal tools.</li>
+<li><b>Empty states:</b> "Formats show once creatives are named with their format." and "No TikTok creatives for this show yet."</li>
+<li><b>Share link:</b> figures only. No Lab, refresh-line or Ads Manager links, until a public ad preview link is stored.</li>
+<li><b>At 393,</b> a top-10 row stacks as the name, then "{n} signups · £{cost} each · £{spend}" (or "purchases"), then the tags. The formats and TikTok tables scroll inside their frames.</li>
+<li><b>Words:</b> the lines say "purchases", and the title stays "Top 10 by sales".</li>
+</ul></td></tr>
+
+<tr><td>PH4 · Objective by optimisation goal</td><td>
+<p>Amends E6's objective split.</p>
+<ul>
+<li><b>An ad set's objective is what it optimises for,</b> whatever its campaign's objective:
+<ul>
+<li>purchases, purchase value or checkouts → Purchase;</li>
+<li>registrations or leads → Registration;</li>
+<li>landing page views or link clicks → Traffic;</li>
+<li>everything else → Awareness &amp; engagement.</li>
+</ul>
+Ironworks' £10,740 Laylo push is Traffic, as the season report has it.</li>
+<li><b>Cost per result shows on every row,</b> labelled for its result: "£ / signup", "£ / purchase", "£ / landing page view". This amends E6's "only where the objective is purchase".</li>
+<li><b>ROAS shows on Purchase rows only.</b> It reads "—" until Meta purchase value is stored.</li>
+<li><b>Reach is never summed across ad-days,</b> because that counts people again. Until campaign-level reach is stored, Awareness reads "—" with no cost.</li>
+</ul></td></tr>
+
+<tr><td>PH5 · Credits (Matas)</td><td>
+<p>Confirms E6 as written, and reverses #1256's built default.</p>
+<ul>
+<li><b>Total marketing cost = paid + sub-budgets + D2C.</b> A credit isn't subtracted.</li>
+<li><b>The credit is its own line</b> and adjusts only the variance: plan − paid + credits.</li>
+<li>Ironworks: the total is £93,399.51 and the variance £38.91, on the season report's inputs.</li>
+</ul></td></tr>
+
+<tr><td>PH6 · Brand campaigns (Matas)</td><td>
+<p>A brand campaign is "brand awareness with a sub goal of purchases or registrations" (Matas, 15 Nov). So it does sell tickets, and no single show owns it.</p>
+<ul>
+<li><b>HE6:</b> its ad sets are classified by PH4 like any other. It keeps its own <b>"Brand campaigns"</b> line in the client's paid total.</li>
+<li><b>Sales dashboard, client level:</b> brand spend counts in total spend and in cost per ticket. The total's scope line (N3) adds <b>"includes brand campaigns (£{n})"</b>, in whole pounds. For Ironworks that's "includes brand campaigns (£22,651)", from IRWOHD's £22,651.10. This replaces the "excludes" note proposed in the #1256 verdict.</li>
+<li><b>Sales dashboard, show level:</b> brand spend and results never count, and nothing is said.</li>
+<li><b>Tickets and registrations stay counted figures.</b> Cost per ticket is client spend ÷ tickets sold, from Internal Counts or ticketing. Cost per registration uses CIRQLIN or Mailchimp signups. A brand campaign's pixel purchases or registrations are never added to those counts, because the counts already include the people they bought. Adding them would count them twice.</li>
+<li><b>Meta's own figures</b> (HE6's objective table) can show brand Purchase and Registration results beside the shows' results. Meta credits each conversion to one ad, so those rows don't overlap.</li>
+<li><b>The sales calc's loader</b> must read undated brand campaigns at client level. Today it drops events with no date.</li>
+</ul></td></tr>
+
+<tr><td>PH7 · Years</td><td>
+<p>For every date range and dated row on the dashboard, in Europe/London:</p>
+<ul>
+<li>within the current year, no year;</li>
+<li>a range across years names both: "1 Dec 2022 – 13 Nov 2026";</li>
+<li>a range wholly inside an earlier year names it once, at the end: "3 Jul – 13 Nov 2025";</li>
+<li>a row from an earlier year carries its year ("1 Dec 2022"), on one line.</li>
+</ul>
+<p>Frames and tests use a fixed "today", so baselines don't change on 1 January.</p></td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HH1 · Credits (PH5)</td><td>
+<p>A follow-up to #1256:</p>
+<ul>
+<li>the total is paid + sub-budgets + D2C;</li>
+<li>the credit only enters the variance;</li>
+<li>the gross-or-net pair from the #1256 build is withdrawn.</li>
+</ul>
+<p>Test: Ironworks' inputs give £93,399.51 and £38.91.</p></td></tr>
+<tr><td>HH2 · Brand (PH6)</td><td>
+<ul>
+<li>HE6 classifies brand ad sets by goal.</li>
+<li>The sales calc reads undated brand campaigns at client level, counts their spend in client totals and cost per ticket, and writes "includes brand campaigns (£{n})" in the scope line.</li>
+<li>Show level is unchanged.</li>
+<li>Tickets and registrations stay counted.</li>
+</ul>
+<p><b>Frames:</b> one client-level dashboard frame with a brand campaign in scope, at 1280 and 393, showing the line under the total. Ironworks reads "includes brand campaigns (£22,651)". The existing NV and MBV frames on Electric change only if Electric has a brand campaign.</p></td></tr>
+<tr><td>HH3 · Panels</td><td>
+<p>The HE4 and HE6 panels follow PH1, PH2, PH4 and PH7 when they're built. They need frames of their own.</p></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The last-day label and its time.</li>
+<li>The Mailchimp fallback and the end-of-day preference.</li>
+<li>"Meta signup spend".</li>
+<li>PH3's source line, empty states and phone row.</li>
+<li>Objective by optimisation goal.</li>
+<li>"includes brand campaigns (£{n})" and keeping tickets counted.</li>
+<li>The year rule.</li>
+</ul>
+<p class="lead">PH5 and PH6's scope are Matas's own answers.</p>
+
+</div>
+</body>
+</html>
