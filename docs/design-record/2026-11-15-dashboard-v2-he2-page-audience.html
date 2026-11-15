@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard v2 HE2 page audience — 15 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.ex{border-bottom:1px dashed var(--ink-3)}
+.pv{margin:8px 0 4px;border:1px solid var(--border-strong);border-radius:8px;background:var(--paper);padding:10px 12px}
+.pv .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.pv .hd b{font-weight:600;font-size:13px}
+.pv h6{margin:10px 0 4px;font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.pv ul{margin:0;padding:0 0 0 16px;font-size:12px}.pv li{margin:0 0 3px}
+.pv .m{font:11.5px/1.45 var(--mono);color:var(--ink-2)}
+.pv .acts{margin-top:10px}
+.bud{font-size:12px;color:var(--ink-2);margin:0}
+.why b{font-weight:600}
+.w393 .pv .hd{flex-direction:column}
+table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · dashboard v2 phase 2 · 15 November 2026</p>
+<h1>Dashboard v2 HE2: the words for CIRQLIN's page audience</h1>
+<p class="lead">This record amends <code>2026-11-13-dashboard-v2-phase-2.html</code> (E1, E2, E3, EV2), which stands except where it's named here. CIRQLIN's <code>GET /api/partner/page-audience</code> (cirqlin #631, merged 15 Nov) returns counts for one published page, and three of them differ from what E2 assumed:</p>
+<ul class="notes">
+<li><b>Consent is one marketing yes or no per fan.</b> There's no separate email, SMS or WhatsApp consent. <code>channels_offered</code> lists the channels the page offers, and it's the same on every signup.</li>
+<li><b><code>community_joined</code> is exact:</b> signups who joined the community, counted by the day they joined.</li>
+<li><b><code>community_link_clicks</code> counts every click on the page's WhatsApp invite code, from every source.</b> When <code>community_code_shared</code> is true, other pages use the same code.</li>
+</ul>
+<p class="lead">I read the merged code. <code>whatsapp_with_phone</code> counts signups who said yes to marketing and left a phone, and only on a page that offers WhatsApp; otherwise it's 0. <code>partner_opt_in</code> counts partner consents that haven't been revoked. Spam is excluded from every count. HE2's ingest PR is judged against this record. No new frames.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>PA1 · Marketing opt-in</td><td>
+<ul>
+<li><b>One figure: "Marketing opt-in".</b> It reads "{n} · {pct} of signups".</li>
+<li>Beside it, the channels the page offers: <b>"offered: email · SMS · WhatsApp"</b>. It names only the channels in <code>channels_offered</code>, always in that order.</li>
+<li>E2's "consent snapshot counts per channel (email, SMS, WhatsApp)" is withdrawn. Those counts don't exist, so nothing on the panel splits consent by channel.</li>
+<li>The consent wording on the page stays fixed platform-wide, as before. This rule only names the figure.</li>
+</ul></td></tr>
+
+<tr><td>PA2 · Reachable on WhatsApp</td><td>
+<p><code>whatsapp_with_phone</code> is a figure, not only a denominator. It replaces E2's step 2:</p>
+<ul>
+<li>Step 2 is titled <b>"Reachable on WhatsApp"</b>, with the subline <b>"said yes to marketing and left a phone"</b>. EV2's "WhatsApp opt-ins" and "said yes to WhatsApp" are replaced, because there's no WhatsApp-only yes any more.</li>
+<li>On a page that doesn't offer WhatsApp, the step reads <b>"WhatsApp isn't offered on this page"</b>, not 0.</li>
+<li>E2's cross-check against the show's CQ-{slug} Bird list stays. When the two differ by more than 2 %, both are shown.</li>
+<li>It's also the join rate's denominator (PA3).</li>
+</ul></td></tr>
+
+<tr><td>PA3 · Community, the headline</td><td>
+<p>Amends E2's community step and its join rate. The tile's headline comes from the first of these that exists:</p>
+<ol>
+<li><b>A hand-entered member count</b>, as E2 rules: "{n} members · entered {date}". Under it goes a second line: <b>"{j} joined from signups · CIRQLIN"</b>.</li>
+<li><b><code>community_joined</code>:</b> <b>"{j} joined from signups"</b>, with the source "CIRQLIN · exact". It carries no "est.".</li>
+<li><b>The link-click estimate</b>, labelled as E2 rules ("community link clicks · est."). It's used only for a page whose read has no <code>community_joined</code>.</li>
+</ol>
+<p><b>The join rate</b> is <code>community_joined</code> ÷ Reachable on WhatsApp, both from CIRQLIN, so it compares the same people. An entered member count can include members who never signed up, so it's never the numerator. This replaces E2's "uses whichever figure the tile shows".</p>
+<ul>
+<li><b>Over a period other than "Since launch",</b> the join rate isn't shown. <code>community_joined</code> counts by the day of joining and signups by the day of signing up, so in a window they aren't the same people. The tile shows "{j} joined {period}" instead.</li>
+<li><b>E3's "Community at presale":</b> the entered count nearest before presale, else <code>community_joined</code> up to presale open (exact, no "est."), else the link-click estimate.</li>
+</ul></td></tr>
+
+<tr><td>PA4 · Invite link clicks</td><td>
+<ul>
+<li><b>Never the headline</b> once <code>community_joined</code> exists.</li>
+<li><b>When the code isn't shared,</b> it's a third line on the tile, internal and client view: "{n} invite link clicks · every source".</li>
+<li><b>When <code>community_code_shared</code> is true,</b> it's hidden on the client view and the share link. Internally it reads "{n} clicks on an invite shared with other pages", because the clicks aren't this page's alone.</li>
+<li><b>Never added up.</b> Venue and client totals leave link clicks out, so a shared code is never counted twice.</li>
+</ul></td></tr>
+
+<tr><td>PA5 · Partner opt-in</td><td>
+<ul>
+<li><b>Shown, internal and client view</b>, as "Partner opt-in · {n}", with the subline <b>"agreed to hear from the page's partner promoters"</b>.</li>
+<li>It's a count of consents collected on the client's own page, with no person data, so it stays on the share link too.</li>
+<li>The row is left out on a page whose form has no partner tick box, rather than showing 0.</li>
+</ul></td></tr>
+
+<tr><td>PA6 · Geography</td><td>
+<p>As E1 rules:</p>
+<ul>
+<li>cities are named at 10 or more signups;</li>
+<li>"Everywhere else" and "Couldn't tell" are always shown, and "Couldn't tell" is never spread across the others;</li>
+<li>the three add up to the page's signups.</li>
+</ul>
+<p>If a read doesn't add up, the geography block is withheld, with "Signup places don't add up for this read yet". An internal note names the page.</p></td></tr>
+
+<tr><td>PA7 · Which signups</td><td>
+<ul>
+<li>Every figure here counts CIRQLIN's counted signups, with spam excluded. So it can sit below the page's raw total in CIRQLIN's own editor.</li>
+<li>The source line reads <b>"CIRQLIN · counted signups, spam removed"</b>.</li>
+<li>A window follows the page's own timezone (<code>daily_timezone</code>).</li>
+</ul></td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HA1 · HE2 ingest</td><td>
+<ul>
+<li>Store every field of the page-audience read per page and window, plus <code>daily_timezone</code>.</li>
+<li>Check that the geography adds up (PA6).</li>
+<li>Keep <code>community_code_shared</code> with the clicks.</li>
+<li>Never store a field outside the documented shape.</li>
+</ul></td></tr>
+<tr><td>HA2 · The panel (EV2)</td><td>
+<p>PA1–PA7:</p>
+<ul>
+<li>"Marketing opt-in" with its offered channels;</li>
+<li>"Reachable on WhatsApp" and its not-offered state;</li>
+<li>the community headline order;</li>
+<li>the join rate only "Since launch";</li>
+<li>link clicks hidden when the code is shared and never added up;</li>
+<li>partner opt-in;</li>
+<li>the geography check;</li>
+<li>the source line.</li>
+</ul></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>"Marketing opt-in" and "offered: …"</li>
+<li>"Reachable on WhatsApp", its subline and its not-offered state.</li>
+<li>The community headline order with <code>community_joined</code> second, its labels, and the join rate on the same people only, "Since launch" only.</li>
+<li>PA4's lines, and leaving link clicks out of totals.</li>
+<li>PA5's subline and showing partner opt-ins on the share link.</li>
+<li>PA6's withheld state and PA7's source line.</li>
+</ul>
+
+</div>
+</body>
+</html>
