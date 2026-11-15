@@ -229,11 +229,18 @@ export const ELECTRIC_D2C: D2CStatsSummary = {
  */
 export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 196, notTied: 32, unread: 0, firstSentAt: "2022-12-01T11:19:04+00:00" };
 
+/**
+ * The frames' fixed "now" (the dry run's day), so the current year for the
+ * panel's dates is 2026 in London whatever the machine clock says, and the
+ * baselines don't change on 1 Jan.
+ */
+export const FRAME_NOW_MS = Date.parse("2026-11-15T12:00:00Z");
+
 export function electric(surface: D2CSurface): DirectToFanModel {
   return modelFromSummary(
     ELECTRIC_D2C,
     { kind: "client", label: "Electric Group" },
-    { surface, showName: (id) => SHOWS[id] ?? "—", rateHref: "/clients/electric?tab=d2c" },
+    { surface, showName: (id) => SHOWS[id] ?? "—", rateHref: "/clients/electric?tab=d2c", nowMs: FRAME_NOW_MS },
     0,
     ELECTRIC_SEND_COUNT,
   );

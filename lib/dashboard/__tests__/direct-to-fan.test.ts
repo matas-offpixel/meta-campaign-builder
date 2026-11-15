@@ -16,7 +16,9 @@ import {
   WHOLE_LIST,
   buildDirectToFan,
   includesClause,
+  londonYear,
   scopeRows,
+  sendDate,
   sendSpan,
   venueAudiences,
   type D2CScope,
@@ -58,7 +60,8 @@ const SHOWS: D2CShowVenue[] = [
 ];
 
 const NAMES: Record<string, string> = { e1: "Locklead", e2: "AZYR", e3: "Kream", e4: "Bristol show" };
-const opts = (surface: "internal" | "share") => ({ surface, showName: (id: string) => NAMES[id] ?? "—", rateHref: "/clients/c1?tab=d2c" });
+// A fixed "now" (15 Nov 2026), so no assertion moves with the machine clock.
+const opts = (surface: "internal" | "share") => ({ surface, showName: (id: string) => NAMES[id] ?? "—", rateHref: "/clients/c1?tab=d2c", nowMs: Date.parse("2026-11-15T12:00:00Z") });
 const client: D2CScope = { kind: "client", label: "Electric Group" };
 
 describe("Direct-to-fan · raw open rate (PI4)", () => {
@@ -248,13 +251,55 @@ describe("Direct-to-fan · totals line and review lines (PT1)", () => {
   });
 });
 
-describe("Direct-to-fan · the send span", () => {
-  it("starts at the real first send when one is given, and names both years across a year", () => {
-    assert.equal(sendSpan(["2026-11-13T12:00:00Z", "2026-09-10T12:00:00Z"]), "10 Sep – 13 Nov");
-    assert.equal(sendSpan(["2026-11-13T12:00:00Z", "2026-09-10T12:00:00Z"], "2026-07-03T17:23:48Z"), "3 Jul – 13 Nov");
-    assert.equal(sendSpan(["2026-11-13T12:00:00Z"], "2022-12-01T11:19:04+00:00"), "1 Dec 2022 – 13 Nov 2026");
-    assert.equal(sendSpan(["2026-11-13T12:00:00Z"]), "13 Nov");
-    assert.equal(sendSpan([]), null);
+describe("Direct-to-fan · dates and the year rule", () => {
+  // A fixed "now", never the machine clock: 15 Nov 2026, so 2026 is the current year in London.
+  const NOW = Date.parse("2026-11-15T12:00:00Z");
+
+  it("starts the span at the real first send when one is given", () => {
+    assert.equal(sendSpan(["2026-11-13T12:00:00Z", "2026-09-10T12:00:00Z"], "2026-07-03T17:23:48Z", NOW), "3 Jul – 13 Nov");
+    assert.equal(sendSpan([], null, NOW), null);
+  });
+
+  it("a span across years names both years", () => {
+    assert.equal(sendSpan(["2026-11-13T12:00:00Z"], "2022-12-01T11:19:04+00:00", NOW), "1 Dec 2022 – 13 Nov 2026");
+    assert.equal(sendSpan(["2024-02-01T12:00:00Z", "2025-03-01T12:00:00Z"], null, NOW), "1 Feb 2024 – 1 Mar 2025");
+  });
+
+  it("a span wholly inside an earlier year names the year once, at the end", () => {
+    assert.equal(sendSpan(["2025-07-03T12:00:00Z", "2025-11-13T12:00:00Z"], null, NOW), "3 Jul – 13 Nov 2025");
+    assert.equal(sendSpan(["2025-11-13T12:00:00Z"], null, NOW), "13 Nov 2025");
+  });
+
+  it("a span inside the current year has no year", () => {
+    assert.equal(sendSpan(["2026-11-13T12:00:00Z", "2026-09-10T12:00:00Z"], null, NOW), "10 Sep – 13 Nov");
+    assert.equal(sendSpan(["2026-11-13T12:00:00Z"], null, NOW), "13 Nov");
+  });
+
+  it("the year is London's: 31 Dec 23:30 GMT is still that year", () => {
+    assert.equal(sendDate("2025-12-31T23:30:00Z", NOW), "31 Dec 2025");
+    assert.equal(sendDate("2026-01-01T00:30:00Z", NOW), "1 Jan");
+    assert.equal(londonYear(Date.parse("2026-12-31T23:30:00Z")), "2026");
+  });
+
+  it("a Sends row from an earlier year shows its year; a current-year row doesn't", () => {
+    assert.equal(sendDate("2022-12-01T11:19:04+00:00", NOW), "1 Dec 2022");
+    assert.equal(sendDate("2026-11-13T12:00:00Z", NOW), "13 Nov");
+    assert.equal(sendDate(null, NOW), "—");
+    const rows = [
+      row({ sent_at: "2022-12-01T11:19:04+00:00", provider: "mailchimp", channel: "email", read: null }),
+      row({ sent_at: "2026-11-13T12:00:00Z" }),
+    ];
+    const m = buildDirectToFan({ rows, rate: { rate: null, currency: "GBP" }, shows: SHOWS, unattributed: 0 }, client, { ...opts("internal"), nowMs: NOW });
+    assert.deepEqual(m.sends.map((s) => s.dayText).sort(), ["1 Dec 2022", "13 Nov"]);
+    assert.match(m.totalsLine, / · 1 Dec 2022 – 13 Nov 2026 · /);
+    // The same rows a year on: both are earlier-year rows.
+    const later = buildDirectToFan({ rows, rate: { rate: null, currency: "GBP" }, shows: SHOWS, unattributed: 0 }, client, { ...opts("internal"), nowMs: Date.parse("2027-06-01T12:00:00Z") });
+    assert.deepEqual(later.sends.map((s) => s.dayText).sort(), ["1 Dec 2022", "13 Nov 2026"]);
+  });
+
+  it("DF1's rows are this year's, so none shows a year", () => {
+    const m = electric("internal");
+    assert.ok(m.sends.every((s) => !/\d{4}$/.test(s.dayText)));
   });
 });
 

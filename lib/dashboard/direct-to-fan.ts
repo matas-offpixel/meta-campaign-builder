@@ -136,6 +136,25 @@ export function sendDay(iso: string | null): string {
   return `${day} ${MONTHS[month - 1]}`;
 }
 
+/** The year a moment falls in, in London (the panel's dates are London dates). */
+export function londonYear(iso: string | number): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric" }).format(d);
+}
+
+/**
+ * A send's day as the Sends table shows it: "13 Nov" in the current year,
+ * "1 Dec 2022" in an earlier one. The current year is `nowMs`'s, in London,
+ * never the machine clock read here.
+ */
+export function sendDate(iso: string | null, nowMs: number): string {
+  const day = sendDay(iso);
+  if (day === DASH || !iso) return day;
+  const year = londonYear(iso);
+  return year && year !== londonYear(nowMs) ? `${day} ${year}` : day;
+}
+
 // ---- scope ----------------------------------------------------------------
 
 /**
@@ -236,12 +255,12 @@ function channelRow(c: ChannelTotals, currency: string, surface: D2CSurface, rat
   };
 }
 
-function sendRow(b: BroadcastStat, showName: (eventId: string) => string): SendRow {
+function sendRow(b: BroadcastStat, showName: (eventId: string) => string, nowMs: number): SendRow {
   const channelText =
     b.channel === "whatsapp" ? "WhatsApp" : b.channel === "sms" ? "SMS" : b.audienceKind === "ticket_holder" ? "Email · ticket holders" : "Email";
   return {
     id: b.id,
-    dayText: sendDay(b.sentAt),
+    dayText: sendDate(b.sentAt, nowMs),
     name: b.name ?? DASH,
     showText: b.attribution === "show" && b.eventId ? showName(b.eventId) : b.attribution === "not_tied" ? NOT_TIED : WHOLE_LIST,
     channelText,
@@ -268,19 +287,16 @@ export function clickHeadline(channels: readonly ChannelTotals[]): string | null
   return `${lead} ${opens}`;
 }
 
-function londonYear(iso: string): string | null {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric" }).format(d);
-}
-
 /**
  * The totals line's send span, earliest to latest send. `firstSentAt` is the
  * scope's real first send when the summary carries only some of its sends
  * (the frames' fixture), so the span never starts at a row the frame happens
- * to show. A span across years names both years ("1 Dec 2022 – 13 Nov 2026").
+ * to show. The year rule (London years; the current year is `nowMs`'s):
+ *   - across years, both years: "1 Dec 2022 – 13 Nov 2026";
+ *   - wholly inside an earlier year, the year once at the end: "3 Jul – 13 Nov 2025";
+ *   - inside the current year, no year: "10 Sep – 13 Nov".
  */
-export function sendSpan(sentAts: readonly (string | null)[], firstSentAt?: string | null): string | null {
+export function sendSpan(sentAts: readonly (string | null)[], firstSentAt: string | null | undefined, nowMs: number): string | null {
   const days = [...sentAts, firstSentAt ?? null]
     .filter((d): d is string => !!d && !Number.isNaN(new Date(d).getTime()))
     .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
@@ -292,8 +308,12 @@ export function sendSpan(sentAts: readonly (string | null)[], firstSentAt?: stri
   const y1 = londonYear(firstIso);
   const y2 = londonYear(lastIso);
   if (y1 && y2 && y1 !== y2) return `${first} ${y1} – ${last} ${y2}`;
-  return first === last ? first : `${first} – ${last}`;
+  const span = first === last ? first : `${first} – ${last}`;
+  return y2 && y2 !== londonYear(nowMs) ? `${span} ${y2}` : span;
 }
+
+/** Options every scope's panel takes. `nowMs` decides the current year for dates (Date.now() when left out). */
+export type DirectToFanOpts = { surface: D2CSurface; showName: (eventId: string) => string; rateHref: string | null; nowMs?: number };
 
 export type DirectToFanInput = {
   /** The client's stored rows (every attribution). */
@@ -310,7 +330,7 @@ export type DirectToFanInput = {
 export function buildDirectToFan(
   input: DirectToFanInput,
   scope: D2CScope,
-  opts: { surface: D2CSurface; showName: (eventId: string) => string; rateHref: string | null },
+  opts: DirectToFanOpts,
 ): DirectToFanModel {
   const scoped = scopeRows(input.rows, input.shows, scope);
   const ratioRows = input.rows.filter((r) => r.attribution !== "unattributed");
@@ -341,12 +361,13 @@ export function unreadText(n: number): string {
 export function modelFromSummary(
   summary: ReturnType<typeof summariseD2CStats>,
   scope: D2CScope,
-  opts: { surface: D2CSurface; showName: (eventId: string) => string; rateHref: string | null },
+  opts: DirectToFanOpts,
   unattributed: number,
   sendCount?: { sends: number; wholeList: number; notTied?: number; unread?: number; firstSentAt?: string },
 ): DirectToFanModel {
   const channels = summary.channels.map((c) => channelRow(c, summary.currency, opts.surface, summary.ratePerMessage));
-  const sends = summary.broadcasts.map((b) => sendRow(b, opts.showName));
+  const nowMs = opts.nowMs ?? Date.now();
+  const sends = summary.broadcasts.map((b) => sendRow(b, opts.showName, nowMs));
   const total = sendCount?.sends ?? summary.broadcasts.length;
   const wholeList = sendCount?.wholeList ?? summary.broadcasts.filter((b) => b.attribution === "client").length;
   const notTiedRows = summary.broadcasts.filter((b) => b.attribution === "not_tied");
@@ -355,7 +376,7 @@ export function modelFromSummary(
   const totalsLine = [
     scope.label,
     `${total.toLocaleString("en-GB")} ${total === 1 ? "send" : "sends"}`,
-    sendSpan(summary.broadcasts.map((b) => b.sentAt), sendCount?.firstSentAt),
+    sendSpan(summary.broadcasts.map((b) => b.sentAt), sendCount?.firstSentAt, nowMs),
     scope.kind !== "show" ? includesClause(wholeList, notTied) : null,
   ]
     .filter(Boolean)
