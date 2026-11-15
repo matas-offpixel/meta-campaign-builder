@@ -23,6 +23,7 @@
 
 import { summariseD2CStats, type BroadcastStat, type ChannelGroup, type ChannelTotals, type MessageRate, type StoredStatsRow } from "../d2c/stats-ingest/summary.ts";
 import type { D2CShowVenue } from "../d2c/stats-ingest/read.ts";
+import { cqListNames } from "../d2c/stats-ingest/attribution.ts";
 
 export const DIRECT_TO_FAN_TITLE = "Direct-to-fan";
 export const RATE_NOT_SET = "Rate not set";
@@ -156,19 +157,41 @@ export function venueAudiences(shows: readonly D2CShowVenue[], venueKey: string 
 }
 
 /**
+ * PT3: the CQ lists (and tiers) of the umbrella events at a venue, names as
+ * stored. A whole-list send to one of them counts on that venue's view.
+ */
+export function venueUmbrellaLists(shows: readonly D2CShowVenue[], venueKey: string | null): Set<string> {
+  const out = new Set<string>();
+  for (const s of shows) {
+    if (s.is_umbrella !== true || (s.venue_key ?? null) !== venueKey) continue;
+    for (const name of cqListNames(s.cirqlin_page_slug)) out.add(name);
+  }
+  return out;
+}
+
+function namesUmbrellaList(row: StoredStatsRow, lists: ReadonlySet<string>): boolean {
+  if (!lists.size || !Array.isArray(row.audience_refs)) return false;
+  return row.audience_refs.some((ref) => ref.include && typeof ref.name === "string" && lists.has(ref.name));
+}
+
+/**
  * The sends that count in a scope. Unattributed sends never count anywhere
  * (PI6). A not-tied send counts like a whole-list one: on the client, and on
  * a venue only when its Mailchimp audience is that venue's; never in a show.
+ * A whole-list send to an umbrella event's list also counts on the umbrella
+ * event's venue, by Bird or Mailchimp (PT3).
  */
 export function scopeRows(rows: readonly StoredStatsRow[], shows: readonly D2CShowVenue[], scope: D2CScope): StoredStatsRow[] {
   if (scope.kind === "show") return rows.filter((r) => r.attribution === "show" && r.event_id === scope.eventId);
   if (scope.kind === "client") return rows.filter((r) => r.attribution !== "unattributed");
   const ids = new Set(shows.filter((s) => (s.venue_key ?? null) === scope.venueKey).map((s) => s.id));
   const audiences = venueAudiences(shows, scope.venueKey);
+  const umbrellaLists = venueUmbrellaLists(shows, scope.venueKey);
   return rows.filter(
     (r) =>
       (r.attribution === "show" && r.event_id != null && ids.has(r.event_id)) ||
-      ((r.attribution === "client" || r.attribution === "not_tied") && r.provider === "mailchimp" && r.list_id != null && audiences.has(r.list_id)),
+      ((r.attribution === "client" || r.attribution === "not_tied") && r.provider === "mailchimp" && r.list_id != null && audiences.has(r.list_id)) ||
+      (r.attribution === "client" && namesUmbrellaList(r, umbrellaLists)),
   );
 }
 
@@ -245,11 +268,30 @@ export function clickHeadline(channels: readonly ChannelTotals[]): string | null
   return `${lead} ${opens}`;
 }
 
-function spanOf(broadcasts: readonly BroadcastStat[]): string | null {
-  const days = broadcasts.map((b) => b.sentAt).filter((d): d is string => !!d).sort();
+function londonYear(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric" }).format(d);
+}
+
+/**
+ * The totals line's send span, earliest to latest send. `firstSentAt` is the
+ * scope's real first send when the summary carries only some of its sends
+ * (the frames' fixture), so the span never starts at a row the frame happens
+ * to show. A span across years names both years ("1 Dec 2022 – 13 Nov 2026").
+ */
+export function sendSpan(sentAts: readonly (string | null)[], firstSentAt?: string | null): string | null {
+  const days = [...sentAts, firstSentAt ?? null]
+    .filter((d): d is string => !!d && !Number.isNaN(new Date(d).getTime()))
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   if (!days.length) return null;
-  const first = sendDay(days[0]!);
-  const last = sendDay(days[days.length - 1]!);
+  const firstIso = days[0]!;
+  const lastIso = days[days.length - 1]!;
+  const first = sendDay(firstIso);
+  const last = sendDay(lastIso);
+  const y1 = londonYear(firstIso);
+  const y2 = londonYear(lastIso);
+  if (y1 && y2 && y1 !== y2) return `${first} ${y1} – ${last} ${y2}`;
   return first === last ? first : `${first} – ${last}`;
 }
 
@@ -301,7 +343,7 @@ export function modelFromSummary(
   scope: D2CScope,
   opts: { surface: D2CSurface; showName: (eventId: string) => string; rateHref: string | null },
   unattributed: number,
-  sendCount?: { sends: number; wholeList: number; notTied?: number; unread?: number },
+  sendCount?: { sends: number; wholeList: number; notTied?: number; unread?: number; firstSentAt?: string },
 ): DirectToFanModel {
   const channels = summary.channels.map((c) => channelRow(c, summary.currency, opts.surface, summary.ratePerMessage));
   const sends = summary.broadcasts.map((b) => sendRow(b, opts.showName));
@@ -313,7 +355,7 @@ export function modelFromSummary(
   const totalsLine = [
     scope.label,
     `${total.toLocaleString("en-GB")} ${total === 1 ? "send" : "sends"}`,
-    spanOf(summary.broadcasts),
+    sendSpan(summary.broadcasts.map((b) => b.sentAt), sendCount?.firstSentAt),
     scope.kind !== "show" ? includesClause(wholeList, notTied) : null,
   ]
     .filter(Boolean)

@@ -221,8 +221,13 @@ export const ELECTRIC_D2C: D2CStatsSummary = {
  * below is 18 Bird + 14 Mailchimp, the seeded state. Names compare exactly as
  * stored (PT2, PT4); that changed none of these. No not-tied send had an
  * unread audience, so the frame has no "couldn't be read" line.
+ * firstSentAt is the earliest of the 281 (a Mailchimp whole-list send on
+ * NX Newcastle, 1 Dec 2022, from the same dry run; Bird's first is 3 Jul
+ * 2026), so the span starts there and not at the oldest row the frame shows
+ * (PT5). No Electric send targets the umbrella page's lists, so PT3 moves no
+ * count here.
  */
-export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 196, notTied: 32, unread: 0 };
+export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 196, notTied: 32, unread: 0, firstSentAt: "2022-12-01T11:19:04+00:00" };
 
 export function electric(surface: D2CSurface): DirectToFanModel {
   return modelFromSummary(

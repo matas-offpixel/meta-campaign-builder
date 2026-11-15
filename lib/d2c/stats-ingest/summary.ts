@@ -16,7 +16,7 @@
  */
 
 import { clientOpenRatio, resolveOpens, type ResolvedOpens } from "./opens.ts";
-import type { D2CAudienceKind, D2CStatsAttribution, D2CStatsChannel, D2CStatsProvider } from "./types.ts";
+import type { D2CAudienceKind, D2CAudienceRef, D2CStatsAttribution, D2CStatsChannel, D2CStatsProvider } from "./types.ts";
 
 export interface StoredStatsRow {
   id: string;
@@ -38,6 +38,8 @@ export interface StoredStatsRow {
    * rather than for matching no show (PT1). Left out = read.
    */
   audience_mode?: string | null;
+  /** `audience->refs`: the lists and tags the send targeted, names as stored (PT3's venue rule). */
+  audience_refs?: readonly D2CAudienceRef[] | null;
   sent: number | null;
   delivered: number | null;
   read: number | null;

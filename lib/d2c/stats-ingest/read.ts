@@ -23,7 +23,7 @@ import { summariseD2CStats, type D2CStatsSummary, type MessageRate, type StoredS
 type Db = Pick<SupabaseClient, "from">;
 
 export const STATS_COLUMNS =
-  "id, provider, account_id, external_id, channel, client_id, event_id, attribution, audience_kind, name, sent_at, list_id, sent, delivered, read, clicked, opens_unique_raw, opens_unique_filtered, open_rate_filtered, fetched_at, audience_mode:audience->>mode";
+  "id, provider, account_id, external_id, channel, client_id, event_id, attribution, audience_kind, name, sent_at, list_id, sent, delivered, read, clicked, opens_unique_raw, opens_unique_filtered, open_rate_filtered, fetched_at, audience_mode:audience->>mode, audience_refs:audience->refs";
 
 function toNumber(v: unknown): number | null {
   if (v == null) return null;
@@ -91,6 +91,9 @@ export interface D2CShowVenue {
   id: string;
   venue_key: string | null;
   mailchimp_audience_id: string | null;
+  /** PT3: an umbrella event's CQ lists count on its venue's view. */
+  is_umbrella?: boolean | null;
+  cirqlin_page_slug?: string | null;
 }
 
 /** Everything HE3's panel needs for every scope of one client, read once. */
@@ -122,7 +125,7 @@ export async function loadClientD2CInput(db: Db, clientId: string): Promise<Clie
   if (archived.has(clientId)) return { rows: [], rate, shows: [], unattributed: 0 };
   const [rows, shows] = await Promise.all([
     loadStatsRows(db, { clientId }),
-    loadAllPaged<D2CShowVenue>(db, "events", "id,venue_key,mailchimp_audience_id", ["id"], (q) => q.eq("client_id", clientId)),
+    loadAllPaged<D2CShowVenue>(db, "events", "id,venue_key,mailchimp_audience_id,is_umbrella,cirqlin_page_slug", ["id"], (q) => q.eq("client_id", clientId)),
   ]);
   const unattributed = await loadUnattributedCount(db, rows.map((r) => r.account_id));
   return { rows, rate, shows, unattributed };

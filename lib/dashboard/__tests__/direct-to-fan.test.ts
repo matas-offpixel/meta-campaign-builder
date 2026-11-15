@@ -17,6 +17,7 @@ import {
   buildDirectToFan,
   includesClause,
   scopeRows,
+  sendSpan,
   venueAudiences,
   type D2CScope,
 } from "../direct-to-fan.ts";
@@ -168,7 +169,8 @@ describe("Direct-to-fan · EV4 on the Electric dry-run figures", () => {
     assert.equal(m.channels[1]!.readOpenedText, "11.1 %");
     assert.equal(m.channels[0]!.readOpenedText, "57.9 % read");
     assert.match(m.headline!, /^WhatsApp's click rate is 3\.68× email's\. Clicks are the like-for-like figure/);
-    assert.equal(m.totalsLine, "Electric Group · 281 sends · 10 Sep – 13 Nov · includes 196 whole-list sends and 32 sends not tied to a show");
+    // PT5: the span starts at the earliest of the 281 (1 Dec 2022), not the oldest row shown (Folamour, 10 Sep).
+    assert.equal(m.totalsLine, "Electric Group · 281 sends · 1 Dec 2022 – 13 Nov 2026 · includes 196 whole-list sends and 32 sends not tied to a show");
   });
 
   it("orders the phone list by click rate and keeps 'Rate not set' internal", () => {
@@ -243,5 +245,54 @@ describe("Direct-to-fan · totals line and review lines (PT1)", () => {
     assert.equal(share.reviewLine, null);
     const one = buildDirectToFan({ ...input, rows: [row({ attribution: "not_tied", audience_mode: null })] }, client, opts("internal"));
     assert.equal(one.unreadLine, "1 send's audience couldn't be read, so it isn't tied to a show.");
+  });
+});
+
+describe("Direct-to-fan · the send span", () => {
+  it("starts at the real first send when one is given, and names both years across a year", () => {
+    assert.equal(sendSpan(["2026-11-13T12:00:00Z", "2026-09-10T12:00:00Z"]), "10 Sep – 13 Nov");
+    assert.equal(sendSpan(["2026-11-13T12:00:00Z", "2026-09-10T12:00:00Z"], "2026-07-03T17:23:48Z"), "3 Jul – 13 Nov");
+    assert.equal(sendSpan(["2026-11-13T12:00:00Z"], "2022-12-01T11:19:04+00:00"), "1 Dec 2022 – 13 Nov 2026");
+    assert.equal(sendSpan(["2026-11-13T12:00:00Z"]), "13 Nov");
+    assert.equal(sendSpan([]), null);
+  });
+});
+
+describe("Direct-to-fan · the umbrella page on a venue view (PT3)", () => {
+  // NX26-GLOBAL: Electric's umbrella event, page nx-loves-aw26, at NX Newcastle, no audience of its own.
+  const UMBRELLA_SHOWS: D2CShowVenue[] = [
+    ...SHOWS,
+    { id: "u1", venue_key: "newcastle", mailchimp_audience_id: null, is_umbrella: true, cirqlin_page_slug: "nx-loves-aw26" },
+  ];
+  const nc: D2CScope = { kind: "venue", label: "NX Newcastle", venueKey: "newcastle" };
+  const bx: D2CScope = { kind: "venue", label: "Electric Brixton", venueKey: "brixton" };
+  const umbrellaRef = (name: string) => [{ id: "l-u", name, include: true }];
+
+  it("a Bird send to CQ-nx-loves-aw26 shows on NX Newcastle's venue view and in no show", () => {
+    const bird = row({ attribution: "client", audience_refs: umbrellaRef("CQ-nx-loves-aw26") });
+    const rows = [bird];
+    assert.deepEqual(scopeRows(rows, UMBRELLA_SHOWS, nc).map((r) => r.id), [bird.id]);
+    assert.deepEqual(scopeRows(rows, UMBRELLA_SHOWS, bx), []);
+    for (const id of ["e1", "e2", "u1"]) assert.deepEqual(scopeRows(rows, UMBRELLA_SHOWS, { kind: "show", label: id, eventId: id }), []);
+    const m = buildDirectToFan({ rows, rate: { rate: null, currency: "GBP" }, shows: UMBRELLA_SHOWS, unattributed: 0 }, nc, opts("internal"));
+    assert.equal(m.sends[0]!.showText, WHOLE_LIST);
+  });
+
+  it("counts the umbrella's tiers and a Mailchimp send off the venue's audience, by name as stored", () => {
+    const tier = row({ attribution: "client", audience_refs: umbrellaRef("CQ-nx-loves-aw26-opted-in") });
+    const mc = row({ attribution: "client", provider: "mailchimp", channel: "email", list_id: "aud-other", read: null, audience_refs: umbrellaRef("CQ-nx-loves-aw26-Together") });
+    const folded = row({ attribution: "client", audience_refs: umbrellaRef("cq-nx-loves-aw26") });
+    const excluded = row({ attribution: "client", audience_refs: [{ id: "l-u", name: "CQ-nx-loves-aw26", include: false }] });
+    const notTied = row({ attribution: "not_tied", audience_refs: umbrellaRef("CQ-nx-loves-aw26") });
+    const plain = row({ attribution: "client" });
+    const ids = scopeRows([tier, mc, folded, excluded, notTied, plain], UMBRELLA_SHOWS, nc).map((r) => r.id);
+    assert.deepEqual(ids, [tier.id, mc.id]);
+  });
+
+  it("an umbrella event at another venue doesn't count there", () => {
+    const shows: D2CShowVenue[] = [...SHOWS, { id: "u2", venue_key: "brixton", mailchimp_audience_id: null, is_umbrella: true, cirqlin_page_slug: "nx-loves-aw26" }];
+    const bird = row({ attribution: "client", audience_refs: umbrellaRef("CQ-nx-loves-aw26") });
+    assert.deepEqual(scopeRows([bird], shows, nc), []);
+    assert.deepEqual(scopeRows([bird], shows, bx).map((r) => r.id), [bird.id]);
   });
 });
