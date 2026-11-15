@@ -91,6 +91,11 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+/** A list name exactly as Bird returns it: attribution compares names byte for byte. */
+function asStored(v: unknown): string | null {
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
 /** Every campaign summary activated in the windows, deduped on campaign id (latest read wins). */
 export async function fetchBirdMetrics(
   reader: StatsReader,
@@ -193,7 +198,7 @@ export async function fetchBirdListNames(
     if (names.has(id)) continue;
     try {
       const list = await reader.get<{ name?: string }>(`/workspaces/${workspaceId}/lists/${id}`);
-      names.set(id, str(list?.name));
+      names.set(id, asStored(list?.name));
       continue;
     } catch (err) {
       const status = statusOf(err);
@@ -201,7 +206,7 @@ export async function fetchBirdListNames(
     }
     try {
       const group = await reader.get<{ name?: string }>(`/workspaces/${workspaceId}/groups/${id}`);
-      names.set(id, str(group?.name));
+      names.set(id, asStored(group?.name));
       groupsFallback += 1;
     } catch (err) {
       const status = statusOf(err);

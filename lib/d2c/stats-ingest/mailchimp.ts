@@ -104,6 +104,11 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+/** A segment name exactly as Mailchimp returns it: attribution compares names byte for byte. */
+function asStored(v: unknown): string | null {
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
 async function pageMailchimp<T>(
   reader: StatsReader,
   path: string,
@@ -163,7 +168,7 @@ export async function fetchMailchimpSegmentNames(
   );
   const out = new Map<string, string>();
   for (const row of rows) {
-    const name = str(row?.name);
+    const name = asStored(row?.name);
     if (row?.id != null && name) out.set(String(row.id), name);
   }
   return out;

@@ -23,7 +23,7 @@ function fakeReader(routes: Array<[RegExp, (path: string) => unknown]>): StatsRe
 }
 
 const index = buildShowIndex([
-  { eventId: "ev-moonlit", clientId: "client-harbour", tag: "CQ-moonlit-harbour", slug: "moonlit-harbour", mailchimpAudienceId: "list-a" },
+  { eventId: "ev-moonlit", clientId: "client-harbour", tag: "CQ-moonlit-harbour", code: null, slug: "moonlit-harbour", mailchimpAudienceId: "list-a" },
 ]);
 
 test("Bird windows are at most 28 days and cover the range", () => {
@@ -150,7 +150,8 @@ test("a Mailchimp report without the filtered fields stores null, not the raw co
   const row = mapMailchimpReport({ id: "mc2", list_id: "list-a", emails_sent: 100, opens: { unique_opens: 40, open_rate: 0.4 } }, undefined, new Map(), ctx);
   assert.equal(row!.opens_unique_filtered, null);
   assert.equal(row!.open_rate_filtered, null);
-  assert.equal(row!.attribution, "client");
+  // No campaign read, so no audience to match positively.
+  assert.equal(row!.attribution, "not_tied");
 });
 
 test("Mailchimp reports page by offset until total_items", async () => {

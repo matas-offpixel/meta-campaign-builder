@@ -7,17 +7,35 @@
  * E5: "Per show: the broadcasts carrying the show's tag or list. A send
  * to the whole list shows under the client, not under every show."
  *
- *   - A Bird list or Mailchimp tag names a show when its name is the
- *     show's tag (`events.mailchimp_tag`) or `CQ-{events.cirqlin_page_slug}`,
- *     case-insensitive. A Mailchimp tag also has to sit on the show's
+ * Every state is a positive match; none is the fallback for "couldn't
+ * match" except not_tied:
+ *
+ *   - show: every audience the send targets is that one show's list. A
+ *     show's lists are `CQ-{events.cirqlin_page_slug}` and its CIRQLIN
+ *     opt-in tiers (SHOW_LIST_TIER_SUFFIXES), or a list or tag whose name
+ *     is exactly the show's `events.mailchimp_tag` or `events.event_code`.
+ *     Every name compares byte for byte as stored: no trimming, no case
+ *     folding (PT2, PT4). A Mailchimp tag also has to sit on the show's
  *     audience when the event names one.
- *   - Bird includes are a union: every included list must name the same
- *     show. Excludes only narrow, so they never stop a show match.
- *   - Mailchimp `match: any` is a union too, so every condition must be a
- *     tag of that one show. `match: all` narrows, so one tag of the show
- *     is enough, as long as no other included tag names a different show.
- *   - Anything else (the whole list, a master list, a mix of shows, "all
- *     except the show's tag") sits under the client only.
+ *       - Bird includes are a union, and so is Mailchimp `match: any`:
+ *         every included list must be one show's. Bird excludes only
+ *         narrow, so they never stop a show match.
+ *       - Mailchimp `match: all` is an intersection: one tag of the show
+ *         is enough, as long as no other included tag names a different
+ *         show.
+ *   - client ("Whole list"): the send went to the client's whole list (a
+ *     Bird send with no list, a Mailchimp send with no segment), or every
+ *     included list is one of the client's whole-list names: its master
+ *     tags in `clients.d2c_whole_list_tags` (migration 248, e.g. "NX
+ *     Loves"), or the CQ lists of its umbrella page (`events.is_umbrella`,
+ *     e.g. NX26-GLOBAL's `CQ-nx-loves-aw26` and its tiers). An umbrella
+ *     event is never a show.
+ *   - not_tied: a send on the client's own account or audience that is
+ *     neither: one-off lists, a mix of shows, "all except the show's tag",
+ *     a widening condition, or no audience read. It counts in the client's
+ *     channel totals and in no show.
+ *   - unattributed: no show matched and no single client owns the account
+ *     or the Mailchimp audience.
  *
  * Matching is on the list / tag NAME because the show's key is a name
  * (`CQ-{slug}`). Channels are never matched by name: a Brixton channel is
@@ -31,26 +49,57 @@ import type {
   D2CStatsAttribution,
 } from "./types.ts";
 
-function norm(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase();
+/**
+ * The CIRQLIN opt-in tiers built from a show's page at sync:
+ * `CQ-{slug}-Together` and `CQ-{slug}-opted-in` hold that show's signups
+ * only, so a send to them is the show's. Drop a suffix here to stop
+ * counting it.
+ */
+export const SHOW_LIST_TIER_SUFFIXES = ["-Together", "-opted-in"] as const;
+
+/**
+ * Names compare byte for byte, exactly as stored (PT2, PT4): no trimming,
+ * no case folding. Only a missing or empty name is skipped.
+ */
+function named(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
-/** The names a show answers to: its tag and `cq-{slug}`, lowercased. */
+/**
+ * A CIRQLIN page's lists: exactly `CQ-{slug}` and its opt-in tiers, from
+ * the slug as stored. The whole slug is compared, never a prefix:
+ * `CQ-azyr-newcastle` is not the page `azyr-newcastle-2`'s, nor the
+ * reverse.
+ */
+export function cqListNames(slug: string | null | undefined): string[] {
+  if (!named(slug)) return [];
+  return [`CQ-${slug}`, ...SHOW_LIST_TIER_SUFFIXES.map((suffix) => `CQ-${slug}${suffix}`)];
+}
+
+/** The names a show answers to, exactly as stored: its tag, its event code, and its CQ lists. */
 export function showNames(show: D2CShowKey): string[] {
   const names = new Set<string>();
-  const tag = norm(show.tag);
-  if (tag) names.add(tag);
-  const slug = norm(show.slug);
-  if (slug) names.add(`cq-${slug}`);
+  if (named(show.tag)) names.add(show.tag);
+  if (named(show.code)) names.add(show.code);
+  for (const name of cqListNames(show.slug)) names.add(name);
   return [...names];
 }
 
 export interface ShowIndex {
   /** name → shows answering to it (more than one = ambiguous, never matched). */
   byName: Map<string, D2CShowKey[]>;
+  /**
+   * client id → the names that are its whole list, exactly as stored: its
+   * `clients.d2c_whole_list_tags` (migration 248) and the CQ lists of its
+   * umbrella pages (`events.is_umbrella`). Never a show.
+   */
+  wholeList: Map<string, Set<string>>;
 }
 
-export function buildShowIndex(shows: readonly D2CShowKey[]): ShowIndex {
+export function buildShowIndex(
+  shows: readonly D2CShowKey[],
+  wholeList: ReadonlyMap<string, readonly string[]> = new Map(),
+): ShowIndex {
   const byName = new Map<string, D2CShowKey[]>();
   for (const show of shows) {
     for (const name of showNames(show)) {
@@ -59,7 +108,12 @@ export function buildShowIndex(shows: readonly D2CShowKey[]): ShowIndex {
       byName.set(name, list);
     }
   }
-  return { byName };
+  const whole = new Map<string, Set<string>>();
+  for (const [clientId, names] of wholeList) {
+    const set = new Set(names.filter(named));
+    if (set.size) whole.set(clientId, set);
+  }
+  return { byName, wholeList: whole };
 }
 
 /**
@@ -73,9 +127,8 @@ export function matchShow(
   name: string | null,
   opts: { clientIds?: readonly string[]; mailchimpListId?: string | null } = {},
 ): D2CShowKey | null {
-  const key = norm(name);
-  if (!key) return null;
-  let candidates = index.byName.get(key) ?? [];
+  if (!named(name)) return null;
+  let candidates = index.byName.get(name) ?? [];
   if (opts.clientIds && opts.clientIds.length > 0) {
     const allowed = new Set(opts.clientIds);
     candidates = candidates.filter((s) => allowed.has(s.clientId));
@@ -95,11 +148,12 @@ export interface Attributed {
 }
 
 /**
- * Attribute one send. `accountClientId` is the client the account belongs
- * to when exactly one client's connection points at it (else null);
- * `listClientId` is the client that owns the Mailchimp audience, when one
- * does. A show match always wins; otherwise the send sits under the
- * client, or is unattributed when no single client owns the account.
+ * Attribute one send. `accountClientIds` are the clients whose connections
+ * point at the account (one = it's that client's); `listClientId` is the
+ * client that owns the Mailchimp audience, when one does. A show match
+ * wins; then a positive whole-list or whole-list-name match is the client's
+ * whole list; any other send the client owns is not_tied; with no single
+ * owner it is unattributed.
  */
 export function attributeSend(
   index: ShowIndex,
@@ -115,9 +169,22 @@ export function attributeSend(
   const clientId =
     opts.listClientId ??
     (opts.accountClientIds.length === 1 ? opts.accountClientIds[0]! : null);
-  return clientId
+  if (!clientId) return { attribution: "unattributed", eventId: null, clientId: null };
+  return audience && isWholeList(audience, index.wholeList.get(clientId) ?? new Set())
     ? { attribution: "client", eventId: null, clientId }
-    : { attribution: "unattributed", eventId: null, clientId: null };
+    : { attribution: "not_tied", eventId: null, clientId };
+}
+
+/**
+ * The whole list, or only the client's whole-list names (its tags from
+ * migration 248 and its umbrella pages' CQ lists), in either match mode.
+ */
+export function isWholeList(audience: D2CAudience, wholeListNames: ReadonlySet<string>): boolean {
+  if (audience.wholeList) return true;
+  if (audience.otherConditions > 0) return false;
+  const includes = audience.refs.filter((r) => r.include);
+  if (includes.length === 0) return false;
+  return includes.every((r) => named(r.name) && wholeListNames.has(r.name));
 }
 
 function showForAudience(
@@ -147,7 +214,7 @@ function showForAudience(
   }
 
   // "all": an intersection. One tag of the show is enough; two different
-  // shows' tags ANDed together is a mix and sits under the client.
+  // shows' tags ANDed together is a mix and is not tied to a show.
   const shows = includes.map((r) => match(r.name)).filter((s): s is D2CShowKey => s !== null);
   if (shows.length === 0) return null;
   const ids = new Set(shows.map((s) => s.eventId));
