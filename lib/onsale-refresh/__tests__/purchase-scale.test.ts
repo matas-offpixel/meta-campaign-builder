@@ -383,7 +383,7 @@ describe("P4 PR C, PC7 and PC9 on Scale and Copy", () => {
 });
 
 
-describe("P4 PC13: a step down rounds UP to the next whole £5, never cutting more than half", () => {
+describe("P4 PC12: a step down rounds UP to the next whole £5, never cutting more than half", () => {
   const over = (rate: number) => scalePurchase(input({ running: { ...running, rate } }, { spend: 400, purchases: 4, lifetime: 2000, spentToDate: 400 }));
   it("£15 → £10, £25 → £15, £10 → £5, and £5 holds", () => {
     assert.equal(over(15).kind === "line" && over(15).kind === "line" ? (over(15) as { title: string }).title : null, "Scale Purchase down: £15 → £10 a day");
