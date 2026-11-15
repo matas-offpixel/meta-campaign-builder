@@ -7,10 +7,12 @@
  */
 
 import { buildPresaleLog, type PresaleLog, type PresaleLogRow } from "../presale/model.ts";
-import type { BudgetPicture, Channel, Figure, MetaClassification, Objective, ObjectiveBudgetResult, ObjectiveRow, ResultMetric } from "../objective-budget/types.ts";
+import { computeObjectiveBudget } from "../objective-budget/compute.ts";
+import type { BudgetEntry, BudgetPicture, Channel, Figure, MetaAdDay, MetaClassification, Objective, ObjectiveBudgetInput, ObjectiveBudgetResult, ObjectiveRow, ResultMetric } from "../objective-budget/types.ts";
+import type { StoredStatsRow } from "../../d2c/stats-ingest/summary.ts";
 import { budgetPanel, type BudgetPanelModel } from "./budget-view.ts";
-import { FRAME_NOW_MS, periodText } from "./dates.ts";
-import { pounds, presalePanel, type PresalePanelModel } from "./presale-view.ts";
+import { FRAME_NOW_MS } from "./dates.ts";
+import { presalePanel, type PresalePanelModel } from "./presale-view.ts";
 
 const EVENT = "f0b5636b-ea5d-442e-8a71-36fd930a2b2b";
 const missing = { kind: "missing" as const, reason: "not_entered" as const };
@@ -199,28 +201,102 @@ export function electricBudget(nowMs = FRAME_NOW_MS): BudgetPanelModel {
 }
 
 /**
- * Ironworks Season 1, held here from the submitted report (read 13 Nov,
- * figures to 4 Nov). Not a live read, and not written to prod.
- * 83,421.09 + 1,297.27 + 8,681.15 = 93,399.51.
- * 83,000 − 83,421.09 + 460 = 38.91.
- * The two afterparties are not split in the report, so they stay one line.
+ * Ironworks Season 1, to 4 Nov 2026. The spend is the builder's own D12
+ * read that day, collapsed onto one day per event (16,272 ad-days are not
+ * copied in). Brand is £22,553.07: the £22,651.10 in the brief was before
+ * the 25–26 May IRWOHD TikTok re-sync. The season entries are the report's
+ * and are not written to prod. WhatsApp is the report's 161,788 delivered;
+ * SMS is £535; the Bird rate makes the two £8,681.15.
  */
-export function ironworksBudget(nowMs = FRAME_NOW_MS): BudgetPanelModel {
+const IRW = "f7ed8aef-8527-4c3e-a16a-a05fc38861f5";
+const IRW_SHOWS = "irw-shows";
+const IRW_BRAND = "68535c85-0394-435f-9439-245dd2e87043";
+const IRW_DAY = "2026-09-01";
+const IRW_TO = "2026-11-04";
+const WHATSAPP_DELIVERED = 161788;
+const SMS_COST = 535;
+const WHATSAPP_COST = 8146.15;
+
+function irwAd(p: Pick<MetaAdDay, "campaignId" | "campaignName" | "adSetId" | "spend" | "optimizationGoal" | "promotedEvent"> & { registrations?: number; purchases?: number; landingPageViews?: number }): MetaAdDay {
   return {
-    title: "Objective and budget",
-    scope: "Ironworks Season 1",
-    period: periodText(null, "2026-11-04", nowMs),
-    rows: [],
-    lines: [
-      { label: "Plan", value: pounds(83000), note: "Season budget · entered by Matas, 13 Nov" },
-      { label: "Paid", value: pounds(83421.09), note: null },
-      { label: "Brand campaigns", value: pounds(22651.1), note: null },
-      { label: "Credits", value: pounds(460), note: "Google promo credit. Changes the variance, not the total." },
-      { label: "Sub-budgets", value: pounds(1297.27), note: "Two afterparties, what ran." },
-      { label: "D2C", value: pounds(8681.15), note: "WhatsApp + SMS" },
-      { label: "Total", value: pounds(93399.51), note: "Paid + sub-budgets + D2C." },
-      { label: "Variance", value: pounds(38.91), note: null },
-    ],
-    totalNote: null,
+    campaignId: p.campaignId,
+    campaignName: p.campaignName,
+    adSetId: p.adSetId,
+    day: IRW_DAY,
+    spend: p.spend,
+    impressions: 0,
+    reach: 0,
+    linkClicks: 0,
+    landingPageViews: p.landingPageViews ?? 0,
+    registrations: p.registrations ?? 0,
+    leads: 0,
+    purchases: p.purchases ?? 0,
+    campaignObjective: "OUTCOME_SALES",
+    optimizationGoal: p.optimizationGoal,
+    promotedEvent: p.promotedEvent,
   };
+}
+
+function ironworksInput(): ObjectiveBudgetInput {
+  const shows: MetaAdDay[] = [
+    irwAd({ campaignId: "irw-s-reg", campaignName: "Shows registration", adSetId: "irw-s-reg", spend: 22896.27, optimizationGoal: "OFFSITE_CONVERSIONS", promotedEvent: "COMPLETE_REGISTRATION", registrations: 22704 }),
+    irwAd({ campaignId: "irw-s-pur", campaignName: "Shows purchase", adSetId: "irw-s-pur", spend: 14124.34, optimizationGoal: "OFFSITE_CONVERSIONS", promotedEvent: "PURCHASE", purchases: 553 }),
+    irwAd({ campaignId: "irw-s-traf", campaignName: "Shows traffic", adSetId: "irw-s-traf", spend: 10740.39, optimizationGoal: "LANDING_PAGE_VIEWS", promotedEvent: null, landingPageViews: 58241 }),
+    irwAd({ campaignId: "irw-s-aw", campaignName: "Shows awareness", adSetId: "irw-s-aw", spend: 3333.16, optimizationGoal: "REACH", promotedEvent: null }),
+  ];
+  const brand: MetaAdDay[] = [
+    irwAd({ campaignId: "irw-b-reg", campaignName: "Brand registration", adSetId: "irw-b-reg", spend: 4458.46, optimizationGoal: "OFFSITE_CONVERSIONS", promotedEvent: "COMPLETE_REGISTRATION", registrations: 1610 }),
+    irwAd({ campaignId: "irw-b-pur", campaignName: "Brand purchase", adSetId: "irw-b-pur", spend: 1992.26, optimizationGoal: "OFFSITE_CONVERSIONS", promotedEvent: "PURCHASE", purchases: 48 }),
+    irwAd({ campaignId: "irw-b-traf", campaignName: "Brand traffic", adSetId: "irw-b-traf", spend: 572.02, optimizationGoal: "LANDING_PAGE_VIEWS", promotedEvent: null, landingPageViews: 1103 }),
+    irwAd({ campaignId: "irw-b-aw", campaignName: "Brand awareness", adSetId: "irw-b-aw", spend: 883.48, optimizationGoal: "REACH", promotedEvent: null }),
+  ];
+  const entries: BudgetEntry[] = [
+    { id: "irw-season", eventId: null, kind: "season_budget", label: "Season 1", amount: 83000, spent: null, day: "2026-05-25" },
+    { id: "irw-credit", eventId: null, kind: "credit", label: "Google promo credit", amount: 460, spent: null, day: "2026-10-01" },
+    { id: "irw-a1", eventId: IRW_SHOWS, kind: "sub_budget", label: "Afters one", amount: 1500, spent: 1181.76, day: null },
+    { id: "irw-a2", eventId: IRW_SHOWS, kind: "sub_budget", label: "Afters two", amount: 750, spent: 115.51, day: null },
+    { id: "irw-sms", eventId: null, kind: "sms_cost", label: "SMS", amount: SMS_COST, spent: null, day: IRW_TO },
+  ];
+  const whatsapp: StoredStatsRow = {
+    id: "irw-wa",
+    provider: "bird",
+    account_id: "bird",
+    external_id: "irw-wa",
+    channel: "whatsapp",
+    client_id: IRW,
+    event_id: IRW_SHOWS,
+    attribution: "show",
+    audience_kind: "marketing",
+    name: "Ironworks WhatsApp",
+    sent_at: "2026-09-15T10:00:00Z",
+    sent: 27,
+    delivered: WHATSAPP_DELIVERED,
+    read: null,
+    clicked: null,
+    opens_unique_raw: null,
+    opens_unique_filtered: null,
+    open_rate_filtered: null,
+    fetched_at: null,
+  };
+  return {
+    client: { id: IRW, name: "IRONWORKS" },
+    events: [
+      { eventId: IRW_SHOWS, code: "IRWSHOWS", name: "Ironworks shows", showDate: "2026-11-01", kind: "event", linkedCampaignIds: shows.map((a) => a.campaignId), budgetMarketing: null },
+      { eventId: IRW_BRAND, code: "IRWOHD", name: "Brand Awareness (Always-On)", showDate: null, kind: "brand_campaign", linkedCampaignIds: brand.map((a) => a.campaignId), budgetMarketing: null },
+    ],
+    metaAdDays: [...shows, ...brand],
+    googleDays: [{ eventCode: "IRWSHOWS", campaignId: "irw-g", channelType: "SEARCH", day: IRW_DAY, spend: 1260.98, impressions: 21808, clicks: 3917, conversions: 0, conversionValue: 0 }],
+    rollups: [
+      { eventId: IRW_SHOWS, day: IRW_DAY, meta: 57378.3, tiktok: 2228.74, google: 1260.98, metaSynced: true, tiktokSynced: true, googleSynced: true },
+      { eventId: IRW_BRAND, day: IRW_DAY, meta: 18910.3, tiktok: 3642.77, google: null, metaSynced: true, tiktokSynced: true, googleSynced: false },
+    ],
+    overrides: { meta: {}, google: {} },
+    additionalSpend: [],
+    entries,
+    d2c: { rate: { rate: WHATSAPP_COST / WHATSAPP_DELIVERED, currency: "GBP" }, rows: [whatsapp] },
+  };
+}
+
+export function ironworksBudget(nowMs = FRAME_NOW_MS): BudgetPanelModel {
+  return budgetPanel(computeObjectiveBudget(ironworksInput(), { kind: "client" }, { from: null, to: IRW_TO }), nowMs);
 }

@@ -151,21 +151,30 @@ describe("HE6 Electric", () => {
 describe("HE6 Ironworks Season 1", () => {
   const model = ironworksBudget();
 
-  it("holds the submitted report's figures", () => {
+  it("builds the report through the budget picture", () => {
     const line = (label: string) => model.lines.find((l) => l.label === label);
+    const labels = model.lines.map((l) => l.label);
+    assert.deepEqual(labels, ["Plan", "Paid", "Brand campaigns", "Credits", "Afters one", "Afters two", "D2C", "Variance", "Total"]);
     assert.equal(line("Plan")?.value, "£83,000.00");
-    assert.equal(line("Plan")?.note, "Season budget · entered by Matas, 13 Nov");
+    assert.equal(line("Plan")?.note, "Season budget");
     assert.equal(line("Paid")?.value, "£83,421.09");
-    assert.equal(line("Brand campaigns")?.value, "£22,651.10");
+    assert.equal(line("Paid")?.note, "Meta £76,288.60 · TikTok £5,871.51 · Google £1,260.98");
+    assert.equal(line("Brand campaigns")?.value, "£22,553.07");
     assert.equal(line("Credits")?.value, "£460.00");
-    assert.match(line("Credits")?.note ?? "", /Google promo credit/);
-    assert.match(line("Credits")?.note ?? "", /Changes the variance, not the total/);
-    assert.equal(line("Sub-budgets")?.value, "£1,297.27");
+    assert.equal(line("Credits")?.note, "Google promo credit. Changes the variance, not the total.");
+    assert.equal(line("Afters one")?.value, "£1,500.00");
+    assert.equal(line("Afters one")?.note, "Allocation · spent £1,181.76");
+    assert.equal(line("Afters two")?.value, "£750.00");
+    assert.equal(line("Afters two")?.note, "Allocation · spent £115.51");
     assert.equal(line("D2C")?.value, "£8,681.15");
+    assert.equal(line("Variance")?.value, "£38.91");
+    assert.equal(line("Variance")?.note, "Plan − paid + credits.");
     assert.equal(line("Total")?.value, "£93,399.51");
     assert.equal(line("Total")?.note, "Paid + sub-budgets + D2C.");
-    assert.equal(line("Variance")?.value, "£38.91");
     assert.equal(model.totalNote, null);
     assert.equal(model.period, "Since launch · to 4 Nov");
+    assert.equal(model.rows.find((r) => r.objective === "Registration" && r.channel === "Meta")?.spend, "£27,354.73");
+    assert.equal(model.rows.find((r) => r.objective === "Traffic" && r.channel === "Google")?.spend, "£1,260.98");
+    assert.equal(model.rows.filter((r) => r.objective === "Objective not stored").length, 2);
   });
 });
