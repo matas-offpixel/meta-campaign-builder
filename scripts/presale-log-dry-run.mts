@@ -17,15 +17,20 @@
 //
 // --presale-at is used only when events.presale_at is unset, and is printed
 // as supplied. The defaults are Ironworks Season 1's Charlotte de Witte
-// (presale 5 Aug; the report gives no time, so midnight London).
+// (show 1 Nov 2026, presale Wed 5 Aug 2026; the report gives no time, so
+// midnight London). A show without CIRQLIN reads "Signups at presale" from
+// its Mailchimp tag's 12:00Z row for the day before presale (#1255 ruling).
 //
 // Requires env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 
 import { createClient } from "@supabase/supabase-js";
 
 import { buildPresaleLog, dayIn, type Figure, type MissingReason, type PresaleLog } from "../lib/dashboard/presale/model.ts";
+import { adminNameLookup, resolveEnteredNames } from "../lib/dashboard/presale/names.ts";
 import {
+  dayBefore,
   loadInternalCounts,
+  loadMailchimpDayCount,
   loadMemberCounts,
   loadPresaleLog,
   loadPresaleLogRow,
@@ -34,7 +39,6 @@ import {
   loadSignupDays,
   type PresaleEventRow,
 } from "../lib/dashboard/presale/read.ts";
-import { loadAllPaged } from "../lib/db/paged-read.ts";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -55,9 +59,10 @@ const CAUSE: Record<MissingReason, string> = {
   no_presale_time: "events.presale_at is not set",
   no_cirqlin_signups: "no CIRQLIN signup history (no linked page)",
   no_signups_before_presale: "no CIRQLIN day before the presale day",
+  no_mailchimp_count_for_day: "no CIRQLIN history, and the Mailchimp tag has no 12:00Z row for the day before presale",
   not_entered: "not entered (migration 249 holds no row)",
   no_count_within_24h: "no Internal Counts count within 24 h of the open, and none entered",
-  no_registration_spend: "no Meta registration-objective spend on the show",
+  no_registration_spend: "no Meta signup spend on the show",
   needs_inputs: "a figure it is worked out from is missing",
   not_meaningful: "denominator is zero or below",
 };
@@ -70,6 +75,7 @@ const fmt = (f: Figure<number>, kind: "n" | "pct" | "gbp" | "x"): string => {
   return `${s} (${f.source})`;
 };
 const why = (f: Figure<unknown>): string => (f.kind === "missing" ? CAUSE[f.reason] : "");
+const from = (f: Figure<unknown>): string => (f.kind === "value" ? f.from : "—");
 
 async function main() {
   const { data: event, error } = await db
@@ -95,6 +101,12 @@ async function main() {
   ]);
   const at = "dry-run (not stored)";
   const presaleDay = dayIn(presaleAt, "Europe/London");
+  const tag = e.mailchimp_tag?.trim() || null;
+  const mailchimp = !signupDays?.length && tag ? await loadMailchimpDayCount(db, e.id, tag, dayBefore(presaleDay)) : null;
+  const names = await resolveEnteredNames(
+    [...(counts.get(e.id) ?? []).map((c) => c.entered_by), ...relaunches.flatMap((r) => [r.entered_by, r.result_entered_by])],
+    adminNameLookup(db),
+  );
   const supposed: PresaleLog = buildPresaleLog({
     eventId: e.id,
     presaleAt,
@@ -119,39 +131,26 @@ async function main() {
     signupDays,
     internalCounts,
     registrationSpend,
+    mailchimp,
+    names,
   });
-
-  // Context only, not an E3 source: the Mailchimp tag's subscribers around the presale day.
-  const mc = await loadAllPaged<{ id: string; day: string | null; snapshot_at: string; email_subscribers: number | null }>(
-    db,
-    "mailchimp_tag_snapshots",
-    "id,day,snapshot_at,email_subscribers",
-    ["id"],
-    (q) => q.eq("event_id", e.id),
-  );
-  const mcByDay = new Map<string, number>();
-  for (const r of mc) {
-    const d = r.day ?? r.snapshot_at.slice(0, 10);
-    mcByDay.set(d, Math.max(mcByDay.get(d) ?? 0, Number(r.email_subscribers ?? 0)));
-  }
-  const prev = new Date(`${presaleDay}T00:00:00Z`);
-  prev.setUTCDate(prev.getUTCDate() - 1);
-  const dayBefore = prev.toISOString().slice(0, 10);
 
   console.log(`\nPresale log dry run · ${e.name} (${e.event_code}) · read only, nothing written`);
   console.log(`events.presale_at: ${e.presale_at ?? `unset → using --presale-at ${presaleArg} (not stored)`} · presale day ${presaleDay} London`);
   console.log(`CIRQLIN page: ${e.cirqlin_page_id ?? "none linked"} · state: ${read.state}${read.prompt ? ` → "${read.prompt}"` : ""}`);
-  console.log(`Meta registration-objective spend: ${registrationSpend == null ? "none" : `£${registrationSpend.toFixed(2)}`}`);
-  console.log(`Mailchimp tag "${e.mailchimp_tag ?? "—"}" (context, not E3's source): ${mcByDay.get(dayBefore) ?? "—"} on ${dayBefore}, ${mcByDay.get(presaleDay) ?? "—"} on ${presaleDay}\n`);
+  console.log(`Meta signup spend: ${registrationSpend == null ? "none" : `£${registrationSpend.toFixed(2)}`}`);
+  console.log(
+    `Mailchimp fallback: ${mailchimp ? `tag "${mailchimp.tag}", 12:00Z row on ${mailchimp.day}: ${mailchimp.subscribers ?? "none"}` : signupDays?.length ? "not read (CIRQLIN has history)" : "no tag"}\n`,
+  );
 
   const rows: [string, string, string, string, string][] = [
-    ["Signups at presale", fmt(read.signupsAtPresale, "n"), fmt(supposed.signupsAtPresale, "n"), report.signups?.toLocaleString("en-GB") ?? "—", why(read.signupsAtPresale)],
+    [read.signupsAtPresaleLabel ?? "Signups at presale", fmt(read.signupsAtPresale, "n"), fmt(supposed.signupsAtPresale, "n"), report.signups?.toLocaleString("en-GB") ?? "—", why(read.signupsAtPresale)],
     ["Community at presale", fmt(read.communityAtPresale, "n"), fmt(supposed.communityAtPresale, "n"), report.community?.toLocaleString("en-GB") ?? "—", why(read.communityAtPresale)],
     ["Sold in community window", fmt(read.soldInWindow, "n"), fmt(supposed.soldInWindow, "n"), report.window?.toLocaleString("en-GB") ?? "—", why(read.soldInWindow)],
     ["Community conversion", fmt(read.communityConversion, "pct"), fmt(supposed.communityConversion, "pct"), report.window && report.community ? `${((report.window / report.community) * 100).toFixed(1)} %` : "—", why(read.communityConversion)],
     ["Presale-day tickets", fmt(read.presaleDayTickets, "n"), fmt(supposed.presaleDayTickets, "n"), report.presaleDay?.toLocaleString("en-GB") ?? "—", why(read.presaleDayTickets)],
     ["Wider conversion", fmt(read.widerConversion, "pct"), fmt(supposed.widerConversion, "pct"), "—", why(read.widerConversion) || why(supposed.widerConversion)],
-    ["Signup spend per presale ticket", fmt(read.signupSpendPerPresaleTicket, "gbp"), fmt(supposed.signupSpendPerPresaleTicket, "gbp"), report.spendPerTicket != null ? `£${report.spendPerTicket.toFixed(2)}` : "—", why(read.signupSpendPerPresaleTicket)],
+    ["Meta signup spend per presale ticket", fmt(read.signupSpendPerPresaleTicket, "gbp"), fmt(supposed.signupSpendPerPresaleTicket, "gbp"), report.spendPerTicket != null ? `£${report.spendPerTicket.toFixed(2)}` : "—", why(read.signupSpendPerPresaleTicket)],
     ["Presale return (est.)", fmt(read.presaleReturn, "x"), fmt(supposed.presaleReturn, "x"), "—", why(read.presaleReturn) || why(supposed.presaleReturn)],
   ];
   const head: [string, string, string, string, string] = ["Figure", "Read", "+report (in memory)", "Season report", "Why Read differs"];
@@ -160,7 +159,8 @@ async function main() {
   console.log(line(head));
   console.log(widths.map((w) => "-".repeat(w)).join("-|-"));
   for (const r of rows) console.log(line(r));
-  console.log(`\nWindow start: ${read.windowStart.kind === "value" ? `${read.windowStart.value} (${read.windowStart.source})` : why(read.windowStart)}`);
+  console.log(`\nSources: signups ${from(read.signupsAtPresale)} · spend ${from(read.registrationSpend)}`);
+  console.log(`Window start: ${read.windowStart.kind === "value" ? `${read.windowStart.value} (${read.windowStart.source})` : why(read.windowStart)}`);
   console.log(`Relaunches: ${read.relaunches.length}`);
 }
 

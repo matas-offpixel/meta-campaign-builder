@@ -4,19 +4,31 @@ import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { fakeDb } from "../../../audience-breakdowns/__tests__/fake-db.ts";
-import { communityHeadline, enteredMemberCounts, latestMemberCount, pageAudienceWithEnteredCount, withEnteredMemberCount } from "../community-headline.ts";
+import {
+  communityHeadline,
+  communityHeadlineWords,
+  enteredMemberCounts,
+  latestMemberCount,
+  pageAudienceWithEnteredCount,
+  withEnteredMemberCount,
+} from "../community-headline.ts";
 import { parseCount, parseDay, parsePrice, parseWindowStart, presaleLogFieldUpdate } from "../form.ts";
 import {
   ADD_WINDOW_FIGURES,
   buildPresaleLog,
   dayIn,
+  enteredByWords,
+  formatDay,
+  META_SIGNUP_SPEND,
   presaleDayCount,
+  signupsAtPresaleLabel,
   type Figure,
   type InternalCount,
   type PresaleInputs,
   type PresaleLogRow,
 } from "../model.ts";
-import { isMissingPresaleTable, loadPresaleLog, loadRegistrationSpend } from "../read.ts";
+import { adminNameLookup, resolveEnteredNames } from "../names.ts";
+import { isMissingPresaleTable, loadMailchimpDayCount, loadPresaleLog, loadRegistrationSpend } from "../read.ts";
 
 // Fixtures: show names and figures only. The EV2 figures are Ironworks Season 1's
 // Charlotte de Witte presale as the season report has them (5 Aug).
@@ -111,7 +123,7 @@ describe("window start", () => {
     ).windowStart;
     assert.equal(val(f), "2026-08-05T08:15:00Z");
     assert.equal(src(f), "entered");
-    assert.deepEqual(f.kind === "value" && f.entered, { by: USER, at: "2026-08-04T12:00:00Z" });
+    assert.deepEqual(f.kind === "value" && f.entered, { by: USER, at: "2026-08-04T12:00:00Z", name: null });
   });
 
   it("no presale time: nothing tied to the open", () => {
@@ -138,6 +150,68 @@ describe("signups at presale (CIRQLIN)", () => {
   it("no CIRQLIN history, or none before presale", () => {
     assert.equal(reason(buildPresaleLog(inputs({ signupDays: null })).signupsAtPresale), "no_cirqlin_signups");
     assert.equal(reason(buildPresaleLog(inputs({ signupDays: [{ day: "2026-08-05", signups: 10 }] })).signupsAtPresale), "no_signups_before_presale");
+  });
+
+  it("names its last day, the weekday worked out from the date", () => {
+    assert.equal(buildPresaleLog(inputs()).signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug");
+    assert.equal(signupsAtPresaleLabel("2026-08-05"), "Signups at presale · to Tue 4 Aug");
+    assert.equal(formatDay("2025-08-04"), "Mon 4 Aug", "a year earlier the same date was a Monday");
+    assert.equal(signupsAtPresaleLabel("2026-03-01"), "Signups at presale · to Sat 28 Feb");
+    assert.equal(buildPresaleLog(inputs({ presaleAt: null })).signupsAtPresaleLabel, null);
+  });
+});
+
+describe("signups at presale: the Mailchimp fallback for a show without CIRQLIN", () => {
+  const TAG = "Charlotte De Witte - October 2026";
+
+  it("the tag's stored count for the day before presale, named as its source", () => {
+    const f = buildPresaleLog(inputs({ signupDays: null, mailchimp: { tag: TAG, day: "2026-08-04", subscribers: 12868 } })).signupsAtPresale;
+    assert.equal(val(f), 12868);
+    assert.equal(src(f), "counted");
+    assert.equal(f.kind === "value" && f.from, `Mailchimp · ${TAG} · Tue 4 Aug`);
+    assert.deepEqual(f.kind === "value" && f.detail, { tag: TAG, throughDay: "2026-08-04" });
+  });
+
+  it("no row for that day: missing, never a nearer day", () => {
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: { tag: TAG, day: "2026-08-04", subscribers: null } })).signupsAtPresale), "no_mailchimp_count_for_day");
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: { tag: TAG, day: "2026-08-05", subscribers: 14206 } })).signupsAtPresale), "no_mailchimp_count_for_day");
+  });
+
+  it("CIRQLIN wins when it has history; no tag stays no_cirqlin_signups", () => {
+    assert.equal(val(buildPresaleLog(inputs({ mailchimp: { tag: TAG, day: "2026-08-04", subscribers: 12868 } })).signupsAtPresale), 14500);
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: null })).signupsAtPresale), "no_cirqlin_signups");
+  });
+
+  it("the wider conversion works from the Mailchimp figure", () => {
+    const l = buildPresaleLog(inputs({ signupDays: null, mailchimp: { tag: TAG, day: "2026-08-04", subscribers: 12868 }, log: EV2_LOG, memberCounts: EV2_COMMUNITY }));
+    assert.equal(val(l.widerConversion).toFixed(4), ((6600 - 4000) / (12868 - 7100)).toFixed(4));
+  });
+});
+
+describe("Meta signup spend and entered-by names", () => {
+  it("registration spend is named \"Meta signup spend\"", () => {
+    const f = buildPresaleLog(inputs()).registrationSpend;
+    assert.equal(META_SIGNUP_SPEND, "Meta signup spend");
+    assert.equal(f.kind === "value" && f.from, "Meta signup spend");
+  });
+
+  it("an entered figure carries the person's name, and the words read it", () => {
+    const l = buildPresaleLog(inputs({ log: EV2_LOG, memberCounts: EV2_COMMUNITY, names: new Map([[USER, "Ops"]]) }));
+    const e = l.soldInWindow.kind === "value" ? l.soldInWindow.entered : null;
+    assert.deepEqual(e, { by: USER, at: EV2_LOG.sold_in_window_entered_at, name: "Ops" });
+    assert.equal(enteredByWords(e!), "entered by Ops, 6 Aug");
+    assert.equal(enteredByWords({ ...e!, name: null }), "entered 6 Aug");
+    assert.equal(l.communityAtPresale.kind === "value" && l.communityAtPresale.entered?.name, "Ops");
+  });
+
+  it("the admin lookup gives a first name, never an email; without the service role the name is unknown", async () => {
+    const ok = adminNameLookup({ auth: { admin: { getUserById: async () => ({ data: { user: { email: "ops@example.com", user_metadata: { full_name: "Ops Team" } } }, error: null }) } } });
+    assert.deepEqual([...(await resolveEnteredNames([USER, USER, null], ok))], [[USER, "Ops"]]);
+    const local = adminNameLookup({ auth: { admin: { getUserById: async () => ({ data: { user: { email: "ops@example.com", user_metadata: {} } }, error: null }) } } });
+    assert.equal((await resolveEnteredNames([USER], local)).get(USER), "ops");
+    const denied = adminNameLookup({ auth: { admin: { getUserById: async () => { throw new Error("User not allowed"); } } } });
+    assert.equal((await resolveEnteredNames([USER], denied)).size, 0);
+    assert.equal(adminNameLookup({ from() {} }), null);
   });
 });
 
@@ -292,8 +366,8 @@ describe("HE2 adapter: enteredMemberCount and PA3's headline", () => {
 
   it("an entered count leads, with community_joined under it", () => {
     const out = withEnteredMemberCount(fig, EV2_COMMUNITY);
-    assert.deepEqual(out.enteredMemberCount, { members: 7100, countedOn: "2026-08-05", entered: { by: USER, at: "2026-08-05T08:00:00Z" } });
-    assert.deepEqual(out.headline, { source: "entered", members: 7100, countedOn: "2026-08-05", entered: { by: USER, at: "2026-08-05T08:00:00Z" }, joinedFromSignups: 6200 });
+    assert.deepEqual(out.enteredMemberCount, { members: 7100, countedOn: "2026-08-05", entered: { by: USER, at: "2026-08-05T08:00:00Z", name: null } });
+    assert.deepEqual(out.headline, { source: "entered", members: 7100, countedOn: "2026-08-05", entered: { by: USER, at: "2026-08-05T08:00:00Z", name: null }, joinedFromSignups: 6200 });
     assert.equal(out.signups, 14500, "HE2's own fields pass through");
   });
 
@@ -302,6 +376,15 @@ describe("HE2 adapter: enteredMemberCount and PA3's headline", () => {
     assert.deepEqual(communityHeadline({ ...fig, communityJoined: 0 }, null), { source: "community_joined", joined: 0 });
     assert.deepEqual(communityHeadline({ ...fig, communityJoined: null }, null), { source: "link_clicks_est", clicks: 8000 });
     assert.deepEqual(communityHeadline(null, null), { source: "none" });
+  });
+
+  it("the words: 0 reads \"0 joined from signups\"; link clicks only without community_joined", () => {
+    assert.deepEqual(communityHeadlineWords(communityHeadline({ ...fig, communityJoined: 0 }, null)), { headline: "0 joined from signups", source: "CIRQLIN · exact", joinedLine: null });
+    assert.deepEqual(communityHeadlineWords(communityHeadline(fig, null)), { headline: "6,200 joined from signups", source: "CIRQLIN · exact", joinedLine: null });
+    assert.deepEqual(communityHeadlineWords(communityHeadline({ ...fig, communityJoined: null }, null)), { headline: "8,000 community link clicks", source: "est.", joinedLine: null });
+    assert.equal(communityHeadlineWords(communityHeadline(null, null)), null);
+    const entered = withEnteredMemberCount({ ...fig, communityJoined: 0 }, EV2_COMMUNITY, new Map([[USER, "Ops"]]));
+    assert.deepEqual(communityHeadlineWords(entered.headline), { headline: "7,100 members", source: "entered by Ops, 5 Aug", joinedLine: "0 joined from signups · CIRQLIN" });
   });
 
   it("the latest count is the newest day, then the newest entry", () => {
@@ -319,6 +402,9 @@ describe("HE2 adapter: enteredMemberCount and PA3's headline", () => {
     assert.equal(out?.enteredMemberCount?.members, 7100);
     assert.equal(await pageAudienceWithEnteredCount(asDb(db), "cdw", async () => null), null);
     assert.equal((await enteredMemberCounts(asDb(db), ["cdw", "other"])).size, 1);
+    const named = await pageAudienceWithEnteredCount(asDb(db), "cdw", async () => fig, async () => "Ops");
+    assert.equal(named?.enteredMemberCount?.entered.name, "Ops");
+    assert.equal((await enteredMemberCounts(asDb(db), ["cdw"], async () => "Ops")).get("cdw")?.entered.name, "Ops");
   });
 
   it("before migration 249: no entered counts, no error", async () => {
@@ -379,6 +465,34 @@ describe("the loader", () => {
     assert.equal(val(log.presaleDayTickets), 6600, "written block, landed at the email's Date header");
     assert.equal(val(log.signupSpendPerPresaleTicket).toFixed(2), "0.87");
     for (const o of db.orders) assert.ok(o.columns.length > 0, `${o.table} is ordered for paging`);
+  });
+
+  it("no CIRQLIN page: the Mailchimp tag's 12:00Z row for the day before presale", async () => {
+    const TAG = "Charlotte De Witte - October 2026";
+    const snap = (id: string, at: string, n: number) => ({ id, event_id: "cdw", mailchimp_tag: TAG, snapshot_at: at, email_subscribers: n });
+    const base = tables();
+    const mc = [
+      snap("m1", "2026-08-04T06:01:03Z", 12087),
+      snap("m2", "2026-08-04T12:00:00Z", 12868),
+      snap("m3", "2026-08-05T12:00:00Z", 14206),
+    ];
+    const events = EVENTS.map((e) => (e.id === "cdw" ? { ...e, mailchimp_tag: TAG } : e));
+    const noPage = { ...base, events, signup_source_snapshots: base.signup_source_snapshots.slice(0, 1), mailchimp_tag_snapshots: mc };
+    const db = fakeDb(noPage, { missing: ["presale_logs", "presale_relaunches", "community_member_counts"] });
+    const log = await loadPresaleLog(asDb(db), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(log!.signupsAtPresale), 12868, "the 12:00Z row, not the 06:01 one or the presale day's");
+    assert.equal(log!.signupsAtPresale.kind === "value" && log!.signupsAtPresale.from, `Mailchimp · ${TAG} · Tue 4 Aug`);
+    assert.equal(log!.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug");
+
+    const gap = fakeDb({ ...noPage, mailchimp_tag_snapshots: [mc[0]!, mc[2]!] }, { missing: ["presale_logs", "presale_relaunches", "community_member_counts"] });
+    const missingDay = await loadPresaleLog(asDb(gap), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(reason(missingDay!.signupsAtPresale), "no_mailchimp_count_for_day");
+    assert.deepEqual(await loadMailchimpDayCount(asDb(gap), "cdw", TAG, "2026-08-04"), { tag: TAG, day: "2026-08-04", subscribers: null });
+
+    const withPage = fakeDb({ ...base, events, mailchimp_tag_snapshots: mc }, { missing: ["presale_logs", "presale_relaunches", "community_member_counts"] });
+    const cirqlin = await loadPresaleLog(asDb(withPage), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(cirqlin!.signupsAtPresale), 14500, "CIRQLIN history: Mailchimp isn't read");
+    assert.ok(!withPage.orders.some((o) => o.table === "mailchimp_tag_snapshots"));
   });
 
   it("presale_at unset and nothing passed: no presale time", async () => {
