@@ -3432,3 +3432,98 @@ function campaignDayKey(
 function campaignDiagKey(campaignId: string, campaignName: string): string {
   return campaignId || `name:${campaignName}`;
 }
+
+// ─── Campaign objects, not insights ────────────────────────────────────────
+
+/**
+ * Every campaign in one ad account whose name carries `[eventCode]`,
+ * whether or not it delivered inside any window.
+ *
+ * This exists because the insights edge cannot answer "does this campaign
+ * exist and is it still ours". It only answers "did it spend between these
+ * dates", and the rollup treated a silent answer as a disclaim: Modern
+ * Funktion's two lead-gen campaigns (£596.96 and £370.30, last spend
+ * 5 Aug) were deleted from `events.meta_campaign_id` on 14 Oct purely
+ * because they had not spent inside the 60-day window. The matching rule
+ * here is deliberately identical to the insights path — Graph `CONTAIN` on
+ * the `[CODE` prefix, then the case-sensitive `[CODE]` check client-side —
+ * so this discovers exactly the same set, minus the delivery requirement.
+ */
+export async function fetchCodedCampaignsForAccount(args: {
+  eventCode: string;
+  adAccountId: string;
+  token: string;
+}): Promise<
+  { ok: true; campaigns: { id: string; name: string }[] } | { ok: false; error: InsightsError }
+> {
+  const { eventCode, adAccountId, token } = args;
+  if (!eventCode.trim()) return errorResult("no_event_code", "Event has no event_code set.");
+  if (!adAccountId.trim()) {
+    return errorResult("no_ad_account", "Client has no Meta ad account linked.");
+  }
+  const account = ensureActPrefix(adAccountId);
+  const filtering = JSON.stringify([
+    { field: "name", operator: "CONTAIN", value: metaCampaignFilterPrefix(eventCode) },
+  ]);
+  try {
+    const campaigns: { id: string; name: string }[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const params: Record<string, string> = { fields: "id,name", filtering, limit: "500" };
+      if (after) params.after = after;
+      const res = await graphGetWithToken<GraphPaged<{ id?: string; name?: string }>>(
+        `/${account}/campaigns`,
+        params,
+        token,
+      );
+      for (const row of res.data ?? []) {
+        const name = row.name ?? "";
+        if (!row.id) continue;
+        if (!campaignMatchesBracketedEventCode(name, eventCode)) continue;
+        campaigns.push({ id: row.id, name });
+      }
+      after = res.paging?.cursors?.after;
+      // Same termination as fetchCampaignsForAccount: `cursors.after` is
+      // present on the last page too, so `paging.next` is the real signal.
+      if (!res.paging?.next || !after) break;
+    }
+    return { ok: true, campaigns };
+  } catch (err) {
+    return errorResult(
+      "meta_api_error",
+      err instanceof Error ? err.message : "Campaign read failed.",
+    );
+  }
+}
+
+/**
+ * One campaign's current name. The classification evidence used when the
+ * insights edge says nothing about a stored campaign — a name read cannot
+ * be confused with "no spend", so it can be trusted to answer the only
+ * question that matters there: does this name now carry another event's
+ * code.
+ */
+export async function fetchCampaignNameById(args: {
+  campaignId: string;
+  token: string;
+}): Promise<{ ok: true; name: string } | { ok: false; error: InsightsError }> {
+  if (!args.campaignId.trim()) {
+    return errorResult("meta_api_error", "No campaign id given.");
+  }
+  try {
+    const res = await graphGetWithToken<{ id?: string; name?: string }>(
+      `/${args.campaignId}`,
+      { fields: "id,name" },
+      args.token,
+    );
+    if (typeof res.name !== "string") {
+      return errorResult("meta_api_error", "Campaign returned no name.");
+    }
+    return { ok: true, name: res.name };
+  } catch (err) {
+    return errorResult(
+      "meta_api_error",
+      err instanceof Error ? err.message : "Campaign name read failed.",
+    );
+  }
+}
