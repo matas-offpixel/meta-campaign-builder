@@ -27,8 +27,8 @@ function Scroll({ children }: { children: React.ReactNode }) {
   return <div className="mt-2 min-w-0 max-w-full overflow-x-auto">{children}</div>;
 }
 
-function Links({ viewAd, lab, drive }: { viewAd: string | null; lab: string | null; drive: string | null }) {
-  if (!viewAd && !lab && !drive) return null;
+function Links({ viewAd, lab, drive, surface }: { viewAd: string | null; lab: string | null; drive: string | null; surface: "internal" | "share" }) {
+  if (surface !== "internal" || (!viewAd && !lab && !drive)) return null;
   return (
     <span className="mt-0.5 flex flex-wrap gap-x-2 text-[11px]">
       {viewAd ? (
@@ -141,24 +141,27 @@ export function CreativePanel({ model }: { model: CreativeSectionModel }) {
           <p className={NOTE}>{view.leastEmpty}</p>
         ) : (
           <ul className="mt-2 min-w-0 space-y-1 text-xs">
-            {view.least.map((row) => (
-              <li key={row.key} className="min-w-0 [overflow-wrap:anywhere]">
-                {row.href ? (
-                  <a href={row.href} className="underline">
-                    {row.name}
-                  </a>
-                ) : (
-                  <span className="font-medium">{row.name}</span>
-                )}
-                {row.href ? null : <span className="text-muted-foreground"> · {row.detail}</span>}
-              </li>
-            ))}
+            {view.least.map((row) => {
+              const href = model.surface === "internal" ? row.href : null;
+              return (
+                <li key={row.key} className="min-w-0 [overflow-wrap:anywhere]">
+                  {href ? (
+                    <a href={href} className="underline">
+                      {row.name}
+                    </a>
+                  ) : (
+                    <span className="font-medium">{row.name}</span>
+                  )}
+                  {href || !row.detail || row.detail === row.name ? null : <span className="text-muted-foreground"> · {row.detail}</span>}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
 
-      <Ranked title={SIGNUP_TITLE} rows={view.signups} empty={view.signupEmpty} data="signups" />
-      <Ranked title={SALES_TITLE} rows={view.sales} empty={view.salesEmpty} data="sales" />
+      <Ranked title={SIGNUP_TITLE} rows={view.signups} empty={view.signupEmpty} data="signups" word="signups" surface={model.surface} />
+      <Ranked title={SALES_TITLE} rows={view.sales} empty={view.salesEmpty} data="sales" word="sales" surface={model.surface} />
 
       <div className="mt-4 min-w-0">
         <h3 className="text-sm font-medium">{TIKTOK_TITLE}</h3>
@@ -201,45 +204,75 @@ export function CreativePanel({ model }: { model: CreativeSectionModel }) {
 
 const FORMAT_HEADING = "Formats · signups inside signup campaigns · purchases inside purchase campaigns · cost where £500+ ran";
 
-function Ranked({ title, rows, empty, data }: { title: string; rows: CreativeSectionModel["signups"]; empty: string | null; data: string }) {
+function Ranked({
+  title,
+  rows,
+  empty,
+  data,
+  word,
+  surface,
+}: {
+  title: string;
+  rows: CreativeSectionModel["signups"];
+  empty: string | null;
+  data: string;
+  word: "signups" | "sales";
+  surface: "internal" | "share";
+}) {
   return (
-    <div className="mt-4 min-w-0">
+    <div className="mt-4 min-w-0" data-ranked={data}>
       <h3 className="text-sm font-medium">{title}</h3>
       {empty ? (
         <p className={NOTE}>{empty}</p>
       ) : (
-        <Scroll>
-          <table className="w-max min-w-full text-left text-xs" data-ranked={data}>
-            <thead className="text-[11px] text-muted-foreground">
-              <tr>
-                <th className={TH}>Creative</th>
-                <th className={THN}>Spend</th>
-                <th className={THN}>Result</th>
-                <th className={THN}>Cost</th>
-                <th className={THN}>Impr.</th>
-                <th className={THN}>Clicks</th>
-                <th className={`${THN} pr-0`}>CTR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.key} className="border-t border-border">
-                  <td className={`${TD} min-w-0`}>
-                    <span className="font-medium">{row.name}</span>
-                    {row.tags ? <span className="mt-0.5 block text-[11px] text-muted-foreground">{row.tags}</span> : null}
-                    <Links viewAd={row.viewAd} lab={row.lab} drive={row.drive} />
-                  </td>
-                  <td className={TDN}>{row.spend}</td>
-                  <td className={TDN}>{row.result}</td>
-                  <td className={TDN}>{row.cost}</td>
-                  <td className={TDN}>{row.impressions}</td>
-                  <td className={TDN}>{row.clicks}</td>
-                  <td className={`${TDN} pr-0`}>{row.ctr}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Scroll>
+        <>
+          <ul className="mt-2 min-w-0 space-y-3 sm:hidden">
+            {rows.map((row) => (
+              <li key={row.key} className="min-w-0 border-t border-border pt-2">
+                <p className="font-medium [overflow-wrap:anywhere]">{row.name}</p>
+                <p className="text-[11px] tabular-nums">
+                  {row.result} {word} · {row.cost} each · {row.spend}
+                </p>
+                {row.tags ? <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">{row.tags}</p> : null}
+                <Links viewAd={row.viewAd} lab={row.lab} drive={row.drive} surface={surface} />
+              </li>
+            ))}
+          </ul>
+          <div className="hidden sm:block">
+            <Scroll>
+              <table className="w-max min-w-full text-left text-xs">
+                <thead className="text-[11px] text-muted-foreground">
+                  <tr>
+                    <th className={TH}>Creative</th>
+                    <th className={THN}>Spend</th>
+                    <th className={THN}>Result</th>
+                    <th className={THN}>Cost</th>
+                    <th className={THN}>Impr.</th>
+                    <th className={THN}>Clicks</th>
+                    <th className={`${THN} pr-0`}>CTR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.key} className="border-t border-border">
+                      <td className={`${TD} min-w-0`}>
+                        <span className="font-medium">{row.name}</span>
+                        {row.tags ? <span className="mt-0.5 block text-[11px] text-muted-foreground">{row.tags}</span> : null}
+                        <Links viewAd={row.viewAd} lab={row.lab} drive={row.drive} surface={surface} />
+                      </td>
+                      <td className={TDN}>{row.spend}</td>
+                      <td className={TDN}>{row.result}</td>
+                      <td className={TDN}>{row.cost}</td>
+                      <td className={TDN}>{row.impressions}</td>
+                      <td className={TDN}>{row.clicks}</td>
+                      <td className={`${TDN} pr-0`}>{row.ctr}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Scroll>
+          </div>
+        </>
       )}
     </div>
   );

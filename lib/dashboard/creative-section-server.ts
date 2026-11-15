@@ -59,6 +59,7 @@ type InsightRow = {
   campaign_objective: string | null;
   optimization_goal: string | null;
   promoted_event: string | null;
+  date: string | null;
 };
 
 function viewsOf(model: SalesDashboardModel): { viewIds: string[]; venues: PanelVenue[] } {
@@ -99,7 +100,14 @@ function accountIds(raw: readonly (string | null)[]): string[] {
   return [...out];
 }
 
-async function tiktokFor(eventId: string, service: SupabaseClient): Promise<TikTokRef[]> {
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function dayLabel(iso: string): string {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
+async function tiktokFor(eventId: string, service: SupabaseClient): Promise<{ rows: TikTokRef[]; until: string | null }> {
   const { data, error } = await service
     .from("tiktok_active_creatives_snapshots")
     .select("window_since, window_until, fetched_at")
@@ -107,18 +115,21 @@ async function tiktokFor(eventId: string, service: SupabaseClient): Promise<TikT
     .eq("kind", "ok")
     .order("fetched_at", { ascending: false })
     .limit(1);
-  if (error || !data?.length) return [];
+  if (error || !data?.length) return { rows: [], until: null };
   const window = data[0] as { window_since: string; window_until: string };
   const snapshot = await readActiveTikTokCreativesSnapshot(service, eventId, { since: window.window_since, until: window.window_until });
-  if (!snapshot) return [];
-  return snapshot.rows.map((row) => ({
-    name: row.ad_name,
-    spend: Number(row.cost) || 0,
-    impressions: Number(row.impressions) || 0,
-    clicks: Number(row.clicks_all) || 0,
-    views2s: Number(row.video_views_2s) || 0,
-    viewsFull: Number(row.video_views_p100) || 0,
-  }));
+  if (!snapshot) return { rows: [], until: window.window_until };
+  return {
+    until: window.window_until,
+    rows: snapshot.rows.map((row) => ({
+      name: row.ad_name,
+      spend: Number(row.cost) || 0,
+      impressions: Number(row.impressions) || 0,
+      clicks: Number(row.clicks_all) || 0,
+      views2s: Number(row.video_views_2s) || 0,
+      viewsFull: Number(row.video_views_p100) || 0,
+    })),
+  };
 }
 
 async function load(
@@ -145,7 +156,7 @@ async function load(
         ? loadAllPaged<InsightRow>(
             db,
             "ad_daily_insights",
-            "id, ad_account_id, meta_ad_id, meta_adset_id, ad_name, campaign_name, spend, impressions, clicks, registrations, purchases, campaign_objective, optimization_goal, promoted_event",
+            "id, ad_account_id, meta_ad_id, meta_adset_id, ad_name, campaign_name, spend, impressions, clicks, registrations, purchases, campaign_objective, optimization_goal, promoted_event, date",
             ["id"],
             (q) => q.in("ad_account_id", accounts),
           )
@@ -178,11 +189,14 @@ async function load(
     };
     const eventIdSet = new Set(eventIds);
     const daysByEvent = new Map<string, CreativeDay[]>();
+    const latestByEvent = new Map<string, string>();
     for (const row of insights) {
       const name = row.ad_name?.trim();
       if (!name) continue;
       const resolved = resolveAdContext(row, index);
       if (!resolved.eventId || !eventIdSet.has(resolved.eventId)) continue;
+      const day = row.date?.slice(0, 10);
+      if (day && day > (latestByEvent.get(resolved.eventId) ?? "")) latestByEvent.set(resolved.eventId, day);
       const list = daysByEvent.get(resolved.eventId) ?? [];
       list.push({
         eventId: resolved.eventId,
@@ -222,8 +236,9 @@ async function load(
       }),
     );
     const pauseByEvent = new Map(pauses.map((row) => [row.eventId, row.lines]));
-    const tiktok = await Promise.all(eventIds.map(async (eventId) => ({ eventId, rows: await tiktokFor(eventId, service) })));
+    const tiktok = await Promise.all(eventIds.map(async (eventId) => ({ eventId, ...(await tiktokFor(eventId, service)) })));
     const tiktokByEvent = new Map(tiktok.map((row) => [row.eventId, row.rows]));
+    const tiktokUntil = new Map(tiktok.map((row) => [row.eventId, row.until]));
     const shows: PanelShow[] = events.map((event) => ({ id: event.id, code: event.event_code, name: event.name ?? event.event_code ?? "—", venue_key: event.venue_key }));
     const scopes = scopesForViews(viewsOf(model).viewIds, viewsOf(model).venues, shows, model.clientName);
     const byView: CreativeByView = {};
@@ -232,10 +247,17 @@ async function load(
       const one = ids.length === 1 ? events.find((event) => event.id === ids[0]) : undefined;
       const refreshOn = Boolean(one && onSale.some((event) => event.id === one.id));
       const scored = ids.flatMap((eventId) => (scoredByEvent.get(eventId) ?? []).map((name) => ({ eventId, name })));
-      const label = ids.length === 1 ? (one?.name ?? one?.event_code ?? model.clientName) : scope.d2c.label;
+      const show = ids.length === 1 ? (one?.name ?? one?.event_code ?? "Show") : scope.d2c.label === model.clientName ? "all shows" : scope.d2c.label;
+      const through = ids
+        .flatMap((eventId) => [latestByEvent.get(eventId), tiktokUntil.get(eventId)?.slice(0, 10)])
+        .filter((day): day is string => Boolean(day))
+        .sort()
+        .at(-1);
       byView[viewId] = buildCreativeSection({
         surface,
-        label,
+        client: model.clientName,
+        show,
+        through: through ? dayLabel(through) : "—",
         scored,
         days: ids.flatMap((eventId) => daysByEvent.get(eventId) ?? []),
         tags: ids.flatMap((eventId) => tagsByEvent.get(eventId) ?? []),

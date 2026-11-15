@@ -27,6 +27,6 @@ HE5 adds the E4 creative section on the sales dashboard and the client share lin
 
 ## Notes
 
-IRW0001's scored ad names are not S14 file names, and none of its AI tag labels are the five format names, so that fixture's format table is empty. The £500 gate is covered by a constructed S14 input in the unit test. The frame is the top signup and purchase creatives of Jamie Jones (IRW0001), not the season-report drawing.
+Design fail at `62d71fc`, four items. The frame is now Charlotte de Witte (IRW0006), whose scored ad names say UGC, Static and Presale Reminder. UGC and static show a cost per signup; presale reminder stays under £500, so its costs are —. The source line is the client, the show, Meta and TikTok, and the latest day. A share render drops Lab, refresh-line and Ads Manager links. On a phone the top 10 stacks; the TikTok table still scrolls inside its frame. This show has no TikTok snapshot. Completion stays covered by the IRW0001 window figures in the unit test.
 
 CI run https://github.com/matas-offpixel/meta-campaign-builder/actions/runs/43711882421 (head `62d71fc`): `npm test` and `npm run build` passed. Overflow guard passed. `frames:check` failed only with `MISSING CR1-1280`, `CR1-393`, `CR1S-1280`, `CR1S-393` — the Ubuntu baselines are committed after a design pass, not from this machine. The earlier run failed `npm test` because the share page imported `lib/learning/read.ts`, which reaches the copy library. Score names are now the same latest `creative_scores` snapshot, read in the section server.

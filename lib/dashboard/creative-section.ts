@@ -22,7 +22,7 @@ export const LEAST_N = 5;
 
 export const CREATIVE_TITLE = "Creatives";
 export const FORMAT_TITLE = "Formats · signups inside signup campaigns · purchases inside purchase campaigns · cost where £500+ ran";
-export const FORMAT_EMPTY = "No creative here is named as an S14 angle.";
+export const FORMAT_EMPTY = "Formats show once creatives are named with their format.";
 export const FILTER_HINT = "Match every selected tag.";
 export const FILTER_EMPTY = "No creative matches every selected tag.";
 export const SIGNUP_TITLE = "Top 10 by signups";
@@ -102,8 +102,10 @@ export type TikTokRef = { name: string; spend: number; impressions: number; clic
 
 export type CreativeSectionInput = {
   surface: "internal" | "share";
-  /** Show or client name, as the page already has it. */
-  label: string;
+  client: string;
+  show: string;
+  /** Already formatted, "6 Aug". */
+  through: string;
   scored: readonly { eventId: string; name: string }[];
   days: readonly CreativeDay[];
   tags: readonly CreativeTagRef[];
@@ -225,12 +227,25 @@ function ctr(clicks: number, impressions: number): number | null {
 /** {artist}-{n}_{angle}{caption n}-{stage}_r{n}, the S14 body. */
 const S14_ANGLE = /_([a-z0-9]+(?:-[a-z0-9]+)*?)(\d+)-(?:signup|on-sale|teaser|announcement|presale)_r\d+/i;
 
-/** The S14 angle on a file name, or a tag whose label is one of the five. */
+/** Words operators already put in an ad name. Bare "motion" is a clip number, not this format. */
+const NAME_FORMAT: { re: RegExp; label: FormatLabel }[] = [
+  { re: /\bticket warning\b/i, label: "Ticket warning" },
+  { re: /\bpresale reminder\b/i, label: "Presale reminder" },
+  { re: /\bugc\b/i, label: "UGC edit" },
+  { re: /\bpromo\b/i, label: "Promo / motion edit" },
+  { re: /\bmotion edit\b/i, label: "Promo / motion edit" },
+  { re: /\bstatic\b/i, label: "Static artwork" },
+];
+
+/** The S14 angle, a format word in the ad name, or a tag whose label is one of the five. */
 export function formatOf(name: string, labels: readonly string[]): FormatLabel | null {
   const match = S14_ANGLE.exec(name.toLowerCase());
   if (match) {
     const label = FORMAT_SLUGS[match[1]];
     if (label) return label;
+  }
+  for (const candidate of NAME_FORMAT) {
+    if (candidate.re.test(name)) return candidate.label;
   }
   const wanted = new Map(FORMAT_LABELS.map((label) => [label.toLowerCase(), label]));
   for (const label of labels) {
@@ -267,7 +282,6 @@ type Built = {
   empty: string | null;
   refreshOn: boolean;
   surface: "internal" | "share";
-  label: string;
 };
 
 type Row = {
@@ -417,7 +431,6 @@ function buildRows(input: CreativeSectionInput): Built {
     empty: input.scored.length === 0 ? SCORES_EMPTY : null,
     refreshOn: input.refreshOn,
     surface: input.surface,
-    label: input.label,
   };
 }
 
@@ -531,9 +544,17 @@ export function tablesFor(built: Built, selected: readonly TagChoice[]): Creativ
 
 export function buildCreativeSection(input: CreativeSectionInput, selected: readonly TagChoice[] = []): CreativeSectionModel {
   const built = buildRows(input);
+  if (input.surface === "share") {
+    for (const row of built.rows) {
+      row.viewAd = null;
+      row.lab = null;
+      row.drive = null;
+    }
+    for (const pause of built.pauses) pause.href = null;
+  }
   return {
     title: CREATIVE_TITLE,
-    source: `${input.label} · creative_scores, shared with the Lab and the refresh`,
+    source: `${input.client} · ${input.show} · Meta and TikTok · to ${input.through}`,
     surface: input.surface,
     ...tablesFor(built, selected),
     tags: built.tags,
@@ -549,7 +570,7 @@ export function buildCreativeSection(input: CreativeSectionInput, selected: read
 /** Same tables, for the filter control. Tag counts stay the unfiltered view. */
 export function filterCreativeSection(model: CreativeSectionModel, selected: readonly TagChoice[]): CreativeSectionModel {
   const tables = tablesFor(
-    { rows: model.rows, pauses: model.pauses, tags: model.tags, tiktok: model.tiktok, empty: model.empty, refreshOn: model.refreshOn, surface: model.surface, label: "" },
+    { rows: model.rows, pauses: model.pauses, tags: model.tags, tiktok: model.tiktok, empty: model.empty, refreshOn: model.refreshOn, surface: model.surface },
     selected,
   );
   return { ...model, ...tables };
