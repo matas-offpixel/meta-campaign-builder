@@ -128,7 +128,7 @@ function SendsTable({ model }: { model: DirectToFanModel }) {
           <thead className="text-[11px] text-muted-foreground">
             <tr>
               <th className={TH}>Sent</th>
-              <th className={TH}>Send</th>
+              {model.nameColumn ? <th className={TH}>Send</th> : null}
               {model.showColumn ? <th className={TH}>Show</th> : null}
               <th className={TH}>Channel</th>
               <th className={THN}>Delivered</th>
@@ -141,9 +141,11 @@ function SendsTable({ model }: { model: DirectToFanModel }) {
             {rows.map((s) => (
               <tr key={s.id} className="border-t border-border">
                 <td className={`${TD} text-muted-foreground`}>{s.dayText}</td>
-                <td className={`${TD} max-w-[22rem] truncate`} title={s.name}>
-                  {s.name}
-                </td>
+                {model.nameColumn ? (
+                  <td className={`${TD} max-w-[22rem] truncate`} title={s.name}>
+                    {s.name}
+                  </td>
+                ) : null}
                 {model.showColumn ? <td className={TD}>{s.showText}</td> : null}
                 <td className={TD}>{s.channelText}</td>
                 <td className={TDN}>{s.deliveredText}</td>

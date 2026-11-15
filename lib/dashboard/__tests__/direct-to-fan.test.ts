@@ -125,6 +125,14 @@ describe("Direct-to-fan · whole-list and unattributed sends (PI6)", () => {
     assert.equal(m.showColumn, false);
   });
 
+  it("draws the Send column only when some send has a name, keeping '—' for the ones that don't", () => {
+    const named = buildDirectToFan({ ...input, rows: [row({ attribution: "show", event_id: "e1" }), row({ attribution: "show", event_id: "e1", name: null })] }, client, opts("internal"));
+    assert.equal(named.nameColumn, true);
+    assert.deepEqual(named.sends.map((s) => s.name).sort(), ["—", named.sends.find((s) => s.name !== "—")!.name].sort());
+    const unnamed = buildDirectToFan({ ...input, rows: [row({ attribution: "show", event_id: "e1", name: null })] }, client, opts("internal"));
+    assert.equal(unnamed.nameColumn, false);
+  });
+
   it("lists whole-list sends as 'Whole list' on the client view, and the totals line says how many", () => {
     const m = buildDirectToFan(input, client, opts("internal"));
     assert.equal(m.sends.filter((s) => s.showText === WHOLE_LIST).length, 3);

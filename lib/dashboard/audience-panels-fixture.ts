@@ -14,8 +14,9 @@
  *   - Direct-to-fan: Electric's real figures from the HE3 dry run in #1243
  *     (15 Nov): Bird's whole workspace (52 WhatsApp sends) and Mailchimp's
  *     NX Newcastle audience (229 sends; the dry run read that one audience
- *     of five). The sends are the six the dry run printed; the dry run
- *     printed no send names, so none is drawn. Electric's WhatsApp rate
+ *     of five). The sends are the six the dry run printed, with their names
+ *     as Bird and Mailchimp hold them (read 15 Nov by a re-run of the
+ *     same dry run, nothing written). Electric's WhatsApp rate
  *     isn't set, which is the PI5 state.
  *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
@@ -144,6 +145,7 @@ const SHOWS: Record<string, string> = {
 
 function send(
   id: string,
+  name: string,
   day: string,
   channelId: "whatsapp" | "email",
   eventId: string | null,
@@ -160,7 +162,7 @@ function send(
     audienceKind: "marketing",
     attribution: eventId ? "show" : "client",
     eventId,
-    name: null,
+    name,
     sentAt: `${day}T12:00:00Z`,
     sent,
     delivered,
@@ -185,12 +187,12 @@ export const ELECTRIC_D2C: D2CStatsSummary = {
     channel("email_ticket_holder", 3, 0, 1863, 453, 20),
   ],
   broadcasts: [
-    send("bird-1", "2026-11-13", "whatsapp", "show-robbiedoherty", 685, 640, 227, 22),
-    send("mc-1", "2026-11-13", "email", "show-robbiedoherty", 572, 572, 17, 0),
-    send("bird-2", "2026-11-12", "whatsapp", "show-kream", 589, 525, 275, 26),
-    send("bird-3", "2026-11-05", "whatsapp", "show-locklead", 627, 585, 331, 68),
-    send("bird-4", "2026-10-23", "whatsapp", null, 1750, 1571, 545, 47),
-    send("bird-5", "2026-10-23", "whatsapp", "show-kream", 591, 539, 323, 113),
+    send("bird-1", "ROBBIE DOHERTY — LINEUP ANNOUNCE + 2 WEEKS", "2026-11-13", "whatsapp", "show-robbiedoherty", 685, 640, 227, 22),
+    send("mc-1", "Robbie Doherty — NX Loves-Newcastle-27.11.26 — Lineup Announce (13 Nov 17:00)", "2026-11-13", "email", "show-robbiedoherty", 572, 572, 17, 0),
+    send("bird-2", "Kream lineup", "2026-11-12", "whatsapp", "show-kream", 589, 525, 275, 26),
+    send("bird-3", "Locklead - presale reminder", "2026-11-05", "whatsapp", "show-locklead", 627, 585, 331, 68),
+    send("bird-4", "Azyr - presale live v2", "2026-10-23", "whatsapp", null, 1750, 1571, 545, 47),
+    send("bird-5", "Kream presale", "2026-10-23", "whatsapp", "show-kream", 591, 539, 323, 113),
   ],
 };
 

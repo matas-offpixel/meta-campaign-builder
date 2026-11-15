@@ -88,6 +88,8 @@ export type DirectToFanModel = {
   sends: SendRow[];
   /** Whether the Show column is drawn (not on a show's own view). */
   showColumn: boolean;
+  /** Whether the Send column is drawn: false when no send has a name, so a column of "—" never reads as "no sends". */
+  nameColumn: boolean;
   /** EV4 393. */
   phone: { title: string; rates: PhoneRate[]; costs: PhoneCost[] };
   /** Where "Rate not set" links (internal only). */
@@ -310,6 +312,7 @@ export function modelFromSummary(
         : null,
     sends,
     showColumn: scope.kind !== "show",
+    nameColumn: sends.some((s) => s.name !== DASH),
     phone: { title: CLICK_RATE_TITLE, rates, costs },
     rateHref: opts.surface === "internal" ? opts.rateHref : null,
   };
