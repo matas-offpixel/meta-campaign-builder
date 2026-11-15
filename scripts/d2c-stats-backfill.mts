@@ -147,6 +147,7 @@ async function main() {
           attribution: r.attribution,
           event: r.event_id ? codeOf.get(r.event_id) : null,
           audience_kind: r.audience_kind,
+          list_id: r.list_id,
           sent_at: r.sent_at,
           sent: r.sent,
           delivered: r.delivered,
