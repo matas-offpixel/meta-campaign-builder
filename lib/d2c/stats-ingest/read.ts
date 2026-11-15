@@ -23,7 +23,7 @@ import { summariseD2CStats, type D2CStatsSummary, type MessageRate, type StoredS
 type Db = Pick<SupabaseClient, "from">;
 
 export const STATS_COLUMNS =
-  "id, provider, account_id, external_id, channel, client_id, event_id, attribution, audience_kind, name, sent_at, sent, delivered, read, clicked, opens_unique_raw, opens_unique_filtered, open_rate_filtered, fetched_at";
+  "id, provider, account_id, external_id, channel, client_id, event_id, attribution, audience_kind, name, sent_at, list_id, sent, delivered, read, clicked, opens_unique_raw, opens_unique_filtered, open_rate_filtered, fetched_at";
 
 function toNumber(v: unknown): number | null {
   if (v == null) return null;
@@ -84,6 +84,48 @@ export async function getClientD2CStats(db: Db, clientId: string): Promise<D2CSt
   if (archived.has(clientId)) return empty(rate);
   const rows = await loadStatsRows(db, { clientId });
   return summariseD2CStats(rows, rate);
+}
+
+/** A client's show, as HE3's venue rule (PI6) needs it. */
+export interface D2CShowVenue {
+  id: string;
+  venue_key: string | null;
+  mailchimp_audience_id: string | null;
+}
+
+/** Everything HE3's panel needs for every scope of one client, read once. */
+export interface ClientD2CInput {
+  rows: StoredStatsRow[];
+  rate: MessageRate;
+  shows: D2CShowVenue[];
+  /** PI6: sends on an account this client uses that couldn't be tied to a client (internal review line only). */
+  unattributed: number;
+}
+
+/**
+ * Unattributed sends (client_id null) on the accounts this client's own
+ * sends were read from: a shared account such as GMC and Throwback's Bird
+ * workspace.
+ */
+export async function loadUnattributedCount(db: Db, accountIds: readonly string[]): Promise<number> {
+  const ids = [...new Set(accountIds)];
+  if (!ids.length) return 0;
+  const rows = await loadAllPaged<{ id: string }>(db, "d2c_broadcast_stats", "id", ["id"], (q) =>
+    q.eq("attribution", "unattributed").in("account_id", ids),
+  );
+  return rows.length;
+}
+
+export async function loadClientD2CInput(db: Db, clientId: string): Promise<ClientD2CInput> {
+  const archived = await loadArchivedClientIds(db);
+  const rate = await loadMessageRate(db, clientId);
+  if (archived.has(clientId)) return { rows: [], rate, shows: [], unattributed: 0 };
+  const [rows, shows] = await Promise.all([
+    loadStatsRows(db, { clientId }),
+    loadAllPaged<D2CShowVenue>(db, "events", "id,venue_key,mailchimp_audience_id", ["id"], (q) => q.eq("client_id", clientId)),
+  ]);
+  const unattributed = await loadUnattributedCount(db, rows.map((r) => r.account_id));
+  return { rows, rate, shows, unattributed };
 }
 
 /**
