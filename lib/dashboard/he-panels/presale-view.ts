@@ -18,6 +18,10 @@ export interface PresalePanelModel {
   eventId: string;
   /** "Wed 9 Sep" when the open is known. */
   open: string | null;
+  /**
+   * "Add the window figures" on an internal page with nothing entered.
+   * The share link leaves it out.
+   */
   prompt: string | null;
   rows: PresaleRow[];
   /** Internal pages draw the entry form. The share link does not. */
@@ -86,25 +90,26 @@ export function presalePanel(log: PresaleLog, opts: { show: string; surface: "in
   const window = log.windowStart.kind === "value"
     ? { value: instantText(log.windowStart.value, now), source: figureSource(log.windowStart, now) }
     : { value: DASH, source: null };
+  const rows = [
+    { label: signupsLabel, ...num(log.signupsAtPresale, count, now) },
+    row("Signup spend", log.registrationSpend, pounds, now),
+    { label: "Window start", ...window },
+    row("Community at presale", log.communityAtPresale, count, now),
+    row("Sold in community window", log.soldInWindow, count, now),
+    row("Presale-day tickets", log.presaleDayTickets, count, now),
+    row("Signup spend per presale ticket", log.signupSpendPerPresaleTicket, pounds, now),
+    row("Community conversion", log.communityConversion, pct, now),
+    row("Wider conversion", log.widerConversion, pct, now),
+    row("Average ticket price", log.averageTicketPrice, pounds, now),
+    row("Presale return", log.presaleReturn, multiple, now),
+  ].filter((r) => r.value !== DASH);
   return {
     title: "Presale",
     show: opts.show,
     eventId: log.eventId,
     open: log.presaleDay ? `${formatDay(log.presaleDay)}${log.presaleDay.slice(0, 4) !== (londonParts(now)?.year ?? "") ? ` ${log.presaleDay.slice(0, 4)}` : ""}` : null,
-    prompt: log.prompt,
+    prompt: opts.surface === "internal" ? log.prompt : null,
     form: opts.surface === "internal",
-    rows: [
-      { label: signupsLabel, ...num(log.signupsAtPresale, count, now) },
-      row("Community at presale", log.communityAtPresale, count, now),
-      row("Sold in community window", log.soldInWindow, count, now),
-      row("Presale-day tickets", log.presaleDayTickets, count, now),
-      row("Signup spend per presale ticket", log.signupSpendPerPresaleTicket, pounds, now),
-      { label: "Window start", ...window },
-      row("Meta signup spend", log.registrationSpend, pounds, now),
-      row("Community conversion", log.communityConversion, pct, now),
-      row("Wider conversion", log.widerConversion, pct, now),
-      row("Average ticket price", log.averageTicketPrice, pounds, now),
-      row("Presale return", log.presaleReturn, multiple, now),
-    ],
+    rows,
   };
 }

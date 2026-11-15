@@ -15,7 +15,13 @@ export function PresalePanel({ model }: { model: PresalePanelModel }) {
         {model.show}
         {model.open ? ` · ${model.open}` : ""}
       </p>
-      {model.prompt ? <p className="mt-3 text-sm">{model.prompt}</p> : null}
+      {model.prompt ? (
+        <p className="mt-3 text-sm">
+          <a href="#presale-form" className="underline underline-offset-2">
+            {model.prompt}
+          </a>
+        </p>
+      ) : null}
       <ul className="mt-3 min-w-0 space-y-3">
         {model.rows.map((row) => (
           <li key={row.label} className="min-w-0 border-t border-border pt-2">
@@ -25,7 +31,11 @@ export function PresalePanel({ model }: { model: PresalePanelModel }) {
           </li>
         ))}
       </ul>
-      {model.form ? <PresaleForm eventId={model.eventId} /> : null}
+      {model.form ? (
+        <div id="presale-form">
+          <PresaleForm eventId={model.eventId} />
+        </div>
+      ) : null}
     </section>
   );
 }

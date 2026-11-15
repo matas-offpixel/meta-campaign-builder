@@ -57,13 +57,27 @@ function money(value: number | null): string {
   return value == null ? DASH : pounds(value);
 }
 
+/** A season budget's source names a label, not who entered it or when. */
+function planNote(source: string): string | null {
+  if (source.startsWith("Season budget")) return "Season budget";
+  if (source.includes("budget_marketing") || source.includes("additional_spend")) return "Show budgets";
+  return null;
+}
+
+function creditNote(source: string): string {
+  const standing = "Changes the variance, not the total.";
+  if (source.includes("none entered") || source.includes("isn't applied")) return `None entered. ${standing}`;
+  const named = source.split("entered: ")[1]?.trim();
+  return named ? `${named}. ${standing}` : standing;
+}
+
 export function budgetPanel(result: ObjectiveBudgetResult, nowMs: number): BudgetPanelModel {
   const b = result.budget;
   const channels = (["meta", "tiktok", "google"] as const)
     .filter((c) => (b.paidByChannel[c].value ?? 0) > 0)
     .map((c) => `${CHANNEL[c]} ${pounds(b.paidByChannel[c].value ?? 0)}`);
   const lines: BudgetLine[] = [
-    { label: "Plan", value: money(b.plan.value), note: null },
+    { label: "Plan", value: money(b.plan.value), note: planNote(b.plan.source) },
     { label: "Paid", value: money(b.paid.value), note: channels.length > 1 ? channels.join(" · ") : null },
   ];
   if (result.scope.kind === "client") {
@@ -74,10 +88,11 @@ export function budgetPanel(result: ObjectiveBudgetResult, nowMs: number): Budge
       note: brand > 0 ? null : "No brand campaign.",
     });
   }
+  const creditsEmpty = b.credits.source.includes("none entered") || b.credits.source.includes("isn't applied");
   lines.push({
     label: "Credits",
-    value: money(b.credits.value),
-    note: b.credits.source.includes("none entered") ? "None entered. Variance only." : "Variance only.",
+    value: creditsEmpty ? DASH : money(b.credits.value),
+    note: creditNote(b.credits.source),
   });
   if (b.subBudgetLines.length) {
     for (const line of b.subBudgetLines) {
@@ -85,11 +100,12 @@ export function budgetPanel(result: ObjectiveBudgetResult, nowMs: number): Budge
       lines.push({ label: line.label, value: pounds(line.allocation), note: `Allocation · ${spent}` });
     }
   } else {
-    lines.push({ label: "Sub-budgets", value: money(b.subBudgets.value), note: "None entered." });
+    const subsEmpty = b.subBudgets.source.includes("none entered") || b.subBudgets.source.includes("isn't applied");
+    lines.push({ label: "Sub-budgets", value: subsEmpty ? DASH : money(b.subBudgets.value), note: subsEmpty ? "None entered." : null });
   }
   lines.push({ label: "D2C", value: money(b.d2c.value), note: null });
   lines.push({ label: "Variance", value: money(b.variance.value), note: "Plan − paid + credits." });
-  lines.push({ label: "Total", value: money(b.totalMarketingCreditsNotSubtracted.value), note: null });
+  lines.push({ label: "Total", value: money(b.totalMarketingCreditsNotSubtracted.value), note: "Paid + sub-budgets + D2C." });
   const excludes = b.totalExcludes.length ? `The total excludes ${b.totalExcludes.join(" and ")}.` : null;
   return {
     title: "Objective and budget",

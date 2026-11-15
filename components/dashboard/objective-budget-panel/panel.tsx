@@ -15,6 +15,7 @@ export function ObjectiveBudgetPanel({ model }: { model: BudgetPanelModel }) {
       <p className="mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">
         {model.scope} · {model.period}
       </p>
+      {model.rows.length ? (
       <div className="mt-3 min-w-0 max-w-full overflow-x-auto">
         <table className="w-max min-w-full text-left text-xs" data-objective-table>
           <thead className="text-[11px] text-muted-foreground">
@@ -44,6 +45,7 @@ export function ObjectiveBudgetPanel({ model }: { model: BudgetPanelModel }) {
           </tbody>
         </table>
       </div>
+      ) : null}
       <ul className="mt-4 min-w-0 space-y-2" data-budget>
         {model.lines.map((line) => (
           <li key={line.label} className="flex min-w-0 items-baseline justify-between gap-3 border-t border-border pt-2 text-sm">

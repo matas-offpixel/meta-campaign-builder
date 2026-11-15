@@ -18,7 +18,10 @@ describe("HE4 and HE6 panels", () => {
     const { container } = render(<PresalePanel model={dodPresale("share")} />);
     expect(container.textContent).toContain("Signups at presale · to Tue 8 Sep");
     expect(container.textContent).toContain("counted · CIRQLIN");
-    expect(container.textContent).toContain("Add the window figures");
+    expect(container.textContent).toContain("Signup spend");
+    expect(container.textContent).toContain("Meta signup spend");
+    expect(container.textContent).not.toContain("Add the window figures");
+    expect(container.textContent).not.toContain("Community at presale");
     expect(container.querySelector("[data-presale-form]")).toBeNull();
     expect(container.querySelector("input")).toBeNull();
   });
@@ -26,6 +29,7 @@ describe("HE4 and HE6 panels", () => {
   it("the internal presale draws the form", () => {
     const { container } = render(<PresalePanel model={dodPresale("internal")} />);
     expect(container.querySelector("[data-presale-form]")).toBeTruthy();
+    expect(container.querySelector("a[href='#presale-form']")?.textContent).toBe("Add the window figures");
   });
 
   it("the client budget names an unstored objective and excludes WhatsApp from the total", () => {

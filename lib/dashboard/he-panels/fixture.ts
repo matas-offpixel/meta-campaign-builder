@@ -9,8 +9,8 @@
 import type { PresaleLog } from "../presale/model.ts";
 import type { BudgetPicture, Channel, Figure, MetaClassification, Objective, ObjectiveBudgetResult, ObjectiveRow, ResultMetric } from "../objective-budget/types.ts";
 import { budgetPanel, type BudgetPanelModel } from "./budget-view.ts";
-import { FRAME_NOW_MS } from "./dates.ts";
-import { presalePanel, type PresalePanelModel } from "./presale-view.ts";
+import { FRAME_NOW_MS, periodText } from "./dates.ts";
+import { pounds, presalePanel, type PresalePanelModel } from "./presale-view.ts";
 
 const EVENT = "f0b5636b-ea5d-442e-8a71-36fd930a2b2b";
 const missing = { kind: "missing" as const, reason: "not_entered" as const };
@@ -79,7 +79,7 @@ function picture(opts: {
 }): BudgetPicture {
   const empty = fig(0);
   return {
-    plan: fig(opts.plan),
+    plan: fig(opts.plan, "events.budget_marketing (one per venue code) + additional_spend_entries"),
     planParts: { budgetMarketing: fig(opts.plan), additionalSpend: empty, seasonBudget: fig(null) },
     paid: fig(opts.paid),
     paidByChannel: { meta: fig(opts.meta), tiktok: fig(opts.tiktok), google: fig(opts.google) },
@@ -144,4 +144,31 @@ export function dodBudget(nowMs = FRAME_NOW_MS): BudgetPanelModel {
 
 export function electricBudget(nowMs = FRAME_NOW_MS): BudgetPanelModel {
   return budgetPanel(ELECTRIC_BUDGET, nowMs);
+}
+
+/**
+ * Ironworks Season 1, held here from the submitted report (read 13 Nov,
+ * figures to 4 Nov). Not a live read, and not written to prod.
+ * 83,421.09 + 1,297.27 + 8,681.15 = 93,399.51.
+ * 83,000 − 83,421.09 + 460 = 38.91.
+ * The two afterparties are not split in the report, so they stay one line.
+ */
+export function ironworksBudget(nowMs = FRAME_NOW_MS): BudgetPanelModel {
+  return {
+    title: "Objective and budget",
+    scope: "Ironworks Season 1",
+    period: periodText(null, "2026-11-04", nowMs),
+    rows: [],
+    lines: [
+      { label: "Plan", value: pounds(83000), note: "Season budget · entered by Matas, 13 Nov" },
+      { label: "Paid", value: pounds(83421.09), note: null },
+      { label: "Brand campaigns", value: pounds(22651.1), note: null },
+      { label: "Credits", value: pounds(460), note: "Google promo credit. Changes the variance, not the total." },
+      { label: "Sub-budgets", value: pounds(1297.27), note: "Two afterparties, what ran." },
+      { label: "D2C", value: pounds(8681.15), note: "WhatsApp + SMS" },
+      { label: "Total", value: pounds(93399.51), note: "Paid + sub-budgets + D2C." },
+      { label: "Variance", value: pounds(38.91), note: null },
+    ],
+    totalNote: null,
+  };
 }

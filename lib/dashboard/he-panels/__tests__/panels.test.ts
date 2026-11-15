@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { buildPresaleLog } from "../../presale/model.ts";
 import { budgetPanel } from "../budget-view.ts";
 import { FRAME_NOW_MS, periodText } from "../dates.ts";
-import { DOD_BUDGET, dodPresale, electricBudget } from "../fixture.ts";
+import { DOD_BUDGET, dodPresale, electricBudget, ironworksBudget } from "../fixture.ts";
 import { presalePanel } from "../presale-view.ts";
 
 describe("PH7 dates", () => {
@@ -19,18 +19,20 @@ describe("PH7 dates", () => {
 describe("HE4 D.O.D", () => {
   const model = dodPresale("internal");
 
-  it("names CIRQLIN, the last day, and Meta signup spend, and asks for the window figures", () => {
+  it("keeps only the rows that have a figure, and asks for the window on the internal page", () => {
     assert.equal(model.prompt, "Add the window figures");
-    assert.equal(model.rows[0]?.label, "Signups at presale · to Tue 8 Sep");
+    assert.deepEqual(model.rows.map((r) => r.label), ["Signups at presale · to Tue 8 Sep", "Signup spend", "Window start"]);
     assert.equal(model.rows[0]?.value, "1,810");
     assert.equal(model.rows[0]?.source, "counted · CIRQLIN");
-    const spend = model.rows.find((r) => r.label === "Meta signup spend");
+    const spend = model.rows.find((r) => r.label === "Signup spend");
     assert.equal(spend?.value, "£1,349.82");
     assert.equal(spend?.source, "Meta signup spend");
     assert.equal(model.rows.find((r) => r.label === "Window start")?.value, "9 Sep, 11:30");
     assert.equal(model.rows.find((r) => r.label === "Window start")?.source, "derived");
     assert.equal(model.form, true);
-    assert.equal(dodPresale("share").form, false);
+    const share = dodPresale("share");
+    assert.equal(share.form, false);
+    assert.equal(share.prompt, null);
     assert.equal(JSON.stringify(model).includes("77.6"), false);
   });
 });
@@ -99,12 +101,38 @@ describe("HE6 Electric", () => {
     assert.equal(total.value, "£43,431.26");
     assert.equal(client.totalNote, "The total excludes WhatsApp.");
     const credits = client.lines.find((l) => l.label === "Credits")!;
-    assert.equal(credits.value, "£0.00");
-    assert.match(credits.note ?? "", /Variance only/);
+    assert.equal(credits.value, "—");
+    assert.equal(credits.note, "None entered. Changes the variance, not the total.");
+    assert.equal(client.lines.find((l) => l.label === "Sub-budgets")?.value, "—");
+    assert.equal(client.lines.find((l) => l.label === "Sub-budgets")?.note, "None entered.");
+    assert.equal(client.lines.find((l) => l.label === "Plan")?.note, "Show budgets");
+    assert.equal(total.note, "Paid + sub-budgets + D2C.");
     assert.equal(client.lines.find((l) => l.label === "Brand campaigns")?.note, "No brand campaign.");
     assert.equal(client.lines.some((l) => l.note?.includes("paid − credits")), false);
     assert.equal(show.lines.some((l) => l.label === "Brand campaigns"), false);
     assert.equal(show.lines.find((l) => l.label === "Variance")?.value, "£967.01");
     assert.equal(show.rows[0]?.cost, "£1.44");
+  });
+});
+
+describe("HE6 Ironworks Season 1", () => {
+  const model = ironworksBudget();
+
+  it("holds the submitted report's figures", () => {
+    const line = (label: string) => model.lines.find((l) => l.label === label);
+    assert.equal(line("Plan")?.value, "£83,000.00");
+    assert.equal(line("Plan")?.note, "Season budget · entered by Matas, 13 Nov");
+    assert.equal(line("Paid")?.value, "£83,421.09");
+    assert.equal(line("Brand campaigns")?.value, "£22,651.10");
+    assert.equal(line("Credits")?.value, "£460.00");
+    assert.match(line("Credits")?.note ?? "", /Google promo credit/);
+    assert.match(line("Credits")?.note ?? "", /Changes the variance, not the total/);
+    assert.equal(line("Sub-budgets")?.value, "£1,297.27");
+    assert.equal(line("D2C")?.value, "£8,681.15");
+    assert.equal(line("Total")?.value, "£93,399.51");
+    assert.equal(line("Total")?.note, "Paid + sub-budgets + D2C.");
+    assert.equal(line("Variance")?.value, "£38.91");
+    assert.equal(model.totalNote, null);
+    assert.equal(model.period, "Since launch · to 4 Nov");
   });
 });

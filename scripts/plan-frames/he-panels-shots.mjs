@@ -1,7 +1,7 @@
 /**
  * HE4 and HE6 shots at 1280 and 393. The runner opens /frames/{frame}.
  */
-export const HE_FRAME_IDS = ["PS1", "PS1S", "OB1", "OB1S", "OB2", "OB2S"];
+export const HE_FRAME_IDS = ["PS1", "PS1S", "OB1", "OB1S", "OB2", "OB2S", "OB3", "OB3S"];
 export const HE_WIDTHS = [1280, 393];
 
 const route = (id) => (id.startsWith("PS") ? "presale" : "objective");
