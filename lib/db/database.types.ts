@@ -1,3 +1,11 @@
+// Generated from the production schema (supabase gen types --project-id
+// zbtldbfjbhfvpksmdvnt; 218 applied), then migration 219 (Drive pickup and
+// share, not applied yet) added by hand from its SQL. The two copy-library
+// tables (migrations 207 and 213) are left out on purpose: public routes
+// import this file, and
+// lib/learning/__tests__/cross-client-guard.test.ts keeps their names out of
+// anything those routes can reach.
+
 export type Json =
   | string
   | number
@@ -68,10 +76,149 @@ export type Database = {
             foreignKeyName: "active_creatives_snapshots_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "active_creatives_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
+      }
+      ad_copy: {
+        Row: {
+          ad_account_id: string
+          bodies: string[]
+          call_to_action: string | null
+          creative_id: string | null
+          descriptions: string[]
+          effective_object_story_id: string | null
+          fetched_at: string
+          link_caption: string | null
+          meta_ad_id: string
+          source: string
+          titles: string[]
+        }
+        Insert: {
+          ad_account_id: string
+          bodies?: string[]
+          call_to_action?: string | null
+          creative_id?: string | null
+          descriptions?: string[]
+          effective_object_story_id?: string | null
+          fetched_at?: string
+          link_caption?: string | null
+          meta_ad_id: string
+          source: string
+          titles?: string[]
+        }
+        Update: {
+          ad_account_id?: string
+          bodies?: string[]
+          call_to_action?: string | null
+          creative_id?: string | null
+          descriptions?: string[]
+          effective_object_story_id?: string | null
+          fetched_at?: string
+          link_caption?: string | null
+          meta_ad_id?: string
+          source?: string
+          titles?: string[]
+        }
+        Relationships: []
+      }
+      ad_daily_insights: {
+        Row: {
+          actions: Json
+          ad_account_id: string
+          ad_name: string | null
+          adset_name: string | null
+          campaign_name: string | null
+          campaign_objective: string | null
+          clicks: number
+          date: string
+          fetched_at: string
+          id: string
+          impressions: number
+          landing_page_views: number
+          leads: number
+          link_clicks: number
+          meta_ad_id: string
+          meta_adset_id: string | null
+          meta_campaign_id: string | null
+          optimization_goal: string | null
+          promoted_event: string | null
+          purchases: number
+          reach: number
+          registrations: number
+          result_action_type: string | null
+          spend: number
+          video_plays_15s: number
+          video_plays_3s: number
+          video_plays_p100: number
+        }
+        Insert: {
+          actions?: Json
+          ad_account_id: string
+          ad_name?: string | null
+          adset_name?: string | null
+          campaign_name?: string | null
+          campaign_objective?: string | null
+          clicks?: number
+          date: string
+          fetched_at?: string
+          id?: string
+          impressions?: number
+          landing_page_views?: number
+          leads?: number
+          link_clicks?: number
+          meta_ad_id: string
+          meta_adset_id?: string | null
+          meta_campaign_id?: string | null
+          optimization_goal?: string | null
+          promoted_event?: string | null
+          purchases?: number
+          reach?: number
+          registrations?: number
+          result_action_type?: string | null
+          spend?: number
+          video_plays_15s?: number
+          video_plays_3s?: number
+          video_plays_p100?: number
+        }
+        Update: {
+          actions?: Json
+          ad_account_id?: string
+          ad_name?: string | null
+          adset_name?: string | null
+          campaign_name?: string | null
+          campaign_objective?: string | null
+          clicks?: number
+          date?: string
+          fetched_at?: string
+          id?: string
+          impressions?: number
+          landing_page_views?: number
+          leads?: number
+          link_clicks?: number
+          meta_ad_id?: string
+          meta_adset_id?: string | null
+          meta_campaign_id?: string | null
+          optimization_goal?: string | null
+          promoted_event?: string | null
+          purchases?: number
+          reach?: number
+          registrations?: number
+          result_action_type?: string | null
+          spend?: number
+          video_plays_15s?: number
+          video_plays_3s?: number
+          video_plays_p100?: number
+        }
+        Relationships: []
       }
       ad_plan_audiences: {
         Row: {
@@ -278,6 +425,13 @@ export type Database = {
             foreignKeyName: "ad_plans_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "ad_plans_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -327,6 +481,13 @@ export type Database = {
           venue_event_code?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "additional_spend_entries_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
           {
             foreignKeyName: "additional_spend_entries_event_id_fkey"
             columns: ["event_id"]
@@ -383,6 +544,13 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "additional_ticket_entries_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
           {
             foreignKeyName: "additional_ticket_entries_event_id_fkey"
             columns: ["event_id"]
@@ -510,6 +678,13 @@ export type Database = {
             foreignKeyName: "attribution_order_matches_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "attribution_order_matches_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -609,6 +784,27 @@ export type Database = {
           },
         ]
       }
+      auto_tag_thumbnail_url_index: {
+        Row: {
+          content_hash: string
+          content_type: string
+          created_at: string
+          url_hash: string
+        }
+        Insert: {
+          content_hash: string
+          content_type: string
+          created_at?: string
+          url_hash: string
+        }
+        Update: {
+          content_hash?: string
+          content_type?: string
+          created_at?: string
+          url_hash?: string
+        }
+        Relationships: []
+      }
       benchmark_alerts: {
         Row: {
           acknowledged_at: string | null
@@ -676,8 +872,284 @@ export type Database = {
             foreignKeyName: "benchmark_alerts_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "benchmark_alerts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      bm_ad_accounts: {
+        Row: {
+          account_id: string | null
+          account_status: number | null
+          ad_account_id: string
+          business_id: string
+          currency: string | null
+          disable_reason: number | null
+          first_seen_at: string
+          id: string
+          is_owned_by_bm: boolean
+          last_seen_at: string
+          name: string | null
+          timezone_name: string | null
+          user_has_access: boolean
+          user_tasks: string[]
+        }
+        Insert: {
+          account_id?: string | null
+          account_status?: number | null
+          ad_account_id: string
+          business_id: string
+          currency?: string | null
+          disable_reason?: number | null
+          first_seen_at?: string
+          id?: string
+          is_owned_by_bm?: boolean
+          last_seen_at?: string
+          name?: string | null
+          timezone_name?: string | null
+          user_has_access?: boolean
+          user_tasks?: string[]
+        }
+        Update: {
+          account_id?: string | null
+          account_status?: number | null
+          ad_account_id?: string
+          business_id?: string
+          currency?: string | null
+          disable_reason?: number | null
+          first_seen_at?: string
+          id?: string
+          is_owned_by_bm?: boolean
+          last_seen_at?: string
+          name?: string | null
+          timezone_name?: string | null
+          user_has_access?: boolean
+          user_tasks?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_ad_accounts_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "client_business_managers"
+            referencedColumns: ["business_id"]
+          },
+        ]
+      }
+      bm_ig_accounts: {
+        Row: {
+          business_id: string
+          first_seen_at: string
+          followers: number | null
+          id: string
+          ig_asset_id: string
+          ig_user_id: string | null
+          ig_username: string | null
+          is_owned_by_bm: boolean
+          last_seen_at: string
+          media_count: number | null
+          profile_pic_url: string | null
+          user_has_access: boolean
+          user_tasks: string[]
+        }
+        Insert: {
+          business_id: string
+          first_seen_at?: string
+          followers?: number | null
+          id?: string
+          ig_asset_id: string
+          ig_user_id?: string | null
+          ig_username?: string | null
+          is_owned_by_bm?: boolean
+          last_seen_at?: string
+          media_count?: number | null
+          profile_pic_url?: string | null
+          user_has_access?: boolean
+          user_tasks?: string[]
+        }
+        Update: {
+          business_id?: string
+          first_seen_at?: string
+          followers?: number | null
+          id?: string
+          ig_asset_id?: string
+          ig_user_id?: string | null
+          ig_username?: string | null
+          is_owned_by_bm?: boolean
+          last_seen_at?: string
+          media_count?: number | null
+          profile_pic_url?: string | null
+          user_has_access?: boolean
+          user_tasks?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_ig_accounts_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "client_business_managers"
+            referencedColumns: ["business_id"]
+          },
+        ]
+      }
+      bm_page_access_events: {
+        Row: {
+          action: string
+          asset_id: string | null
+          asset_type: string
+          at: string
+          business_id: string
+          detail: Json
+          id: string
+          page_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          asset_id?: string | null
+          asset_type?: string
+          at?: string
+          business_id: string
+          detail?: Json
+          id?: string
+          page_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          asset_id?: string | null
+          asset_type?: string
+          at?: string
+          business_id?: string
+          detail?: Json
+          id?: string
+          page_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      bm_pages: {
+        Row: {
+          avatar_url: string | null
+          business_id: string
+          category: string | null
+          first_seen_at: string
+          followers: number | null
+          id: string
+          is_owned_by_bm: boolean
+          last_grant_at: string | null
+          last_grant_requested_tasks: string[] | null
+          last_seen_at: string
+          page_id: string
+          page_name: string | null
+          user_has_access: boolean
+          user_tasks: string[]
+        }
+        Insert: {
+          avatar_url?: string | null
+          business_id: string
+          category?: string | null
+          first_seen_at?: string
+          followers?: number | null
+          id?: string
+          is_owned_by_bm?: boolean
+          last_grant_at?: string | null
+          last_grant_requested_tasks?: string[] | null
+          last_seen_at?: string
+          page_id: string
+          page_name?: string | null
+          user_has_access?: boolean
+          user_tasks?: string[]
+        }
+        Update: {
+          avatar_url?: string | null
+          business_id?: string
+          category?: string | null
+          first_seen_at?: string
+          followers?: number | null
+          id?: string
+          is_owned_by_bm?: boolean
+          last_grant_at?: string | null
+          last_grant_requested_tasks?: string[] | null
+          last_seen_at?: string
+          page_id?: string
+          page_name?: string | null
+          user_has_access?: boolean
+          user_tasks?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_pages_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "client_business_managers"
+            referencedColumns: ["business_id"]
+          },
+        ]
+      }
+      bm_pixels: {
+        Row: {
+          business_id: string
+          creation_time: string | null
+          data_use_setting: string | null
+          enable_automatic_matching: boolean | null
+          first_seen_at: string
+          id: string
+          is_owned_by_bm: boolean
+          is_unavailable: boolean | null
+          last_fired_time: string | null
+          last_seen_at: string
+          name: string | null
+          pixel_id: string
+          user_has_access: boolean
+          user_tasks: string[]
+        }
+        Insert: {
+          business_id: string
+          creation_time?: string | null
+          data_use_setting?: string | null
+          enable_automatic_matching?: boolean | null
+          first_seen_at?: string
+          id?: string
+          is_owned_by_bm?: boolean
+          is_unavailable?: boolean | null
+          last_fired_time?: string | null
+          last_seen_at?: string
+          name?: string | null
+          pixel_id: string
+          user_has_access?: boolean
+          user_tasks?: string[]
+        }
+        Update: {
+          business_id?: string
+          creation_time?: string | null
+          data_use_setting?: string | null
+          enable_automatic_matching?: boolean | null
+          first_seen_at?: string
+          id?: string
+          is_owned_by_bm?: boolean
+          is_unavailable?: boolean | null
+          last_fired_time?: string | null
+          last_seen_at?: string
+          name?: string | null
+          pixel_id?: string
+          user_has_access?: boolean
+          user_tasks?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bm_pixels_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "client_business_managers"
+            referencedColumns: ["business_id"]
           },
         ]
       }
@@ -722,6 +1194,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bulk_attach_drafts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "bulk_attach_drafts_event_id_fkey"
@@ -779,6 +1258,89 @@ export type Database = {
           },
         ]
       }
+      campaign_automation_decisions: {
+        Row: {
+          action_delta: number | null
+          action_recommended: string
+          ad_account_id: string
+          adset_id: string
+          applied: boolean
+          applied_at: string | null
+          budget_after_pence: number
+          budget_before_pence: number
+          campaign_id: string
+          channel: string
+          decided_at: string
+          draft_id: string | null
+          dry_run: boolean
+          guardrail_note: string | null
+          id: string
+          meta_response_json: Json | null
+          metric: string
+          metric_value: number | null
+          metric_window: string
+          reason_text: string | null
+          rule_matched: string | null
+          scope: string
+        }
+        Insert: {
+          action_delta?: number | null
+          action_recommended: string
+          ad_account_id: string
+          adset_id: string
+          applied?: boolean
+          applied_at?: string | null
+          budget_after_pence: number
+          budget_before_pence: number
+          campaign_id: string
+          channel?: string
+          decided_at?: string
+          draft_id?: string | null
+          dry_run?: boolean
+          guardrail_note?: string | null
+          id?: string
+          meta_response_json?: Json | null
+          metric: string
+          metric_value?: number | null
+          metric_window: string
+          reason_text?: string | null
+          rule_matched?: string | null
+          scope?: string
+        }
+        Update: {
+          action_delta?: number | null
+          action_recommended?: string
+          ad_account_id?: string
+          adset_id?: string
+          applied?: boolean
+          applied_at?: string | null
+          budget_after_pence?: number
+          budget_before_pence?: number
+          campaign_id?: string
+          channel?: string
+          decided_at?: string
+          draft_id?: string | null
+          dry_run?: boolean
+          guardrail_note?: string | null
+          id?: string
+          meta_response_json?: Json | null
+          metric?: string
+          metric_value?: number | null
+          metric_window?: string
+          reason_text?: string | null
+          rule_matched?: string | null
+          scope?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_automation_decisions_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_drafts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_drafts: {
         Row: {
           ad_account_id: string | null
@@ -789,6 +1351,8 @@ export type Database = {
           id: string
           name: string | null
           objective: string | null
+          optimisation_automation_enabled: boolean
+          optimisation_automation_live: boolean
           status: string | null
           updated_at: string
           user_id: string
@@ -802,6 +1366,8 @@ export type Database = {
           id?: string
           name?: string | null
           objective?: string | null
+          optimisation_automation_enabled?: boolean
+          optimisation_automation_live?: boolean
           status?: string | null
           updated_at?: string
           user_id: string
@@ -815,6 +1381,8 @@ export type Database = {
           id?: string
           name?: string | null
           objective?: string | null
+          optimisation_automation_enabled?: boolean
+          optimisation_automation_live?: boolean
           status?: string | null
           updated_at?: string
           user_id?: string
@@ -829,6 +1397,623 @@ export type Database = {
           },
           {
             foreignKeyName: "campaign_drafts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "campaign_drafts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plan_asset_routes: {
+        Row: {
+          asset_id: string
+          channel: string
+          created_at: string
+          derived_creative_id: string | null
+          enabled: boolean
+          plan_id: string
+          updated_at: string
+          upload_error: string | null
+          upload_status: string
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          channel: string
+          created_at?: string
+          derived_creative_id?: string | null
+          enabled?: boolean
+          plan_id: string
+          updated_at?: string
+          upload_error?: string | null
+          upload_status?: string
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          channel?: string
+          created_at?: string
+          derived_creative_id?: string | null
+          enabled?: boolean
+          plan_id?: string
+          updated_at?: string
+          upload_error?: string | null
+          upload_status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plan_asset_routes_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "creative_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_plan_asset_routes_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plan_copy: {
+        Row: {
+          created_at: string
+          fetch_error: string | null
+          model: string | null
+          page_text: string | null
+          plan_id: string
+          selected_ids: Json
+          source_url: string | null
+          suggestions: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fetch_error?: string | null
+          model?: string | null
+          page_text?: string | null
+          plan_id: string
+          selected_ids?: Json
+          source_url?: string | null
+          suggestions?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fetch_error?: string | null
+          model?: string | null
+          page_text?: string | null
+          plan_id?: string
+          selected_ids?: Json
+          source_url?: string | null
+          suggestions?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plan_copy_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "campaign_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plan_creative_group_members: {
+        Row: {
+          asset_id: string
+          group_id: string
+          plan_id: string
+          position: number
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          group_id: string
+          plan_id: string
+          position?: number
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          group_id?: string
+          plan_id?: string
+          position?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plan_creative_group_members_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "creative_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_plan_creative_group_members_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_creative_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_plan_creative_group_members_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plan_creative_groups: {
+        Row: {
+          created_at: string
+          id: string
+          meta_creative_id: string | null
+          plan_id: string
+          position: number
+          sent_fingerprint: string | null
+          stable_key: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          meta_creative_id?: string | null
+          plan_id: string
+          position?: number
+          sent_fingerprint?: string | null
+          stable_key: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          meta_creative_id?: string | null
+          plan_id?: string
+          position?: number
+          sent_fingerprint?: string | null
+          stable_key?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plan_creative_groups_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plan_google_launch: {
+        Row: {
+          created_at: string
+          draft_id: string | null
+          error: string | null
+          launched_at: string | null
+          launched_at_source: string | null
+          plan_id: string
+          platform_ad_account_id: string | null
+          platform_campaign_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          draft_id?: string | null
+          error?: string | null
+          launched_at?: string | null
+          launched_at_source?: string | null
+          plan_id: string
+          platform_ad_account_id?: string | null
+          platform_campaign_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          draft_id?: string | null
+          error?: string | null
+          launched_at?: string | null
+          launched_at_source?: string | null
+          plan_id?: string
+          platform_ad_account_id?: string | null
+          platform_campaign_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plan_google_launch_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "google_search_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_plan_google_launch_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "campaign_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plan_intake_assets: {
+        Row: {
+          aspect_override: string | null
+          asset_id: string
+          created_at: string
+          detected_bucket: string
+          detected_height: number | null
+          detected_width: number | null
+          plan_id: string
+          sort_order: number
+          unreadable_reason: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          aspect_override?: string | null
+          asset_id: string
+          created_at?: string
+          detected_bucket: string
+          detected_height?: number | null
+          detected_width?: number | null
+          plan_id: string
+          sort_order?: number
+          unreadable_reason?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          aspect_override?: string | null
+          asset_id?: string
+          created_at?: string
+          detected_bucket?: string
+          detected_height?: number | null
+          detected_width?: number | null
+          plan_id?: string
+          sort_order?: number
+          unreadable_reason?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plan_intake_assets_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "creative_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_plan_intake_assets_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plan_meta_launch: {
+        Row: {
+          created_at: string
+          draft_id: string | null
+          error: string | null
+          launched_at: string | null
+          launched_at_source: string | null
+          plan_id: string
+          platform_ad_account_id: string | null
+          platform_campaign_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          draft_id?: string | null
+          error?: string | null
+          launched_at?: string | null
+          launched_at_source?: string | null
+          plan_id: string
+          platform_ad_account_id?: string | null
+          platform_campaign_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          draft_id?: string | null
+          error?: string | null
+          launched_at?: string | null
+          launched_at_source?: string | null
+          plan_id?: string
+          platform_ad_account_id?: string | null
+          platform_campaign_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plan_meta_launch_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_plan_meta_launch_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "campaign_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plan_predictions: {
+        Row: {
+          actual: number | null
+          actual_at: string | null
+          benchmark_rung: string | null
+          closed_reason: string | null
+          created_at: string
+          date_range: unknown
+          id: string
+          line_kind: string
+          metric: string
+          n: number
+          plan_id: string
+          predicted_at: string
+          runs_used: string[]
+          source_kind: string
+          unit: string | null
+          user_id: string
+          value: number
+        }
+        Insert: {
+          actual?: number | null
+          actual_at?: string | null
+          benchmark_rung?: string | null
+          closed_reason?: string | null
+          created_at?: string
+          date_range?: unknown
+          id?: string
+          line_kind: string
+          metric: string
+          n?: number
+          plan_id: string
+          predicted_at?: string
+          runs_used?: string[]
+          source_kind: string
+          unit?: string | null
+          user_id: string
+          value: number
+        }
+        Update: {
+          actual?: number | null
+          actual_at?: string | null
+          benchmark_rung?: string | null
+          closed_reason?: string | null
+          created_at?: string
+          date_range?: unknown
+          id?: string
+          line_kind?: string
+          metric?: string
+          n?: number
+          plan_id?: string
+          predicted_at?: string
+          runs_used?: string[]
+          source_kind?: string
+          unit?: string | null
+          user_id?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plan_predictions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plan_templates: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          name: string
+          snapshot_json: Json
+          tags: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          id?: string
+          name: string
+          snapshot_json?: Json
+          tags?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          name?: string
+          snapshot_json?: Json
+          tags?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      campaign_plan_tiktok_launch: {
+        Row: {
+          created_at: string
+          draft_id: string | null
+          error: string | null
+          launched_at: string | null
+          launched_at_source: string | null
+          plan_id: string
+          platform_ad_account_id: string | null
+          platform_campaign_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          draft_id?: string | null
+          error?: string | null
+          launched_at?: string | null
+          launched_at_source?: string | null
+          plan_id: string
+          platform_ad_account_id?: string | null
+          platform_campaign_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          draft_id?: string | null
+          error?: string | null
+          launched_at?: string | null
+          launched_at_source?: string | null
+          plan_id?: string
+          platform_ad_account_id?: string | null
+          platform_campaign_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plan_tiktok_launch_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "tiktok_campaign_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_plan_tiktok_launch_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "campaign_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_plans: {
+        Row: {
+          audience_cluster_ref: string | null
+          created_at: string
+          creative_set_ref: string | null
+          daily_budget_google: number
+          daily_budget_meta: number
+          daily_budget_tiktok: number
+          destination_url: string
+          end_date: string | null
+          end_time: string | null
+          event_id: string
+          id: string
+          name: string | null
+          objective_intent: string
+          phase: string | null
+          start_date: string | null
+          start_time: string | null
+          status: string
+          target_unit: string | null
+          target_value: number | null
+          total_daily_budget: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          audience_cluster_ref?: string | null
+          created_at?: string
+          creative_set_ref?: string | null
+          daily_budget_google?: number
+          daily_budget_meta?: number
+          daily_budget_tiktok?: number
+          destination_url: string
+          end_date?: string | null
+          end_time?: string | null
+          event_id: string
+          id?: string
+          name?: string | null
+          objective_intent: string
+          phase?: string | null
+          start_date?: string | null
+          start_time?: string | null
+          status?: string
+          target_unit?: string | null
+          target_value?: number | null
+          total_daily_budget?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          audience_cluster_ref?: string | null
+          created_at?: string
+          creative_set_ref?: string | null
+          daily_budget_google?: number
+          daily_budget_meta?: number
+          daily_budget_tiktok?: number
+          destination_url?: string
+          end_date?: string | null
+          end_time?: string | null
+          event_id?: string
+          id?: string
+          name?: string | null
+          objective_intent?: string
+          phase?: string | null
+          start_date?: string | null
+          start_time?: string | null
+          status?: string
+          target_unit?: string | null
+          target_value?: number | null
+          total_daily_budget?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_plans_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "campaign_plans_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
@@ -972,6 +2157,13 @@ export type Database = {
             foreignKeyName: "client_asset_queue_resolved_event_id_fkey"
             columns: ["resolved_event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "client_asset_queue_resolved_event_id_fkey"
+            columns: ["resolved_event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -1022,6 +2214,277 @@ export type Database = {
             foreignKeyName: "client_asset_sheet_config_client_id_fkey"
             columns: ["client_id"]
             isOneToOne: true
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_business_managers: {
+        Row: {
+          access_token_encrypted: string | null
+          added_by_user_id: string | null
+          business_id: string
+          business_name: string | null
+          client_id: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          last_scanned_at: string | null
+          scopes: string[]
+          token_expired: boolean
+          updated_at: string
+        }
+        Insert: {
+          access_token_encrypted?: string | null
+          added_by_user_id?: string | null
+          business_id: string
+          business_name?: string | null
+          client_id?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_scanned_at?: string | null
+          scopes?: string[]
+          token_expired?: boolean
+          updated_at?: string
+        }
+        Update: {
+          access_token_encrypted?: string | null
+          added_by_user_id?: string | null
+          business_id?: string
+          business_name?: string | null
+          client_id?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_scanned_at?: string | null
+          scopes?: string[]
+          token_expired?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_business_managers_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_claim_ladders: {
+        Row: {
+          claim_template: string
+          client_id: string
+          created_at: string
+          id: string
+          options: Json
+          position: number
+          trigger_kind: Database["public"]["Enums"]["claim_trigger_kind"]
+          trigger_value: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          claim_template: string
+          client_id: string
+          created_at?: string
+          id?: string
+          options?: Json
+          position: number
+          trigger_kind: Database["public"]["Enums"]["claim_trigger_kind"]
+          trigger_value: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          claim_template?: string
+          client_id?: string
+          created_at?: string
+          id?: string
+          options?: Json
+          position?: number
+          trigger_kind?: Database["public"]["Enums"]["claim_trigger_kind"]
+          trigger_value?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_claim_ladders_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_funnel_benchmarks: {
+        Row: {
+          client_id: string
+          confidence: number | null
+          created_at: string
+          id: string
+          n: number
+          provenance: string
+          rate: number
+          stage: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          confidence?: number | null
+          created_at?: string
+          id?: string
+          n?: number
+          provenance: string
+          rate: number
+          stage: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          confidence?: number | null
+          created_at?: string
+          id?: string
+          n?: number
+          provenance?: string
+          rate?: number
+          stage?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_funnel_benchmarks_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_landing_pages: {
+        Row: {
+          box_logo_text: string | null
+          brand_instagram_url_default: string | null
+          brand_tiktok_url_default: string | null
+          client_id: string
+          created_at: string
+          created_by: string | null
+          default_provider: string
+          id: string
+          logo_style: string
+          meta_capi_token_encrypted: string | null
+          meta_pixel_id: string | null
+          meta_pixel_id_verified_at: string | null
+          meta_test_event_code: string | null
+          partner_consent_enabled: boolean
+          partner_name: string | null
+          partner_privacy_policy_url: string | null
+          privacy_policy_url: string | null
+          show_off_pixel_attribution: boolean
+          theme: Json
+          updated_at: string
+        }
+        Insert: {
+          box_logo_text?: string | null
+          brand_instagram_url_default?: string | null
+          brand_tiktok_url_default?: string | null
+          client_id: string
+          created_at?: string
+          created_by?: string | null
+          default_provider?: string
+          id?: string
+          logo_style?: string
+          meta_capi_token_encrypted?: string | null
+          meta_pixel_id?: string | null
+          meta_pixel_id_verified_at?: string | null
+          meta_test_event_code?: string | null
+          partner_consent_enabled?: boolean
+          partner_name?: string | null
+          partner_privacy_policy_url?: string | null
+          privacy_policy_url?: string | null
+          show_off_pixel_attribution?: boolean
+          theme?: Json
+          updated_at?: string
+        }
+        Update: {
+          box_logo_text?: string | null
+          brand_instagram_url_default?: string | null
+          brand_tiktok_url_default?: string | null
+          client_id?: string
+          created_at?: string
+          created_by?: string | null
+          default_provider?: string
+          id?: string
+          logo_style?: string
+          meta_capi_token_encrypted?: string | null
+          meta_pixel_id?: string | null
+          meta_pixel_id_verified_at?: string | null
+          meta_test_event_code?: string | null
+          partner_consent_enabled?: boolean
+          partner_name?: string | null
+          partner_privacy_policy_url?: string | null
+          privacy_policy_url?: string | null
+          show_off_pixel_attribution?: boolean
+          theme?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_landing_pages_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: true
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_optimisation_presets: {
+        Row: {
+          client_id: string
+          created_at: string
+          default_arm: string
+          guardrails: Json
+          id: string
+          mode: string
+          objective: string
+          rules: Json
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          default_arm?: string
+          guardrails?: Json
+          id?: string
+          mode?: string
+          objective: string
+          rules?: Json
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          default_arm?: string
+          guardrails?: Json
+          id?: string
+          mode?: string
+          objective?: string
+          rules?: Json
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_optimisation_presets_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
           },
@@ -1117,7 +2580,61 @@ export type Database = {
             foreignKeyName: "client_report_weekly_snapshots_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "client_report_weekly_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_reports: {
+        Row: {
+          client_id: string
+          created_at: string
+          enabled: boolean
+          expires_at: string | null
+          id: string
+          season: string
+          share_token: string
+          storage_path: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          enabled?: boolean
+          expires_at?: string | null
+          id?: string
+          season: string
+          share_token: string
+          storage_path: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          enabled?: boolean
+          expires_at?: string | null
+          id?: string
+          season?: string
+          share_token?: string
+          storage_path?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_reports_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
             referencedColumns: ["id"]
           },
         ]
@@ -1178,6 +2695,38 @@ export type Database = {
           },
         ]
       }
+      client_users: {
+        Row: {
+          client_id: string
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_users_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_venue_mappings: {
         Row: {
           client_id: string
@@ -1225,14 +2774,22 @@ export type Database = {
           created_at: string
           custom_minimum_fee: number | null
           custom_rate_per_ticket: number | null
+          d2c_fallback_artwork_url: string | null
+          default_instagram_actor_id: string | null
           default_page_ids: string[]
           default_settlement_timing: string | null
+          default_tiktok_identity_bc_id: string | null
+          default_tiktok_identity_id: string | null
+          default_tiktok_identity_type: string | null
           default_upfront_pct: number | null
+          drive_folder_id: string | null
           facebook_page_handle: string | null
           google_ads_account_id: string | null
           google_ads_customer_id: string | null
           google_drive_folder_url: string | null
           id: string
+          ig_last_error: string | null
+          instagram_business_id: string | null
           instagram_handle: string | null
           last_probed_at: string | null
           mailchimp_account_id: string | null
@@ -1256,20 +2813,30 @@ export type Database = {
           types: string[]
           updated_at: string
           user_id: string
+          vertical: string
+          voice_hashtags_enabled: boolean
         }
         Insert: {
           billing_model?: string
           created_at?: string
           custom_minimum_fee?: number | null
           custom_rate_per_ticket?: number | null
+          d2c_fallback_artwork_url?: string | null
+          default_instagram_actor_id?: string | null
           default_page_ids?: string[]
           default_settlement_timing?: string | null
+          default_tiktok_identity_bc_id?: string | null
+          default_tiktok_identity_id?: string | null
+          default_tiktok_identity_type?: string | null
           default_upfront_pct?: number | null
+          drive_folder_id?: string | null
           facebook_page_handle?: string | null
           google_ads_account_id?: string | null
           google_ads_customer_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
+          ig_last_error?: string | null
+          instagram_business_id?: string | null
           instagram_handle?: string | null
           last_probed_at?: string | null
           mailchimp_account_id?: string | null
@@ -1293,20 +2860,30 @@ export type Database = {
           types?: string[]
           updated_at?: string
           user_id: string
+          vertical?: string
+          voice_hashtags_enabled?: boolean
         }
         Update: {
           billing_model?: string
           created_at?: string
           custom_minimum_fee?: number | null
           custom_rate_per_ticket?: number | null
+          d2c_fallback_artwork_url?: string | null
+          default_instagram_actor_id?: string | null
           default_page_ids?: string[]
           default_settlement_timing?: string | null
+          default_tiktok_identity_bc_id?: string | null
+          default_tiktok_identity_id?: string | null
+          default_tiktok_identity_type?: string | null
           default_upfront_pct?: number | null
+          drive_folder_id?: string | null
           facebook_page_handle?: string | null
           google_ads_account_id?: string | null
           google_ads_customer_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
+          ig_last_error?: string | null
+          instagram_business_id?: string | null
           instagram_handle?: string | null
           last_probed_at?: string | null
           mailchimp_account_id?: string | null
@@ -1330,6 +2907,8 @@ export type Database = {
           types?: string[]
           updated_at?: string
           user_id?: string
+          vertical?: string
+          voice_hashtags_enabled?: boolean
         }
         Relationships: [
           {
@@ -1354,6 +2933,92 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      creative_asset_channel_ids: {
+        Row: {
+          asset_id: string
+          channel: string
+          created_at: string
+          id: string
+          platform_id: string
+          scope: string
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          channel: string
+          created_at?: string
+          id?: string
+          platform_id: string
+          scope: string
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          channel?: string
+          created_at?: string
+          id?: string
+          platform_id?: string
+          scope?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_asset_channel_ids_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "creative_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_assets: {
+        Row: {
+          aspect_ratio: string
+          byte_size: number
+          content_hash: string
+          created_at: string
+          duration_seconds: number | null
+          drive_file_id: string | null
+          filename: string
+          id: string
+          media_kind: string
+          storage_bucket: string
+          storage_path: string | null
+          thumbnail_url: string | null
+          user_id: string
+        }
+        Insert: {
+          aspect_ratio: string
+          byte_size: number
+          content_hash: string
+          created_at?: string
+          duration_seconds?: number | null
+          drive_file_id?: string | null
+          filename: string
+          id?: string
+          media_kind: string
+          storage_bucket?: string
+          storage_path?: string | null
+          thumbnail_url?: string | null
+          user_id: string
+        }
+        Update: {
+          aspect_ratio?: string
+          byte_size?: number
+          content_hash?: string
+          created_at?: string
+          duration_seconds?: number | null
+          drive_file_id?: string | null
+          filename?: string
+          id?: string
+          media_kind?: string
+          storage_bucket?: string
+          storage_path?: string | null
+          thumbnail_url?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       creative_enhancement_flags: {
         Row: {
@@ -1414,6 +3079,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_enhancement_flags_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "creative_enhancement_flags_event_id_fkey"
@@ -1523,6 +3195,987 @@ export type Database = {
         }
         Relationships: []
       }
+      creative_lab_artists: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          artist_id: string | null
+          client_id: string
+          clip_folder_last_error: string | null
+          clip_folder_synced_at: string | null
+          clip_folder_url: string | null
+          clip_source: string
+          created_at: string
+          id: string
+          ig_last_error: string | null
+          ig_synced_at: string | null
+          ig_username: string | null
+          instagram_actor_id: string | null
+          meta_page_id: string | null
+          name: string
+          played_cities: string[]
+          rights_doc_ref: string | null
+          starting_caption: string | null
+          tiktok_identity_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          artist_id?: string | null
+          client_id: string
+          clip_folder_last_error?: string | null
+          clip_folder_synced_at?: string | null
+          clip_folder_url?: string | null
+          clip_source?: string
+          created_at?: string
+          id?: string
+          ig_last_error?: string | null
+          ig_synced_at?: string | null
+          ig_username?: string | null
+          instagram_actor_id?: string | null
+          meta_page_id?: string | null
+          name: string
+          played_cities?: string[]
+          rights_doc_ref?: string | null
+          starting_caption?: string | null
+          tiktok_identity_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          artist_id?: string | null
+          client_id?: string
+          clip_folder_last_error?: string | null
+          clip_folder_synced_at?: string | null
+          clip_folder_url?: string | null
+          clip_source?: string
+          created_at?: string
+          id?: string
+          ig_last_error?: string | null
+          ig_synced_at?: string | null
+          ig_username?: string | null
+          instagram_actor_id?: string | null
+          meta_page_id?: string | null
+          name?: string
+          played_cities?: string[]
+          rights_doc_ref?: string | null
+          starting_caption?: string | null
+          tiktok_identity_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_artists_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_artists_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_captions: {
+        Row: {
+          artist_id: string | null
+          caption_no: number
+          clip_id: string | null
+          created_at: string
+          declared_names: string[]
+          event_id: string
+          facts_hash: string
+          generated_by: string
+          id: string
+          lines: string[]
+          mode: string
+          primary_text: string | null
+          quote_source: string | null
+          quote_source_note: string | null
+          quote_source_ref: string | null
+          quote_weight: number | null
+          size_variant: string
+          status: string
+          style: string
+          style_version: string
+          text: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          artist_id?: string | null
+          caption_no: number
+          clip_id?: string | null
+          created_at?: string
+          declared_names?: string[]
+          event_id: string
+          facts_hash: string
+          generated_by: string
+          id?: string
+          lines: string[]
+          mode?: string
+          primary_text?: string | null
+          quote_source?: string | null
+          quote_source_note?: string | null
+          quote_source_ref?: string | null
+          quote_weight?: number | null
+          size_variant?: string
+          status?: string
+          style: string
+          style_version: string
+          text: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          artist_id?: string | null
+          caption_no?: number
+          clip_id?: string | null
+          created_at?: string
+          declared_names?: string[]
+          event_id?: string
+          facts_hash?: string
+          generated_by?: string
+          id?: string
+          lines?: string[]
+          mode?: string
+          primary_text?: string | null
+          quote_source?: string | null
+          quote_source_note?: string | null
+          quote_source_ref?: string | null
+          quote_weight?: number | null
+          size_variant?: string
+          status?: string
+          style?: string
+          style_version?: string
+          text?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_captions_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_captions_clip_id_fkey"
+            columns: ["clip_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_clips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_captions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "creative_lab_captions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_clip_selections: {
+        Row: {
+          clip_id: string
+          event_id: string
+          selected: boolean
+          set_at: string
+          set_by: string | null
+          user_id: string
+        }
+        Insert: {
+          clip_id: string
+          event_id: string
+          selected: boolean
+          set_at?: string
+          set_by?: string | null
+          user_id: string
+        }
+        Update: {
+          clip_id?: string
+          event_id?: string
+          selected?: boolean
+          set_at?: string
+          set_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_clip_selections_clip_id_fkey"
+            columns: ["clip_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_clips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clip_selections_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clip_selections_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_clip_features: {
+        Row: {
+          artist_id: string
+          clip_id: string
+          set_at: string | null
+          set_by: string | null
+        }
+        Insert: {
+          artist_id: string
+          clip_id: string
+          set_at?: string | null
+          set_by?: string | null
+        }
+        Update: {
+          artist_id?: string
+          clip_id?: string
+          set_at?: string | null
+          set_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_clip_features_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clip_features_clip_id_fkey"
+            columns: ["clip_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_clips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_clips: {
+        Row: {
+          artist_id: string
+          audio_match: boolean | null
+          audio_status: string
+          clip_no: number
+          created_at: string
+          creative_asset_id: string
+          crop_focus_x: number
+          crop_focus_y: number
+          event_id: string | null
+          face_samples: Json | null
+          face_samples_at: string | null
+          external_id: string | null
+          fetched_at: string | null
+          id: string
+          ig_comments_count: number | null
+          owner: string | null
+          owner_set_at: string | null
+          owner_set_by: string | null
+          ig_followers_at_fetch: number | null
+          ig_like_count: number | null
+          ig_posted_at: string | null
+          in_s: number | null
+          out_s: number | null
+          overlay_check: Json | null
+          permalink: string | null
+          render_asset_id: string | null
+          rights_ref: string
+          source: string
+          source_file_id: string | null
+          shown_on_event_id: string | null
+          triple_fit_source_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          artist_id: string
+          audio_match?: boolean | null
+          audio_status?: string
+          clip_no: number
+          created_at?: string
+          creative_asset_id: string
+          crop_focus_x?: number
+          crop_focus_y?: number
+          event_id?: string | null
+          face_samples?: Json | null
+          face_samples_at?: string | null
+          external_id?: string | null
+          fetched_at?: string | null
+          id?: string
+          ig_comments_count?: number | null
+          ig_followers_at_fetch?: number | null
+          ig_like_count?: number | null
+          ig_posted_at?: string | null
+          in_s?: number | null
+          out_s?: number | null
+          overlay_check?: Json | null
+          owner?: string | null
+          owner_set_at?: string | null
+          owner_set_by?: string | null
+          permalink?: string | null
+          render_asset_id?: string | null
+          rights_ref: string
+          source: string
+          source_file_id?: string | null
+          shown_on_event_id?: string | null
+          triple_fit_source_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          artist_id?: string
+          audio_match?: boolean | null
+          audio_status?: string
+          clip_no?: number
+          created_at?: string
+          creative_asset_id?: string
+          crop_focus_x?: number
+          crop_focus_y?: number
+          event_id?: string | null
+          face_samples?: Json | null
+          face_samples_at?: string | null
+          external_id?: string | null
+          fetched_at?: string | null
+          id?: string
+          ig_comments_count?: number | null
+          ig_followers_at_fetch?: number | null
+          ig_like_count?: number | null
+          ig_posted_at?: string | null
+          in_s?: number | null
+          out_s?: number | null
+          overlay_check?: Json | null
+          owner?: string | null
+          owner_set_at?: string | null
+          owner_set_by?: string | null
+          permalink?: string | null
+          render_asset_id?: string | null
+          rights_ref?: string
+          source?: string
+          source_file_id?: string | null
+          shown_on_event_id?: string | null
+          triple_fit_source_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_clips_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clips_creative_asset_id_fkey"
+            columns: ["creative_asset_id"]
+            isOneToOne: false
+            referencedRelation: "creative_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clips_render_asset_id_fkey"
+            columns: ["render_asset_id"]
+            isOneToOne: false
+            referencedRelation: "creative_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clips_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "creative_lab_clips_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_event_facts: {
+        Row: {
+          allowed_dates: string[]
+          created_at: string
+          event_id: string
+          headliners: string[]
+          lineup: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          allowed_dates?: string[]
+          created_at?: string
+          event_id: string
+          headliners?: string[]
+          lineup?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          allowed_dates?: string[]
+          created_at?: string
+          event_id?: string
+          headliners?: string[]
+          lineup?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_event_facts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "creative_lab_event_facts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_ig_candidates: {
+        Row: {
+          artist_id: string | null
+          aspect: string | null
+          client_id: string | null
+          asset_id: string | null
+          audio_match: boolean | null
+          caption: string | null
+          caption_fetched_at: string | null
+          checked_at: string | null
+          clip_id: string | null
+          comments: number | null
+          created_at: string
+          fetched_at: string
+          file_source: string
+          followers_at_fetch: number | null
+          has_file: boolean
+          id: string
+          ig_media_id: string
+          likes: number | null
+          media_product_type: string | null
+          media_type: string | null
+          overlay_check: Json | null
+          permalink: string | null
+          posted_at: string | null
+          reason: string | null
+          score: number | null
+          slide_ids: string[]
+          status: string
+          thumb_height: number | null
+          thumb_width: number | null
+          thumbnail_path: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          artist_id?: string | null
+          aspect?: string | null
+          client_id?: string | null
+          asset_id?: string | null
+          audio_match?: boolean | null
+          caption?: string | null
+          caption_fetched_at?: string | null
+          checked_at?: string | null
+          clip_id?: string | null
+          comments?: number | null
+          created_at?: string
+          fetched_at?: string
+          file_source: string
+          followers_at_fetch?: number | null
+          has_file: boolean
+          id?: string
+          ig_media_id: string
+          likes?: number | null
+          media_product_type?: string | null
+          media_type?: string | null
+          overlay_check?: Json | null
+          permalink?: string | null
+          posted_at?: string | null
+          reason?: string | null
+          score?: number | null
+          slide_ids?: string[]
+          status?: string
+          thumb_height?: number | null
+          thumb_width?: number | null
+          thumbnail_path?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          artist_id?: string | null
+          aspect?: string | null
+          client_id?: string | null
+          asset_id?: string | null
+          audio_match?: boolean | null
+          caption?: string | null
+          caption_fetched_at?: string | null
+          checked_at?: string | null
+          clip_id?: string | null
+          comments?: number | null
+          created_at?: string
+          fetched_at?: string
+          file_source?: string
+          followers_at_fetch?: number | null
+          has_file?: boolean
+          id?: string
+          ig_media_id?: string
+          likes?: number | null
+          media_product_type?: string | null
+          media_type?: string | null
+          overlay_check?: Json | null
+          permalink?: string | null
+          posted_at?: string | null
+          reason?: string | null
+          score?: number | null
+          slide_ids?: string[]
+          status?: string
+          thumb_height?: number | null
+          thumb_width?: number | null
+          thumbnail_path?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_ig_candidates_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_renders: {
+        Row: {
+          aspect: string
+          attempt: number
+          caption_id: string
+          clip_id: string
+          created_at: string
+          creative_asset_id: string | null
+          drive_attempts: number
+          drive_copied_at: string | null
+          drive_error: string | null
+          drive_file_id: string | null
+          drive_file_name: string | null
+          drive_next_attempt_at: string | null
+          drive_render_attempt: number | null
+          drive_status: string | null
+          drive_winner_shortcut_id: string | null
+          error: string | null
+          id: string
+          kind: string
+          render_ms: number | null
+          ssim: number | null
+          status: string
+          style_version: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          aspect: string
+          attempt?: number
+          caption_id: string
+          clip_id: string
+          created_at?: string
+          creative_asset_id?: string | null
+          drive_attempts?: number
+          drive_copied_at?: string | null
+          drive_error?: string | null
+          drive_file_id?: string | null
+          drive_file_name?: string | null
+          drive_next_attempt_at?: string | null
+          drive_render_attempt?: number | null
+          drive_status?: string | null
+          drive_winner_shortcut_id?: string | null
+          error?: string | null
+          id?: string
+          kind?: string
+          render_ms?: number | null
+          ssim?: number | null
+          status?: string
+          style_version: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          aspect?: string
+          attempt?: number
+          caption_id?: string
+          clip_id?: string
+          created_at?: string
+          creative_asset_id?: string | null
+          drive_attempts?: number
+          drive_copied_at?: string | null
+          drive_error?: string | null
+          drive_file_id?: string | null
+          drive_file_name?: string | null
+          drive_next_attempt_at?: string | null
+          drive_render_attempt?: number | null
+          drive_status?: string | null
+          drive_winner_shortcut_id?: string | null
+          error?: string | null
+          id?: string
+          kind?: string
+          render_ms?: number | null
+          ssim?: number | null
+          status?: string
+          style_version?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_renders_caption_id_fkey"
+            columns: ["caption_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_captions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_renders_clip_id_fkey"
+            columns: ["clip_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_clips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_renders_creative_asset_id_fkey"
+            columns: ["creative_asset_id"]
+            isOneToOne: false
+            referencedRelation: "creative_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_round_ad_launches: {
+        Row: {
+          ad_account_id: string | null
+          created_at: string
+          id: string
+          meta_ad_id: string
+          meta_adset_id: string
+          meta_campaign_id: string | null
+          round_ad_id: string
+          user_id: string
+        }
+        Insert: {
+          ad_account_id?: string | null
+          created_at?: string
+          id?: string
+          meta_ad_id: string
+          meta_adset_id: string
+          meta_campaign_id?: string | null
+          round_ad_id: string
+          user_id: string
+        }
+        Update: {
+          ad_account_id?: string | null
+          created_at?: string
+          id?: string
+          meta_ad_id?: string
+          meta_adset_id?: string
+          meta_campaign_id?: string | null
+          round_ad_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_round_ad_launches_round_ad_id_fkey"
+            columns: ["round_ad_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_round_ads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_round_ads: {
+        Row: {
+          ad_name: string
+          caption_id: string
+          clip_id: string
+          confirmed: boolean
+          created_at: string
+          id: string
+          launch_error: string | null
+          launch_state: string
+          render_id: string | null
+          result_metric: string | null
+          retest_of: string | null
+          role: string
+          round_id: string
+          updated_at: string
+          user_id: string
+          verdict: string | null
+          verdict_cost_per_result: number | null
+          verdict_fair_share: number | null
+          verdict_reason: string | null
+          verdict_results: number | null
+          verdict_spend_share: number | null
+          window_end: string | null
+          window_start: string | null
+        }
+        Insert: {
+          ad_name: string
+          caption_id: string
+          clip_id: string
+          confirmed?: boolean
+          created_at?: string
+          id?: string
+          launch_error?: string | null
+          launch_state?: string
+          render_id?: string | null
+          result_metric?: string | null
+          retest_of?: string | null
+          role?: string
+          round_id: string
+          updated_at?: string
+          user_id: string
+          verdict?: string | null
+          verdict_cost_per_result?: number | null
+          verdict_fair_share?: number | null
+          verdict_reason?: string | null
+          verdict_results?: number | null
+          verdict_spend_share?: number | null
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Update: {
+          ad_name?: string
+          caption_id?: string
+          clip_id?: string
+          confirmed?: boolean
+          created_at?: string
+          id?: string
+          launch_error?: string | null
+          launch_state?: string
+          render_id?: string | null
+          result_metric?: string | null
+          retest_of?: string | null
+          role?: string
+          round_id?: string
+          updated_at?: string
+          user_id?: string
+          verdict?: string | null
+          verdict_cost_per_result?: number | null
+          verdict_fair_share?: number | null
+          verdict_reason?: string | null
+          verdict_results?: number | null
+          verdict_spend_share?: number | null
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_round_ads_caption_id_fkey"
+            columns: ["caption_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_captions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_round_ads_clip_id_fkey"
+            columns: ["clip_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_clips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_round_ads_render_id_fkey"
+            columns: ["render_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_renders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_round_ads_retest_of_fkey"
+            columns: ["retest_of"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_round_ads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_round_ads_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_rounds: {
+        Row: {
+          ad_account_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          artist_id: string
+          built_at: string
+          channel: string
+          created_at: string
+          cta: string | null
+          destination_url: string | null
+          draft_id: string | null
+          event_id: string
+          id: string
+          instagram_actor_id: string | null
+          judged_at: string | null
+          launched_at: string | null
+          meta_adset_id: string | null
+          meta_adset_name: string | null
+          meta_adset_status: string | null
+          meta_campaign_id: string | null
+          meta_campaign_objective: string | null
+          page_id: string | null
+          round_no: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ad_account_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          artist_id: string
+          built_at?: string
+          channel?: string
+          created_at?: string
+          cta?: string | null
+          destination_url?: string | null
+          draft_id?: string | null
+          event_id: string
+          id?: string
+          instagram_actor_id?: string | null
+          judged_at?: string | null
+          launched_at?: string | null
+          meta_adset_id?: string | null
+          meta_adset_name?: string | null
+          meta_adset_status?: string | null
+          meta_campaign_id?: string | null
+          meta_campaign_objective?: string | null
+          page_id?: string | null
+          round_no: number
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ad_account_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          artist_id?: string
+          built_at?: string
+          channel?: string
+          created_at?: string
+          cta?: string | null
+          destination_url?: string | null
+          draft_id?: string | null
+          event_id?: string
+          id?: string
+          instagram_actor_id?: string | null
+          judged_at?: string | null
+          launched_at?: string | null
+          meta_adset_id?: string | null
+          meta_adset_name?: string | null
+          meta_adset_status?: string | null
+          meta_campaign_id?: string | null
+          meta_campaign_objective?: string | null
+          page_id?: string | null
+          round_no?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_rounds_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_rounds_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_lab_rounds_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "creative_lab_rounds_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_lab_style_settings: {
+        Row: {
+          client_id: string
+          emoji_in_primary: boolean
+          style: string
+        }
+        Insert: {
+          client_id: string
+          emoji_in_primary?: boolean
+          style: string
+        }
+        Update: {
+          client_id?: string
+          emoji_in_primary?: boolean
+          style?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_lab_style_settings_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creative_renders: {
         Row: {
           asset_url: string | null
@@ -1564,6 +4217,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "creative_renders_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
           {
             foreignKeyName: "creative_renders_event_id_fkey"
             columns: ["event_id"]
@@ -1616,6 +4276,13 @@ export type Database = {
             foreignKeyName: "creative_scores_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "creative_scores_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -1628,6 +4295,8 @@ export type Database = {
           creative_name: string
           event_id: string
           id: string
+          meta_ad_id: string | null
+          meta_creative_id: string | null
           model_version: string | null
           source: string
           tag_id: string
@@ -1641,6 +4310,8 @@ export type Database = {
           creative_name: string
           event_id: string
           id?: string
+          meta_ad_id?: string | null
+          meta_creative_id?: string | null
           model_version?: string | null
           source: string
           tag_id: string
@@ -1654,6 +4325,8 @@ export type Database = {
           creative_name?: string
           event_id?: string
           id?: string
+          meta_ad_id?: string | null
+          meta_creative_id?: string | null
           model_version?: string | null
           source?: string
           tag_id?: string
@@ -1662,6 +4335,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "creative_tag_assignments_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
           {
             foreignKeyName: "creative_tag_assignments_event_id_fkey"
             columns: ["event_id"]
@@ -1728,6 +4408,13 @@ export type Database = {
           value_label?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "creative_tags_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
           {
             foreignKeyName: "creative_tags_event_id_fkey"
             columns: ["event_id"]
@@ -1800,6 +4487,103 @@ export type Database = {
         }
         Relationships: []
       }
+      cron_runs: {
+        Row: {
+          cron_name: string
+          detail: Json
+          error: string | null
+          finished_at: string
+          id: string
+          ok: boolean
+          rows_considered: number
+          rows_written: number
+          started_at: string
+        }
+        Insert: {
+          cron_name: string
+          detail?: Json
+          error?: string | null
+          finished_at?: string
+          id?: string
+          ok: boolean
+          rows_considered?: number
+          rows_written?: number
+          started_at: string
+        }
+        Update: {
+          cron_name?: string
+          detail?: Json
+          error?: string | null
+          finished_at?: string
+          id?: string
+          ok?: boolean
+          rows_considered?: number
+          rows_written?: number
+          started_at?: string
+        }
+        Relationships: []
+      }
+      d2c_autoresp_fires: {
+        Row: {
+          dry_run: boolean
+          error: string | null
+          event_id: string
+          fired_at: string
+          id: string
+          is_test: boolean
+          member_identifier: string
+          provider: string
+          provider_response_jsonb: Json | null
+          send_id: string
+        }
+        Insert: {
+          dry_run?: boolean
+          error?: string | null
+          event_id: string
+          fired_at?: string
+          id?: string
+          is_test?: boolean
+          member_identifier: string
+          provider: string
+          provider_response_jsonb?: Json | null
+          send_id: string
+        }
+        Update: {
+          dry_run?: boolean
+          error?: string | null
+          event_id?: string
+          fired_at?: string
+          id?: string
+          is_test?: boolean
+          member_identifier?: string
+          provider?: string
+          provider_response_jsonb?: Json | null
+          send_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "d2c_autoresp_fires_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "d2c_autoresp_fires_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "d2c_autoresp_fires_send_id_fkey"
+            columns: ["send_id"]
+            isOneToOne: false
+            referencedRelation: "d2c_scheduled_sends"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       d2c_brief_ingest_jobs: {
         Row: {
           client_id: string
@@ -1844,6 +4628,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "d2c_brief_ingest_jobs_result_event_id_fkey"
+            columns: ["result_event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "d2c_brief_ingest_jobs_result_event_id_fkey"
@@ -1962,6 +4753,61 @@ export type Database = {
             foreignKeyName: "d2c_event_copy_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: true
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "d2c_event_copy_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      d2c_event_shares: {
+        Row: {
+          accessed_count: number
+          created_at: string
+          event_id: string
+          id: string
+          last_accessed_at: string | null
+          revoked_at: string | null
+          token: string
+          user_id: string
+        }
+        Insert: {
+          accessed_count?: number
+          created_at?: string
+          event_id: string
+          id?: string
+          last_accessed_at?: string | null
+          revoked_at?: string | null
+          token: string
+          user_id: string
+        }
+        Update: {
+          accessed_count?: number
+          created_at?: string
+          event_id?: string
+          id?: string
+          last_accessed_at?: string | null
+          revoked_at?: string | null
+          token?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "d2c_event_shares_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "d2c_event_shares_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -1973,6 +4819,9 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           audience: Json
+          bird_broadcast_id: string | null
+          bird_campaign_edit_url: string | null
+          bird_campaign_id: string | null
           channel: string
           connection_id: string
           created_at: string
@@ -1994,6 +4843,9 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           audience?: Json
+          bird_broadcast_id?: string | null
+          bird_campaign_edit_url?: string | null
+          bird_campaign_id?: string | null
           channel: string
           connection_id: string
           created_at?: string
@@ -2015,6 +4867,9 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           audience?: Json
+          bird_broadcast_id?: string | null
+          bird_campaign_edit_url?: string | null
+          bird_campaign_id?: string | null
           channel?: string
           connection_id?: string
           created_at?: string
@@ -2038,6 +4893,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "d2c_connections"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "d2c_scheduled_sends_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "d2c_scheduled_sends_event_id_fkey"
@@ -2157,6 +5019,180 @@ export type Database = {
             foreignKeyName: "daily_tracking_entries_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "daily_tracking_entries_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drive_artist_folder_misses: {
+        Row: {
+          drive_folder_id: string
+          event_id: string
+          folder_name: string
+          id: string
+          seen_at: string
+        }
+        Insert: {
+          drive_folder_id: string
+          event_id: string
+          folder_name: string
+          id?: string
+          seen_at?: string
+        }
+        Update: {
+          drive_folder_id?: string
+          event_id?: string
+          folder_name?: string
+          id?: string
+          seen_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drive_artist_folder_misses_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "drive_artist_folder_misses_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drive_change_cursors: {
+        Row: {
+          drive_id: string
+          page_token: string
+          updated_at: string
+        }
+        Insert: {
+          drive_id: string
+          page_token: string
+          updated_at?: string
+        }
+        Update: {
+          drive_id?: string
+          page_token?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      drive_folders: {
+        Row: {
+          client_id: string
+          created_at: string
+          drive_folder_id: string
+          event_id: string | null
+          id: string
+          key: string
+          name: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          drive_folder_id: string
+          event_id?: string | null
+          id?: string
+          key: string
+          name: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          drive_folder_id?: string
+          event_id?: string | null
+          id?: string
+          key?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drive_folders_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drive_folders_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "drive_folders_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drive_kit_audit_files: {
+        Row: {
+          audited_at: string | null
+          client_id: string
+          drive_file_id: string
+          event_id: string | null
+          folder_key: string
+          id: string
+          mime_type: string | null
+          name: string
+          seen_at: string
+        }
+        Insert: {
+          audited_at?: string | null
+          client_id: string
+          drive_file_id: string
+          event_id?: string | null
+          folder_key: string
+          id?: string
+          mime_type?: string | null
+          name: string
+          seen_at?: string
+        }
+        Update: {
+          audited_at?: string | null
+          client_id?: string
+          drive_file_id?: string
+          event_id?: string | null
+          folder_key?: string
+          id?: string
+          mime_type?: string | null
+          name?: string
+          seen_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drive_kit_audit_files_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drive_kit_audit_files_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "drive_kit_audit_files_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -2192,6 +5228,13 @@ export type Database = {
             foreignKeyName: "event_activity_snapshots_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_activity_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -2205,6 +5248,7 @@ export type Database = {
           event_id: string
           id: string
           is_headliner: boolean
+          source: string
           user_id: string
         }
         Insert: {
@@ -2214,6 +5258,7 @@ export type Database = {
           event_id: string
           id?: string
           is_headliner?: boolean
+          source?: string
           user_id: string
         }
         Update: {
@@ -2223,6 +5268,7 @@ export type Database = {
           event_id?: string
           id?: string
           is_headliner?: boolean
+          source?: string
           user_id?: string
         }
         Relationships: [
@@ -2232,6 +5278,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "artists"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_artists_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "event_artists_event_id_fkey"
@@ -2454,6 +5507,13 @@ export type Database = {
             foreignKeyName: "event_daily_rollups_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_daily_rollups_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -2498,73 +5558,11 @@ export type Database = {
             foreignKeyName: "event_daily_ticket_history_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      event_funnel_overrides: {
-        Row: {
-          bofu_to_reg_rate: number | null
-          client_id: string
-          cost_per_lpv: number | null
-          cost_per_reach: number | null
-          cost_per_reg: number | null
-          created_at: string
-          event_code: string | null
-          event_id: string | null
-          id: string
-          mofu_to_bofu_rate: number | null
-          organic_lift_rate: number | null
-          reg_to_sale_rate: number | null
-          sellout_target_override: number | null
-          tofu_to_mofu_rate: number | null
-          updated_at: string
-        }
-        Insert: {
-          bofu_to_reg_rate?: number | null
-          client_id: string
-          cost_per_lpv?: number | null
-          cost_per_reach?: number | null
-          cost_per_reg?: number | null
-          created_at?: string
-          event_code?: string | null
-          event_id?: string | null
-          id?: string
-          mofu_to_bofu_rate?: number | null
-          organic_lift_rate?: number | null
-          reg_to_sale_rate?: number | null
-          sellout_target_override?: number | null
-          tofu_to_mofu_rate?: number | null
-          updated_at?: string
-        }
-        Update: {
-          bofu_to_reg_rate?: number | null
-          client_id?: string
-          cost_per_lpv?: number | null
-          cost_per_reach?: number | null
-          cost_per_reg?: number | null
-          created_at?: string
-          event_code?: string | null
-          event_id?: string | null
-          id?: string
-          mofu_to_bofu_rate?: number | null
-          organic_lift_rate?: number | null
-          reg_to_sale_rate?: number | null
-          sellout_target_override?: number | null
-          tofu_to_mofu_rate?: number | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_funnel_overrides_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
-            foreignKeyName: "event_funnel_overrides_event_id_fkey"
+            foreignKeyName: "event_daily_ticket_history_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
@@ -2651,6 +5649,13 @@ export type Database = {
             foreignKeyName: "event_funnel_targets_derived_from_event_id_fkey"
             columns: ["derived_from_event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_funnel_targets_derived_from_event_id_fkey"
+            columns: ["derived_from_event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -2698,6 +5703,204 @@ export type Database = {
             foreignKeyName: "event_key_moments_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_key_moments_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_releases: {
+        Row: {
+          capacity: number | null
+          community_at: string | null
+          created_at: string
+          event_id: string
+          id: string
+          list_at: string | null
+          name: string
+          position: number
+          price: number | null
+          remaining: number | null
+          sold: number | null
+          state: Database["public"]["Enums"]["release_state"]
+          state_at: string | null
+          state_set_by: string | null
+          state_source:
+            | Database["public"]["Enums"]["release_state_source"]
+            | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          capacity?: number | null
+          community_at?: string | null
+          created_at?: string
+          event_id: string
+          id?: string
+          list_at?: string | null
+          name: string
+          position: number
+          price?: number | null
+          remaining?: number | null
+          sold?: number | null
+          state?: Database["public"]["Enums"]["release_state"]
+          state_at?: string | null
+          state_set_by?: string | null
+          state_source?:
+            | Database["public"]["Enums"]["release_state_source"]
+            | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          capacity?: number | null
+          community_at?: string | null
+          created_at?: string
+          event_id?: string
+          id?: string
+          list_at?: string | null
+          name?: string
+          position?: number
+          price?: number | null
+          remaining?: number | null
+          sold?: number | null
+          state?: Database["public"]["Enums"]["release_state"]
+          state_at?: string | null
+          state_set_by?: string | null
+          state_source?:
+            | Database["public"]["Enums"]["release_state_source"]
+            | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_releases_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_releases_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_signups: {
+        Row: {
+          anonymized_at: string | null
+          client_id: string
+          consent_gdpr_at: string
+          consent_wa_opt_in_at: string | null
+          created_at: string
+          deduplicated_signup_id: string | null
+          deleted_at: string | null
+          email_encrypted: string | null
+          email_hash: string | null
+          event_id: string
+          geo_city: string | null
+          geo_country: string | null
+          geo_region: string | null
+          id: string
+          ig_handle: string | null
+          ip_hash: string | null
+          phone_country_code: string | null
+          phone_encrypted: string | null
+          phone_hash: string | null
+          referrer_url: string | null
+          source: string | null
+          tt_handle: string | null
+          user_agent: string | null
+          utm: Json
+        }
+        Insert: {
+          anonymized_at?: string | null
+          client_id: string
+          consent_gdpr_at: string
+          consent_wa_opt_in_at?: string | null
+          created_at?: string
+          deduplicated_signup_id?: string | null
+          deleted_at?: string | null
+          email_encrypted?: string | null
+          email_hash?: string | null
+          event_id: string
+          geo_city?: string | null
+          geo_country?: string | null
+          geo_region?: string | null
+          id?: string
+          ig_handle?: string | null
+          ip_hash?: string | null
+          phone_country_code?: string | null
+          phone_encrypted?: string | null
+          phone_hash?: string | null
+          referrer_url?: string | null
+          source?: string | null
+          tt_handle?: string | null
+          user_agent?: string | null
+          utm?: Json
+        }
+        Update: {
+          anonymized_at?: string | null
+          client_id?: string
+          consent_gdpr_at?: string
+          consent_wa_opt_in_at?: string | null
+          created_at?: string
+          deduplicated_signup_id?: string | null
+          deleted_at?: string | null
+          email_encrypted?: string | null
+          email_hash?: string | null
+          event_id?: string
+          geo_city?: string | null
+          geo_country?: string | null
+          geo_region?: string | null
+          id?: string
+          ig_handle?: string | null
+          ip_hash?: string | null
+          phone_country_code?: string | null
+          phone_encrypted?: string | null
+          phone_hash?: string | null
+          referrer_url?: string | null
+          source?: string | null
+          tt_handle?: string | null
+          user_agent?: string | null
+          utm?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_signups_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_signups_deduplicated_signup_id_fkey"
+            columns: ["deduplicated_signup_id"]
+            isOneToOne: false
+            referencedRelation: "event_signups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_signups_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_signups_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -2738,6 +5941,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "event_ticket_tiers_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
           {
             foreignKeyName: "event_ticket_tiers_event_id_fkey"
             columns: ["event_id"]
@@ -2796,6 +6006,13 @@ export type Database = {
             foreignKeyName: "event_ticketing_links_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_ticketing_links_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -2809,7 +6026,15 @@ export type Database = {
           campaign_end_at: string | null
           capacity: number | null
           client_id: string
+          clip_selection_mode: string
           created_at: string
+          drive_cancel_marked_at: string | null
+          drive_folder_id: string | null
+          drive_folder_linked: boolean
+          drive_share_permission_id: string | null
+          drive_shared_at: string | null
+          drive_shared_by: string | null
+          drive_shared_with: string | null
           event_code: string | null
           event_date: string | null
           event_start_at: string | null
@@ -2849,6 +6074,7 @@ export type Database = {
           venue_city: string | null
           venue_country: string | null
           venue_id: string | null
+          venue_key: string | null
           venue_name: string | null
         }
         Insert: {
@@ -2858,7 +6084,15 @@ export type Database = {
           campaign_end_at?: string | null
           capacity?: number | null
           client_id: string
+          clip_selection_mode?: string
           created_at?: string
+          drive_cancel_marked_at?: string | null
+          drive_folder_id?: string | null
+          drive_folder_linked?: boolean
+          drive_share_permission_id?: string | null
+          drive_shared_at?: string | null
+          drive_shared_by?: string | null
+          drive_shared_with?: string | null
           event_code?: string | null
           event_date?: string | null
           event_start_at?: string | null
@@ -2898,6 +6132,7 @@ export type Database = {
           venue_city?: string | null
           venue_country?: string | null
           venue_id?: string | null
+          venue_key?: string | null
           venue_name?: string | null
         }
         Update: {
@@ -2907,7 +6142,15 @@ export type Database = {
           campaign_end_at?: string | null
           capacity?: number | null
           client_id?: string
+          clip_selection_mode?: string
           created_at?: string
+          drive_cancel_marked_at?: string | null
+          drive_folder_id?: string | null
+          drive_folder_linked?: boolean
+          drive_share_permission_id?: string | null
+          drive_shared_at?: string | null
+          drive_shared_by?: string | null
+          drive_shared_with?: string | null
           event_code?: string | null
           event_date?: string | null
           event_start_at?: string | null
@@ -2947,6 +6190,7 @@ export type Database = {
           venue_city?: string | null
           venue_country?: string | null
           venue_id?: string | null
+          venue_key?: string | null
           venue_name?: string | null
         }
         Relationships: [
@@ -3115,6 +6359,13 @@ export type Database = {
             foreignKeyName: "google_ad_plans_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "google_ad_plans_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -3130,9 +6381,11 @@ export type Database = {
       google_ads_accounts: {
         Row: {
           account_name: string
+          conversion_actions_checked_at: string | null
           created_at: string
           credentials_encrypted: string | null
           credentials_format: string
+          enabled_conversion_actions: number | null
           google_customer_id: string | null
           id: string
           login_customer_id: string | null
@@ -3141,9 +6394,11 @@ export type Database = {
         }
         Insert: {
           account_name: string
+          conversion_actions_checked_at?: string | null
           created_at?: string
           credentials_encrypted?: string | null
           credentials_format?: string
+          enabled_conversion_actions?: number | null
           google_customer_id?: string | null
           id?: string
           login_customer_id?: string | null
@@ -3152,13 +6407,227 @@ export type Database = {
         }
         Update: {
           account_name?: string
+          conversion_actions_checked_at?: string | null
           created_at?: string
           credentials_encrypted?: string | null
           credentials_format?: string
+          enabled_conversion_actions?: number | null
           google_customer_id?: string | null
           id?: string
           login_customer_id?: string | null
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      google_ads_daily_snapshots: {
+        Row: {
+          advertising_channel_type: string | null
+          campaign_name: string | null
+          campaign_resource_name: string
+          clicks: number
+          conversion_value_micros: number
+          conversions: number
+          cost_micros: number
+          customer_id: string
+          date: string
+          event_code: string | null
+          fetched_at: string
+          google_ads_account_id: string
+          id: string
+          impressions: number
+          plan_id: string | null
+          plan_kind: string | null
+          search_impression_share: number | null
+          trueview_average_cpv_micros: number | null
+          user_id: string
+          video_trueview_view_rate: number | null
+          video_trueview_views: number | null
+        }
+        Insert: {
+          advertising_channel_type?: string | null
+          campaign_name?: string | null
+          campaign_resource_name: string
+          clicks?: number
+          conversion_value_micros?: number
+          conversions?: number
+          cost_micros?: number
+          customer_id: string
+          date: string
+          event_code?: string | null
+          fetched_at?: string
+          google_ads_account_id: string
+          id?: string
+          impressions?: number
+          plan_id?: string | null
+          plan_kind?: string | null
+          search_impression_share?: number | null
+          trueview_average_cpv_micros?: number | null
+          user_id: string
+          video_trueview_view_rate?: number | null
+          video_trueview_views?: number | null
+        }
+        Update: {
+          advertising_channel_type?: string | null
+          campaign_name?: string | null
+          campaign_resource_name?: string
+          clicks?: number
+          conversion_value_micros?: number
+          conversions?: number
+          cost_micros?: number
+          customer_id?: string
+          date?: string
+          event_code?: string | null
+          fetched_at?: string
+          google_ads_account_id?: string
+          id?: string
+          impressions?: number
+          plan_id?: string | null
+          plan_kind?: string | null
+          search_impression_share?: number | null
+          trueview_average_cpv_micros?: number | null
+          user_id?: string
+          video_trueview_view_rate?: number | null
+          video_trueview_views?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_ads_daily_snapshots_google_ads_account_id_fkey"
+            columns: ["google_ads_account_id"]
+            isOneToOne: false
+            referencedRelation: "google_ads_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_ads_insights_runs: {
+        Row: {
+          accounts: number
+          calls: number
+          failed_accounts: Json
+          id: string
+          ok: boolean
+          outcomes: Json
+          rows_written: number
+          run_at: string
+          since: string
+          until: string
+        }
+        Insert: {
+          accounts?: number
+          calls?: number
+          failed_accounts?: Json
+          id?: string
+          ok: boolean
+          outcomes?: Json
+          rows_written?: number
+          run_at?: string
+          since: string
+          until: string
+        }
+        Update: {
+          accounts?: number
+          calls?: number
+          failed_accounts?: Json
+          id?: string
+          ok?: boolean
+          outcomes?: Json
+          rows_written?: number
+          run_at?: string
+          since?: string
+          until?: string
+        }
+        Relationships: []
+      }
+      google_ads_location_snapshots: {
+        Row: {
+          campaign_resource_name: string
+          clicks: number
+          cost_micros: number
+          country_criterion_id: number
+          customer_id: string
+          date: string
+          fetched_at: string
+          id: string
+          impressions: number
+          location_type: string
+          user_id: string
+        }
+        Insert: {
+          campaign_resource_name: string
+          clicks?: number
+          cost_micros?: number
+          country_criterion_id: number
+          customer_id: string
+          date: string
+          fetched_at?: string
+          id?: string
+          impressions?: number
+          location_type: string
+          user_id: string
+        }
+        Update: {
+          campaign_resource_name?: string
+          clicks?: number
+          cost_micros?: number
+          country_criterion_id?: number
+          customer_id?: string
+          date?: string
+          fetched_at?: string
+          id?: string
+          impressions?: number
+          location_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      google_ads_search_terms_snapshots: {
+        Row: {
+          ad_group_resource_name: string
+          campaign_resource_name: string
+          clicks: number
+          conversions: number
+          cost_micros: number
+          customer_id: string
+          date: string
+          fetched_at: string
+          id: string
+          impressions: number
+          match_type: string
+          plan_id: string | null
+          search_term: string
+          user_id: string
+        }
+        Insert: {
+          ad_group_resource_name: string
+          campaign_resource_name: string
+          clicks?: number
+          conversions?: number
+          cost_micros?: number
+          customer_id: string
+          date: string
+          fetched_at?: string
+          id?: string
+          impressions?: number
+          match_type: string
+          plan_id?: string | null
+          search_term: string
+          user_id: string
+        }
+        Update: {
+          ad_group_resource_name?: string
+          campaign_resource_name?: string
+          clicks?: number
+          conversions?: number
+          cost_micros?: number
+          customer_id?: string
+          date?: string
+          fetched_at?: string
+          id?: string
+          impressions?: number
+          match_type?: string
+          plan_id?: string | null
+          search_term?: string
           user_id?: string
         }
         Relationships: []
@@ -3300,6 +6769,7 @@ export type Database = {
       }
       google_search_negatives: {
         Row: {
+          ad_group_id: string | null
           campaign_id: string | null
           created_at: string
           id: string
@@ -3310,6 +6780,7 @@ export type Database = {
           reason: string | null
         }
         Insert: {
+          ad_group_id?: string | null
           campaign_id?: string | null
           created_at?: string
           id?: string
@@ -3320,6 +6791,7 @@ export type Database = {
           reason?: string | null
         }
         Update: {
+          ad_group_id?: string | null
           campaign_id?: string | null
           created_at?: string
           id?: string
@@ -3330,6 +6802,13 @@ export type Database = {
           reason?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "google_search_negatives_ad_group_id_fkey"
+            columns: ["ad_group_id"]
+            isOneToOne: false
+            referencedRelation: "google_search_ad_groups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "google_search_negatives_campaign_id_fkey"
             columns: ["campaign_id"]
@@ -3350,12 +6829,14 @@ export type Database = {
         Row: {
           bidding_strategy: string
           created_at: string
+          daily_budget: number | null
           date_range: Json | null
           event_id: string | null
           geo_targets: Json
           google_ads_account_id: string | null
           id: string
           name: string
+          pacing: string
           pushed_at: string | null
           status: string
           structure_mode: string
@@ -3366,12 +6847,14 @@ export type Database = {
         Insert: {
           bidding_strategy?: string
           created_at?: string
+          daily_budget?: number | null
           date_range?: Json | null
           event_id?: string | null
           geo_targets?: Json
           google_ads_account_id?: string | null
           id?: string
           name: string
+          pacing?: string
           pushed_at?: string | null
           status?: string
           structure_mode?: string
@@ -3382,12 +6865,14 @@ export type Database = {
         Update: {
           bidding_strategy?: string
           created_at?: string
+          daily_budget?: number | null
           date_range?: Json | null
           event_id?: string | null
           geo_targets?: Json
           google_ads_account_id?: string | null
           id?: string
           name?: string
+          pacing?: string
           pushed_at?: string | null
           status?: string
           structure_mode?: string
@@ -3396,6 +6881,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "google_search_plans_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
           {
             foreignKeyName: "google_search_plans_event_id_fkey"
             columns: ["event_id"]
@@ -3500,6 +6992,363 @@ export type Database = {
           },
         ]
       }
+      google_video_ad_groups: {
+        Row: {
+          campaign_id: string
+          cpv_bid: number | null
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+          status: string
+        }
+        Insert: {
+          campaign_id: string
+          cpv_bid?: number | null
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+          status?: string
+        }
+        Update: {
+          campaign_id?: string
+          cpv_bid?: number | null
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_video_ad_groups_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "google_video_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_video_ads: {
+        Row: {
+          call_to_action: string | null
+          created_at: string
+          description: string | null
+          extra_copy: Json
+          final_url: string | null
+          headline: string | null
+          id: string
+          long_headline: string | null
+          name: string
+          note: string | null
+          plan_id: string
+          sort_order: number
+          status: string
+          video_id: string | null
+          video_value: string | null
+        }
+        Insert: {
+          call_to_action?: string | null
+          created_at?: string
+          description?: string | null
+          extra_copy?: Json
+          final_url?: string | null
+          headline?: string | null
+          id?: string
+          long_headline?: string | null
+          name: string
+          note?: string | null
+          plan_id: string
+          sort_order?: number
+          status?: string
+          video_id?: string | null
+          video_value?: string | null
+        }
+        Update: {
+          call_to_action?: string | null
+          created_at?: string
+          description?: string | null
+          extra_copy?: Json
+          final_url?: string | null
+          headline?: string | null
+          id?: string
+          long_headline?: string | null
+          name?: string
+          note?: string | null
+          plan_id?: string
+          sort_order?: number
+          status?: string
+          video_id?: string | null
+          video_value?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_video_ads_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "google_video_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_video_campaigns: {
+        Row: {
+          created_at: string
+          daily_budget: number | null
+          google_campaign_resource_name: string | null
+          id: string
+          name: string
+          plan_id: string
+          sort_order: number
+          status: string
+          tier: string | null
+        }
+        Insert: {
+          created_at?: string
+          daily_budget?: number | null
+          google_campaign_resource_name?: string | null
+          id?: string
+          name: string
+          plan_id: string
+          sort_order?: number
+          status?: string
+          tier?: string | null
+        }
+        Update: {
+          created_at?: string
+          daily_budget?: number | null
+          google_campaign_resource_name?: string | null
+          id?: string
+          name?: string
+          plan_id?: string
+          sort_order?: number
+          status?: string
+          tier?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_video_campaigns_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "google_video_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_video_placements: {
+        Row: {
+          ad_group_id: string
+          created_at: string
+          id: string
+          kind: string | null
+          label: string
+          note: string | null
+          resolved_id: string | null
+          sort_order: number
+          status: string
+          value: string
+        }
+        Insert: {
+          ad_group_id: string
+          created_at?: string
+          id?: string
+          kind?: string | null
+          label: string
+          note?: string | null
+          resolved_id?: string | null
+          sort_order?: number
+          status?: string
+          value?: string
+        }
+        Update: {
+          ad_group_id?: string
+          created_at?: string
+          id?: string
+          kind?: string | null
+          label?: string
+          note?: string | null
+          resolved_id?: string | null
+          sort_order?: number
+          status?: string
+          value?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_video_placements_ad_group_id_fkey"
+            columns: ["ad_group_id"]
+            isOneToOne: false
+            referencedRelation: "google_video_ad_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_video_plans: {
+        Row: {
+          business_name: string | null
+          call_to_action: string | null
+          cpv_bid: number | null
+          created_at: string
+          daily_budget: number | null
+          device_exclusions: string[]
+          display_url: string | null
+          end_date: string | null
+          event_id: string | null
+          exported_at: string | null
+          final_url: string | null
+          frequency_cap_per_day: number | null
+          frequency_cap_per_week: number | null
+          geo_targets: Json
+          google_ads_account_id: string | null
+          id: string
+          include_video_partners: boolean
+          language_codes: string[]
+          name: string
+          settings_rows: Json
+          source_filename: string | null
+          start_date: string | null
+          status: string
+          targeting_rows: Json
+          total_budget: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          business_name?: string | null
+          call_to_action?: string | null
+          cpv_bid?: number | null
+          created_at?: string
+          daily_budget?: number | null
+          device_exclusions?: string[]
+          display_url?: string | null
+          end_date?: string | null
+          event_id?: string | null
+          exported_at?: string | null
+          final_url?: string | null
+          frequency_cap_per_day?: number | null
+          frequency_cap_per_week?: number | null
+          geo_targets?: Json
+          google_ads_account_id?: string | null
+          id?: string
+          include_video_partners?: boolean
+          language_codes?: string[]
+          name: string
+          settings_rows?: Json
+          source_filename?: string | null
+          start_date?: string | null
+          status?: string
+          targeting_rows?: Json
+          total_budget?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          business_name?: string | null
+          call_to_action?: string | null
+          cpv_bid?: number | null
+          created_at?: string
+          daily_budget?: number | null
+          device_exclusions?: string[]
+          display_url?: string | null
+          end_date?: string | null
+          event_id?: string | null
+          exported_at?: string | null
+          final_url?: string | null
+          frequency_cap_per_day?: number | null
+          frequency_cap_per_week?: number | null
+          geo_targets?: Json
+          google_ads_account_id?: string | null
+          id?: string
+          include_video_partners?: boolean
+          language_codes?: string[]
+          name?: string
+          settings_rows?: Json
+          source_filename?: string | null
+          start_date?: string | null
+          status?: string
+          targeting_rows?: Json
+          total_budget?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_video_plans_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "google_video_plans_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_video_plans_google_ads_account_id_fkey"
+            columns: ["google_ads_account_id"]
+            isOneToOne: false
+            referencedRelation: "google_ads_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      interest_clusters: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          evidence: Json | null
+          evidence_refreshed_at: string | null
+          id: string
+          interests: Json
+          last_used_at: string | null
+          live_evidence: Json | null
+          name: string
+          source: string
+          unresolved: Json
+          updated_at: string
+          use_count: number
+          user_id: string
+          vertical: string
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          evidence?: Json | null
+          evidence_refreshed_at?: string | null
+          id?: string
+          interests?: Json
+          last_used_at?: string | null
+          live_evidence?: Json | null
+          name: string
+          source: string
+          unresolved?: Json
+          updated_at?: string
+          use_count?: number
+          user_id: string
+          vertical: string
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          evidence?: Json | null
+          evidence_refreshed_at?: string | null
+          id?: string
+          interests?: Json
+          last_used_at?: string | null
+          live_evidence?: Json | null
+          name?: string
+          source?: string
+          unresolved?: Json
+          updated_at?: string
+          use_count?: number
+          user_id?: string
+          vertical?: string
+        }
+        Relationships: []
+      }
       invoices: {
         Row: {
           amount_excl_vat: number
@@ -3573,6 +7422,13 @@ export type Database = {
             foreignKeyName: "invoices_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "invoices_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -3581,6 +7437,292 @@ export type Database = {
             columns: ["quote_id"]
             isOneToOne: false
             referencedRelation: "quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      launched_ad_sets: {
+        Row: {
+          ad_account_id: string | null
+          advantage_plus: boolean | null
+          advantage_plus_effective: boolean | null
+          age_max: number | null
+          age_min: number | null
+          channel: string
+          client_id: string | null
+          created_at: string
+          descriptor_source: string
+          draft_id: string | null
+          event_id: string | null
+          geo: Json | null
+          id: string
+          initial_daily_budget_pence: number | null
+          interest_ids: Json | null
+          launch_note: string | null
+          launch_run_id: string
+          launched_at: string
+          lookalike_range: string | null
+          meta_adset_id: string
+          meta_campaign_id: string | null
+          objective: string | null
+          phase_at_launch: string | null
+          source_id: string | null
+          source_name: string | null
+          source_type: string | null
+          suggestion_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          ad_account_id?: string | null
+          advantage_plus?: boolean | null
+          advantage_plus_effective?: boolean | null
+          age_max?: number | null
+          age_min?: number | null
+          channel?: string
+          client_id?: string | null
+          created_at?: string
+          descriptor_source?: string
+          draft_id?: string | null
+          event_id?: string | null
+          geo?: Json | null
+          id?: string
+          initial_daily_budget_pence?: number | null
+          interest_ids?: Json | null
+          launch_note?: string | null
+          launch_run_id: string
+          launched_at?: string
+          lookalike_range?: string | null
+          meta_adset_id: string
+          meta_campaign_id?: string | null
+          objective?: string | null
+          phase_at_launch?: string | null
+          source_id?: string | null
+          source_name?: string | null
+          source_type?: string | null
+          suggestion_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          ad_account_id?: string | null
+          advantage_plus?: boolean | null
+          advantage_plus_effective?: boolean | null
+          age_max?: number | null
+          age_min?: number | null
+          channel?: string
+          client_id?: string | null
+          created_at?: string
+          descriptor_source?: string
+          draft_id?: string | null
+          event_id?: string | null
+          geo?: Json | null
+          id?: string
+          initial_daily_budget_pence?: number | null
+          interest_ids?: Json | null
+          launch_note?: string | null
+          launch_run_id?: string
+          launched_at?: string
+          lookalike_range?: string | null
+          meta_adset_id?: string
+          meta_campaign_id?: string | null
+          objective?: string | null
+          phase_at_launch?: string | null
+          source_id?: string | null
+          source_name?: string | null
+          source_type?: string | null
+          suggestion_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "launched_ad_sets_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "launched_ad_sets_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "launched_ad_sets_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "launched_ad_sets_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      launched_ads: {
+        Row: {
+          ad_account_id: string | null
+          ad_name: string | null
+          asset_content_hashes: Json
+          channel: string
+          client_id: string | null
+          created_at: string
+          creative_name: string | null
+          cta: string | null
+          descriptor_source: string
+          destination_url: string | null
+          draft_id: string | null
+          event_id: string | null
+          id: string
+          launch_run_id: string
+          launched_at: string
+          media_type: string | null
+          meta_ad_id: string
+          meta_adset_id: string | null
+          meta_campaign_id: string | null
+          meta_creative_id: string | null
+          placement_mode: string | null
+          source_type: string | null
+          url_tags_applied: boolean | null
+          user_id: string | null
+          variation_count: number | null
+        }
+        Insert: {
+          ad_account_id?: string | null
+          ad_name?: string | null
+          asset_content_hashes?: Json
+          channel?: string
+          client_id?: string | null
+          created_at?: string
+          creative_name?: string | null
+          cta?: string | null
+          descriptor_source?: string
+          destination_url?: string | null
+          draft_id?: string | null
+          event_id?: string | null
+          id?: string
+          launch_run_id: string
+          launched_at?: string
+          media_type?: string | null
+          meta_ad_id: string
+          meta_adset_id?: string | null
+          meta_campaign_id?: string | null
+          meta_creative_id?: string | null
+          placement_mode?: string | null
+          source_type?: string | null
+          url_tags_applied?: boolean | null
+          user_id?: string | null
+          variation_count?: number | null
+        }
+        Update: {
+          ad_account_id?: string | null
+          ad_name?: string | null
+          asset_content_hashes?: Json
+          channel?: string
+          client_id?: string | null
+          created_at?: string
+          creative_name?: string | null
+          cta?: string | null
+          descriptor_source?: string
+          destination_url?: string | null
+          draft_id?: string | null
+          event_id?: string | null
+          id?: string
+          launch_run_id?: string
+          launched_at?: string
+          media_type?: string | null
+          meta_ad_id?: string
+          meta_adset_id?: string | null
+          meta_campaign_id?: string | null
+          meta_creative_id?: string | null
+          placement_mode?: string | null
+          source_type?: string | null
+          url_tags_applied?: boolean | null
+          user_id?: string | null
+          variation_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "launched_ads_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "launched_ads_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "launched_ads_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "launched_ads_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lp_page_views: {
+        Row: {
+          created_at: string
+          event_id: string
+          geo_city: string | null
+          geo_country: string | null
+          geo_region: string | null
+          id: string
+          occurred_at: string
+          referrer: string | null
+          utm: Json
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          geo_city?: string | null
+          geo_country?: string | null
+          geo_region?: string | null
+          id?: string
+          occurred_at?: string
+          referrer?: string | null
+          utm?: Json
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          geo_city?: string | null
+          geo_country?: string | null
+          geo_region?: string | null
+          id?: string
+          occurred_at?: string
+          referrer?: string | null
+          utm?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lp_page_views_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "lp_page_views_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -3685,6 +7827,13 @@ export type Database = {
             foreignKeyName: "mailchimp_audience_snapshots_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "mailchimp_audience_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -3743,6 +7892,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "mailchimp_tag_backfill_jobs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
           {
             foreignKeyName: "mailchimp_tag_backfill_jobs_event_id_fkey"
             columns: ["event_id"]
@@ -3807,6 +7963,13 @@ export type Database = {
             foreignKeyName: "mailchimp_tag_event_log_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "mailchimp_tag_event_log_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -3862,6 +8025,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mailchimp_tag_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "mailchimp_tag_snapshots_event_id_fkey"
@@ -3962,6 +8132,13 @@ export type Database = {
             foreignKeyName: "meta_click_touchpoints_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "meta_click_touchpoints_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -4034,7 +8211,252 @@ export type Database = {
             foreignKeyName: "meta_custom_audiences_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "meta_custom_audiences_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_write_idempotency: {
+        Row: {
+          created_at: string
+          draft_id: string
+          event_id: string | null
+          id: string
+          op_kind: string
+          op_payload_hash: string
+          op_result_id: string | null
+          op_status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          draft_id: string
+          event_id?: string | null
+          id?: string
+          op_kind: string
+          op_payload_hash: string
+          op_result_id?: string | null
+          op_status: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          draft_id?: string
+          event_id?: string | null
+          id?: string
+          op_kind?: string
+          op_payload_hash?: string
+          op_result_id?: string | null
+          op_status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_write_idempotency_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_write_idempotency_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "meta_write_idempotency_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_dedupe_state: {
+        Row: {
+          data: Json | null
+          dedupe_key: string
+          fire_count: number
+          last_fired_at: string
+          muted: boolean
+          muted_at: string | null
+        }
+        Insert: {
+          data?: Json | null
+          dedupe_key: string
+          fire_count?: number
+          last_fired_at?: string
+          muted?: boolean
+          muted_at?: string | null
+        }
+        Update: {
+          data?: Json | null
+          dedupe_key?: string
+          fire_count?: number
+          last_fired_at?: string
+          muted?: boolean
+          muted_at?: string | null
+        }
+        Relationships: []
+      }
+      page_events: {
+        Row: {
+          artwork_palette: Json | null
+          bottom_images: Json
+          content: Json
+          countdown_label: string | null
+          countdown_target_at: string | null
+          created_at: string
+          customisation: Json
+          event_id: string
+          evntree_url: string | null
+          hero_images: Json
+          id: string
+          modules: Json
+          provider: string
+          status: string
+          template_key: string
+          theme_overrides: Json
+          updated_at: string
+          visibility: Json
+          youtube_url: string | null
+        }
+        Insert: {
+          artwork_palette?: Json | null
+          bottom_images?: Json
+          content?: Json
+          countdown_label?: string | null
+          countdown_target_at?: string | null
+          created_at?: string
+          customisation?: Json
+          event_id: string
+          evntree_url?: string | null
+          hero_images?: Json
+          id?: string
+          modules?: Json
+          provider?: string
+          status?: string
+          template_key?: string
+          theme_overrides?: Json
+          updated_at?: string
+          visibility?: Json
+          youtube_url?: string | null
+        }
+        Update: {
+          artwork_palette?: Json | null
+          bottom_images?: Json
+          content?: Json
+          countdown_label?: string | null
+          countdown_target_at?: string | null
+          created_at?: string
+          customisation?: Json
+          event_id?: string
+          evntree_url?: string | null
+          hero_images?: Json
+          id?: string
+          modules?: Json
+          provider?: string
+          status?: string
+          template_key?: string
+          theme_overrides?: Json
+          updated_at?: string
+          visibility?: Json
+          youtube_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page_events_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "page_events_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page_events_template_key_fkey"
+            columns: ["template_key"]
+            isOneToOne: false
+            referencedRelation: "page_templates"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
+      page_templates: {
+        Row: {
+          block_types_supported: Json
+          default_config: Json
+          id: string
+          key: string
+          name: string
+          version: number
+        }
+        Insert: {
+          block_types_supported?: Json
+          default_config?: Json
+          id?: string
+          key: string
+          name: string
+          version?: number
+        }
+        Update: {
+          block_types_supported?: Json
+          default_config?: Json
+          id?: string
+          key?: string
+          name?: string
+          version?: number
+        }
+        Relationships: []
+      }
+      plan_share_tokens: {
+        Row: {
+          can_edit: boolean
+          created_at: string
+          enabled: boolean
+          plan_id: string
+          token: string
+          user_id: string
+        }
+        Insert: {
+          can_edit?: boolean
+          created_at?: string
+          enabled?: boolean
+          plan_id: string
+          token: string
+          user_id: string
+        }
+        Update: {
+          can_edit?: boolean
+          created_at?: string
+          enabled?: boolean
+          plan_id?: string
+          token?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_share_tokens_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plans"
             referencedColumns: ["id"]
           },
         ]
@@ -4142,6 +8564,61 @@ export type Database = {
             foreignKeyName: "quotes_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "quotes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      release_reads: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          per_release: Json
+          raw_ref: string | null
+          read_at: string
+          source: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          per_release: Json
+          raw_ref?: string | null
+          read_at: string
+          source: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          per_release?: Json
+          raw_ref?: string | null
+          read_at?: string
+          source?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "release_reads_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "release_reads_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -4203,6 +8680,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "report_shares_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "report_shares_event_id_fkey"
@@ -4288,10 +8772,101 @@ export type Database = {
             foreignKeyName: "signup_source_snapshots_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "signup_source_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
+      }
+      tag_performance: {
+        Row: {
+          ads: number
+          baseline_cpr: number | null
+          computed_at: string
+          confidence: string
+          cpr: number | null
+          ctr: number | null
+          dimension: string
+          events_n: number
+          funded_ads: number
+          id: string
+          impressions: number
+          index: number | null
+          landing_page_views: number
+          link_clicks: number
+          n_effective: number | null
+          pool_index: number | null
+          results: number
+          scope: string
+          scope_id: string
+          shrunk_index: number | null
+          spend: number
+          stage: string
+          value_key: string
+          video_plays_3s: number
+          window_days: number
+        }
+        Insert: {
+          ads?: number
+          baseline_cpr?: number | null
+          computed_at?: string
+          confidence: string
+          cpr?: number | null
+          ctr?: number | null
+          dimension: string
+          events_n?: number
+          funded_ads?: number
+          id?: string
+          impressions?: number
+          index?: number | null
+          landing_page_views?: number
+          link_clicks?: number
+          n_effective?: number | null
+          pool_index?: number | null
+          results?: number
+          scope: string
+          scope_id: string
+          shrunk_index?: number | null
+          spend?: number
+          stage: string
+          value_key: string
+          video_plays_3s?: number
+          window_days?: number
+        }
+        Update: {
+          ads?: number
+          baseline_cpr?: number | null
+          computed_at?: string
+          confidence?: string
+          cpr?: number | null
+          ctr?: number | null
+          dimension?: string
+          events_n?: number
+          funded_ads?: number
+          id?: string
+          impressions?: number
+          index?: number | null
+          landing_page_views?: number
+          link_clicks?: number
+          n_effective?: number | null
+          pool_index?: number | null
+          results?: number
+          scope?: string
+          scope_id?: string
+          shrunk_index?: number | null
+          spend?: number
+          stage?: string
+          value_key?: string
+          video_plays_3s?: number
+          window_days?: number
+        }
+        Relationships: []
       }
       ticket_sales_snapshots: {
         Row: {
@@ -4351,7 +8926,96 @@ export type Database = {
             foreignKeyName: "ticket_sales_snapshots_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "ticket_sales_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ticket_warnings: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          claim: string
+          created_at: string
+          drive_file_id: string | null
+          event_id: string
+          format: string
+          id: string
+          release_id: string | null
+          render_id: string | null
+          runs_from: string | null
+          runs_to: string | null
+          state: Database["public"]["Enums"]["ticket_warning_state"]
+          trigger: Json | null
+          updated_at: string
+          user_id: string
+          why: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          claim: string
+          created_at?: string
+          drive_file_id?: string | null
+          event_id: string
+          format: string
+          id?: string
+          release_id?: string | null
+          render_id?: string | null
+          runs_from?: string | null
+          runs_to?: string | null
+          state?: Database["public"]["Enums"]["ticket_warning_state"]
+          trigger?: Json | null
+          updated_at?: string
+          user_id: string
+          why?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          claim?: string
+          created_at?: string
+          drive_file_id?: string | null
+          event_id?: string
+          format?: string
+          id?: string
+          release_id?: string | null
+          render_id?: string | null
+          runs_from?: string | null
+          runs_to?: string | null
+          state?: Database["public"]["Enums"]["ticket_warning_state"]
+          trigger?: Json | null
+          updated_at?: string
+          user_id?: string
+          why?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_warnings_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "ticket_warnings_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_warnings_release_id_fkey"
+            columns: ["release_id"]
+            isOneToOne: false
+            referencedRelation: "event_releases"
             referencedColumns: ["id"]
           },
         ]
@@ -4426,6 +9090,13 @@ export type Database = {
             foreignKeyName: "ticketing_purchase_events_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "ticketing_purchase_events_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -4469,6 +9140,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "tier_channels"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tier_channel_allocations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "tier_channel_allocations_event_id_fkey"
@@ -4531,6 +9209,13 @@ export type Database = {
             foreignKeyName: "tier_channel_sales_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "tier_channel_sales_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -4565,6 +9250,13 @@ export type Database = {
           tickets_sold_total?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "tier_channel_sales_daily_history_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
           {
             foreignKeyName: "tier_channel_sales_daily_history_event_id_fkey"
             columns: ["event_id"]
@@ -4753,6 +9445,13 @@ export type Database = {
             foreignKeyName: "tiktok_active_creatives_snapshots_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "tiktok_active_creatives_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -4827,6 +9526,13 @@ export type Database = {
             foreignKeyName: "tiktok_breakdown_snapshots_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "tiktok_breakdown_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -4873,6 +9579,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tiktok_campaign_drafts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "tiktok_campaign_drafts_event_id_fkey"
@@ -4974,6 +9687,13 @@ export type Database = {
             foreignKeyName: "tiktok_manual_reports_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "tiktok_manual_reports_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -5030,6 +9750,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "tiktok_campaign_drafts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tiktok_write_idempotency_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_plan_benchmarks_v"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "tiktok_write_idempotency_event_id_fkey"
@@ -5160,8 +9887,223 @@ export type Database = {
         }
         Relationships: []
       }
+      voice_samples: {
+        Row: {
+          artist_id: string | null
+          caption: string
+          client_id: string
+          comments: number | null
+          fetched_at: string
+          id: string
+          ig_media_id: string
+          likes: number | null
+          page_kind: string
+          permalink: string | null
+          posted_at: string | null
+          user_id: string
+        }
+        Insert: {
+          artist_id?: string | null
+          caption: string
+          client_id: string
+          comments?: number | null
+          fetched_at?: string
+          id?: string
+          ig_media_id: string
+          likes?: number | null
+          page_kind: string
+          permalink?: string | null
+          posted_at?: string | null
+          user_id: string
+        }
+        Update: {
+          artist_id?: string | null
+          caption?: string
+          client_id?: string
+          comments?: number | null
+          fetched_at?: string
+          id?: string
+          ig_media_id?: string
+          likes?: number | null
+          page_kind?: string
+          permalink?: string | null
+          posted_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "voice_samples_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "creative_lab_artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voice_samples_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wa_community_alias_destinations: {
+        Row: {
+          activated_at: string | null
+          alias_id: string
+          created_at: string
+          id: string
+          invite_code: string
+          is_active: boolean
+          label: string | null
+          sort_order: number
+        }
+        Insert: {
+          activated_at?: string | null
+          alias_id: string
+          created_at?: string
+          id?: string
+          invite_code: string
+          is_active?: boolean
+          label?: string | null
+          sort_order?: number
+        }
+        Update: {
+          activated_at?: string | null
+          alias_id?: string
+          created_at?: string
+          id?: string
+          invite_code?: string
+          is_active?: boolean
+          label?: string | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_community_alias_destinations_alias_id_fkey"
+            columns: ["alias_id"]
+            isOneToOne: false
+            referencedRelation: "wa_community_aliases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wa_community_alias_events: {
+        Row: {
+          action: string
+          alias_id: string
+          at: string
+          detail: Json
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          alias_id: string
+          at?: string
+          detail?: Json
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          alias_id?: string
+          at?: string
+          detail?: Json
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_community_alias_events_alias_id_fkey"
+            columns: ["alias_id"]
+            isOneToOne: false
+            referencedRelation: "wa_community_aliases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wa_community_aliases: {
+        Row: {
+          active_invite_code: string | null
+          brand: string | null
+          client_id: string | null
+          created_at: string
+          created_by_user_id: string | null
+          event_ref: string | null
+          id: string
+          interstitial_enabled: boolean
+          is_active: boolean
+          notes: string | null
+          slug: string
+          updated_at: string
+          updated_by_user_id: string | null
+        }
+        Insert: {
+          active_invite_code?: string | null
+          brand?: string | null
+          client_id?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          event_ref?: string | null
+          id?: string
+          interstitial_enabled?: boolean
+          is_active?: boolean
+          notes?: string | null
+          slug: string
+          updated_at?: string
+          updated_by_user_id?: string | null
+        }
+        Update: {
+          active_invite_code?: string | null
+          brand?: string | null
+          client_id?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          event_ref?: string | null
+          id?: string
+          interstitial_enabled?: boolean
+          is_active?: boolean
+          notes?: string | null
+          slug?: string
+          updated_at?: string
+          updated_by_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_community_aliases_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
+      campaign_plan_benchmarks_v: {
+        Row: {
+          channel: string | null
+          client_id: string | null
+          cost: number | null
+          event_code: string | null
+          event_date: string | null
+          event_id: string | null
+          results: number | null
+          spend: number | null
+          unit: string | null
+          venue_key: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "events_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_event_code_attribution_snapshot: {
         Row: {
           attribution_rate: number | null
@@ -5186,9 +10128,33 @@ export type Database = {
       }
     }
     Functions: {
+      assert_wa_alias_invite_homes: {
+        Args: { p_alias_id: string }
+        Returns: undefined
+      }
       clear_meta_system_user_token: {
         Args: { p_client_id: string }
         Returns: undefined
+      }
+      create_community_alias: {
+        Args: {
+          p_actor: string
+          p_brand: string
+          p_client_id: string
+          p_event_ref: string
+          p_invite_code: string
+          p_label: string
+          p_notes: string
+          p_slug: string
+        }
+        Returns: Json
+      }
+      dearmor: { Args: { "": string }; Returns: string }
+      gen_random_uuid: { Args: never; Returns: string }
+      gen_salt: { Args: { "": string }; Returns: string }
+      get_bm_access_token: {
+        Args: { p_id: string; p_key: string }
+        Returns: string
       }
       get_d2c_credentials: {
         Args: { p_id: string; p_key: string }
@@ -5196,6 +10162,10 @@ export type Database = {
       }
       get_google_ads_credentials: {
         Args: { p_account_id: string; p_key?: string }
+        Returns: string
+      }
+      get_landing_page_capi_token: {
+        Args: { p_client_id: string; p_key: string }
         Returns: string
       }
       get_mailchimp_credentials: {
@@ -5218,6 +10188,44 @@ export type Database = {
         Args: { template_id: string; template_user_id: string }
         Returns: undefined
       }
+      increment_interest_cluster_use: {
+        Args: { p_id: string }
+        Returns: {
+          archived_at: string | null
+          created_at: string
+          evidence: Json | null
+          evidence_refreshed_at: string | null
+          id: string
+          interests: Json
+          last_used_at: string | null
+          live_evidence: Json | null
+          name: string
+          source: string
+          unresolved: Json
+          updated_at: string
+          use_count: number
+          user_id: string
+          vertical: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "interest_clusters"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      landing_page_decrypt: {
+        Args: { p_blob: string; p_key: string }
+        Returns: string
+      }
+      landing_page_decrypt_batch: {
+        Args: { p_blobs: string[]; p_key: string }
+        Returns: string[]
+      }
+      landing_page_encrypt: {
+        Args: { p_key: string; p_plaintext: string }
+        Returns: string
+      }
       meta_reconcile_event_spend: {
         Args: {
           p_event_code: string
@@ -5238,12 +10246,33 @@ export type Database = {
           status: string
         }[]
       }
+      pgp_armor_headers: {
+        Args: { "": string }
+        Returns: Record<string, unknown>[]
+      }
+      repoint_community_alias: {
+        Args: {
+          p_actor: string
+          p_invite_code: string
+          p_label?: string
+          p_slug: string
+        }
+        Returns: Json
+      }
+      set_bm_access_token: {
+        Args: { p_id: string; p_key: string; p_token: string }
+        Returns: undefined
+      }
       set_d2c_credentials: {
         Args: { p_credentials: Json; p_id: string; p_key: string }
         Returns: undefined
       }
       set_google_ads_credentials: {
         Args: { p_account_id: string; p_key?: string; p_plaintext: string }
+        Returns: undefined
+      }
+      set_landing_page_capi_token: {
+        Args: { p_client_id: string; p_key: string; p_token: string }
         Returns: undefined
       }
       set_mailchimp_credentials: {
@@ -5279,6 +10308,25 @@ export type Database = {
         | "skipped"
         | "error"
         | "matched_umbrella"
+      claim_trigger_kind:
+        | "count_pct"
+        | "state_days"
+        | "state"
+        | "page_remaining"
+      release_state:
+        | "not_yet"
+        | "on_sale"
+        | "selling_fast"
+        | "final_x"
+        | "sold_out"
+      release_state_source: "vendor_page" | "client_message" | "entry"
+      ticket_warning_state:
+        | "held"
+        | "locked"
+        | "scheduled"
+        | "live"
+        | "done"
+        | "back_to_held"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -5294,12 +10342,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5323,11 +10371,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5348,11 +10396,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5373,11 +10421,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5390,11 +10438,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5421,6 +10469,28 @@ export const Constants = {
         "skipped",
         "error",
         "matched_umbrella",
+      ],
+      claim_trigger_kind: [
+        "count_pct",
+        "state_days",
+        "state",
+        "page_remaining",
+      ],
+      release_state: [
+        "not_yet",
+        "on_sale",
+        "selling_fast",
+        "final_x",
+        "sold_out",
+      ],
+      release_state_source: ["vendor_page", "client_message", "entry"],
+      ticket_warning_state: [
+        "held",
+        "locked",
+        "scheduled",
+        "live",
+        "done",
+        "back_to_held",
       ],
     },
   },

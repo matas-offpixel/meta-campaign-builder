@@ -1,14 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { isLearningRefreshEnabled, runLearningRefresh } from "@/lib/learning/runner";
+import { isLearningRefreshEnabled, learningRefreshRunLog, runLearningRefresh } from "@/lib/learning/runner";
 
 /**
  * GET /api/cron/learning-refresh
  *
  * Learning loop B — nightly (03:30 UTC, `vercel.json`, after
  * ad-daily-insights) stored learnings: creative_scores, tag_performance,
- * client_funnel_benchmarks, interest_clusters.live_evidence. DB-only,
+ * client_funnel_benchmarks, interest_clusters.live_evidence,
+ * copy_performance. DB-only,
  * zero Meta calls. Logic lives in `lib/learning/runner.ts`.
  *
  * Killswitch: `ENABLE_LEARNING_REFRESH` must be exactly `"1"`. Unset
@@ -30,7 +33,7 @@ function isAuthorized(req: NextRequest): boolean {
   return header.trim() === expected.trim();
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -57,3 +60,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "learning-refresh",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => learningRefreshRunLog(b).rows,
+    detail: (b) => learningRefreshRunLog(b).detail,
+  },
+  handleGET,
+);

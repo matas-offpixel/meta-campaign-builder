@@ -82,7 +82,7 @@ describe("TikTok early budget floor — Electric Group GBP 2026-09-08", () => {
     assert.equal(floor?.blocking, true);
     assert.equal(
       floor?.message,
-      "TikTok needs at least £50 a day — this plan gives it £7.50. Raise TikTok's share, or set it to 0.",
+      "TikTok needs at least £20 a day — this plan gives it £7.50. Raise TikTok's share, or set it to 0.",
     );
   });
 
@@ -108,7 +108,7 @@ describe("TikTok early budget floor — Electric Group GBP 2026-09-08", () => {
     });
     assert.match(
       issues.find((issue) => issue.id === "tiktok:early:budget-floor")?.message ?? "",
-      /three ad groups needs £150/,
+      /three ad groups needs £60/,
     );
   });
 
@@ -256,7 +256,7 @@ describe("collectPlanPreflight surfaces the early findings", () => {
     );
     assert.equal(
       floor?.message,
-      "TikTok needs at least £50 a day — this plan gives it £7.50. Raise TikTok's share, or set it to 0.",
+      "TikTok needs at least £20 a day — this plan gives it £7.50. Raise TikTok's share, or set it to 0.",
     );
     const clock = result.issues.find(
       (issue) => issue.id === "tiktok:early:advertiser-clock",

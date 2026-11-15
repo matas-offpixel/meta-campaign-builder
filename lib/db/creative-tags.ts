@@ -133,8 +133,8 @@ export const CREATIVE_TAG_DIMENSIONS = [
 ] as const;
 
 export type CreativeTagDimension = (typeof CREATIVE_TAG_DIMENSIONS)[number];
-export type CreativeTagSource = "motion_seed" | "curated" | "custom";
-export type CreativeTagAssignmentSource = "manual" | "ai";
+export type CreativeTagSource = "motion_seed" | "curated" | "custom" | "creative_lab";
+export type CreativeTagAssignmentSource = "manual" | "ai" | "creative_lab";
 export type CreativeScoreAxis = "hook" | "watch" | "click" | "convert";
 
 export interface MotionCreativeTagRow {

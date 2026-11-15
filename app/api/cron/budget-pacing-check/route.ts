@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import {
@@ -57,7 +59,7 @@ function isBudgetPacingEnabled(): boolean {
   return process.env.ENABLE_BUDGET_PACING_ALERTS === "1";
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -111,3 +113,18 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(summary, { status: summary.ok ? 200 : 207 });
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "budget-pacing-check",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.alertsSent ?? 0),
+  },
+  handleGET,
+);

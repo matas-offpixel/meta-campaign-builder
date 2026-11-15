@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import {
+  REVIEW_WARNING_CODES,
   hasHardErrors,
   validateGoogleSearchPlan,
   validateGoogleSearchStep,
@@ -210,6 +211,29 @@ describe("validateGoogleSearchPlan — char limits", () => {
       assert.equal(hasHardErrors(issues), true);
     }
     assert.ok(!validateGoogleSearchPlan(wellFormed()).some((i) => i.code === "no_locations"));
+  });
+
+  it("warns when a stored geo name does not belong to the location text, and still allows push", () => {
+    const tree = makeTree();
+    tree.campaigns = [
+      makeCampaign("c-1", "C1", [makeAdGroup("ag-1", [{ keyword: "tickets" }])], { daily_budget: 10 }),
+    ];
+    tree.plan.geo_targets = [
+      {
+        location: "United Kingdom",
+        bid_modifier_pct: null,
+        resolved_resource_name: "geoTargetConstants/1006851",
+        resolved_name: "Newcastle upon Tyne, England, United Kingdom",
+      },
+    ];
+    const issues = validateGoogleSearchPlan(tree);
+    const mismatch = issues.find((issue) => issue.code === "geo_resolution_mismatch");
+    assert.equal(mismatch?.severity, "warning");
+    assert.match(mismatch?.message ?? "", /United Kingdom/);
+    assert.match(mismatch?.message ?? "", /Newcastle upon Tyne/);
+    assert.equal(issues.some((issue) => issue.code === "no_locations"), false);
+    assert.equal(hasHardErrors(issues), false);
+    assert.equal(REVIEW_WARNING_CODES.has("geo_resolution_mismatch"), true);
   });
 
   it("the push route refuses a plan with hard errors before any Google call", async () => {

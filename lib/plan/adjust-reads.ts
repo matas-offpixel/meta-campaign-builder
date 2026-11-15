@@ -40,6 +40,7 @@ export async function loadAdjustReads(
   let tiktokSpend = 0;
   let googleSpend = 0;
   const dailyCostPerSignup: number[] = [];
+  const seenDays = new Set<string>();
 
   for (let from = 0; ; from += 1000) {
     let query = sb
@@ -56,8 +57,13 @@ export async function loadAdjustReads(
       break;
     }
     const page = (data ?? []) as Array<Record<string, unknown>>;
-    rowCount += page.length;
     for (const row of page) {
+      if (row.date != null) {
+        const day = String(row.date);
+        if (seenDays.has(day)) continue;
+        seenDays.add(day);
+      }
+      rowCount += 1;
       const dayMetaSpend = num(row.ad_spend);
       const dayTiktok = num(row.tiktok_spend);
       const dayGoogle = num(row.google_ads_spend);

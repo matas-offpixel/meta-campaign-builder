@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drive creatives — owner first, then type — 11 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.tree{font:12px/1.55 var(--mono);background:var(--card);border-radius:8px;padding:14px 18px;margin:0;white-space:pre;overflow-x:auto;max-width:100%}
+.tree .old{color:var(--ink-3)}.tree .note{color:var(--olive)}
+.frame>figure{max-width:100%;min-width:0}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · Creative Lab · Drive · 11 November 2026</p>
+<h1>Drive creatives: owner first, then type</h1>
+<div class="lead"><p>Matas, 11 Nov: "rather than static / video and then artist / promoter, sort by the artist / promoter and then the type of content so I can easily share for approval with the relevant teams." On the type layer, his answer is Videos / Statics. This re-rules the 03 Creatives half of S18 (the tree) and S20 (where approved work is filed) in <code>2026-11-09-creative-lab-clip-selection.html</code>. Every other rule in that record stands, including S14's file names, S19's cadence, S21's winners and S25's share. The layout's code is <code>lib/drive/tree.ts</code> (<code>EVENT_TREE</code>, <code>CYCLE_CHILDREN</code>, <code>routeRender</code>).</p></div>
+
+<div class="log"><b>What is on Drive today</b> (read from <code>drive_folders</code>, 11 Nov)
+<ul>
+<li>One event has a tree: P26-BDAY, 34 mapped folders.</li>
+<li>Its one cycle is <code>w/c 9 Nov</code> (<code>1EEORl_mTnlLkxi7C09C1yJWfz_1ZqjiK</code>), holding UGC, Ticket warnings and Content.</li>
+<li>Matas added Content / Luke Dean (cards 1 and 2 at 9x16 / 4x5 / 1x1, v3) and Content / Enzo Siragusa (card 1 at all three, v4) by hand. UGC and Ticket warnings are empty.</li>
+<li>1 Signup / Teaser holds empty Artist, Promoter and Experience folders.</li>
+<li><code>creative_lab_renders.kind</code> allows <code>video</code> and <code>static</code>. Production has 2 rows, both video.</li>
+</ul></div>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+
+<tr><td>D1 Owner, then type</td><td>This replaces S18's stage children. Under every stage folder that receives creatives, the next layer is the <b>owner</b>, one folder each, and under each owner is <b>Videos</b> and <b>Statics</b>.
+<ul>
+<li><b>An artist's folder</b> is named exactly as the Lab lineup names them, the same string as <code>02 Source / Artist clips / {artist}</code>. It's compared exact: never trimmed, case-folded or normalised (S22).</li>
+<li><b>The promoter's folder</b> is the client's name as written on the record (S13), for example <code>Puzzle</code>.</li>
+<li>If an artist and the client share a name exactly, the promoter's folder is <code>{Client} (promoter)</code>.</li>
+<li><b>Example:</b> <code>03 Creatives / 3 On sale / w/c 9 Nov / Luke Dean / Statics / P26-BDAY_luke-dean_artist-card-1_on-sale_9x16_v3.png</code>.</li>
+</ul></td></tr>
+
+<tr><td>D2 Who owns a render</td><td>A render's owner is its footage's owner (W1, migration 226), decided once at filing.
+<ul>
+<li><b>An artist:</b> a render on that artist's clip (T1 on a clip, a UGC caption, quote mode, a triple-fit), or an artist card. A triple-fit's owner is its one clip's owner.</li>
+<li><b>The promoter:</b> a render on promoter footage, even when it features an artist (W8), plus T2 on the panel, T2 experience-led on a photo or clip, poster panels, and ticket-warning statics with no footage.</li>
+<li><b>Two artists (b2b):</b> no "Lineup" folder. A render has exactly one owner.
+<ul>
+<li>A b2b act that is one lineup entry (for example "Locky b2b CW") is one owner, under that entry's exact name.</li>
+<li>An artist's clip featuring another lineup artist belongs to the clip's artist, the first-named. It's filed once, in that folder.</li>
+<li>A shortcut in the other artist's folder wouldn't help: whoever opens that folder's link can't open a file kept elsewhere. If the second team needs it, Matas shares that one file.</li>
+</ul></li>
+<li><b>An owner corrected after filing</b> (W1 allows one correction): files already filed stay where they are, and only later filings follow the correction.</li>
+</ul></td></tr>
+
+<tr><td>D3 Type</td><td>
+<ul>
+<li><b>Videos</b> holds renders with <code>creative_lab_renders.kind = 'video'</code>. <b>Statics</b> holds <code>kind = 'static'</code>.</li>
+<li>A ticket warning or other approved piece that isn't a Lab render goes by its file: a video file to Videos, an image to Statics.</li>
+<li>There are no other type folders. <code>UGC</code>, <code>Ticket warnings</code> and <code>Content</code> are retired from new cycles. <code>CYCLE_CHILDREN</code> becomes empty, and a new <code>w/c {d Mon}</code> folder is made with nothing in it.</li>
+<li>Formats stay side by side in one type folder, told apart by the file name's <code>_9x16</code> / <code>_4x5</code> / <code>_1x1</code> (S14). There are no format folders.</li>
+</ul></td></tr>
+
+<tr><td>D4 Which stages</td><td>Every place an approved creative is filed takes <code>{owner} / {Videos | Statics}</code>:
+<ul>
+<li><b>1 Signup / Teaser / {owner} / {type}.</b> This replaces Teaser / Artist · Promoter · Experience: an artist-voiced render goes under its artist, and experience-led work goes under the promoter, since it's promoter-owned (O76). The routing moves from voice to owner. A promoter render in the artist-first-person angle can't exist (W3).</li>
+<li><b>1 Signup / Announcement / {owner} / {type}.</b> Nothing routes there today. This is its shape for when something does, or for a file Matas places by hand.</li>
+<li><b>2 Presale / Presale live / {owner} / {type}</b>, and <b>2 Presale / Reminders / {owner} / {type}</b>. A presale-live ticket warning goes to <code>Presale live / Puzzle / Statics</code>.</li>
+<li><b>3 On sale / w/c {d Mon} / {owner} / {type}.</b> Every on-sale render and the cycle's ticket warnings go here.</li>
+<li><b>4 Show week / {owner} / {type}.</b> It's still one folder for the week, with the owner layer under it.</li>
+<li><b>Unchanged:</b>
+<ul>
+<li><code>_Winners</code> stays flat, shortcuts only, winners marked by name (S21).</li>
+<li><code>04 D2C</code> stays flat. Its email headers and WhatsApp art are the promoter's comms, not approvals for an artist team.</li>
+<li><code>02 Source</code>, <code>00</code>, <code>01</code>, <code>05</code> and <code>06</code>.</li>
+</ul></li>
+</ul></td></tr>
+
+<tr><td>D5 Made when first needed</td><td>
+<ul>
+<li>An owner folder, and a type folder inside it, are made only when the first file for them is filed, never empty ahead of time. A new event's tree stops at <code>Teaser</code>, <code>Announcement</code>, <code>Presale live</code>, <code>Reminders</code> and <code>4 Show week</code>, with no voice children.</li>
+<li><b>Map keys are stable, never names</b> (S19, S27): <code>{stage key}/owner/artist:{artist_id}</code> or <code>{stage key}/owner/promoter</code>, then <code>/videos</code> or <code>/statics</code>. For example: <code>03/3/wc/2026-11-09/owner/artist:{id}/statics</code>.</li>
+<li><b>Renames follow:</b> an artist renamed in the Lab renames every owner folder of theirs, in every stage and cycle. A client renamed renames every promoter folder. File names never change (S19).</li>
+<li>An artist taken off the lineup keeps their folders. Nothing is deleted.</li>
+</ul></td></tr>
+
+<tr><td>D6 Existing folders</td><td>
+<ul>
+<li><b>P26-BDAY, w/c 9 Nov:</b>
+<ul>
+<li><code>Content / Luke Dean</code> is <b>moved</b>, as the folder itself, so its id and any link Matas has shared still work. It becomes <code>w/c 9 Nov / Luke Dean</code>.</li>
+<li>A <code>Statics</code> folder is made inside it, and its 6 files are moved into Statics.</li>
+<li>The same goes for <code>Content / Enzo Siragusa</code> (3 files). A video file among them would go to Videos instead.</li>
+<li>Both moved folders are recorded in the map under their owner keys.</li>
+<li><code>UGC</code>, <code>Ticket warnings</code>, the now-empty <code>Content</code>, and Teaser / <code>Artist</code> · <code>Promoter</code> · <code>Experience</code> stay where they are. The export never deletes, and a content manager can't.</li>
+</ul></li>
+<li><b>Other events:</b> none has a tree today, so there is nothing to migrate. A folder linked later through S24 keeps its own layout as it is, and filing adds the owner layer inside it.</li>
+<li><b>The tool:</b> moves only, never a rename, delete or permission change. It runs as a <b>dry run by default</b> and prints each move as <code>from → to</code>; <code>--apply</code> moves. It can safely run twice: a file already in place is skipped.</li>
+</ul></td></tr>
+
+<tr><td>D7 Sharing</td><td>
+<ul>
+<li>Sharing stays manual. Matas shares an owner folder's link himself. There are no automatic permissions, and <code>shareEventFolder</code> (S25) is unchanged.</li>
+<li><b>No "copy link" per owner folder</b> on the event card in this record. The Drive panel already opens the stage folder, and the owner folder is one click inside. If Matas finds himself opening Drive just to copy links, that's a later record, with the use in front of it.</li>
+<li>An artist team's link is per cycle: each fortnight's <code>w/c</code> has its own <code>Luke Dean</code>. That's intended, because each approval is for that cycle's work.</li>
+<li>Sharing an owner folder outside Off / Pixel needs the drive's sharing settings that HS17 already flags.</li>
+</ul></td></tr>
+
+<tr><td>D8 File names</td><td>S14 is unchanged. The owner and type are in the path, never added to the name.</td></tr>
+</table>
+
+<h2>The tree, after</h2>
+<p class="lead">This is P26-BDAY's 03 Creatives once D6 has run and one on-sale video by Enzo has been filed. Folders that don't exist yet aren't drawn, and grey marks a folder kept but no longer filed into.</p>
+<div class="frame">
+<figure><figcaption>DR1 · 03 Creatives, owner first</figcaption>
+<pre class="tree">03 Creatives/
+  1 Signup/
+    Teaser/
+      <span class="old">Artist</span>          <span class="old">(kept, empty, no longer filed into)</span>
+      <span class="old">Promoter</span>
+      <span class="old">Experience</span>
+    Announcement/
+  2 Presale/
+    Presale live/
+    Reminders/
+  3 On sale/
+    w/c 9 Nov/
+      <span class="old">UGC</span>            <span class="old">(kept, empty)</span>
+      <span class="old">Ticket warnings</span>
+      <span class="old">Content</span>        <span class="old">(kept, empty after D6)</span>
+      <b>Luke Dean/</b>     <span class="note">← moved from Content (same folder id)</span>
+        <b>Statics/</b>
+          P26-BDAY_luke-dean_artist-card-1_on-sale_9x16_v3.png
+          P26-BDAY_luke-dean_artist-card-1_on-sale_4x5_v3.png
+          P26-BDAY_luke-dean_artist-card-1_on-sale_1x1_v3.png
+          P26-BDAY_luke-dean_artist-card-2_on-sale_9x16_v3.png  … 4x5, 1x1
+      <b>Enzo Siragusa/</b> <span class="note">← moved from Content</span>
+        <b>Statics/</b>
+          P26-BDAY_enzo-siragusa_artist-card-1_on-sale_9x16_v4.png … 4x5, 1x1
+        <b>Videos/</b>       <span class="note">← made by the first video filed</span>
+          P26-BDAY_enzo-siragusa-1_lineup2-on-sale_r1_9x16.mp4
+  4 Show week/</pre>
+</figure>
+<figure><figcaption>DR2 · a new cycle and show week, later</figcaption>
+<pre class="tree">3 On sale/
+  w/c 23 Nov/
+    Luke Dean/
+      Videos/
+      Statics/
+    Puzzle/
+      Statics/       <span class="note">← ticket warnings, T2</span>
+      Videos/        <span class="note">← T2 on a promoter clip</span>
+4 Show week/
+  Puzzle/
+    Statics/
+1 Signup/
+  Teaser/
+    Puzzle/
+      Videos/        <span class="note">← experience-led</span></pre>
+</figure>
+</div>
+
+<h2>Routing table (replaces S20's)</h2>
+<table class="t">
+<tr><th>What</th><th>Stage folder</th><th>Then</th></tr>
+<tr><td>Lab render, signup</td><td>1 Signup / Teaser</td><td>{owner} / {type}</td></tr>
+<tr><td>Lab render, on sale</td><td>3 On sale / w/c {current cycle}</td><td>{owner} / {type}</td></tr>
+<tr><td>Lab render, from show week's Monday</td><td>4 Show week</td><td>{owner} / {type}</td></tr>
+<tr><td>Ticket warning on Approve (A9)</td><td>the current cycle, or 4 Show week</td><td>{Client} / Statics (or Videos for a video file)</td></tr>
+<tr><td>Presale-live ticket warning</td><td>2 Presale / Presale live</td><td>{Client} / {type}</td></tr>
+<tr><td>Artist card (T1 static)</td><td>the stage as above</td><td>{artist} / Statics</td></tr>
+<tr><td>Triple-fit</td><td>the stage as above</td><td>{its clip's owner} / Videos</td></tr>
+<tr><td>D2C artwork</td><td>04 D2C</td><td>flat (unchanged)</td></tr>
+<tr><td>Winner shortcut</td><td>_Winners</td><td>flat (unchanged)</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HD1 Tree constant</td><td>D3, D4, D5: <code>EVENT_TREE</code> drops the three Teaser voice children. <code>CYCLE_CHILDREN</code> becomes empty. Owner and type specs are made on demand: <code>ownerSpec(stageKey, owner)</code> and <code>typeSpec(ownerKey, kind)</code>, names from D1 and keys from D5.</td><td><code>lib/drive/tree.ts</code></td><td>a new event's tree has no Artist / Promoter / Experience; a new cycle has no children; <code>specFor</code> resolves owner and type keys under every D4 stage</td></tr>
+<tr><td>HD2 Route</td><td>D2, D4: <code>routeRender</code> takes the owner and the kind and returns <code>{stage}/owner/…/{videos|statics}</code>. The voice split is gone. Filing creates the missing owner and type folders, parent first, and records them in the map.</td><td>clip owner (226), render kind</td><td>Enzo on-sale video → <code>w/c 9 Nov / Enzo Siragusa / Videos</code>; a T2 panel static at signup → <code>Teaser / Puzzle / Statics</code>; a triple-fit of Luke 15 → <code>Luke Dean / Videos</code>; a promoter clip featuring Luke → <code>Puzzle / Videos</code>; show week → <code>4 Show week / {owner} / {type}</code></td></tr>
+<tr><td>HD3 Names and renames</td><td>D1, D5: artist name verbatim from the lineup; the client's name for the promoter; <code>{Client} (promoter)</code> on an exact clash. A Lab rename renames every owner folder by key.</td><td>drive_folders</td><td>renaming "Enzo Siragusa" to "Enzo" renames both of his owner folders and no file</td></tr>
+<tr><td>HD4 Ticket warnings and others</td><td>D3: non-render pieces are typed by file (video → Videos, image → Statics), owner the promoter.</td><td>A9 approvals</td><td>an approved warning PNG lands in <code>w/c {d Mon} / Puzzle / Statics</code></td></tr>
+<tr><td>HD5 The one-off move</td><td>D6, as a script (Claude Code): dry run by default, <code>--apply</code> to move; folder move first, then files into Statics or Videos by MIME; map rows for both owner keys; skips what is already in place; never deletes, renames or changes permissions.</td><td>P26-BDAY w/c 9 Nov</td><td>the dry run prints 2 folder moves and 9 file moves (the files as described on 11 Nov); <code>--apply</code> leaves Luke Dean's folder id unchanged, 6 files in its Statics and 3 in Enzo's; a second <code>--apply</code> moves nothing; UGC, Ticket warnings and Content still exist</td></tr>
+<tr><td>HD6 Statics in 1:1</td><td>Build note, not a ruling: <code>creative_lab_renders_aspect_check</code> allows only <code>9:16</code> and <code>4:5</code>. Statics keep all three formats (O95), so a 1:1 static render row needs the check widened before any is filed from the Lab.</td><td>migration</td><td>a 1:1 static row inserts</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li><code>{Client} (promoter)</code> on an exact name clash.</li>
+<li>No "Lineup" folder: a b2b render's single owner is the clip's artist, and a b2b act that is one lineup entry is one owner.</li>
+<li>Files already filed don't move when an owner is corrected.</li>
+<li>Non-render pieces typed by their file.</li>
+<li>04 D2C and Announcement treated as D4 says.</li>
+<li>Moving the hand-made folders themselves, rather than only their files, to keep their links.</li>
+<li>The key shape in D5.</li>
+<li>Matas's own words fix two things: owner first, and "Videos" / "Statics".</li>
+</ul>
+
+<h2>Frames</h2>
+<p>DR1 and DR2 above, as folder trees. No app surface changes: the Drive panel's "now: {stage folder}" line still names the stage folder, and the render rows' "in Drive" mark is unchanged.</p>
+
+</div></body>
+</html>

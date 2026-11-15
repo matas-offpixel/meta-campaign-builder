@@ -6,6 +6,7 @@ import { computeCreativeScores, percentileRank, writeCreativeScores } from "../c
 import { computeFunnelBenchmarks, writeFunnelBenchmarks } from "../funnel-benchmarks.ts";
 import { computeLiveEvidence, writeLiveEvidence } from "../interest-evidence.ts";
 import { loadLearningInputs } from "../joins.ts";
+import { showOf } from "../copy/shows.ts";
 import { computeTagPerformance, writeTagPerformance, type TagPerformanceRow } from "../tag-performance.ts";
 import { CLIENTS, NOW, TAGS, fact } from "./fixtures.ts";
 
@@ -91,6 +92,49 @@ describe("tag_performance job", () => {
   it("an archived (or unknown) client's facts reach no scope", () => {
     assert.ok(rows.every((r) => r.scope_id !== "client-archived"));
     assert.equal(row(rows, "all", "all", "motion")!.ads, 3);
+  });
+
+  it("a client with no vertical stays out of vertical scope, and a football client stays out of music", () => {
+    const clients = [...CLIENTS, { id: "client-n", name: "None", vertical: null, userId: "op" }];
+    const out = computeTagPerformance(
+      [
+        fact({ meta_ad_id: "n1", spend: 10, registrations: 2 }, { clientId: "client-n", tagIds: ["t-motion"] }),
+        fact({ meta_ad_id: "f1", spend: 12, registrations: 3 }, { clientId: "client-f", tagIds: ["t-motion"] }),
+      ],
+      clients,
+      TAGS,
+      { now: NOW },
+    );
+    assert.equal(row(out, "client", "client-n", "motion")!.ads, 1);
+    assert.equal(row(out, "vertical", "music", "motion"), undefined);
+    assert.equal(row(out, "vertical", "football", "motion")!.ads, 1);
+    assert.equal(row(out, "all", "all", "motion")!.ads, 2);
+  });
+
+  it("events_n counts real shows: one ad, one event; same date and venue are one; cancelled and undated are out", () => {
+    const shows = showOf([
+      { id: "e1", date: "2026-10-03", venueName: "Ironworks", venueKey: "ironworks", status: "upcoming" },
+      { id: "e2", date: "2026-10-03", venueName: "Ironworks", venueKey: "ironworks", status: "upcoming" },
+      { id: "e3", date: "2026-11-01", venueName: "Ironworks", venueKey: "ironworks", status: "upcoming" },
+      { id: "off", date: "2026-10-03", venueName: "Ironworks", venueKey: "ironworks", status: "cancelled" },
+      { id: "always", date: null, venueName: "Ironworks", venueKey: "ironworks", status: "on_sale" },
+    ]);
+    const out = computeTagPerformance(
+      [
+        fact({ meta_ad_id: "a", spend: 40, registrations: 4 }, { clientId: "client-a", eventId: "e1", tagIds: ["t-motion"] }),
+        fact({ meta_ad_id: "a", spend: 10, registrations: 1, date: "2026-10-02" }, { clientId: "client-a", eventId: "e3", tagIds: ["t-motion"] }),
+        fact({ meta_ad_id: "b", spend: 20, registrations: 2 }, { clientId: "client-a", eventId: "e2", tagIds: ["t-motion"] }),
+        fact({ meta_ad_id: "c", spend: 20, registrations: 2 }, { clientId: "client-a", eventId: "e3", tagIds: ["t-motion"] }),
+        fact({ meta_ad_id: "d", spend: 20, registrations: 2 }, { clientId: "client-a", eventId: "off", tagIds: ["t-motion"] }),
+        fact({ meta_ad_id: "e", spend: 20, registrations: 2 }, { clientId: "client-a", eventId: "always", tagIds: ["t-motion"] }),
+      ],
+      CLIENTS,
+      TAGS,
+      { now: NOW, shows },
+    );
+    const motion = row(out, "client", "client-a", "motion")!;
+    assert.equal(motion.ads, 5);
+    assert.equal(motion.events_n, 2);
   });
 
   it("writer upserts on the unique key, then deletes this window's keys the run did not write", async () => {

@@ -29,6 +29,7 @@ import {
   mapTikTokObjectiveType,
   resolveTikTokAdGroupBudget,
   tikTokAdGroupBudgetFloor,
+  tikTokCampaignBudgetIssue,
   tikTokBudgetFloorUnverified,
   tikTokWriteSchedule,
 } from "./mapping.ts";
@@ -277,30 +278,22 @@ export function collectTikTokLaunchPreflight(
   }
 
   const campaignBudget = draft.budgetSchedule.budgetAmount;
-  const campaignFloor = tikTokAdGroupBudgetFloor({
-    budgetMode: draft.budgetSchedule.budgetMode,
-    startAt: start,
-    endAt: end,
-    currency: draft.accountSetup.currency,
-  });
   const currencyLabel =
     (draft.accountSetup.currency ?? "").trim().toUpperCase() || "unknown";
   if (!createsCampaign) {
     // The target campaign exists; ad-group budgets are checked below.
-  } else if (campaignBudget == null) {
-    issues.push(issue("budget", "budget", "Budget is required"));
-  } else if (!campaignFloor.ok) {
-    issues.push(
-      issue("budget-minimum", campaignFloor.error.field, campaignFloor.error.message),
-    );
-  } else if (campaignFloor.value != null && campaignBudget < campaignFloor.value) {
-    issues.push(
-      issue(
-        "budget-minimum",
-        "budget",
-        `TikTok requires a minimum ${currencyLabel} ${draft.budgetSchedule.budgetMode.toLowerCase()} budget of ${campaignFloor.value} (TikTok's constraint, not ours)`,
-      ),
-    );
+  } else {
+    // Unset campaign budget is BUDGET_MODE_INFINITE: no campaign minimum.
+    const campaignIssue = tikTokCampaignBudgetIssue({
+      budgetAmount: campaignBudget,
+      budgetMode: draft.budgetSchedule.budgetMode,
+      startAt: start,
+      endAt: end,
+      currency: draft.accountSetup.currency,
+    });
+    if (campaignIssue) {
+      issues.push(issue("budget-minimum", "budget", campaignIssue));
+    }
   }
 
   const adGroups = suggestTikTokAdGroups(draft);

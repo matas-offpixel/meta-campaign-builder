@@ -17,7 +17,27 @@ export type MetaWriteOpKind =
   | "ad_create"
   | "creative_upload"
   | "adset_targeting_update"
-  | "adset_destination_update";
+  | "adset_destination_update"
+  /** On-sale refresh Apply (migration 236): one creative per accepted add line and campaign. */
+  | "refresh_creative_create"
+  /** On-sale refresh Apply: one ad per accepted add line and ad set. */
+  | "refresh_ad_create"
+  /** The gated ad-status write (lib/meta/ad-status-write.ts). */
+  | "ad_status_update"
+  /** The gated ad-set status write (lib/meta/adset-status-write.ts, migration 237). */
+  | "adset_status_update"
+  /** On-sale refresh Apply: one side of a budget move — a within-campaign move, or a new ad set's funding (migration 237). */
+  | "refresh_adset_budget_update"
+  /** On-sale refresh Apply: the new ad set a cluster bring-back or a standing default makes (migration 237). */
+  | "refresh_adset_create"
+  /** P4 Purchase campaign, step 1: the show's custom conversion, own-domain path (migration 243). */
+  | "refresh_custom_conversion_create"
+  /** P4 Purchase campaign, step 2: the campaign, paused; one per line (migration 243). */
+  | "refresh_campaign_create"
+  /** P4 step 5 (and PC4): a campaign's lifetime_budget write (migration 243). */
+  | "refresh_campaign_lifetime_budget_update"
+  /** P4 step 6: the Purchase campaign set active (migration 243). */
+  | "refresh_campaign_status_update";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger

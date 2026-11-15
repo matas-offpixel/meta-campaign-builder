@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { AddedClustersFromInsights } from "@/components/insights-rail/added-clusters";
+import { InsightsPageContext } from "@/components/insights-rail/rail-context";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import {
@@ -12,6 +14,7 @@ import {
   type SourceSelection,
 } from "@/components/audiences/source-picker";
 import { FUNNEL_STAGE_PRESETS } from "@/lib/audiences/funnel-presets";
+import { stageForFunnelStage } from "@/lib/insights-rail/model";
 import { buildAudienceName } from "@/lib/audiences/naming";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import {
@@ -56,12 +59,15 @@ export function AudienceCreateForm({
   initialEventId,
   initialPresetBundle,
   writesEnabled,
+  clientVertical = null,
 }: {
   client: ClientOption;
   events: EventOption[];
   initialEventId?: string;
   initialPresetBundle?: FunnelStage;
   writesEnabled: boolean;
+  /** clients.vertical, for the Insights rail's Vertical scope. */
+  clientVertical?: string | null;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<"single" | "bundle">(
@@ -238,6 +244,18 @@ export function AudienceCreateForm({
 
   return (
     <div className="space-y-5">
+      <InsightsPageContext
+        surface="audience_builder"
+        title="New Meta audience"
+        clientId={client.id}
+        clientName={client.name}
+        verticalId={clientVertical}
+        eventId={null}
+        stage={stageForFunnelStage(funnelStage)}
+        objective={null}
+        lab={null}
+      />
+      <AddedClustersFromInsights />
       <div className="rounded-md border border-border bg-card p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Bound Meta destination

@@ -51,6 +51,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # Vercel refuses a function over 250 MB uncompressed (#1186). Fails above 230.
+      - run: npm run check:function-size
 
   frames:
     name: frames:check
@@ -61,8 +63,12 @@ jobs:
       ENABLE_PLAN_FRAMES: "1"
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key
+      LANG: en_GB.UTF-8
+      LC_ALL: en_GB.UTF-8
     steps:
       - uses: actions/checkout@v5
+      - name: en-GB locale
+        run: sudo locale-gen en_GB.UTF-8
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
@@ -72,15 +78,26 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Build frames app
         run: ENABLE_PLAN_FRAMES=1 npm run build
+      # Writes frames-evidence/: shots/<id>.png for every shot (the Ubuntu
+      # rasters), diff/<id>/{expected,actual,diff}.png for each shot over
+      # tolerance, and index.md / index.json (file → frame id, width, check).
+      # Every write killswitch stays unset in this job; fixtures only.
       - name: Diff frames
         run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --check
-      - name: Render Ubuntu rasters
-        if: failure()
-        run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --update
-      - name: Upload plan-frames PNGs
+        env:
+          # On a PR, GITHUB_SHA is the merge ref; the index names the PR head.
+          FRAMES_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # MB1 (dashboard v2 on a phone): fails when a dashboard v2 page is
+      # wider than the phone at 320, 375, 390 or 430 px, on the internal
+      # page and the share link (live-like fixture). Runs even when the
+      # diff fails; writes frames-evidence/overflow-guard.md.
+      - name: Overflow guard (dashboard v2, 320–430 px)
+        if: success() || failure()
+        run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/overflow-guard.mjs
+      - name: Upload plan-frames evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: plan-frames
-          path: docs/frames/*.png
+          path: frames-evidence/
           if-no-files-found: ignore

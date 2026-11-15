@@ -1,5 +1,6 @@
 import { validateGoogleSearchPlan } from "../google-search/validation.ts";
 import { validateCampaignPayload } from "../meta/campaign.ts";
+import { videoDraftHold } from "../creative-lab/import-quality.ts";
 import { validateCreativePayload } from "../meta/creative.ts";
 import { collectTikTokDraftLaunchPreflight } from "../tiktok/write/launch-preflight.ts";
 import {
@@ -162,6 +163,16 @@ export function collectPlanPreflight(
     });
   }
   for (const creative of drafts.meta.creatives) {
+    const hold = videoDraftHold(creative);
+    if (hold) {
+      issues.push({
+        adapter: "meta",
+        id: `meta:creative:${creative.id}:video-aspect`,
+        field: "creative",
+        message: hold,
+        blocking: true,
+      });
+    }
     const result = validateCreativePayload(creative);
     for (const [index, message] of result.errors.entries()) {
       issues.push({

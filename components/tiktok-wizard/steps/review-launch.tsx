@@ -35,6 +35,10 @@ import {
   tikTokOptimisationGoalLabel,
 } from "@/lib/tiktok-wizard/campaign-setup";
 import {
+  formatTikTokAdGroupReviewLine,
+  tikTokResultLabel,
+} from "@/lib/tiktok-wizard/budget-schedule";
+import {
   buildTikTokPreflightChecks,
   suggestTikTokAdGroups,
   tikTokLaunchReviewSummary,
@@ -657,11 +661,24 @@ export function ReviewLaunchStep({
           label="Amount"
           value={
             draft.budgetSchedule.budgetAmount == null
-              ? null
+              ? "Unset"
               : `£${draft.budgetSchedule.budgetAmount}`
           }
           onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
         />
+        {suggestTikTokAdGroups(draft).map((group, index) => (
+          <Datum key={group.id} className="text-sm">
+            {formatTikTokAdGroupReviewLine({
+              index: index + 1,
+              dailyAmount: group.budget ?? draft.budgetSchedule.budgetAmount ?? 0,
+              targetCost: draft.optimisation.targetCostPerResult,
+              resultLabel: tikTokResultLabel({
+                objective: draft.campaignSetup.objective,
+                optimisationEvent: draft.accountSetup.optimisationEvent,
+              }),
+            })}
+          </Datum>
+        ))}
         <div className="grid gap-4 md:grid-cols-2">
           <Input
             id="tiktok-review-schedule-start"

@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard v2 against the model — 13 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.db .lede{font-size:13.5px;line-height:1.5;margin:0;max-width:none}
+.db .lede b{font-weight:600}
+.chan{font:700 9px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-top:4px}
+.vrow{display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center}
+.vrow .k{margin-right:6px}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:999px;overflow:hidden}
+.seg span{font-size:12px;padding:4px 11px;white-space:nowrap;border-left:1px solid var(--border-strong)}
+.seg span:first-child{border-left:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.gl{font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);align-self:center;margin:0 2px 0 6px}
+.gl:first-child{margin-left:0}
+.sum3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px 16px 4px}
+.sum3 .tile .v{font-size:20px}
+.bars{padding:8px 16px 12px}
+.bx{display:grid;grid-template-columns:150px minmax(0,1fr) 210px;gap:10px;align-items:center;font-size:12px;margin:0}
+.bx .n{font:11px var(--mono);color:var(--ink-2);text-align:right;white-space:nowrap}
+.btrack{position:relative;height:30px}
+.btrack .bar{position:absolute;left:0;right:0;top:8px;margin:0}
+.btrack .cap{top:-6px;bottom:-6px}
+.vrule{position:absolute;top:0;bottom:0;border-left:1px dashed var(--brick)}
+.ticks{position:relative;height:18px;font:10.5px var(--mono);color:var(--ink-3)}
+.ticks span{position:absolute;transform:translateX(-50%)}
+.ticks span{white-space:nowrap}
+.ticks span.end{transform:translateX(-100%)}
+.ticks span.st{transform:none}
+.leg{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--ink-2);margin-top:6px}
+.leg i{display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.so{font:700 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--brick)}
+.capt{font-size:12px;color:var(--ink-2);margin:0;max-width:none;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.capt2{font-size:11.5px;color:var(--ink-2);margin:6px 0 0;max-width:none}
+.chwrap{padding:12px 16px}
+svg.ch{display:block;max-width:100%;height:auto}
+svg.ch .tk{font:10.5px var(--sans);fill:#6f6052}
+svg.ch .at{font:700 9px var(--mono);letter-spacing:.12em;fill:#6f6052}
+svg.ch .hh{font:600 12px var(--sans);fill:#1e1810}
+svg.ch .hb{font:11.5px var(--sans);fill:#4a3d30}
+.tiles.t12{grid-template-columns:repeat(6,minmax(0,1fr))}
+.w393 .tiles.t12{grid-template-columns:repeat(2,minmax(0,1fr))}
+.hover{position:absolute;right:16px;top:64px;width:360px;background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;padding:10px 12px;box-shadow:0 6px 18px rgba(30,24,16,.12);font-size:12px}
+.hover .hr{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)}
+.hover .hr:last-of-type{border-bottom:0}
+.hover .hr span:last-child{font-family:var(--mono);white-space:nowrap}
+.hover .x{font-size:11.5px;color:var(--ink-2);margin-top:6px}
+.rel{position:relative}
+.wide{overflow-x:auto;max-width:100%}
+.vp.w1280x{width:1280px;padding:24px}
+.ex{border-bottom:1px dashed var(--ink-3)}
+.md{border-bottom:1px dotted var(--ink)}
+.legend{font-size:12px;color:var(--ink-2);margin:6px 0 0}
+.w393 .sum3{grid-template-columns:minmax(0,1fr)}
+.w393 .bx{grid-template-columns:minmax(0,1fr) auto;row-gap:0}
+.w393 .bx .btrack{grid-column:1 / -1}
+.w393 .vrow,.w393 .chips{flex-wrap:nowrap;overflow:hidden}
+.w393 .chwrap{padding:10px 12px}
+.w393 .db .lede{font-size:13px}
+.cmp{display:block;overflow-x:auto;max-width:100%;width:100%;border-collapse:collapse;font-size:12px;margin:8px 0 18px;background:var(--card);border-radius:8px;overflow:hidden}
+.cmp th,.cmp td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+.cmp th{font:700 9px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+.cmp td.n{font-family:var(--mono);text-align:right;white-space:nowrap}
+
+.db{background:var(--edit);border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:12.5px}
+.db-hd{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border)}
+.db-hd h4{margin:0;font:600 15px var(--sans)}
+.db-hd .sub{font-size:12px;color:var(--ink-2)}
+.fresh{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start}
+.fr{font:700 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--border-strong);border-radius:999px;padding:5px 8px;color:var(--ink-2);white-space:nowrap}
+.fr.old{border-color:var(--ochre);color:var(--ochre)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border)}
+.chip{font-size:12px;border:1px solid var(--border-strong);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.chip.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.chip.fin{opacity:.5}
+.chip.umb{border-style:dashed}
+.tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.tile{background:var(--card);border-radius:8px;padding:8px 10px;min-width:0}
+.tile .l{font:700 9px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.tile .v{font:600 18px/1.3 var(--sans)}
+.tile .s{font-size:11px;color:var(--ink-2);overflow-wrap:anywhere}
+.tile.on{outline:2px solid var(--ink)}
+.traj{padding:12px 16px}
+.traj .range{font-size:13px;margin:0 0 4px}
+.traj .range b{font-weight:600}
+.bar{position:relative;height:14px;background:var(--card);border-radius:3px;margin:6px 0 2px}
+.bar i{position:absolute;top:0;bottom:0;left:0;border-radius:3px}
+.bar .sold{background:var(--ink)}
+.bar .hold{background:rgba(30,24,16,.45)}
+.bar .high{background:rgba(30,24,16,.18)}
+.bar .alloc{position:absolute;top:-3px;bottom:-3px;width:0;border-left:2px dashed var(--brick)}
+.bar .cap{position:absolute;top:-3px;bottom:-3px;width:0;border-left:2px solid var(--ink)}
+.brow{display:grid;grid-template-columns:150px minmax(0,1fr) 120px;gap:10px;align-items:center;font-size:12px}
+.brow .n{font:11px var(--mono);color:var(--ink-2);text-align:right}
+.note{font-size:11.5px;color:var(--ink-2);margin:6px 0 0}
+.w393 .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+.w393 .brow{grid-template-columns:minmax(0,1fr)}
+.w393 .brow .n{text-align:left}
+@media (max-width:700px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.brow{grid-template-columns:minmax(0,1fr)}.brow .n{text-align:left}}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="k">Off/Pixel · design record · dashboard v2 · 13 November 2026</p>
+<h1>Dashboard v2 against the model: axes, venues and totals that tie out</h1>
+<p class="lead">Matas compared v2 on prod (All shows, 14 days) with his "NX Newcastle sales vs spend" model: <i>"no labelling on the axes makes it hard to understand, also total spends are not matching"</i>. This record brings v2 up to the model's clarity. It builds on <code>2026-11-13-dashboard-v2.html</code> (D1–D13), which stands except where a ruling here says it changes a point there. Records aren't edited after merge, so this record carries those changes.</p>
+
+<h2>Why the totals don't match</h2>
+<p>The numbers on both screens are correct. They count different things. The model is one venue, Meta only. v2's All shows is the whole client (Electric Brixton), so it covers NX Newcastle, Electric Bristol and Electric Studios, on every channel. From the database, to 12 Nov:</p>
+<table class="cmp">
+<tr><th>Figure</th><th>Model</th><th>v2 on prod</th><th>What's in v2's figure that the model leaves out</th></tr>
+<tr><td>Spend since launch</td><td class="n">£16,736</td><td class="n">£18,860</td><td>Electric Bristol £2,012 (Kream £1,939, Glitterbox £73), Electric Studios £67 (L.P Rhythm), and NX's TikTok £12 and Google £32. v2's NX Meta is £16,736.19, the model's figure to the penny, show by show (#1225's reconciliation).</td></tr>
+<tr><td>Spend in the screenshot's tile</td><td class="n">—</td><td class="n">£3,839</td><td>That's 14 days, not since launch: NX £3,377, Bristol £395, Studios £67.</td></tr>
+<tr><td>Total sold</td><td class="n">8,526</td><td class="n">8,862</td><td>Kream's 336 (Electric Bristol). The 8 NX shows sum to 8,526 exactly.</td></tr>
+<tr><td>Registrations</td><td class="n">6,069 to date</td><td class="n">1,022 in 14 days</td><td>Different spans and venues. In those 14 days the signups were on Glitterbox (419), Locklead (392) and L.P Rhythm (212). The model's 6,069 is NX show pages to date, read on 13 Nov. v2's to-date figure (5,498) also reads Schak as 0, because it syncs signups by Mailchimp tag and Schak has none (#1225); HN2 fixes the source.</td></tr>
+<tr><td>Umbrella</td><td class="n">£3,854 Meta</td><td class="n">"Global Marketing"</td><td>NX26-GLOBAL on all channels is £4,220: Meta £3,854, TikTok £328, Google £38. Neither screen counts it in a show total, which is right (D1).</td></tr>
+</table>
+<p>So spend and sold need no arithmetic change, only totals that say what's in them (N2–N4). Registrations need one source fix (HN2). Ops reconciled the same figures read-only in #1225 (<code>docs/session-logs/dashboard-v2-reconciliation-2026-11-14.md</code>); this record's figures agree with it.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>N1 · Axes</td><td>
+<p>The chart gets real axes at both widths.</p>
+<ul>
+<li><b>Left axis: money.</b> Ticks at round steps. A step is 1, 1.5, 2, 2.5, 3, 4 or 5 × a power of ten: the smallest that covers the peak. That gives 6 intervals at 1280 and 3 at 393, with labels "£0 £100 … £600". At 393, £1,000 and above read "£1k". The left axis carries Spend or a cost line. When both are on, they're the same unit, so they share it.</li>
+<li><b>Right axis: counts.</b> The right axis has the same number of intervals as the left, so each right label sits on a left gridline. Its step is the smallest from the same set that covers the peak count, e.g. 0–9,000 in steps of 1,500 for 8,526 sold. At 393 it's 0–9k in steps of 3k.</li>
+<li><b>Gridlines:</b> one horizontal hairline per left tick (the border colour), a solid baseline, and no vertical gridlines.</li>
+<li><b>Axis titles:</b> small mono caps above each axis, naming what's on it: "SPEND (£)" or "COST PER TICKET (£)" on the left, and "TOTAL SOLD" or "CLICKS" on the right. With two count lines on, it's both names, "TOTAL SOLD · CLICKS"; with three or more, "COUNT".</li>
+<li><b>Dates:</b> the labels are anchored to the last day, so the end date is always labelled. The step is the smallest of 1, 2, 3, 7, 14, 21 or 28 days whose labels clear each other by at least 6 px, measured on the rendered label ("12 Nov" at 10.5 px is about 35 px). Since launch on Electric's data, that's every 7 days at 1280 and every 21 days at 393. A 14-day period at 1280 gets daily labels. A 3-day step overlaps at 1280 on this range, and a label that collides is worse than one that's missing. Format "8 Aug". Each label has a 4 px tick.</li>
+<li><b>Caption above:</b> "Left axis: {left}. Right axis: {right}." in plain words, e.g. "Left axis: spend (£). Right axis: total sold (tickets)." The "Index each line to its own peak" toggle sits on the same line, right-aligned.</li>
+<li><b>Caption below:</b> "Solid lines are volumes; the dashed line in the same colour is its cost." When Total sold is on, add "A dot is a real Internal Count; between two counts the line is a straight estimate." When Sales or Cost per ticket is on, add the model's sentence: "Sales and cost per ticket hold one value across the days between two Internal Counts."</li>
+<li><b>Indexed</b> (picked, or forced by three unit types, D7): the left axis is "0% … 100%" with the title "% OF OWN PEAK", and the right axis is hidden. The caption reads "Each line is drawn against its own peak (100%)." The hover still shows real values.</li>
+<li><b>Hover:</b> a dotted vertical rule and a card with the date, then each line's value and unit. The card sits right of the rule, and flips to the left when it would run past the plot. Estimated days say so, per D5.</li>
+</ul>
+<p>Frames NV2 (1280) and NV4 (393) are drawn from the real NX data: Spend 6 Aug–12 Nov, and Total sold from the Internal Counts sums.</p></td></tr>
+
+<tr><td>N2 · Scope: venues</td><td>
+<p>A venue row sits above the show chips. It shows whenever the client has live shows at two or more venues.</p>
+<ul>
+<li><b>Venue identity:</b> <code>events.venue_key</code>, exactly as stored. It's the key the platform already uses. The display name is <code>venue_name</code> exactly as written on that venue's next show by date, never re-cased. Electric's live shows give three venues: "NX Newcastle", "Electric Bristol" and "Electric Studios".</li>
+<li><b>Never inferred.</b> A show with no venue_key isn't guessed into a venue from its code (NX/EBR/ES) or a name match. It goes under "Venue not set", on the internal view only. Today four have none: NX26-GLOBAL, NX27-EWANMCVICAR, EBR27-GLITTERBOX and ES27-LPRHYTHM. HN1 fills them through the event's existing write path, which derives the key from venue_name. That gives "nx newcastle", "nx newcastle", "electric bristol" and "electric studios".</li>
+<li><b>Control:</b> one segmented row: the venues by number of live shows, most first, then "All venues" last. NX Newcastle has 9, Electric Bristol 2, Electric Studios 1. The row is kept in the URL (<code>venue</code>={venue_key}, or <code>all</code>). At 393 it scrolls sideways, as the chips do, with the picked venue scrolled into view.</li>
+<li><b>Default: the venue with the most live shows</b> (ties go to the most since-launch spend). For Electric that's NX Newcastle, so v2 opens on the same scope as the model.</li>
+<li><b>Show chips follow the venue.</b> "All shows" means all live shows at that venue. The shows are in date order with that venue's umbrella last (N8), and "Include finished" comes after.</li>
+<li><b>All venues:</b> one chip row, grouped under small mono venue labels. Each group starts with "All {venue}", which selects that venue's All shows. The header, tiles and trajectory then cover the whole client, and the header says "3 venues".</li>
+<li>Everything scoped (header, tiles, chart, trajectory, campaigns table, by-show table) follows the venue. The client link works the same way, within its token's client (D11).</li>
+<li>With only one venue (most clients), there's no venue row, and the scope reads as that venue's name.</li>
+</ul></td></tr>
+
+<tr><td>N3 · Totals that tie out</td><td>
+<p>Every money total names three things: its scope (a venue, a show, or "All venues"), its channels (D12: a platform with no data isn't shown, a real £0 is), and what it leaves out.</p>
+<ul>
+<li><b>Spend tile, Since launch:</b> "{scope} · Meta £x · TikTok £y · Google £z".</li>
+<li><b>Spend tile, in a period:</b> the same, plus "of £{since launch} since launch" in the same scope. For NX that's "of £16,780", never the client-wide figure.</li>
+<li><b>Hover on the Spend tile and on the header total:</b> the breakdown, by venue under All venues and by show under a venue. Each line has its channel split. The last line reads "Not in this total: {venue} umbrella £{x}. Finished shows (Include finished adds them)."</li>
+<li><b>Rounding:</b> each figure is rounded from its unrounded parts, independently. Nothing is fudged to make the rounded parts add up. All venues reads £18,860 while its venues read £16,780 + £2,012 + £67 = £18,859, and that's correct.</li>
+<li><b>Cost per ticket</b> says which shows it uses when that isn't all of them: "the 9 shows with counts".</li>
+</ul></td></tr>
+
+<tr><td>N4 · The header sentence</td><td>
+<p><b>Yes.</b> v2 leads with one sentence, as the model does. It always runs to date, whatever period is picked (D7). Under it goes one mono line with the channel split, the data date and the exclusions.</p>
+<ul>
+<li><b>Venue, All shows:</b> "{Venue} to date: £{spend} spend since launch, {sold} tickets sold across {n} shows (Internal Counts, {date}), so £{cpt} of spend per ticket. Separate {Venue} umbrella spend: £{u}."<br>Then: "META £x · TIKTOK £y · GOOGLE £z · TO {date} · FINISHED SHOWS NOT INCLUDED".</li>
+<li><b>One show:</b> "{Show} to date: £{spend} spend since launch, {sold} tickets sold (Internal Counts, {date}), so £{cpt} per ticket." For example, East End Dubs: £2,767, 1,731 sold, £1.60.</li>
+<li><b>All venues:</b> "{Client} to date, {n} venues: £{spend} spend since launch. {sold} tickets sold on the {k} shows with counts (Internal Counts, {date}), so £{cpt} of spend per ticket on those shows. Separate umbrella spend: {Venue} £{u}."</li>
+<li><b>Umbrella:</b> "{Venue} umbrella to date: £{spend} spend since launch, kept out of every show total. {n} signups on its page."</li>
+<li>A source without data drops its clause rather than printing £0 or "0 tickets". For example, with no counts: "… £{spend} spend since launch. No ticket counts yet."</li>
+</ul></td></tr>
+
+<tr><td>N5 · Default period</td><td><p><b>Since launch</b>, for the internal page and the client link. Opening on 14 days was v2's own choice, not the model's. It's what made the header, tiles and trajectory describe three different spans on first open. A picked period stays in the URL (<code>period</code>), as now.</p></td></tr>
+
+<tr><td>N6 · Trajectory</td><td>
+<p>All shows draws bars, not text rows. DV2 already ruled the bars. This ruling adds the axis, the three summary tiles and the labels.</p>
+<ul>
+<li><b>Three tiles above:</b>
+  <ul>
+  <li>"Sold · count of {date}": {sold}, with "{pct}% of {sum of capacities} across {n} shows".</li>
+  <li>"Projected on show day": "{holds}–{high}", with "up to {pct}% of {sum} · each show capped at its capacity". No "~": the range already says it's a projection.</li>
+  <li>"Pace, last 7 days": "{n} a day", with "14-day {n} a day".</li>
+  </ul></li>
+<li><b>One row per show</b> in date order: the name, a bar, and the label "{sold} → {holds}–{high}". The bar is layered sold → holds → best finish (D10), on a shared x-axis from 0 to the largest capacity. The ticks are 500 apart at 1280 and 1,000 at 393, and the last one reads "{n} capacity". Each show's own capacity is drawn as a dashed rule at its end of the bar.</li>
+<li><b>Capped</b> at the show's capacity (D6). When the holds case reaches it, the label reads "{sold} → SELLS OUT at this pace". When only the best case does, it reads "{sold} → {holds}–{cap} · SELLS OUT if best". The model drew Schak and Julian Fijma past 2,000; v2 doesn't.</li>
+<li>A show with no counts reads "No ticket counts yet", and one with no capacity reads "Set capacity on the event". Both have an empty track and are left out of the sums.</li>
+<li>A legend sits under the bars. Clicking a bar selects that show (D6).</li>
+<li><b>At 393:</b> the name and label share a line, the bar runs full width beneath them, and the three tiles stack.</li>
+</ul></td></tr>
+
+<tr><td>N7 · Tile names, to date and in period</td><td>
+<p>This re-rules D7's tile labels and D13's "Checkout actions". The order stays the same:</p>
+<ol>
+<li>Spend</li>
+<li>Total sold</li>
+<li>Sales</li>
+<li>Cost per ticket</li>
+<li>Checkouts + add to cart</li>
+<li>Cost per checkout / cart</li>
+<li>Landing page views</li>
+<li>Cost per LPV</li>
+<li>Clicks</li>
+<li>Cost per click</li>
+<li>Registrations (CIRQLIN)</li>
+<li>Cost per registration</li>
+</ol>
+<p>The narrow labels at 393 are "Cost / ticket", "Checkouts + carts", "Cost / checkout", "LPVs", "Cost / LPV", "Cost / click", "Registrations" and "Cost / registration". "£ per …" and "CPC" go.</p>
+<ul>
+<li><b>Every subline starts with its span:</b> "since launch", "in 14 days", "yesterday" or "to date".</li>
+<li><b>Total sold</b> is always "to date · Internal Counts, {date}", whatever the period.</li>
+<li><b>Sales:</b> tickets in the period. Since launch, "since launch, to {date}". In a period, "in 14 days · {n} a day".</li>
+<li><b>Checkouts + add to cart:</b> the subline keeps D13's honesty: "{span} · actions, one person can do both".</li>
+<li><b>Registrations (CIRQLIN)</b> follows the period like every other tile. When the period isn't since launch, the subline adds the to-date figure: "in 14 days · {n} to date". Since launch, it's "to date · signup pages close at on-sale". When the venue's umbrella has a page (N8), add "plus {n} on the umbrella page". That figure is never added into the tile's value.</li>
+<li><b>Cost per registration:</b> "show pages, inside their signup windows" (D4).</li>
+<li><b>Cost per checkout / cart, Cost per LPV and Cost per click</b> divide Meta spend only, because their counts are Meta's (D3). Cost per ticket divides all channels (D12).</li>
+</ul></td></tr>
+
+<tr><td>N8 · The umbrella</td><td>
+<ul>
+<li><b>Chip:</b> "Umbrella", dashed, last in its venue's row. In All venues it sits inside its venue's group, so it's never ambiguous.</li>
+<li><b>Everywhere outside a chip row</b> (the header sentence, hovers, the campaigns table), it's "{Venue} umbrella": "NX Newcastle umbrella". The model's "NX umbrella (GLOBAL)" depends on a short name ("NX") that isn't stored anywhere. The event name ("Global Marketing") is the umbrella view's subtitle, and the event code shows only in internal hovers. This changes D1's "Separate {client} umbrella spend" to "{Venue}" now that venues scope everything.</li>
+<li><b>Its page:</b> an umbrella can link a CIRQLIN page, the same field as a show (D9), so D9 stops implying it can't. NX26-GLOBAL links to <code>nx-loves-aw26</code>, the NX-wide signup page: 808 signups to 12 Nov, 57 of them in the last 14 days. HN1 sets the link.</li>
+<li><b>Where it shows:</b> on the umbrella's own view, Registrations reads "808 · to date · {page}". Cost per registration is all umbrella spend inside the page's signup window, labelled so: "all umbrella spend, 18 Sep–12 Nov" (£5.22). On the venue's All shows, it's only the "plus 808 on the umbrella page" line (N7), kept out of 6,068, as umbrella spend is kept out of show spend.</li>
+<li>An umbrella still has no Total sold, Sales or Cost per ticket tile, and no trajectory (D9).</li>
+</ul></td></tr>
+</table>
+
+<h2>NV1–NV2 · NX Newcastle at 1280</h2>
+<p class="legend">Plain figures are read from the database to 12 Nov: the expected figures. <span class="md">Dotted underline</span>: the model's 12 Nov figure, the parity target for HD3's test, where v2's own calc decides. <span class="ex">Dashed underline</span>: an example only.</p>
+<div class="frame"><figure class="wide"><figcaption>NV1 · 1280 · NX Newcastle · All shows · Since launch (the default)</figcaption>
+<div class="vp w1280x"><div class="db">
+<div class="db-hd"><div style="max-width:880px"><h4 style="margin-bottom:6px">NX Newcastle sales vs spend</h4><p class="lede">NX Newcastle to date: <b>£16,780</b> spend since launch, <b>8,526</b> tickets sold across 8 shows (Internal Counts, 12 Nov), so <b>£1.97</b> of spend per ticket. Separate NX Newcastle umbrella spend: <b>£4,220</b>.</p><div class="chan">Meta £16,736 · TikTok £12 · Google £32 · to 12 Nov · finished shows not included</div></div><div class="fresh"><span class="fr">Counts to 12 Nov</span><span class="fr">Spend to 12 Nov</span><span class="fr">Signups to 12 Nov</span></div></div>
+<div class="vrow"><span class="k">Venue</span><span class="seg"><span class="on">NX Newcastle</span><span>Electric Bristol</span><span>Electric Studios</span><span>All venues</span></span></div><div class="chips"><span class="chip on">All shows</span><span class="chip">East End Dubs</span><span class="chip">Interplanetary Criminal</span><span class="chip">Robbie Doherty</span><span class="chip">D.O.D</span><span class="chip">Locklead</span><span class="chip">Rudimental</span><span class="chip">Schak</span><span class="chip">Ewan McVicar</span><span class="chip">Julian Fijma</span><span class="chip umb">Umbrella</span><span class="chip fin">Include finished</span></div><div class="chips"><span class="chip on">Since launch</span><span class="chip">30 days</span><span class="chip">14 days</span><span class="chip">7 days</span><span class="chip">3 days</span><span class="chip">Yesterday</span></div>
+<div class="db-hd" style="border-bottom:0;padding-bottom:0"><h4>Sales trajectory</h4></div>
+<div class="sum3"><div class="tile"><div class="l">Sold · count of 12 Nov</div><div class="v">8,526</div><div class="s">53% of 16,000 across 8 shows</div></div><div class="tile"><div class="l">Projected on show day</div><div class="v"><span class="md">11,315–12,248</span></div><div class="s">up to <span class="md">77%</span> of 16,000 · each show capped at its capacity</div></div><div class="tile"><div class="l">Pace, last 7 days</div><div class="v"><span class="md">113.3</span> a day</div><div class="s">14-day <span class="md">155.3</span> a day</div></div></div><div class="bars"><div class="bx"><span>East End Dubs</span><div class="btrack"><div class="bar"><i class="sold" style="width:86.55%"></i><i class="hold" style="left:86.55%;width:2.20%"></i><i class="high" style="left:88.75%;width:5.20%"></i></div><span class="vrule" style="left:100%"></span></div><span class="n">1,731 → <span class="md">1,775–1,879</span></span></div><div class="bx"><span>Interplanetary Criminal</span><div class="btrack"><div class="bar"><i class="sold" style="width:91.40%"></i><i class="hold" style="left:91.40%;width:1.95%"></i><i class="high" style="left:93.35%;width:3.45%"></i></div><span class="vrule" style="left:100%"></span></div><span class="n">1,828 → <span class="md">1,867–1,936</span></span></div><div class="bx"><span>Robbie Doherty</span><div class="btrack"><div class="bar"><i class="sold" style="width:24.85%"></i><i class="hold" style="left:24.85%;width:9.00%"></i><i class="high" style="left:33.85%;width:9.75%"></i></div><span class="vrule" style="left:100%"></span></div><span class="n">497 → <span class="md">677–872</span></span></div><div class="bx"><span>D.O.D</span><div class="btrack"><div class="bar"><i class="sold" style="width:46.60%"></i><i class="hold" style="left:46.60%;width:5.95%"></i><i class="high" style="left:52.55%;width:4.45%"></i></div><span class="vrule" style="left:100%"></span></div><span class="n">932 → <span class="md">1,051–1,140</span></span></div><div class="bx"><span>Locklead</span><div class="btrack"><div class="bar"><i class="sold" style="width:18.60%"></i><i class="hold" style="left:18.60%;width:35.30%"></i><i class="high" style="left:53.90%;width:19.75%"></i></div><span class="vrule" style="left:100%"></span></div><span class="n">372 → <span class="md">1,078–1,473</span></span></div><div class="bx"><span>Rudimental</span><div class="btrack"><div class="bar"><i class="sold" style="width:35.85%"></i><i class="hold" style="left:35.85%;width:7.50%"></i><i class="high" style="left:43.35%;width:4.05%"></i></div><span class="vrule" style="left:100%"></span></div><span class="n">717 → <span class="md">867–948</span></span></div><div class="bx"><span>Schak</span><div class="btrack"><div class="bar"><i class="sold" style="width:93.50%"></i><i class="hold" style="left:93.50%;width:6.50%"></i><i class="high" style="left:100.00%;width:0.00%"></i></div><span class="vrule" style="left:100%"></span></div><span class="n">1,870 → <span class="so">sells out</span> at this pace</span></div><div class="bx"><span>Ewan McVicar</span><div class="btrack"><div class="bar"></div><span class="vrule" style="left:100%"></span></div><span class="n">No ticket counts yet</span></div><div class="bx"><span>Julian Fijma</span><div class="btrack"><div class="bar"><i class="sold" style="width:28.95%"></i><i class="hold" style="left:28.95%;width:71.05%"></i><i class="high" style="left:100.00%;width:0.00%"></i></div><span class="vrule" style="left:100%"></span></div><span class="n">579 → <span class="so">sells out</span> at this pace</span></div><div class="bx"><span></span><div class="ticks"><span style="left:0.0%" class="st">0</span><span style="left:25.0%" class="">500</span><span style="left:50.0%" class="">1,000</span><span style="left:75.0%" class="">1,500</span><span class="end" style="left:100%">2,000 capacity</span></div><span></span></div><div class="leg"><span><i style="background:var(--ink)"></i>Sold, count of 12 Nov</span><span><i style="background:rgba(30,24,16,.45)"></i>Holds at the last 7 days' pace</span><span><i style="background:rgba(30,24,16,.18)"></i>Like your best finish</span><span><i style="border-left:1px dashed var(--brick);width:1px;height:12px;border-radius:0"></i>Capacity</span></div></div><p class="note" style="padding:0 16px 12px">Three cases from the last 7 days' pace: it holds; like your average finish (<span class="ex">×1.9</span>, 3 shows); like your best finish (×3.32, DJ EZ). Ewan McVicar has no ticket counts yet, so it isn't in the 16,000.</p>
+</div></div></figure></div>
+<div class="frame"><figure class="wide"><figcaption>NV2 · 1280 · the tiles and the chart, Spend and Total sold on (the defaults)</figcaption>
+<div class="vp w1280x"><div class="db">
+<div class="chips" style="justify-content:space-between"><span class="k" style="align-self:center">Metrics · tap to show or hide · totals for the period picked</span><span style="font-size:12px"><u>All</u> · <u>None</u></span></div>
+<div class="tiles t12"><div class="tile on"><div class="l">Spend</div><div class="v">£16,780</div><div class="s">NX Newcastle · Meta £16,736 · TikTok £12 · Google £32</div></div><div class="tile on"><div class="l">Total sold</div><div class="v">8,526</div><div class="s">to date · Internal Counts, 12 Nov</div></div><div class="tile"><div class="l">Sales</div><div class="v">8,526</div><div class="s">since launch, to 12 Nov</div></div><div class="tile"><div class="l">Cost per ticket</div><div class="v">£1.97</div><div class="s">since launch · blended</div></div><div class="tile"><div class="l">Checkouts + add to cart</div><div class="v"><span class="md">2,672</span></div><div class="s">since launch · actions, one person can do both</div></div><div class="tile"><div class="l">Cost per checkout / cart</div><div class="v"><span class="md">£6.26</span></div><div class="s">since launch</div></div><div class="tile"><div class="l">Landing page views</div><div class="v"><span class="md">53,881</span></div><div class="s">since launch</div></div><div class="tile"><div class="l">Cost per LPV</div><div class="v"><span class="md">£0.31</span></div><div class="s">since launch</div></div><div class="tile"><div class="l">Clicks</div><div class="v"><span class="md">65,821</span></div><div class="s">since launch</div></div><div class="tile"><div class="l">Cost per click</div><div class="v"><span class="md">£0.25</span></div><div class="s">since launch</div></div><div class="tile"><div class="l">Registrations (CIRQLIN)</div><div class="v">6,068</div><div class="s">to date · signup pages close at on-sale · plus 808 on the umbrella page</div></div><div class="tile"><div class="l">Cost per registration</div><div class="v"><span class="md">£1.15</span></div><div class="s">show pages, inside their signup windows</div></div></div>
+<div class="chwrap">
+<p class="capt"><span>Left axis: spend (£). Right axis: total sold (tickets).</span><span>☐ Index each line to its own peak</span></p>
+<svg viewBox="0 0 1182 360" width="1182" height="360" class="ch" role="img" aria-label="Spend and Total sold by day">
+<text x="56" y="12" class="at" text-anchor="start">SPEND (£)</text>
+<text x="1134" y="12" class="at" text-anchor="end">TOTAL SOLD</text>
+<line x1="56" x2="1134" y1="330" y2="330" stroke="rgba(30,24,16,.45)" stroke-width="1"/>
+<text x="50" y="334" class="tk" text-anchor="end">£0</text>
+<text x="1140" y="334" class="tk" text-anchor="start">0</text>
+<line x1="56" x2="1134" y1="280" y2="280" stroke="rgba(30,24,16,.10)" stroke-width="1"/>
+<text x="50" y="283" class="tk" text-anchor="end">£100</text>
+<text x="1140" y="283" class="tk" text-anchor="start">1,500</text>
+<line x1="56" x2="1134" y1="229" y2="229" stroke="rgba(30,24,16,.10)" stroke-width="1"/>
+<text x="50" y="233" class="tk" text-anchor="end">£200</text>
+<text x="1140" y="233" class="tk" text-anchor="start">3,000</text>
+<line x1="56" x2="1134" y1="179" y2="179" stroke="rgba(30,24,16,.10)" stroke-width="1"/>
+<text x="50" y="182" class="tk" text-anchor="end">£300</text>
+<text x="1140" y="182" class="tk" text-anchor="start">4,500</text>
+<line x1="56" x2="1134" y1="129" y2="129" stroke="rgba(30,24,16,.10)" stroke-width="1"/>
+<text x="50" y="132" class="tk" text-anchor="end">£400</text>
+<text x="1140" y="132" class="tk" text-anchor="start">6,000</text>
+<line x1="56" x2="1134" y1="78" y2="78" stroke="rgba(30,24,16,.10)" stroke-width="1"/>
+<text x="50" y="82" class="tk" text-anchor="end">£500</text>
+<text x="1140" y="82" class="tk" text-anchor="start">7,500</text>
+<line x1="56" x2="1134" y1="28" y2="28" stroke="rgba(30,24,16,.10)" stroke-width="1"/>
+<text x="50" y="32" class="tk" text-anchor="end">£600</text>
+<text x="1140" y="32" class="tk" text-anchor="start">9,000</text>
+<line x1="1134" x2="1134" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="1134" y="347" class="tk" text-anchor="middle">12 Nov</text>
+<line x1="1057" x2="1057" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="1057" y="347" class="tk" text-anchor="middle">5 Nov</text>
+<line x1="980" x2="980" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="980" y="347" class="tk" text-anchor="middle">29 Oct</text>
+<line x1="903" x2="903" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="903" y="347" class="tk" text-anchor="middle">22 Oct</text>
+<line x1="826" x2="826" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="826" y="347" class="tk" text-anchor="middle">15 Oct</text>
+<line x1="749" x2="749" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="749" y="347" class="tk" text-anchor="middle">8 Oct</text>
+<line x1="672" x2="672" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="672" y="347" class="tk" text-anchor="middle">1 Oct</text>
+<line x1="595" x2="595" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="595" y="347" class="tk" text-anchor="middle">24 Sep</text>
+<line x1="518" x2="518" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="518" y="347" class="tk" text-anchor="middle">17 Sep</text>
+<line x1="441" x2="441" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="441" y="347" class="tk" text-anchor="middle">10 Sep</text>
+<line x1="364" x2="364" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="364" y="347" class="tk" text-anchor="middle">3 Sep</text>
+<line x1="287" x2="287" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="287" y="347" class="tk" text-anchor="middle">27 Aug</text>
+<line x1="210" x2="210" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="210" y="347" class="tk" text-anchor="middle">20 Aug</text>
+<line x1="133" x2="133" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="133" y="347" class="tk" text-anchor="middle">13 Aug</text>
+<line x1="56" x2="56" y1="330" y2="334" stroke="rgba(30,24,16,.45)"/>
+<text x="56" y="347" class="tk" text-anchor="middle">6 Aug</text>
+<polyline points="56,307 67,232 78,84 89,131 100,48 111,110 122,216 133,265 144,288 155,291 166,288 177,287 188,288 199,283 210,285 221,294 232,303 243,293 254,297 265,295 276,286 287,266 298,264 309,259 320,241 331,245 342,255 353,269 364,262 375,273 386,232 397,210 408,205 419,176 430,177 441,117 452,129 463,96 474,168 485,230 496,254 507,254 518,268 529,297 540,316 551,319 562,320 573,320 584,272 595,163 606,224 617,226 628,229 639,202 650,236 661,247 672,121 683,238 694,198 705,191 716,239 727,266 738,288 749,293 760,293 771,289 782,289 793,297 804,293 815,293 826,295 837,299 848,301 859,303 870,305 881,306 892,300 903,305 914,300 925,295 936,293 947,302 958,273 969,242 980,208 991,111 1002,138 1013,121 1024,85 1035,145 1046,207 1057,228 1068,250 1079,269 1090,268 1101,273 1112,274 1123,275 1134,278" fill="none" stroke="#1e1810" stroke-width="1.6" stroke-linejoin="round"/>
+<defs><marker id="dd" viewBox="0 0 6 6" refX="3" refY="3" markerWidth="4.4" markerHeight="4.4" markerUnits="userSpaceOnUse"><circle cx="3" cy="3" r="3" fill="#7a5a1e"/></marker></defs>
+<polyline points="452,257 485,254 518,250 529,248 573,244 595,242 661,190 672,177 716,165 749,147 760,145 793,135 804,133 815,131 826,129 837,126 870,121 914,116 947,113 958,112 969,110 980,107 991,106 1024,101 1035,98 1046,80 1057,77 1068,67 1101,56 1112,51 1123,47 1134,44" fill="none" stroke="#7a5a1e" stroke-width="1.8" stroke-linejoin="round" marker-start="url(#dd)" marker-mid="url(#dd)" marker-end="url(#dd)"/>
+<line x1="1024" x2="1024" y1="28" y2="330" stroke="#1e1810" stroke-dasharray="2 3"/>
+<g class="hv"><rect x="778" y="34" width="236" height="58" rx="6" fill="#fff8f0" stroke="rgba(30,24,16,.18)"/><text x="788" y="50" class="hh">2 Nov</text><text x="788" y="66" class="hb">Spend £487</text><text x="788" y="82" class="hb">Total sold 6,831 · Internal Counts</text></g>
+</svg>
+<p class="capt2">Solid lines are volumes; the dashed line in the same colour is its cost. A dot is a real Internal Count; between two counts the line is a straight estimate.</p>
+</div></div></div></figure></div>
+
+<h2>NV3–NV4 · The same at 393</h2>
+<div class="frame"><figure><figcaption>NV3 · 393 · NX Newcastle · All shows · Since launch</figcaption>
+<div class="vp w393"><div class="db">
+<div class="db-hd"><div><h4 style="margin-bottom:6px">NX Newcastle</h4><p class="lede">NX Newcastle to date: <b>£16,780</b> spend since launch, <b>8,526</b> tickets sold across 8 shows (Internal Counts, 12 Nov), so <b>£1.97</b> of spend per ticket. Separate NX Newcastle umbrella spend: <b>£4,220</b>.</p><div class="chan">Meta £16,736 · TikTok £12 · Google £32 · to 12 Nov · finished shows not included</div></div><div class="fresh"><span class="fr">Counts 12 Nov</span><span class="fr">Spend 12 Nov</span><span class="fr">Signups 12 Nov</span></div></div>
+<div class="vrow"><span class="seg"><span class="on">NX Newcastle</span><span>Electric Bristol</span><span>Electric Stu…</span></span></div>
+<div class="chips"><span class="chip on">All shows</span><span class="chip">East End Dubs</span><span class="chip">Interplan…</span></div>
+<div class="chips"><span class="chip on">Since launch</span><span class="chip">30 days</span><span class="chip">14 days</span><span class="chip">7 d…</span></div>
+<div class="tiles t12"><div class="tile on"><div class="l">Spend</div><div class="v">£16,780</div><div class="s">Meta £16,736 · TikTok £12 · Google £32</div></div><div class="tile on"><div class="l">Total sold</div><div class="v">8,526</div><div class="s">to date · Internal Counts, 12 Nov</div></div><div class="tile"><div class="l">Sales</div><div class="v">8,526</div><div class="s">since launch, to 12 Nov</div></div><div class="tile"><div class="l">Cost / ticket</div><div class="v">£1.97</div><div class="s">since launch · blended</div></div></div>
+<div class="sum3"><div class="tile"><div class="l">Sold · count of 12 Nov</div><div class="v">8,526</div><div class="s">53% of 16,000 across 8 shows</div></div><div class="tile"><div class="l">Projected on show day</div><div class="v"><span class="md">11,315–12,248</span></div><div class="s">up to <span class="md">77%</span> of 16,000 · each show capped at its capacity</div></div><div class="tile"><div class="l">Pace, last 7 days</div><div class="v"><span class="md">113.3</span> a day</div><div class="s">14-day <span class="md">155.3</span> a day</div></div></div><div class="bars"><div class="bx"><span>East End Dubs</span><span class="n">1,731 → <span class="md">1,775–1,879</span></span><div class="btrack"><div class="bar"><i class="sold" style="width:86.55%"></i><i class="hold" style="left:86.55%;width:2.20%"></i><i class="high" style="left:88.75%;width:5.20%"></i></div><span class="vrule" style="left:100%"></span></div></div><div class="bx"><span>Interplanetary Criminal</span><span class="n">1,828 → <span class="md">1,867–1,936</span></span><div class="btrack"><div class="bar"><i class="sold" style="width:91.40%"></i><i class="hold" style="left:91.40%;width:1.95%"></i><i class="high" style="left:93.35%;width:3.45%"></i></div><span class="vrule" style="left:100%"></span></div></div><div class="bx"><span>Robbie Doherty</span><span class="n">497 → <span class="md">677–872</span></span><div class="btrack"><div class="bar"><i class="sold" style="width:24.85%"></i><i class="hold" style="left:24.85%;width:9.00%"></i><i class="high" style="left:33.85%;width:9.75%"></i></div><span class="vrule" style="left:100%"></span></div></div><div class="bx"><span>D.O.D</span><span class="n">932 → <span class="md">1,051–1,140</span></span><div class="btrack"><div class="bar"><i class="sold" style="width:46.60%"></i><i class="hold" style="left:46.60%;width:5.95%"></i><i class="high" style="left:52.55%;width:4.45%"></i></div><span class="vrule" style="left:100%"></span></div></div><div class="bx"><span>Locklead</span><span class="n">372 → <span class="md">1,078–1,473</span></span><div class="btrack"><div class="bar"><i class="sold" style="width:18.60%"></i><i class="hold" style="left:18.60%;width:35.30%"></i><i class="high" style="left:53.90%;width:19.75%"></i></div><span class="vrule" style="left:100%"></span></div></div><div class="bx"><span>Rudimental</span><span class="n">717 → <span class="md">867–948</span></span><div class="btrack"><div class="bar"><i class="sold" style="width:35.85%"></i><i class="hold" style="left:35.85%;width:7.50%"></i><i class="high" style="left:43.35%;width:4.05%"></i></div><span class="vrule" style="left:100%"></span></div></div><div class="bx"><span>Schak</span><span class="n">1,870 → <span class="so">sells out</span> at this pace</span><div class="btrack"><div class="bar"><i class="sold" style="width:93.50%"></i><i class="hold" style="left:93.50%;width:6.50%"></i><i class="high" style="left:100.00%;width:0.00%"></i></div><span class="vrule" style="left:100%"></span></div></div><div class="bx"><span>Ewan McVicar</span><span class="n">No ticket counts yet</span><div class="btrack"><div class="bar"></div></div></div><div class="bx"><span>Julian Fijma</span><span class="n">579 → <span class="so">sells out</span> at this pace</span><div class="btrack"><div class="bar"><i class="sold" style="width:28.95%"></i><i class="hold" style="left:28.95%;width:71.05%"></i><i class="high" style="left:100.00%;width:0.00%"></i></div><span class="vrule" style="left:100%"></span></div></div><div class="bx"><div style="grid-column:1/-1"><div class="ticks"><span class="st" style="left:0">0</span><span style="left:50%">1,000</span><span class="end" style="left:100%">2,000 capacity</span></div></div></div><div class="leg"><span><i style="background:var(--ink)"></i>Sold, count of 12 Nov</span><span><i style="background:rgba(30,24,16,.45)"></i>Holds at the last 7 days' pace</span><span><i style="background:rgba(30,24,16,.18)"></i>Like your best finish</span><span><i style="border-left:1px dashed var(--brick);width:1px;height:12px;border-radius:0"></i>Capacity</span></div></div>
+</div></div></figure><figure><figcaption>NV4 · 393 · the chart</figcaption>
+<div class="vp w393"><div class="db"><div class="chwrap">
+<p class="capt"><span>Left axis: spend (£). Right axis: total sold.</span></p>
+<svg viewBox="0 0 345 240" width="345" height="240" class="ch" role="img" aria-label="Spend and Total sold by day">
+<text x="44" y="12" class="at" text-anchor="start">SPEND (£)</text>
+<text x="309" y="12" class="at" text-anchor="end">TOTAL SOLD</text>
+<line x1="44" x2="309" y1="210" y2="210" stroke="rgba(30,24,16,.45)" stroke-width="1"/>
+<text x="38" y="214" class="tk" text-anchor="end">£0</text>
+<text x="315" y="214" class="tk" text-anchor="start">0</text>
+<line x1="44" x2="309" y1="149" y2="149" stroke="rgba(30,24,16,.10)" stroke-width="1"/>
+<text x="38" y="152" class="tk" text-anchor="end">£200</text>
+<text x="315" y="152" class="tk" text-anchor="start">3k</text>
+<line x1="44" x2="309" y1="87" y2="87" stroke="rgba(30,24,16,.10)" stroke-width="1"/>
+<text x="38" y="91" class="tk" text-anchor="end">£400</text>
+<text x="315" y="91" class="tk" text-anchor="start">6k</text>
+<line x1="44" x2="309" y1="26" y2="26" stroke="rgba(30,24,16,.10)" stroke-width="1"/>
+<text x="38" y="30" class="tk" text-anchor="end">£600</text>
+<text x="315" y="30" class="tk" text-anchor="start">9k</text>
+<line x1="309" x2="309" y1="210" y2="214" stroke="rgba(30,24,16,.45)"/>
+<text x="309" y="227" class="tk" text-anchor="middle">12 Nov</text>
+<line x1="252" x2="252" y1="210" y2="214" stroke="rgba(30,24,16,.45)"/>
+<text x="252" y="227" class="tk" text-anchor="middle">22 Oct</text>
+<line x1="195" x2="195" y1="210" y2="214" stroke="rgba(30,24,16,.45)"/>
+<text x="195" y="227" class="tk" text-anchor="middle">1 Oct</text>
+<line x1="139" x2="139" y1="210" y2="214" stroke="rgba(30,24,16,.45)"/>
+<text x="139" y="227" class="tk" text-anchor="middle">10 Sep</text>
+<line x1="82" x2="82" y1="210" y2="214" stroke="rgba(30,24,16,.45)"/>
+<text x="82" y="227" class="tk" text-anchor="middle">20 Aug</text>
+<polyline points="44,196 47,150 49,60 52,89 55,38 58,76 60,141 63,170 66,184 68,186 71,184 74,184 76,184 79,181 82,182 85,188 87,193 90,187 93,190 95,189 98,183 101,171 103,170 106,167 109,156 112,158 114,164 117,173 120,168 122,175 125,151 128,137 131,134 133,116 136,117 139,80 141,88 144,68 147,112 149,149 152,164 155,164 158,172 160,190 163,202 166,203 168,204 171,204 174,174 176,108 179,145 182,147 185,148 187,132 190,153 193,160 195,82 198,154 201,129 204,125 206,155 209,171 212,184 214,188 217,188 220,185 222,185 225,190 228,187 231,187 233,189 236,191 239,193 241,193 244,195 247,195 250,192 252,195 255,192 258,189 260,187 263,193 266,175 268,157 271,136 274,77 277,93 279,82 282,61 285,97 287,135 290,148 293,162 295,173 298,172 301,175 304,176 306,177 309,178" fill="none" stroke="#1e1810" stroke-width="1.6" stroke-linejoin="round"/>
+<defs><marker id="dm" viewBox="0 0 6 6" refX="3" refY="3" markerWidth="3.6" markerHeight="3.6" markerUnits="userSpaceOnUse"><circle cx="3" cy="3" r="3" fill="#7a5a1e"/></marker></defs>
+<polyline points="141,166 149,163 158,161 160,160 171,158 176,156 193,125 195,117 206,109 214,99 217,97 225,91 228,90 231,89 233,88 236,86 244,83 255,80 263,78 266,77 268,76 271,74 274,73 282,70 285,69 287,58 290,56 293,50 301,43 304,40 306,38 309,36" fill="none" stroke="#7a5a1e" stroke-width="1.8" stroke-linejoin="round" marker-start="url(#dm)" marker-mid="url(#dm)" marker-end="url(#dm)"/>
+</svg>
+<p class="capt2">Solid lines are volumes; the dashed line in the same colour is its cost. A dot is a real Internal Count.</p>
+<p class="capt2">☐ Index each line to its own peak</p>
+</div></div></div></figure></div>
+
+<h2>NV5 · All venues, with the spend breakdown</h2>
+<div class="frame"><figure class="wide"><figcaption>NV5 · 1280 · All venues · Spend tile hovered</figcaption>
+<div class="vp w1280x"><div class="db rel">
+<div class="db-hd"><div style="max-width:820px"><h4 style="margin-bottom:6px">Electric Brixton sales vs spend · 3 venues</h4>
+<p class="lede">Electric Brixton to date, 3 venues: <b>£18,860</b> spend since launch. <b>8,862</b> tickets sold on the 9 shows with counts (Internal Counts, 12 Nov), so <b>£2.11</b> of spend per ticket on those shows. Separate umbrella spend: NX Newcastle <b>£4,220</b>.</p>
+<div class="chan">Meta £18,816 · TikTok £12 · Google £32 · to 12 Nov · finished shows not included</div></div><div class="fresh"><span class="fr">Counts to 12 Nov</span><span class="fr">Spend to 12 Nov</span><span class="fr">Signups to 12 Nov</span></div></div>
+<div class="vrow"><span class="k">Venue</span><span class="seg"><span>NX Newcastle</span><span>Electric Bristol</span><span>Electric Studios</span><span class="on">All venues</span></span></div>
+<div class="chips"><span class="gl">NX Newcastle</span><span class="chip">All NX Newcastle</span><span class="chip">East End Dubs</span><span class="chip">Interplanetary Criminal</span><span class="chip">Robbie Doherty</span><span class="chip">D.O.D</span><span class="chip">Locklead</span><span class="chip">Rudimental</span><span class="chip">Schak</span><span class="chip">Ewan McVicar</span><span class="chip">Julian Fijma</span><span class="chip umb">Umbrella</span>
+<span class="gl">Electric Bristol</span><span class="chip">All Electric Bristol</span><span class="chip">Kream</span><span class="chip">Glitterbox</span>
+<span class="gl">Electric Studios</span><span class="chip">All Electric Studios</span><span class="chip">L.P Rhythm</span></div>
+<div class="chips"><span class="chip on">Since launch</span><span class="chip">30 days</span><span class="chip">14 days</span><span class="chip">7 days</span><span class="chip">3 days</span><span class="chip">Yesterday</span></div>
+<div class="tiles"><div class="tile on"><div class="l">Spend</div><div class="v">£18,860</div><div class="s">All venues · Meta £18,816 · TikTok £12 · Google £32</div></div>
+<div class="tile on"><div class="l">Total sold</div><div class="v">8,862</div><div class="s">to date · Internal Counts, 12 Nov · 9 shows</div></div>
+<div class="tile"><div class="l">Sales</div><div class="v">8,862</div><div class="s">since launch, to 12 Nov</div></div>
+<div class="tile"><div class="l">Cost per ticket</div><div class="v">£2.11</div><div class="s">since launch · the 9 shows with counts</div></div>
+<div class="tile"><div class="l">Registrations (CIRQLIN)</div><div class="v">7,292</div><div class="s">to date · plus 808 on the umbrella page</div></div>
+<div class="tile"><div class="l">Cost per registration</div><div class="v"><span class="ex">£1.21</span></div><div class="s">show pages, inside their signup windows</div></div></div>
+<div class="hover" style="top:424px;left:16px;right:auto">
+<div class="k" style="margin-bottom:6px">£18,860 since launch · to 12 Nov</div>
+<div class="hr"><span>NX Newcastle</span><span>£16,780</span></div>
+<div class="hr"><span style="padding-left:12px;color:var(--ink-2)">Meta · TikTok · Google</span><span>£16,736 · £12 · £32</span></div>
+<div class="hr"><span>Electric Bristol</span><span>£2,012</span></div>
+<div class="hr"><span style="padding-left:12px;color:var(--ink-2)">Meta</span><span>£2,012</span></div>
+<div class="hr"><span>Electric Studios</span><span>£67</span></div>
+<div class="hr"><span style="padding-left:12px;color:var(--ink-2)">Meta</span><span>£67</span></div>
+<p class="x">Not in this total: NX Newcastle umbrella £4,220. Finished shows (Include finished adds them).</p></div>
+<div style="height:250px"></div>
+</div></div></figure></div>
+
+<h2>NV6 · The umbrella and its page</h2>
+<div class="frame"><figure><figcaption>NV6 · 393 · the umbrella, Since launch</figcaption>
+<div class="vp w393"><div class="db">
+<div class="db-hd"><div><h4>NX Newcastle umbrella</h4><div class="sub">Global Marketing · not a show: no tickets and no trajectory</div>
+<p class="lede" style="margin-top:6px">NX Newcastle umbrella to date: <b>£4,220</b> spend since launch, kept out of every show total. <b>808</b> signups on its page.</p>
+<div class="chan">Meta £3,854 · TikTok £328 · Google £38 · to 12 Nov</div></div><div class="fresh"><span class="fr">Counts 12 Nov</span><span class="fr">Spend 12 Nov</span><span class="fr">Signups 12 Nov</span></div></div>
+<div class="vrow"><span class="seg"><span class="on">NX Newcastle</span><span>Electric Bristol</span><span>Electric Stu…</span></span></div>
+<div class="chips"><span class="chip">…</span><span class="chip">Julian Fijma</span><span class="chip umb on">Umbrella</span></div>
+<div class="tiles t12">
+<div class="tile on"><div class="l">Spend</div><div class="v">£4,220</div><div class="s">Meta £3,854 · TikTok £328 · Google £38</div></div>
+<div class="tile"><div class="l">Registrations (CIRQLIN)</div><div class="v">808</div><div class="s">to date · nx-loves-aw26</div></div>
+<div class="tile"><div class="l">Cost per registration</div><div class="v">£5.22</div><div class="s">all umbrella spend, 18 Sep–12 Nov</div></div>
+<div class="tile"><div class="l">Clicks</div><div class="v"><span class="ex">9,140</span></div><div class="s">since launch</div></div>
+</div>
+<div class="sec"><p class="note">An umbrella has no Total sold, Sales or Cost per ticket tile, and no trajectory.</p></div>
+</div></div></figure></div>
+
+<h2>Expected figures (database to 12 Nov)</h2>
+<table class="cmp">
+<tr><th>Scope</th><th>Figure</th><th>Expected</th><th>Note</th></tr>
+<tr><td>NX Newcastle · All shows</td><td>Spend since launch</td><td class="n">£16,780</td><td>Meta £16,736 (£16,736.19, equal to the model; D2 adds Schak's £2.63 of tagged-only spend to the rollup) · TikTok £12 (Locklead) · Google £32 (EED £14, IPC £18, Robbie Doherty £0.18). Before #1225's TikTok renames: once <code>[NX26-AZYR] Locklead - SIGNUP 2</code> is renamed, Locklead gains £106.98 and this reads £16,887.</td></tr>
+<tr><td></td><td>Spend, 14 days</td><td class="n">£3,377</td><td>30 Oct–12 Nov</td></tr>
+<tr><td></td><td>Total sold · shows</td><td class="n">8,526 · 8</td><td>EED 1,731, IPC 1,828, Robbie Doherty 497, D.O.D 932, Locklead 372, Rudimental 717, Schak 1,870, Julian Fijma 579. Ewan McVicar has no counts.</td></tr>
+<tr><td></td><td>Cost per ticket, since launch</td><td class="n">£1.97</td><td>£16,780.14 ÷ 8,526, all channels (D12). The model's £1.96 is Meta only.</td></tr>
+<tr><td></td><td>Capacity sum · sold share</td><td class="n">16,000 · 53%</td><td>8 shows with counts × 2,000</td></tr>
+<tr><td></td><td>Registrations to date</td><td class="n">6,068</td><td>By page, read from CIRQLIN on 13 Nov: D.O.D 1,844, Schak 1,792, Rudimental 1,096, Robbie Doherty 687, Locklead 649. Plus 808 on nx-loves-aw26, shown apart. Within 2 of CIRQLIN's own count at the read passes (signups removed later shift it; the model has DOD 1,845, v2's current source 1,843).</td></tr>
+<tr><td></td><td>Registrations, 14 days</td><td class="n">392</td><td>Locklead. Plus 57 on the umbrella page.</td></tr>
+<tr><td>NX Newcastle umbrella</td><td>Spend since launch</td><td class="n">£4,220</td><td>Meta £3,854 · TikTok £328 · Google £38</td></tr>
+<tr><td></td><td>Registrations · cost per registration</td><td class="n">808 · £5.22</td><td>All umbrella spend 18 Sep–12 Nov (£4,220) ÷ 808</td></tr>
+<tr><td>East End Dubs</td><td>Spend · sold · cost per ticket</td><td class="n">£2,767 · 1,731 · £1.60</td><td>Meta £2,754 · Google £14</td></tr>
+<tr><td>All venues</td><td>Spend since launch</td><td class="n">£18,860</td><td>£18,859.82: NX £16,780.14 + Electric Bristol £2,012.34 + Electric Studios £67.34. Meta £18,816 · TikTok £12 · Google £32. Matches prod.</td></tr>
+<tr><td></td><td>Spend, 14 days</td><td class="n">£3,839</td><td>NX £3,377 + Bristol £395 + Studios £67. Matches prod.</td></tr>
+<tr><td></td><td>Total sold · shows with counts</td><td class="n">8,862 · 9</td><td>8,526 + Kream 336. Matches prod.</td></tr>
+<tr><td></td><td>Cost per ticket, since launch</td><td class="n">£2.11</td><td>(£16,780.14 + Kream £1,938.97) ÷ 8,862. Glitterbox and L.P Rhythm spend is in the total but not the ratio: they have no counts.</td></tr>
+<tr><td></td><td>Registrations to date</td><td class="n">7,292</td><td>6,068 + Kream 593 + Glitterbox 419 + L.P Rhythm 212, by page. Plus 808 on the umbrella page.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HN1 · Data (Matas or ops, on the event page)</td><td>
+<p>No migration. Two field changes, through the app's own forms:</p>
+<ul>
+<li>Set the venue on NX26-GLOBAL, NX27-EWANMCVICAR, EBR27-GLITTERBOX and ES27-LPRHYTHM through the event's existing venue field, so the same write path fills <code>venue_key</code>.</li>
+<li>Link NX26-GLOBAL's CIRQLIN page to <code>nx-loves-aw26</code>.</li>
+</ul>
+<p><b>Acceptance:</b> no live Electric event has a null venue_key, and NX26-GLOBAL's <code>cirqlin_page_slug</code> is <code>nx-loves-aw26</code>.</p></td></tr>
+<tr><td>HN2 · Server calcs (Claude Code)</td><td>
+<p>In <code>lib/dashboard/sales-vs-spend.ts</code> and its server loader:</p>
+<ul>
+<li>Venue grouping from venue_key (N2), with "Venue not set" internal only.</li>
+<li>Every total returned with its breakdown: scope, per-venue or per-show parts, per-channel parts, and exclusions (N3).</li>
+<li>The header sentence's figures and clauses (N4).</li>
+<li>Registrations read by the linked CIRQLIN page (<code>cirqlin_page_id</code>), not the Mailchimp tag: #1225's fix. Until then Schak reads 0 and the expected 6,068 can't be met.</li>
+<li>The umbrella page's signups, kept apart (N8).</li>
+<li>The default period set to since launch (N5).</li>
+</ul>
+<p><b>Acceptance:</b></p>
+<ul>
+<li>The expected-figures table above: spend to the pound, tickets exact, registrations within 2. The parity test shows the model's £16,736.19 against v2's NX Meta part.</li>
+<li>Each breakdown's parts sum to its total before rounding.</li>
+</ul></td></tr>
+<tr><td>HN3 · Layout and charts (Cursor)</td><td>
+<p>In <code>components/dashboard/sales/</code>:</p>
+<ul>
+<li>N1's axes, gridlines, titles, date steps and both captions, plus indexed mode.</li>
+<li>N2's venue row and grouped chips, kept in the URL.</li>
+<li>N3's tile sublines and the hover.</li>
+<li>N4's sentence and channel line.</li>
+<li>N6's tiles and bars.</li>
+<li>N7's names and spans.</li>
+<li>N8's chip and umbrella view.</li>
+</ul>
+<p>Shots, internal and share, all on the 12 Nov data:</p>
+<ul>
+<li><code>N-top-1280</code> and <code>N-top-393</code> (NV1, NV3)</li>
+<li><code>N-chart-1280</code> and <code>N-chart-393</code> (NV2, NV4)</li>
+<li><code>N-chart-index-1280</code></li>
+<li><code>N-chart-14d-1280</code> (daily date labels)</li>
+<li><code>N-allvenues-1280</code> with the Spend hover open (NV5)</li>
+<li><code>N-umbrella-393</code> (NV6)</li>
+<li><code>N-share-1280</code></li>
+</ul></td></tr>
+<tr><td>HN4 · Order</td><td>HN1 is independent and can go first. Then HN2, then HN3. HN3 can lay out against fixtures meanwhile, but its shots are judged on HN2's figures.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Venue identity from venue_key, the display name from the next show's venue_name, and "Venue not set".</li>
+<li>The venue row's order, its default (most live shows, then spend), "All {venue}" in the grouped chips, and the URL value <code>all</code>.</li>
+<li>The tick set (1, 1.5, 2, 2.5, 3, 4, 5), 6 and 3 intervals, the right axis aligned to the left gridlines, the 6 px label-clearance date rule anchored to the last day, and the axis titles.</li>
+<li>The caption sentence about dots and estimates, and the indexed caption.</li>
+<li>The header sentences for one show, all venues and the umbrella, the channel line, and dropping a clause when its source is empty.</li>
+<li>The trajectory labels "SELLS OUT at this pace" and "SELLS OUT if best", and dropping the model's "~".</li>
+<li>Tile names 3 (Sales), 5 and 6 as worded here, "Cost per …" throughout, the narrow labels, and the span-first sublines.</li>
+<li>"Umbrella" as the chip, "{Venue} umbrella" elsewhere, the umbrella's page and its cost per registration.</li>
+<li>Every string in NV1–NV6. The figures are marked: plain is the database, dotted is the model, dashed is an example.</li>
+</ul>
+
+<h2>Open for Matas</h2>
+<ul class="notes">
+<li><b>The umbrella's cost per registration</b> (£5.22) divides all umbrella spend by the page's signups, but umbrella spend also drives show sales. It's labelled that way. Say if you'd rather it isn't shown.</li>
+<li><b>The default venue for Electric:</b> NX Newcastle (most live shows). Say if the client link should open on All venues instead.</li>
+<li><b>Cost per ticket on all channels</b> (D12) turns the model's £1.96 into £1.97 for NX. That's intended. Say if you want a Meta-only cost per ticket next to it.</li>
+</ul>
+
+</div>
+</body>
+</html>

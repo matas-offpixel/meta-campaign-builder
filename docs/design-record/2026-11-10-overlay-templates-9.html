@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 9 — clip resolution, the face floor, the backing — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.prof{position:relative;width:420px;height:150px;background:#3a9aa8;border-radius:6px;overflow:hidden;font:600 8px/1 var(--mono);color:#fff}
+@media (max-width:700px){.prof{transform:scale(.82);transform-origin:left top;margin-bottom:-27px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 9 · 10 November 2026</p>
+<h1>Overlay templates — issue 9: clip resolution, the face floor, the backing</h1>
+<div class="lead"><p>#1167 round 2 builds issue 8 (O54–O62) and shows four new problems:</p>
+<ul>
+<li>Every clip on Puzzle 4th Birthday is narrower than 1080, so O62 rules out every 4:5 and 1:1, while the 9:16s are still upscaled. Luke 1's 9:16 is cut from a 404 px window and blown up 2.7×.</li>
+<li>The face floor counts a booth face in Enzo 2.</li>
+<li>A refusal on the run limit quotes the share.</li>
+<li>The red line's backing is cut hard above line 2.</li>
+</ul>
+<p>This issue rules all four. Issues 1–8 stand except where a row says otherwise.</p></div>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 9 · 10 Nov 2026.</b>
+<ul>
+<li>O63: footage resolution, on every format (amends O42 and O62).</li>
+<li>O64: the face floor (amends O56).</li>
+<li>O65: the run refusal's words.</li>
+<li>O66: the backing's shape, with no hard edge (amends O58).</li>
+<li>O67: round 2's new invented values, and a correction.</li>
+<li>Hand-back H63–H68.</li>
+</ul></li>
+<li><b>Issue 8 · 10 Nov 2026.</b> O54–O62. #1168.</li>
+</ul></div>
+
+<h2>Data note — #1167 round 2, measured</h2>
+<table class="t">
+<tr><th>What</th><th>Measured</th><th>What it means</th></tr>
+<tr><td>O54 on the 9:16 (frame at 3.8 s, ink rows)</td><td>Lockup 0.145–0.189 H; name 0.205–0.275; date 0.291–0.320; red line 0.574–0.599; white line 0.610–0.651.</td><td>Built as ruled.</td></tr>
+<tr><td>O55 on the grey test</td><td>Top band: 0.20 to 0.34 H, then 0.10 at 0.36 and 0.02 at 0.40, gone by 0.43. Bottom band: 0 at 0.55 H, then 0.02 at 0.567, 0.11 at 0.589, 0.18 at 0.5998, 0.20 at 0.60 and 0.30 at 0.68. Largest row step: 3.0 levels at row 1151 (the knee); 1.0 elsewhere.</td><td>Built as ruled.</td></tr>
+<tr><td>Sources</td><td>Luke 1 is 956 × 718, landscape. Enzo 1 and Enzo 2 are 720 × 1280. Luke 1's 9:16 window is 404 px wide, so it is scaled 2.67×. Enzo's 9:16s are scaled 1.5×.</td><td>By eye at 1:1 pixels: Luke 1's 9:16 is mushy and blocky, while Enzo 2's 1.5× is soft but reads as club footage. The type is set at 1080 and stays sharp either way.</td></tr>
+<tr><td>Enzo 2's refusal</td><td>Face share 5 %, one run of 0.6 s. The face is about 0.061 W: 44 px on the 720 source, 66 px at 1080.</td><td>A face's share of the frame doesn't change with scaling, so the floor's value, not where it is measured, decides this.</td></tr>
+<tr><td>The backing on the artist card</td><td>Line 1 cap 48 px, top y 1413; line 2 cap top y 1483, a 22 px gap. A padding of 0.5 cap (24 px) is wider than the gap, so the backing is cut hard at y 1484 (luma 13 → 215 in one row). The clip in Enzo 2 shows the same strip edge.</td><td>The shape needs a rule that fits the gap.</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O63 Footage resolution</td><td>This amends O42 and O62, for video only. Stills keep O19's "no upscaling".
+<ul>
+<li><b>It binds every format</b>, 9:16 included, and is measured on the crop window: the window's width in source pixels against the output's 1080.</li>
+<li><b>Up to 1.6×.</b> A window at least 675 px wide may be scaled up to the output, with Lanczos. Under 675 px, that format isn't made: "Clip too small for {format} — {w} px wide in the crop, needs 675". The type is always set at the output's size, never scaled.</li>
+<li>Why 1.6: Instagram's own clips usually arrive at 720 × 1280, which is 1.5× to 1080. That reads as normal phone footage. 2.7× visibly breaks up. 1.6 lets 718 to 720 px sources through with a little room; it is a limit, not a target.</li>
+<li><b>Import takes the largest copy there is.</b> Drive, press-kit and uploaded files are imported at their own size, never re-encoded smaller. An Instagram clip is its media URL's file. When one artist has clips both in <code>02 Source / Artist clips</code> or <code>Press kits</code> and on Instagram, the folder clips are listed first in that artist's group. The Lab doesn't try to match duplicates.</li>
+<li><b>For an artist whose footage is all 720p Instagram,</b> that is enough: 720 × 1280 makes all three formats at 1.5×. For a clip too small for a format, the refusal line is the answer, plus asking the artist's team for the original. The Lab adds no new feature for that.</li>
+<li><b>What it means today:</b>
+<ul>
+<li>Luke 1 (956 × 718): 1:1 only (718 px, 1.50×). The 9:16 (404 px, 2.67×) and the 4:5 (574 px, 1.88×) aren't made.</li>
+<li>Enzo 1 and Enzo 2 (720 × 1280): all three formats at 1.5×.</li>
+</ul></li>
+</ul></td></tr>
+<tr><td>O64 The face floor</td><td>This amends O56.
+<ul>
+<li>The floor is a share of the output frame's width, so it reads the same whether a face is measured on the source or after scaling (44 / 720 = 66 / 1080 = 0.061 W).</li>
+<li>The detector runs on the source frames, with no upscaled pixels, and its boxes are mapped into the output's geometry.</li>
+<li><b>The floor rises from 0.06 W to 0.08 W</b> (86 px at 1080; 58 px on a 720 source). Enzo 2's 0.061 W face is a booth or crowd face. A DJ in a medium shot is 0.12 W or more, and the artist card's face floor on stills is 216 px (0.20 W).</li>
+<li>Faces under half the widest counted face's width still don't count (O19).</li>
+</ul></td></tr>
+<tr><td>O65 The run refusal</td><td>When the 0.5 s run limit refuses a clip and the share is within its 10 %: "Face in the type for {t} s at a time — choose another crop or clip", where t is the longest run to one decimal. When both fail, the share's line as now. The report gives both figures, for A and for B at every crop tried, so a refusal shows what was tried.</td></tr>
+<tr><td>O66 The backing's shape</td><td>This amends O58's padding and feather. The backing never has a hard edge and never sits under other type's ink.
+<ul>
+<li><b>Core</b> (full opacity): line 1's ink box, padded 1 cap left and right. Above and below, the padding is the smaller of 0.5 cap and a quarter of the gap to the neighbouring type. The gap runs from line 1's ink to the next type's ink: line 2's cap top below, the date's or name's baseline above. With no type within 1.5 cap, the padding is 0.5 cap.</li>
+<li><b>Feather</b> (J2's fade, to 0): outward from the core. Vertically it runs over the smaller of 1 cap and what is left of the gap, so it reaches 0 exactly at the neighbouring type's ink. Horizontally it runs over 1 cap, ending at 0.07 / 0.93 W at the latest.</li>
+<li>If the horizontal feather would be squeezed below 0.25 cap at 0.07 / 0.93 W, the horizontal padding shrinks first, but never below 0.25 cap.</li>
+<li>The steps (40 / 60 / 80 %), the test on line 1's ink box only, and the entrance with the claim are unchanged.</li>
+<li><b>The card in round 2:</b> cap 48 px and gap 22 px give a padding of 5.5 px below, then a 16.5 px feather to 0 at line 2's cap top. Above, there is no type within 72 px, so 24 px of padding and a 48 px feather.</li>
+</ul>
+<div class="prof" aria-label="the backing's vertical profile">
+  <div style="position:absolute;left:24px;width:372px;top:6px;height:94px;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.4) 32%,rgba(0,0,0,.4) 86%,rgba(0,0,0,0) 100%);-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 9%,#000 91%,transparent 100%);mask-image:linear-gradient(90deg,transparent 0,#000 9%,#000 91%,transparent 100%)"></div>
+  <span style="position:absolute;left:60px;top:48px;font:700 20px/1 system-ui;color:#FE3232">EARLY BIRD, 1ST &amp; 2ND …</span>
+  <span style="position:absolute;left:44px;top:100px;font:700 30px/1 system-ui;color:#fff">3RD RELEASE …</span>
+  <span style="position:absolute;right:6px;top:8px">feather 1 cap</span>
+  <span style="position:absolute;right:6px;top:40px">core: ink box + padding</span>
+  <span style="position:absolute;right:6px;top:88px">feather ends at line 2's cap top</span>
+</div></td></tr>
+<tr><td>O67 Round 2's invented values, and a correction</td><td>
+<ul>
+<li>Every counted face is tested, not only the widest, each by its upper 60 %: <b>accepted</b>.</li>
+<li>The backing cut hard at type and at 0.07–0.93 W: <b>superseded</b> by O66.</li>
+<li>The red line re-read with the chosen band step, then each backing step, on the same samples: <b>accepted</b>.</li>
+<li>O62 on 4:5 and 1:1 only: <b>superseded</b> by O63, which covers every format.</li>
+<li>With no claim, the bottom band anchored where a one-line claim would sit: <b>accepted</b>. In B, the date stays above that line.</li>
+<li><b>Correction:</b> Luke 1 is a 956 × 718 landscape clip, and its 9:16 is a crop of it. It was not "already 9:16".</li>
+</ul></td></tr>
+</table>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>T1 artist clip (video)</td><td>Up to 1.6× from the crop window, in every format; faces from 0.08 W, detected on the source; the backing's shape.</td></tr>
+<tr><td>Artist card (stills)</td><td>The backing's shape (O66). Still no upscaling.</td></tr>
+<tr><td>Clips section</td><td>Within an artist's group, folder and press-kit clips are listed before Instagram clips.</td></tr>
+<tr><td>Approval card lines</td><td>"Clip too small for {format} — {w} px wide in the crop, needs 675" replaces issue 8's "needs 1080 px wide". New: "Face in the type for {t} s at a time — choose another crop or clip".</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H63 Resolution</td><td>O63 on all three formats: the 675 px window, Lanczos, the refusal line; import at full size; folder clips first.</td><td>clip width, height</td><td>Luke 1 makes the 1:1 only; Enzo 1 and Enzo 2 make all three; no draft is scaled more than 1.6×</td></tr>
+<tr><td>H64 Face floor</td><td>O64: 0.08 W, detected on the source.</td><td>the face detector</td><td>Enzo 2 isn't refused on its 0.061 W face</td></tr>
+<tr><td>H65 Run line</td><td>O65's words; both figures per arrangement and crop in the report.</td><td>—</td><td>a fixture refused on a 0.6 s run with a 5 % share shows "Face in the type for 0.6 s at a time — choose another crop or clip"</td></tr>
+<tr><td>H66 Backing</td><td>O66 on clips and on the card.</td><td>—</td><td>on the card, no row-to-row luma step above 6 levels between line 1's baseline and line 2's cap top, and the backing is 0 at line 2's cap top</td></tr>
+<tr><td>H67 Drafts again</td><td>Re-run every format that O63 now allows, with the card, and the same contact sheet and report.</td><td>the three clips</td><td>judged by the design thread</td></tr>
+<tr><td>H68 O59 still open</td><td>The tier collapse on Puzzle's real tiers (H58), not the fixture tiers.</td><td>lib/releases, event_releases</td><td>H58's test</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>1.6× and 675 px; Lanczos; folder clips first.</li>
+<li>0.08 W.</li>
+<li>The run line's words.</li>
+<li>The backing's quarter-gap padding, feather to the neighbour's ink, the 0.25 cap minimums, and H66's 6-level check.</li>
+</ul>
+
+<h2>Frames</h2>
+<p>None new. The backing's profile above is illustrative. T1 on clips is judged on H67's drafts.</p>
+
+</div></body>
+</html>

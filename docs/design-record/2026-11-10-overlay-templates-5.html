@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 5 — T2 round 2: the slot is the paper, a third size step, drops on T1 and the artist card — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.ok{color:var(--olive);font-weight:600}.amend{color:var(--ochre);font-weight:600}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;width:270px;height:480px;border-radius:6px;overflow:hidden;background:#7d6f62;font:600 7px/1.2 var(--mono);color:#fff}
+.sch .ink{position:absolute;border:1px dashed rgba(255,255,255,.55)}
+.sch .paper{position:absolute;background:#32322f}
+.sch .tape{position:absolute;background:rgba(225,215,190,.55)}
+.sch .slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.sch .lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 5 · 10 November 2026</p>
+<h1>Overlay templates — issue 5: T2 round 2</h1>
+<p class="lead">Extends issues 1–4. Claude Code's round-2 T2 drafts (<code>cc/t2-claim-statics</code> at 09a5554, H27–H30 built) showed that O26's "ink box" includes Puzzle's tape strips, so a line can still leave the paper — the thing O26 was written to stop. This issue moves the slot to the paper, adds a third size step so O12's own roll-call fits, rules the build's new invented values, and sets the drop order on T1 and the artist card. The video questions (O31) move to issue 6. The round-2 sheets were seen: <code>round-2/SHEET-9x16.png</code> (ink-box slot) and <code>round-2/paper-box/SHEET-9x16.png</code> (paper slot).</p>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 5 · 10 Nov 2026.</b> O32 the claim slot is the panel's paper, less 0.03 W each side (amends O26). O33 T2 gains step 2 at 4.5 % H (amends O8 for T2). O34 the build's five new invented values ruled. O35 O8's drops apply on T1 and the artist card after the last size step. O36 the draft stamp. The video questions move to issue 6. Hand-back H31–H35.</li>
+<li><b>Issue 4 · 10 Nov 2026.</b> O26–O31, H27–H30. Merged as #1159.</li>
+</ul></div>
+
+<h2>Data note — round 2 (ink-box slot, 905 px)</h2>
+<table class="t">
+<tr><th>Card</th><th>Measured</th></tr>
+<tr><td>(a) GENERAL SALE LIVE</td><td>Step 0, one line, 672 px; claim box 0.6 %. Passes.</td></tr>
+<tr><td>(b) Roll-call sample</td><td>Step 1, line 1 "EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT" 795 px (red, 62 px cap), line 2 "3RD RELEASE SELLING FAST" (100 px cap); red line 0.2 %, stays red. Passes on 905; misses the paper slot (791 px) by 4 px.</td></tr>
+<tr><td>(c) Longest fixture</td><td>"EARLY BIRD, 1ST, 2ND &amp; 3RD RELEASE SOLD OUT / FINAL 100 FINAL RELEASE TICKETS". States 00–02 over; state 03 (step 1, TICKETS dropped) line 1 885 px, line 2 727 px: fits 905, but runs about 8 px past the paper on the left and 6 px on the right.</td></tr>
+<tr><td>Six-release fixture</td><td>Line 1 1144 px at step 1 — can't shorten.</td></tr>
+<tr><td>(d) bands off</td><td>Passes.</td></tr>
+<tr><td>Panel</td><td>Ink box (alpha &gt; 8) x 35–1025, y 335–1580, the tape included. Paper (median edges) x 94–970, y 373–1548.</td></tr>
+<tr><td>Bands</td><td>Every stop within ±1 % on 3 × 3 averages in all three formats.</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O32 The slot is the paper</td><td>Amends O26. The claim sits on the panel's <b>paper</b>, not its ink box: tape, torn strips and shadow are not ground, and a letter on the tape reads as a mistake. Ops' lean is right.
+<ul>
+<li>The paper box is measured once per kit at the kit audit (H8) and stored on the kit; the build's method (each edge the median over the rows or columns with ink) is accepted as the measurement. Puzzle: x 94–970, y 373–1548.</li>
+<li>Inset <b>0.03 W (32 px)</b> each side (was 0.04 W) and 0.02 H (38 px) top and bottom. Puzzle's slot: x 126–938 (<b>812 px</b>), y 411–1510. The 1:1 at 0.8× (650 px).</li>
+<li>Claim lines centre on the slot's middle (Puzzle x 532), not the frame's.</li>
+<li>Why 0.03 W: it keeps a clear 32 px of paper beside the widest line — the record's own sample (b) at 795 px fits with 17 px to spare — while 0.04 W made (b) unfittable by 4 px. Tracking is never tightened to fit (rule 14: never condensed; the kit's +25 stands).</li>
+</ul></td></tr>
+<tr><td>O33 T2 step 2</td><td>Amends O8 for T2. O12's own example roll-call ("EARLY BIRD, 1ST, 2ND &amp; 3RD RELEASE SOLD OUT") can't fit the paper at step 1, and a template that can't draw its own record's claim is short a step.
+<ul>
+<li>T2 gains <b>step 2: two lines at 4.5 % H</b> (86 px; a roll-call's line 1 at 0.625 of it, 54 px), the equal-cap pitch scaled with the cap (6.56 % H). Never a third line.</li>
+<li>The ladder on T2 is step 0 → 1 → 2, then each drop in O8's order, retrying steps 0–2 after each. The meter reads "step {n} of 2".</li>
+<li>Predicted on the 812 px slot (the build's measured widths decide): (a) step 0; (b) step 1, 795 px; (c) longest step 2 with TICKETS dropped (about 766 / 629 px); the six-release fixture still can't shorten (about 990 px at step 2).</li>
+<li>Hierarchy holds: at step 2 the claim's white line (86 px) is still the largest text on the card and the red line (54 px) still larger than the lineup's 50 px.</li>
+</ul></td></tr>
+<tr><td>O34 The build's new invented values</td><td>
+<ul>
+<li><span class="ok">Accepted:</span> claim lines centre on the slot's middle; a slot wider than 86 % W narrows about the panel's centre.</li>
+<li><span class="ok">Accepted:</span> a claim whose lines fit but whose block is taller than the slot meters "{block} of {slot} px tall · can't shorten".</li>
+<li><span class="amend">Accepted for drafts and the flagged preview only:</span> a state that doesn't fit draws its lines cut at the slot's edges, with the fit meter in brick and no Approve. It is never filed or exported.</li>
+<li><span class="amend">Accepted, with one more name:</span> no break inside a release name — any word followed by RELEASE, EARLY BIRD, GENERAL SALE, the event's own release names — and never between FINAL and its number ("FINAL 100").</li>
+<li><span class="ok">Accepted:</span> two O25 stops less than a pixel apart share one 3 × 3 reading, which passes when it lies between their two values ±1.</li>
+</ul></td></tr>
+<tr><td>O35 Drops on T1 and the artist card</td><td>O8's shortening order — drop TICKETS → drop NOW → the number form, ordinals only ("3RD RELEASE" → "3RD"; "FINAL RELEASE" is never shortened to "FINAL") — applies on T1 and on the artist card after their last size step (T1: O8's step 2; the artist card: O23's floors), before "can't shorten" or "Claim too long for the artist card". A roll-call's line 1 is never shortened (O27); line 2 takes the drops. The fit meter and the approval card name what was dropped. #1156's H28 build is this rule.</td></tr>
+<tr><td>O36 The draft stamp</td><td>A draft carries one pill, "DRAFT · claim not approved" or "DRAFT · sample claim", in the 4:5 rectangle's top-left corner inside the 76 px inset, clear of every slot, the lockup and the bands' text. Drafts only: an approved, filed or exported asset never carries it. The three diagonal bands are withdrawn.</td></tr>
+</table>
+
+<h2>T2b · Ink box, paper and slot — Puzzle's panel</h2>
+<p class="lead">Drawn at ¼ of the 1080 × 1920 master from the measured boxes. The dashed box is the ink box (tape included); the dark box is the paper; the solid box is O32's slot.</p>
+<div class="frame">
+<figure><figcaption>T2b-916 · ink box x 35–1025 · paper x 94–970 · slot x 126–938 (812 px), y 411–1510</figcaption>
+<div class="sch">
+  <div class="ink" style="left:9px;top:84px;width:248px;height:311px"></div>
+  <div class="paper" style="left:23.5px;top:93px;width:219px;height:294px"></div>
+  <div class="tape" style="left:228px;top:99px;width:28px;height:18px"></div>
+  <div class="tape" style="left:9px;top:347px;width:26px;height:48px"></div>
+  <div class="slot" style="left:31.5px;top:103px;width:203px;height:274px">CLAIM · O32 slot · 812 px</div>
+  <span class="lbl" style="left:4px;top:72px">ink box (dashed)</span>
+  <span class="lbl" style="left:4px;top:400px">tape is not ground</span>
+</div></figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H31 Paper slot</td><td>O32: the paper box on the kit (measured at H8), 0.03 W / 0.02 H insets, centred on the slot; 0.8× in the 1:1. The ink box stays for placing the piece.</td><td>the kit</td><td>Puzzle's slot reads x 126–938, y 411–1510; no line on the paper's edge or the tape in any format</td></tr>
+<tr><td>H32 Step 2</td><td>O33: T2's third step at 4.5 % H, the ladder and meter with it.</td><td>—</td><td>(a) step 0; (b) step 1 at 795 of 812 px; (c) longest fits at step 2 with TICKETS dropped; six-release can't shorten</td></tr>
+<tr><td>H33 Invented values</td><td>O34 as ruled, including FINAL-and-number as unbreakable.</td><td>—</td><td>unit test: "FINAL 100 FINAL RELEASE TICKETS" never breaks between FINAL and 100</td></tr>
+<tr><td>H34 Drops on T1 / artist card</td><td>O35, with the dropped words on the meter and the approval card.</td><td>—</td><td>unit tests on the artist card's claim slot: a too-wide line 2 drops TICKETS before the card is held; line 1 never changes</td></tr>
+<tr><td>H35 Draft stamp</td><td>O36.</td><td>—</td><td>no stamp on any filed or exported file</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The 0.03 W inset; step 2's 4.5 % H and its pitch; the paper box as a kit-audit value; the draft stamp's place and words.</li>
+<li>Step 2's predicted widths are scaled from round 2's measurements; the re-rendered drafts decide.</li>
+</ul>
+
+<h2>Frames</h2>
+<table class="t">
+<tr><th>Id</th><th>Formats</th><th>Source</th></tr>
+<tr><td>T2b</td><td>9:16 schematic</td><td>This record</td></tr>
+<tr><td>Round-3 drafts</td><td>9:16, 4:5, 1:1</td><td>The notes folder, on the O32 slot with O33's step; Matas judges them</td></tr>
+</table>
+
+</div></body>
+</html>

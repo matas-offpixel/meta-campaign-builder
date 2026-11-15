@@ -24,6 +24,12 @@ This repo is worked on by two coding tools — Claude Code (terminal) and Cursor
 - Claude Code: single-file fixes with diagnosed root cause, tests, parser additions, mechanical refactors, documentation, log queries, MCP-driven ops work, 1–3 file changes.
 - Cursor: multi-file architectural work (4+ files), new primitives, cross-cutting refactors, anything where the parallel diff-review UI earns its keep.
 
+## Review loop
+
+Visual changes run the review loop in `docs/design-record/README.md`: design record → build prompt → PR + CI evidence → return → design verdict → fix loop on the same branch → squash merge → live check → migrate from `main` once the sha256 matches. Live check — after the deploy is READY, the ops thread opens the changed feature on prod in Matas's Chrome, runs the real flow on a live event (no launches, no publishing, no spend beyond writer/render pennies), and reports PASS / FAIL with what it saw; a FAIL comes with the follow-up prompt for the builder. Creative Lab rules and components: `docs/creative-lab/design-rules.md`.
+
+Any new surface or changed words in the MML canvas, drawers, library, reports, event page / Creative Lab or `/admin` gets a design record in `docs/design-record/` first. Records are never edited after merge; a re-ruling gets a new record.
+
 ## Project
 
 Internal tool for building Meta/Facebook ad campaigns for event marketing. An 8-step campaign creation wizard with Supabase auth/persistence and a Meta API integration layer.
@@ -102,6 +108,19 @@ Standalone Meta still launches ACTIVE from `ReviewLaunch` (launch panel only). S
 
 `clients.status = 'archived'` hides a client from default dashboard views (clients list, Today, events, overview, plans, library Drafts/Published, Armed) and from every cron (rollup-sync, refresh-active-creatives, show-week-burst, refresh-creative-insights, scan-enhancement-flags, budget-pacing, optimisation-tick, ad-daily-insights, Mailchimp, funnel-pacing, portal snapshots). Events, drafts, and plans are archived through their client (`campaign_drafts.client_id`, else the draft's event). Rows with no client stay visible. `paused` counts as active. The clients-list "Archived" / "All" filters and an explicit `clientId` still show archived clients. Share links and the client portal never check status. Use `lib/db/client-status.ts` (`ARCHIVED`, `activeClientFilter`, `loadArchivedClientIds`, `loadArchivedClientScope`). `lib/db/__tests__/client-status-guard.test.ts` fails on inline client-status `"archived"` literals.
 
+Archiving a client fully also means **pausing its ticketing connections**:
+`sync-ticketing` selects `.eq("status","active")`, so a connection left on
+`error` is skipped but still reads as a broken feed someone should fix.
+`status` is CHECK-constrained to `active | paused | error` — there is no
+`disabled`. 4theFans (`37906506-56b7-4d58-ab62-1b042e2b561a`) was archived
+this way on 14 Oct 2026: both connections (`fourthefans`, `eventbrite`) set
+to `paused`, `last_error` preserved. Its learning contribution needed no
+change — `lib/learning/joins.ts` already drops archived-client facts before
+`tag_performance`, `creative_scores` and `client_funnel_benchmarks` are
+recomputed, so cross-client `vertical`/`all` scopes re-aggregate without it.
+The cron alarms exclude archived clients by rule for the same reason: an
+archived client must never make a cron look broken.
+
 ### Meta API layer
 
 - `lib/meta/` — `client.ts`, `campaign.ts`, `adset.ts`, `creative.ts`, `upload.ts`
@@ -141,12 +160,16 @@ DROPBOX_APP_KEY=
 DROPBOX_APP_SECRET=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
+GOOGLE_DRIVE_EXPORT_DRIVE_ID=
 ENABLE_MULTI_PLACEMENT_ASSETS=
 MAILCHIMP_WEBHOOK_SECRET=
 CIRQLIN_PARTNER_READ_SECRET=
 CIRQLIN_API_BASE=
 D2C_TOKEN_KEY=
 D2C_BRIEF_PARSER_MODEL=
+CREATIVE_LAB_WRITER_MODEL=
+CREATIVE_LAB_LAUNCH_ENABLED=
+CREATIVE_LAB_IG_AUTO_IMPORT=
 BIRD_API_BASE=
 FEATURE_D2C_LIVE=
 LANDING_PAGES_TOKEN_KEY=
@@ -160,6 +183,7 @@ LANDING_PAGES_META_API_VERSION=
 BM_TOKEN_KEY=
 FACEBOOK_OAUTH_SCOPES=
 ENABLE_META_THUMBNAIL_FETCH=
+ENABLE_TIKTOK_THUMBNAIL_FETCH=
 ENABLE_OPTIMISATION_AUTOMATION=
 ENABLE_OPTIMISATION_WRITES=
 ENABLE_OPTIMISATION_PAUSE_WRITES=
@@ -172,9 +196,17 @@ SLACK_WEBHOOK_ADS_URGENT=
 SLACK_WEBHOOK_ADS_AUTOMATION=
 ENABLE_BUDGET_PACING_ALERTS=
 ENABLE_AD_DAILY_INSIGHTS=
+ENABLE_AD_COPY_CAPTURE=
 ENABLE_LEARNING_REFRESH=
 ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
+ENABLE_ONSALE_REFRESH=
+REMOTION_AWS_ACCESS_KEY_ID=
+REMOTION_AWS_SECRET_ACCESS_KEY=
+REMOTION_AWS_REGION=
+REMOTION_LAMBDA_SERVE_URL=
 ```
+
+> **`REMOTION_AWS_ACCESS_KEY_ID`**, **`REMOTION_AWS_SECRET_ACCESS_KEY`**, **`REMOTION_AWS_REGION`**, **`REMOTION_LAMBDA_SERVE_URL`** — Caption renders run on Remotion Lambda in `eu-west-2` because the Vercel function image has no glibc 2.35, so `@remotion/compositor-linux-x64-gnu` does not start (verified 5 Nov 2026 on Node 22.x and 26.x). `scripts/remotion-lambda-deploy.mts` creates the bucket and the function and prints the serve URL; set `REMOTION_LAMBDA_SERVE_URL` from that output on Preview and Production. Keep a billing alarm on the AWS account — the June ceiling was $20, then $50 — so a render loop cannot run up a bill. See `docs/REMOTION_LAMBDA_SETUP.md`.
 
 > **`BM_TOKEN_KEY`** (migration 145 — Business Manager Asset Sync) is the pgcrypto
 > symmetric key for `client_business_managers.access_token_encrypted` (the
@@ -268,6 +300,37 @@ ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 > `https://app.cirqlin.com`. Join key is `events.mailchimp_tag` ↔ Cirqlin
 > `pages.crm_base_tag`. Counts only — no PII.
 
+> **`GOOGLE_DRIVE_EXPORT_DRIVE_ID`** — the Shared Drive "Off / Pixel"
+> (`0AGzNNGLxNV_kUk9PVA`) that holds every client's and event's folder tree
+> (`lib/drive/tree.ts`, S18 of `docs/design-record/2026-11-09-creative-lab-clip-selection.html`).
+> The export runs as the service account in `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`
+> (`offpixel-sheets-reader@off-pixel-dashboard.iam.gserviceaccount.com`, a Content
+> manager on the drive, scope `drive`, `supportsAllDrives` on every call). Content
+> managers cannot delete permanently; the export never deletes. Unset → the
+> `/api/cron/creative-lab-drive-tick` cron (every 5 min) returns 200 with
+> `skippedReason`. The tick makes trees for clients and events created from
+> 9 Nov 2026, renames on a rename or re-date, makes the on-sale `w/c {d Mon}`
+> folder (payday-week Monday and a fortnight later, from `lib/creative-lab/payday.ts`),
+> marks cancelled events, files approved round renders (`drive_status`, migration
+> 218) and marks judged winners. Since 11 Nov 2026 (record `2026-11-11-creative-lab-drive-owner-type`)
+> every filing stage (Teaser, Announcement, Presale live, Reminders, each w/c, 4 Show week)
+> takes `{owner} / Videos | Statics`: the owner is the render's footage owner
+> (`creative_lab_clips.owner`, migration 226) under the lineup name, or the client's name
+> (`{Client} (promoter)` on a clash); the type is `creative_lab_renders.kind`. Owner and type
+> folders are made on first filing (`lib/drive/owner.ts`, `ensureRouteFolder`); new cycles are
+> made empty. `scripts/drive-owner-type-migrate.mts` maps P26-BDAY's hand-made
+> `w/c 9 Nov / Content / {owner} / Videos | Statics` folders in place (the client holds the
+> Content link), so that cycle's filings land inside it; it never moves anything. Launch reads Storage, never Drive. Older events:
+> `scripts/backfill-drive-tree.mts` (dry-run by default, `--apply`, `--event CODE`).
+> Drive → app is `/api/cron/creative-lab-drive-pickup` (every 15 min, `lib/drive/pickup.ts`):
+> the drive's changes feed from the token in `drive_change_cursors` (migration 219). New
+> clips in `02 Source / Artist clips / {artist}` (named exactly as the Lab lineup,
+> `event_artists.source = 'lab'`) go through the folder import as that artist's clip on
+> the event; new files in `01 Open files` / `_Brand kit` become `drive_kit_audit_files`
+> rows; the export's own files (appProperties tag) are skipped. Share with promoter is
+> `lib/actions/drive-share.ts` (`shareEventFolder` / `stopSharingEventFolder`): one view
+> permission on the event folder, never automatic.
+
 > **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**
 > are **not required for the Asset Queue** (as of `cc/asset-queue-public-sheet-fetch`). The scrape
 > route now reads sheets via the public CSV export endpoint — no service account needed. The env
@@ -331,6 +394,29 @@ ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 > `lib/meta/thumbnail-proxy-server.ts`) now routes through this helper; a
 > regression-guard test (`lib/meta/__tests__/video-thumbnail-cache-guard.test.ts`)
 > greps the tree to keep it that way.
+
+> **`ENABLE_TIKTOK_THUMBNAIL_FETCH`** (default `"1"` when unset) gates the TikTok
+> calls behind durable TikTok thumbnails (`lib/tiktok/thumbnail-cache.ts`).
+> TikTok cover and image URLs are signed and expire about six hours after the
+> read, so after the `tiktok-active-creatives` cron writes its snapshot rows it
+> stores each ad's video cover (`/file/video/ad/info/`, 60 ids a call) or image
+> (`/file/image/ad/info/`, 100 ids a call) in the `creative-thumbnails` bucket at
+> `tiktok/video/{advertiser_id}/{video_id}.jpg` or `tiktok/image/{advertiser_id}/{image_id}.jpg`
+> ("/" in an image id → "__"). Storage first, TikTok only on a miss, at most 20
+> info calls per run, one call per id even when requested concurrently. Readers
+> (`readActiveTikTokCreativesSnapshot`, the share report's TikTok grid) list
+> Storage only and serve the object, else the snapshot URL while unexpired, else
+> null. Set to `"0"` to stop TikTok calls and downloads; cache hits still serve.
+> Spark ads that carry only `tiktok_item_id` take their cover from
+> `GET /tt_video/list/` (`video_info.poster_url`), paged per identity after the
+> video and image pass. Item ids that list does not contain are read with
+> `GET /identity/video/info/` (doc 1738958351620097, up to 20 `item_ids` a
+> call): `video_info.poster_url`, or the first carousel `image_url`. Each list
+> page and each info call counts toward the same 20-call cap. The bytes are
+> stored at `tiktok/item/{advertiser_id}/{tiktok_item_id}.jpg`. An identity
+> whose post list or info read is unauthorised, or whose Spark auth has ended,
+> is skipped. Readers serve that object for an item-only row, else null. Backfill: `scripts/backfill-tiktok-thumbnails.mts`
+> (dry-run by default, `--apply` writes, `--client` or `--event-code`).
 
 > **`OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED`** must be exactly `"true"`
 > to POST a custom audience onto a live ad set from the Published library
@@ -431,6 +517,18 @@ ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 > backfill for older rows: `scripts/backfill-insights-objective.mts`
 > (dry-run by default, `--fetch` reads only, `--apply` writes). Campaign grain
 > is a SUM over `ad_daily_insights`.
+>
+> **`ENABLE_AD_COPY_CAPTURE`** must be exactly `"1"` to read ad copy inside
+> that same cron. Unset leaves the insights run unchanged and makes no
+> creative call. For each ad the run saw that has no `ad_copy` row, or a
+> row older than 30 days, it batches the ad's creative (body, title,
+> object story, every asset_feed_spec variant, effective_object_story_id,
+> call to action) at 50 ids a call and counts those calls in `meta_calls`.
+> A rate-limited account is skipped and reported. Snapshots and drafts
+> fill an ad Graph did not return, and never replace a `graph` row.
+> Read-only against Meta. Migration 206 is service-role only. Backfill:
+> `scripts/backfill-ad-copy.mts` (dry-run by default, `--apply` writes,
+> `--account` scopes it). Lab launch does not write copy yet.
 
 > **`ENABLE_LEARNING_REFRESH`** (learning loop B) must be exactly `"1"` to
 > activate `/api/cron/learning-refresh` (03:30 UTC, after ad-daily-insights).
@@ -443,12 +541,134 @@ ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 > → `adset_objective` (the majority of the ad set's result days) →
 > `unknown`; never campaign names) and tags
 > (`creative_tag_assignments` by `meta_ad_id`, else event + ad name), then
-> runs four independent jobs: `creative_scores`, `tag_performance`
+> runs seven independent jobs: `creative_scores`, `tag_performance`
 > (migration 186; client → vertical → all shrinkage, `lib/learning/shrink.ts`),
+> `artist_library`, `copy_performance` (migration 207; normalised ad copy, event-relative index, service-role only),
+> `copy_features` (migration 213; the same library re-keyed from words to
+> shape labels — opener, cta_kind, scarcity_kind, length_band,
+> emoji_count_band, has_lineup_list, has_date, has_price, line_count_band,
+> every value from a fixed list in `lib/learning/copy/features.ts`; same
+> maths as 207, n = shows; read through `topCopyFeatures` in
+> `lib/learning/cross-client/`, operator-only, and the public-surface guard
+> covers the table),
 > `client_funnel_benchmarks` (`learned`, never over `manually-overridden`)
 > and `interest_clusters.live_evidence` (never `evidence`). Archived clients
 > are excluded. Readers: `lib/learning/read.ts`. Check before enabling:
 > `scripts/learning-refresh.mts --dry-run`.
+>
+> `artist_library` (`lib/learning/copy/artist-extraction.ts`, `artist-plan.ts`)
+> is the one job that calls out, and only to Spotify (`SPOTIFY_CLIENT_ID` /
+> `SPOTIFY_CLIENT_SECRET`; unset → every name that needed confirming stays
+> unconfirmed and nothing is written for it). It reads the events whose
+> `ad_copy` rows were written in the last 7 days, recovers artist names from
+> the Lab lineup facts, the event's own ad copy (capitalised runs in ≥ 3 ads,
+> not the venue / city / client / a date or ad word; "b2b", "& more",
+> "friends", "residents" split or end a run) and campaign / ad-set names,
+> confirms each on Spotify (an exact name is a yes — Spotify returns no
+> follower counts, popularity or genres to this app, so there is no follower
+> test; several exact names confirm the act with `spotify_id` null and the
+> hits in `profile_jsonb.spotify_candidates` for the Lab to pick; "X & Y"
+> unknown → X and Y; a one-word name needs a lineup list, a lineup verb, a
+> campaign name or the event's own name before Spotify is asked; the copy's
+> casing is kept unless it only shouts the name), and writes `artists` +
+> `event_artists` with `source = lineup | ad_copy | campaign_name`
+> (migration 212; Lab rows are `lab`). At most 100
+> searches a night. It never changes a Lab-written row, a Spotify id already
+> set, or an existing link; `saveLabLineup` still replaces an event's rows
+> when the operator saves the Lab lineup. `copy_performance` reads the names
+> the job is linking the same night, so a support act becomes `{artist}` in
+> the template key. The normaliser already read `event_artists` for every
+> event; the library was 5 names before this. Backfill for every event with
+> copy: `scripts/backfill-artists.mts` (dry-run by default, `--apply` writes,
+> `--event CODE`, `--assume-confirmed` for the ceiling without Spotify,
+> `--json FILE`). It prints the templates before and after. Matas runs
+> `--apply` after merge, with the Spotify credentials in `.env.local`.
+
+> **`ENABLE_ONSALE_REFRESH`** must be exactly `"1"` to activate
+> `/api/cron/onsale-refresh`, the on-sale refresh of
+> `docs/design-record/2026-11-12-on-sale-refresh.html` (P1: shadow proposals
+> only). Unset = 200 with `skippedReason: "killswitch"`. Mondays at 06:00
+> UTC (`"0 6 * * 1"`, after the 03:30 UTC learning-refresh; 06:00 London in
+> winter, 07:00 in summer): the cycle refresh on each payday cycle's Monday (the payday-week
+> Monday and the Monday a fortnight after it, `paydayCycleMondays` in
+> `lib/drive/tree.ts`) and the mid-cycle check on the Monday between, reading
+> the last full Monday–Sunday week; from show week's Monday the refresh
+> stops. `?shadow=YYYY-MM-DD` starts a shadow run by hand (data to the day
+> before); `?event=CODE` narrows it. `?post=pending` (`"5 10 * * 1"`) posts
+> the proposals the 06:00 run stored while `notify()` was outside business
+> hours (`slack_posted_at` null), one post per proposal. One proposal per
+> campaign (the campaign's name on the event; a rebuilt campaign under the
+> same name is the same campaign, and an ad set is its name within the
+> campaign, so a rebuild's copy carries the original's totals) with R2's
+> lines — add creative from the cycle's Drive owner folders (matched
+> against Lab launches only, `matchedBy: "lab_launch"`; hand uploads in Ads
+> Manager aren't matched, and the panel says so), claim ready, pause
+> creative (never on the mid-cycle check), bring back / missing default /
+> drop an audience, a within-campaign budget move — each with its evidence
+> snapshot, the write it would make and its 393-px wording (`narrow`),
+> stored in `onsale_refresh_proposals` + `onsale_refresh_lines` (migration
+> 232, owner read RLS) and posted to `ads_automation` through `notify()`
+> (its own killswitch, channel switch and business hours). Every threshold
+> is in `lib/onsale-refresh/phase-config.ts` (R8; the presale config is
+> noted there, not switched on; a client cluster comes back on the
+> event's client's own `live_evidence.perClient` entry only — `cprIndex`
+> ≤ 0.83, cost-based, confidence ≥ ok — never the pooled index). On-sale
+> events are `lib/onsale-refresh/on-sale.ts`'s `isOnSale`: not cancelled,
+> the show still ahead, and `status = 'on_sale'` or `general_sale_at`
+> passed; the loader and the event page's panel mount share it, so every
+> event the refresh posts about shows the panel. The ads' attributed
+> purchases are any show's on the same pixel, never this show's sales
+> (12 Nov: 22 of Julian Fijma's 24 landed before its presale): they sit
+> under the purchase line as "Attributed to these ads … any show on this
+> pixel" and decide nothing. The purchase line itself is the per-event
+> read of `docs/design-record/2026-11-13-per-event-purchases.html`
+> (`lib/onsale-refresh/purchases.ts` the rules, `purchase-read.ts` the
+> reads): the pixel is the one in `promoted_object.pixel_id` on the ad
+> sets that spent in the 14 days to the window end (most spend wins; a
+> second pixel at ≥ 10 % of the spend is named), never
+> `clients.meta_pixel_id`, which is read for the mismatch line ("Ads
+> optimise on pixel …2763 (NX Live Skiddle); the client's stored pixel is
+> …4565. Counts use …2763.", once per event to Slack) and never written.
+> A show's own domain is its signup URL's host when no other running or
+> upcoming event uses it, or the custom domain behind its
+> `crqln.com/l/{slug}` link (the CIRQLIN page's canonical link, one public
+> GET); `crqln.com`, ticket sites and a shared host are never a show's
+> own. The count is the pixel's Purchase events on that domain (`GET
+> /{pixel}/stats`, `aggregation=host`): 15 or more in 14 days reads
+> "Purchase campaign proposed", fewer "under 15", and none in the history
+> while the pixel has purchases "nothing reaches". Meta returns 28 days of
+> that breakdown, not the record's 90, so the history is 28
+> (`purchaseHistoryDays`). States in order: no pixel, no page or ticket
+> URL, ticket site only, no domain of its own, shared domain, nothing
+> reaches, under the bar / proposed; a read that failed says "this show's
+> purchases couldn't be read this run. The next run tries again.", never a
+> zero, and its raw reason goes to the evidence (`inputs.purchases.notRead`)
+> and the run log (`purchasesNotRead` in the cron run's detail), never the
+> panel or Slack. HE1 is the read only: no Purchase campaign line, no
+> cross-campaign move and no custom conversion is made. Reads every `ad_daily_insights` row,
+> paged in (date, meta_ad_id) order and deduped, so the spend to date is
+> the event's all-time spend (IC = `omni_initiated_checkout`, LPV = the column),
+> `creative_scores` (convert axis), `interest_clusters.live_evidence`,
+> `ticket_warnings`, `events.budget_marketing`, `client_ticketing_connections`
+> and one Drive listing per cycle type folder. Meta is read for the
+> purchase line only, with `META_ACCESS_TOKEN`, one attempt per call,
+> counted in `metaCalls` (one batch per ≤ 50 delivering ad sets, one for
+> the mismatched pixels' names, the domain breakdown once per pixel an
+> own-domain show counts on); it is never written. Archived clients
+> are excluded. Nothing is applied: Accept / Reject / Apply are P2. The panel
+> is `components/dashboard/events/onsale-refresh-panel.tsx` (read-only,
+> fetched through `GET /api/events/[id]/onsale-refresh`, mounted on the
+> event page's overview tab under the Creative Lab card for `isOnSale`
+> events that aren't brand campaigns, "Show week: the refresh has stopped."
+> once show week starts; the latest proposal per campaign by window
+> end, then creation; missing ticketing is said under Objective, never a
+> blocker); the frames are
+> `app/(dev)/frames/onsale/[id]` until the shared frames registry takes the
+> OR series (OR1 the panel, OR2 / OR3 the Objective block for P26-BDAY and
+> NX26-LOCKLEAD, OR4 every purchase-line state). Dry run on prod, reads only: `scripts/onsale-refresh.mts --event
+> CODE --shadow YYYY-MM-DD`; `--apply` stores the shadow proposals;
+> `--purchases` prints the per-event purchase table for every on-sale
+> event (`--also CODE` adds a show that isn't on sale).
 
 > **`ENABLE_GOOGLE_ADS_DAILY_INSIGHTS`** must be exactly `"1"` to activate
 > `/api/cron/google-ads-daily-insights` (04:00 UTC). Unset = 200 with
@@ -481,6 +701,18 @@ ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 >   Never log.
 > - `D2C_BRIEF_PARSER_MODEL` — Anthropic model the brief PDF parser uses
 >   (`lib/d2c/brief-parser/index.ts`). Defaults to `claude-opus-4-6` when unset.
+> - `CREATIVE_LAB_WRITER_MODEL` — Anthropic model `generateCaptions` uses.
+>   Defaults to `claude-opus-4-6` when unset.
+> - `CREATIVE_LAB_LAUNCH_ENABLED` — Creative Lab round launch
+>   (`POST /api/creative-lab/rounds/[id]/launch`). Must be exactly `"true"`.
+>   Unset or any other value makes the route return 503 before any upload,
+>   Graph call or database write, and the event-card button stays disabled
+>   with "Lab launches are switched off". When it is on, every ad is still
+>   created paused (`createPaused: true`). Set it on Vercel only after M3b
+>   merges. This PR does not set it.
+> - `CREATIVE_LAB_IG_AUTO_IMPORT` — nightly Instagram import
+>   (`/api/cron/creative-lab-clip-sync`). Must be exactly `"1"`. Unset means
+>   the cron only lists clips; the Add button works either way.
 > - `BIRD_API_BASE` — base URL for the Bird.com API client
 >   (`lib/d2c/bird/client.ts`). Defaults to `https://api.bird.com` when unset.
 > - `FEATURE_D2C_LIVE` — master live-send gate. When unset/`false` (default) every
@@ -495,7 +727,7 @@ ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `193_mml_creative_intake.sql` (`campaign_plan_intake_assets`, `campaign_plan_creative_groups`, `campaign_plan_creative_group_members`; owner-only RLS, cascade from `campaign_plans`). Unapplied — Matas applies. Before it: `192_google_ads_campaign_insights.sql` (`google_ads_daily_snapshots`, `google_ads_search_terms_snapshots`, `google_ads_location_snapshots`, the `google_ads_insights_runs` run log, and `google_ads_accounts.enabled_conversion_actions`; owner-only read RLS, service-role writes). Unapplied — Matas applies. Before it: `191_google_video_responsive_ads.sql` (`google_video_plans.business_name`, `google_video_ads.extra_copy` for copy slots 2..5; applied to prod). Before that: `190_google_video_plans.sql` (YouTube video plans: `google_video_plans` / `campaigns` / `ad_groups` / `placements` / `ads`, owner-only RLS, no push columns; applied to prod 2026-10-08). Before that: `188`/`189` (Google Search plan budgets, CPC caps, ad-group negatives, canvas total budget), then `187_ad_daily_insights_objective.sql` (`campaign_objective`, `optimization_goal`, `promoted_event` on `ad_daily_insights`). Before it: `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`), then `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
+**Latest migration:** `200_creative_lab_m3.sql` (caption styles widened, `primary_text`, `declared_names`, `size_variant`, `creative_lab_style_settings`, round target columns, `round_ads.launch_state` / `render_id`, `renders.attempt`, `creative_lab_event_facts.headliners`; `clips.event_id` is the show the clip was filmed at). Unapplied — Matas applies. Before it: `199_creative_lab_video_safe_rect.sql` (`creative_lab_renders.kind` `video`|`static`, default `video`; comment on `creative_lab_clips.crop_focus_y` is now the vertical centre of the 4:5 safe rectangle inside the 9:16 frame). Before it: `198_creative_lab_crop_focus.sql` (`creative_lab_clips.crop_focus_y`). Unapplied — Matas applies. Before that: `197_creative_lab.sql` (Creative Lab M1: `creative_lab_artists`, `creative_lab_event_facts`, `creative_lab_clips`, `creative_lab_captions`, `creative_lab_rounds`, `creative_lab_round_ads`, `creative_lab_round_ad_launches`, `creative_lab_renders`; owner-only RLS via `user_id`; widens the `creative_tags` dimension/source CHECKs and the `creative_tag_assignments` source CHECK for `caption_style` / `creative_lab`; applied). Before that: `194`–`196` (MML copy, cron runs, client season reports), then `193_mml_creative_intake.sql` (`campaign_plan_intake_assets`, `campaign_plan_creative_groups`, `campaign_plan_creative_group_members`; owner-only RLS, cascade from `campaign_plans`). Before that: `192_google_ads_campaign_insights.sql` (`google_ads_daily_snapshots`, `google_ads_search_terms_snapshots`, `google_ads_location_snapshots`, the `google_ads_insights_runs` run log, and `google_ads_accounts.enabled_conversion_actions`; owner-only read RLS, service-role writes). Unapplied — Matas applies. Before it: `191_google_video_responsive_ads.sql` (`google_video_plans.business_name`, `google_video_ads.extra_copy` for copy slots 2..5; applied to prod). Before that: `190_google_video_plans.sql` (YouTube video plans: `google_video_plans` / `campaigns` / `ad_groups` / `placements` / `ads`, owner-only RLS, no push columns; applied to prod 2026-10-08). Before that: `188`/`189` (Google Search plan budgets, CPC caps, ad-group negatives, canvas total budget), then `187_ad_daily_insights_objective.sql` (`campaign_objective`, `optimization_goal`, `promoted_event` on `ad_daily_insights`). Before it: `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`), then `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default
@@ -555,10 +787,10 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   (see `lib/ticketing/manual/provider.ts`).
 - `events.total_marketing_budget` was DROPPED in 051 — the total is
   computed live from plan paid media + additional spend entries.
-- Funnel planner (April 2026): `event_funnel_overrides` table
-  (migration 060) stores per-event and per-venue conversion-rate
-  overrides used by the Funnel Planner UI shell on event-report
-  deep-dives.
+- Funnel rates: `client_funnel_benchmarks` (migration 158) is the live
+  store. `event_funnel_overrides` (migration 060) was never read by a
+  shell. Migration 209 drops it, and drops `campaign_daily_insights`,
+  which `ad_daily_insights` (migration 185) replaced.
 - TikTok pipeline (April 2026): `tiktok_accounts` (encrypted credentials,
   migration 054), `tiktok_active_creatives_snapshots` (057),
   `tiktok_campaign_drafts` + `tiktok_campaign_templates` (058),
@@ -634,6 +866,14 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
 - `/api/cron/google-ads-daily-insights` (04:00 UTC) — Google Ads campaign,
   search-term and location facts per day (see
   `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
+- `/api/cron/onsale-refresh` (Mondays 06:00 UTC) — the on-sale refresh,
+  P1 shadow proposals (see `ENABLE_ONSALE_REFRESH` above). Zero Meta
+  writes; Meta is read for the purchase line (ad-set pixels, the pixel's
+  purchases by domain), and the other calls out are the cycle folder's
+  Drive listing and one public CIRQLIN page per crqln.com signup link. "0 6 * * 1" in
+  `vercel.json` (after the 03:30 UTC learning-refresh; 06:00 London in
+  winter, 07:00 in summer), and `?post=pending` at "5 10 * * 1" posts the
+  proposals business hours held back.
 
 ### Canonical spec
 

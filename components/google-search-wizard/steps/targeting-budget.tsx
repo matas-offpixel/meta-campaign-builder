@@ -1,16 +1,30 @@
 "use client";
 
-import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import { CheckCircle2, AlertTriangle, Loader2, Plus, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { parseBidModifierInput } from "@/lib/google-search/bid-modifier";
+import {
+  addEmptyGeoRow,
+  applyGeoResolution,
+  createGeoResolveSession,
+  editGeoBid,
+  editGeoLocation,
+  geoResolutionIsTrusted,
+  geoRowsFromTargets,
+  removeGeoRow,
+  setGeoResolveUi,
+  syncGeoRows,
+  type GeoResolveMatch,
+  type GeoResolveUi,
+  type GeoRowModel,
+} from "@/lib/google-search/geo-row-state";
 import { updateCampaign, updatePlan } from "@/lib/google-search/tree-mutations";
 import {
-  type GoogleSearchGeoTarget,
   type GoogleSearchGeoTargetType,
   type GoogleSearchPlanTree,
 } from "@/lib/google-search/types";
@@ -21,24 +35,40 @@ interface Props {
   onChange: (next: GoogleSearchPlanTree) => void;
 }
 
-export function TargetingBudgetStep({surface = "wizard",  tree, onChange }: Props) {
+export function TargetingBudgetStep({ surface = "wizard", tree, onChange }: Props) {
   const total = tree.plan.total_budget ?? 0;
   const allocated = tree.campaigns.reduce((s, c) => s + (c.monthly_budget ?? 0), 0);
   const remaining = total - allocated;
 
-  function setGeo(next: GoogleSearchGeoTarget[]) {
-    onChange(updatePlan(tree, { geo_targets: next }));
+  const [rows, setRows] = useState(() => geoRowsFromTargets(tree.plan.geo_targets));
+  const rowsRef = useRef(rows);
+  const treeRef = useRef(tree);
+  const ownedTreeRef = useRef(tree);
+
+  function emit(updater: (current: GoogleSearchPlanTree) => GoogleSearchPlanTree) {
+    const next = updater(treeRef.current);
+    treeRef.current = next;
+    ownedTreeRef.current = next;
+    onChange(next);
   }
 
-  function addGeo() {
-    setGeo([...tree.plan.geo_targets, { location: "United Kingdom", bid_modifier_pct: null }]);
+  function commitRows(nextRows: GeoRowModel[]) {
+    rowsRef.current = nextRows;
+    setRows(nextRows);
+    emit((current) => updatePlan(current, { geo_targets: nextRows.map((row) => row.geo) }));
   }
-  function updateGeo(index: number, patch: Partial<GoogleSearchGeoTarget>) {
-    setGeo(tree.plan.geo_targets.map((g, i) => (i === index ? { ...g, ...patch } : g)));
-  }
-  function removeGeo(index: number) {
-    setGeo(tree.plan.geo_targets.filter((_, i) => i !== index));
-  }
+
+  useEffect(() => {
+    if (tree === ownedTreeRef.current) {
+      treeRef.current = tree;
+      return;
+    }
+    const synced = syncGeoRows(rowsRef.current, tree.plan.geo_targets);
+    rowsRef.current = synced;
+    treeRef.current = tree;
+    ownedTreeRef.current = tree;
+    setRows(synced);
+  }, [tree]);
 
   return (
     <StepSurfaceProvider surface={surface}>
@@ -55,7 +85,7 @@ export function TargetingBudgetStep({surface = "wizard",  tree, onChange }: Prop
         </CardHeader>
         <GeoTargetTypeToggle
           value={tree.plan.geo_target_type}
-          onChange={(next) => onChange(updatePlan(tree, { geo_target_type: next }))}
+          onChange={(next) => emit((current) => updatePlan(current, { geo_target_type: next }))}
         />
       </Card>
 
@@ -68,11 +98,11 @@ export function TargetingBudgetStep({surface = "wizard",  tree, onChange }: Prop
           </CardDescription>
         </CardHeader>
 
-        {tree.plan.geo_targets.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
             No geo targets — campaigns will use account defaults.
             <div className="mt-3">
-              <Button variant="outline" size="sm" onClick={addGeo}>
+              <Button variant="outline" size="sm" onClick={() => commitRows(addEmptyGeoRow(rowsRef.current))}>
                 <Plus className="h-3.5 w-3.5" />
                 Add geo
               </Button>
@@ -89,20 +119,31 @@ export function TargetingBudgetStep({surface = "wizard",  tree, onChange }: Prop
                 </tr>
               </thead>
               <tbody>
-                {tree.plan.geo_targets.map((g, i) => (
+                {rows.map((row) => (
                   <GeoRow
-                    key={i}
-                    index={i}
-                    geo={g}
+                    key={row.id}
+                    row={row}
                     accountId={tree.plan.google_ads_account_id ?? null}
-                    onUpdate={(patch) => updateGeo(i, patch)}
-                    onRemove={() => removeGeo(i)}
+                    onLocationChange={(id, value) => commitRows(editGeoLocation(rowsRef.current, id, value))}
+                    onBidChange={(id, bid) => commitRows(editGeoBid(rowsRef.current, id, bid))}
+                    onResolveResult={(id, requested, result, warning) => {
+                      const next = applyGeoResolution(rowsRef.current, id, requested, result, warning);
+                      if (next === rowsRef.current) return;
+                      commitRows(next);
+                    }}
+                    onResolveUi={(id, ui) => {
+                      const next = setGeoResolveUi(rowsRef.current, id, ui);
+                      if (next === rowsRef.current) return;
+                      rowsRef.current = next;
+                      setRows(next);
+                    }}
+                    onRemove={(id) => commitRows(removeGeoRow(rowsRef.current, id))}
                   />
                 ))}
               </tbody>
             </table>
             <div className="flex justify-end">
-              <Button variant="outline" size="sm" onClick={addGeo}>
+              <Button variant="outline" size="sm" onClick={() => commitRows(addEmptyGeoRow(rowsRef.current))}>
                 <Plus className="h-3.5 w-3.5" />
                 Add geo
               </Button>
@@ -151,8 +192,8 @@ export function TargetingBudgetStep({surface = "wizard",  tree, onChange }: Prop
                       onChange={(e) => {
                         const raw = e.target.value;
                         const num = raw === "" ? null : Number(raw);
-                        onChange(
-                          updateCampaign(tree, c.id, {
+                        emit((current) =>
+                          updateCampaign(current, c.id, {
                             monthly_budget: Number.isFinite(num) ? (num as number | null) : null,
                           }),
                         );
@@ -170,8 +211,8 @@ export function TargetingBudgetStep({surface = "wizard",  tree, onChange }: Prop
                       onChange={(e) => {
                         const raw = e.target.value;
                         const num = raw === "" ? null : Number(raw);
-                        onChange(
-                          updateCampaign(tree, c.id, {
+                        emit((current) =>
+                          updateCampaign(current, c.id, {
                             daily_budget: Number.isFinite(num) ? (num as number | null) : null,
                           }),
                         );
@@ -189,120 +230,113 @@ export function TargetingBudgetStep({surface = "wizard",  tree, onChange }: Prop
   );
 }
 
-// ─── GeoRow ───────────────────────────────────────────────────────────
-
-type ResolveStatus = "idle" | "loading" | "matched" | "no_match" | "no_account";
-
-interface ResolveState {
-  status: ResolveStatus;
-  /** Present when status === 'matched'. Canonical name from Google. */
-  canonicalName?: string;
-  /** Present when status === 'no_match'. The attempted location string. */
-  attempted?: string;
-  /** Set when Google has no target for an English region name. */
-  warning?: string;
-}
-
-interface GeoRowProps {
-  index: number;
-  geo: GoogleSearchGeoTarget;
-  accountId: string | null;
-  onUpdate: (patch: Partial<GoogleSearchGeoTarget>) => void;
-  onRemove: () => void;
-}
-
 const DEBOUNCE_MS = 450;
 
-function GeoRow({ geo, accountId, onUpdate, onRemove }: GeoRowProps) {
-  const [resolveState, setResolveState] = useState<ResolveState>(() => {
-    // If the geo entry was already resolved (loaded from DB), show it.
-    if (geo.resolved_resource_name && geo.resolved_name) {
-      return { status: "matched", canonicalName: geo.resolved_name };
-    }
-    return { status: "idle" };
-  });
-
+function GeoRow({
+  row,
+  accountId,
+  onLocationChange,
+  onBidChange,
+  onResolveResult,
+  onResolveUi,
+  onRemove,
+}: {
+  row: GeoRowModel;
+  accountId: string | null;
+  onLocationChange: (id: string, value: string) => void;
+  onBidChange: (id: string, bid: number | null) => void;
+  onResolveResult: (
+    id: string,
+    requestedLocation: string,
+    result: GeoResolveMatch | null,
+    warning?: string,
+  ) => void;
+  onResolveUi: (id: string, ui: GeoResolveUi) => void;
+  onRemove: (id: string) => void;
+}) {
+  const sessionRef = useRef(createGeoResolveSession());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const onResolveResultRef = useRef(onResolveResult);
+  const onResolveUiRef = useRef(onResolveUi);
+  const accountIdRef = useRef(accountId);
+  onResolveResultRef.current = onResolveResult;
+  onResolveUiRef.current = onResolveUi;
+  accountIdRef.current = accountId;
+  const rowId = row.id;
 
-  const resolveLocation = useCallback(
-    async (location: string) => {
-      if (!accountId) {
-        setResolveState({ status: "no_account" });
-        return;
-      }
-      const trimmed = location.trim();
-      if (!trimmed) {
-        setResolveState({ status: "idle" });
-        return;
-      }
+  async function resolveLocation(location: string) {
+    const account = accountIdRef.current;
+    const trimmed = location.trim();
+    if (!account) {
+      onResolveUiRef.current(rowId, { status: "no_account" });
+      return;
+    }
+    if (!trimmed) {
+      onResolveUiRef.current(rowId, { status: "idle" });
+      return;
+    }
 
-      // Cancel any in-flight request.
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
+    const controller = sessionRef.current.start();
+    onResolveUiRef.current(rowId, { status: "loading" });
 
-      setResolveState({ status: "loading" });
+    try {
+      const res = await fetch("/api/google-search/resolve-geo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: trimmed, google_ads_account_id: account }),
+        signal: controller.signal,
+      });
+      const json = (await res.json()) as
+        | { ok: true; matches: Array<{ canonicalName: string; resourceName: string }> }
+        | { ok: false; reason: string; warning?: string };
 
-      try {
-        const res = await fetch("/api/google-search/resolve-geo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ location: trimmed, google_ads_account_id: accountId }),
-          signal: controller.signal,
+      if (controller.signal.aborted) return;
+
+      if (json.ok && json.matches.length > 0) {
+        const top = json.matches[0];
+        onResolveResultRef.current(rowId, trimmed, {
+          resourceName: top.resourceName,
+          canonicalName: top.canonicalName,
         });
-        const json = (await res.json()) as
-          | { ok: true; matches: Array<{ canonicalName: string; resourceName: string }> }
-          | { ok: false; reason: string; warning?: string };
-
-        if (json.ok && json.matches.length > 0) {
-          const top = json.matches[0];
-          setResolveState({ status: "matched", canonicalName: top.canonicalName });
-          // Store the resolved IDs on the tree so the push adapter can skip re-resolution.
-          onUpdate({
-            resolved_resource_name: top.resourceName,
-            resolved_name: top.canonicalName,
-          });
-        } else {
-          setResolveState({
-            status: "no_match",
-            attempted: trimmed,
-            warning: json.ok ? undefined : json.warning,
-          });
-          onUpdate({ resolved_resource_name: null, resolved_name: null });
-        }
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
-        setResolveState({ status: "no_match", attempted: trimmed });
+      } else {
+        onResolveResultRef.current(
+          rowId,
+          trimmed,
+          null,
+          json.ok ? undefined : json.warning,
+        );
       }
-    },
-    [accountId, onUpdate],
-  );
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      if (err instanceof Error && err.name === "AbortError") return;
+      onResolveResultRef.current(rowId, trimmed, null);
+    }
+  }
 
-  // Debounce: trigger resolve 450ms after the user stops typing.
   function handleLocationChange(value: string) {
-    onUpdate({ location: value, resolved_resource_name: null, resolved_name: null });
-    setResolveState({ status: "loading" });
-
+    sessionRef.current.abort();
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    onLocationChange(rowId, value);
+    if (!value.trim()) return;
     debounceRef.current = setTimeout(() => {
       void resolveLocation(value);
     }, DEBOUNCE_MS);
   }
 
-  // On mount, resolve if the entry doesn't already have a pre-resolved ID.
   useEffect(() => {
-    if (!geo.resolved_resource_name && geo.location.trim()) {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+    const session = sessionRef.current;
+    if (!geoResolutionIsTrusted(row.geo) && row.geo.location.trim()) {
+      const location = row.geo.location;
       debounceRef.current = setTimeout(() => {
-        void resolveLocation(geo.location);
+        void resolveLocation(location);
       }, DEBOUNCE_MS);
     }
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      abortRef.current?.abort();
+      session.abort();
     };
-    // Run once on mount only.
+    // Resolve once for an unresolved or mismatched row. Later keystrokes
+    // schedule their own request and abort this one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -310,27 +344,27 @@ function GeoRow({ geo, accountId, onUpdate, onRemove }: GeoRowProps) {
     <tr className="border-t border-border align-top">
       <td className="px-2 py-1">
         <Input
-          aria-label={`Geo ${geo.location} location`}
-          value={geo.location}
+          aria-label={`Geo ${row.geo.location} location`}
+          value={row.geo.location}
           onChange={(e) => handleLocationChange(e.target.value)}
           placeholder="London, England, United Kingdom"
         />
-        <GeoResolveHint state={resolveState} />
+        <GeoResolveHint state={row.resolve} />
       </td>
       <td className="px-2 py-1">
         <Input
-          aria-label={`Geo ${geo.location} bid modifier`}
+          aria-label={`Geo ${row.geo.location} bid modifier`}
           type="text"
           inputMode="numeric"
-          value={geo.bid_modifier_pct ?? ""}
+          value={row.geo.bid_modifier_pct ?? ""}
           onChange={(e) => {
-            onUpdate({ bid_modifier_pct: parseBidModifierInput(e.target.value) });
+            onBidChange(rowId, parseBidModifierInput(e.target.value));
           }}
           placeholder="+20"
         />
       </td>
       <td className="px-2 py-1 text-right">
-        <Button variant="ghost" size="sm" onClick={onRemove} aria-label="Remove geo">
+        <Button variant="ghost" size="sm" onClick={() => onRemove(rowId)} aria-label="Remove geo">
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </td>
@@ -338,7 +372,7 @@ function GeoRow({ geo, accountId, onUpdate, onRemove }: GeoRowProps) {
   );
 }
 
-function GeoResolveHint({ state }: { state: ResolveState }) {
+function GeoResolveHint({ state }: { state: GeoResolveUi }) {
   if (state.status === "idle") return null;
 
   if (state.status === "loading") {
@@ -378,8 +412,6 @@ function GeoResolveHint({ state }: { state: ResolveState }) {
 
   return null;
 }
-
-// ─── GeoTargetTypeToggle ──────────────────────────────────────────────
 
 function GeoTargetTypeToggle({
   value,

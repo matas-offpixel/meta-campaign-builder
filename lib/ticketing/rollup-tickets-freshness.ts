@@ -22,6 +22,40 @@ export interface RollupTicketsFreshnessInput {
   snapshotMin?: number;
 }
 
+export interface SnapshotListingLife {
+  event_id: string;
+  source?: string | null;
+  external_event_id?: string | null;
+  connection_id?: string | null;
+  tickets_sold: number | null;
+}
+
+/**
+ * Lifetime growth behind the freshness alarm.
+ *
+ * `tickets_sold` on a snapshot is a cumulative total for one listing.
+ * Two listings on one event (218 and 4,318) must not count as growth
+ * when each listing is flat. Growth is max − min per
+ * (event, source, listing), then summed.
+ */
+export function snapshotListingGrowth(rows: readonly SnapshotListingLife[]): number {
+  const minMax = new Map<string, { min: number; max: number }>();
+  for (const row of rows) {
+    const listing = row.external_event_id ?? row.connection_id ?? "";
+    const key = `${row.event_id}|${row.source ?? ""}|${listing}`;
+    const life = Number(row.tickets_sold ?? 0);
+    const cur = minMax.get(key);
+    if (!cur) minMax.set(key, { min: life, max: life });
+    else {
+      cur.min = Math.min(cur.min, life);
+      cur.max = Math.max(cur.max, life);
+    }
+  }
+  let growth = 0;
+  for (const v of minMax.values()) growth += Math.max(0, v.max - v.min);
+  return growth;
+}
+
 export function shouldAlarmRollupTicketsDead(
   input: RollupTicketsFreshnessInput,
 ): boolean {

@@ -26,6 +26,7 @@ import {
   type CreativeRow,
 } from "@/lib/reporting/active-creatives-group";
 import { dedupAdsByAdId } from "@/lib/reporting/active-creatives-dedup";
+import { videoIdToUpgrade } from "@/lib/reporting/active-creatives-thumbnail";
 import {
   buildMultiGetBatch,
   parseMultiGetSubResponse,
@@ -1575,13 +1576,8 @@ export async function fetchActiveCreativesForEvent(
     const admin = input.admin;
     const videoIdsToUpgrade = new Set<string>();
     for (const ad of dedupedAds) {
-      if (
-        ad.preview?.is_low_res_fallback === true &&
-        ad.preview.tier === "afs_video_thumb" &&
-        ad.preview.video_id
-      ) {
-        videoIdsToUpgrade.add(ad.preview.video_id);
-      }
+      const videoId = videoIdToUpgrade(ad.preview);
+      if (videoId) videoIdsToUpgrade.add(videoId);
     }
     // Per-gate breakdown: how many ads match each condition independently, plus the intersection
     const gateStats = {
@@ -1624,9 +1620,9 @@ export async function fetchActiveCreativesForEvent(
           `[active-creatives] video_thumbnail_enrichment done upgraded=${thumbnailsMap.size}/${videoIdsToUpgrade.size} event=${eventCode}`,
         );
         for (const ad of dedupedAds) {
-          if (ad.preview.tier !== "afs_video_thumb") continue;
-          if (!ad.preview.video_id) continue;
-          const thumb = thumbnailsMap.get(ad.preview.video_id);
+          const videoId = videoIdToUpgrade(ad.preview);
+          if (!videoId) continue;
+          const thumb = thumbnailsMap.get(videoId);
           if (!thumb) continue;
           ad.preview.image_url = thumb.uri;
           ad.preview.is_low_res_fallback = false;

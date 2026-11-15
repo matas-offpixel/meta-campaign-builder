@@ -14,6 +14,7 @@ import {
   parseClientRegionKey,
   type ClientRegionKey,
 } from "@/lib/dashboard/client-regions";
+import { dedupeOn } from "@/lib/db/paged-read";
 
 const PAGE_SIZE = 1000;
 const DEFAULT_SINCE_DAYS = 90;
@@ -394,7 +395,9 @@ async function fetchClientEvents(
       .select("id,name,event_date,event_code,venue_city,venue_country")
       .eq("client_id", clientId)
       .order("event_date", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: true })
       .range(from, to),
+    ["id"],
   );
 }
 
@@ -441,12 +444,14 @@ async function fetchAssignments(
     supabase
       .from("creative_tag_assignments")
       .select(
-        "event_id,creative_name,tag_id,tag:creative_tags!creative_tag_assignments_tag_id_fkey(dimension,value_key,value_label)",
+        "id,event_id,creative_name,tag_id,tag:creative_tags!creative_tag_assignments_tag_id_fkey(dimension,value_key,value_label)",
       )
       .in("event_id", eventIds)
       .order("event_id", { ascending: true })
       .order("creative_name", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, to),
+    ["id"],
   );
 }
 
@@ -460,7 +465,7 @@ async function fetchLatestSnapshots(
   const rows = await fetchPaged<SnapshotRow>((from, to) =>
     supabase
       .from("active_creatives_snapshots")
-      .select("event_id,payload,fetched_at,build_version")
+      .select("id,event_id,payload,fetched_at,build_version")
       .in("event_id", eventIds)
       .eq("date_preset", preset)
       // Unlike public share reads, the internal patterns page intentionally
@@ -468,7 +473,9 @@ async function fetchLatestSnapshots(
       // thumbnails, not display-render-sensitive metrics, and SHA-gating here
       // leaves most events empty between 6h cron refreshes after each deploy.
       .order("fetched_at", { ascending: false })
+      .order("id", { ascending: true })
       .range(from, to),
+    ["id"],
   );
 
   return selectLatestSnapshotsByEvent(rows);
@@ -489,23 +496,33 @@ async function fetchRollups(
       .gte("date", sinceYmd)
       .lte("date", untilYmd)
       .order("date", { ascending: true })
+      .order("event_id", { ascending: true })
       .range(from, to),
+    ["event_id", "date"],
   );
 }
 
-async function fetchPaged<T>(
+/** Every page; the builder orders by its business order then `keys` (unique on the table), and the rows are deduped on `keys`. */
+async function fetchPaged<T extends object>(
   buildQuery: (
     from: number,
     to: number,
   ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+  keys: readonly string[],
 ): Promise<T[]> {
   const out: T[] = [];
+  const seen = new Set<string>();
   for (let from = 0; ; from += PAGE_SIZE) {
     const to = from + PAGE_SIZE - 1;
     const { data, error } = await buildQuery(from, to);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as T[];
-    out.push(...rows);
+    for (const row of dedupeOn(rows, keys)) {
+      const key = keys.map((k) => String((row as Record<string, unknown>)[k] ?? "")).join("\u0000");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+    }
     if (rows.length < PAGE_SIZE) break;
   }
   return out;

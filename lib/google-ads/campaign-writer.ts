@@ -99,6 +99,7 @@ import {
   resolveCampaignDailyBudgets,
 } from "../google-search/budget.ts";
 import { resolveAdGroupCpcMicros, resolveCpcCeilingMicros } from "../google-search/bids.ts";
+import { trustedGeoResourceName } from "../google-search/geo-row-state.ts";
 import { resolveGeoLocations, type GeoResolution } from "./geo-resolve.ts";
 import {
   formatGoogleSearchServingUrlBlocks,
@@ -209,12 +210,14 @@ export async function pushGoogleSearchPlan(
   // the push adapter never throws on either shape.
   const rawGeoTargets = Array.isArray(tree.plan.geo_targets) ? tree.plan.geo_targets : [];
   const geoCache = new Map<string, GeoResolution | null>();
-  // Only batch-resolve locations that don't already carry a wizard-stamped
-  // resolved_resource_name. Pre-resolved targets skip the suggest API entirely.
+  // A wizard-stamped id is trusted only when resolved_name still belongs to
+  // the location text. The codec does not round-trip a resolved_for field,
+  // so a stored id made for different text (United Kingdom box, Newcastle
+  // name) is ignored and suggest runs again for the current text.
   const uniqueLocationsNeedingResolve = [
     ...new Set(
       rawGeoTargets
-        .filter((g) => !g.resolved_resource_name)
+        .filter((g) => !trustedGeoResourceName(g))
         .map((g) => g.location)
         .filter(Boolean),
     ),
@@ -538,12 +541,12 @@ async function pushCampaignGeoCriteria(args: PushGeoCriteriaArgs): Promise<void>
 
   if (geoTargets.length === 0) return;
 
-  // For targets without a pre-resolved resource name, populate the cache
-  // via the suggest API. Targets that already carry `resolved_resource_name`
-  // (written by the wizard live-preview) skip the API call entirely, which
-  // makes push faster and guarantees the push matches what the operator saw.
+  // For targets without a trusted pre-resolved resource name, populate the
+  // cache via the suggest API. A trusted id (resolved_name belongs to the
+  // location text) skips the API call. An id stamped for different text
+  // does not — otherwise the `??` below would still target the wrong place.
   const needsLiveResolve = geoTargets
-    .filter((g) => !g.resolved_resource_name)
+    .filter((g) => !trustedGeoResourceName(g))
     .map((g) => g.location)
     .filter((loc) => !geoCache.has(loc));
   if (needsLiveResolve.length > 0) {
@@ -562,7 +565,7 @@ async function pushCampaignGeoCriteria(args: PushGeoCriteriaArgs): Promise<void>
     // Fall back to the live-resolve cache (which covers XLSX-imported plans
     // and any target whose wizard preview was skipped).
     const resourceName =
-      geo.resolved_resource_name ?? geoCache.get(geo.location)?.resourceName ?? null;
+      trustedGeoResourceName(geo) ?? geoCache.get(geo.location)?.resourceName ?? null;
     if (!resourceName) {
       summary.geoTargetsFailed.push({
         campaignId: campaign.id,

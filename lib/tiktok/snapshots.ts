@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { TikTokShareAdRow } from "./share-render.ts";
+import { resolveSnapshotThumbnailUrls } from "./thumbnail-cache.ts";
 
 const TABLE = "tiktok_active_creatives_snapshots";
 
@@ -45,10 +46,16 @@ interface SnapshotRow {
   identity_type: string | null;
 }
 
+/**
+ * Rows for one event and window. Each `thumbnail_url` is resolved through
+ * `resolveSnapshotThumbnailUrls`: the durable Storage object when one
+ * exists, else the stored signed URL while unexpired, else null.
+ */
 export async function readActiveTikTokCreativesSnapshot(
   supabase: SupabaseClient,
   eventId: string,
   window: TikTokActiveCreativesWindow,
+  options: { now?: Date } = {},
 ): Promise<TikTokActiveCreativesSnapshotRecord | null> {
   const { data, error } = await asAny(supabase)
     .from(TABLE)
@@ -65,10 +72,49 @@ export async function readActiveTikTokCreativesSnapshot(
     console.warn("[tiktok-active-creatives-snapshots] read failed", error.message);
     return null;
   }
-  const rows = ((data ?? []) as SnapshotRow[]).map(rowToAd);
-  if (rows.length === 0) return null;
+  const storedRows = ((data ?? []) as SnapshotRow[]).map(rowToAd);
+  if (storedRows.length === 0) return null;
+  const rows = await resolveSnapshotThumbnailUrls(
+    supabase,
+    await readEventTikTokAdvertiserId(supabase, eventId),
+    storedRows,
+    options.now ?? new Date(),
+  );
   const fetchedAt = new Date((data as SnapshotRow[])[0]?.fetched_at ?? Date.now());
   return { kind: "ok", rows, fetchedAt };
+}
+
+/** `tiktok_accounts.tiktok_advertiser_id` for the event's account, else its client's. */
+export async function readEventTikTokAdvertiserId(
+  supabase: SupabaseClient,
+  eventId: string,
+): Promise<string | null> {
+  try {
+    const { data: event } = await asAny(supabase)
+      .from("events")
+      .select("tiktok_account_id, client:clients ( tiktok_account_id )")
+      .eq("id", eventId)
+      .maybeSingle();
+    const row = event as {
+      tiktok_account_id?: string | null;
+      client?: { tiktok_account_id?: string | null } | Array<{ tiktok_account_id?: string | null }> | null;
+    } | null;
+    const client = Array.isArray(row?.client) ? row?.client[0] : row?.client;
+    const accountId = row?.tiktok_account_id ?? client?.tiktok_account_id ?? null;
+    if (!accountId) return null;
+    const { data: account } = await asAny(supabase)
+      .from("tiktok_accounts")
+      .select("tiktok_advertiser_id")
+      .eq("id", accountId)
+      .maybeSingle();
+    return (account as { tiktok_advertiser_id?: string | null } | null)?.tiktok_advertiser_id ?? null;
+  } catch (err) {
+    console.warn(
+      "[tiktok-active-creatives-snapshots] advertiser lookup failed",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
 }
 
 export async function writeActiveTikTokCreativesSnapshot(

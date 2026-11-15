@@ -3,6 +3,7 @@
 import type { RefObject } from "react";
 
 import { PlanBlockerItems } from "@/components/plan/blocker-items";
+import { RefreshCountChip } from "@/components/plan/refresh-count-chip";
 import { Button } from "@/components/ui/button";
 import { ChannelRow } from "@/components/viz/channel-row";
 import { PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
@@ -40,6 +41,8 @@ export function CanvasChannels({
   busy,
   openRefs,
   drawerEdit = true,
+  refreshEventId,
+  refreshCount,
 }: {
   rows: PlanChannelRowModel[];
   blockerCounts?: Record<PlanAdapterName, number>;
@@ -54,6 +57,10 @@ export function CanvasChannels({
   busy: boolean;
   openRefs?: Partial<Record<PlanAdapterName, RefObject<HTMLButtonElement | null>>>;
   drawerEdit?: boolean;
+  /** The plan's event: the Meta card shows the on-sale refresh's count chip for it (R4). */
+  refreshEventId?: string | null;
+  /** Frames: the chip's count without a fetch. */
+  refreshCount?: number;
 }) {
   return (
     <section aria-label="channels" className="grid min-h-[120px] gap-3 lg:grid-cols-3">
@@ -140,6 +147,7 @@ export function CanvasChannels({
               }
             />
             <div className="flex flex-wrap items-center gap-1.5">
+              {row.adapter === "meta" && refreshEventId ? <RefreshCountChip eventId={refreshEventId} initialCount={refreshCount} /> : null}
               {needsYou ? (
                 <button
                   type="button"

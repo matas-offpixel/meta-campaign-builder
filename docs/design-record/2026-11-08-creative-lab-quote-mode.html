@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative Lab — quote mode: the artist's own words as the native text — 8 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6; --ig:#B0607A;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:0 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.muted{color:var(--ink-3)}.mono{font-family:var(--mono)}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:360px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:var(--olive)}.chip.warn{color:var(--ochre);border-color:var(--ochre)}.chip.bad{color:var(--brick);border-color:var(--brick)}.chip.dash{border-style:dashed;color:var(--ink-3)}
+.chip.fill{background:var(--ochre);color:#fff;border-color:var(--ochre)}
+
+/* viewport and UI */
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+.sec{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}.btn.sm{height:24px;padding:0 9px;font-size:11.5px}.btn.dis{opacity:.45}
+.ib{width:30px;height:30px;border-radius:6px;border:1px solid var(--border-strong);display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+.ib.ok{border-color:var(--olive);color:var(--olive)}
+.ctl{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld .k{margin:0}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden;height:28px}
+.seg span{padding:0 11px;display:inline-flex;align-items:center;font:600 12px var(--sans);color:var(--ink-2);border-right:1px solid var(--border-strong)}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.sel{height:28px;padding:0 10px;border:1px solid var(--border-strong);border-radius:6px;display:inline-flex;align-items:center;gap:8px;font:12px var(--sans);background:var(--edit);min-width:160px}
+.sel i{font-style:normal;color:var(--ink-3);margin-left:auto}
+.words{background:var(--edit);border:1px solid var(--border-strong);border-radius:8px;padding:10px 12px;font:13px/1.45 var(--sans);min-height:56px;color:var(--ink)}
+.words .src{font:600 10px var(--mono);color:var(--ink-3);margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* the clip frames */
+.fr{position:relative;overflow:hidden;border-radius:6px;background:#1a1512;color:#fff;container-type:size}
+.fr.s916{width:324px;height:576px}
+.fr.s45{width:324px;height:405px}
+.plate{position:absolute;inset:0;background:radial-gradient(120% 80% at 50% 70%,#4a3a2a 0%,#2a211c 55%,#15110e 100%)}
+.plate:after{content:"";position:absolute;left:30%;right:30%;top:42%;bottom:0;border-radius:40% 40% 0 0;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,0))}
+.safe{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.7);border-bottom:1px dashed rgba(255,255,255,.7);pointer-events:none}
+.safe.r45{top:14.84%;bottom:14.84%}
+.safe i{position:absolute;right:3px;top:2px;font:600 7px var(--mono);font-style:normal;color:#fff;background:rgba(0,0,0,.55);padding:1px 3px;border-radius:2px}
+.lbl{position:absolute;left:4px;bottom:4px;font:600 8px var(--mono);color:#fff;background:rgba(0,0,0,.6);padding:1px 4px;border-radius:2px;max-width:92%}
+.mk{position:absolute;left:0;right:0;border-top:1px solid rgba(255,211,74,.9);pointer-events:none}
+.mk i{position:absolute;right:3px;top:-11px;font:600 7px var(--mono);font-style:normal;color:#ffd34a;background:rgba(0,0,0,.55);padding:1px 3px;border-radius:2px}
+.ctr{position:absolute;left:8px;right:8px;bottom:8px;display:flex;align-items:center;gap:6px}
+.ctr b{width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.9);display:inline-block}
+.ctr s{flex:1;height:2px;background:rgba(255,255,255,.35);display:block;position:relative;text-decoration:none}
+.ctr s:before{content:"";position:absolute;left:0;top:0;height:100%;width:22%;background:#fff}
+.ctr em{font:600 7px var(--mono);font-style:normal;color:#fff}
+/* rule 13 caption, as pass 3 drew it */
+.cap{position:absolute;left:10%;right:10%;top:35.5%;transform:translateY(-50%);text-align:center;font-family:"TikTok Sans",system-ui,sans-serif;font-weight:400;font-stretch:120%;font-variation-settings:"wdth" 120;font-size:5.1cqw;line-height:1.05;color:#fff;-webkit-text-stroke:1cqw #000;paint-order:stroke fill;white-space:pre-line}
+.s45 .cap{top:29.4%}
+/* quote, as the audit measured it */
+.qt{position:absolute;left:15%;right:15%;top:28%;transform:translateY(-50%);text-align:center;font-family:"TikTok Sans",system-ui,sans-serif;font-weight:700;font-size:1.93cqh;line-height:3cqh;color:#fff;white-space:pre-line}
+.qt.reg{font-weight:400}
+.s45 .qt{top:18.7%;font-size:2.745cqh;line-height:4.267cqh}
+/* feed post */
+.post{width:360px;background:#fff;border-radius:10px;overflow:hidden;color:#1c1e21;font-family:var(--sans);border:1px solid var(--border)}
+.post .ph{display:flex;align-items:center;gap:8px;padding:10px 12px}
+.post .av{width:32px;height:32px;border-radius:50%;background:var(--ink)}
+.post .pn{font:600 13px var(--sans)}.post .ps{font:11px var(--sans);color:#65676b}
+.post .pc{padding:0 12px 10px;font:13px/1.35 var(--sans)}
+.post .fr{border-radius:0;width:100%;height:450px}
+.post .cta{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f0f2f5;font:12px var(--sans)}
+.post .cta b{font:600 13px var(--sans)}
+.post .cta span{border:1px solid #c9ccd1;border-radius:6px;padding:5px 10px;font:600 12px var(--sans);background:#e4e6eb}
+.under{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.under .acts{margin-left:auto;display:flex;gap:6px}
+.held{border:1px solid var(--ochre);border-radius:8px;padding:10px 12px;background:var(--edit);font-size:12.5px;margin-top:8px}
+.held b{color:var(--ochre)}
+.meas{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin:12px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · CREATIVE LAB · QUOTE MODE (WRITER, RULE 13 FAMILY) · 8 NOVEMBER 2026 · ISSUE 1</div>
+<h1>Creative Lab — quote mode: the artist's own words as the native text</h1>
+<p class="lead">A second native-text style beside the locked caption (rule 13): the artist's own words, first person, on the clip. The style is measured from the four native references (Max Cooper / Ahmed Spins) by Claude Code on 8 Nov (overlay templates record, H12). A quote is never written by the Lab: its source is a press kit, a real post, or Matas typing what the artist said. It is artist-voice, so it runs only once the artist is cleared for their own channels (pass 2, B1). Captions keep rule 13 unchanged. Frames at 1280 and 393; every value not measured is listed under <i>Invented</i>.</p>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px"><li><b>Issue 1 · 8 Nov 2026.</b> Quote mode as a writer mode and a style: rulings Q1–Q9, the writer's mode switch (CLQ1), the quote feed-post (CLQ2), caption and quote on one clip (CLQ3), the Cleared gate on an uncleared artist (CLQ4). Hand-back HQ1–HQ6; frames CLQ1–CLQ4 added to the CL series.</li></ul></div>
+
+<h2>Data note — what was measured, 8 Nov</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there</th><th>Measured</th><th>Rules it sets</th></tr>
+<tr><td>Four native references (Max Cooper / Ahmed Spins), Claude Code's audit</td><td>The artist's own words on their own clip, first person, static for the clip's length; emoji inline on some; no quote marks, no attribution, no box.</td><td>TikTok Sans, bold (≈ 700) or regular; white; <b>no stroke on any of the four</b>; centred at 0.499–0.506 W; block centre 0.275–0.285 H; line pitch 0.029–0.031 H; cap height 0.0135 H.</td><td>Q2 the quote style; Q6 one component with two modes.</td></tr>
+<tr><td>Rule 13 (pass 3, as Matas approved it)</td><td>The locked caption: TikTok Sans 400, width 120, white with a black stroke outside the letters, centred, block centre 35.5 % down the 9:16 frame, size 5.1 % of frame width, line height 1.05.</td><td>Unchanged. Measured in pass 3 on the Luke Dean render.</td><td>Q2: the caption is not touched; CLQ3 draws both on one clip so the difference is visible.</td></tr>
+<tr><td>Pass 2, B1 (rights)</td><td>Any artist's clips run from the promoter's Page; clearance unlocks the artist's channels and <b>captions in the artist's voice</b>. Held captions carry an ochre Held chip and the one sentence that unlocks them; they never enter a round.</td><td>—</td><td>Q4: a quote is artist-voice and takes the same gate.</td></tr>
+<tr><td>Overlay templates record (#1112), H12</td><td>Quote mode queued for this record with the measurements above.</td><td>—</td><td>This record.</td></tr>
+<tr><td>Puzzle 4th Birthday (fixture)</td><td>Enzo Siragusa ✓ Cleared — artist channels too (Fuse, 6 Nov); Luke Dean not cleared.</td><td>—</td><td>CLQ2 on Enzo; CLQ4 the gate on Luke Dean. The quote words in the frames are placeholders (Invented), not anything either artist said.</td></tr>
+</table>
+
+<h2>Q · Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>Q1 What a quote is</td><td>The artist's own words, first person, as the native text on a clip. Three sources and no fourth: a <b>press kit</b> line (from the kit uploaded to the artist's library row), a <b>real post</b> (a URL; the post's text is read and the words picked from it), or <b>typed</b> — Matas typing what the artist said, with where. The words are stored verbatim with their source (kind, URL or kit reference, date). The Lab never writes, rewrites or paraphrases a quote: there is no <i>Write n</i> in quote mode, no angle, no proven line. Picking a shorter passage is allowed; a cut lands only at a sentence boundary and nothing is added. Rule 5 holds: the source shows as a chip on the card (<span class="chip"><span style="color:var(--ig)">●</span> @enzosiragusa · post, 12 Oct</span>), never as a URL on the tile.</td></tr>
+<tr><td>Q2 The quote style</td><td>Measured on the four references and locked like rule 13. <b>TikTok Sans</b>, weight 700 (default) or 400 (Matas's choice per quote, the only option); white; <b>no stroke, no shadow, no box</b>; centred (0.499–0.506 W); the block's centre at <b>0.28 H</b> of the 9:16 frame (0.275–0.285 measured), which is 0.187 down a 4:5 crop; cap height <b>0.0135 H</b> (font size ≈ 0.0193 H); line pitch <b>0.030 H</b> (0.029–0.031); static for the clip's length; emoji inline as the platform renders them (Q7); <b>no quote marks and no attribution</b> on the clip. Compared with rule 13 the quote is smaller (cap 0.0135 H against the caption's ≈ 0.020 H), higher (0.28 H against 0.355 H), looser (pitch 0.030 H against 0.030 H at a larger size, so more air per cap) and clean-edged. The block stays inside the 4:5 rect; a 1:1 crop is not a quote format (rule 13's safe-area logic holds: the block sits at 0.187 of the 4:5, inside the 1:1's 0.09–0.91 band, so a 1:1 crop keeps it — drawn, not ruled, until a reference shows one).</td></tr>
+<tr><td>Q3 Lines</td><td>A quote wraps at 70 % W (Invented) and runs at most four lines; the fit meter reads lines, not characters ("3 of 4 lines"). Over four lines the writer says so and asks for a shorter passage; it never shrinks (rule 14's spirit) and never edits the words. Line breaks the artist wrote (a post's own breaks) are kept.</td></tr>
+<tr><td>Q4 Rights — artist-voice</td><td>A quote is the artist's voice, so it runs only when the artist's rights chip reads <span class="chip ok">✓ Cleared — artist channels too</span> (B1). On an artist who is <i>Promoter page only</i> the quote card is <span class="chip fill">Held</span> with the one sentence that unlocks it — "These are Luke Dean's own words, so they run only once he's cleared for his own channels." — and the chip's action, <i>Clear for artist channels</i>, beside it. A held quote never enters a round and the round's count leaves it out. A Spark code does not clear a quote (B6). The Cleared tick is recorded on the quote (who, when), as on any artist-voice ad.</td></tr>
+<tr><td>Q5 The writer in quote mode</td><td>The captions generator gains a <b>Mode</b> control, <i>Caption · Quote</i>, as its first control. In quote mode the row is: Mode · <b>Artist</b> (the lineup, each with its rights state; a held artist can be picked and the card says why it's held) · <b>Source</b> (press kit · a post · typed, and the words that come with it: the kit's lines to pick from, the post URL that fills the words, or the typed box). <i>Pair with</i> keeps its default (Best clip, the artist's own) and sits behind <i>More</i>. Three inputs visible (rule 3). The button is <b>Use these words</b>, never Write. Stage is read from the event as before; the CTA follows it.</td></tr>
+<tr><td>Q6 One component, two modes</td><td>The caption overlay component (design-rules.md) gains a <code>mode</code>: <i>caption</i> renders rule 13; <i>quote</i> renders Q2. Everything else is shared: the clip's frame, play bottom-left, scrubber along the bottom, time bottom-right, nothing over the middle 70 % beyond the text block. Everywhere a caption sits on a clip a quote can sit: the feed post, render rows, round cells and the timeline. At cell size the words go on the label, as rule 13 does.</td></tr>
+<tr><td>Q7 Emoji</td><td>Allowed inline, as written in the source, rendered by the platform (never an image, never recoloured). A quote that is only emoji is refused with one sentence. Emoji count as characters for nothing; they never change the line rule.</td></tr>
+<tr><td>Q8 The validator</td><td>caption-facts.ts runs on a quote as on a caption: scarcity words the artist said ("last tickets") still need the ticket data that makes them true (rule 11), or the quote is held with the validator's sentence. <b>Open for Matas:</b> whether an artist's own scarcity words, quoted verbatim with their source, may run on the artist's channels without the data — proposed <i>no</i>, the rule is channel-blind.</td></tr>
+<tr><td>Q9 393</td><td>The writer's controls: Mode and Artist on one row, Source on its own line, the words box full width, <i>More</i> holds Pair with. The quote feed-post is one at a time, as the caption's. The held card: chip and sentence stacked, the action full width. CLQ3's side-by-side becomes a swipe pair.</td></tr>
+</table>
+
+<!-- ===================== CLQ1 ===================== -->
+<h2>CLQ1 · The writer's mode switch — Caption · Quote (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLQ1-1280 · the captions generator in quote mode · Mode · Artist · Source with the words · Use these words</figcaption>
+<div class="vp" style="width:1280px;padding:18px">
+  <div class="sec">
+    <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:12px">Stage: on sale · CTA Get tickets</span></div>
+    <div class="ctl">
+      <div class="fld"><span class="k">Mode</span><span class="seg"><span>Caption</span><span class="on">Quote</span></span></div>
+      <div class="fld"><span class="k">Artist</span><span class="sel">Enzo Siragusa <span class="chip ok" style="height:16px;font-size:8.5px">✓ artist channels</span><i>▾</i></span></div>
+      <div class="fld"><span class="k">Source</span><span class="seg"><span>Press kit</span><span class="on">A post</span><span>Typed</span></span></div>
+      <div class="fld" style="margin-left:auto"><span class="btn sm">More ▾</span></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:14px;margin-top:12px;align-items:start">
+      <div class="words">Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥
+        <div class="src"><span class="chip"><span style="color:var(--ig)">●</span> @enzosiragusa · post, 12 Oct</span><span>read from the post · 3 sentences picked of 4</span><span class="muted">·</span><span>3 of 4 lines</span></div></div>
+      <div><span class="btn solid">Use these words</span><div class="muted" style="font-size:11.5px;margin-top:8px">Pairs with Enzo's best clip (More to change). Nothing is written by the Lab: the words are the artist's, as posted, with the source kept.</div></div>
+    </div>
+  </div>
+</div></figure>
+<figure><figcaption>CLQ1-393 · Mode and Artist on one row · Source on its own · the words full width · More holds Pair with</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+  <div class="sec" style="padding:12px">
+    <div class="sec-h"><h3 style="font-size:14px">Captions</h3><span class="muted" style="font-size:11px">on sale</span></div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div class="fld"><span class="k">Mode</span><span class="seg"><span>Caption</span><span class="on">Quote</span></span></div>
+      <div class="fld" style="flex:1;min-width:0"><span class="k">Artist</span><span class="sel" style="min-width:0">Enzo Siragusa<i>▾</i></span></div>
+    </div>
+    <div class="fld" style="margin-top:10px"><span class="k">Source</span><span class="seg"><span>Press kit</span><span class="on">A post</span><span>Typed</span></span></div>
+    <div class="words" style="margin-top:10px">Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥
+      <div class="src"><span class="chip"><span style="color:var(--ig)">●</span> @enzosiragusa · 12 Oct</span><span>3 of 4 lines</span></div></div>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><span class="btn solid" style="flex:1;justify-content:center">Use these words</span><span class="btn sm">More ▾</span></div>
+  </div>
+</div></figure>
+</div>
+<p class="lead">In quote mode the generator stops generating. The three visible inputs are the mode, whose words, and where they come from; the words box is the source's own output (a post's text, a kit's lines, or the typed box) with the source chip under it, and the fit meter counts lines. The button is a verb on the words. Switching back to Caption restores the generator row exactly as F4 / A4 drew it.</p>
+
+<!-- ===================== CLQ2 ===================== -->
+<h2>CLQ2 · The quote feed-post (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLQ2-1280 · the feed-post caption component in quote mode · the post's own copy above the media · the quote on the clip at 0.187 of the 4:5 · source and rights chips under it</figcaption>
+<div class="vp" style="width:1280px;padding:18px;display:flex;gap:22px;align-items:flex-start">
+  <div>
+    <div class="post">
+      <div class="ph"><span class="av"></span><div><div class="pn">Puzzle</div><div class="ps">Sponsored · <span style="color:var(--meta)">●</span></div></div></div>
+      <div class="pc">Enzo Siragusa on the 4th Birthday, 27 Dec at Circuit.</div>
+      <div class="fr s45"><div class="plate"></div><div class="qt">Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥</div><div class="ctr"><b></b><s></s><em>0:14</em></div></div>
+      <div class="cta"><div><b>Puzzle 4th Birthday</b><br>Circuit · 27 Dec</div><span>Get tickets</span></div>
+    </div>
+    <div class="under" style="width:360px"><span class="chip">quote</span><span class="chip"><span style="color:var(--ig)">●</span> @enzosiragusa · post, 12 Oct</span><span class="chip">Enzo · clip 3</span><span class="chip ok">✓ Cleared — artist channels too · Matas, 6 Nov</span><div class="acts" style="width:100%;justify-content:flex-end;margin-top:4px"><span class="ib">✎</span><span class="ib">✕</span><span class="ib ok">✓</span></div></div>
+  </div>
+  <div style="flex:1;font-size:12.5px;color:var(--ink-2);max-width:520px;padding-top:6px">
+    <p><b>What is and isn't on the clip.</b> On the clip: the words, as posted, white, no stroke, no quote marks, no name. Above the media: the post's own copy, which may name the artist — that is the ad's text, not the native text, and it stays outside the clip. Under the post: the source chip (Q1), the pairing, the rights chip with who cleared and when (Q4), and the same three 30 px buttons as a caption card.</p>
+    <p><b>Position.</b> The block's centre is 0.28 H of the 9:16 master, which the 4:5 crop shows at 0.187 of its height (the caption sits at 0.294). Measured, not chosen.</p>
+    <p><b>Weight.</b> 700 here; 400 is the other option and is the only style choice a quote has.</p>
+  </div>
+</div></figure>
+<figure><figcaption>CLQ2-393 · one at a time · chips wrap · buttons on their own row</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+  <div class="post" style="width:100%">
+    <div class="ph"><span class="av"></span><div><div class="pn">Puzzle</div><div class="ps">Sponsored</div></div></div>
+    <div class="pc">Enzo Siragusa on the 4th Birthday, 27 Dec at Circuit.</div>
+    <div class="fr s45" style="height:461px"><div class="plate"></div><div class="qt">Southampton, this one's going to be special. Three hours, no phone in my hand, just records I've been saving for it. See you on the 27th 🔥</div><div class="ctr"><b></b><s></s><em>0:14</em></div></div>
+    <div class="cta"><div><b>Puzzle 4th Birthday</b><br>Circuit · 27 Dec</div><span>Get tickets</span></div>
+  </div>
+  <div class="under"><span class="chip">quote</span><span class="chip"><span style="color:var(--ig)">●</span> @enzosiragusa · 12 Oct</span><span class="chip ok">✓ artist channels · Matas, 6 Nov</span></div>
+  <div class="under"><div class="acts" style="margin-left:0"><span class="ib">✎</span><span class="ib">✕</span><span class="ib ok">✓</span></div></div>
+</div></figure>
+</div>
+
+<!-- ===================== CLQ3 ===================== -->
+<h2>CLQ3 · The same clip, caption and quote side by side (9:16 at ⅓)</h2>
+<p class="lead">One clip, one plate, the same words. Left is rule 13 exactly as pass 3 drew it; right is Q2. The yellow lines mark each block's measured centre; the white dashed lines are the 4:5 rect. Nothing else differs, so what differs is the style: size, height on the frame, the edge.</p>
+<div class="frame">
+<figure><figcaption>CLQ3-cap · rule 13 · TikTok Sans 400 · width 120 · 5.1 % W · line 1.05 · black stroke · block centre 35.5 % H</figcaption>
+<div class="fr s916"><div class="plate"></div><div class="safe r45"><i>4:5 rect · 14.84 %</i></div><div class="mk" style="top:35.5%"><i>caption centre · 0.355 H</i></div><div class="cap">Southampton, this one's going to be special. See you on the 27th 🔥</div><div class="ctr"><b></b><s></s><em>0:14</em></div><span class="lbl">caption · rule 13 · unchanged</span></div></figure>
+<figure><figcaption>CLQ3-quote · Q2 · TikTok Sans 700 · cap 0.0135 H · pitch 0.030 H · no stroke · block centre 0.28 H</figcaption>
+<div class="fr s916"><div class="plate"></div><div class="safe r45"><i>4:5 rect · 14.84 %</i></div><div class="mk" style="top:28%"><i>quote centre · 0.28 H</i></div><div class="qt">Southampton, this one's going to be special. See you on the 27th 🔥</div><div class="ctr"><b></b><s></s><em>0:14</em></div><span class="lbl">quote · Q2 · bold 700</span></div></figure>
+<figure><figcaption>CLQ3-quote-r · Q2 at weight 400 · the only other option</figcaption>
+<div class="fr s916"><div class="plate"></div><div class="safe r45"><i>4:5 rect · 14.84 %</i></div><div class="mk" style="top:28%"><i>quote centre · 0.28 H</i></div><div class="qt reg">Southampton, this one's going to be special. See you on the 27th 🔥</div><div class="ctr"><b></b><s></s><em>0:14</em></div><span class="lbl">quote · Q2 · regular 400</span></div></figure>
+</div>
+<table class="t" style="max-width:900px">
+<tr><th>Property</th><th>Caption (rule 13, unchanged)</th><th>Quote (Q2, measured)</th></tr>
+<tr><td>Face</td><td>TikTok Sans · 400 · width 120</td><td>TikTok Sans · 700 or 400 · normal width</td></tr>
+<tr><td>Size</td><td>5.1 % of frame width (cap ≈ 0.020 H)</td><td>cap 0.0135 H (font size ≈ 0.0193 H)</td></tr>
+<tr><td>Line</td><td>1.05 (≈ 0.030 H per line at that size)</td><td>pitch 0.030 H (0.029–0.031)</td></tr>
+<tr><td>Edge</td><td>black stroke outside the letters, ≈ 1 % W; no shadow</td><td>none — white only</td></tr>
+<tr><td>Position</td><td>centred; block centre 35.5 % H (≈ 0.294 of a 4:5)</td><td>centred 0.499–0.506 W; block centre 0.28 H (0.187 of a 4:5)</td></tr>
+<tr><td>Marks</td><td>as written, sentence case</td><td>as posted; no quote marks, no attribution; emoji inline</td></tr>
+<tr><td>Motion</td><td>static</td><td>static</td></tr>
+<tr><td>Controls</td><td colspan="2">play bottom-left, scrubber along the bottom, time bottom-right — shared (Q6)</td></tr>
+</table>
+
+<!-- ===================== CLQ4 ===================== -->
+<h2>CLQ4 · The Cleared gate — a quote from an artist who is Promoter page only (1280 and 393)</h2>
+<div class="frame">
+<figure><figcaption>CLQ4-1280 · Luke Dean's words · Held · the one sentence that unlocks it · the rights chip's action beside it · no ✓</figcaption>
+<div class="vp" style="width:1280px;padding:18px;display:flex;gap:22px;align-items:flex-start">
+  <div>
+    <div class="post" style="opacity:.92">
+      <div class="ph"><span class="av"></span><div><div class="pn">Puzzle</div><div class="ps">Sponsored</div></div></div>
+      <div class="pc">Luke Dean on the 4th Birthday, 27 Dec at Circuit.</div>
+      <div class="fr s45"><div class="plate" style="filter:saturate(.6)"></div><div class="qt">Been waiting all year to play Circuit again. Bring the energy 👊</div><div class="ctr"><b></b><s></s><em>0:09</em></div></div>
+      <div class="cta"><div><b>Puzzle 4th Birthday</b><br>Circuit · 27 Dec</div><span>Get tickets</span></div>
+    </div>
+    <div class="under" style="width:360px"><span class="chip">quote</span><span class="chip">typed · Matas, 8 Nov · "said at the Fuse call"</span><span class="chip">Luke · clip 1</span><span class="chip">Promoter page only</span></div>
+    <div class="held" style="width:360px"><span class="chip fill">Held</span> <b>These are Luke Dean's own words, so they run only once he's cleared for his own channels.</b><div style="display:flex;gap:8px;align-items:center;margin-top:8px"><span class="btn sm">Clear for artist channels</span><span class="ib" style="opacity:.4">✎</span><span class="ib" style="opacity:.4">✕</span></div></div>
+  </div>
+  <div style="flex:1;font-size:12.5px;color:var(--ink-2);max-width:520px;padding-top:6px">
+    <p><b>The gate is B1's, not a new one.</b> Luke Dean's clips run from the promoter's Page today; his voice does not. A quote is his voice. The card keeps the preview (rule 2), says in one sentence what unlocks it (rule 8), offers the rights chip's own action, and has no ✓. It stays out of every round until the chip turns olive; then the Held chip drops and ✓ appears, with nothing else changing on the card.</p>
+    <p><b>A typed source is still a source.</b> "typed · Matas, 8 Nov · said at the Fuse call" is the provenance; the words are what he typed, unedited.</p>
+  </div>
+</div></figure>
+<figure><figcaption>CLQ4-393 · chip and sentence stacked · the action full width</figcaption>
+<div class="vp" style="width:393px;padding:12px">
+  <div class="post" style="width:100%;opacity:.92">
+    <div class="ph"><span class="av"></span><div><div class="pn">Puzzle</div><div class="ps">Sponsored</div></div></div>
+    <div class="fr s45" style="height:461px"><div class="plate" style="filter:saturate(.6)"></div><div class="qt">Been waiting all year to play Circuit again. Bring the energy 👊</div><div class="ctr"><b></b><s></s><em>0:09</em></div></div>
+    <div class="cta"><div><b>Puzzle 4th Birthday</b><br>Circuit · 27 Dec</div><span>Get tickets</span></div>
+  </div>
+  <div class="held"><span class="chip fill">Held</span><div style="margin-top:6px"><b>These are Luke Dean's own words, so they run only once he's cleared for his own channels.</b></div><span class="btn sm" style="width:100%;justify-content:center;margin-top:8px">Clear for artist channels</span></div>
+</div></figure>
+</div>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th><th>393</th></tr>
+<tr><td>Caption overlay</td><td>Gains <code>mode</code>: caption (rule 13) · quote (Q2: TikTok Sans 700 / 400, white, no stroke, cap 0.0135 H, pitch 0.030 H, block centre 0.28 H, no quote marks, no attribution, emoji inline). Controls shared.</td><td>same, scaled; words on the label at cell size</td></tr>
+<tr><td>Feed-post caption</td><td>In quote mode the chips under the post are: <code>quote</code> · source (kind · handle or kit · date) · pairing · rights (who, when). Held state as the held caption (B1) with the rights action beside it and no ✓.</td><td>one at a time; buttons on their own row</td></tr>
+<tr><td>Generator (captions)</td><td>First control <b>Mode</b> (Caption · Quote). Quote mode: Artist · Source (press kit · a post · typed) with the words box and its source chip; fit meter in lines; button <b>Use these words</b>; Pair with behind More. No Write, no angle, no proven chips.</td><td>Mode + Artist one row, Source its own, words full width</td></tr>
+<tr><td>Rights chip</td><td>Unchanged. Its action, <i>Clear for artist channels</i>, is reused on a held quote card.</td><td>same</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HQ1 Quote rows</td><td><code>captions</code> gains <code>kind</code> (caption · quote), <code>source_kind</code> (press_kit · post · typed), <code>source_ref</code> (post URL, kit line id, or the typed note), <code>source_at</code>, <code>quote_weight</code> (700 · 400). Words stored verbatim; the only edit allowed is dropping whole sentences from the start or end (Q1). No generation path writes a quote row.</td><td>captions; artists library (press kit upload per artist row)</td><td>a quote row cannot be created by the generator endpoint; the source chip renders from the row</td></tr>
+<tr><td>HQ2 The overlay mode</td><td>The caption Remotion composition takes <code>mode</code>. Quote: TikTok Sans at weight 700 / 400, normal width, white, no stroke, no shadow; font size 0.0193 H (cap 0.0135 H), line pitch 0.030 H, block centred at 0.28 H and 0.5 W, wrap at 0.70 W, max four lines; emoji via the platform's font; identical controls layer.</td><td>the font file already on the Lambda for rule 13</td><td>CLQ3 rendered from the fixture: the quote block's centre within 0.5 % H of 0.28; no dark pixel at the letter edges; the caption render byte-identical to today's</td></tr>
+<tr><td>HQ3 Writer</td><td>Mode control; quote-mode row per Q5; <i>A post</i> reads the post's text through the existing Instagram import path and offers its sentences; <i>Press kit</i> lists the kit's lines; <i>Typed</i> is a box with a required "where" note. Fit meter in lines (Q3).</td><td>clip candidates path (post text); artist press kit</td><td>CLQ1-1280 and -393 as drawn; a five-line pick is refused with the sentence, nothing resized</td></tr>
+<tr><td>HQ4 Rights gate</td><td>A quote is artist-voice: held unless the artist's clearance includes artist channels; the held card carries the Q4 sentence and the rights action; held quotes are excluded from rounds and counts; clearing releases them without a rebuild.</td><td>event artist clearance (B1)</td><td>CLQ4-1280: Luke Dean's quote held, no ✓; after <i>Clear for artist channels</i> the same card shows ✓ and no Held chip</td></tr>
+<tr><td>HQ5 Validator</td><td>caption-facts.ts runs on quotes; the hold sentence names the quote. Q8's open question is Matas's; until ruled, strict.</td><td>caption-facts.ts</td><td>a typed quote "last 50 tickets" on an event with no count is held with the validator's sentence</td></tr>
+<tr><td>HQ6 CI frames</td><td>CLQ1–CLQ4 added to the CL series (next free CL ids; the fixture names them CLQ). Fixture: Puzzle 4th Birthday, Enzo cleared for artist channels, Luke Dean promoter-only, the placeholder quote words from this record.</td><td>the CL fixture</td><td>frames:check on CLQ1 ×2, CLQ2 ×2, CLQ3 ×3, CLQ4 ×2</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li><b>The quote words in every frame</b> ("Southampton, this one's going to be special…", "Been waiting all year…") are placeholders written for the drawing. They are not anything Enzo Siragusa or Luke Dean said. The real words come from a kit, a post or Matas, and the fixture uses these placeholders only.</li>
+<li>The wrap width (70 % W) and the four-line maximum (Q3). The references were not measured for width; four lines is the longest any of them runs.</li>
+<li>The block centre is drawn at 0.28 H, the middle of the measured 0.275–0.285; the pitch at 0.030 H, the middle of 0.029–0.031. The font-size conversion (cap 0.0135 H → 0.0193 H) assumes TikTok Sans's cap ratio ≈ 0.70; H8 (e)-style measurement of the font file sets the exact figure.</li>
+<li>The three source kinds and their words (press kit · a post · typed) and the "where" note on a typed quote; the sentence-boundary cut rule.</li>
+<li>The held sentence's wording; the chip text <code>quote</code>; the button <i>Use these words</i>.</li>
+<li>The frames use the system fallback for TikTok Sans, as pass 3's caption frames did; the render path has the real font.</li>
+<li>The post copy above the media ("Enzo Siragusa on the 4th Birthday, 27 Dec at Circuit.") is a placeholder for the ad's own text.</li>
+</ul>
+
+<h2>Frames for CI (CL series, additions)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>CLQ1</td><td>1280, 393</td><td>captions generator in quote mode, Enzo Siragusa, source a post, the placeholder words, "3 of 4 lines"</td></tr>
+<tr><td>CLQ2</td><td>1280, 393</td><td>quote feed-post on Enzo's clip 3, source chip, rights chip "✓ Cleared — artist channels too · Matas, 6 Nov", Get tickets</td></tr>
+<tr><td>CLQ3</td><td>324×576 ×3</td><td>one clip plate: rule-13 caption, Q2 quote at 700, Q2 quote at 400, with the centre markers</td></tr>
+<tr><td>CLQ4</td><td>1280, 393</td><td>Luke Dean quote, typed source, Promoter page only → Held with the sentence and the rights action; no ✓</td></tr>
+</table>
+
+</div>
+</body>
+</html>

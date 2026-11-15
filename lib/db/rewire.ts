@@ -18,6 +18,7 @@ import {
   type WiringResolution,
 } from "../campaign-event-rewire.ts";
 import { linkDraftToEvent } from "./events.ts";
+import { dedupeOn } from "./paged-read.ts";
 
 export type RewireViewer = { userId: string; isOperator: boolean };
 
@@ -42,6 +43,7 @@ export async function loadClientEvents(
   if (ids.length === 0) return map;
   const PAGE = 1000;
   const rows: CampaignEventIdentity[] = [];
+  const seen = new Set<string>();
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await sb
       .from("events")
@@ -54,7 +56,13 @@ export async function loadClientEvents(
       return map;
     }
     const page = (data ?? []) as CampaignEventIdentity[];
-    rows.push(...page);
+    for (const row of dedupeOn(page, ["id"])) {
+      if (row.id != null) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+      }
+      rows.push(row);
+    }
     if (page.length < PAGE) break;
   }
   for (const event of rows) {

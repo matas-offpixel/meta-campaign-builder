@@ -34,7 +34,7 @@
  * the caller can set a user-visible error message WITHOUT logging the URL.
  */
 
-const MAX_SINGLE_FILE_BYTES = 200 * 1024 * 1024; // 200 MB per file (matches campaign-assets bucket cap)
+export const MAX_SINGLE_FILE_BYTES = 200 * 1024 * 1024; // 200 MB per file (matches campaign-assets bucket cap)
 const MAX_FOLDER_BYTES      = 2 * 1024 * 1024 * 1024; // 2 GB total for folders (presenter video shoots can be large)
 
 /** Media extensions we will accept from folder listings */
@@ -101,12 +101,22 @@ const MAX_DEPTH = 5;
  * All subfolders are walked regardless of name — no version-pick heuristics.
  * Subfolders are visited sequentially (no parallel calls) for rate-limit safety.
  * Depth is capped at 5 levels to guard against pathological structures.
+ * `path` lists one subfolder (and what is under it) instead of the whole share.
  */
-export async function listDropboxFolderFiles(shareUrl: string): Promise<DropboxFileEntry[]> {
+export async function listDropboxFolderFiles(shareUrl: string, options: { path?: string } = {}): Promise<DropboxFileEntry[]> {
   const token = await getDropboxAccessToken();
-  const files = await listFolderRecursive(shareUrl, token, "", 0);
+  const files = await listFolderRecursive(shareUrl, token, dropboxSubPath(options.path), 0);
   console.log("[dropbox] listFolderRecursive completed", { totalFiles: files.length });
   return files;
+}
+
+/**
+ * A path inside the shared folder, as list_folder takes it: "" for the root,
+ * otherwise "/Name/Sub" with one leading slash and no trailing one.
+ */
+export function dropboxSubPath(path: string | undefined): string {
+  const parts = (path ?? "").split("/").map((part) => part.trim()).filter(Boolean);
+  return parts.length ? `/${parts.join("/")}` : "";
 }
 
 /**

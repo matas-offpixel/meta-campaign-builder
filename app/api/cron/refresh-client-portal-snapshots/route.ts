@@ -11,8 +11,10 @@ import { refreshAllClientPortalSnapshots } from "@/lib/reporting/client-portal-s
  * serves a warm snapshot from Postgres in <1s instead of re-running the
  * ~3-5s `loadClientPortalByClientId` waterfall on every cold load.
  *
- * Cadence: every 15 minutes (see `vercel.json`) — a 15-minute freshness
- * window matched by `readClientPortalSnapshot`'s default `maxAgeMs`.
+ * Cadence: 07:15, 13:15 and 19:15 UTC (`15 7,13,19` in `vercel.json`),
+ * fifteen minutes after rollup-sync so the two writers do not start
+ * together. `readClientPortalSnapshot` keeps a row for 13 hours, which
+ * covers the overnight gap. A manual entry shows on the next run.
  *
  * Auth: bearer header `Authorization: Bearer <CRON_SECRET>`. Identical helper
  * to `refresh-active-creatives` / `rollup-sync-events` so the bearer-vs-raw

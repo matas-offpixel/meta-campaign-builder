@@ -40,6 +40,37 @@ describe("collapseWeekly", () => {
     assert.equal(out[0].source, "xlsx_import");
   });
 
+  it("puts internal_counts second: manual > internal_counts > xlsx_import > fourthefans > eventbrite", () => {
+    const day = "2026-11-12";
+    const rows = [
+      { snapshot_at: day, tickets_sold: 200, source: "eventbrite" },
+      { snapshot_at: day, tickets_sold: 205, source: "fourthefans" },
+      { snapshot_at: day, tickets_sold: 210, source: "xlsx_import" },
+      { snapshot_at: `${day}T12:00:00Z`, tickets_sold: 215, source: "internal_counts" },
+      { snapshot_at: day, tickets_sold: 220, source: "manual" },
+    ];
+    assert.equal(collapseWeekly(rows)[0].source, "manual");
+    const withoutManual = rows.filter((r) => r.source !== "manual");
+    assert.equal(collapseWeekly(withoutManual)[0].source, "internal_counts");
+    assert.equal(collapseWeekly(withoutManual)[0].tickets_sold, 215);
+    assert.equal(collapseWeekly([...withoutManual].reverse())[0].source, "internal_counts");
+  });
+
+  it("keeps an internal_counts event on internal_counts in the per-event normalisation", () => {
+    const out = collapseWeeklyNormalizedPerEvent([
+      { snapshot_at: "2026-11-11T12:00:00Z", tickets_sold: 1814, source: "internal_counts" },
+      { snapshot_at: "2026-11-12T12:00:00Z", tickets_sold: 1828, source: "internal_counts" },
+      { snapshot_at: "2026-11-12", tickets_sold: 1500, source: "xlsx_import" },
+    ]);
+    assert.deepEqual(
+      out.map((r) => [r.snapshot_at, r.tickets_sold, r.source]),
+      [
+        ["2026-11-11", 1814, "internal_counts"],
+        ["2026-11-12", 1828, "internal_counts"],
+      ],
+    );
+  });
+
   it("normalizes unknown sources to eventbrite", () => {
     const out = collapseWeekly([
       { snapshot_at: "2026-02-23", tickets_sold: 100, source: "bogus" },

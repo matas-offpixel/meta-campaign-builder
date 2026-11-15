@@ -29,9 +29,12 @@ import { PlatformAccountsCard } from "./platform-accounts-card";
 import { ChannelDefaultsCard } from "./channel-defaults-card";
 import { BillingSection } from "./billing-section";
 import { ClientShareLinkCard } from "./client-share-link-card";
+import { ClientReportsCard } from "./client-reports-card";
+import type { ClientReportCard } from "@/lib/client-reports/access";
 import { RefreshAllSpendButton } from "./refresh-all-spend-button";
 import { NewEventKindModal } from "./new-event-kind-modal";
 import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
+import { LiveLadder } from "@/components/dashboard/asset-bank/live";
 import { TicketingConnectionsPanel } from "@/components/dashboard/clients/ticketing-connections-panel";
 import { D2CConnectionsPanel } from "@/components/dashboard/clients/d2c-connections-panel";
 import { D2CTemplateEditor } from "@/components/dashboard/clients/d2c-template-editor";
@@ -114,6 +117,8 @@ interface Props {
    * paint, no client round-trip.
    */
   initialShare: { token: string; enabled: boolean } | null;
+  /** Season reports for this client. Empty when migration 196 is unapplied. */
+  initialReports?: ClientReportCard[];
   /**
    * Latest weekly snapshot per event_id (RLS-scoped to the current
    * user). Used by the topline stats panel + per-event metrics table
@@ -127,6 +132,8 @@ interface Props {
    * Eventbrite slot of the integrations pill on the Overview tab.
    */
   ticketingConnections: SafeTicketingConnection[];
+  /** Null until migration 211 is applied. */
+  ladder?: import("@/lib/releases/types").LadderRung[] | null;
   ticketingLinkDiscoveryStats: TicketingLinkDiscoveryStats;
   /**
    * Subset of event_ticketing_links that have a non-null external_api_base
@@ -218,8 +225,10 @@ export function ClientDetail({
   clientQuotes,
   defaults,
   initialShare,
+  initialReports = [],
   latestSnapshots,
   ticketingConnections,
+  ladder = null,
   ticketingLinkDiscoveryStats,
   ticketingCustomApiBaseLinks,
   d2cConnections,
@@ -602,6 +611,11 @@ export function ClientDetail({
             initialShare={initialShare}
           />
 
+          <ClientReportsCard
+            clientId={client.id}
+            initialReports={initialReports}
+          />
+
           <ClientStatsPanel
             events={events}
             latestSnapshots={latestSnapshots}
@@ -624,6 +638,12 @@ export function ClientDetail({
                   Events ({events.length})
                 </h2>
                 <div className="flex flex-wrap items-start gap-2">
+                  <Link
+                    href={`/clients/${client.id}/sales`}
+                    className="inline-flex items-center gap-1 rounded border border-border-strong px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                  >
+                    Sales vs spend
+                  </Link>
                   <Link
                     href={`/clients/${client.id}/dashboard`}
                     prefetch
@@ -697,6 +717,7 @@ export function ClientDetail({
           </TabPanel>
 
           <TabPanel active={activeTab === "ticketing"}>
+            {ladder && ladder.length ? <LiveLadder rungs={ladder} clientName={client.name} /> : null}
             <TicketingConnectionsPanel
               clientId={client.id}
               initial={ticketingConnections}

@@ -70,6 +70,7 @@ function missingFields(e: EventWithClient): MissingTag[] {
 
 export function TodayDashboard({
   alertsSlot,
+  claimSlot,
 }: {
   /**
    * Server-rendered "Client Pacing Alerts" section, injected from the
@@ -77,6 +78,7 @@ export function TodayDashboard({
    * at the top of the content column, above the benchmark alerts.
    */
   alertsSlot?: React.ReactNode;
+  claimSlot?: React.ReactNode;
 } = {}) {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<EventWithClient[]>([]);
@@ -234,6 +236,7 @@ export function TodayDashboard({
       <main className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-6xl space-y-8">
           {alertsSlot}
+          {claimSlot}
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

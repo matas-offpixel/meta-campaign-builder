@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Off/Pixel Agency OS — north star — 8 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;height:26px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.tan{background:#c4a882;border-color:#c4a882}
+/* states */
+.st{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--sans);white-space:nowrap}
+.st.live{background:var(--olive);color:#fff}
+.st.part{border:1.5px solid var(--ochre);color:var(--ochre)}
+.st.des{border:1.5px dashed var(--ink-2);color:var(--ink-2)}
+.st.none{border:1.5px dashed var(--ink-3);color:var(--ink-3);opacity:.85}
+.mk{display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 6px;border-radius:4px;font:600 10px/1 var(--sans);white-space:nowrap}
+.mk.you{background:var(--ink);color:var(--sand)}
+.mk.auto{border:1px solid var(--border-strong);color:var(--ink-2);background:var(--edit)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;align-items:center;margin:8px 0 14px}
+/* changelog */
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+/* map */
+.map{padding:18px}
+.lane{display:grid;grid-template-columns:repeat(4,1fr) ;gap:0;align-items:stretch}
+.stage{padding:10px 10px 12px;border-radius:10px;background:rgba(255,255,255,.18);border:1px solid var(--border);position:relative;margin-right:26px}
+.stage:last-child{margin-right:0}
+.stage:not(:last-child)::after{content:"→";position:absolute;right:-21px;top:44%;font:700 18px var(--sans);color:var(--ink-2)}
+.stage .sn{font:700 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:6px}
+.stage .sh{font-weight:700;font-size:13.5px;margin-bottom:8px}
+.ac{background:var(--edit);border:1px solid var(--border);border-radius:8px;padding:7px 9px;margin:0 0 7px}
+.ac b{font-size:12.5px;display:block}
+.ac p{font-size:11.5px;color:var(--ink-2);margin:3px 0 4px;line-height:1.35}
+.ac .row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.ac.dim{background:transparent;border-style:dashed}
+.turn{display:flex;justify-content:flex-end;align-items:center;gap:8px;font:600 11.5px var(--sans);color:var(--ink-2);margin:6px 2px}
+.loop{margin-top:10px;border:1.5px dashed var(--olive);border-radius:10px;padding:8px 12px;font-size:12.5px;color:var(--ink-2);display:flex;justify-content:space-between;align-items:center}
+.loop b{color:var(--olive)}
+.around{margin-top:16px;display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
+.around .ac{margin:0}
+/* app shell */
+.app{display:flex}
+.nav{width:172px;flex:none;background:#e3d1bf;border-right:1px solid var(--border);padding:14px 12px;font-size:12px;color:var(--ink-2)}
+.nav b{display:block;font:700 12px var(--sans);color:var(--ink);letter-spacing:.04em;margin-bottom:6px}
+.nav .it{padding:4px 8px;border-radius:5px;margin:1px 0}.nav .it.on{background:var(--muted);color:var(--ink)}
+.nav .g{font:700 8.5px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);margin:10px 8px 4px}
+.main{flex:1;min-width:0;padding:16px 22px}
+.ttl{font:700 19px/1.1 var(--sans);letter-spacing:.03em;text-transform:uppercase}
+.sub{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.tabs{display:flex;gap:18px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--border-strong);margin:10px 0 12px}
+.tabs span{padding:6px 0}.tabs span.on{color:var(--ink);border-bottom:2px solid var(--ink)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:11px 13px;margin:0 0 9px}
+.ch{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.ch b{font-size:13px}
+.r{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--border);font-size:12.5px}
+.r:first-of-type{border-top:0}
+.r small{display:block;color:var(--ink-3);font-size:11.5px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.ph{height:9px;border-radius:3px;background:var(--muted);margin:5px 0}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;font-size:11px}
+.week div{background:var(--edit);border-radius:6px;padding:6px;min-height:74px}
+.week div.pay{outline:2px solid var(--ink)}
+.week small{display:block;font-size:10.5px;line-height:1.25;margin-top:3px}
+.pk{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:3px}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;font-size:11px}
+.strip div{padding:7px 4px;border-radius:5px}.strip .n{font:600 18px/1.1 var(--sans)}
+.strip .now{background:var(--ink);color:var(--sand)}
+.facts{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-size:11.5px}
+.facts div{background:var(--edit);border-radius:6px;padding:6px 8px}
+.facts b{display:block;font-size:13px}
+.secrow{display:flex;justify-content:space-between;align-items:center}
+.rail{width:300px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);padding:12px 14px;font-size:12px}
+.rail .rk{font:700 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);margin:12px 0 5px;text-transform:uppercase}
+.bar{height:7px;border-radius:4px;background:var(--muted);position:relative;margin:3px 0 6px}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+.tab{width:30px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:8px}
+.tab span{writing-mode:vertical-rl;font:600 11.5px var(--sans);color:var(--ink-2)}
+.chip{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:4px;font:600 10.5px/1 var(--sans);white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{border-color:var(--olive);color:var(--olive)}
+.chip.warn{border-color:var(--ochre);color:var(--ochre)}
+.chip.bad{border-color:var(--brick);color:var(--brick)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.big{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.kpis div{background:var(--edit);border-radius:6px;padding:8px 10px;font-size:11.5px;color:var(--ink-2)}
+.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini .vp{padding:10px}
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 10px;border:1px solid var(--border-strong);border-radius:99px;font:600 11.5px var(--sans);background:var(--edit)}
+/* 393 */
+.phone{width:393px;position:relative;background:var(--sand);padding:12px 14px;font-size:12.5px}
+.phone .ac{margin-bottom:6px}
+.vline{border-left:2px solid var(--ink-2);margin:0 0 0 8px;padding:0 0 4px 14px}
+.vst{font:700 9px/1 var(--mono);letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin:8px 0 6px -22px;background:var(--sand);padding:2px 0}
+.ph393 .r{grid-template-columns:1fr auto}
+.notes{font-size:12.5px;color:var(--ink-2)}
+.notes li{margin:0 0 6px;max-width:96ch}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · NORTH STAR · 8 NOVEMBER 2026 · ISSUE 1</div>
+<h1>Off/Pixel Agency OS — the whole tool as it will be</h1>
+<p class="lead">One map to build toward, to check every PR against, and to extend as we go. It's a map, not a redraw of every screen: one frame per area, showing what it is, what it leads to and where the insights sit. The detail of each area stays in its own record: F1–F5, pass 2 (B1–B7), pass 3 (caption overlay, brand kit), the Insights rail, and <code>docs/creative-lab/design-rules.md</code>. Numbers in the frames are placeholders unless a record already fixed them.</p>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog — each re-issue adds a line at the top, never edits this one</div>
+<ul style="margin:0;padding-left:18px">
+<li><b>Issue 1 · 8 Nov 2026.</b> First map: 36 area cards, 24 on the 8-stage spine and 12 operator pages around it. Today, the event page (3 stages) and the client page (operator and portal) are redrawn. Top five gaps ranked. State as of main after #1092 and #1096, with #1102 (Insights rail build 1) in review.</li>
+</ul></div>
+
+<h3>How to read it</h3>
+<ul class="notes">
+<li><b>The map (§1)</b> reads left to right, then down: a brief arrives → event and lineup → landing page and D2C → audiences → campaign in MML with the Insights rail → Creative Lab and the asset bank → launch → reporting and the learning loop, which feeds back into the rail. Operator pages that serve every stage sit underneath.</li>
+<li><b>Each card</b> has a state: <span class="st live">Live</span> <span class="st part">Partly built</span> <span class="st des">Designed, not built</span> <span class="st none">Not designed</span>. A <span class="mk you">✋ You approve</span> marker means nothing moves until Matas says yes. A <span class="mk auto">⚙ Runs itself</span> marker means the tool acts on its own and reports what it did on Today.</li>
+<li><b>§2–§4</b> redraw the three pages Matas lives in: Today, the event page and the client page. <b>§5</b> lists the gaps and ranks the top five by the hours they'd give back. <b>§6</b> is how this map stays true.</li>
+<li><b>To check a PR:</b> find its card. The PR moves the card's state, or it shouldn't touch that area.</li>
+</ul>
+
+<h2>What I could reach — the live walk, 8 Nov</h2>
+<p class="lead">All 19 nav items load for Matas's account (200, no redirects) on app.offpixel.co.uk. Today, Calendar and Meta render client-side; I read them in the browser after load.</p>
+<table class="t">
+<tr><th>Nav</th><th>What's there today</th><th>Card</th></tr>
+<tr><td>Today</td><td>Alerts from last night's Meta sweep (5: 2 critical CPA stress, 3 info), Pending action, Happening today, Upcoming 14 days, Needs attention</td><td>Today (§2 redraws it)</td></tr>
+<tr><td>Overview</td><td>Future / past event table: capacity, tickets, budget, spend, days until, next phase</td><td>Overview</td></tr>
+<tr><td>Calendar</td><td>Month grid of announce / presale / gen sale / event</td><td>Calendar</td></tr>
+<tr><td>Clients</td><td>7 active clients; the client page has 10 tabs (Overview, Events, Ticketing, D2C, Campaigns, Optimisation, Creatives, Templates, Invoicing, Asset Queue)</td><td>Client page (§4)</td></tr>
+<tr><td>Events</td><td>All events with status filter; the event page has Overview, Plan, Campaigns, Reporting, Active Creatives, Activity; the Creative Lab sits on Overview</td><td>Event page (§3)</td></tr>
+<tr><td>Reporting</td><td>Meta spend, impressions, CTR, blended CPR across 31 events; TikTok and Google marked "soon"</td><td>Reporting</td></tr>
+<tr><td>Invoicing</td><td>Invoices, quotes, by client: 0 of each today</td><td>Invoicing</td></tr>
+<tr><td>MML</td><td>Plans: running 1, done 4, templates; "Folamour: 10 things to fix before you can launch"</td><td>MML planner</td></tr>
+<tr><td>Meta</td><td>Campaign drafts list (Purchase, Registration, Traffic) per ad account</td><td>Platform drafts</td></tr>
+<tr><td>TikTok</td><td>Drafts 15, Published 16, Templates; filter by client and event</td><td>Platform drafts</td></tr>
+<tr><td>Google Ads</td><td>Search campaigns per event, pushed, budget, "Open wizard"</td><td>Platform drafts</td></tr>
+<tr><td>Audience Builder</td><td>Per-client audience drafts / ready / failed</td><td>Audience Builder</td></tr>
+<tr><td>Audience Seeds</td><td>"Select filters and click Build audience…" (empty until used)</td><td>Audience Seeds</td></tr>
+<tr><td>Creatives</td><td>Creative performance per ad account, loads after picking one</td><td>Creatives library</td></tr>
+<tr><td>Venues</td><td>"No venues yet."</td><td>Venues (partly built)</td></tr>
+<tr><td>Artists</td><td>5 artists with genres, events, Meta page, Instagram</td><td>Lineup &amp; artists</td></tr>
+<tr><td>Business Managers</td><td>Asset access sync. <b>Shows "A Facebook token has expired"</b>, while Settings says the token expires in 24 days</td><td>Business Managers · Health alerts</td></tr>
+<tr><td>WA Communities</td><td>/j/{slug} alias manager</td><td>WA Communities</td></tr>
+<tr><td>Settings</td><td>Account, platform connections and scopes, pixels, defaults</td><td>Settings</td></tr>
+</table>
+
+<!-- ======================= 1 MAP ======================= -->
+<h2>1 · The map</h2>
+<div class="legend"><span class="st live">Live</span><span class="st part">Partly built</span><span class="st des">Designed, not built</span><span class="st none">Not designed</span><span class="mk you">✋ You approve</span><span class="mk auto">⚙ Runs itself</span><span class="k">◆ = where the Insights rail sits</span></div>
+<div class="frame"><figure><figcaption>NS1-1280 · the map</figcaption>
+<div class="vp map" style="width:1280px">
+  <div class="lane">
+    <div class="stage"><div class="sn">1 · a brief arrives</div><div class="sh">Brief</div>
+      <div class="ac dim"><b>Brief intake</b><p>An email, WhatsApp or form becomes the event, its page and its comms plan in one read-back.</p><div class="row"><span class="st none">Not designed</span><span class="mk you">✋ read-back</span></div></div>
+      <div class="ac dim"><b>Client onboarding</b><p>New client: accounts, pixel, BM access, brand kit, D2C sender, in one checklist.</p><div class="row"><span class="st none">Not designed</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">2 · event and lineup</div><div class="sh">Event</div>
+      <div class="ac"><b>Event page ◆</b><p>Facts, milestones, plan, Lab and campaigns in one place.</p><div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac"><b>Lineup &amp; artists</b><p>Typeahead, stars, Spotify card, rights chip per artist.</p><div class="row"><span class="st part">Partly built</span><span class="mk you">✋ rights</span></div></div>
+      <div class="ac"><b>Ticket tiers</b><p>Releases, prices and sold counts. Entered by hand; no outlet sync.</p><div class="row"><span class="st part">Partly built</span><span class="mk auto">⚙ sync later</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">3 · page and D2C</div><div class="sh">Landing &amp; D2C</div>
+      <div class="ac"><b>CIRQLIN page</b><p>crqln.com signup page; signups sync to a CQ- list.</p><div class="row"><span class="st live">Live · own app</span><span class="mk auto">⚙ list sync</span></div></div>
+      <div class="ac"><b>D2C comms</b><p>Bird / Mailchimp templates and drafts by script; no section on the event page yet.</p><div class="row"><span class="st part">Partly built</span><span class="mk you">✋ every send</span></div></div>
+      <div class="ac"><b>WA Communities</b><p>/j/ aliases for template buttons.</p><div class="row"><span class="st live">Live</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">4 · audiences</div><div class="sh">Audiences</div>
+      <div class="ac"><b>Audience Builder ◆</b><p>Interest clusters and seeds into ad-set audiences per client.</p><div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac"><b>Audience Seeds</b><p>Portfolio explorer for custom audiences.</p><div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac dim"><b>Lookalike / retargeting results</b><p>Which audiences convert, by client and vertical.</p><div class="row"><span class="st none">Not designed</span></div></div>
+    </div>
+  </div>
+  <div class="turn">continues ↓ then left to right again</div>
+  <div class="lane">
+    <div class="stage"><div class="sn">5 · campaign</div><div class="sh">Build in MML</div>
+      <div class="ac"><b>MML planner ◆</b><p>Budget split, phases, blockers, launch all.</p><div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac"><b>Meta / TikTok / Google drafts ◆</b><p>Wizards and libraries per platform.</p><div class="row"><span class="st live">Live</span><span class="mk you">✋ launch</span></div></div>
+      <div class="ac"><b>Insights rail ◆</b><p>What's working, beside whatever's being built.</p><div class="row"><span class="st part">Build 1 in review</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">6 · creative</div><div class="sh">Lab &amp; asset bank</div>
+      <div class="ac"><b>Creative Lab ◆</b><p>Lineup, clips, captions, round matrix. Launches switched off.</p><div class="row"><span class="st part">Partly built</span><span class="mk you">✋ captions</span></div></div>
+      <div class="ac"><b>Clip import</b><p>Instagram candidates, TikTok Spark posts, crop picker (B2, B6).</p><div class="row"><span class="st des">Designed</span><span class="mk auto">⚙ discovery</span></div></div>
+      <div class="ac"><b>Asset bank + brand kit</b><p>One board per event; variants from the PSD (B5, B7).</p><div class="row"><span class="st des">Designed</span></div></div>
+      <div class="ac"><b>Ticket warnings + payday</b><p>Pushes grounded in tier data, timed to payday (M6).</p><div class="row"><span class="st des">Designed</span><span class="mk you">✋ every warning</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">7 · launch</div><div class="sh">Launch</div>
+      <div class="ac"><b>Attach to ad set</b><p>Existing attach flow; the Lab's launch is behind a switch.</p><div class="row"><span class="st part">Partly built</span><span class="mk you">✋ each round</span></div></div>
+      <div class="ac"><b>Round cadence</b><p>Proposes the next round when it's due (M5); never launches.</p><div class="row"><span class="st des">Designed</span><span class="mk auto">⚙ propose only</span></div></div>
+    </div>
+    <div class="stage"><div class="sn">8 · results</div><div class="sh">Reporting &amp; learning</div>
+      <div class="ac"><b>Reporting</b><p>Meta spend, CPR, events in window; TikTok and Google soon.</p><div class="row"><span class="st live">Live</span></div></div>
+      <div class="ac"><b>Judging</b><p>Winner / flagged / untested from a week of ad results.</p><div class="row"><span class="st part">Partly built</span><span class="mk auto">⚙ weekly</span></div></div>
+      <div class="ac"><b>Learning loop</b><p>Tag scores, creative scores, nightly sweep. Vertical rollup broken.</p><div class="row"><span class="st part">Live · 1 bug</span><span class="mk auto">⚙ nightly</span></div></div>
+      <div class="ac dim"><b>After-show report</b><p>What won, cost per ticket, what carries to the next show.</p><div class="row"><span class="st none">Not designed</span></div></div>
+    </div>
+  </div>
+  <div class="loop"><span><b>↺ The learning loop.</b> Every judged ad and nightly score feeds <code>tag_performance</code> → the Insights rail ◆ in stages 2, 4, 5 and 6, so the next brief starts from what worked.</span><span class="k">8 → 5</span></div>
+  <div class="k" style="margin:16px 0 6px">Around the spine — pages that serve every stage</div>
+  <div class="around">
+    <div class="ac"><b>Today</b><p>The start page (§2).</p><span class="st part">Live · redraw</span></div>
+    <div class="ac"><b>Overview</b><p>Every event's budget and pace.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Calendar</b><p>Milestones by month.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Client page ◆</b><p>Per-client hub (§4).</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Client portal</b><p>What the client sees. No rail.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Invoicing</b><p>Quotes, 75/25 invoices, bonus.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Creatives library</b><p>Ad performance per account.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Venues</b><p>Venue records for cross-event reads.</p><span class="st part">Partly built</span></div>
+    <div class="ac"><b>Business Managers</b><p>Asset access sync.</p><span class="st live">Live</span></div>
+    <div class="ac"><b>Settings</b><p>Connections, pixels, defaults.</p><span class="st live">Live</span></div>
+    <div class="ac dim"><b>Health alerts</b><p>Tokens, AWS/Lambda, API errors, failed crons.</p><span class="st none">Not designed</span></div>
+    <div class="ac dim"><b>Copy scoring</b><p>Lines scored nightly; Proven chips.</p><span class="st part">Live · empty</span></div>
+  </div>
+</div></figure></div>
+
+<div class="frame"><figure><figcaption>NS1-393 · the map, as one column</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="legend" style="gap:6px;margin:0 0 8px"><span class="st live">Live</span><span class="st part">Partly</span><span class="st des">Designed</span><span class="st none">Not designed</span></div>
+  <div class="vline">
+    <div class="vst">1 · Brief</div><div class="ac dim"><b>Brief intake</b><div class="row"><span class="st none">Not designed</span><span class="mk you">✋</span></div></div>
+    <div class="vst">2 · Event</div><div class="ac"><b>Event page ◆</b><div class="row"><span class="st live">Live</span></div></div><div class="ac"><b>Lineup &amp; artists</b><div class="row"><span class="st part">Partly</span><span class="mk you">✋ rights</span></div></div>
+    <div class="vst">3 · Landing &amp; D2C</div><div class="ac"><b>CIRQLIN page · D2C comms</b><div class="row"><span class="st live">Live</span><span class="st part">Partly</span><span class="mk you">✋ sends</span></div></div>
+    <div class="vst">4 · Audiences</div><div class="ac"><b>Audience Builder ◆</b><div class="row"><span class="st live">Live</span></div></div>
+    <div class="vst">5 · Campaign</div><div class="ac"><b>MML + drafts + rail ◆</b><div class="row"><span class="st live">Live</span><span class="st part">Rail in review</span><span class="mk you">✋ launch</span></div></div>
+    <div class="vst">6 · Lab &amp; asset bank</div><div class="ac"><b>Creative Lab ◆</b><div class="row"><span class="st part">Partly</span><span class="mk you">✋ captions</span></div></div><div class="ac"><b>Asset bank · warnings</b><div class="row"><span class="st des">Designed</span><span class="mk you">✋ warnings</span></div></div>
+    <div class="vst">7 · Launch</div><div class="ac"><b>Attach · cadence</b><div class="row"><span class="st part">Partly</span><span class="mk you">✋ rounds</span><span class="mk auto">⚙ propose</span></div></div>
+    <div class="vst">8 · Results</div><div class="ac"><b>Reporting · judging · learning</b><div class="row"><span class="st live">Live</span><span class="mk auto">⚙ nightly</span></div></div>
+  </div>
+  <div class="loop" style="font-size:11.5px"><span><b>↺</b> Results feed the rail ◆ in 2, 4, 5, 6.</span></div>
+  <div class="k" style="margin:12px 0 6px">Around the spine</div>
+  <div style="font-size:12px;color:var(--ink-2)">Today · Overview · Calendar · Client page · Client portal · Invoicing · Creatives · Venues · BMs · Settings · <span style="color:var(--ink-3)">Health alerts (not designed)</span></div>
+</div></div></figure>
+<div style="max-width:620px">
+<p class="lead"><b>Where Matas approves</b>, and nowhere else: the brief read-back (1), artist rights (2), every D2C send (3), each launch (5, 7), every caption (6) and every ticket warning (6). These are the five gates the job sits on: rights, captions, launches, ticket warnings and D2C sends.</p>
+<p class="lead"><b>Where the tool acts on its own</b>, and reports on Today: CQ list sync (3), clip discovery (6), round proposals (7, proposal only), weekly judging (8), the nightly sweep, tag and copy scoring (8), and later the ticket sync (2). It never launches, pauses or sends by itself.</p>
+<p class="lead"><b>Where the insights sit (◆):</b> the Insights rail on the event page, the audience builder, the MML canvas and drawers, and inside the Lab. The client page carries its own learnings section (§4), which reads the same data at client scope.</p>
+</div></div>
+
+<!-- ======================= 2 TODAY ======================= -->
+<h2>2 · Today — the operator's start page</h2>
+<p class="lead">Three blocks, in this order: <b>Needs you</b> (anything waiting on Matas, one action per row), <b>Done overnight</b> (what the tool did, read-only), <b>Next 7 days</b> (calendar, payday outlined when it falls inside). The current Today's sections fold in: Alerts become rows in Needs you (critical) or Done overnight (info); Pending action, Happening today and Needs attention become rows in Needs you.</p>
+<div class="frame"><figure><figcaption>NS2-1280 · Today</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it on">Today</div><div class="it">Overview</div><div class="it">Calendar</div><div class="it">Clients</div><div class="it">Events</div><div class="it">Reporting</div><div class="it">Invoicing</div><div class="g">PLATFORMS</div><div class="it">MML</div><div class="it">Meta</div><div class="it">TikTok</div><div class="it">Google Ads</div><div class="g">INTELLIGENCE</div><div class="it">Audience Builder</div><div class="it">Creatives</div></div>
+  <div class="main">
+    <div class="ttl">Today</div><div class="sub">Saturday 7 November · 6 need you · payday Friday 27 Nov</div>
+    <div style="display:grid;grid-template-columns:1.35fr 1fr;gap:12px;margin-top:12px">
+      <div>
+        <div class="card"><div class="ch"><b>Needs you · 6</b><span class="k">oldest first</span></div>
+          <div class="r"><span><span class="dot" style="background:var(--brick)"></span>Facebook token expired: BM scans and grants are failing<small>Business Managers · since 6 Nov</small></span><span class="btn solid">Reconnect</span></div>
+          <div class="r"><span><span class="dot" style="background:var(--ink)"></span>1 caption to approve: Puzzle 4th Birthday<small>Creative Lab · Lineup · Enzo Siragusa #1</small></span><span class="btn solid">Approve</span></div>
+          <div class="r"><span><span class="dot" style="background:var(--ink)"></span>Round 1 judged: East End Dubs, 1 winner, 1 flagged<small>Propose round 2 from the plan</small></span><span class="btn">Propose round 2</span></div>
+          <div class="r"><span><span class="dot" style="background:var(--ochre)"></span>Ticket warning ready: "Final 100 tickets" · Don Diablo<small>1,912 of 2,000 sold · Skiddle, read 09:00 · runs Fri</small></span><span class="btn">Review</span></div>
+          <div class="r"><span><span class="dot" style="background:var(--ink)"></span>D2C send at 16:45: presale reminder · Interplanetary Criminal<small>Email draft ready · WhatsApp template pending at Meta</small></span><span class="btn">Check send</span></div>
+          <div class="r"><span><span class="dot" style="background:var(--brick)"></span>Creative CPA stress: Artwork Static, CPA £53.59 vs £6.57 median<small>Last night's sweep · Meta</small></span><span class="btn">Open ad</span></div>
+        </div>
+        <div class="card"><div class="ch"><b>Done overnight</b><span class="k">read-only</span></div>
+          <div class="r" style="grid-template-columns:1fr"><span>Meta sweep: 5 signals, 2 above in Needs you, 3 info (scaling candidate, 2 audiences outperforming)<small>03:10</small></span></div>
+          <div class="r" style="grid-template-columns:1fr"><span>Tag and creative scores refreshed: 420 tag rows, 11,784 ads<small>03:30</small></span></div>
+          <div class="r" style="grid-template-columns:1fr"><span>3 renders ready · Puzzle 4th Birthday round 1<small>04:12 · open the round to watch them</small></span></div>
+          <div class="r" style="grid-template-columns:1fr"><span>4 Instagram candidates found for Enzo Siragusa<small>05:00 · in Find clips</small></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="card"><div class="ch"><b>Next 7 days</b><span class="k">8–14 Nov</span></div>
+          <div class="week"><div>Sun 8</div><div>Mon 9<small><span class="pk" style="background:var(--brick)"></span>IPC presale reminder</small></div><div>Tue 10</div><div>Wed 11<small><span class="pk" style="background:var(--meta)"></span>Lab round · DHB</small></div><div>Thu 12<small><span class="pk" style="background:var(--brick)"></span>EED reminder 16:45</small></div><div>Fri 13<small>East End Dubs · show</small></div><div>Sat 14</div></div>
+          <p class="lead" style="margin:8px 0 0;font-size:11.5px"><span class="pk" style="background:var(--brick)"></span>ticket push · <span class="pk" style="background:var(--meta)"></span>content round · outlined day = payday</p></div>
+        <div class="card"><div class="ch"><b>Happening today · 2</b></div>
+          <div class="r"><span>Deep House Bible Dubai<small>Skydive Dubai</small></span><span class="btn">Open event</span></div>
+          <div class="r"><span>AZYR b2b Partiboi69<small>NX Newcastle · 1,500 cap</small></span><span class="btn">Open event</span></div></div>
+      </div>
+    </div>
+  </div>
+</div></div></figure>
+<figure><figcaption>NS2-393 · Today</figcaption>
+<div class="vp" style="width:393px"><div class="phone ph393">
+  <div class="ttl" style="font-size:16px">Today</div><div class="sub">6 need you · payday Fri 27 Nov</div>
+  <div class="card" style="margin-top:10px"><div class="ch"><b>Needs you · 6</b></div>
+    <div class="r"><span>Facebook token expired<small>BM scans failing</small></span><span class="btn solid">Reconnect</span></div>
+    <div class="r"><span>1 caption to approve<small>Puzzle 4th Birthday</small></span><span class="btn solid">Approve</span></div>
+    <div class="r"><span>Round 1 judged · EED<small>1 winner, 1 flagged</small></span><span class="btn">Propose</span></div>
+    <div class="r"><span>"Final 100 tickets" · Don Diablo<small>1,912 of 2,000 sold</small></span><span class="btn">Review</span></div>
+    <div class="r" style="color:var(--ink-3)"><span>+2 more</span><span></span></div></div>
+  <div class="card"><div class="ch"><b>Done overnight · 4</b><span class="k">show</span></div></div>
+  <div class="card"><div class="ch"><b>Next 7 days</b></div><div style="font-size:12px">Mon IPC reminder · Wed Lab round DHB · Thu EED reminder 16:45 · Fri EED show</div></div>
+</div></div></figure></div>
+<p class="lead"><b>Rules on Today:</b> a row exists only when it can be acted on, and its button is the action (rule 4). A row leaves when it's done; a dismissed info signal goes to Done overnight. Every number carries its comparison (rule 6): "CPA £53.59 vs £6.57 median", "1,912 of 2,000 sold". Health alerts (tokens, AWS/Lambda render failures, API errors, failed crons) land in Needs you at the top. Today is where the ⚙ marks on the map report.</p>
+
+<!-- ======================= 3 EVENT ======================= -->
+<h2>3 · The event page, whole</h2>
+<p class="lead">Header: title, client · state · payday · days to go; View client and Edit. Tabs stay as they are (Overview, Plan, Campaigns, Reporting, Activity), and <b>Active Creatives</b> folds into Campaigns. The Overview tab runs top to bottom: <b>Facts</b> → <b>Lineup</b> → <b>Creative Lab</b> → <b>Asset bank</b> → <b>D2C comms</b> → <b>Campaigns</b> → <b>Reporting</b>. Lineup moves out of the Lab, because the landing page, D2C and SEO read it too. The Insights rail sits beside the page (its own record).</p>
+<div class="frame"><figure><figcaption>NS3-1280 · on sale (the middle stage), rail open</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav" style="width:150px"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it on">Events</div><div class="it">Clients</div><div class="it">MML</div></div>
+  <div class="main">
+    <div class="secrow"><div><div class="ttl">Puzzle 4th Birthday</div><div class="sub">Puzzle · on sale · Next payday Friday 27 Nov · 50 days to the event</div></div><span><span class="btn">View client</span> <span class="btn">Edit</span></span></div>
+    <div class="tabs"><span class="on">Overview</span><span>Plan</span><span>Campaigns 7</span><span>Reporting</span><span>Activity</span></div>
+    <div class="card"><div class="ch"><b>Facts</b><span class="k">from the event record</span></div>
+      <div class="facts"><div>Event<b>Sun 27 Dec</b>Circuit &amp; Engine Rooms</div><div>Presale<b>21 Oct</b>done</div><div>General sale<b>30 Oct</b>done</div><div>Tickets<b>1,240 / 2,000</b>62% · Skiddle</div><div>Next tier<b>£28 → £32</b>on payday</div></div></div>
+    <div class="card"><div class="ch"><b>Lineup · 5</b><span class="k">rights per artist</span></div><div class="ph" style="width:70%"></div><div class="ph" style="width:55%"></div></div>
+    <div class="card"><div class="ch"><b>Creative Lab</b><span class="k">strip · clips · captions · round</span></div>
+      <div class="strip"><div><div class="n">5</div>on the bill</div><div><div class="n">5</div>ready</div><div class="now"><div class="n">1</div>need approval</div><div><div class="n">—</div>not started</div></div></div>
+    <div class="card"><div class="ch"><b>Asset bank</b><span class="k">B5 · 14 of 22 cells ready</span></div><div class="ph" style="width:80%"></div></div>
+    <div class="card"><div class="ch"><b>D2C comms</b><span class="k">next: presale reminder · sent</span></div><div class="ph" style="width:60%"></div></div>
+    <div class="card"><div class="ch"><b>Campaigns · 7</b><span class="k">£1,240 of £3,000 spent</span></div><div class="ph" style="width:50%"></div></div>
+    <div class="card"><div class="ch"><b>Reporting</b><span class="k">£2.41 / ticket · vs £2.90 last show</span></div><div class="ph" style="width:40%"></div></div>
+  </div>
+  <div class="rail"><b>Insights</b><div class="sub">Puzzle 4th Birthday · Ticket sale</div>
+    <div class="rk">Caption angle · all clients</div><div style="font-weight:600">Urgency / scarcity costs 25% less than usual.</div>
+    <div class="bar"><i style="width:44%;background:var(--olive)"></i></div><div class="bar"><i style="width:57%;background:var(--ink-2)"></i></div><div class="bar"><i style="width:66%;background:var(--brick)"></i></div>
+    <span class="btn solid" style="height:24px">Use Scarcity</span>
+    <div class="rk">Hook · visual format · asset type</div><div class="ph"></div><div class="ph" style="width:70%"></div>
+    <div class="rk">In the Lab</div><div style="color:var(--ink-2)">No round judged yet.</div></div>
+</div></div></figure></div>
+
+<div class="mini">
+<figure><figcaption>NS3-before · before sale (signup stage)</figcaption>
+<div class="vp"><div class="k" style="margin-bottom:6px">Facts</div><div style="font-size:12px">Announce 12 Oct · presale 21 Oct · <b>tiers not set</b></div>
+<div class="k" style="margin:10px 0 4px">What leads</div><ul class="notes" style="margin:0;padding-left:16px;font-size:12px"><li><b>D2C comms</b> sits second: signups, CQ list count, the teaser autoresponder.</li><li><b>Lab</b> runs signup captions (no scarcity: no tiers).</li><li>Asset bank shows warnings dashed, "unlocks once tiers are set".</li><li>Rail opens on <b>Signup</b>.</li></ul></div></figure>
+<figure><figcaption>NS3-on · on sale (drawn above)</figcaption>
+<div class="vp"><div class="k" style="margin-bottom:6px">Facts</div><div style="font-size:12px">Tickets <b>1,240 / 2,000</b> · next tier on payday</div>
+<div class="k" style="margin:10px 0 4px">What leads</div><ul class="notes" style="margin:0;padding-left:16px;font-size:12px"><li><b>Lab and asset bank</b> lead: rounds, renders, warnings.</li><li>Ticket warnings appear as approval cards with the count that makes them true.</li><li>Payday pushes on the push calendar.</li><li>Rail opens on <b>Ticket sale</b>.</li></ul></div></figure>
+<figure><figcaption>NS3-after · after the show (the report)</figcaption>
+<div class="vp"><div class="k" style="margin-bottom:6px">The report</div>
+<div class="kpis" style="grid-template-columns:repeat(2,1fr)"><div><span class="big">1,980</span><br>of 2,000 sold · 99%</div><div><span class="big">£2.41</span><br>/ ticket · vs £2.90 last</div></div>
+<ul class="notes" style="margin:8px 0 0;padding-left:16px;font-size:12px"><li>What won: rounds timeline, winning clip × caption.</li><li>Learnings written back to the client (§4) and the rail.</li><li>Settlement: 25% balance, sell-out bonus £0.10 × tickets → Invoicing.</li><li>Lab, asset bank and D2C collapse to one line each.</li></ul></div></figure>
+</div>
+
+<div class="frame" style="margin-top:18px"><figure><figcaption>NS3-393 · on sale</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="secrow"><div><div class="ttl" style="font-size:15px">Puzzle 4th Birthday</div><div class="sub">on sale · 50 days</div></div><span class="pill">Insights ‹</span></div>
+  <div class="tabs" style="gap:12px;font-size:12px;overflow:hidden"><span class="on">Overview</span><span>Plan</span><span>Campaigns</span><span>Reporting</span></div>
+  <div class="card"><b>Facts</b><div style="font-size:12px">27 Dec · 1,240 / 2,000 sold · £28 → £32 on payday</div></div>
+  <div class="card"><b>Lineup · 5</b></div>
+  <div class="card"><b>Creative Lab</b><div class="strip" style="margin-top:6px"><div><div class="n">5</div>on bill</div><div><div class="n">5</div>ready</div><div class="now"><div class="n">1</div>waiting</div><div><div class="n">—</div>none</div></div></div>
+  <div class="card"><b>Asset bank</b> <span class="k">14 of 22</span></div>
+  <div class="card"><b>D2C comms</b> <span class="k">reminder sent</span></div>
+  <div class="card"><b>Campaigns · 7</b> <span class="k">£1,240 of £3,000</span></div>
+  <div class="card"><b>Reporting</b> <span class="k">£2.41 / ticket</span></div>
+</div></div></figure></div>
+
+<!-- ======================= 4 CLIENT ======================= -->
+<h2>4 · The client page — what Matas sees, and what the client sees</h2>
+<p class="lead">The client page today has ten tabs. The north star keeps them but opens on an <b>Overview</b> that answers five questions in order: what's on (events by stage), how it's going (rollups against the client's own band), what we've learned for this client, what's connected, and which artists are cleared. The client's own portal is a separate, smaller page: their events, their sales and spend, their reports. It never shows other clients, the rail, cross-client learnings, internal notes or fees beyond their own invoices (rule 12).</p>
+<div class="frame"><figure><figcaption>NS4-1280 · client page, Matas's view</figcaption>
+<div class="vp" style="width:1280px"><div class="app">
+  <div class="nav" style="width:150px"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it on">Clients</div><div class="it">Events</div></div>
+  <div class="main">
+    <div class="secrow"><div><div class="ttl">Puzzle</div><div class="sub">promoter · music · Southampton · since Feb 2026</div></div><span><span class="btn">Open portal as client</span> <span class="btn">Edit</span></span></div>
+    <div class="tabs"><span class="on">Overview</span><span>Events 5</span><span>Ticketing</span><span>D2C</span><span>Campaigns</span><span>Optimisation</span><span>Creatives</span><span>Templates</span><span>Invoicing</span><span>Asset queue</span></div>
+    <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:12px">
+      <div>
+        <div class="card"><div class="ch"><b>Events by stage</b></div>
+          <div class="r"><span>Puzzle 4th Birthday<small>on sale · 27 Dec · 1,240 / 2,000</small></span><span class="chip warn">1 approval</span></div>
+          <div class="r"><span>Puzzle Circuit<small>after the show · 17 Oct · report drafting</small></span><span class="chip warn">Report to check</span></div>
+          <div class="r"><span>Puzzle Open Air<small>after the show · 13 Jun · report sent</small></span><span class="chip ok">Report</span></div></div>
+        <div class="card"><div class="ch"><b>Rollups · last 90 days</b><span class="k">vs Puzzle's own band</span></div>
+          <div class="kpis"><div><span class="big">£4.16</span><br>/ signup · level</div><div><span class="big">£—</span><br>/ ticket · no sales reach Meta</div><div><span class="big">£6,420</span><br>spent · of £8,000</div><div><span class="big">62%</span><br>sell-through · avg</div></div></div>
+        <div class="card"><div class="ch"><b>Learnings for Puzzle</b><span class="k">client scope · strong / ok only</span></div>
+          <div style="font-size:12.5px">Headline visuals cost 6% less than usual · Lifestyle images with text 7% less · No clear winner between Artist / headliner and Event announcement.</div></div>
+      </div>
+      <div>
+        <div class="card"><div class="ch"><b>Connected</b></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip ok">Meta · ad account</span><span class="chip ok">Pixel</span><span class="chip ok">TikTok</span><span class="chip warn">Bird email · unproven</span><span class="chip">Google Ads · not set</span><span class="chip">Mailchimp · not set</span><span class="chip warn">Ticket sync · none</span></div></div>
+        <div class="card"><div class="ch"><b>Artists · clearance</b><span class="k">B1</span></div>
+          <div class="r"><span>Enzo Siragusa<small>Cleared · artist channels too · 6 Nov</small></span><span class="chip win">Cleared</span></div>
+          <div class="r"><span>Luke Dean<small>Promoter page only</small></span><span class="btn">Clear</span></div>
+          <div class="r"><span>Reeshy · Phill de Janeiro · Benji King<small>Promoter page only</small></span><span></span></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="tab"><span>Insights ‹</span></div>
+</div></div></figure></div>
+
+<div class="frame"><figure><figcaption>NS4-portal-1280 · the client's own portal (no rail, no other clients)</figcaption>
+<div class="vp" style="width:900px;padding:18px">
+  <div class="secrow"><div><div class="ttl">Puzzle</div><div class="sub">Your events with Off/Pixel</div></div><span class="btn">Download report</span></div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px">
+    <div class="card"><b>Puzzle 4th Birthday</b><div class="sub">on sale · 27 Dec</div><div class="big" style="margin-top:6px">1,240</div><div style="font-size:11.5px">of 2,000 sold · £1,240 of £3,000 spent</div></div>
+    <div class="card"><b>Puzzle Circuit</b><div class="sub">17 Oct · report coming</div><div class="big" style="margin-top:6px">2,310</div><div style="font-size:11.5px">signups · £0.71 / signup</div></div>
+    <div class="card"><b>Puzzle Open Air</b><div class="sub">report ready</div><div class="big" style="margin-top:6px">99%</div><div style="font-size:11.5px">sold · £2.41 / ticket</div></div>
+  </div>
+  <p class="lead" style="margin-top:10px">Never shown here: other clients, cross-client learnings, the rail, internal notes, rights paperwork, other clients' benchmarks.</p>
+</div></figure>
+<figure><figcaption>NS4-portal-393</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="ttl" style="font-size:15px">Puzzle</div><div class="sub">Your events</div>
+  <div class="card" style="margin-top:8px"><b>Puzzle 4th Birthday</b><div class="big">1,240</div><div style="font-size:11.5px">of 2,000 sold · £1,240 of £3,000 spent</div></div>
+  <div class="card"><b>Puzzle Circuit</b><div class="big">2,310</div><div style="font-size:11.5px">signups · report coming</div></div>
+  <div class="card"><b>Puzzle Open Air</b><div style="font-size:11.5px">Report ready · 99% sold</div></div>
+</div></div></figure></div>
+
+<!-- ======================= 5 GAPS ======================= -->
+<h2>5 · The gaps</h2>
+<p class="lead">Every card that isn't Live, with what it needs next: a <b>record</b> (design), <b>data</b> (a source or a fix), or a <b>build</b>. Hours are estimates per month at today's load (~8–15 launches a month), to rank by, not to quote.</p>
+<table class="t">
+<tr><th>Rank</th><th>Area</th><th>State</th><th>Needs</th><th>Hours back / month</th></tr>
+<tr><td>1</td><td>Asset bank + ticket warnings + payday cadence</td><td><span class="st des">Designed</span></td><td>Data: ticket tiers per event (hand entry now, outlet sync later), designer PSDs and fonts. Build: B5 board, B7 brand kit, the TicketWarning and PromoterOverlay compositions.</td><td>~20 (weekly variants by hand)</td></tr>
+<tr><td>2</td><td>Brief intake → event + page + D2C in one run (Task #28)</td><td><span class="st none">Not designed</span></td><td>Record first: what a brief is, the read-back Matas approves, what it creates. Build: event + CIRQLIN page + D2C drafts + calendar pack.</td><td>~15 (2–3 h a launch)</td></tr>
+<tr><td>3</td><td>Today as the approvals queue (§2)</td><td><span class="st part">Live · redraw</span></td><td>This record is its design. Build: one queue fed by every ✋ and ⚙ on the map, plus health rows.</td><td>~8 (daily triage across pages)</td></tr>
+<tr><td>4</td><td>Round cadence + judging + launch on (M5, M3b)</td><td><span class="st des">Designed</span></td><td>Build: the cadence cron (proposal only), weekly judging writing verdicts, the Lab launch switch on after a dry run.</td><td>~8 (weekly round set-up)</td></tr>
+<tr><td>5</td><td>After-show report + portal report</td><td><span class="st none">Not designed</span></td><td>Record: what the report shows and what's written back to learnings. Data: final ticket counts. Build: report and PDF.</td><td>~6 (wrap-up per show)</td></tr>
+<tr><td>—</td><td>Health alerts (tokens, AWS/Lambda, API, crons)</td><td><span class="st none">Not designed</span></td><td>Record and build. The token mismatch seen on the walk (BMs: expired; Settings: 24 days) is its first case.</td><td>~3, plus avoided outages</td></tr>
+<tr><td>—</td><td>Clip import (IG + TikTok Spark)</td><td><span class="st des">Designed</span></td><td>Build B2 and B6. Data: candidate thumbnails stored at discovery (a migration).</td><td>~4</td></tr>
+<tr><td>—</td><td>Insights rail build 2 (audience builder, TikTok drawer)</td><td><span class="st des">Designed</span></td><td>Build (IR5). Data: the vertical rollup fix; lookalike / retargeting results.</td><td>~2</td></tr>
+<tr><td>—</td><td>Ticket sync from outlets (Skiddle and others)</td><td><span class="st none">Not designed</span></td><td>Data: an outlet connection or scheduled entry. Unblocks warnings and sell-through.</td><td>~3</td></tr>
+<tr><td>—</td><td>Client onboarding checklist</td><td><span class="st none">Not designed</span></td><td>Record: the checklist (accounts, pixel, BM, brand kit, D2C sender). Build.</td><td>~2 per new client</td></tr>
+<tr><td>—</td><td>Lookalike / retargeting results</td><td><span class="st none">Not designed</span></td><td>Data first: results stored per audience.</td><td>~1</td></tr>
+<tr><td>—</td><td>Venues library</td><td><span class="st part">Partly built</span></td><td>Data: venue records linked to events (empty today).</td><td>&lt;1</td></tr>
+<tr><td>—</td><td>Reporting for TikTok and Google</td><td><span class="st part">Partly built</span></td><td>Build: the "soon" platforms.</td><td>~2</td></tr>
+</table>
+<p class="lead"><b>Why this order:</b> 1 and 4 are the weekly creative grind, the part of the formula that repeats every week of every campaign. 2 removes the per-launch setup. 3 makes everything else visible in one place, so the gates take minutes. 5 closes the loop with clients and feeds the learning. Together they're the repeatable formula; what's left is Matas's judgement at the five gates.</p>
+
+<!-- ======================= 6 RULES ======================= -->
+<h2>6 · Keeping it current</h2>
+<ul class="notes">
+<li><b>Same PR, same card.</b> A PR that changes an area's state also changes that card's state in this map. It does that by issuing the next map record with the card moved and a changelog line, in the same PR or its paired docs PR. The reviewer checks the card moved.</li>
+<li><b>Card before build.</b> A new area gets its card (state <span class="st none">Not designed</span> or <span class="st des">Designed</span>) before any build PR for it. No card, no build.</li>
+<li><b>Re-issue, never edit.</b> The map is a record: it's re-issued as <code>docs/design-record/YYYY-MM-DD-north-star.html</code>. The new issue copies the last one, extends the changelog at the top, and changes only what moved. Old issues stay as they were.</li>
+<li><b>States mean exactly this.</b> Live = on main and used on real data. Partly built = on main, with a named part missing. Designed = a record exists. Not designed = no record yet. A switched-off feature is Partly built.</li>
+<li><b>Markers are rules, not decoration.</b> A ✋ on a card means no code path may act there without Matas's yes. Adding or removing one is a design ruling, so it needs a record.</li>
+<li><b>Review checklist addition.</b> Every design review states the card(s) it touched and their state after the PR.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>Item</th><th>What</th></tr>
+<tr><td>This file</td><td><code>docs/design-record/2026-11-08-north-star.html</code> — issue 1</td></tr>
+<tr><td>Frames</td><td>NS1 (map, 1280 / 393), NS2 (Today, 1280 / 393), NS3 (event page on sale 1280, three stages, 393), NS4 (client page 1280, portal 1280 / 393). Reference frames for review, not CI baselines: each area's own record names its CI frames.</td></tr>
+<tr><td>README</td><td>Add this record to the table in <code>docs/design-record/README.md</code> as "the map; check every PR's card against it".</td></tr>
+<tr><td>Next records it implies</td><td>Brief intake (gap 2), After-show report (gap 5), Health alerts, Client onboarding. Today's build follows §2 directly.</td></tr>
+</table>
+
+</div>
+</body>
+</html>

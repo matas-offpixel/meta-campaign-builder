@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Asset bank (M6) — issue 4 — the first rung split: "{release} live" and "{release} selling fast" — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+figure{margin:0 0 28px}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ochre{color:var(--ochre);border-color:var(--ochre)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.chip.new{color:var(--olive);border-color:var(--olive)}
+/* frames */
+.vp{background:var(--edit);border:1px solid var(--border-strong);border-radius:10px;padding:20px;overflow:hidden}
+.vp.w1280{width:100%;max-width:1280px}
+.vp.w393{width:393px;padding:16px}
+.panel{background:var(--card);border-radius:10px;padding:16px 18px}
+.ph{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+.ph b{font-size:15px}.ph span{font-size:12px;color:var(--ink-3)}
+.ph a{margin-left:auto;font-size:12px;color:var(--ink-2);text-decoration:underline}
+.lad{display:grid;grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr);gap:0;font-size:13px}
+.lad .hd{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);padding:6px 0;border-bottom:1px solid var(--border-strong)}
+.lad .c{padding:9px 0;border-bottom:1px solid var(--border)}
+.lad .ar{padding:9px 0;border-bottom:1px solid var(--border);color:var(--ink-3);text-align:center}
+.lad .sub{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.lad .q{font-weight:600}
+.lad .row-new{background:rgba(95,107,42,.07)}
+.more{font-size:12px;color:var(--ink-3);padding-top:10px}
+.stack .pair{padding:10px 0;border-bottom:1px solid var(--border);font-size:13px}
+.stack .pair .tr{color:var(--ink-2)}
+.stack .pair .q{font-weight:600;margin-top:3px}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.cardx{background:var(--card);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+.prev{background:#2b2620;border-radius:6px;aspect-ratio:4/5;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 10px 16%;text-align:center;font:700 15px/1.12 "Arial Narrow",Arial,sans-serif;letter-spacing:.02em;color:#fff}
+.prev .red{color:#FE3232;font-size:11px}
+.prev .muted{opacity:.45}
+.cardx .what{color:var(--ink-2)}
+.cardx .trig{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.cardx .why{color:var(--brick)}
+.btns{display:flex;gap:8px;margin-top:auto}
+.btn{height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--border-strong);background:var(--edit);font-size:12px;display:inline-flex;align-items:center}
+.btn.p{background:var(--ink);color:var(--edit);border-color:var(--ink)}
+.w393 .cards{grid-template-columns:1fr}
+.w393 .cardx{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px 12px}
+.w393 .cardx .prev{grid-row:span 4;font-size:11px;padding-bottom:14%}
+.w393 .cardx .prev .red{font-size:8px}
+.w393 .cardx .btns{grid-column:1 / -1}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.vp.w1280{overflow-x:auto}.vp.w1280 .inner{min-width:900px}.vp.w393{width:100%}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · asset bank (M6) · issue 4 · 10 November 2026</p>
+<h1>Asset bank — issue 4: the first rung split into "{release} live" and "{release} selling fast"</h1>
+<p class="lead">Extends issues 1–3 (<code>2026-11-08-asset-bank.html</code>, <code>2026-11-08-asset-bank-2.html</code>, <code>2026-11-09-asset-bank-3.html</code>). They stand except where a row below says otherwise. Matas, 10 Nov: <i>"General sale live · selling fast says two things that are the same."</i> They are two claims about two different moments, so the default ladder's first rung becomes two rungs. Nothing else on the ladder changes its trigger or its words.</p>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 4 · 10 Nov 2026.</b> A19 rung 1 split: "{release} live" (the move into on sale) and "{release} selling fast" (the move between tiers). A20 the 90 % rung stays, now at position 3. A21 the roll-call's line 2 is "{live release} SELLING FAST" at least. A22 the 17 clients' ladders rewritten in place, edited rows left alone. A23 a release's live claim ends when a later release goes live — so Puzzle gets "GENERAL SALE LIVE", not also "PRESALE LIVE". AB5 and AB2 redrawn. Hand-back H18–H22.</li>
+<li><b>Issue 3 · 9 Nov 2026.</b> A12–A18. Issue 2 · 8 Nov: A1'–A6', A11. Issue 1 · 8 Nov.</li>
+</ul></div>
+
+<h2>Data note — read from production, 10 Nov 2026</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there</th><th>What it means for issue 4</th></tr>
+<tr><td><code>client_claim_ladders</code></td><td>17 clients, 14 rungs each, all from the 211 and 222 seeds. Position 1 on all 17: <code>state</code> · <code>on_sale</code> · "{release} live · selling fast" · <code>{"days": 0}</code>, <code>updated_at</code> = <code>created_at</code> on every one. Position 10 (the roll-call) was updated on all 17 by migration 222, as expected. No client has edited any rung.</td><td>A22: every client's rung 1 is the seed, so all 17 are rewritten in place. The edited-row rule still applies to any client edited before the migration runs.</td></tr>
+<tr><td>Position 2 on all 17</td><td><code>state_days</code> · <code>selling_fast</code> · "{release} 90% sold out" · <code>days: 7</code> — Puzzle included.</td><td>A20 keeps it. Note: AB5 has drawn Puzzle at 5 days since issue 2; the data says 7. Matas sets 5 on Puzzle's ladder if he wants it; this issue doesn't.</td></tr>
+<tr><td>Puzzle 4th Birthday — <code>event_releases</code></td><td>Presale: on sale, list Wed 21 Oct 12:00 BST. General sale: on sale, list Fri 30 Oct 12:00 GMT. Both confirmed by Matas. Part 1 and Part 2 are cancelled (A17). Puzzle at Circuit and Puzzle Open Air: not yet, no list time.</td><td>Only the live event proposes. A23 decides which of its two releases may say "live".</td></tr>
+<tr><td><code>ticket_warnings</code></td><td>Two rows in the whole table use rung 1, both Puzzle 4th Birthday, both <code>held</code> (proposed, not approved), created 9 Nov 21:29: "Presale live · selling fast" and "General sale live · selling fast", trigger <code>{"source":"entry","because":"on sale"}</code>.</td><td>H20 rewrites these two. No approved, scheduled, live or done row carries the old words.</td></tr>
+</table>
+
+<h2>A · Rulings added in issue 4</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>A19 Rung 1 split</td><td>The default ladder's first rung becomes two rungs.
+<ul>
+<li><b>Rung 1 — "{release} live".</b> The move from presale into on sale (e.g. "GENERAL SALE LIVE"). Trigger: the release's list time has passed and its state is on sale. Unchanged from the old rung 1 except the words.</li>
+<li><b>Rung 2 — "{release} selling fast"</b> (new). The move between tiers, pushing the next one. Trigger: the release's state is selling fast (day 0 — no wait), <b>or</b> the release is on sale while every earlier release is sold out. Stored as <code>state</code> · <code>selling_fast</code> · <code>{"days": 0, "or_earlier_sold_out": true}</code> (the option's name is the builder's).</li>
+<li>Matas ruled the second trigger: an earlier tier selling out is the evidence that this one is selling fast. With two or more earlier releases sold out, the roll-call (A14, A21) is preferred over rung 2 alone, as it is over a % rung.</li>
+<li>The words are generated, never typed: {release} is the release's name as stored. On an asset the claim takes the kit's case (overlay O23 as amended): Puzzle's assets say "GENERAL SALE LIVE", "3RD RELEASE SELLING FAST". The approval card and the validator use the words as stored.</li>
+</ul></td></tr>
+<tr><td>A20 The 90 % rung stays</td><td>"Selling fast for N days, no count → {release} 90% sold out" (the client's choice of "final X {release} tickets" kept) stays exactly as it is, and moves from position 2 to <b>position 3</b>. Its days count from the release's selling-fast <code>state_at</code>, not from rung 2's proposal. Every later rung moves down one: the % rungs 4–8, final X 9, sold out 10, the roll-call 11, velocity 12, price rise 13, countdown + % 14, lineup addition 15. Fifteen rungs.</td></tr>
+<tr><td>A21 The roll-call's line 2</td><td>Line 2 is the live release's own highest met rung below sold out (A14). Because the roll-call's trigger (2+ sold out, one on sale) also meets rung 2's second trigger, that rung is never lower than "{live release} SELLING FAST" — so line 2 can no longer read "… live · selling fast" or "… live". Examples: "EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT" / "3RD RELEASE SELLING FAST". A higher met rung replaces it: "FINAL 100 FINAL RELEASE TICKETS" when the final release is at final X, "FINAL RELEASE 90% SOLD OUT" after N days selling fast.</td></tr>
+<tr><td>A22 The 17 clients' existing rung 1</td><td>Rewritten in place, by one migration:
+<ul>
+<li>A client whose position-1 row equals the 211 seed exactly — <code>trigger_kind</code>, <code>trigger_value</code>, <code>claim_template</code> and <code>options</code>, compared byte for byte — gets "{release} live" as its rung 1, its rungs 2–14 moved down one, and the new rung 2 inserted.</li>
+<li>A client whose rung 1 differs in any of those has edited it: the migration leaves that client's whole ladder untouched and names the client in its output. Matas decides there; "Reset to default" gives the new fifteen.</li>
+<li>Rows are moved, never deleted, so every approved claim's link to the rung that allowed it survives. Today all 17 match the seed (data note).</li>
+<li>The default for new clients and for "Reset to default" is the fifteen-rung ladder.</li>
+</ul></td></tr>
+<tr><td>A23 A live claim ends when the next release goes live</td><td>"{release} live" is the claim about a moment, the move into on sale. It is true for a release from its list time <b>until a later release's list time passes</b>; after that the later release is the one that is live, and an earlier release saying "live" would point buyers at the wrong tier. So at any time at most one release per event may propose rung 1: the latest whose list time has passed.
+<ul>
+<li><b>Puzzle 4th Birthday, today:</b> Presale (21 Oct) and General sale (30 Oct) are both on sale. General sale is the later live release, so it proposes <b>"GENERAL SALE LIVE"</b>. The presale's live claim ended at 30 Oct 12:00: it is not proposed. The ops proposal of both "PRESALE LIVE" and "GENERAL SALE LIVE" is not confirmed.</li>
+<li>An earlier release still on sale can make any other claim its trigger allows (rung 2, the % rungs).</li>
+<li>Timing is AB5's: "{release} live" runs at the release time. A late proposal (General sale's is eleven days after its list time) is still true and Matas may approve it; the card says when the release went live.</li>
+</ul></td></tr>
+</table>
+
+<h2>AB5 · The claim ladder, first rungs redrawn (1280 and 393)</h2>
+<figure><figcaption>AB5-1280 · Puzzle's ladder · rung 1 reworded, rung 2 new, the 90 % rung now 3 · rungs 4–15 as issue 3 drew them, one position lower</figcaption>
+<div class="vp w1280"><div class="inner">
+<div class="panel">
+  <div class="ph"><b>Claim ladder</b><span>what a warning may say, by what's true · Puzzle's own</span><a>Reset to default</a></div>
+  <div class="lad">
+    <div class="hd">Trigger · what's true</div><div class="hd"></div><div class="hd">Claim · what the asset says</div>
+    <div class="c">Release list time passed · state on sale<span class="sub">only the latest release that has gone live</span></div><div class="ar">→</div><div class="c q">"{release} live"</div>
+    <div class="c row-new">State selling fast · or on sale with every earlier release sold out <span class="chip new">new</span><span class="sub">day 0 · 2+ earlier sold out → the roll-call is preferred</span></div><div class="ar row-new">→</div><div class="c q row-new">"{release} selling fast"</div>
+    <div class="c">Selling fast for 7+ days, no count<span class="sub">default 7 · Puzzle's ladder reads 7</span></div><div class="ar">→</div><div class="c q">"{release} 90% sold out"<span class="sub">"final X {release} tickets" is the other option</span></div>
+    <div class="c">Actual 50% sold<span class="sub">when a count and a capacity exist</span></div><div class="ar">→</div><div class="c q">"75% sold"</div>
+    <div class="c">2+ releases sold out · 1 on sale or selling fast<span class="sub">roll-call · preferred over the % rung and over rung 2</span></div><div class="ar">→</div><div class="c q">"{sold-out releases} RELEASE SOLD OUT" / "{live release} SELLING FAST"<span class="sub">line 2 is the live release's highest met rung — never lower than selling fast</span></div>
+  </div>
+  <div class="more">rungs 5–10 (the % rungs, final X, sold out) and 12–15 (velocity, price rise, countdown + %, lineup addition) unchanged, one position lower · 15 rungs · every approved claim records which rung allowed it</div>
+</div>
+</div></div>
+</figure>
+
+<figure><figcaption>AB5-393 · stacked pairs · the first three rungs and the roll-call</figcaption>
+<div class="vp w393">
+<div class="panel stack">
+  <div class="ph"><b>Puzzle · claim ladder</b></div>
+  <div class="pair"><div class="tr">List time passed · on sale · latest release only</div><div class="q">"{release} live"</div></div>
+  <div class="pair"><div class="tr">Selling fast · or earlier releases sold out <span class="chip new">new</span></div><div class="q">"{release} selling fast"</div></div>
+  <div class="pair"><div class="tr">Selling fast 7+ days, no count</div><div class="q">"{release} 90% sold out"</div></div>
+  <div class="pair"><div class="tr">2+ sold out · 1 on sale · roll-call</div><div class="q">"{sold-out releases} RELEASE SOLD OUT" / "{live release} SELLING FAST"</div></div>
+  <div class="more">tap a cell to edit · 4 of 15 rungs shown</div>
+</div>
+</div>
+</figure>
+
+<h2>AB2 · Proposal cards under the split (1280 and 393)</h2>
+<figure><figcaption>AB2-1280 · Puzzle 4th Birthday's General sale proposes "live" · the presale's live claim has ended · the roll-call's line 2 (fixture)</figcaption>
+<div class="vp w1280"><div class="inner">
+<div class="cards">
+  <div class="cardx">
+    <div class="prev">GENERAL SALE LIVE</div>
+    <div class="what"><b>Proposes:</b> push "General sale live" <span class="chip ochre">proposed</span></div>
+    <div class="trig">trigger General sale list time Fri 30 Oct 12:00 passed, state on sale (set by Matas) → rung 1 "{release} live"</div>
+    <div class="what">Went live 11 days ago. Runs at the next slot you approve.</div>
+    <div class="btns"><span class="btn p">Approve</span><span class="btn">Correct</span></div>
+  </div>
+  <div class="cardx">
+    <div class="prev muted">PRESALE LIVE</div>
+    <div class="what"><b>Presale live</b> <span class="chip dash">locked</span></div>
+    <div class="why">Ended — General sale went live Fri 30 Oct, so the presale is no longer the release to push.</div>
+    <div class="trig">rung 1 "{release} live" · only the latest release that has gone live</div>
+    <div class="btns"><span class="btn">Correct</span></div>
+  </div>
+  <div class="cardx">
+    <div class="prev"><span class="red">EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT</span>3RD RELEASE SELLING FAST</div>
+    <div class="what"><b>Proposes:</b> push the roll-call <span class="chip ochre">proposed</span> preferred over "3rd release selling fast"</div>
+    <div class="trig">trigger early bird, 1st, 2nd sold out · 3rd on sale → line 1 the sold-out names · line 2 the 3rd release's rung 2 (fixture)</div>
+    <div class="btns"><span class="btn p">Approve</span><span class="btn">Correct</span></div>
+  </div>
+</div>
+</div></div>
+</figure>
+
+<figure><figcaption>AB2-393 · the same three cards · preview left, words right, buttons on their own row</figcaption>
+<div class="vp w393">
+<div class="cards">
+  <div class="cardx">
+    <div class="prev">GENERAL SALE LIVE</div>
+    <div class="what"><b>Proposes:</b> "General sale live" <span class="chip ochre">proposed</span></div>
+    <div class="trig">list time Fri 30 Oct 12:00 · on sale → rung 1</div>
+    <div class="what">Went live 11 days ago.</div>
+    <div class="btns"><span class="btn p">Approve</span><span class="btn">Correct</span></div>
+  </div>
+  <div class="cardx">
+    <div class="prev muted">PRESALE LIVE</div>
+    <div class="what"><b>Presale live</b> <span class="chip dash">locked</span></div>
+    <div class="why">Ended — General sale went live Fri 30 Oct, so the presale is no longer the release to push.</div>
+    <div class="trig">rung 1 · latest live release only</div>
+    <div class="btns"><span class="btn">Correct</span></div>
+  </div>
+  <div class="cardx">
+    <div class="prev"><span class="red">EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT</span>3RD RELEASE SELLING FAST</div>
+    <div class="what"><b>Proposes:</b> the roll-call <span class="chip ochre">proposed</span></div>
+    <div class="trig">3 sold out · 3rd on sale → two lines (fixture)</div>
+    <div class="btns"><span class="btn p">Approve</span><span class="btn">Correct</span></div>
+  </div>
+</div>
+</div>
+</figure>
+<p class="lead">The previews are stand-ins for the T2 static (the real artwork comes from the overlay templates and the kit's font); they show the words in the kit's capitals. The General sale card is the existing held row reworded (H20). The presale card is the other held row, now locked with the sentence that says why; nothing will unlock it, and Correct stays for a wrong state. The roll-call card uses the fixture's releases (early bird, 1st, 2nd sold out · 3rd on sale), not Puzzle's real two.</p>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Claim ladder</td><td>Default is fifteen rungs: "{release} live" (latest live release only), "{release} selling fast" (new, two triggers), then issue 3's rungs from the 90 % rung down, one position lower. The new row carries a "new" mark until Matas first opens the ladder after the migration.</td></tr>
+<tr><td>Proposal card</td><td>The locked state's sentence for an ended live claim: "Ended — {later release} went live {Ddd d Mon}, so the {release} is no longer the release to push." A late live proposal says "Went live {n} days ago."</td></tr>
+<tr><td>Roll-call</td><td>Line 2 resolves to the live release's highest met rung, at least "{release} selling fast".</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H18 The ladder migration</td><td>One migration (the next free number), written, not applied by the builder. Per client: if position 1 equals the 211 seed byte for byte (kind, value, template, options), update its template to "{release} live", move positions ≥ 2 down one (in two steps or deferred, to respect <code>unique (client_id, position)</code>), insert position 2 <code>state</code> · <code>selling_fast</code> · "{release} selling fast" · <code>{"days":0,"or_earlier_sold_out":true}</code>. Otherwise skip the client and raise a notice naming it. Idempotent: a second run changes nothing. Never deletes a row.</td><td><code>client_claim_ladders</code></td><td>on a copy of production: 17 clients × 15 rungs; position 1 "{release} live"; position 3 the 90 % rung with <code>days</code> unchanged; ids of the moved rows unchanged; a fixture client with an edited rung 1 untouched and named</td></tr>
+<tr><td>H19 The engine</td><td>Find rungs by kind and value, never by position. Rung 1 only for the latest release whose list time has passed (A23). Rung 2's two triggers. The roll-call's line 2 = the live release's highest met rung below sold out, floor rung 2 (A21). The 90 % rung's days from the selling-fast <code>state_at</code>.</td><td>event_releases; the ladder</td><td>unit tests: Puzzle 4th Birthday's real rows propose "General sale live" only; the AB2 fixture's roll-call reads "EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT" / "3RD RELEASE SELLING FAST"; a release selling fast for 8 days proposes "90% sold out"</td></tr>
+<tr><td>H20 The two held rows</td><td>Recompute after the migration: Puzzle's "General sale live · selling fast" (held) is reworded to "General sale live" with the rung recorded in its trigger; "Presale live · selling fast" (held) goes to locked with the A23 sentence. Approved, scheduled, live and done rows are never rewritten.</td><td><code>ticket_warnings</code></td><td>AB2-1280 first two cards as drawn; no other row in the table changes</td></tr>
+<tr><td>H21 Seed and reset</td><td>New clients and "Reset to default" get the fifteen rungs.</td><td>the seed function</td><td>AB5-1280 / AB5-393 as drawn</td></tr>
+<tr><td>H22 The validator (A12)</td><td>A caption repeating an approved, live claim's words is accepted while it is live — now "General sale live", "3rd release selling fast". "live · selling fast" is no longer generated.</td><td>caption-facts.ts</td><td>a caption saying "selling fast" for a release with no approved live rung-2 claim is refused, as before</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>A23 is a ruling Matas didn't state: that an earlier release's live claim ends when a later release goes live. It follows from his definition (the move into on sale), and it changes the ops proposal for Puzzle. Matas can overrule it on this PR.</li>
+<li>The locked sentence and "Went live {n} days ago" wording; the "new" mark on the ladder row; the option name <code>or_earlier_sold_out</code> (the builder may rename it).</li>
+<li>The AB2 roll-call fixture's releases (early bird, 1st, 2nd, 3rd) — Puzzle's live event has two releases.</li>
+</ul>
+
+<h2>Frames for CI (AB series, issue 4)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>AB5</td><td>1280, 393</td><td>re-baselined: fifteen rungs; the first three as drawn here</td></tr>
+<tr><td>AB2</td><td>1280, 393</td><td>re-baselined: the General sale live proposal, the presale locked card, the roll-call with line 2 "3RD RELEASE SELLING FAST"; issue 3's offer card unchanged</td></tr>
+<tr><td>AB1, AB1b, AB3, AB4</td><td>1280, 393</td><td>unchanged</td></tr>
+</table>
+
+</div></body>
+</html>

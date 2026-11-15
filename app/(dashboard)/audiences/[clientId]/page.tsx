@@ -3,6 +3,9 @@ import { notFound, redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { AddedClustersFromInsights } from "@/components/insights-rail/added-clusters";
+import { InsightsPill } from "@/components/insights-rail/insights-pill";
+import { InsightsPageContext } from "@/components/insights-rail/rail-context";
 import { FUNNEL_STAGE_PRESETS } from "@/lib/audiences/funnel-presets";
 import {
   AUDIENCE_STATUS_LABELS,
@@ -13,6 +16,7 @@ import {
 } from "@/lib/audiences/metadata";
 import { getClientByIdServer } from "@/lib/db/clients-server";
 import { listAudiencesForClient } from "@/lib/db/meta-custom-audiences";
+import { stageForFunnelStage } from "@/lib/insights-rail/model";
 import { createClient } from "@/lib/supabase/server";
 import { AudienceListActions } from "./audience-list-actions";
 import type {
@@ -80,15 +84,30 @@ export default async function AudiencesPage({ params, searchParams }: Props) {
         title={`${client.name} audiences`}
         description={`Meta custom audiences bound to ${client.meta_ad_account_id ?? "no ad account"}.`}
         actions={
-          <AudienceListActions
-            clientId={clientId}
-            draftAudienceIds={draftAudienceIds}
-            writesEnabled={writesEnabled}
-          />
+          <>
+            <InsightsPill />
+            <AudienceListActions
+              clientId={clientId}
+              draftAudienceIds={draftAudienceIds}
+              writesEnabled={writesEnabled}
+            />
+          </>
         }
+      />
+      <InsightsPageContext
+        surface="audience_builder"
+        title="Audience builder"
+        clientId={client.id}
+        clientName={client.name}
+        verticalId={clientVertical(client)}
+        eventId={null}
+        stage={stageForFunnelStage(activeStage)}
+        objective={null}
+        lab={null}
       />
       <main className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-6xl space-y-5">
+          <AddedClustersFromInsights />
           <nav className="flex flex-wrap gap-2">
             {STAGE_TABS.map((tab) => (
               <FilterLink
@@ -402,4 +421,10 @@ function sourceDescription(audience: MetaCustomAudience): string {
     return `Pixel: ${String(meta.pixelName ?? audience.sourceId)} (${String(meta.pixelEvent ?? "PageView")})`;
   }
   return audience.sourceId;
+}
+
+/** clients.vertical when the column is there; the rail's Vertical scope reads the clusters' own vertical. */
+function clientVertical(client: Record<string, unknown>): string | null {
+  const vertical = client.vertical;
+  return typeof vertical === "string" && vertical.trim() ? vertical : null;
 }

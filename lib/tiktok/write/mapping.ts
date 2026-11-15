@@ -195,19 +195,30 @@ const BILLING_EVENT_BY_GOAL: Record<string, string> = {
 };
 
 /**
- * Per-currency TikTok daily budget floors. GBP = 50, observed from TikTok
- * 40002 "Your budget setting must not be less than £50" on advertiser
- * 7639802149165301776 (request 202608210618444D942991BC30CBAA9000).
- * Unknown currencies are permissive: do not invent a floor.
+ * Ad-group daily floors. GBP is £20: Puzzle "[P26-CIRCUIT] PURCHASE"
+ * (campaign 1878413241847122, ad group 1878413262269666) is live at £20/day
+ * under a £50 campaign budget. Ironworks ad groups are live at £30 and £40
+ * under campaign budgets of £50 and £100. Unknown currencies have no floor.
+ *
+ * The £50 figure from 40002 "Your budget setting must not be less than £50"
+ * (advertiser 7639802149165301776, request 202608210618444D942991BC30CBAA9000)
+ * is the campaign-budget floor. `tiktok_write_idempotency` stores a payload
+ * hash, not the body, so that request body is not on record. It is not applied
+ * to ad groups: the live reads above are ad groups under £50.
  *
  * Lifetime is daily minimum × scheduled days when a currency floor exists.
  */
 export const TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY: Record<string, number> = {
+  GBP: 20,
+};
+
+/** Campaign daily floor, only when the campaign has its own budget. */
+export const TIKTOK_MIN_CAMPAIGN_DAILY_BUDGET_BY_CURRENCY: Record<string, number> = {
   GBP: 50,
 };
 
-/** @deprecated Use tikTokDailyBudgetMinimum(currency). GBP live floor is 50. */
-export const TIKTOK_MIN_DAILY_BUDGET = 50;
+/** @deprecated Use tikTokDailyBudgetMinimum(currency). GBP ad-group floor is 20. */
+export const TIKTOK_MIN_DAILY_BUDGET = 20;
 
 /**
  * Scene-dependent lookback for /adgroup/create/ `actions[].action_period`.
@@ -251,6 +262,13 @@ export function tikTokDailyBudgetMinimum(
 ): number | null {
   const code = (currency ?? "").trim().toUpperCase();
   return TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY[code] ?? null;
+}
+
+export function tikTokCampaignDailyMinimum(
+  currency: string | null | undefined,
+): number | null {
+  const code = (currency ?? "").trim().toUpperCase();
+  return TIKTOK_MIN_CAMPAIGN_DAILY_BUDGET_BY_CURRENCY[code] ?? null;
 }
 
 export const SMART_PLUS_BLOCK_MESSAGE =
@@ -548,9 +566,9 @@ export function tikTokScheduledDays(
 }
 
 /**
- * Ad-group budget floor. GBP daily = 50 (TikTok's constraint).
- * Lifetime = 50 × scheduled days. Unknown currencies → no floor.
- * Missing lifetime schedule with a known currency → error.
+ * Ad-group budget floor. GBP daily = 20. Lifetime = 20 × scheduled days.
+ * Unknown currencies → no floor. Missing lifetime schedule with a known
+ * currency → error.
  */
 export function tikTokAdGroupBudgetFloor(input: {
   budgetMode: "DAILY" | "LIFETIME";
@@ -558,7 +576,33 @@ export function tikTokAdGroupBudgetFloor(input: {
   endAt: string | null;
   currency?: string | null;
 }): MappingResult<number | null> {
-  const dailyMin = tikTokDailyBudgetMinimum(input.currency);
+  return budgetFloorFromDaily(tikTokDailyBudgetMinimum(input.currency), input);
+}
+
+/**
+ * Campaign budget floor. Applies only when a campaign budget is set.
+ * GBP daily = 50. Lifetime = 50 × scheduled days. A null budget is
+ * `BUDGET_MODE_INFINITE` and has no minimum — callers must not call this
+ * for that case, or treat a null amount as allowed before checking.
+ */
+export function tikTokCampaignBudgetFloor(input: {
+  budgetMode: "DAILY" | "LIFETIME";
+  startAt: string | null;
+  endAt: string | null;
+  currency?: string | null;
+}): MappingResult<number | null> {
+  return budgetFloorFromDaily(tikTokCampaignDailyMinimum(input.currency), input);
+}
+
+function budgetFloorFromDaily(
+  dailyMin: number | null,
+  input: {
+    budgetMode: "DAILY" | "LIFETIME";
+    startAt: string | null;
+    endAt: string | null;
+    currency?: string | null;
+  },
+): MappingResult<number | null> {
   if (dailyMin == null) return ok(null);
   const currency = (input.currency ?? "").trim().toUpperCase() || "GBP";
   if (input.budgetMode === "DAILY") return ok(dailyMin);
@@ -570,6 +614,25 @@ export function tikTokAdGroupBudgetFloor(input: {
     );
   }
   return ok(dailyMin * days);
+}
+
+/**
+ * null budget is unset and allowed. A set budget under the campaign floor
+ * is refused. Returns the operator-facing sentence, or null when it can ship.
+ */
+export function tikTokCampaignBudgetIssue(input: {
+  budgetAmount: number | null;
+  budgetMode: "DAILY" | "LIFETIME";
+  startAt: string | null;
+  endAt: string | null;
+  currency?: string | null;
+}): string | null {
+  if (input.budgetAmount == null) return null;
+  const floor = tikTokCampaignBudgetFloor(input);
+  if (!floor.ok) return floor.error.message;
+  if (floor.value == null || input.budgetAmount >= floor.value) return null;
+  const currency = (input.currency ?? "").trim().toUpperCase() || "GBP";
+  return `TikTok needs at least ${currency} ${floor.value} when the campaign has its own ${input.budgetMode.toLowerCase()} budget`;
 }
 
 export function tikTokMinimumBudget(
@@ -879,16 +942,26 @@ export function buildTikTokCampaignPayload(input: {
   if (!input.draft.campaignSetup.campaignName.trim()) {
     return missing("campaign_name", "Campaign name is required");
   }
+  const budgetAmount = input.draft.budgetSchedule.budgetAmount;
+  const campaignBudgetIssue = tikTokCampaignBudgetIssue({
+    budgetAmount,
+    budgetMode: input.draft.budgetSchedule.budgetMode,
+    startAt: input.draft.budgetSchedule.scheduleStartAt,
+    endAt: input.draft.budgetSchedule.scheduleEndAt,
+    currency: input.draft.accountSetup.currency,
+  });
+  if (campaignBudgetIssue) return missing("budget", campaignBudgetIssue);
   const payload: Record<string, BodyValue> = {
     advertiser_id: input.advertiserId,
     campaign_name: input.draft.campaignSetup.campaignName,
     objective_type: objective.value,
-    budget_mode: mapTikTokBudgetMode(input.draft.budgetSchedule.budgetMode),
+    budget_mode:
+      budgetAmount == null
+        ? "BUDGET_MODE_INFINITE"
+        : mapTikTokBudgetMode(input.draft.budgetSchedule.budgetMode),
     operation_status: resolveTikTokLaunchOperationStatus(input.draft),
   };
-  if (input.draft.budgetSchedule.budgetAmount != null) {
-    payload.budget = input.draft.budgetSchedule.budgetAmount;
-  }
+  if (budgetAmount != null) payload.budget = budgetAmount;
   if (input.draft.campaignSetup.objective === "CONVERSIONS") {
     const destination = mapTikTokSalesDestination(
       input.draft.campaignSetup.salesDestination ?? "WEBSITE",

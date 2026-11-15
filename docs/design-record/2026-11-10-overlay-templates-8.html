@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 8 — T1 on a clip, round 2 — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.ga{background:linear-gradient(180deg,rgba(0,0,0,0.20) 0.00%,rgba(0,0,0,0.20) 34.00%,rgba(0,0,0,0.18) 34.04%,rgba(0,0,0,0.10) 36.02%,rgba(0,0,0,0.02) 40.01%,rgba(0,0,0,0.00) 43.00%,rgba(0,0,0,0.00) 55.00%,rgba(0,0,0,0.02) 56.66%,rgba(0,0,0,0.10) 58.88%,rgba(0,0,0,0.18) 59.98%,rgba(0,0,0,0.20) 60.00%,rgba(0,0,0,0.30) 68.00%,rgba(0,0,0,0.30) 100.00%)}
+.gb{background:linear-gradient(180deg,rgba(0,0,0,0.20) 0.00%,rgba(0,0,0,0.20) 29.50%,rgba(0,0,0,0.18) 29.54%,rgba(0,0,0,0.10) 31.52%,rgba(0,0,0,0.02) 35.51%,rgba(0,0,0,0.00) 38.50%,rgba(0,0,0,0.00) 50.50%,rgba(0,0,0,0.02) 52.16%,rgba(0,0,0,0.10) 54.38%,rgba(0,0,0,0.18) 55.48%,rgba(0,0,0,0.20) 55.50%,rgba(0,0,0,0.30) 63.50%,rgba(0,0,0,0.30) 100.00%)}
+.gr{background:linear-gradient(180deg,rgba(0,0,0,0.20) 0.00%,rgba(0,0,0,0.20) 32.70%,rgba(0,0,0,0.18) 32.74%,rgba(0,0,0,0.10) 35.60%,rgba(0,0,0,0.02) 41.32%,rgba(0,0,0,0.00) 45.60%,rgba(0,0,0,0.00) 75.80%,rgba(0,0,0,0.02) 78.16%,rgba(0,0,0,0.10) 81.30%,rgba(0,0,0,0.18) 82.88%,rgba(0,0,0,0.20) 82.90%,rgba(0,0,0,0.30) 94.20%,rgba(0,0,0,0.30) 100.00%)}
+.face{position:absolute;left:0;right:0;border-top:1px dashed #b9f08f;border-bottom:1px dashed #b9f08f;background:rgba(185,240,143,.12)}
+.back{position:absolute;background:rgba(0,0,0,.8);border-radius:6px;box-shadow:0 0 6px 4px rgba(0,0,0,.8)}
+.red{color:#FE3232}
+@media (max-width:700px){.redbox{transform:scale(.82);transform-origin:left top;margin-bottom:-22px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 8 · 10 November 2026</p>
+<h1>Overlay templates — issue 8: T1 on a clip, round 2</h1>
+<p class="lead">#1167's 18 Lambda drafts (Luke Dean 1, Enzo Siragusa 1 and 2, claims (a) and (b), 9:16, 4:5 and 1:1) show the layout I ruled in issue 6 refusing almost every clip. O43 kept the artist card's top block, and on a clip that block runs from 0.176 to 0.500 H: lockup, a name cap of about 0.10 H, then venue, date and time. Only 0.50–0.57 H stays clear of type, which is no room for a face. This issue gives clips their own lighter layout and a second arrangement. It moves the bands with the blocks and judges the face by its upper part only. It adds contrast steps before refusing. It keeps the roll-call's red line red, as Matas expects. It rules how release tiers collapse in line 1, and it makes the sample claim Puzzle's true claim. Issues 1–7 stand except where a row says otherwise.</p>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 8 · 10 Nov 2026.</b>
+<ul>
+<li>O54: the clip layout and its two arrangements (supersedes O43's top block and its 4:5 / 1:1 line).</li>
+<li>O55: the bands follow the blocks (supersedes O38's fixed stops), with the knee pair.</li>
+<li>O56: the face on clips (amends O39).</li>
+<li>O57: contrast steps (amends O40).</li>
+<li>O58: the red line stays red (amends O40's fallback and the artist card's).</li>
+<li>O59: release names in the roll-call.</li>
+<li>O60: Puzzle's true claim as the sample.</li>
+<li>O61: the lockup on moving footage.</li>
+<li>O62: T1V_INVENTED ruled.</li>
+<li>T1c schematics; hand-back H53–H62.</li>
+</ul></li>
+<li><b>Issue 7 · 10 Nov 2026.</b> O49–O53. #1166.</li>
+</ul></div>
+
+<h2>Data note — #1167's drafts, measured</h2>
+<table class="t">
+<tr><th>What</th><th>Measured</th><th>What it means</th></tr>
+<tr><td>Type on the 9:16, frame at 3.8 s (white ink rows)</td><td>Lockup and stamp 0.176–0.228 H. Name 0.250–0.365 H. Venue, date and time 0.383–0.500 H. Claim 0.574–0.651 H, with its last baseline on 0.65 H as O43 sets.</td><td>The top block is a third of the frame, and it ends where faces sit.</td></tr>
+<tr><td>Faces, by eye at 5 a second</td><td>Luke 1: Luke at about 0.47–0.57 H from 0 s; a second, larger face at about 0.25–0.50 H from 1.6 to 2.8 s. Enzo 1: Enzo at about 0.30–0.42 H to 2.8 s, then the crowd. Enzo 2: a crowd and booth, with no face wider than a few per cent of W.</td><td>DJ faces land anywhere from 0.25 to 0.57 H. No single clear zone fits every clip, so the layout needs two arrangements, and crowd faces mustn't count.</td></tr>
+<tr><td>Results</td><td>Refused on the face: Luke 1 in every format (18–20 %), Enzo 1 in 9:16 and 4:5 (43 %), Enzo 2 in 9:16 (20 %). Enzo 2's 4:5 and 1:1 fail the top block's contrast (12.9 %, 26.1 %). The red line went white everywhere it was tested except two 1:1s (40–86 % below 2:1).</td><td>Layout first (O54), then the face rule (O56), contrast (O57) and red (O58).</td></tr>
+<tr><td>Puzzle's tiers (Skiddle, 10 Nov, via ops)</td><td>Sold out: Presale Early Bird, Presale 1st Release, Presale 2nd Release, 2nd Release. On sale, "selling quickly": 3rd Release. The phase names in <code>event_releases</code>: Presale · General sale.</td><td>O59 collapses these to "EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT" / "3RD RELEASE SELLING FAST".</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O54 The clip layout</td><td>Option (a), with a second arrangement taken from (b). Clips no longer carry the artist card's top block. This supersedes O43's "the top block keeps its static slots" and its 4:5 / 1:1 line. The safe area and the claim's bottom on 0.65 H stand.
+<ul>
+<li><b>What a clip carries:</b> the lockup, the name, one date line and the claim. The venue and time lines are dropped on clips, because the ad's headline under the video carries event · date · venue (the feed post). The date line is the kit's date line, verbatim, as T2 reads it from the PSD's live layer.</li>
+<li><b>9:16, sizes:</b> lockup ink box 0.25 W wide (the drafts' own size), top at 0.145 H, centred. Name cap 0.07 H (134 px), cap top 0.205 H, at most 840 px wide (it steps down until it fits). Date cap 0.0297 H (57 px, the drafts' details cap).</li>
+<li><b>Arrangement A</b> (date at the top): the date's cap top is at 0.29 H, so the top block is 0.145–0.32 H. The middle, 0.32 H to the claim's first cap top, carries no type.</li>
+<li><b>Arrangement B</b> (date at the bottom): the top block is the lockup and the name, 0.145–0.275 H. The date sits above the claim, its baseline 0.015 H above the claim's first cap top: one-line claim, date cap top 0.565 H; two-line, 0.507 H. The middle, 0.275 H to the date's cap top, carries no type.</li>
+<li><b>Which one:</b> A is the default. The Lab tries A, then B, at each crop candidate (O56), and the first pair that passes O56 and O57 is the clip's arrangement for its whole length. It is never switched mid-clip.</li>
+<li><b>4:5 and 1:1</b> are feed placements, with no Reels controls over the media. The type keeps its 9:16 pixel size in the 4:5 and the 0.8× re-sit in the 1:1 (O1). The lockup's top sits at 0.05 of the rectangle, and the claim's last baseline on <b>0.90</b> of the rectangle, which supersedes O43's 0.713. The same A / B choice applies. Both formats come out at the same fractions because 1:1 is 0.8 of 4:5.</li>
+<li>The 9:16 safe area (O43) holds: every box stays inside x 120–960, y 269–1248.</li>
+</ul></td></tr>
+<tr><td>O55 The bands follow the blocks</td><td>This supersedes O38's fixed stops. The shape is unchanged: O25's 20 % black, J2's fade, 30 % held below.
+<ul>
+<li><b>Top band:</b> 20 % from the top edge to the top block's last baseline + 0.02 H, then J2's fade to 0 over the next 0.09 H. (A: full to 0.34 H, gone by 0.43 H. B: full to 0.295, gone by 0.385.)</li>
+<li><b>Bottom band:</b> 0 at the bottom block's first cap top − 0.06 H, J2's fade to 20 % at that cap top − 0.01 H, then rising evenly to 30 % at that cap top + 0.07 H, held to the edge. For a one-line claim in A this is exactly O38's 0.55 / 0.60 / 0.68 H. (B, one line: 0.505 / 0.555 / 0.635.) The bottom block is the claim, plus the date in B.</li>
+<li><b>The knee pair</b> (build's request, ruled): every 20 % stop carries 18 % at 0.00025 H above it, as O25 writes J2's 0.9 knot, so O38's knee reads 18 % at 0.59975 H and 20 % at 0.60 H.</li>
+<li><b>O46 at the knees:</b> the 2-level limit applies across the fades. At the two knee rows, where the band drops inside one row, the limit is 3 levels (the drafts measure 1.01 and 3.00).</li>
+<li>4:5 and 1:1 take the same rule on the rectangle: top full to 0.327, gone by 0.456; bottom 0 at 0.758, 20 % at 0.829, 30 % at 0.942 (A, one line).</li>
+</ul></td></tr>
+<tr><td>O56 The face on clips</td><td>This amends O39. (c), a per-format limit, is declined: the formats differ in geometry, which O54 already handles, not in how much face may be covered.
+<ul>
+<li><b>Only a face that matters counts:</b> a face whose box is at least 0.06 W wide (65 px on 1080). Crowd faces don't count. The main face is the widest counted face, and faces under half its width don't count (O19).</li>
+<li><b>Only the upper 60 % of its box is tested.</b> That is brow to nose, where the eyes are. The mouth and chin may sit under type. The tested part is checked against each type box (the top block, plus the bottom block in B, and the claim), each padded 12 px.</li>
+<li><b>Limits unchanged:</b> at most 10 % of the samples while that type is on screen, and never more than 0.5 s in a row.</li>
+<li><b>The search:</b> crop candidates in the build's order (the clip's crop_focus_y, then 0.5, then ±0.1 steps outward), and at each crop A then B. Refused only when no pair passes, with the same words: "Face in the type for {n} % of the claim's time — choose another crop or clip".</li>
+</ul></td></tr>
+<tr><td>O57 Contrast steps</td><td>This amends O40. Before a clip is refused on contrast, its bands step darker, once per clip, decided before frame 0 and never changed mid-clip.
+<ul>
+<li>Top band 20 → 30 → 40 %. Bottom band 20 / 30 → 30 / 40 → 40 / 50 %.</li>
+<li>Each band takes the first step at which its own type passes O40's limits (top block ≤ 10 % below 3:1, claim box ≤ 15 % below 3:1, each on the p95 sample). The bottom block in B is tested as the claim box is.</li>
+<li>Past the last step: "Too bright behind the {name / claim} — choose another clip". The step is on the approval card as one muted line, "bands +{n}" (n = 10 or 20).</li>
+</ul></td></tr>
+<tr><td>O58 The red line stays red</td><td>Matas, 10 Nov: the roll-call's sold-out line is red, #FE3232. This amends O40's fallback on clips and the artist card's on stills (O19 as amended, O23): white becomes the last resort, not the first.
+<ul>
+<li>The red line is still tested on its ink box: ≤ 25 % below 2:1 on the p95 sample (on stills, the photo).</li>
+<li><b>First, the band steps</b> (O57), on clips only.</li>
+<li><b>Then a backing under line 1 only:</b> black, the ink box padded 0.5 of line 1's cap above and below and 1 cap left and right, its edges feathered over 1 cap with J2's fade. Opacity steps 40 → 60 → 80 %, and the first step that passes is the clip's (or photo's). It sits over the bands and under the type. It enters and holds with the claim, with the same 0.25 s fade. It never sits under line 2 or any other type, and it stays inside 0.07–0.93 W.</li>
+<li><b>White only past 80 %,</b> with the existing approval line ("claim line 1 in white — red unreadable on this clip / photo").</li>
+<li><b>Not used:</b> no shadow, stroke, glow or edge (O5: no effects; the Locklead audit: no stroke). No larger cap: line 1 stays at the PSD's 0.625 of line 2 (O23), and size doesn't change the contrast ratio.</li>
+<li>What Matas should expect: #FE3232 against black passes 2:1 only where the ground's luminance is ≤ 0.093, so on bright footage (teal lasers, orange-lit crowds) the backing usually lands on 80 % and reads as a soft dark strip behind the red line. On dark footage it isn't drawn.</li>
+<li>The approval card says "red line backed {40 / 60 / 80} %" when a backing is used.</li>
+</ul></td></tr>
+<tr><td>O59 Release names in the roll-call</td><td>How tiers become line 1. This applies to every roll-call (T1, the artist card, T2), and the asset bank's rungs (A19–A23) are unchanged.
+<ul>
+<li><b>The tiers</b> are the event's release tiers as read for the asset bank (<code>lib/releases</code>), each with its state.</li>
+<li><b>Collapse.</b> A tier's claim name is its name with a leading phase name removed: the phase names are <code>event_releases</code>' names, matched exactly, with the space after them. Tiers whose claim names are then exactly equal are one entry, so Presale 2nd Release and 2nd Release both give "2nd Release". The comparison is exact: no case-folding and no trimming beyond that one prefix. If two names differ only in case, they don't collapse, and the approval card says "Release names differ: {a} / {b} — check before approving".</li>
+<li><b>Sold out</b> means every tier in the entry is sold out. An entry with a tier still on sale is not in line 1.</li>
+<li><b>Order:</b> by the entry's earliest tier, in the release order.</li>
+<li><b>Joining line 1:</b> a run of consecutive entries that end in "Release" is written as their ordinals, ", " between and " &amp; " before the last, with one "RELEASE" after the last ("1ST &amp; 2ND RELEASE", O27's rule that line 1 keeps RELEASE). Other names stay whole ("EARLY BIRD"). Entries are joined with ", ", then " SOLD OUT". The display is upper case (claimCase), applied after the comparison.</li>
+<li><b>Line 2</b> is the live entry's rung, A19's "{release} selling fast", with the same collapse: "3RD RELEASE SELLING FAST".</li>
+<li>For Puzzle 4th Birthday on 10 Nov: "EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT" / "3RD RELEASE SELLING FAST".</li>
+<li>O48's break rule takes both lists: <code>event_releases</code>' names and the collapsed tier names.</li>
+</ul></td></tr>
+<tr><td>O60 The sample claim</td><td>Drafts' claim (b) is Puzzle's true claim from O59, not an invented ladder. It's still labelled a sample and still carries the stamp until the asset bank approves it. The old fixture ("EARLY BIRD, 1ST, 2ND &amp; 3RD RELEASE SOLD OUT / FINAL RELEASE SELLING FAST") is withdrawn wherever it appears: drafts, tests and frames. No claim, sample or not, states a tier the event doesn't have.</td></tr>
+<tr><td>O61 The lockup on moving footage</td><td>Judged by eye on the drafts. The wordmark reads on every frame. The script reads on dark frames and washes out on bright ones (Enzo 1 from 3.6 s; Luke 1 at 3.6–4.6 s, the teal lasers). The lockup is now tested on its own ink box, on the p95 sample, ≤ 15 % below 3:1 against white, and the top band's steps (O57) cover it. It keeps its size (0.25 W) and is never re-coloured or stroked.</td></tr>
+<tr><td>O62 T1V_INVENTED</td><td>Each value as #1167 lists it:
+<ul>
+<li>"On screen" from the first frame after 1.5 s: <b>accepted</b>.</li>
+<li>O39's counting (the top block over every sample, the claim after 1.5 s, the larger share, 0.2 s samples): <b>accepted</b>, under O56.</li>
+<li>Widest face as the main face and the crop order: <b>accepted</b>, with O56's 0.06 W floor and A / B at each crop.</li>
+<li>The roll-call's 0.625 and 0.29 on clips: <b>accepted</b>.</li>
+<li>The most-even break among O28's: <b>accepted</b>.</li>
+<li>The step-2 pitch 0.0496 H: <b>accepted</b>.</li>
+<li>The 4:5 / 1:1 windows: <b>accepted</b>. "A source narrower than 1080 is scaled up" is <b>rejected</b>: O42 holds, with no upscaling. Such a clip doesn't make that format: "Clip too small for {format} — needs 1080 px wide".</li>
+<li>Type set by sharp as images: <b>accepted</b> (it's O52's delivery).</li>
+<li>Drafts muted and cut to 8 s: <b>accepted</b>, for drafts only.</li>
+<li>The 840 px claim box: <b>accepted</b>. The top block's union box is now the lockup, name and date (A) or lockup and name (B), with the lockup also tested alone (O61).</li>
+<li>The knee pair: <b>accepted</b> (O55).</li>
+<li>O46 at the knees: <b>accepted</b>, at ≤ 3 levels (O55).</li>
+<li>Blue noise: <b>accepted</b>.</li>
+<li>The draft stamp in the first free corner, on the top layer: <b>accepted</b>, and it never touches the lockup's ink box.</li>
+<li>O52's path and file: <b>accepted</b>.</li>
+<li>A piece wider than 840 px scaled about the centre with its top kept: <b>accepted</b>, for the name.</li>
+</ul></td></tr>
+</table>
+
+<h2>T1c · the clip layout — schematics</h2>
+<p class="lead">At ¼ (9:16) and ⅕ (4:5, 1:1). Red hatch: the platforms' controls. Dashed white: the safe area. Green: the face window (no type). Solid: a one-line claim. Dashed: its two-line extent. Bands per O55.</p>
+<div class="frame">
+<figure><figcaption>T1c-916-A · lockup, name and date at the top · face window 0.32 H to the claim</figcaption>
+<div class="sch m916">
+  <div class="grad ga"></div>
+  <div class="ui" style="top:0;height:67px"></div>
+  <div class="ui" style="top:312px;height:168px"></div>
+  <div class="safe" style="left:30px;top:67px;width:210px;height:245px"></div>
+  <div class="face" style="top:154px;height:111px"></div>
+  <div class="slot" style="left:101px;top:70px;width:68px;height:21px">LOCKUP</div>
+  <div class="slot" style="left:45px;top:98px;width:180px;height:34px">NAME · 0.07 H</div>
+  <div class="slot" style="left:75px;top:139px;width:120px;height:15px">DATE</div>
+  <div class="slot dash" style="left:45px;top:265px;width:180px;height:47px"></div>
+  <div class="slot" style="left:45px;top:293px;width:180px;height:19px">CLAIM</div>
+  <span class="lbl" style="left:34px;top:205px">face window</span>
+  <span class="lbl" style="right:4px;top:300px">0.65 H</span>
+</div></figure>
+<figure><figcaption>T1c-916-B · date above the claim · face window 0.275 H to the date</figcaption>
+<div class="sch m916">
+  <div class="grad gb"></div>
+  <div class="ui" style="top:0;height:67px"></div>
+  <div class="ui" style="top:312px;height:168px"></div>
+  <div class="safe" style="left:30px;top:67px;width:210px;height:245px"></div>
+  <div class="face" style="top:132px;height:139px"></div>
+  <div class="slot" style="left:101px;top:70px;width:68px;height:21px">LOCKUP</div>
+  <div class="slot" style="left:45px;top:98px;width:180px;height:34px">NAME</div>
+  <div class="slot" style="left:75px;top:271px;width:120px;height:15px">DATE</div>
+  <div class="slot" style="left:45px;top:293px;width:180px;height:19px">CLAIM</div>
+  <span class="lbl" style="left:34px;top:195px">face window</span>
+</div></figure>
+<figure><figcaption>T1c-45 · A · the claim's last line on 0.90 of the rectangle</figcaption>
+<div class="sch m45">
+  <div class="grad gr"></div>
+  <div class="face" style="top:81px;height:124px"></div>
+  <div class="slot" style="left:81px;top:13px;width:54px;height:17px">LOCKUP</div>
+  <div class="slot" style="left:24px;top:37px;width:168px;height:27px">NAME</div>
+  <div class="slot" style="left:60px;top:69px;width:96px;height:11px">DATE</div>
+  <div class="slot dash" style="left:36px;top:205px;width:144px;height:38px"></div>
+  <div class="slot" style="left:36px;top:228px;width:144px;height:15px">CLAIM</div>
+  <span class="lbl" style="right:4px;top:246px">0.90</span>
+</div></figure>
+<figure><figcaption>T1c-11 · A · 0.8× · the same fractions</figcaption>
+<div class="sch m11">
+  <div class="grad gr"></div>
+  <div class="face" style="top:65px;height:99px"></div>
+  <div class="slot" style="left:86px;top:11px;width:43px;height:14px">LOCKUP</div>
+  <div class="slot" style="left:36px;top:29px;width:144px;height:21px">NAME</div>
+  <div class="slot" style="left:65px;top:55px;width:86px;height:9px">DATE</div>
+  <div class="slot dash" style="left:43px;top:164px;width:130px;height:30px"></div>
+  <div class="slot" style="left:43px;top:182px;width:130px;height:12px">CLAIM</div>
+</div></figure>
+</div>
+
+<h3>T1c-red · the backing under line 1 (O58), on a bright ground, at ½</h3>
+<div class="sch redbox" style="width:420px;height:120px;background:#3a9aa8">
+  <div class="back" style="left:55px;top:22px;width:348px;height:28px"></div>
+  <span style="position:absolute;left:70px;top:29px;font:700 15px/1 system-ui;letter-spacing:.02em" class="red">EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT</span>
+  <span style="position:absolute;left:52px;top:62px;font:700 25px/1 system-ui;color:#fff">3RD RELEASE SELLING FAST</span>
+  <span class="lbl" style="left:6px;top:106px">backing 80 % · line 1 only · feathered 1 cap · in with the claim</span>
+</div>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>T1 artist clip (video)</td><td>Lockup, name and one date line (no venue or time); arrangements A and B; bands anchored to the blocks; face by upper 60 %, faces ≥ 0.06 W; band steps; the red backing; 4:5 / 1:1 claim on 0.90.</td></tr>
+<tr><td>Artist card (stills)</td><td>The red backing (O58) before white. Layout unchanged.</td></tr>
+<tr><td>Roll-call (all templates)</td><td>O59's collapse and joining.</td></tr>
+<tr><td>Approval card lines</td><td>New: "bands +{n}"; "red line backed {n} %"; "Too bright behind the {name / claim} — choose another clip"; "Clip too small for {format} — needs 1080 px wide"; "Release names differ: {a} / {b} — check before approving".</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H53 Layout</td><td>O54: the clip's pieces, sizes, A and B, the 4:5 / 1:1 positions.</td><td>the kit's date line</td><td>on the 9:16, A's type is inside 0.145–0.32 H and the claim; B's top block is inside 0.145–0.275 H; no venue or time line on any clip</td></tr>
+<tr><td>H54 Bands</td><td>O55's anchored stops, the knee pair, O46 at the knees.</td><td>—</td><td>H37's reading at A's and B's stops on the flat test clip; knee rows ≤ 3 levels</td></tr>
+<tr><td>H55 Face</td><td>O56: the 0.06 W floor, the upper 60 %, the crop × arrangement search.</td><td>the face detector</td><td>Enzo 2's 9:16 is no longer refused on the face; a fixture with a face's chin under the claim passes</td></tr>
+<tr><td>H56 Contrast</td><td>O57's band steps and the refusal line.</td><td>—</td><td>Enzo 2's 4:5 and 1:1 pass on a step, or show the line, with "bands +{n}" on the card</td></tr>
+<tr><td>H57 Red</td><td>O58 on clips and on the artist card (#1156).</td><td>—</td><td>every draft's roll-call line 1 is #FE3232 unless 80 % fails, the backing's step on the card; no shadow or stroke anywhere</td></tr>
+<tr><td>H58 Release names</td><td>O59: collapse, sold-out by entry, order, joining, the "differ" line, O48's two lists.</td><td>lib/releases, event_releases</td><td>unit test on Puzzle's tiers: exactly "EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT" / "3RD RELEASE SELLING FAST"; with "2nd release" in lower case, no collapse and the line shows</td></tr>
+<tr><td>H59 Sample</td><td>O60: the old fixture removed everywhere.</td><td>—</td><td>a grep finds no "FINAL RELEASE SELLING FAST" or "1ST, 2ND &amp; 3RD" in fixtures or tests</td></tr>
+<tr><td>H60 Lockup</td><td>O61's own test.</td><td>—</td><td>reported per draft beside the top block's figure</td></tr>
+<tr><td>H61 No upscaling</td><td>O62: the "too small" refusal.</td><td>clip width</td><td>a 720-wide fixture makes no 4:5 or 1:1</td></tr>
+<tr><td>H62 Drafts again</td><td>Re-run the 18 drafts on Lambda with O54–O61 and the true claim; the same contact sheet and report, plus each draft's arrangement, band step and backing step.</td><td>the three clips</td><td>judged by the design thread on the new sheet</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The clip's sizes and positions: the 0.07 H name cap, the 0.145 / 0.205 / 0.29 H tops, the 0.015 H gap, 0.05 and 0.90 of the rectangle.</li>
+<li>Arrangement B and the A-then-B search; the bands' anchors (+0.02, 0.09, −0.06, −0.01, +0.07 H).</li>
+<li>The 0.06 W face floor and the upper 60 %; the band steps and their maxima; the backing's padding, feather and 40 / 60 / 80 % steps; the lockup's own test at 15 %.</li>
+<li>O59's collapse and joining, and every new approval line.</li>
+</ul>
+
+<h2>Frames</h2>
+<table class="t">
+<tr><th>Id</th><th>Formats</th><th>Source</th></tr>
+<tr><td>T1c</td><td>9:16 A and B, 4:5, 1:1, the red backing</td><td>Schematics in this record</td></tr>
+<tr><td>T1 on clips</td><td>9:16, 4:5, 1:1</td><td>#1167's re-run drafts (H62); CI frames from a fixture clip once they pass</td></tr>
+</table>
+
+</div></body>
+</html>

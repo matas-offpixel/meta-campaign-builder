@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>On-sale refresh corrections — 12 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.p4{display:grid;grid-template-columns:150px minmax(0,1fr);gap:0;font-size:12.5px}
+.p4>div{padding:8px 10px;border-bottom:1px solid var(--border)}
+.p4 .lab{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+@media (max-width:700px){.p4{grid-template-columns:minmax(0,1fr)}.p4 .lab{border-bottom:0;padding-bottom:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="k">Off/Pixel · design record · on-sale optimisation · 12 November 2026</div>
+<h1>On-sale refresh corrections: what counts as a purchase</h1>
+<p class="lead">This record corrects <a href="2026-11-12-on-sale-refresh.html"><code>2026-11-12-on-sale-refresh.html</code></a> (#1204). That record is merged and stays as it is; where the two differ, this one rules. Everything here came out of the three review rounds on #1205 (P1, shadow proposals).</p>
+<p class="lead">The main correction is to R3. #1204 proposed a Purchase campaign at 15 "pixel purchases" in 14 days. The <code>purchases</code> figure in <code>ad_daily_insights</code> is purchases attributed to this show's ads, for any show that shares the pixel. Pixels are shared as a rule: every client's shows share one, and julianfijma.com's pixel is shared by six. 22 of Julian Fijma's 24 attributed purchases landed before its presale opened, and Locklead's 21 are 16 from its Signup campaign plus 5 from On Sale. The figure is never this show's sales.</p>
+
+<div class="k">THE CORRECTIONS TO R3</div>
+<table class="t">
+<tr><th style="width:190px">Correction</th><th>Rule</th></tr>
+<tr><td>C1 · A show's purchases</td><td>
+<p>An event's purchases are the purchases on <b>its own ticket URL</b>, read from the pixel.</p>
+<ul>
+<li><b>Trigger:</b> 15 or more of them in 14 days. That proposes the Purchase campaign, and allows budget moves across campaigns on cost per purchase. This replaces #1204's "≥ 15 pixel purchases".</li>
+<li><b>Ticketing data checks, it never triggers.</b> When ticketing is linked (4thefans, Eventbrite, manual entries), the panel shows the pixel's share of real sales. A ticketing link doesn't make Meta optimise for this show, so it can't start a Purchase campaign.</li>
+<li><b>No URL match, nothing proposed.</b> If the show's purchases can't be told apart on the pixel, there's no Purchase campaign and no cross-campaign move, and the panel says why. Cases: Skiddle (no integration, and its confirmation page doesn't name the show); any ticket site whose confirmation page doesn't name the show; a show with no ticket URL.</li>
+<li><b>P4 starts with a count.</b> Its first job is a read-only count of URL-level purchases, 14 days, for every running on-sale event. Matas picks the first Purchase-piece event from that count, not from the attributed figure.</li>
+</ul></td></tr>
+<tr><td>C2 · The attributed figure is labelled</td><td>
+<p>Wherever the pixel-wide figure appears (the panel, the Slack post, line evidence), it is <b>attributed, any show</b>. It is never written as the show's purchases or as a signal.</p>
+<ul>
+<li><b>Objective line:</b> the purchase clause goes. "Initiate Checkout — 75 reached the pixel since 30 Oct. Last 14 days: 99 IC."</li>
+<li><b>Purchase line until P4 reads URL-level purchases</b>, one form at any count: "Purchase campaign not proposed — this show's own purchases aren't read yet. Attributed to these ads: {n} purchase{s} in 14 days, any show on this pixel."</li>
+<li><b>At 393:</b> "No Purchase campaign: {n} attributed purchase{s} in 14 days, any show."</li>
+<li>The ticketing note stays: "No linked ticketing: the pixel's purchases can't be checked against real sales."</li>
+<li>Evidence stores the figure as <code>attributedPurchases</code> with <code>scope: "any_show_on_pixel"</code>, never as the event's purchases.</li>
+</ul></td></tr>
+<tr><td>C3 · IC counted once</td><td>IC is <code>omni_initiated_checkout</code> only. #1204's worked example ("212 reached the pixel since 21 Oct") added <code>initiate_checkout</code> and <code>omni_initiated_checkout</code>, which are the same conversions. The true count is 106 on the On Sale campaign, 111 across the event.</td></tr>
+</table>
+
+<h2>F1 · The Objective block, P1 (1280 and 393)</h2>
+<p class="lead">P26-BDAY's shadow run for 12 Nov, data to Wed 11 Nov. Figures match the table (£650.38 · 75 IC since 30 Oct, 99 IC and 1 attributed purchase in 14 days).</p>
+<div class="frame">
+<figure><figcaption>1280 · Objective · shadow</figcaption>
+<div class="vp w1280">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<p class="why">Initiate Checkout — 75 reached the pixel since 30 Oct. Last 14 days: 99 IC.<small>Purchase campaign not proposed — this show's own purchases aren't read yet. Attributed to these ads: 1 purchase in 14 days, any show on this pixel. Budget moves stay inside each campaign.</small><small>No linked ticketing: the pixel's purchases can't be checked against real sales.</small></p></div>
+</div></div></figure>
+<figure><figcaption>393 · Objective · shadow</figcaption>
+<div class="vp w393">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<p class="why">Initiate Checkout — 75 reached the pixel since 30 Oct. Last 14 days: 99 IC.<small>No Purchase campaign: 1 attributed purchase in 14 days, any show.</small><small>No linked ticketing: the pixel's purchases can't be checked against real sales.</small></p></div>
+</div></div></figure>
+</div>
+
+<h2>F2 · The purchase line once P4 reads URL-level purchases (1280)</h2>
+<p class="lead">The five states the purchase line can take in P4. The counts are examples, not measured. The attributed line stays under each state as a second sentence. The ticketing check shows only when ticketing is linked.</p>
+<div class="frame">
+<figure><figcaption>1280 · Objective · purchase line states</figcaption>
+<div class="vp w1280">
+<div class="rf">
+<div class="sec"><h5>Objective</h5>
+<div class="p4">
+<div class="lab">Proposed</div>
+<div>Purchase campaign proposed — 18 purchases on this show's ticket URL in 14 days. Budget moves can cross campaigns on cost per purchase.</div>
+<div class="lab">Under the bar</div>
+<div>Purchase campaign not proposed — 6 purchases on this show's ticket URL in 14 days, under 15. Budget moves stay inside each campaign.</div>
+<div class="lab">Skiddle</div>
+<div>Purchase campaign not proposed — Skiddle's confirmation page doesn't name the show, so its purchases can't be told apart.</div>
+<div class="lab">Other site</div>
+<div>Purchase campaign not proposed — {site}'s confirmation page doesn't name the show, so its purchases can't be told apart.</div>
+<div class="lab">No ticket URL</div>
+<div>Purchase campaign not proposed — this show has no ticket URL.</div>
+<div class="lab">Under every state</div>
+<div>Attributed to these ads: 21 purchases in 14 days, any show on this pixel.</div>
+<div class="lab">Ticketing linked</div>
+<div>Ticketing: 40 sold in 14 days · the pixel saw 18 on this show's URL (45 % of sales).</div>
+</div></div></div></div></figure>
+</div>
+<p class="lead">At 393 each state shortens to its first clause plus the count, for example "Purchase campaign: 18 on this show's URL in 14 days." and "No Purchase campaign: Skiddle's confirmation page doesn't name the show."</p>
+
+<h2>Also corrected in the review</h2>
+<p class="lead">These came out of the same rounds. Each is built on the #1205 branch.</p>
+<table class="t">
+<tr><th style="width:190px">Correction</th><th>Rule</th></tr>
+<tr><td>C4 · Cluster bring-back (R2)</td><td><code>live_evidence.cprIndex</code> is cost over the baseline, so lower is better. #1204's "index ≥ 1.2" read it upside down. A cluster comes back when the <b>event's client's own</b> <code>perClient</code> entry is at most 0.83, at confidence ok or better. The pooled index across clients is never used. The line reads "Ran for {client} at {index}× its cost per registration · confidence {word} · not used on this event".</td></tr>
+<tr><td>C5 · A rebuilt campaign's ad sets (R2)</td><td>Within a campaign, an ad set is its name. The rebuild's same-named copy is the same ad set: totals combine, and "stopped" means no same-named set is delivering. #1204's F1 brought back the EDM set while its rebuild copy had been delivering since 6 Nov; that line was wrong.</td></tr>
+<tr><td>C6 · Ticketing isn't a blocker (R4, Matas)</td><td>The ticketing note moves out of "Before it can move money" into Objective, with no action shown when the provider has no integration (C2 has the wording). Only a missing budget blocks a line.</td></tr>
+<tr><td>C7 · Timing (R1, HR1)</td><td>The run is at 06:00 UTC on Mondays (06:00 London in winter, 07:00 in summer), after the 03:30 UTC learning-refresh, so it's ready by 08:00 all year. Slack's business hours start at 10:00, so posts the run couldn't send go out at 10:05 UTC on Mondays.</td></tr>
+<tr><td>C8 · One "on sale" test (R1, R4)</td><td>The run and the event page's panel use the same rule: not cancelled, the show still ahead, and either the status is on sale or the general sale date has passed. Brand campaigns are excluded at the page. With no general sale date, "since" counts from the window start.</td></tr>
+<tr><td>C9 · Move thresholds (R2)</td><td>#1204 didn't set them. The build's are accepted for shadow: from a delivering set at ≥ 1.5× the campaign's cost per result to one at ≤ 0.75× with ≥ 5 results in the week. Matas confirms them before Accept exists.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HC1 · P1 wording (#1205)</td><td>C2's strings in the why lines, the panel and the Slack post, and the OR1 fixture re-shot. This is H1 on the #1205 branch.</td></tr>
+<tr><td>HC2 · P4's first read</td><td>A read-only count, per running on-sale event, of purchases on the event's own ticket URL over 14 days, with the reason when there's no match (C1's cases). No campaign and no write. Matas picks the first event from it.</td></tr>
+<tr><td>HC3 · P4 purchase line</td><td>F2's states, the 393 forms and the ticketing check. Cross-campaign moves on cost per purchase only in the Proposed state.</td></tr>
+<tr><td>HC4 · Notes for later</td><td>
+<ul>
+<li><b>Stage:</b> the cluster line reads <code>live_evidence.stage</code> once a stage other than registration appears. Today every live cluster is registration-stage, so the build writes "registration".</li>
+<li><b>Show week:</b> before Accept exists, the panel puts "Show week: the refresh has stopped." above any older proposal it still holds, not only on an empty panel.</li>
+<li><b>IC on a shared pixel:</b> a tour site's shared pixel (julianfijma.com) also mixes other shows' IC. When P4's URL-level read exists, IC gets the same treatment.</li>
+</ul></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The words in F2 and C2's 393 form, and the evidence field names in C2.</li>
+<li>Treating "no ticket URL" as a no-match case.</li>
+<li>F2's counts, which are examples.</li>
+</ul>
+
+<h2>Open for Matas</h2>
+<ul class="notes">
+<li>The first Purchase-piece event, picked from HC2's count once it runs.</li>
+<li>C9's move thresholds, before Accept exists.</li>
+</ul>
+
+</div>
+</body>
+</html>

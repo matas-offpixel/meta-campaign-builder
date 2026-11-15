@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 15 — video is one 9:16 — 11 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.m916{width:216px;height:384px}
+.off{position:absolute;background:rgba(30,24,16,.55)}
+.feed{position:absolute;border-top:1px dashed #f3d9a0;border-bottom:1px dashed #f3d9a0}
+.isect{position:absolute;border:1.5px solid #fff;background:rgba(255,255,255,.10)}
+.tband{position:absolute;border-top:1px dotted #fff}
+.slot{background:rgba(255,255,255,.18)}
+.slot.red{border-color:#FE3232;color:#FE3232}
+.lbl{white-space:nowrap}
+.legend{font-size:12px;color:var(--ink-2);margin:4px 0 14px}
+.legend span{display:inline-block;width:14px;height:10px;vertical-align:-1px;margin:0 4px 0 12px;border-radius:2px}
+@media (max-width:700px){.m916{width:166px;height:295px}.sch .lbl{font-size:6px}.frame{gap:14px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 15 · 11 November 2026</p>
+<h1>Overlay templates — issue 15: video is one 9:16</h1>
+<div class="lead"><p>Matas, 11 Nov: "I don't need 4:5 and 1:1 edits of videos, only a 9:16 edit that is fit for feed and 9x16 placement safe zones." So every video template renders the 9:16 only, and that one file has to read in two places. Feed shows about the centre 4:5 of it (y 285–1635). Reels and Stories show all of it, under their own controls, so O43's safe area applies (x 120–960, y 269–1248). This issue names the band both crops share, checks every current video slot against it, and moves the slots that fall outside. It also records O94 from the #1177 verdict: the T2 clip's spacing. Stills keep all three formats. Issues 1–14 stand except where a row says otherwise.</p></div>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 15 · 11 Nov 2026.</b> O94 the T2 clip's spacing (from the #1177 verdict, with its lineup floor amended here). O95 video is one 9:16. O96 the band. O97 T1 on a clip, moved slots. O98 T2 on a clip, moved slots. O99 the UGC caption box. O100 the tests run on the 9:16. O101 import and the render copy. O102 existing 4:5 and 1:1 video renders. Hand-back H93–H98.</li>
+<li><b>Issue 14 · 10 Nov 2026.</b> O93. #1179.</li>
+</ul></div>
+
+<h2>The band</h2>
+<p>The 9:16 at 1080 × 1920, with Feed's crop and the Reels / Stories safe area overlaid. The two crops share <b>x 120–960, y 285–1248</b> (840 × 963 px, 0.111–0.889 W, 0.148–0.650 H). Type sits inside that, from y 353 down (O96). Panels 2–5 put each video template's slots in the band.</p>
+<p class="legend"><span style="background:rgba(30,24,16,.55)"></span>outside Feed's 4:5<span style="background:repeating-linear-gradient(45deg,rgba(155,59,40,.6) 0 3px,rgba(155,59,40,.2) 3px 6px)"></span>Reels / Stories controls<span style="border:1.5px solid #fff;background:#9a9086"></span>the band<span style="border-top:1px dotted #fff;background:#9a9086;height:6px"></span>type's top, y 353</p>
+<div class="frame">
+<figure><figcaption>1 · Both crops on the one 9:16</figcaption><div class="sch m916">
+<div class="off" style="left:0.000%;top:0.000%;width:100.000%;height:14.844%;"></div>
+<div class="off" style="left:0.000%;top:85.156%;width:100.000%;height:14.844%;"></div>
+<div class="ui" style="left:0.000%;top:0.000%;width:100.000%;height:14.010%;"></div>
+<div class="ui" style="left:0.000%;top:65.000%;width:100.000%;height:35.000%;"></div>
+<div class="uis" style="left:0.000%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="uis" style="left:88.889%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="feed" style="left:0.000%;top:14.844%;width:100.000%;height:70.312%;"></div>
+<div class="safe" style="left:11.111%;top:14.010%;width:77.778%;height:50.990%;"></div>
+<div class="isect" style="left:11.111%;top:14.844%;width:77.778%;height:50.156%;"></div>
+<div class="tband" style="left:11.111%;top:18.385%;width:77.778%;height:46.615%;"></div>
+<span class="lbl" style="left:1.296%;top:6.250%;">REELS UI · y 0–269</span>
+<span class="lbl" style="left:1.296%;top:9.896%;color:#f3d9a0">FEED CROP STARTS · y 285</span>
+<span class="lbl" style="left:12.963%;top:15.625%;">BAND x 120–960 · y 285–1248</span>
+<span class="lbl" style="left:12.963%;top:19.271%;">TYPE · y ≥ 353</span>
+<span class="lbl" style="left:12.963%;top:61.979%;">LAST BASELINE 1238</span>
+<span class="lbl" style="left:1.296%;top:67.708%;">REELS UI · y 1248–1920</span>
+<span class="lbl" style="left:1.296%;top:82.292%;color:#f3d9a0">FEED CROP ENDS · y 1635</span>
+</div></figure>
+<figure><figcaption>2 · T1 on a clip, arrangement A</figcaption><div class="sch m916">
+<div class="off" style="left:0.000%;top:0.000%;width:100.000%;height:14.844%;"></div>
+<div class="off" style="left:0.000%;top:85.156%;width:100.000%;height:14.844%;"></div>
+<div class="ui" style="left:0.000%;top:0.000%;width:100.000%;height:14.010%;"></div>
+<div class="ui" style="left:0.000%;top:65.000%;width:100.000%;height:35.000%;"></div>
+<div class="uis" style="left:0.000%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="uis" style="left:88.889%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="feed" style="left:0.000%;top:14.844%;width:100.000%;height:70.312%;"></div>
+<div class="safe" style="left:11.111%;top:14.010%;width:77.778%;height:50.990%;"></div>
+<div class="isect" style="left:11.111%;top:14.844%;width:77.778%;height:50.156%;"></div>
+<div class="tband" style="left:11.111%;top:18.385%;width:77.778%;height:46.615%;"></div>
+<div class="slot" style="left:37.500%;top:18.385%;width:25.000%;height:2.083%;">lockup</div>
+<div class="slot" style="left:11.111%;top:24.427%;width:77.778%;height:6.979%;">name · cap 134</div>
+<div class="slot" style="left:27.778%;top:32.917%;width:44.444%;height:2.969%;">date</div>
+<div class="slot red" style="left:15.741%;top:59.896%;width:68.519%;height:1.510%;">line 1</div>
+<div class="slot" style="left:20.370%;top:62.083%;width:59.259%;height:2.396%;">claim</div>
+<span class="lbl" style="left:12.037%;top:36.458%;">0.359 H — middle clear</span>
+<span class="lbl" style="left:12.037%;top:57.812%;">claim on 1238 (0.645 H)</span>
+</div></figure>
+<figure><figcaption>3 · T2 on a clip, with the roll-call</figcaption><div class="sch m916">
+<div class="off" style="left:0.000%;top:0.000%;width:100.000%;height:14.844%;"></div>
+<div class="off" style="left:0.000%;top:85.156%;width:100.000%;height:14.844%;"></div>
+<div class="ui" style="left:0.000%;top:0.000%;width:100.000%;height:14.010%;"></div>
+<div class="ui" style="left:0.000%;top:65.000%;width:100.000%;height:35.000%;"></div>
+<div class="uis" style="left:0.000%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="uis" style="left:88.889%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="feed" style="left:0.000%;top:14.844%;width:100.000%;height:70.312%;"></div>
+<div class="safe" style="left:11.111%;top:14.010%;width:77.778%;height:50.990%;"></div>
+<div class="isect" style="left:11.111%;top:14.844%;width:77.778%;height:50.156%;"></div>
+<div class="tband" style="left:11.111%;top:18.385%;width:77.778%;height:46.615%;"></div>
+<div class="slot" style="left:59.259%;top:18.385%;width:29.630%;height:2.760%;"></div>
+<div class="slot" style="left:59.259%;top:21.615%;width:29.630%;height:2.760%;"></div>
+<div class="slot" style="left:59.259%;top:24.844%;width:29.630%;height:2.760%;"></div>
+<div class="slot" style="left:59.259%;top:28.073%;width:29.630%;height:2.760%;"></div>
+<div class="slot" style="left:59.259%;top:31.302%;width:29.630%;height:2.760%;"></div>
+<span class="lbl" style="left:60.185%;top:34.375%;">lineup · up to 353</span>
+<div class="slot" style="left:11.111%;top:38.490%;width:77.778%;height:4.219%;">experience line</div>
+<div class="slot" style="left:11.111%;top:44.375%;width:77.778%;height:4.167%;">· step 0.042 H</div>
+<div class="slot red" style="left:21.296%;top:49.427%;width:57.407%;height:1.510%;">line 1</div>
+<div class="slot" style="left:24.074%;top:51.615%;width:51.852%;height:2.344%;">claim</div>
+<div class="slot" style="left:11.111%;top:58.385%;width:33.333%;height:2.812%;">date</div>
+<div class="slot" style="left:11.111%;top:61.667%;width:33.333%;height:2.812%;">venue</div>
+<div class="slot" style="left:63.889%;top:60.938%;width:25.000%;height:3.542%;">logo</div>
+<span class="lbl" style="left:12.037%;top:35.417%;">77 px</span>
+<span class="lbl" style="left:12.037%;top:55.208%;">77 px</span>
+</div></figure>
+<figure><figcaption>4 · UGC caption (rule 13)</figcaption><div class="sch m916">
+<div class="off" style="left:0.000%;top:0.000%;width:100.000%;height:14.844%;"></div>
+<div class="off" style="left:0.000%;top:85.156%;width:100.000%;height:14.844%;"></div>
+<div class="ui" style="left:0.000%;top:0.000%;width:100.000%;height:14.010%;"></div>
+<div class="ui" style="left:0.000%;top:65.000%;width:100.000%;height:35.000%;"></div>
+<div class="uis" style="left:0.000%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="uis" style="left:88.889%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="feed" style="left:0.000%;top:14.844%;width:100.000%;height:70.312%;"></div>
+<div class="safe" style="left:11.111%;top:14.010%;width:77.778%;height:50.990%;"></div>
+<div class="isect" style="left:11.111%;top:14.844%;width:77.778%;height:50.156%;"></div>
+<div class="tband" style="left:11.111%;top:18.385%;width:77.778%;height:46.615%;"></div>
+<div class="slot" style="left:25.185%;top:29.948%;width:48.148%;height:2.031%;"></div>
+<div class="slot" style="left:21.019%;top:32.995%;width:56.481%;height:2.031%;"></div>
+<div class="slot" style="left:23.333%;top:36.042%;width:51.852%;height:2.031%;"></div>
+<div class="slot" style="left:29.352%;top:39.089%;width:39.815%;height:2.031%;"></div>
+<div class="slot dash" style="left:11.111%;top:29.167%;width:76.296%;height:13.281%;"></div>
+<span class="lbl" style="left:12.037%;top:43.229%;">caption box x 120–944</span>
+<span class="lbl" style="left:12.037%;top:45.312%;">centre 0.355 H · 0.493 W</span>
+</div></figure>
+<figure><figcaption>5 · Quote mode</figcaption><div class="sch m916">
+<div class="off" style="left:0.000%;top:0.000%;width:100.000%;height:14.844%;"></div>
+<div class="off" style="left:0.000%;top:85.156%;width:100.000%;height:14.844%;"></div>
+<div class="ui" style="left:0.000%;top:0.000%;width:100.000%;height:14.010%;"></div>
+<div class="ui" style="left:0.000%;top:65.000%;width:100.000%;height:35.000%;"></div>
+<div class="uis" style="left:0.000%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="uis" style="left:88.889%;top:14.010%;width:11.111%;height:50.990%;"></div>
+<div class="feed" style="left:0.000%;top:14.844%;width:100.000%;height:70.312%;"></div>
+<div class="safe" style="left:11.111%;top:14.010%;width:77.778%;height:50.990%;"></div>
+<div class="isect" style="left:11.111%;top:14.844%;width:77.778%;height:50.156%;"></div>
+<div class="tband" style="left:11.111%;top:18.385%;width:77.778%;height:46.615%;"></div>
+<div class="slot" style="left:22.500%;top:22.865%;width:55.556%;height:1.354%;"></div>
+<div class="slot" style="left:17.870%;top:25.865%;width:64.815%;height:1.354%;"></div>
+<div class="slot" style="left:20.648%;top:28.865%;width:59.259%;height:1.354%;"></div>
+<div class="slot" style="left:27.130%;top:31.865%;width:46.296%;height:1.354%;"></div>
+<div class="slot dash" style="left:15.278%;top:22.135%;width:70.000%;height:12.240%;"></div>
+<span class="lbl" style="left:16.204%;top:35.417%;">quote wrap x 165–921</span>
+<span class="lbl" style="left:16.204%;top:37.500%;">centre 0.28 H · unchanged</span>
+</div></figure>
+</div>
+
+<h2>Every current video slot, checked</h2>
+<table class="t">
+<tr><th>Slot</th><th>Rule now</th><th>px on 1080 × 1920</th><th>Against the band</th><th>Becomes</th></tr>
+<tr><td>T1 · lockup top</td><td>0.145 H (O54)</td><td>278</td><td><b>Out.</b> 7 px above Feed's crop, so Feed cuts the lockup's top.</td><td>353 (0.184 H), O97</td></tr>
+<tr><td>T1 · lockup width</td><td>0.25 W, centred</td><td>x 405–675</td><td>In</td><td>—</td></tr>
+<tr><td>T1 · name</td><td>cap top 0.205 H, ≤ 840 px</td><td>394, x 120–960</td><td>In, but it moves with the lockup</td><td>cap top 469 (0.244 H)</td></tr>
+<tr><td>T1 · date (A)</td><td>cap top 0.29 H, cap 57</td><td>557–614</td><td>In, but it moves with the lockup</td><td>cap top 632 (0.329 H)</td></tr>
+<tr><td>T1 · date (B)</td><td>baseline 0.015 H above the claim</td><td>cap top 1085 / 973</td><td>In</td><td>moves 10 px up with the claim</td></tr>
+<tr><td>T1 · claim's last line</td><td>baseline 0.65 H (O43)</td><td>1248</td><td><b>On the edge.</b> A comma's tail or a descender falls below 1248.</td><td>baseline 1238 (0.645 H)</td></tr>
+<tr><td>T1 · claim width</td><td>840 px, centred</td><td>x 120–960</td><td>In</td><td>—</td></tr>
+<tr><td>T2 clip · lineup</td><td>top 0.207 H, right edge 0.889 W</td><td>397, x … –960</td><td>In</td><td>—</td></tr>
+<tr><td>T2 clip · lineup moved up (O94)</td><td>no higher than 0.16 H</td><td>307</td><td><b>Inside the band, but 22 px from Feed's crop edge</b></td><td>no higher than 353 (O98)</td></tr>
+<tr><td>T2 clip · block</td><td>840 px wide, ≥ 0.04 H clear above and below (O94)</td><td>x 120–960</td><td>In</td><td>—</td></tr>
+<tr><td>T2 clip · date and venue</td><td>left 0.111 W, last baseline 0.65 H (O87)</td><td>x 120, 1248 (the drafts' ink reaches 1249)</td><td><b>On the edge</b>, 1 px out in #1177's drafts</td><td>last baseline 1238</td></tr>
+<tr><td>T2 clip · logo</td><td>ink bottom on the details' last baseline, right edge 0.889 W</td><td>1248, x … –960</td><td>Follows the details</td><td>ink bottom 1238</td></tr>
+<tr><td>Draft stamp</td><td>top left</td><td>x 48, y 338</td><td>Out on x. Drafts only, never in a launched file.</td><td>left edge 120</td></tr>
+<tr><td>UGC caption · block</td><td>centre 0.355 H, ≤ 4 lines at a 58.5 px pitch (long: 5 at 43.9)</td><td>about 572–802</td><td>In</td><td>—</td></tr>
+<tr><td>UGC caption · box</td><td>84 % of W, centred on 0.493 W</td><td>x 79–986</td><td><b>Out.</b> A full line can pass both edges.</td><td>x 120–944, O99</td></tr>
+<tr><td>Quote mode</td><td>centre 0.28 H, wrap 0.70 W on 0.5025 W, ≤ 4 lines</td><td>about 439–650, x 165–921</td><td>In</td><td>—</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+
+<tr><td>O94 The T2 clip's spacing</td><td>From the #1177 verdict (11 Nov), recorded here. On #1177's 9:16 roll-call clips the lineup cleared the block by 18 px, and the claim cleared the date by 18 px. The details' own line gap is 9 px, so the claim read as part of the date. Matas's example leaves 153 and 204 px.
+<ul>
+<li>On the 9:16 clip, at least <b>0.04 H (77 px)</b> of clear space sits between the lineup's last line and the block, and between the block's last line and the date's cap top.</li>
+<li>When the block doesn't fit, the lineup moves up first, no higher than <b>353 px</b> (the verdict said 0.16 H; O98 changes it). Then the block steps down as one, through T2's steps (0.0485 H, then 0.042 H).</li>
+<li>If it still doesn't fit at the last step, the run is refused: "No room for the claim on the 9:16 clip — shorten it".</li>
+<li>The block is centred in the space left between the lineup and the date.</li>
+<li>The 0.005 slot check (H86) reads the moved lineup top whenever the lineup has moved.</li>
+</ul></td></tr>
+
+<tr><td>O95 Video is one 9:16</td><td>Matas, 11 Nov.
+<ul>
+<li>T1 on a clip, T2 on a promoter clip and UGC caption renders (quote mode included) <b>render the 9:16 only</b>. No 4:5 or 1:1 video is proposed, rendered, put in a round, filed or launched.</li>
+<li>A round makes one render per clip × caption pairing.</li>
+<li>At launch, the one 9:16 goes to Feed, Reels and Stories. Feed shows its centre 4:5.</li>
+<li><b>Stills keep 9:16, 4:5 and 1:1</b>: T1's artist card, T2 on the panel and T2 on a photo, all unchanged.</li>
+<li><b>Superseded for video:</b>
+<ul>
+<li>O42 (the 1:1 is a crop).</li>
+<li>O54's 4:5 and 1:1 lines (the lockup at 0.05 of the rectangle, the claim on 0.90).</li>
+<li>O80 and O87's 4:5 and 1:1 clip positions.</li>
+<li>O83's 4:5 and 1:1.</li>
+<li>O93's "skips only that format" line.</li>
+</ul>
+These all stand for stills where they apply to stills.</li>
+</ul></td></tr>
+
+<tr><td>O96 The band</td><td>
+<ul>
+<li><b>Feed</b> shows the 9:16 as its centre 4:5, which is y 285–1635 at the full width.</li>
+<li><b>Reels and Stories</b> keep type inside O43's safe area, x 120–960, y 269–1248.</li>
+<li><b>The band is their intersection: x 120–960, y 285–1248.</b> Every type ink box sits inside it, including the claim, its backing's ink edge, the logo and the caption's stroke.</li>
+<li><b>The top keeps a Feed inset.</b> No type ink sits above <b>y 353</b>. That is 0.05 of the 4:5 view (68 px) below Feed's crop edge, the same inset O54 gave the lockup in a 4:5 render. Type 3 px under the crop edge reads as clipped in Feed.</li>
+<li><b>The bottom keeps a descender's room.</b> The last line of type has its baseline on <b>1238 (0.645 H)</b>, so a comma or descender still ends by 1248.</li>
+<li>Bands and backings may run outside the band. They aren't type.</li>
+<li>Below 1248, Feed still shows 387 px of the footage, with no type over it. That is intended.</li>
+</ul></td></tr>
+
+<tr><td>O97 T1 on a clip</td><td>This amends O54's 9:16 sizes. The top block moves down 75 px as one, and its spacing is unchanged.
+<ul>
+<li>Lockup ink top on <b>353 (0.184 H)</b>.</li>
+<li>Name cap top <b>469 (0.244 H)</b>.</li>
+<li>Arrangement A: the date's cap top is on <b>632 (0.329 H)</b>, so A's top block is 0.184–0.359 H.</li>
+<li>Arrangement B: the top block is 0.184–0.314 H.</li>
+<li>The claim's last baseline is on 1238 (0.645 H). B's date keeps its 0.015 H above the claim, so it moves up 10 px with it.</li>
+<li>O55's bands stay anchored to the blocks, so they follow the blocks.</li>
+<li>A's clear middle is now 0.359 H to the claim's first cap top. A two-line claim starts about 0.60 H, so the face test (O56) has about 0.24 H.</li>
+</ul></td></tr>
+
+<tr><td>O98 T2 on a clip</td><td>This amends O87's clip positions and O94.
+<ul>
+<li>The lineup stays at 0.207 H top and 0.889 W right.</li>
+<li>The date and venue's last baseline is on <b>1238</b>, so its first cap top is on 1121 (two lines, cap 54, pitch 63). The logo's ink bottom sits on the same baseline.</li>
+<li>O94's lineup moves up no higher than <b>353</b>.</li>
+<li><b>Puzzle's roll-call clip, worked through:</b>
+<ul>
+<li>The lineup moves to 353, so its last line ends at 654.</li>
+<li>The room for the block is 731–1044, which is 313 px.</li>
+<li>The block is 397 px at full size and 344 px at 0.0485 H, so neither fits. At <b>0.042 H</b> it is 298 px, which fits.</li>
+<li>Centred, it sits at 739–1036.</li>
+</ul></li>
+<li><b>The no-claim clip:</b> the lineup stays at 397. The block is 261 px in 269 px of room, at full size, centred at 779–1040.</li>
+<li>The 4 clip anchors of the slot check (H86) read these values.</li>
+</ul></td></tr>
+
+<tr><td>O99 The UGC caption box</td><td>This amends rule 13's box (CAPTION_BOX_WIDTH_PCT 84, centred on 0.493 W).
+<ul>
+<li>The caption box is <b>x 120–944</b>. That is 824 px, the widest box centred on the measured 0.493 W that stays inside x 120.</li>
+<li>Lines are checked on TikTok Sans advances at the render's size and weight, with the stroke, as quote mode already wraps.</li>
+<li>A line wider than 824 px moves the caption to the long profile, as the character check does now. If the long profile doesn't fit, the caption is refused with the existing "too long" words.</li>
+<li>The centre (0.355 H, 0.493 W), the size, the stroke and the pitch don't change.</li>
+<li>The caption profile's 9:16 <code>safeRect</code> (y 0.1458–0.8541, the old 4:5) becomes the band.</li>
+<li>Quote mode passes as it is: x 165–921, about y 439–650.</li>
+</ul></td></tr>
+
+<tr><td>O100 The tests run on the 9:16</td><td>
+<ul>
+<li>These run on the 9:16 window only:
+<ul>
+<li>crop candidates and the A / B choice (O56);</li>
+<li>the face floor, 0.08 W on the source (O64), and time in the type (O39, O65, O71);</li>
+<li>contrast on the p95 sample and red per clip (O40);</li>
+<li>band steps (O57), the backing (O58, O66) and the feather check (O70, O92).</li>
+</ul></li>
+<li>They are judged against the moved type boxes. Feed's view shows the same pixels, so it needs no separate test.</li>
+<li>The refusal words are unchanged.</li>
+<li>Stills keep judging faces per format (#1177).</li>
+</ul></td></tr>
+
+<tr><td>O101 Import and the render copy</td><td>
+<ul>
+<li>O93 is unchanged: a clip is refused at import unless its 9:16 window is at least 675 px.</li>
+<li>O68 is amended: the render copy for footage wider than the output is the 9:16 crop window's strip, scaled to <b>1080 × 1920</b> (Lanczos, CRF ≤ 16), as #1182 builds it. With one format there is no "narrowest window" to choose.</li>
+<li>O63's 1.6× ceiling and O69's filter stand.</li>
+</ul></td></tr>
+
+<tr><td>O102 Existing 4:5 and 1:1 video</td><td>
+<ul>
+<li>Video renders already made at 4:5 or 1:1 are kept as rows, for the record and their results, and never deleted.</li>
+<li>They aren't proposed, re-rendered, offered at launch or listed in "From the Lab".</li>
+<li>An asset already on a plan stays, as with O93.</li>
+<li>Drive copies already filed stay where they are.</li>
+</ul></td></tr>
+</table>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Video templates</td><td>One 9:16 output; no 4:5 / 1:1 video formats anywhere in the Lab, rounds, launch or "From the Lab".</td></tr>
+<tr><td>Video slot check</td><td>Every type ink box inside x 120–960, y 285–1248, first ink ≥ 353, last baseline 1238.</td></tr>
+<tr><td>T1 clip layout</td><td>Top block from 353, claim on 1238.</td></tr>
+<tr><td>T2 clip layout</td><td>O94 spacing; details on 1238; lineup floor 353.</td></tr>
+<tr><td>Caption overlay</td><td>Box x 120–944, measured line width; profile safeRect = the band.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H93 One 9:16</td><td>O95, O102: T1 clip, T2 clip and caption renders make 9:16 only. Existing 4:5 / 1:1 video rows are kept but not offered.</td><td>creative_lab renders, rounds</td><td>a round of 2 clips × 3 captions makes 6 render rows, all 9:16; a fixture's existing 4:5 row is not listed at launch or in "From the Lab"; no row deleted</td></tr>
+<tr><td>H94 The band check</td><td>O96: a check on every video draft and CI frame that reads the ink boxes. It joins H86's 0.005 slot check.</td><td>render geometry</td><td>T1 A, T1 B, T2 no-claim, T2 roll-call, caption default, caption long and quote all pass; a fixture with a box at y 278 fails, naming the slot</td></tr>
+<tr><td>H95 T1 slots</td><td>O97.</td><td>T1V data note</td><td>lockup ink top 353 ± 0.005 H, name cap top 469, A date cap top 632, claim baseline 1238</td></tr>
+<tr><td>H96 T2 clip slots</td><td>O94, O98, including the refusal words.</td><td>T2P data note</td><td>Puzzle roll-call 9:16: lineup top 353, block at 0.042 H in 739–1036, ≥ 77 px clear both sides; no-claim: lineup 397, block at full size; details' last baseline 1238</td></tr>
+<tr><td>H97 Caption box</td><td>O99: preview and Lambda read the same box; measured line width; safeRect updated.</td><td>caption-style v1.json</td><td>a caption line of 824 px renders inside x 120–944; one wider goes long or is refused with the existing words</td></tr>
+<tr><td>H98 Tests and the render copy</td><td>O100 and O101, with #1182's 1080 × 1920 strip.</td><td>creative_lab_clips</td><td>no 4:5 / 1:1 crop, face or contrast run is recorded for a clip; a 4K fixture's render copy is 1080 × 1920</td></tr>
+</table>
+
+<h2>Frames</h2>
+<p>The schematic above. Next drafts: Puzzle T1 on a clip (A) and T2 roll-call on the three clips, 9:16 only, each with the band drawn as an overlay layer, in the draft only.</p>
+
+</div></body>
+</html>

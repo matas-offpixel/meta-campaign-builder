@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay templates — issue 12 — T2's photo ground, measured — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+a{color:var(--ink)}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;max-width:440px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.sch{position:relative;overflow:hidden;border-radius:6px;background:#9a9086;color:#fff;font:600 7px/1.2 var(--mono)}
+.m916{width:270px;height:480px}.m45{width:216px;height:270px}.m11{width:216px;height:216px}
+.grad{position:absolute;inset:0}
+.g916v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 44%,rgba(0,0,0,.18) 44.04%,rgba(0,0,0,.10) 46.03%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 53%,rgba(0,0,0,0) 55%,rgba(0,0,0,.02) 56.66%,rgba(0,0,0,.10) 58.87%,rgba(0,0,0,.18) 59.98%,rgba(0,0,0,.2) 60%,rgba(0,0,0,.3) 68%,rgba(0,0,0,.3) 100%)}
+.g45v{background:linear-gradient(180deg,rgba(0,0,0,.2) 0%,rgba(0,0,0,.2) 41.47%,rgba(0,0,0,.18) 41.53%,rgba(0,0,0,.10) 44.36%,rgba(0,0,0,.02) 50.01%,rgba(0,0,0,0) 54.27%,rgba(0,0,0,0) 57.11%,rgba(0,0,0,.02) 59.48%,rgba(0,0,0,.10) 62.62%,rgba(0,0,0,.18) 64.19%,rgba(0,0,0,.2) 64.22%,rgba(0,0,0,.3) 75.60%,rgba(0,0,0,.3) 100%)}
+.ui{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.uis{position:absolute;background:repeating-linear-gradient(45deg,rgba(155,59,40,.25) 0 5px,rgba(155,59,40,.08) 5px 10px)}
+.safe{position:absolute;border:1px dashed #fff}
+.slot{position:absolute;border:1px solid #fff;display:flex;align-items:center;justify-content:center;text-align:center}
+.slot.dash{border-style:dashed;color:rgba(255,255,255,.85)}
+.lbl{position:absolute;font:600 7px/1 var(--mono);color:#fff}
+.band{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,.6);border-bottom:1px dashed rgba(255,255,255,.6)}
+.tl{position:relative;width:600px;height:86px;background:var(--card);border-radius:8px;font:600 9px/1 var(--mono);color:var(--ink-2)}
+.tl .row{position:absolute;left:0;height:14px;border-radius:3px}
+.tl .t{position:absolute;top:70px;font:600 9px/1 var(--mono);color:var(--ink-3)}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.tl{transform:scale(.58);transform-origin:left top;margin-bottom:-36px}}
+.ph{background:radial-gradient(circle at 22% 18%,rgba(255,170,90,.55),transparent 18%),radial-gradient(circle at 78% 26%,rgba(120,150,255,.45),transparent 20%),radial-gradient(circle at 50% 62%,rgba(255,110,60,.35),transparent 26%),radial-gradient(circle at 15% 80%,rgba(255,200,120,.25),transparent 22%),linear-gradient(180deg,#2a1d18 0%,#3a2620 45%,#1c1310 100%)}
+.ph::after{content:"";position:absolute;left:0;right:0;bottom:0;height:40%;background:radial-gradient(circle at 50% 100%,rgba(8,5,4,.85) 0 11px,transparent 12px) bottom/26px 34px repeat-x,radial-gradient(circle at 50% 100%,rgba(8,5,4,.6) 0 9px,transparent 10px) 13px calc(100% - 22px)/26px 30px repeat-x,linear-gradient(180deg,transparent,rgba(8,5,4,.7))}
+.bt{position:absolute;inset:0;z-index:1}
+.tx{position:absolute;z-index:2;display:flex;color:#fff;font-family:Impact,"Arial Narrow","DejaVu Sans Condensed",sans-serif;font-weight:700;line-height:1;white-space:nowrap}
+.tx span{display:inline-block;transform:scaleX(.45)}
+.tx.r{justify-content:flex-end}.tx.r span{transform-origin:right center}
+.tx.c{justify-content:center}.tx.c span{transform-origin:center}
+.tx.l{justify-content:flex-start}.tx.l span{transform-origin:left center}
+.tx.red{color:#FE3232}
+.ui2{position:absolute;left:0;right:0;z-index:3;background:repeating-linear-gradient(45deg,rgba(155,59,40,.40) 0 5px,rgba(155,59,40,.15) 5px 10px)}
+.safe2{position:absolute;z-index:3;border:1px dashed #fff}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · overlay templates · issue 12 · 10 November 2026</p>
+<h1>Overlay templates — issue 12: T2's photo ground, measured</h1>
+<div class="lead"><p>Matas's example (Puzzle, Sat 17 Oct, 9:16) arrived after issue 11 merged. Issue 11 drew the photo ground from his description at the poster-panel T2's measures. This issue re-rules its sizes and positions from the example itself, measured on the 1080 × 1920 file. Issue 11 stands except where a row here says otherwise. The words, the grounds, contrast, faces, resolution and timing (O75–O77, O81–O84) are unchanged.</p></div>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 12 · 10 Nov 2026.</b>
+<ul>
+<li>O85: the experience line's and the claim's sizes (amends O78).</li>
+<li>O86: the lineup, details and logo (amends O79).</li>
+<li>O87: positions (amends O80).</li>
+<li>O88: two spaces in a typed line (amends O77).</li>
+<li>O89: the example's lineup shadow isn't adopted.</li>
+<li>T2p redrawn at the measures; hand-back H86–H88.</li>
+</ul></li>
+<li><b>Issue 11 · 10 Nov 2026.</b> O75–O84. Merged as #1173.</li>
+</ul></div>
+
+<h2>Data note — Matas's example, measured (1080 × 1920, white ink rows and columns)</h2>
+<table class="t">
+<tr><th>Slot</th><th>Measured</th><th>As a ratio</th></tr>
+<tr><td>Lineup</td><td>5 lines; cap tops y 397, 459, 520, 584, 646; cap 53–55 px; last baseline y 700; right ink edge x 957–960; widest "CAM STOCKMAN" 231 px</td><td>first cap top 0.207 H · cap 0.0276 H · pitch 0.0323 H · right edge 0.889 W</td></tr>
+<tr><td>Experience line</td><td>"SOUTHAMPTON'S" y 852–961, x 299–774; "BIGGEST HOUSE PARTY" y 1003–1110, x 201–878 (677 px); both centred on x 537–540</td><td>cap 0.056 H · pitch 0.0786 H (1.40 of the cap) · centred on 0.50 W</td></tr>
+<tr><td>Claim</td><td>"STUDENT TICKETS SELLING FAST" y 1147–1202 (cap 54 px), x 249–831; 37 px below the experience line's last baseline</td><td>0.50 of the experience line's cap · gap 0.34 of its cap (0.019 H)</td></tr>
+<tr><td>The block</td><td>y 852–1202</td><td>0.444–0.626 H, centred on 0.535 H</td></tr>
+<tr><td>Details</td><td>"SAT 17 OCT" y 1405–1460, "CIRCUIT" y 1468–1522; left ink edge x 131</td><td>cap 0.028 H · pitch 0.0328 H · last baseline 0.793 H · left edge 0.111 W by the text frame (0.121 W by ink)</td></tr>
+<tr><td>Logo</td><td>the PUZZLE wordmark, y 1493–1515, x 786–960</td><td>0.161 W wide · right edge 0.889 W · its ink bottom 7 px above the details' last baseline</td></tr>
+<tr><td>Ground</td><td>mean luma by row: 153 at the top, 119 behind the lineup, 55 behind the experience line, 20 at the bottom</td><td>the lineup sits on the brightest part of the photo</td></tr>
+<tr><td>By eye</td><td>
+<ul>
+<li>Each lineup line carries a darker offset copy under it, a drop shadow or a leftover layer.</li>
+<li>The experience line was typed with two spaces between HOUSE and PARTY.</li>
+<li>The sides are 120 px in from each edge, the video safe area's sides, so the still and the clip share them.</li>
+</ul></td><td>O88 and O89 rule these.</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>O85 Sizes</td><td>This amends O78; its other rows stand.
+<ul>
+<li><b>Experience line:</b> step 0 at the example's cap, 0.056 H, then T2's step ratios: 0.056 / 0.0485 / 0.042 H. The two-line pitch is 1.40 of the cap (0.0786 H at step 0). The width limit is 840 px (x 120–960) on every 9:16, still or clip, replacing 0.86 W on the still. White, centred on 0.50 W.</li>
+<li><b>Claim:</b> cap 0.50 of the experience line's cap at its step, replacing 0.55. The gap from the experience line's last baseline to the claim's first cap top is 0.34 of the experience line's cap (0.019 H at step 0), replacing 0.025 H.</li>
+<li><b>The block</b> is centred on 0.535 H on a still, replacing 0.50 H. With no claim, the experience line alone is centred on the same line.</li>
+</ul></td></tr>
+<tr><td>O86 The other slots</td><td>This amends O79's measures; its words, sources and "&amp; MORE" rule stand.
+<ul>
+<li><b>Lineup:</b> right-aligned on 0.889 W; cap 0.0276 H, pitch 0.0323 H; at most 6 lines and 0.40 W. This replaces the panel kit's 0.857 W, 0.026 H and 0.03 H.</li>
+<li><b>Details:</b> by the text frame on 0.111 W; cap 0.028 H, pitch 0.0328 H. This replaces 0.143 W, 0.0266 H and 0.0307 H.</li>
+<li><b>Logo:</b> its ink box's right edge on 0.889 W and its ink bottom on the details' last baseline. It is the wordmark at 0.161 W wide, or the kit's event lockup at its own 0.25 W (O54). This replaces 0.15 W on the details' centre line.</li>
+<li>The sides, 0.111 W and 0.889 W, are the video safe area's (O43). The still and the clip share them.</li>
+</ul></td></tr>
+<tr><td>O87 Positions</td><td>This amends O80.
+<ul>
+<li><b>9:16 still</b> (Stories):
+<ul>
+<li>the lineup's first cap top at 0.207 H (its last baseline then sits at 0.364 H);</li>
+<li>the block centred on 0.535 H (0.444–0.626 H with Matas's words);</li>
+<li>the details' last baseline on 0.793 H, and the logo's ink bottom on the same line.</li>
+</ul></li>
+<li><b>9:16 clip</b> (Reels / TikTok):
+<ul>
+<li>the lineup as on the still;</li>
+<li>the details' last baseline and the logo's ink bottom on 0.65 H;</li>
+<li>the block centred between the lineup's last baseline and the details' first cap top (0.386–0.567 H with Matas's words).</li>
+</ul>
+Everything stays inside x 120–960, y 269–1248.</li>
+<li><b>4:5 and 1:1:</b> as O80. The still's 4:5 rectangle and the 0.8× re-sit carry these positions: the lineup's first cap top at 0.083, the block at 0.42–0.68 and the details' last baseline at 0.916 of the rectangle.</li>
+</ul></td></tr>
+<tr><td>O88 Two spaces</td><td>This amends O77's "kept verbatim". A run of two or more spaces in a typed experience line is kept as typed, but asked about once on save: "Two spaces after {word} — keep them?", with Keep and Make it one. Matas's example has two after HOUSE. Nothing else in the line is touched.</td></tr>
+<tr><td>O89 The lineup shadow</td><td>Each lineup line in the example carries a darker offset copy under it. It isn't adopted: O5's "no effects" stands, and the top band (O81) carries the lineup's contrast. The example's lineup sits on the brightest part of the photo, with a mean luma of 119 behind it. That is the case O81's top band and its steps exist for.</td></tr>
+</table>
+
+<h2>T2p · redrawn at the measures</h2>
+<p class="lead">At ¼ (9:16) and ⅕ (4:5, 1:1). The ground is a stand-in for Puzzle's crowd photo, and the type a condensed stand-in for Bootzy. Matas's example itself is in the design thread, 10 Nov. On the clip, the red hatch is the platforms' controls and the dashed white line is the safe area. The bands are O81's, at step 0, on the new anchors.</p>
+<div class="frame">
+<figure><figcaption>T2p-916 · still (Stories) · measured from Matas's example · the block centred on 0.535 H</figcaption>
+<div class="sch ph" style="width:270px;height:480px">
+  <div class="bt" style="background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.20) 4%,rgba(0,0,0,0.20) 8%,rgba(0,0,0,0.20) 12%,rgba(0,0,0,0.20) 16%,rgba(0,0,0,0.20) 20%,rgba(0,0,0,0.20) 24%,rgba(0,0,0,0.20) 28%,rgba(0,0,0,0.20) 32%,rgba(0,0,0,0.20) 36%,rgba(0,0,0,0.29) 40%,rgba(0,0,0,0.25) 44%,rgba(0,0,0,0.20) 48%,rgba(0,0,0,0.20) 52%,rgba(0,0,0,0.20) 56%,rgba(0,0,0,0.20) 60%,rgba(0,0,0,0.20) 64%,rgba(0,0,0,0.09) 68%,rgba(0,0,0,0.20) 72%,rgba(0,0,0,0.25) 76%,rgba(0,0,0,0.30) 80%,rgba(0,0,0,0.30) 84%,rgba(0,0,0,0.30) 88%,rgba(0,0,0,0.30) 92%,rgba(0,0,0,0.30) 96%,rgba(0,0,0,0.30) 100%)"></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:96.8px;font-size:18.4px"><span>JAMBACK</span></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:112.3px;font-size:18.4px"><span>MELLA DEE</span></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:127.8px;font-size:18.4px"><span>CAM STOCKMAN</span></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:143.3px;font-size:18.4px"><span>LI LI</span></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:158.8px;font-size:18.4px"><span>&amp; MORE</span></div>
+  <div class="tx c" style="left:30.0px;width:210.1px;top:208.0px;font-size:37.3px"><span>SOUTHAMPTON'S</span></div>
+  <div class="tx c" style="left:30.0px;width:210.1px;top:245.7px;font-size:37.3px"><span>BIGGEST HOUSE PARTY</span></div>
+  <div class="tx c" style="left:30.0px;width:210.1px;top:284.3px;font-size:18.7px"><span>STUDENT TICKETS SELLING FAST</span></div>
+  <div class="tx l" style="left:30.0px;width:108.0px;top:348.8px;font-size:18.7px"><span>SAT 17 OCT</span></div>
+  <div class="tx l" style="left:30.0px;width:108.0px;top:364.6px;font-size:18.7px"><span>CIRCUIT</span></div>
+  <div class="tx r" style="left:196.6px;width:43.5px;top:374.0px;font-size:7.7px"><span>PUZZLE</span></div>
+</div></figure>
+<figure><figcaption>T2p-916-clip · Reels · the details and logo up to 0.65 H · the block between · the claim enters at 1.5 s</figcaption>
+<div class="sch ph" style="width:270px;height:480px">
+  <div class="bt" style="background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.20) 4%,rgba(0,0,0,0.20) 8%,rgba(0,0,0,0.20) 12%,rgba(0,0,0,0.20) 16%,rgba(0,0,0,0.20) 20%,rgba(0,0,0,0.20) 24%,rgba(0,0,0,0.20) 28%,rgba(0,0,0,0.22) 32%,rgba(0,0,0,0.36) 36%,rgba(0,0,0,0.35) 40%,rgba(0,0,0,0.25) 44%,rgba(0,0,0,0.20) 48%,rgba(0,0,0,0.20) 52%,rgba(0,0,0,0.31) 56%,rgba(0,0,0,0.36) 60%,rgba(0,0,0,0.28) 64%,rgba(0,0,0,0.30) 68%,rgba(0,0,0,0.30) 72%,rgba(0,0,0,0.30) 76%,rgba(0,0,0,0.30) 80%,rgba(0,0,0,0.30) 84%,rgba(0,0,0,0.30) 88%,rgba(0,0,0,0.30) 92%,rgba(0,0,0,0.30) 96%,rgba(0,0,0,0.30) 100%)"></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:96.8px;font-size:18.4px"><span>JAMBACK</span></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:112.3px;font-size:18.4px"><span>MELLA DEE</span></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:127.8px;font-size:18.4px"><span>CAM STOCKMAN</span></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:143.3px;font-size:18.4px"><span>LI LI</span></div>
+  <div class="tx r" style="left:132.0px;width:108.0px;top:158.8px;font-size:18.4px"><span>&amp; MORE</span></div>
+  <div class="tx c" style="left:30.0px;width:210.1px;top:179.9px;font-size:37.3px"><span>SOUTHAMPTON'S</span></div>
+  <div class="tx c" style="left:30.0px;width:210.1px;top:217.6px;font-size:37.3px"><span>BIGGEST HOUSE PARTY</span></div>
+  <div class="tx c" style="left:30.0px;width:210.1px;top:256.3px;font-size:18.7px"><span>STUDENT TICKETS SELLING FAST</span></div>
+  <div class="tx l" style="left:30.0px;width:108.0px;top:280.2px;font-size:18.7px"><span>SAT 17 OCT</span></div>
+  <div class="tx l" style="left:30.0px;width:108.0px;top:295.9px;font-size:18.7px"><span>CIRCUIT</span></div>
+  <div class="tx r" style="left:196.6px;width:43.5px;top:305.4px;font-size:7.7px"><span>PUZZLE</span></div>
+  <div class="ui2" style="top:0;height:67px"></div>
+  <div class="ui2" style="top:312px;height:168px"></div>
+  <div class="safe2" style="left:30px;top:67px;width:210px;height:245px"></div>
+  <span class="lbl" style="left:4px;top:318px;z-index:4">Reels / TikTok controls</span>
+  <span class="lbl" style="right:4px;top:300px;z-index:4">0.65 H</span>
+</div></figure>
+<figure><figcaption>T2p-45 · the 9:16 still's 4:5 rectangle (O1)</figcaption>
+<div class="sch ph" style="width:216px;height:270px">
+  <div class="bt" style="background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.20) 4%,rgba(0,0,0,0.20) 8%,rgba(0,0,0,0.20) 12%,rgba(0,0,0,0.20) 16%,rgba(0,0,0,0.20) 20%,rgba(0,0,0,0.20) 24%,rgba(0,0,0,0.20) 28%,rgba(0,0,0,0.21) 32%,rgba(0,0,0,0.29) 36%,rgba(0,0,0,0.28) 40%,rgba(0,0,0,0.21) 44%,rgba(0,0,0,0.20) 48%,rgba(0,0,0,0.20) 52%,rgba(0,0,0,0.20) 56%,rgba(0,0,0,0.20) 60%,rgba(0,0,0,0.20) 64%,rgba(0,0,0,0.20) 68%,rgba(0,0,0,0.19) 72%,rgba(0,0,0,0.09) 76%,rgba(0,0,0,0.17) 80%,rgba(0,0,0,0.22) 84%,rgba(0,0,0,0.26) 88%,rgba(0,0,0,0.29) 92%,rgba(0,0,0,0.30) 96%,rgba(0,0,0,0.30) 100%)"></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:20.4px;font-size:14.7px"><span>JAMBACK</span></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:32.8px;font-size:14.7px"><span>MELLA DEE</span></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:45.2px;font-size:14.7px"><span>CAM STOCKMAN</span></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:57.6px;font-size:14.7px"><span>LI LI</span></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:70.0px;font-size:14.7px"><span>&amp; MORE</span></div>
+  <div class="tx c" style="left:24.0px;width:168.0px;top:109.4px;font-size:29.9px"><span>SOUTHAMPTON'S</span></div>
+  <div class="tx c" style="left:24.0px;width:168.0px;top:139.6px;font-size:29.9px"><span>BIGGEST HOUSE PARTY</span></div>
+  <div class="tx c" style="left:24.0px;width:168.0px;top:170.5px;font-size:14.9px"><span>STUDENT TICKETS SELLING FAST</span></div>
+  <div class="tx l" style="left:24.0px;width:86.4px;top:222.1px;font-size:14.9px"><span>SAT 17 OCT</span></div>
+  <div class="tx l" style="left:24.0px;width:86.4px;top:234.7px;font-size:14.9px"><span>CIRCUIT</span></div>
+  <div class="tx r" style="left:157.2px;width:34.8px;top:242.2px;font-size:6.1px"><span>PUZZLE</span></div>
+</div></figure>
+<figure><figcaption>T2p-11 · 0.8× re-sit (O1), the same fractions</figcaption>
+<div class="sch ph" style="width:216px;height:216px">
+  <div class="bt" style="background:linear-gradient(180deg,rgba(0,0,0,0.20) 0%,rgba(0,0,0,0.20) 4%,rgba(0,0,0,0.20) 8%,rgba(0,0,0,0.20) 12%,rgba(0,0,0,0.20) 16%,rgba(0,0,0,0.20) 20%,rgba(0,0,0,0.20) 24%,rgba(0,0,0,0.20) 28%,rgba(0,0,0,0.21) 32%,rgba(0,0,0,0.29) 36%,rgba(0,0,0,0.28) 40%,rgba(0,0,0,0.21) 44%,rgba(0,0,0,0.20) 48%,rgba(0,0,0,0.20) 52%,rgba(0,0,0,0.20) 56%,rgba(0,0,0,0.20) 60%,rgba(0,0,0,0.20) 64%,rgba(0,0,0,0.20) 68%,rgba(0,0,0,0.19) 72%,rgba(0,0,0,0.09) 76%,rgba(0,0,0,0.17) 80%,rgba(0,0,0,0.22) 84%,rgba(0,0,0,0.26) 88%,rgba(0,0,0,0.29) 92%,rgba(0,0,0,0.30) 96%,rgba(0,0,0,0.30) 100%)"></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:16.3px;font-size:11.8px"><span>JAMBACK</span></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:26.3px;font-size:11.8px"><span>MELLA DEE</span></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:36.2px;font-size:11.8px"><span>CAM STOCKMAN</span></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:46.1px;font-size:11.8px"><span>LI LI</span></div>
+  <div class="tx r" style="left:105.6px;width:86.4px;top:56.0px;font-size:11.8px"><span>&amp; MORE</span></div>
+  <div class="tx c" style="left:24.0px;width:168.0px;top:87.5px;font-size:23.9px"><span>SOUTHAMPTON'S</span></div>
+  <div class="tx c" style="left:24.0px;width:168.0px;top:111.7px;font-size:23.9px"><span>BIGGEST HOUSE PARTY</span></div>
+  <div class="tx c" style="left:24.0px;width:168.0px;top:136.4px;font-size:11.9px"><span>STUDENT TICKETS SELLING FAST</span></div>
+  <div class="tx l" style="left:24.0px;width:86.4px;top:177.7px;font-size:11.9px"><span>SAT 17 OCT</span></div>
+  <div class="tx l" style="left:24.0px;width:86.4px;top:187.7px;font-size:11.9px"><span>CIRCUIT</span></div>
+  <div class="tx r" style="left:157.2px;width:34.8px;top:193.8px;font-size:4.9px"><span>PUZZLE</span></div>
+</div></figure>
+</div>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>H86 Measures</td><td>O85–O87 replace issue 11's values; H79 and H81 are checked at these.</td><td>—</td><td>Matas's words fit step 0 within 840 px; on the 9:16 still every ink box is within 0.005 H and 0.005 W of the data note's, side-bearing aside</td></tr>
+<tr><td>H87 Two spaces</td><td>O88's ask on save, with Keep and Make it one.</td><td>—</td><td>Matas's line asks once; Keep saves it as typed</td></tr>
+<tr><td>H88 Drafts</td><td>H85, judged against this issue's data note.</td><td>Puzzle's promoter photos and clips</td><td>as H86, by the design thread</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>Measured, not invented: every still size and position above.</li>
+<li>Invented: the step sizes below step 0 (T2's ratios); the clip's details on 0.65 H and the block between; the two-spaces ask and its words.</li>
+</ul>
+
+<h2>Frames</h2>
+<table class="t">
+<tr><th>Id</th><th>Formats</th><th>Source</th></tr>
+<tr><td>T2p (redrawn)</td><td>9:16 still and clip, 4:5, 1:1</td><td>Matas's example, measured; supersedes issue 11's T2p</td></tr>
+</table>
+
+</div></body>
+</html>

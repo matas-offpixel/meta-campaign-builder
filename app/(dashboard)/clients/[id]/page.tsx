@@ -8,8 +8,10 @@ import {
   listQuotesServer,
 } from "@/lib/db/invoicing-server";
 import { getShareForClient } from "@/lib/db/report-shares";
+import { listOwnedClientReports } from "@/lib/db/client-reports";
 import { listLatestSnapshotsForClient } from "@/lib/db/client-snapshots-server";
 import { listConnectionsForUser } from "@/lib/db/ticketing";
+import { loadClientLadder } from "@/lib/db/releases";
 import {
   listD2CConnectionsForUser,
   listD2CTemplatesForUser,
@@ -80,6 +82,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     clientInvoices,
     clientQuotes,
     share,
+    reports,
     latestSnapshots,
     ticketing,
     d2c,
@@ -98,6 +101,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     listInvoicesForClientWithRefsServer(user.id, id),
     listQuotesServer(user.id, { client_id: id }),
     getShareForClient(id),
+    listOwnedClientReports(id),
     listLatestSnapshotsForClient(user.id, id),
     listConnectionsForUser(supabase, { clientId: id }),
     listD2CConnectionsForUser(supabase, { clientId: id }),
@@ -229,6 +233,11 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     },
   ];
 
+  const ladder = await loadClientLadder(supabase, id).catch((err) => {
+    console.error("[client detail] claim ladder", err);
+    return null;
+  });
+
   const initialTab: ClientTab =
     tab && ALLOWED_TABS.has(tab) ? (tab as ClientTab) : "overview";
 
@@ -240,6 +249,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       clientQuotes={clientQuotes}
       defaults={defaults}
       initialShare={initialShare}
+      initialReports={reports}
       latestSnapshots={latestSnapshots}
       ticketingConnections={safeTicketing}
       ticketingLinkDiscoveryStats={ticketingLinkDiscoveryStats}
@@ -252,6 +262,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       portal={portal.ok ? portal : null}
       hasTaggedEvents={hasTaggedEvents}
       campaignsData={campaignsData}
+      ladder={ladder}
       optimisationPresets={optimisationPresets}
       optimisationObjectivesInUse={objectivesInUse}
     />

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { planVideoRowLine } from "../creative-lab/import-quality.ts";
+
 import sharp from "sharp";
 
 import { probeAspectFromBuffer } from "../clients/asset-queue/aspect-detect.server.ts";
@@ -412,11 +414,18 @@ export async function syncPlanCreativeIntake(
   const sendAssets: IntakeSendAsset[] = intakeAssets.assets.flatMap((row) => {
     const asset = byRegistry.get(row.assetId);
     if (!asset) return [];
+    const bucket = effectiveBucket(row.detectedBucket, row.aspectOverride);
     return [{
       id: asset.id,
       mediaKind: asset.mediaKind,
-      bucket: effectiveBucket(row.detectedBucket, row.aspectOverride),
+      bucket,
       groupId: groupOf.get(asset.id) ?? null,
+      videoHold: planVideoRowLine({
+        mediaKind: asset.mediaKind,
+        width: row.detectedWidth,
+        height: row.detectedHeight,
+        bucket,
+      }) != null,
     }];
   });
   const creativeById = new Map(drafts.meta.creatives.map((creative) => [creative.id, creative]));

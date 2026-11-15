@@ -79,7 +79,7 @@
     },
     {
       "path": "/api/cron/refresh-client-portal-snapshots",
-      "schedule": "0 7,13,19 * * *"
+      "schedule": "15 7,13,19 * * *"
     },
     {
       "path": "/api/cron/cron-health-check",
@@ -106,8 +106,40 @@
       "schedule": "30 3 * * *"
     },
     {
+      "path": "/api/cron/onsale-refresh",
+      "schedule": "0 6 * * 1"
+    },
+    {
+      "path": "/api/cron/onsale-refresh?post=pending",
+      "schedule": "5 10 * * 1"
+    },
+    {
+      "path": "/api/cron/creative-lab-clip-sync",
+      "schedule": "45 3 * * *"
+    },
+    {
       "path": "/api/cron/google-ads-daily-insights",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/cron-alarm-evaluator",
+      "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/creative-lab-render-tick",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/creative-lab-drive-tick",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/creative-lab-drive-pickup",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/internal-counts-pull",
+      "schedule": "0 8-19 * * 1-5"
     }
   ]
 }

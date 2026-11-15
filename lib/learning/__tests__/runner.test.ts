@@ -5,12 +5,13 @@ import { describe, it } from "node:test";
 import { fakeDb, op } from "../../launched-ads/__tests__/fake-db.ts";
 import { currencyResolver } from "../currency.ts";
 import type { LearningInputs } from "../joins.ts";
-import { LEARNING_JOBS, runLearningRefresh } from "../runner.ts";
+import { LEARNING_JOBS, learningRefreshRunLog, runLearningRefresh } from "../runner.ts";
 import { CLIENTS, NOW, TAGS, fact } from "./fixtures.ts";
 
 function inputs(): LearningInputs {
   return {
     clients: CLIENTS,
+    shows: new Map(),
     archivedClientIds: new Set(["client-archived"]),
     facts: [
       fact(
@@ -56,10 +57,47 @@ describe("learning-refresh killswitch", () => {
     assert.match(claude, /\/api\/cron\/learning-refresh/);
   });
 
+  it("the run log sums jobs[*].rows and keeps each job's count", () => {
+    const body = {
+      ok: true,
+      jobs: {
+        creative_scores: { ok: true, rows: 10 },
+        tag_performance: { ok: true, rows: 4 },
+        client_funnel_benchmarks: { ok: true, rows: 2 },
+        interest_live_evidence: { ok: true, rows: 1 },
+        copy_performance: { ok: true, rows: 846 },
+      },
+    };
+    assert.deepEqual(learningRefreshRunLog(body), {
+      rows: 863,
+      detail: {
+        jobs: {
+          creative_scores: 10,
+          tag_performance: 4,
+          client_funnel_benchmarks: 2,
+          interest_live_evidence: 1,
+          copy_performance: 846,
+        },
+      },
+    });
+    assert.deepEqual(learningRefreshRunLog({ ok: true, skippedReason: "killswitch" }), {
+      rows: 0,
+      detail: {},
+    });
+    const route = readFileSync("app/api/cron/learning-refresh/route.ts", "utf8");
+    assert.match(route, /learningRefreshRunLog\(b\)\.rows/);
+    assert.match(route, /detail: \(b\) => learningRefreshRunLog\(b\)\.detail/);
+    assert.doesNotMatch(route, /rowsWritten/);
+  });
+
   it("no lib/learning module calls Meta", () => {
-    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency"]) {
+    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan", "copy/artist-confirm", "copy-features", "copy/features"]) {
       const source = readFileSync(`lib/learning/${file}.ts`, "utf8");
       assert.doesNotMatch(source, /graph\.facebook|graphGet|from "\.\.\/meta\/client/, file);
+    }
+    // The one outbound call in lib/learning is Spotify, from artist-confirm only.
+    for (const file of ["joins", "tag-performance", "creative-scores", "funnel-benchmarks", "interest-evidence", "runner", "read", "shrink", "currency", "copy-performance", "copy/normalise", "copy/score", "copy/shows", "copy/artist-extraction", "copy/artist-plan", "copy-features", "copy/features"]) {
+      assert.doesNotMatch(readFileSync(`lib/learning/${file}.ts`, "utf8"), /\bfetch\(/, file);
     }
   });
 });
@@ -102,11 +140,22 @@ describe("learning-refresh jobs", () => {
     assert.equal(result.ok, true);
     assert.deepEqual(
       LEARNING_JOBS.map((n) => result.jobs[n].rows),
-      [2, 3, 2, 1],
+      [2, 3, 2, 1, 0, 0, 0],
     );
+    assert.equal(result.jobs.artist_library.detail?.spotify, "missing");
+    assert.equal(result.preview?.copyFeatures.length, 0);
     assert.equal(result.preview?.tagPerformance.length, 3);
     assert.ok(calls.every((c) => !op(c, "upsert") && !op(c, "update") && !op(c, "delete") && !op(c, "insert")));
     assert.deepEqual(result.joinRates["client-a"], { adDays: 1, tagged: 1, byAdId: 0, byName: 1, rate: 1 });
+  });
+});
+
+describe("migration 208", () => {
+  it("adds events_n for distinct shows and does not rewrite the shrinkage n", () => {
+    const sql = readFileSync("supabase/migrations/208_tag_performance_events_n.sql", "utf8");
+    assert.match(sql, /add column if not exists events_n integer not null default 0/);
+    assert.match(sql, /Distinct real shows/);
+    assert.doesNotMatch(sql, /drop column/);
   });
 });
 

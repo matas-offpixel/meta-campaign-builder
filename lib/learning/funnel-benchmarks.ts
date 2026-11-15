@@ -3,9 +3,11 @@
  * of learning facts per active client:
  *   reach_to_click  = link_clicks ÷ reach
  *   click_to_lpv    = landing_page_views ÷ link_clicks
- *   lpv_to_purchase = purchases ÷ landing_page_views, ticket-sale days only
- *                     (registration-phase LPVs land on signup pages and
- *                     cannot purchase)
+ *   lpv_to_purchase = the ticket-sale result ÷ landing_page_views,
+ *                     ticket-sale days only (registration-phase LPVs land
+ *                     on signup pages). The result is purchases, or
+ *                     initiate checkout when that is the ad set's
+ *                     promoted event.
  * Reach is summed across ad-days, so it overcounts people and
  * reach_to_click reads low. n = impressions; confidence is the thin / ok /
  * strong rule stored as CONFIDENCE_SCORE. A rate above 1 (the 158 check)
@@ -52,7 +54,7 @@ export function computeFunnelBenchmarks(
     s.lpv += lpv;
     if (f.stage === "ticket_sale") {
       s.ticketLpv += lpv;
-      s.purchases += Number(f.row.purchases) || 0;
+      s.purchases += f.result ?? 0;
     }
     s.impressions += Number(f.row.impressions) || 0;
     s.spend += f.spendGbp;

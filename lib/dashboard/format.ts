@@ -14,6 +14,7 @@
  */
 
 import type { EventWithClient } from "@/lib/db/events";
+import { daysUntilEvent } from "../creative-lab/payday.ts";
 import { ALL_CLIENT_STATUSES, ARCHIVED } from "../db/client-status.ts";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -167,17 +168,15 @@ export function daysBetween(a: Date, b: Date): number {
  *   - Returns null (rather than "—") when no date is supplied so the
  *     caller can hide the pill entirely.
  *
- * `now` is required so callers can sample it via useState lazy
- * initializer at mount and keep React 19 effect-purity happy.
+ * `now` is one instant from the server, so the pill matches on server and client.
+ * The count is London calendar days, the same day the rest of the event page uses.
  */
 export function fmtDaysUntilEvent(
   iso: string | null | undefined,
   now: Date,
 ): { label: string; isPast: boolean } | null {
-  const eventDate = parseFlexible(iso);
-  if (!eventDate) return null;
-
-  const diff = daysBetween(midnightOf(now), midnightOf(eventDate));
+  const diff = daysUntilEvent(iso, now);
+  if (diff == null) return null;
   if (diff === 0) return { label: "today", isPast: false };
   if (diff === 1) return { label: "tomorrow", isPast: false };
   if (diff > 1) return { label: `in ${diff} days`, isPast: false };

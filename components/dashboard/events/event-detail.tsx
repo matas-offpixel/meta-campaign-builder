@@ -6,36 +6,39 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Loader2,
-  Pencil,
-  Trash2,
   Megaphone,
-  ExternalLink,
   CheckCircle2,
   Circle,
   BarChart3,
   Plus,
-  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TabPanel } from "@/components/ui/tabs";
-import { PageHeader } from "@/components/dashboard/page-header";
 import { StatusPill } from "@/components/dashboard/_shared/status-pill";
-import { KindBadge } from "@/components/dashboard/_shared/kind-badge";
 import {
   EventDetailTabs,
   type EventTab,
 } from "@/components/dashboard/events/event-detail-tabs";
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
 import { EventVenuePanel } from "@/components/dashboard/events/event-venue-panel";
-import { EventArtistRosterPanel } from "@/components/dashboard/events/event-artist-roster-panel";
-import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
+import { LiveReleases } from "@/components/dashboard/asset-bank/live";
+import { OffersSheet } from "@/components/dashboard/asset-bank/surface";
+import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
+import { OnSaleRefreshPanel } from "@/components/dashboard/events/onsale-refresh-panel";
+import { isOnSale } from "@/lib/onsale-refresh/on-sale";
+import { todayLondon } from "@/lib/onsale-refresh/schedule";
+import { InsightsPageContext } from "@/components/insights-rail/rail-context";
+import { railLabFromCard } from "@/lib/insights-rail/lab-summary";
+import { stageForEventStatus } from "@/lib/insights-rail/model";
+import { DriveLive } from "@/components/dashboard/events/drive/live";
+import { EventDetailHeader } from "@/components/dashboard/events/event-detail-header";
+import type { CreativeLabCardData } from "@/lib/db/creative-lab";
+import { londonDayMonth } from "@/lib/releases/london";
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
 import { EventActivityPanel } from "@/components/dashboard/events/event-activity-panel";
 import { EventActiveCreativesPanel } from "@/components/dashboard/events/event-active-creatives-panel";
 import { LinkedCampaignsPerformance } from "@/components/dashboard/events/linked-campaigns-performance";
-import { EventbriteLiveBlock } from "@/components/dashboard/events/eventbrite-live-block";
-import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-link-panel";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
 import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
@@ -68,7 +71,6 @@ import { EventInvoicingPanel } from "@/components/invoicing/event-invoicing-pane
 import {
   fmtDate,
   fmtDateTime,
-  fmtDaysUntilEvent,
   fmtShort,
 } from "@/lib/dashboard/format";
 
@@ -148,6 +150,19 @@ interface Props {
   ticketTiers: EventTicketTierRow[];
   /** Existing Google Ads plan id for the Reporting tab, when present. */
   initialGoogleAdsPlanId: string | null;
+  lab: CreativeLabCardData | null;
+  /** When the page was rendered. Dates on this page count from this, not the browser clock. */
+  nowIso: string;
+  /** Releases and the client's ladder. Null until migration 211 is applied. */
+  bank?: {
+    eventId: string;
+    releases: import("@/lib/releases/types").Release[];
+    ladder: import("@/lib/releases/types").LadderRung[];
+    counts: { at: string; sold: number }[];
+    eventAt: string | null;
+    artists: { name: string; addedAt: string }[];
+    lastProposalAt: string | null;
+  } | null;
 }
 
 /**
@@ -172,6 +187,9 @@ export function EventDetail({
   ticketingSummary,
   ticketTiers,
   initialGoogleAdsPlanId,
+  lab,
+  nowIso,
+  bank = null,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
   // resolved here so the Tickets sold StatCard, the read-only panel
@@ -194,10 +212,7 @@ export function EventDetail({
   // reverts on persist error so the UI never lies for long.
   const [favourite, setFavouriteLocal] = useState(event.favourite);
   const [favWorking, setFavWorking] = useState(false);
-  // Sample now once at mount via lazy initializer to keep the days-until
-  // pill stable across re-renders + satisfy React 19 effect purity.
-  const [now] = useState(() => new Date());
-  const daysUntil = fmtDaysUntilEvent(event.event_date, now);
+  const now = new Date(nowIso);
   const [wiredCampaignCount, setWiredCampaignCount] = useState<number | null>(null);
 
   const [reportDatePreset, setReportDatePreset] =
@@ -285,102 +300,31 @@ export function EventDetail({
 
   return (
     <>
-      <PageHeader
-        title={
-          <span className="inline-flex min-w-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={handleToggleFavourite}
-              disabled={favWorking}
-              aria-label={favourite ? "Unfavourite event" : "Favourite event"}
-              aria-pressed={favourite}
-              title={favourite ? "Unfavourite" : "Favourite"}
-              className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-            >
-              <Star
-                className={`h-4 w-4 ${
-                  favourite ? "fill-amber-400 text-amber-400" : ""
-                }`}
-              />
-            </button>
-            <span className="truncate">{event.name}</span>
-            <KindBadge kind={event.kind} />
-            {daysUntil && !isBrand && (
-              <span
-                className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal tracking-normal ${
-                  daysUntil.isPast
-                    ? "border-border text-muted-foreground"
-                    : "border-border-strong text-foreground"
-                }`}
-              >
-                {daysUntil.label}
-              </span>
-            )}
-            {linkedQuote && (
-              <Link
-                href={`/invoicing/quotes/${linkedQuote.id}`}
-                className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] font-normal tracking-normal text-muted-foreground hover:border-border-strong hover:text-foreground"
-                title="View originating quote"
-              >
-                From quote {linkedQuote.quote_number}
-              </Link>
-            )}
-          </span>
-        }
-        description={
-          event.client?.name
-            ? `${event.client.name} · ${event.status.replace("_", " ")}`
-            : event.status.replace("_", " ")
-        }
-        actions={
-          <>
-            {event.client && (
-              <Link href={`/clients/${event.client.id}`}>
-                <Button variant="outline" size="sm">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  View client
-                </Button>
-              </Link>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(`/events/${event.id}/edit`)}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </Button>
-            {confirmDelete ? (
-              <>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleDelete}
-                  disabled={working}
-                >
-                  Confirm delete
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirmDelete(false)}
-                  disabled={working}
-                >
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfirmDelete(true)}
-                disabled={working}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </>
-        }
+      <InsightsPageContext
+        surface="event"
+        title={event.name}
+        clientId={event.client?.id ?? null}
+        clientName={event.client?.name ?? null}
+        verticalId={null}
+        eventId={event.id}
+        stage={stageForEventStatus(event.status)}
+        objective={null}
+        lab={railLabFromCard(lab)}
+      />
+      <EventDetailHeader
+        event={event}
+        lab={lab}
+        linkedQuote={linkedQuote}
+        favourite={favourite}
+        favWorking={favWorking}
+        now={now}
+        confirmDelete={confirmDelete}
+        working={working}
+        onToggleFavourite={() => void handleToggleFavourite()}
+        onEdit={() => router.push(`/events/${event.id}/edit`)}
+        onAskDelete={() => setConfirmDelete(true)}
+        onCancelDelete={() => setConfirmDelete(false)}
+        onDelete={() => void handleDelete()}
       />
 
       <main className="flex-1 px-6 py-6">
@@ -400,15 +344,9 @@ export function EventDetail({
           )}
 
           {/*
-            Eventbrite block + link panel used to render here,
-            visible above every tab. Moved into the Overview tab
-            in PR #57 #2 because they're operational/admin
-            surfaces, not reporting data — keeping them above
-            every tab made the Reporting view diverge from the
-            public /share/report/[token] surface clients see. The
-            Reporting tab now mirrors the share URL exactly; link
-            binding + live capacity numbers live on Overview with
-            the rest of the operational metadata.
+            Ticketing setup is the client Ticketing tab. Tickets sold
+            sits on Reporting, after the tiers. The share report is
+            unchanged: it still reads the same summary.
           */}
 
           <EventDetailTabs
@@ -420,75 +358,31 @@ export function EventDetail({
           {/* ───── Overview ───── */}
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
-              {/*
-                Eventbrite live block + link/binding panel — moved
-                here from the above-tabs slot in PR #57 #2. They're
-                operational (capacity / sell-through / connection
-                config), not reporting, so they belong on the
-                Overview surface alongside venue + dates + drive
-                folder. The live block handles its own empty /
-                not-linked / linked states; the link panel renders
-                its own change CTA when a binding already exists.
-                Brand campaigns skip this entire block (no tickets
-                concept).
-              */}
-              {!isBrand && event.client_id && (
-                <div className="space-y-3">
-                  <EventbriteLiveBlock
-                    eventId={event.id}
-                    clientId={event.client_id}
-                    fallbackCapacity={event.capacity}
-                    initialLinks={ticketingSummary.links}
-                    initialConnection={ticketingSummary.connection}
-                    initialLatestSnapshot={ticketingSummary.latestSnapshot}
-                    aggregatedTicketsSold={
-                      ticketingSummary.aggregatedTicketsSold
-                    }
-                    aggregatedCapacity={ticketingSummary.aggregatedCapacity}
-                    aggregatedGrossRevenueCents={
-                      ticketingSummary.aggregatedGrossRevenueCents
-                    }
-                    aggregatedCurrency={ticketingSummary.aggregatedCurrency}
-                  />
-                  <EventbriteLinkPanel
-                    eventId={event.id}
-                    clientId={event.client_id}
-                    availableConnections={
-                      ticketingSummary.availableConnections
-                    }
-                    existingLinks={ticketingSummary.links}
-                  />
-                </div>
-              )}
-              {/*
-                Manual tickets-sold fallback (PR #57 #2). Only
-                rendered when there's no Eventbrite link bound for
-                this event — once the API connection is live the
-                manual override is redundant noise (and risks
-                drifting out of sync with the live snapshot). When
-                a plan-derived value is present the panel itself
-                flips to read-only; this gate just hides the whole
-                section when ticketing is API-driven.
-              */}
-              {!isBrand && ticketingSummary.links.length === 0 && (
-                <div className="space-y-2">
-                  <TicketsSoldPanel
-                    eventId={event.id}
-                    initialTicketsSold={initialTicketsSold}
-                    planTickets={planTickets}
-                  />
-                  <a
-                    href={`/events/${event.id}/manual-tickets`}
-                    className="inline-block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                  >
-                    Or bulk-enter historical ticket counts →
-                  </a>
-                </div>
-              )}
+              {bank && bank.releases.length ? (
+                <LiveReleases
+                  eventId={bank.eventId}
+                  releases={bank.releases}
+                  ladder={bank.ladder}
+                  now={nowIso}
+                  status={event.status}
+                  counts={bank.counts}
+                  eventAt={bank.eventAt}
+                  artists={bank.artists}
+                  lastProposalAt={bank.lastProposalAt}
+                />
+              ) : null}
+              {bank && event.status !== "cancelled" ? <OffersSheet eventId={bank.eventId} /> : null}
+              {lab ? <CreativeLabCard lab={lab} quoteMode presentation="owner" driveFolderId={event.drive_folder_id} /> : null}
+              {!isBrand && isOnSale(event as unknown as { status: string | null; event_date: string | null; general_sale_at: string | null }, todayLondon(new Date())) ? <OnSaleRefreshPanel eventId={event.id} eventDate={event.event_date ?? null} /> : null}
+              {!isBrand && event.client_id ? (
+                <p className="text-sm">
+                  <Link className="underline" href={`/clients/${event.client_id}?tab=ticketing`}>Ticketing</Link>
+                </p>
+              ) : null}
               {isBrand ? (
                 <BrandCampaignSummary event={event} />
               ) : (
-                <MilestoneTimeline event={event} />
+                <MilestoneTimeline event={event} nowIso={nowIso} />
               )}
               <OverviewSection event={event} />
               {!isBrand && (
@@ -503,17 +397,15 @@ export function EventDetail({
                     fallbackName={event.venue_name ?? null}
                     fallbackCity={event.venue_city ?? null}
                   />
-                  <EventArtistRosterPanel eventId={event.id} />
                   <DatesSection event={event} />
                 </>
               )}
               <LinksSection event={event} />
-              <GoogleDriveCard
+              <DriveLive
                 eventId={event.id}
                 eventName={event.name}
-                clientName={event.client?.name ?? null}
-                folderId={event.google_drive_folder_id ?? null}
-                folderUrl={event.google_drive_folder_url ?? null}
+                hasFolder={Boolean(event.drive_folder_id)}
+                artists={(lab?.artists ?? []).map((artist) => ({ id: artist.id, name: artist.name }))}
               />
               <PlatformConfigCard
                 eventId={event.id}
@@ -728,12 +620,21 @@ export function EventDetail({
                 <TicketTiersSection tiers={ticketTiers} />
               )}
 
-              {/*
-                TicketsSoldPanel + Eventbrite live/link blocks
-                used to render here. They're operational, not
-                reporting — see the matching JSDocs / placement
-                in the Overview tab above.
-              */}
+              {!isBrand && ticketingSummary.links.length === 0 && (
+                <div className="space-y-2">
+                  <TicketsSoldPanel
+                    eventId={event.id}
+                    initialTicketsSold={initialTicketsSold}
+                    planTickets={planTickets}
+                  />
+                  <a
+                    href={`/events/${event.id}/manual-tickets`}
+                    className="inline-block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Or bulk-enter historical ticket counts →
+                  </a>
+                </div>
+              )}
 
               {/*
                 Per-channel reporting sub-tabs (Meta / TikTok / Google
@@ -1102,10 +1003,8 @@ function NotesSection({ notes }: { notes: string }) {
 
 // ─── Milestone timeline ──────────────────────────────────────────────────────
 
-function MilestoneTimeline({ event }: { event: EventWithClient }) {
-  // useState lazy initializer is the React-sanctioned escape hatch for
-  // reading from Date on mount without breaking the purity rule.
-  const [now] = useState(() => Date.now());
+function MilestoneTimeline({ event, nowIso }: { event: EventWithClient; nowIso: string }) {
+  const now = new Date(nowIso).getTime();
 
   // Common shape: announcement is the only "go live" date and there's
   // no separate presale/GA window. Show General sale at announcement_at
@@ -1184,7 +1083,7 @@ function MilestoneTimeline({ event }: { event: EventWithClient }) {
                   item.date ? "text-foreground" : "text-muted-foreground/60"
                 }`}
               >
-                {item.iso ? fmtShort(item.iso) : "Not set"}
+                {item.iso ? londonDayMonth(item.iso) : "Not set"}
               </p>
               {item.sublabel && (
                 <p className="text-[10px] text-muted-foreground/80">

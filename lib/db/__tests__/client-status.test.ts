@@ -127,7 +127,8 @@ describe("archived-client wiring in routes and pages", () => {
   it("mailchimp crons drop archived clients' events from every events read", () => {
     const eod = read("app/api/cron/mailchimp-eod-snapshot/route.ts");
     assert.equal((eod.match(/dropArchivedClientRows\(/g) ?? []).length, 2);
-    assert.match(eod, /select\("id, client_id, mailchimp_tag"\)/);
+    // The CIRQLIN leg's events read (paged since HN2, by page id or tag) still carries client_id for the drop.
+    assert.match(eod, /"id,client_id,mailchimp_tag,cirqlin_page_id"/);
     const sync = read("app/api/cron/sync-mailchimp-audiences/route.ts");
     assert.equal((sync.match(/dropArchivedClientRows\(/g) ?? []).length, 2);
   });

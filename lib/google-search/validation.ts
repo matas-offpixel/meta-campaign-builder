@@ -23,6 +23,7 @@ import {
   resolveCampaignDailyBudgets,
 } from "./budget.ts";
 import { isValidLandingUrl } from "./final-url-state.ts";
+import { resolutionMatchesLocation } from "./geo-row-state.ts";
 import { findNegativeKeywordConflicts } from "./negative-conflicts.ts";
 import {
   GOOGLE_SEARCH_LIMITS,
@@ -290,6 +291,7 @@ export const REVIEW_WARNING_CODES: ReadonlySet<string> = new Set([
   "budget_exceeds_plan",
   "negative_blocks_exact_query",
   "merged_cap_spread",
+  "geo_resolution_mismatch",
 ]);
 
 /** Above this ratio a merged campaign's single ceiling is far from a theme's own cap. */
@@ -481,6 +483,21 @@ function softWarnings(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[]
   // The push adapter handles unresolved targets gracefully (skips them), but
   // warn so the operator knows before pushing.
   for (const geo of tree.plan.geo_targets) {
+    // A stored id whose canonical name does not belong to the location text
+    // is the late-resolve bug (box says United Kingdom, tick says Newcastle).
+    // Push looks the text up again. Review says so; it does not hard-block,
+    // or the route would refuse before that re-resolve can run.
+    if (
+      geo.resolved_resource_name?.trim() &&
+      geo.resolved_name?.trim() &&
+      !resolutionMatchesLocation(geo.location, geo.resolved_name)
+    ) {
+      warnings.push({
+        severity: "warning",
+        code: "geo_resolution_mismatch",
+        message: `Geo target "${geo.location}" is stored as "${geo.resolved_name}". Push will look it up again.`,
+      });
+    }
     // A null resolved_resource_name with a non-empty location means the wizard
     // tried to resolve and found nothing. Entries where the field is absent
     // (undefined) are XLSX-imported targets that haven't been through the

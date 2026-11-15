@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative Lab — the caption follows the footage's owner — 10 Nov 2026</title>
+
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+figure{margin:0 0 28px}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px;line-height:1.5}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:7px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;white-space:nowrap}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:10px;padding:20px;overflow:hidden}
+.vp.w1280{max-width:1280px}.vp.w393{width:393px;padding:16px}
+.sec{background:var(--card);border-radius:10px;padding:16px 18px;margin-bottom:14px}
+.sh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.sh b{font-size:15px}.sh .sub{font-size:12px;color:var(--ink-3)}
+.note{font-size:12px;color:var(--ink-2);margin:4px 0 10px}
+.grp{margin-top:14px}
+.gh{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.gh b{font-size:13px}.gh span{font-size:11.5px;color:var(--ink-3)}
+.tiles{display:flex;gap:10px;flex-wrap:wrap}
+.tile{width:96px}
+.fr{width:96px;height:170px;border-radius:6px;background:linear-gradient(180deg,#5b4b3e,#2b241e);position:relative}
+.fr .bd{position:absolute;top:6px;left:6px;font:600 9px/1 var(--mono);background:rgba(0,0,0,.45);color:#fff;padding:3px 5px;border-radius:4px}
+.fr .ln{position:absolute;bottom:6px;right:6px;font:600 9px/1 var(--mono);color:#fff}
+.fr .tk{position:absolute;top:6px;right:6px;width:16px;height:16px;border-radius:50%;background:var(--ink);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center}
+.tile .nm{font-size:12px;margin-top:4px}.tile .st{font-size:11px;color:var(--ink-3)}
+.empty{border:1px dashed var(--border-strong);border-radius:8px;padding:14px;font-size:13px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.btn{height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--border-strong);background:var(--edit);font-size:12px;display:inline-flex;align-items:center;white-space:nowrap}
+.btn.p{background:var(--ink);color:var(--edit);border-color:var(--ink)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:99px;border:1px solid var(--border-strong);font-size:12px;background:var(--edit)}
+.chip.on{background:var(--ink);color:var(--edit);border-color:var(--ink)}
+.chip.off{color:var(--ink-3);border-style:dashed;background:transparent}
+.lbl{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin-right:6px}
+.why{font-size:12px;color:var(--ink-2);margin-top:6px}
+.posts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}
+.post{background:var(--edit);border-radius:8px;padding:10px;font-size:12px;display:flex;flex-direction:column;gap:6px}
+.post .pv{height:120px;border-radius:6px;background:linear-gradient(180deg,#5b4b3e,#2b241e);color:#fff;display:flex;align-items:flex-start;justify-content:center;padding-top:30px;text-align:center;font-size:11px;line-height:1.2}
+.post .pv.none{background:transparent;border:1px dashed var(--border-strong);color:var(--ink-3);align-items:center;padding:0 10px}
+.post .meta{color:var(--ink-3);font-size:11px}
+.cl{display:inline-flex;height:20px;padding:0 7px;border-radius:99px;border:1px solid var(--olive);color:var(--olive);font:600 10px/18px var(--mono)}
+.w393 .posts{grid-template-columns:1fr}
+.w393 .tile,.w393 .fr{width:100%}.w393 .tiles{display:grid;grid-template-columns:1fr 1fr}
+@media (max-width:700px){.wrap{padding:24px 16px 80px}table.t{display:block;overflow-x:auto}table.t td:first-child{white-space:normal}.vp.w393{width:100%}.vp.w1280 .posts{grid-template-columns:1fr}}
+</style>
+</head>
+<body><div class="wrap">
+
+<p class="k">Off/Pixel · design record · Creative Lab · footage owner · 10 November 2026</p>
+<h1>Creative Lab — the caption follows the footage's owner</h1>
+<p class="lead">Matas, 10 Nov: <i>"if using promoter copies we should be using promoter footage (puzzle footage) not artist footage — can't see what Puzzle 4th Birthday looks like when it's not their footage, because it's a different party. Artist footage should be with artist focused copy, i.e. 'Luke Dean set to bring this energy to Circuit to close out the year'. First person UGC captions from artists are approved and provided."</i> This record makes the footage's owner a property of every clip and lets it decide which captions a clip may carry. It extends the Creative Lab records (F1–F5, pass 2 and 3, quote mode Q1–Q9, voice V1–V13, clip selection S1–S27); they stand except where a row says otherwise. Frames at 1280 and 393.</p>
+
+<div class="log"><b>Changelog</b>
+<ul>
+<li><b>Issue 1 · 10 Nov 2026.</b> W1 every clip has an owner, promoter or artist, derived at import. W2 the clips are grouped by owner. W3 angles by owner; the generated "Artist, first person" angle becomes "Artist", third person. W4 pairing never crosses owners. W5 the empty state and how promoter footage gets in. W6 the approved quote pairs only with its artist's own clips, on its cleared channels. W7 what happens to captions already proposed. CLW1–CLW3. Hand-back HW1–HW7.</li>
+<li><b>Issue 1, amended before merge · 10 Nov 2026 (Matas).</b> W3: "Artist, first person" stops being generated — now Matas's ruling, not the design thread's reading. W8 new: promoter footage that features one of the event's artists may also carry that artist's Artist caption and approved quote. W4 and W6 follow. HW8.</li>
+</ul></div>
+
+<h2>Data note — Puzzle 4th Birthday, read from production 10 Nov</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there</th><th>What it means</th></tr>
+<tr><td><code>creative_lab_clips</code></td><td>26 clips, all artist footage: Luke Dean 20 from his press-kit folder and 1 from Instagram; Enzo Siragusa 5 from his Instagram. None is Puzzle's.</td><td>W1 derives all 26 as artist-owned. The event has no promoter footage, so W5's empty state shows today.</td></tr>
+<tr><td><code>creative_lab_captions</code></td><td>20 Lineup captions, proposed (none ✓'d): 11 paired with Enzo's clips, 9 unpaired. 1 quote, Luke Dean's, typed verbatim, proposed, unpaired, with the note that his team approved it on 9 Nov.</td><td>W7 unpairs the 11. The quote pairs only with Luke's 21 clips (W6).</td></tr>
+<tr><td>Rights chips</td><td>Enzo Siragusa and Luke Dean read "✓ Cleared — artist channels too" (6 Nov, 9 Nov). Reeshy is not cleared and has no Instagram handle.</td><td>W6: Luke's quote may run from Puzzle's page and from his own channels.</td></tr>
+<tr><td><code>creative_lab_rounds</code></td><td>None on this event.</td><td>Nothing that has run is touched by this record.</td></tr>
+<tr><td>Drive tree (S18)</td><td><code>02 Source</code> holds Artist clips / {artist}, Press kits / {artist} and Venue &amp; crowd. There is no "Promoter" folder.</td><td>W5: Venue &amp; crowd is where promoter footage lands; the tree is not changed.</td></tr>
+</table>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>W1 Footage owner</td><td>Every clip has an owner: <b>promoter</b> (the client's own footage, from any of its events — what a Puzzle night looks like) or <b>artist</b> (one named artist's footage from anywhere else). Stored on the clip; an artist-owned clip names its artist.
+<ul>
+<li><b>Derived at import, from where the clip came from:</b> Instagram from an artist row's handle → that artist. Instagram from the client's own handle (the page the voice corpus reads, e.g. @puzzle) → promoter. The artist's clip folder, press kit or <code>02 Source / Artist clips / {artist}</code> → that artist. <code>02 Source / Venue &amp; crowd</code> → promoter. An upload → the folder its S23 question chose.</li>
+<li><b>Corrected by hand, once:</b> the tile's ⋯ gains "Whose footage is this?" with two choices, "{Client}'s" and "{artist}'s" (the artists on the event). It saves with who and when (never on screen, rule 5). Use it when, say, an artist's own reel was filmed at one of the client's nights.</li>
+<li>Changing the owner never changes the rights: a clip from an artist's account keeps that artist's rights chip whoever it's credited to.</li>
+<li>The 26 existing clips are derived from their source: all artist-owned. No backfill guess is needed.</li>
+</ul></td></tr>
+<tr><td>W2 How the tile shows it</td><td>By grouping, not a new mark. The Clips section groups tiles by owner: <b>"{Client} footage"</b> first, then <b>"{artist} footage"</b> for each artist in the lineup's order. Each group header carries one muted line saying what it takes: "the promoter's own clips · Lineup, POV and Scarcity" and "{artist}'s clips · Artist and {artist}'s own words". A promoter tile is named "{Client} #{n}" ("Puzzle #1"), an artist tile as today ("Enzo #1"). The clip tile itself is unchanged (source badge, length, name, one status, tick). Selection (S1–S5) works across groups; "{n} of {m} selected" counts all of them. At 393 the groups stack, each a two-across grid.</td></tr>
+<tr><td>W3 Angles by owner</td><td>
+<ul>
+<li><b>Promoter footage</b> takes <b>Lineup, POV and Scarcity</b> (the rail's "Event announcement" maps to Lineup). These are about the night, so they need the night's footage.</li>
+<li><b>Artist footage</b> takes <b>Artist</b> — artist-focused, third person, in the promoter's voice ("Luke Dean set to bring this energy to Circuit to close out the year") — and that artist's <b>approved quote</b>, verbatim (quote mode, Q1–Q9).</li>
+<li><b>"Artist, first person" is no longer generated</b> — Matas, 10 Nov: <i>"artist captions only approved captions from artist team"</i>. First-person words are the artist's own: they come approved and provided, through quote mode. The generator's Angle row becomes <b>Lineup · Artist · POV · Scarcity</b>, and Artist writes third person.</li>
+<li>Voice (V-rulings): every generated angle now reads the promoter's page — the promoter is the one speaking, including about the artist. The artist's own corpus is no longer a writer's source; it is kept, and the voice chip's sheet still shows it.</li>
+<li>An Artist caption names its artist; it is written for, and only pairs with, that artist (W4).</li>
+</ul></td></tr>
+<tr><td>W4 Pairing never crosses</td><td>A caption pairs only with clips its angle allows: Lineup, POV and Scarcity with promoter clips; an Artist caption or a quote with its own artist's clips, and with promoter clips that feature that artist (W8). Pair with's three modes (S6) read only those: <b>Selected clips</b> spreads each caption across its allowed selected clips; <b>Best of selected</b> picks the best of its allowed selected clips; <b>Each selected</b> makes one preview per allowed pair, never a crossed one. A caption with no allowed clip selected gets no preview and one line in its place (W5). Rounds (S7) are per owner: the promoter's round has its selected promoter clips down and its Lineup / POV / Scarcity captions across; an artist's round has that artist's selected clips down and that artist's Artist captions and quote across. A crossed cell never exists, so it is never "off" and never counted.</td></tr>
+<tr><td>W5 No promoter footage</td><td>
+<ul>
+<li>The "{Client} footage" group opens on its empty state (rule 8), one sentence and one action: <b>"No Puzzle footage yet. Lineup, POV and Scarcity need it."</b> · <b>Find clips on @puzzle</b> (the existing Find clips on the client's handle; candidates arrive as candidate tiles and Add brings them in as promoter clips) · and the muted line "or drop them in 02 Source / Venue &amp; crowd" (the folder import, S22; a clip there imports as promoter footage).</li>
+<li>In the generator, Lineup, POV and Scarcity stay selectable — a caption can be written before its footage arrives — and the why line says: "Lineup needs Puzzle footage — none selected yet."</li>
+<li>A Lineup, POV or Scarcity caption with nothing to pair with shows its feed post with a dashed frame and "Needs Puzzle footage" in it, and can still be ✓'d; it joins the promoter's round once promoter clips are selected.</li>
+<li>The strip's Next line (F1) points at the gap when no caption can be paired: "Add Puzzle footage — 20 Lineup captions are waiting for it."</li>
+<li>A client with no Instagram handle on file gets "Add {Client}'s Instagram" instead of Find clips, as the artist row does.</li>
+</ul></td></tr>
+<tr><td>W6 The approved quote</td><td>An artist's quote pairs only with that artist's own clips and with promoter clips that feature that artist (W8) — never with other promoter footage and never with another artist's (W4). It runs only on the channels it was cleared for:
+<ul>
+<li>The quote's clearance (who on the artist's side approved it, and when, kept on hover per rule 5) may name channels. When it does, those channels are the limit. When it doesn't, the artist's rights chip decides, as Q4: "Promoter page only" holds it; "✓ Cleared — artist channels too" lets it run from the promoter's page and the artist's own.</li>
+<li>Luke Dean's quote (typed verbatim, approved by his team on 9 Nov, no channels named) pairs with his 21 clips and, with his chip at "✓ Cleared — artist channels too", may run from Puzzle's page and his own. Its feed post adds one line: "pairs with Luke Dean's clips only" — or, once a Puzzle clip features him, "pairs with Luke Dean's clips and Puzzle clips that feature him".</li>
+<li>A quote is never edited, shortened or re-cased by the Lab (Q-rulings unchanged).</li>
+</ul></td></tr>
+<tr><td>W7 Captions already proposed</td><td>The caption is kept; the crossed pairing goes.
+<ul>
+<li>A proposed caption paired with a clip its angle doesn't allow is <b>unpaired</b>: the pairing is cleared, the caption stays proposed, and its card says once "Unpaired — Lineup needs Puzzle footage." On Puzzle 4th Birthday that is the 11 Lineup captions on Enzo's clips; they join the 9 already unpaired.</li>
+<li>Existing generated "Artist, first person" captions (none on this event) are <b>retired</b>: kept, not ✓-able, with "First-person words come from the artist — use Quote." A retired caption already ✓'d stays ✓'d but enters no new round.</li>
+<li>Nothing is hidden and nothing is deleted. A round that ran keeps every pairing it ran with (S5); a render that exists stays. Only new previews and rounds follow W4.</li>
+</ul></td></tr>
+</table>
+
+<h2>W8 · Promoter footage that features an artist (Matas, 10 Nov)</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>W8 Features {artist}</td><td>Promoter footage that shows one of the event's artists — Luke Dean on stage at a past Puzzle night — is still promoter footage, and it may <b>also</b> carry that artist's Artist caption and approved quote.
+<ul>
+<li><b>How it's marked.</b> By hand, never derived (no face recognition, as O22). A promoter tile's ⋯ gains <b>"Features…"</b>, listing the event's artists, each toggled on or off; more than one may be on (a back-to-back set). It saves with who and when (rule 5). An artist-owned clip has no Features choice — it is already that artist's.</li>
+<li><b>Where it sits.</b> In the "{Client} footage" group only — one tile, never duplicated. Its name gains the artist: "Puzzle #3 · Luke Dean". Each featured artist's group adds one muted line under its header: "and {n} Puzzle clip(s) that feature {artist}".</li>
+<li><b>What it carries.</b> The promoter angles (Lineup, POV, Scarcity), plus each featured artist's Artist captions and approved quote. Never another artist's.</li>
+<li><b>Rounds.</b> It can join both: the promoter's round and each featured artist's round, as a row in each, when it is selected (one tick, S1, for all of them). Each pairing exists once, so a render is made and counted once per pairing.</li>
+<li><b>Rights.</b> Still from the clip's source (W1): Puzzle footage runs from Puzzle's page. Featuring an artist adds no clearance and removes none. A pairing runs only on channels both its clip and its caption are cleared for — Luke Dean's quote on a Puzzle clip runs from Puzzle's page, and on his own channels only if the clip's rights allow it there too.</li>
+</ul></td></tr>
+</table>
+
+<h2>CLW1 · The Clips section grouped by owner (1280 and 393)</h2>
+<figure><figcaption>CLW1-1280 · Puzzle footage first, empty · then each artist's footage · selection across groups</figcaption>
+<div class="vp w1280">
+<div class="sec">
+  <div class="sh"><b>Clips</b><span class="sub">21 of 26 selected · Select all · None</span></div>
+  <div class="note">Selected clips become ads when a round pairs them with an approved caption</div>
+  <div class="grp">
+    <div class="gh"><b>Puzzle footage</b><span>the promoter's own clips · Lineup, POV and Scarcity</span></div>
+    <div class="empty"><span>No Puzzle footage yet. Lineup, POV and Scarcity need it.</span><span class="btn p">Find clips on @puzzle</span><span style="font-size:12px;color:var(--ink-3)">or drop them in 02 Source / Venue &amp; crowd</span></div>
+  </div>
+  <div class="grp">
+    <div class="gh"><b>Enzo Siragusa footage</b><span>Enzo Siragusa's clips · Artist and Enzo Siragusa's own words</span></div>
+    <div class="tiles">
+      <div class="tile"><div class="fr"><span class="bd">IG</span><span class="tk">✓</span><span class="ln">0:14</span></div><div class="nm">Enzo #1</div><div class="st">Untested</div></div>
+      <div class="tile"><div class="fr"><span class="bd">IG</span><span class="tk">✓</span><span class="ln">0:22</span></div><div class="nm">Enzo #2</div><div class="st">Untested</div></div>
+      <div class="tile"><div class="fr"><span class="bd">IG</span><span class="ln">0:18</span></div><div class="nm">Enzo #3</div><div class="st">Untested</div></div>
+    </div>
+  </div>
+  <div class="grp">
+    <div class="gh"><b>Luke Dean footage</b><span>Luke Dean's clips · Artist and Luke Dean's own words</span></div>
+    <div class="tiles">
+      <div class="tile"><div class="fr"><span class="bd">Kit</span><span class="tk">✓</span><span class="ln">0:11</span></div><div class="nm">Luke #1</div><div class="st">Untested</div></div>
+      <div class="tile"><div class="fr"><span class="bd">Kit</span><span class="tk">✓</span><span class="ln">0:09</span></div><div class="nm">Luke #2</div><div class="st">Untested</div></div>
+      <div class="tile"><div class="fr"><span class="bd">IG</span><span class="tk">✓</span><span class="ln">0:16</span></div><div class="nm">Luke #21</div><div class="st">Untested</div></div>
+    </div>
+  </div>
+</div>
+</div>
+</figure>
+
+<figure><figcaption>CLW1-393 · groups stack · the empty state's button on its own line</figcaption>
+<div class="vp w393">
+<div class="sec">
+  <div class="sh"><b>Clips</b></div>
+  <div class="note">Selected clips become ads when a round pairs them with an approved caption</div>
+  <div class="sub" style="font-size:12px;color:var(--ink-3)">21 of 26 selected · Select all · None</div>
+  <div class="grp">
+    <div class="gh"><b>Puzzle footage</b><span>Lineup, POV and Scarcity</span></div>
+    <div class="empty" style="flex-direction:column;align-items:flex-start"><span>No Puzzle footage yet. Lineup, POV and Scarcity need it.</span><span class="btn p">Find clips on @puzzle</span><span style="font-size:12px;color:var(--ink-3)">or drop them in 02 Source / Venue &amp; crowd</span></div>
+  </div>
+  <div class="grp">
+    <div class="gh"><b>Enzo Siragusa footage</b><span>Artist and his own words</span></div>
+    <div class="tiles">
+      <div class="tile"><div class="fr"><span class="bd">IG</span><span class="tk">✓</span><span class="ln">0:14</span></div><div class="nm">Enzo #1</div></div>
+      <div class="tile"><div class="fr"><span class="bd">IG</span><span class="tk">✓</span><span class="ln">0:22</span></div><div class="nm">Enzo #2</div></div>
+    </div>
+  </div>
+</div>
+</div>
+</figure>
+
+<h2>CLW2 · The generator and its previews under W3–W5 (1280 and 393)</h2>
+<figure><figcaption>CLW2-1280 · Angle row Lineup · Artist · POV · Scarcity · Artist on Luke Dean · an unpaired Lineup caption · the quote's pairing line</figcaption>
+<div class="vp w1280">
+<div class="sec">
+  <div class="sh"><b>Captions</b></div>
+  <div class="note">✓ a caption, then Propose round 1 renders it on the selected clips</div>
+  <div class="chips"><span class="lbl">Mode</span><span class="chip on">Caption</span><span class="chip">Quote</span>&nbsp;&nbsp;<span class="lbl">Angle</span><span class="chip">Lineup</span><span class="chip on">Artist</span><span class="chip">POV</span><span class="chip">Scarcity</span>&nbsp;&nbsp;<span class="lbl">Artist</span><span class="chip">Luke Dean ▾</span></div>
+  <div class="why">Sounds like @puzzle · Artist is written about Luke Dean, in Puzzle's voice · pairs with Luke Dean's clips only</div>
+  <div class="posts">
+    <div class="post"><div class="pv">Luke Dean set to bring this energy to Circuit to close out the year</div><div><b>Artist</b> · Luke #1</div><div class="meta">third person · Puzzle's voice</div></div>
+    <div class="post"><div class="pv none">Needs Puzzle footage</div><div><b>Lineup</b> · unpaired</div><div class="meta">Unpaired — Lineup needs Puzzle footage.</div></div>
+    <div class="post"><div class="pv">Back in Southampton for this one…</div><div><b>quote</b> · Luke #2</div><div class="meta">pairs with Luke Dean's clips only · <span class="cl">✓ Cleared — artist channels too</span></div></div>
+  </div>
+</div>
+</div>
+</figure>
+
+<figure><figcaption>CLW2-393 · one feed post at a time · the why line under the angle row</figcaption>
+<div class="vp w393">
+<div class="sec">
+  <div class="sh"><b>Captions</b></div>
+  <div class="chips"><span class="chip on">Caption</span><span class="chip">Quote</span></div>
+  <div class="chips" style="margin-top:6px"><span class="chip">Lineup</span><span class="chip on">Artist</span><span class="chip">POV</span><span class="chip">Scarcity</span></div>
+  <div class="why">Artist is written about Luke Dean, in Puzzle's voice · pairs with Luke Dean's clips only</div>
+  <div class="posts">
+    <div class="post"><div class="pv none">Needs Puzzle footage</div><div><b>Lineup</b> · unpaired</div><div class="meta">Unpaired — Lineup needs Puzzle footage.</div></div>
+  </div>
+</div>
+</div>
+</figure>
+
+<p class="lead">The previews are stand-ins for the feed-post component (rule 2): each caption keeps the locked caption style on its clip (rule 13), and a quote keeps quote mode's style (Q-rulings). Only the pairing and the lines under each post are new.</p>
+
+<h2>CLW3 · The strip's Next line when nothing can pair</h2>
+<figure><figcaption>CLW3-1280 · the Next sentence names the gap and the count waiting</figcaption>
+<div class="vp w1280"><div class="sec"><div class="sh"><b>Next:</b><span style="font-size:13px">Add Puzzle footage — 20 Lineup captions are waiting for it.</span><span class="btn p" style="margin-left:auto">Find clips on @puzzle</span></div></div></div>
+</figure>
+<p class="lead">CLW3-393 is the same sentence with the button on its own line, as F1's strip at 393.</p>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Clip tile</td><td>Unchanged on the frame. ⋯ gains "Whose footage is this?" ({Client}'s · {artist}'s). A promoter tile is named "{Client} #{n}".</td></tr>
+<tr><td>Clips section</td><td>Grouped by owner, "{Client} footage" first; each group header with its one muted line; the promoter group's empty state (W5).</td></tr>
+<tr><td>Generator (captions)</td><td>Angle row Lineup · Artist · POV · Scarcity; Artist is third person and picks an artist; every caption angle reads the promoter's voice; the why line names whose clips the angle pairs with.</td></tr>
+<tr><td>Feed-post caption</td><td>Unpaired state: dashed frame "Needs {Client} footage" and "Unpaired — {angle} needs {Client} footage."; retired state for a generated first-person caption; a quote carries "pairs with {artist}'s clips only".</td></tr>
+<tr><td>Round matrix</td><td>Rounds per owner; crossed cells never exist.</td></tr>
+<tr><td>Strip</td><td>Next line for the empty promoter group with waiting captions.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance</th></tr>
+<tr><td>HW1 Owner on the clip</td><td><code>creative_lab_clips</code> gains an owner (promoter · artist); <code>artist_id</code> becomes nullable for promoter clips only (a check keeps it set for artist clips). Derived at import per W1 for every path (IG candidate by handle, artist folder / press kit, Artist clips, Venue &amp; crowd, upload). One migration sets the 26 existing Puzzle clips (and every other client's) from their source; written, not applied by the builder.</td><td><code>creative_lab_clips</code>, <code>creative_lab_artists</code>, the client's handle</td><td>on a copy of production: all 26 Puzzle clips artist-owned with their artist; a fixture IG candidate from @puzzle imports as promoter</td></tr>
+<tr><td>HW2 Correction</td><td>⋯ "Whose footage is this?" saves owner (and artist) with who and when; rights untouched.</td><td>—</td><td>unit test: changing the owner leaves <code>rights_ref</code> and the rights chip as they were</td></tr>
+<tr><td>HW3 Angles and voice</td><td>Angle row Lineup · Artist · POV · Scarcity; Artist third person, with an artist, in the promoter's voice; "Artist, first person" removed from generation; the voice block reads the promoter page for every angle.</td><td>corpus.ts; the voice corpus</td><td>CLW2 as drawn; CLV1 and CLV4 re-baselined (their Artist, first person strips become Artist, third person, "Sounds like @puzzle")</td></tr>
+<tr><td>HW4 Pairing and rounds</td><td>W4 in Pair with's three modes and in proposeRound: allowed pairs only; rounds per owner.</td><td>captions, clips, selections</td><td>unit tests: no preview or round cell pairs a Lineup caption with an artist clip, or a Luke caption / quote with an Enzo clip</td></tr>
+<tr><td>HW5 Empty state and Next</td><td>W5: the promoter group's empty state, Find clips on the client's handle (or Add {Client}'s Instagram), the Venue &amp; crowd import as promoter, the why line, the dashed feed post, the strip's Next line.</td><td>the client's handle; the Drive tree</td><td>CLW1, CLW3 as drawn for Puzzle 4th Birthday's data</td></tr>
+<tr><td>HW6 The quote</td><td>W6: a quote pairs only with its artist's clips; channels from its clearance if it names them, else the rights chip (Q4); the pairing line on the feed post.</td><td><code>creative_lab_captions</code> quote rows</td><td>Luke Dean's quote pairs with his 21 clips only and reads "pairs with Luke Dean's clips only"</td></tr>
+<tr><td>HW7 Existing captions</td><td>W7: unpair crossed proposed captions (one data fix, written, not applied); retire generated first-person captions; rounds and renders untouched.</td><td><code>creative_lab_captions</code></td><td>dry run: 11 Puzzle Lineup captions unpaired, 0 others changed; no row deleted</td></tr>
+<tr><td>HW8 Features {artist}</td><td>W8: a "features" list of event artists on promoter clips, set from ⋯ "Features…" with who and when; the tile name and the artist group's line; pairing and rounds per W4 and W8; rights from the source, a pairing only on channels both sides allow.</td><td><code>creative_lab_clips</code> (a features list)</td><td>unit tests on a fixture promoter clip featuring Luke Dean: it pairs with Lineup, Luke's Artist caption and his quote, never Enzo's; it is a row in the promoter round and in Luke's round; its rights are the source's. No frame: no such clip exists today</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>Grouping as the owner's mark (no new badge); the group headers and their lines; "{Client} #{n}" for promoter tiles.</li>
+<li>"Whose footage is this?" and its two choices; the empty-state sentence, the why line, "Needs {Client} footage", "Unpaired — {angle} needs {Client} footage.", "First-person words come from the artist — use Quote.", "pairs with {artist}'s clips only", and the strip's Next sentence.</li>
+<li>Venue &amp; crowd as the promoter folder (the tree has no "Promoter" folder; S18 is not changed).</li>
+<li>W8's "Features…" choice, the tile name "{Client} #{n} · {artist}", the artist group's line, and "a pairing runs only on channels both sides allow".</li>
+</ul>
+
+<h2>Frames for CI</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>CLW1</td><td>1280, 393</td><td>new: Puzzle 4th Birthday's clips — no promoter clips, Enzo's 5, Luke's 21 — grouped</td></tr>
+<tr><td>CLW2</td><td>1280, 393</td><td>new: the generator on Artist · Luke Dean; an unpaired Lineup caption; Luke's quote paired with Luke #2</td></tr>
+<tr><td>CLW3</td><td>1280, 393</td><td>new: the strip with 20 Lineup captions waiting</td></tr>
+<tr><td>CLV1, CLV4</td><td>1280, 393</td><td>re-baselined for HW3</td></tr>
+</table>
+
+</div></body>
+</html>

@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { graphGetWithToken, graphPostWithToken, getLastKnownMetaAppUsage } from "@/lib/meta/client";
 import { appUsageBadgePercent } from "@/lib/meta/app-usage";
@@ -96,7 +98,7 @@ function isQuotaThrottled(): boolean {
   return throttled;
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -198,3 +200,18 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(summary, { status: summary.ok ? 200 : 207 });
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "optimisation-tick",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.decisionsWritten ?? 0),
+  },
+  handleGET,
+);

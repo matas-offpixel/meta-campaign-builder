@@ -25,6 +25,54 @@ export function storagePathForAd(adId: string, contentType: string): string {
   return `${adId}.${extFromContentType(contentType)}`;
 }
 
+/**
+ * Proxy objects written before the full-size read. `{adId}.jpg` at the
+ * bucket root. A later read stores `v2/{adId}.jpg` and does not look here
+ * again, so a small object is fetched once.
+ */
+export const CREATIVE_THUMB_PROXY_VERSION = "v2";
+
+/** A 64px JPEG is about 1–2 KB. Anything under this is not a full card. */
+export const CREATIVE_THUMB_MIN_BYTES = 8 * 1024;
+
+export function versionedStoragePathForAd(adId: string, contentType: string): string {
+  return `${CREATIVE_THUMB_PROXY_VERSION}/${storagePathForAd(adId, contentType)}`;
+}
+
+const LEGACY_PROXY_OBJECT = /^([0-9]+)\.(jpg|png|webp|gif)$/;
+
+export function adIdFromLegacyProxyObject(name: string): string | null {
+  return LEGACY_PROXY_OBJECT.exec(name)?.[1] ?? null;
+}
+
+/** Root `{adId}.{ext}` objects for this client's ads that are under the size floor. */
+export function legacyProxyObjectsUnderFloor(
+  objects: ReadonlyArray<{ name: string; size: number }>,
+  adIds: ReadonlySet<string>,
+  minBytes = CREATIVE_THUMB_MIN_BYTES,
+): string[] {
+  const names: string[] = [];
+  for (const object of objects) {
+    const adId = adIdFromLegacyProxyObject(object.name);
+    if (!adId || !adIds.has(adId)) continue;
+    if (!Number.isFinite(object.size) || object.size < 0 || object.size >= minBytes) continue;
+    names.push(object.name);
+  }
+  return names;
+}
+
+export async function purgeLegacyProxyObjects(input: {
+  names: readonly string[];
+  apply: boolean;
+  remove: (names: string[]) => Promise<void>;
+}): Promise<{ matched: number; deleted: number }> {
+  if (!input.apply || input.names.length === 0) {
+    return { matched: input.names.length, deleted: 0 };
+  }
+  await input.remove([...input.names]);
+  return { matched: input.names.length, deleted: input.names.length };
+}
+
 /** Branded Meta-blue placeholder when Graph/CDN returns nothing (200 + SVG). */
 export function metaPlaceholderSvgBytes(label: string): Buffer {
   const stripped = label.replace(/[^a-zA-Z0-9\s.,+'\-]/g, "").trim();
