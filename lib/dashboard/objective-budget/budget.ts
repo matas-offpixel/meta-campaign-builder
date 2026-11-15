@@ -20,11 +20,9 @@
  *            (entered, kind 'sms_cost'). Email has no cost.
  *
  *   Variance is plan − paid + credits.
- *   The total marketing cost is paid − credits + sub-budgets + D2C (fix
- *   (b) on #1256, design's proposal waiting for Matas; the season report
- *   counts paid net of the credit). Gross paid and the credit stay on
- *   their own lines, and `totalMarketingCreditsNotSubtracted` keeps the
- *   other reading so the gap shows whichever way it's ruled.
+ *   The total marketing cost is paid + sub-budgets + D2C (E6, confirmed
+ *   by PH5 in 2026-11-15-dashboard-v2-presale-creatives-budget). A credit
+ *   isn't subtracted: it's its own line and enters only the variance.
  *   Brand campaigns stay in the client's paid as their own line
  *   (`paidBrand`, fix (c)); `paidShows` is the rest.
  *
@@ -151,8 +149,7 @@ export function budgetPicture(
   const totalExcludes = whatsapp.value == null ? ["WhatsApp"] : [];
   const variance = plan.value == null ? fig(null, "no plan") : fig(round2(plan.value - paid.all + creditTotal), "plan − paid + credits");
   const excludes = totalExcludes.length ? `; excludes ${totalExcludes.join(", ")}` : "";
-  const total = fig(round2(paid.all - creditTotal + subTotal + (d2cValue ?? 0)), `paid − credits + sub-budgets + D2C${excludes}`);
-  const totalGross = fig(round2(paid.all + subTotal + (d2cValue ?? 0)), `paid + sub-budgets + D2C, credits not subtracted${excludes}`);
+  const total = fig(round2(paid.all + subTotal + (d2cValue ?? 0)), `paid + sub-budgets + D2C${excludes}`);
   const brandIds = input.events.filter((e) => e.kind === "brand_campaign" && eventIds.has(e.eventId)).map((e) => e.code);
   const paidBrand = fig(
     round2(paidBrandAll),
@@ -172,7 +169,6 @@ export function budgetPicture(
     d2cParts: { whatsapp, sms: smsFig },
     variance,
     totalMarketing: total,
-    totalMarketingCreditsNotSubtracted: totalGross,
     paidBrand,
     paidShows,
     totalExcludes,

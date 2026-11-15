@@ -88,7 +88,6 @@ function print(r: ObjectiveBudgetResult) {
   line("  WhatsApp", b.d2cParts.whatsapp);
   line("  SMS", b.d2cParts.sms);
   line("Total marketing", b.totalMarketing);
-  line("  credits kept", b.totalMarketingCreditsNotSubtracted);
 }
 
 const input = await loadObjectiveBudgetInput(db, clientId);

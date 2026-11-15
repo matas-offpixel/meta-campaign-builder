@@ -254,10 +254,10 @@ describe("budget", () => {
     // WhatsApp rate not set: D2C is SMS only, and the total says it excludes WhatsApp.
     assert.equal(b.d2cParts.whatsapp.value, null);
     assert.equal(b.d2c.value, 80);
-    // Total: paid − credits + sub-budgets + D2C; the other reading kept beside it.
-    assert.equal(b.totalMarketing.value, 647.5 - 40 + 420 + 80);
-    assert.match(b.totalMarketing.source, /^paid − credits \+ sub-budgets \+ D2C/);
-    assert.equal(b.totalMarketingCreditsNotSubtracted.value, 647.5 + 420 + 80);
+    // Total: paid + sub-budgets + D2C. The credit isn't subtracted (PH5).
+    assert.equal(b.totalMarketing.value, 647.5 + 420 + 80);
+    assert.match(b.totalMarketing.source, /^paid \+ sub-budgets \+ D2C/);
+    assert.equal("totalMarketingCreditsNotSubtracted" in b, false);
     assert.deepEqual(b.totalExcludes, ["WhatsApp"]);
     assert.match(b.totalMarketing.source, /excludes WhatsApp/);
     // Gross paid and the credit stay on their own lines.
@@ -276,7 +276,7 @@ describe("budget", () => {
     assert.equal(b.d2cParts.whatsapp.value, 20);
     assert.equal(b.d2c.value, 100);
     assert.deepEqual(b.totalExcludes, []);
-    assert.equal(b.totalMarketing.value, 647.5 - 40 + 420 + 100);
+    assert.equal(b.totalMarketing.value, 647.5 + 420 + 100);
   });
 
   it("no rate and no SMS: D2C is null, never £0", () => {
@@ -284,7 +284,7 @@ describe("budget", () => {
     input.entries = input.entries!.filter((e) => e.kind !== "sms_cost");
     const b = computeObjectiveBudget(input, { kind: "client" }, { from: null, to: TO }).budget;
     assert.equal(b.d2c.value, null);
-    assert.equal(b.totalMarketing.value, 647.5 - 40 + 420);
+    assert.equal(b.totalMarketing.value, 647.5 + 420);
   });
 
   it("a client season budget is the plan when entered", () => {
@@ -319,6 +319,33 @@ describe("budget", () => {
   it("budget runs since launch even when the rows are a period", () => {
     const r = computeObjectiveBudget(fixture(), { kind: "client" }, { from: "2026-09-15", to: TO });
     assert.equal(r.budget.paid.value, 647.5);
+  });
+
+  it("PH5 on the Ironworks season report's inputs: total £93,399.51, variance £38.91", () => {
+    // The report's figures, to 4 Nov: paid £83,421.09, season £83,000,
+    // a £460 Google promo credit, two afterparty sub-budgets (£1,181.76 and
+    // £115.51 ran) and D2C £8,681.15 (entered here as one SMS-cost line).
+    const input = fixture();
+    input.events = [{ eventId: S1, code: "RV01", name: "Night One", showDate: "2026-10-03", kind: "event", linkedCampaignIds: [], budgetMarketing: null }];
+    input.metaAdDays = [];
+    input.googleDays = [];
+    input.overrides = { meta: {}, google: {} };
+    input.additionalSpend = [];
+    input.rollups = [{ eventId: S1, day: "2026-09-01", meta: 83421.09, tiktok: null, google: null, metaSynced: true, tiktokSynced: false, googleSynced: false }];
+    input.d2c = { rate: { rate: 0.02, currency: "GBP" }, rows: [] };
+    input.entries = [
+      { id: "s", eventId: null, kind: "season_budget", label: "Season 1", amount: 83000, spent: null, day: "2026-05-25" },
+      { id: "c", eventId: null, kind: "credit", label: "Google promo credit", amount: 460, spent: null, day: "2026-10-01" },
+      { id: "a1", eventId: S1, kind: "sub_budget", label: "Afters one", amount: 1500, spent: 1181.76, day: null },
+      { id: "a2", eventId: S1, kind: "sub_budget", label: "Afters two", amount: 750, spent: 115.51, day: null },
+      { id: "d", eventId: null, kind: "sms_cost", label: "D2C invoices", amount: 8681.15, spent: null, day: "2026-11-04" },
+    ];
+    const b = computeObjectiveBudget(input, { kind: "client" }, { from: null, to: TO }).budget;
+    assert.equal(b.paid.value, 83421.09);
+    assert.equal(b.subBudgets.value, 1297.27);
+    assert.equal(b.credits.value, 460);
+    assert.equal(b.totalMarketing.value, 93399.51);
+    assert.equal(b.variance.value, 38.91);
   });
 
   it("no budget anywhere: plan and variance are null", () => {
