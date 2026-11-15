@@ -21,17 +21,22 @@
  * figures. The join rate stays community_joined ÷ WhatsApp reach (PA3):
  * an entered count is never its numerator.
  *
- * "Has no community_joined": migration 247 stores community_joined NOT NULL,
- * so a #1248 row always has it (0 = nobody joined) and the link-click
- * estimate only leads when a caller passes communityJoined as null. The
- * adapter never reads a 0 as "not read".
+ * Design's ruling on #1255: a community_joined of 0 reads "0 joined from
+ * signups", and the link-click estimate leads only when a page has no
+ * community_joined. Migration 247 stores community_joined NOT NULL, so a
+ * #1248 row always has it and the estimate only leads when a caller passes
+ * communityJoined as null. A 0 is never read as "not read".
+ *
+ * The entered count carries the person's name for "entered by {name},
+ * {date}" (./names.ts; service role, else the name reads null).
  *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Entered, MemberCountRow } from "./model.ts";
+import { enteredByWords, type Entered, type EnteredNames, type MemberCountRow } from "./model.ts";
+import { adminNameLookup, resolveEnteredNames, type NameLookup } from "./names.ts";
 import { loadMemberCounts } from "./read.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -63,10 +68,41 @@ export type WithEnteredMemberCount<F extends CommunityAudienceFigures> = F & {
 };
 
 /** The latest entered count: the newest counted_on, then the newest entry. */
-export function latestMemberCount(rows: readonly MemberCountRow[]): EnteredMemberCount | null {
+export function latestMemberCount(rows: readonly MemberCountRow[], names?: EnteredNames): EnteredMemberCount | null {
   const sorted = [...rows].sort((a, b) => b.counted_on.localeCompare(a.counted_on) || b.entered_at.localeCompare(a.entered_at));
   const r = sorted[0];
-  return r ? { members: r.members, countedOn: r.counted_on, entered: { by: r.entered_by, at: r.entered_at } } : null;
+  if (!r) return null;
+  const name = (r.entered_by && names?.get(r.entered_by)) || null;
+  return { members: r.members, countedOn: r.counted_on, entered: { by: r.entered_by, at: r.entered_at, name } };
+}
+
+export interface CommunityHeadlineWords {
+  /** The tile's headline. */
+  headline: string;
+  /** The line under it: the source, or "entered by {name}, {date}". */
+  source: string;
+  /** For an entered count: CIRQLIN's joins under it, when CIRQLIN has them. */
+  joinedLine: string | null;
+}
+
+const n = (v: number) => Math.round(v).toLocaleString("en-GB");
+
+/** PA3's words for the headline, with design's #1255 rulings. Null when there is nothing to say. */
+export function communityHeadlineWords(h: CommunityHeadline, timeZone = "Europe/London"): CommunityHeadlineWords | null {
+  switch (h.source) {
+    case "entered":
+      return {
+        headline: `${n(h.members)} members`,
+        source: enteredByWords(h.entered, timeZone),
+        joinedLine: h.joinedFromSignups == null ? null : `${n(h.joinedFromSignups)} joined from signups · CIRQLIN`,
+      };
+    case "community_joined":
+      return { headline: `${n(h.joined)} joined from signups`, source: "CIRQLIN · exact", joinedLine: null };
+    case "link_clicks_est":
+      return { headline: `${n(h.clicks)} community link clicks`, source: "est.", joinedLine: null };
+    case "none":
+      return null;
+  }
 }
 
 /** PA3's order, pure. `figures` is null when the show has no page-audience row. */
@@ -81,8 +117,8 @@ export function communityHeadline(figures: CommunityAudienceFigures | null, ente
 }
 
 /** Pure: page-audience figures plus the entered count and the headline. */
-export function withEnteredMemberCount<F extends CommunityAudienceFigures>(figures: F, rows: readonly MemberCountRow[]): WithEnteredMemberCount<F> {
-  const enteredMemberCount = latestMemberCount(rows);
+export function withEnteredMemberCount<F extends CommunityAudienceFigures>(figures: F, rows: readonly MemberCountRow[], names?: EnteredNames): WithEnteredMemberCount<F> {
+  const enteredMemberCount = latestMemberCount(rows, names);
   return { ...figures, enteredMemberCount, headline: communityHeadline(figures, enteredMemberCount) };
 }
 
@@ -99,23 +135,33 @@ export async function pageAudienceWithEnteredCount<F extends CommunityAudienceFi
   db: Db,
   eventId: string,
   readPageAudience: (db: Db, eventId: string) => Promise<F | null>,
+  lookupName?: NameLookup | null,
 ): Promise<WithEnteredMemberCount<F> | null> {
   const [figures, counts] = await Promise.all([readPageAudience(db, eventId), loadMemberCounts(db, [eventId])]);
   if (!figures) return null;
-  return withEnteredMemberCount(figures, counts.get(eventId) ?? []);
+  const rows = counts.get(eventId) ?? [];
+  const latest = latestMemberCount(rows);
+  const names = await resolveEnteredNames([latest?.entered.by], lookupName === undefined ? adminNameLookup(db) : lookupName);
+  return withEnteredMemberCount(figures, rows, names);
 }
 
-/** The latest entered member count for each show (absent = none entered). */
-export async function enteredMemberCounts(db: Db, eventIds: readonly string[]): Promise<Map<string, EnteredMemberCount>> {
+/** The latest entered member count for each show (absent = none entered), with the person's name. */
+export async function enteredMemberCounts(db: Db, eventIds: readonly string[], lookupName?: NameLookup | null): Promise<Map<string, EnteredMemberCount>> {
   const rows = await loadMemberCounts(db, eventIds);
-  const out = new Map<string, EnteredMemberCount>();
+  const latest = new Map<string, EnteredMemberCount>();
   for (const [eventId, list] of rows) {
-    const latest = latestMemberCount(list);
-    if (latest) out.set(eventId, latest);
+    const l = latestMemberCount(list);
+    if (l) latest.set(eventId, l);
   }
+  const names = await resolveEnteredNames(
+    [...latest.values()].map((l) => l.entered.by),
+    lookupName === undefined ? adminNameLookup(db) : lookupName,
+  );
+  const out = new Map<string, EnteredMemberCount>();
+  for (const [eventId, l] of latest) out.set(eventId, { ...l, entered: { ...l.entered, name: (l.entered.by && names.get(l.entered.by)) || null } });
   return out;
 }
 
-export async function enteredMemberCountForShow(db: Db, eventId: string): Promise<EnteredMemberCount | null> {
-  return (await enteredMemberCounts(db, [eventId])).get(eventId) ?? null;
+export async function enteredMemberCountForShow(db: Db, eventId: string, lookupName?: NameLookup | null): Promise<EnteredMemberCount | null> {
+  return (await enteredMemberCounts(db, [eventId], lookupName)).get(eventId) ?? null;
 }

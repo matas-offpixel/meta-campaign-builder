@@ -16,7 +16,18 @@
  *   - Signups at presale: CIRQLIN's daily signups on the days before the
  *     presale day. A daily count can't be split at the open, so the presale
  *     day itself is left out and `throughDay` says where the count stops.
- *     Days are the page's own days (signup_source_snapshots.day).
+ *     Days are the page's own days (signup_source_snapshots.day). The figure
+ *     names its last day: "Signups at presale · to Tue 4 Aug" (design's
+ *     ruling on #1255, the weekday worked out from the date).
+ *     When no CIRQLIN count is dated on or before that last day (no page,
+ *     or a page that launched after presale), the figure falls back to the
+ *     Mailchimp tag's latest row stored on that day, from "Mailchimp ·
+ *     {tag} · {day}". A CIRQLIN count that exists and says 0 stays 0.
+ *     Never today's count and never a nearer day: with no row on that day
+ *     the figure is missing ("no_mailchimp_count_for_day"). When that
+ *     latest row isn't the end-of-day read, the label and the source name
+ *     its time in the show's time zone: "to Tue 4 Aug, 13:00" (design's
+ *     ruling on #1257; see mailchimpRowRead for how a row's time is known).
  *   - Community at presale: the entered member count nearest before
  *     presale (counted on or before the presale day). PB4: until HE4 the
  *     record falls back to CIRQLIN community_joined up to presale open; a
@@ -31,7 +42,8 @@
  *   - Wider conversion: (presale-day tickets − sold in window) ÷
  *     (signups at presale − community at presale).
  *   - Signup spend per presale ticket: the show's registration-objective
- *     spend ÷ presale-day tickets.
+ *     spend ÷ presale-day tickets. Meta only for now, from "Meta signup
+ *     spend"; TikTok joins once HE6 stores TikTok's objective.
  *   - Presale return (est.): presale-day tickets × average ticket price ÷
  *     registration-objective spend. Always "est.". The price is entered,
  *     else the presale-day count's own paid revenue ÷ paid tickets when
@@ -47,11 +59,22 @@ export type FigureSource = "counted" | "entered" | "derived" | "est.";
 
 export const ADD_WINDOW_FIGURES = "Add the window figures";
 
-/** Who typed an entered figure in, and when. `by` is an auth user id; the panel resolves the name. */
+/**
+ * Who typed an entered figure in, and when. `by` is the auth user id
+ * (entered_by); `name` is that person's first name for "entered by {name},
+ * {date}" (enteredByWords), null when the read couldn't resolve it.
+ */
 export interface Entered {
   by: string | null;
   at: string;
+  name: string | null;
 }
+
+/** entered_by id → first name, as the read helper resolved them. */
+export type EnteredNames = ReadonlyMap<string, string>;
+
+/** The source words for Meta's registration-objective spend (design's ruling on #1255). */
+export const META_SIGNUP_SPEND = "Meta signup spend";
 
 export type MissingReason =
   /** events.presale_at is not set, so nothing tied to the open can be read. */
@@ -60,6 +83,8 @@ export type MissingReason =
   | "no_cirqlin_signups"
   /** CIRQLIN rows exist but none falls on a day before the presale. */
   | "no_signups_before_presale"
+  /** No CIRQLIN history; the Mailchimp tag has no stored count (12:00Z row) for the day before presale. */
+  | "no_mailchimp_count_for_day"
   /** Nobody has entered it. */
   | "not_entered"
   /** No Internal Counts count landed within 24 h after presale open, and none was entered. */
@@ -76,7 +101,7 @@ export type Figure<T> =
       kind: "value";
       value: T;
       source: FigureSource;
-      /** The system or input it came from, e.g. "CIRQLIN", "Internal Counts", "Meta registration campaigns". */
+      /** The system or input it came from, e.g. "CIRQLIN", "Internal Counts", "Meta signup spend", "Mailchimp · {tag} · Tue 4 Aug". */
       from: string;
       /** Set on entered figures. */
       entered: Entered | null;
@@ -140,7 +165,7 @@ export interface PresaleInputs {
   eventId: string;
   /** events.presale_at. */
   presaleAt: string | null;
-  /** Time zone that decides the presale day. Europe/London unless the caller knows better. */
+  /** The show's time zone (events.event_timezone): decides the presale day and the time a label names. Europe/London when unset. */
   timeZone?: string;
   log: PresaleLogRow | null;
   relaunches: readonly RelaunchRow[];
@@ -150,6 +175,101 @@ export interface PresaleInputs {
   internalCounts: readonly InternalCount[];
   /** The show's registration-objective spend (Meta), or null when none is attributed. */
   registrationSpend: number | null;
+  /**
+   * The fallback for "Signups at presale" when the show has no CIRQLIN
+   * history: the Mailchimp tag's stored count for the day before presale.
+   * Null when the show has no tag (or the caller didn't read it).
+   */
+  mailchimp?: MailchimpDayCount | null;
+  /** entered_by id → name; ids not in it read as name null. */
+  names?: EnteredNames;
+}
+
+/**
+ * One Mailchimp tag's count for one day: the latest mailchimp_tag_snapshots
+ * row stored on that day (mailchimpDayCount picks it).
+ */
+export interface MailchimpDayCount {
+  tag: string;
+  day: string;
+  /** email_subscribers on that row; null when the tag has no row on the day. */
+  subscribers: number | null;
+  /** When the count was read, when the row says (null for an end-of-day read, or when no time is stored). */
+  readAt: string | null;
+  /** The day's closing count: the 23:55 UTC EOD cron, a full-day history, or a webhook recompute made after the day. */
+  endOfDay: boolean;
+  /** The row is a weighted-ramp estimate (mailchimp_tag_daily_history's pre-snapshot ramp). */
+  estimated: boolean;
+  /** raw_json.source of the row picked, for the evidence. */
+  rowSource: string | null;
+}
+
+/** A mailchimp_tag_snapshots row, as the read helper selects it. */
+export interface MailchimpSnapshotRow {
+  id: string;
+  mailchimp_tag: string | null;
+  email_subscribers: number | string | null;
+  snapshot_at: string;
+  raw_json: { source?: string; method?: string; recomputed_at?: string } | null;
+}
+
+/**
+ * The per-day writers (webhook recompute, EOD cron, backfills) all stamp
+ * snapshot_at at the fixed `${day}T12:00:00Z`, so for those rows the time
+ * comes from raw_json, never from snapshot_at:
+ *   mailchimp_eod_cron                 read at 23:55 UTC: end of day.
+ *   mailchimp_per_member_tag_history,
+ *   mailchimp_api_daily_sync,
+ *   mailchimp_tag_daily_history        a full-day series: end of day (the
+ *                                      weighted-ramp rows are estimates).
+ *   mailchimp_webhook_realtime         raw_json.recomputed_at; a recompute
+ *                                      made after the day is end of day.
+ *   anything else at the fixed noon    no time stored: not end of day, and
+ *                                      no time is named.
+ * Every other row (mailchimp_tag_sync, manual entries) has snapshot_at at
+ * the real read time; its day is that instant's day in the show's zone.
+ */
+export function mailchimpRowRead(
+  row: MailchimpSnapshotRow,
+  timeZone: string,
+): { day: string; sortAt: number; readAt: string | null; endOfDay: boolean; estimated: boolean; source: string | null } {
+  const at = new Date(row.snapshot_at);
+  const source = row.raw_json?.source ?? null;
+  const fixedNoon = at.getUTCHours() === 12 && at.getUTCMinutes() === 0 && at.getUTCSeconds() === 0 && at.getUTCMilliseconds() === 0;
+  if (!fixedNoon) return { day: dayIn(row.snapshot_at, timeZone), sortAt: at.getTime(), readAt: at.toISOString(), endOfDay: false, estimated: false, source };
+  const day = at.toISOString().slice(0, 10);
+  const dayEnd = new Date(`${day}T23:59:59.999Z`).getTime();
+  if (source === "mailchimp_eod_cron" || source === "mailchimp_per_member_tag_history" || source === "mailchimp_api_daily_sync" || source === "mailchimp_tag_daily_history") {
+    return { day, sortAt: dayEnd, readAt: null, endOfDay: true, estimated: row.raw_json?.method === "weighted_ramp_pre_snapshot", source };
+  }
+  if (source === "mailchimp_webhook_realtime" && row.raw_json?.recomputed_at) {
+    const r = new Date(row.raw_json.recomputed_at);
+    if (Number.isFinite(r.getTime())) {
+      if (r.getTime() > dayEnd) return { day, sortAt: dayEnd, readAt: null, endOfDay: true, estimated: false, source };
+      return { day, sortAt: r.getTime(), readAt: r.toISOString(), endOfDay: false, estimated: false, source };
+    }
+  }
+  return { day, sortAt: at.getTime(), readAt: null, endOfDay: false, estimated: false, source };
+}
+
+/** The latest row stored on `day`: an end-of-day read beats any read during the day. */
+export function mailchimpDayCount(rows: readonly MailchimpSnapshotRow[], tag: string, day: string, timeZone: string): MailchimpDayCount {
+  const onDay = rows
+    .filter((r) => r.email_subscribers != null)
+    .map((r) => ({ r, read: mailchimpRowRead(r, timeZone) }))
+    .filter((x) => x.read.day === day)
+    .sort((a, b) => b.read.sortAt - a.read.sortAt || b.r.id.localeCompare(a.r.id));
+  const top = onDay[0];
+  if (!top) return { tag, day, subscribers: null, readAt: null, endOfDay: false, estimated: false, rowSource: null };
+  return {
+    tag: top.r.mailchimp_tag || tag,
+    day,
+    subscribers: Number(top.r.email_subscribers),
+    readAt: top.read.readAt,
+    endOfDay: top.read.endOfDay,
+    estimated: top.read.estimated,
+    rowSource: top.read.source,
+  };
 }
 
 // ── output ──────────────────────────────────────────────────────────────
@@ -167,6 +287,8 @@ export interface PresaleLog {
   presaleOpenAt: string | null;
   /** The presale day in `timeZone`. */
   presaleDay: string | null;
+  /** "Signups at presale · to Tue 4 Aug": the figure's name with its last day. Null without a presale time. */
+  signupsAtPresaleLabel: string | null;
   /** "empty" = nothing entered yet: show the counted half and {@link ADD_WINDOW_FIGURES}. */
   state: "empty" | "entered";
   prompt: typeof ADD_WINDOW_FIGURES | null;
@@ -214,8 +336,45 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function entered(by: string | null, at: string | null): Entered | null {
-  return at ? { by, at } : null;
+function entered(by: string | null, at: string | null, names?: EnteredNames): Entered | null {
+  return at ? { by, at, name: (by && names?.get(by)) || null } : null;
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** A calendar day (YYYY-MM-DD) as "Tue 4 Aug", the weekday worked out from the date itself. */
+export function formatDay(day: string): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
+/** An instant's wall-clock time in a zone, 24-hour: "13:00". */
+export function timeIn(instant: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(instant));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("hour")}:${get("minute")}`;
+}
+
+/** "Tue 4 Aug", or "Tue 4 Aug, 13:00" when the count was read during the day. */
+function lastDayWords(day: string, readAt: string | null, timeZone: string): string {
+  return readAt ? `${formatDay(day)}, ${timeIn(readAt, timeZone)}` : formatDay(day);
+}
+
+/**
+ * "Signups at presale · to Tue 4 Aug": the count's last day is the day
+ * before the presale day. `readAt` names the time when the count is a
+ * Mailchimp read made during that day: "to Tue 4 Aug, 13:00".
+ */
+export function signupsAtPresaleLabel(presaleDay: string | null, readAt: string | null = null, timeZone = "Europe/London"): string | null {
+  return presaleDay ? `Signups at presale · to ${lastDayWords(prevDay(presaleDay), readAt, timeZone)}` : null;
+}
+
+/** "entered by Matas, 4 Aug" (design's ruling on #1255); "entered 4 Aug" when the name isn't known. */
+export function enteredByWords(e: Entered, timeZone = "Europe/London"): string {
+  const d = new Date(`${dayIn(e.at, timeZone)}T12:00:00Z`);
+  const date = `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  return e.name ? `entered by ${e.name}, ${date}` : `entered ${date}`;
 }
 
 /** The calendar day of an instant in a time zone, as YYYY-MM-DD. */
@@ -244,21 +403,48 @@ function ratio(top: Figure<number>, bottom: Figure<number>): Figure<number> {
 
 // ── figures ─────────────────────────────────────────────────────────────
 
-export function windowStartFigure(presaleAt: string | null, log: PresaleLogRow | null): Figure<string> {
-  if (log?.window_start_at) return value(log.window_start_at, "entered", "Presale log", entered(log.window_start_entered_by, log.window_start_entered_at));
+export function windowStartFigure(presaleAt: string | null, log: PresaleLogRow | null, names?: EnteredNames): Figure<string> {
+  if (log?.window_start_at) return value(log.window_start_at, "entered", "Presale log", entered(log.window_start_entered_by, log.window_start_entered_at, names));
   if (!presaleAt) return missing("no_presale_time");
   const start = new Date(new Date(presaleAt).getTime() - COMMUNITY_WINDOW_DEFAULT_MINUTES * 60_000).toISOString();
   return value(start, "derived", "Presale open − 30 min");
 }
 
-export function signupsAtPresaleFigure(signupDays: readonly SignupDay[] | null, presaleDay: string | null): Figure<number> {
+export function signupsAtPresaleFigure(
+  signupDays: readonly SignupDay[] | null,
+  presaleDay: string | null,
+  mailchimp: MailchimpDayCount | null = null,
+  timeZone = "Europe/London",
+): Figure<number> {
   if (!presaleDay) return missing("no_presale_time");
-  if (!signupDays || signupDays.length === 0) return missing("no_cirqlin_signups");
-  const before = signupDays.filter((d) => d.day < presaleDay);
-  if (before.length === 0) return missing("no_signups_before_presale");
+  const before = (signupDays ?? []).filter((d) => d.day < presaleDay);
+  if (before.length === 0) {
+    // No CIRQLIN count dated on or before the last day: no page, or a page that launched after presale.
+    const mc = mailchimpSignupsFigure(mailchimp, presaleDay, timeZone);
+    if (mc.kind === "missing" && mc.reason === "no_cirqlin_signups" && signupDays?.length) return missing("no_signups_before_presale");
+    return mc;
+  }
   const total = before.reduce((sum, d) => sum + d.signups, 0);
   const days = before.map((d) => d.day).sort();
   return value(total, "counted", "CIRQLIN", null, { fromDay: days[0]!, throughDay: prevDay(presaleDay) });
+}
+
+/**
+ * The fallback when no CIRQLIN count is dated on or before the last day:
+ * the tag's latest row stored on the day before the presale day, and only
+ * that day.
+ */
+export function mailchimpSignupsFigure(mailchimp: MailchimpDayCount | null, presaleDay: string, timeZone = "Europe/London"): Figure<number> {
+  const throughDay = prevDay(presaleDay);
+  if (!mailchimp || !mailchimp.tag) return missing("no_cirqlin_signups");
+  if (mailchimp.day !== throughDay || mailchimp.subscribers == null) return missing("no_mailchimp_count_for_day");
+  return value(mailchimp.subscribers, mailchimp.estimated ? "est." : "counted", `Mailchimp · ${mailchimp.tag} · ${lastDayWords(throughDay, mailchimp.readAt, timeZone)}`, null, {
+    tag: mailchimp.tag,
+    throughDay,
+    readAt: mailchimp.readAt,
+    endOfDay: mailchimp.endOfDay ? 1 : 0,
+    rowSource: mailchimp.rowSource,
+  });
 }
 
 /** The entered member count nearest before presale: counted on or before the presale day, latest first. */
@@ -268,17 +454,17 @@ export function nearestCountBefore(counts: readonly MemberCountRow[], presaleDay
   return candidates[0] ?? null;
 }
 
-export function communityAtPresaleFigure(counts: readonly MemberCountRow[], presaleDay: string | null): Figure<number> {
+export function communityAtPresaleFigure(counts: readonly MemberCountRow[], presaleDay: string | null, names?: EnteredNames): Figure<number> {
   if (!presaleDay) return missing("no_presale_time");
   const c = nearestCountBefore(counts, presaleDay);
   if (!c) return missing("not_entered");
-  return value(c.members, "entered", "Entered member count", entered(c.entered_by, c.entered_at), { countedOn: c.counted_on });
+  return value(c.members, "entered", "Entered member count", entered(c.entered_by, c.entered_at, names), { countedOn: c.counted_on });
 }
 
-export function enteredFigure(v: number | string | null | undefined, by: string | null, at: string | null): Figure<number> {
+export function enteredFigure(v: number | string | null | undefined, by: string | null, at: string | null, names?: EnteredNames): Figure<number> {
   const n = num(v);
   if (n == null || !at) return missing("not_entered");
-  return value(n, "entered", "Presale log", entered(by, at));
+  return value(n, "entered", "Presale log", entered(by, at, names));
 }
 
 /**
@@ -297,7 +483,7 @@ export function presaleDayCount(counts: readonly InternalCount[], presaleAt: str
   return { tickets: Math.max(0, used.paid - (base?.paid ?? 0)), used, base };
 }
 
-export function presaleDayTicketsFigure(counts: readonly InternalCount[], presaleAt: string | null, log: PresaleLogRow | null): Figure<number> {
+export function presaleDayTicketsFigure(counts: readonly InternalCount[], presaleAt: string | null, log: PresaleLogRow | null, names?: EnteredNames): Figure<number> {
   if (presaleAt) {
     const c = presaleDayCount(counts, presaleAt);
     if (c) {
@@ -310,13 +496,13 @@ export function presaleDayTicketsFigure(counts: readonly InternalCount[], presal
       });
     }
   }
-  const e = enteredFigure(log?.presale_day_tickets, log?.presale_day_tickets_entered_by ?? null, log?.presale_day_tickets_entered_at ?? null);
+  const e = enteredFigure(log?.presale_day_tickets, log?.presale_day_tickets_entered_by ?? null, log?.presale_day_tickets_entered_at ?? null, names);
   if (e.kind === "value") return e;
   return missing(presaleAt ? "no_count_within_24h" : "no_presale_time");
 }
 
-export function averageTicketPriceFigure(counts: readonly InternalCount[], presaleAt: string | null, log: PresaleLogRow | null): Figure<number> {
-  const e = enteredFigure(log?.avg_ticket_price, log?.avg_ticket_price_entered_by ?? null, log?.avg_ticket_price_entered_at ?? null);
+export function averageTicketPriceFigure(counts: readonly InternalCount[], presaleAt: string | null, log: PresaleLogRow | null, names?: EnteredNames): Figure<number> {
+  const e = enteredFigure(log?.avg_ticket_price, log?.avg_ticket_price_entered_by ?? null, log?.avg_ticket_price_entered_at ?? null, names);
   if (e.kind === "value") return e;
   if (presaleAt) {
     const c = presaleDayCount(counts, presaleAt);
@@ -338,15 +524,17 @@ export function buildPresaleLog(input: PresaleInputs): PresaleLog {
   const presaleAt = input.presaleAt;
   const presaleDay = presaleAt ? dayIn(presaleAt, timeZone) : null;
   const log = input.log;
+  const names = input.names;
 
-  const signupsAtPresale = signupsAtPresaleFigure(input.signupDays, presaleDay);
-  const communityAtPresale = communityAtPresaleFigure(input.memberCounts, presaleDay);
-  const soldInWindow = enteredFigure(log?.sold_in_window, log?.sold_in_window_entered_by ?? null, log?.sold_in_window_entered_at ?? null);
-  const presaleDayTickets = presaleDayTicketsFigure(input.internalCounts, presaleAt, log);
-  const averageTicketPrice = averageTicketPriceFigure(input.internalCounts, presaleAt, log);
+  const signupsAtPresale = signupsAtPresaleFigure(input.signupDays, presaleDay, input.mailchimp ?? null, timeZone);
+  const signupsReadAt = signupsAtPresale.kind === "value" && typeof signupsAtPresale.detail?.readAt === "string" ? signupsAtPresale.detail.readAt : null;
+  const communityAtPresale = communityAtPresaleFigure(input.memberCounts, presaleDay, names);
+  const soldInWindow = enteredFigure(log?.sold_in_window, log?.sold_in_window_entered_by ?? null, log?.sold_in_window_entered_at ?? null, names);
+  const presaleDayTickets = presaleDayTicketsFigure(input.internalCounts, presaleAt, log, names);
+  const averageTicketPrice = averageTicketPriceFigure(input.internalCounts, presaleAt, log, names);
   const registrationSpend: Figure<number> =
     input.registrationSpend != null && input.registrationSpend > 0
-      ? value(input.registrationSpend, "counted", "Meta registration campaigns")
+      ? value(input.registrationSpend, "counted", META_SIGNUP_SPEND)
       : missing("no_registration_spend");
 
   let laterPresaleDay: Figure<number> = missing("needs_inputs");
@@ -384,8 +572,8 @@ export function buildPresaleLog(input: PresaleInputs): PresaleLog {
       return {
         id: r.id,
         on: r.relaunched_on,
-        whatWeDid: value(r.what_we_did, "entered", "Presale log", entered(r.entered_by, r.entered_at)),
-        result: r.result && r.result_entered_at ? value(r.result, "entered", "Presale log", entered(r.result_entered_by, r.result_entered_at)) : missing("not_entered"),
+        whatWeDid: value(r.what_we_did, "entered", "Presale log", entered(r.entered_by, r.entered_at, names)),
+        result: r.result && r.result_entered_at ? value(r.result, "entered", "Presale log", entered(r.result_entered_by, r.result_entered_at, names)) : missing("not_entered"),
         signupsSince,
       };
     });
@@ -395,9 +583,10 @@ export function buildPresaleLog(input: PresaleInputs): PresaleLog {
     eventId: input.eventId,
     presaleOpenAt: presaleAt,
     presaleDay,
+    signupsAtPresaleLabel: signupsAtPresaleLabel(presaleDay, signupsReadAt, timeZone),
     state: empty ? "empty" : "entered",
     prompt: empty ? ADD_WINDOW_FIGURES : null,
-    windowStart: windowStartFigure(presaleAt, log),
+    windowStart: windowStartFigure(presaleAt, log, names),
     signupsAtPresale,
     communityAtPresale,
     soldInWindow,

@@ -4,19 +4,35 @@ import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { fakeDb } from "../../../audience-breakdowns/__tests__/fake-db.ts";
-import { communityHeadline, enteredMemberCounts, latestMemberCount, pageAudienceWithEnteredCount, withEnteredMemberCount } from "../community-headline.ts";
+import {
+  communityHeadline,
+  communityHeadlineWords,
+  enteredMemberCounts,
+  latestMemberCount,
+  pageAudienceWithEnteredCount,
+  withEnteredMemberCount,
+} from "../community-headline.ts";
 import { parseCount, parseDay, parsePrice, parseWindowStart, presaleLogFieldUpdate } from "../form.ts";
 import {
   ADD_WINDOW_FIGURES,
   buildPresaleLog,
   dayIn,
+  enteredByWords,
+  formatDay,
+  mailchimpDayCount,
+  mailchimpRowRead,
+  META_SIGNUP_SPEND,
   presaleDayCount,
+  signupsAtPresaleLabel,
+  type MailchimpDayCount,
+  type MailchimpSnapshotRow,
   type Figure,
   type InternalCount,
   type PresaleInputs,
   type PresaleLogRow,
 } from "../model.ts";
-import { isMissingPresaleTable, loadPresaleLog, loadRegistrationSpend } from "../read.ts";
+import { adminNameLookup, resolveEnteredNames } from "../names.ts";
+import { isMissingPresaleTable, loadMailchimpDayCount, loadPresaleLog, loadRegistrationSpend } from "../read.ts";
 
 // Fixtures: show names and figures only. The EV2 figures are Ironworks Season 1's
 // Charlotte de Witte presale as the season report has them (5 Aug).
@@ -111,7 +127,7 @@ describe("window start", () => {
     ).windowStart;
     assert.equal(val(f), "2026-08-05T08:15:00Z");
     assert.equal(src(f), "entered");
-    assert.deepEqual(f.kind === "value" && f.entered, { by: USER, at: "2026-08-04T12:00:00Z" });
+    assert.deepEqual(f.kind === "value" && f.entered, { by: USER, at: "2026-08-04T12:00:00Z", name: null });
   });
 
   it("no presale time: nothing tied to the open", () => {
@@ -138,6 +154,138 @@ describe("signups at presale (CIRQLIN)", () => {
   it("no CIRQLIN history, or none before presale", () => {
     assert.equal(reason(buildPresaleLog(inputs({ signupDays: null })).signupsAtPresale), "no_cirqlin_signups");
     assert.equal(reason(buildPresaleLog(inputs({ signupDays: [{ day: "2026-08-05", signups: 10 }] })).signupsAtPresale), "no_signups_before_presale");
+  });
+
+  it("names its last day, the weekday worked out from the date", () => {
+    assert.equal(buildPresaleLog(inputs()).signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug");
+    assert.equal(signupsAtPresaleLabel("2026-08-05"), "Signups at presale · to Tue 4 Aug");
+    assert.equal(formatDay("2025-08-04"), "Mon 4 Aug", "a year earlier the same date was a Monday");
+    assert.equal(signupsAtPresaleLabel("2026-03-01"), "Signups at presale · to Sat 28 Feb");
+    assert.equal(buildPresaleLog(inputs({ presaleAt: null })).signupsAtPresaleLabel, null);
+  });
+});
+
+describe("signups at presale: the Mailchimp fallback", () => {
+  const TAG = "Charlotte De Witte - October 2026";
+  const eod = (subscribers: number | null, day = "2026-08-04"): MailchimpDayCount => ({
+    tag: TAG,
+    day,
+    subscribers,
+    readAt: null,
+    endOfDay: true,
+    estimated: false,
+    rowSource: "mailchimp_eod_cron",
+  });
+
+  it("the tag's end-of-day count for the day before presale, named as its source", () => {
+    const l = buildPresaleLog(inputs({ signupDays: null, mailchimp: eod(12868) }));
+    const f = l.signupsAtPresale;
+    assert.equal(val(f), 12868);
+    assert.equal(src(f), "counted");
+    assert.equal(f.kind === "value" && f.from, `Mailchimp · ${TAG} · Tue 4 Aug`);
+    assert.equal(l.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug");
+  });
+
+  it("a read made during the day names its time, in the show's zone", () => {
+    const midday = { ...eod(12500), readAt: "2026-08-04T12:00:00.000Z", endOfDay: false, rowSource: "mailchimp_webhook_realtime" };
+    const l = buildPresaleLog(inputs({ signupDays: null, mailchimp: midday }));
+    assert.equal(l.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug, 13:00");
+    assert.equal(l.signupsAtPresale.kind === "value" && l.signupsAtPresale.from, `Mailchimp · ${TAG} · Tue 4 Aug, 13:00`);
+    const amsterdam = buildPresaleLog(inputs({ signupDays: null, mailchimp: midday, timeZone: "Europe/Amsterdam" }));
+    assert.equal(amsterdam.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug, 14:00");
+  });
+
+  it("no CIRQLIN count on or before the last day: a page launched after presale falls back too", () => {
+    const f = buildPresaleLog(inputs({ signupDays: [{ day: "2026-08-06", signups: 300 }], mailchimp: eod(12868) })).signupsAtPresale;
+    assert.equal(val(f), 12868);
+    assert.equal(f.kind === "value" && f.from, `Mailchimp · ${TAG} · Tue 4 Aug`);
+  });
+
+  it("a CIRQLIN count that exists and says 0 stays 0", () => {
+    const f = buildPresaleLog(inputs({ signupDays: [{ day: "2026-08-03", signups: 0 }], mailchimp: eod(12868) })).signupsAtPresale;
+    assert.equal(val(f), 0);
+    assert.equal(f.kind === "value" && f.from, "CIRQLIN");
+  });
+
+  it("no row on that day: missing, never a nearer day", () => {
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: eod(null) })).signupsAtPresale), "no_mailchimp_count_for_day");
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: eod(14206, "2026-08-05") })).signupsAtPresale), "no_mailchimp_count_for_day");
+  });
+
+  it("CIRQLIN wins when it has a count by the last day; no tag keeps CIRQLIN's reason", () => {
+    assert.equal(val(buildPresaleLog(inputs({ mailchimp: eod(12868) })).signupsAtPresale), 14500);
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: null })).signupsAtPresale), "no_cirqlin_signups");
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: [{ day: "2026-08-06", signups: 3 }], mailchimp: null })).signupsAtPresale), "no_signups_before_presale");
+  });
+
+  it("the wider conversion works from the Mailchimp figure", () => {
+    const l = buildPresaleLog(inputs({ signupDays: null, mailchimp: eod(12868), log: EV2_LOG, memberCounts: EV2_COMMUNITY }));
+    assert.equal(val(l.widerConversion).toFixed(4), ((6600 - 4000) / (12868 - 7100)).toFixed(4));
+  });
+});
+
+describe("which Mailchimp row is the day's latest", () => {
+  const TAG = "Charlotte De Witte - October 2026";
+  const row = (id: string, at: string, n: number, raw: MailchimpSnapshotRow["raw_json"]): MailchimpSnapshotRow => ({ id, mailchimp_tag: TAG, email_subscribers: n, snapshot_at: at, raw_json: raw });
+  const LDN = "Europe/London";
+
+  it("the fixed-noon rows take their time from raw_json, never snapshot_at", () => {
+    assert.deepEqual(
+      mailchimpRowRead(row("a", "2026-08-04T12:00:00Z", 1, { source: "mailchimp_eod_cron" }), LDN),
+      { day: "2026-08-04", sortAt: Date.parse("2026-08-04T23:59:59.999Z"), readAt: null, endOfDay: true, estimated: false, source: "mailchimp_eod_cron" },
+    );
+    const webhook = mailchimpRowRead(row("b", "2026-08-04T12:00:00Z", 1, { source: "mailchimp_webhook_realtime", recomputed_at: "2026-08-04T12:00:00.000Z" }), LDN);
+    assert.equal(webhook.readAt, "2026-08-04T12:00:00.000Z");
+    assert.equal(webhook.endOfDay, false);
+    assert.equal(mailchimpRowRead(row("c", "2026-08-04T12:00:00Z", 1, { source: "mailchimp_webhook_realtime", recomputed_at: "2026-08-05T08:00:00Z" }), LDN).endOfDay, true, "a recompute after the day closes it");
+    assert.equal(mailchimpRowRead(row("d", "2026-08-04T12:00:00Z", 1, { source: "mailchimp_tag_daily_history", method: "weighted_ramp_pre_snapshot" }), LDN).estimated, true);
+    const unknown = mailchimpRowRead(row("e", "2026-08-04T12:00:00Z", 1, { source: "manual_client_provided" }), LDN);
+    assert.deepEqual([unknown.readAt, unknown.endOfDay], [null, false], "no time stored: none is named");
+  });
+
+  it("the tag sync's real time decides its day in the show's zone", () => {
+    assert.equal(mailchimpRowRead(row("f", "2026-08-03T23:30:00Z", 1, { source: "mailchimp_tag_sync" }), LDN).day, "2026-08-04");
+    assert.equal(mailchimpRowRead(row("g", "2026-08-03T23:30:00Z", 1, { source: "mailchimp_tag_sync" }), "UTC").day, "2026-08-03");
+  });
+
+  it("the end-of-day read beats the morning sync; a day with only the sync names its time", () => {
+    const day = [
+      row("m1", "2026-08-04T06:01:03Z", 12087, { source: "mailchimp_tag_sync" }),
+      row("m2", "2026-08-04T12:00:00Z", 12868, { source: "mailchimp_eod_cron" }),
+    ];
+    const both = mailchimpDayCount(day, TAG, "2026-08-04", LDN);
+    assert.deepEqual([both.subscribers, both.endOfDay, both.readAt], [12868, true, null]);
+    const syncOnly = mailchimpDayCount([day[0]!], TAG, "2026-08-04", LDN);
+    assert.deepEqual([syncOnly.subscribers, syncOnly.endOfDay, syncOnly.readAt], [12087, false, "2026-08-04T06:01:03.000Z"]);
+    assert.equal(signupsAtPresaleLabel("2026-08-05", syncOnly.readAt, LDN), "Signups at presale · to Tue 4 Aug, 07:01");
+    assert.equal(mailchimpDayCount([], TAG, "2026-08-04", LDN).subscribers, null);
+  });
+});
+
+describe("Meta signup spend and entered-by names", () => {
+  it("registration spend is named \"Meta signup spend\"", () => {
+    const f = buildPresaleLog(inputs()).registrationSpend;
+    assert.equal(META_SIGNUP_SPEND, "Meta signup spend");
+    assert.equal(f.kind === "value" && f.from, "Meta signup spend");
+  });
+
+  it("an entered figure carries the person's name, and the words read it", () => {
+    const l = buildPresaleLog(inputs({ log: EV2_LOG, memberCounts: EV2_COMMUNITY, names: new Map([[USER, "Ops"]]) }));
+    const e = l.soldInWindow.kind === "value" ? l.soldInWindow.entered : null;
+    assert.deepEqual(e, { by: USER, at: EV2_LOG.sold_in_window_entered_at, name: "Ops" });
+    assert.equal(enteredByWords(e!), "entered by Ops, 6 Aug");
+    assert.equal(enteredByWords({ ...e!, name: null }), "entered 6 Aug");
+    assert.equal(l.communityAtPresale.kind === "value" && l.communityAtPresale.entered?.name, "Ops");
+  });
+
+  it("the admin lookup gives a first name, never an email; without the service role the name is unknown", async () => {
+    const ok = adminNameLookup({ auth: { admin: { getUserById: async () => ({ data: { user: { email: "ops@example.com", user_metadata: { full_name: "Ops Team" } } }, error: null }) } } });
+    assert.deepEqual([...(await resolveEnteredNames([USER, USER, null], ok))], [[USER, "Ops"]]);
+    const local = adminNameLookup({ auth: { admin: { getUserById: async () => ({ data: { user: { email: "ops@example.com", user_metadata: {} } }, error: null }) } } });
+    assert.equal((await resolveEnteredNames([USER], local)).get(USER), "ops");
+    const denied = adminNameLookup({ auth: { admin: { getUserById: async () => { throw new Error("User not allowed"); } } } });
+    assert.equal((await resolveEnteredNames([USER], denied)).size, 0);
+    assert.equal(adminNameLookup({ from() {} }), null);
   });
 });
 
@@ -292,8 +440,8 @@ describe("HE2 adapter: enteredMemberCount and PA3's headline", () => {
 
   it("an entered count leads, with community_joined under it", () => {
     const out = withEnteredMemberCount(fig, EV2_COMMUNITY);
-    assert.deepEqual(out.enteredMemberCount, { members: 7100, countedOn: "2026-08-05", entered: { by: USER, at: "2026-08-05T08:00:00Z" } });
-    assert.deepEqual(out.headline, { source: "entered", members: 7100, countedOn: "2026-08-05", entered: { by: USER, at: "2026-08-05T08:00:00Z" }, joinedFromSignups: 6200 });
+    assert.deepEqual(out.enteredMemberCount, { members: 7100, countedOn: "2026-08-05", entered: { by: USER, at: "2026-08-05T08:00:00Z", name: null } });
+    assert.deepEqual(out.headline, { source: "entered", members: 7100, countedOn: "2026-08-05", entered: { by: USER, at: "2026-08-05T08:00:00Z", name: null }, joinedFromSignups: 6200 });
     assert.equal(out.signups, 14500, "HE2's own fields pass through");
   });
 
@@ -302,6 +450,15 @@ describe("HE2 adapter: enteredMemberCount and PA3's headline", () => {
     assert.deepEqual(communityHeadline({ ...fig, communityJoined: 0 }, null), { source: "community_joined", joined: 0 });
     assert.deepEqual(communityHeadline({ ...fig, communityJoined: null }, null), { source: "link_clicks_est", clicks: 8000 });
     assert.deepEqual(communityHeadline(null, null), { source: "none" });
+  });
+
+  it("the words: 0 reads \"0 joined from signups\"; link clicks only without community_joined", () => {
+    assert.deepEqual(communityHeadlineWords(communityHeadline({ ...fig, communityJoined: 0 }, null)), { headline: "0 joined from signups", source: "CIRQLIN · exact", joinedLine: null });
+    assert.deepEqual(communityHeadlineWords(communityHeadline(fig, null)), { headline: "6,200 joined from signups", source: "CIRQLIN · exact", joinedLine: null });
+    assert.deepEqual(communityHeadlineWords(communityHeadline({ ...fig, communityJoined: null }, null)), { headline: "8,000 community link clicks", source: "est.", joinedLine: null });
+    assert.equal(communityHeadlineWords(communityHeadline(null, null)), null);
+    const entered = withEnteredMemberCount({ ...fig, communityJoined: 0 }, EV2_COMMUNITY, new Map([[USER, "Ops"]]));
+    assert.deepEqual(communityHeadlineWords(entered.headline), { headline: "7,100 members", source: "entered by Ops, 5 Aug", joinedLine: "0 joined from signups · CIRQLIN" });
   });
 
   it("the latest count is the newest day, then the newest entry", () => {
@@ -319,6 +476,9 @@ describe("HE2 adapter: enteredMemberCount and PA3's headline", () => {
     assert.equal(out?.enteredMemberCount?.members, 7100);
     assert.equal(await pageAudienceWithEnteredCount(asDb(db), "cdw", async () => null), null);
     assert.equal((await enteredMemberCounts(asDb(db), ["cdw", "other"])).size, 1);
+    const named = await pageAudienceWithEnteredCount(asDb(db), "cdw", async () => fig, async () => "Ops");
+    assert.equal(named?.enteredMemberCount?.entered.name, "Ops");
+    assert.equal((await enteredMemberCounts(asDb(db), ["cdw"], async () => "Ops")).get("cdw")?.entered.name, "Ops");
   });
 
   it("before migration 249: no entered counts, no error", async () => {
@@ -379,6 +539,61 @@ describe("the loader", () => {
     assert.equal(val(log.presaleDayTickets), 6600, "written block, landed at the email's Date header");
     assert.equal(val(log.signupSpendPerPresaleTicket).toFixed(2), "0.87");
     for (const o of db.orders) assert.ok(o.columns.length > 0, `${o.table} is ordered for paging`);
+  });
+
+  it("no CIRQLIN page: the Mailchimp tag's latest row on the day before presale", async () => {
+    const TAG = "Charlotte De Witte - October 2026";
+    const snap = (id: string, at: string, n: number, source: string, extra: Record<string, string> = {}) => ({
+      id,
+      event_id: "cdw",
+      mailchimp_tag: TAG,
+      snapshot_at: at,
+      email_subscribers: n,
+      raw_json: { source, ...extra },
+    });
+    const base = tables();
+    const mc = [
+      snap("m0", "2026-08-03T12:00:00Z", 12050, "mailchimp_eod_cron"),
+      snap("m1", "2026-08-04T06:01:03Z", 12087, "mailchimp_tag_sync"),
+      snap("m2", "2026-08-04T12:00:00Z", 12868, "mailchimp_eod_cron"),
+      snap("m3", "2026-08-05T12:00:00Z", 14206, "mailchimp_eod_cron"),
+    ];
+    const events = EVENTS.map((e) => (e.id === "cdw" ? { ...e, mailchimp_tag: TAG, event_timezone: null } : e));
+    const missing249 = { missing: ["presale_logs", "presale_relaunches", "community_member_counts"] };
+    const noPage = { ...base, events, signup_source_snapshots: base.signup_source_snapshots.slice(0, 1), mailchimp_tag_snapshots: mc };
+    const log = await loadPresaleLog(asDb(fakeDb(noPage, missing249)), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(log!.signupsAtPresale), 12868, "the end-of-day read, not the 06:01 sync or the presale day's");
+    assert.equal(log!.signupsAtPresale.kind === "value" && log!.signupsAtPresale.from, `Mailchimp · ${TAG} · Tue 4 Aug`);
+    assert.equal(log!.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug");
+
+    const midday = [mc[0]!, snap("w", "2026-08-04T12:00:00Z", 12500, "mailchimp_webhook_realtime", { recomputed_at: "2026-08-04T12:00:00Z" }), mc[3]!];
+    const named = await loadPresaleLog(asDb(fakeDb({ ...noPage, mailchimp_tag_snapshots: midday }, missing249)), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(named!.signupsAtPresale), 12500);
+    assert.equal(named!.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug, 13:00");
+
+    const amsterdam = { ...noPage, events: events.map((e) => (e.id === "cdw" ? { ...e, event_timezone: "Europe/Amsterdam" } : e)), mailchimp_tag_snapshots: midday };
+    const ams = await loadPresaleLog(asDb(fakeDb(amsterdam, missing249)), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(ams!.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug, 14:00", "events.event_timezone");
+
+    const gap = fakeDb({ ...noPage, mailchimp_tag_snapshots: [mc[0]!, mc[3]!] }, missing249);
+    const missingDay = await loadPresaleLog(asDb(gap), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(reason(missingDay!.signupsAtPresale), "no_mailchimp_count_for_day");
+    assert.equal((await loadMailchimpDayCount(asDb(gap), "cdw", TAG, "2026-08-04")).subscribers, null);
+
+    const lateLaunch = { ...noPage, signup_source_snapshots: [{ id: "s9", event_id: "cdw", source: "cirqlin", day: "2026-08-07", signups_day: 400, raw_json: null }] };
+    const late = await loadPresaleLog(asDb(fakeDb(lateLaunch, missing249)), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(late!.signupsAtPresale), 12868, "page launched after presale: Mailchimp");
+
+    const zero = { ...noPage, signup_source_snapshots: [{ id: "s8", event_id: "cdw", source: "cirqlin", day: "2026-08-03", signups_day: 0, raw_json: null }] };
+    const zeroDb = fakeDb(zero, missing249);
+    const z = await loadPresaleLog(asDb(zeroDb), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(z!.signupsAtPresale), 0, "CIRQLIN's 0 stays 0");
+    assert.ok(!zeroDb.orders.some((o) => o.table === "mailchimp_tag_snapshots"), "Mailchimp isn't read");
+
+    const withPage = fakeDb({ ...base, events, mailchimp_tag_snapshots: mc }, missing249);
+    const cirqlin = await loadPresaleLog(asDb(withPage), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(cirqlin!.signupsAtPresale), 14500, "CIRQLIN history: Mailchimp isn't read");
+    assert.ok(!withPage.orders.some((o) => o.table === "mailchimp_tag_snapshots"));
   });
 
   it("presale_at unset and nothing passed: no presale time", async () => {

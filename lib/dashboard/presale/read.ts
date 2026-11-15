@@ -19,7 +19,16 @@
  *                             in events.meta_campaign_id, then "[CODE]" in
  *                             the name), whose ad-day phaseFromMetaObjective
  *                             says "presale" (Complete Registration or leads).
- *                             TikTok and Google spend aren't in it.
+ *                             TikTok and Google spend aren't in it
+ *                             ("Meta signup spend"; TikTok joins at HE6).
+ *   mailchimp_tag_snapshots   only when no CIRQLIN count is dated on or
+ *                             before the day before presale: the tag's latest
+ *                             row stored on that day (model.ts
+ *                             mailchimpRowRead says how a row's time is known;
+ *                             snapshot_at alone can't, the per-day writers
+ *                             all stamp 12:00Z).
+ *   auth users                entered_by → first name (./names.ts), with
+ *                             the service role; otherwise names read null.
  *
  * Before migration 249 is applied, its three tables read as empty, not an
  * error, so the log shows the counted half and "Add the window figures".
@@ -39,13 +48,18 @@ import { phaseFromMetaObjective } from "../../launched-ad-sets/snapshot.ts";
 import { metaCampaignOwners } from "../sales-calc/figures.ts";
 import {
   buildPresaleLog,
+  dayIn,
+  mailchimpDayCount,
   type InternalCount,
+  type MailchimpDayCount,
+  type MailchimpSnapshotRow,
   type MemberCountRow,
   type PresaleLog,
   type PresaleLogRow,
   type RelaunchRow,
   type SignupDay,
 } from "./model.ts";
+import { adminNameLookup, resolveEnteredNames, type NameLookup } from "./names.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -85,9 +99,12 @@ export interface PresaleEventRow {
   presale_at: string | null;
   meta_campaign_id: string | null;
   meta_ad_account_id: string | null;
+  mailchimp_tag?: string | null;
+  /** The show's time zone; Europe/London when null. */
+  event_timezone?: string | null;
 }
 
-const EVENT_COLUMNS = "id,client_id,event_code,event_date,presale_at,meta_campaign_id,meta_ad_account_id";
+const EVENT_COLUMNS = "id,client_id,event_code,event_date,presale_at,meta_campaign_id,meta_ad_account_id,mailchimp_tag,event_timezone";
 
 // ── the 249 tables ──────────────────────────────────────────────────────
 
@@ -137,6 +154,33 @@ export async function loadSignupDays(db: Db, eventId: string): Promise<SignupDay
   const byDay = new Map<string, number>();
   for (const r of live) byDay.set(r.day, Number(r.signups_day ?? 0));
   return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, signups]) => ({ day, signups }));
+}
+
+/** The day before a YYYY-MM-DD day. */
+export function dayBefore(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function dayAfter(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The Mailchimp tag's latest row stored on one day (the show's day). Reads
+ * the rows from the day before to the day after, paged, so a read made near
+ * midnight lands on the right side of the show's day; mailchimpDayCount
+ * keeps only the day's rows. No other day stands in: none gives
+ * subscribers null.
+ */
+export async function loadMailchimpDayCount(db: Db, eventId: string, tag: string, day: string, timeZone = "Europe/London"): Promise<MailchimpDayCount> {
+  const rows = await loadAllPaged<MailchimpSnapshotRow>(db, "mailchimp_tag_snapshots", "id,mailchimp_tag,email_subscribers,snapshot_at,raw_json", ["id"], (q) =>
+    q.eq("event_id", eventId).gte("snapshot_at", `${dayBefore(day)}T00:00:00Z`).lte("snapshot_at", `${dayAfter(day)}T23:59:59.999Z`),
+  );
+  return mailchimpDayCount(rows, tag, day, timeZone);
 }
 
 /** The show's written Internal Counts counts, with when each landed. */
@@ -269,7 +313,10 @@ export interface LoadPresaleLogOptions {
    * Never written anywhere. The live panel passes nothing.
    */
   presaleAtWhenUnset?: string | null;
+  /** Overrides events.event_timezone (itself Europe/London when null). */
   timeZone?: string;
+  /** entered_by → name. Defaults to the auth admin lookup on `db` (service role only). */
+  lookupName?: NameLookup | null;
 }
 
 /** One show's presale log, or null when the event isn't there (or isn't the caller's, under RLS). */
@@ -278,6 +325,8 @@ export async function loadPresaleLog(db: Db, eventId: string, opts: LoadPresaleL
   if (error) throw new Error(`events read failed: ${error.message}`);
   if (!data) return null;
   const event = data as PresaleEventRow;
+  const presaleAt = event.presale_at ?? opts.presaleAtWhenUnset ?? null;
+  const timeZone = opts.timeZone ?? (event.event_timezone?.trim() || "Europe/London");
   const [log, relaunches, memberCounts, signupDays, internalCounts, registrationSpend] = await Promise.all([
     loadPresaleLogRow(db, eventId),
     loadRelaunches(db, eventId),
@@ -286,18 +335,37 @@ export async function loadPresaleLog(db: Db, eventId: string, opts: LoadPresaleL
     loadInternalCounts(db, eventId),
     loadRegistrationSpend(db, event),
   ]);
+  const tag = event.mailchimp_tag?.trim() || null;
+  const presaleDay = presaleAt ? dayIn(presaleAt, timeZone) : null;
+  // No CIRQLIN count dated on or before the last day (no page, or one launched after presale).
+  const cirqlinBefore = !!presaleDay && !!signupDays?.some((d) => d.day < presaleDay);
+  const mailchimp = !cirqlinBefore && tag && presaleDay ? await loadMailchimpDayCount(db, eventId, tag, dayBefore(presaleDay), timeZone) : null;
+  const counts = memberCounts.get(eventId) ?? [];
+  const names = await resolveEnteredNames(
+    [
+      log?.window_start_entered_by,
+      log?.sold_in_window_entered_by,
+      log?.avg_ticket_price_entered_by,
+      log?.presale_day_tickets_entered_by,
+      ...relaunches.flatMap((r) => [r.entered_by, r.result_entered_by]),
+      ...counts.map((c) => c.entered_by),
+    ],
+    opts.lookupName === undefined ? adminNameLookup(db) : opts.lookupName,
+  );
   return buildPresaleLog({
     eventId,
-    presaleAt: event.presale_at ?? opts.presaleAtWhenUnset ?? null,
-    timeZone: opts.timeZone,
+    presaleAt,
+    timeZone,
     log,
     relaunches,
-    memberCounts: memberCounts.get(eventId) ?? [],
+    memberCounts: counts,
     signupDays,
     internalCounts,
     registrationSpend,
+    mailchimp,
+    names,
   });
 }
 
-export { buildPresaleLog, ADD_WINDOW_FIGURES, DATED_COMMUNITY_JOINED_NEEDS } from "./model.ts";
+export { buildPresaleLog, ADD_WINDOW_FIGURES, DATED_COMMUNITY_JOINED_NEEDS, META_SIGNUP_SPEND, enteredByWords, formatDay } from "./model.ts";
 export type { Figure, FigureSource, PresaleLog } from "./model.ts";
