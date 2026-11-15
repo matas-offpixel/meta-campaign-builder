@@ -1,8 +1,11 @@
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
+import { AudiencePanelsUrl } from "@/components/dashboard/audience-panels/audience-panels";
 import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-url";
 import { initialFromQuery } from "@/components/dashboard/sales/venue-query";
+import { loadShareAudiencePanels } from "@/lib/dashboard/audience-panels-server";
+import { resolveShareByToken } from "@/lib/db/report-shares";
 import { dashboardV2Enabled } from "@/lib/dashboard/sales-calc/gate";
 import { pickPeriod } from "@/lib/dashboard/sales-calc/query";
 import { loadShareSalesDashboard } from "@/lib/dashboard/sales-calc/server";
@@ -30,6 +33,11 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
   const result = await loadShareSalesDashboard(token);
   if (!result.ok) notFound();
   const initial = initialFromQuery(result.model, query);
+  // HE1 + HE3: the same token, its own client only (loadShareSalesDashboard has already refused any other scope).
+  const resolved = await resolveShareByToken(token);
+  const panels = resolved.ok && resolved.share.scope === "client" && resolved.share.client_id
+    ? await loadShareAudiencePanels(resolved.share.client_id, result.model)
+    : null;
   return (
     <Suspense>
       <SalesDashboardUrl
@@ -39,6 +47,7 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
         initialPeriod={pickPeriod(query.period)}
         initialVenueKey={initial.venueKey}
       />
+      {panels ? <AudiencePanelsUrl byView={panels} initialViewId={initial.showId} /> : null}
     </Suspense>
   );
 }

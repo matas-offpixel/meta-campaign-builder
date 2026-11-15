@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { campaignCountsFor, type MetaStoredRow, type Owned } from "../../audience-breakdowns/read.ts";
@@ -79,6 +80,18 @@ describe("audience panels · views", () => {
     assert.equal(panels.all!.reach.metaSays.total.signupsText, "4");
     assert.equal(panels.all!.d2c.empty, "No direct-to-fan sends yet");
     assert.equal(rateHref("c1"), "/clients/c1?tab=d2c");
+  });
+});
+
+describe("audience panel frames", () => {
+  it("are shot at 1280 and 393 through DASHBOARD_V2_SHOTS, which stays last in run.mjs, and the overflow guard checks them", async () => {
+    const { DASHBOARD_V2_SHOTS } = await import("../../../scripts/plan-frames/dashboard-v2-shots.mjs");
+    const ids = (DASHBOARD_V2_SHOTS as { id: string }[]).map((s) => s.id);
+    for (const frame of ["WR1", "WR1S", "DF1", "DF1S"]) for (const w of [1280, 393]) assert.ok(ids.includes(`${frame}-${w}`), `${frame}-${w}`);
+    const run = readFileSync("scripts/plan-frames/run.mjs", "utf8");
+    assert.match(run, /\.\.\.DASHBOARD_V2_SHOTS\]\.filter/);
+    const guard = readFileSync("scripts/plan-frames/overflow-guard.mjs", "utf8");
+    assert.match(guard, /"audience\/WR1", "audience\/WR1S", "audience\/DF1", "audience\/DF1S"/);
   });
 });
 
