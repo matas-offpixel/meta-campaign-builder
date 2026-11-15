@@ -7,7 +7,7 @@ import {
   pageAudienceUrl,
   parsePageAudience,
 } from "../page-audience/client.ts";
-import { latestPageAudienceRows, offersWhatsapp, pageAudienceForClient, pageAudienceForEvents, pageAudienceForShow } from "../page-audience/read.ts";
+import { latestPageAudienceRows, offersWhatsapp, pageAudienceForClient, pageAudienceForEvents, pageAudienceForShow, partnerOptInShown } from "../page-audience/read.ts";
 import {
   CIRQLIN_PARTNER_BUCKET,
   checkSignups,
@@ -16,6 +16,7 @@ import {
   orderTargets,
   runPageAudienceStep,
   storedSignupsTotal,
+  writtenSince,
   type PageAudienceTarget,
 } from "../page-audience/step.ts";
 
@@ -26,7 +27,7 @@ const P4 = "00000000-0000-4000-8000-0000000000a4";
 const P5 = "00000000-0000-4000-8000-0000000000a5";
 const UMB = "00000000-0000-4000-8000-0000000000ff";
 
-/** Shaped exactly like cirqlin #631's 200 body. */
+/** Shaped exactly like cirqlin #631's 200 body, with #633's partner_box_offered. */
 function body(pageId: string, over: Record<string, unknown> = {}) {
   return {
     page_id: pageId,
@@ -42,6 +43,7 @@ function body(pageId: string, over: Record<string, unknown> = {}) {
     consent: { marketing: 371, channels_offered: ["email", "whatsapp"] },
     whatsapp_with_phone: 302,
     partner_opt_in: 120,
+    partner_box_offered: true,
     community_joined: 88,
     community_link_clicks: 140,
     community_code_shared: false,
@@ -153,6 +155,8 @@ const asDb = (db: ReturnType<typeof fakeDb>) => db as unknown as Parameters<type
 const ON = { ENABLE_CIRQLIN_AUDIENCE_INGEST: "1" };
 const SECRET = "test-secret";
 const NOW = () => new Date("2026-11-15T23:57:00Z");
+/** Tonight's signups pass started here; snapshot() writes at 23:55:30 by default. */
+const RUN = "2026-11-15T23:55:00.000Z";
 const quiet = () => {};
 
 function snapshot(eventId: string, pageId: string | null, total: number, at = "2026-11-15T23:55:30Z", via = "page_id") {
@@ -181,7 +185,7 @@ describe("page-audience client", () => {
     walk(parsed.audience);
     assert.deepEqual(
       [...keys].sort(),
-      ["channels_offered", "cities", "community_code_shared", "community_joined", "community_link_clicks", "consent", "couldnt_tell", "country", "daily_timezone", "everywhere_else", "geography", "marketing", "name", "page_id", "partner_opt_in", "region", "signups", "whatsapp_with_phone"],
+      ["channels_offered", "cities", "community_code_shared", "community_joined", "community_link_clicks", "consent", "couldnt_tell", "country", "daily_timezone", "everywhere_else", "geography", "marketing", "name", "page_id", "partner_box_offered", "partner_opt_in", "region", "signups", "whatsapp_with_phone"],
     );
   });
 
@@ -202,6 +206,40 @@ describe("page-audience client", () => {
     assert.equal(parsePageAudience(body("not-a-uuid")).ok, false);
     const other = classifyPageAudienceResponse(200, body(P2), P1);
     assert.equal(!other.ok && other.reason, "bad_shape");
+  });
+
+  it("partner_box_offered: CIRQLIN's two example bodies, box true and false; a non-boolean is rejected; no key is null", () => {
+    // cirqlin #633's test bodies: one signup on page 1111…, partner_opt_in 1
+    // whether or not the live form shows the box.
+    const PAGE = "11111111-1111-4111-8111-111111111111";
+    const example = (box: boolean) => ({
+      page_id: PAGE,
+      signups: 1,
+      geography: { cities: [], everywhere_else: 0, couldnt_tell: 1 },
+      consent: { marketing: 0, channels_offered: ["email", "sms", "whatsapp"] },
+      community_joined: 0,
+      community_link_clicks: 0,
+      community_code_shared: false,
+      whatsapp_with_phone: 0,
+      partner_opt_in: 1,
+      partner_box_offered: box,
+      daily_timezone: "Europe/London",
+    });
+    const offered = classifyPageAudienceResponse(200, example(true), PAGE);
+    const none = classifyPageAudienceResponse(200, example(false), PAGE);
+    assert.ok(offered.ok && none.ok);
+    assert.equal(offered.audience.partner_box_offered, true);
+    assert.equal(none.audience.partner_box_offered, false);
+    assert.equal(offered.audience.partner_opt_in, 1);
+    assert.equal(none.audience.partner_opt_in, 1);
+    for (const bad of ["true", 1, 0, null, {}]) {
+      assert.deepEqual(parsePageAudience({ ...example(true), partner_box_offered: bad }), { ok: false, reason: "bad_shape" }, String(bad));
+    }
+    const before: Record<string, unknown> = example(true);
+    delete before.partner_box_offered;
+    const old = parsePageAudience(before);
+    assert.ok(old.ok);
+    assert.equal(old.audience.partner_box_offered, null);
   });
 
   it("classifies 401, 404, 400, 429 and 500", () => {
@@ -241,6 +279,17 @@ describe("signups self-check", () => {
     assert.deepEqual(checkSignups(404, null), { status: "unchecked", stored: null, storedAt: null });
   });
 
+  it("PB5: only a total written since the run's signups pass started is compared", () => {
+    const tonight = { total: 402, at: "2026-11-15T23:55:30+00:00" };
+    const yesterday = { total: 402, at: "2026-11-14T23:55:30+00:00" };
+    assert.deepEqual(checkSignups(404, tonight, RUN), { status: "mismatch", stored: 402, storedAt: tonight.at });
+    assert.deepEqual(checkSignups(404, yesterday, RUN), { status: "unchecked", stored: null, storedAt: null });
+    assert.deepEqual(checkSignups(402, yesterday, RUN), { status: "unchecked", stored: null, storedAt: null }, "an old equal total isn't ok either");
+    assert.deepEqual(checkSignups(404, { total: 404, at: RUN }, RUN).status, "ok", "written at the start counts");
+    assert.equal(writtenSince("not a time", RUN), false);
+    assert.equal(writtenSince("2026-11-15T23:55:00+00:00", RUN), true, "+00:00 and Z are the same instant");
+  });
+
   it("reads the stored total only from this page's page-id snapshot, the newest one", async () => {
     const db = fakeDb({
       signup_source_snapshots: [
@@ -264,7 +313,7 @@ describe("page-audience step", () => {
     for (const v of [undefined, "", "0", "true", " 1", "1 "]) assert.equal(isCirqlinAudienceIngestEnabled({ ENABLE_CIRQLIN_AUDIENCE_INGEST: v }), false);
     assert.equal(isCirqlinAudienceIngestEnabled(ON), true);
     const p = partner({});
-    const r = await runPageAudienceStep({ env: {}, db: asDb(fakeDb({}, { throwOnFrom: true })), signupsPassCalls: 0, fetchImpl: p.fetchImpl, secret: SECRET });
+    const r = await runPageAudienceStep({ env: {}, db: asDb(fakeDb({}, { throwOnFrom: true })), signupsPassStartedAt: RUN, signupsPassCalls: 0, fetchImpl: p.fetchImpl, secret: SECRET });
     assert.equal(r.enabled, false);
     assert.equal(r.calls, 0);
     assert.equal(p.urls.length, 0);
@@ -273,7 +322,7 @@ describe("page-audience step", () => {
   it("stays inside the bucket left after the signups pass and reports the pages it skipped", async () => {
     const p = partner({});
     const db = fakeDb({});
-    const r = await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassCalls: CIRQLIN_PARTNER_BUCKET - 2, targets: targets(P1, P2, P3, P4, P5), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: quiet });
+    const r = await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassStartedAt: RUN, signupsPassCalls: CIRQLIN_PARTNER_BUCKET - 2, targets: targets(P1, P2, P3, P4, P5), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: quiet });
     assert.equal(r.calls, 2);
     assert.equal(p.urls.length, 2);
     assert.equal(r.skippedOnBucket, 3);
@@ -281,7 +330,7 @@ describe("page-audience step", () => {
     assert.equal(r.rowsWritten, 2);
 
     const spent = partner({});
-    const r2 = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({})), signupsPassCalls: 64, targets: targets(P1, P2), fetchImpl: spent.fetchImpl, secret: SECRET, log: quiet });
+    const r2 = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({})), signupsPassStartedAt: RUN, signupsPassCalls: 64, targets: targets(P1, P2), fetchImpl: spent.fetchImpl, secret: SECRET, log: quiet });
     assert.equal(spent.urls.length, 0);
     assert.equal(r2.skippedOnBucket, 2);
     assert.equal(r2.bucket.left, 0);
@@ -289,7 +338,7 @@ describe("page-audience step", () => {
 
   it("stops on a 429 and reports it", async () => {
     const p = partner({ [P2]: { status: 429, body: { error: "rate_limited", retryAfterSeconds: 600 } } });
-    const r = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({})), signupsPassCalls: 0, targets: targets(P1, P2, P3, P4), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: quiet });
+    const r = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({})), signupsPassStartedAt: RUN, signupsPassCalls: 0, targets: targets(P1, P2, P3, P4), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: quiet });
     assert.equal(r.rateLimited, true);
     assert.equal(r.ok, false);
     assert.equal(r.calls, 2);
@@ -301,7 +350,7 @@ describe("page-audience step", () => {
   it("a 401 or 404 skips that page, reports it, and the rest are still read", async () => {
     const p = partner({ [P1]: { status: 401 }, [P2]: { status: 404, body: { error: "no_page" } }, [P3]: { status: 200, body: body(P3, { signups: 1 }) } });
     const db = fakeDb({});
-    const r = await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassCalls: 0, targets: targets(P1, P2, P3, P4), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: quiet });
+    const r = await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassStartedAt: RUN, signupsPassCalls: 0, targets: targets(P1, P2, P3, P4), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: quiet });
     assert.equal(r.calls, 4);
     assert.deepEqual(r.failures.map((f) => [f.pageId, f.reason]), [[P1, "unauthorized"], [P2, "no_page"], [P3, "geography_mismatch"]]);
     assert.equal(r.rowsWritten, 1);
@@ -310,7 +359,7 @@ describe("page-audience step", () => {
 
   it("no secret: one report, no call", async () => {
     const p = partner({});
-    const r = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({})), signupsPassCalls: 0, targets: targets(P1, P2), fetchImpl: p.fetchImpl, secret: "", log: quiet });
+    const r = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({})), signupsPassStartedAt: RUN, signupsPassCalls: 0, targets: targets(P1, P2), fetchImpl: p.fetchImpl, secret: "", log: quiet });
     assert.equal(r.notConfigured, true);
     assert.equal(r.calls, 0);
     assert.equal(p.urls.length, 0);
@@ -320,7 +369,7 @@ describe("page-audience step", () => {
     const p = partner({});
     const db = fakeDb({ signup_source_snapshots: [snapshot("e1", P1, 404), snapshot("e2", P2, 401)] });
     const lines: string[] = [];
-    const r = await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassCalls: 10, targets: targets(P1, P2, P3), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: (l) => lines.push(l) });
+    const r = await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassStartedAt: RUN, signupsPassCalls: 10, targets: targets(P1, P2, P3), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: (l) => lines.push(l) });
     assert.deepEqual(r.checks, { ok: 1, mismatch: 1, unchecked: 1 });
     assert.deepEqual(r.mismatches, [{ pageId: P2, eventId: "e2", signups: 404, stored: 401 }]);
     assert.ok(lines.some((l) => l.includes("signups_check=mismatch") && l.includes("page_audience=404") && l.includes("signups_stored=401")));
@@ -335,13 +384,30 @@ describe("page-audience step", () => {
     assert.equal(db.upserts.filter((u) => u.table === "signup_source_snapshots").length, 0, "the stored total is never touched");
   });
 
+  it("PB5: yesterday's page-id total and tonight's failed signups read give unchecked, not mismatch", async () => {
+    const p = partner({});
+    // P1's signups read failed tonight: its newest snapshot is yesterday's.
+    // P2's was written in this run.
+    const db = fakeDb({ signup_source_snapshots: [snapshot("e1", P1, 400, "2026-11-14T23:55:30Z"), snapshot("e2", P2, 401)] });
+    const lines: string[] = [];
+    const r = await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassStartedAt: RUN, signupsPassCalls: 2, targets: targets(P1, P2), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: (l) => lines.push(l) });
+    assert.deepEqual(r.checks, { ok: 0, mismatch: 1, unchecked: 1 });
+    assert.deepEqual(r.mismatches.map((m) => m.pageId), [P2]);
+    assert.ok(!lines.some((l) => l.includes(`page=${P1}`) && l.includes("mismatch")));
+    const rows = Object.fromEntries(db.upserts.map((u) => [u.rows[0]!.page_id, u.rows[0]!]));
+    assert.equal(rows[P1]!.signups_check, "unchecked");
+    assert.equal(rows[P1]!.signups_stored, null);
+    assert.equal(rows[P1]!.signups_stored_at, null);
+    assert.equal(rows[P2]!.signups_check, "mismatch");
+  });
+
   it("writes one row per page per fetch day with every figure, the umbrella flagged as its own row", async () => {
     const p = partner({});
     const db = fakeDb({});
     await runPageAudienceStep({
       env: ON,
       db: asDb(db),
-      signupsPassCalls: 0,
+      signupsPassStartedAt: RUN, signupsPassCalls: 0,
       targets: [{ eventId: "show", pageId: P1, isUmbrella: false }, { eventId: "umbrella", pageId: UMB, isUmbrella: true }],
       fetchImpl: p.fetchImpl,
       secret: SECRET,
@@ -366,6 +432,7 @@ describe("page-audience step", () => {
       community_code_shared: false,
       whatsapp_with_phone: 302,
       partner_opt_in: 120,
+      partner_box_offered: true,
       daily_timezone: "Europe/London",
       signups_check: "unchecked",
       signups_stored: null,
@@ -381,20 +448,20 @@ describe("page-audience step", () => {
     assert.deepEqual(orderTargets(targets(P1, P2, P3), lastDay).map((t) => t.pageId), [P3, P2, P1]);
     const p = partner({});
     const db = fakeDb({ cirqlin_page_audience: [{ page_id: P1, fetch_day: "2026-11-14" }, { page_id: P2, fetch_day: "2026-11-10" }] });
-    await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassCalls: 59, targets: targets(P1, P2, P3), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: quiet });
+    await runPageAudienceStep({ env: ON, db: asDb(db), signupsPassStartedAt: RUN, signupsPassCalls: 59, targets: targets(P1, P2, P3), fetchImpl: p.fetchImpl, secret: SECRET, now: NOW, log: quiet });
     assert.deepEqual(p.urls.map((u) => new URL(u).searchParams.get("page_id")), [P3]);
   });
 
   it("stops on the cron's time budget", async () => {
     const p = partner({});
     let n = 0;
-    const r = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({})), signupsPassCalls: 0, targets: targets(P1, P2, P3), fetchImpl: p.fetchImpl, secret: SECRET, overBudget: () => n++ >= 1, now: NOW, log: quiet });
+    const r = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({})), signupsPassStartedAt: RUN, signupsPassCalls: 0, targets: targets(P1, P2, P3), fetchImpl: p.fetchImpl, secret: SECRET, overBudget: () => n++ >= 1, now: NOW, log: quiet });
     assert.equal(r.calls, 1);
     assert.equal(r.skippedOnTime, 2);
   });
 
   it("an upsert error is reported, not thrown", async () => {
-    const r = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({}, { failUpsert: true })), signupsPassCalls: 0, targets: targets(P1), fetchImpl: partner({}).fetchImpl, secret: SECRET, now: NOW, log: quiet });
+    const r = await runPageAudienceStep({ env: ON, db: asDb(fakeDb({}, { failUpsert: true })), signupsPassStartedAt: RUN, signupsPassCalls: 0, targets: targets(P1), fetchImpl: partner({}).fetchImpl, secret: SECRET, now: NOW, log: quiet });
     assert.deepEqual(r.failures, [{ pageId: P1, eventId: "e1", reason: "upsert" }]);
     assert.equal(r.ok, false);
   });
@@ -403,7 +470,7 @@ describe("page-audience step", () => {
     const p = partner({});
     const db = fakeDb({ clients: [] }, {});
     const broken = { from: (t: string) => (t === "events" ? { select: () => { throw new Error("events down"); } } : db.from(t)) };
-    const r = await runPageAudienceStep({ env: ON, db: broken as never, signupsPassCalls: 0, fetchImpl: p.fetchImpl, secret: SECRET, log: quiet });
+    const r = await runPageAudienceStep({ env: ON, db: broken as never, signupsPassStartedAt: RUN, signupsPassCalls: 0, fetchImpl: p.fetchImpl, secret: SECRET, log: quiet });
     assert.equal(r.ok, false);
     assert.match(r.error ?? "", /events down/);
     assert.equal(p.urls.length, 0);
@@ -494,6 +561,27 @@ describe("page-audience read helpers", () => {
     const view = await pageAudienceForClient(asDb(db), "nx");
     assert.equal(view.shows.get("lock")!.offersWhatsapp, true);
     assert.equal(view.shows.get("schak")!.offersWhatsapp, false);
+  });
+
+  it("partner opt-in: no box → null; box → the count, 0 included; before #633 → only above 0 (PB3)", async () => {
+    assert.equal(partnerOptInShown(3, false), null);
+    assert.equal(partnerOptInShown(0, false), null);
+    assert.equal(partnerOptInShown(0, true), 0);
+    assert.equal(partnerOptInShown(3, true), 3);
+    assert.equal(partnerOptInShown(0, null), null);
+    assert.equal(partnerOptInShown(3, null), 3);
+    const noBox = { ...stored(P1, "2026-11-15", "lock", 404), partner_opt_in: 0, partner_box_offered: false };
+    const boxNobody = { ...stored(P2, "2026-11-15", "schak", 1792), partner_opt_in: 0, partner_box_offered: true };
+    const oldZero = { ...stored(P3, "2026-11-15", "other", 50), partner_opt_in: 0, partner_box_offered: null };
+    const oldSome = { ...stored(UMB, "2026-11-15", "global", 2210, true), partner_opt_in: 7 };
+    delete (oldSome as Record<string, unknown>).partner_box_offered;
+    const db = fakeDb({ events, cirqlin_page_audience: [noBox, boxNobody, oldZero, oldSome] });
+    const view = await pageAudienceForEvents(asDb(db), ["lock", "schak", "other", "global"]);
+    const f = (id: string) => view.shows.get(id) ?? view.umbrellas.get(id)!;
+    assert.deepEqual([f("lock").partnerBoxOffered, f("lock").partnerOptIn], [false, null]);
+    assert.deepEqual([f("schak").partnerBoxOffered, f("schak").partnerOptIn], [true, 0]);
+    assert.deepEqual([f("other").partnerBoxOffered, f("other").partnerOptIn], [null, null]);
+    assert.deepEqual([f("global").partnerBoxOffered, f("global").partnerOptIn], [null, 7]);
   });
 
   it("by events and by show; a show with no row is absent", async () => {

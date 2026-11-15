@@ -1,14 +1,15 @@
 /**
  * lib/cirqlin/page-audience/client.ts
  *
- * CIRQLIN's GET /api/partner/page-audience (cirqlin #631): counted audience
- * totals for one published page.
+ * CIRQLIN's GET /api/partner/page-audience (cirqlin #631, #633): counted
+ * audience totals for one published page.
  *
  *   GET {CIRQLIN_API_BASE}/api/partner/page-audience?page_id={uuid}[&from=&to=]
  *   200 → { page_id, signups, geography { cities, everywhere_else,
  *           couldnt_tell }, consent { marketing, channels_offered },
  *           community_joined, community_link_clicks, community_code_shared,
- *           whatsapp_with_phone, partner_opt_in, daily_timezone }
+ *           whatsapp_with_phone, partner_opt_in, partner_box_offered,
+ *           daily_timezone }
  *   404 no_page · 400 bad_page_id / bad_date · 401 · 429 rate_limited · 500
  *
  * Same bearer (CIRQLIN_PARTNER_READ_SECRET) and base (CIRQLIN_API_BASE) as
@@ -21,6 +22,11 @@
  * region, country and count (CIRQLIN names a city only at 10 or more
  * signups). A body whose cities + everywhere_else + couldnt_tell isn't
  * signups is rejected, not stored.
+ *
+ * partner_box_offered (#633) is today's live form: true when it shows at
+ * least one partner consent tick box. `from` / `to` don't change it. A
+ * non-boolean is rejected; a body without the key (before #633) keeps null,
+ * so the panel falls back to PB3's interim rule rather than guessing.
  *
  * Never throws and never logs: the secret goes in the Authorization header
  * and nowhere else.
@@ -49,6 +55,8 @@ export interface PageAudience {
   community_code_shared: boolean;
   whatsapp_with_phone: number;
   partner_opt_in: number;
+  /** null: the body had no key (before cirqlin #633). */
+  partner_box_offered: boolean | null;
   daily_timezone: string;
 }
 
@@ -110,6 +118,7 @@ export function parsePageAudience(body: unknown): { ok: true; audience: PageAudi
   const counts = [body.signups, body.community_joined, body.community_link_clicks, body.whatsapp_with_phone, body.partner_opt_in];
   if (!counts.every(isCount)) return { ok: false, reason: "bad_shape" };
   if (typeof body.community_code_shared !== "boolean") return { ok: false, reason: "bad_shape" };
+  if (body.partner_box_offered !== undefined && typeof body.partner_box_offered !== "boolean") return { ok: false, reason: "bad_shape" };
   if (typeof body.daily_timezone !== "string" || !body.daily_timezone.trim()) return { ok: false, reason: "bad_shape" };
 
   const signups = body.signups as number;
@@ -128,6 +137,7 @@ export function parsePageAudience(body: unknown): { ok: true; audience: PageAudi
       community_code_shared: body.community_code_shared,
       whatsapp_with_phone: body.whatsapp_with_phone as number,
       partner_opt_in: body.partner_opt_in as number,
+      partner_box_offered: typeof body.partner_box_offered === "boolean" ? body.partner_box_offered : null,
       daily_timezone: body.daily_timezone.trim(),
     },
   };

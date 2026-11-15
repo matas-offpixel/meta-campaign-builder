@@ -282,6 +282,7 @@ async function handleGET(req: NextRequest) {
       env: process.env,
       db: supabase,
       signupsPassCalls,
+      signupsPassStartedAt: cirqlinStartedAt,
       overBudget: () => cirqlinCronOverBudget(cronStartedAt, Date.now()),
     });
   } catch (err) {

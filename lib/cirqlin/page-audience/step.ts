@@ -23,6 +23,12 @@
  * latest snapshot, via page_id for this page). A mismatch is logged and
  * stored on the row with both numbers; it is never corrected.
  *
+ * PB5 (design record 2026-11-15-dashboard-v2-panels-and-he2-gaps): only a
+ * total written in this cron run is compared, one at or after the run's
+ * signups pass started. An older total is "unchecked": a signups read that
+ * failed tonight, a page the signups pass skipped, a tag-only sync. Against
+ * yesterday's total a mismatch would only mean people signed up today.
+ *
  * Shows of archived clients are left out. Counts only; nothing here logs
  * the secret or a request.
  *
@@ -74,10 +80,22 @@ export async function loadPageAudienceTargets(db: Db, archived?: Set<string>): P
 
 export type SignupsCheck = { status: "ok" | "mismatch" | "unchecked"; stored: number | null; storedAt: string | null };
 
-/** This page's signups against a stored /signups total. No stored page-id total → unchecked. */
-export function checkSignups(signups: number, stored: { total: number; at: string } | null): SignupsCheck {
+/**
+ * This page's signups against a stored /signups total. No stored page-id
+ * total → unchecked. With `since` (the run's signups-pass start), a total
+ * written before it, or at a time that can't be read, → unchecked (PB5).
+ */
+export function checkSignups(signups: number, stored: { total: number; at: string } | null, since?: string): SignupsCheck {
   if (!stored) return { status: "unchecked", stored: null, storedAt: null };
+  if (since !== undefined && !writtenSince(stored.at, since)) return { status: "unchecked", stored: null, storedAt: null };
   return { status: stored.total === signups ? "ok" : "mismatch", stored: stored.total, storedAt: stored.at };
+}
+
+/** `at` is at or after `since`, both read as instants (Postgres writes "+00:00", JS "Z"). */
+export function writtenSince(at: string, since: string): boolean {
+  const a = Date.parse(at);
+  const b = Date.parse(since);
+  return Number.isFinite(a) && Number.isFinite(b) && a >= b;
 }
 
 type SnapshotQuery = {
@@ -129,6 +147,7 @@ export function pageAudienceRow(target: PageAudienceTarget, audience: PageAudien
     community_code_shared: audience.community_code_shared,
     whatsapp_with_phone: audience.whatsapp_with_phone,
     partner_opt_in: audience.partner_opt_in,
+    partner_box_offered: audience.partner_box_offered,
     daily_timezone: audience.daily_timezone,
     signups_check: check.status,
     signups_stored: check.stored,
@@ -171,6 +190,8 @@ export async function runPageAudienceStep(input: {
   db: Db;
   /** Partner calls the signups pass made in this run. */
   signupsPassCalls: number;
+  /** When this run's signups pass started (ISO). Only a stored total written since is compared (PB5). */
+  signupsPassStartedAt: string;
   now?: () => Date;
   /** True when the cron's time budget is spent; checked before each call. */
   overBudget?: () => boolean;
@@ -247,7 +268,7 @@ export async function runPageAudienceStep(input: {
     const at = now();
     let check: SignupsCheck;
     try {
-      check = checkSignups(fetched.audience.signups, await storedSignupsTotal(input.db, target.eventId, target.pageId));
+      check = checkSignups(fetched.audience.signups, await storedSignupsTotal(input.db, target.eventId, target.pageId), input.signupsPassStartedAt);
     } catch {
       check = checkSignups(fetched.audience.signups, null);
     }

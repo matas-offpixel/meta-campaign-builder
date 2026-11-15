@@ -4,13 +4,13 @@ Data layer only: client, storage, a cron step, a read helper. No UI.
 
 ## Source
 
-`GET {CIRQLIN_API_BASE}/api/partner/page-audience?page_id={uuid}[&from&to]` (cirqlin #631, live). Bearer `CIRQLIN_PARTNER_READ_SECRET`, base `CIRQLIN_API_BASE`, the same as `/api/partner/signups`. The two endpoints share one rate-limit bucket: 60 calls per 10 minutes per IP. The cron asks all time (no `from` / `to`).
+`GET {CIRQLIN_API_BASE}/api/partner/page-audience?page_id={uuid}[&from&to]` (cirqlin #631 and #633, live). Bearer `CIRQLIN_PARTNER_READ_SECRET`, base `CIRQLIN_API_BASE`, the same as `/api/partner/signups`. The two endpoints share one rate-limit bucket: 60 calls per 10 minutes per IP. The cron asks all time (no `from` / `to`).
 
-`lib/cirqlin/page-audience/client.ts` keeps only `page_id`, `signups`, `geography { cities [{ name, region, country, signups }], everywhere_else, couldnt_tell }`, `consent { marketing, channels_offered }`, `community_joined`, `community_link_clicks`, `community_code_shared`, `whatsapp_with_phone`, `partner_opt_in` and `daily_timezone`. Any other key is dropped. A body whose cities + everywhere_else + couldnt_tell isn't signups is rejected (`geography_mismatch`), and so is a body for another page id. 401 → `unauthorized`, 404 → `no_page`, 400 → `bad_request`, 429 → `rate_limited`, anything else → `read_failed`. It never throws and never logs.
+`lib/cirqlin/page-audience/client.ts` keeps only `page_id`, `signups`, `geography { cities [{ name, region, country, signups }], everywhere_else, couldnt_tell }`, `consent { marketing, channels_offered }`, `community_joined`, `community_link_clicks`, `community_code_shared`, `whatsapp_with_phone`, `partner_opt_in`, `partner_box_offered` and `daily_timezone`. Any other key is dropped. `partner_box_offered` (#633) is whether today's live form shows at least one partner consent tick box; `from` / `to` don't change it. A non-boolean is rejected; a body without the key (before #633) keeps null. A body whose cities + everywhere_else + couldnt_tell isn't signups is rejected (`geography_mismatch`), and so is a body for another page id. 401 → `unauthorized`, 404 → `no_page`, 400 → `bad_request`, 429 → `rate_limited`, anything else → `read_failed`. It never throws and never logs.
 
 ## Storage
 
-Migration `247_cirqlin_page_audience.sql` (not applied; ops applies from main). One row per `(page_id, fetch_day)`, where fetch_day is the UTC day of the fetch, holding the page's all-time figures plus `fetched_at`. `event_id` is the event whose `events.cirqlin_page_id` is the page; `is_umbrella` is copied from `events.is_umbrella`, so the umbrella page (nx-loves-aw26 on NX26-GLOBAL) is its own row. Counts only, no person-level data. RLS: owner select through `event_id`, service-role writes (the 245 pattern).
+Migration `247_cirqlin_page_audience.sql` (not applied; ops applies from main). One row per `(page_id, fetch_day)`, where fetch_day is the UTC day of the fetch, holding the page's all-time figures plus `fetched_at`. `event_id` is the event whose `events.cirqlin_page_id` is the page; `is_umbrella` is copied from `events.is_umbrella`, so the umbrella page (nx-loves-aw26 on NX26-GLOBAL) is its own row. Counts only, no person-level data. `partner_box_offered` is nullable, null for a row fetched before CIRQLIN returned it. RLS: owner select through `event_id`, service-role writes (the 245 pattern).
 
 ## The step
 
@@ -20,7 +20,8 @@ Migration `247_cirqlin_page_audience.sql` (not applied; ops applies from main). 
 - Every linked page of a show whose client isn't archived gets one call, in sequence. Pages fetched longest ago go first.
 - **The bucket:** the route counts the signups pass's partner calls (page id and tag fallback alike) through a counting `fetchImpl`. The step makes at most `60 − that` calls and reports the pages it couldn't reach as `skippedOnBucket`.
 - A 429 stops the step and is reported. A 401 or 404 skips that page and is reported, and so are a 400, a failed shape or geography check, a failed read and an upsert error. The cron's existing time budget (270 s) stops it too (`skippedOnTime`).
-- **The self-check (the smoke test):** each page's `signups` is compared with the stored `/signups` total, which is the event's newest `signup_source_snapshots` row for source `cirqlin`, when that row came from the page-id read for this page. The result is stored on the row as `signups_check`: `ok`, `mismatch` (with `signups_stored`), or `unchecked` when there's no stored page-id total, for example a tag-only sync or a failed signups read. A mismatch is logged with both numbers and never corrected.
+- **The self-check (the smoke test):** each page's `signups` is compared with the stored `/signups` total, which is the event's newest `signup_source_snapshots` row for source `cirqlin`, when that row came from the page-id read for this page. The result is stored on the row as `signups_check`: `ok`, `mismatch` (with `signups_stored`), or `unchecked`. A mismatch is logged with both numbers and never corrected.
+- **PB5 (design record `2026-11-15-dashboard-v2-panels-and-he2-gaps`):** only a total written in the same cron run is compared. The route passes the signups pass's start time (`signupsPassStartedAt`), and a stored total with an older `snapshot_at` is `unchecked`, never compared: a signups read that failed tonight, a page the signups pass skipped on the bucket or the clock, or a tag-only sync. So `mismatch` means the two reads disagree minutes apart.
 - The result is in the cron response under `pageAudience` and in the `mailchimp-eod-snapshot:cirqlin` run log's detail. It doesn't change that leg's `ok`, and no new cron name is registered, so an off switch can't trip the cron alarms.
 
 Prod today (read-only count, 15 Nov): 15 events have a page, and 28 events have a page or a tag. The signups pass makes between 28 and 38 calls a night, which leaves at least 22 for 15 pages.
@@ -48,13 +49,15 @@ The latest row is read per page through today's `events.cirqlin_page_id` link. T
 | `consentMarketing`, `channelsOffered` | Marketing consent count and the channels offered |
 | `offersWhatsapp` | `channelsOffered` includes `"whatsapp"`, CIRQLIN's own test (PA2) |
 | `communityJoined`, `communityLinkClicks`, `communityCodeShared` | Community figures |
-| `whatsappWithPhone`, `partnerOptIn` | WhatsApp and partner opt-in counts |
+| `whatsappWithPhone` | WhatsApp signups with a phone number |
+| `partnerBoxOffered` | `true` / `false` from #633; `null` for a row fetched before it |
+| `partnerOptIn` | The partner opt-in row's number, or `null` where the panel leaves the row out: box `false` → `null` (PA5, never "0"); box `true` → the count, 0 included; box `null` → the count only when above 0 (PB3's interim rule) |
 | `dailyTimezone` | The page's timezone |
 | `signupsCheck` | `{ status, stored, storedAt }` |
 
 ## Design record follow-up (2026-11-15-dashboard-v2-he2-page-audience, PA1–PA7)
 
-- **PA5, partner opt-in:** the response can't tell a page with no partner tick box apart from one where nobody ticked it. In #631, `partner_opt_in: number` is always present, and it is `countPartnerOptIn(inRange ids, consents)`: the size of a set of signups with a consented, unrevoked row in `signup_partner_consents`. Unticked partners write no row, and neither does a form without the box, so both read 0. The page record the endpoint loads (`PartnerAudiencePage`) is only `id, timezone, whatsapp_invite_url`. So `partnerOptIn` stays a number, and CIRQLIN needs to add a "box offered" signal before the row can be left out.
+- **PA5, partner opt-in:** the response can't tell a page with no partner tick box apart from one where nobody ticked it. In #631, `partner_opt_in: number` is always present, and it is `countPartnerOptIn(inRange ids, consents)`: the size of a set of signups with a consented, unrevoked row in `signup_partner_consents`. Unticked partners write no row, and neither does a form without the box, so both read 0. The page record the endpoint loads (`PartnerAudiencePage`) is only `id, timezone, whatsapp_invite_url`. CIRQLIN #633 (squash 52606b59) added that signal as `partner_box_offered`; `partnerOptIn` now follows it (see the table above).
 - **PA3, entered member count:** nothing stores one. The prod schema has no member-count column on any public table. `d2c_event_copy.copy_jsonb` holds only rendered copy (subject / body_markdown per job type), and migration 235 adds no such column. E2's hand-entered count has no home yet, so the read helper returns no `enteredMemberCount`.
 - **PA2:** `offersWhatsapp` added.
 

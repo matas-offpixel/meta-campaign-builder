@@ -2,7 +2,7 @@
 --
 -- Dashboard v2 phase 2, HE2: CIRQLIN page audience, one row per linked page
 -- per fetch day (UTC), holding that page's all-time figures from
--- GET /api/partner/page-audience (cirqlin #631). Written by the 23:55 UTC
+-- GET /api/partner/page-audience (cirqlin #631, #633). Written by the 23:55 UTC
 -- mailchimp-eod-snapshot cron after its signups pass, behind
 -- ENABLE_CIRQLIN_AUDIENCE_INGEST. A second fetch on the same day restates
 -- that day's row.
@@ -22,7 +22,13 @@
 -- GET /api/partner/signups total for the same page (all time,
 -- signup_source_snapshots, source 'cirqlin', via page_id). 'ok' when equal,
 -- 'mismatch' when not (both numbers kept), 'unchecked' when there is no
--- stored page-id total to compare. Never corrected.
+-- stored page-id total written in the same cron run (PB5: an older total
+-- is never compared). Never corrected.
+--
+-- partner_box_offered (cirqlin #633) is whether the page's live form shows
+-- at least one partner consent tick box on the fetch day; null for a row
+-- fetched before CIRQLIN returned the key. partner_opt_in is 0 both where
+-- there is no box and where nobody ticked it; this column tells them apart.
 --
 -- Service-role writes; owner-only read, as 245.
 
@@ -42,6 +48,7 @@ create table if not exists public.cirqlin_page_audience (
   community_code_shared boolean not null,
   whatsapp_with_phone integer not null check (whatsapp_with_phone >= 0),
   partner_opt_in integer not null check (partner_opt_in >= 0),
+  partner_box_offered boolean,
   daily_timezone text not null,
   signups_check text not null check (signups_check in ('ok', 'mismatch', 'unchecked')),
   signups_stored integer check (signups_stored is null or signups_stored >= 0),
@@ -61,7 +68,9 @@ comment on table public.cirqlin_page_audience is
 comment on column public.cirqlin_page_audience.geo_cities is
   'Array of { name, region, country, signups }, cities with 10 or more signups, as CIRQLIN returns them.';
 comment on column public.cirqlin_page_audience.signups_check is
-  'ok | mismatch | unchecked: signups against the stored /api/partner/signups page-id total (signups_stored). Logged, never corrected.';
+  'ok | mismatch | unchecked: signups against the /api/partner/signups page-id total stored in the same cron run (signups_stored). Logged, never corrected.';
+comment on column public.cirqlin_page_audience.partner_box_offered is
+  'The live form shows at least one partner consent tick box (cirqlin #633). Null: fetched before CIRQLIN returned it.';
 
 create index if not exists cirqlin_page_audience_event_day
   on public.cirqlin_page_audience (event_id, fetch_day desc);

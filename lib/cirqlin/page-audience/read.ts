@@ -26,7 +26,7 @@ type Db = Pick<SupabaseClient, "from">;
 export const PAGE_AUDIENCE_TABLE = "cirqlin_page_audience";
 
 export const PAGE_AUDIENCE_COLUMNS =
-  "page_id,fetch_day,event_id,is_umbrella,signups,geo_cities,geo_everywhere_else,geo_couldnt_tell,consent_marketing,channels_offered,community_joined,community_link_clicks,community_code_shared,whatsapp_with_phone,partner_opt_in,daily_timezone,signups_check,signups_stored,signups_stored_at,fetched_at";
+  "page_id,fetch_day,event_id,is_umbrella,signups,geo_cities,geo_everywhere_else,geo_couldnt_tell,consent_marketing,channels_offered,community_joined,community_link_clicks,community_code_shared,whatsapp_with_phone,partner_opt_in,partner_box_offered,daily_timezone,signups_check,signups_stored,signups_stored_at,fetched_at";
 
 export interface StoredPageAudienceRow {
   page_id: string;
@@ -44,6 +44,8 @@ export interface StoredPageAudienceRow {
   community_code_shared: boolean;
   whatsapp_with_phone: number;
   partner_opt_in: number;
+  /** Absent on a read that didn't select it; null before cirqlin #633. */
+  partner_box_offered?: boolean | null;
   daily_timezone: string;
   signups_check: "ok" | "mismatch" | "unchecked";
   signups_stored: number | null;
@@ -79,7 +81,19 @@ export interface PageAudienceFigures {
   /** The page's WhatsApp invite code also appears on another page. */
   communityCodeShared: boolean;
   whatsappWithPhone: number;
-  partnerOptIn: number;
+  /**
+   * The live form shows a partner tick box (cirqlin #633). null: a row
+   * fetched before CIRQLIN returned it.
+   */
+  partnerBoxOffered: boolean | null;
+  /**
+   * The partner opt-in row's number, or null where the panel leaves the
+   * row out:
+   * - partnerBoxOffered false → null (PA5: no box, no row, never "0").
+   * - true → the count as read, 0 included.
+   * - null → PB3's interim rule: the count only when above 0.
+   */
+  partnerOptIn: number | null;
   dailyTimezone: string;
   /** The smoke test against the stored /signups page total. Never corrected. */
   signupsCheck: { status: "ok" | "mismatch" | "unchecked"; stored: number | null; storedAt: string | null };
@@ -106,6 +120,13 @@ export function offersWhatsapp(channels: readonly string[] | null | undefined): 
   return Array.isArray(channels) && channels.includes("whatsapp");
 }
 
+/** PA5 once CIRQLIN says whether the box is there; PB3 until it does. */
+export function partnerOptInShown(count: number, boxOffered: boolean | null): number | null {
+  if (boxOffered === false) return null;
+  if (boxOffered === true) return count;
+  return count > 0 ? count : null;
+}
+
 export function toFigures(eventId: string, isUmbrella: boolean, row: StoredPageAudienceRow): PageAudienceFigures {
   const cities = Array.isArray(row.geo_cities) ? row.geo_cities : [];
   return {
@@ -127,7 +148,8 @@ export function toFigures(eventId: string, isUmbrella: boolean, row: StoredPageA
     communityLinkClicks: num(row.community_link_clicks),
     communityCodeShared: row.community_code_shared === true,
     whatsappWithPhone: num(row.whatsapp_with_phone),
-    partnerOptIn: num(row.partner_opt_in),
+    partnerBoxOffered: typeof row.partner_box_offered === "boolean" ? row.partner_box_offered : null,
+    partnerOptIn: partnerOptInShown(num(row.partner_opt_in), typeof row.partner_box_offered === "boolean" ? row.partner_box_offered : null),
     dailyTimezone: row.daily_timezone,
     signupsCheck: {
       status: row.signups_check,
