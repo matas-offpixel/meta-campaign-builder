@@ -111,13 +111,26 @@ export function mapCampaigns(input: SalesCalcInput): Map<string, { eventId: stri
     const current = names.get(r.campaignId);
     if (current == null || r.campaignName > current) names.set(r.campaignId, r.campaignName);
   }
-  const ordered = orderShows(input.shows);
+  return metaCampaignOwners(input.shows, names, input.overrides?.meta ?? {});
+}
+
+/**
+ * The D1 rule on its own, for any reader of Meta campaigns (the calc above
+ * and the audience breakdowns, HE1): an override (migration 240) first,
+ * then a link (the id is in events.meta_campaign_id), then the [CODE] in
+ * the name exactly as written, first show in show order.
+ */
+export function metaCampaignOwners(
+  shows: readonly Pick<ShowInput, "eventId" | "code" | "showDate" | "linkedCampaignIds">[],
+  names: ReadonlyMap<string, string>,
+  overrides: Readonly<Record<string, string>>,
+): Map<string, { eventId: string; linked: boolean; name: string }> {
+  const ordered = orderShows(shows);
   const linkedTo = new Map<string, string>();
   for (const show of ordered) {
     for (const id of show.linkedCampaignIds) if (!linkedTo.has(id)) linkedTo.set(id, show.eventId);
   }
-  const overrides = input.overrides?.meta ?? {};
-  const known = new Set(input.shows.map((s) => s.eventId));
+  const known = new Set(shows.map((s) => s.eventId));
   const out = new Map<string, { eventId: string; linked: boolean; name: string }>();
   for (const [campaignId, name] of names) {
     // An override (migration 240) is read first; it's an explicit link, so no "Not linked" pill.
