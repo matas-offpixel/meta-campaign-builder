@@ -26,7 +26,7 @@ HE4 and HE6 draw the presale log and the objective-and-budget table from the rea
 
 ## Notes
 
-The loaders call `loadPresaleLog` and `readObjectiveBudget` only. The total is paid + sub-budgets + D2C. Credits change the variance and nothing else. With no Bird rate the total says it excludes WhatsApp. The entry form is internal; the share link is read-only.
+The loaders call `loadPresaleLog` and `readObjectiveBudget` only. The total is `totalMarketing`, which since #1260 is paid + sub-budgets + D2C. Credits change the variance and nothing else. With no Bird rate the total says it excludes WhatsApp. The entry form is internal; the share link is read-only.
 
 Design fail at e1ccaa5. An empty presale shows only the rows that have a figure, and the share link drops "Add the window figures". The spend row is titled "Signup spend"; its source stays "Meta signup spend". An empty credit or sub-budget reads "—" and "None entered.", and the credit's note says it changes the variance, not the total. A plan summed from shows says "Show budgets". The total line says "Paid + sub-budgets + D2C."
 

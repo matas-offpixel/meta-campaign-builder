@@ -105,7 +105,7 @@ export function budgetPanel(result: ObjectiveBudgetResult, nowMs: number): Budge
   }
   lines.push({ label: "D2C", value: money(b.d2c.value), note: null });
   lines.push({ label: "Variance", value: money(b.variance.value), note: "Plan − paid + credits." });
-  lines.push({ label: "Total", value: money(b.totalMarketingCreditsNotSubtracted.value), note: "Paid + sub-budgets + D2C." });
+  lines.push({ label: "Total", value: money(b.totalMarketing.value), note: "Paid + sub-budgets + D2C." });
   const excludes = b.totalExcludes.length ? `The total excludes ${b.totalExcludes.join(" and ")}.` : null;
   return {
     title: "Objective and budget",
