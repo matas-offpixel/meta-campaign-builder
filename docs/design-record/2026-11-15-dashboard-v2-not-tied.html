@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard v2 sends not tied — 15 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.ex{border-bottom:1px dashed var(--ink-3)}
+.pv{margin:8px 0 4px;border:1px solid var(--border-strong);border-radius:8px;background:var(--paper);padding:10px 12px}
+.pv .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.pv .hd b{font-weight:600;font-size:13px}
+.pv h6{margin:10px 0 4px;font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.pv ul{margin:0;padding:0 0 0 16px;font-size:12px}.pv li{margin:0 0 3px}
+.pv .m{font:11.5px/1.45 var(--mono);color:var(--ink-2)}
+.pv .acts{margin-top:10px}
+.bud{font-size:12px;color:var(--ink-2);margin:0}
+.why b{font-weight:600}
+.w393 .pv .hd{flex-direction:column}
+table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · dashboard v2 phase 2 · 15 November 2026</p>
+<h1>Dashboard v2 phase 2: sends not tied to a show</h1>
+<p class="lead">This record amends <code>2026-11-15-dashboard-v2-phase-2-ingest.html</code> (PI6) and <code>2026-11-15-dashboard-v2-panels-and-he2-gaps.html</code> (PB1's totals line). Both stand except where they're named here. It rules #1250 (HE3 attribution, positive match only), judged at cbf944c and 74cf9c2, which came from the Azyr finding in the #1246 re-check. "AZYR b2b Partiboi69" (NX26-AZYR) had been drawn as "Whole list" because HE3 couldn't tie it to its show. No new frames: #1246's DF1 and DF1S carry the change.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>PT1 · "Not tied to a show"</td><td>
+<p>A send on the client's own account or audience that matches neither one show nor the client's whole list is <b>not tied</b>. Examples are a one-off list, a mix of shows, "all except the show's tag", or an audience that couldn't be read.</p>
+<ul>
+<li><b>In the Show column</b> it reads <b>"Not tied to a show"</b>. That's on the client view and the venue view, internal and share link alike.</li>
+<li><b>It counts in the client's channel totals and in no show.</b> On a venue view it counts only when its Mailchimp audience is that venue's, as PI6 rules for whole-list sends.</li>
+<li><b>The totals line names it.</b> The line becomes "{client} · {n} sends · {first day} – {last day} · includes {w} whole-list sends and {t} sends not tied to a show". A clause with 0 is left out, and so is "and" with it. With one send, each clause is singular: "1 whole-list send", "1 send not tied to a show".</li>
+<li><b>Internal only:</b> when sends are not tied because their audience couldn't be read, add one review line: "{n} sends' audiences couldn't be read, so they aren't tied to a show." With one send it reads "1 send's audience couldn't be read, so it isn't tied to a show." That's missing data, not a send choice.</li>
+</ul></td></tr>
+
+<tr><td>PT2 · A show's lists, compared exactly</td><td>
+<p>A send is a show's when every list it targets is one of that show's:</p>
+<ul>
+<li><code>CQ-{slug}</code>, <code>CQ-{slug}-Together</code> or <code>CQ-{slug}-opted-in</code>, where {slug} is the show's CIRQLIN page slug. The tiers hold that show's signups only, so they're accepted.</li>
+<li>A list or tag named exactly the show's tag or event code. A Mailchimp tag also has to sit on the show's audience when the event names one.</li>
+</ul>
+<p><b>The comparison is exact:</b> byte for byte, never trimmed, case-folded or otherwise normalised. Lists and tags are matched verbatim, as everywhere else in the pipeline. A list named "cq-kream" isn't "CQ-kream".</p></td></tr>
+
+<tr><td>PT3 · The umbrella page</td><td>
+<ul>
+<li><b>An umbrella event is never a show for attribution.</b> That's <code>events.is_umbrella</code>, for example nx-loves-aw26 on NX26-GLOBAL.</li>
+<li><b>Its lists</b> (<code>CQ-{slug}</code> and its two tiers) <b>are the client's whole list</b>, so they read "Whole list". On a venue view they count when the umbrella event's venue is that venue, whether the send went by Bird or by Mailchimp.</li>
+<li>This keeps D1's rule that the umbrella stays apart from shows.</li>
+</ul></td></tr>
+
+<tr><td>PT4 · "Whole list" needs a positive match</td><td>
+<p>Amends PI6. A send reads "Whole list" only when one of these holds:</p>
+<ul>
+<li>it went to no list or segment at all;</li>
+<li>it went only to the client's whole-list tags, for example "NX Loves" on Electric's NX Newcastle audience;</li>
+<li>it went only to umbrella lists (PT3).</li>
+</ul>
+<p>Anything else the client owns is not tied (PT1). The whole-list tags are compared exactly (PT2). Where they're stored is a data choice the dashboard doesn't draw.</p></td></tr>
+
+<tr><td>PT5 · DF1 and DF1S</td><td>
+<p>The sends table in both frames carries one row of each state:</p>
+<ul>
+<li>a show send;</li>
+<li>"Whole list";</li>
+<li>"Not tied to a show", for example "Folamour - Presale" (the fever-105 opt-in list).</li>
+</ul>
+<p>The totals line follows PT1. From #1250's read-only dry run on 15 Nov, Electric's 281 sends split into 53 show sends, 196 whole-list sends and 32 not tied (18 Bird and 14 Mailchimp, on the NX Newcastle audience). So the line reads "Electric Group · 281 sends · {first send} – 13 Nov · includes 196 whole-list sends and 32 sends not tied to a show". {first send} is the day of the earliest of the 281. "Folamour - Presale" went on 10 Sep, so it's 10 Sep or earlier, never a day taken from the rows the frame happens to show. The 196 holds once Electric's whole-list tags are set to "NX Loves". If PT3 moves any umbrella sends, the line uses the new counts.</p></td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HT1 · #1250 attribution</td><td>
+<ul>
+<li>PT2's exact comparison for show lists, tags, event codes and whole-list tags.</li>
+<li>PT3: no umbrella event in the show keys; its lists count as whole list.</li>
+<li>PT1's review line when the audience couldn't be read.</li>
+</ul>
+<p>Tests: "cq-kream" is not Kream's; an umbrella list gives "Whole list"; an unread audience gives not tied plus the review line.</p></td></tr>
+<tr><td>HT2 · The panel</td><td>
+<p>PT1's totals line, and PT5's three-state fixture. DF1, DF1S, DF1-393 and DF1S-393 are re-shot.</p></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>"Not tied to a show", where it shows, and the totals line's second clause, with singular forms.</li>
+<li>The review line for unread audiences, with its singular form (the #1250 build's, accepted).</li>
+<li>The CIRQLIN tier suffixes as show lists.</li>
+<li>Umbrella lists as the whole list.</li>
+<li>One row of each state in DF1.</li>
+</ul>
+
+</div>
+</body>
+</html>
