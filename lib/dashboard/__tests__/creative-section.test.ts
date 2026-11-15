@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { cdwCreative, cdwWithLinks } from "../creative-section-fixture.ts";
+import { cdwCreative, cdwWithLinks, jamieJonesCreative } from "../creative-section-fixture.ts";
 import { creativeObjective } from "../creative-section-objective.ts";
 import {
   FILTER_EMPTY,
@@ -43,7 +43,7 @@ describe("IRW0006", () => {
   const model = cdwCreative("internal");
 
   it("draws the format scorecard from the ad names and applies the £500 gate", () => {
-    assert.equal(model.source, "IRONWORKS · Charlotte de Witte · Meta and TikTok · to 6 Aug");
+    assert.equal(model.source, "IRONWORKS · Charlotte de Witte · Meta · to 6 Aug");
     assert.equal(model.source.includes("creative_scores"), false);
     assert.equal(model.formatEmpty, null);
     const ugc = model.formats.find((row) => row.format === "UGC edit");
@@ -136,6 +136,28 @@ describe("rules", () => {
   it("says when no creative is named with a format", () => {
     const model = buildCreativeSection(base({ scored: [{ eventId, name: "Final Tickets" }], days: [], renders: [], pauses: [] }));
     assert.equal(model.formatEmpty, FORMAT_EMPTY);
+  });
+
+  it("names Meta and TikTok only when both have rows", () => {
+    const both = jamieJonesCreative("internal");
+    assert.equal(both.source, "IRONWORKS · Jamie Jones · Meta and TikTok · to 10 Oct");
+    assert.equal(both.tiktok[0]?.name, "80% - JJ New 1_vaES07ge.mp4");
+    assert.equal(both.tiktok[0]?.completion, "4.94 %");
+    assert.equal(both.tiktok[0]?.spend, "£167.67");
+    const tiktokOnly = buildCreativeSection({
+      surface: "internal",
+      client: "IRONWORKS",
+      show: "Jamie Jones",
+      through: "10 Oct",
+      scored: [],
+      days: [],
+      tags: [],
+      renders: [],
+      tiktok: [{ name: "80% - JJ New 1_vaES07ge.mp4", spend: 167.67, impressions: 13071, clicks: 370, views2s: 911, viewsFull: 45 }],
+      refreshOn: false,
+      pauses: [],
+    });
+    assert.equal(tiktokOnly.source, "IRONWORKS · Jamie Jones · TikTok · to 10 Oct");
   });
 
   it("keeps TikTok completion as full views divided by 2-second views", () => {

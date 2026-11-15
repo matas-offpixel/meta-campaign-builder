@@ -5,7 +5,7 @@
  * for this show. No figure here is from the design drawing.
  */
 
-import { buildCreativeSection, type CreativeDay, type CreativeSectionInput, type CreativeSectionModel, type CreativeTagRef } from "./creative-section.ts";
+import { buildCreativeSection, type CreativeDay, type CreativeSectionInput, type CreativeSectionModel, type CreativeTagRef, type TikTokRef } from "./creative-section.ts";
 
 const EVENT = "f8603e89-0b0e-4b43-9984-0f3f3a0e906d";
 const ACCOUNT = "act_1967530076312";
@@ -103,5 +103,46 @@ export function cdwWithLinks(surface: "internal" | "share"): CreativeSectionMode
     renders: [{ eventId: EVENT, name: "UGC 2 - CDW – Copy", driveFileId: "drive-1", renderId: "render-1" }],
     refreshOn: true,
     pauses: [{ eventId: EVENT, lineId: "line-1", name: "UGC 2 - CDW – Copy" }],
+  });
+}
+
+/**
+ * IRW0001 (Jamie Jones), latest TikTok snapshot fetched 15 Nov 2026,
+ * window 4 Aug–10 Oct. The six highest spends. Meta rows are the same
+ * read's top signup and purchase creatives, so the line names both channels.
+ */
+const JAMIE = "2d5a5485-bfec-4812-9fcc-2f6f89262f6c";
+
+function jamieDay(name: string, objective: "signup" | "purchase", spend: number, impressions: number, clicks: number, signups: number, purchases: number, adId: string): CreativeDay {
+  return { eventId: JAMIE, name, objective, spend, impressions, clicks, signups, purchases, adId, adAccountId: ACCOUNT };
+}
+
+const JAMIE_DAYS: CreativeDay[] = [
+  jamieDay("JJ - Motion 9 — Streaming", "signup", 297.2, 51856, 1385, 234, 0, "52522388931307"),
+  jamieDay("JJ Feed Post - Gen Sale", "purchase", 984.24, 139779, 5126, 0, 30, "52524984796507"),
+];
+
+const JAMIE_TIKTOK: TikTokRef[] = [
+  { name: "80% - JJ New 1_vaES07ge.mp4", spend: 167.67, impressions: 13071, clicks: 370, views2s: 911, viewsFull: 45 },
+  { name: "80% - JJ Classic 1_TsM7pLQI.mp4", spend: 114.92, impressions: 23263, clicks: 103, views2s: 8385, viewsFull: 345 },
+  { name: "JJ - Lineup - Motion 1_cKoHRCX4.mp4", spend: 111.13, impressions: 17420, clicks: 119, views2s: 2653, viewsFull: 192 },
+  { name: "80% - JJ New 2_57AZyiz0.mp4", spend: 76.89, impressions: 12613, clicks: 87, views2s: 2276, viewsFull: 104 },
+  { name: "JJ - Lineup - Motion Classic 2_WaBQHo8P.mp4", spend: 42.84, impressions: 7939, clicks: 38, views2s: 1092, viewsFull: 75 },
+  { name: "JJ - Lineup - Motion Classic 1_bh2JPt5k.mp4", spend: 38.75, impressions: 6020, clicks: 32, views2s: 618, viewsFull: 36 },
+];
+
+export function jamieJonesCreative(surface: "internal" | "share"): CreativeSectionModel {
+  return buildCreativeSection({
+    surface,
+    client: "IRONWORKS",
+    show: "Jamie Jones",
+    through: "10 Oct",
+    scored: JAMIE_DAYS.map((row) => ({ eventId: row.eventId, name: row.name })),
+    days: JAMIE_DAYS,
+    tags: [],
+    renders: [],
+    tiktok: JAMIE_TIKTOK,
+    refreshOn: false,
+    pauses: [],
   });
 }

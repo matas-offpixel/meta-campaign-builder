@@ -542,6 +542,14 @@ export function tablesFor(built: Built, selected: readonly TagChoice[]): Creativ
   };
 }
 
+/** Meta when the view has ad days, TikTok when it has snapshot rows, both only when both do. */
+function sourceLine(input: CreativeSectionInput): string {
+  const meta = input.days.length > 0;
+  const tiktok = input.tiktok.length > 0;
+  const channels = meta && tiktok ? "Meta and TikTok" : meta ? "Meta" : tiktok ? "TikTok" : null;
+  return [input.client, input.show, channels, `to ${input.through}`].filter((part) => part).join(" · ");
+}
+
 export function buildCreativeSection(input: CreativeSectionInput, selected: readonly TagChoice[] = []): CreativeSectionModel {
   const built = buildRows(input);
   if (input.surface === "share") {
@@ -554,7 +562,7 @@ export function buildCreativeSection(input: CreativeSectionInput, selected: read
   }
   return {
     title: CREATIVE_TITLE,
-    source: `${input.client} · ${input.show} · Meta and TikTok · to ${input.through}`,
+    source: sourceLine(input),
     surface: input.surface,
     ...tablesFor(built, selected),
     tags: built.tags,

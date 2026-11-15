@@ -4,7 +4,7 @@ import { CreativeFrameMount } from "@/components/dashboard/creative-section/fram
 import { CREATIVE_FRAME_IDS } from "@/scripts/plan-frames/creative-section-ids";
 
 /**
- * HE5 creative frames (CR1, CR1S) at /frames/creative/{id}. A nested route
+ * HE5 creative frames (CR1, CR1S, CR2) at /frames/creative/{id}. A nested route
  * under the public /frames/ prefix, like /frames/audience/{id}.
  */
 export function generateStaticParams() {

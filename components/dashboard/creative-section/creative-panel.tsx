@@ -161,7 +161,7 @@ export function CreativePanel({ model }: { model: CreativeSectionModel }) {
       </div>
 
       <Ranked title={SIGNUP_TITLE} rows={view.signups} empty={view.signupEmpty} data="signups" word="signups" surface={model.surface} />
-      <Ranked title={SALES_TITLE} rows={view.sales} empty={view.salesEmpty} data="sales" word="sales" surface={model.surface} />
+      <Ranked title={SALES_TITLE} rows={view.sales} empty={view.salesEmpty} data="sales" word="purchases" surface={model.surface} />
 
       <div className="mt-4 min-w-0">
         <h3 className="text-sm font-medium">{TIKTOK_TITLE}</h3>
@@ -216,7 +216,7 @@ function Ranked({
   rows: CreativeSectionModel["signups"];
   empty: string | null;
   data: string;
-  word: "signups" | "sales";
+  word: "signups" | "purchases";
   surface: "internal" | "share";
 }) {
   return (

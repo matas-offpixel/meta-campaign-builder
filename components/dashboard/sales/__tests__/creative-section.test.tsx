@@ -14,7 +14,10 @@ describe("creative panel", () => {
     expect(html).toContain("min-w-0");
     expect(html).toContain("£0.76");
     expect(html).not.toContain("creative_scores");
-    expect(html).toContain("IRONWORKS · Charlotte de Witte · Meta and TikTok · to 6 Aug");
+    expect(html).toContain("IRONWORKS · Charlotte de Witte · Meta · to 6 Aug");
+    expect(html).toContain("33 purchases ·");
+    expect(html).toContain("Top 10 by sales");
+    expect(html).not.toContain("33 sales");
     expect(html).toContain("View ad");
   });
 
