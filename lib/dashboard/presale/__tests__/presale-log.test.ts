@@ -19,9 +19,13 @@ import {
   dayIn,
   enteredByWords,
   formatDay,
+  mailchimpDayCount,
+  mailchimpRowRead,
   META_SIGNUP_SPEND,
   presaleDayCount,
   signupsAtPresaleLabel,
+  type MailchimpDayCount,
+  type MailchimpSnapshotRow,
   type Figure,
   type InternalCount,
   type PresaleInputs,
@@ -161,30 +165,100 @@ describe("signups at presale (CIRQLIN)", () => {
   });
 });
 
-describe("signups at presale: the Mailchimp fallback for a show without CIRQLIN", () => {
+describe("signups at presale: the Mailchimp fallback", () => {
   const TAG = "Charlotte De Witte - October 2026";
+  const eod = (subscribers: number | null, day = "2026-08-04"): MailchimpDayCount => ({
+    tag: TAG,
+    day,
+    subscribers,
+    readAt: null,
+    endOfDay: true,
+    estimated: false,
+    rowSource: "mailchimp_eod_cron",
+  });
 
-  it("the tag's stored count for the day before presale, named as its source", () => {
-    const f = buildPresaleLog(inputs({ signupDays: null, mailchimp: { tag: TAG, day: "2026-08-04", subscribers: 12868 } })).signupsAtPresale;
+  it("the tag's end-of-day count for the day before presale, named as its source", () => {
+    const l = buildPresaleLog(inputs({ signupDays: null, mailchimp: eod(12868) }));
+    const f = l.signupsAtPresale;
     assert.equal(val(f), 12868);
     assert.equal(src(f), "counted");
     assert.equal(f.kind === "value" && f.from, `Mailchimp · ${TAG} · Tue 4 Aug`);
-    assert.deepEqual(f.kind === "value" && f.detail, { tag: TAG, throughDay: "2026-08-04" });
+    assert.equal(l.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug");
   });
 
-  it("no row for that day: missing, never a nearer day", () => {
-    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: { tag: TAG, day: "2026-08-04", subscribers: null } })).signupsAtPresale), "no_mailchimp_count_for_day");
-    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: { tag: TAG, day: "2026-08-05", subscribers: 14206 } })).signupsAtPresale), "no_mailchimp_count_for_day");
+  it("a read made during the day names its time, in the show's zone", () => {
+    const midday = { ...eod(12500), readAt: "2026-08-04T12:00:00.000Z", endOfDay: false, rowSource: "mailchimp_webhook_realtime" };
+    const l = buildPresaleLog(inputs({ signupDays: null, mailchimp: midday }));
+    assert.equal(l.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug, 13:00");
+    assert.equal(l.signupsAtPresale.kind === "value" && l.signupsAtPresale.from, `Mailchimp · ${TAG} · Tue 4 Aug, 13:00`);
+    const amsterdam = buildPresaleLog(inputs({ signupDays: null, mailchimp: midday, timeZone: "Europe/Amsterdam" }));
+    assert.equal(amsterdam.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug, 14:00");
   });
 
-  it("CIRQLIN wins when it has history; no tag stays no_cirqlin_signups", () => {
-    assert.equal(val(buildPresaleLog(inputs({ mailchimp: { tag: TAG, day: "2026-08-04", subscribers: 12868 } })).signupsAtPresale), 14500);
+  it("no CIRQLIN count on or before the last day: a page launched after presale falls back too", () => {
+    const f = buildPresaleLog(inputs({ signupDays: [{ day: "2026-08-06", signups: 300 }], mailchimp: eod(12868) })).signupsAtPresale;
+    assert.equal(val(f), 12868);
+    assert.equal(f.kind === "value" && f.from, `Mailchimp · ${TAG} · Tue 4 Aug`);
+  });
+
+  it("a CIRQLIN count that exists and says 0 stays 0", () => {
+    const f = buildPresaleLog(inputs({ signupDays: [{ day: "2026-08-03", signups: 0 }], mailchimp: eod(12868) })).signupsAtPresale;
+    assert.equal(val(f), 0);
+    assert.equal(f.kind === "value" && f.from, "CIRQLIN");
+  });
+
+  it("no row on that day: missing, never a nearer day", () => {
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: eod(null) })).signupsAtPresale), "no_mailchimp_count_for_day");
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: eod(14206, "2026-08-05") })).signupsAtPresale), "no_mailchimp_count_for_day");
+  });
+
+  it("CIRQLIN wins when it has a count by the last day; no tag keeps CIRQLIN's reason", () => {
+    assert.equal(val(buildPresaleLog(inputs({ mailchimp: eod(12868) })).signupsAtPresale), 14500);
     assert.equal(reason(buildPresaleLog(inputs({ signupDays: null, mailchimp: null })).signupsAtPresale), "no_cirqlin_signups");
+    assert.equal(reason(buildPresaleLog(inputs({ signupDays: [{ day: "2026-08-06", signups: 3 }], mailchimp: null })).signupsAtPresale), "no_signups_before_presale");
   });
 
   it("the wider conversion works from the Mailchimp figure", () => {
-    const l = buildPresaleLog(inputs({ signupDays: null, mailchimp: { tag: TAG, day: "2026-08-04", subscribers: 12868 }, log: EV2_LOG, memberCounts: EV2_COMMUNITY }));
+    const l = buildPresaleLog(inputs({ signupDays: null, mailchimp: eod(12868), log: EV2_LOG, memberCounts: EV2_COMMUNITY }));
     assert.equal(val(l.widerConversion).toFixed(4), ((6600 - 4000) / (12868 - 7100)).toFixed(4));
+  });
+});
+
+describe("which Mailchimp row is the day's latest", () => {
+  const TAG = "Charlotte De Witte - October 2026";
+  const row = (id: string, at: string, n: number, raw: MailchimpSnapshotRow["raw_json"]): MailchimpSnapshotRow => ({ id, mailchimp_tag: TAG, email_subscribers: n, snapshot_at: at, raw_json: raw });
+  const LDN = "Europe/London";
+
+  it("the fixed-noon rows take their time from raw_json, never snapshot_at", () => {
+    assert.deepEqual(
+      mailchimpRowRead(row("a", "2026-08-04T12:00:00Z", 1, { source: "mailchimp_eod_cron" }), LDN),
+      { day: "2026-08-04", sortAt: Date.parse("2026-08-04T23:59:59.999Z"), readAt: null, endOfDay: true, estimated: false, source: "mailchimp_eod_cron" },
+    );
+    const webhook = mailchimpRowRead(row("b", "2026-08-04T12:00:00Z", 1, { source: "mailchimp_webhook_realtime", recomputed_at: "2026-08-04T12:00:00.000Z" }), LDN);
+    assert.equal(webhook.readAt, "2026-08-04T12:00:00.000Z");
+    assert.equal(webhook.endOfDay, false);
+    assert.equal(mailchimpRowRead(row("c", "2026-08-04T12:00:00Z", 1, { source: "mailchimp_webhook_realtime", recomputed_at: "2026-08-05T08:00:00Z" }), LDN).endOfDay, true, "a recompute after the day closes it");
+    assert.equal(mailchimpRowRead(row("d", "2026-08-04T12:00:00Z", 1, { source: "mailchimp_tag_daily_history", method: "weighted_ramp_pre_snapshot" }), LDN).estimated, true);
+    const unknown = mailchimpRowRead(row("e", "2026-08-04T12:00:00Z", 1, { source: "manual_client_provided" }), LDN);
+    assert.deepEqual([unknown.readAt, unknown.endOfDay], [null, false], "no time stored: none is named");
+  });
+
+  it("the tag sync's real time decides its day in the show's zone", () => {
+    assert.equal(mailchimpRowRead(row("f", "2026-08-03T23:30:00Z", 1, { source: "mailchimp_tag_sync" }), LDN).day, "2026-08-04");
+    assert.equal(mailchimpRowRead(row("g", "2026-08-03T23:30:00Z", 1, { source: "mailchimp_tag_sync" }), "UTC").day, "2026-08-03");
+  });
+
+  it("the end-of-day read beats the morning sync; a day with only the sync names its time", () => {
+    const day = [
+      row("m1", "2026-08-04T06:01:03Z", 12087, { source: "mailchimp_tag_sync" }),
+      row("m2", "2026-08-04T12:00:00Z", 12868, { source: "mailchimp_eod_cron" }),
+    ];
+    const both = mailchimpDayCount(day, TAG, "2026-08-04", LDN);
+    assert.deepEqual([both.subscribers, both.endOfDay, both.readAt], [12868, true, null]);
+    const syncOnly = mailchimpDayCount([day[0]!], TAG, "2026-08-04", LDN);
+    assert.deepEqual([syncOnly.subscribers, syncOnly.endOfDay, syncOnly.readAt], [12087, false, "2026-08-04T06:01:03.000Z"]);
+    assert.equal(signupsAtPresaleLabel("2026-08-05", syncOnly.readAt, LDN), "Signups at presale · to Tue 4 Aug, 07:01");
+    assert.equal(mailchimpDayCount([], TAG, "2026-08-04", LDN).subscribers, null);
   });
 });
 
@@ -467,29 +541,56 @@ describe("the loader", () => {
     for (const o of db.orders) assert.ok(o.columns.length > 0, `${o.table} is ordered for paging`);
   });
 
-  it("no CIRQLIN page: the Mailchimp tag's 12:00Z row for the day before presale", async () => {
+  it("no CIRQLIN page: the Mailchimp tag's latest row on the day before presale", async () => {
     const TAG = "Charlotte De Witte - October 2026";
-    const snap = (id: string, at: string, n: number) => ({ id, event_id: "cdw", mailchimp_tag: TAG, snapshot_at: at, email_subscribers: n });
+    const snap = (id: string, at: string, n: number, source: string, extra: Record<string, string> = {}) => ({
+      id,
+      event_id: "cdw",
+      mailchimp_tag: TAG,
+      snapshot_at: at,
+      email_subscribers: n,
+      raw_json: { source, ...extra },
+    });
     const base = tables();
     const mc = [
-      snap("m1", "2026-08-04T06:01:03Z", 12087),
-      snap("m2", "2026-08-04T12:00:00Z", 12868),
-      snap("m3", "2026-08-05T12:00:00Z", 14206),
+      snap("m0", "2026-08-03T12:00:00Z", 12050, "mailchimp_eod_cron"),
+      snap("m1", "2026-08-04T06:01:03Z", 12087, "mailchimp_tag_sync"),
+      snap("m2", "2026-08-04T12:00:00Z", 12868, "mailchimp_eod_cron"),
+      snap("m3", "2026-08-05T12:00:00Z", 14206, "mailchimp_eod_cron"),
     ];
-    const events = EVENTS.map((e) => (e.id === "cdw" ? { ...e, mailchimp_tag: TAG } : e));
+    const events = EVENTS.map((e) => (e.id === "cdw" ? { ...e, mailchimp_tag: TAG, event_timezone: null } : e));
+    const missing249 = { missing: ["presale_logs", "presale_relaunches", "community_member_counts"] };
     const noPage = { ...base, events, signup_source_snapshots: base.signup_source_snapshots.slice(0, 1), mailchimp_tag_snapshots: mc };
-    const db = fakeDb(noPage, { missing: ["presale_logs", "presale_relaunches", "community_member_counts"] });
-    const log = await loadPresaleLog(asDb(db), "cdw", { presaleAtWhenUnset: PRESALE });
-    assert.equal(val(log!.signupsAtPresale), 12868, "the 12:00Z row, not the 06:01 one or the presale day's");
+    const log = await loadPresaleLog(asDb(fakeDb(noPage, missing249)), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(log!.signupsAtPresale), 12868, "the end-of-day read, not the 06:01 sync or the presale day's");
     assert.equal(log!.signupsAtPresale.kind === "value" && log!.signupsAtPresale.from, `Mailchimp · ${TAG} · Tue 4 Aug`);
     assert.equal(log!.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug");
 
-    const gap = fakeDb({ ...noPage, mailchimp_tag_snapshots: [mc[0]!, mc[2]!] }, { missing: ["presale_logs", "presale_relaunches", "community_member_counts"] });
+    const midday = [mc[0]!, snap("w", "2026-08-04T12:00:00Z", 12500, "mailchimp_webhook_realtime", { recomputed_at: "2026-08-04T12:00:00Z" }), mc[3]!];
+    const named = await loadPresaleLog(asDb(fakeDb({ ...noPage, mailchimp_tag_snapshots: midday }, missing249)), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(named!.signupsAtPresale), 12500);
+    assert.equal(named!.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug, 13:00");
+
+    const amsterdam = { ...noPage, events: events.map((e) => (e.id === "cdw" ? { ...e, event_timezone: "Europe/Amsterdam" } : e)), mailchimp_tag_snapshots: midday };
+    const ams = await loadPresaleLog(asDb(fakeDb(amsterdam, missing249)), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(ams!.signupsAtPresaleLabel, "Signups at presale · to Tue 4 Aug, 14:00", "events.event_timezone");
+
+    const gap = fakeDb({ ...noPage, mailchimp_tag_snapshots: [mc[0]!, mc[3]!] }, missing249);
     const missingDay = await loadPresaleLog(asDb(gap), "cdw", { presaleAtWhenUnset: PRESALE });
     assert.equal(reason(missingDay!.signupsAtPresale), "no_mailchimp_count_for_day");
-    assert.deepEqual(await loadMailchimpDayCount(asDb(gap), "cdw", TAG, "2026-08-04"), { tag: TAG, day: "2026-08-04", subscribers: null });
+    assert.equal((await loadMailchimpDayCount(asDb(gap), "cdw", TAG, "2026-08-04")).subscribers, null);
 
-    const withPage = fakeDb({ ...base, events, mailchimp_tag_snapshots: mc }, { missing: ["presale_logs", "presale_relaunches", "community_member_counts"] });
+    const lateLaunch = { ...noPage, signup_source_snapshots: [{ id: "s9", event_id: "cdw", source: "cirqlin", day: "2026-08-07", signups_day: 400, raw_json: null }] };
+    const late = await loadPresaleLog(asDb(fakeDb(lateLaunch, missing249)), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(late!.signupsAtPresale), 12868, "page launched after presale: Mailchimp");
+
+    const zero = { ...noPage, signup_source_snapshots: [{ id: "s8", event_id: "cdw", source: "cirqlin", day: "2026-08-03", signups_day: 0, raw_json: null }] };
+    const zeroDb = fakeDb(zero, missing249);
+    const z = await loadPresaleLog(asDb(zeroDb), "cdw", { presaleAtWhenUnset: PRESALE });
+    assert.equal(val(z!.signupsAtPresale), 0, "CIRQLIN's 0 stays 0");
+    assert.ok(!zeroDb.orders.some((o) => o.table === "mailchimp_tag_snapshots"), "Mailchimp isn't read");
+
+    const withPage = fakeDb({ ...base, events, mailchimp_tag_snapshots: mc }, missing249);
     const cirqlin = await loadPresaleLog(asDb(withPage), "cdw", { presaleAtWhenUnset: PRESALE });
     assert.equal(val(cirqlin!.signupsAtPresale), 14500, "CIRQLIN history: Mailchimp isn't read");
     assert.ok(!withPage.orders.some((o) => o.table === "mailchimp_tag_snapshots"));

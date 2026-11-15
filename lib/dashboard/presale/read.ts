@@ -21,10 +21,12 @@
  *                             says "presale" (Complete Registration or leads).
  *                             TikTok and Google spend aren't in it
  *                             ("Meta signup spend"; TikTok joins at HE6).
- *   mailchimp_tag_snapshots   only for a show with no CIRQLIN history: the
- *                             tag's stored count on the day before presale,
- *                             that day's 12:00Z row and no other (the
- *                             writers' deterministic snapshot_at).
+ *   mailchimp_tag_snapshots   only when no CIRQLIN count is dated on or
+ *                             before the day before presale: the tag's latest
+ *                             row stored on that day (model.ts
+ *                             mailchimpRowRead says how a row's time is known;
+ *                             snapshot_at alone can't, the per-day writers
+ *                             all stamp 12:00Z).
  *   auth users                entered_by → first name (./names.ts), with
  *                             the service role; otherwise names read null.
  *
@@ -47,8 +49,10 @@ import { metaCampaignOwners } from "../sales-calc/figures.ts";
 import {
   buildPresaleLog,
   dayIn,
+  mailchimpDayCount,
   type InternalCount,
   type MailchimpDayCount,
+  type MailchimpSnapshotRow,
   type MemberCountRow,
   type PresaleLog,
   type PresaleLogRow,
@@ -96,9 +100,11 @@ export interface PresaleEventRow {
   meta_campaign_id: string | null;
   meta_ad_account_id: string | null;
   mailchimp_tag?: string | null;
+  /** The show's time zone; Europe/London when null. */
+  event_timezone?: string | null;
 }
 
-const EVENT_COLUMNS = "id,client_id,event_code,event_date,presale_at,meta_campaign_id,meta_ad_account_id,mailchimp_tag";
+const EVENT_COLUMNS = "id,client_id,event_code,event_date,presale_at,meta_campaign_id,meta_ad_account_id,mailchimp_tag,event_timezone";
 
 // ── the 249 tables ──────────────────────────────────────────────────────
 
@@ -157,22 +163,24 @@ export function dayBefore(day: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+function dayAfter(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 /**
- * The Mailchimp tag's stored count for one day: that day's 12:00Z row in
- * mailchimp_tag_snapshots (the writers' deterministic snapshot_at, one row
- * per event per day). Earlier or later rows on the same day aren't read, and
- * no other day stands in: no row gives subscribers null.
+ * The Mailchimp tag's latest row stored on one day (the show's day). Reads
+ * the rows from the day before to the day after, paged, so a read made near
+ * midnight lands on the right side of the show's day; mailchimpDayCount
+ * keeps only the day's rows. No other day stands in: none gives
+ * subscribers null.
  */
-export async function loadMailchimpDayCount(db: Db, eventId: string, tag: string, day: string): Promise<MailchimpDayCount> {
-  const rows = await loadAllPaged<{ id: string; mailchimp_tag: string | null; email_subscribers: number | string | null }>(
-    db,
-    "mailchimp_tag_snapshots",
-    "id,mailchimp_tag,email_subscribers",
-    ["id"],
-    (q) => q.eq("event_id", eventId).eq("snapshot_at", `${day}T12:00:00Z`),
+export async function loadMailchimpDayCount(db: Db, eventId: string, tag: string, day: string, timeZone = "Europe/London"): Promise<MailchimpDayCount> {
+  const rows = await loadAllPaged<MailchimpSnapshotRow>(db, "mailchimp_tag_snapshots", "id,mailchimp_tag,email_subscribers,snapshot_at,raw_json", ["id"], (q) =>
+    q.eq("event_id", eventId).gte("snapshot_at", `${dayBefore(day)}T00:00:00Z`).lte("snapshot_at", `${dayAfter(day)}T23:59:59.999Z`),
   );
-  const row = rows.find((r) => r.email_subscribers != null) ?? null;
-  return { tag: row?.mailchimp_tag || tag, day, subscribers: row ? Number(row.email_subscribers) : null };
+  return mailchimpDayCount(rows, tag, day, timeZone);
 }
 
 /** The show's written Internal Counts counts, with when each landed. */
@@ -305,6 +313,7 @@ export interface LoadPresaleLogOptions {
    * Never written anywhere. The live panel passes nothing.
    */
   presaleAtWhenUnset?: string | null;
+  /** Overrides events.event_timezone (itself Europe/London when null). */
   timeZone?: string;
   /** entered_by → name. Defaults to the auth admin lookup on `db` (service role only). */
   lookupName?: NameLookup | null;
@@ -317,7 +326,7 @@ export async function loadPresaleLog(db: Db, eventId: string, opts: LoadPresaleL
   if (!data) return null;
   const event = data as PresaleEventRow;
   const presaleAt = event.presale_at ?? opts.presaleAtWhenUnset ?? null;
-  const timeZone = opts.timeZone ?? "Europe/London";
+  const timeZone = opts.timeZone ?? (event.event_timezone?.trim() || "Europe/London");
   const [log, relaunches, memberCounts, signupDays, internalCounts, registrationSpend] = await Promise.all([
     loadPresaleLogRow(db, eventId),
     loadRelaunches(db, eventId),
@@ -327,8 +336,10 @@ export async function loadPresaleLog(db: Db, eventId: string, opts: LoadPresaleL
     loadRegistrationSpend(db, event),
   ]);
   const tag = event.mailchimp_tag?.trim() || null;
-  const mailchimp =
-    !signupDays?.length && tag && presaleAt ? await loadMailchimpDayCount(db, eventId, tag, dayBefore(dayIn(presaleAt, timeZone))) : null;
+  const presaleDay = presaleAt ? dayIn(presaleAt, timeZone) : null;
+  // No CIRQLIN count dated on or before the last day (no page, or one launched after presale).
+  const cirqlinBefore = !!presaleDay && !!signupDays?.some((d) => d.day < presaleDay);
+  const mailchimp = !cirqlinBefore && tag && presaleDay ? await loadMailchimpDayCount(db, eventId, tag, dayBefore(presaleDay), timeZone) : null;
   const counts = memberCounts.get(eventId) ?? [];
   const names = await resolveEnteredNames(
     [

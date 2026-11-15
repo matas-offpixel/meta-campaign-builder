@@ -18,8 +18,9 @@
 // --presale-at is used only when events.presale_at is unset, and is printed
 // as supplied. The defaults are Ironworks Season 1's Charlotte de Witte
 // (show 1 Nov 2026, presale Wed 5 Aug 2026; the report gives no time, so
-// midnight London). A show without CIRQLIN reads "Signups at presale" from
-// its Mailchimp tag's 12:00Z row for the day before presale (#1255 ruling).
+// midnight London). With no CIRQLIN count on or before the day before
+// presale, "Signups at presale" reads the Mailchimp tag's latest row stored
+// on that day (#1257 ruling), naming its time when it isn't the end-of-day read.
 //
 // Requires env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 
@@ -80,7 +81,7 @@ const from = (f: Figure<unknown>): string => (f.kind === "value" ? f.from : "—
 async function main() {
   const { data: event, error } = await db
     .from("events")
-    .select("id,name,client_id,event_code,event_date,presale_at,meta_campaign_id,meta_ad_account_id,cirqlin_page_id,mailchimp_tag")
+    .select("id,name,client_id,event_code,event_date,presale_at,meta_campaign_id,meta_ad_account_id,cirqlin_page_id,mailchimp_tag,event_timezone")
     .eq("event_code", code)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -100,9 +101,11 @@ async function main() {
     loadRegistrationSpend(db, e),
   ]);
   const at = "dry-run (not stored)";
-  const presaleDay = dayIn(presaleAt, "Europe/London");
+  const timeZone = e.event_timezone?.trim() || "Europe/London";
+  const presaleDay = dayIn(presaleAt, timeZone);
   const tag = e.mailchimp_tag?.trim() || null;
-  const mailchimp = !signupDays?.length && tag ? await loadMailchimpDayCount(db, e.id, tag, dayBefore(presaleDay)) : null;
+  const cirqlinBefore = !!signupDays?.some((d) => d.day < presaleDay);
+  const mailchimp = !cirqlinBefore && tag ? await loadMailchimpDayCount(db, e.id, tag, dayBefore(presaleDay), timeZone) : null;
   const names = await resolveEnteredNames(
     [...(counts.get(e.id) ?? []).map((c) => c.entered_by), ...relaunches.flatMap((r) => [r.entered_by, r.result_entered_by])],
     adminNameLookup(db),
@@ -110,6 +113,7 @@ async function main() {
   const supposed: PresaleLog = buildPresaleLog({
     eventId: e.id,
     presaleAt,
+    timeZone,
     log: {
       ...(log ?? {
         window_start_at: null,
@@ -136,11 +140,19 @@ async function main() {
   });
 
   console.log(`\nPresale log dry run · ${e.name} (${e.event_code}) · read only, nothing written`);
-  console.log(`events.presale_at: ${e.presale_at ?? `unset → using --presale-at ${presaleArg} (not stored)`} · presale day ${presaleDay} London`);
+  console.log(
+    `events.presale_at: ${e.presale_at ?? `unset → using --presale-at ${presaleArg} (not stored)`} · presale day ${presaleDay} · zone ${timeZone}${e.event_timezone ? "" : " (event_timezone null → Europe/London)"}`,
+  );
   console.log(`CIRQLIN page: ${e.cirqlin_page_id ?? "none linked"} · state: ${read.state}${read.prompt ? ` → "${read.prompt}"` : ""}`);
   console.log(`Meta signup spend: ${registrationSpend == null ? "none" : `£${registrationSpend.toFixed(2)}`}`);
   console.log(
-    `Mailchimp fallback: ${mailchimp ? `tag "${mailchimp.tag}", 12:00Z row on ${mailchimp.day}: ${mailchimp.subscribers ?? "none"}` : signupDays?.length ? "not read (CIRQLIN has history)" : "no tag"}\n`,
+    `Mailchimp fallback: ${
+      mailchimp
+        ? `tag "${mailchimp.tag}", latest row on ${mailchimp.day}: ${mailchimp.subscribers ?? "none"} (row source ${mailchimp.rowSource ?? "—"}, ${mailchimp.endOfDay ? "end of day" : mailchimp.readAt ? `read ${mailchimp.readAt}` : "no time stored"})`
+        : cirqlinBefore
+          ? "not read (CIRQLIN has a count by the last day)"
+          : "no tag"
+    }\n`,
   );
 
   const rows: [string, string, string, string, string][] = [
