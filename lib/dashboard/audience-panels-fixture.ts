@@ -16,7 +16,11 @@
  *     NX Newcastle audience (229 sends; the dry run read that one audience
  *     of five). The sends are the six the dry run printed, with their names
  *     as Bird and Mailchimp hold them (read 15 Nov by a re-run of the
- *     same dry run, nothing written). Electric's WhatsApp rate
+ *     same dry run, nothing written). Since the positive-match rules
+ *     (migration 248), "Azyr - presale live v2" is NX26-AZYR's (it went to
+ *     the show's CQ list and its opt-in tiers), so the whole-list row is
+ *     "Locklead- Announcement" (2 Nov, the NX Loves master tag, same
+ *     audience). Electric's WhatsApp rate
  *     isn't set, which is the PI5 state.
  *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
@@ -141,6 +145,7 @@ const SHOWS: Record<string, string> = {
   "show-robbiedoherty": "Robbie Doherty",
   "show-kream": "Kream",
   "show-locklead": "Locklead",
+  "show-azyr": "AZYR b2b Partiboi69",
 };
 
 function send(
@@ -191,13 +196,19 @@ export const ELECTRIC_D2C: D2CStatsSummary = {
     send("mc-1", "Robbie Doherty — NX Loves-Newcastle-27.11.26 — Lineup Announce (13 Nov 17:00)", "2026-11-13", "email", "show-robbiedoherty", 572, 572, 17, 0),
     send("bird-2", "Kream lineup", "2026-11-12", "whatsapp", "show-kream", 589, 525, 275, 26),
     send("bird-3", "Locklead - presale reminder", "2026-11-05", "whatsapp", "show-locklead", 627, 585, 331, 68),
-    send("bird-4", "Azyr - presale live v2", "2026-10-23", "whatsapp", null, 1750, 1571, 545, 47),
+    send("mc-2", "Locklead- Announcement", "2026-11-02", "email", null, 19_789, 19_715, 571, 54),
+    send("bird-4", "Azyr - presale live v2", "2026-10-23", "whatsapp", "show-azyr", 1750, 1571, 545, 47),
     send("bird-5", "Kream presale", "2026-10-23", "whatsapp", "show-kream", 591, 539, 323, 113),
   ],
 };
 
-/** 52 Bird sends (24 whole-list) and 229 Mailchimp sends (210 whole-list or master-tag). */
-export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 234 };
+/**
+ * 52 Bird sends (34 show, 18 not tied to a show, none whole-list) and 229
+ * Mailchimp sends on the NX Newcastle audience (19 show, 196 whole list or
+ * the NX Loves master tag, 14 not tied), by the positive-match rules
+ * (migration 248), from a read-only dry run on 15 Nov.
+ */
+export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 196 };
 
 export function electric(surface: D2CSurface): DirectToFanModel {
   return modelFromSummary(

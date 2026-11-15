@@ -119,7 +119,7 @@ async function main() {
       console.log(`  ERROR ${s.error}`);
       continue;
     }
-    console.log(`  calls ${s.calls} · rows ${s.rows} · show ${s.byAttribution.show} · client ${s.byAttribution.client} · unattributed ${s.byAttribution.unattributed} · ticket-holder ${s.ticketHolderRows}`);
+    console.log(`  calls ${s.calls} · rows ${s.rows} · show ${s.byAttribution.show} · client ${s.byAttribution.client} · not tied ${s.byAttribution.not_tied} · unattributed ${s.byAttribution.unattributed} · ticket-holder ${s.ticketHolderRows}`);
     console.log(`  channels ${JSON.stringify(s.byChannel)}`);
     for (const n of s.notes) console.log(`  note: ${n}`);
     const rows = result.rows

@@ -126,20 +126,21 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
-/** Shows the ingest can attribute to: events with a tag or a CIRQLIN slug, archived clients dropped. */
+/** Shows the ingest can attribute to: events with a tag, a code or a CIRQLIN slug, archived clients dropped. */
 export async function loadShowKeys(db: Db, archived: ReadonlySet<string>): Promise<D2CShowKey[]> {
   const rows = await loadAllPaged<{
     id: string;
     client_id: string | null;
+    event_code: string | null;
     mailchimp_tag: string | null;
     cirqlin_page_slug: string | null;
     mailchimp_audience_id: string | null;
   }>(
     db,
     "events",
-    "id, client_id, mailchimp_tag, cirqlin_page_slug, mailchimp_audience_id",
+    "id, client_id, event_code, mailchimp_tag, cirqlin_page_slug, mailchimp_audience_id",
     ["id"],
-    (q) => q.or("mailchimp_tag.not.is.null,cirqlin_page_slug.not.is.null"),
+    (q) => q.or("mailchimp_tag.not.is.null,cirqlin_page_slug.not.is.null,event_code.not.is.null"),
   );
   return rows
     .filter((r) => r.client_id && !archived.has(r.client_id))
@@ -147,6 +148,7 @@ export async function loadShowKeys(db: Db, archived: ReadonlySet<string>): Promi
       eventId: r.id,
       clientId: r.client_id!,
       tag: r.mailchimp_tag,
+      code: r.event_code,
       slug: r.cirqlin_page_slug,
       mailchimpAudienceId: r.mailchimp_audience_id,
     }));
@@ -259,7 +261,7 @@ function newSummary(source: D2CStatsSource, accountId: string): D2CStatsSourceSu
     connectionIds: [...source.connectionIds],
     calls: 0,
     rows: 0,
-    byAttribution: { show: 0, client: 0, unattributed: 0 },
+    byAttribution: { show: 0, client: 0, not_tied: 0, unattributed: 0 },
     byChannel: {},
     ticketHolderRows: 0,
     notes: [],

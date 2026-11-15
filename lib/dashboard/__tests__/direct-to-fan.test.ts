@@ -11,6 +11,7 @@ import type { StoredStatsRow } from "../../d2c/stats-ingest/summary.ts";
 import { electric } from "../audience-panels-fixture.ts";
 import {
   BOT_FILTER_FOOTNOTE,
+  NOT_TIED,
   RATE_NOT_SET,
   WHOLE_LIST,
   buildDirectToFan,
@@ -166,7 +167,7 @@ describe("Direct-to-fan · EV4 on the Electric dry-run figures", () => {
     assert.equal(m.channels[1]!.readOpenedText, "11.1 %");
     assert.equal(m.channels[0]!.readOpenedText, "57.9 % read");
     assert.match(m.headline!, /^WhatsApp's click rate is 3\.68× email's\. Clicks are the like-for-like figure/);
-    assert.equal(m.totalsLine, "Electric Group · 281 sends · 23 Oct – 13 Nov · includes 234 whole-list sends");
+    assert.equal(m.totalsLine, "Electric Group · 281 sends · 23 Oct – 13 Nov · includes 196 whole-list sends");
   });
 
   it("orders the phone list by click rate and keeps 'Rate not set' internal", () => {
@@ -174,5 +175,38 @@ describe("Direct-to-fan · EV4 on the Electric dry-run figures", () => {
     assert.deepEqual(internal.phone.rates.map((r) => r.label), ["WhatsApp", "Email · tickets", "Email · marketing"]);
     assert.deepEqual(internal.phone.costs.map((c) => `${c.label} ${c.text}`), ["WhatsApp Rate not set", "email —"]);
     assert.deepEqual(electric("share").phone.costs.map((c) => `${c.label} ${c.text}`), ["WhatsApp —", "email —"]);
+  });
+});
+
+describe("Direct-to-fan · sends not tied to a show (migration 248)", () => {
+  const rows = [
+    row({ attribution: "show", event_id: "e1" }),
+    row({ attribution: "client", provider: "mailchimp", channel: "email", list_id: "aud-nc", read: null }),
+    row({ attribution: "not_tied" }),
+    row({ attribution: "not_tied", provider: "mailchimp", channel: "email", list_id: "aud-nc", read: null }),
+    row({ attribution: "unattributed", client_id: null }),
+  ];
+  const input = { rows, rate: { rate: null, currency: "GBP" }, shows: SHOWS, unattributed: 1 };
+
+  it("count in the client's totals, read 'Not tied to a show', and aren't whole-list sends", () => {
+    const m = buildDirectToFan(input, client, opts("internal"));
+    assert.equal(m.sends.length, 4);
+    assert.equal(m.sends.filter((s) => s.showText === NOT_TIED).length, 2);
+    assert.equal(m.sends.filter((s) => s.showText === WHOLE_LIST).length, 1);
+    assert.match(m.totalsLine ?? "", /includes 1 whole-list send$/);
+  });
+
+  it("never count in a show; on a venue only when the Mailchimp audience is that venue's", () => {
+    const show = scopeRows(rows, SHOWS, { kind: "show", label: "Locklead", eventId: "e1" });
+    assert.deepEqual(show.map((r) => r.attribution), ["show"]);
+    const nc = scopeRows(rows, SHOWS, { kind: "venue", label: "NX Newcastle", venueKey: "newcastle" });
+    assert.deepEqual(nc.map((r) => r.attribution), ["show", "client", "not_tied"]);
+  });
+
+  it("DF1: Azyr's tier-list send is the show's, and the whole-list row is the NX Loves send", () => {
+    const m = electric("internal");
+    assert.equal(m.sends.find((s) => s.name === "Azyr - presale live v2")!.showText, "AZYR b2b Partiboi69");
+    assert.equal(m.sends.find((s) => s.name === "Locklead- Announcement")!.showText, WHOLE_LIST);
+    assert.match(m.totalsLine ?? "", /includes 196 whole-list sends$/);
   });
 });

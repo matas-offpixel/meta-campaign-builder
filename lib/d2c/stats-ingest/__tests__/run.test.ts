@@ -120,7 +120,8 @@ test("a dry run reads both providers, attributes, and writes nothing", async () 
   const b2 = result.rows.find((r) => r.external_id === "b2")!;
   const m1 = result.rows.find((r) => r.external_id === "m1")!;
   assert.equal(b1.event_id, "ev-moonlit");
-  assert.equal(b2.attribution, "client");
+  // A list no show answers to, and not a master tag of this client: not tied to a show.
+  assert.equal(b2.attribution, "not_tied");
   assert.equal(b2.client_id, CLIENT);
   assert.equal(m1.event_id, "ev-moonlit");
   assert.equal(m1.opens_unique_filtered, 12);

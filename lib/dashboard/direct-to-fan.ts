@@ -27,6 +27,8 @@ import type { D2CShowVenue } from "../d2c/stats-ingest/read.ts";
 export const DIRECT_TO_FAN_TITLE = "Direct-to-fan";
 export const RATE_NOT_SET = "Rate not set";
 export const WHOLE_LIST = "Whole list";
+/** A client's own send that matched no show and is not its whole list (migration 248). */
+export const NOT_TIED = "Not tied to a show";
 export const BOT_FILTER_FOOTNOTE = "Email opens are Mailchimp's bot-filtered opens: Apple Mail Privacy and link-scanner opens removed.";
 export const DIRECT_TO_FAN_EMPTY = "No direct-to-fan sends yet";
 export const CLICK_RATE_TITLE = "Click rate · clicks ÷ delivered";
@@ -58,7 +60,7 @@ export type SendRow = {
   id: string;
   dayText: string;
   name: string;
-  /** The show's name, or WHOLE_LIST. */
+  /** The show's name, WHOLE_LIST or NOT_TIED. */
   showText: string;
   channelText: string;
   deliveredText: string;
@@ -151,16 +153,20 @@ export function venueAudiences(shows: readonly D2CShowVenue[], venueKey: string 
   return out;
 }
 
-/** The sends that count in a scope. Unattributed sends never count anywhere (PI6). */
+/**
+ * The sends that count in a scope. Unattributed sends never count anywhere
+ * (PI6). A not-tied send counts like a whole-list one: on the client, and on
+ * a venue only when its Mailchimp audience is that venue's; never in a show.
+ */
 export function scopeRows(rows: readonly StoredStatsRow[], shows: readonly D2CShowVenue[], scope: D2CScope): StoredStatsRow[] {
   if (scope.kind === "show") return rows.filter((r) => r.attribution === "show" && r.event_id === scope.eventId);
-  if (scope.kind === "client") return rows.filter((r) => r.attribution === "show" || r.attribution === "client");
+  if (scope.kind === "client") return rows.filter((r) => r.attribution !== "unattributed");
   const ids = new Set(shows.filter((s) => (s.venue_key ?? null) === scope.venueKey).map((s) => s.id));
   const audiences = venueAudiences(shows, scope.venueKey);
   return rows.filter(
     (r) =>
       (r.attribution === "show" && r.event_id != null && ids.has(r.event_id)) ||
-      (r.attribution === "client" && r.provider === "mailchimp" && r.list_id != null && audiences.has(r.list_id)),
+      ((r.attribution === "client" || r.attribution === "not_tied") && r.provider === "mailchimp" && r.list_id != null && audiences.has(r.list_id)),
   );
 }
 
@@ -212,7 +218,7 @@ function sendRow(b: BroadcastStat, showName: (eventId: string) => string): SendR
     id: b.id,
     dayText: sendDay(b.sentAt),
     name: b.name ?? DASH,
-    showText: b.attribution === "show" && b.eventId ? showName(b.eventId) : WHOLE_LIST,
+    showText: b.attribution === "show" && b.eventId ? showName(b.eventId) : b.attribution === "not_tied" ? NOT_TIED : WHOLE_LIST,
     channelText,
     deliveredText: count(b.delivered),
     readOpenedText: readOpened({ channel: b.channel, readRate: b.readRate, openRate: b.opens?.rate ?? null, estimated: b.opens?.estimated ?? false }),
