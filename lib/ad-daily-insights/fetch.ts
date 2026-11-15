@@ -79,11 +79,15 @@ export function insightsParams(since: string, until: string, limit: number, afte
   return params;
 }
 
+/** Builds one insights request's params. The audience breakdowns (lib/audience-breakdowns) pass their own. */
+export type InsightsParamsBuilder = (since: string, until: string, limit: number, after?: string) => Record<string, string>;
+
 export async function fetchAdAccountInsights(
   graphGet: GraphGet,
   adAccountId: string,
   since: string,
   until: string,
+  buildParams: InsightsParamsBuilder = insightsParams,
 ): Promise<AccountFetchResult> {
   const rows: MetaAdInsightRow[] = [];
   let calls = 0;
@@ -97,7 +101,7 @@ export async function fetchAdAccountInsights(
       calls++;
       page = (await graphGet(
         `/${adAccountId}/insights`,
-        insightsParams(since, until, AD_INSIGHTS_PAGE_LIMITS[limitIndex], after),
+        buildParams(since, until, AD_INSIGHTS_PAGE_LIMITS[limitIndex], after),
       )) as InsightsPage;
     } catch (err) {
       const kind = classifyLaunchMetaCode(errorCode(err));
@@ -171,6 +175,7 @@ export async function fetchAdAccountInsightsAdaptive(
   since: string,
   until: string,
   onSpan: (span: InsightsSpan) => Promise<string | null>,
+  buildParams: InsightsParamsBuilder = insightsParams,
 ): Promise<AdaptiveFetchResult> {
   const result: AdaptiveFetchResult = { status: "ok", calls: 0, pages: 0, spans: 0, windowSplit: null };
   let splitFrom = 0;
@@ -178,7 +183,7 @@ export async function fetchAdAccountInsightsAdaptive(
 
   const attempt = async (span: { since: string; until: string }): Promise<boolean> => {
     const length = spanDays(span.since, span.until);
-    const fetched = await fetchAdAccountInsights(graphGet, adAccountId, span.since, span.until);
+    const fetched = await fetchAdAccountInsights(graphGet, adAccountId, span.since, span.until, buildParams);
     result.calls += fetched.calls;
     result.pages += fetched.pages;
     if (fetched.status === "ok") {
