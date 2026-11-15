@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { readObjectiveBudget } from "@/lib/dashboard/objective-budget/read";
 import { loadPresaleLog } from "@/lib/dashboard/presale/read";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 
 import { budgetPanel, type BudgetPanelModel } from "./budget-view";
 import { presalePanel, type PresalePanelModel } from "./presale-view";
@@ -29,6 +30,11 @@ export async function loadEventPanels(db: Db, opts: { eventId: string; clientId:
     loadBudget(db, { clientId: opts.clientId, eventId: opts.eventId }, nowMs),
   ]);
   return { presale, budget };
+}
+
+/** Share link: service role, after the token has already resolved to this client. */
+export function loadShareSalesPanels(clientId: string, showId: string, nowMs = Date.now()): Promise<EventPanels> {
+  return loadSalesPanels(createServiceRoleClient(), clientId, showId, "share", nowMs);
 }
 
 /** `showId` is the sales view: "all" is the client, a lower-cased event code is one show. */

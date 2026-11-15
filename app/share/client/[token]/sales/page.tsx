@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { AudiencePanelsUrl } from "@/components/dashboard/audience-panels/audience-panels";
 import { ObjectiveBudgetPanel } from "@/components/dashboard/objective-budget-panel/panel";
 import { PresalePanel } from "@/components/dashboard/presale-panel/presale-panel";
-import { loadSalesPanels } from "@/lib/dashboard/he-panels/server";
+import { loadShareSalesPanels } from "@/lib/dashboard/he-panels/server";
 import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-url";
 import { initialFromQuery } from "@/components/dashboard/sales/venue-query";
 import { loadShareAudiencePanels } from "@/lib/dashboard/audience-panels-server";
@@ -12,7 +12,6 @@ import { resolveShareByToken } from "@/lib/db/report-shares";
 import { dashboardV2Enabled } from "@/lib/dashboard/sales-calc/gate";
 import { pickPeriod } from "@/lib/dashboard/sales-calc/query";
 import { loadShareSalesDashboard } from "@/lib/dashboard/sales-calc/server";
-import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
  * Share sales vs spend (dashboard v2, D11). Computed on our server behind
@@ -41,7 +40,7 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
   const resolved = await resolveShareByToken(token);
   const clientId = resolved.ok && resolved.share.scope === "client" ? resolved.share.client_id : null;
   const panels = clientId ? await loadShareAudiencePanels(clientId, result.model) : null;
-  const he = clientId ? await loadSalesPanels(createServiceRoleClient(), clientId, initial.showId, "share") : null;
+  const he = clientId ? await loadShareSalesPanels(clientId, initial.showId) : null;
   return (
     <Suspense>
       <SalesDashboardUrl
