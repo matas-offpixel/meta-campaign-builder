@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1254
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1254
 - **Branch:** `cursor/dashboard-v2-creative`
 
 ## Summary
