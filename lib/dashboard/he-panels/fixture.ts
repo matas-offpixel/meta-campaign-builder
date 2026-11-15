@@ -6,7 +6,7 @@
  * so the period ends 14 Nov). Nothing here is from the design drawing.
  */
 
-import type { PresaleLog } from "../presale/model.ts";
+import { buildPresaleLog, type PresaleLog, type PresaleLogRow } from "../presale/model.ts";
 import type { BudgetPicture, Channel, Figure, MetaClassification, Objective, ObjectiveBudgetResult, ObjectiveRow, ResultMetric } from "../objective-budget/types.ts";
 import { budgetPanel, type BudgetPanelModel } from "./budget-view.ts";
 import { FRAME_NOW_MS, periodText } from "./dates.ts";
@@ -136,6 +136,59 @@ export const ELECTRIC_BUDGET: ObjectiveBudgetResult = budget(
 
 export function dodPresale(surface: "internal" | "share"): PresalePanelModel {
   return presalePanel(DOD_PRESALE, { show: "D.O.D", surface, nowMs: FRAME_NOW_MS });
+}
+
+/**
+ * Charlotte de Witte (IRW0006). presale_at on prod is 5 Aug 2026, 12:00
+ * Europe/London. The other figures are the season report's, held here,
+ * not written to prod. The entered lines use 13 Nov, the day the report
+ * was read. Signup spend is the report's registration spend (£5,771.82),
+ * which the per-ticket figure is derived from.
+ */
+const CDW = "f8603e89-0b0e-4b43-9984-0f3f3a0e906d";
+const MATAS = "matas";
+const ENTERED_AT = "2026-11-13T12:00:00Z";
+
+function cdwLog(): PresaleLog {
+  const log: PresaleLogRow = {
+    window_start_at: null,
+    window_start_entered_by: null,
+    window_start_entered_at: null,
+    sold_in_window: 4000,
+    sold_in_window_entered_by: MATAS,
+    sold_in_window_entered_at: ENTERED_AT,
+    avg_ticket_price: null,
+    avg_ticket_price_entered_by: null,
+    avg_ticket_price_entered_at: null,
+    presale_day_tickets: 6600,
+    presale_day_tickets_entered_by: MATAS,
+    presale_day_tickets_entered_at: ENTERED_AT,
+  };
+  return buildPresaleLog({
+    eventId: CDW,
+    presaleAt: "2026-08-05T11:00:00+00:00",
+    timeZone: "Europe/London",
+    log,
+    relaunches: [],
+    memberCounts: [{ counted_on: "2026-08-05", members: 7100, entered_by: MATAS, entered_at: ENTERED_AT }],
+    signupDays: null,
+    internalCounts: [],
+    registrationSpend: 5771.82,
+    mailchimp: {
+      tag: "Charlotte De Witte - October 2026",
+      day: "2026-08-04",
+      subscribers: 12868,
+      readAt: null,
+      endOfDay: true,
+      estimated: false,
+      rowSource: "mailchimp_eod_cron",
+    },
+    names: new Map([[MATAS, "Matas"]]),
+  });
+}
+
+export function cdwPresale(surface: "internal" | "share", nowMs = FRAME_NOW_MS): PresalePanelModel {
+  return presalePanel(cdwLog(), { show: "Charlotte de Witte", surface, nowMs });
 }
 
 export function dodBudget(nowMs = FRAME_NOW_MS): BudgetPanelModel {

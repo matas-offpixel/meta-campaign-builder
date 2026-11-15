@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { buildPresaleLog } from "../../presale/model.ts";
 import { budgetPanel } from "../budget-view.ts";
 import { FRAME_NOW_MS, periodText } from "../dates.ts";
-import { DOD_BUDGET, dodPresale, electricBudget, ironworksBudget } from "../fixture.ts";
+import { DOD_BUDGET, cdwPresale, dodPresale, electricBudget, ironworksBudget } from "../fixture.ts";
 import { presalePanel } from "../presale-view.ts";
 
 describe("PH7 dates", () => {
@@ -74,6 +74,39 @@ describe("HE4 sources", () => {
     assert.equal(model.rows[0]?.source, "Mailchimp · IRW-CDW · Tue 4 Aug · est.");
     assert.equal(model.rows.find((r) => r.label === "Community at presale")?.source, "entered by Matas, 4 Aug");
     assert.equal(model.prompt, null);
+  });
+});
+
+describe("HE4 Charlotte de Witte", () => {
+  const model = cdwPresale("internal");
+
+  it("uses the prod presale time and the report's figures", () => {
+    const row = (label: string) => model.rows.find((r) => r.label === label);
+    assert.equal(model.rows[0]?.label, "Signups at presale · to Tue 4 Aug");
+    assert.equal(model.rows[0]?.value, "12,868");
+    assert.equal(model.rows[0]?.source, "Mailchimp · Charlotte De Witte - October 2026 · Tue 4 Aug");
+    assert.equal(row("Signup spend")?.value, "£5,771.82");
+    assert.equal(row("Signup spend")?.source, "Meta signup spend");
+    assert.equal(row("Window start")?.value, "5 Aug, 11:30");
+    assert.equal(row("Window start")?.source, "derived");
+    assert.equal(row("Community at presale")?.value, "7,100");
+    assert.equal(row("Community at presale")?.source, "entered by Matas, 13 Nov");
+    assert.equal(row("Sold in community window")?.value, "4,000");
+    assert.equal(row("Sold in community window")?.source, "entered by Matas, 13 Nov");
+    assert.equal(row("Presale-day tickets")?.value, "6,600");
+    assert.equal(row("Presale-day tickets")?.source, "entered by Matas, 13 Nov");
+    assert.equal(row("Community conversion")?.value, "56.3 %");
+    assert.equal(row("Community conversion")?.source, "derived");
+    assert.equal(row("Wider conversion")?.value, "45.1 %");
+    assert.equal(row("Wider conversion")?.source, "derived");
+    assert.equal(row("Signup spend per presale ticket")?.value, "£0.87");
+    assert.equal(row("Signup spend per presale ticket")?.source, "derived");
+    assert.equal(model.prompt, null);
+    assert.equal(model.form, true);
+    const share = cdwPresale("share");
+    assert.equal(share.prompt, null);
+    assert.equal(share.form, false);
+    assert.equal(share.rows.find((r) => r.label === "Window start")?.value, "5 Aug, 11:30");
   });
 });
 
