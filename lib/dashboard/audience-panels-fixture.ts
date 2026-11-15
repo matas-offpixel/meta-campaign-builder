@@ -20,7 +20,9 @@
  *     (migration 248), "Azyr - presale live v2" is NX26-AZYR's (it went to
  *     the show's CQ list and its opt-in tiers), so the whole-list row is
  *     "Locklead- Announcement" (2 Nov, the NX Loves master tag, same
- *     audience). Electric's WhatsApp rate
+ *     audience). The frame shows Electric once ops has set its
+ *     `clients.d2c_whole_list_tags` to {NX Loves}; until then that send
+ *     reads not tied. Electric's WhatsApp rate
  *     isn't set, which is the PI5 state.
  *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
@@ -206,7 +208,9 @@ export const ELECTRIC_D2C: D2CStatsSummary = {
  * 52 Bird sends (34 show, 18 not tied to a show, none whole-list) and 229
  * Mailchimp sends on the NX Newcastle audience (19 show, 196 whole list or
  * the NX Loves master tag, 14 not tied), by the positive-match rules
- * (migration 248), from a read-only dry run on 15 Nov.
+ * (migration 248) with Electric's d2c_whole_list_tags = {NX Loves}, from a
+ * read-only dry run on 15 Nov. Before ops sets that, the 18 NX Loves sends
+ * read not tied: 178 whole list, 32 not tied.
  */
 export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 196 };
 

@@ -20,7 +20,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAllPaged } from "../../db/paged-read.ts";
 import { loadArchivedClientIds } from "../../db/client-status.ts";
 import { parseMailchimpApiKey } from "../mailchimp/credentials.ts";
-import { buildShowIndex, type ShowIndex } from "./attribution.ts";
+import { buildShowIndex, cqListNames, type ShowIndex } from "./attribution.ts";
 import {
   birdWindows,
   earliestActivation,
@@ -126,7 +126,12 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
-/** Shows the ingest can attribute to: events with a tag, a code or a CIRQLIN slug, archived clients dropped. */
+/**
+ * Shows the ingest can attribute to: events with a tag, a code or a
+ * CIRQLIN slug, archived clients dropped. An umbrella event
+ * (`events.is_umbrella`) is never a show: its CQ lists are the client's
+ * whole list (loadWholeListNames).
+ */
 export async function loadShowKeys(db: Db, archived: ReadonlySet<string>): Promise<D2CShowKey[]> {
   const rows = await loadAllPaged<{
     id: string;
@@ -135,15 +140,16 @@ export async function loadShowKeys(db: Db, archived: ReadonlySet<string>): Promi
     mailchimp_tag: string | null;
     cirqlin_page_slug: string | null;
     mailchimp_audience_id: string | null;
+    is_umbrella: boolean | null;
   }>(
     db,
     "events",
-    "id, client_id, event_code, mailchimp_tag, cirqlin_page_slug, mailchimp_audience_id",
+    "id, client_id, event_code, mailchimp_tag, cirqlin_page_slug, mailchimp_audience_id, is_umbrella",
     ["id"],
     (q) => q.or("mailchimp_tag.not.is.null,cirqlin_page_slug.not.is.null,event_code.not.is.null"),
   );
   return rows
-    .filter((r) => r.client_id && !archived.has(r.client_id))
+    .filter((r) => r.client_id && !archived.has(r.client_id) && r.is_umbrella !== true)
     .map((r) => ({
       eventId: r.id,
       clientId: r.client_id!,
@@ -152,6 +158,46 @@ export async function loadShowKeys(db: Db, archived: ReadonlySet<string>): Promi
       slug: r.cirqlin_page_slug,
       mailchimpAudienceId: r.mailchimp_audience_id,
     }));
+}
+
+/**
+ * Each client's whole-list names: `clients.d2c_whole_list_tags`
+ * (migration 248) and the CQ lists of its umbrella events' CIRQLIN pages.
+ * Before 248 is applied the column read fails as missing; the tags are
+ * then empty (those sends read not tied) and `note` says so.
+ */
+export async function loadWholeListNames(
+  db: Db,
+  archived: ReadonlySet<string>,
+): Promise<{ names: Map<string, string[]>; note: string | null }> {
+  const names = new Map<string, string[]>();
+  const add = (clientId: string | null, list: readonly string[]) => {
+    if (!clientId || archived.has(clientId) || list.length === 0) return;
+    names.set(clientId, [...(names.get(clientId) ?? []), ...list]);
+  };
+  const umbrellas = await loadAllPaged<{ id: string; client_id: string | null; cirqlin_page_slug: string | null }>(
+    db,
+    "events",
+    "id, client_id, cirqlin_page_slug",
+    ["id"],
+    (q) => q.eq("is_umbrella", true).not("cirqlin_page_slug", "is", null),
+  );
+  for (const u of umbrellas) add(u.client_id, cqListNames(u.cirqlin_page_slug));
+  let note: string | null = null;
+  try {
+    const clients = await loadAllPaged<{ id: string; d2c_whole_list_tags: string[] | null }>(
+      db,
+      "clients",
+      "id, d2c_whole_list_tags",
+      ["id"],
+    );
+    for (const c of clients) add(c.id, (c.d2c_whole_list_tags ?? []).filter((t) => typeof t === "string" && t.trim()));
+  } catch (err) {
+    const line = errorLine(err);
+    if (!/d2c_whole_list_tags/.test(line)) throw err;
+    note = "clients.d2c_whole_list_tags not readable (migration 248 not applied): no master tags, those sends read not tied";
+  }
+  return { names, note };
 }
 
 /** Mailchimp list id → the one client that owns it (events + clients.mailchimp_audience_id). */
@@ -396,13 +442,15 @@ export async function runD2CStatsIngest(db: Db, opts: IngestOptions): Promise<In
   const archived = await loadArchivedClientIds(db);
   let shows: D2CShowKey[];
   let listClients: Map<string, string>;
+  let wholeList: Awaited<ReturnType<typeof loadWholeListNames>>;
   try {
     shows = await loadShowKeys(db, archived);
     listClients = await loadListClients(db, archived);
+    wholeList = await loadWholeListNames(db, archived);
   } catch (err) {
     return { ...result, ok: false, error: `show read failed: ${errorLine(err)}` };
   }
-  const index = buildShowIndex(shows);
+  const index = buildShowIndex(shows, wholeList.names);
 
   const sources: D2CStatsSource[] = [];
   if (!opts.skipStoredConnections) sources.push(...(await storedSources(db, archived, opts, result.skippedConnections)));
@@ -457,6 +505,7 @@ export async function runD2CStatsIngest(db: Db, opts: IngestOptions): Promise<In
           ? await ingestBird(source, reader, index, opts, nowMs)
           : await ingestMailchimp(source, reader, accountId, index, listClients, opts, nowMs);
       tally(summary, rows);
+      if (wholeList.note) summary.notes.push(wholeList.note);
       summary.calls = reader.calls + extraCalls;
       result.sources.push(summary);
       result.rows.push(...rows);
