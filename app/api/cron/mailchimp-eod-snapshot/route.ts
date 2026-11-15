@@ -21,6 +21,7 @@ import {
   syncCirqlinSignupsForEventByPage,
   type CirqlinSyncResult,
 } from "@/lib/cirqlin/sync";
+import { runPageAudienceStep } from "@/lib/cirqlin/page-audience/step";
 import { loadAllPaged } from "@/lib/db/paged-read";
 import { notify } from "@/lib/notify/slack";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
@@ -241,6 +242,13 @@ async function handleGET(req: NextRequest) {
     );
   let cirqlinLeft = 0;
   const cirqlinStartedAt = new Date().toISOString();
+  // Every CIRQLIN partner read this run makes, counted: the signups read and
+  // the page-audience read share one bucket (60 per 10 min per IP).
+  let signupsPassCalls = 0;
+  const countedFetch: typeof fetch = (input, init) => {
+    signupsPassCalls += 1;
+    return fetch(input, init);
+  };
   for (let i = 0; i < cirqlinEvents.length; i += 1) {
     if (cirqlinCronOverBudget(cronStartedAt, Date.now())) {
       cirqlinLeft = cirqlinCronLeft(cirqlinEvents.length, i);
@@ -252,7 +260,7 @@ async function handleGET(req: NextRequest) {
         await syncCirqlinSignupsForEventByPage(
           supabase,
           { eventId: ev.id, pageId: ev.cirqlin_page_id, tag: ev.mailchimp_tag },
-          { notify: notifyCirqlin },
+          { notify: notifyCirqlin, fetchImpl: countedFetch },
         ),
       );
     } catch (err) {
@@ -263,6 +271,22 @@ async function handleGET(req: NextRequest) {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  // HE2: the page audience, after the signups pass, inside what's left of
+  // the bucket and the time budget. Off unless ENABLE_CIRQLIN_AUDIENCE_INGEST
+  // is exactly "1": no call and no read.
+  let pageAudience: Awaited<ReturnType<typeof runPageAudienceStep>> | null = null;
+  try {
+    pageAudience = await runPageAudienceStep({
+      env: process.env,
+      db: supabase,
+      signupsPassCalls,
+      signupsPassStartedAt: cirqlinStartedAt,
+      overBudget: () => cirqlinCronOverBudget(cronStartedAt, Date.now()),
+    });
+  } catch (err) {
+    console.error("[cirqlin-page-audience] step failed:", err instanceof Error ? err.message : String(err));
   }
 
   // The Cirqlin signup sync is a cron inside a cron, with its own ways to
@@ -283,6 +307,24 @@ async function handleGET(req: NextRequest) {
       failures: cirqlinResults
         .filter((r) => !r.ok)
         .map((r) => ({ eventId: r.eventId, reason: r.reason ?? "unknown" })),
+      partnerCalls: signupsPassCalls,
+      // HE2's step; its outcome doesn't change this leg's ok.
+      pageAudience: pageAudience?.enabled
+        ? {
+            ok: pageAudience.ok,
+            pages: pageAudience.pages,
+            calls: pageAudience.calls,
+            rowsWritten: pageAudience.rowsWritten,
+            skippedOnBucket: pageAudience.skippedOnBucket,
+            skippedOnTime: pageAudience.skippedOnTime,
+            rateLimited: pageAudience.rateLimited,
+            notConfigured: pageAudience.notConfigured,
+            failures: pageAudience.failures,
+            checks: pageAudience.checks,
+            mismatches: pageAudience.mismatches,
+            error: pageAudience.error,
+          }
+        : null,
     },
   });
 
@@ -292,6 +334,7 @@ async function handleGET(req: NextRequest) {
     results,
     cirqlin: cirqlinResults,
     cirqlinLeft,
+    ...(pageAudience?.enabled ? { pageAudience } : {}),
   });
 }
 
