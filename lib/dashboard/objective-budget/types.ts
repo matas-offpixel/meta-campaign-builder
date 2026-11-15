@@ -186,10 +186,8 @@ export interface BudgetPicture {
   d2cParts: { whatsapp: Figure; sms: Figure };
   /** plan − paid + credits. */
   variance: Figure;
-  /** paid − credits + sub-budgets + D2C (fix (b) on #1256; design's proposal, waiting for Matas). */
+  /** paid + sub-budgets + D2C (E6, PH5). A credit isn't subtracted; it enters only the variance. */
   totalMarketing: Figure;
-  /** paid + sub-budgets + D2C, credits not subtracted: the other way the ruling could go. */
-  totalMarketingCreditsNotSubtracted: Figure;
   /** D12 paid on brand campaigns in the scope, and on shows. They add up to `paid`. */
   paidBrand: Figure;
   paidShows: Figure;
