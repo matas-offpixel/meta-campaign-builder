@@ -5,14 +5,25 @@
  * over any period. Pure.
  *
  * Objective:
- *   - Meta, per ad set, from ad_daily_insights' campaign_objective,
- *     optimization_goal and promoted_event (the first non-null of each
- *     across the ad set's days, as the learning stage reads them), through
- *     `phaseFromMetaObjective`: presale → Registration. On sale →
- *     `mapMetaObjectiveToInternal`, the mapping that function stages
- *     with: purchase / initiate_checkout → Purchase, traffic → Traffic,
- *     awareness / engagement → Awareness & engagement. No answer → not
- *     stored.
+ *   - Meta, per ad set, by what the ad set optimises for
+ *     (ad_daily_insights.optimization_goal, migration 187; the first
+ *     non-null of each field across the ad set's days), not the campaign
+ *     objective (design fix (a) on #1256):
+ *       Complete Registration or Lead promoted event, or LEAD_GENERATION
+ *         → Registration (leads are the result of a lead ad set);
+ *       LANDING_PAGE_VIEWS, LINK_CLICKS → Traffic, even under a sales
+ *         campaign;
+ *       a conversion goal (OFFSITE_CONVERSIONS) for Purchase or Initiated
+ *         Checkout, or VALUE (purchase value) → Purchase;
+ *       reach, impressions, video and engagement goals → Awareness &
+ *         engagement;
+ *       any other goal, or a conversion goal whose event is another one
+ *         (OTHER is a custom conversion) or isn't stored → none of the
+ *         four: "Objective not stored", counted in `unmapped`.
+ *     With no goal stored, the campaign objective decides, through the
+ *     shared mapping (`phaseFromMetaObjective`, then
+ *     `mapMetaObjectiveToInternal`), and those ad-days are counted in
+ *     `goalMissing` so it's never silent.
  *   - Google, per campaign, from advertising_channel_type: SEARCH →
  *     Traffic, VIDEO → Awareness & engagement. The bidding goal isn't
  *     stored, so a Search campaign bidding for conversions still reads
@@ -25,13 +36,14 @@
  * ad-level (Meta) or campaign-level (Google) row explains is its own
  * "Objective not stored" row. Every channel's rows sum to its D12 spend.
  *
- * Result is the objective's own metric: registrations (leads for a lead
- * ad set), purchases, landing page views (Google: clicks, it has no
- * landing page view), reach (Meta's, summed per ad per day, so people
- * are counted more than once; Google reach isn't stored). Cost per
- * result is spend ÷ result. ROAS is on Purchase rows only, and Meta
- * purchase value isn't stored (ad_daily_insights keeps action counts,
- * not action_values), so it reads null with that reason.
+ * Result is the objective's own metric, and cost per result is labelled
+ * for it (fix (d)): registrations (leads for a lead ad set), £ / signup;
+ * purchases, £ / purchase; landing page views, £ / landing page view
+ * (Google: clicks, £ / click, it has no landing page view). Awareness
+ * reach is "—" with no cost: ad_daily_insights keeps reach per ad per
+ * day, and summing it counts people twice; campaign-level reach isn't
+ * stored. ROAS is on Purchase rows only, and "—" until purchase value is
+ * stored (ad_daily_insights keeps action counts, not action_values).
  *
  * Relative imports only (node --test).
  */
@@ -50,6 +62,9 @@ import {
   type MetaAdDay,
   type Objective,
   type ObjectiveBudgetInput,
+  COST_LABEL,
+  type MetaClassification,
+  type MetaObjectiveBasis,
   type ObjectiveRow,
   type ResultMetric,
 } from "./types.ts";
@@ -61,31 +76,67 @@ export interface MetaAdSetObjective {
   objective: Objective | null;
   /** A lead ad set's result is leads, not registrations. */
   lead: boolean;
+  /** What the objective was read from: the goal, or (no goal stored) the campaign objective. */
+  basis: MetaObjectiveBasis;
+  /** When a stored goal maps to none of the four: what it was ("OFFSITE_CONVERSIONS / OTHER"). */
+  unmapped: string | null;
 }
 
-/** Meta objective for one ad set's fields. */
+const TRAFFIC_GOALS: ReadonlySet<string> = new Set(["LANDING_PAGE_VIEWS", "LINK_CLICKS"]);
+const PURCHASE_EVENTS: ReadonlySet<string> = new Set(["PURCHASE", "INITIATED_CHECKOUT"]);
+const AWARENESS_GOALS: ReadonlySet<string> = new Set([
+  "REACH",
+  "IMPRESSIONS",
+  "AD_RECALL_LIFT",
+  "THRUPLAY",
+  "VIDEO_VIEWS",
+  "TWO_SECOND_CONTINUOUS_VIDEO_VIEWS",
+  "POST_ENGAGEMENT",
+  "PAGE_LIKES",
+  "EVENT_RESPONSES",
+  "ENGAGED_USERS",
+  "PROFILE_VISIT",
+]);
+
+/** The shared mapping, from the campaign objective: used only when no goal is stored. */
+function fromCampaignObjective(fields: { campaignObjective: string | null; optimizationGoal: string | null; promotedEvent: string | null }): Objective | null {
+  const phase = phaseFromMetaObjective(fields);
+  if (phase == null) return null;
+  if (phase === "presale") return "registration";
+  switch (mapMetaObjectiveToInternal(fields.campaignObjective, fields.promotedEvent)) {
+    case "purchase":
+    case "initiate_checkout":
+      return "purchase";
+    case "traffic":
+      return "traffic";
+    case "awareness":
+    case "engagement":
+      return "awareness_engagement";
+    case "registration":
+      return "registration";
+    default:
+      return null;
+  }
+}
+
+/** Meta objective for one ad set's fields: by what it optimises for. */
 export function metaObjective(fields: { campaignObjective: string | null; optimizationGoal: string | null; promotedEvent: string | null }): MetaAdSetObjective {
   const event = (fields.promotedEvent ?? "").trim().toUpperCase();
   const goal = (fields.optimizationGoal ?? "").trim().toUpperCase();
   const lead = event === "LEAD" || goal === "LEAD_GENERATION";
-  const phase = phaseFromMetaObjective(fields);
-  if (phase == null) return { objective: null, lead };
-  if (phase === "presale") return { objective: "registration", lead };
-  const internal = mapMetaObjectiveToInternal(fields.campaignObjective, fields.promotedEvent);
-  switch (internal) {
-    case "purchase":
-    case "initiate_checkout":
-      return { objective: "purchase", lead };
-    case "traffic":
-      return { objective: "traffic", lead };
-    case "awareness":
-    case "engagement":
-      return { objective: "awareness_engagement", lead };
-    case "registration":
-      return { objective: "registration", lead };
-    default:
-      return { objective: null, lead };
-  }
+  if (!goal) return { objective: fromCampaignObjective(fields), lead, basis: "campaign_objective", unmapped: null };
+  const by = (objective: Objective | null): MetaAdSetObjective => ({
+    objective,
+    lead,
+    basis: "optimization_goal",
+    unmapped: objective == null ? (event ? `${goal} / ${event}` : goal) : null,
+  });
+  if (event === "COMPLETE_REGISTRATION" || lead) return by("registration");
+  if (TRAFFIC_GOALS.has(goal)) return by("traffic");
+  if (goal === "VALUE") return by("purchase");
+  if (goal === "OFFSITE_CONVERSIONS") return by(PURCHASE_EVENTS.has(event) ? "purchase" : null);
+  if (AWARENESS_GOALS.has(goal)) return by("awareness_engagement");
+  return by(null);
 }
 
 /** Per ad set: the first non-null objective, goal and promoted event across its days, then `metaObjective`. A row with no ad set is read on its own. */
@@ -114,11 +165,9 @@ interface Acc {
   channel: Channel;
   spend: number;
   impressions: number | null;
-  reach: number | null;
   clicks: number | null;
   landingPageViews: number | null;
   result: number | null;
-  purchaseValue: number | null;
 }
 
 const key = (o: Objective | null, c: Channel) => `${o ?? "none"}|${c}`;
@@ -139,17 +188,19 @@ const RESULT_SOURCE: Record<ResultMetric, string> = {
   purchases: "ad_daily_insights.purchases",
   landing_page_views: "ad_daily_insights.landing_page_views",
   clicks: "google_ads_daily_snapshots.clicks (Google has no landing page view)",
-  reach: "ad_daily_insights.reach, summed per ad per day (people reached on more than one day are counted again)",
+  reach: "campaign-level reach isn't stored; ad_daily_insights.reach is per ad per day, and summing it counts people twice",
 };
+
+const REACH_NOT_STORED = "campaign-level reach isn't stored; summing ad-day reach counts people twice";
 
 function spendSource(o: Objective | null, c: Channel): string {
   if (o != null) {
     return c === "meta"
-      ? "ad_daily_insights.spend, campaigns mapped to the show (override, link, [CODE])"
+      ? "ad_daily_insights.spend, campaigns mapped to the show (override, link, [CODE]), by the ad set's optimisation goal"
       : "google_ads_daily_snapshots.cost_micros, campaigns mapped by override or [CODE]";
   }
   if (c === "tiktok") return "event_daily_rollups.tiktok_spend (D12); no stored TikTok snapshot carries the campaign objective";
-  if (c === "meta") return "D12 Meta spend with no ad-level row in ad_daily_insights (the rollup's larger figure)";
+  if (c === "meta") return "D12 Meta spend with no ad-level row in ad_daily_insights (the rollup's larger figure), or an ad set whose optimisation goal is none of the four";
   return "D12 Google spend with no campaign row in google_ads_daily_snapshots, or a channel type other than Search or Video";
 }
 
@@ -157,9 +208,18 @@ function figure(value: number | null, source: string): Figure {
   return { value, source };
 }
 
+export function emptyMetaClassification(): MetaClassification {
+  return {
+    byGoal: { adDays: 0, spend: 0 },
+    goalMissing: { adDays: 0, spend: 0, byObjective: { registration: 0, purchase: 0, traffic: 0, awareness_engagement: 0, none: 0 } },
+    unmapped: { adDays: 0, spend: 0, what: [] },
+  };
+}
+
 /**
- * Objective × channel rows for the scope's events over the period. `paid`
- * is `paidDays(input, period.to)`.
+ * Objective × channel rows for the scope's events over the period, and
+ * what each Meta ad-day was classified from. `paid` is
+ * `paidDays(input, period.to)`.
  */
 export function objectiveRows(
   input: ObjectiveBudgetInput,
@@ -167,27 +227,12 @@ export function objectiveRows(
   eventIds: ReadonlySet<string>,
   from: string | null,
   to: string,
-): ObjectiveRow[] {
+): { rows: ObjectiveRow[]; metaClassification: MetaClassification } {
   const acc = new Map<string, Acc>();
   const accOf = (o: Objective | null, c: Channel): Acc => {
     const k = key(o, c);
     let a = acc.get(k);
-    if (!a) {
-      acc.set(
-        k,
-        (a = {
-          objective: o,
-          channel: c,
-          spend: 0,
-          impressions: null,
-          reach: null,
-          clicks: null,
-          landingPageViews: null,
-          result: null,
-          purchaseValue: null,
-        }),
-      );
-    }
+    if (!a) acc.set(k, (a = { objective: o, channel: c, spend: 0, impressions: null, clicks: null, landingPageViews: null, result: null }));
     return a;
   };
   // What each show-day's ad-level rows explain, per channel.
@@ -198,6 +243,8 @@ export function objectiveRows(
     if (!e) explained.set(k, (e = { meta: 0, google: 0 }));
     return e;
   };
+  const cls = emptyMetaClassification();
+  const unmappedWhat = new Set<string>();
 
   const adSets = metaObjectiveByAdSet(input.metaAdDays);
   for (const r of input.metaAdDays) {
@@ -205,20 +252,32 @@ export function objectiveRows(
     const owner = paid.metaOwner.get(r.campaignId);
     if (!owner || !eventIds.has(owner.eventId)) continue;
     const resolved = r.adSetId
-      ? adSets.get(r.adSetId) ?? { objective: null, lead: false }
+      ? adSets.get(r.adSetId) ?? metaObjective({ campaignObjective: null, optimizationGoal: null, promotedEvent: null })
       : metaObjective({ campaignObjective: r.campaignObjective, optimizationGoal: r.optimizationGoal, promotedEvent: r.promotedEvent });
+    if (resolved.basis === "campaign_objective") {
+      cls.goalMissing.adDays += 1;
+      cls.goalMissing.spend += r.spend;
+      cls.goalMissing.byObjective[resolved.objective ?? "none"] += r.spend;
+    } else {
+      cls.byGoal.adDays += 1;
+      cls.byGoal.spend += r.spend;
+      if (resolved.unmapped) {
+        cls.unmapped.adDays += 1;
+        cls.unmapped.spend += r.spend;
+        unmappedWhat.add(resolved.unmapped);
+      }
+    }
     const a = accOf(resolved.objective, "meta");
     a.spend += r.spend;
     a.impressions = add(a.impressions, r.impressions);
-    a.reach = add(a.reach, r.reach);
     a.clicks = add(a.clicks, r.linkClicks);
     a.landingPageViews = add(a.landingPageViews, r.landingPageViews);
     if (resolved.objective === "registration") a.result = add(a.result, resolved.lead ? r.leads : r.registrations);
     else if (resolved.objective === "purchase") a.result = add(a.result, r.purchases);
     else if (resolved.objective === "traffic") a.result = add(a.result, r.landingPageViews);
-    else if (resolved.objective === "awareness_engagement") a.result = add(a.result, r.reach);
     explainedOf(owner.eventId, r.day).meta += r.spend;
   }
+  cls.unmapped.what = [...unmappedWhat].sort();
 
   for (const g of input.googleDays) {
     if (!inPeriod(g.day, from, to)) continue;
@@ -252,17 +311,23 @@ export function objectiveRows(
   for (const a of acc.values()) total += a.spend;
 
   const order = (o: Objective | null) => (o == null ? OBJECTIVES.length : OBJECTIVES.indexOf(o));
-  return [...acc.values()]
+  const rows = [...acc.values()]
     .filter((a) => a.spend > EPSILON || (a.result ?? 0) > 0)
     .sort((x, y) => order(x.objective) - order(y.objective) || CHANNELS.indexOf(x.channel) - CHANNELS.indexOf(y.channel))
     .map((a) => toRow(a, total));
+  return { rows, metaClassification: cls };
 }
 
 function toRow(a: Acc, total: number): ObjectiveRow {
   const metric = a.objective ? RESULT_METRIC[a.objective][a.channel] : null;
   const label = a.objective ? OBJECTIVE_LABEL[a.objective] : NOT_STORED_LABEL;
   const measured = a.objective != null;
-  const result = metric != null ? figure(a.result ?? 0, RESULT_SOURCE[metric]) : figure(null, resultGap(a));
+  const result =
+    metric === "reach"
+      ? figure(null, RESULT_SOURCE.reach)
+      : metric != null
+        ? figure(a.result ?? 0, RESULT_SOURCE[metric])
+        : figure(null, resultGap(a));
   const cost =
     result.value != null && result.value > 0
       ? figure(a.spend / result.value, "spend ÷ result")
@@ -274,18 +339,16 @@ function toRow(a: Acc, total: number): ObjectiveRow {
     spend: figure(a.spend, spendSource(a.objective, a.channel)),
     shareOfSpend: figure(total > 0 ? a.spend / total : null, "row spend ÷ the scope's D12 paid spend in the period"),
     impressions: figure(measured ? a.impressions : null, measured ? `${CHANNEL_LABEL[a.channel]} impressions` : "not stored for this spend"),
-    reach: figure(
-      measured && a.channel === "meta" ? a.reach : null,
-      a.channel === "meta" && measured ? RESULT_SOURCE.reach : "not stored for this channel",
-    ),
+    reach: figure(null, a.channel === "meta" ? REACH_NOT_STORED : "not stored for this channel"),
     clicks: figure(measured ? a.clicks : null, a.channel === "meta" ? "ad_daily_insights.link_clicks" : "google_ads_daily_snapshots.clicks"),
     landingPageViews: figure(measured && a.channel === "meta" ? a.landingPageViews : null, a.channel === "meta" ? "ad_daily_insights.landing_page_views" : "not stored for this channel"),
     resultMetric: metric,
     result,
     costPerResult: cost,
+    costLabel: metric != null && metric !== "reach" ? COST_LABEL[metric] : null,
     roas:
       a.objective === "purchase"
-        ? figure(null, "Meta purchase value isn't stored: ad_daily_insights keeps action counts, not action_values")
+        ? figure(null, "— until purchase value is stored: ad_daily_insights keeps action counts, not action_values")
         : null,
   };
 }

@@ -30,6 +30,18 @@ export const CHANNELS: readonly Channel[] = ["meta", "tiktok", "google"];
 /** Each objective's own metric (E6): registrations, purchases, landing page views, reach. */
 export type ResultMetric = "registrations" | "purchases" | "landing_page_views" | "clicks" | "reach";
 
+/** How the cost per result is labelled, per result (design fix (d) on #1256). */
+export const COST_LABEL: Record<ResultMetric, string> = {
+  registrations: "£ / signup",
+  purchases: "£ / purchase",
+  landing_page_views: "£ / landing page view",
+  clicks: "£ / click",
+  reach: "£ / person reached",
+};
+
+/** What a Meta ad set's objective was read from. */
+export type MetaObjectiveBasis = "optimization_goal" | "campaign_objective";
+
 /** A figure and where it came from. A null value is "no figure", never £0. */
 export interface Figure {
   value: number | null;
@@ -139,8 +151,20 @@ export interface ObjectiveRow {
   resultMetric: ResultMetric | null;
   result: Figure;
   costPerResult: Figure;
-  /** Purchase rows only. */
+  /** "£ / signup", "£ / purchase", …; null on a row with no result metric. */
+  costLabel: string | null;
+  /** Purchase rows only; null value ("—") until purchase value is stored. */
   roas: Figure | null;
+}
+
+/** Meta ad-days by what their objective was read from, over the scope and period. */
+export interface MetaClassification {
+  /** optimization_goal stored: the objective is the goal's. */
+  byGoal: { adDays: number; spend: number };
+  /** optimization_goal NULL: read from the campaign objective (the shared mapping), per objective. */
+  goalMissing: { adDays: number; spend: number; byObjective: Record<Objective | "none", number> };
+  /** A goal stored but none of the four (a custom or unknown conversion event, an unknown goal). */
+  unmapped: { adDays: number; spend: number; what: string[] };
 }
 
 export interface SubBudgetLine {
@@ -162,8 +186,13 @@ export interface BudgetPicture {
   d2cParts: { whatsapp: Figure; sms: Figure };
   /** plan − paid + credits. */
   variance: Figure;
-  /** paid + sub-budgets + D2C. */
+  /** paid − credits + sub-budgets + D2C (fix (b) on #1256; design's proposal, waiting for Matas). */
   totalMarketing: Figure;
+  /** paid + sub-budgets + D2C, credits not subtracted: the other way the ruling could go. */
+  totalMarketingCreditsNotSubtracted: Figure;
+  /** D12 paid on brand campaigns in the scope, and on shows. They add up to `paid`. */
+  paidBrand: Figure;
+  paidShows: Figure;
   /** What the total leaves out, in words ("WhatsApp"). */
   totalExcludes: string[];
 }
@@ -174,5 +203,9 @@ export interface ObjectiveBudgetResult {
   rows: ObjectiveRow[];
   /** D12 paid spend over the period, per channel and in all. */
   paidInPeriod: Record<Channel | "all", number>;
+  /** Brand campaigns (events.kind = 'brand_campaign') in the scope: their own line in the client total. */
+  brand: { eventIds: string[]; paidInPeriod: Record<Channel | "all", number> };
+  /** What each Meta ad-day's objective was read from. */
+  metaClassification: MetaClassification;
   budget: BudgetPicture;
 }

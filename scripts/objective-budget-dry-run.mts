@@ -61,11 +61,16 @@ function print(r: ObjectiveBudgetResult) {
         f(row.clicks, count),
         f(row.landingPageViews, count),
         row.resultMetric ? `${count(row.result.value)} ${row.resultMetric}` : "—",
-        f(row.costPerResult, money),
-        row.roas ? (row.roas.value == null ? "— (not stored)" : `${row.roas.value.toFixed(2)}x`) : "",
+        row.costLabel ? `${f(row.costPerResult, money)} ${row.costLabel.replace("£ ", "")}` : "—",
+        row.roas ? (row.roas.value == null ? "—" : `${row.roas.value.toFixed(2)}x`) : "",
       ].join("\t"),
     );
   }
+  const c = r.metaClassification;
+  console.log(
+    `Meta ad-days by goal ${c.byGoal.adDays} (${money(c.byGoal.spend)}) · goal NULL ${c.goalMissing.adDays} (${money(c.goalMissing.spend)}, by campaign objective ${JSON.stringify(c.goalMissing.byObjective)}) · goal maps to none ${c.unmapped.adDays} (${money(c.unmapped.spend)}${c.unmapped.what.length ? `: ${c.unmapped.what.join(", ")}` : ""})`,
+  );
+  if (r.brand.eventIds.length) console.log(`Brand campaigns in period: ${money(r.brand.paidInPeriod.all)}`);
   const b = r.budget;
   const line = (name: string, x: Figure) => console.log(`  ${name.padEnd(18)} ${money(x.value).padStart(14)}   ${x.source}`);
   console.log("Budget (since launch):");
@@ -74,6 +79,8 @@ function print(r: ObjectiveBudgetResult) {
   line("  additional", b.planParts.additionalSpend);
   line("  season", b.planParts.seasonBudget);
   line("Paid", b.paid);
+  line("  shows", b.paidShows);
+  line("  brand", b.paidBrand);
   line("Credits", b.credits);
   line("Variance", b.variance);
   line("Sub-budgets", b.subBudgets);
@@ -81,6 +88,7 @@ function print(r: ObjectiveBudgetResult) {
   line("  WhatsApp", b.d2cParts.whatsapp);
   line("  SMS", b.d2cParts.sms);
   line("Total marketing", b.totalMarketing);
+  line("  credits kept", b.totalMarketingCreditsNotSubtracted);
 }
 
 const input = await loadObjectiveBudgetInput(db, clientId);

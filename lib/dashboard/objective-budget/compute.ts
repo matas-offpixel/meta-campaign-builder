@@ -5,7 +5,8 @@
  * period. Pure: `ObjectiveBudgetInput` in, `ObjectiveBudgetResult` out.
  *
  * The objective rows run over [from, to]. The budget runs since launch to
- * `to`, because a plan isn't per period.
+ * `to`, because a plan isn't per period. Brand campaigns stay in a client
+ * scope, and their spend is returned on its own (`brand`, `paidBrand`).
  *
  * Relative imports only (node --test).
  */
@@ -22,6 +23,8 @@ export function computeObjectiveBudget(input: ObjectiveBudgetInput, scope: Scope
     scope.kind === "client" ? new Set(input.events.map((e) => e.eventId)) : new Set(input.events.some((e) => e.eventId === scope.eventId) ? [scope.eventId] : []);
   const paid = paidDays(input, period.to);
   const show = scope.kind === "show" ? input.events.find((e) => e.eventId === scope.eventId) : null;
+  const brandIds = new Set(input.events.filter((e) => e.kind === "brand_campaign" && eventIds.has(e.eventId)).map((e) => e.eventId));
+  const { rows, metaClassification } = objectiveRows(input, paid, eventIds, period.from, period.to);
   return {
     scope: {
       kind: scope.kind,
@@ -29,8 +32,17 @@ export function computeObjectiveBudget(input: ObjectiveBudgetInput, scope: Scope
       label: show ? show.name : `${input.client.name} · all shows and brand campaigns`,
     },
     period,
-    rows: objectiveRows(input, paid, eventIds, period.from, period.to),
+    rows,
     paidInPeriod: paidTotals(paid, eventIds, period.from, period.to),
-    budget: budgetPicture(input, scope.kind, eventIds, period.to, paidTotals(paid, eventIds, null, period.to)),
+    brand: { eventIds: [...brandIds], paidInPeriod: paidTotals(paid, brandIds, period.from, period.to) },
+    metaClassification,
+    budget: budgetPicture(
+      input,
+      scope.kind,
+      eventIds,
+      period.to,
+      paidTotals(paid, eventIds, null, period.to),
+      paidTotals(paid, brandIds, null, period.to).all,
+    ),
   };
 }

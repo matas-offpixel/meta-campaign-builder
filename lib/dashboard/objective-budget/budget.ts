@@ -20,7 +20,13 @@
  *            (entered, kind 'sms_cost'). Email has no cost.
  *
  *   Variance is plan − paid + credits.
- *   The total marketing cost is paid + sub-budgets + D2C.
+ *   The total marketing cost is paid − credits + sub-budgets + D2C (fix
+ *   (b) on #1256, design's proposal waiting for Matas; the season report
+ *   counts paid net of the credit). Gross paid and the credit stay on
+ *   their own lines, and `totalMarketingCreditsNotSubtracted` keeps the
+ *   other reading so the gap shows whichever way it's ruled.
+ *   Brand campaigns stay in the client's paid as their own line
+ *   (`paidBrand`, fix (c)); `paidShows` is the rest.
  *
  * Relative imports only (node --test).
  */
@@ -54,6 +60,8 @@ export function budgetPicture(
   eventIds: ReadonlySet<string>,
   to: string,
   paid: Record<Channel | "all", number>,
+  /** D12 paid since launch on the scope's brand campaigns (part of `paid.all`). */
+  paidBrandAll = 0,
 ): BudgetPicture {
   const migrationMissing = input.entries == null;
   const entered = (what: string) => (migrationMissing ? `${what}: migration 250 isn't applied, so none can be entered yet` : `${what}: none entered`);
@@ -142,10 +150,15 @@ export function budgetPicture(
 
   const totalExcludes = whatsapp.value == null ? ["WhatsApp"] : [];
   const variance = plan.value == null ? fig(null, "no plan") : fig(round2(plan.value - paid.all + creditTotal), "plan − paid + credits");
-  const total = fig(
-    round2(paid.all + subTotal + (d2cValue ?? 0)),
-    totalExcludes.length ? `paid + sub-budgets + D2C; excludes ${totalExcludes.join(", ")}` : "paid + sub-budgets + D2C",
+  const excludes = totalExcludes.length ? `; excludes ${totalExcludes.join(", ")}` : "";
+  const total = fig(round2(paid.all - creditTotal + subTotal + (d2cValue ?? 0)), `paid − credits + sub-budgets + D2C${excludes}`);
+  const totalGross = fig(round2(paid.all + subTotal + (d2cValue ?? 0)), `paid + sub-budgets + D2C, credits not subtracted${excludes}`);
+  const brandIds = input.events.filter((e) => e.kind === "brand_campaign" && eventIds.has(e.eventId)).map((e) => e.code);
+  const paidBrand = fig(
+    round2(paidBrandAll),
+    brandIds.length ? `D12 on brand campaigns (${brandIds.join(", ")}), since launch` : "no brand campaign in the scope",
   );
+  const paidShows = fig(round2(paid.all - paidBrandAll), "D12 on shows, since launch (paid − brand campaigns)");
 
   return {
     plan,
@@ -159,6 +172,9 @@ export function budgetPicture(
     d2cParts: { whatsapp, sms: smsFig },
     variance,
     totalMarketing: total,
+    totalMarketingCreditsNotSubtracted: totalGross,
+    paidBrand,
+    paidShows,
     totalExcludes,
   };
 }

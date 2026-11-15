@@ -17,30 +17,44 @@ function row(r: ObjectiveBudgetResult, label: string, channel: ObjectiveRow["cha
 
 const close = (a: number | null, b: number) => assert.ok(a != null && Math.abs(a - b) < 1e-9, `${a} ≠ ${b}`);
 
-describe("metaObjective: phaseFromMetaObjective, then its own mapping", () => {
+describe("metaObjective: by what the ad set optimises for", () => {
   const cases: [string | null, string | null, string | null, string | null][] = [
     ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", "COMPLETE_REGISTRATION", "registration"],
     ["OUTCOME_LEADS", "OFFSITE_CONVERSIONS", "COMPLETE_REGISTRATION", "registration"],
     ["OUTCOME_LEADS", "LEAD_GENERATION", null, "registration"],
     ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", "PURCHASE", "purchase"],
     ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", "INITIATED_CHECKOUT", "purchase"],
-    ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", "OTHER", "purchase"],
-    // A sales campaign optimising for landing page views is still Purchase under the shared mapping.
-    ["OUTCOME_SALES", "LANDING_PAGE_VIEWS", null, "purchase"],
+    ["OUTCOME_SALES", "VALUE", null, "purchase"],
+    // The goal wins over the campaign objective (fix (a) on #1256).
+    ["OUTCOME_SALES", "LANDING_PAGE_VIEWS", null, "traffic"],
+    ["OUTCOME_SALES", "LINK_CLICKS", null, "traffic"],
+    ["OUTCOME_TRAFFIC", "OFFSITE_CONVERSIONS", "PURCHASE", "purchase"],
+    // A conversion goal for another event (a custom conversion) or an unstored one: none of the four.
+    ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", "OTHER", null],
     ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", null, null],
     ["OUTCOME_TRAFFIC", "LANDING_PAGE_VIEWS", null, "traffic"],
     ["LINK_CLICKS", "LINK_CLICKS", null, "traffic"],
     ["OUTCOME_AWARENESS", "REACH", null, "awareness_engagement"],
     ["OUTCOME_ENGAGEMENT", "POST_ENGAGEMENT", null, "awareness_engagement"],
+    ["OUTCOME_AWARENESS", "THRUPLAY", null, "awareness_engagement"],
+    ["APP_INSTALLS", "APP_INSTALLS", null, null],
+    // No goal stored: the campaign objective, through the shared mapping.
     ["VIDEO_VIEWS", null, null, "awareness_engagement"],
+    ["OUTCOME_SALES", null, "PURCHASE", "purchase"],
+    ["OUTCOME_SALES", null, null, null],
     [null, null, null, null],
-    ["APP_INSTALLS", null, null, null],
   ];
   for (const [campaignObjective, optimizationGoal, promotedEvent, want] of cases) {
     it(`${campaignObjective} / ${optimizationGoal} / ${promotedEvent} → ${want}`, () => {
       assert.equal(metaObjective({ campaignObjective, optimizationGoal, promotedEvent }).objective, want);
     });
   }
+  it("says what it read from, and what a stored goal that maps to nothing was", () => {
+    assert.equal(metaObjective({ campaignObjective: "OUTCOME_SALES", optimizationGoal: "LINK_CLICKS", promotedEvent: null }).basis, "optimization_goal");
+    assert.equal(metaObjective({ campaignObjective: "VIDEO_VIEWS", optimizationGoal: null, promotedEvent: null }).basis, "campaign_objective");
+    assert.equal(metaObjective({ campaignObjective: "OUTCOME_SALES", optimizationGoal: "OFFSITE_CONVERSIONS", promotedEvent: "OTHER" }).unmapped, "OFFSITE_CONVERSIONS / OTHER");
+    assert.equal(metaObjective({ campaignObjective: "OUTCOME_SALES", optimizationGoal: "OFFSITE_CONVERSIONS", promotedEvent: "PURCHASE" }).unmapped, null);
+  });
   it("marks a lead ad set", () => {
     assert.equal(metaObjective({ campaignObjective: "OUTCOME_LEADS", optimizationGoal: "LEAD_GENERATION", promotedEvent: null }).lead, true);
     assert.equal(metaObjective({ campaignObjective: "OUTCOME_SALES", optimizationGoal: "OFFSITE_CONVERSIONS", promotedEvent: "COMPLETE_REGISTRATION" }).lead, false);
@@ -73,14 +87,16 @@ describe("objective × channel, client scope, since launch", () => {
     assert.equal(reg.resultMetric, "registrations");
     assert.equal(reg.result.value, 100);
     close(reg.costPerResult.value, 1.4);
+    assert.equal(reg.costLabel, "£ / signup");
     assert.equal(reg.roas, null);
   });
 
-  it("Purchase: purchases, ROAS slot with its reason (Meta purchase value isn't stored)", () => {
+  it("Purchase: purchases, ROAS slot reads — until purchase value is stored", () => {
     const p = row(r, "Purchase", "meta");
     close(p.spend.value, 220);
     assert.equal(p.result.value, 11);
     close(p.costPerResult.value, 20);
+    assert.equal(p.costLabel, "£ / purchase");
     assert.ok(p.roas);
     assert.equal(p.roas.value, null);
     assert.match(p.roas.source, /action_values/);
@@ -90,18 +106,36 @@ describe("objective × channel, client scope, since launch", () => {
     const t = row(r, "Traffic", "meta");
     assert.equal(t.result.value, 400);
     close(t.costPerResult.value, 0.125);
+    assert.equal(t.costLabel, "£ / landing page view");
     const g = row(r, "Traffic", "google");
     close(g.spend.value, 12.5);
     assert.equal(g.resultMetric, "clicks");
     assert.equal(g.result.value, 50);
     close(g.costPerResult.value, 0.25);
+    assert.equal(g.costLabel, "£ / click");
   });
 
-  it("Awareness & engagement: reach, including the brand campaign and an override", () => {
+  it("Awareness & engagement: spend including the brand campaign and an override; reach is — and has no cost", () => {
     const a = row(r, "Awareness & engagement", "meta");
     close(a.spend.value, 55);
-    assert.equal(a.result.value, 12000);
-    assert.match(a.result.source, /counted again/);
+    assert.equal(a.resultMetric, "reach");
+    assert.equal(a.result.value, null);
+    assert.match(a.result.source, /counts people twice/);
+    assert.equal(a.costPerResult.value, null);
+    assert.equal(a.costLabel, null);
+    // Never the sum of ad-day reach, on any row.
+    for (const x of r.rows) assert.equal(x.reach.value, null);
+  });
+
+  it("every Meta ad-day in scope was read from its goal", () => {
+    assert.deepEqual(r.metaClassification.byGoal, { adDays: 7, spend: 465 });
+    assert.equal(r.metaClassification.goalMissing.adDays, 0);
+    assert.equal(r.metaClassification.unmapped.adDays, 0);
+  });
+
+  it("brand campaigns are their own line", () => {
+    assert.deepEqual(r.brand.eventIds, [BRAND]);
+    close(r.brand.paidInPeriod.all, 45);
   });
 
   it("spend with no stored objective is its own row per channel", () => {
@@ -137,6 +171,39 @@ describe("objective × channel, client scope, since launch", () => {
         "Objective not stored·google",
       ],
     );
+  });
+});
+
+describe("objective × channel, goal first (fix (a) on #1256)", () => {
+  it("a sales campaign optimising for landing page views moves to Traffic, with landing page views as its result", () => {
+    const input = fixture();
+    const m2 = input.metaAdDays.filter((a) => a.campaignId === "m2");
+    for (const a of m2) a.optimizationGoal = "LANDING_PAGE_VIEWS";
+    const r = computeObjectiveBudget(input, { kind: "client" }, { from: null, to: TO });
+    assert.equal(r.rows.find((x) => x.label === "Purchase"), undefined);
+    const t = row(r, "Traffic", "meta");
+    close(t.spend.value, 270);
+    assert.equal(t.result.value, 400 + 160);
+  });
+
+  it("a missing goal falls back to the campaign objective, counted, never silent", () => {
+    const input = fixture();
+    const m4 = input.metaAdDays.find((a) => a.campaignId === "m4")!;
+    m4.optimizationGoal = null;
+    const c = computeObjectiveBudget(input, { kind: "client" }, { from: null, to: TO }).metaClassification;
+    assert.equal(c.goalMissing.adDays, 1);
+    close(c.goalMissing.spend, 30);
+    close(c.goalMissing.byObjective.awareness_engagement, 30);
+    assert.equal(c.byGoal.adDays, 6);
+  });
+
+  it("a conversion goal for another event is Objective not stored, and named", () => {
+    const input = fixture();
+    for (const a of input.metaAdDays.filter((x) => x.campaignId === "m2")) a.promotedEvent = "OTHER";
+    const r = computeObjectiveBudget(input, { kind: "client" }, { from: null, to: TO });
+    close(row(r, "Objective not stored", "meta").spend.value, 60 + 220);
+    assert.equal(r.metaClassification.unmapped.adDays, 2);
+    assert.deepEqual(r.metaClassification.unmapped.what, ["OFFSITE_CONVERSIONS / OTHER"]);
   });
 });
 
@@ -187,9 +254,19 @@ describe("budget", () => {
     // WhatsApp rate not set: D2C is SMS only, and the total says it excludes WhatsApp.
     assert.equal(b.d2cParts.whatsapp.value, null);
     assert.equal(b.d2c.value, 80);
-    assert.equal(b.totalMarketing.value, 647.5 + 420 + 80);
+    // Total: paid − credits + sub-budgets + D2C; the other reading kept beside it.
+    assert.equal(b.totalMarketing.value, 647.5 - 40 + 420 + 80);
+    assert.match(b.totalMarketing.source, /^paid − credits \+ sub-budgets \+ D2C/);
+    assert.equal(b.totalMarketingCreditsNotSubtracted.value, 647.5 + 420 + 80);
     assert.deepEqual(b.totalExcludes, ["WhatsApp"]);
     assert.match(b.totalMarketing.source, /excludes WhatsApp/);
+    // Gross paid and the credit stay on their own lines.
+    assert.equal(b.paid.value, 647.5);
+    assert.equal(b.credits.value, 40);
+    // Brand campaigns: their own line in the client's paid.
+    assert.equal(b.paidBrand.value, 45);
+    assert.match(b.paidBrand.source, /RVBR/);
+    assert.equal(b.paidShows.value, 602.5);
   });
 
   it("with the Bird rate set, WhatsApp is delivered × rate", () => {
@@ -199,7 +276,7 @@ describe("budget", () => {
     assert.equal(b.d2cParts.whatsapp.value, 20);
     assert.equal(b.d2c.value, 100);
     assert.deepEqual(b.totalExcludes, []);
-    assert.equal(b.totalMarketing.value, 647.5 + 420 + 100);
+    assert.equal(b.totalMarketing.value, 647.5 - 40 + 420 + 100);
   });
 
   it("no rate and no SMS: D2C is null, never £0", () => {
@@ -207,7 +284,7 @@ describe("budget", () => {
     input.entries = input.entries!.filter((e) => e.kind !== "sms_cost");
     const b = computeObjectiveBudget(input, { kind: "client" }, { from: null, to: TO }).budget;
     assert.equal(b.d2c.value, null);
-    assert.equal(b.totalMarketing.value, 647.5 + 420);
+    assert.equal(b.totalMarketing.value, 647.5 - 40 + 420);
   });
 
   it("a client season budget is the plan when entered", () => {
@@ -226,6 +303,8 @@ describe("budget", () => {
     assert.equal(b.subBudgets.value, 120);
     assert.equal(b.d2cParts.sms.value, 0);
     assert.equal(b.paid.value, 392.5);
+    assert.equal(b.paidBrand.value, 0);
+    assert.equal(b.paidShows.value, 392.5);
   });
 
   it("before migration 250 every entered figure says so", () => {
