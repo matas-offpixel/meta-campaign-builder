@@ -346,7 +346,7 @@ async function rowsFor<T extends { event_id: string | null }>(
   overrides: ReadonlyMap<string, string>,
   eventIds: readonly string[],
   period: BreakdownPeriod,
-): Promise<T[]> {
+): Promise<Owned<T>[]> {
   const wanted = new Set(eventIds);
   const overridden = [...overrides].filter(([, e]) => wanted.has(e)).map(([c]) => c);
   const [stored, moved] = await Promise.all([
@@ -354,25 +354,29 @@ async function rowsFor<T extends { event_id: string | null }>(
     chunked(overridden, (chunk) => orEmpty(() => loadAllPaged<T>(db, table, columns, keys, (q) => inPeriod(q.in(campaignColumn, chunk), period)))),
   ]);
   const seen = new Set<string>();
-  const out: T[] = [];
+  const out: Owned<T>[] = [];
   for (const row of [...stored, ...moved]) {
     const r = row as unknown as Record<string, unknown>;
     const key = keys.map((k) => String(r[k] ?? "")).join("|");
     if (seen.has(key)) continue;
     seen.add(key);
     const campaignId = String(r[campaignColumn] ?? "");
-    if (eventIds.some((id) => rowBelongsTo(id, { campaignId, storedEventId: row.event_id }, overrides))) out.push(row);
+    const owner = eventIds.find((id) => rowBelongsTo(id, { campaignId, storedEventId: row.event_id }, overrides));
+    if (owner) out.push({ ...row, owner_event_id: owner });
   }
   return out;
 }
 
-export async function loadMetaBreakdownRows(db: Db, eventIds: readonly string[], period: BreakdownPeriod = {}): Promise<MetaStoredRow[]> {
+/** A stored row with the show it belongs to by today's rule (override, else the stored show). */
+export type Owned<T> = T & { owner_event_id: string };
+
+export async function loadMetaBreakdownRows(db: Db, eventIds: readonly string[], period: BreakdownPeriod = {}): Promise<Owned<MetaStoredRow>[]> {
   if (!eventIds.length) return [];
   const overrides = await loadCampaignOverrides(db, "meta");
   return rowsFor<MetaStoredRow>(db, "meta_audience_breakdowns", META_COLUMNS, META_KEYS, "meta_campaign_id", overrides, eventIds, period);
 }
 
-export async function loadTikTokBreakdownRows(db: Db, eventIds: readonly string[], period: BreakdownPeriod = {}): Promise<TikTokStoredRow[]> {
+export async function loadTikTokBreakdownRows(db: Db, eventIds: readonly string[], period: BreakdownPeriod = {}): Promise<Owned<TikTokStoredRow>[]> {
   if (!eventIds.length) return [];
   const overrides = await loadCampaignOverrides(db, "tiktok");
   return rowsFor<TikTokStoredRow>(db, "tiktok_audience_breakdowns", TIKTOK_COLUMNS, TIKTOK_KEYS, "tiktok_campaign_id", overrides, eventIds, period);
@@ -406,4 +410,76 @@ export async function audienceBreakdownsForVenue(db: Db, clientId: string, venue
 /** Every show of a client. An explicit client id reads it even when archived (CLAUDE.md, Archived clients). */
 export async function audienceBreakdownsForClient(db: Db, clientId: string, period: BreakdownPeriod = {}): Promise<AudienceBreakdowns> {
   return audienceBreakdownsForEvents(db, await clientEventIds(db, clientId), period);
+}
+
+// ---- HE1 panel: every scope of a client from one read ----------------------
+
+export type ClientShowKey = { id: string; venue_key: string | null };
+
+/** A client's shows and every breakdown row that belongs to one of them, each tagged with its show. */
+export type ClientBreakdownRows = {
+  shows: ClientShowKey[];
+  meta: Owned<MetaStoredRow>[];
+  tiktok: Owned<TikTokStoredRow>[];
+};
+
+export async function loadClientBreakdownRows(db: Db, clientId: string, period: BreakdownPeriod = {}): Promise<ClientBreakdownRows> {
+  const shows = await loadAllPaged<ClientShowKey>(db, "events", "id,venue_key", ["id"], (q) => q.eq("client_id", clientId));
+  const ids = shows.map((s) => s.id);
+  const [meta, tiktok] = await Promise.all([loadMetaBreakdownRows(db, ids, period), loadTikTokBreakdownRows(db, ids, period)]);
+  return { shows, meta, tiktok };
+}
+
+/** One scope (a show, a venue's shows, or all of them) from the client's rows. Pure. */
+export function audienceForShows(rows: Pick<ClientBreakdownRows, "meta" | "tiktok">, eventIds: Iterable<string>): AudienceBreakdowns {
+  const wanted = new Set(eventIds);
+  return {
+    meta: summariseMeta(rows.meta.filter((r) => wanted.has(r.owner_event_id))),
+    tiktok: summariseTikTok(rows.tiktok.filter((r) => wanted.has(r.owner_event_id))),
+  };
+}
+
+/** An ad_daily_insights row: the campaigns' own figures (PI1's comparison). */
+export type CampaignDayRow = {
+  id: string;
+  meta_campaign_id: string | null;
+  date: string;
+  spend: number | string;
+  registrations: number | string;
+  purchases: number | string;
+};
+
+/** The campaigns' own spend, signups and purchases, for the same campaigns over the same days. */
+export type CampaignCounts = { spend: number; signups: number; purchases: number };
+
+/**
+ * PI1: the campaigns' counts for the campaigns in `meta`'s age rows, over
+ * the days those rows span. Pure. Null when there are no age rows.
+ */
+export function campaignCountsFor(meta: readonly MetaStoredRow[], days: readonly CampaignDayRow[]): CampaignCounts | null {
+  const ageRows = meta.filter((r) => r.breakdown === "age_gender");
+  if (!ageRows.length) return null;
+  const campaigns = new Set(ageRows.map((r) => r.meta_campaign_id));
+  const dates = ageRows.map((r) => r.date).sort();
+  const first = dates[0]!;
+  const last = dates[dates.length - 1]!;
+  const out = { spend: 0, signups: 0, purchases: 0 };
+  for (const d of days) {
+    if (!d.meta_campaign_id || !campaigns.has(d.meta_campaign_id) || d.date < first || d.date > last) continue;
+    out.spend += n(d.spend);
+    out.signups += n(d.registrations);
+    out.purchases += n(d.purchases);
+  }
+  return { spend: round2(out.spend), signups: out.signups, purchases: out.purchases };
+}
+
+/** ad_daily_insights rows for these campaigns, paged on the primary key. */
+export async function loadCampaignDays(db: Db, campaignIds: readonly string[], period: BreakdownPeriod = {}): Promise<CampaignDayRow[]> {
+  const ids = [...new Set(campaignIds)];
+  if (!ids.length) return [];
+  return chunked(ids, (chunk) =>
+    loadAllPaged<CampaignDayRow>(db, "ad_daily_insights", "id,meta_campaign_id,date,spend,registrations,purchases", ["id"], (q) =>
+      inPeriod(q.in("meta_campaign_id", chunk), period),
+    ),
+  );
 }

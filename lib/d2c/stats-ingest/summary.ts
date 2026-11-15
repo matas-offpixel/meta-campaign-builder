@@ -30,6 +30,8 @@ export interface StoredStatsRow {
   audience_kind: D2CAudienceKind;
   name: string | null;
   sent_at: string | null;
+  /** The Bird list or Mailchimp audience the send went to (PI6's venue rule). */
+  list_id?: string | null;
   sent: number | null;
   delivered: number | null;
   read: number | null;
