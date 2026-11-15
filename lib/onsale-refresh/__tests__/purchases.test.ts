@@ -978,7 +978,7 @@ describe("per-event purchases: Slack and the guards", () => {
     // P2/P3: only Apply (apply.ts) and its gates may reach lib/meta, and only the gated status writes and the ledger;
     // the Graph calls themselves are injected by the apply route. Nothing in this folder posts to Graph.
     // P4 PR B: the Purchase campaign's create path builds its campaign payload with the launch path's pure builder (campaign.ts makes no call).
-    const applyFiles = new Set(["apply.ts", "apply-gates.ts", "apply-adsets.ts", "apply-purchase.ts"]);
+    const applyFiles = new Set(["apply.ts", "apply-gates.ts", "apply-adsets.ts", "apply-purchase.ts", "apply-purchase-scale.ts"]);
     for (const file of readdirSync("lib/onsale-refresh").filter((name) => name.endsWith(".ts"))) {
       const source = readFileSync(`lib/onsale-refresh/${file}`, "utf8");
       assert.doesNotMatch(source, /graphPost|graphDelete|customconversions/, `${file}: no Meta write helper, no custom conversion`);

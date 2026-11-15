@@ -37,6 +37,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { loadAllPaged } from "../db/paged-read.ts";
+import { judgePurchaseLine, purchaseCampaignIds, purchaseWindow, PURCHASE_KINDS } from "./purchase-scoring.ts";
 import { addDaysIso, outcomeWeek } from "./schedule.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -55,7 +56,7 @@ export const UNKNOWN_RETRY_DAYS = 14;
 /** Design's words (2b): a side with no results that spent under the campaign's cost per result. */
 export const SPENT_UNDER_ONE_RESULT = "spent less than one result's worth";
 
-export type Outcome = "right" | "wrong" | "unknown";
+export type Outcome = "right" | "wrong" | "unknown" | "no_verdict";
 
 export type Judgement = { outcome: Outcome; reason: string; figures: Record<string, unknown> };
 
@@ -68,6 +69,8 @@ export type InsightRow = {
   spend: number | string | null;
   landing_page_views: number | string | null;
   actions: { action_type?: string; value?: string | number }[] | null;
+  /** P4 PR C (PC6): attributed purchases. */
+  purchases?: number | string | null;
 };
 
 export type ScoreLine = {
@@ -84,7 +87,7 @@ export type ScoreLine = {
   applied_at: string | null;
 };
 
-export type ScoreProposal = { id: string; event_id: string; user_id: string; campaign_key: string; campaign_ids: string[] | null; run_day: string; window_end: string; objective: string };
+export type ScoreProposal = { id: string; event_id: string; user_id: string; campaign_key: string; campaign_ids: string[] | null; run_day: string; window_end: string; objective: string; /** P4 PR C: the run's purchase-line state (inputs.purchases.state), for PC6's shadow test. */ purchase_state?: string | null };
 
 const num = (value: unknown): number => {
   const n = Number(value);
@@ -131,7 +134,12 @@ export function wasApplied(line: Pick<ScoreLine, "state" | "kind" | "applied_res
  * is judged on the following week. The same week the panel's F3 sentence
  * names (schedule.ts outcomeWeek).
  */
-export function judgedWeek(line: Pick<ScoreLine, "state" | "kind" | "applied_result" | "applied_at">, proposal: Pick<ScoreProposal, "run_day">): { from: string; to: string } {
+export function judgedWeek(line: Pick<ScoreLine, "state" | "kind" | "applied_result" | "applied_at"> & { write?: Record<string, unknown> | null }, proposal: Pick<ScoreProposal, "run_day">): { from: string; to: string } {
+  // P4 PR C (PC6): an applied Purchase campaign is judged on its first 14 days; a copied audience after 7 days.
+  if (PURCHASE_KINDS.has(line.kind)) {
+    const window = purchaseWindow({ kind: line.kind, state: line.state, write: line.write ?? null, applied_result: line.applied_result, applied_at: line.applied_at });
+    if (window) return window;
+  }
   const { to } = outcomeWeek(wasApplied(line) && line.applied_at ? line.applied_at : `${proposal.run_day}T12:00:00Z`);
   return { from: addDaysIso(to, -6), to };
 }
@@ -333,7 +341,7 @@ export async function scoreOnsaleRefresh(db: Db, opts: { now: Date; dryRun?: boo
 
   const [lines, proposals, existing] = await Promise.all([
     loadAllPaged<ScoreLine>(db as never, "onsale_refresh_lines", "id, proposal_id, user_id, kind, rule_id, state, target, evidence, write, applied_result, applied_at", ["id"]),
-    loadAllPaged<ScoreProposal>(db as never, "onsale_refresh_proposals", "id, event_id, user_id, campaign_key, campaign_ids, run_day, window_end, objective", ["id"]),
+    loadAllPaged<ScoreProposal>(db as never, "onsale_refresh_proposals", "id, event_id, user_id, campaign_key, campaign_ids, run_day, window_end, objective, purchase_state:inputs->purchases->>state", ["id"]),
     loadAllPaged<ExistingOutcome>(db as never, "onsale_refresh_outcomes", "line_id, outcome, week_to", ["line_id"]),
   ]);
   const byProposal = new Map(proposals.map((row) => [row.id, row]));
@@ -361,7 +369,7 @@ export async function scoreOnsaleRefresh(db: Db, opts: { now: Date; dryRun?: boo
       cache.set(
         key,
         campaignIds.length
-          ? await loadAllPaged<InsightRow>(db as never, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, date, ad_name, spend, landing_page_views, actions", ["date", "meta_ad_id"], (q) => q.in("meta_campaign_id", campaignIds).gte("date", week.from).lte("date", week.to))
+          ? await loadAllPaged<InsightRow>(db as never, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, date, ad_name, spend, landing_page_views, actions, purchases", ["date", "meta_ad_id"], (q) => q.in("meta_campaign_id", campaignIds).gte("date", week.from).lte("date", week.to))
           : [],
       );
     }
@@ -371,7 +379,9 @@ export async function scoreOnsaleRefresh(db: Db, opts: { now: Date; dryRun?: boo
   const scoredAt = opts.now.toISOString();
   const rows: OutcomeRow[] = [];
   for (const { line, proposal, week } of due) {
-    const judgement = judgeLine(line, { objective: proposal.objective, rows: await rowsFor(proposal.campaign_ids ?? [], week), scores: scoresFor(proposal.event_id), addedBySameProposal: addedAdNames(linesOf.get(proposal.id) ?? []) });
+    const judgement = PURCHASE_KINDS.has(line.kind)
+      ? judgePurchaseLine(line, await rowsFor(purchaseCampaignIds(line), week), { nextWeekState: proposals.find((row) => row.event_id === proposal.event_id && row.window_end === week.to)?.purchase_state ?? null })
+      : judgeLine(line, { objective: proposal.objective, rows: await rowsFor(proposal.campaign_ids ?? [], week), scores: scoresFor(proposal.event_id), addedBySameProposal: addedAdNames(linesOf.get(proposal.id) ?? []) });
     rows.push({
       line_id: line.id,
       proposal_id: proposal.id,
