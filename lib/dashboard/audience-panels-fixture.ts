@@ -150,11 +150,14 @@ const SHOWS: Record<string, string> = {
   "show-azyr": "AZYR b2b Partiboi69",
 };
 
+const NOT_TIED_SEND = "not-tied";
+
 function send(
   id: string,
   name: string,
   day: string,
   channelId: "whatsapp" | "email",
+  /** A show id, null for a whole-list send, or NOT_TIED_SEND. */
   eventId: string | null,
   sent: number,
   delivered: number,
@@ -162,13 +165,15 @@ function send(
   clicked: number,
 ): BroadcastStat {
   const email = channelId === "email";
+  const notTied = eventId === NOT_TIED_SEND;
   return {
     id,
     provider: email ? "mailchimp" : "bird",
     channel: channelId,
     audienceKind: "marketing",
-    attribution: eventId ? "show" : "client",
-    eventId,
+    attribution: notTied ? "not_tied" : eventId ? "show" : "client",
+    eventId: notTied ? null : eventId,
+    audienceRead: true,
     name,
     sentAt: `${day}T12:00:00Z`,
     sent,
@@ -201,6 +206,8 @@ export const ELECTRIC_D2C: D2CStatsSummary = {
     send("mc-2", "Locklead- Announcement", "2026-11-02", "email", null, 19_789, 19_715, 571, 54),
     send("bird-4", "Azyr - presale live v2", "2026-10-23", "whatsapp", "show-azyr", 1750, 1571, 545, 47),
     send("bird-5", "Kream presale", "2026-10-23", "whatsapp", "show-kream", 591, 539, 323, 113),
+    // PT5: not tied to a show. Its fourth list, CQ-folamour-newcastle-opt-in-fever-105, isn't one of the show's.
+    send("bird-6", "Folamour - Presale", "2026-09-10", "whatsapp", NOT_TIED_SEND, 1312, 1222, 643, 0),
   ],
 };
 
@@ -210,9 +217,12 @@ export const ELECTRIC_D2C: D2CStatsSummary = {
  * the NX Loves master tag, 14 not tied), by the positive-match rules
  * (migration 248) with Electric's d2c_whole_list_tags = {NX Loves}, from a
  * read-only dry run on 15 Nov. Before ops sets that, the 18 NX Loves sends
- * read not tied: 178 whole list, 32 not tied.
+ * read not tied: Mailchimp has 178 whole list and 32 not tied. notTied
+ * below is 18 Bird + 14 Mailchimp, the seeded state. Names compare exactly as
+ * stored (PT2, PT4); that changed none of these. No not-tied send had an
+ * unread audience, so the frame has no "couldn't be read" line.
  */
-export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 196 };
+export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 196, notTied: 32, unread: 0 };
 
 export function electric(surface: D2CSurface): DirectToFanModel {
   return modelFromSummary(

@@ -11,7 +11,7 @@ const shows: D2CShowKey[] = [
   { eventId: "ev-velvet", clientId: CLIENT, tag: "Velvet Static 2026", code: null, slug: null, mailchimpAudienceId: null },
   { eventId: "ev-slug-only", clientId: CLIENT, tag: null, code: null, slug: "glass-orchard", mailchimpAudienceId: null },
   { eventId: "ev-dupe-1", clientId: CLIENT, tag: "CQ-twin", code: null, slug: null, mailchimpAudienceId: null },
-  { eventId: "ev-dupe-2", clientId: CLIENT, tag: "cq-twin", code: null, slug: null, mailchimpAudienceId: null },
+  { eventId: "ev-dupe-2", clientId: CLIENT, tag: "CQ-twin", code: null, slug: null, mailchimpAudienceId: null },
   { eventId: "ev-other", clientId: OTHER, tag: "CQ-far-pier", code: null, slug: null, mailchimpAudienceId: null },
 ];
 const index = buildShowIndex(shows, new Map([[CLIENT, ["Harbour Loves"]]]));
@@ -20,10 +20,30 @@ function bird(...names: Array<string | null>): D2CAudience {
   return { mode: "any", wholeList: false, otherConditions: 0, refs: names.map((name, i) => ({ id: `l${i}`, name, include: true })) };
 }
 
-test("a CQ list or the show's tag matches the show, case-insensitively", () => {
-  assert.equal(matchShow(index, "cq-MOONLIT-harbour")?.eventId, "ev-moonlit");
+test("a CQ list or the show's tag matches the show exactly as stored", () => {
+  assert.equal(matchShow(index, "CQ-moonlit-harbour")?.eventId, "ev-moonlit");
   assert.equal(matchShow(index, "Velvet Static 2026")?.eventId, "ev-velvet");
   assert.equal(matchShow(index, "CQ-glass-orchard")?.eventId, "ev-slug-only");
+  assert.equal(matchShow(index, "cq-MOONLIT-harbour"), null);
+  assert.equal(matchShow(index, "velvet static 2026"), null);
+});
+
+test("byte for byte (PT2, PT4): case and spaces count for show lists, tags, codes and whole-list tags", () => {
+  const kream = buildShowIndex(
+    [{ eventId: "ev-kream", clientId: CLIENT, tag: null, code: "EBR26-KREAM", slug: "Kream", mailchimpAudienceId: null }],
+    new Map([[CLIENT, ["NX Loves"]]]),
+  );
+  const opts = { accountClientIds: [CLIENT] };
+  assert.equal(matchShow(kream, "CQ-Kream")?.eventId, "ev-kream");
+  assert.equal(matchShow(kream, "cq-kream"), null);
+  assert.equal(matchShow(kream, "CQ-Kream "), null);
+  assert.equal(matchShow(kream, " CQ-Kream"), null);
+  assert.equal(matchShow(kream, "CQ-Kream-together"), null);
+  assert.equal(matchShow(kream, "ebr26-kream"), null);
+  assert.equal(attributeSend(kream, bird("cq-kream"), opts).attribution, "not_tied");
+  assert.equal(attributeSend(kream, bird("NX Loves"), opts).attribution, "client");
+  assert.equal(attributeSend(kream, bird("nx loves"), opts).attribution, "not_tied");
+  assert.equal(attributeSend(kream, bird("NX Loves "), opts).attribution, "not_tied");
 });
 
 test("a name two shows answer to matches neither", () => {
@@ -44,7 +64,7 @@ test("a Mailchimp tag on a different audience is not the show", () => {
 test("one show's list → that show; the whole list or a master tag → the client; anything else → not tied", () => {
   const opts = { accountClientIds: [CLIENT] };
   assert.deepEqual(attributeSend(index, bird("CQ-moonlit-harbour"), opts), { attribution: "show", eventId: "ev-moonlit", clientId: CLIENT });
-  assert.deepEqual(attributeSend(index, bird("harbour loves"), opts), { attribution: "client", eventId: null, clientId: CLIENT });
+  assert.deepEqual(attributeSend(index, bird("Harbour Loves"), opts), { attribution: "client", eventId: null, clientId: CLIENT });
   assert.equal(attributeSend(index, { mode: "any", wholeList: true, refs: [], otherConditions: 0 }, opts).attribution, "client");
   assert.equal(attributeSend(index, bird("CQ-moonlit-harbour", "CQ-moonlit-harbour"), opts).attribution, "show");
   // A mix of shows, a one-off list, a master tag mixed with a one-off list: never "Whole list".
@@ -61,12 +81,12 @@ test("a show's CIRQLIN opt-in tiers and its event code are the show's lists", ()
   const withCode = buildShowIndex([...shows, { eventId: "ev-coded", clientId: CLIENT, tag: null, code: "HB26-NIGHTJAR", slug: null, mailchimpAudienceId: null }]);
   const opts = { accountClientIds: [CLIENT] };
   assert.equal(attributeSend(index, bird("CQ-moonlit-harbour", "CQ-moonlit-harbour-Together", "CQ-moonlit-harbour-opted-in"), opts).eventId, "ev-moonlit");
-  assert.equal(attributeSend(index, bird("cq-glass-orchard-opted-in"), opts).eventId, "ev-slug-only");
+  assert.equal(attributeSend(index, bird("CQ-glass-orchard-opted-in"), opts).eventId, "ev-slug-only");
   // Another suffix is not a tier: the send is not tied to a show.
   assert.equal(attributeSend(index, bird("CQ-moonlit-harbour", "CQ-moonlit-harbour-opt-in-fever-105"), opts).attribution, "not_tied");
   // Tiers hang off the slug, not the tag.
   assert.equal(attributeSend(index, bird("Velvet Static 2026-Together"), opts).attribution, "not_tied");
-  assert.equal(attributeSend(withCode, bird("hb26-nightjar"), opts).eventId, "ev-coded");
+  assert.equal(attributeSend(withCode, bird("HB26-NIGHTJAR"), opts).eventId, "ev-coded");
 });
 
 test("a Bird exclude narrows and keeps the show", () => {

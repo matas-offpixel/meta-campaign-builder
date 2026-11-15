@@ -185,6 +185,11 @@ export function DirectToFanPanel({ model }: { model: DirectToFanModel }) {
           <SendsTable model={model} />
         </>
       )}
+      {model.unreadLine ? (
+        <p className="mt-3 text-[11px] text-muted-foreground" data-d2c-unread>
+          {model.unreadLine}
+        </p>
+      ) : null}
       {model.reviewLine ? (
         <p className="mt-3 text-[11px] text-muted-foreground" data-d2c-review>
           {model.reviewLine}

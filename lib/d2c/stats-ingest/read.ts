@@ -23,7 +23,7 @@ import { summariseD2CStats, type D2CStatsSummary, type MessageRate, type StoredS
 type Db = Pick<SupabaseClient, "from">;
 
 export const STATS_COLUMNS =
-  "id, provider, account_id, external_id, channel, client_id, event_id, attribution, audience_kind, name, sent_at, list_id, sent, delivered, read, clicked, opens_unique_raw, opens_unique_filtered, open_rate_filtered, fetched_at";
+  "id, provider, account_id, external_id, channel, client_id, event_id, attribution, audience_kind, name, sent_at, list_id, sent, delivered, read, clicked, opens_unique_raw, opens_unique_filtered, open_rate_filtered, fetched_at, audience_mode:audience->>mode";
 
 function toNumber(v: unknown): number | null {
   if (v == null) return null;

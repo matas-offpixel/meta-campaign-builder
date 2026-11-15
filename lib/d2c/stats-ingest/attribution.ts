@@ -13,8 +13,9 @@
  *   - show: every audience the send targets is that one show's list. A
  *     show's lists are `CQ-{events.cirqlin_page_slug}` and its CIRQLIN
  *     opt-in tiers (SHOW_LIST_TIER_SUFFIXES), or a list or tag whose name
- *     is exactly the show's `events.mailchimp_tag` or `events.event_code`,
- *     case-insensitive. A Mailchimp tag also has to sit on the show's
+ *     is exactly the show's `events.mailchimp_tag` or `events.event_code`.
+ *     Every name compares byte for byte as stored: no trimming, no case
+ *     folding (PT2, PT4). A Mailchimp tag also has to sit on the show's
  *     audience when the event names one.
  *       - Bird includes are a union, and so is Mailchimp `match: any`:
  *         every included list must be one show's. Bird excludes only
@@ -56,28 +57,30 @@ import type {
  */
 export const SHOW_LIST_TIER_SUFFIXES = ["-Together", "-opted-in"] as const;
 
-function norm(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase();
+/**
+ * Names compare byte for byte, exactly as stored (PT2, PT4): no trimming,
+ * no case folding. Only a missing or empty name is skipped.
+ */
+function named(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
 /**
- * A CIRQLIN page's lists, lowercased: exactly `cq-{slug}` and its opt-in
- * tiers. The whole slug is compared, never a prefix: `CQ-azyr-newcastle`
- * is not the page `azyr-newcastle-2`'s, nor the reverse.
+ * A CIRQLIN page's lists: exactly `CQ-{slug}` and its opt-in tiers, from
+ * the slug as stored. The whole slug is compared, never a prefix:
+ * `CQ-azyr-newcastle` is not the page `azyr-newcastle-2`'s, nor the
+ * reverse.
  */
 export function cqListNames(slug: string | null | undefined): string[] {
-  const s = norm(slug);
-  if (!s) return [];
-  return [`cq-${s}`, ...SHOW_LIST_TIER_SUFFIXES.map((suffix) => `cq-${s}${suffix.toLowerCase()}`)];
+  if (!named(slug)) return [];
+  return [`CQ-${slug}`, ...SHOW_LIST_TIER_SUFFIXES.map((suffix) => `CQ-${slug}${suffix}`)];
 }
 
-/** The names a show answers to, lowercased: its tag, its event code, and its CQ lists. */
+/** The names a show answers to, exactly as stored: its tag, its event code, and its CQ lists. */
 export function showNames(show: D2CShowKey): string[] {
   const names = new Set<string>();
-  const tag = norm(show.tag);
-  if (tag) names.add(tag);
-  const code = norm(show.code);
-  if (code) names.add(code);
+  if (named(show.tag)) names.add(show.tag);
+  if (named(show.code)) names.add(show.code);
   for (const name of cqListNames(show.slug)) names.add(name);
   return [...names];
 }
@@ -86,7 +89,7 @@ export interface ShowIndex {
   /** name → shows answering to it (more than one = ambiguous, never matched). */
   byName: Map<string, D2CShowKey[]>;
   /**
-   * client id → the names that are its whole list, lowercased: its
+   * client id → the names that are its whole list, exactly as stored: its
    * `clients.d2c_whole_list_tags` (migration 248) and the CQ lists of its
    * umbrella pages (`events.is_umbrella`). Never a show.
    */
@@ -107,7 +110,7 @@ export function buildShowIndex(
   }
   const whole = new Map<string, Set<string>>();
   for (const [clientId, names] of wholeList) {
-    const set = new Set(names.map(norm).filter(Boolean));
+    const set = new Set(names.filter(named));
     if (set.size) whole.set(clientId, set);
   }
   return { byName, wholeList: whole };
@@ -124,9 +127,8 @@ export function matchShow(
   name: string | null,
   opts: { clientIds?: readonly string[]; mailchimpListId?: string | null } = {},
 ): D2CShowKey | null {
-  const key = norm(name);
-  if (!key) return null;
-  let candidates = index.byName.get(key) ?? [];
+  if (!named(name)) return null;
+  let candidates = index.byName.get(name) ?? [];
   if (opts.clientIds && opts.clientIds.length > 0) {
     const allowed = new Set(opts.clientIds);
     candidates = candidates.filter((s) => allowed.has(s.clientId));
@@ -182,7 +184,7 @@ export function isWholeList(audience: D2CAudience, wholeListNames: ReadonlySet<s
   if (audience.otherConditions > 0) return false;
   const includes = audience.refs.filter((r) => r.include);
   if (includes.length === 0) return false;
-  return includes.every((r) => wholeListNames.has(norm(r.name)));
+  return includes.every((r) => named(r.name) && wholeListNames.has(r.name));
 }
 
 function showForAudience(

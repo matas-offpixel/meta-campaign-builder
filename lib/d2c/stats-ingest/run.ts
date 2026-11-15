@@ -191,7 +191,8 @@ export async function loadWholeListNames(
       "id, d2c_whole_list_tags",
       ["id"],
     );
-    for (const c of clients) add(c.id, (c.d2c_whole_list_tags ?? []).filter((t) => typeof t === "string" && t.trim()));
+    // Exactly as stored: no trimming or case folding (PT4).
+    for (const c of clients) add(c.id, (c.d2c_whole_list_tags ?? []).filter((t) => typeof t === "string" && t.length > 0));
   } catch (err) {
     const line = errorLine(err);
     if (!/d2c_whole_list_tags/.test(line)) throw err;

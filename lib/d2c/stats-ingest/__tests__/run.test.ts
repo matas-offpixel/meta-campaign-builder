@@ -182,7 +182,7 @@ test("an umbrella event is never a show; its CQ lists and the client's whole-lis
   const withUmbrella = {
     ...tables,
     clients: [
-      { id: CLIENT, status: "active", mailchimp_audience_id: null, d2c_whole_list_tags: ["Harbour Loves", " "] },
+      { id: CLIENT, status: "active", mailchimp_audience_id: null, d2c_whole_list_tags: ["Harbour Loves", ""] },
       { id: "client-gone", status: "archived", mailchimp_audience_id: null, d2c_whole_list_tags: ["Old Loves"] },
     ],
     events: [
@@ -198,7 +198,7 @@ test("an umbrella event is never a show; its CQ lists and the client's whole-lis
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const whole = await loadWholeListNames(db as any, archived);
   assert.equal(whole.note, null);
-  assert.deepEqual(whole.names.get(CLIENT), ["cq-harbour-loves-aw26", "cq-harbour-loves-aw26-together", "cq-harbour-loves-aw26-opted-in", "Harbour Loves"]);
+  assert.deepEqual(whole.names.get(CLIENT), ["CQ-harbour-loves-aw26", "CQ-harbour-loves-aw26-Together", "CQ-harbour-loves-aw26-opted-in", "Harbour Loves"]);
   assert.equal(whole.names.has("client-gone"), false);
 });
 

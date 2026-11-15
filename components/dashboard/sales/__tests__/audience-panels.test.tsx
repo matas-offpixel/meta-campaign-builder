@@ -41,7 +41,7 @@ describe("Direct-to-fan (HE3)", () => {
     expect(links.length).toBeGreaterThan(0);
     expect(links[0]!.getAttribute("href")).toBe("/clients/electric?tab=d2c");
     expect(container.textContent).toContain("Email opens are Mailchimp's bot-filtered opens: Apple Mail Privacy and link-scanner opens removed.");
-    expect(container.textContent).toContain("includes 196 whole-list sends");
+    expect(container.textContent).toContain("includes 196 whole-list sends and 32 sends not tied to a show");
     expect(container.textContent).toContain("Whole list");
   });
 

@@ -87,6 +87,8 @@ export type DirectToFanModel = {
   footnote: string | null;
   /** PI6's internal review line; always null on the share link. */
   reviewLine: string | null;
+  /** PT1: not-tied sends whose audience couldn't be read; internal only, null on a show. */
+  unreadLine: string | null;
   sends: SendRow[];
   /** Whether the Show column is drawn (not on a show's own view). */
   showColumn: boolean;
@@ -274,23 +276,45 @@ export function buildDirectToFan(
   return modelFromSummary(summary, scope, opts, input.unattributed);
 }
 
+/**
+ * PT1: "includes {w} whole-list sends and {t} sends not tied to a show". A
+ * clause with 0 is dropped; with both 0 there is no clause.
+ */
+export function includesClause(wholeList: number, notTied: number): string | null {
+  const parts = [
+    wholeList > 0 ? `${wholeList.toLocaleString("en-GB")} whole-list ${wholeList === 1 ? "send" : "sends"}` : null,
+    notTied > 0 ? `${notTied.toLocaleString("en-GB")} ${notTied === 1 ? "send" : "sends"} not tied to a show` : null,
+  ].filter((p): p is string => p !== null);
+  return parts.length ? `includes ${parts.join(" and ")}` : null;
+}
+
+/** PT1's internal line for not-tied sends whose audience couldn't be read. */
+export function unreadText(n: number): string {
+  return n === 1
+    ? "1 send's audience couldn't be read, so it isn't tied to a show."
+    : `${n.toLocaleString("en-GB")} sends' audiences couldn't be read, so they aren't tied to a show.`;
+}
+
 /** The same model from a summary (fixtures, and the scope already filtered). */
 export function modelFromSummary(
   summary: ReturnType<typeof summariseD2CStats>,
   scope: D2CScope,
   opts: { surface: D2CSurface; showName: (eventId: string) => string; rateHref: string | null },
   unattributed: number,
-  sendCount?: { sends: number; wholeList: number },
+  sendCount?: { sends: number; wholeList: number; notTied?: number; unread?: number },
 ): DirectToFanModel {
   const channels = summary.channels.map((c) => channelRow(c, summary.currency, opts.surface, summary.ratePerMessage));
   const sends = summary.broadcasts.map((b) => sendRow(b, opts.showName));
   const total = sendCount?.sends ?? summary.broadcasts.length;
   const wholeList = sendCount?.wholeList ?? summary.broadcasts.filter((b) => b.attribution === "client").length;
+  const notTiedRows = summary.broadcasts.filter((b) => b.attribution === "not_tied");
+  const notTied = sendCount?.notTied ?? notTiedRows.length;
+  const unread = sendCount?.unread ?? notTiedRows.filter((b) => !b.audienceRead).length;
   const totalsLine = [
     scope.label,
     `${total.toLocaleString("en-GB")} ${total === 1 ? "send" : "sends"}`,
     spanOf(summary.broadcasts),
-    scope.kind !== "show" && wholeList > 0 ? `includes ${wholeList.toLocaleString("en-GB")} whole-list ${wholeList === 1 ? "send" : "sends"}` : null,
+    scope.kind !== "show" ? includesClause(wholeList, notTied) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -316,6 +340,7 @@ export function modelFromSummary(
       opts.surface === "internal" && unattributed > 0
         ? `${unattributed.toLocaleString("en-GB")} ${unattributed === 1 ? "send" : "sends"} on a shared account couldn't be tied to a client.`
         : null,
+    unreadLine: opts.surface === "internal" && scope.kind !== "show" && unread > 0 ? unreadText(unread) : null,
     sends,
     showColumn: scope.kind !== "show",
     nameColumn: sends.some((s) => s.name !== DASH),

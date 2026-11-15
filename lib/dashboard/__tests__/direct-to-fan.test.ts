@@ -15,6 +15,7 @@ import {
   RATE_NOT_SET,
   WHOLE_LIST,
   buildDirectToFan,
+  includesClause,
   scopeRows,
   venueAudiences,
   type D2CScope,
@@ -167,7 +168,7 @@ describe("Direct-to-fan · EV4 on the Electric dry-run figures", () => {
     assert.equal(m.channels[1]!.readOpenedText, "11.1 %");
     assert.equal(m.channels[0]!.readOpenedText, "57.9 % read");
     assert.match(m.headline!, /^WhatsApp's click rate is 3\.68× email's\. Clicks are the like-for-like figure/);
-    assert.equal(m.totalsLine, "Electric Group · 281 sends · 23 Oct – 13 Nov · includes 196 whole-list sends");
+    assert.equal(m.totalsLine, "Electric Group · 281 sends · 10 Sep – 13 Nov · includes 196 whole-list sends and 32 sends not tied to a show");
   });
 
   it("orders the phone list by click rate and keeps 'Rate not set' internal", () => {
@@ -193,7 +194,7 @@ describe("Direct-to-fan · sends not tied to a show (migration 248)", () => {
     assert.equal(m.sends.length, 4);
     assert.equal(m.sends.filter((s) => s.showText === NOT_TIED).length, 2);
     assert.equal(m.sends.filter((s) => s.showText === WHOLE_LIST).length, 1);
-    assert.match(m.totalsLine ?? "", /includes 1 whole-list send$/);
+    assert.match(m.totalsLine ?? "", /includes 1 whole-list send and 2 sends not tied to a show$/);
   });
 
   it("never count in a show; on a venue only when the Mailchimp audience is that venue's", () => {
@@ -207,6 +208,40 @@ describe("Direct-to-fan · sends not tied to a show (migration 248)", () => {
     const m = electric("internal");
     assert.equal(m.sends.find((s) => s.name === "Azyr - presale live v2")!.showText, "AZYR b2b Partiboi69");
     assert.equal(m.sends.find((s) => s.name === "Locklead- Announcement")!.showText, WHOLE_LIST);
-    assert.match(m.totalsLine ?? "", /includes 196 whole-list sends$/);
+    assert.match(m.totalsLine ?? "", /includes 196 whole-list sends and 32 sends not tied to a show$/);
+    // PT5: Folamour's presale is the not-tied row.
+    assert.equal(m.sends.find((s) => s.name === "Folamour - Presale")!.showText, NOT_TIED);
+    assert.equal(m.unreadLine, null);
+  });
+});
+
+describe("Direct-to-fan · totals line and review lines (PT1)", () => {
+  it("drops a zero clause, and the whole clause when both are zero", () => {
+    assert.equal(includesClause(3, 2), "includes 3 whole-list sends and 2 sends not tied to a show");
+    assert.equal(includesClause(1, 1), "includes 1 whole-list send and 1 send not tied to a show");
+    assert.equal(includesClause(0, 4), "includes 4 sends not tied to a show");
+    assert.equal(includesClause(5, 0), "includes 5 whole-list sends");
+    assert.equal(includesClause(0, 0), null);
+    const m = buildDirectToFan({ rows: [row({ attribution: "show", event_id: "e1" })], rate: { rate: null, currency: "GBP" }, shows: SHOWS, unattributed: 0 }, client, opts("internal"));
+    assert.equal(m.totalsLine, "Electric Group · 1 send · 1 Nov");
+  });
+
+  it("says, internally only, how many not-tied sends had an audience that couldn't be read, apart from the unattributed line", () => {
+    const rows = [
+      row({ attribution: "not_tied", audience_mode: null }),
+      row({ attribution: "not_tied", audience_mode: null }),
+      row({ attribution: "not_tied", audience_mode: "any" }),
+      row({ attribution: "unattributed", client_id: null }),
+    ];
+    const input = { rows, rate: { rate: null, currency: "GBP" }, shows: SHOWS, unattributed: 1 };
+    const internal = buildDirectToFan(input, client, opts("internal"));
+    assert.equal(internal.unreadLine, "2 sends' audiences couldn't be read, so they aren't tied to a show.");
+    assert.equal(internal.reviewLine, "1 send on a shared account couldn't be tied to a client.");
+    assert.match(internal.totalsLine, /includes 3 sends not tied to a show$/);
+    const share = buildDirectToFan(input, client, opts("share"));
+    assert.equal(share.unreadLine, null);
+    assert.equal(share.reviewLine, null);
+    const one = buildDirectToFan({ ...input, rows: [row({ attribution: "not_tied", audience_mode: null })] }, client, opts("internal"));
+    assert.equal(one.unreadLine, "1 send's audience couldn't be read, so it isn't tied to a show.");
   });
 });

@@ -33,4 +33,4 @@ alter table clients
   add column if not exists d2c_whole_list_tags text[] not null default '{}';
 
 comment on column clients.d2c_whole_list_tags is
-  'HE3: Bird list and Mailchimp tag names that are this client''s whole list (master tags, e.g. NX Loves), case-insensitive. A send to only these is "Whole list", never a show. Umbrella pages'' CQ lists count without being listed here. Ops sets it; empty by default.';
+  'HE3: Bird list and Mailchimp tag names that are this client''s whole list (master tags, e.g. NX Loves), compared exactly as stored (case and spaces count). A send to only these is "Whole list", never a show. Umbrella pages'' CQ lists count without being listed here. Ops sets it; empty by default.';
