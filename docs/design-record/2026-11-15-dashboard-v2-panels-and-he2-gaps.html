@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard v2 panels and HE2 gaps — 15 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.ex{border-bottom:1px dashed var(--ink-3)}
+.pv{margin:8px 0 4px;border:1px solid var(--border-strong);border-radius:8px;background:var(--paper);padding:10px 12px}
+.pv .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.pv .hd b{font-weight:600;font-size:13px}
+.pv h6{margin:10px 0 4px;font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.pv ul{margin:0;padding:0 0 0 16px;font-size:12px}.pv li{margin:0 0 3px}
+.pv .m{font:11.5px/1.45 var(--mono);color:var(--ink-2)}
+.pv .acts{margin-top:10px}
+.bud{font-size:12px;color:var(--ink-2);margin:0}
+.why b{font-weight:600}
+.w393 .pv .hd{flex-direction:column}
+table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · dashboard v2 phase 2 · 15 November 2026</p>
+<h1>Dashboard v2 phase 2: the panels' own words, send names, and two HE2 gaps</h1>
+<p class="lead">This record amends <code>2026-11-15-dashboard-v2-phase-2-ingest.html</code> (PI1, PI5, PI6) and <code>2026-11-15-dashboard-v2-he2-page-audience.html</code> (PA3, PA5, HA1). Both stand except where they're named here. It answers the questions from #1246 (the HE1 / HE3 panels) and #1248 (the HE2 ingest), judged from local renders of #1246 at 2251a8a and the #1248 diff at 3dc6e64. No new frames: #1246's WR1, WR1S, DF1 and DF1S are the frames.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>PB1 · #1246's own words</td><td>
+<p>The words #1246 added are accepted as built:</p>
+<ul>
+<li>TikTok's tables are titled <b>"TikTok delivery by age · TikTok says"</b> and <b>"TikTok delivery by UK nation · TikTok says"</b>, matching PI2's Meta title.</li>
+<li>The direct-to-fan totals line is <b>"{client} · {n} sends · {first day} – {last day}"</b>, ending "· includes {n} whole-list sends" as PI6 rules.</li>
+<li>On a phone, EV4's list title "Click rate · clicks ÷ delivered", then the cost line <b>"WhatsApp {cost} · email —"</b>. "Rate not set" is the link there too.</li>
+<li>The sends table is titled <b>"Sends"</b>, with columns Sent, Send, Show, Channel, Delivered, Read / opened, Clicked and Click rate, newest first, eight rows then <b>"Show all {n} sends"</b> / <b>"Show the latest"</b>.</li>
+<li>The age table's All row sums the unrounded rows and then rounds, as PI1 rules. So the whole-pound rows can add to £1 less or more than All (Locklead: rows £1,569, All £1,570). That's right; don't round rows to force it.</li>
+</ul>
+<p>Three answers on #1246:</p>
+<ul>
+<li><b>Age withheld, region shown:</b> right. PI1 withholds only the age table. The region table has no results to disagree with.</li>
+<li><b>"Whole list" on NX Loves master-tag sends:</b> right. A send to the venue's whole list is a whole-list send (PI6), whatever the tag is called.</li>
+<li><b>"Rate not set" links to the client's D2C tab</b> until the rate field exists. When it lands, the link goes to the field itself.</li>
+</ul></td></tr>
+
+<tr><td>PB2 · The Send column</td><td>
+<ul>
+<li><b>The Send column is the send's name</b> as the provider holds it: Mailchimp's campaign title, Bird's broadcast name. It's shown verbatim, cut with an ellipsis at the column's width, the full name on hover.</li>
+<li><b>A send with no name</b> reads "—" in that row.</li>
+<li><b>A Sends table where no row has a name</b> doesn't draw the column. A column of dashes reads as "none", the same reason PI2 dropped the result columns from the region table.</li>
+<li>The frames' fixture carries the six sends' real names. A campaign title is not person data.</li>
+</ul></td></tr>
+
+<tr><td>PB3 · Partner opt-in until CIRQLIN says the box is there</td><td>
+<p>Amends PA5's last point. #631's <code>partner_opt_in</code> is 0 both on a page with no partner tick box and on a page where nobody ticked it, so the panel can't tell them apart yet.</p>
+<ul>
+<li><b>Until CIRQLIN returns whether the page's form has a partner box,</b> the row shows only when <code>partner_opt_in</code> is more than 0. A 0 is left out.</li>
+<li><b>Once that signal exists,</b> PA5 applies as written: the row is left out only where there's no box, and a real 0 shows.</li>
+<li>The ingest keeps <code>partner_opt_in</code> as a number. It doesn't guess the box.</li>
+</ul></td></tr>
+
+<tr><td>PB4 · The entered member count</td><td>
+<p>Amends PA3's first source. Nothing stores a hand-entered member count yet. It belongs to HE4 (the presale log), which E2 and the phase 2 hand-back already give it to. HE2 adds no column for it.</p>
+<p>Until HE4 lands, the community headline starts at PA3's second source, <code>community_joined</code>, and E3's "Community at presale" does the same.</p></td></tr>
+
+<tr><td>PB5 · The self-check compares this run only</td><td>
+<p>Amends HA1. A page's <code>signups</code> is checked against a <code>/signups</code> page-id total <b>written in the same cron run</b>, after the run's signups pass started.</p>
+<ul>
+<li>An older total is <b>"unchecked"</b>, never compared. That covers a signups read that failed tonight, a page skipped on the bucket or the clock, and a tag-only sync.</li>
+<li>"mismatch" then means the two reads disagree minutes apart, which is worth a look. Against yesterday's total it would only mean people signed up today.</li>
+</ul></td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HB1 · #1246</td><td>
+<p>PB2 in the sends table: the name column, its "—" per row, and the column left out when no row has a name. The fixture gets the six real send names, and DF1, DF1S, DF1-393 and DF1S-393 are re-shot. PB1 needs no change.</p></td></tr>
+<tr><td>HB2 · #1248</td><td>
+<p>PB5: pass the run's signups-pass start into the step, and treat a stored total older than it as unchecked. Test: yesterday's page-id total plus tonight's failed read gives "unchecked", not "mismatch".</p></td></tr>
+<tr><td>HB3 · The panel (HA2)</td><td>
+<p>PB3's interim partner row and PB4's headline order.</p></td></tr>
+<tr><td>HB4 · CIRQLIN</td><td>
+<p>An ask, not a rule: page-audience returns whether the page's form offers a partner tick box, so PB3 can give way to PA5.</p></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Accepting #1246's TikTok titles, totals line, phone cost line, sends table words and the All-row rounding.</li>
+<li>The Send column as the provider's name, and leaving out a column with no names.</li>
+<li>Showing partner opt-in only above 0 until CIRQLIN signals the box.</li>
+<li>Starting the community headline at community_joined until HE4.</li>
+<li>Checking signups against this run's total only.</li>
+</ul>
+
+</div>
+</body>
+</html>
