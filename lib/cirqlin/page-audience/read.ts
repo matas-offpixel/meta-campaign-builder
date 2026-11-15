@@ -68,6 +68,12 @@ export interface PageAudienceFigures {
   };
   consentMarketing: number;
   channelsOffered: string[];
+  /**
+   * The page offers WhatsApp: "whatsapp" is in channelsOffered, the test
+   * CIRQLIN itself uses for whatsapp_with_phone (0 on a page without it).
+   * PA2: false reads "WhatsApp isn't offered on this page", not 0.
+   */
+  offersWhatsapp: boolean;
   communityJoined: number;
   communityLinkClicks: number;
   /** The page's WhatsApp invite code also appears on another page. */
@@ -95,6 +101,11 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** As CIRQLIN's partner-page-audience.ts: `channels.includes("whatsapp")`. */
+export function offersWhatsapp(channels: readonly string[] | null | undefined): boolean {
+  return Array.isArray(channels) && channels.includes("whatsapp");
+}
+
 export function toFigures(eventId: string, isUmbrella: boolean, row: StoredPageAudienceRow): PageAudienceFigures {
   const cities = Array.isArray(row.geo_cities) ? row.geo_cities : [];
   return {
@@ -111,6 +122,7 @@ export function toFigures(eventId: string, isUmbrella: boolean, row: StoredPageA
     },
     consentMarketing: num(row.consent_marketing),
     channelsOffered: [...(row.channels_offered ?? [])],
+    offersWhatsapp: offersWhatsapp(row.channels_offered),
     communityJoined: num(row.community_joined),
     communityLinkClicks: num(row.community_link_clicks),
     communityCodeShared: row.community_code_shared === true,

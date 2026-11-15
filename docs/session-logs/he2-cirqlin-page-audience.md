@@ -46,10 +46,17 @@ The latest row is read per page through today's `events.cirqlin_page_id` link. T
 | `signups` | All-time signups |
 | `geography` | `{ cities [{ name, region, country, signups }], everywhereElse, couldntTell }`, cities most first |
 | `consentMarketing`, `channelsOffered` | Marketing consent count and the channels offered |
+| `offersWhatsapp` | `channelsOffered` includes `"whatsapp"`, CIRQLIN's own test (PA2) |
 | `communityJoined`, `communityLinkClicks`, `communityCodeShared` | Community figures |
 | `whatsappWithPhone`, `partnerOptIn` | WhatsApp and partner opt-in counts |
 | `dailyTimezone` | The page's timezone |
 | `signupsCheck` | `{ status, stored, storedAt }` |
+
+## Design record follow-up (2026-11-15-dashboard-v2-he2-page-audience, PA1–PA7)
+
+- **PA5, partner opt-in:** the response can't tell a page with no partner tick box apart from one where nobody ticked it. In #631, `partner_opt_in: number` is always present, and it is `countPartnerOptIn(inRange ids, consents)`: the size of a set of signups with a consented, unrevoked row in `signup_partner_consents`. Unticked partners write no row, and neither does a form without the box, so both read 0. The page record the endpoint loads (`PartnerAudiencePage`) is only `id, timezone, whatsapp_invite_url`. So `partnerOptIn` stays a number, and CIRQLIN needs to add a "box offered" signal before the row can be left out.
+- **PA3, entered member count:** nothing stores one. The prod schema has no member-count column on any public table. `d2c_event_copy.copy_jsonb` holds only rendered copy (subject / body_markdown per job type), and migration 235 adds no such column. E2's hand-entered count has no home yet, so the read helper returns no `enteredMemberCount`.
+- **PA2:** `offersWhatsapp` added.
 
 ## No live run
 

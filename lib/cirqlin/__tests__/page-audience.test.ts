@@ -7,7 +7,7 @@ import {
   pageAudienceUrl,
   parsePageAudience,
 } from "../page-audience/client.ts";
-import { latestPageAudienceRows, pageAudienceForClient, pageAudienceForEvents, pageAudienceForShow } from "../page-audience/read.ts";
+import { latestPageAudienceRows, offersWhatsapp, pageAudienceForClient, pageAudienceForEvents, pageAudienceForShow } from "../page-audience/read.ts";
 import {
   CIRQLIN_PARTNER_BUCKET,
   checkSignups,
@@ -482,6 +482,18 @@ describe("page-audience read helpers", () => {
     assert.equal(view.umbrella!.isUmbrella, true);
     assert.deepEqual(view.shows.get("lock")!.geography.cities.map((c) => c.name), ["Newcastle upon Tyne", "Sunderland"]);
     assert.deepEqual(view.shows.get("lock")!.signupsCheck, { status: "ok", stored: 404, storedAt: "2026-11-15T23:55:30Z" });
+  });
+
+  it("offersWhatsapp comes from channelsOffered, as CIRQLIN decides it", async () => {
+    assert.equal(offersWhatsapp(["email", "whatsapp"]), true);
+    assert.equal(offersWhatsapp(["email", "sms"]), false);
+    assert.equal(offersWhatsapp([]), false);
+    assert.equal(offersWhatsapp(null), false);
+    const wa = { ...stored(P1, "2026-11-15", "lock", 404), channels_offered: ["email", "whatsapp"] };
+    const db = fakeDb({ events, cirqlin_page_audience: [wa, stored(P2, "2026-11-15", "schak", 1792)] });
+    const view = await pageAudienceForClient(asDb(db), "nx");
+    assert.equal(view.shows.get("lock")!.offersWhatsapp, true);
+    assert.equal(view.shows.get("schak")!.offersWhatsapp, false);
   });
 
   it("by events and by show; a show with no row is absent", async () => {
