@@ -5,12 +5,16 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
 import type { EventWithClient } from "@/lib/db/events";
 import type { ClientRow } from "@/lib/db/clients";
+import { useFetchEvents, type EventPickerRow } from "@/lib/hooks/useEvents";
+import type { CampaignDraft } from "@/lib/types";
+import { applyEventEndToDraft } from "@/lib/wizard/event-end-date";
 
 /**
  * lib/wizard/use-event-context.tsx
@@ -33,6 +37,13 @@ export interface WizardEventContextValue {
   columnEventId: string | null;
   resolvedEventId: string | null;
   carriersDisagree: boolean;
+  /**
+   * The event for `draftEventId`, from the same events list the Campaign
+   * step's EVENT block uses. Null when that id is empty or still loading.
+   */
+  followsDraft: boolean;
+  draftEventId: string | null;
+  selectedEvent: EventPickerRow | null;
 }
 
 const EMPTY: WizardEventContextValue = {
@@ -43,16 +54,25 @@ const EMPTY: WizardEventContextValue = {
   columnEventId: null,
   resolvedEventId: null,
   carriersDisagree: false,
+  followsDraft: false,
+  draftEventId: null,
+  selectedEvent: null,
 };
 
 const Ctx = createContext<WizardEventContextValue>(EMPTY);
 
 export function WizardEventContextProvider({
   draftId,
+  eventId = null,
   enabled,
   children,
 }: {
   draftId: string;
+  /**
+   * The draft's current `settings.eventId`. The selected event follows
+   * this, not the one-shot column read.
+   */
+  eventId?: string | null;
   /**
    * False until the parent has finished hydrating its draft. Avoids a
    * pre-hydration round-trip that races the draft load.
@@ -67,6 +87,12 @@ export function WizardEventContextProvider({
   const [resolvedEventId, setResolvedEventId] = useState<string | null>(null);
   const [carriersDisagree, setCarriersDisagree] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const draftEventId = eventId?.trim() || null;
+  const { events: draftEvents } = useFetchEvents(draftEventId);
+  const selectedEvent = useMemo(
+    () => draftEvents.find((row) => row.id === draftEventId) ?? null,
+    [draftEvents, draftEventId],
+  );
 
   useEffect(() => {
     if (!enabled || !draftId) return;
@@ -132,8 +158,21 @@ export function WizardEventContextProvider({
       columnEventId,
       resolvedEventId,
       carriersDisagree,
+      followsDraft: true,
+      draftEventId,
+      selectedEvent,
     }),
-    [event, client, loaded, jsonEventId, columnEventId, resolvedEventId, carriersDisagree],
+    [
+      event,
+      client,
+      loaded,
+      jsonEventId,
+      columnEventId,
+      resolvedEventId,
+      carriersDisagree,
+      draftEventId,
+      selectedEvent,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -141,4 +180,58 @@ export function WizardEventContextProvider({
 
 export function useWizardEventContext(): WizardEventContextValue {
   return useContext(Ctx);
+}
+
+/**
+ * Writes the event end onto the draft when the attached event changes.
+ * An operator-typed end date is left as it is.
+ */
+export function EventEndDateSync({
+  draft,
+  updateDraft,
+}: {
+  draft: CampaignDraft;
+  updateDraft: (updater: (d: CampaignDraft) => CampaignDraft) => void;
+}) {
+  const { followsDraft, draftEventId, selectedEvent } = useWizardEventContext();
+  const seen = useRef<{ id: string; date: string | null } | undefined>(undefined);
+
+  useEffect(() => {
+    if (!followsDraft) return;
+    if (!draftEventId) {
+      seen.current = { id: "", date: null };
+      return;
+    }
+    if (!selectedEvent || selectedEvent.id !== draftEventId) return;
+    const first = seen.current === undefined;
+    const previousId = seen.current?.id ?? "";
+    const eventChanged = !first && previousId !== draftEventId;
+    const previousEventDate = eventChanged ? (seen.current?.date ?? null) : null;
+    seen.current = { id: draftEventId, date: selectedEvent.event_date };
+    const phases = {
+      previousEventDate,
+      nextEventDate: selectedEvent.event_date,
+      nextPresaleAt: selectedEvent.presale_at,
+      nextGeneralSaleAt: selectedEvent.general_sale_at,
+      now: new Date(),
+    };
+    const refreshStart = (latest: CampaignDraft) =>
+      latest.budgetSchedule.startDateSource !== "operator" &&
+      (eventChanged || !(latest.budgetSchedule.startDate ?? "").trim());
+    const synced = applyEventEndToDraft(draft, {
+      ...phases,
+      eventChanged,
+      refreshStart: refreshStart(draft),
+    });
+    if (synced === draft) return;
+    updateDraft((latest) =>
+      applyEventEndToDraft(latest, {
+        ...phases,
+        eventChanged,
+        refreshStart: refreshStart(latest),
+      }),
+    );
+  }, [followsDraft, draftEventId, selectedEvent, draft, updateDraft]);
+
+  return null;
 }

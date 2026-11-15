@@ -14,7 +14,17 @@
  * and the xlsx parser agree.
  */
 
+import {
+  FALLBACK_DAILY_BUDGET_POUNDS,
+  PLAN_OVERSPEND_TOLERANCE,
+  formatPounds,
+  plannedCampaignSpend,
+  positiveAmount,
+  resolveCampaignDailyBudgets,
+} from "./budget.ts";
 import { isValidLandingUrl } from "./final-url-state.ts";
+import { resolutionMatchesLocation } from "./geo-row-state.ts";
+import { findNegativeKeywordConflicts } from "./negative-conflicts.ts";
 import {
   GOOGLE_SEARCH_LIMITS,
   type GoogleSearchPlanTree,
@@ -241,6 +251,115 @@ function validateBudget(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue
   return issues;
 }
 
+/** What push would actually send per day, checked against the plan. */
+/**
+ * Budgets push will create. An already-pushed campaign keeps the budget
+ * Google has (the writer never re-sends it), so it cannot hit the £5
+ * fallback. When every serving campaign is already pushed, overspend is
+ * a warning: push cannot change it.
+ */
+function validatePushBudgets(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
+  const issues: GoogleSearchValidationIssue[] = [];
+  const pushed = new Set(tree.campaigns.filter((c) => c.pushed_resource_name).map((c) => c.id));
+  const budgets = resolveCampaignDailyBudgets(tree);
+  for (const budget of budgets) {
+    if (budget.source !== "fallback" || pushed.has(budget.campaignId)) continue;
+    issues.push({
+      severity: "error",
+      code: "budget_fallback_daily",
+      message: `${budget.campaignName}: No daily budget resolved — push would spend ${formatPounds(FALLBACK_DAILY_BUDGET_POUNDS)}/day. Set a daily budget on the campaign, or a plan total and date range.`,
+      scope: budget.campaignName,
+    });
+  }
+  const total = positiveAmount(tree.plan.total_budget);
+  const planned = plannedCampaignSpend(tree);
+  if (total != null && planned && planned.spend > total * (1 + PLAN_OVERSPEND_TOLERANCE)) {
+    const pushCreatesBudget = budgets.some((b) => b.serves && !pushed.has(b.campaignId));
+    issues.push({
+      severity: pushCreatesBudget ? "error" : "warning",
+      code: "budget_exceeds_plan",
+      message: pushCreatesBudget
+        ? `Campaigns would spend ${formatPounds(planned.spend)} over ${planned.days} days against a ${formatPounds(total)} plan.`
+        : `Live campaigns are set to spend ${formatPounds(planned.spend)} over ${planned.days} days against a ${formatPounds(total)} plan. Push does not change live budgets — edit them in Google Ads.`,
+    });
+  }
+  return issues;
+}
+
+/** Warnings the Push/Review panel lists next to its blockers. */
+export const REVIEW_WARNING_CODES: ReadonlySet<string> = new Set([
+  "budget_exceeds_plan",
+  "negative_blocks_exact_query",
+  "merged_cap_spread",
+  "geo_resolution_mismatch",
+]);
+
+/** Above this ratio a merged campaign's single ceiling is far from a theme's own cap. */
+const CAP_SPREAD_WARN_RATIO = 1.5;
+
+/** Display name for a source campaign: the part after the last `|`. */
+function themeName(sourceCampaign: string): string {
+  return sourceCampaign.split("|").pop()?.trim() || sourceCampaign;
+}
+
+/**
+ * Single-campaign mode has one Maximise Clicks ceiling — the highest
+ * source cap. A theme whose own cap is far below it bids well above what
+ * the sheet planned. Warns; never blocks.
+ */
+function validateMergedCapSpread(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
+  const issues: GoogleSearchValidationIssue[] = [];
+  for (const campaign of tree.campaigns) {
+    const byCampaign = campaign.bid_adjustments?.max_cpc_cap_by_campaign;
+    if (!byCampaign || typeof byCampaign !== "object") continue;
+    const caps = Object.entries(byCampaign as Record<string, unknown>)
+      .map(([name, cap]) => [name, positiveAmount(cap)] as const)
+      .filter((entry): entry is readonly [string, number] => entry[1] != null);
+    if (caps.length < 2) continue;
+    const ceiling = Math.max(...caps.map(([, cap]) => cap));
+    const low = caps.filter(([, cap]) => cap * CAP_SPREAD_WARN_RATIO < ceiling);
+    if (low.length === 0) continue;
+    const themes = low.map(([name]) => themeName(name)).join(", ");
+    const keep = [...new Set(low.map(([, cap]) => formatPounds(cap)))].join(" / ");
+    issues.push({
+      severity: "warning",
+      code: "merged_cap_spread",
+      message: `${campaign.name}: ${themes} ad groups will bid up to ${formatPounds(ceiling)} — use one campaign per theme to keep ${keep}.`,
+      scope: campaign.name,
+    });
+  }
+  return issues;
+}
+
+function validateNegativeConflicts(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
+  return findNegativeKeywordConflicts(tree)
+    .filter((conflict) => conflict.createdByPush)
+    .map((conflict) => {
+      const scope = `${conflict.campaignName} → ${conflict.adGroupName}`;
+      const level =
+        conflict.negativeScope === "plan"
+          ? "plan negative"
+          : conflict.negativeScope === "campaign"
+            ? "campaign negative"
+            : "ad-group negative";
+      const pair = `${level} "${conflict.negative}" (${conflict.negativeMatchType.toLowerCase()})`;
+      if (!conflict.neverServes) {
+        return {
+          severity: "warning" as const,
+          code: "negative_blocks_exact_query",
+          message: `${scope}: ${pair} blocks the exact query "${conflict.keyword}" — keyword still serves longer queries.`,
+          scope,
+        };
+      }
+      return {
+        severity: "error" as const,
+        code: "negative_blocks_keyword",
+        message: `${scope}: ${pair} blocks keyword "${conflict.keyword}" — it would never serve.`,
+        scope,
+      };
+    });
+}
+
 /**
  * Hard validation for sitelinks. Char overruns block push because Google
  * Ads `assets:mutate` rejects them. Empty link_text also blocks (required).
@@ -304,10 +423,26 @@ export function validateGoogleSearchPlan(
     ...validateKeywords(tree),
     ...validateAllRsas(tree),
     ...validateBudget(tree),
+    ...validatePushBudgets(tree),
+    ...validateNegativeConflicts(tree),
+    ...validateMergedCapSpread(tree),
     ...validateSitelinks(tree),
+    ...validateLocations(tree),
     ...softWarnings(tree),
   ];
   return dedupe(issues);
+}
+
+export const NO_LOCATIONS_MESSAGE = "No locations — this would run worldwide. Add at least one location.";
+
+/**
+ * Google targets everywhere when a campaign has no location criterion, so
+ * a plan with no resolved location is a push blocker (CamelPhat IRW0004
+ * went out with `targets: []` and served worldwide on 7–8 Oct 2026).
+ */
+function validateLocations(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
+  const resolved = tree.plan.geo_targets.some((g) => Boolean(g.resolved_resource_name?.trim()));
+  return resolved ? [] : [{ severity: "error", code: "no_locations", message: NO_LOCATIONS_MESSAGE }];
 }
 
 function softWarnings(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
@@ -330,19 +465,6 @@ function softWarnings(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[]
         scope: c.name,
       });
     }
-
-    for (const ag of c.ad_groups) {
-      for (const k of ag.keywords) {
-        if (campaignNegativeSet.has(normaliseKeyword(k.keyword))) {
-          warnings.push({
-            severity: "warning",
-            code: "keyword_cannibalised_by_negative",
-            message: `${c.name} → ${ag.name}: keyword "${k.keyword}" is also a negative — it will never serve.`,
-            scope: `${c.name} → ${ag.name}`,
-          });
-        }
-      }
-    }
   }
 
   const total = tree.plan.total_budget;
@@ -361,6 +483,21 @@ function softWarnings(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[]
   // The push adapter handles unresolved targets gracefully (skips them), but
   // warn so the operator knows before pushing.
   for (const geo of tree.plan.geo_targets) {
+    // A stored id whose canonical name does not belong to the location text
+    // is the late-resolve bug (box says United Kingdom, tick says Newcastle).
+    // Push looks the text up again. Review says so; it does not hard-block,
+    // or the route would refuse before that re-resolve can run.
+    if (
+      geo.resolved_resource_name?.trim() &&
+      geo.resolved_name?.trim() &&
+      !resolutionMatchesLocation(geo.location, geo.resolved_name)
+    ) {
+      warnings.push({
+        severity: "warning",
+        code: "geo_resolution_mismatch",
+        message: `Geo target "${geo.location}" is stored as "${geo.resolved_name}". Push will look it up again.`,
+      });
+    }
     // A null resolved_resource_name with a non-empty location means the wizard
     // tried to resolve and found nothing. Entries where the field is absent
     // (undefined) are XLSX-imported targets that haven't been through the

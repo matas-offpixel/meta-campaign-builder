@@ -5,11 +5,15 @@
  *   - Skip a row: { action: "skip" }
  *   - Mark as launched after bulk-attach: { action: "launched", metaAdIds: string[] }
  *   - Save confirmed overrides: { action: "confirm", overrides: {...} }
+ *   - Retry an error row: { action: "retry" } — error only; may re-run prepare
+ *   - Re-queue a skipped row: { action: "requeue" } — skipped only; back to pending
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAssetQueueRow, markRowSkipped, markRowLaunched } from "@/lib/db/asset-queue";
+import { decideQueueAction } from "@/lib/clients/asset-queue/queue-actions";
+import { POST as prepareQueueRow } from "./prepare/route";
 
 export async function PATCH(
   req: NextRequest,
@@ -62,6 +66,54 @@ export async function PATCH(
       })
       .eq("id", queueId);
     if (error) throw error;
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "retry" || action === "requeue") {
+    const decision = decideQueueAction(row, action);
+    const nextStatus = decision.nextStatus;
+    if (decision.statusCode !== 200 || nextStatus == null) {
+      return NextResponse.json(
+        { error: "Action is not allowed for this row status" },
+        { status: decision.statusCode },
+      );
+    }
+
+    const patch: {
+      status: typeof nextStatus;
+      updated_at: string;
+      error_message?: null;
+      confirmed_overrides?: null;
+    } = {
+      status: nextStatus,
+      updated_at: new Date().toISOString(),
+    };
+    if (decision.clearError) patch.error_message = null;
+    if (decision.clearOverrides) patch.confirmed_overrides = null;
+
+    const { error } = await supabase
+      .from("client_asset_queue")
+      .update(patch)
+      .eq("id", queueId);
+    if (error) throw error;
+
+    // Prepare reads the row after this update. Its own status gate is unchanged.
+    // Soft failures (Dropbox codes) write status=error and return 200; the
+    // client refreshes via onUpdate and shows that row. A thrown prepare error
+    // still fails this PATCH.
+    if (decision.rerunPrepare) {
+      const prepareRes = await prepareQueueRow(req, {
+        params: Promise.resolve({ id: clientId, queueId }),
+      });
+      if (!prepareRes.ok) {
+        console.error("[asset-queue] retry prepare failed", {
+          clientId,
+          queueId,
+          status: prepareRes.status,
+        });
+      }
+    }
+
     return NextResponse.json({ ok: true });
   }
 

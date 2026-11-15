@@ -1,9 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { graphGetWithToken } from "@/lib/meta/client";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
-import { fetchCampaignSpendPence, type BudgetPacingGraphFetcher } from "@/lib/budget-pacing/spend-fetch";
+import {
+  fetchCampaignPacingSnapshot,
+  type BudgetPacingGraphFetcher,
+} from "@/lib/budget-pacing/spend-fetch";
 import { runBudgetPacingTick, type BudgetPacingTickSummary } from "@/lib/budget-pacing/tick-runner";
 import { loadPublishedCampaignsForBudgetPacing } from "@/lib/db/budget-pacing-campaigns";
 import { notify } from "@/lib/notify/slack";
@@ -55,7 +59,7 @@ function isBudgetPacingEnabled(): boolean {
   return process.env.ENABLE_BUDGET_PACING_ALERTS === "1";
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -79,21 +83,26 @@ export async function GET(req: NextRequest) {
 
   const notifyDeps = buildLiveNotifyDeps(supabase);
 
+  // One batch for spend and lifetime budgets. Both tick deps share it so
+  // a second pass cannot issue another Graph read.
+  let pacingSnapshot: ReturnType<typeof fetchCampaignPacingSnapshot> | null = null;
+  const pacingRead = (campaignIds: string[]) => {
+    pacingSnapshot ??= fetchCampaignPacingSnapshot(
+      graphMultiGetByIds as BudgetPacingGraphFetcher,
+      campaignIds,
+      token as string,
+    );
+    return pacingSnapshot;
+  };
+
   let summary: BudgetPacingTickSummary;
   try {
     summary = await runBudgetPacingTick(enabled, {
       loadPublishedCampaigns: () => loadPublishedCampaignsForBudgetPacing(supabase),
       fetchSpendPence: (campaignIds) =>
-        // Two fetchers: the ≤20 path is a real GET per campaign, the
-        // >20 path reads many nodes at once and can no longer use the
-        // `ids=` multi-read Meta removed in v26.0. See
-        // lib/meta/graph-multi-get-parse.ts.
-        fetchCampaignSpendPence(
-          graphGetWithToken as BudgetPacingGraphFetcher,
-          campaignIds,
-          token as string,
-          graphMultiGetByIds as BudgetPacingGraphFetcher,
-        ),
+        pacingRead(campaignIds).then((read) => read.spendPence),
+      fetchLiveLifetimeBudgetsMinor: (campaignIds) =>
+        pacingRead(campaignIds).then((read) => read.lifetimeBudgetsMinor),
       notify: (opts) => notify(opts, notifyDeps),
     });
   } catch (err) {
@@ -104,3 +113,18 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(summary, { status: summary.ok ? 200 : 207 });
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "budget-pacing-check",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.alertsSent ?? 0),
+  },
+  handleGET,
+);

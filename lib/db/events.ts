@@ -6,6 +6,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/db/database.types";
 import { regenerateAutoMoments } from "@/lib/db/event-key-moments";
+import { dropArchivedClientRows, loadArchivedClientIds } from "@/lib/db/client-status";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -124,6 +125,8 @@ export async function listEvents(
     fromDate?: string;
     /** Only events on or before this ISO date (yyyy-mm-dd). */
     toDate?: string;
+    /** Drop events whose client is archived. */
+    excludeArchivedClients?: boolean;
   },
 ): Promise<EventWithClient[]> {
   const supabase = createClient();
@@ -138,12 +141,20 @@ export async function listEvents(
   if (options?.fromDate) query = query.gte("event_date", options.fromDate);
   if (options?.toDate) query = query.lte("event_date", options.toDate);
 
-  const { data, error } = await query;
+  const [{ data, error }, archivedClientIds] = await Promise.all([
+    query,
+    options?.excludeArchivedClients
+      ? loadArchivedClientIds(supabase)
+      : Promise.resolve(new Set<string>()),
+  ]);
   if (error) {
     console.warn("Supabase listEvents error:", error.message);
     return [];
   }
-  return (data ?? []) as unknown as EventWithClient[];
+  return dropArchivedClientRows(
+    (data ?? []) as unknown as EventWithClient[],
+    archivedClientIds,
+  );
 }
 
 // ─── Get one ─────────────────────────────────────────────────────────────────

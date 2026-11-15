@@ -30,6 +30,7 @@ import {
 } from "@/lib/plan/list";
 import type { CampaignPlanTemplate } from "@/lib/plan/library";
 import { type PlanEventOption } from "@/lib/plan/event-picker";
+import { MML_NEW_HREF, mmlPlanHref } from "@/lib/plan/mml-routes";
 
 export function PlanLibrary({
   plans,
@@ -46,7 +47,7 @@ export function PlanLibrary({
   templates: CampaignPlanTemplate[];
   tableMissing: boolean;
   templatesMissing: boolean;
-  /** Pinned clock for frame screenshots. Live `/plans` leaves this unset. */
+  /** Pinned clock for frame screenshots. Live `/mml` leaves this unset. */
   now?: Date;
   initialTab?: PlanListChromeTab | null;
   /** List chrome (search / new plan) is outside the frame. */
@@ -102,7 +103,7 @@ export function PlanLibrary({
   }, [templates, search]);
 
   function openPlan(id: string) {
-    router.push(`/plan/${id}`);
+    router.push(mmlPlanHref(id));
   }
 
   async function handleSaveTemplate(name: string, description: string, tags: string[]) {
@@ -136,7 +137,7 @@ export function PlanLibrary({
           body: JSON.stringify({ eventId: pickedEventId }),
         });
         const json = (await res.json()) as { ok?: boolean; plan?: { id: string } };
-        if (res.ok && json.ok && json.plan) router.push(`/plan/${json.plan.id}`);
+        if (res.ok && json.ok && json.plan) router.push(mmlPlanHref(json.plan.id));
       } else {
         const res = await fetch("/api/plan/from-template", {
           method: "POST",
@@ -144,7 +145,7 @@ export function PlanLibrary({
           body: JSON.stringify({ templateId: eventPick.sourceId, eventId: pickedEventId }),
         });
         const json = (await res.json()) as { ok?: boolean; plan?: { id: string } };
-        if (res.ok && json.ok && json.plan) router.push(`/plan/${json.plan.id}`);
+        if (res.ok && json.ok && json.plan) router.push(mmlPlanHref(json.plan.id));
       }
     } finally {
       setBusyId(null);
@@ -220,7 +221,7 @@ export function PlanLibrary({
           <Button size="sm" variant="outline" onClick={() => setTab("templates")}>
             New plan from template
           </Button>
-          <Button size="sm" onClick={() => router.push("/plan/new")}>
+          <Button size="sm" onClick={() => router.push(MML_NEW_HREF)}>
             <Plus className="h-3.5 w-3.5" />
             {PLAN_LIST_EMPTY.action}
           </Button>

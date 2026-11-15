@@ -133,8 +133,8 @@ export const CREATIVE_TAG_DIMENSIONS = [
 ] as const;
 
 export type CreativeTagDimension = (typeof CREATIVE_TAG_DIMENSIONS)[number];
-export type CreativeTagSource = "motion_seed" | "curated" | "custom";
-export type CreativeTagAssignmentSource = "manual" | "ai";
+export type CreativeTagSource = "motion_seed" | "curated" | "custom" | "creative_lab";
+export type CreativeTagAssignmentSource = "manual" | "ai" | "creative_lab";
 export type CreativeScoreAxis = "hook" | "watch" | "click" | "convert";
 
 export interface MotionCreativeTagRow {
@@ -412,6 +412,9 @@ export async function listCreativeTagAssignmentsByEvents(
   return normalizeAssignmentRows(data ?? []);
 }
 
+/** creative_scores unique key since migration 186: one row per creative × axis. */
+export const CREATIVE_SCORE_CONFLICT = "event_id,creative_name,axis";
+
 export async function upsertCreativeScore(
   supabase: DbClient,
   args: UpsertCreativeScoreArgs,
@@ -428,7 +431,7 @@ export async function upsertCreativeScore(
         significance: args.significance ?? false,
         ...(args.fetchedAt ? { fetched_at: args.fetchedAt } : {}),
       },
-      { onConflict: "event_id,creative_name,axis,fetched_at" },
+      { onConflict: CREATIVE_SCORE_CONFLICT },
     )
     .select(SCORE_SELECT)
     .maybeSingle();

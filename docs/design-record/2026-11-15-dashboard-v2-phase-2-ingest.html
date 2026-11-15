@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard v2 phase 2 ingest — 15 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+<style>
+.ex{border-bottom:1px dashed var(--ink-3)}
+.pv{margin:8px 0 4px;border:1px solid var(--border-strong);border-radius:8px;background:var(--paper);padding:10px 12px}
+.pv .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.pv .hd b{font-weight:600;font-size:13px}
+.pv h6{margin:10px 0 4px;font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.pv ul{margin:0;padding:0 0 0 16px;font-size:12px}.pv li{margin:0 0 3px}
+.pv .m{font:11.5px/1.45 var(--mono);color:var(--ink-2)}
+.pv .acts{margin-top:10px}
+.bud{font-size:12px;color:var(--ink-2);margin:0}
+.why b{font-weight:600}
+.w393 .pv .hd{flex-direction:column}
+table.t ol{margin:4px 0 6px 18px;padding:0}table.t ol li{margin:0 0 3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · dashboard v2 phase 2 · 15 November 2026</p>
+<h1>Dashboard v2 phase 2: the words for audience breakdowns and direct-to-fan stats</h1>
+<p class="lead">This record amends <code>2026-11-13-dashboard-v2-phase-2.html</code> (E1, E5, EV1, EV4), which stands except where it's named here. It answers the questions two data-layer PRs raised: #1244 (HE1, audience breakdowns) and #1243 (HE3, direct-to-fan stats). Neither PR has a UI, so these rulings are what the panel build follows. No new frames.</p>
+<p class="lead">What the dry runs found, checked against <code>ad_daily_insights</code> on 15 Nov:</p>
+<ul class="notes">
+<li><b>Spend agrees within pennies, not to the penny.</b> Locklead's breakdowns hold £1,569.47 against the campaigns' £1,569.52 for 1 Sep–14 Nov. On Sale differs by 6p, from rounding across many age × gender rows.</li>
+<li><b>Signups don't quite agree:</b> 500 in the breakdowns against 498 on the campaigns. Purchases agree at 25.</li>
+<li><b>Meta returns spend by region, but no signups or purchases by region.</b></li>
+</ul>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>PI1 · The age table's totals</td><td>
+<ul>
+<li><b>The All row is the sum of the age rows,</b> so the table always adds up.</li>
+<li><b>Spend is shown in whole pounds,</b> as EV1 draws it, so a few pence of rounding across segments never shows as a mismatch.</li>
+<li><b>When the rows add to a different signup or purchase count than the campaigns</b>, one line goes under the table's footnote. It names only the measures that differ:
+<p style="margin:4px 0 4px 12px"><i>"Meta models its split by age, so these add to {a} signups and {p} purchases; the campaigns count {A} and {P}."</i></p>
+For Locklead today that's "… so these add to 500 signups; the campaigns count 498."</li>
+<li><b>When spend differs by more than £1,</b> the table isn't shown. In its place: "Meta's age figures haven't caught up with its campaign spend yet. They'll show after the next nightly read." That would be a data fault, not modelling.</li>
+<li><b>Every age Meta reports is a row</b>, 65+ included. EV1 left it out only for the frame's width. "Age unknown" is the last row, never spread across the others.</li>
+<li><b>The CTR column is link clicks ÷ impressions,</b> headed <b>"Link CTR"</b> in place of EV1's "CTR". Link clicks are the step towards a signup. All clicks stay stored.</li>
+<li><b>Gender is stored, not drawn.</b> EV1 has no gender table. It needs a frame before it shows.</li>
+</ul></td></tr>
+
+<tr><td>PI2 · Region rows</td><td>
+<p>Region is its own small table, not extra rows in the age table:</p>
+<ul>
+<li>Its title is <b>"Meta delivery by region · Meta says"</b>, and its columns are Region, Spend, Impr. share and Link CTR.</li>
+<li><b>It has no result columns.</b> There's no "—" in a Signups cell and no "not reported" per row. A dash reads as "none happened", and a per-row note repeats itself.</li>
+<li>One line sits under it: <b>"Meta doesn't report signups or sales by region."</b></li>
+<li>The rows come in a fixed order: England, Scotland, Wales, Northern Ireland, then anything else by spend, then "Region unknown". That's the same order as TikTok's UK nations.</li>
+</ul></td></tr>
+
+<tr><td>PI3 · The panel model (#1244's list)</td><td>
+<p>The <code>WhoWeReached</code> model in #1244's body is accepted, with these changes:</p>
+<ul>
+<li><code>ctrText</code> becomes <code>linkCtrText</code>, on Meta's rows and region rows (PI1).</li>
+<li><code>metaSays</code> gains <code>totalsNote</code> (PI1's line, or null) and <code>withheld</code> (PI1's over-£1 case).</li>
+<li><code>regionNote</code> is exactly PI2's line.</li>
+<li><code>byGender</code> stays in the model and isn't drawn (PI1).</li>
+<li>TikTok keeps E1's sentence, "TikTok reports clicks by age, not signups or sales". Its CTR is TikTok's clicks ÷ impressions, headed "CTR", because TikTok has no link-click split here.</li>
+<li>The empty states are accepted: "No Meta delivery by age yet" and "No TikTok delivery by age yet".</li>
+</ul></td></tr>
+
+<tr><td>PI4 · Raw open rate</td><td>
+<ul>
+<li><b>The raw open rate is never shown</b>, on the client view or internally. It's stored only to work out the "est." ratio (E5).</li>
+<li>The reason: the 13 Nov Robbie Doherty send had 17 bot-filtered opens of 572 (3.0 %) against a raw 28.7 %. Showing the two side by side invites exactly the comparison E5 rules out.</li>
+<li>The email row keeps EV4's label, "bot-filtered", with "(est.)" only on rows that are estimated.</li>
+<li>The table's footnote gains: <b>"Email opens are Mailchimp's bot-filtered opens: Apple Mail Privacy and link-scanner opens removed."</b></li>
+</ul></td></tr>
+
+<tr><td>PI5 · WhatsApp cost before the rate is set</td><td>
+<p>Until the client's rate is set, the cost is blank, never £0:</p>
+<ul>
+<li><b>Internal view:</b> Cost reads <b>"Rate not set"</b> in the muted ink, linking to the client's rate field, and £ / click reads "—".</li>
+<li><b>Share link:</b> "—" in both.</li>
+<li>The headline still compares click rates, which don't need a cost.</li>
+</ul>
+<p>"—" alone on the internal view would read like email's "—", which means "not per send". This is a different case: missing config.</p></td></tr>
+
+<tr><td>PI6 · Whole-list and unattributed sends</td><td>
+<ul>
+<li><b>A show's figures never include a whole-list send</b>, as E5 rules.</li>
+<li><b>Client view:</b> whole-list sends count in the channel totals. Each one is listed with <b>"Whole list"</b> in the Show column, and the totals line ends "· includes {n} whole-list sends".</li>
+<li><b>Venue view:</b> a whole-list send counts only when its audience or list belongs to that venue, for example NX Newcastle's Mailchimp audience. Otherwise it appears on the client view only.</li>
+<li><b>Unattributed sends</b> are on an account shared by two clients, such as GMC and Throwback's Bird workspace. They're on no client's dashboard. Internally there's one review line: "{n} sends on a shared account couldn't be tied to a client."</li>
+</ul></td></tr>
+
+<tr><td>PI7 · Ticket holders vs marketing</td><td>
+<p>#1243's rule is accepted as written:</p>
+<ul>
+<li>A send is "ticket holder" when a targeted list or tag name contains "ticket holders", "ticketholders", "purchasers", "buyers" or "bookers". Everything else is marketing.</li>
+<li>A door-times send to the master list stays marketing, because the audience decides, not the subject.</li>
+</ul></td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Item</th><th>Build</th></tr>
+<tr><td>HI1 · Who we reached (EV1)</td><td>
+<p>PI1–PI3 in the panel build:</p>
+<ul>
+<li>whole-pound spend;</li>
+<li>the totals line and the withheld state;</li>
+<li>65+ and "Age unknown";</li>
+<li>"Link CTR";</li>
+<li>the region table and its line.</li>
+</ul>
+<p><b>Acceptance:</b> Locklead reads "these add to 500 signups; the campaigns count 498".</p></td></tr>
+<tr><td>HI2 · Direct-to-fan (EV4)</td><td>
+<p>PI4–PI7 in the panel build:</p>
+<ul>
+<li>no raw open rate anywhere;</li>
+<li>the bot-filter footnote;</li>
+<li>"Rate not set" internally, "—" on the share link;</li>
+<li>"Whole list" rows and the "includes {n}" line;</li>
+<li>the venue rule;</li>
+<li>the internal review line for unattributed sends.</li>
+</ul></td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>PI1's All row as the sum of the rows, its totals sentence, the £1 withholding threshold and its words, and "Link CTR".</li>
+<li>PI2's separate region table, its title and its line.</li>
+<li>PI4's footnote, and keeping the raw rate off internal views too.</li>
+<li>PI5's "Rate not set".</li>
+<li>PI6's "Whole list" label, the totals line, the venue rule and the review line.</li>
+</ul>
+
+</div>
+</body>
+</html>

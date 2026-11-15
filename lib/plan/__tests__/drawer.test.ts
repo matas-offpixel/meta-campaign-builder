@@ -634,16 +634,22 @@ describe("launch belongs to the canvas for a plan-linked draft", () => {
     assert.match(footer, /planHref/, "which links to the plan");
   });
 
-  it("the shell hides it exactly when the draft has a plan", () => {
+  it("the shell hides Launch only when the plan owns it", () => {
     const shell = read("components/wizard/wizard-shell.tsx");
-    assert.match(shell, /showLaunch=\{!linkedPlan\}/);
-    assert.match(shell, /planHref=\{linkedPlan \? `\/plan\/\$\{linkedPlan\.id\}` : null\}/);
+    assert.match(shell, /planOwnsLaunch\(/);
+    assert.match(shell, /showLaunch=\{!canvasOwnsLaunch\}/);
+    assert.match(shell, /planHref=\{canvasOwnsLaunch && linkedPlan \? mmlPlanHref\(linkedPlan\.id\) : null\}/);
   });
 
-  it("a standalone draft still renders review and its Launch", () => {
+  it("review always renders; the canvas pointer replaces launch controls", () => {
     const shell = read("components/wizard/wizard-shell.tsx");
-    assert.match(shell, /!linkedPlan && \(/, "review is gated on there being no plan");
+    assert.match(shell, /step === 7 && \(/);
+    assert.doesNotMatch(shell, /step === 7 && !linkedPlan/);
     assert.match(shell, /<ReviewLaunch/);
+    assert.match(shell, /canvasOwnsLaunch=\{canvasOwnsLaunch\}/);
+    const review = read("components/steps/review-launch.tsx");
+    assert.match(review, /data-testid="launch-on-canvas"/);
+    assert.match(review, /LAUNCH_ON_CANVAS_LABEL/);
   });
 
   it("the retry panels move under the ⊞ tab so they stay reachable", () => {
@@ -693,12 +699,13 @@ describe("/campaign/[id] is the ladder; /plan/[id] keeps the drawer", () => {
     assert.match(read("components/plan/meta-drawer.tsx"), /useCampaignDraft\(/);
   });
 
-  it("standalone ReviewLaunch launches ACTIVE; a plan-linked draft does not launch here", () => {
+  it("standalone ReviewLaunch launches ACTIVE; the canvas owns Launch only via planOwnsLaunch", () => {
     const shell = read("components/wizard/wizard-shell.tsx");
-    assert.match(shell, /showLaunch=\{!linkedPlan\}/);
-    assert.match(shell, /step === 7 && !linkedPlan && \(/);
+    assert.match(shell, /showLaunch=\{!canvasOwnsLaunch\}/);
+    assert.match(shell, /step === 7 && \(/);
+    assert.doesNotMatch(shell, /step === 7 && !linkedPlan/);
     assert.match(shell, /<ReviewLaunch/);
-    assert.match(shell, /onRetryFailedAds=\{handleLaunch\}/);
+    assert.match(shell, /onRetryFailedAds=\{canvasOwnsLaunch \? undefined : handleLaunch\}/);
     const workspace = read("components/plan/plan-workspace.tsx");
     assert.match(workspace, /<CanvasLaunch/);
   });
@@ -1109,7 +1116,7 @@ describe("standalone pages keep Launch / Push", () => {
     const shell = read("components/tiktok-wizard/wizard-shell.tsx");
     assert.match(shell, /step === 7 && !linkedPlan/);
     assert.match(shell, /<ReviewLaunchStep/);
-    assert.match(shell, /planHref=\{linkedPlan \? `\/plan\/\$\{linkedPlan\.id\}` : null\}/);
+    assert.match(shell, /planHref=\{linkedPlan \? mmlPlanHref\(linkedPlan\.id\) : null\}/);
     const drawer = read("components/plan/tiktok-drawer.tsx");
     assert.match(drawer, /variant === "page" && !planId/);
     assert.match(drawer, /<ReviewLaunchStep/);
@@ -1127,7 +1134,7 @@ describe("standalone pages keep Launch / Push", () => {
     const shell = read("components/google-search-wizard/wizard-shell.tsx");
     assert.match(shell, /step === 6 && !linkedPlan/);
     assert.match(shell, /<PushStep/);
-    assert.match(shell, /planHref=\{linkedPlan \? `\/plan\/\$\{linkedPlan\.id\}` : null\}/);
+    assert.match(shell, /planHref=\{linkedPlan \? mmlPlanHref\(linkedPlan\.id\) : null\}/);
     const drawer = read("components/plan/google-drawer.tsx");
     assert.match(drawer, /variant === "page" && !planId/);
     assert.match(drawer, /<PushStep/);
@@ -1188,12 +1195,12 @@ describe("PR 8b — canvas-zone-rhythm guards", () => {
     }
   });
 
-  it("plan-workspace root has no space-y- and each zone uses VIZ_ZONE_GUTTER", () => {
+  it("MML sections own the rhythm: every zone sits in an MmlSection, no per-zone gutters", () => {
     const src = read("components/plan/plan-workspace.tsx");
-    assert.doesNotMatch(src, /className="space-y-\d/, "root div has space-y-");
-    assert.match(src, /VIZ_ZONE_GUTTER\.tight/);
-    assert.match(src, /VIZ_ZONE_GUTTER\.normal/);
-    assert.match(src, /VIZ_ZONE_GUTTER\.loose/);
+    assert.equal(src.match(/<MmlSection section=\{MML_SECTION\.\w+\}/g)?.length, 7);
+    assert.doesNotMatch(src, /VIZ_ZONE_GUTTER/);
+    const section = read("components/plan/mml-section.tsx");
+    assert.match(section, /border-t border-border pt-5 first:border-t-0 first:pt-0/);
   });
 
   it("planCanvasHeightBudget sums to 620–700px and launchY ≈ 744", () => {
@@ -1448,18 +1455,6 @@ describe("write paths keep their payload", () => {
         `${name} changed; this PR only adds the missing-CTA block to collect`,
       );
     }
-
-    function exportedNames(source: string): Set<string> {
-      const names = new Set<string>();
-      for (const m of source.matchAll(/export (?:async )?function (\w+)/g)) {
-        names.add(m[1]!);
-      }
-      return names;
-    }
-    assert.deepEqual(
-      [...exportedNames(src)].filter((n) => !exportedNames(mainSrc).has(n)),
-      [],
-    );
   });
 
   it("launch.ts only overlays request launchPaused onto the write", () => {

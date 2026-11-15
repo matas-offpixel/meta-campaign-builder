@@ -1,0 +1,881 @@
+"use client";
+
+import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import type { CreativeLabCardData, LabIgCandidate } from "@/lib/db/creative-lab";
+import { HeldLabel } from "@/components/dashboard/events/creative-lab/held-label";
+import {
+  CLIPS_NOTE,
+  effectiveSelection,
+  emptySelection,
+  leftSelectionNote,
+  selectionAfterAll,
+  selectionAfterNone,
+  selectionAfterToggle,
+  selectionCount,
+  usableClips,
+  type ClipSelection,
+} from "@/lib/creative-lab/selection";
+import { CropPicker } from "@/components/dashboard/events/creative-lab/crop-picker";
+import { RenderRows } from "@/components/dashboard/events/creative-lab/render-rows";
+import { VerdictChip } from "@/components/dashboard/events/creative-lab/verdict-chip";
+import { PosterVideo } from "@/components/dashboard/events/creative-lab/poster-video";
+import { ClipSound, showSoundToggle, useClipVideo } from "@/components/dashboard/events/creative-lab/use-clip-video";
+import { overlayPanelLine } from "@/lib/creative-lab/overlay-check";
+import { orderArtistClips } from "@/lib/creative-lab/import-quality";
+import {
+  candidateAddLabel,
+  candidateTileState,
+  cantRunReason,
+  clipBucket,
+  clipTileName,
+  madeTripleFitSentence,
+  showTripleFitOffer,
+  tooSmall916Sentence,
+  TRIPLE_FIT_OFFER,
+  tripleFitOnlySentence,
+  durationLabel,
+  groupClips,
+  findClipsErrorSentence,
+  findClipsReadingLine,
+  importErrorSentence,
+  isNative9x16,
+  metricUnit,
+  money,
+  postAge,
+  rankCandidates,
+  resultsLabel,
+  sourceBadge,
+} from "@/lib/creative-lab/surface";
+import {
+  artistHint,
+  emptyFootage,
+  featuringLine,
+  promoterHint,
+  promoterTileLabel,
+  toggleFeature,
+} from "@/lib/creative-lab/footage-owner";
+import { WhichFolder } from "@/components/dashboard/events/drive/ui";
+import { formatFileSize, preselectFolder, usualFolders, type FolderChoice } from "@/lib/drive/panel";
+import { uploadFileToCampaignAssets } from "@/lib/tiktok-wizard/campaign-asset-upload";
+
+type Save = (body: Record<string, unknown>) => Promise<{ ok: boolean; json: Record<string, unknown> } | undefined>;
+
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+}
+
+function fileDuration(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(Number.isFinite(video.duration) ? video.duration : null);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    video.src = url;
+  });
+}
+
+export function LabClips({
+  lab,
+  busy,
+  onSave,
+  onError,
+  intake = true,
+  driveFolderId = null,
+  pendingFind = false,
+  pendingImportId = null,
+  showTiles = true,
+  audibleClipId = null,
+  layout = "status",
+}: {
+  lab: CreativeLabCardData;
+  busy: boolean;
+  onSave: Save;
+  onError: (message: string) => void;
+  intake?: boolean;
+  /** When the event has a Drive folder, a clip asks which folder before it is stored. */
+  driveFolderId?: string | null;
+  /** Frame only: Find clips is already in flight. */
+  pendingFind?: boolean;
+  pendingImportId?: string | null;
+  showTiles?: boolean;
+  /** Frame only: this clip mounts with sound on. Nothing is stored. */
+  audibleClipId?: string | null;
+  /** status keeps the Keeping / New / Can't run groups. owner groups by footage owner. */
+  layout?: "status" | "owner";
+}) {
+  const groups = groupClips(lab.clips);
+  const router = useRouter();
+  const [working, setWorking] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [folderChoice, setFolderChoice] = useState<FolderChoice | null>(null);
+  const findable = lab.lineupRows.filter((row) => row.labArtistId && row.instagramHandle);
+  const [finding, setFinding] = useState(pendingFind);
+  const [readingHandle, setReadingHandle] = useState<string | null>(pendingFind ? findable[0]?.instagramHandle ?? null : null);
+  const [findError, setFindError] = useState<string | null>(null);
+  const stored = lab.clipSelection ?? emptySelection();
+  const [override, setOverride] = useState<ClipSelection | null>(null);
+  const selection = override ?? stored;
+  const usable = usableClips(lab.clips);
+  const usableIds = usable.map((clip) => clip.id);
+  const counts = selectionCount(selection, lab.clips);
+  const selected = new Set(effectiveSelection(selection, lab.clips).map((clip) => clip.id));
+  const left = leftSelectionNote(selection, lab.clips);
+  const folders = lab.artists.filter((artist) => artist.clipFolderUrl);
+
+  async function applySelection(next: ClipSelection) {
+    const previous = selection;
+    setOverride(next);
+    const result = await onSave({ action: "setClipSelection", mode: next.mode, rows: next.rows });
+    if (!result?.ok) {
+      setOverride(previous);
+      onError("The selection didn't save — try again.");
+    }
+  }
+
+  async function findPromoter() {
+    const handle = lab.clientHandle || lab.voice?.promoter.handle || null;
+    setFindError(null);
+    setFinding(true);
+    setReadingHandle(handle);
+    try {
+      const result = await onSave({ action: "findPromoterClips" });
+      if (result && !result.ok) setFindError(findClipsErrorSentence(result.json.error, handle));
+    } catch {
+      setFindError(findClipsErrorSentence(null, handle));
+    } finally {
+      setFinding(false);
+    }
+  }
+
+  async function findClips() {
+    setFindError(null);
+    setFinding(true);
+    let handle = findable[0]?.instagramHandle ?? null;
+    try {
+      for (const row of findable) {
+        handle = row.instagramHandle;
+        setReadingHandle(handle);
+        const res = await fetch(`/api/creative-lab/artists/${row.labArtistId}/find-clips`, { method: "POST" });
+        const json = (await res.json().catch(() => ({}))) as { error?: unknown };
+        if (!res.ok) {
+          setFindError(findClipsErrorSentence(json.error, handle));
+          return;
+        }
+      }
+      router.refresh();
+    } catch {
+      setFindError(findClipsErrorSentence(null, handle));
+    } finally {
+      setFinding(false);
+    }
+  }
+
+  async function upload(file: File) {
+    const artist = lab.artists.find((row) => row.rights === "approved") ?? lab.artists[0];
+    if (!artist) {
+      onError("Add an artist before a clip.");
+      return;
+    }
+    const duration = await fileDuration(file);
+    if (duration != null && duration > 30) {
+      onError("Clips over 30 seconds are refused.");
+      return;
+    }
+    if (driveFolderId) {
+      const next = preselectFolder(
+        { name: file.name, fromClips: true, artistId: artist.id },
+        { artists: lab.artists.map((row) => ({ id: row.id, name: row.name })), status: lab.eventStatus, eventDate: lab.eventDate, today: lab.now.slice(0, 10) },
+      );
+      setPendingFile(file);
+      setFolderChoice(next);
+      return;
+    }
+    setWorking(true);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const contentHash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const storagePath = `videos/creative-lab/${crypto.randomUUID()}.mp4`;
+      await uploadFileToCampaignAssets(file, storagePath);
+      const result = await onSave({
+        action: "addClip",
+        artistId: artist.id,
+        source: "file",
+        rightsRef: artist.rightsDocRef || "file",
+        durationSeconds: duration,
+        newAsset: { filename: file.name, storagePath, contentHash, byteSize: file.size, durationSeconds: duration },
+      });
+      if (result && !result.ok) onError(String(result.json.error || "Upload failed"));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <section id="lab-clips" className="space-y-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="font-medium">Clips</h3>
+          <p className="text-muted-foreground">{CLIPS_NOTE}</p>
+        </div>
+        <Button type="button" disabled={finding || findable.length === 0} onClick={() => void findClips()}>
+          <HeldLabel
+            idle={<><span className="max-[700px]:hidden">Find clips on Instagram</span><span className="hidden max-[700px]:inline">Find on Instagram</span></>}
+            pending={<Finding />}
+            active={finding}
+          />
+        </Button>
+      </div>
+      {counts.m > 0 ? (
+        <div className="flex items-baseline justify-between gap-2">
+          <p>
+            <span className="font-bold">{counts.n}</span> of {counts.m} selected
+            {counts.fresh > 0 ? <span className="text-muted-foreground"> · {counts.fresh} new, not selected</span> : null}
+          </p>
+          <p>
+            <button type="button" className={counts.n === counts.m ? "text-muted-foreground" : "underline"} disabled={counts.n === counts.m} onClick={() => void applySelection(selectionAfterAll())}>Select all</button>
+            {" · "}
+            <button type="button" className={counts.n === 0 ? "text-muted-foreground" : "underline"} disabled={counts.n === 0} onClick={() => void applySelection(selectionAfterNone(usableIds))}>None</button>
+          </p>
+        </div>
+      ) : null}
+      {left ? <p className="text-sm">{left}</p> : null}
+      {finding && findable.length > 0 ? <p className="text-sm text-muted-foreground">{findClipsReadingLine(readingHandle)}</p> : null}
+      {findError ? <p className="text-sm text-destructive">{findError}</p> : null}
+      {showTiles && layout === "owner" ? (
+        <OwnerGroups
+          lab={lab}
+          selected={selected}
+          finding={finding}
+          busy={busy}
+          findError={findError}
+          onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))}
+          onSave={onSave}
+          onFind={() => void findPromoter()}
+          onAddHandle={() => { if (lab.clientId) router.push(`/clients/${lab.clientId}/edit`); }}
+        />
+      ) : showTiles ? <>
+      <ClipGroup title="Keeping" hint="ran · cost per result" clips={groups.keeping} all={lab.clips} busy={busy} onSave={onSave} wide selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="New" hint="untested" clips={groups.fresh} all={lab.clips} busy={busy} onSave={onSave} selected={selected} audibleClipId={audibleClipId} onToggle={(clipId) => void applySelection(selectionAfterToggle(selection, usableIds, clipId))} onCrop={(clipId, focus) => void fetch(`/api/creative-lab/clips/${clipId}/crop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cropFocusX: focus }) }).then(() => router.refresh())} />
+      <ClipGroup title="Triple-fit only" clips={groups.triple} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
+      <ClipGroup title="Triple-fit" clips={groups.made} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
+      <ClipGroup title="Can't run" clips={groups.cant} all={lab.clips} busy={busy} onSave={onSave} audibleClipId={audibleClipId} onCrop={() => undefined} />
+      </> : null}
+      {intake ? (
+        <>
+          <label
+            className="block rounded border border-dashed border-border bg-card p-4 text-center text-muted-foreground"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const file = event.dataTransfer.files[0];
+              if (file) void upload(file);
+            }}
+          >
+            Drop a clip, or choose a file
+            <input className="sr-only" type="file" accept="video/mp4,video/*" disabled={busy || working} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} />
+          </label>
+          {pendingFile && folderChoice ? (
+            <WhichFolder
+              fileLabel={`${pendingFile.name} · ${formatFileSize(pendingFile.size)}`}
+              choices={usualFolders({ artists: lab.artists.map((row) => ({ id: row.id, name: row.name })), status: lab.eventStatus, eventDate: lab.eventDate, today: lab.now.slice(0, 10) }, folderChoice)}
+              selectedKey={folderChoice.key}
+              artists={lab.artists.map((row) => ({ id: row.id, name: row.name }))}
+              busy={working}
+              onSelect={setFolderChoice}
+              onCancel={() => { setPendingFile(null); setFolderChoice(null); }}
+              onUpload={() => {
+                const body = new FormData();
+                body.set("file", pendingFile);
+                body.set("key", folderChoice.key);
+                if (folderChoice.artistName) body.set("artistName", folderChoice.artistName);
+                setWorking(true);
+                void fetch(`/api/events/${lab.eventId}/drive/upload`, { method: "POST", body })
+                  .then(async (res) => {
+                    const json = (await res.json()) as { error?: string; ok?: boolean };
+                    if (!res.ok || json.ok === false) onError(json.error || "");
+                    else {
+                      setPendingFile(null);
+                      setFolderChoice(null);
+                      router.refresh();
+                    }
+                  })
+                  .catch((err) => onError(err instanceof Error ? err.message : ""))
+                  .finally(() => setWorking(false));
+              }}
+            />
+          ) : null}
+          {folders.map((artist) => (
+            <Button key={artist.id} type="button" disabled={busy} onClick={() => void fetch(`/api/creative-lab/artists/${artist.id}/import-clips`, { method: "POST" }).then(() => router.refresh())}>
+              Import {artist.name} folder
+            </Button>
+          ))}
+        </>
+      ) : null}
+      <FindClips lab={lab} busy={busy} onSave={onSave} pendingImportId={pendingImportId} hidePromoter={layout === "owner"} />
+      <RenderRows rows={lab.renders} now={lab.now} clips={lab.clips} />
+    </section>
+  );
+}
+
+function clipOwner(clip: CreativeLabCardData["clips"][number]): "promoter" | "artist" {
+  if (clip.owner === "promoter" || clip.owner === "artist") return clip.owner;
+  return clip.artistId ? "artist" : "promoter";
+}
+
+function OwnerTiles({
+  clips,
+  className,
+  render,
+}: {
+  clips: CreativeLabCardData["clips"];
+  className: string;
+  render: (clip: CreativeLabCardData["clips"][number]) => ReactNode;
+}) {
+  const triple = clips.filter((clip) => clipBucket(clip) === "triple");
+  const made = clips.filter((clip) => clipBucket(clip) === "made");
+  const rest = clips.filter((clip) => clipBucket(clip) !== "triple" && clipBucket(clip) !== "made");
+  return (
+    <>
+      {rest.length > 0 ? <div className={className}>{rest.map(render)}</div> : null}
+      {triple.length > 0 ? (
+        <>
+          <p className="mb-2 mt-2 text-muted-foreground">Triple-fit only · {triple.length}</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{triple.map(render)}</div>
+        </>
+      ) : null}
+      {made.length > 0 ? (
+        <>
+          <p className="mb-2 mt-2 text-muted-foreground">Triple-fit · {made.length}</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{made.map(render)}</div>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function OwnerGroups({
+  lab,
+  selected,
+  finding,
+  busy,
+  findError,
+  onToggle,
+  onSave,
+  onFind,
+  onAddHandle,
+}: {
+  lab: CreativeLabCardData;
+  selected: ReadonlySet<string>;
+  finding: boolean;
+  busy: boolean;
+  findError: string | null;
+  onToggle: (clipId: string) => void;
+  onSave: Save;
+  onFind: () => void;
+  onAddHandle: () => void;
+}) {
+  const client = lab.clientName || "Client";
+  const handle = lab.clientHandle || lab.voice?.promoter.handle || null;
+  const empty = emptyFootage(client, handle);
+  const promoter = lab.clips.filter((clip) => clipOwner(clip) === "promoter");
+  const candidates = rankCandidates(lab.promoterCandidates ?? []);
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="font-medium">{client} footage</p>
+        <p className="text-muted-foreground"><span className="max-[700px]:hidden">{promoterHint(false)}</span><span className="hidden max-[700px]:inline">{promoterHint(true)}</span></p>
+        {promoter.length === 0 && candidates.length === 0 ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-dashed border-border p-3 max-[700px]:flex-col max-[700px]:items-start">
+            <span>{empty.sentence}</span>
+            {handle ? (
+              <Button type="button" disabled={finding} onClick={onFind}>{empty.action}</Button>
+            ) : (
+              <Button type="button" onClick={onAddHandle}>{empty.action}</Button>
+            )}
+            <span className="text-xs text-muted-foreground">{empty.drop}</span>
+            {findError ? <span className="text-xs text-destructive">{findError}</span> : null}
+          </div>
+        ) : (
+          <div className="mt-2 space-y-2">
+            {promoter.length > 0 ? (
+              <OwnerTiles
+                clips={promoter}
+                className="grid grid-cols-2 gap-2 sm:grid-cols-5"
+                render={(clip) => {
+                  const names = (clip.featuredArtistIds ?? []).map((id) => lab.artists.find((artist) => artist.id === id)?.name).filter((name): name is string => Boolean(name));
+                  return (
+                    <ClipTile
+                      key={clip.id}
+                      clip={clip}
+                      clips={lab.clips}
+                      busy={busy}
+                      onSave={onSave}
+                      label={promoterTileLabel(client, clip.clipNo, names)}
+                      selected={selected.has(clip.id)}
+                      onToggle={cantRunReason(clip) || madeTripleFitSentence(clip) ? undefined : () => onToggle(clip.id)}
+                      menu={<ClipMenu clip={clip} lab={lab} client={client} features onSave={onSave} />}
+                    />
+                  );
+                }}
+              />
+            ) : null}
+            {candidates.length > 0 ? (
+              <div className="space-y-2">
+                {handle ? (
+                  <Button type="button" disabled={finding} onClick={onFind}>{empty.action}</Button>
+                ) : (
+                  <Button type="button" onClick={onAddHandle}>{empty.action}</Button>
+                )}
+                {findError ? <span className="text-xs text-destructive">{findError}</span> : null}
+                <CandidateTiles rows={candidates} artistId={lab.clientId || "promoter"} lab={lab} busy={finding} onSave={onSave} />
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+      {lab.artists.map((artist) => {
+        const clips = orderArtistClips(lab.clips.filter((clip) => clipOwner(clip) === "artist" && clip.artistId === artist.id));
+        const featuring = promoter.filter((clip) => (clip.featuredArtistIds ?? []).includes(artist.id)).length;
+        if (clips.length === 0 && featuring === 0) return null;
+        return (
+          <div key={artist.id}>
+            <p className="font-medium">{artist.name} footage</p>
+            <p className="text-muted-foreground"><span className="max-[700px]:hidden">{artistHint(artist.name, artist.pronouns, false)}</span><span className="hidden max-[700px]:inline">{artistHint(artist.name, artist.pronouns, true)}</span></p>
+            {featuring > 0 ? <p className="text-xs text-muted-foreground">{featuringLine(featuring, client, artist.name)}</p> : null}
+            <OwnerTiles
+              clips={clips}
+              className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5"
+              render={(clip) => (
+                <ClipTile
+                  key={clip.id}
+                  clip={clip}
+                  clips={lab.clips}
+                  busy={busy}
+                  onSave={onSave}
+                  selected={selected.has(clip.id)}
+                  onToggle={cantRunReason(clip) || madeTripleFitSentence(clip) ? undefined : () => onToggle(clip.id)}
+                  menu={<ClipMenu clip={clip} lab={lab} client={client} features={false} onSave={onSave} />}
+                />
+              )}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ClipMenu({
+  clip,
+  lab,
+  client,
+  features,
+  onSave,
+}: {
+  clip: CreativeLabCardData["clips"][number];
+  lab: CreativeLabCardData;
+  client: string;
+  features: boolean;
+  onSave: Save;
+}) {
+  return (
+    <details className="relative shrink-0">
+      <summary aria-label="Clip actions" className="cursor-pointer list-none text-xs leading-none">⋯</summary>
+      <div className="absolute right-0 z-10 mt-1 w-56 rounded border border-border bg-card p-2 text-xs">
+        <p>Whose footage is this?</p>
+        <button type="button" className="block" onClick={() => void onSave({ action: "setClipOwner", clipId: clip.id, owner: "promoter", artistId: null })}>{client}&apos;s</button>
+        {lab.artists.map((artist) => (
+          <button key={artist.id} type="button" className="block" onClick={() => void onSave({ action: "setClipOwner", clipId: clip.id, owner: "artist", artistId: artist.id })}>{artist.name}&apos;s</button>
+        ))}
+        {features ? (
+          <>
+            <p className="mt-2">Features…</p>
+            {lab.artists.map((artist) => {
+              const on = (clip.featuredArtistIds ?? []).includes(artist.id);
+              return (
+                <button
+                  key={`f-${artist.id}`}
+                  type="button"
+                  className="block"
+                  onClick={() => void onSave({ action: "setClipFeatures", clipId: clip.id, artistIds: toggleFeature(clip.featuredArtistIds ?? [], artist.id) })}
+                >
+                  {on ? "✓ " : ""}{artist.name}
+                </button>
+              );
+            })}
+          </>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function ClipGroup({
+  title,
+  hint,
+  clips,
+  all,
+  busy,
+  onSave,
+  wide,
+  selected,
+  audibleClipId,
+  onToggle,
+  onCrop,
+}: {
+  title: string;
+  hint?: string;
+  clips: CreativeLabCardData["clips"];
+  all: CreativeLabCardData["clips"];
+  busy: boolean;
+  onSave: Save;
+  wide?: boolean;
+  selected?: ReadonlySet<string>;
+  audibleClipId?: string | null;
+  onToggle?: (clipId: string) => void;
+  onCrop: (clipId: string, focus: number) => void;
+}) {
+  if (clips.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-2 text-muted-foreground">{title} · {clips.length}{hint ? ` · ${hint}` : ""}</p>
+      <div className={wide ? "grid grid-cols-2 gap-2 sm:grid-cols-5" : "flex gap-2 overflow-x-auto sm:grid sm:grid-cols-5"}>
+        {clips.map((clip) => (
+          <ClipTile key={clip.id} clip={clip} clips={all} busy={busy} onSave={onSave} selected={selected?.has(clip.id) === true} audible={clip.id === audibleClipId} onToggle={onToggle ? () => onToggle(clip.id) : undefined} />
+        ))}
+      </div>
+      {clips.filter((clip) => clip.cropOpen && !clip.tripleFitSourceId && !tripleFitOnlySentence(clip) && !tooSmall916Sentence(clip) && clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight)).map((clip) => (
+        <CropPicker
+          key={clip.id}
+          src={clip.previewUrl}
+          focus={clip.cropFocusX}
+          clipNo={clip.clipNo}
+          sourceWidth={clip.sourceWidth}
+          sourceHeight={clip.sourceHeight}
+          onSave={(focus) => onCrop(clip.id, focus)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ClipTile({
+  clip,
+  clips,
+  busy = false,
+  onSave,
+  label,
+  selected = false,
+  audible = false,
+  onToggle,
+  menu,
+}: {
+  clip: CreativeLabCardData["clips"][number];
+  clips?: CreativeLabCardData["clips"];
+  busy?: boolean;
+  onSave?: Save;
+  label?: string;
+  selected?: boolean;
+  audible?: boolean;
+  onToggle?: () => void;
+  menu?: ReactNode;
+}) {
+  const landscape = tripleFitOnlySentence(clip);
+  const blocked = cantRunReason(clip);
+  const waiting = madeTripleFitSentence(clip);
+  const offer = clips ? showTripleFitOffer(clip, clips) : false;
+  const verdict = clip.judged ? (clip.judged.verdict === "thin" ? "untested" : clip.judged.verdict) : "untested";
+  const wideFrame = clip.sourceWidth != null && clip.sourceHeight != null && !isNative9x16(clip.sourceWidth, clip.sourceHeight);
+  const name = clip.tripleFitSourceId ? clipTileName(clip) : (label ?? clipTileName(clip));
+  const tick = waiting ? undefined : onToggle;
+  const outline = blocked
+    ? "rounded border border-dashed border-destructive p-1"
+    : landscape
+      ? "rounded border border-border p-1"
+      : "";
+  return (
+    <article className={`w-36 shrink-0 sm:w-auto ${selected && !waiting ? "rounded ring-2 ring-foreground" : ""} ${outline}`} title={clip.rightsRef}>
+      <ClipFrame src={clip.previewUrl} poster={clip.thumbnailUrl} hasFile={clip.hasFile} name={clip.artistName} inS={clip.inS} outS={clip.outS} hasAudio={clip.hasAudio} initialAudible={audible} ticked={tick ? selected : undefined} onToggle={tick} />
+      <p className="mt-1 flex justify-between text-xs">
+        <span>{sourceBadge(clip.source)}</span>
+        <span className="tabular-nums">{durationLabel(clip.durationSeconds)}</span>
+      </p>
+      {menu ? (
+        <p className="flex items-start justify-between gap-1 text-xs"><span>{name}</span>{menu}</p>
+      ) : (
+        <p className="text-xs">{name}</p>
+      )}
+      {clip.audioMatch ? <p className="text-xs">Music match — mute or replace before launch</p> : null}
+      {wideFrame && !clip.cropOpen && !waiting && !landscape && !blocked ? <p className="text-xs text-muted-foreground">Crop to 9:16</p> : null}
+      {waiting || landscape || blocked ? (
+        <div className="space-y-1 text-xs">
+          <p className={blocked ? "text-destructive" : "text-muted-foreground"}>{waiting ?? landscape ?? blocked}</p>
+          {clip.judged && ((clip.judged.cost ?? 0) > 0 || (clip.judged.results ?? 0) > 0) ? (
+            <p className="tabular-nums">{money(clip.judged.cost)} / {metricUnit(clip.judged.metric)} · {resultsLabel(clip.judged.results, clip.judged.metric)}</p>
+          ) : null}
+          {offer ? (
+            <button type="button" className="underline disabled:opacity-50" disabled={busy} onClick={() => void onSave?.({ action: "makeTripleFit", clipId: clip.id })}>
+              {TRIPLE_FIT_OFFER}
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <div className="mt-1 space-y-1 text-xs">
+          <VerdictChip verdict={verdict} />
+          {clip.judged && clipBucket(clip) === "keeping" ? (
+            <p className="tabular-nums">{money(clip.judged.cost)} / {metricUnit(clip.judged.metric)} · {resultsLabel(clip.judged.results, clip.judged.metric)}</p>
+          ) : null}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ClipTick({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={on ? "Selected" : "Not selected"}
+      className="absolute top-1.5 right-1.5 z-10 flex h-8 w-8 items-center justify-center"
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+    >
+      <span
+        className={`flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 text-[12px] font-bold leading-none ${on ? "border-foreground bg-foreground text-on-media" : "border-on-media bg-black/40 text-transparent"}`}
+      >
+        ✓
+      </span>
+    </button>
+  );
+}
+
+function ClipFrame({ src, poster, hasFile, name, inS, outS, hasAudio, initialAudible, ticked, onToggle }: { src: string | null; poster: string | null; hasFile: boolean; name: string; inS: number; outS: number | null; hasAudio?: boolean | null; initialAudible?: boolean; ticked?: boolean; onToggle?: () => void }) {
+  const { videoProps, rangeProps, audible, toggleSound } = useClipVideo(inS, outS, { initialAudible });
+  const tick = onToggle ? <ClipTick on={ticked === true} onToggle={onToggle} /> : null;
+  if (src) {
+    return (
+      <div className="relative">
+        {tick}
+        <video
+          {...videoProps}
+          src={src}
+          poster={poster ?? undefined}
+          playsInline
+          preload="metadata"
+          className="aspect-[9/16] w-full rounded object-cover"
+        />
+        {showSoundToggle(hasAudio) ? <ClipSound audible={audible} onToggle={toggleSound} /> : null}
+        <input
+          aria-label="Scrub"
+          className="absolute inset-x-2 bottom-2 h-1 accent-white"
+          {...rangeProps}
+          onClick={(event) => event.stopPropagation()}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="relative">
+      {tick}
+      {hasFile ? <div className="aspect-[9/16] w-full rounded bg-black" aria-label={name} /> : <div className="flex aspect-[9/16] w-full items-center justify-center rounded border border-border bg-card text-sm">{initials(name)}</div>}
+    </div>
+  );
+}
+
+function Poster({ url }: { url: string | null }) {
+  if (!url) return <div className="aspect-[9/16] w-full rounded bg-foreground/80" />;
+  if (/\.(webm|mp4)(\?|$)/i.test(url)) {
+    return <PosterVideo src={url} at={0.5} className="aspect-[9/16] w-full rounded object-cover" />;
+  }
+  return <img src={url} alt="" className="aspect-[9/16] w-full rounded object-cover" />;
+}
+
+/** The button's words while Instagram is read: the spinner and "Finding…". */
+function Finding() {
+  return (
+    <>
+      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+      Finding…
+    </>
+  );
+}
+
+/** The button's words while a candidate imports: the spinner and "Importing…". */
+function Importing() {
+  return (
+    <>
+      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+      Importing…
+    </>
+  );
+}
+
+/** Grouping separators differ between Node and the browser. A comma keeps the tile text the same. */
+function tally(value: number): string {
+  return String(Math.trunc(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/** Candidate tiles: thumbnail, length, likes, comments, age, aspect, one action. */
+function CandidateTiles({
+  rows,
+  artistId,
+  lab,
+  busy,
+  onSave,
+  pendingImportId = null,
+}: {
+  rows: (LabIgCandidate & { rank: number })[];
+  artistId: string;
+  lab: CreativeLabCardData;
+  busy: boolean;
+  onSave: Save;
+  pendingImportId?: string | null;
+}) {
+  const router = useRouter();
+  const [importing, setImporting] = useState<string | null>(pendingImportId);
+  const [failed, setFailed] = useState<Record<string, string>>({});
+  const opened = rows.find((clip) => clip.overlayOpen)?.id ?? null;
+  const [openId, setOpenId] = useState<string | null>(opened);
+  const open = rows.find((clip) => clip.id === openId && clip.overlay) ?? null;
+
+  /** Download, check and register one candidate. The tile says "Importing…" until it resolves, and one sentence if it fails. */
+  async function add(id: string, anyway: boolean) {
+    if (pendingImportId) return;
+    setImporting(id);
+    setFailed((current) => {
+      const rest = { ...current };
+      delete rest[id];
+      return rest;
+    });
+    try {
+      const res = await fetch(`/api/creative-lab/candidates/${id}/import`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ anyway, eventId: lab.eventId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: unknown };
+      if (!res.ok) {
+        setFailed((current) => ({ ...current, [id]: importErrorSentence(json.error) }));
+        return;
+      }
+      router.refresh();
+    } catch {
+      setFailed((current) => ({ ...current, [id]: importErrorSentence(null) }));
+    } finally {
+      if (!pendingImportId) setImporting(null);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {rows.map((clip) => {
+          const state = candidateTileState(clip);
+          const age = postAge(clip.postedAt, lab.now);
+          const dimmed = clip.status === "skipped" || clip.status === "requested";
+          const quality = clip.reason?.includes("Too low quality") || clip.reason?.startsWith("Clip too small for ") ? clip.reason : null;
+          const pending = importing === clip.id;
+          const error = failed[clip.id] ?? null;
+          return (
+            <article key={clip.igMediaId} data-candidate={clip.id} className={`rounded border border-border p-2 ${dimmed ? "opacity-[0.55]" : ""}`}>
+              <div className="relative">
+                <Poster url={clip.thumbnailUrl} />
+                <span className="absolute top-1 left-1 rounded bg-background px-1 text-xs font-medium tabular-nums text-foreground">{clip.rank}</span>
+                {clip.lengthSeconds != null ? <span className="absolute bottom-1 left-1 text-xs text-white">▶ {durationLabel(clip.lengthSeconds)}</span> : null}
+              </div>
+              <p className="mt-1 text-xs tabular-nums">♥ {clip.likes == null ? "—" : tally(clip.likes)} · 💬 {tally(clip.comments ?? 0)}</p>
+              <p className="text-xs text-muted-foreground">{[age, clip.aspect || "aspect unknown"].filter(Boolean).join(" · ")}</p>
+              {state.action === "request" ? (
+                <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap px-1" disabled={busy} onClick={() => onSave({ action: "requestIgCandidate", artistId, igMediaId: clip.igMediaId })}>Request from team</Button>
+              ) : state.action === "add" ? (
+                <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap" disabled={busy || pending} aria-busy={pending} onClick={() => void add(clip.id, false)}>
+                  <HeldLabel idle={candidateAddLabel(clip.aspect)} pending={pending ? <Importing /> : null} active={pending} />
+                </Button>
+              ) : state.action === "import" ? (
+                <Button type="button" size="sm" className="mt-1 w-full whitespace-nowrap" disabled={busy || pending} aria-busy={pending} onClick={() => void add(clip.id, true)}>
+                  <HeldLabel idle="Import" pending={pending ? <Importing /> : null} active={pending} />
+                </Button>
+              ) : null}
+              {error ? <p data-import-error className="mt-1 text-xs text-destructive" role="alert">{error}</p> : null}
+              {quality ? <p className="mt-1 text-xs text-destructive">{quality}</p> : state.see ? (
+                <p className="mt-1 text-xs text-destructive">
+                  {state.status} · <button type="button" className="underline" onClick={() => setOpenId(clip.id)}>see</button>
+                </p>
+              ) : state.status ? <p className="mt-1 text-xs text-muted-foreground">{state.status}</p> : null}
+            </article>
+          );
+        })}
+      </div>
+      {open?.overlay ? (
+        <section className="w-full max-w-[460px] space-y-2 rounded border border-border bg-card p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="font-medium">Why #{open.rank} was skipped</h3>
+            <span className="text-xs text-muted-foreground">8 frames checked</span>
+          </div>
+          <div className="grid grid-cols-8 gap-1">
+            {open.overlay.frames.map((frame) => (
+              <div key={frame.t} className={`relative aspect-[9/16] overflow-hidden rounded bg-black ${frame.text ? "outline outline-2 outline-destructive" : ""}`}>
+                <FrameStill src={open.thumbnailUrl} at={frame.t} />
+                {frame.text ? <span className="absolute inset-x-0 bottom-[30%] bg-destructive/80 text-center text-[10px] text-white">Aa</span> : null}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs">
+            {overlayPanelLine(open.overlay.flagged)}{" "}
+            <button type="button" className="inline-flex items-center gap-1 underline" disabled={busy || importing === open.id} aria-busy={importing === open.id} onClick={() => void add(open.id, true)}>
+              <HeldLabel idle="Import anyway" pending={importing === open.id ? <Importing /> : "Import anyway"} active={importing === open.id} />
+            </button>
+          </p>
+          {failed[open.id] ? <p className="text-xs text-destructive" role="alert">{failed[open.id]}</p> : null}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+/** Candidate tiles under Find clips. The owner layout shows the client's own clips in the footage group. */
+function FindClips({ lab, busy, onSave, pendingImportId = null, hidePromoter = false }: { lab: CreativeLabCardData; busy: boolean; onSave: Save; pendingImportId?: string | null; hidePromoter?: boolean }) {
+  const promoterRows = hidePromoter ? [] : rankCandidates(lab.promoterCandidates ?? []);
+  const groups = [
+    ...(promoterRows.length > 0 ? [{ artist: { id: lab.clientId || "promoter", name: lab.clientName || "Promoter" }, rows: promoterRows }] : []),
+    ...lab.artists
+      .map((artist) => ({ artist, rows: rankCandidates(artist.igCandidates) }))
+      .filter((group) => group.rows.length > 0),
+  ];
+  if (groups.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <h3 className="font-medium">Find clips on Instagram</h3>
+      {groups.map(({ artist, rows }) => (
+        <div key={artist.id} className="space-y-2">
+          <p className="text-muted-foreground">{artist.name} · best first · likes, comments and how recent · native 9:16 first</p>
+          <CandidateTiles rows={rows} artistId={artist.id} lab={lab} busy={busy} onSave={onSave} pendingImportId={pendingImportId} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FrameStill({ src, at }: { src: string | null; at: number }) {
+  if (!src) return null;
+  if (/\.(webm|mp4)(\?|$)/i.test(src)) return <PosterVideo src={src} at={at} className="h-full w-full object-cover" />;
+  return <img src={src} alt="" className="h-full w-full object-cover" />;
+}

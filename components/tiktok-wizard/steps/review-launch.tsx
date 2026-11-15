@@ -19,10 +19,9 @@ import {
   type TikTokLaunchProgressView,
 } from "@/lib/tiktok-wizard/launch-progress";
 import {
-  isTikTokLaunchPaused,
   tikTokLaunchButtonLabel,
   tikTokLaunchConfirmMessage,
-  tikTokLaunchLiveSuccessDescription,
+  tikTokLaunchedLiveDescription,
   tikTokLaunchPausedSuccessDescription,
   tikTokLaunchWasDeliveredPaused,
 } from "@/lib/tiktok-wizard/launch-live";
@@ -35,6 +34,10 @@ import {
   TIKTOK_OBJECTIVE_LABELS,
   tikTokOptimisationGoalLabel,
 } from "@/lib/tiktok-wizard/campaign-setup";
+import {
+  formatTikTokAdGroupReviewLine,
+  tikTokResultLabel,
+} from "@/lib/tiktok-wizard/budget-schedule";
 import {
   buildTikTokPreflightChecks,
   suggestTikTokAdGroups,
@@ -54,10 +57,18 @@ import {
   reviewScheduleFieldDisabled,
   shouldPersistReviewSchedule,
 } from "@/lib/tiktok-wizard/review-schedule";
+import type { TikTokLaunchPreflightIssue } from "@/lib/tiktok/write/preflight";
+import { collectTikTokDraftLaunchPreflight } from "@/lib/tiktok/write/launch-preflight";
 import {
-  collectTikTokLaunchPreflight,
-  type TikTokLaunchPreflightIssue,
-} from "@/lib/tiktok/write/preflight";
+  describeTikTokAttachLaunch,
+  TIKTOK_LAUNCH_MODE_LABELS,
+  tikTokAttachConfirmMessage,
+} from "@/lib/tiktok/attach/summary";
+import {
+  TIKTOK_LAUNCH_MODE_READ_ONLY_NOTE,
+  tikTokLaunchModeOf,
+  tikTokReviewDefaultLaunchPaused,
+} from "@/lib/tiktok-wizard/launch-mode";
 import type {
   TikTokAdGroupDraft,
   TikTokCampaignDraft,
@@ -125,7 +136,7 @@ export function ReviewLaunchStep({
   });
   const adGroups = suggestTikTokAdGroups(draft);
   const wideningNotes = tikTokTargetingWideningNotes(draft.audiences);
-  const launchPreflight = collectTikTokLaunchPreflight(draft);
+  const launchPreflight = collectTikTokDraftLaunchPreflight(draft);
   const clientIssues = filterClientResolvableTikTokPreflightIssues(
     launchPreflight.issues,
     draft,
@@ -138,7 +149,7 @@ export function ReviewLaunchStep({
     context?.writesDisabledReason ?? TIKTOK_WRITES_DISABLED_REASON;
   const alreadyLaunched = Boolean(draft.publishedIds?.campaignId);
   const [launchPaused, setLaunchPaused] = useState(() =>
-    isTikTokLaunchPaused(draft),
+    tikTokReviewDefaultLaunchPaused(draft),
   );
   const launchDisabled =
     launch.status === "launching" ||
@@ -237,10 +248,12 @@ export function ReviewLaunchStep({
     }
   }
 
-  const launchConfirmMessage = tikTokLaunchConfirmMessage(
-    { ...draft, launchPaused },
-    { advertiserName: context?.advertiserName },
-  );
+  const launchConfirmMessage =
+    tikTokAttachConfirmMessage({ ...draft, launchPaused }) ??
+    tikTokLaunchConfirmMessage(
+      { ...draft, launchPaused },
+      { advertiserName: context?.advertiserName },
+    );
 
   async function persistLaunchPaused(paused: boolean) {
     setLaunchPaused(paused);
@@ -284,6 +297,9 @@ export function ReviewLaunchStep({
         adgroupIds: body.adgroup_ids,
         adIds: body.ad_ids,
         launchedAt: body.launched_at,
+        ...(body.launch_mode
+          ? { launchMode: body.launch_mode, campaignIds: body.campaign_ids ?? [] }
+          : {}),
       };
       await onSave({
         status: "published",
@@ -318,7 +334,12 @@ export function ReviewLaunchStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      
+      <LaunchingInto
+        draft={draft}
+        launchPaused={launchPaused}
+        alreadyLaunched={alreadyLaunched}
+        onEdit={onOpenStep && !alreadyLaunched ? () => onOpenStep(1) : undefined}
+      />
 
       <button
         type="button"
@@ -640,11 +661,24 @@ export function ReviewLaunchStep({
           label="Amount"
           value={
             draft.budgetSchedule.budgetAmount == null
-              ? null
+              ? "Unset"
               : `£${draft.budgetSchedule.budgetAmount}`
           }
           onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
         />
+        {suggestTikTokAdGroups(draft).map((group, index) => (
+          <Datum key={group.id} className="text-sm">
+            {formatTikTokAdGroupReviewLine({
+              index: index + 1,
+              dailyAmount: group.budget ?? draft.budgetSchedule.budgetAmount ?? 0,
+              targetCost: draft.optimisation.targetCostPerResult,
+              resultLabel: tikTokResultLabel({
+                objective: draft.campaignSetup.objective,
+                optimisationEvent: draft.accountSetup.optimisationEvent,
+              }),
+            })}
+          </Datum>
+        ))}
         <div className="grid gap-4 md:grid-cols-2">
           <Input
             id="tiktok-review-schedule-start"
@@ -744,8 +778,9 @@ export function ReviewLaunchStep({
             launchPaused: tikTokLaunchWasDeliveredPaused(draft),
             successDescription: tikTokLaunchWasDeliveredPaused(draft)
               ? tikTokLaunchPausedSuccessDescription()
-              : tikTokLaunchLiveSuccessDescription({
-                  scheduleStartAt: draft.budgetSchedule.scheduleStartAt,
+              : tikTokLaunchedLiveDescription({
+                  launchedAt:
+                    launch.status === "success" ? launch.launchedAt : null,
                   timezone: draft.accountSetup.timezone,
                 }),
           })}
@@ -834,6 +869,51 @@ export function ReviewLaunchStep({
       </StatusLine>
     </div>
       </StepSurfaceProvider>
+  );
+}
+
+/** Read-only: the choice is made on the Campaign step. */
+function LaunchingInto({
+  draft,
+  launchPaused,
+  alreadyLaunched,
+  onEdit,
+}: {
+  draft: TikTokCampaignDraft;
+  launchPaused: boolean;
+  alreadyLaunched: boolean;
+  onEdit?: () => void;
+}) {
+  const mode = tikTokLaunchModeOf(draft);
+  const summary = describeTikTokAttachLaunch(draft);
+  const message = tikTokAttachConfirmMessage({ ...draft, launchPaused });
+  return (
+    <section aria-label="Launching into" className="rounded-md border border-border bg-background p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="font-heading text-lg">Launching into</h3>
+        {onEdit ? (
+          <button type="button" className="text-sm underline underline-offset-2" onClick={onEdit}>
+            Edit
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-2 space-y-1 text-sm">
+        <Datum className="font-medium">
+          {mode === "new" ? "Create new campaign" : TIKTOK_LAUNCH_MODE_LABELS[mode]}
+        </Datum>
+        {message ? <Datum className="text-muted-foreground">{message}</Datum> : null}
+        {summary && summary.into.length > 0 ? (
+          <ul className="list-disc pl-5 text-xs text-muted-foreground">
+            {summary.into.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        ) : null}
+        {alreadyLaunched ? (
+          <Datum className="text-xs text-muted-foreground">{TIKTOK_LAUNCH_MODE_READ_ONLY_NOTE}</Datum>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

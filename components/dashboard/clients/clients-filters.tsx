@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { SearchInput } from "@/components/dashboard/_shared/search-input";
 import { useWriteParams } from "@/components/dashboard/_shared/use-write-params";
 import { CLIENT_STATUSES } from "@/lib/db/clients";
+import { ALL_CLIENT_STATUSES, ARCHIVED } from "@/lib/db/client-status";
 
 /**
  * Filter strip rendered above the /clients list. Reuses the shared
@@ -38,12 +39,13 @@ export function ClientsFilters() {
         aria-label="Filter by status"
         className="rounded-md border border-border bg-card px-2 py-1.5 text-xs focus:border-border-strong focus:outline-none"
       >
-        <option value="">All statuses</option>
+        <option value="">Active + paused</option>
         {CLIENT_STATUSES.map((s) => (
           <option key={s} value={s}>
-            {s}
+            {s === ARCHIVED ? "Archived" : s}
           </option>
         ))}
+        <option value={ALL_CLIENT_STATUSES}>All</option>
       </select>
 
       <SearchInput

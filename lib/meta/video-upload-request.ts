@@ -15,8 +15,8 @@
  * thumbnail — fails every call with Meta error code=3 "Application does
  * not have the capability to make this API call", regardless of which
  * token (system app or operator OAuth — see PR #766) is used. Escaping App
- * Review is a weeks-long unblock, so `buildVideoCreative` /
- * `buildSingleAssetFromVertical` (lib/meta/creative.ts) no longer call it
+ * Review is a weeks-long unblock, so `buildVideoCreative`
+ * (lib/meta/creative.ts) no longer calls it
  * at all.
  *
  * Instead: `POST /{adAccountId}/advideos` (the video UPLOAD itself, a

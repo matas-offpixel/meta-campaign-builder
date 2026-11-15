@@ -140,7 +140,6 @@ export const META_IMPORT_UNCARRIABLE_TARGETING_FIELDS = [
   "targeting_relaxation_types",
   "brand_safety_content_filter_levels",
   "attribution_spec",
-  "destination_type",
   "location_types",
   "age_range",
 ] as const;
@@ -157,6 +156,8 @@ export type MetaImportDropped = {
   adSetName?: string;
   creativeId?: string;
   value: unknown;
+  /** Why the field was dropped, when the field name alone does not say. */
+  reason?: string;
 };
 
 export type MetaImportNotCarried = {
@@ -177,7 +178,17 @@ export type MetaImportMeta = {
   sourceAdAccountId: string;
   dropped: MetaImportDropped[];
   notCarried: MetaImportNotCarried[];
-  creativeCounts: { read: number; carried: number; notCarried: number };
+  /**
+   * `read` is AdCreative objects. `uniqueCreatives` and `adsRead` are absent on
+   * drafts imported before creatives were grouped by content.
+   */
+  creativeCounts: {
+    read: number;
+    uniqueCreatives?: number;
+    adsRead?: number;
+    carried: number;
+    notCarried: number;
+  };
   /** Per source ad set. Absent stays distinct from an empty array. */
   flexibleSpec: Record<string, MetaImportFlexibleSpec>;
   /** `X-App-Usage` call_count when a read reported one. */
@@ -187,10 +198,17 @@ export type MetaImportMeta = {
    * Absent on drafts imported before this field existed.
    */
   copyNotes?: { creativeId: string; text: string }[];
+  /**
+   * Whether the operator attached an event at import.
+   * Absent on drafts imported before this field existed.
+   */
+  eventAttachment?: "none" | "event";
+  /**
+   * Imported ad sets whose empty location ids were filled once from
+   * `dropped` geo. A later clear of those ids stays cleared.
+   */
+  restoredDroppedLocationAdSetIds?: string[];
 };
 
-export const META_IMPORT_EVENT_ID_REQUIRED = "event_id is required";
 export const META_IMPORT_EVENT_ID_CLIENT_MISMATCH =
   "event_id does not belong to this client";
-export const META_IMPORT_NO_EVENTS_ON_ACCOUNT =
-  "No events run on this ad account. Create the event first.";

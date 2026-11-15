@@ -1,0 +1,80 @@
+{
+  "image_flag1": {
+    "name": "Snap Creative",
+    "object_story_spec": {
+      "page_id": "pg_123",
+      "link_data": {
+        "message": "Come see us live",
+        "link": "https://example.com/tickets",
+        "name": "Rudimental",
+        "description": "Newcastle",
+        "call_to_action": {
+          "type": "BOOK_NOW",
+          "value": {
+            "link": "https://example.com/tickets"
+          }
+        },
+        "image_hash": "hash_916"
+      }
+    },
+    "url_tags": "utm_source=meta&utm_medium=paid&utm_campaign={{campaign.id}}&utm_content={{adset.id}}&utm_term={{ad.id}}"
+  },
+  "video_flag1": {
+    "name": "Snap Creative",
+    "object_story_spec": {
+      "page_id": "pg_123",
+      "video_data": {
+        "video_id": "vid_916",
+        "message": "Come see us live",
+        "call_to_action": {
+          "type": "BOOK_NOW",
+          "value": {
+            "link": "https://example.com/tickets"
+          }
+        },
+        "title": "Rudimental",
+        "image_url": "https://cdn/thumb_916.jpg"
+      }
+    },
+    "url_tags": "utm_source=meta&utm_medium=paid&utm_campaign={{campaign.id}}&utm_content={{adset.id}}&utm_term={{ad.id}}"
+  },
+  "image_flagoff": {
+    "name": "Snap Creative",
+    "object_story_spec": {
+      "page_id": "pg_123",
+      "link_data": {
+        "message": "Come see us live",
+        "link": "https://example.com/tickets",
+        "name": "Rudimental",
+        "description": "Newcastle",
+        "call_to_action": {
+          "type": "BOOK_NOW",
+          "value": {
+            "link": "https://example.com/tickets"
+          }
+        },
+        "image_hash": "hash_916"
+      }
+    },
+    "url_tags": "utm_source=meta&utm_medium=paid&utm_campaign={{campaign.id}}&utm_content={{adset.id}}&utm_term={{ad.id}}"
+  },
+  "video_flagoff": {
+    "name": "Snap Creative",
+    "object_story_spec": {
+      "page_id": "pg_123",
+      "video_data": {
+        "video_id": "vid_916",
+        "message": "Come see us live",
+        "call_to_action": {
+          "type": "BOOK_NOW",
+          "value": {
+            "link": "https://example.com/tickets"
+          }
+        },
+        "title": "Rudimental",
+        "image_url": "https://cdn/thumb_916.jpg"
+      }
+    },
+    "url_tags": "utm_source=meta&utm_medium=paid&utm_campaign={{campaign.id}}&utm_content={{adset.id}}&utm_term={{ad.id}}"
+  }
+}

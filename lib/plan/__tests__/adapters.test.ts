@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { inclusiveDays } from "../../google-search/budget.ts";
 import { validateGoogleSearchPlan } from "../../google-search/validation.ts";
 import { validateCampaignPayload } from "../../meta/campaign.ts";
 import { validateCreativePayload } from "../../meta/creative.ts";
@@ -8,7 +9,7 @@ import { collectTikTokLaunchPreflight } from "../../tiktok/write/preflight.ts";
 import { planToGoogleDraft } from "../adapters/google.ts";
 import { planToMetaDraft } from "../adapters/meta.ts";
 import { mapIntentToTikTokObjective, planToTikTokDraft } from "../adapters/tiktok.ts";
-import { collectPlanPreflight } from "../preflight.ts";
+import { collectPlanPreflight, scopedGoogleIssueMessage } from "../preflight.ts";
 import {
   IDLE_PLAN_LAUNCH,
   type CampaignPlan,
@@ -84,7 +85,12 @@ describe("plan adapters — golden plan invariants", () => {
     );
 
     assert.equal(google.plan.event_id, plan.intent.eventId);
-    assert.equal(google.plan.total_budget, plan.intent.budget.googleDaily);
+    const googleDays = inclusiveDays(google.plan.date_range);
+    assert.equal(
+      google.plan.total_budget,
+      googleDays ? Math.round(plan.intent.budget.googleDaily * googleDays * 100) / 100 : null,
+      "plan total is daily × days, never the daily figure",
+    );
     assert.ok(
       google.campaigns.some((c) => c.daily_budget === plan.intent.budget.googleDaily),
     );
@@ -158,7 +164,7 @@ describe("plan-level preflight reuses platform validators", () => {
       planMessages("google", true),
       google
         .filter((i) => i.severity === "error")
-        .map((i) => (i.scope ? `${i.scope}: ${i.message}` : i.message))
+        .map((i) => scopedGoogleIssueMessage(i.scope, i.message))
         .sort(),
     );
     assert.equal(result.ok, false);

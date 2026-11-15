@@ -12,6 +12,7 @@ import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { ThresholdBand } from "@/components/viz/threshold-band";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import { META_DRAWER_COPY, detailRows, resolveDetailField, type DetailRowId } from "@/lib/plan/drawer";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { formatPlanScheduleRange } from "@/lib/plan/format-schedule";
 import type {
   BudgetScheduleSettings,
@@ -34,6 +35,7 @@ import { VIZ_TYPE, VIZ_TYPE_NUM, type VizProvenance } from "@/lib/viz/tokens";
 export function MetaDrawerDetails({
   draft,
   onSettingsChange,
+  onApplyDraft,
   onBudgetChange,
   onStrategyChange,
   showCampaignSetup = true,
@@ -42,7 +44,8 @@ export function MetaDrawerDetails({
 }: {
   draft: CampaignDraft;
   onSettingsChange: (settings: CampaignSettings) => void;
-  onBudgetChange?: (budgetSchedule: BudgetScheduleSettings) => void;
+  onApplyDraft?: (updater: (draft: CampaignDraft) => CampaignDraft) => void;
+  onBudgetChange?: (update: (prev: BudgetScheduleSettings) => BudgetScheduleSettings) => void;
   onStrategyChange?: (strategy: OptimisationStrategySettings) => void;
   /**
    * False in an attach mode, where campaign-setup renders in the `⊞` tab
@@ -136,7 +139,7 @@ export function MetaDrawerDetails({
           ) : null}
           {planId ? (
             <div className={`col-span-3 mt-1 ${VIZ_TYPE.label}`}>
-              <a className="text-muted-foreground underline" href={`/plan/${planId}`}>
+              <a className="text-muted-foreground underline" href={mmlPlanHref(planId)}>
                 canvas ↗
               </a>
             </div>
@@ -156,6 +159,8 @@ export function MetaDrawerDetails({
                 surface="drawer"
                 settings={s}
                 onChange={onSettingsChange}
+                draft={draft}
+                onApplyDraft={onApplyDraft}
                 campaignId={draft.id}
               />
             </StepDisclosure>

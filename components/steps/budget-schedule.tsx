@@ -54,6 +54,27 @@ import type {
 import { TIMEZONES } from "@/lib/mock-data";
 import { suggestAgeRange } from "@/lib/interest-suggestions";
 import { useLocationSearch, type LocationSearchResult } from "@/lib/hooks/useMeta";
+import { clampCityRadius } from "@/lib/meta/location-radius";
+import {
+  EUROPE_EXCL_UK_PRESET,
+  EUROPE_PRESET,
+  matchPresetLocation,
+  selectionFromGeoResult,
+  type LocationPresetConfig,
+} from "@/lib/meta/location-search";
+import {
+  mapExcludedLocations,
+  mapLocationGroups,
+  patchBudgetSchedule,
+} from "@/lib/wizard/budget-schedule-update";
+import {
+  phaseLocal,
+  presaleTooSoon,
+  scheduleEndInputValue,
+  scheduleEndNote,
+  schedulePhaseNote,
+  type EndDatePhase,
+} from "@/lib/wizard/event-end-date";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import { CalendarClock } from "lucide-react";
 import {
@@ -70,8 +91,14 @@ import {
 import { generateSuggestions } from "@/lib/wizard/generate-adset-suggestions";
 import {
   IMPORTED_AD_SET_BADGE,
+  adSetAudienceRemoved,
+  adSetDisplayName,
+  adSetDisplaySubtitle,
+  generateNeedsImportedConfirm,
+  generateRebuiltNotice,
+  generateReplaceImportedConfirm,
   importedAdSetTitle,
-  mergeGeneratedWithImported,
+  withLifetimeAdSetBudgets,
 } from "@/lib/wizard/import-edits";
 import {
   createBlankAdSetSuggestion,
@@ -81,6 +108,8 @@ import {
   deleteAdSetSuggestion,
   applyBulkAgeRange,
   applyBulkDailyBudget,
+  applyBulkLifetimeBudget,
+  convertAdSetBudgetsOnTypeChange,
   duplicateSuggestionsUnderLocationGroup,
   clearUnsupportedAdvantagePlus,
   addLocationToEveryAdSet,
@@ -112,24 +141,7 @@ import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurfa
 // Presets are resolved at runtime via the same Meta location-search API
 // as manual searches, guaranteeing identical location objects.
 
-interface PresetConfig {
-  id: string;
-  short: string;
-  label: string;
-  steps: PresetSearchStep[];
-}
-
-interface PresetSearchStep {
-  query: string;
-  type: "city" | "country";
-  /** For city, match by country_code to avoid Oxnard-type ambiguity */
-  matchCountryCode?: string;
-  mode: "include" | "exclude";
-  radius?: number;
-  distanceUnit?: "kilometer" | "mile";
-}
-
-const PRESET_CONFIGS: PresetConfig[] = [
+const PRESET_CONFIGS: LocationPresetConfig[] = [
   {
     id: "preset_gb_nationwide",
     short: "UK",
@@ -153,6 +165,8 @@ const PRESET_CONFIGS: PresetConfig[] = [
       { query: "London", type: "city", matchCountryCode: "GB", mode: "exclude", radius: 40, distanceUnit: "kilometer" },
     ],
   },
+  EUROPE_PRESET,
+  EUROPE_EXCL_UK_PRESET,
 ];
 
 /** UK nationwide fallback (country-level, no API call needed) */
@@ -180,22 +194,12 @@ function searchResultToSelection(
   radius?: number,
   distanceUnit?: "kilometer" | "mile",
   source: "search" | "preset" = "search",
-): LocationSelection {
-  const label = [result.name, result.region, result.country_name]
-    .filter(Boolean)
-    .join(", ");
-
-  return {
-    id: `${result.type}_${result.key}_${mode}_${Date.now()}`,
-    source,
-    label,
-    mode,
-    locationType: result.type as "city" | "country" | "region",
-    locationKey: result.type !== "country" ? result.key : undefined,
-    countryCode: result.country_code || undefined,
-    radius: result.type === "city" ? (radius ?? 40) : undefined,
-    distanceUnit: result.type === "city" ? (distanceUnit ?? "kilometer") : undefined,
-  };
+): LocationSelection | null {
+  const appliedRadius =
+    result.type === "city"
+      ? clampCityRadius(radius ?? 40, distanceUnit ?? "kilometer")
+      : radius;
+  return selectionFromGeoResult(result, mode, appliedRadius, distanceUnit, source);
 }
 
 // Known-good London city key from Meta's location database.
@@ -206,11 +210,11 @@ const LONDON_VERIFIED_KEY = "2421178";
  * Resolve a preset via Meta location search so it produces the identical
  * LocationSelection objects as manual search. Returns null on failure.
  */
-async function resolvePreset(config: PresetConfig): Promise<LocationTargetingGroup | null> {
+async function resolvePreset(config: LocationPresetConfig): Promise<LocationTargetingGroup | null> {
   const selections: LocationSelection[] = [];
 
   for (const step of config.steps) {
-    const typesParam = step.type === "country" ? "country" : "city";
+    const typesParam = step.type;
     const res = await fetch(
       `/api/meta/location-search?q=${encodeURIComponent(step.query)}&types=${typesParam}`,
     );
@@ -235,9 +239,7 @@ async function resolvePreset(config: PresetConfig): Promise<LocationTargetingGro
       return null;
     }
 
-    let match = step.matchCountryCode
-      ? json.data.find((r) => r.country_code === step.matchCountryCode && r.type === step.type)
-      : json.data[0];
+    let match = matchPresetLocation(step, json.data ?? []);
 
     // Fallback: if Meta search didn't return a GB London city, use verified key
     if (!match && step.query === "London" && step.type === "city" && step.matchCountryCode === "GB") {
@@ -268,9 +270,9 @@ async function resolvePreset(config: PresetConfig): Promise<LocationTargetingGro
       match = { ...match, key: LONDON_VERIFIED_KEY };
     }
 
-    selections.push(
-      searchResultToSelection(match, step.mode, step.radius, step.distanceUnit, "preset"),
-    );
+    const selection = searchResultToSelection(match, step.mode, step.radius, step.distanceUnit, "preset");
+    if (!selection) return null;
+    selections.push(selection);
   }
 
   return { id: config.id, label: config.label, source: "preset", selections };
@@ -292,9 +294,12 @@ interface BudgetScheduleProps {
   adSetSuggestions: AdSetSuggestion[];
   audiences: AudienceSettings;
   settings: CampaignSettings;
-  onBudgetChange: (bs: BudgetScheduleSettings) => void;
+  onBudgetChange: (update: (prev: BudgetScheduleSettings) => BudgetScheduleSettings) => void;
   onSuggestionsChange: (suggestions: AdSetSuggestion[]) => void;
   onSettingsChange: (settings: CampaignSettings) => void;
+  /** Set once the operator has confirmed Generate replaces imported rows. */
+  generateReplaceImportedConfirmed?: boolean;
+  onGenerateReplaceImportedConfirmed?: () => void;
 }
 
 // ─── Location Picker Component ───────────────────────────────────────────────
@@ -307,9 +312,9 @@ function LocationPicker({
   adSetSuggestions,
 }: {
   groups: LocationTargetingGroup[];
-  onChange: (groups: LocationTargetingGroup[]) => void;
+  onChange: (update: (groups: LocationTargetingGroup[]) => LocationTargetingGroup[]) => void;
   exclusions: LocationSelection[];
-  onExclusionsChange: (exclusions: LocationSelection[]) => void;
+  onExclusionsChange: (update: (excluded: LocationSelection[]) => LocationSelection[]) => void;
   adSetSuggestions: AdSetSuggestion[];
 }) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -326,8 +331,9 @@ function LocationPicker({
 
   const addFromSearch = (result: LocationSearchResult) => {
     const selection = searchResultToSelection(result, addMode, addRadius);
+    if (!selection) return;
     if (addMode === "exclude") {
-      onExclusionsChange([...exclusions, selection]);
+      onExclusionsChange((prev) => [...prev, selection]);
       setSearchQuery("");
       locationSearch.clear();
       return;
@@ -338,15 +344,15 @@ function LocationPicker({
       source: "manual",
       selections: [selection],
     };
-    onChange([...groups, newGroup]);
+    onChange((prev) => [...prev, newGroup]);
     setSearchQuery("");
     locationSearch.clear();
   };
 
-  const togglePreset = useCallback(async (config: PresetConfig) => {
+  const togglePreset = useCallback(async (config: LocationPresetConfig) => {
     const existing = groups.find((g) => g.id === config.id);
     if (existing) {
-      onChange(groups.filter((g) => g.id !== config.id));
+      onChange((prev) => prev.filter((g) => g.id !== config.id));
       return;
     }
 
@@ -359,7 +365,7 @@ function LocationPicker({
         return;
       }
       console.log(`[LocationPicker] Preset "${config.short}" resolved:`, JSON.stringify(resolved, null, 2));
-      onChange([...groups, resolved]);
+      onChange((prev) => (prev.some((g) => g.id === resolved.id) ? prev : [...prev, resolved]));
     } catch (err) {
       setPresetError(`Failed to resolve preset: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -368,12 +374,13 @@ function LocationPicker({
   }, [groups, onChange]);
 
   const removeGroup = (id: string) => {
-    const next = groups.filter((g) => g.id !== id);
-    onChange(next);
+    onChange((prev) => prev.filter((g) => g.id !== id));
   };
 
   const setTier = (id: string, tier: LocationTier) =>
-    onChange(groups.map((g) => (g.id === id ? withGroupTier(g, groupTier(g) === tier ? undefined : tier) : g)));
+    onChange((prev) =>
+      prev.map((g) => (g.id === id ? withGroupTier(g, groupTier(g) === tier ? undefined : tier) : g)),
+    );
 
   const enabledAdSets = adSetSuggestions.filter((s) => s.enabled);
   const exclusionUseCount = (id: string) =>
@@ -389,6 +396,7 @@ function LocationPicker({
       case "city": return "City";
       case "region": return "Region";
       case "country": return "Country";
+      case "country_group": return "Group";
       default: return t;
     }
   };
@@ -409,6 +417,7 @@ function LocationPicker({
                 key={config.id}
                 type="button"
                 disabled={resolving}
+                title={config.title}
                 onClick={() => togglePreset(config)}
                 className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors
                   ${active
@@ -437,7 +446,7 @@ function LocationPicker({
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search cities, regions, countries…"
+              placeholder="Search cities, regions, countries, groups…"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full rounded-md border border-border bg-card py-2 pl-8 pr-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none"
@@ -457,11 +466,11 @@ function LocationPicker({
           <input
             type="number"
             value={addRadius}
-            onChange={(e) => setAddRadius(Number(e.target.value))}
+            onChange={(e) => setAddRadius(clampCityRadius(Number(e.target.value), "kilometer"))}
             className="w-16 rounded-md border border-border bg-card px-2 py-1 text-center text-xs"
             min={0}
             max={80}
-            title="Radius (km) for city targeting"
+            title="Radius (km) for city targeting. 0 means no radius. Meta allows up to 80 km."
           />
           <span className="self-center text-[10px] text-muted-foreground">km</span>
         </div>
@@ -563,7 +572,7 @@ function LocationPicker({
           {(groups.some((g) => groupTier(g) === "primary") ||
             groups.some((g) => groupTier(g) === "secondary")) && (
             <StatusLine className="mt-2 text-[11px] text-muted-foreground">
-              Generate makes one ad set per audience per non-empty tier. Two audiences with Primary and Secondary is four ad sets. Untiered locations stay on All and Custom.
+              Generate makes one ad set per custom audience per non-empty tier; interest audiences take Primary only.
             </StatusLine>
           )}
           {groups.length > 1 &&
@@ -606,7 +615,7 @@ function LocationPicker({
                     </span>
                     <button
                       type="button"
-                      onClick={() => onExclusionsChange(exclusions.filter((e) => e.id !== sel.id))}
+                      onClick={() => onExclusionsChange((prev) => prev.filter((e) => e.id !== sel.id))}
                       className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       title="Remove from the exclusion pool"
                     >
@@ -939,15 +948,47 @@ function ScheduleCard({
   bs,
   updateBs,
   days,
+  eventId,
 }: {
   bs: BudgetScheduleSettings;
   updateBs: (patch: Partial<BudgetScheduleSettings>) => void;
   days: number;
+  eventId: string | null;
 }) {
-  const { event } = useWizardEventContext();
+  const { selectedEvent } = useWizardEventContext();
+  const event =
+    selectedEvent && eventId && selectedEvent.id === eventId ? selectedEvent : null;
   const eventDate = event?.event_date ?? null;
-  const eventEnd = eventDate ? `${eventDate}T23:59` : null;
-  const showUseEventDate = Boolean(eventEnd && bs.endDate !== eventEnd);
+  const timezone = bs.timezone || "Europe/London";
+  const phases = event
+    ? {
+        eventDate: event.event_date,
+        presaleAt: event.presale_at,
+        generalSaleAt: event.general_sale_at,
+      }
+    : null;
+  const endValue = scheduleEndInputValue(bs.endDate, bs.endDateSource, eventDate);
+  const noEventNote = scheduleEndNote(eventId);
+  const phaseNote = schedulePhaseNote({
+    eventId,
+    endDate: bs.endDate ?? "",
+    endDateSource: bs.endDateSource,
+    endDatePhase: bs.endDatePhase,
+    presaleTooSoon: presaleTooSoon({
+      endDate: bs.endDate ?? "",
+      endDateSource: bs.endDateSource,
+      event: phases,
+      timezone,
+    }),
+  });
+  const choices: { phase: EndDatePhase; label: string; local: string | null }[] = phases
+    ? [
+        { phase: "presale", label: "Use presale", local: phaseLocal(phases, "presale", timezone) },
+        { phase: "general_sale", label: "Use general sale", local: phaseLocal(phases, "general_sale", timezone) },
+        { phase: "event", label: "Use event date", local: phaseLocal(phases, "event", timezone) },
+      ]
+    : [];
+  const showPhaseMenu = Boolean(event) && choices.some((choice) => choice.local);
 
   return (
     <Card>
@@ -957,26 +998,41 @@ function ScheduleCard({
           label="Start Date & Time"
           type="datetime-local"
           value={bs.startDate}
-          onChange={(e) => updateBs({ startDate: e.target.value })}
+          onChange={(e) => updateBs({ startDate: e.target.value, startDateSource: "operator" })}
         />
         <div>
           <Input
             label="End Date & Time"
             type="datetime-local"
-            value={bs.endDate}
-            onChange={(e) => updateBs({ endDate: e.target.value })}
+            value={endValue}
+            onChange={(e) => updateBs({ endDate: e.target.value, endDateSource: "operator" })}
           />
-          {showUseEventDate && eventEnd && eventDate && (
-            <button
-              type="button"
-              onClick={() => updateBs({ endDate: eventEnd })}
-              className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
-              title="Set end date to the event date"
-            >
-              <CalendarClock className="h-3 w-3" />
-              Use event date ({eventDate})
-            </button>
-          )}
+          {noEventNote ? (
+            <Datum className="mt-1.5 text-[11px] text-muted-foreground">{noEventNote}</Datum>
+          ) : phaseNote ? (
+            <span data-testid="schedule-phase-note">
+              <Datum className="mt-1.5 text-[11px] text-muted-foreground">{phaseNote}</Datum>
+            </span>
+          ) : null}
+          {showPhaseMenu ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+              {choices.map((choice) => choice.local ? (
+                <button
+                  key={choice.phase}
+                  type="button"
+                  onClick={() => updateBs({
+                    endDate: choice.local ?? "",
+                    endDateSource: "event",
+                    endDatePhase: choice.phase,
+                  })}
+                  className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
+                >
+                  <CalendarClock className="h-3 w-3" />
+                  {choice.label}
+                </button>
+              ) : null)}
+            </div>
+          ) : null}
         </div>
       </div>
       {days > 0 && (
@@ -1067,6 +1123,7 @@ function BulkBudgetModal({
   initialBudget,
   currency,
   rowCount,
+  lifetime = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1074,22 +1131,24 @@ function BulkBudgetModal({
   initialBudget: number;
   currency: string;
   rowCount: number;
+  lifetime?: boolean;
 }) {
   const [budget, setBudget] = useState(initialBudget);
   const invalid = !(budget > 0);
+  const noun = lifetime ? "total" : "daily budget";
 
   return (
-    <Dialog open={open} onClose={onClose} ariaLabel="Set all daily budgets">
+    <Dialog open={open} onClose={onClose} ariaLabel={lifetime ? "Set all totals" : "Set all daily budgets"}>
       <DialogContent>
         <DialogHeader onClose={onClose}>
-          <DialogTitle>Set all daily budgets</DialogTitle>
+          <DialogTitle>{lifetime ? "Set all totals" : "Set all daily budgets"}</DialogTitle>
           <DialogDescription>
-            Overwrites the daily budget on all {rowCount} ad set{rowCount !== 1 ? "s" : ""} below.
+            Overwrites the {noun} on all {rowCount} ad set{rowCount !== 1 ? "s" : ""} below.
             Reversible for 5 seconds via an undo toast.
           </DialogDescription>
         </DialogHeader>
         <Input
-          label={`Daily budget (${currency})`}
+          label={`${lifetime ? "Total" : "Daily budget"} (${currency})`}
           type="number"
           value={budget}
           onChange={(e) => setBudget(Number(e.target.value))}
@@ -1122,6 +1181,8 @@ export function BudgetSchedule({
   onBudgetChange,
   onSuggestionsChange,
   onSettingsChange,
+  generateReplaceImportedConfirmed,
+  onGenerateReplaceImportedConfirmed,
 }: BudgetScheduleProps) {
   const [expandedPlacementAdSetId, setExpandedPlacementAdSetId] = useState<string | null>(null);
   const [ageModalOpen, setAgeModalOpen] = useState(false);
@@ -1130,7 +1191,7 @@ export function BudgetSchedule({
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateBs = (patch: Partial<BudgetScheduleSettings>) =>
-    onBudgetChange({ ...bs, ...patch });
+    onBudgetChange((prev) => patchBudgetSchedule(prev, patch));
 
   const updateSuggestion = (id: string, patch: Partial<AdSetSuggestion>) =>
     onSuggestionsChange(adSetSuggestions.map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -1138,26 +1199,37 @@ export function BudgetSchedule({
   const locationGroups = useMemo(() => bs.locationGroups ?? [], [bs.locationGroups]);
   const exclusionPool = useMemo(() => bs.excludedLocations ?? [], [bs.excludedLocations]);
 
-  const handleLocationGroupsChange = (groups: LocationTargetingGroup[]) => {
-    onBudgetChange({ ...bs, locationGroups: groups });
-    const next = followLocationTiers(adSetSuggestions, groups);
+  const handleLocationGroupsChange = (
+    update: (groups: LocationTargetingGroup[]) => LocationTargetingGroup[],
+  ) => {
+    onBudgetChange((prev) => mapLocationGroups(prev, update));
+    const next = followLocationTiers(adSetSuggestions, update(locationGroups));
     if (next.some((s, i) => s !== adSetSuggestions[i])) onSuggestionsChange(next);
   };
 
   const handleGenerate = () => {
+    if (generateNeedsImportedConfirm(adSetSuggestions, generateReplaceImportedConfirmed)) {
+      const importedCount = adSetSuggestions.filter((row) => row.importedFromAdSetId).length;
+      if (!window.confirm(generateReplaceImportedConfirm(importedCount))) return;
+      onGenerateReplaceImportedConfirmed?.();
+    }
     const generated = generateSuggestions(audiences, bs.budgetAmount, locationGroups, FALLBACK_UK_NATIONWIDE);
-    onSuggestionsChange(mergeGeneratedWithImported(adSetSuggestions, generated));
+    const next = bs.budgetType === "lifetime" ? withLifetimeAdSetBudgets(generated) : generated;
+    applyWithUndo(generateRebuiltNotice(next.length, adSetSuggestions.length), next);
   };
 
   const distributeBudget = () => {
+    if (bs.budgetLevel === "campaign") return;
     const enabled = adSetSuggestions.filter((s) => s.enabled);
     if (enabled.length === 0) return;
     const perSet = Math.round((bs.budgetAmount / enabled.length) * 100) / 100;
     onSuggestionsChange(
-      adSetSuggestions.map((s) => ({
-        ...s,
-        budgetPerDay: s.enabled ? perSet : 0,
-      }))
+      adSetSuggestions.map((s) => {
+        if (!s.enabled) return s;
+        return bs.budgetType === "lifetime"
+          ? { ...s, budgetLifetime: perSet }
+          : { ...s, budgetPerDay: perSet };
+      }),
     );
   };
 
@@ -1166,15 +1238,24 @@ export function BudgetSchedule({
     // task #122 (FIX 3) — never let a blank ad set default to a 0 daily
     // budget; Meta rejects ad set creation outright (subcode 1885272) if it
     // does. See defaultBlankAdSetBudget's doc comment.
-    const defaultBudget = defaultBlankAdSetBudget(adSetSuggestions, bs.budgetAmount);
+    const budgetRows =
+      bs.budgetType === "lifetime"
+        ? adSetSuggestions.map((row) => ({ ...row, budgetPerDay: row.budgetLifetime ?? 0 }))
+        : adSetSuggestions;
+    const defaultBudget = defaultBlankAdSetBudget(budgetRows, bs.budgetAmount);
     const blank = createBlankAdSetSuggestion(locationGroups, FALLBACK_UK_NATIONWIDE, defaultBudget);
-    onSuggestionsChange([...adSetSuggestions, blank]);
+    onSuggestionsChange([
+      ...adSetSuggestions,
+      bs.budgetType === "lifetime"
+        ? { ...blank, budgetLifetime: blank.budgetPerDay, budgetPerDay: 0 }
+        : blank,
+    ]);
   };
 
-  // task #126 — objective-gated: registration/awareness campaigns can't run
-  // Advantage+ Audience at all (Meta rejects it, subcode 1870196), so the
-  // per-row toggle is disabled below and a duplicate never flips into a mode
-  // Meta would just reject.
+  // task #126 — objective-gated. Awareness still can't run Advantage+
+  // Audience (Meta rejects it, subcode 1870196). Registration used to be
+  // blocked because it launched as OUTCOME_LEADS; under OUTCOME_SALES the
+  // toggle is offered. The helper is the source of truth.
   const advantagePlusSupported = isAdvantageAudienceSupportedForObjective(
     settings.objective,
     settings.optimisationGoal,
@@ -1256,10 +1337,13 @@ export function BudgetSchedule({
     setAgeModalOpen(false);
   };
 
-  const applyBulkBudgets = (budgetPerDay: number) => {
+  const applyBulkBudgets = (amount: number) => {
+    const lifetime = bs.budgetType === "lifetime";
     applyWithUndo(
-      `Daily budget set to ${bs.currency} ${budgetPerDay.toFixed(2)} for ${adSetSuggestions.length} ad set${adSetSuggestions.length !== 1 ? "s" : ""}. `,
-      applyBulkDailyBudget(adSetSuggestions, budgetPerDay),
+      `${lifetime ? "Total" : "Daily budget"} set to ${bs.currency} ${amount.toFixed(2)} for ${adSetSuggestions.length} ad set${adSetSuggestions.length !== 1 ? "s" : ""}. `,
+      lifetime
+        ? applyBulkLifetimeBudget(adSetSuggestions, amount)
+        : applyBulkDailyBudget(adSetSuggestions, amount),
     );
     setBudgetModalOpen(false);
   };
@@ -1303,17 +1387,26 @@ export function BudgetSchedule({
   };
 
   const enabledCount = adSetSuggestions.filter((s) => s.enabled).length;
+  const campaignBudget = bs.budgetLevel === "campaign";
+  const lifetimeBudget = bs.budgetType === "lifetime";
   const totalDaily = adSetSuggestions
     .filter((s) => s.enabled)
     .reduce((sum, s) => sum + s.budgetPerDay, 0);
+  const totalLifetime = adSetSuggestions
+    .filter((s) => s.enabled)
+    .reduce((sum, s) => sum + (s.budgetLifetime ?? 0), 0);
   // Soft warning (Puzzle Southampton 2026-08-13): blank/Wide defaults used
-  // to land at £100 on small campaigns. Flag any enabled ad set whose daily
-  // budget is >30% of the campaign total so the operator catches it before
-  // launch — does not block.
-  const oversizedBudgetAdSets = findAdSetsExceedingBudgetShare(
-    adSetSuggestions,
-    bs.budgetAmount,
-  );
+  // to land at £100 on small campaigns. Flag any enabled ad set whose share
+  // is >30% of the campaign total. Hidden under CBO, where the rows have no
+  // amount. Under lifetime the share is budgetLifetime.
+  const oversizedBudgetAdSets = campaignBudget
+    ? []
+    : findAdSetsExceedingBudgetShare(
+        lifetimeBudget
+          ? adSetSuggestions.map((row) => ({ ...row, budgetPerDay: row.budgetLifetime ?? 0 }))
+          : adSetSuggestions,
+        bs.budgetAmount,
+      );
   const locationWarnings = findAdSetLocationWarnings(
     adSetSuggestions.filter((s) => s.enabled),
     bs,
@@ -1377,7 +1470,18 @@ export function BudgetSchedule({
               <button
                 key={type}
                 type="button"
-                onClick={() => updateBs({ budgetType: type })}
+                onClick={() => {
+                  if (type === bs.budgetType) return;
+                  onSuggestionsChange(
+                    convertAdSetBudgetsOnTypeChange(
+                      adSetSuggestions,
+                      type,
+                      bs.budgetAmount,
+                      days > 0 ? days : 0,
+                    ),
+                  );
+                  updateBs({ budgetType: type });
+                }}
                 className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors
                   ${bs.budgetType === type ? "border-foreground bg-foreground text-background" : "border-border-strong hover:bg-card"}`}
               >
@@ -1404,7 +1508,7 @@ export function BudgetSchedule({
       </Card>
 
       {/* Schedule */}
-      <ScheduleCard bs={bs} updateBs={updateBs} days={days} />
+      <ScheduleCard bs={bs} updateBs={updateBs} days={days} eventId={settings.eventId ?? null} />
 
 
       {/* Suggested age hint */}
@@ -1438,7 +1542,9 @@ export function BudgetSchedule({
             groups={locationGroups}
             onChange={handleLocationGroupsChange}
             exclusions={exclusionPool}
-            onExclusionsChange={(excludedLocations) => onBudgetChange({ ...bs, excludedLocations })}
+            onExclusionsChange={(update) =>
+              onBudgetChange((prev) => mapExcludedLocations(prev, update))
+            }
             adSetSuggestions={adSetSuggestions}
           />
         </div>
@@ -1514,19 +1620,23 @@ export function BudgetSchedule({
               <Users className="h-3.5 w-3.5" />
               Set all ages
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setBudgetModalOpen(true)}
-              disabled={adSetSuggestions.length === 0}
-            >
-              <CalendarRange className="h-3.5 w-3.5" />
-              Set all budgets
-            </Button>
-            <Button variant="outline" size="sm" onClick={distributeBudget} disabled={enabledCount === 0}>
-              <DollarSign className="h-3.5 w-3.5" />
-              Distribute Budget
-            </Button>
+            {campaignBudget ? null : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBudgetModalOpen(true)}
+                  disabled={adSetSuggestions.length === 0}
+                >
+                  <CalendarRange className="h-3.5 w-3.5" />
+                  Set all budgets
+                </Button>
+                <Button variant="outline" size="sm" onClick={distributeBudget} disabled={enabledCount === 0}>
+                  <DollarSign className="h-3.5 w-3.5" />
+                  Distribute Budget
+                </Button>
+              </>
+            )}
             <Button size="sm" onClick={handleGenerate}>
               <Zap className="h-3.5 w-3.5" />
               Generate Suggestions
@@ -1591,8 +1701,24 @@ export function BudgetSchedule({
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>Active: {enabledCount}/{adSetSuggestions.length}</span>
               <span>
-                Daily Total: <span className="font-medium text-foreground">{bs.currency} {totalDaily.toFixed(2)}</span>
-                {days > 0 && <> · Total Spend ({days}d): <span className="font-medium text-foreground">{bs.currency} {(totalDaily * days).toFixed(2)}</span></>}
+                {campaignBudget ? (
+                  <>
+                    {lifetimeBudget ? "Lifetime" : "Daily"}:{" "}
+                    <span className="font-medium text-foreground">{bs.currency} {bs.budgetAmount.toFixed(2)}</span>
+                    {lifetimeBudget && days > 0 && <> · {days} days</>}
+                  </>
+                ) : lifetimeBudget ? (
+                  <>
+                    Lifetime Total:{" "}
+                    <span className="font-medium text-foreground">{bs.currency} {totalLifetime.toFixed(2)}</span>
+                    {days > 0 && <> · {days} days</>}
+                  </>
+                ) : (
+                  <>
+                    Daily Total: <span className="font-medium text-foreground">{bs.currency} {totalDaily.toFixed(2)}</span>
+                    {days > 0 && <> · Total Spend ({days}d): <span className="font-medium text-foreground">{bs.currency} {(totalDaily * days).toFixed(2)}</span></>}
+                  </>
+                )}
               </span>
             </div>
 
@@ -1604,7 +1730,7 @@ export function BudgetSchedule({
                     {oversizedBudgetAdSets.length === 1 ? (
                       <>
                         <span className="font-medium">{oversizedBudgetAdSets[0].name}</span>
-                        {" "}has a daily budget of {bs.currency}{" "}
+                        {" "}has a {lifetimeBudget ? "total" : "daily budget"} of {bs.currency}{" "}
                         {oversizedBudgetAdSets[0].budgetPerDay.toFixed(2)} (
                         {Math.round(oversizedBudgetAdSets[0].shareOfCampaign * 100)}% of the{" "}
                         {bs.currency} {bs.budgetAmount.toFixed(2)} campaign total) — over the{" "}
@@ -1612,7 +1738,7 @@ export function BudgetSchedule({
                       </>
                     ) : (
                       <>
-                        {oversizedBudgetAdSets.length} ad sets have a daily budget over{" "}
+                        {oversizedBudgetAdSets.length} ad sets have a {lifetimeBudget ? "total" : "daily budget"} over{" "}
                         {Math.round(AD_SET_BUDGET_SHARE_WARNING_THRESHOLD * 100)}% of the{" "}
                         {bs.currency} {bs.budgetAmount.toFixed(2)} campaign total:{" "}
                         {oversizedBudgetAdSets
@@ -1646,29 +1772,38 @@ export function BudgetSchedule({
             <div className="rounded-lg border border-border overflow-hidden">
               {adSetSuggestions.map((s) => {
                 const isBlank = s.sourceType === "blank";
+                const audienceRemoved = adSetAudienceRemoved(s, audiences);
                 const locationSummary = adSetLocationSummary(s, locationGroups);
                 const exclusionSummary = adSetExclusionSummary(s, exclusionPool);
                 return (
                   <div
                     key={s.id}
-                    className={`border-b border-border last:border-b-0 ${s.enabled ? "" : "opacity-50"}`}
+                    className={`border-b border-border last:border-b-0 ${s.enabled && !audienceRemoved ? "" : "opacity-50"}`}
                   >
                     {/* ── Main row ────────────────────────────────────────── */}
                     <div className={ADSET_ROW_MAIN_CLASS}>
                       <Checkbox
-                        checked={s.enabled}
-                        onChange={() => updateSuggestion(s.id, { enabled: !s.enabled })}
+                        checked={audienceRemoved ? false : s.enabled}
+                        disabled={audienceRemoved}
+                        title={audienceRemoved ? "This audience is no longer on the draft" : undefined}
+                        onChange={() => {
+                          if (audienceRemoved) return;
+                          updateSuggestion(s.id, { enabled: !s.enabled });
+                        }}
                       />
                       <div className={ADSET_ROW_NAME_COLUMN_CLASS}>
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
-                            value={s.name}
+                            value={adSetDisplayName(s, audiences)}
                             onChange={(e) =>
-                              updateSuggestion(s.id, { name: e.target.value.slice(0, MAX_ADSET_NAME_LENGTH) })
+                              updateSuggestion(s.id, {
+                                name: e.target.value.slice(0, MAX_ADSET_NAME_LENGTH),
+                                nameSource: "operator",
+                              })
                             }
                             maxLength={MAX_ADSET_NAME_LENGTH}
-                            title={s.name || "Click to rename this ad set"}
+                            title={adSetDisplayName(s, audiences) || "Click to rename this ad set"}
                             placeholder="Ad set name"
                             className={ADSET_ROW_NAME_INPUT_CLASS}
                           />
@@ -1684,7 +1819,9 @@ export function BudgetSchedule({
                             </span>
                           ) : null}
                         </div>
-                        <span className="text-xs text-muted-foreground truncate block">{s.sourceName}</span>
+                        <span className="text-xs text-muted-foreground truncate block">
+                          {adSetDisplaySubtitle(s, audiences)}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {/* Per-row locations — only once there's a real choice,
@@ -1735,18 +1872,27 @@ export function BudgetSchedule({
                             title={s.advantagePlus ? "Age suggestion (Advantage+)" : "Strict age max"}
                           />
                         </div>
+                        {campaignBudget ? null : (
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-muted-foreground">{bs.currency}</span>
                           <input
                             type="number"
-                            value={s.budgetPerDay}
-                            onChange={(e) => updateSuggestion(s.id, { budgetPerDay: Number(e.target.value) })}
+                            value={lifetimeBudget ? (s.budgetLifetime ?? 0) : s.budgetPerDay}
+                            onChange={(e) =>
+                              updateSuggestion(
+                                s.id,
+                                lifetimeBudget
+                                  ? { budgetLifetime: Number(e.target.value) }
+                                  : { budgetPerDay: Number(e.target.value) },
+                              )
+                            }
                             className="w-16 rounded border border-border px-1.5 py-1 text-center text-xs"
                             min={0}
                             step={0.01}
                           />
-                          <span className="text-xs text-muted-foreground">/day</span>
+                          <span className="text-xs text-muted-foreground">{lifetimeBudget ? "total" : "/day"}</span>
                         </div>
+                        )}
                         <button
                           type="button"
                           onClick={() => {
@@ -1878,9 +2024,14 @@ export function BudgetSchedule({
         open={budgetModalOpen}
         onClose={() => setBudgetModalOpen(false)}
         onApply={applyBulkBudgets}
-        initialBudget={adSetSuggestions[0]?.budgetPerDay ?? 0}
+        initialBudget={
+          lifetimeBudget
+            ? (adSetSuggestions[0]?.budgetLifetime ?? 0)
+            : (adSetSuggestions[0]?.budgetPerDay ?? 0)
+        }
         currency={bs.currency}
         rowCount={adSetSuggestions.length}
+        lifetime={lifetimeBudget}
       />
       {locationDialog && dialogAdSet && (
         <AdSetLocationsDialog

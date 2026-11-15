@@ -8,6 +8,9 @@ export type TikTokLaunchStreamSuccessBody = {
   ad_ids: string[];
   launched_at: string;
   entities: TikTokLaunchEntity[];
+  /** Attach modes only. `campaign_id` is then the first target. */
+  launch_mode?: "attach_campaign" | "attach_adgroup" | "attach_all_adgroups";
+  campaign_ids?: string[];
 };
 
 export type TikTokLaunchStreamErrorBody = {

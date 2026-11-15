@@ -1,0 +1,1015 @@
+/**
+ * List an artist's best recent Instagram clips. Nothing is downloaded
+ * and no clip row is written. media_url is never requested or stored.
+ * A thumbnail JPEG is stored in creative-thumbnails. The URL is never stored.
+ */
+
+import { igThumbObjectPath } from "./ig-import.ts";
+import type { ServiceRoleDb } from "./load.ts";
+import { saveVoiceSamples, venueNamesForClient, VOICE_REFRESH_DAYS } from "./voice-store.ts";
+import { VOICE_SAMPLE_CAP } from "./voice-traits.ts";
+
+const WINDOW_DAYS = 365;
+const HALF_LIFE_DAYS = 90;
+const TOP_N = 8;
+const MAX_POSTS = 150;
+
+/** Own-edge and Business Discovery fields. media_url is deliberately absent. thumbnail_url is read and stored as bytes, never as a URL. */
+export const IG_MEDIA_FIELDS =
+  "id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count,thumbnail_url,children{media_type,id,thumbnail_url}";
+
+type Row = Record<string, unknown>;
+
+export class IgDiscoveryError extends Error {
+  readonly code: "not_cleared" | "no_instagram" | "no_token";
+  constructor(code: "not_cleared" | "no_instagram" | "no_token", message: string) {
+    super(message);
+    this.name = "IgDiscoveryError";
+    this.code = code;
+  }
+}
+
+export type IgAspect = "9:16" | "4:5" | "1:1" | "landscape" | "unknown";
+
+export type IgPost = {
+  id: string;
+  mediaType: string;
+  mediaProductType: string | null;
+  permalink: string | null;
+  /** Instagram's caption, verbatim. Null when the field was absent. */
+  caption: string | null;
+  postedAt: string | null;
+  likes: number | null;
+  comments: number | null;
+  thumbnailUrl: string | null;
+  thumbWidth: number | null;
+  thumbHeight: number | null;
+  children: { id: string; mediaType: string; thumbnailUrl: string | null }[];
+};
+
+export type IgRead = {
+  profile(igUserId: string): Promise<{ ok: true; username: string | null; followers: number | null } | { ok: false; message: string }>;
+  media(igUserId: string, maxPosts: number): Promise<{ ok: true; posts: IgPost[] } | { ok: false; message: string }>;
+  discovery(businessId: string, username: string, maxPosts: number): Promise<{ ok: true; followers: number | null; posts: IgPost[] } | { ok: false; message: string }>;
+  copyright(mediaId: string): Promise<boolean | null>;
+  thumb?(url: string): Promise<{ width: number; height: number; bytes?: Uint8Array } | null>;
+};
+
+export type IgCandidate = {
+  igMediaId: string;
+  /** Other video slides of the same carousel, in order. Empty for a reel. */
+  slideIds: string[];
+  permalink: string | null;
+  caption: string | null;
+  mediaType: string;
+  mediaProductType: string | null;
+  postedAt: string;
+  likes: number | null;
+  comments: number | null;
+  followersAtFetch: number | null;
+  score: number;
+  aspect: IgAspect;
+  thumbWidth: number | null;
+  thumbHeight: number | null;
+  hasFile: boolean;
+  fileSource: "own_edge" | "none";
+  audioMatch: boolean | null;
+  status: "candidate";
+};
+
+export type IgFindResult = {
+  candidates: IgCandidate[];
+  error: string | null;
+  source: "own_edge" | "none" | null;
+};
+
+const HELD = new Set(["requested", "imported", "skipped"]);
+
+function text(row: Row | null | undefined, key: string): string {
+  return String(row?.[key] ?? "").trim();
+}
+
+export function plainIgMessage(message: string): string {
+  return message
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/access_token=[^&\s]+/gi, "")
+    .replace(/EAA[A-Za-z0-9]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500) || "Instagram could not be read.";
+}
+
+export function igScore(args: { likes: number | null; comments: number | null; followers: number | null; ageDays: number }): number {
+  const followers = args.followers ?? 0;
+  if (followers <= 0) return 0;
+  const age = Math.max(0, args.ageDays);
+  return (((args.likes ?? 0) + 3 * (args.comments ?? 0)) / followers) * 2 ** -(age / HALF_LIFE_DAYS);
+}
+
+const ASPECT_MULTIPLIER: Record<IgAspect, number> = {
+  "9:16": 1,
+  "4:5": 0.7,
+  "1:1": 0.55,
+  landscape: 0.3,
+  unknown: 0.6,
+};
+
+/** Pixel size when we have one. Otherwise a reel is 9:16 and anything else is unknown. */
+export function classifyAspect(width: number | null, height: number | null, mediaProductType: string | null): { aspect: IgAspect; multiplier: number; width: number | null; height: number | null } {
+  if (width == null || height == null || width <= 0 || height <= 0) {
+    const aspect: IgAspect = mediaProductType === "REELS" ? "9:16" : "unknown";
+    return { aspect, multiplier: ASPECT_MULTIPLIER[aspect], width: null, height: null };
+  }
+  const ratio = width / height;
+  let aspect: IgAspect = "unknown";
+  if (ratio >= 0.5 && ratio <= 0.6) aspect = "9:16";
+  else if (ratio >= 0.76 && ratio <= 0.84) aspect = "4:5";
+  else if (ratio >= 0.95 && ratio <= 1.05) aspect = "1:1";
+  else if (width > height) aspect = "landscape";
+  return { aspect, multiplier: ASPECT_MULTIPLIER[aspect], width, height };
+}
+
+/** JPEG or PNG pixel size from the file header. Anything else is unread. */
+export function imageHeaderSize(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    const width = readU32(bytes, 16);
+    const height = readU32(bytes, 20);
+    return width > 0 && height > 0 ? { width, height } : null;
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) return jpegSize(bytes);
+  return null;
+}
+
+function ageDays(postedAt: string, now: Date): number {
+  return (now.getTime() - Date.parse(postedAt)) / 86_400_000;
+}
+
+/** One slot per post. A carousel keeps its first video slide and lists the rest as alternates. */
+function carouselUnit(post: IgPost): { id: string; slideIds: string[] } | null {
+  if (post.mediaType === "VIDEO") return post.id ? { id: post.id, slideIds: [] } : null;
+  if (post.mediaType !== "CAROUSEL_ALBUM") return null;
+  const videos = post.children.filter((child) => child.mediaType === "VIDEO" && child.id).map((child) => child.id);
+  const [first, ...rest] = videos;
+  return first ? { id: first, slideIds: rest } : null;
+}
+
+export function rankIgPosts(
+  posts: readonly IgPost[],
+  args: { now: Date; followers: number | null; exclude: ReadonlySet<string>; limit?: number },
+): Omit<IgCandidate, "followersAtFetch" | "hasFile" | "fileSource" | "audioMatch" | "status">[] {
+  const ranked: Omit<IgCandidate, "followersAtFetch" | "hasFile" | "fileSource" | "audioMatch" | "status">[] = [];
+  const seen = new Set<string>();
+  for (const post of posts) {
+    if (!post.postedAt || Number.isNaN(Date.parse(post.postedAt))) continue;
+    const age = ageDays(post.postedAt, args.now);
+    if (age > WINDOW_DAYS) continue;
+    const unit = carouselUnit(post);
+    if (!unit) continue;
+    const ids = [unit.id, ...unit.slideIds];
+    if (ids.some((id) => args.exclude.has(id) || seen.has(id))) continue;
+    for (const id of ids) seen.add(id);
+    const shape = classifyAspect(post.thumbWidth, post.thumbHeight, post.mediaProductType);
+    ranked.push({
+      igMediaId: unit.id,
+      slideIds: unit.slideIds,
+      permalink: post.permalink,
+      caption: post.caption,
+      mediaType: "VIDEO",
+      mediaProductType: post.mediaProductType,
+      postedAt: new Date(Date.parse(post.postedAt)).toISOString(),
+      likes: post.likes,
+      comments: post.comments,
+      score: igScore({ likes: post.likes, comments: post.comments, followers: args.followers, ageDays: age }) * shape.multiplier,
+      aspect: shape.aspect,
+      thumbWidth: shape.width,
+      thumbHeight: shape.height,
+    });
+  }
+  ranked.sort((a, b) => b.score - a.score || a.igMediaId.localeCompare(b.igMediaId));
+  return ranked.slice(0, args.limit ?? TOP_N);
+}
+
+function graphVersion(): string {
+  const version = process.env.META_API_VERSION?.trim() || "v21.0";
+  return version.startsWith("v") ? version : `v${version}`;
+}
+
+async function graphGet(token: string, path: string, params: Record<string, string>): Promise<{ ok: true; json: Row } | { ok: false; message: string }> {
+  const url = new URL(`https://graph.facebook.com/${graphVersion()}/${path}`);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+  url.searchParams.set("access_token", token);
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    const json = (await res.json()) as Row & { error?: { message?: string } };
+    if (!res.ok || json.error) return { ok: false, message: plainIgMessage(json.error?.message || "Instagram could not be read.") };
+    return { ok: true, json };
+  } catch {
+    return { ok: false, message: "Instagram could not be read." };
+  }
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readU32(bytes: Uint8Array, offset: number): number {
+  return ((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
+}
+
+function jpegSize(bytes: Uint8Array): { width: number; height: number } | null {
+  let i = 2;
+  while (i + 8 < bytes.length) {
+    if (bytes[i] !== 0xff) {
+      i += 1;
+      continue;
+    }
+    const marker = bytes[i + 1];
+    if (marker === 0xd8 || marker === 0xd9 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      i += 2;
+      continue;
+    }
+    if (i + 4 > bytes.length) return null;
+    const length = (bytes[i + 2] << 8) | bytes[i + 3];
+    if (length < 2) return null;
+    const sof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+    if (sof) {
+      if (i + 9 >= bytes.length) return null;
+      const height = (bytes[i + 5] << 8) | bytes[i + 6];
+      const width = (bytes[i + 7] << 8) | bytes[i + 8];
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    i += 2 + length;
+  }
+  return null;
+}
+
+/**
+ * The JPEG to store for a candidate. The bytes are keyed by the same id
+ * rankIgPosts stores (the first video slide). A carousel uses that slide's
+ * own thumbnail. Another slide's picture, or the album cover, is left off
+ * so the tile stays dark rather than showing the wrong frame.
+ */
+export function candidateThumb(post: IgPost): { mediaId: string; url: string } | null {
+  const unit = carouselUnit(post);
+  if (!unit) return null;
+  if (post.mediaType === "CAROUSEL_ALBUM") {
+    const slide = post.children.find((item) => item.id === unit.id);
+    const url = slide?.thumbnailUrl || null;
+    return url ? { mediaId: unit.id, url } : null;
+  }
+  return post.thumbnailUrl ? { mediaId: unit.id, url: post.thumbnailUrl } : null;
+}
+
+async function measureThumbs(
+  posts: IgPost[],
+  exclude: ReadonlySet<string>,
+  thumb: (url: string) => Promise<{ width: number; height: number; bytes?: Uint8Array } | null>,
+): Promise<Map<string, Uint8Array>> {
+  const stored = new Map<string, Uint8Array>();
+  const jobs = posts.filter((post) => {
+    const target = candidateThumb(post);
+    const unit = carouselUnit(post);
+    if (!target || !unit) return false;
+    return ![unit.id, ...unit.slideIds].some((id) => exclude.has(id));
+  });
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (cursor < jobs.length) {
+      const post = jobs[cursor];
+      cursor += 1;
+      const target = post ? candidateThumb(post) : null;
+      if (!post || !target) continue;
+      const size = await thumb(target.url);
+      if (!size) continue;
+      post.thumbWidth = size.width;
+      post.thumbHeight = size.height;
+      if (size.bytes) stored.set(target.mediaId, size.bytes);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(8, jobs.length) }, () => worker()));
+  return stored;
+}
+
+export async function readThumbSize(url: string): Promise<{ width: number; height: number; bytes: Uint8Array } | null> {
+  if (!url.startsWith("https://")) return null;
+  try {
+    const res = await fetch(url, { cache: "no-store", redirect: "follow", signal: AbortSignal.timeout(8000) });
+    if (!res.ok || !res.body) return null;
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (total < 1_500_000) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      chunks.push(value);
+      total += value.byteLength;
+    }
+    await reader.cancel().catch(() => undefined);
+    const bytes = concatBytes(chunks, total);
+    const size = imageHeaderSize(bytes);
+    return size ? { ...size, bytes } : null;
+  } catch {
+    return null;
+  }
+}
+
+function concatBytes(chunks: Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+export function parseIgPost(raw: Row): IgPost {
+  const children = ((raw.children as { data?: Row[] } | undefined)?.data ?? []).map((child) => ({
+    id: text(child, "id"),
+    mediaType: text(child, "media_type"),
+    thumbnailUrl: text(child, "thumbnail_url") || null,
+  }));
+  return {
+    id: text(raw, "id"),
+    mediaType: text(raw, "media_type"),
+    mediaProductType: text(raw, "media_product_type") || null,
+    permalink: text(raw, "permalink") || null,
+    caption: typeof raw.caption === "string" ? raw.caption : null,
+    postedAt: text(raw, "timestamp") || null,
+    likes: numberOrNull(raw.like_count),
+    comments: numberOrNull(raw.comments_count),
+    thumbnailUrl: text(raw, "thumbnail_url") || null,
+    thumbWidth: null,
+    thumbHeight: null,
+    children,
+  };
+}
+
+function usernameOk(username: string): boolean {
+  return /^[A-Za-z0-9._]{1,30}$/.test(username);
+}
+
+function afterCursor(paging: unknown): string {
+  if (!paging || typeof paging !== "object") return "";
+  const after = (paging as { cursors?: { after?: unknown } }).cursors?.after;
+  return typeof after === "string" ? after.trim() : "";
+}
+
+async function readProfile(token: string, igUserId: string): Promise<Awaited<ReturnType<IgRead["profile"]>>> {
+  const res = await graphGet(token, igUserId, { fields: "followers_count,username" });
+  if (!res.ok) return res;
+  return { ok: true, username: text(res.json, "username") || null, followers: numberOrNull(res.json.followers_count) };
+}
+
+async function readPages(token: string, path: string, params: Record<string, string>, maxPosts: number): Promise<{ ok: true; posts: IgPost[] } | { ok: false; message: string }> {
+  const posts: IgPost[] = [];
+  let after = "";
+  while (posts.length < maxPosts) {
+    const res = await graphGet(token, path, { ...params, limit: "50", ...(after ? { after } : {}) });
+    if (!res.ok) return res;
+    const data = (res.json.data as Row[] | undefined) ?? [];
+    posts.push(...data.map(parseIgPost));
+    after = afterCursor(res.json.paging);
+    if (!after || data.length === 0) break;
+  }
+  return { ok: true, posts: posts.slice(0, maxPosts) };
+}
+
+async function readMedia(token: string, igUserId: string, maxPosts: number) {
+  return readPages(token, `${igUserId}/media`, { fields: IG_MEDIA_FIELDS }, maxPosts);
+}
+
+async function readDiscovery(token: string, businessId: string, username: string, maxPosts: number): Promise<Awaited<ReturnType<IgRead["discovery"]>>> {
+  if (!usernameOk(username)) return { ok: false, message: "The Instagram username is not valid." };
+  const posts: IgPost[] = [];
+  let after = "";
+  let followers: number | null = null;
+  while (posts.length < maxPosts) {
+    const media = after ? `media.limit(50).after(${after}){${IG_MEDIA_FIELDS}}` : `media.limit(50){${IG_MEDIA_FIELDS}}`;
+    const res = await graphGet(token, businessId, { fields: `business_discovery.username(${username}){followers_count,${media}}` });
+    if (!res.ok) return res;
+    const found = (res.json.business_discovery ?? {}) as Row & { media?: { data?: Row[]; paging?: { cursors?: Row } } };
+    if (followers == null) followers = numberOrNull(found.followers_count);
+    const data = found.media?.data ?? [];
+    posts.push(...data.map(parseIgPost));
+    after = afterCursor(found.media?.paging);
+    if (!after || !/^[A-Za-z0-9+/=_-]+$/.test(after) || data.length === 0) break;
+  }
+  return { ok: true, followers, posts: posts.slice(0, maxPosts) };
+}
+
+async function readCopyright(token: string, mediaId: string): Promise<boolean | null> {
+  const res = await graphGet(token, mediaId, { fields: "copyright_check_information" });
+  if (!res.ok) return null;
+  const info = res.json.copyright_check_information as { status?: { matches_found?: unknown } } | undefined;
+  return typeof info?.status?.matches_found === "boolean" ? info.status.matches_found : null;
+}
+
+/** The file URL is read at import and never written down. */
+export async function readOwnMediaUrl(db: ServiceRoleDb, userId: string, igMediaId: string): Promise<string> {
+  const token = await loadToken(db, userId);
+  const res = await graphGet(token, igMediaId, { fields: "media_url" });
+  if (!res.ok) throw new Error(res.message);
+  const url = text(res.json, "media_url");
+  if (!url.startsWith("https://")) throw new Error("Instagram did not return a file.");
+  return url;
+}
+
+async function loadToken(db: ServiceRoleDb, userId: string): Promise<string> {
+  const res = await db.from("user_facebook_tokens").select("*").eq("user_id", userId).maybeSingle();
+  if (res.error) throw new IgDiscoveryError("no_token", "Connect Facebook in Account Setup.");
+  const token = text(res.data as Row | null, "provider_token");
+  if (token) return token;
+  const env = process.env.META_ACCESS_TOKEN?.trim() ?? "";
+  if (env) return env;
+  throw new IgDiscoveryError("no_token", "Connect Facebook in Account Setup.");
+}
+
+function voicePosts(posts: readonly IgPost[]) {
+  return posts.map((post) => ({
+    id: post.id,
+    permalink: post.permalink,
+    caption: post.caption,
+    postedAt: post.postedAt,
+    likes: post.likes,
+    comments: post.comments,
+  }));
+}
+
+async function rememberArtistVoice(
+  db: ServiceRoleDb,
+  args: { userId: string; artistId: string; clientId: string; posts: IgPost[]; now: Date },
+): Promise<void> {
+  try {
+    const venueNames = args.clientId ? await venueNamesForClient(db, args.clientId) : [];
+    await saveVoiceSamples(db, {
+      userId: args.userId,
+      pageKind: "artist",
+      clientId: args.clientId,
+      artistId: args.artistId,
+      posts: voicePosts(args.posts),
+      now: args.now,
+      venueNames,
+    });
+  } catch {
+    // The clip list still returns. The next Find clips writes the captions.
+  }
+}
+
+export async function readPromoterVoice(
+  db: ServiceRoleDb,
+  clientId: string,
+  opts: { now?: Date; read?: IgRead } = {},
+): Promise<{ sampleN: number; error: string | null }> {
+  const now = opts.now ?? new Date();
+  const clientRes = await db.from("clients").select("*").eq("id", clientId).maybeSingle();
+  if (clientRes.error) throw new Error(plainIgMessage(clientRes.error.message));
+  const client = clientRes.data as Row | null;
+  if (!client) throw new Error("No client with that id.");
+  const userId = text(client, "user_id");
+  const businessId = text(client, "instagram_business_id");
+  const fail = async (message: string) => {
+    const marked = await db.from("clients").update({ ig_last_error: message }).eq("id", clientId);
+    if (marked.error && !/ig_last_error|does not exist|schema cache/i.test(marked.error.message)) throw new Error(marked.error.message);
+    return { sampleN: 0, error: message };
+  };
+  if (!businessId) return fail("Add this client's Instagram business account.");
+  let read: IgRead;
+  try {
+    read = opts.read ?? (await defaultRead(db, userId));
+  } catch (err) {
+    const message = err instanceof Error ? plainIgMessage(err.message) : "Instagram could not be read.";
+    return fail(message);
+  }
+  const media = await read.media(businessId, VOICE_SAMPLE_CAP);
+  if (!media.ok) return fail(plainIgMessage(media.message));
+  const saved = await saveVoiceSamples(db, {
+    userId,
+    pageKind: "promoter",
+    clientId,
+    artistId: null,
+    posts: voicePosts(media.posts),
+    now,
+    venueNames: await venueNamesForClient(db, clientId),
+  });
+  const cleared = await db.from("clients").update({ ig_last_error: null }).eq("id", clientId);
+  if (cleared.error && !/ig_last_error|does not exist|schema cache/i.test(cleared.error.message)) throw new Error(cleared.error.message);
+  return { sampleN: saved.sampleN, error: null };
+}
+
+/** Pages whose captions were read in the last 30 days. One own-edge read each. */
+export async function refreshRecentPromoterVoice(db: ServiceRoleDb, now = new Date()): Promise<void> {
+  const since = new Date(now.getTime() - VOICE_REFRESH_DAYS * 86_400_000).toISOString();
+  const res = await db.from("voice_samples").select("client_id, fetched_at").eq("page_kind", "promoter").gte("fetched_at", since);
+  if (res.error) return;
+  const ids = new Set<string>();
+  for (const row of (res.data ?? []) as Row[]) {
+    const id = text(row, "client_id");
+    if (id) ids.add(id);
+  }
+  for (const id of ids) {
+    try {
+      await readPromoterVoice(db, id, { now });
+    } catch {
+      // One page stays as it was. The next night tries again.
+    }
+  }
+}
+
+async function defaultRead(db: ServiceRoleDb, userId: string): Promise<IgRead> {
+  const token = await loadToken(db, userId);
+  return {
+    profile: (igUserId) => readProfile(token, igUserId),
+    media: (igUserId, maxPosts) => readMedia(token, igUserId, maxPosts),
+    discovery: (businessId, username, maxPosts) => readDiscovery(token, businessId, username, maxPosts),
+    copyright: (mediaId) => readCopyright(token, mediaId),
+    thumb: (url) => readThumbSize(url),
+  };
+}
+
+async function writeArtist(db: ServiceRoleDb, artistId: string, userId: string, patch: Row): Promise<string | null> {
+  const updated = await db.from("creative_lab_artists").update(patch).eq("id", artistId).eq("user_id", userId);
+  return updated.error ? plainIgMessage(updated.error.message) : null;
+}
+
+/** The same object key the artist listing uses: creative-thumbnails, keyed by owner then media id. */
+async function rememberThumbs(
+  ownerId: string,
+  rows: readonly { igMediaId: string }[],
+  bytes: ReadonlyMap<string, Uint8Array>,
+  store: (path: string, file: Uint8Array) => Promise<void>,
+): Promise<Map<string, string>> {
+  const paths = new Map<string, string>();
+  for (const row of rows) {
+    const file = bytes.get(row.igMediaId);
+    if (!file) continue;
+    const path = igThumbObjectPath(ownerId, row.igMediaId);
+    try {
+      await store(path, file);
+      paths.set(row.igMediaId, path);
+    } catch {
+      // The listing still saves. The next run stores the thumbnail.
+    }
+  }
+  return paths;
+}
+
+async function storeThumbBytes(db: ServiceRoleDb, path: string, bytes: Uint8Array): Promise<void> {
+  const storage = (db as unknown as { storage?: { from: (bucket: string) => { upload: (path: string, body: Uint8Array, options: { contentType: string; upsert: boolean }) => Promise<{ error: { message: string } | null }> } } }).storage;
+  if (!storage) return;
+  const saved = await storage.from("creative-thumbnails").upload(path, bytes, { contentType: "image/jpeg", upsert: true });
+  if (saved.error) throw new Error(saved.error.message);
+}
+
+/** A row that already has no caption is written again from this fetch. Status is left as it is. */
+async function fillNullCaptions(db: ServiceRoleDb, artistId: string, posts: IgPost[], existing: Row[], now: Date): Promise<void> {
+  const byId = new Map<string, string>();
+  const byPermalink = new Map<string, string>();
+  for (const post of posts) {
+    if (typeof post.caption !== "string" || post.caption.length === 0) continue;
+    byId.set(post.id, post.caption);
+    for (const child of post.children) byId.set(child.id, post.caption);
+    if (post.permalink) byPermalink.set(post.permalink, post.caption);
+  }
+  for (const row of existing) {
+    if (typeof row.caption === "string" && row.caption.length > 0) continue;
+    const id = text(row, "ig_media_id");
+    let caption = id ? byId.get(id) : undefined;
+    if (caption == null) {
+      const permalink = text(row, "permalink");
+      if (permalink) caption = byPermalink.get(permalink);
+    }
+    if (caption == null && Array.isArray(row.slide_ids)) {
+      for (const slide of row.slide_ids) {
+        const hit = byId.get(String(slide).trim());
+        if (hit) {
+          caption = hit;
+          break;
+        }
+      }
+    }
+    if (!caption || !id) continue;
+    const updated = await db.from("creative_lab_ig_candidates").update({
+      caption,
+      caption_fetched_at: now.toISOString(),
+    }).eq("artist_id", artistId).eq("ig_media_id", id);
+    if (updated.error && /caption/i.test(updated.error.message)) return;
+  }
+}
+
+export async function findArtistClips(
+  db: ServiceRoleDb,
+  args: { artistId: string; now?: Date; read?: IgRead; storeThumb?: (path: string, bytes: Uint8Array) => Promise<void> },
+): Promise<IgFindResult> {
+  const now = args.now ?? new Date();
+  const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).maybeSingle();
+  if (artistRes.error) throw new Error(plainIgMessage(artistRes.error.message));
+  const artist = artistRes.data as Row | null;
+  if (!artist) throw new Error("No artist with that id.");
+  const userId = text(artist, "user_id");
+
+  const clientRes = await db.from("clients").select("*").eq("id", text(artist, "client_id")).maybeSingle();
+  if (clientRes.error) throw new Error(plainIgMessage(clientRes.error.message));
+  const businessId = text(clientRes.data as Row | null, "instagram_business_id");
+  let read: IgRead;
+  try {
+    read = args.read ?? (await defaultRead(db, userId));
+  } catch (err) {
+    if (err instanceof IgDiscoveryError) {
+      await writeArtist(db, args.artistId, userId, { ig_last_error: err.message });
+    }
+    throw err;
+  }
+
+  const actorId = text(artist, "instagram_actor_id");
+  let username = text(artist, "ig_username");
+  let followers: number | null = null;
+  let posts: IgPost[] | null = null;
+  let source: "own_edge" | "none" | null = null;
+  let mediaError = "";
+
+  if (actorId) {
+    const profile = await read.profile(actorId);
+    if (profile.ok) {
+      username = profile.username || username;
+      followers = profile.followers;
+    }
+    const media = await read.media(actorId, MAX_POSTS);
+    if (media.ok) {
+      posts = media.posts;
+      source = "own_edge";
+    } else {
+      mediaError = media.message;
+    }
+  }
+
+  if (!posts) {
+    if (!username) {
+      const message = mediaError || "Add this artist's Instagram account first.";
+      await writeArtist(db, args.artistId, userId, { ig_last_error: message });
+      if (!actorId) throw new IgDiscoveryError("no_instagram", message);
+      return { candidates: [], error: message, source: null };
+    }
+    if (!businessId) {
+      const message = "Add this client's Instagram business account.";
+      await writeArtist(db, args.artistId, userId, { ig_last_error: message });
+      return { candidates: [], error: message, source: null };
+    }
+    const found = await read.discovery(businessId, username, MAX_POSTS);
+    if (!found.ok) {
+      const message = plainIgMessage(found.message);
+      await writeArtist(db, args.artistId, userId, { ig_last_error: message });
+      return { candidates: [], error: message, source: null };
+    }
+    posts = found.posts;
+    followers = found.followers;
+    source = "none";
+  }
+
+  await rememberArtistVoice(db, { userId, artistId: args.artistId, clientId: text(artist, "client_id"), posts, now });
+
+  const clipRes = await db.from("creative_lab_clips").select("*").eq("artist_id", args.artistId);
+  if (clipRes.error) throw new Error(plainIgMessage(clipRes.error.message));
+  const heldRes = await db.from("creative_lab_ig_candidates").select("*").eq("artist_id", args.artistId);
+  if (heldRes.error) {
+    const message = /does not exist|schema cache/i.test(heldRes.error.message)
+      ? "Instagram clips can't be listed until the database update is applied."
+      : plainIgMessage(heldRes.error.message);
+    await writeArtist(db, args.artistId, userId, { ig_last_error: message });
+    return { candidates: [], error: message, source };
+  }
+  const exclude = new Set<string>();
+  for (const clip of (clipRes.data ?? []) as Row[]) {
+    const external = text(clip, "external_id");
+    const sourceFile = text(clip, "source_file_id");
+    if (external) exclude.add(external);
+    if (sourceFile) exclude.add(sourceFile);
+  }
+  for (const row of (heldRes.data ?? []) as Row[]) {
+    if (HELD.has(text(row, "status"))) {
+      const id = text(row, "ig_media_id");
+      if (id) exclude.add(id);
+      if (Array.isArray(row.slide_ids)) {
+        for (const slide of row.slide_ids) {
+          const slideId = String(slide).trim();
+          if (slideId) exclude.add(slideId);
+        }
+      }
+    }
+  }
+
+  await fillNullCaptions(db, args.artistId, posts, (heldRes.data ?? []) as Row[], now);
+
+  const thumbBytes = read.thumb ? await measureThumbs(posts, exclude, read.thumb) : new Map<string, Uint8Array>();
+  const ranked = rankIgPosts(posts, { now, followers, exclude, limit: TOP_N });
+  const store = args.storeThumb ?? ((path: string, bytes: Uint8Array) => storeThumbBytes(db, path, bytes));
+  const thumbPaths = await rememberThumbs(args.artistId, ranked, thumbBytes, store);
+  const candidates: IgCandidate[] = [];
+  for (const row of ranked) {
+    const audioMatch = source === "own_edge" ? await read.copyright(row.igMediaId) : null;
+    candidates.push({
+      ...row,
+      followersAtFetch: followers,
+      hasFile: source === "own_edge",
+      fileSource: source === "own_edge" ? "own_edge" : "none",
+      audioMatch,
+      status: "candidate",
+    });
+  }
+
+  if (candidates.length > 0) {
+    const saved = await db.from("creative_lab_ig_candidates").upsert(
+      candidates.map((row) => ({
+        user_id: userId,
+        artist_id: args.artistId,
+        ig_media_id: row.igMediaId,
+        slide_ids: row.slideIds,
+        permalink: row.permalink,
+        caption: row.caption,
+        caption_fetched_at: now.toISOString(),
+        media_type: row.mediaType,
+        media_product_type: row.mediaProductType,
+        posted_at: row.postedAt,
+        likes: row.likes,
+        comments: row.comments,
+        followers_at_fetch: row.followersAtFetch,
+        score: row.score,
+        aspect: row.aspect,
+        thumb_width: row.thumbWidth,
+        thumb_height: row.thumbHeight,
+        has_file: row.hasFile,
+        file_source: row.fileSource,
+        audio_match: row.audioMatch,
+        status: "candidate",
+        reason: null,
+        fetched_at: now.toISOString(),
+        ...(thumbPaths.get(row.igMediaId) ? { thumbnail_path: thumbPaths.get(row.igMediaId) } : {}),
+      })),
+      { onConflict: "artist_id,ig_media_id" },
+    );
+    if (saved.error && /thumbnail_path/i.test(saved.error.message)) {
+      const retry = await db.from("creative_lab_ig_candidates").upsert(
+        candidates.map((row) => ({
+          user_id: userId,
+          artist_id: args.artistId,
+          ig_media_id: row.igMediaId,
+          slide_ids: row.slideIds,
+          permalink: row.permalink,
+          caption: row.caption,
+          caption_fetched_at: now.toISOString(),
+          media_type: row.mediaType,
+          media_product_type: row.mediaProductType,
+          posted_at: row.postedAt,
+          likes: row.likes,
+          comments: row.comments,
+          followers_at_fetch: row.followersAtFetch,
+          score: row.score,
+          aspect: row.aspect,
+          thumb_width: row.thumbWidth,
+          thumb_height: row.thumbHeight,
+          has_file: row.hasFile,
+          file_source: row.fileSource,
+          audio_match: row.audioMatch,
+          status: "candidate",
+          reason: null,
+          fetched_at: now.toISOString(),
+        })),
+        { onConflict: "artist_id,ig_media_id" },
+      );
+      if (!retry.error) {
+        const patch: Row = { ig_synced_at: now.toISOString(), ig_last_error: null };
+        if (username) patch.ig_username = username;
+        const writeError = await writeArtist(db, args.artistId, userId, patch);
+        if (writeError) return { candidates: [], error: writeError, source };
+        return { candidates, error: null, source };
+      }
+    }
+    if (saved.error) {
+      const message = /does not exist|schema cache/i.test(saved.error.message)
+        ? "Instagram clips can't be listed until the database update is applied."
+        : plainIgMessage(saved.error.message);
+      await writeArtist(db, args.artistId, userId, { ig_last_error: message });
+      return { candidates: [], error: message, source };
+    }
+  }
+
+  const patch: Row = { ig_synced_at: now.toISOString(), ig_last_error: null };
+  if (username) patch.ig_username = username;
+  const writeError = await writeArtist(db, args.artistId, userId, patch);
+  if (writeError) return { candidates: [], error: writeError, source };
+  return { candidates, error: null, source };
+}
+
+/** List the client's own reels. Add imports each one as promoter footage. */
+export async function findPromoterClips(
+  db: ServiceRoleDb,
+  args: {
+    clientId: string;
+    userId: string;
+    now?: Date;
+    read?: IgRead;
+    storeThumb?: (path: string, bytes: Uint8Array) => Promise<void>;
+  },
+): Promise<IgFindResult> {
+  const now = args.now ?? new Date();
+  const clientRes = await db.from("clients").select("*").eq("id", args.clientId).eq("user_id", args.userId).maybeSingle();
+  if (clientRes.error) throw new Error(plainIgMessage(clientRes.error.message));
+  const client = clientRes.data as Row | null;
+  if (!client) throw new Error("No client with that id.");
+  const businessId = text(client, "instagram_business_id");
+  const handle = text(client, "instagram_handle").replace(/^@/, "");
+  const fail = async (message: string) => {
+    const marked = await db.from("clients").update({ ig_last_error: message }).eq("id", args.clientId);
+    if (marked.error && !/ig_last_error|does not exist|schema cache/i.test(marked.error.message)) throw new Error(marked.error.message);
+    return { candidates: [] as IgCandidate[], error: message, source: null };
+  };
+  if (!businessId || !handle) return fail("Add this client's Instagram business account.");
+  let read: IgRead;
+  try {
+    read = args.read ?? (await defaultRead(db, args.userId));
+  } catch (err) {
+    if (err instanceof IgDiscoveryError) return fail(err.message);
+    throw err;
+  }
+  const media = await read.media(businessId, MAX_POSTS);
+  if (!media.ok) return fail(plainIgMessage(media.message));
+  const posts = media.posts;
+  try {
+    const venueNames = await venueNamesForClient(db, args.clientId);
+    await saveVoiceSamples(db, {
+      userId: args.userId,
+      pageKind: "promoter",
+      clientId: args.clientId,
+      artistId: null,
+      posts: voicePosts(posts),
+      now,
+      venueNames,
+    });
+  } catch {
+    // The clip list still returns. The next Find clips writes the captions.
+  }
+  const heldRes = await db.from("creative_lab_ig_candidates").select("*").eq("client_id", args.clientId);
+  if (heldRes.error) {
+    const message = /does not exist|schema cache|client_id/i.test(heldRes.error.message)
+      ? "Instagram clips can't be listed until the database update is applied."
+      : plainIgMessage(heldRes.error.message);
+    return fail(message);
+  }
+  const clipRes = await db.from("creative_lab_clips").select("external_id, source_file_id").eq("user_id", args.userId).eq("owner", "promoter");
+  if (clipRes.error && !/owner|does not exist|schema cache/i.test(clipRes.error.message)) throw new Error(plainIgMessage(clipRes.error.message));
+  const exclude = new Set<string>();
+  for (const clip of (clipRes.data ?? []) as Row[]) {
+    const external = text(clip, "external_id");
+    const sourceFile = text(clip, "source_file_id");
+    if (external) exclude.add(external);
+    if (sourceFile) exclude.add(sourceFile);
+  }
+  for (const row of (heldRes.data ?? []) as Row[]) {
+    if (HELD.has(text(row, "status"))) {
+      const id = text(row, "ig_media_id");
+      if (id) exclude.add(id);
+    }
+  }
+  const profile = await read.profile(businessId);
+  const followers = profile.ok ? profile.followers : null;
+  const thumbBytes = read.thumb ? await measureThumbs(posts, exclude, read.thumb) : new Map<string, Uint8Array>();
+  const ranked = rankIgPosts(posts, { now, followers, exclude, limit: TOP_N });
+  const store = args.storeThumb ?? ((path: string, bytes: Uint8Array) => storeThumbBytes(db, path, bytes));
+  const thumbPaths = await rememberThumbs(args.clientId, ranked, thumbBytes, store);
+  const candidates: IgCandidate[] = [];
+  for (const row of ranked) {
+    candidates.push({
+      ...row,
+      followersAtFetch: followers,
+      hasFile: true,
+      fileSource: "own_edge",
+      audioMatch: await read.copyright(row.igMediaId),
+      status: "candidate",
+    });
+  }
+  if (candidates.length > 0) {
+    const saved = await db.from("creative_lab_ig_candidates").upsert(
+      candidates.map((row) => ({
+        user_id: args.userId,
+        artist_id: null,
+        client_id: args.clientId,
+        ig_media_id: row.igMediaId,
+        slide_ids: row.slideIds,
+        permalink: row.permalink,
+        caption: row.caption,
+        caption_fetched_at: now.toISOString(),
+        media_type: row.mediaType,
+        media_product_type: row.mediaProductType,
+        posted_at: row.postedAt,
+        likes: row.likes,
+        comments: row.comments,
+        followers_at_fetch: row.followersAtFetch,
+        score: row.score,
+        aspect: row.aspect,
+        thumb_width: row.thumbWidth,
+        thumb_height: row.thumbHeight,
+        has_file: row.hasFile,
+        file_source: row.fileSource,
+        audio_match: row.audioMatch,
+        status: "candidate",
+        reason: null,
+        fetched_at: now.toISOString(),
+        ...(thumbPaths.get(row.igMediaId) ? { thumbnail_path: thumbPaths.get(row.igMediaId) } : {}),
+      })),
+      { onConflict: "client_id,ig_media_id" },
+    );
+    if (saved.error) {
+      const message = /does not exist|schema cache|client_id|artist_id/i.test(saved.error.message)
+        ? "Instagram clips can't be listed until the database update is applied."
+        : plainIgMessage(saved.error.message);
+      return fail(message);
+    }
+  }
+  const cleared = await db.from("clients").update({ ig_last_error: null }).eq("id", args.clientId);
+  if (cleared.error && !/ig_last_error|does not exist|schema cache/i.test(cleared.error.message)) throw new Error(cleared.error.message);
+  return { candidates, error: null, source: "own_edge" };
+}
+
+/**
+ * Thumbnail paths for promoter candidates that were listed with none.
+ * Reads the client's own posts, stores a JPEG only for a row of this client
+ * whose thumbnail_path is empty, and updates that column alone.
+ * Dry when apply is false: nothing is uploaded and no row is written.
+ */
+export async function fillMissingPromoterThumbs(
+  db: ServiceRoleDb,
+  args: {
+    clientId: string;
+    userId: string;
+    apply?: boolean;
+    read?: IgRead;
+    storeThumb?: (path: string, bytes: Uint8Array) => Promise<void>;
+  },
+): Promise<{ filled: { igMediaId: string; path: string }[]; skipped: string[] }> {
+  const clientRes = await db.from("clients").select("id, user_id, instagram_business_id").eq("id", args.clientId).eq("user_id", args.userId).maybeSingle();
+  if (clientRes.error) throw new Error(plainIgMessage(clientRes.error.message));
+  const client = clientRes.data as Row | null;
+  if (!client) throw new Error("No client with that id.");
+  const businessId = text(client, "instagram_business_id");
+  if (!businessId) throw new Error("Add this client's Instagram business account.");
+  const listed = await db.from("creative_lab_ig_candidates").select("id, ig_media_id, thumbnail_path, artist_id, client_id").eq("client_id", args.clientId);
+  if (listed.error) throw new Error(plainIgMessage(listed.error.message));
+  const missing = ((listed.data ?? []) as Row[]).filter((row) => text(row, "client_id") === args.clientId && !text(row, "artist_id") && !text(row, "thumbnail_path") && text(row, "ig_media_id"));
+  if (missing.length === 0) return { filled: [], skipped: [] };
+  const wanted = new Set(missing.map((row) => text(row, "ig_media_id")));
+  let read: IgRead;
+  try {
+    read = args.read ?? (await defaultRead(db, args.userId));
+  } catch (err) {
+    if (err instanceof IgDiscoveryError) throw new Error(err.message);
+    throw err;
+  }
+  const media = await read.media(businessId, MAX_POSTS);
+  if (!media.ok) throw new Error(plainIgMessage(media.message));
+  const posts = media.posts.filter((post) => wanted.has(post.id) || post.children.some((child) => wanted.has(child.id)));
+  const thumbBytes = read.thumb ? await measureThumbs(posts, new Set(), read.thumb) : new Map<string, Uint8Array>();
+  const store = args.storeThumb ?? ((path: string, bytes: Uint8Array) => storeThumbBytes(db, path, bytes));
+  const filled: { igMediaId: string; path: string }[] = [];
+  const skipped: string[] = [];
+  for (const row of missing) {
+    const igMediaId = text(row, "ig_media_id");
+    const file = thumbBytes.get(igMediaId);
+    if (!file) {
+      skipped.push(igMediaId);
+      continue;
+    }
+    const path = igThumbObjectPath(args.clientId, igMediaId);
+    if (!args.apply) {
+      filled.push({ igMediaId, path });
+      continue;
+    }
+    await store(path, file);
+    const updated = await db
+      .from("creative_lab_ig_candidates")
+      .update({ thumbnail_path: path })
+      .eq("id", text(row, "id"))
+      .eq("client_id", args.clientId)
+      .is("artist_id", null);
+    if (updated.error) throw new Error(plainIgMessage(updated.error.message));
+    filled.push({ igMediaId, path });
+  }
+  return { filled, skipped };
+}
+
+export async function requestArtistClip(
+  db: ServiceRoleDb,
+  args: { userId: string; artistId: string; igMediaId: string },
+): Promise<void> {
+  const artistRes = await db.from("creative_lab_artists").select("*").eq("id", args.artistId).eq("user_id", args.userId).maybeSingle();
+  if (artistRes.error) throw new Error(plainIgMessage(artistRes.error.message));
+  if (!artistRes.data) throw new Error("No artist with that id.");
+  const mediaId = args.igMediaId.trim();
+  if (!mediaId) throw new Error("No clip with that id.");
+  const rows = await db.from("creative_lab_ig_candidates").select("*").eq("artist_id", args.artistId).eq("ig_media_id", mediaId);
+  if (rows.error) throw new Error(plainIgMessage(rows.error.message));
+  const row = ((rows.data ?? []) as Row[])[0];
+  if (!row) throw new Error("No clip with that id.");
+  if (text(row, "status") !== "candidate") throw new Error("This clip is already marked.");
+  const updated = await db.from("creative_lab_ig_candidates").update({ status: "requested" }).eq("artist_id", args.artistId).eq("ig_media_id", mediaId);
+  if (updated.error) throw new Error(plainIgMessage(updated.error.message));
+}

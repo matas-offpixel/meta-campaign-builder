@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { ALL_CLIENT_STATUSES, activeClientFilter } from "./client-status";
 import type { ClientRow, ClientStatus } from "./clients";
 
 /**
@@ -15,7 +16,8 @@ import type { ClientRow, ClientStatus } from "./clients";
 export async function listClientsServer(
   userId: string,
   options?: {
-    status?: ClientStatus;
+    /** Unset hides archived clients; `"all"` includes them. */
+    status?: ClientStatus | typeof ALL_CLIENT_STATUSES;
     /**
      * Substring filter on client name. Applied in memory after fetch
      * (RLS-bounded set), mirroring the events-server convention so we
@@ -32,7 +34,8 @@ export async function listClientsServer(
     .eq("user_id", userId)
     .order("name", { ascending: true });
 
-  if (options?.status) query = query.eq("status", options.status);
+  if (!options?.status) query = activeClientFilter(query);
+  else if (options.status !== ALL_CLIENT_STATUSES) query = query.eq("status", options.status);
 
   const { data, error } = await query;
   if (error) {

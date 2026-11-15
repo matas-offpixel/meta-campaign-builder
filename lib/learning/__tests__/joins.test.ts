@@ -1,0 +1,270 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import { currencyResolver } from "../currency.ts";
+import {
+  buildTagIndex,
+  interestKeyOf,
+  joinAdDay,
+  joinRates,
+  metaPhaseByAdSet,
+  resultOf,
+  resultStageByAd,
+  resultStageByAdSet,
+  resultTypeStage,
+  stageOf,
+  tagsForAd,
+} from "../joins.ts";
+import { adDay, joinContext } from "./fixtures.ts";
+
+describe("learning joins: ad-day → client / event", () => {
+  const ctx = joinContext();
+
+  it("launched_ads first", () => {
+    const f = joinAdDay(adDay({ meta_ad_id: "ad-launched", meta_adset_id: "adset-b", campaign_name: "[CODE-C]" }), ctx);
+    assert.deepEqual([f.clientId, f.eventId, f.contextSource], ["client-a", "event-a", "launched_ads"]);
+  });
+
+  it("then launched_ad_sets; an event with no client on the ledger takes the event's client", () => {
+    const f = joinAdDay(adDay({ meta_ad_id: "ad-x", meta_adset_id: "adset-b", campaign_name: "[CODE-C]" }), ctx);
+    assert.deepEqual([f.clientId, f.eventId, f.contextSource], ["client-b", "event-b", "launched_ad_sets"]);
+  });
+
+  it("then [EVENT_CODE] in campaign_name; nothing matched → no client", () => {
+    const coded = joinAdDay(adDay({ meta_ad_id: "ad-y", campaign_name: "[CODE-C] Presale" }), ctx);
+    assert.deepEqual([coded.clientId, coded.eventId, coded.contextSource], ["client-a", "event-c", "campaign_code"]);
+    const none = joinAdDay(adDay({ meta_ad_id: "ad-z", campaign_name: "No code" }), ctx);
+    assert.deepEqual([none.clientId, none.eventId, none.contextSource], [null, null, null]);
+  });
+});
+
+describe("learning joins: ad-day → tags", () => {
+  const index = buildTagIndex(
+    [
+      { event_id: "event-a", creative_name: "Motion 1", tag_id: "t-motion", meta_ad_id: null },
+      { event_id: "event-a", creative_name: "Still 1", tag_id: "t-still", meta_ad_id: "ad-by-id" },
+      { event_id: "event-a", creative_name: "Old", tag_id: "t-unknown", meta_ad_id: null },
+    ],
+    new Set(["t-motion", "t-still"]),
+  );
+
+  it("by meta_ad_id, whatever the ad's name, plus any tags on the ad's (event, name)", () => {
+    assert.deepEqual(tagsForAd("ad-by-id", "event-a", "Unnamed", index), { tagIds: ["t-still"], via: "meta_ad_id" });
+    assert.deepEqual(tagsForAd("ad-by-id", "event-a", "Motion 1", index), {
+      tagIds: ["t-motion", "t-still"],
+      via: "meta_ad_id",
+    });
+  });
+
+  it("an AI tag by name and a caption_style tag by meta_ad_id are both reported", () => {
+    const lab = buildTagIndex(
+      [
+        { event_id: "event-a", creative_name: "LUKEDEAN-clip01_cap-lineup1", tag_id: "t-ai-hook", meta_ad_id: null },
+        { event_id: "event-a", creative_name: "LUKEDEAN-clip01_cap-lineup1", tag_id: "t-caption", meta_ad_id: "ad-lab" },
+      ],
+      new Set(["t-ai-hook", "t-caption"]),
+    );
+    assert.deepEqual(tagsForAd("ad-lab", "event-a", "LUKEDEAN-clip01_cap-lineup1", lab), {
+      tagIds: ["t-ai-hook", "t-caption"],
+      via: "meta_ad_id",
+    });
+  });
+
+  it("else by (event_id, creative_name = ad_name); another event's name does not match", () => {
+    assert.deepEqual(tagsForAd("ad-other", "event-a", " Motion 1 ", index), { tagIds: ["t-motion"], via: "name" });
+    assert.deepEqual(tagsForAd("ad-other", "event-b", "Motion 1", index), { tagIds: [], via: null });
+    assert.deepEqual(tagsForAd("ad-other", null, "Motion 1", index), { tagIds: [], via: null });
+  });
+
+  it("assignments to tags outside the taxonomy are ignored", () => {
+    assert.deepEqual(tagsForAd("ad-other", "event-a", "Old", index), { tagIds: [], via: null });
+  });
+
+  it("join rate = tagged ad-days ÷ ad-days per client", () => {
+    const ctx = joinContext({
+      assignments: [{ event_id: "event-a", creative_name: "Motion 1", tag_id: "t-motion", meta_ad_id: null }],
+    });
+    const facts = [
+      joinAdDay(adDay({ meta_ad_id: "ad-launched", ad_name: "Motion 1" }), ctx),
+      joinAdDay(adDay({ meta_ad_id: "ad-launched", ad_name: "Motion 1", date: "2026-10-02" }), ctx),
+      joinAdDay(adDay({ meta_ad_id: "ad-y", ad_name: "Untagged", campaign_name: "[CODE-C]" }), ctx),
+    ];
+    assert.deepEqual(joinRates(facts).get("client-a"), { adDays: 3, tagged: 2, byAdId: 0, byName: 2, rate: 2 / 3 });
+  });
+});
+
+describe("learning joins: stage", () => {
+  const st = (...args: Parameters<typeof stageOf>) => {
+    const { stage, source } = stageOf(...args);
+    return `${stage}/${source}`;
+  };
+
+  it("phase_at_launch first, ahead of event dates: a presale ad set after general sale stays registration", () => {
+    const event = { clientId: "c", generalSaleAt: "2026-10-03T09:00:00Z", presaleAt: "2026-09-30T09:00:00Z" };
+    assert.equal(st("2026-10-05", event, "presale"), "registration/phase_at_launch");
+    assert.equal(st("2026-10-01", event, "on_sale"), "ticket_sale/phase_at_launch");
+    assert.equal(st("2026-10-01", event, "waiting_list"), "registration/phase_at_launch");
+    assert.equal(st("2026-10-01", null, "on_sale", "presale", "registration", "registration"), "ticket_sale/phase_at_launch");
+  });
+
+  it("no phase → event dates: before general sale is registration; the general sale day and after is ticket_sale", () => {
+    const event = { clientId: "c", generalSaleAt: "2026-10-03T09:00:00Z", presaleAt: "2026-09-30T09:00:00Z" };
+    assert.equal(st("2026-10-02", event, null, null, "ticket_sale"), "registration/event_dates");
+    assert.equal(st("2026-10-03", event, null), "ticket_sale/event_dates");
+  });
+
+  it("presale is the boundary when there is no general sale date", () => {
+    const event = { clientId: "c", generalSaleAt: null, presaleAt: "2026-10-02T09:00:00Z" };
+    assert.equal(st("2026-10-01", event, null), "registration/event_dates");
+    assert.equal(st("2026-10-02", event, null), "ticket_sale/event_dates");
+  });
+
+  it("no phase and no dates → the ad's result type, then the ad set's, else unknown", () => {
+    const undated = { clientId: "c", generalSaleAt: null, presaleAt: null };
+    assert.equal(st("2026-10-01", undated, null, null, "registration"), "registration/objective");
+    assert.equal(st("2026-10-01", null, null, null, "ticket_sale"), "ticket_sale/objective");
+    assert.equal(st("2026-10-01", undated, null, null, null, "ticket_sale"), "ticket_sale/adset_objective");
+    assert.equal(st("2026-10-01", undated, null, null, "registration", "ticket_sale"), "registration/objective");
+    assert.equal(st("2026-10-01", undated, null), "unknown/unknown");
+    assert.equal(st("2026-10-01", null, null, null, null), "unknown/unknown");
+  });
+
+  it("result type: registration and lead pixel types → registration, purchase → ticket_sale", () => {
+    assert.equal(resultTypeStage("offsite_conversion.fb_pixel_complete_registration"), "registration");
+    assert.equal(resultTypeStage("complete_registration"), "registration");
+    assert.equal(resultTypeStage("offsite_conversion.fb_pixel_lead"), "registration");
+    assert.equal(resultTypeStage("lead"), "registration");
+    assert.equal(resultTypeStage("offsite_conversion.fb_pixel_purchase"), "ticket_sale");
+    assert.equal(resultTypeStage("landing_page_view"), null);
+    assert.equal(resultTypeStage(null), null);
+  });
+
+  it("result type is read per ad: the stage most result days carry, none on a tie or with no result day", () => {
+    const reg = "offsite_conversion.fb_pixel_complete_registration";
+    const buy = "offsite_conversion.fb_pixel_purchase";
+    const map = resultStageByAd([
+      { meta_ad_id: "r", result_action_type: reg },
+      { meta_ad_id: "r", result_action_type: reg },
+      { meta_ad_id: "r", result_action_type: buy },
+      { meta_ad_id: "r", result_action_type: null },
+      { meta_ad_id: "p", result_action_type: buy },
+      { meta_ad_id: "tie", result_action_type: reg },
+      { meta_ad_id: "tie", result_action_type: buy },
+      { meta_ad_id: "none", result_action_type: null },
+    ]);
+    assert.deepEqual(Object.fromEntries(map), { r: "registration", p: "ticket_sale" });
+  });
+
+  it("ad set result type: the stage most of the ad set's result days carry, across its ads", () => {
+    const reg = "offsite_conversion.fb_pixel_complete_registration";
+    const map = resultStageByAdSet([
+      { meta_ad_id: "a1", meta_adset_id: "s1", result_action_type: reg },
+      { meta_ad_id: "a2", meta_adset_id: "s1", result_action_type: reg },
+      { meta_ad_id: "a3", meta_adset_id: "s1", result_action_type: null },
+      { meta_ad_id: "a4", meta_adset_id: null, result_action_type: reg },
+      { meta_ad_id: "a5", meta_adset_id: "s2", result_action_type: null },
+    ]);
+    assert.deepEqual(Object.fromEntries(map), { s1: "registration" });
+  });
+
+  it("joinAdDay: an ad with no result day takes its ad set's result stage, recorded as adset_objective", () => {
+    const ctx = joinContext({
+      adResultStage: new Map([["ad-own", "ticket_sale"]]),
+      adSetResultStage: new Map([["adset-sib", "registration"]]),
+    });
+    const quiet = joinAdDay(adDay({ meta_ad_id: "ad-quiet", meta_adset_id: "adset-sib", campaign_name: "[CODE-C]", spend: 9 }), ctx);
+    assert.deepEqual([quiet.stage, quiet.stageSource, quiet.result], ["registration", "adset_objective", 0]);
+    const own = joinAdDay(adDay({ meta_ad_id: "ad-own", meta_adset_id: "adset-sib", campaign_name: "[CODE-C]" }), ctx);
+    assert.deepEqual([own.stage, own.stageSource], ["ticket_sale", "objective"]);
+  });
+
+  it("joinAdDay reads the ad set's phase when the event has no dates; unknown is kept with no result", () => {
+    const ctx = joinContext();
+    const phased = joinAdDay(adDay({ meta_ad_id: "ad-y", meta_adset_id: "adset-phase", campaign_name: "[CODE-C]", purchases: 2 }), ctx);
+    assert.deepEqual([phased.stage, phased.stageSource, phased.result], ["ticket_sale", "phase_at_launch", 2]);
+    const unknown = joinAdDay(adDay({ meta_ad_id: "ad-y", campaign_name: "[CODE-C]", registrations: 5 }), ctx);
+    assert.deepEqual([unknown.stage, unknown.stageSource, unknown.result], ["unknown", "unknown", null]);
+  });
+
+  it("joinAdDay: the ad set's phase beats the event's dates; with no phase, dates beat the ad's result days", () => {
+    const ctx = joinContext({
+      adSetPhase: new Map([["adset-pre", "presale"]]),
+      adResultStage: new Map([["ad-launched", "ticket_sale"]]),
+    });
+    // event-a's general sale is 2026-10-03; this day is after it.
+    const late = joinAdDay(adDay({ meta_ad_id: "ad-launched", meta_adset_id: "adset-pre", date: "2026-10-05", registrations: 4 }), ctx);
+    assert.deepEqual([late.eventId, late.stage, late.stageSource, late.result], ["event-a", "registration", "phase_at_launch", 4]);
+    const dated = joinAdDay(adDay({ meta_ad_id: "ad-launched", date: "2026-10-05", purchases: 1 }), ctx);
+    assert.deepEqual([dated.stage, dated.stageSource, dated.result], ["ticket_sale", "event_dates", 1]);
+  });
+
+  it("meta_objective beats event dates and result days, and loses to phase_at_launch", () => {
+    const event = { clientId: "c", generalSaleAt: "2026-10-03T09:00:00Z", presaleAt: null };
+    assert.equal(st("2026-10-05", event, null, "presale", "ticket_sale"), "registration/meta_objective");
+    assert.equal(st("2026-10-01", event, null, "on_sale"), "ticket_sale/meta_objective");
+    assert.equal(st("2026-10-01", event, "on_sale", "presale"), "ticket_sale/phase_at_launch");
+    assert.equal(st("2026-10-01", event, null, null), "registration/event_dates");
+  });
+
+  it("metaPhaseByAdSet: one phase per ad set from its ad-days; unanswerable ad sets left out", () => {
+    const map = metaPhaseByAdSet([
+      { meta_adset_id: "reg", campaign_objective: "OUTCOME_SALES", optimization_goal: "OFFSITE_CONVERSIONS", promoted_event: null },
+      { meta_adset_id: "reg", campaign_objective: "OUTCOME_SALES", optimization_goal: "OFFSITE_CONVERSIONS", promoted_event: "COMPLETE_REGISTRATION" },
+      { meta_adset_id: "buy", campaign_objective: "OUTCOME_SALES", optimization_goal: "OFFSITE_CONVERSIONS", promoted_event: "PURCHASE" },
+      { meta_adset_id: "reach", campaign_objective: "OUTCOME_AWARENESS", optimization_goal: "REACH", promoted_event: null },
+      { meta_adset_id: "pending", campaign_objective: "OUTCOME_SALES", optimization_goal: "OFFSITE_CONVERSIONS", promoted_event: null },
+      { meta_adset_id: "old", campaign_objective: null, optimization_goal: null, promoted_event: null },
+      { meta_adset_id: null, campaign_objective: "OUTCOME_TRAFFIC", optimization_goal: "LINK_CLICKS", promoted_event: null },
+    ]);
+    assert.deepEqual(Object.fromEntries(map), { reg: "presale", buy: "on_sale", reach: "on_sale" });
+  });
+
+  it("joinAdDay: an unlaunched ad set's Meta objective stages it ahead of the event's dates", () => {
+    const ctx = joinContext({ adSetMetaPhase: new Map([["adset-reg", "presale"], ["adset-phase", "presale"]]) });
+    // event-a's general sale is 2026-10-03; this day is after it.
+    const reg = joinAdDay(adDay({ meta_ad_id: "ad-launched", meta_adset_id: "adset-reg", date: "2026-10-05", registrations: 3 }), ctx);
+    assert.deepEqual([reg.stage, reg.stageSource, reg.result], ["registration", "meta_objective", 3]);
+    const launched = joinAdDay(adDay({ meta_ad_id: "ad-y", meta_adset_id: "adset-phase", campaign_name: "[CODE-C]" }), ctx);
+    assert.deepEqual([launched.stage, launched.stageSource], ["ticket_sale", "phase_at_launch"]);
+  });
+
+  it("result: registrations in registration, purchases in ticket_sale", () => {
+    const row = { registrations: 7, purchases: 2 };
+    assert.equal(resultOf("registration", row), 7);
+    assert.equal(resultOf("ticket_sale", row), 2);
+    assert.equal(resultOf("unknown", row), null);
+  });
+
+  it("ticket_sale counts initiate checkout when that is the ad set's promoted event, and does not add the alias", () => {
+    const row = {
+      registrations: 9,
+      purchases: 0,
+      promoted_event: "INITIATED_CHECKOUT",
+      actions: [
+        { action_type: "offsite_conversion.fb_pixel_initiate_checkout", value: "4" },
+        { action_type: "initiate_checkout", value: "4" },
+      ],
+    };
+    assert.equal(resultOf("ticket_sale", row), 4);
+    assert.equal(resultOf("registration", row), 9);
+  });
+});
+
+describe("learning joins: currency and interest keys", () => {
+  it("spend converts to GBP: stored currency first, then the 2026-10-06 map; unknown accounts are GBP and reported", () => {
+    const resolver = currencyResolver(new Map([["act_555", "EUR"]]));
+    assert.equal(resolver.rate("act_555"), 0.848824);
+    assert.equal(resolver.rate("968594768066330"), 0.753239);
+    assert.equal(resolver.rate("act_1967530076312"), 1);
+    assert.equal(resolver.rate("act_999"), 1);
+    assert.deepEqual([...resolver.assumed], ["999"]);
+    const f = joinAdDay(adDay({ meta_ad_id: "ad-launched", ad_account_id: "act_968594768066330", spend: 100 }), joinContext());
+    assert.equal(f.spendGbp, 75.3239);
+  });
+
+  it("interest key: sorted, deduped ids from strings or {id} objects", () => {
+    assert.equal(interestKeyOf(["2", "1", "2"]), "1,2");
+    assert.equal(interestKeyOf([{ id: "2" }, { id: 1 }]), "1,2");
+    assert.equal(interestKeyOf(null), "");
+  });
+});

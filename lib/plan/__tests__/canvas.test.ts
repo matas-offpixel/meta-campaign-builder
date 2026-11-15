@@ -98,7 +98,7 @@ describe("zone A · header", () => {
     assert.equal(planPageTitle({ name: "D.O.D" }), "D.O.D");
     assert.equal(planPageTitle({ name: "Jamie Jones" }), "Jamie Jones");
     assert.equal(planPageTitle(null), "");
-    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    const page = readFileSync("app/(dashboard)/mml/[id]/page.tsx", "utf8");
     assert.match(page, /planPageTitle\(selectedEvent\)/);
     assert.doesNotMatch(page, /title=\{workspacePlan\.name/);
   });
@@ -538,7 +538,7 @@ describe("zone G · one button", () => {
     assert.equal(planCanvasState({ plan, rows, liveSpend: null }), "ready");
 
     const button = planLaunchButton({ ...open, state: "ready", rows, preflightOk: true });
-    assert.equal(button.label, "⏸ Launch");
+    assert.equal(button.label, "Launch all (paused)");
     assert.equal(button.disabled, false);
     assert.equal(button.reason, null);
   });

@@ -66,19 +66,29 @@ describe("lookupFallbackGeoConstant", () => {
 
   it("is case-insensitive and normalises whitespace", () => {
     assert.equal(lookupFallbackGeoConstant("LONDON"), "geoTargetConstants/1006886");
-    assert.equal(lookupFallbackGeoConstant("  south  east  "), "geoTargetConstants/9049069");
+    assert.equal(lookupFallbackGeoConstant("  manchester  "), "geoTargetConstants/1006912");
   });
 
-  it("Wales fix: Wales maps to 20338 (not 20339/England)", () => {
+  it("Wales is 20343, not England's 20339", () => {
     const wales = lookupFallbackGeoConstant("wales");
-    assert.equal(wales, "geoTargetConstants/20338", "Wales must NOT share England's ID (20339)");
+    assert.equal(wales, "geoTargetConstants/20343");
     const england = lookupFallbackGeoConstant("england");
     assert.equal(england, "geoTargetConstants/20339");
-    assert.notEqual(wales, england, "Wales and England must have different geoTargetConstant IDs");
+    assert.notEqual(wales, england);
   });
 
-  it("Scotland maps to 20337", () => {
-    assert.equal(lookupFallbackGeoConstant("scotland"), "geoTargetConstants/20337");
+  it("Scotland is 20342 and Northern Ireland is 20341", () => {
+    assert.equal(lookupFallbackGeoConstant("scotland"), "geoTargetConstants/20342");
+    assert.equal(lookupFallbackGeoConstant("northern ireland"), "geoTargetConstants/20341");
+  });
+
+  it("an English region resolves to nothing, not a nearby ID", () => {
+    assert.equal(lookupFallbackGeoConstant("south east"), null);
+    assert.equal(lookupFallbackGeoConstant("  south  east  england "), null);
+    assert.equal(lookupFallbackGeoConstant("west midlands"), null);
+    for (const resource of GEO_TARGET_CONSTANTS_MAP.values()) {
+      assert.equal(resource.includes("9049069"), false);
+    }
   });
 
   it("UK aliases all resolve to 2826", () => {
@@ -135,6 +145,14 @@ describe("resolveGeoLocation", () => {
   it("returns null for unresolvable locations", async () => {
     const { client } = makeClient({ atlantis: null });
     const result = await resolveGeoLocation("atlantis", client as never, CREDS);
+    assert.equal(result, null);
+  });
+
+  it("does not use a suggest hit for an English region", async () => {
+    const { client } = makeClient({
+      "south east": { resourceName: "geoTargetConstants/9049069", displayName: "Estepona" },
+    });
+    const result = await resolveGeoLocation("South East", client as never, CREDS);
     assert.equal(result, null);
   });
 

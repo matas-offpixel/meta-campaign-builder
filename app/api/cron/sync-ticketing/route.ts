@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   getConnectionWithDecryptedCredentials,
@@ -115,7 +117,7 @@ function isAuthorized(req: NextRequest): boolean {
   return header.trim() === expected.trim();
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
@@ -405,3 +407,19 @@ export async function GET(req: NextRequest) {
   };
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "sync-ticketing",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.connectionsProcessed ?? 0),
+  considered: (b) => Number(b.connectionsConsidered ?? 0),
+  },
+  handleGET,
+);

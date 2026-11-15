@@ -3,6 +3,11 @@ import "server-only";
 import type { DatePreset } from "@/lib/insights/types";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
+  activeClientFilter,
+  loadArchivedClientIds,
+  logSkippedArchivedClients,
+} from "@/lib/db/client-status";
+import {
   assignEventToDashboardTab,
   categorizeEvent,
   isGeographicRegionKey,
@@ -183,13 +188,16 @@ export async function buildClientFunnelPacing(
 export async function refreshDerivedFunnelPacingTargets(): Promise<{
   clients: number;
   refreshed: number;
+  skippedArchivedClients: number;
 }> {
   const supabase = createServiceRoleClient();
-  const { data, error } = await supabase
-    .from("clients")
-    .select("id")
-    .limit(1000);
+  const clientsQuery = supabase.from("clients").select("id");
+  const [{ data, error }, archivedClientIds] = await Promise.all([
+    activeClientFilter(clientsQuery).limit(1000),
+    loadArchivedClientIds(supabase),
+  ]);
   if (error) throw new Error(error.message);
+  logSkippedArchivedClients("funnel-pacing-refresh", archivedClientIds.size);
 
   let refreshed = 0;
   for (const client of (data ?? []) as Array<{ id: string }>) {
@@ -210,7 +218,11 @@ export async function refreshDerivedFunnelPacingTargets(): Promise<{
     }
   }
 
-  return { clients: (data ?? []).length, refreshed };
+  return {
+    clients: (data ?? []).length,
+    refreshed,
+    skippedArchivedClients: archivedClientIds.size,
+  };
 }
 
 function buildStages(

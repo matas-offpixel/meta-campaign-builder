@@ -459,19 +459,49 @@ export function boxesIntersect(
   return Math.abs(a.x - b.x) < (a.w + b.w) / 2;
 }
 
-/** Hide later moment nouns when their label boxes intersect an earlier kept one. */
+/** 12px label type runs ~7px a character; never narrower than the old fixed box. */
+export function estimateMomentLabelWidth(noun: string): number {
+  return Math.max(WINDOW_MOMENT_LABEL_WIDTH, Math.ceil(noun.length * 7) + 8);
+}
+
+/**
+ * Collision box for a moment label, as a centre and a width. Edge marks
+ * are not centred on their tick (`momentMarkAlign`), so the box moves
+ * with them: a `presale passed Fri 18 Sep` label at the rail start runs
+ * right from the tick, and must be measured where it is drawn.
+ */
+export function momentLabelBox(input: {
+  x: number;
+  noun: string;
+  align: "start" | "center" | "end";
+}): { x: number; width: number } {
+  const width = estimateMomentLabelWidth(input.noun);
+  if (input.align === "start") return { x: input.x + width / 2, width };
+  if (input.align === "end") return { x: input.x - width / 2, width };
+  return { x: input.x, width };
+}
+
+/**
+ * Hide moment nouns whose label boxes intersect one already kept. Marks
+ * with `keep` (a same-day join such as `presale … · gen sale …`) are
+ * placed first, so a single noun beside a join folds into its tip rather
+ * than printing over it. Otherwise the earlier mark wins.
+ */
 export function collapseOverlappingMomentLabels(
-  marks: { id: string; x: number; width: number }[],
+  marks: { id: string; x: number; width: number; keep?: boolean }[],
 ): Set<string> {
   const hidden = new Set<string>();
-  const sorted = [...marks].sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
-  let kept: { x: number; w: number } | null = null;
+  const sorted = [...marks].sort(
+    (a, b) => Number(!!b.keep) - Number(!!a.keep) || a.x - b.x || a.id.localeCompare(b.id),
+  );
+  const kept: { x: number; w: number }[] = [];
   for (const mark of sorted) {
-    if (kept && boxesIntersect({ x: kept.x, w: kept.w }, { x: mark.x, w: mark.width })) {
+    const box = { x: mark.x, w: mark.width };
+    if (kept.some((other) => boxesIntersect(other, box))) {
       hidden.add(mark.id);
       continue;
     }
-    kept = { x: mark.x, w: mark.width };
+    kept.push(box);
   }
   return hidden;
 }

@@ -6,13 +6,31 @@ import type { CampaignDraft, WizardStep } from "./types.ts";
 import { attachedAdSetKey, getVisibleSteps } from "./types.ts";
 import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts";
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
-import { creativeHasBookNowMultiPlacementConflict } from "./meta/creative.ts";
 import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
+import { cityRadiusProblemInDraft } from "./meta/location-radius.ts";
 import {
-  importedAccountProblem,
+  audienceAccountMismatch,
+  belongsToOtherAccountLabel,
+  enabledAdSetSourceIds,
+} from "./audiences/audience-account.ts";
+import {
+  adSetAudienceRemoved,
   importedAdSetsDefineAudience,
   objectivePixelProblem,
 } from "./wizard/import-edits.ts";
+import { ADD_SUBMODE_REQUIRED } from "./library/add-to-campaign.ts";
+import { rotationAssignmentErrors } from "./meta/rotation-adset.ts";
+
+export const ATTACH_EVENT_BEFORE_LAUNCH = "Attach an event before launching";
+
+/** Uploaded on the draft, but the Meta id was cleared with the previous ad account. */
+export function slotNeedsAccountReupload(slot: {
+  uploadStatus?: string;
+  assetHash?: string;
+  videoId?: string;
+}): boolean {
+  return slot.uploadStatus === "uploaded" && !slot.assetHash?.trim() && !slot.videoId?.trim();
+}
 
 export interface ValidationResult {
   valid: boolean;
@@ -47,8 +65,6 @@ function validateAccountSetup(draft: CampaignDraft): ValidationResult {
   const hasAccount =
     !!draft.settings.metaAdAccountId || !!draft.settings.adAccountId;
   if (!hasAccount) errors.push("Ad account is required");
-  const accountProblem = importedAccountProblem(draft);
-  if (accountProblem) errors.push(accountProblem);
   // Facebook page and Instagram account are selected per ad in the Creatives step.
   return { valid: errors.length === 0, errors };
 }
@@ -56,6 +72,11 @@ function validateAccountSetup(draft: CampaignDraft): ValidationResult {
 function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
   const mode = draft.settings.wizardMode ?? "new";
+
+  if (draft.settings.attachSubmodePending) {
+    errors.push(ADD_SUBMODE_REQUIRED);
+    return { valid: false, errors };
+  }
 
   if (mode === "attach_adset") {
     // Attaching to one or more existing ad sets (possibly cross-campaign).
@@ -128,6 +149,7 @@ function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   if (!draft.settings.campaignName.trim()) errors.push("Campaign name is required");
   if (!draft.settings.objective) errors.push("Campaign objective is required");
   if (!draft.settings.optimisationGoal) errors.push("Optimisation goal is required");
+  if (!draft.settings.eventId?.trim()) errors.push(ATTACH_EVENT_BEFORE_LAUNCH);
   if (draft.importMeta) {
     const pixelProblem = objectivePixelProblem(draft);
     if (pixelProblem) errors.push(pixelProblem);
@@ -152,13 +174,39 @@ function validateOptimisationStrategy(draft: CampaignDraft): ValidationResult {
   return { valid: errors.length === 0, errors };
 }
 
-function validateAudiences(draft: CampaignDraft): ValidationResult {
-  // Inherited from live ad sets in attach_adset / attach_all_adsets mode.
-  if (
+function foreignAudienceNotes(draft: CampaignDraft): { errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const launchAccount = draft.settings.metaAdAccountId || draft.settings.adAccountId;
+  const referenced = enabledAdSetSourceIds(draft.adSetSuggestions ?? []);
+  for (const group of draft.audiences.pageGroups) {
+    for (const status of group.engagementAudienceStatuses ?? []) {
+      if (!audienceAccountMismatch(status.accountId, launchAccount)) continue;
+      const name = group.name || "Page group";
+      const line = `${name}: ${belongsToOtherAccountLabel(status.accountId ?? "")}`;
+      if (referenced.has(group.id)) errors.push(line);
+      else warnings.push(line);
+    }
+  }
+  return { errors, warnings };
+}
+
+function audiencesComeFromLiveAdSets(draft: CampaignDraft): boolean {
+  return (
     draft.settings.wizardMode === "attach_adset" ||
     draft.settings.wizardMode === "attach_all_adsets"
-  ) {
-    return { valid: true, errors: [] };
+  );
+}
+
+function validateAudiences(draft: CampaignDraft): ValidationResult {
+  // Attach-to-ad-set launches never send the draft's audiences. A foreign
+  // audience is a note, not a blocker.
+  if (audiencesComeFromLiveAdSets(draft)) {
+    const foreign = foreignAudienceNotes(draft);
+    const warnings = [...foreign.errors, ...foreign.warnings];
+    return warnings.length > 0
+      ? { valid: true, errors: [], warnings }
+      : { valid: true, errors: [] };
   }
   const errors: string[] = [];
   const { audiences } = draft;
@@ -177,13 +225,20 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
     errors.push("Select at least one audience source");
   }
 
+  const foreign = foreignAudienceNotes(draft);
+  errors.push(...foreign.errors);
+
   for (const pageId of findMultiIgPagesMissingOverride(draft)) {
     errors.push(
       `Page ${pageId} has multiple linked Instagram accounts — pick one in the Instagram Account section below`,
     );
   }
 
-  return { valid: errors.length === 0, errors };
+  return {
+    valid: errors.length === 0,
+    errors,
+    ...(foreign.warnings.length ? { warnings: foreign.warnings } : {}),
+  };
 }
 
 function isValidUrl(value: string): boolean {
@@ -220,6 +275,11 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
     errors.push("Add at least one ad");
     return { valid: false, errors };
   }
+
+  const accountName =
+    draft.settings.metaAdAccountId?.trim() ||
+    draft.settings.adAccountId?.trim() ||
+    "this ad account";
 
   draft.creatives.forEach((c, i) => {
     const label = c.name?.trim() ? `"${c.name}"` : `Ad #${i + 1}`;
@@ -262,6 +322,10 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
                 errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Upload still in progress`);
               } else if (slot.uploadStatus === "error") {
                 errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Upload failed — retry or remove`);
+              } else if (slotNeedsAccountReupload(slot)) {
+                errors.push(
+                  `${label} › ${varLabel} › ${slot.aspectRatio}: Re-upload to ${accountName} — this asset belongs to the previous ad account`,
+                );
               }
             }
           }
@@ -276,24 +340,20 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
           `${label}: This is an Instagram video. This campaign optimises for a website event; the boosted post needs a destination URL`,
         );
       }
+      if (c.destinationUrl?.trim() && !c.cta) {
+        errors.push(`${label}: A destination URL needs a call to action`);
+      }
     }
 
-    // Asset completeness: dual/full mode requires all aspect ratio slots to have
-    // a Meta asset ID before launch (assetHash for images, videoId for videos).
-    for (const issue of validateCreativeAssetCompleteness(c)) {
-      errors.push(
-        `${label} › ${issue.variationName}: ${issue.assetMode} mode requires ${issue.missingRatios.join(" + ")} — upload the missing aspect ratio(s) or switch to Single mode`,
-      );
-    }
-
-    // BOOK_NOW + Dual/Full mode silently drops the Feed asset (Meta subcode
-    // 1885396, PR #574/#575) — hard-block here rather than only showing the
-    // inline warning. Bulk-attach already blocks this (PR #719); this closes
-    // the same gap in the main wizard (task #93).
-    if (creativeHasBookNowMultiPlacementConflict(c)) {
-      errors.push(
-        `${label}: Can't launch with "Book Now" CTA across multiple asset placements — switch CTA to Buy Tickets (or another non-Book Now CTA) to preserve per-placement asset routing`,
-      );
+    // A boosted post has no asset slots. The post is the creative.
+    if (sourceType !== "existing_post") {
+      // Asset completeness: dual/full mode requires all aspect ratio slots to have
+      // a Meta asset ID before launch (assetHash for images, videoId for videos).
+      for (const issue of validateCreativeAssetCompleteness(c)) {
+        errors.push(
+          `${label} › ${issue.variationName}: ${issue.assetMode} mode requires ${issue.missingRatios.join(" + ")} — upload the missing aspect ratio(s) or switch to Single mode`,
+        );
+      }
     }
   });
 
@@ -301,6 +361,11 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
     errors.push(
       `${pageId}: Pick the Instagram account for this Facebook Page before continuing`,
     );
+  }
+
+  // attach_all has no assign step. Every creative lands on every existing ad set.
+  if (draft.settings.wizardMode === "attach_all_adsets") {
+    errors.push(...rotationAssignmentErrors(draft));
   }
 
   return { valid: errors.length === 0, errors };
@@ -320,12 +385,22 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
     errors.push("Budget amount must be greater than 0");
   }
   if (!bs.startDate) errors.push("Start date is required");
-  if (!bs.endDate) errors.push("End date is required");
+  if (!bs.endDate) {
+    errors.push(
+      bs.budgetType === "lifetime"
+        ? "Lifetime budgets need an end date."
+        : "End date is required",
+    );
+  }
   if (bs.startDate && bs.endDate && bs.startDate >= bs.endDate) {
     errors.push("End date must be after start date");
   }
-  const enabled = (draft.adSetSuggestions ?? []).filter((s) => s.enabled);
+  const enabled = (draft.adSetSuggestions ?? []).filter(
+    (s) => s.enabled && !adSetAudienceRemoved(s, draft.audiences),
+  );
   errors.push(...findAdSetLocationProblems(enabled, bs));
+  const radiusProblem = cityRadiusProblemInDraft(draft);
+  if (radiusProblem) errors.push(radiusProblem);
   const warnings = findAdSetLocationWarnings(enabled, bs);
   return { valid: errors.length === 0, errors, ...(warnings.length ? { warnings } : {}) };
 }
@@ -363,10 +438,13 @@ function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
         );
       }
     }
+    errors.push(...rotationAssignmentErrors(draft));
     return { valid: errors.length === 0, errors };
   }
 
-  const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
+  const enabledSets = draft.adSetSuggestions.filter(
+    (s) => s.enabled && !adSetAudienceRemoved(s, draft.audiences),
+  );
   if (enabledSets.length === 0) {
     errors.push("Enable at least one ad set");
   }
@@ -376,6 +454,7 @@ function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
   if (!hasAssignment && draft.creatives.length > 0 && enabledSets.length > 0) {
     errors.push("Assign at least one creative to an ad set");
   }
+  errors.push(...rotationAssignmentErrors(draft));
   return { valid: errors.length === 0, errors };
 }
 

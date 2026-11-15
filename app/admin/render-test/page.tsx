@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { CaptionOnClipForm } from "@/components/admin/caption-on-clip-form";
 import { RenderTestForm } from "@/components/admin/render-test-form";
 import { createClient } from "@/lib/supabase/server";
 
@@ -28,6 +29,9 @@ export default async function AdminRenderTestPage() {
         </p>
       </div>
       <RenderTestForm />
+      <div className="pt-12">
+        <CaptionOnClipForm />
+      </div>
     </main>
   );
 }

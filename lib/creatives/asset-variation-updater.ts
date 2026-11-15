@@ -64,7 +64,8 @@ export function applyVariationUpdate(
 
 /**
  * The Meta wizard's upload write. Applies the slot patch, then names the
- * creative from the first filename while the name is still `Ad N` or blank.
+ * creative from the first filename unless the operator typed the name or an
+ * earlier file already did.
  */
 export function applyNamedVariationUpdate(
   creatives: AdCreativeDraft[],

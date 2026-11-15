@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Off Pixel — Creative Lab, pass 2 — 6 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --meta:#5B7FA6; --ig:#B0607A; --tt:#6E5A9E; --sp:#3D7A52;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:22px;font-weight:600;margin:0 0 6px}
+h2{font-size:16px;font-weight:600;margin:52px 0 8px}
+p{margin:0 0 10px;max-width:80ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.note{background:var(--card);border-radius:10px;padding:16px 20px;margin:16px 0 24px}
+.note ol{margin:6px 0 0 18px;padding:0}.note li{margin:0 0 6px;max-width:92ch;font-size:13px}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.w1280{width:1040px;padding:20px}
+.w393{width:393px;padding:12px}
+.strike{text-decoration:line-through;color:var(--ink-3)}
+/* surfaces */
+.panel{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.sec-h h3{margin:0;font-size:13px;font-weight:600}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn[disabled]{opacity:.45}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:color-mix(in srgb,var(--olive) 55%,transparent)}
+.chip.warn{color:var(--ochre);border-color:color-mix(in srgb,var(--ochre) 55%,transparent)}
+.chip.bad{color:var(--brick);border-color:color-mix(in srgb,var(--brick) 55%,transparent)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.chip.lose{background:var(--brick);color:#fff;border-color:var(--brick)}
+.muted{color:var(--ink-3)}
+.mono{font-family:var(--mono)}
+/* F1 strip */
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:var(--card);border-radius:10px;overflow:hidden;margin:0 0 10px}
+.step{padding:12px 14px;border-right:1px solid var(--border);position:relative}
+.step:last-child{border-right:0}
+.step .n{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.step .s{font-size:12px;color:var(--ink-2);margin-top:2px}
+.step.now{background:var(--edit);box-shadow:inset 0 -3px 0 var(--ink)}
+.step .k{margin-bottom:6px}
+.next{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;margin:0 0 10px}
+.working{display:flex;gap:10px;align-items:baseline;font-size:12.5px;color:var(--ink-2);padding:8px 12px;border:1px solid var(--border);border-radius:8px}
+.w393 .strip{grid-template-columns:repeat(4,1fr)}
+.w393 .step{padding:9px 8px}
+.w393 .step .n{font-size:17px}
+.w393 .step .s{font-size:10.5px;line-height:1.3}
+.w393 .next{flex-direction:column;align-items:stretch}
+/* F2 lineup */
+.arow{display:grid;grid-template-columns:16px 40px minmax(0,1.3fr) minmax(0,1fr) 150px auto;gap:12px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border)}
+.arow:last-of-type{border-bottom:0}
+.drag{color:var(--ink-3);font-size:14px;letter-spacing:-2px;cursor:grab}
+.ph{width:40px;height:40px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font:700 13px var(--sans);color:#fff}
+.who b{display:flex;align-items:center;gap:6px;font-size:14px}
+.star{color:var(--ochre);font-size:14px}
+.star.off{color:var(--ink-3);opacity:.5}
+.handles{display:flex;gap:8px;margin-top:3px;font:11px var(--mono);color:var(--ink-3);flex-wrap:wrap}
+.handles i{font-style:normal;display:inline-flex;align-items:center;gap:3px}
+.dot{width:8px;height:8px;border-radius:2px;display:inline-block}
+.clipsct{font-size:12px;color:var(--ink-2)}
+.clipsct b{font-variant-numeric:tabular-nums}
+.typeahead{margin-top:10px;position:relative}
+.ta-in{display:flex;align-items:center;gap:8px;height:38px;background:var(--edit);border:1px solid var(--border-strong);border-radius:8px;padding:0 10px;font-size:14px}
+.ta-in .caret{width:1px;height:18px;background:var(--ink)}
+.ta-pop{position:relative;margin-top:6px;background:var(--edit);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 20px rgba(30,24,16,.12);padding:6px;max-width:460px}
+.ta-row{display:grid;grid-template-columns:32px 1fr auto;gap:10px;align-items:center;padding:6px;border-radius:6px}
+.ta-row.hi{background:var(--muted)}
+.ta-row .ph{width:32px;height:32px;font-size:11px}
+.ta-row small{display:block;font:11px var(--mono);color:var(--ink-3)}
+.ta-g{font:700 9px/1 var(--mono);letter-spacing:.16em;color:var(--ink-3);padding:8px 6px 4px}
+.spcard{background:var(--edit);border:1px solid var(--border-strong);border-radius:10px;padding:12px 14px;width:300px;box-shadow:0 8px 20px rgba(30,24,16,.12)}
+.spcard ol{margin:6px 0 10px 18px;padding:0;font-size:12.5px}
+.bar{height:6px;border-radius:3px;background:var(--muted);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--sp)}
+.w393 .arow{grid-template-columns:14px 36px minmax(0,1fr) auto;row-gap:6px}
+.w393 .arow .ph{width:36px;height:36px}
+.w393 .arow .rights,.w393 .arow .clipsct{grid-column:3 / -1}
+.w393 .arow .act{grid-column:3 / -1;justify-self:start}
+/* F3 clips */
+.grp-h{display:flex;align-items:baseline;gap:10px;margin:14px 0 8px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.tile{background:var(--edit);border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.thumb{aspect-ratio:9/16;max-height:210px;width:100%;position:relative;display:flex;align-items:flex-end}
+.thumb .dur{position:absolute;right:6px;bottom:6px;font:600 10px var(--mono);color:#fff;background:rgba(0,0,0,.45);padding:1px 5px;border-radius:4px}
+.thumb .src{position:absolute;left:6px;top:6px;width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;font:700 9px var(--mono);color:#fff}
+.thumb .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.75);font-size:22px}
+.tmeta{padding:7px 8px 8px;font-size:11.5px}
+.tmeta .t1{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tmeta .t2{display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap}
+.cpr{font:600 13px var(--sans);font-variant-numeric:tabular-nums}
+.tile.cant{opacity:.65;border-style:dashed;border-color:var(--brick)}
+.tile.skip{opacity:.55}
+.reason{font-size:11px;color:var(--brick)}
+.gs{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}.gs .grid{grid-template-columns:repeat(var(--n),150px)}
+.w393 .grid{grid-template-columns:repeat(2,1fr);gap:8px}
+.w393 .thumb{max-height:220px}
+.hscroll{display:flex;gap:8px;overflow:hidden}
+.hscroll .tile{flex:0 0 46%}
+/* F4 captions as ads */
+.gen{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin:0 0 14px}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden}
+.seg span{padding:5px 10px;font-size:12px;border-right:1px solid var(--border)}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.ads{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.ad{background:#fff;border-radius:10px;overflow:hidden;border:1px solid var(--border);color:#1c1e21;font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.ad-h{display:flex;gap:8px;align-items:center;padding:9px 10px}
+.ad-h .av{width:28px;height:28px;border-radius:50%;background:#2a2a2a;color:#fff;font:700 10px var(--sans);display:flex;align-items:center;justify-content:center}
+.ad-h b{font-size:12.5px;display:block;line-height:1.1}
+.ad-h small{font-size:11px;color:#65676b}
+.ad-copy{padding:0 10px 8px;font-size:12.5px;line-height:1.38;white-space:pre-line}
+.ad-media{aspect-ratio:4/5;position:relative}
+.ad-cta{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#f0f2f5;font-size:11.5px}
+.ad-cta b{font-size:12px}
+.ad-cta span.b{background:#e4e6eb;border-radius:6px;padding:5px 10px;font-weight:600;font-size:12px}
+.adfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 2px 0;flex-wrap:wrap}
+.acts{display:flex;gap:6px}
+.icon{display:inline-flex;width:30px;height:30px;border-radius:6px;border:1px solid var(--border-strong);align-items:center;justify-content:center;font-size:14px}
+.icon.yes{color:var(--olive);border-color:color-mix(in srgb,var(--olive) 60%,transparent)}
+.fail{font-size:12px;color:var(--brick);margin-top:6px}
+.w393 .ads{grid-template-columns:1fr}
+/* F5 round */
+.mx{display:grid;gap:8px}
+.mx .hd{font:700 9px/1.3 var(--mono);letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase;align-self:end}
+.cell{background:var(--edit);border:1px solid var(--border);border-radius:6px;padding:6px;font-size:11px;display:flex;gap:6px;align-items:center;min-height:54px}
+.cell .mini{width:26px;height:44px;border-radius:3px;flex:none}
+.cell.off{border-style:dashed;background:transparent;color:var(--ink-3)}
+.roundbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
+.big{font:600 20px var(--sans);font-variant-numeric:tabular-nums}
+table.hb{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 24px;background:var(--card);border-radius:8px;overflow:hidden}
+table.hb th,table.hb td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border)}
+table.hb th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.hb td:first-child{width:180px;font-weight:600}
+</style>
+<style>
+/* pass 2 additions */
+table.gap{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 18px;background:var(--card);border-radius:8px;overflow:hidden}
+table.gap th,table.gap td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border)}
+table.gap th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.gap td:first-child{width:36px;font:700 11px var(--mono);color:var(--ink-3)}
+.v-ok{color:var(--olive);font-weight:600}.v-gap{color:var(--brick);font-weight:600}.v-q{color:var(--ochre);font-weight:600}
+.live{font:11.5px var(--mono);color:var(--ink-2);background:var(--muted);padding:2px 6px;border-radius:4px}
+/* proven chips + strength */
+.str{display:inline-flex;gap:2px;margin-left:4px}.str i{width:5px;height:10px;border-radius:1px;background:var(--border-strong)}.str i.on{background:var(--olive)}
+.proven{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:99px;background:var(--edit);border:1px solid var(--border-strong);font-size:12px}
+.only{font:600 10px var(--mono);color:var(--ink-3)}
+/* insight bars */
+.ins{display:grid;grid-template-columns:120px 1fr;gap:6px 14px;align-items:center;font-size:12px}
+.ins .lab{font:700 9px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.hb2{display:flex;flex-direction:column;gap:3px}
+.hbar{display:grid;grid-template-columns:110px 1fr 60px;gap:8px;align-items:center;font-size:11.5px}
+.hbar .t{height:8px;border-radius:4px;background:var(--muted);position:relative;overflow:hidden}
+.hbar .t i{position:absolute;left:0;top:0;bottom:0;background:var(--ink)}
+.hbar .t i.w{background:var(--olive)}
+.hbar .t s{position:absolute;top:-2px;bottom:-2px;border-left:1px dashed var(--ink-3)}
+.conf{font:600 10px var(--mono);color:var(--ink-3)}
+.scope{display:inline-flex;border:1px solid var(--border-strong);border-radius:99px;overflow:hidden;font-size:11px}
+.scope span{padding:3px 9px}.scope span.on{background:var(--ink);color:var(--sand)}
+.dots{display:flex;gap:4px;flex-wrap:wrap}.dots i{width:12px;height:12px;border-radius:3px;border:1px solid var(--border-strong)}.dots i.on{background:var(--ink);border-color:var(--ink)}
+.spark{display:inline-block;vertical-align:middle}
+.delta{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:6px;background:var(--edit);border:1px solid var(--border);font-size:11.5px}
+.up{color:var(--olive);font-weight:700}.down{color:var(--brick);font-weight:700}
+/* crop picker */
+.crop{position:relative;width:100%;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:linear-gradient(90deg,#2b2320,#6b4a36 40%,#a37650 55%,#3a2a24)}
+.crop .shade{position:absolute;top:0;bottom:0;background:rgba(10,8,6,.62)}
+.crop .win{position:absolute;top:0;bottom:0;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+.crop .win .h{position:absolute;top:50%;width:10px;height:34px;margin-top:-17px;background:#fff;border-radius:3px}
+.crop .lab{position:absolute;left:8px;top:8px;font:600 10px var(--mono);color:#fff;background:rgba(0,0,0,.45);padding:2px 6px;border-radius:4px}
+.film{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-top:8px}
+.film b{aspect-ratio:9/16;border-radius:3px;background:linear-gradient(160deg,#4a3a2a,#9a7a5a);position:relative;display:block}
+.film b.txt{outline:2px solid var(--brick)}
+.film b.txt::after{content:"Aa";position:absolute;inset:auto 0 30% 0;text-align:center;font:700 10px var(--sans);color:#fff;background:rgba(155,59,40,.8)}
+.prog{height:6px;border-radius:3px;background:var(--muted);overflow:hidden}.prog i{display:block;height:100%;background:var(--ink)}
+.phone{width:180px;aspect-ratio:9/16;border-radius:14px;overflow:hidden;position:relative;background:linear-gradient(160deg,#3a2a24,#8a5a3a);border:3px solid #1e1810}
+.phone .cap{position:absolute;left:10px;right:10px;top:38%;color:#fff;font:700 12px/1.25 var(--sans);text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.phone .pl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.8);font-size:26px}
+.phone .bar{position:absolute;left:8px;right:8px;bottom:8px;height:3px;background:rgba(255,255,255,.35);border-radius:2px}.phone .bar i{display:block;height:100%;width:35%;background:#fff}
+/* rounds over time */
+.rt{display:grid;grid-template-columns:repeat(3,1fr);gap:0;position:relative}
+.rt .col{padding:0 18px;border-left:1px solid var(--border)}.rt .col:first-child{border-left:0;padding-left:0}
+.rt .it{display:flex;align-items:center;gap:8px;height:34px;margin:0 0 6px;padding:0 8px;border-radius:6px;background:var(--edit);border:1px solid var(--border);font-size:12px}
+.rt .it .mini{width:16px;height:26px;border-radius:2px;flex:none}
+.rt .it.kill{opacity:.55;text-decoration:line-through}
+.rt .it.new{border-style:dashed}
+.rt .it .tag{margin-left:auto}
+/* asset bank board */
+.board{display:grid;grid-template-columns:200px repeat(4,1fr);gap:6px;font-size:11.5px}
+.board .rh{font-weight:600;font-size:12px;align-self:center}
+.board .ch{font:700 9px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);align-self:end}
+.bc{height:64px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:4px;position:relative;font-size:11px}
+.bc.ex{background:linear-gradient(160deg,#4a3a2a,#9a7a5a);color:#fff}
+.bc.ap::after{content:"✓";position:absolute;right:4px;top:3px;width:16px;height:16px;border-radius:50%;background:var(--olive);color:#fff;font:700 10px/16px var(--sans);text-align:center}
+.bc.miss{border:1px dashed var(--border-strong);color:var(--ink-3)}
+.bc.na{background:transparent;color:var(--ink-3);opacity:.5}
+.bc.wait{background:var(--edit);border:1px solid var(--ochre);color:var(--ochre)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:11px}
+.cal .d{height:46px;border-radius:5px;background:var(--edit);padding:3px 5px;position:relative}
+.cal .d.pay{outline:2px solid var(--ink)}
+.cal .d.x{background:transparent}
+.cal .d small{display:block;font-size:9.5px;line-height:1.15;margin-top:2px}
+.cal .hd{font:700 9px/1 var(--mono);color:var(--ink-3);text-align:center}
+.pk{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:3px}
+.appr{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center;background:var(--edit);border:1px solid var(--border);border-radius:10px;padding:12px}
+.steps{display:flex;gap:0;font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.steps span{padding:4px 10px;border:1px solid var(--border-strong);color:var(--ink-3)}
+.steps span:first-child{border-radius:99px 0 0 99px}.steps span:last-child{border-radius:0 99px 99px 0}
+.steps span.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.steps span.done{color:var(--olive)}
+.spark-tile .thumb{background:linear-gradient(160deg,#111,#3a3a5a)}
+.held{font-size:12px;color:var(--ochre);margin-top:6px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.w393 .cmp,.w393 .rt{grid-template-columns:1fr}
+.w393 .rt .col{border-left:0;padding:0;margin-bottom:12px}
+.w393 .board{grid-template-columns:110px repeat(2,1fr)}
+.w393 .board .c34{display:none}
+.w393 .appr{grid-template-columns:80px 1fr}
+.w393 .appr .acts{grid-column:1 / -1}
+.w393 .ins{grid-template-columns:1fr}
+.w393 .hbar{grid-template-columns:90px 1fr 46px}
+.w393 .gs .grid{grid-template-columns:repeat(2,1fr)}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF PIXEL · CREATIVE LAB · DESIGN PASS 2 · 6 NOVEMBER 2026</div>
+<h1>Creative Lab — what's live, what's next, and the rules that keep it visual</h1>
+<p class="lead">This is a sequel to the 6 Nov Creative Lab frames (F1–F5, saved in the project as <code>offpixel/creative-lab-redesign.html</code>). It has three parts: <b>A</b> reviews what's live on Puzzle 4th Birthday Part 1, <b>B</b> draws the next six builds in build order, and <b>C</b> is the design rules for every future Cursor prompt (also saved as <code>docs/creative-lab/design-rules.md</code>). It uses Off Pixel's colours (sand, card, ink, system type), drawn at 1280 and 393. <b>Every number, Spotify detail, like count and cost is a placeholder.</b> Artist names, the event, the dates and the copy are the event's own.</p>
+
+<!-- ================= A ================= -->
+<h2 style="font-size:20px;margin-top:40px">A · What's live, against F1–F5</h2>
+<p class="lead">Read in your Chrome on <code>app.offpixel.co.uk/events/d2fa91e6…</code> at desktop width, 6 Nov. R1 (#1090) is live; R2 (#1091) hadn't reached the page when I looked, so its rows are marked <i>check after merge</i>. Your Chrome window wouldn't go narrower than desktop width, so <b>I still need phone screenshots</b> (the event page with Creative Lab open, top to bottom).</p>
+<table class="gap">
+<tr><th>#</th><th>Where</th><th>Live today</th><th>Against the frame</th><th>Verdict</th></tr>
+<tr><td>A1</td><td>Strip</td><td><span class="live">Lineup 0 · Clips 5 · Captions 4 · Round —</span> then <span class="live">Next: Approve a caption. Go</span></td><td>F1 has a kicker, a big number and a state line in every cell, the step that needs you highlighted, and a solid action button. Live has one line of text per cell with nothing highlighted, and a <i>Go</i> text link.</td><td class="v-gap">Gap</td></tr>
+<tr><td>A2</td><td>Lineup</td><td><span class="live">Add with @ · @ artist · No lineup yet.</span></td><td>The event has a five-artist lineup (Enzo Siragusa, Luke Dean, Reeshy, Phill de Janeiro, Benji King; three headliners), but the rows are empty and the strip says 0. The old Facts lineup and headliners were never moved into the new artist rows. <b>Copy them across once, keeping order and stars</b>, and then the strip, the rights chips and the round all have something to read. Until then I can't judge the rows themselves.</td><td class="v-gap">Gap</td></tr>
+<tr><td>A3</td><td>Rights chip</td><td>Inside a dropdown in Rounds: <span class="live">Enzo Siragusa · Cleared</span> / <span class="live">Luke Dean · Not cleared</span></td><td>The rights state is supposed to be a chip on the artist's row, not an option in a dropdown. It's in the wrong place and can't be acted on there. B1 below changes its words anyway.</td><td class="v-gap">Gap</td></tr>
+<tr><td>A4</td><td>Payday</td><td>Header: <span class="live">Puzzle · cancelled · Next payday Friday, 27 November 2026. 51 days to the event.</span></td><td>Moved to the header, as drawn. But the event reads <b>cancelled</b>, and the caption generator's stage dropdown shows the raw field <span class="live">events.status (cancelled)</span>. <b>Is Puzzle 4th Birthday Part 1 cancelled?</b> If not, the status needs fixing. Either way, no raw field name should ever be on screen.</td><td class="v-q">Question for you</td></tr>
+<tr><td>A5</td><td>Ticketing / Tickets sold</td><td>A <span class="live">Ticketing</span> link sits after the Lab; Tickets sold is gone</td><td>As drawn.</td><td class="v-ok">Done</td></tr>
+<tr><td>A6</td><td>Clips</td><td>A text list carrying the full rights sentence on every row, plus a Drive file ID (<span class="live">14KqCo…</span>) and an always-open add form (artist, Source, <i>Rights ref</i>, Filmed at, an <i>Existing video</i> dropdown of every file the agency has ever uploaded, Choose file)</td><td>F3 is a thumbnail grid in three groups, the rights text on hover, and adding via <i>Find clips</i> or <i>Upload</i>. The Rights ref field and the file ID are struck by the rules (C4). The all-files dropdown should become a picker filtered to this event's artists.</td><td class="v-q">Check after #1091</td></tr>
+<tr><td>A7</td><td>Captions</td><td>Unlabelled dropdowns (<span class="live">lineup · 3 · No clip · on sale</span>), with each caption under a <span class="live">lineup · proposed · long · passed</span> line, <span class="live">/</span> markers in the copy, and Approve / Reject buttons</td><td>F4 draws feed posts with real line breaks and labelled controls; a passed check draws nothing. There are 4 captions live where you said 1: the three lineup ones and the first-person one.</td><td class="v-q">Check after #1091</td></tr>
+<tr><td>A8</td><td>Round</td><td><span class="live">No rounds.</span> plus two dropdowns and a greyed <i>Propose round</i> with no reason</td><td>F5 draws the clips × captions grid with a count of ads, and says why the button is off. With nothing approved it should read <i>Approve at least 1 caption to propose round 1.</i></td><td class="v-q">Check after #1091</td></tr>
+<tr><td>A9</td><td>Phone width</td><td>—</td><td>Not seen. Send screenshots of the event page at phone width, from the strip down to the round.</td><td class="v-q">Needs your screenshots</td></tr>
+</table>
+<p class="lead"><b>Still reads like a form:</b> the add-clip form (six inputs, always open), the generator's four unlabelled dropdowns, the round's two dropdowns, and every <i>proposed · long · passed</i> line. All four are covered by R2's frames or by rule C2 (at most 3 inputs visible per section). If anything survives #1091, list it on the R2 review.</p>
+
+<h2>A10 · The Spotify card, redrawn for what Spotify still gives us</h2>
+<p class="lead">From Feb 2026, Spotify's API no longer returns top tracks, popularity or followers, so the card can only show the photo, genres and the date we last checked Spotify. Played-before comes from your own events, so it stays and leads, because it's the part we actually own. The popularity bar and the track list are struck, not left as empty boxes.</p>
+<div class="frame">
+<figure><figcaption>1280 · hover on a name</figcaption>
+<div class="spcard">
+  <div style="display:flex;gap:10px;align-items:center"><span class="ph" style="background:#6b4f3a;width:52px;height:52px">ES</span><div><b>Enzo Siragusa</b><div class="handles" style="margin-top:2px"><i><span class="dot" style="background:var(--ig)"></span>@enzosiragusa</i><i><span class="dot" style="background:var(--sp)"></span>Spotify</i></div></div></div>
+  <div class="k" style="margin-top:14px">Played with you</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><span class="chip">Southampton · 2</span><span class="chip">London · 1</span></div>
+  <div class="k" style="margin-top:12px">Genres</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><span class="chip">{genre}</span><span class="chip">{genre}</span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px"><span class="muted" style="font-size:11px">Checked on Spotify 4 Nov</span><a class="mono" style="font-size:11px;color:var(--ink)">Open in Spotify ↗</a></div>
+</div></figure>
+<figure><figcaption>393 · tap ⓘ, as a sheet</figcaption>
+<div class="vp w393" style="padding:0">
+  <div style="background:var(--edit);border-radius:14px 14px 0 0;padding:14px 16px 18px;margin-top:60px;box-shadow:0 -6px 18px rgba(30,24,16,.12)">
+    <div style="width:36px;height:4px;border-radius:2px;background:var(--border-strong);margin:0 auto 12px"></div>
+    <div style="display:flex;gap:10px;align-items:center"><span class="ph" style="background:#6b4f3a">ES</span><div><b>Enzo Siragusa</b><div class="mono muted" style="font-size:11px">@enzosiragusa</div></div></div>
+    <div class="k" style="margin-top:12px">Played with you</div><div style="margin-top:6px"><span class="chip">Southampton · 2</span> <span class="chip">London · 1</span></div>
+    <div class="k" style="margin-top:12px">Genres</div><div style="margin-top:6px"><span class="chip">{genre}</span> <span class="chip">{genre}</span></div>
+    <p class="muted" style="font-size:11px;margin:12px 0 0">Checked on Spotify 4 Nov · Open in Spotify ↗</p>
+  </div>
+</div></figure>
+<figure><figcaption>no Spotify match · no past events</figcaption>
+<div class="spcard">
+  <div style="display:flex;gap:10px;align-items:center"><span class="ph" style="background:#8a7a5a">BK</span><div><b>Benji King</b><div class="mono muted" style="font-size:11px">no Spotify match</div></div></div>
+  <p style="font-size:12.5px;margin:12px 0 0">First time on one of your bills. Pick his Spotify profile to add genres. <a style="color:var(--ink);text-decoration:underline">Find on Spotify</a></p>
+</div></figure>
+</div>
+<p class="lead">Struck from the card: <span class="strike">Top tracks</span> · <span class="strike">Popularity</span> · <span class="strike">Followers</span> · any empty box where those used to be. The "Checked on" date comes from the artist's enriched date; it shows when we last looked, not any kind of score.</p>
+
+<!-- ================= B ================= -->
+<h2 style="font-size:20px;margin-top:56px">B · The trajectory, in build order</h2>
+
+<h2>B1 · Rights rule change — clearance only gates the artist's own channels</h2>
+<p class="lead">New rule: any artist's clips can run from the promoter's Page. Clearance only unlocks the <b>artist's</b> channels (their Page or Instagram as the ad identity, and captions written in the artist's voice). So <i>Can't run</i> no longer means "not cleared". Luke Dean's clip moves to <i>New</i>, and the held items are the artist-voice captions. The chip's two states say what each one allows, not who's missing.</p>
+<div class="frame">
+<figure><figcaption>1280 · the two chip states on the lineup row</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="sec-h"><h3>Lineup</h3></div>
+  <div class="arow">
+    <span class="drag">⋮⋮</span><span class="ph" style="background:#6b4f3a">ES</span>
+    <div class="who"><b>Enzo Siragusa <span class="star">★</span></b><div class="handles"><i><span class="dot" style="background:var(--ig)"></span>@enzosiragusa</i></div></div>
+    <div class="rights"><span class="chip ok">✓ Cleared — artist channels too</span><div class="muted" style="font-size:11px;margin-top:3px">Matas, 6 Nov · Fuse email</div></div>
+    <div class="clipsct"><b>4</b> clips</div>
+    <div class="act"><button class="btn">Find clips</button> <button class="btn ghost">⋯</button></div>
+  </div>
+  <div class="arow">
+    <span class="drag">⋮⋮</span><span class="ph" style="background:#4f5b6b">LD</span>
+    <div class="who"><b>Luke Dean <span class="star">★</span></b><div class="handles"><i>no Instagram yet</i></div></div>
+    <div class="rights"><span class="chip">Promoter page only</span> <button class="btn" style="height:22px;font-size:11px;margin-left:4px">Clear for artist channels</button></div>
+    <div class="clipsct"><b>1</b> clip</div>
+    <div class="act"><button class="btn">Add Instagram</button> <button class="btn ghost">⋯</button></div>
+  </div>
+</div>
+<div class="panel">
+  <div class="sec-h"><h3>Captions</h3><span class="muted" style="font-size:12px">1 held</span></div>
+  <div class="ads" style="grid-template-columns:repeat(2,1fr)">
+    <div>
+      <div class="ad"><div class="ad-h"><span class="av">PZ</span><div><b>Puzzle</b><small>Sponsored</small></div></div>
+        <div class="ad-copy">Enzo Siragusa, Luke Dean, Reeshy &amp; more are taking over
+Circuit 27 December
+Who's in? Sign up for updates 📩</div>
+        <div class="ad-media" style="background:linear-gradient(160deg,#3a3a3a,#6a6a6a);aspect-ratio:16/9"></div>
+        <div class="ad-cta"><div><b>Puzzle 4th Birthday</b></div><span class="b">Sign up</span></div></div>
+      <div class="adfoot"><span class="muted" style="font-size:12px">Promoter voice · Luke Dean clip</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div>
+    </div>
+    <div style="opacity:.8">
+      <div class="ad"><div class="ad-h"><span class="av" style="background:#4f5b6b">LD</span><div><b>Luke Dean</b><small>Sponsored · paid partnership with Puzzle</small></div></div>
+        <div class="ad-copy">Joining Enzo Siragusa for Puzzle's 4th Birthday. You in?</div>
+        <div class="ad-media" style="background:linear-gradient(160deg,#3a3a3a,#6a6a6a);aspect-ratio:16/9"></div>
+        <div class="ad-cta"><div><b>Puzzle 4th Birthday</b></div><span class="b">Sign up</span></div></div>
+      <div class="adfoot"><span class="chip warn">Held</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span></span></div>
+      <div class="held">Artist voice — runs once Luke Dean is cleared for his own channels. <u>Clear for artist channels</u></div>
+    </div>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>393</figcaption>
+<div class="vp w393">
+<div class="panel">
+  <div class="arow">
+    <span class="drag">⋮⋮</span><span class="ph" style="background:#4f5b6b">LD</span>
+    <div class="who"><b>Luke Dean <span class="star">★</span></b></div>
+    <button class="btn ghost">⋯</button>
+    <div class="rights"><span class="chip">Promoter page only</span></div>
+    <div class="act"><button class="btn">Clear for artist channels</button></div>
+  </div>
+</div>
+<div class="panel">
+  <div class="ad"><div class="ad-h"><span class="av" style="background:#4f5b6b">LD</span><div><b>Luke Dean</b><small>Sponsored</small></div></div>
+    <div class="ad-copy">Joining Enzo Siragusa for Puzzle's 4th Birthday. You in?</div></div>
+  <div class="adfoot"><span class="chip warn">Held</span></div>
+  <div class="held">Runs once Luke Dean is cleared for his own channels.</div>
+</div>
+</div></figure>
+</div>
+<p class="lead"><b>Clear for artist channels</b> opens the same sheet as before: who and when are filled in automatically, plus an optional note. The chip is neutral (ink outline) when it reads <i>Promoter page only</i>, because nothing is blocked. It only turns olive when it reads <i>Cleared — artist channels too</i>. Held captions stay in the list with an ochre <i>Held</i> chip and the one sentence that unlocks them. They never go into a round, and the round's count leaves them out.</p>
+
+<h2>B2 · Instagram import and quality (M4b)</h2>
+<p class="lead">Four moments: the candidates (already listed by rank), the 8-frame text check, the crop picker for wide clips, and the render queue that ends in a playable 9:16 preview. A refusal is always one sentence saying what to do.</p>
+<div class="frame">
+<figure><figcaption>1280 · candidates, ranked; Add imports one</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="sec-h"><h3>Find clips on Instagram · @enzosiragusa</h3><span class="muted" style="font-size:12px">best first · likes, comments and how recent · native 9:16 first</span></div>
+  <div class="grid">
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#5a3a2a,#c08a5a)"><span class="src" style="background:var(--ink)">1</span><span class="play">▶</span><span class="dur">0:18</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 4,210 · 💬 186</span></div><div class="t2"><span class="muted">3 days · 9:16</span></div><div class="t2"><button class="btn" style="height:24px;font-size:11px">Add</button></div></div></div>
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#2a2a2a,#6a5a4a)"><span class="src" style="background:var(--ink)">2</span><span class="play">▶</span><span class="dur">0:27</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 3,980 · 💬 141</span></div><div class="t2"><span class="muted">1 wk · 9:16</span></div><div class="t2"><div style="flex:1"><div class="prog"><i style="width:45%"></i></div><span class="muted" style="font-size:10.5px">Importing…</span></div></div></div></div>
+    <div class="tile"><div class="thumb" style="background:linear-gradient(90deg,#3a2a3a,#8a5a8a)"><span class="src" style="background:var(--ink)">3</span><span class="play">▶</span><span class="dur">0:15</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 2,770 · 💬 98</span></div><div class="t2"><span class="muted">2 wk · 16:9</span></div><div class="t2"><button class="btn" style="height:24px;font-size:11px">Add · crop</button></div></div></div>
+    <div class="tile skip"><div class="thumb" style="background:linear-gradient(160deg,#4a4a4a,#8a8a8a)"><span class="src" style="background:var(--ink)">4</span><span class="play">▶</span><span class="dur">0:12</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 5,320 · 💬 240</span></div><div class="reason">Skipped — text in 3 of 8 frames <u>see</u></div></div></div>
+    <div class="tile skip"><div class="thumb" style="background:linear-gradient(90deg,#3a3a2a,#7a7a4a)"><span class="src" style="background:var(--ink)">5</span><span class="play">▶</span><span class="dur">0:30</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 2,100 · 💬 77</span></div><div class="reason">Too low quality after crop — find a sharper copy or <u>ask the team</u></div></div></div>
+  </div>
+</div>
+<div class="cmp">
+  <div class="panel">
+    <div class="sec-h"><h3>Why #4 was skipped</h3><span class="muted" style="font-size:12px">8 frames checked</span></div>
+    <div class="film"><b></b><b></b><b class="txt"></b><b class="txt"></b><b></b><b class="txt"></b><b></b><b></b></div>
+    <p style="font-size:12.5px;margin:10px 0 0">Text burned into 3 of 8 frames — it would read as someone else's ad. <u>Import anyway</u></p>
+  </div>
+  <div class="panel">
+    <div class="sec-h"><h3>Crop #3 to 9:16</h3><span class="muted" style="font-size:12px">drag the window</span></div>
+    <div class="crop"><span class="shade" style="left:0;width:38%"></span><span class="win" style="left:38%;width:31.6%"><span class="h" style="left:-6px"></span><span class="h" style="right:-6px"></span></span><span class="shade" style="left:69.6%;right:0"></span><span class="lab">16:9 → 9:16</span></div>
+    <div class="film" style="grid-template-columns:repeat(6,1fr)"><b style="aspect-ratio:16/9;background:linear-gradient(90deg,#2b2320,#6b4a36 40%,#a37650 55%,#3a2a24)"></b><b style="aspect-ratio:16/9;background:linear-gradient(90deg,#2b2320,#6b4a36 40%,#a37650 55%,#3a2a24)"></b><b style="aspect-ratio:16/9;background:linear-gradient(90deg,#2b2320,#6b4a36 40%,#a37650 55%,#3a2a24)"></b><b style="aspect-ratio:16/9;background:linear-gradient(90deg,#2b2320,#6b4a36 40%,#a37650 55%,#3a2a24)"></b><b style="aspect-ratio:16/9;background:linear-gradient(90deg,#2b2320,#6b4a36 40%,#a37650 55%,#3a2a24)"></b><b style="aspect-ratio:16/9;background:linear-gradient(90deg,#2b2320,#6b4a36 40%,#a37650 55%,#3a2a24)"></b></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span class="muted" style="font-size:12px">The window follows across every frame; check the strip for heads cut off.</span><button class="btn solid">Use this crop</button></div>
+  </div>
+</div>
+<div class="panel">
+  <div class="sec-h"><h3>Renders</h3><span class="muted" style="font-size:12px">about 3 min each</span></div>
+  <div style="display:grid;grid-template-columns:1fr 200px;gap:20px;align-items:start">
+    <div>
+      <div style="display:grid;grid-template-columns:26px 1fr 120px 70px;gap:10px;align-items:center;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--border)"><span class="mini" style="width:16px;height:28px;border-radius:2px;background:linear-gradient(160deg,#3a2a24,#8a5a3a);display:block"></span><span>Enzo #2 × "taking over"</span><div class="prog"><i style="width:100%;background:var(--olive)"></i></div><span class="chip ok">Ready</span></div>
+      <div style="display:grid;grid-template-columns:26px 1fr 120px 70px;gap:10px;align-items:center;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--border)"><span style="width:16px;height:28px;border-radius:2px;background:linear-gradient(160deg,#4a3a2a,#a07a4a);display:block"></span><span>Enzo #1 × "taking over"</span><div class="prog"><i style="width:60%"></i></div><span class="muted mono" style="font-size:11px">~1 min</span></div>
+      <div style="display:grid;grid-template-columns:26px 1fr 120px 70px;gap:10px;align-items:center;font-size:12.5px;padding:6px 0"><span style="width:16px;height:28px;border-radius:2px;background:linear-gradient(160deg,#2a3a3a,#4a7a7a);display:block"></span><span>Enzo #3 × Lineup</span><div class="prog"><i style="width:0"></i></div><span class="muted mono" style="font-size:11px">queued · 2nd</span></div>
+    </div>
+    <div class="phone"><span class="pl">▶</span><span class="cap">Enzo Siragusa, Luke Dean, Reeshy &amp; more are taking over<br>Circuit 27 December</span><span class="bar"><i></i></span></div>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>393 · candidates two across; crop and preview full width</figcaption>
+<div class="vp w393">
+<div class="panel">
+  <div class="sec-h"><h3>From @enzosiragusa</h3></div>
+  <div class="grid">
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#5a3a2a,#c08a5a);max-height:180px"><span class="src" style="background:var(--ink)">1</span><span class="dur">0:18</span></div><div class="tmeta"><span class="mono">♥ 4,210</span><div class="t2"><button class="btn" style="height:24px;font-size:11px">Add</button></div></div></div>
+    <div class="tile skip"><div class="thumb" style="background:linear-gradient(160deg,#4a4a4a,#8a8a8a);max-height:180px"><span class="src" style="background:var(--ink)">4</span><span class="dur">0:12</span></div><div class="tmeta"><div class="reason">Text in 3 of 8 frames</div></div></div>
+  </div>
+</div>
+<div class="panel">
+  <div class="sec-h"><h3>Crop to 9:16</h3></div>
+  <div class="crop"><span class="shade" style="left:0;width:38%"></span><span class="win" style="left:38%;width:31.6%"><span class="h" style="left:-6px"></span><span class="h" style="right:-6px"></span></span><span class="shade" style="left:69.6%;right:0"></span></div>
+  <button class="btn solid" style="margin-top:10px;width:100%;justify-content:center">Use this crop</button>
+</div>
+<div class="panel" style="display:flex;gap:12px;align-items:center">
+  <div class="phone" style="width:110px;border-width:2px"><span class="pl" style="font-size:18px">▶</span><span class="cap" style="font-size:8px">Enzo Siragusa, Luke Dean, Reeshy &amp; more…</span></div>
+  <div style="flex:1;font-size:12.5px"><b>2 of 3 ready</b><div class="prog" style="margin:6px 0"><i style="width:66%"></i></div><span class="muted">the last one in ~3 min</span></div>
+</div>
+</div></figure>
+</div>
+<p class="lead"><b>Crop picker:</b> the frame is the clip's widest moment, and the bright window is the 9:16 crop. Drag it sideways (that's the focus point; it's stored, never typed in) and the filmstrip shows the same window across six moments, so a head cut off at 0:12 is visible before the render. Native 9:16 clips skip this step. <b>Too low quality</b> is decided after the crop, by resolution, and the refusal says what fixes it. <b>Text check:</b> the 8 frames show on request, with the flagged ones outlined in brick, and <i>Import anyway</i> exists because the check can be wrong. <b>Renders:</b> one row per render with a progress bar and its place in the queue. When it's done, the 9:16 preview plays with the caption burned in, as it will run.</p>
+
+<h2>B3 · The learning layer (across clients, Matas only)</h2>
+<p class="lead">There are three pieces: proven lines in the caption writer, an insights panel (in the Lab and in the campaign drawer), and an automatic "since last round" view. Client names from other clients appear only to Matas; a client looking at their own event sees the client tier and nothing from anyone else.</p>
+
+<h3 style="font-size:13px;margin:18px 0 6px">B3a · Proven elsewhere — chips in the caption writer</h3>
+<div class="frame">
+<figure><figcaption>1280 · the writer mixes in up to 2 proven lines</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="gen" style="margin-bottom:10px">
+    <div class="fld"><label>Angle</label><div class="seg"><span class="on">Lineup</span><span>Artist, first person</span><span>POV</span><span>Scarcity</span></div></div>
+    <div class="fld"><label>How many</label><div class="seg"><span>1</span><span class="on">3</span><span>5</span></div></div>
+    <button class="btn solid">Write 3</button>
+  </div>
+  <div class="k" style="margin:4px 0 8px">Proven elsewhere · mixed in</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <span class="proven">"Who's in? Sign up for updates" <span class="str"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="mono muted" style="font-size:10.5px">won 5 of 6</span></span>
+    <span class="proven">"Tag who you're bringing" <span class="str"><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="mono muted" style="font-size:10.5px">won 2 of 3</span></span>
+    <span class="only">🔒 only you see: Puzzle · LWE · NX Loves</span>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>393</figcaption>
+<div class="vp w393"><div class="panel">
+  <div class="k" style="margin-bottom:8px">Proven elsewhere</div>
+  <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start">
+    <span class="proven">"Who's in? Sign up for updates" <span class="str"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></span>
+    <span class="proven">"Tag who you're bringing" <span class="str"><i class="on"></i><i class="on"></i><i></i><i></i></span></span>
+  </div>
+</div></div></figure>
+</div>
+<p class="lead">A chip is the line itself, a 4-bar strength signal and <i>won n of m</i>, counted in events, not ads. A line only qualifies after winning at 2 or more events. In a generated caption, a proven line carries a small ◆ so you can see which part was reused. The 🔒 line naming clients shows only on Matas's account.</p>
+
+<h3 style="font-size:13px;margin:18px 0 6px">B3b · Insights — the Lab panel and the campaign drawer</h3>
+<div class="frame">
+<figure><figcaption>1280 · in the Lab, under the strip</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="sec-h"><h3>What wins</h3><span class="scope"><span class="on">Puzzle</span><span>Electronic, UK</span><span>Everyone</span></span></div>
+  <div class="ins">
+    <span class="lab">Hook</span>
+    <div class="hb2">
+      <div class="hbar"><span>Lineup first</span><div class="t"><i class="w" style="width:78%"></i></div><span class="mono">£0.41</span></div>
+      <div class="hbar"><span>Artist on camera</span><div class="t"><i style="width:60%"></i></div><span class="mono">£0.53</span></div>
+      <div class="hbar"><span>Crowd shot</span><div class="t"><i style="width:44%"></i></div><span class="mono">£0.72</span></div>
+    </div>
+    <span></span><span class="conf">Lineup first wins · strong · 9 rounds</span>
+    <span class="lab">Visual format</span>
+    <div class="hb2">
+      <div class="hbar"><span>9:16 UGC</span><div class="t"><i style="width:66%"></i><s style="left:70%"></s></div><span class="mono">£0.48</span></div>
+      <div class="hbar"><span>Lineup artwork</span><div class="t"><i style="width:63%"></i><s style="left:67%"></s></div><span class="mono">£0.50</span></div>
+    </div>
+    <span></span><span class="conf">No clear winner — within the noise · 4 rounds</span>
+    <span class="lab">Angle</span>
+    <div class="hb2">
+      <div class="hbar"><span>Lineup</span><div class="t"><i class="w" style="width:74%"></i></div><span class="mono">£0.44</span></div>
+      <div class="hbar"><span>POV</span><div class="t"><i style="width:49%"></i></div><span class="mono">£0.64</span></div>
+    </div>
+    <span></span><span class="conf">Lineup beats POV by 31% · fair · 3 rounds</span>
+    <span class="lab">Ads per ad set</span>
+    <div><span class="conf">No count wins. 3, 5 and 8 ads cost about the same per signup · 11 ad sets</span></div>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>393 · campaign drawer, while building ads</figcaption>
+<div class="vp w393">
+<div class="panel">
+  <div class="sec-h"><h3>This ad set</h3></div>
+  <div class="k" style="margin-bottom:6px">Meta spent on 3 of 8 ads</div>
+  <div class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div>
+  <p class="muted" style="font-size:12px;margin:6px 0 12px">5 ads got under £1 each in 7 days — drop them or move them.</p>
+  <div class="k" style="margin-bottom:6px">What wins · Puzzle</div>
+  <div class="hb2">
+    <div class="hbar"><span>Lineup first</span><div class="t"><i class="w" style="width:78%"></i></div><span class="mono">£0.41</span></div>
+    <div class="hbar"><span>Artist on cam</span><div class="t"><i style="width:60%"></i></div><span class="mono">£0.53</span></div>
+  </div>
+  <p class="conf" style="margin:8px 0 0">Format: no clear winner · Ads per set: no count wins</p>
+</div>
+</div></figure>
+</div>
+<p class="lead"><b>Order of scope:</b> this client, then the vertical, then everyone. The toggle defaults to the narrowest scope that has enough rounds, and the confidence line says how much it's standing on. Bars show cost per result, so the shorter cost wins: the bar length is the inverse of the cost and the number on the right is the cost. The winner is olive; everything else is ink. <b>No clear winner</b> is a real result, drawn as near-equal bars with a dashed noise band and those words, never an empty chart. <b>Meta spent on X of Y</b> is one square per ad, filled if the ad got real spend.</p>
+
+<h3 style="font-size:13px;margin:18px 0 6px">B3c · Since last round — what changed, without a log</h3>
+<div class="frame">
+<figure><figcaption>1280 · on the strip, under "what's working"</figcaption>
+<div class="vp w1280">
+<div class="panel" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  <span class="k">Since round 1</span>
+  <span class="delta"><span class="up">▲</span> Lineup captions now lead</span>
+  <span class="delta"><span class="down">▼</span> POV dropped</span>
+  <span class="delta">Enzo #2 kept · winner twice</span>
+  <span class="delta">+2 clips in</span>
+  <span class="delta">Cost per signup <svg class="spark" width="60" height="16" viewBox="0 0 60 16"><polyline points="0,4 20,7 40,11 60,13" fill="none" stroke="#5F6B2A" stroke-width="2"/></svg> £0.58 → £0.44</span>
+</div>
+</div></figure>
+<figure><figcaption>393 · two chips, then "+3"</figcaption>
+<div class="vp w393"><div class="panel" style="display:flex;gap:6px;flex-wrap:wrap">
+  <span class="delta"><span class="up">▲</span> Lineup leads</span><span class="delta">£0.58 → £0.44</span><span class="delta muted">+3</span>
+</div></div></figure>
+</div>
+<p class="lead">This is written from round verdicts, never typed. At most five chips; the rest go behind <i>+n</i>. A falling cost line is olive, a rising one brick.</p>
+
+<h2>B4 · Rounds over time — keep, kill, new</h2>
+<p class="lead">Each round is a column. A clip or caption that's kept carries straight across; one that's killed ends struck through with its verdict; a new one enters dashed. Round 2's plan is written from round 1's verdicts: keep the winners, put new captions on the winning clips, and pair new clips with the winning captions.</p>
+<div class="frame">
+<figure><figcaption>1280</figcaption>
+<div class="vp w1280"><div class="panel">
+  <div class="rt">
+    <div class="col">
+      <div class="k" style="margin-bottom:8px">Round 1 · judged 2 Dec · £0.58 / signup</div>
+      <div class="it"><span class="mini" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"></span>Enzo #2<span class="chip win tag">Winner</span></div>
+      <div class="it kill"><span class="mini" style="background:linear-gradient(160deg,#2a2a36,#5a4a7a)"></span>Enzo #4<span class="chip lose tag">Loser</span></div>
+      <div class="it">"Lineup · sign up"<span class="chip win tag">Winner</span></div>
+      <div class="it kill">"POV · on one bill"<span class="chip lose tag">Loser</span></div>
+    </div>
+    <div class="col">
+      <div class="k" style="margin-bottom:8px">Round 2 · running · £0.44 so far</div>
+      <div class="it"><span class="mini" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"></span>Enzo #2<span class="chip tag">Kept</span></div>
+      <div class="it new"><span class="mini" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a)"></span>Enzo #1<span class="chip dash tag">New</span></div>
+      <div class="it new"><span class="mini" style="background:linear-gradient(160deg,#4a4a5a,#7a7a9a)"></span>Luke Dean #1<span class="chip dash tag">New</span></div>
+      <div class="it">"Lineup · sign up"<span class="chip tag">Kept</span></div>
+      <div class="it new">"Taking over"<span class="chip dash tag">New</span></div>
+    </div>
+    <div class="col">
+      <div class="k" style="margin-bottom:8px">Round 3 · plan, after 2 is judged</div>
+      <div class="it new" style="color:var(--ink-3)">Keep round 2's winners</div>
+      <div class="it new" style="color:var(--ink-3)">New captions on the winning clips</div>
+      <div class="it new" style="color:var(--ink-3)">New clips with the winning caption</div>
+      <p class="muted" style="font-size:11.5px;margin:6px 0 0">Planned automatically when round 2 is judged; you approve it like any round.</p>
+    </div>
+  </div>
+</div></div></figure>
+<figure><figcaption>393 · rounds stack, newest first</figcaption>
+<div class="vp w393"><div class="panel">
+  <div class="rt">
+    <div class="col"><div class="k" style="margin-bottom:8px">Round 2 · running · £0.44</div>
+      <div class="it"><span class="mini" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"></span>Enzo #2<span class="chip tag">Kept</span></div>
+      <div class="it new"><span class="mini" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a)"></span>Enzo #1<span class="chip dash tag">New</span></div>
+      <div class="it new">"Taking over"<span class="chip dash tag">New</span></div></div>
+    <div class="col"><div class="k" style="margin-bottom:8px">Round 1 · £0.58</div>
+      <div class="it kill">Enzo #4<span class="chip lose tag">Loser</span></div>
+      <div class="it kill">"POV · on one bill"<span class="chip lose tag">Loser</span></div></div>
+  </div>
+</div></div></figure>
+</div>
+
+<h2>B5 · The asset bank (M6) — one board per event</h2>
+<p class="lead">Rows are asset types and columns are formats. Every cell is one of three things: a thumbnail (exists), a thumbnail with a ✓ (approved), or a dashed <i>+</i> (missing, with what's needed to make it). A cell that's held for approval is outlined in ochre. The count at the top is what you'll look at: how much is ready for the next push.</p>
+<div class="frame">
+<figure><figcaption>1280 · Puzzle 4th Birthday Part 1</figcaption>
+<div class="vp w1280"><div class="panel">
+  <div class="sec-h"><h3>Asset bank</h3><span><span class="mono" style="font-size:12px">14 approved · 6 waiting · 9 missing</span> <button class="btn solid" style="margin-left:8px">Make the missing 9</button></span></div>
+  <div class="board">
+    <span></span><span class="ch">9:16 video</span><span class="ch">1:1 static</span><span class="ch">4:5 static</span><span class="ch">9:16 static</span>
+    <span class="rh">Headliner UGC · promoter voice</span><div class="bc ex ap">Enzo #2</div><div class="bc na">—</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">Headliner UGC · artist voice</span><div class="bc wait">Held · Luke Dean not cleared</div><div class="bc na">—</div><div class="bc na">—</div><div class="bc na">—</div>
+    <span class="rh">Artist card <span class="muted" style="font-weight:400">· A–Z, press shot</span></span><div class="bc ex">+ audio 15 s</div><div class="bc ex ap"></div><div class="bc ex ap"></div><div class="bc miss">+ needs Reeshy's press shot</div>
+    <span class="rh">Lineup artwork edit</span><div class="bc miss">+ from the designer's PSD</div><div class="bc ex ap"></div><div class="bc ex ap"></div><div class="bc ex"></div>
+    <span class="rh">Ticket warnings</span><div class="bc wait">Price rise 1 Dec · waiting</div><div class="bc wait">Final 100 · locked until 1,300 sold</div><div class="bc miss">+ 80% sold</div><div class="bc miss">+ Sold out</div>
+    <span class="rh">Client promo / experience</span><div class="bc ex ap">Venue walk-through</div><div class="bc ex ap"></div><div class="bc miss">+ needs client's edit</div><div class="bc na">—</div>
+  </div>
+</div></div></figure>
+<figure><figcaption>393 · two formats at a time, swipe for the rest</figcaption>
+<div class="vp w393"><div class="panel">
+  <div class="sec-h"><h3>Asset bank</h3></div>
+  <p class="mono" style="font-size:12px;margin:0 0 10px">14 ✓ · 6 waiting · 9 missing</p>
+  <div class="board">
+    <span></span><span class="ch">9:16 video</span><span class="ch">1:1</span>
+    <span class="rh">UGC · promoter</span><div class="bc ex ap"></div><div class="bc na">—</div>
+    <span class="rh">Artist card</span><div class="bc ex"></div><div class="bc ex ap"></div>
+    <span class="rh">Lineup edit</span><div class="bc miss">+ PSD</div><div class="bc ex ap"></div>
+    <span class="rh">Ticket warnings</span><div class="bc wait">Waiting</div><div class="bc wait">Locked</div>
+  </div>
+</div></div></figure>
+</div>
+<p class="lead">Every missing cell says what's needed (<i>+ needs Reeshy's press shot</i>, <i>+ from the designer's PSD</i>), so the board doubles as the to-do list. An artist card's optional 15–20 s audio shows as a badge on the video cell. Artist-voice cells follow B1 and are held until that artist is cleared for their own channels.</p>
+
+<h3 style="font-size:13px;margin:18px 0 6px">B5 · The payday calendar</h3>
+<div class="frame">
+<figure><figcaption>1280 · ticket pushes around payday, content mid-month</figcaption>
+<div class="vp w1280"><div class="panel">
+  <div class="sec-h"><h3>Pushes · 23 Nov – 27 Dec</h3><span style="font-size:11.5px"><span class="pk" style="background:var(--brick)"></span>ticket warning <span class="pk" style="background:var(--meta);margin-left:8px"></span>content-led <span class="pk" style="border:2px solid var(--ink);margin-left:8px"></span>payday</span></div>
+  <div class="cal">
+    <span class="hd">MON</span><span class="hd">TUE</span><span class="hd">WED</span><span class="hd">THU</span><span class="hd">FRI</span><span class="hd">SAT</span><span class="hd">SUN</span>
+    <div class="d">23</div><div class="d">24</div><div class="d">25</div><div class="d">26<small><span class="pk" style="background:var(--brick)"></span>Price rise 1 Dec</small></div><div class="d pay">27<small><b>Payday</b><br><span class="pk" style="background:var(--brick)"></span>Payday push</small></div><div class="d">28<small><span class="pk" style="background:var(--brick)"></span>Price rise</small></div><div class="d">29</div>
+    <div class="d">30<small><span class="pk" style="background:var(--brick)"></span>Last day</small></div><div class="d">1 Dec</div><div class="d">2</div><div class="d">3</div><div class="d">4</div><div class="d">5</div><div class="d">6</div>
+    <div class="d">7</div><div class="d">8</div><div class="d">9<small><span class="pk" style="background:var(--meta)"></span>Artist cards</small></div><div class="d">10<small><span class="pk" style="background:var(--meta)"></span>UGC Enzo</small></div><div class="d">11<small><span class="pk" style="background:var(--meta)"></span>Experience</small></div><div class="d">12</div><div class="d">13</div>
+    <div class="d">14</div><div class="d">15</div><div class="d">16</div><div class="d">17</div><div class="d">18</div><div class="d">19</div><div class="d">20</div>
+    <div class="d">21</div><div class="d">22<small><span class="pk" style="background:var(--brick)"></span>Final 100 · if sold</small></div><div class="d">23</div><div class="d">24</div><div class="d pay" style="opacity:.6">25<small><b>Payday</b> · Christmas</small></div><div class="d">26</div><div class="d" style="background:var(--ink);color:var(--sand)">27<small style="color:var(--sand)">Event</small></div>
+  </div>
+  <p class="muted" style="font-size:11.5px;margin:10px 0 0">Payday = the last Friday of the month. December's lands on Christmas Day, so the payday push moves earlier — the calendar says so rather than scheduling into the holiday.</p>
+</div></div></figure>
+<figure><figcaption>393 · a list, by week</figcaption>
+<div class="vp w393"><div class="panel">
+  <div class="k" style="margin-bottom:8px">Week of 23 Nov · payday</div>
+  <div style="font-size:12.5px;display:flex;flex-direction:column;gap:6px">
+    <div><span class="pk" style="background:var(--brick)"></span>Thu 26 · Price rise 1 Dec</div>
+    <div style="font-weight:600"><span class="pk" style="background:var(--brick)"></span>Fri 27 · Payday push</div>
+    <div><span class="pk" style="background:var(--brick)"></span>Mon 30 · Last day before price rise</div>
+  </div>
+  <div class="k" style="margin:14px 0 8px">Week of 7 Dec · mid-month</div>
+  <div style="font-size:12.5px;display:flex;flex-direction:column;gap:6px">
+    <div><span class="pk" style="background:var(--meta)"></span>Wed 9 · Artist cards</div>
+    <div><span class="pk" style="background:var(--meta)"></span>Thu 10 · UGC Enzo</div>
+  </div>
+</div></div></figure>
+</div>
+
+<h3 style="font-size:13px;margin:18px 0 6px">B5 · Ticket-warning approval — grounded in ticket data, Matas approves</h3>
+<div class="frame">
+<figure><figcaption>1280 · one card per warning</figcaption>
+<div class="vp w1280">
+<div style="margin-bottom:10px" class="steps"><span class="done">✓ Proposed</span><span class="on">Approve</span><span>Scheduled</span><span>Live</span></div>
+<div class="appr" style="margin-bottom:10px">
+  <div class="phone" style="width:120px;border-width:2px;background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap" style="font-size:10px;top:30%">PRICES RISE<br>1 DECEMBER</span></div>
+  <div>
+    <b style="font-size:14px">Price rise on 1 Dec</b>
+    <div style="display:flex;gap:16px;align-items:center;margin:8px 0;font-size:12.5px"><span><span class="mono" style="font-size:16px;font-weight:600">£22.50 → £27.50</span></span><span class="muted">tier 2 ends 30 Nov · Skiddle, read today 09:00</span></div>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12.5px"><div class="prog" style="width:220px"><i style="width:71%;background:var(--ink)"></i></div><span class="mono">998 of 1,400 sold · 71%</span></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Runs Thu 26 – Mon 30 Nov, around payday. Formats: 9:16 video, 1:1, 4:5.</p>
+  </div>
+  <div class="acts" style="flex-direction:column;align-items:stretch"><button class="btn solid">Approve</button><button class="btn">Not now</button></div>
+</div>
+<div class="appr" style="opacity:.75">
+  <div class="phone" style="width:120px;border-width:2px;background:linear-gradient(160deg,#1e1810,#4a4a4a)"><span class="cap" style="font-size:10px;top:30%">80% SOLD</span></div>
+  <div>
+    <b style="font-size:14px">80% sold</b>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12.5px;margin:8px 0"><div class="prog" style="width:220px;position:relative"><i style="width:71%;background:var(--ink-3)"></i></div><span class="mono">71% · needs 1,120</span></div>
+    <p style="font-size:12.5px;margin:0">Can't run yet — 122 more tickets until it's true. It'll come back here when the count gets there.</p>
+  </div>
+  <div class="acts"><span class="chip dash">Locked</span></div>
+</div>
+</div></figure>
+<figure><figcaption>393</figcaption>
+<div class="vp w393">
+<div class="appr">
+  <div class="phone" style="width:80px;border-width:2px;background:linear-gradient(160deg,#1e1810,#5a3a2a)"><span class="cap" style="font-size:7px;top:30%">PRICES RISE<br>1 DEC</span></div>
+  <div><b>Price rise on 1 Dec</b><div class="mono" style="font-size:13px;margin:4px 0">£22.50 → £27.50</div><div class="muted" style="font-size:11.5px">71% sold · Skiddle today</div></div>
+  <div class="acts" style="display:flex;gap:8px"><button class="btn solid">Approve</button><button class="btn">Not now</button></div>
+</div>
+</div></figure>
+</div>
+<p class="lead"><b>Every warning shows the ticket number that makes it true</b>, where it came from and when it was read. A warning the data doesn't support yet is locked, says how far off it is, and has no Approve button. This is the no-fabricated-scarcity rule, drawn. <i>Sold out</i> unlocks only at capacity, <i>Final 100</i> only once 100 or fewer remain, and <i>Price rise</i> only when there's a dated tier change. Approve → Scheduled (around the next payday window) → Live; nothing goes live without Matas pressing Approve.</p>
+
+<h2>B6 · TikTok Spark posts — boosted as they are</h2>
+<p class="lead">A Spark post is the artist's own TikTok, boosted using a code from their team. It has no caption overlay and no crop, so it can't be paired with a caption. It sits in the clip grid with a TikTok badge and its code state, and in the round as its own row with a single <i>boosted as is</i> cell.</p>
+<div class="frame">
+<figure><figcaption>1280 · in the clip grid and in the round</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="sec-h"><h3>Clips</h3></div>
+  <div class="gs">
+    <div class="g" style="--n:2"><div class="grp-h"><span class="k">New · Lab clips</span></div>
+      <div class="grid">
+        <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a);max-height:200px"><span class="src" style="background:var(--ig)">IG</span><span class="play">▶</span><span class="dur">0:21</span></div><div class="tmeta">Enzo #1 <span class="chip dash">Untested</span></div></div>
+        <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#4a4a5a,#7a7a9a);max-height:200px"><span class="src" style="background:var(--ig)">IG</span><span class="play">▶</span><span class="dur">0:34</span></div><div class="tmeta">Luke Dean #1 <span class="chip dash">Untested</span></div></div>
+      </div></div>
+    <div class="g" style="--n:2"><div class="grp-h"><span class="k">Spark · boosted as is</span></div>
+      <div class="grid">
+        <div class="tile spark-tile"><div class="thumb" style="max-height:200px"><span class="src" style="background:var(--tt)">TT</span><span class="play">▶</span><span class="dur">0:16</span></div><div class="tmeta"><div>@enzosiragusa's post</div><div class="muted" style="font-size:11px">"see you in Southampton…"</div><div class="t2"><span class="chip ok">Code valid · 24 days</span></div></div></div>
+        <div class="tile spark-tile" style="opacity:.6"><div class="thumb" style="max-height:200px"><span class="src" style="background:var(--tt)">TT</span><span class="play">▶</span></div><div class="tmeta"><div>Luke Dean's post</div><div class="reason">Code expired — ask his team for a new one</div></div></div>
+      </div></div>
+  </div>
+</div>
+<div class="panel">
+  <div class="sec-h"><h3>Round 2 · TikTok</h3></div>
+  <div class="mx" style="grid-template-columns:160px repeat(2,1fr)">
+    <span></span><span class="hd">Lineup · winner</span><span class="hd">"Taking over"</span>
+    <span class="hd" style="align-self:center">Enzo #1</span><div class="cell"><span class="mini" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a)"></span>New</div><div class="cell"><span class="mini" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a)"></span>New</div>
+    <span class="hd" style="align-self:center">Spark · Enzo <span class="chip" style="margin-left:4px;color:var(--tt)">TT</span></span><div class="cell" style="grid-column:span 2;justify-content:center"><span class="mini" style="background:linear-gradient(160deg,#111,#3a3a5a)"></span>Boosted as is — no caption</div>
+  </div>
+  <div class="roundbar"><span><span class="big">3 ads</span> <span class="muted" style="font-size:12.5px">2 Lab ads + 1 Spark boost</span></span><button class="btn solid">Propose round 2</button></div>
+</div>
+</div></figure>
+<figure><figcaption>393</figcaption>
+<div class="vp w393"><div class="panel">
+  <div class="grp-h"><span class="k">Spark · boosted as is</span></div>
+  <div class="tile spark-tile" style="max-width:170px"><div class="thumb" style="max-height:200px"><span class="src" style="background:var(--tt)">TT</span><span class="play">▶</span></div><div class="tmeta">@enzosiragusa's post<div class="t2"><span class="chip ok">Code valid · 24 days</span></div></div></div>
+  <div class="cell" style="margin-top:10px"><span class="mini" style="background:linear-gradient(160deg,#111,#3a3a5a)"></span>Spark · Enzo — boosted as is</div>
+</div></div></figure>
+</div>
+<p class="lead">Adding a Spark post means pasting the code; the tile fills itself in from the post (thumbnail, author, opening words of the caption, how long the code is valid). An expired code shows the reason and who to ask, and its row drops out of the round count. The code itself is the artist's permission, but only for that one post. It doesn't clear the artist for anything else, so their artist-voice captions stay held (B1) until they're cleared.</p>
+
+<h2 style="font-size:20px;margin-top:56px">C · Design rules</h2>
+<p class="lead">This is the full checklist that goes into every Cursor prompt. The file version, with the component table, is <code>docs/creative-lab/design-rules.md</code>.</p>
+<div class="note"><ol><li><b>States before fields.</b> Each section opens on what&#x27;s true — a count, a chip, a preview — and the inputs that change it are behind `Edit`, `⋯` or a sheet. A section that opens on an empty form is wrong.</li><li><b>Previews first.</b> Anything that becomes an ad is shown as the ad: a clip as its first frame, a caption as a feed post, a render as a playable 9:16 preview, a warning as its artwork. Never a filename or a line of text standing in for it.</li><li><b>At most 3 inputs visible per section</b> before the user presses Edit or Add. A search or @ field counts as one input. Inputs are labelled; there are no unlabelled selects.</li><li><b>One primary action per row or card.</b> Everything else goes in `⋯`. The primary action is a verb on the thing (`Find clips`, `Approve`, `Use this crop`), never &quot;Go&quot; or &quot;Submit&quot;.</li><li><b>No raw IDs, hashes, file IDs, field names or reference strings on screen.</b> No `events.status (…)`, no Drive IDs, no `proposed · long · passed`, no `/` line markers. Long provenance text (rights emails, notes) lives on hover or in Edit, never on the tile.</li><li><b>Numbers carry a unit and a comparison.</b> `£0.44 / signup`, `vs £0.58 in round 1`, `998 of 1,400 sold`. A number with no unit or no comparison isn&#x27;t finished. Numbers are the biggest text in their cell.</li><li><b>Errors are one plain sentence saying what to fix.</b> &quot;Needs a city this artist has played — add it to their row.&quot; Passed checks draw nothing. A refusal names the fix (&quot;find a sharper copy or ask the team&quot;).</li><li><b>Empty states say what unlocks them.</b> &quot;Approve at least 1 caption to propose round 1.&quot; Never &quot;No rounds.&quot; and never an empty chart. &quot;No clear winner&quot; is a result and is drawn as one.</li><li><b>Every component defines its 393 behaviour</b>: what stacks, what scrolls sideways, what moves into a sheet, what drops to its own line. No horizontal page scroll; native selects are replaced by sheets.</li><li><b>Colour tokens only.</b> Sand, card, edit, ink, ink-2, ink-3, border; olive / ochre / brick to judge a number against the client&#x27;s own band; platform tints to name a platform. No new hex values. Colour never carries meaning alone — a word or shape goes with it.</li><li><b>Never fabricate scarcity.</b> A ticket warning shows the ticket count that makes it true, its source and when it was read. If the data doesn&#x27;t support it, it&#x27;s locked.</li><li><b>Cross-client data is Matas-only.</b> Other clients&#x27; names, and anything drawn from their results, show only on his account (🔒 line). Clients see their own tier.</li></ol></div>
+<p class="lead">Named components (point at these, never describe UI in words): strip · artist row · artist card · rights chip · clip tile · candidate tile · crop picker · render row · feed-post caption · proven chip · round matrix · rounds timeline · insight bars · verdict chip · delta chip · asset board · approval card · payday calendar.</p>
+
+<h2>What to send me next</h2>
+<p class="lead">Phone-width screenshots of the event page from the strip down to the round (A9). Whether the Puzzle 4th Birthday Part 1 event is really cancelled (A4). And after #1091 merges, the same page at desktop and phone width, so I can close A6–A8.</p>
+</div>
+</body>
+</html>

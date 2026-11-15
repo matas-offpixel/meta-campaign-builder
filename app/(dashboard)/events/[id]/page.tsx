@@ -1,5 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
+import { loadCreativeLabCard } from "@/lib/db/creative-lab";
+import { loadClientLadder, loadEventArtists, loadEventReleases, loadSalesHistory } from "@/lib/db/releases";
+import { measureClipSources, signClipPreviews } from "@/lib/creative-lab/clip-preview";
 import { parseEventTab } from "@/lib/dashboard/format";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -158,6 +161,65 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
     }),
   ]);
 
+  const now = new Date();
+  const lab = await loadCreativeLabCard(admin, {
+    now,
+    eventId: event.id,
+    userId: user.id,
+    clientId: event.client_id ?? null,
+    eventName: event.name,
+    eventDate: event.event_date,
+    venueName: event.venue_name,
+    venueCity: event.venue_city,
+    eventStatus: event.status ?? null,
+    presaleAt: event.presale_at ?? null,
+    generalSaleAt: event.general_sale_at ?? null,
+    operatorId: user.id,
+    operatorName: typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : typeof user.user_metadata?.name === "string" ? user.user_metadata.name : null,
+  }).catch((err) => {
+    console.error("[EventDetailPage] loadCreativeLabCard failed:", err);
+    return null;
+  });
+  if (lab) {
+    const signed = await signClipPreviews(lab.clips).catch((err) => {
+      console.error("[EventDetailPage] clip preview urls failed:", err);
+      return new Map<string, string>();
+    });
+    for (const clip of lab.clips) clip.previewUrl = signed.get(clip.id) ?? null;
+    const sizes = await measureClipSources(lab.clips, signed).catch((err) => {
+      console.error("[EventDetailPage] clip sizes failed:", err);
+      return new Map<string, { width: number; height: number }>();
+    });
+    for (const clip of lab.clips) {
+      const size = sizes.get(clip.id);
+      clip.sourceWidth = size?.width ?? null;
+      clip.sourceHeight = size?.height ?? null;
+    }
+  }
+
+  const bank = await loadEventReleases(supabase, event.id)
+    .then(async (releases) => {
+      if (!releases) return null;
+      const [ladder, counts, artists] = await Promise.all([
+        event.client_id ? loadClientLadder(supabase, event.client_id).catch(() => []) : Promise.resolve([]),
+        loadSalesHistory(supabase, event.id).catch(() => []),
+        loadEventArtists(supabase, event.id).catch(() => ({ artists: [], lastProposalAt: null })),
+      ]);
+      return {
+        eventId: event.id,
+        releases,
+        ladder: ladder ?? [],
+        counts,
+        eventAt: event.event_date ?? null,
+        artists: artists.artists,
+        lastProposalAt: artists.lastProposalAt,
+      };
+    })
+    .catch((err) => {
+      console.error("[EventDetailPage] releases failed:", err);
+      return null;
+    });
+
   return (
     <EventDetail
       event={event}
@@ -175,6 +237,9 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       ticketingSummary={ticketingSummary}
       ticketTiers={ticketTiers}
       initialGoogleAdsPlanId={googleAdsPlan?.id ?? null}
+      lab={lab}
+      nowIso={now.toISOString()}
+      bank={bank}
     />
   );
 }

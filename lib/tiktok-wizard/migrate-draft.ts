@@ -2,9 +2,11 @@ import type { TikTokIdentity } from "../tiktok/identity.ts";
 import type { TikTokLaunchPreflightIssue } from "../tiktok/write/preflight.ts";
 import { resolveTikTokSalesDestination } from "./campaign-setup.ts";
 import {
+  TIKTOK_LAUNCH_MODES,
   createDefaultTikTokDraft,
   normalizeTikTokAudiences,
   type TikTokCampaignDraft,
+  type TikTokLaunchMode,
   type TikTokPublishedIds,
 } from "../types/tiktok-draft.ts";
 
@@ -96,7 +98,64 @@ export function migrateTikTokDraft(raw: unknown): TikTokCampaignDraft {
     },
     publishedIds: normalizePublishedIds(incoming.publishedIds),
     importMeta: normalizeImportMeta(incoming.importMeta),
+    ...normalizeAttachFields(incoming),
   };
+}
+
+function normalizeAttachFields(
+  incoming: Record<string, unknown>,
+): Pick<
+  TikTokCampaignDraft,
+  "launchMode" | "attachCampaigns" | "attachAdGroups" | "attachConversionOverride"
+> {
+  const mode = normalizeLaunchMode(incoming.launchMode);
+  const out: Pick<
+    TikTokCampaignDraft,
+    "launchMode" | "attachCampaigns" | "attachAdGroups" | "attachConversionOverride"
+  > = {};
+  // `...incoming` already copied these keys; overwrite only what was there.
+  if ("launchMode" in incoming) out.launchMode = mode;
+  if ("attachCampaigns" in incoming) out.attachCampaigns = undefined;
+  if ("attachAdGroups" in incoming) out.attachAdGroups = undefined;
+  if (Array.isArray(incoming.attachCampaigns)) {
+    out.attachCampaigns = incoming.attachCampaigns.filter(
+      (item): item is NonNullable<TikTokCampaignDraft["attachCampaigns"]>[number] =>
+        Boolean(item && typeof item === "object" && typeof item.id === "string" && item.id),
+    );
+  }
+  if (Array.isArray(incoming.attachAdGroups)) {
+    out.attachAdGroups = incoming.attachAdGroups.filter(
+      (item): item is NonNullable<TikTokCampaignDraft["attachAdGroups"]>[number] =>
+        Boolean(
+          item &&
+            typeof item === "object" &&
+            typeof item.id === "string" &&
+            item.id &&
+            typeof item.campaignId === "string",
+        ),
+    );
+  }
+  const override = asRecord(incoming.attachConversionOverride);
+  if (
+    typeof override.pixelId === "string" &&
+    override.pixelId &&
+    typeof override.optimisationEvent === "string" &&
+    override.optimisationEvent
+  ) {
+    out.attachConversionOverride = {
+      pixelId: override.pixelId,
+      optimisationEvent: override.optimisationEvent,
+    };
+  } else if ("attachConversionOverride" in incoming) {
+    out.attachConversionOverride = null;
+  }
+  return out;
+}
+
+function normalizeLaunchMode(raw: unknown): TikTokLaunchMode | undefined {
+  return typeof raw === "string" && (TIKTOK_LAUNCH_MODES as readonly string[]).includes(raw)
+    ? (raw as TikTokLaunchMode)
+    : undefined;
 }
 
 function normalizeImportMeta(
@@ -216,12 +275,18 @@ export function normalizePublishedIds(raw: unknown): TikTokPublishedIds | null {
   ) {
     return null;
   }
-  return {
+  const published: TikTokPublishedIds = {
     campaignId: typeof record.campaignId === "string" ? record.campaignId : "",
     adgroupIds: asStringArray(record.adgroupIds),
     adIds: asStringArray(record.adIds),
     launchedAt: typeof record.launchedAt === "string" ? record.launchedAt : null,
   };
+  const mode = normalizeLaunchMode(record.launchMode);
+  if (mode) published.launchMode = mode;
+  if (Array.isArray(record.campaignIds)) {
+    published.campaignIds = asStringArray(record.campaignIds);
+  }
+  return published;
 }
 
 function asStringArray(value: unknown): string[] {

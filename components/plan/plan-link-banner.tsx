@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { loadPlanForMetaDraft } from "@/lib/plan/linked-plan";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { createClient } from "@/lib/supabase/server";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
@@ -20,8 +21,8 @@ export async function PlanLinkBanner({ draftId }: { draftId: string }) {
 
   return (
     <div className={`border-b border-border bg-muted/40 px-6 py-2 ${VIZ_TYPE.label} text-muted-foreground`}>
-      Part of plan{" "}
-      <Link href={`/plan/${plan.id}`} className="underline">
+      Part of MML{" "}
+      <Link href={mmlPlanHref(plan.id)} className="underline">
         {plan.name?.trim() || "Untitled plan"}
       </Link>{" "}
       — TikTok and Google derive their targeting from this campaign.

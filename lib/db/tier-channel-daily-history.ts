@@ -1,4 +1,5 @@
 import "server-only";
+import { dedupeOn } from "./paged-read.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabase = import("@supabase/supabase-js").SupabaseClient<any, any, any, any, any>;
@@ -55,6 +56,7 @@ export async function listDailyHistoryForEvents(
   // until a short page guarantees the full all-channel series is delivered.
   const PAGE = 1000;
   const out: TierChannelDailyHistoryRow[] = [];
+  const seen = new Set<string>();
   for (let from = 0; ; from += PAGE) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let q: any = supabase
@@ -76,7 +78,11 @@ export async function listDailyHistoryForEvents(
       break;
     }
     const page = (data ?? []) as TierChannelDailyHistoryRow[];
-    for (const r of page) {
+    for (const r of dedupeOn(page, ["id"])) {
+      if (r.id != null) {
+        if (seen.has(String(r.id))) continue;
+        seen.add(String(r.id));
+      }
       out.push({
         ...r,
         snapshot_date: String(r.snapshot_date),

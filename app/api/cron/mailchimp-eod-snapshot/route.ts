@@ -1,6 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { withCronRunLog } from "@/lib/reporting/with-cron-run-log";
+import { recordCronRun } from "@/lib/reporting/cron-run-log";
+import { CIRQLIN_LEG_NAME } from "@/lib/reporting/cron-alarm-config";
+
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  dropArchivedClientRows,
+  loadArchivedClientIds,
+  logSkippedArchivedClients,
+} from "@/lib/db/client-status";
 import { getMailchimpCredentials } from "@/lib/mailchimp/credentials";
 import { getMailchimpCredsFromD2CConnection } from "@/lib/mailchimp/d2c-credentials-adapter";
 import { getAudienceSegments } from "@/lib/mailchimp/client";
@@ -9,9 +18,10 @@ import {
   cirqlinCronOverBudget,
 } from "@/lib/cirqlin/cron-budget";
 import {
-  syncCirqlinSignupsForEvent,
+  syncCirqlinSignupsForEventByPage,
   type CirqlinSyncResult,
 } from "@/lib/cirqlin/sync";
+import { loadAllPaged } from "@/lib/db/paged-read";
 import { notify } from "@/lib/notify/slack";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import { daySnapshotAt, isCronAuthorized, todayUtc } from "@/lib/mailchimp/tag-tracking";
@@ -34,7 +44,7 @@ const DRIFT_TOLERANCE = 5;
  *
  * This guarantees correct end-of-day data even if webhooks were missed.
  */
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const cronStartedAt = Date.now();
   if (!isCronAuthorized(req.headers.get("authorization"))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -44,17 +54,26 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as unknown as any;
 
-  const { data: events, error: eventsErr } = await sb
-    .from("events")
-    .select(
-      "id, user_id, client_id, event_code, mailchimp_audience_id, mailchimp_tag, client:clients ( mailchimp_account_id )",
-    )
-    .not("mailchimp_tag", "is", null)
-    .not("mailchimp_audience_id", "is", null);
+  const [{ data: taggedEvents, error: eventsErr }, archivedClientIds] = await Promise.all([
+    sb
+      .from("events")
+      .select(
+        "id, user_id, client_id, event_code, mailchimp_audience_id, mailchimp_tag, client:clients ( mailchimp_account_id )",
+      )
+      .not("mailchimp_tag", "is", null)
+      .not("mailchimp_audience_id", "is", null),
+    loadArchivedClientIds(supabase),
+  ]);
 
   if (eventsErr) {
     return NextResponse.json({ ok: false, error: eventsErr.message }, { status: 500 });
   }
+  const events = dropArchivedClientRows((taggedEvents ?? []) as { client_id: string | null }[], archivedClientIds);
+  logSkippedArchivedClients(
+    "mailchimp-eod-snapshot",
+    archivedClientIds.size,
+    `skipped_archived_events=${(taggedEvents ?? []).length - events.length}`,
+  );
 
   const day = todayUtc();
   const dayStart = `${day}T00:00:00Z`;
@@ -187,17 +206,25 @@ export async function GET(req: NextRequest) {
     `[mailchimp-eod-snapshot] processed=${results.length} corrected=${results.filter((r) => r.action === "corrected").length}`,
   );
 
-  const { data: taggedForCirqlin } = await sb
-    .from("events")
-    .select("id, mailchimp_tag")
-    .not("mailchimp_tag", "is", null);
+  // Dashboard v2 (HN2): events with a linked CIRQLIN page sync by page id
+  // first; the Mailchimp tag is the fallback, and the only path for an
+  // event with no page.
+  const taggedForCirqlin = await loadAllPaged<{ id: string; client_id: string | null; mailchimp_tag: string | null; cirqlin_page_id: string | null }>(
+    sb,
+    "events",
+    "id,client_id,mailchimp_tag,cirqlin_page_id",
+    ["id"],
+    (q) => q.or("mailchimp_tag.not.is.null,cirqlin_page_id.not.is.null"),
+  );
 
-  const cirqlinEvents: { id: string; mailchimp_tag: string }[] = [];
-  for (const raw of taggedForCirqlin ?? []) {
-    const event = raw as { id?: unknown; mailchimp_tag?: unknown };
+  const cirqlinEvents: { id: string; mailchimp_tag: string | null; cirqlin_page_id: string | null }[] = [];
+  for (const raw of dropArchivedClientRows(taggedForCirqlin, archivedClientIds)) {
+    const event = raw as { id?: unknown; mailchimp_tag?: unknown; cirqlin_page_id?: unknown };
     if (typeof event.id !== "string") continue;
-    if (typeof event.mailchimp_tag !== "string" || !event.mailchimp_tag) continue;
-    cirqlinEvents.push({ id: event.id, mailchimp_tag: event.mailchimp_tag });
+    const tag = typeof event.mailchimp_tag === "string" && event.mailchimp_tag ? event.mailchimp_tag : null;
+    const pageId = typeof event.cirqlin_page_id === "string" && event.cirqlin_page_id ? event.cirqlin_page_id : null;
+    if (!tag && !pageId) continue;
+    cirqlinEvents.push({ id: event.id, mailchimp_tag: tag, cirqlin_page_id: pageId });
   }
   const cirqlinResults: CirqlinSyncResult[] = [];
   // EOD is 23:55 UTC — outside ads_ops business hours. Skip the gate
@@ -213,6 +240,7 @@ export async function GET(req: NextRequest) {
       buildLiveNotifyDeps(supabase),
     );
   let cirqlinLeft = 0;
+  const cirqlinStartedAt = new Date().toISOString();
   for (let i = 0; i < cirqlinEvents.length; i += 1) {
     if (cirqlinCronOverBudget(cronStartedAt, Date.now())) {
       cirqlinLeft = cirqlinCronLeft(cirqlinEvents.length, i);
@@ -221,9 +249,9 @@ export async function GET(req: NextRequest) {
     const ev = cirqlinEvents[i]!;
     try {
       cirqlinResults.push(
-        await syncCirqlinSignupsForEvent(
+        await syncCirqlinSignupsForEventByPage(
           supabase,
-          { eventId: ev.id, tag: ev.mailchimp_tag },
+          { eventId: ev.id, pageId: ev.cirqlin_page_id, tag: ev.mailchimp_tag },
           { notify: notifyCirqlin },
         ),
       );
@@ -237,6 +265,27 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // The Cirqlin signup sync is a cron inside a cron, with its own ways to
+  // go quiet: an unset read secret, a tag that matches nothing on Cirqlin's
+  // side, a time budget that ran out before the first event. None of that
+  // shows in the parent's row, which counts corrected snapshots.
+  const cirqlinDaysWritten = cirqlinResults.reduce((n, r) => n + (r.daysWritten ?? 0), 0);
+  await recordCronRun(supabase, {
+    cronName: CIRQLIN_LEG_NAME,
+    startedAt: cirqlinStartedAt,
+    ok: cirqlinResults.every((r) => r.ok),
+    rowsWritten: cirqlinDaysWritten,
+    rowsConsidered: cirqlinEvents.length,
+    detail: {
+      eventsSynced: cirqlinResults.filter((r) => r.ok).length,
+      eventsLeftOnBudget: cirqlinLeft,
+      counted: cirqlinResults.reduce((n, r) => n + (r.counted ?? 0), 0),
+      failures: cirqlinResults
+        .filter((r) => !r.ok)
+        .map((r) => ({ eventId: r.eventId, reason: r.reason ?? "unknown" })),
+    },
+  });
+
   return NextResponse.json({
     ok: true,
     eventsProcessed: results.length,
@@ -245,3 +294,18 @@ export async function GET(req: NextRequest) {
     cirqlinLeft,
   });
 }
+
+export const GET = withCronRunLog(
+  {
+    cronName: "mailchimp-eod-snapshot",
+    getDb: () => {
+      try {
+        return createServiceRoleClient();
+      } catch {
+        return null;
+      }
+    },
+    rows: (b) => Number(b.rowsWritten ?? 0),
+  },
+  handleGET,
+);

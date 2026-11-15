@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Insights rail — issue 2 — 8 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6; --tt:#6E5A9E;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:22px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:52px 0 8px}
+h3{font-size:13px;font-weight:600;margin:22px 0 6px}
+p{margin:0 0 10px;max-width:84ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{white-space:nowrap;font-weight:600}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.tan{background:#c4a882;border-color:#c4a882}
+.btn.sm{height:24px;padding:0 9px;font-size:11.5px}
+.chip{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px;border-radius:4px;font:600 10.5px/1 var(--sans);white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.chip.lose{background:var(--brick);color:#fff;border-color:var(--brick)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.muted{color:var(--ink-3)}
+.mono{font-family:var(--mono)}
+/* app shell */
+.app{display:flex;height:100%}
+.nav{width:172px;flex:none;background:#e3d1bf;border-right:1px solid var(--border);padding:14px 12px;font-size:12px;color:var(--ink-2)}
+.nav b{display:block;font:700 12px var(--sans);color:var(--ink);letter-spacing:.04em}
+.nav .it{padding:5px 8px;border-radius:5px;margin:2px 0}.nav .it.on{background:var(--muted);color:var(--ink)}
+.main{flex:1;min-width:0;padding:16px 22px;overflow:hidden}
+.ehead{display:flex;justify-content:space-between;align-items:flex-start;margin:0 0 10px}
+.ehead h4{margin:0;font:700 17px/1.1 var(--sans);letter-spacing:.02em}
+.tabs{display:flex;gap:18px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--border-strong);margin:8px 0 12px}
+.tabs span{padding:6px 0}.tabs span.on{color:var(--ink);border-bottom:2px solid var(--ink)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin:0 0 10px}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;font-size:11px}
+.strip div{padding:8px 4px;border-radius:5px}.strip .n{font:600 19px/1.1 var(--sans)}
+.strip .now{background:var(--ink);color:var(--sand)}
+.row{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;background:rgba(255,255,255,.12)}
+.ph{height:10px;border-radius:3px;background:var(--muted);margin:5px 0}
+.tiles{display:flex;gap:8px}.tiles i{flex:1;aspect-ratio:9/16;max-height:120px;border-radius:5px;background:linear-gradient(160deg,#2a1d2a,#6a3b4a 55%,#1a1214)}
+/* rail */
+.rail{width:360px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;font-size:12.5px}
+.rail .rh{padding:12px 14px 10px;border-bottom:1px solid var(--border);background:var(--edit);position:sticky;top:0}
+.rail .rh .top{display:flex;justify-content:space-between;align-items:center}
+.rail .rh .top b{font-size:14px}
+.rail .ctx{font-size:11.5px;color:var(--ink-3);margin:2px 0 8px}
+.rail .body{padding:4px 14px 14px;overflow:hidden}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:99px;overflow:hidden;font-size:11.5px}
+.seg span{padding:3px 10px;border-right:1px solid var(--border)}.seg span:last-child{border-right:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.seg span.off{color:var(--ink-3);opacity:.6}
+.toggles{display:flex;gap:6px;flex-wrap:wrap}
+.lock{font-size:11px;color:var(--ink-3);margin-top:6px}
+.isec{padding:12px 0 10px;border-bottom:1px solid var(--border)}
+.isec:last-child{border-bottom:0}
+.isec .h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:0 0 6px}
+.isec .h .k{color:var(--ink-2)}
+.res{font-size:12.5px;font-weight:600;margin:0 0 6px}
+.res.none{font-weight:500;color:var(--ink-2)}
+.bars{display:flex;flex-direction:column;gap:5px}
+.br{display:grid;grid-template-columns:1fr 122px;gap:3px 10px;align-items:center;font-size:11.5px}
+.br .lab{grid-column:1 / -1}
+.br .lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.br .tr{height:8px;border-radius:4px;background:var(--muted);position:relative}
+.br .tr i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--ink-2)}
+.br .tr i.w{background:var(--olive)}.br .tr i.b{background:var(--brick)}
+.br .tr s{position:absolute;top:-3px;bottom:-3px;border-left:1.5px dashed var(--ink-3)}
+.br .v{font:10.5px var(--mono);text-align:right;white-space:nowrap}
+.br .v small{color:var(--ink-3)}
+.br.thin .tr{background:transparent;border:1px dashed var(--border-strong)}
+.br.thin .lab,.br.thin .v{color:var(--ink-3)}
+.br.thin .tr{display:none}.br.thin .v{grid-column:1 / -1;text-align:left;font-family:var(--sans);font-size:11px;white-space:normal}
+
+.conf{font:10.5px var(--mono);color:var(--ink-3);margin-top:6px}
+.act{margin-top:8px;display:flex;align-items:center;gap:8px}
+.empty{font-size:12px;color:var(--ink-2);background:var(--muted);border-radius:6px;padding:8px 10px}
+.fall{font-size:11.5px;color:var(--ochre);margin:0 0 6px}
+.thumbs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.thumbs div{font:10.5px/1.3 var(--mono)}
+.thumbs i{display:block;aspect-ratio:4/5;border-radius:4px;margin-bottom:3px;background:linear-gradient(160deg,#141018,#5a3048 55%,#c06a58)}
+.thumbs div:nth-child(2) i{background:linear-gradient(160deg,#101828,#2a3a6a 55%,#8a6ad0)}
+.thumbs div:nth-child(3) i{background:linear-gradient(160deg,#1a1410,#6b4a36 55%,#d0a060)}
+.thumbs div:nth-child(4) i{background:linear-gradient(160deg,#0e1612,#2a5040 55%,#80c0a0)}
+.cl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--border);font-size:12px}
+.cl:first-child{border-top:0}
+.cl small{grid-column:1;font:10.5px var(--mono);color:var(--ink-3)}
+.cl .btn{grid-row:1 / span 2;grid-column:2}
+.tab{width:34px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;align-items:center;padding-top:14px;gap:10px}
+.tab span{writing-mode:vertical-rl;font:600 12px var(--sans);letter-spacing:.06em;color:var(--ink-2)}
+.tab em{font-style:normal;font-size:13px;color:var(--ink-2)}
+/* 393 */
+.phone{width:393px;height:852px;position:relative;overflow:hidden;background:var(--sand)}
+.phone .pg{padding:12px 14px;font-size:12px}
+.phone .scrim{position:absolute;inset:0;background:rgba(30,24,16,.35)}
+.sheet{position:absolute;left:0;right:0;bottom:0;height:86%;background:var(--edit);border-radius:14px 14px 0 0;box-shadow:0 -8px 24px rgba(30,24,16,.18);display:flex;flex-direction:column}
+.sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--border-strong);margin:8px auto 2px}
+.sheet .rh{padding:6px 16px 10px;border-bottom:1px solid var(--border)}
+.sheet .body{padding:0 16px;overflow:hidden}
+.notes{font-size:12.5px;color:var(--ink-2)}
+.notes li{margin:0 0 6px;max-width:96ch}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--border-strong);border-radius:99px;font:600 11.5px var(--sans);background:var(--edit)}
+.log{background:var(--card);border-radius:10px;padding:12px 16px;margin:14px 0 18px;font-size:12.5px}
+.log li{margin:2px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF/PIXEL · DESIGN RECORD · INSIGHTS RAIL · 8 NOVEMBER 2026 · ISSUE 2</div>
+<h1>Insights rail — issue 2: the audience builder, the TikTok drawer, and build 1's corrections</h1>
+<p class="lead">Extends <code>2026-11-07-insights-rail.html</code> (issue 1: R1–R11, IR0–IR7, H1–H10). Issue 1 stands as issued. This record adds the two build-2 contexts, corrects four things the #1102 review found in issue 1's own drawings, and sets the rule for what a TikTok surface may borrow from Meta. Figures in IR5 and IR8 are live on 7 Nov unless marked placeholder.</p>
+
+<div class="log"><div class="k" style="margin-bottom:6px">Changelog</div>
+<ul style="margin:0;padding-left:18px">
+<li><b>Issue 2 · 8 Nov 2026.</b> Corrections from the #1102 verdict (R12): the event page includes Asset type (H4 omitted it); Billboard draws ink (stored shrunk index 0.964); Visual format's fourth bar is POV and the footer reads "+3 more"; footer funded counts are the minimum of the drawn rows (angle 225+, not 255+). New rulings R13–R16 (row order, TikTok carry-over, TikTok's own unit, the untagged-ads line). IR5 confirmed against live <code>interest_clusters.live_evidence</code> and extended with the LAL/RT fill. New frame IR8: the TikTok drawer at 1280 and 393. Hand-back H11–H15.</li>
+<li><b>Issue 1 · 7 Nov 2026.</b> Placement, rest state, guard, context, scope, bars, result line, confidence line, actions, names, 393. Frames IR0–IR7. Built as #1102.</li>
+</ul></div>
+
+<h2>Data note — what changed since issue 1</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there on 7 Nov</th><th>What it means for build 2</th></tr>
+<tr><td>tag_performance · all clients · ticket sale</td><td>Stored shrunk indexes: asset type Hybrid 0.850, Lifestyle image with text 0.903, UGC 1.029, High production 1.114, Illustration 2.360; visual format Nostalgia 0.773, Headline 0.886, Billboard 0.964, POV 1.186, Celebrity 1.324, Cinematic B-roll 1.330, Listicle 1.413 (7 non-thin); hook Social proof 0.543 … Urgency 0.970 (9 non-thin); angle Urgency / scarcity 0.755, Event announcement 0.964, Artist / headliner 1.011, High-energy 1.103 (4 non-thin). Funded ads: angle rows 255 / 624 / 591 / 225; hook 54 / 121 / 444 / 255; visual 15 / 396 / 27 / 43; asset 10 / 445 / 153 / 127.</td><td>Issue 1 drew Billboard olive and Cinematic B-roll as the fourth visual bar from a raw index; the stored index puts Billboard at ink and POV (£57.57) fourth. Corrected in R12. The fixture copies this table, so no figure is typed.</td></tr>
+<tr><td>interest_clusters.live_evidence</td><td>36 clusters, refreshed nightly 03:30. 8 with spend: Disc Genre 0.59 (8 funded ad sets, 2 clients, ok), Music festivals 0.67 (3, 2, ok), Melodic Techno 0.77 (1, thin), Fashion 0.90 (2, thin), Latest iPhone users 0.92 (3, 1, ok), Electronic music 0.98 (4, 1, ok), Streaming — full 1.03 (2, thin), Streaming 1.03 (2, thin). 28 untried. <code>use_count</code> Σ 7.</td><td>IR5 as drawn in issue 1 matches live data to the point. It ships unchanged, plus the fill rule for lookalikes and retargeting (R15).</td></tr>
+<tr><td>Lookalike / retargeting results</td><td>No learnings row per audience. <code>launched_ad_sets</code> (728) carries <code>source_type</code> and <code>lookalike_range</code>; <code>benchmark_alerts</code> has 325 audience over/under-perform rows.</td><td>The IR5 empty state stays. R15 names what fills it (a nightly job over launched_ad_sets × ad_daily_insights), so the empty sentence can name its unlock.</td></tr>
+<tr><td>TikTok ads and tags</td><td><code>creative_tag_assignments</code> keys on Meta creative names; no TikTok ad is tagged. <code>ad_daily_insights</code> is Meta only (8 accounts).</td><td>A TikTok drawer has no TikTok tag learnings. R14 rules what may be borrowed from Meta and how it's labelled; the untagged state is a row on the Creative intelligence card, not a rail problem to hide.</td></tr>
+<tr><td>tiktok_breakdown_snapshots</td><td>27,981 rows over 15 events: age, gender, age_gender, country, region, interest_category; spend, impressions, clicks, 2-s / 6-s / 100 % views. No conversions. Puzzle, latest window per event: 18–24 £0.49 / click, 9.3 % 2-s views (£66, 134 clicks); 25–34 £0.50, 10.0 % (£36, 71); 35–44 £7, 13 clicks (thin); women 9.2 % of 31,257 impressions, men 10.5 % of 23,854.</td><td>The TikTok drawer's own section: who clicks and who watches, by age and gender, in TikTok's own units (R14). Interest categories are stored as numeric ids split pro rata across impressions and carry no signal; they're not shown (R16).</td></tr>
+<tr><td>copy_performance · Lab rounds</td><td>Still 0 rows (north star issue 2, §1B).</td><td>IR4's Best lines and Proven elsewhere stay empty with their sentences; IR6 stays a fixture.</td></tr>
+</table>
+
+<h2>R · Rulings added in issue 2</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>R12 Build-1 corrections</td><td>(a) The event page's sections are caption angle, hook, visual format, <b>asset type</b>, creatives, Lab; H4 in issue 1 left asset type off and #1102 built it in correctly. (b) Colour reads the <b>stored</b> <code>shrunk_index</code>, never cpr ÷ baseline: Billboard (0.964) is ink. (c) "+n more" counts the non-thin rows not drawn: Visual format reads "+3 more", Hook "+5 more", Asset type "+1 more", Caption angle none. (d) The confidence line's funded count is the <b>minimum</b> of the drawn rows: angle "225+", hook "54+", visual "15+", asset "10+".</td></tr>
+<tr><td>R13 Row order</td><td>Non-thin rows sort by stored <code>shrunk_index</code> ascending (cheapest first); the first four draw; the rest are "+n more". Thin rows never take a slot. Ties break by funded ads descending. Visual format therefore draws Nostalgia, Headline, Billboard, POV.</td></tr>
+<tr><td>R14 What TikTok may borrow</td><td>Mechanism learnings carry across platforms; costs do not. On a TikTok surface the caption angle, hook and visual format sections may show the client's Meta learnings, with the section kicker reading <b>from Meta ads</b> and one ochre line at the top of the group: <i>"TikTok ads aren't tagged yet. These angles, hooks and formats come from {client}'s Meta ads; the costs are Meta costs."</i> Their bars keep Meta's £ / result and %, so nothing is converted or implied. Asset type does not carry (TikTok is video only). The TikTok drawer's own section, <b>Who clicks on TikTok</b>, uses TikTok's own units: £ / click and 2-s view rate (hook), by age and gender, this client only, with a baseline tick at the client's blended TikTok figure. For a rate (views ÷ impressions) higher is better, so olive is ≥ 1.05 of the blended figure and brick ≤ 0.95; for a cost the R6 direction holds. Until TikTok conversions are stored, no TikTok section says "signup" or "ticket".</td></tr>
+<tr><td>R15 Lookalikes and retargeting</td><td>The empty state names its unlock: <i>"Not measured yet. Appears once results are stored per audience (source, lookalike range, cost per result), from the next nightly run after that job ships."</i> When filled: one bar per audience source (page lookalike 1 %, 1–3 %, pixel retargeting, customer list…), cost per result and % vs the client's usual, same rules as R6–R8, action <b>Use audience</b> which pre-selects it in the builder.</td></tr>
+<tr><td>R16 Not shown</td><td>TikTok interest categories (stored as ids, split pro rata) and region are not drawn until they carry a per-row result. A section that would only show a pro-rata split is omitted, not faked (as H10).</td></tr>
+</table>
+
+<!-- ===================== IR2 corrected ===================== -->
+<h2>IR2c · Event page, ticket sale — the corrected visual-format and asset-type sections (1280)</h2>
+<div class="frame"><figure><figcaption>IR2c-1280 · rail only · the two sections #1102 changed, as the stored table draws them</figcaption>
+<div class="vp" style="width:362px"><div class="rail" style="border-left:0">
+  <div class="rh"><div class="top"><b>Insights</b><span class="muted">›</span></div><div class="ctx">Puzzle 4th Birthday · on sale</div>
+    <div class="toggles"><span class="seg"><span class="on">This client</span><span class="off">Vertical</span><span>All clients</span></span><span class="seg"><span>Signup</span><span class="on">Ticket sale</span></span></div></div>
+  <div class="body">
+    <div class="isec"><div class="h"><span class="k">Visual format</span><span class="k">All clients</span></div>
+      <div class="fall">Puzzle has no ticket sales attributed to its ads in the last 90 days. Showing all clients.</div>
+      <div class="res">Nostalgia costs 38% less than usual.</div>
+      <div class="bars">
+        <div class="br"><span class="lab">Nostalgia</span><span class="tr"><i class="w" style="width:33%"></i><s style="left:53%"></s></span><span class="v">£29.09 <small>· 38% under</small></span></div>
+        <div class="br"><span class="lab">Headline</span><span class="tr"><i class="w" style="width:47%"></i><s style="left:53%"></s></span><span class="v">£41.38 <small>· 12% under</small></span></div>
+        <div class="br"><span class="lab">Billboard</span><span class="tr"><i style="width:50%"></i><s style="left:53%"></s></span><span class="v">£44.57 <small>· 5% under</small></span></div>
+        <div class="br"><span class="lab">POV</span><span class="tr"><i class="b" style="width:65%"></i><s style="left:53%"></s></span><span class="v">£57.57 <small>· 23% over</small></span></div>
+      </div>
+      <div class="conf">strong · 15+ funded ads · 90 days · all clients · +3 more</div>
+      <div class="lock">🔒 Across clients · Matas only</div></div>
+    <div class="isec"><div class="h"><span class="k">Asset type</span><span class="k">All clients</span></div>
+      <div class="fall">Puzzle has no ticket sales attributed to its ads in the last 90 days. Showing all clients.</div>
+      <div class="res">Hybrid costs 30% less than usual.</div>
+      <div class="bars">
+        <div class="br"><span class="lab">Hybrid</span><span class="tr"><i class="w" style="width:37%"></i><s style="left:53%"></s></span><span class="v">£32.81 <small>· 30% under</small></span></div>
+        <div class="br"><span class="lab">Lifestyle image with text</span><span class="tr"><i class="w" style="width:48%"></i><s style="left:53%"></s></span><span class="v">£42.21 <small>· 10% under</small></span></div>
+        <div class="br"><span class="lab">UGC</span><span class="tr"><i style="width:55%"></i><s style="left:53%"></s></span><span class="v">£48.28 <small>· 3% over</small></span></div>
+        <div class="br"><span class="lab">High production</span><span class="tr"><i class="b" style="width:60%"></i><s style="left:53%"></s></span><span class="v">£52.61 <small>· 12% over</small></span></div>
+      </div>
+      <div class="conf">strong · 10+ funded ads · 90 days · all clients · +1 more</div>
+      <div class="lock">🔒 Across clients · Matas only</div></div>
+  </div></div></div></figure>
+<div style="max-width:560px"><p class="lead">Only these two sections change from issue 1's IR2. Caption angle's footer reads <code>strong · 225+ funded ads</code> (High-energy atmosphere has 225); Hook keeps its four rows and "+5 more". Bar lengths are £ ÷ £62.90 × the track so the baseline tick sits at £46.86 (53 %); the fixture may scale differently as long as the order and the tick's position relative to the bars hold.</p>
+<table class="t"><tr><th>Row</th><th>£ / purchase</th><th>Stored shrunk</th><th>Colour</th><th>Funded</th></tr>
+<tr><td>Nostalgia</td><td>29.09</td><td>0.773</td><td>olive</td><td>15</td></tr>
+<tr><td>Headline</td><td>41.38</td><td>0.886</td><td>olive</td><td>396</td></tr>
+<tr><td>Billboard</td><td>44.57</td><td>0.964</td><td>ink</td><td>27</td></tr>
+<tr><td>POV</td><td>57.57</td><td>1.186</td><td>brick</td><td>43</td></tr>
+<tr><td>+3 more</td><td colspan="4">Celebrity 66.77 (1.324), Cinematic B-roll 62.90 (1.330), Listicle 72.25 (1.413); thin: Offer-first banner, Reaction video, Split screen</td></tr>
+</table></div></div>
+
+<!-- ===================== IR5 ===================== -->
+<h2>IR5 · Audience builder — confirmed against live data, with the fill rule for lookalikes (1280 and 393)</h2>
+<div class="frame"><figure><figcaption>IR5-1280 · rail beside the builder · live figures</figcaption>
+<div class="vp" style="width:1280px;height:760px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it">Events</div><div class="it">MML</div><div class="it on">Audience Builder</div><div class="it">Audience Seeds</div></div>
+  <div class="main">
+    <div class="ehead"><div><h4>Audience builder · Puzzle</h4><div class="muted" style="font-size:11.5px">Signup · 3 audiences in this draft</div></div><span class="btn sm solid">Build audience</span></div>
+    <div class="card"><div class="k" style="margin-bottom:6px">Interests in this audience</div><div class="row">Disc Genre · 410 signups across 2 clients <span class="chip">added from Insights</span></div><div class="row">Electronic music · Puzzle's page lookalike 1% <span class="muted">draft</span></div><div class="ph" style="width:40%"></div></div>
+    <div class="card" style="height:220px"><div class="ph" style="width:60%"></div><div class="ph" style="width:70%"></div><div class="ph" style="width:35%"></div></div>
+  </div>
+  <div class="rail">
+    <div class="rh"><div class="top"><b>Insights</b><span class="muted">›</span></div><div class="ctx">Audience builder · Puzzle · Signup</div>
+      <div class="toggles"><span class="seg"><span>This client</span><span class="on">Vertical · music</span><span>All clients</span></span></div><div class="lock">🔒 Across clients · Matas only</div></div>
+    <div class="body">
+      <div class="isec"><div class="h"><span class="k">Interest clusters</span><span class="k">music · signup</span></div>
+        <div class="res">Disc Genre costs 41% less than its clients' usual.</div>
+        <div class="cl">Disc Genre <span class="btn sm">Add cluster</span><small>£1.06 / signup · 41% under · 8 funded ad sets · 2 clients · ok</small></div>
+        <div class="cl">Music festivals <span class="btn sm">Add cluster</span><small>£0.98 / signup · 33% under · 3 funded ad sets · 2 clients · ok</small></div>
+        <div class="cl">Latest iPhone users <span class="btn sm">Add cluster</span><small>£2.00 / signup · 8% under · 3 funded ad sets · 1 client · ok</small></div>
+        <div class="cl">Electronic music <span class="btn sm">Add cluster</span><small>£2.13 / signup · 2% under · 4 funded ad sets · 1 client · ok</small></div>
+        <div class="cl" style="color:var(--ink-3)">Melodic Techno, Fashion, Streaming — full, Streaming <span></span><small>Not enough data yet: 1–2 funded ad sets each</small></div>
+        <div class="conf">28 clusters not tried yet · show · picked 7 times so far</div></div>
+      <div class="isec"><div class="h"><span class="k">Lookalikes and retargeting</span><span class="k">Puzzle</span></div>
+        <div class="empty">Not measured yet. Appears once results are stored per audience (source, lookalike range, cost per result), from the next nightly run after that job ships.</div></div>
+    </div></div>
+</div></div></figure>
+<figure><figcaption>IR5-393</figcaption>
+<div class="vp" style="width:393px"><div class="phone"><div class="pg"><b>Audience builder</b><div class="muted">Puzzle · Signup</div></div><div class="scrim"></div>
+  <div class="sheet"><div class="grab"></div><div class="rh"><div style="display:flex;justify-content:space-between"><b>Insights</b><span class="muted">✕</span></div>
+    <div class="toggles" style="margin-top:6px"><span class="seg"><span>This client</span><span class="on">Vertical</span><span>All</span></span></div><div class="lock">🔒 Across clients · Matas only</div></div>
+    <div class="body"><div class="isec"><div class="h"><span class="k">Interest clusters</span></div><div class="res">Disc Genre costs 41% less than its clients' usual.</div>
+      <div class="cl">Disc Genre <span class="btn sm">Add cluster</span><small>£1.06 / signup · 41% under · ok</small></div>
+      <div class="cl">Music festivals <span class="btn sm">Add cluster</span><small>£0.98 / signup · 33% under · ok</small></div>
+      <div class="cl">Latest iPhone users <span class="btn sm">Add cluster</span><small>£2.00 / signup · 8% under · ok</small></div>
+      <div class="cl">Electronic music <span class="btn sm">Add cluster</span><small>£2.13 / signup · 2% under · ok</small></div>
+      <div class="conf">28 not tried yet · show</div></div>
+    <div class="isec"><div class="h"><span class="k">Lookalikes and retargeting</span></div><div class="empty">Not measured yet. Appears once results are stored per audience.</div></div></div>
+  </div></div></div></figure></div>
+<p class="lead">Every figure here is the live <code>live_evidence</code> on 7 Nov: 1 − cprIndex gives the %, so Music festivals (£0.98, 0.67) sits under Disc Genre (£1.06, 0.59) on purpose. <b>Add cluster</b> adds the cluster to the draft and bumps <code>use_count</code> through <code>increment_interest_cluster_use()</code>; the builder shows it with the chip <i>added from Insights</i>, so the learnings' influence is visible on the page. The thin line names the four thin clusters; "28 not tried yet · show" expands them as plain rows with no bars.</p>
+
+<!-- ===================== IR8 ===================== -->
+<h2>IR8 · TikTok drawer — TikTok's own numbers, Meta's mechanisms, labelled (1280 and 393)</h2>
+<div class="frame"><figure><figcaption>IR8-1280 · rail beside the TikTok drawer · Puzzle · Signup</figcaption>
+<div class="vp" style="width:1280px;height:900px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it">Events</div><div class="it on">MML</div><div class="it">TikTok</div><div class="it">Audience Builder</div></div>
+  <div class="main" style="display:flex;gap:14px">
+    <div style="flex:1"><div class="k" style="margin-bottom:8px">MML canvas · Puzzle 4th Birthday</div><div class="card" style="height:300px"><div class="ph" style="width:50%"></div><div class="ph" style="width:70%"></div><div class="ph" style="width:40%"></div></div></div>
+    <div class="card" style="width:330px;flex:none;background:var(--edit)"><b style="font-size:13px">New TikTok campaign</b><div class="muted" style="font-size:11.5px;margin-bottom:10px">Signup · derived from the Meta plan · video only</div>
+      <div class="k">Ad text</div><div class="ph" style="height:56px;background:#fff8"></div><div class="k" style="margin-top:8px">Ages</div><div class="ph" style="height:24px;background:#fff8"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px"><span class="btn sm solid">Create (paused)</span></div></div>
+  </div>
+  <div class="rail">
+    <div class="rh"><div class="top"><b>Insights</b><span class="muted">›</span></div><div class="ctx">New TikTok campaign · Puzzle · Signup</div>
+      <div class="toggles"><span class="seg"><span class="on">This client</span><span class="off">Vertical</span><span>All clients</span></span><span class="seg"><span class="on">Signup</span><span>Ticket sale</span></span></div></div>
+    <div class="body">
+      <div class="isec"><div class="h"><span class="k">Who clicks on TikTok</span><span class="k">Puzzle · 90 days</span></div>
+        <div class="res none">No clear winner between 18–24 and 25–34.</div>
+        <div class="bars">
+          <div class="br"><span class="lab">18–24 · 9.3% watch past 2 s</span><span class="tr"><i style="width:61%"></i><s style="left:62%"></s></span><span class="v">£0.49 <small>/ click · level</small></span></div>
+          <div class="br"><span class="lab">25–34 · 10.0% watch past 2 s</span><span class="tr"><i style="width:62%"></i><s style="left:62%"></s></span><span class="v">£0.50 <small>/ click · level</small></span></div>
+          <div class="br thin"><span class="lab">35–44</span><span class="tr"></span><span class="v">Not enough data yet: £7 spent, 13 clicks</span></div>
+        </div>
+        <div class="conf">ok · £109 spent · 218 clicks · 90 days · Puzzle · TikTok</div></div>
+      <div class="isec"><div class="h"><span class="k">Who watches</span><span class="k">Puzzle · 90 days</span></div>
+        <div class="res">Men watch past 2 s 8% more than usual.</div>
+        <div class="bars">
+          <div class="br"><span class="lab">Men</span><span class="tr"><i class="w" style="width:65%"></i><s style="left:60%"></s></span><span class="v">10.5% <small>· 8% over</small></span></div>
+          <div class="br"><span class="lab">Women</span><span class="tr"><i class="b" style="width:57%"></i><s style="left:60%"></s></span><span class="v">9.2% <small>· 6% under</small></span></div>
+        </div>
+        <div class="conf">ok · 2-s views ÷ impressions · 55,111 impressions · 90 days · Puzzle · TikTok</div></div>
+      <div class="fall" style="margin-top:10px">TikTok ads aren't tagged yet. These angles, hooks and formats come from Puzzle's Meta ads; the costs are Meta costs.</div>
+      <div class="isec"><div class="h"><span class="k">Caption angle</span><span class="k">from Meta ads</span></div>
+        <div class="res none">No clear winner between Artist / headliner and Event announcement.</div><div class="conf">ok · 25+ funded ads · 90 days · Puzzle · Meta</div></div>
+      <div class="isec"><div class="h"><span class="k">Hook</span><span class="k">from Meta ads</span></div>
+        <div class="res none">No clear winner between FOMO and Curiosity.</div><div class="conf">strong · 49+ funded ads · 90 days · Puzzle · Meta</div></div>
+      <div class="isec"><div class="h"><span class="k">Visual format</span><span class="k">from Meta ads</span></div>
+        <div class="res">Headline costs 6% less than usual.</div>
+        <div class="bars"><div class="br"><span class="lab">Headline</span><span class="tr"><i class="w" style="width:59%"></i><s style="left:63%"></s></span><span class="v">£3.90 <small>· 6% under</small></span></div>
+        <div class="br"><span class="lab">Cinematic B-roll</span><span class="tr"><i class="b" style="width:71%"></i><s style="left:63%"></s></span><span class="v">£4.70 <small>· 13% over</small></span></div></div>
+        <div class="conf">ok · £ / signup · 21+ funded ads · 90 days · Puzzle · Meta</div></div>
+    </div></div>
+</div></div></figure>
+<figure><figcaption>IR8-393 · sheet over the drawer</figcaption>
+<div class="vp" style="width:393px"><div class="phone"><div class="pg"><b>New TikTok campaign</b><div class="muted">Puzzle · Signup</div></div><div class="scrim"></div>
+  <div class="sheet"><div class="grab"></div><div class="rh"><div style="display:flex;justify-content:space-between"><b>Insights</b><span class="muted">✕</span></div>
+    <div class="ctx" style="font-size:11.5px;color:var(--ink-3);margin:2px 0 8px">Puzzle · Signup · TikTok</div><div class="toggles"><span class="seg"><span class="on">This client</span><span class="off">Vertical</span><span>All</span></span></div></div>
+    <div class="body">
+      <div class="isec"><div class="h"><span class="k">Who clicks on TikTok</span></div><div class="res none">No clear winner between 18–24 and 25–34.</div>
+        <div class="bars"><div class="br"><span class="lab">18–24 · 9.3% past 2 s</span><span class="tr"><i style="width:61%"></i><s style="left:62%"></s></span><span class="v">£0.49 <small>/ click</small></span></div>
+        <div class="br"><span class="lab">25–34 · 10.0% past 2 s</span><span class="tr"><i style="width:62%"></i><s style="left:62%"></s></span><span class="v">£0.50 <small>/ click</small></span></div></div>
+        <div class="conf">ok · £109 · 218 clicks · Puzzle · TikTok</div></div>
+      <div class="fall" style="margin-top:10px">TikTok ads aren't tagged yet. Angles, hooks and formats below are from Puzzle's Meta ads.</div>
+      <div class="isec"><div class="h"><span class="k">Visual format</span><span class="k">from Meta ads</span></div><div class="res">Headline costs 6% less than usual.</div>
+        <div class="bars"><div class="br"><span class="lab">Headline</span><span class="tr"><i class="w" style="width:59%"></i><s style="left:63%"></s></span><span class="v">£3.90 <small>· 6% under</small></span></div></div></div>
+    </div>
+  </div></div></div></figure></div>
+<p class="lead">The TikTok drawer leads with what TikTok knows about this client: who clicks (£ / click by age, with the 2-s view rate on the label) and who watches (2-s views ÷ impressions by gender). The baseline tick is the client's blended TikTok figure over the same 90 days, so "level" means within ±5 % of it. Then one ochre line, and the Meta mechanism sections exactly as IR4 draws them, with <b>from Meta ads</b> in the kicker and <b>Meta</b> on the confidence line. Asset type is not shown on TikTok. <i>Use {angle}</i> is not offered here: the TikTok drawer has no caption generator to pre-select into.</p>
+
+<h2>Components (changes to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>Change</th></tr>
+<tr><td>Insight section</td><td>Add: rows sort by stored shrunk index ascending, four draw, "+n more" counts non-thin rows not drawn; the confidence line's count is the minimum of the drawn rows; a <b>from Meta ads</b> kicker variant with <b>· Meta</b> on the confidence line.</td></tr>
+<tr><td>Platform-unit section</td><td>New: the same bars with the platform's own unit in the value (£ / click, % 2-s views), a baseline tick at the client's blended figure, "level" within ±5 %; thin rows read "Not enough data yet: £n spent".</td></tr>
+<tr><td>Cluster row</td><td>Add: the builder marks an added cluster with the chip <i>added from Insights</i>.</td></tr>
+<tr><td>Borrowed-learnings line</td><td>New: one ochre line above a group of sections borrowed from another platform, naming the platform and that the costs are its costs.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance (frame)</th></tr>
+<tr><td>H11 Corrections</td><td>R12 (a)–(d) and R13 applied to the event page and the fixture; <code>rail-fixtures.ts</code> copies the stored table in the data note; <code>rail-sources.test.ts</code> keeps guarding it.</td><td>tag_performance all · ticket_sale</td><td>IR2c-1280: Billboard ink, POV fourth, "+3 more", "15+"; Caption angle "225+"</td></tr>
+<tr><td>H12 Audience builder</td><td>IR5 as drawn, from <code>interest_clusters.live_evidence</code>; Add cluster calls <code>increment_interest_cluster_use()</code> and the builder shows the chip; the LAL/RT empty sentence verbatim.</td><td>live_evidence (36)</td><td>IR5-1280 and IR5-393 figures as drawn; use_count +1 after Add</td></tr>
+<tr><td>H13 TikTok drawer</td><td>IR8: the two TikTok sections from <code>tiktok_breakdown_snapshots</code> (age, gender; latest window per event, summed over the client's events in 90 days); the borrowed-learnings line; the three Meta sections per IR4 with the kicker and confidence-line variants; no asset type; no Use action.</td><td>tiktok_breakdown_snapshots; tag_performance client scope</td><td>IR8-1280 and IR8-393 as drawn: Puzzle 18–24 £0.49 · 9.3 %, 25–34 £0.50 · 10.0 %, 35–44 thin; men 10.5 % olive, women 9.2 % brick</td></tr>
+<tr><td>H14 Not shown</td><td>R16: no interest-category or region section on TikTok.</td><td>—</td><td>IR8 has exactly five sections</td></tr>
+<tr><td>H15 LAL/RT fill (later)</td><td>A nightly job writing one row per (client, audience source, lookalike range, stage): spend, results, cost, index vs the client's usual, funded ad sets; the section per R15 with <b>Use audience</b>.</td><td>launched_ad_sets × ad_daily_insights; a new table</td><td>not in build 2; a row on the Learning loop card until built</td></tr>
+</table>
+
+<h2>Invented in this record</h2>
+<ul class="notes">
+<li>The "level" band for platform-unit bars: within ±5 % of the client's blended figure. A different band is a one-line change.</li>
+<li>Bar scale in IR2c: £ ÷ £62.90 of the track. The build may use any scale that keeps order and tick position.</li>
+<li>The borrowed-learnings sentence and the LAL/RT empty sentence, word for word.</li>
+<li>The drawer mock in IR8 (ad text, ages, "Create (paused)") is a stand-in for the real TikTok drawer; it sets nothing about that drawer.</li>
+</ul>
+
+<h2>Frames for CI (additions)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>IR2</td><td>1280, 393</td><td>re-baselined after R12/R13: Visual format Nostalgia · Headline · Billboard (ink) · POV, "+3 more", "15+"; Caption angle "225+"</td></tr>
+<tr><td>IR5</td><td>1280, 393</td><td>audience builder, live_evidence rows as in the data note, 28 untried, LAL/RT empty sentence (R15)</td></tr>
+<tr><td>IR8</td><td>1280, 393</td><td>TikTok drawer, Puzzle, Signup: age and gender sections, borrowed line, three Meta sections, no asset type</td></tr>
+</table>
+
+</div>
+</body>
+</html>

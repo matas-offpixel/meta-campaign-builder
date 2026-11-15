@@ -384,7 +384,7 @@ describe("linked-draft preflight and fan-out persist", () => {
       load.indexOf("export function emptyPlanLaunches"),
     );
     assert.doesNotMatch(ledgerRead, /campaign_drafts/);
-    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    const page = readFileSync("app/(dashboard)/mml/[id]/page.tsx", "utf8");
     assert.match(page, /loadDraftAdAccountId/);
     assert.match(page, /try \{/);
   });
@@ -453,8 +453,8 @@ describe("plan page guards", () => {
   it("plan pages do not grow account pickers or asset upload", () => {
     const files = [
       "components/plan/plan-workspace.tsx",
-      "app/(dashboard)/plans/page.tsx",
-      "app/(dashboard)/plan/[id]/page.tsx",
+      "app/(dashboard)/mml/page.tsx",
+      "app/(dashboard)/mml/[id]/page.tsx",
       "components/plan/canvas-window.tsx",
       "components/plan/plan-identity-chips.tsx",
       "components/library/campaign-library-picker.tsx",
@@ -477,7 +477,7 @@ describe("plan page guards", () => {
   });
 
   it("list probe no longer substring-matches campaign_plans", () => {
-    const list = readFileSync("app/(dashboard)/plans/page.tsx", "utf8");
+    const list = readFileSync("app/(dashboard)/mml/page.tsx", "utf8");
     assert.match(list, /isRelationMissing/);
     assert.doesNotMatch(list, /includes\("campaign_plans"\)/);
   });

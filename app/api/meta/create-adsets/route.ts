@@ -47,7 +47,10 @@ export async function POST(request: Request) {
   }
 
   // ── 4. Validate ad set suggestions ────────────────────────────────────────
-  const { isValid, errors } = validateAdSetPayloads(adSetSuggestions ?? []);
+  const { isValid, errors } = validateAdSetPayloads(adSetSuggestions ?? [], {
+    level: budgetSchedule?.budgetLevel,
+    type: budgetSchedule?.budgetType,
+  });
   if (!isValid) {
     return Response.json({ error: "Validation failed", details: errors }, { status: 400 });
   }

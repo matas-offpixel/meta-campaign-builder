@@ -1,13 +1,16 @@
+import type { WizardMode } from "../types.ts";
+import { parsePlanLaunchStatus, planOwnsLaunch } from "./linked-plan.ts";
 import { upsertPlanLaunchRow } from "./persist.ts";
 import { deriveCampaignPlanStatus, type CampaignPlanLaunchRecord } from "./types.ts";
 
 /**
  * Write a wizard-side Meta launch onto campaign_plan_meta_launch.
  *
- * The plan must reflect reality however the launch happened — fan-out
- * already writes this row; launching the linked draft FROM the Meta
- * wizard must do the same. Ordinary (non-plan) drafts have no row for
- * this draft_id and are a no-op.
+ * Only when the plan owns that launch (`planOwnsLaunch`). The caller
+ * passes wizard mode and draft status from before the launch: the
+ * success path publishes the draft before this runs, and a published
+ * draft would otherwise look creator-owned. Ordinary drafts, and
+ * creator-owned launches, write nothing here.
  */
 export async function recordWizardMetaLaunch(
   supabase: unknown,
@@ -18,6 +21,10 @@ export async function recordWizardMetaLaunch(
     ok: boolean;
     error?: string | null;
     platformAdAccountId?: string | null;
+    /** Wizard mode as it was when Launch was pressed. */
+    wizardMode: WizardMode | null | undefined;
+    /** Draft status as it was when Launch was pressed, before publish. */
+    draftStatus: "draft" | "published" | "archived" | null | undefined;
   },
 ): Promise<{ recorded: boolean; planId: string | null }> {
   const client = supabase as {
@@ -52,6 +59,17 @@ export async function recordWizardMetaLaunch(
   if (error || !data?.plan_id) return { recorded: false, planId: null };
   if (data.user_id && data.user_id !== input.userId) {
     return { recorded: false, planId: null };
+  }
+
+  if (
+    !planOwnsLaunch({
+      wizardMode: input.wizardMode,
+      planLaunchStatus: parsePlanLaunchStatus(data.status),
+      draftStatus: input.draftStatus,
+    })
+  ) {
+    console.log("[plan-record] skipped: creator-owned launch");
+    return { recorded: false, planId: data.plan_id };
   }
 
   const record: CampaignPlanLaunchRecord = {

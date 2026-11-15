@@ -85,7 +85,8 @@ export interface TicketSalesSnapshot {
     | "fourthefans"
     | "manual"
     | "xlsx_import"
-    | "foursomething";
+    | "foursomething"
+    | "internal_counts";
   raw_payload: unknown;
   created_at: string;
 }

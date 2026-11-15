@@ -20,6 +20,8 @@ export interface EventPickerRow {
   name: string;
   slug: string;
   event_date: string | null;
+  presale_at: string | null;
+  general_sale_at: string | null;
   status: string;
   capacity: number | null;
   genres: string[];

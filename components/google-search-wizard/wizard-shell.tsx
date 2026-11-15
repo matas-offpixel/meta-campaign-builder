@@ -22,6 +22,7 @@ import {
 } from "@/lib/google-search/validation";
 import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
 import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import type { WizardStep } from "@/lib/types";
 import { useGoogleSearchTree } from "@/lib/wizard/use-google-search-tree";
 
@@ -184,7 +185,7 @@ export function GoogleSearchWizardShell({
           saveStatus={saveStatus}
           showLaunch={false}
           showTemplates={false}
-          planHref={linkedPlan ? `/plan/${linkedPlan.id}` : null}
+          planHref={linkedPlan ? mmlPlanHref(linkedPlan.id) : null}
           onBack={handleBack}
           onContinue={handleContinue}
           onSaveDraft={() => {

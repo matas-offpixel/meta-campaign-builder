@@ -16,9 +16,16 @@
  * Attach-to-existing-live-campaign never changes the parent campaign status.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { NextRequest, NextResponse } from "next/server";
+import { adSetAudienceRemoved, adSetDisplayName } from "@/lib/wizard/import-edits";
 import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
+import { predictionUnitForDraft, writeDraftLaunchPrediction } from "@/lib/plan/launch-prediction";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  isLaunchErrorSource,
+  type LaunchErrorSource,
+} from "@/lib/meta/launch-failure-copy";
 import { resolveMetaLaunchEntityStatus } from "@/lib/meta/launch-status";
 import { withMetaTransientRetry } from "@/lib/meta/transient-retry";
 import {
@@ -35,7 +42,9 @@ import {
   fetchAdAccountTosStatus,
   fetchAdAccountIgActors,
   fetchCampaignById,
+  fetchCampaignByIdForLedger,
   fetchAdSetById,
+  fetchAdSetGuardInfo,
   fetchAdSetsForCampaign,
   fetchCustomAudienceAvailability,
   checkAudienceReadiness,
@@ -59,7 +68,17 @@ import {
   type IgMismatchEntry,
 } from "@/lib/meta/ig-identity-guard";
 import { validateMetaToken } from "@/lib/meta/server-token";
-import { mapLaunchTokenError, websiteUrlRequiredMessage } from "@/lib/meta/launch-error-classify";
+import { foreignAccountLaunchError } from "@/lib/meta/account-scope-preflight";
+import {
+  archivedCampaignMessage,
+  classifyCreativeCreateError,
+  creativeFailureBanners,
+  cityRadiusMessage,
+  lifetimeBudgetEndDateMessage,
+  mapLaunchTokenError,
+  websiteUrlRequiredMessage,
+} from "@/lib/meta/launch-error-classify";
+import { CampaignLedgerObjectiveError, CampaignLedgerVerifyError, runCampaignCreateLedger } from "@/lib/meta/campaign-ledger";
 import {
   buildRateLimitUiState,
   isMetaRateLimitCode,
@@ -68,9 +87,16 @@ import {
 import type { BusinessUseCaseSnapshot } from "@/lib/meta/app-usage";
 import type { EngagementAudienceSpec, EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import {
+  buildCampaignPayload,
   mapMetaObjectiveToInternal,
+  mapObjectiveToMeta,
   validateCampaignPayload,
 } from "@/lib/meta/campaign";
+import {
+  budgetScheduleForAttach,
+  positiveBudgetMinor,
+  refuseSilentDailyLaunch,
+} from "@/lib/meta/budget-launch";
 import {
   buildAdSetPayload,
   extractDeprecatedReplacements,
@@ -79,7 +105,9 @@ import {
   sanitizeTargetingInterestsBeforeLaunch,
   hasAudienceTargeting,
   buildEmptyTargetingReason,
-  adSetHasBoostCreative,
+  findAdSetsWithoutWebsiteDestination,
+  resolveAdSetDestinationType,
+  websiteDestinationRefusalMessage,
 } from "@/lib/meta/adset";
 import {
   buildCreativePayload,
@@ -87,8 +115,22 @@ import {
   invertAssignments,
   validateCreativePayload,
   sanitizeCreativeForStrictMode,
-  creativeTriggersVariationRotation,
+  creativeLaunchPath,
+  suppressedCopyNote,
 } from "@/lib/meta/creative";
+import {
+  attachAdSetRotationRows,
+  dynamicAdSetIdsForDraft,
+  existingRotationRefusal,
+  rotationNeedsLiveAdSetCheck,
+  rotationShareRefusal,
+} from "@/lib/meta/rotation-adset";
+import {
+  META_ADS_PER_AD_SET_LIMIT,
+  adSetAdLimitMessage,
+  expandVariationAds,
+  firstExistingPostByAdSet,
+} from "@/lib/meta/variation-ads";
 import { metaAdName } from "@/lib/creative-name-from-filename";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { applyPageInstagramOverridesToCreatives } from "@/lib/meta/apply-page-instagram-overrides";
@@ -122,17 +164,34 @@ import type {
   ExistingMetaCampaignSnapshot,
   CampaignAttachResult,
   CampaignObjective,
+  OptimisationGoal,
 } from "@/lib/types";
 import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/lib/types";
-import { assertSameObjective } from "@/lib/meta/attach-objective";
+import {
+  assertAttachSelectionObjectives,
+  assertSameObjective,
+  attachMetaObjectiveDriftMessage,
+  attachVoteDriftLogLine,
+  decideAttachObjective,
+  resolveAttachCampaign,
+} from "@/lib/meta/attach-objective";
+import {
+  attachCampaignTargets,
+  decideAttachOptimisation,
+} from "@/lib/meta/attach-optimisation";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
+import { stampPublishedCreatives } from "@/lib/meta/persist-launch-creatives";
 import { isObjectiveIncompatibilityError } from "@/lib/meta/error-classify";
 import { findAdSetLocationProblems } from "@/lib/meta/location-targeting";
 import {
   bindLaunchAdSetRecorder,
   type RecordCreatedAdSet,
 } from "@/lib/launched-ad-sets/launch-recorder";
+import {
+  bindLaunchAdRecorder,
+  noopRecordCreatedAd,
+} from "@/lib/launched-ads/launch-recorder";
 
 // ─── Timing helper ──────────────────────────────────────────────────────────
 
@@ -198,7 +257,10 @@ async function createEngagementAudienceWithRecovery(
   return createWithEventSourceRecovery<{ id: string }>({
     requested: [spec.sourceId],
     names: spec.pageName ? { [spec.sourceId]: spec.pageName } : undefined,
-    create: () => createEngagementAudience(adAccountId, spec),
+    create: () => {
+      markLaunchGraphPost();
+      return createEngagementAudience(adAccountId, spec);
+    },
     remediate: (sourceIds) =>
       remediateAudienceSeeds(supabase, sourceIds, { actorUserId: userId }),
     onWarn: (m) => console.warn(`[launch-campaign] engagement audience recovery: ${m}`),
@@ -364,19 +426,48 @@ function logLaunchMetaCallCounts(phase: string): void {
   );
 }
 
+const launchWriteState = new AsyncLocalStorage<{ sent: boolean }>();
+
+/** A Graph POST in this request has left the process. Later 400s are partial. */
+function markLaunchGraphPost(): void {
+  const store = launchWriteState.getStore();
+  if (store) store.sent = true;
+}
+
+function launchJson(body: unknown, init?: ResponseInit): NextResponse {
+  const status = typeof init?.status === "number" ? init.status : 200;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json(body, init);
+  }
+  const record = body as Record<string, unknown>;
+  const explicit = isLaunchErrorSource(record.source) ? record.source : undefined;
+  const sent = launchWriteState.getStore()?.sent ?? false;
+  let source: LaunchErrorSource | undefined = explicit;
+  if (!source && status === 502) source = "meta";
+  if (!source && status === 400) source = sent ? "partial" : "preflight";
+  if (!source) return NextResponse.json(record, init);
+  return NextResponse.json({ ...record, source }, init);
+}
+
 function rateLimitJsonResponse(
   err: unknown,
   adAccountId?: string | null,
   bucOverride?: BusinessUseCaseSnapshot | null,
 ): NextResponse {
   logLaunchMetaCallCounts("rate-limit abort");
-  return NextResponse.json(launchRateLimitPayload(err, adAccountId, bucOverride), {
+  return launchJson(launchRateLimitPayload(err, adAccountId, bucOverride), {
     status: 429,
   });
 }
 
-function formatMetaError(err: unknown): string {
+function formatMetaError(err: unknown, campaignId?: string): string {
   if (err instanceof MetaApiError) {
+    const archived = archivedCampaignMessage(campaignId ?? "", err);
+    if (archived) return archived;
+    const lifetimeEnd = lifetimeBudgetEndDateMessage(err);
+    if (lifetimeEnd) return lifetimeEnd;
+    const cityRadius = cityRadiusMessage(err);
+    if (cityRadius) return cityRadius;
     const parts: string[] = [err.message];
     if (err.code) parts.push(`code=${err.code}`);
     if (err.subcode) parts.push(`subcode=${err.subcode}`);
@@ -444,6 +535,10 @@ export type LaunchCampaignResult = LaunchSummary;
 export const maxDuration = 800;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  return launchWriteState.run({ sent: false }, () => launchCampaign(req));
+}
+
+async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   const launchStart = Date.now();
   const phaseDurations: Record<string, number> = {};
   // Unique ID for this launch run — lets callers distinguish results across re-launches
@@ -456,7 +551,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+    return launchJson({ error: "Unauthorised" }, { status: 401 });
   }
 
   // ── Parse body ─────────────────────────────────────────────────────────────
@@ -480,7 +575,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     clientIgMap = body.igAccountMap ?? {};
     createPaused = body.createPaused === true;
   } catch (err) {
-    return NextResponse.json(
+    return launchJson(
       { error: `Invalid request body: ${err instanceof Error ? err.message : "bad JSON"}` },
       { status: 400 },
     );
@@ -499,6 +594,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   ): Promise<{ id: string }> => {
     const id = await withMetaWriteIdempotency(metaWriteCtx, opKind, payload, async () => {
       const execute = async () => {
+        markLaunchGraphPost();
         const res = await run();
         return res.id;
       };
@@ -604,7 +700,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   );
 
   if (!launchToken) {
-    return NextResponse.json(
+    return launchJson(
       {
         error:
           "No Facebook access token available. Connect your Facebook account in Account Setup before launching.",
@@ -620,7 +716,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error(
       `[launch-campaign] ⛔ Stored token is EXPIRED (expires_at=${dbTokenExpiresAt}) — blocking launch.`,
     );
-    return NextResponse.json(
+    return launchJson(
       {
         error:
           "Your Facebook connection has expired. Please reconnect Facebook in Account Setup before launching.",
@@ -667,7 +763,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           liveTokenValidation.bucUsage ?? null,
         );
       }
-      return NextResponse.json(
+      return launchJson(
         {
           error: mapped.message,
           tokenExpired: true,
@@ -710,13 +806,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     "| resolved:", adAccountId || "(NONE)",
   );
   if (!adAccountId) {
-    return NextResponse.json(
+    return launchJson(
       { error: "Ad account ID is required. Go back to Account Setup and select an ad account." },
       { status: 400 },
     );
   }
 
-  const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
+  const launchable = (s: (typeof draft.adSetSuggestions)[number]) =>
+    s.enabled && !adSetAudienceRemoved(s, draft.audiences);
+  const enabledSets = draft.adSetSuggestions.filter(launchable);
+
+  // A rotation creative sharing an ad set is refused before any Graph read
+  // or write. The assignment matrix is ad set id → creative ids.
+  const rotationShare = rotationShareRefusal(draft);
+  if (rotationShare) {
+    console.error(`[launch-campaign] ✗ rotation ad set guard: ${rotationShare}`);
+    return launchJson({ error: rotationShare }, { status: 400 });
+  }
 
   console.log("[launch-campaign] ▶ Starting launch", {
     draftId: draft.id,
@@ -727,96 +833,62 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     creatives: draft.creatives.length,
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Dynamic Creative planning (variation rotation) — runs before any Meta call
-  //
-  // A creative with N variations (Single mode) is built as a Dynamic-Creative
-  // asset_feed_spec (see buildVariationRotationCreative). Meta only rotates the
-  // assets if the AD SET is created with is_dynamic_creative:true — otherwise it
-  // silently degrades to a single asset. Two rules follow:
-  //   1. Flag every ad set that has ≥1 variation-rotation creative assigned so
-  //      Phase 2/2b (and the multi-campaign loop) create it as dynamic.
-  //   2. A dynamic ad set allows AT MOST ONE ad. Each assigned creative becomes
-  //      one ad, so a dynamic ad set MUST have exactly one creative assigned.
-  //      We fail fast with an actionable error rather than auto-splitting the ad
-  //      set, because cloning an ad set would duplicate its daily budget — an
-  //      unsafe silent side effect. The operator moves the extra creatives to
-  //      their own ad set.
-  //
-  // Detection mirrors buildCreativePayload exactly (creativeTriggersVariationRotation
-  // is gated on ENABLE_MULTI_PLACEMENT_ASSETS and skips BOOK_NOW), so nothing is
-  // flagged dynamic when rotation cannot actually fire. Attach modes reuse
-  // existing ad sets whose is_dynamic_creative flag cannot be changed, so this
-  // only affects ad sets we create.
-  const dynamicAdSetIds = new Set<string>();
-  {
-    const creativesById = new Map(draft.creatives.map((c) => [c.id, c]));
-    const adSetToCreativeIds = new Map<string, string[]>();
-    for (const [creativeId, adSetIds] of Object.entries(draft.creativeAssignments ?? {})) {
-      for (const asId of adSetIds ?? []) {
-        const arr = adSetToCreativeIds.get(asId) ?? [];
-        arr.push(creativeId);
-        adSetToCreativeIds.set(asId, arr);
-      }
-    }
-    const dynamicViolations: { adSetName: string; creativeNames: string[] }[] = [];
-    for (const adSet of enabledSets) {
-      const assignedCreativeIds = adSetToCreativeIds.get(adSet.id) ?? [];
-      const hasRotationCreative = assignedCreativeIds.some((id) => {
-        const c = creativesById.get(id);
-        return c ? creativeTriggersVariationRotation(c) : false;
-      });
-      if (!hasRotationCreative) continue;
-      dynamicAdSetIds.add(adSet.id);
-      if (assignedCreativeIds.length > 1) {
-        dynamicViolations.push({
-          adSetName: adSet.name,
-          creativeNames: assignedCreativeIds.map((id) => creativesById.get(id)?.name ?? id),
-        });
-      }
-    }
-    if (dynamicViolations.length > 0) {
-      const detail = dynamicViolations
-        .map(
-          (v) =>
-            `"${v.adSetName}" has ${v.creativeNames.length} creatives assigned (${v.creativeNames.join(", ")})`,
-        )
-        .join("; ");
-      console.error(
-        `[launch-campaign] ✗ Dynamic Creative guard: ${dynamicViolations.length} ad set(s) violate the one-ad-per-dynamic-ad-set rule — ${detail}`,
-      );
-      return NextResponse.json(
-        {
-          error:
-            "A variation-rotation creative uses Dynamic Creative, and a Dynamic Creative ad set can contain only ONE ad. " +
-            "Give each variation-rotation creative its own ad set and move the other creatives to a separate ad set, then relaunch. " +
-            `Affected ad sets: ${detail}.`,
-        },
-        { status: 400 },
-      );
-    }
-    if (dynamicAdSetIds.size > 0) {
-      console.log(
-        `[launch-campaign] Dynamic Creative — ${dynamicAdSetIds.size} ad set(s) will be created with is_dynamic_creative:true`,
-      );
-    }
+  const foreignAccount = await foreignAccountLaunchError({
+    draft,
+    adAccountId,
+    token: launchToken,
+    supabase,
+    userId: user.id,
+    wizardMode: draft.settings.wizardMode ?? "new",
+  });
+  if (foreignAccount) {
+    return launchJson({ error: foreignAccount }, { status: 400 });
   }
 
-  // task #132 — ad sets that have an existing-post (boost) creative assigned
-  // must NOT send destination_type=WEBSITE (subcode 1815676). Computed once
-  // from the draft's assignment matrix; never re-fetched from Meta.
-  // Uses draft.creatives (sourceType is stable; IG actor patching later does
-  // not change boost-vs-link classification).
-  const boostAdSetIds = new Set<string>();
-  {
-    for (const adSet of enabledSets) {
-      if (adSetHasBoostCreative(adSet.id, draft.creativeAssignments ?? {}, draft.creatives)) {
-        boostAdSetIds.add(adSet.id);
-      }
-    }
-    if (boostAdSetIds.size > 0) {
-      console.log(
-        `[launch-campaign] destination_type — omitting WEBSITE on ${boostAdSetIds.size} ad set(s) with existing-post boost creatives (task #132)`,
+  // A solo rotation creative flags the ad set this launch creates as
+  // is_dynamic_creative. Existing ad sets are checked later, once their ids
+  // are known: Meta can't switch one to dynamic, and one that already has an
+  // ad can't take another (subcode 1885553).
+  const dynamicAdSetIds = new Set(dynamicAdSetIdsForDraft(draft));
+  const rotationLiveCheck = rotationNeedsLiveAdSetCheck(draft);
+  if (dynamicAdSetIds.size > 0) {
+    console.log(
+      `[launch-campaign] Dynamic Creative — ${dynamicAdSetIds.size} ad set(s) will be created with is_dynamic_creative:true`,
+    );
+  }
+
+  // Website-destination guard for the ad sets this launch is about to create.
+  // resolveAdSetDestinationType returns WEBSITE for every website-bound
+  // objective, so this cannot fire today — it exists so that a future change
+  // to the resolver fails the launch loudly instead of quietly shipping ads
+  // whose Ads Manager destination contradicts the launcher.
+  if ((draft.settings.wizardMode ?? "new") === "new") {
+    const resolvedDestination = resolveAdSetDestinationType(
+      draft.settings.objective,
+      draft.settings.optimisationGoal,
+    );
+    const newAdSetRefusals = findAdSetsWithoutWebsiteDestination(
+      draft.settings.objective,
+      enabledSets.map((adSet) => ({
+        id: adSet.id,
+        name: adSetDisplayName(adSet, draft.audiences),
+        destinationType: resolvedDestination,
+      })),
+    );
+    if (newAdSetRefusals.length > 0) {
+      console.error(
+        `[launch-campaign] ✗ website-destination guard — objective=${draft.settings.objective} ` +
+          `resolved destination_type=${resolvedDestination ?? "(omitted)"} for ` +
+          `${newAdSetRefusals.length} ad set(s) to be created`,
+      );
+      return launchJson(
+        {
+          error: websiteDestinationRefusalMessage(
+            draft.settings.objective,
+            newAdSetRefusals,
+          ),
+        },
+        { status: 409 },
       );
     }
   }
@@ -851,6 +923,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //   - "attach_adset"    → ensure both picker selections (campaign + ad set)
   //                         are present and that they're consistent.
   const wizardMode: WizardMode = draft.settings.wizardMode ?? "new";
+  // Read before any launch write. The success path publishes the draft
+  // before the plan row is recorded, and that later status must not
+  // decide whether the plan row is updated.
+  const preLaunchPlanOwnership = {
+    wizardMode,
+    draftStatus: draft.status,
+  };
   // Creative Integrity Mode — defaults to ON for any draft that pre-dates
   // the flag (also enforced in `migrateDraft`). Read once and reused inside
   // the Phase 3 creative loop and in the launch summary.
@@ -868,10 +947,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     wizardMode === "attach_campaign" ||
     wizardMode === "attach_adset" ||
     isAttachAllAdSets
-      ? (draft.settings.existingMetaCampaigns ??
-         (draft.settings.existingMetaCampaign
-           ? [draft.settings.existingMetaCampaign]
-           : []))
+      ? attachCampaignTargets(
+          draft.settings.existingMetaCampaigns,
+          draft.settings.existingMetaCampaign,
+        )
       : [];
   const attachTargetId = attachCampaignSnapshots[0]?.id ?? draft.settings.existingMetaCampaign?.id;
 
@@ -898,15 +977,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         : ""),
   );
 
+  // attach_adset: the ad sets already exist. Read is_dynamic_creative before
+  // any create. A non-dynamic ad set can't be switched; a dynamic one that
+  // already has an ad can't take another.
+  if (wizardMode === "attach_adset" && rotationLiveCheck) {
+    const guards = await fetchAdSetGuardInfo(attachAdSetIds, launchToken);
+    const refusal = existingRotationRefusal(
+      attachAdSetRotationRows(draft),
+      draft.creatives,
+      guards,
+    );
+    if (refusal) {
+      console.error(`[launch-campaign] ✗ rotation ad set guard: ${refusal}`);
+      return launchJson({ error: refusal }, { status: 400 });
+    }
+  }
+
   if (wizardMode === "attach_campaign" || isAttachAllAdSets) {
     if (attachCampaignSnapshots.length === 0) {
-      return NextResponse.json(
+      return launchJson(
         { error: "Attach mode requires at least one existing campaign selected" },
         { status: 400 },
       );
     }
     if (attachCampaignSnapshots.length > ATTACH_CAMPAIGN_CAP) {
-      return NextResponse.json(
+      return launchJson(
         { error: `Maximum ${ATTACH_CAMPAIGN_CAP} campaigns per attach launch` },
         { status: 400 },
       );
@@ -947,13 +1042,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   } else if (wizardMode === "attach_adset") {
     if (attachCampaignSnapshots.length === 0) {
-      return NextResponse.json(
+      return launchJson(
         { error: "Attach-to-ad-set mode requires the parent campaign to be selected" },
         { status: 400 },
       );
     }
     if (attachAdSetIds.length === 0) {
-      return NextResponse.json(
+      return launchJson(
         { error: "Attach-to-ad-set mode requires at least one existing ad set id" },
         { status: 400 },
       );
@@ -965,7 +1060,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       (s) => s.campaignId && !allowedCampaignIds.has(s.campaignId),
     );
     if (orphan) {
-      return NextResponse.json(
+      return launchJson(
         {
           error:
             `Ad set "${orphan.name}" belongs to campaign ` +
@@ -983,7 +1078,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     if (!campaignValidation.isValid) {
-      return NextResponse.json(
+      return launchJson(
         { error: "Campaign validation failed", fields: campaignValidation.errors },
         { status: 400 },
       );
@@ -1192,6 +1287,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //
   // `launchCreatives` shadows `draft.creatives` for all downstream phases.
   let launchCreatives: AdCreativeDraft[] = draft.creatives.map((c) => ({ ...c }));
+  let launchAssignments = draft.creativeAssignments ?? {};
 
   // Operator IG picks must reach creative payloads — not just Phase 1.5 pageToIg.
   launchCreatives = applyPageInstagramOverridesToCreatives(
@@ -1379,7 +1475,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (igUserIdErrors.length > 0) {
-      return NextResponse.json(
+      return launchJson(
         {
           error:
             "Instagram existing-post preflight failed — no instagram_user_id available",
@@ -1401,15 +1497,48 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   phaseDurations["preflight"] = elapsed(preflightStart);
   console.log(`[launch-campaign] Preflight done in ${phaseDurations["preflight"]}ms — ${preflightWarnings.length} warning(s)`);
 
+  // One normal ad per variation, unless the creative opted into rotation.
+  // Happens before any campaign / ad set / creative POST.
+  {
+    const expanded = expandVariationAds(launchCreatives, launchAssignments);
+    launchCreatives = expanded.creatives;
+    launchAssignments = expanded.assignments;
+  }
+  if (wizardMode === "attach_adset") {
+    const guards = await fetchAdSetGuardInfo(attachAdSetIds, launchToken);
+    const message = adSetAdLimitMessage(
+      attachAdSetSnapshots.map((adSet) => ({
+        name: adSet.name,
+        existingAds: guards.get(adSet.id)?.adCount ?? 0,
+        newAds: (launchAssignments[attachedAdSetKey(adSet.id)] ?? []).length,
+      })),
+    );
+    if (message) return launchJson({ error: message }, { status: 400 });
+  } else if (!isAttachAllAdSets) {
+    const message = adSetAdLimitMessage(
+      enabledSets.map((adSet) => ({
+        name: adSet.name,
+        existingAds: 0,
+        newAds: (launchAssignments[adSet.id] ?? []).length,
+      })),
+    );
+    if (message) return launchJson({ error: message }, { status: 400 });
+  } else if (launchCreatives.length > META_ADS_PER_AD_SET_LIMIT) {
+    const message = adSetAdLimitMessage([
+      { name: "each selected ad set", existingAds: 0, newAds: launchCreatives.length },
+    ]);
+    if (message) return launchJson({ error: message }, { status: 400 });
+  }
+
   // An emptied multi-city row resolves to no included area. Refuse it here,
   // before any mutate, so a request that skips the client gate does not
   // reach Meta. validateStep still blocks the wizard; this is the same check.
   const locationProblems = findAdSetLocationProblems(
-    (draft.adSetSuggestions ?? []).filter((s) => s.enabled),
+    (draft.adSetSuggestions ?? []).filter(launchable),
     draft.budgetSchedule,
   );
   if (locationProblems.length > 0) {
-    return NextResponse.json(
+    return launchJson(
       { error: "Ad set locations are not launchable", details: locationProblems },
       { status: 400 },
     );
@@ -1436,11 +1565,73 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         : " (wizard default ACTIVE per 2026-06-04 product decision)"),
   );
   let metaCampaignId: string;
+  let campaignCreateOutcome: "created" | "reused" | "recreated" | undefined;
+  let metaObjective: string | undefined;
   // All validated campaigns for multi-campaign attach_campaign launches.
   // Entry 0 === the "primary" campaign whose id is mirrored into metaCampaignId.
   // The loop after Phase 4 uses entries 1..N for the additional campaigns.
-  type VerifiedLiveCampaign = { id: string; name: string; objective: string };
+  type VerifiedLiveCampaign = {
+    id: string;
+    name: string;
+    objective: string;
+    internalObjective?: CampaignObjective;
+    /**
+     * Set when a lowest-cost campaign budget forces the new ad set onto
+     * the existing ad sets' optimisation. Absent means the draft's goal.
+     */
+    optimisationGoal?: OptimisationGoal;
+    pixelId?: string;
+    daily_budget?: string | number;
+    lifetime_budget?: string | number;
+  };
+  function optimisationGoalFor(campaignId: string): OptimisationGoal {
+    return (
+      verifiedCampaigns.find((campaign) => campaign.id === campaignId)?.optimisationGoal ??
+      draft.settings.optimisationGoal
+    );
+  }
+  function pixelForCreatedAdSet(campaignId: string): string | undefined {
+    const fromDraft = draft.settings.metaPixelId || draft.settings.pixelId || undefined;
+    if (fromDraft) return fromDraft;
+    if (wizardMode !== "attach_campaign") return undefined;
+    return verifiedCampaigns.find((campaign) => campaign.id === campaignId)?.pixelId;
+  }
   const verifiedCampaigns: VerifiedLiveCampaign[] = [];
+
+  function budgetScheduleForCreatedAdSets(campaignId: string) {
+    if (wizardMode !== "attach_campaign") return draft.budgetSchedule;
+    const live = verifiedCampaigns.find((c) => c.id === campaignId);
+    return budgetScheduleForAttach(draft.budgetSchedule, live ?? {});
+  }
+
+  function preflightAdSetPayloads(
+    schedule: typeof draft.budgetSchedule,
+    campaignId: string,
+    objective: CampaignObjective = draft.settings.objective,
+  ) {
+    try {
+      return {
+        payloads: enabledSets.map((adSet) =>
+          buildAdSetPayload(
+            adSet,
+            campaignId,
+            draft.audiences,
+            schedule,
+            optimisationGoalFor(campaignId),
+            objective,
+            pixelForCreatedAdSet(campaignId),
+            false,
+            draft.settings.placementConfig,
+            entityStatus,
+          ),
+        ),
+      };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : "Could not build the ad set budget.",
+      };
+    }
+  }
   // Captured in attach_adset so Phase 2 can seed adSetMetaIds without
   // re-fetching, and so logging can include the verified live names.
   // One entry per selected live ad set. Only successfully-verified ad
@@ -1479,7 +1670,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
       const live = await fetchCampaignById(attachTargetId!, launchToken ?? undefined);
       if (!live) {
-        return NextResponse.json(
+        return launchJson(
           {
             error:
               "Selected existing campaign not found in Meta. It may have been deleted, archived, or moved out of this ad account.",
@@ -1489,9 +1680,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
 
-      const internal = mapMetaObjectiveToInternal(live.objective);
+      const voted = resolveAttachCampaign(live);
+      const objectiveOnly = mapMetaObjectiveToInternal(live.objective);
+      const internal =
+        wizardMode === "attach_campaign" ? voted.objective : objectiveOnly;
       if (!internal) {
-        return NextResponse.json(
+        return launchJson(
           {
             error: `Selected campaign has an unsupported objective "${live.objective ?? "unknown"}". This wizard can only add ad sets to campaigns whose objective maps to one of: purchase, registration, traffic, awareness, engagement.`,
           },
@@ -1499,7 +1693,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
       if (live.buying_type && live.buying_type !== "AUCTION") {
-        return NextResponse.json(
+        return launchJson(
           {
             error: `Selected campaign uses buying type "${live.buying_type}" — this wizard only creates AUCTION ad sets.`,
           },
@@ -1508,7 +1702,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
       const blocked = new Set(["ARCHIVED", "DELETED"]);
       if (live.effective_status && blocked.has(live.effective_status)) {
-        return NextResponse.json(
+        return launchJson(
           {
             error: `Selected campaign is ${live.effective_status.toLowerCase()} — can't add new ad sets to it.`,
           },
@@ -1516,27 +1710,79 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
 
-      // GOAL 1 FIX — compare each campaign's live objective against ITS OWN
-      // snapshot, not against the global draft.settings.objective which can
-      // differ when multiple campaigns with different objectives are selected.
-      if (wizardMode === "attach_campaign" || isAttachAllAdSets) {
-        const snap0 = attachCampaignSnapshots[0];
-        const snappedInternal = snap0?.internalObjective
-          ? snap0.internalObjective
-          : mapMetaObjectiveToInternal(snap0?.objective ?? "");
-        if (snappedInternal && internal !== snappedInternal) {
-          const campName = snap0?.name ?? attachTargetId ?? "selected campaign";
-          return NextResponse.json(
-            {
-              error: `Campaign "${campName}" objective changed since you picked it (snapshot: "${snappedInternal}", live: "${internal}"). Re-open Step 1 and re-select.`,
-            },
-            { status: 409 },
-          );
+      // A real objective change is the raw Meta objective (OUTCOME_SALES →
+      // OUTCOME_LEADS). Purchase vs initiate checkout under OUTCOME_SALES
+      // is the same campaign; the new ad set keeps the draft's event.
+      // Lowest-cost CBO is the exception: the new ad set uses the live ad
+      // sets' optimisation, and a missing snapshot does not skip that read.
+      const snap0 = attachCampaignSnapshots[0];
+      const campName = snap0?.name ?? live.name ?? attachTargetId ?? "selected campaign";
+      const optimisation =
+        wizardMode === "attach_campaign"
+          ? decideAttachOptimisation({
+              campaignName: campName,
+              draftObjective: draft.settings.objective,
+              draftOptimisationGoal: draft.settings.optimisationGoal,
+              campaign: live,
+            })
+          : null;
+      if (optimisation?.action === "refuse") {
+        console.error(
+          `[launch-campaign] Phase 1 attach optimisation refused: ${optimisation.message}`,
+        );
+        return launchJson({ error: optimisation.message }, { status: 400 });
+      }
+      const kept =
+        wizardMode === "attach_campaign" && optimisation?.action !== "use_campaign"
+          ? decideAttachObjective({
+              campaignName: campName,
+              snapshotObjective: snap0?.objective,
+              liveObjective: live.objective,
+              draftObjective: draft.settings.objective,
+              liveVotedObjective: voted.objective,
+            })
+          : null;
+      if (
+        optimisation?.action !== "use_campaign" &&
+        (wizardMode === "attach_campaign" || isAttachAllAdSets)
+      ) {
+        const driftMessage =
+          kept?.driftMessage ??
+          attachMetaObjectiveDriftMessage({
+            campaignName: campName,
+            snapshotObjective: snap0?.objective,
+            liveObjective: live.objective,
+          });
+        if (driftMessage) {
+          return launchJson({ error: driftMessage }, { status: 409 });
         }
+      }
+      if (kept?.eventDrift) {
+        console.log(attachVoteDriftLogLine(kept.eventDrift));
+      }
+      if (optimisation?.action === "use_campaign") {
+        console.log(`[attach-optimisation] ${optimisation.warning}`);
+        preflightWarnings.push({
+          stage: "attach_optimisation",
+          message: optimisation.warning,
+          severity: "amber",
+        });
       }
 
       metaCampaignId = live.id;
-      verifiedCampaigns.push({ id: live.id, name: live.name ?? attachCampaignSnapshots[0]?.name ?? live.id, objective: live.objective ?? "" });
+      verifiedCampaigns.push({
+        id: live.id,
+        name: live.name ?? attachCampaignSnapshots[0]?.name ?? live.id,
+        objective: live.objective ?? "",
+        internalObjective:
+          optimisation?.action === "use_campaign" ? optimisation.objective : (kept?.objective ?? internal),
+        ...(optimisation?.action === "use_campaign"
+          ? { optimisationGoal: optimisation.optimisationGoal }
+          : {}),
+        ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
+        daily_budget: live.daily_budget,
+        lifetime_budget: live.lifetime_budget,
+      });
 
       // ── attach_campaign multi-campaign: validate additional campaigns ──────
       if (isMultiCampaignAttach && attachCampaignSnapshots.length > 1) {
@@ -1553,28 +1799,70 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               throw new Error(`Campaign "${c.name}" uses buying type "${c.buying_type}" — only AUCTION is supported`);
             if (c.effective_status && blockedStatuses.has(c.effective_status))
               throw new Error(`Campaign "${c.name}" is ${c.effective_status.toLowerCase()} — can't add ad sets to it`);
-            const ciInternal = mapMetaObjectiveToInternal(c.objective);
+            const voted = resolveAttachCampaign(c);
+            const ciInternal = voted.objective;
             if (!ciInternal)
               throw new Error(`Campaign "${c.name}" has an unsupported objective "${c.objective ?? "unknown"}"`);
-            // GOAL 1 — per-campaign snapshot drift detection: compare live
-            // objective against THIS campaign's own snapshot objective.
-            if (snap.objective && c.objective && c.objective !== snap.objective) {
-              throw new Error(
-                `Campaign "${c.name}" objective changed since you picked it ` +
-                `(snapshot: "${snap.objective}", live: "${c.objective}"). Re-open Step 1 and re-select.`,
-              );
+            const campaignName = c.name ?? snap.name;
+            const optimisation = decideAttachOptimisation({
+              campaignName,
+              draftObjective: draft.settings.objective,
+              draftOptimisationGoal: draft.settings.optimisationGoal,
+              campaign: c,
+            });
+            if (optimisation.action === "refuse") throw new Error(optimisation.message);
+            if (optimisation.action === "use_campaign") {
+              console.log(`[attach-optimisation] ${optimisation.warning}`);
+              return {
+                id: c.id,
+                name: c.name ?? snap.id,
+                objective: c.objective ?? "",
+                internalObjective: optimisation.objective,
+                optimisationGoal: optimisation.optimisationGoal,
+                optimisationWarning: optimisation.warning,
+                ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
+                daily_budget: c.daily_budget,
+                lifetime_budget: c.lifetime_budget,
+              };
             }
-            return { id: c.id, name: c.name ?? snap.id, objective: c.objective ?? "" };
+            const keptEvent = snap.internalObjective ?? draft.settings.objective;
+            const decision = decideAttachObjective({
+              campaignName,
+              snapshotObjective: snap.objective,
+              liveObjective: c.objective,
+              draftObjective: keptEvent,
+              liveVotedObjective: voted.objective,
+            });
+            if (decision.driftMessage) throw new Error(decision.driftMessage);
+            if (decision.eventDrift) console.log(attachVoteDriftLogLine(decision.eventDrift));
+            return {
+              id: c.id,
+              name: c.name ?? snap.id,
+              objective: c.objective ?? "",
+              internalObjective: decision.objective,
+              optimisationWarning: undefined as string | undefined,
+              ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
+              daily_budget: c.daily_budget,
+              lifetime_budget: c.lifetime_budget,
+            };
           }),
         );
         for (const r of additionalResults) {
           if (r.status === "rejected") {
-            return NextResponse.json(
+            return launchJson(
               { error: `Multi-campaign validation failed: ${(r.reason as Error).message}` },
               { status: 400 },
             );
           }
-          verifiedCampaigns.push(r.value);
+          const { optimisationWarning, ...campaign } = r.value;
+          if (optimisationWarning) {
+            preflightWarnings.push({
+              stage: "attach_optimisation",
+              message: optimisationWarning,
+              severity: "amber",
+            });
+          }
+          verifiedCampaigns.push(campaign);
         }
         console.log(
           `[launch-campaign] Phase 1 (multi-campaign) — validated all ${verifiedCampaigns.length} campaigns: ` +
@@ -1600,7 +1888,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         const missing = results.filter((r) => !r.live).map((r) => r.id);
         if (missing.length > 0) {
-          return NextResponse.json(
+          return launchJson(
             {
               error: `Selected ad set${missing.length > 1 ? "s" : ""} not found in Meta — may have been deleted, archived, or moved: ${missing.join(", ")}`,
               metaError: { error: "adset_not_found", adSetIds: missing },
@@ -1615,7 +1903,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           (r) => r.live!.campaign_id && !allowedCampaignIdsP1.has(r.live!.campaign_id),
         );
         if (orphan) {
-          return NextResponse.json(
+          return launchJson(
             {
               error: `Selected ad set "${orphan.live!.name}" no longer belongs to any of the selected campaigns — re-open Step 1 and re-pick.`,
             },
@@ -1628,12 +1916,41 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             r.live!.effective_status && blocked.has(r.live!.effective_status!),
         );
         if (archived) {
-          return NextResponse.json(
+          return launchJson(
             {
               error: `Selected ad set "${archived.live!.name}" is ${archived.live!.effective_status!.toLowerCase()} — can't add new ads to it.`,
             },
             { status: 400 },
           );
+        }
+
+        // Website-destination preflight. Every ad this launch adds to the
+        // picked ad sets is built from an uploaded asset and a typed URL, so
+        // it is a website ad. If the live ad set says otherwise, the Ads
+        // Manager Edit view will contradict the launcher — refuse rather than
+        // ship an ad the operator cannot safely edit.
+        if (draft.creatives.some((c) => c.sourceType !== "existing_post")) {
+          const destinationRefusals = findAdSetsWithoutWebsiteDestination(
+            internal,
+            results.map((r) => ({
+              id: r.live!.id,
+              name: r.live!.name,
+              destinationType: r.live!.destination_type,
+            })),
+          );
+          if (destinationRefusals.length > 0) {
+            console.error(
+              `[launch-campaign] Phase 1 (attach_adset) ✗ website-destination preflight — ` +
+                `objective=${internal} refused ${destinationRefusals.length} ad set(s): ` +
+                destinationRefusals
+                  .map((r) => `${r.adSetId} "${r.adSetName}" destination=${r.found}`)
+                  .join("; "),
+            );
+            return launchJson(
+              { error: websiteDestinationRefusalMessage(internal, destinationRefusals) },
+              { status: 409 },
+            );
+          }
         }
 
         for (const r of results) attachedLiveAdSets.push(r.live!);
@@ -1675,7 +1992,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (isMetaRateLimitCode(code, subcode)) {
         return rateLimitJsonResponse(err, adAccountId);
       }
-      return NextResponse.json(
+      return launchJson(
         {
           error: `Failed to verify the existing campaign: ${message}`,
           metaError: err instanceof MetaApiError ? err.toJSON() : undefined,
@@ -1683,33 +2000,146 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 502 },
       );
     }
+
+    if (wizardMode === "attach_campaign") {
+      // The draft objective is the first campaign's. Compare it only for a
+      // single selection. Mixed campaigns each keep their own voted event.
+      // A lowest-cost match already chose the campaign's optimisation, so
+      // that campaign is not compared back to the draft.
+      const compared = verifiedCampaigns.filter((campaign) => !campaign.optimisationGoal);
+      const gate = assertAttachSelectionObjectives({
+        draftObjective: draft.settings.objective,
+        selectedCount: compared.length,
+        campaigns: compared.flatMap((campaign) =>
+          campaign.internalObjective
+            ? [{ name: campaign.name, resolvedObjective: campaign.internalObjective }]
+            : [],
+        ),
+      });
+      if (!gate.ok) {
+        return launchJson({ error: gate.message }, { status: 400 });
+      }
+      for (const campaign of verifiedCampaigns) {
+        const schedule = budgetScheduleForAttach(draft.budgetSchedule, campaign);
+        const built = preflightAdSetPayloads(
+          schedule,
+          campaign.id,
+          campaign.internalObjective ?? draft.settings.objective,
+        );
+        if ("error" in built) {
+          return launchJson({ error: built.error }, { status: 400 });
+        }
+        const budgetRefusal = refuseSilentDailyLaunch({
+          budgetLevel: schedule.budgetLevel,
+          budgetType: schedule.budgetType,
+          campaign: {
+            daily_budget: positiveBudgetMinor(campaign.daily_budget) ?? undefined,
+            lifetime_budget: positiveBudgetMinor(campaign.lifetime_budget) ?? undefined,
+          },
+          adSets: built.payloads,
+        });
+        if (budgetRefusal) {
+          return launchJson({ error: budgetRefusal }, { status: 400 });
+        }
+      }
+    }
   } else {
+    const launchBudget = {
+      level: draft.budgetSchedule.budgetLevel,
+      type: draft.budgetSchedule.budgetType,
+      amountMajor: draft.budgetSchedule.budgetAmount,
+    };
+    const campaignGraphPayload = buildCampaignPayload({
+      name: draft.settings.campaignName.trim(),
+      objective: draft.settings.objective,
+      status: entityStatus,
+      budget: launchBudget,
+    });
+    const built = preflightAdSetPayloads(draft.budgetSchedule, "preflight");
+    if ("error" in built) {
+      return launchJson({ error: built.error }, { status: 400 });
+    }
+    const adSetGraphPayloads = built.payloads;
+    const budgetRefusal = refuseSilentDailyLaunch({
+      budgetLevel: launchBudget.level,
+      budgetType: launchBudget.type,
+      campaign: campaignGraphPayload,
+      adSets: adSetGraphPayloads,
+    });
+    if (budgetRefusal) {
+      return launchJson({ error: budgetRefusal }, { status: 400 });
+    }
+
     try {
       const campaignPayload = {
         adAccountId,
         name: draft.settings.campaignName.trim(),
         objective: draft.settings.objective,
         status: entityStatus,
+        budget: launchBudget,
         token: launchToken,
       };
       console.log(
         "[launch-campaign] Phase 1 payload:", JSON.stringify({ ...campaignPayload, token: `[${launchTokenSource}]` }, null, 2),
       );
 
-      const campaignRes = await runMetaWrite(
-        "campaign_create",
-        {
-          adAccountId,
-          name: campaignPayload.name,
-          objective: campaignPayload.objective,
-          status: entityStatus,
+      // Daily ABO keeps the historical ledger key so a retry still finds
+      // the campaign it already created. Lifetime and CBO add the budget
+      // fields, so they cannot reuse an ABO campaign minted before this.
+      const campaignLedgerPayload = {
+        adAccountId,
+        name: campaignPayload.name,
+        objective: campaignPayload.objective,
+        status: entityStatus,
+        ...(launchBudget.level === "campaign" || launchBudget.type === "lifetime"
+          ? {
+              budgetLevel: launchBudget.level,
+              budgetType: launchBudget.type,
+              budgetAmount: launchBudget.amountMajor,
+            }
+          : {}),
+      };
+      const campaignRes = await runCampaignCreateLedger({
+        context: metaWriteCtx,
+        payload: campaignLedgerPayload,
+        draftObjective: campaignPayload.objective,
+        campaignName: campaignPayload.name,
+        fetchCampaign: (id) => fetchCampaignByIdForLedger(id, launchToken),
+        create: async () => {
+          markLaunchGraphPost();
+          return (await createMetaCampaign(campaignPayload)).id;
         },
-        () => createMetaCampaign(campaignPayload),
-      );
+      });
       metaCampaignId = campaignRes.id;
+      campaignCreateOutcome = campaignRes.outcome;
+      if (campaignRes.outcome === "created" || campaignRes.outcome === "recreated") {
+        metaObjective = mapObjectiveToMeta(campaignPayload.objective);
+      }
       phaseDurations["campaign"] = elapsed(phase1Start);
-      console.log(`[launch-campaign] Phase 1 ✓  campaignId: ${metaCampaignId} (${phaseDurations["campaign"]}ms)`);
+      console.log(
+        `[launch-campaign] Phase 1 ✓  campaignId: ${metaCampaignId} outcome=${campaignCreateOutcome} (${phaseDurations["campaign"]}ms)`,
+      );
     } catch (err) {
+      if (err instanceof CampaignLedgerObjectiveError) {
+        return launchJson({ error: err.message }, { status: 409 });
+      }
+      if (err instanceof CampaignLedgerVerifyError) {
+        console.error(
+          "[launch-campaign] Phase 1 ✗  could not verify stored campaign:",
+          err.message,
+          err.source instanceof MetaApiError ? err.source.toJSON() : "",
+        );
+        if (isMetaRateLimitCode(err.code, err.subcode)) {
+          return rateLimitJsonResponse(err.source ?? err, adAccountId);
+        }
+        return launchJson(
+          {
+            error: err.message,
+            metaError: err.source instanceof MetaApiError ? err.source.toJSON() : undefined,
+          },
+          { status: 502 },
+        );
+      }
       const message = err instanceof MetaApiError ? err.message : String(err);
       console.error(
         "[launch-campaign] Phase 1 ✗  campaign creation failed:",
@@ -1724,12 +2154,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         error: message,
         platformAdAccountId:
           draft.settings.adAccountId || draft.settings.metaAdAccountId || null,
+        ...preLaunchPlanOwnership,
       });
       const { code, subcode } = metaCodesFromUnknown(err);
       if (isMetaRateLimitCode(code, subcode)) {
         return rateLimitJsonResponse(err, adAccountId);
       }
-      return NextResponse.json(
+      return launchJson(
         {
           error: `Failed to create campaign: ${message}`,
           metaError: err instanceof MetaApiError ? err.toJSON() : undefined,
@@ -1906,7 +2337,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   if (multiIgPreflightErrors.length > 0) {
-    return NextResponse.json(
+    return launchJson(
       {
         error: "Launch preflight failed — Instagram account required for multi-IG pages",
         details: multiIgPreflightErrors,
@@ -2057,7 +2488,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       `[launch-campaign] Phase 1.5 ✗ BLOCKED — ${igMismatches.length} creative(s) ` +
         `reference an Instagram account this ad account will not accept:\n  ${details.join("\n  ")}`,
     );
-    return NextResponse.json(
+    return launchJson(
       {
         error: "Launch preflight failed — Instagram account not authorised on this ad account",
         details,
@@ -2129,7 +2560,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const pageGroupTypedSeeds = new Map<string, TypedSeed[]>();
 
   const enabledPageGroupSets = draft.adSetSuggestions.filter(
-    (s) => s.enabled && s.sourceType === "page_group",
+    (s) => launchable(s) && s.sourceType === "page_group",
   );
   const processedGroups = new Set<string>();
 
@@ -2172,6 +2603,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             existingStatus.lastReadinessDescription = readiness.description;
             existingStatus.readyForLookalike = readiness.ready;
             existingStatus.populating = readiness.populating;
+            if (readiness.accountId) existingStatus.accountId = readiness.accountId;
           }
           console.log(
             `[launch-campaign] Phase 1.5 — reusing existing ${et} audience ${existingStatus.id}` +
@@ -2353,7 +2785,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const splalGroups = draft.audiences.selectedPagesLookalikeGroups ?? [];
   const enabledSplalGroupIds = new Set(
     draft.adSetSuggestions
-      .filter((s) => s.enabled && s.sourceType === "selected_pages_lookalike")
+      .filter((s) => launchable(s) && s.sourceType === "selected_pages_lookalike")
       .map((s) => s.sourceId),
   );
 
@@ -2988,6 +3420,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+  // Bookkeeping only, same doctrine. Binds while ad sets are created;
+  // attach modes record too, against the ad set's own campaign.
+  const adRecorderReady = bindLaunchAdRecorder({
+    session: supabase,
+    serviceRole: createServiceRoleClient,
+    draft,
+    creatives: draft.creatives,
+    userId: user.id,
+    adAccountId,
+    launchRunId,
+  }).catch((err) => {
+    console.error("[launched_ads] bind failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return noopRecordCreatedAd;
+  });
+  const attachCampaignIdByMetaAdSetId = new Map<string, string>();
 
   const adSetsCreated: LaunchSummary["adSetsCreated"] = [];
   const adSetsFailed: LaunchSummary["adSetsFailed"] = [];
@@ -3024,6 +3473,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       adSetLaunchResults[synthKey] = { launchStatus: "created", metaAdSetId };
     }
     for (const r of pooled.registered) {
+      attachCampaignIdByMetaAdSetId.set(r.metaAdSetId, r.campaignId);
       console.log(
         `[launch-campaign] Phase 2 (attach_all_adsets) — registered ad set ${r.metaAdSetId}` +
           ` ("${r.name}") from campaign "${r.campaignName}"`,
@@ -3036,7 +3486,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     if (adSetMetaIds.size === 0) {
-      return NextResponse.json(
+      return launchJson(
         {
           error: `No active or paused ad sets found across the selected campaigns. Make sure each campaign has at least one active ad set.`,
         },
@@ -3046,6 +3496,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log(
       `[launch-campaign] Phase 2 (attach_all_adsets) ✓  registered ${adSetMetaIds.size} ad set(s) for Phase 4`,
     );
+    const ids = [...adSetMetaIds.values()];
+    const guards = await fetchAdSetGuardInfo(ids, launchToken);
+    if (rotationLiveCheck) {
+      const refusal = existingRotationRefusal(
+        ids.map((metaId) => ({
+          metaId,
+          name: metaId,
+          creativeIds: draft.creatives.map((c) => c.id),
+        })),
+        draft.creatives,
+        guards,
+      );
+      if (refusal) {
+        console.error(`[launch-campaign] ✗ rotation ad set guard: ${refusal}`);
+        return launchJson({ error: refusal }, { status: 400 });
+      }
+    }
+    const adLimit = adSetAdLimitMessage(
+      ids.map((metaId) => ({
+        name: metaId,
+        existingAds: guards.get(metaId)?.adCount ?? 0,
+        newAds: launchCreatives.length,
+      })),
+    );
+    if (adLimit) {
+      console.error(`[launch-campaign] ✗ ad set ad limit: ${adLimit}`);
+      return launchJson({ error: adLimit }, { status: 400 });
+    }
   }
 
   // ── attach_adset short-circuit ──────────────────────────────────────────
@@ -3063,6 +3541,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     for (const liveAdSet of liveAdSets) {
       const synthKey = attachedAdSetKey(liveAdSet.id);
       adSetMetaIds.set(synthKey, liveAdSet.id);
+      if (liveAdSet.campaign_id) attachCampaignIdByMetaAdSetId.set(liveAdSet.id, liveAdSet.campaign_id);
       adSetLaunchResults[synthKey] = {
         launchStatus: "created",
         metaAdSetId: liveAdSet.id,
@@ -3093,13 +3572,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     : enabledSets.filter((s) => LOOKALIKE_TYPES.has(s.sourceType));
 
   const phase2Objective =
-    wizardMode === "attach_campaign" || isAttachAllAdSets
-      ? internalObjectiveForAttachCampaign(
+    wizardMode === "attach_campaign"
+      ? (verifiedCampaigns.find((campaign) => campaign.id === metaCampaignId)?.internalObjective ??
+        internalObjectiveForAttachCampaign(
           metaCampaignId,
           attachCampaignSnapshots,
           draft.settings.objective,
-        )
-      : draft.settings.objective;
+        ))
+      : isAttachAllAdSets
+        ? internalObjectiveForAttachCampaign(
+            metaCampaignId,
+            attachCampaignSnapshots,
+            draft.settings.objective,
+          )
+        : draft.settings.objective;
 
   // task #125 — single source-of-truth dependency bundle for the shared
   // ad-set-create salvage ladder (lib/audiences/adset-create-with-salvage.ts),
@@ -3159,19 +3645,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     console.log("[launch-campaign] Phase 2 — creating", standardSets.length, "standard ad sets");
 
-    // Build adSetId → first existing-post creative so placement overrides can
-    // be applied to the ad set targeting before creating it.
-    // (draft.creativeAssignments is creative-id → ad-set-id[]; invert it here)
-    const adSetToCreativeMap = new Map<string, AdCreativeDraft>();
-    for (const [creativeId, adSetIds] of Object.entries(draft.creativeAssignments ?? {})) {
-      const creative = launchCreatives.find((c) => c.id === creativeId);
-      if (!creative || creative.sourceType !== "existing_post") continue;
-      for (const asId of adSetIds ?? []) {
-        if (!adSetToCreativeMap.has(asId)) {
-          adSetToCreativeMap.set(asId, creative);
-        }
-      }
-    }
+    // Ad set id → first existing-post creative, for placement overrides.
+    const adSetToCreativeMap = firstExistingPostByAdSet(launchAssignments, launchCreatives);
 
     // Create standard ad sets concurrently in batches of 5
     const BATCH_SIZE = 5;
@@ -3185,7 +3660,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           // calling Meta, instead of letting the create fail (subcode
           // 1870196) and get silently "fixed" by the salvage ladder's
           // 1870196 handler — see lib/meta/advantage-plus-compat.ts.
-          if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, draft.settings.optimisationGoal)) {
+          if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, optimisationGoalFor(metaCampaignId))) {
             throw { adSet, err: new Error(advantageAudienceObjectiveMismatchMessage(adSet.name, phase2Objective)) };
           }
 
@@ -3193,13 +3668,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             adSet,
             metaCampaignId,
             draft.audiences,
-            draft.budgetSchedule,
-            draft.settings.optimisationGoal,
+            budgetScheduleForCreatedAdSets(metaCampaignId),
+            optimisationGoalFor(metaCampaignId),
             phase2Objective,
-            draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            pixelForCreatedAdSet(metaCampaignId),
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
-            boostAdSetIds.has(adSet.id),
             entityStatus,
           );
 
@@ -3334,7 +3808,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           try {
             const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep.payload, launchToken);
             const dur = elapsed(asStart);
-            console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
+            console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSetDisplayName(adSet, draft.audiences)} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
             return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: prep.preflightDroppedNote, ageModeOverride: undefined };
           } catch (err) {
             // Auto-retry ONCE for deprecated-interest failures. Covers Meta
@@ -3374,12 +3848,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 }
 
                 const rebuiltPayload = buildAdSetPayload(
-                  adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
-                  draft.settings.optimisationGoal, phase2Objective,
-                  draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+                  adSet, metaCampaignId, draft.audiences, budgetScheduleForCreatedAdSets(metaCampaignId),
+                  optimisationGoalFor(metaCampaignId), phase2Objective,
+                  pixelForCreatedAdSet(metaCampaignId),
                   dynamicAdSetIds.has(adSet.id),
                   draft.settings.placementConfig,
-                  boostAdSetIds.has(adSet.id),
             entityStatus,
                 );
                 // Apply Meta's alternatives (or remove entirely when none) and
@@ -3395,7 +3868,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 const retryRes = await createMetaAdSetViaLedger(adAccountId, retryPayload, launchToken);
                 launchRetrySucceeded += 1;
                 const dur = elapsed(asStart);
-                console.log(`[launch-campaign] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
+                console.log(`[launch-campaign] Phase 2 ✓  ad set (retry): ${adSetDisplayName(adSet, draft.audiences)} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
                 return { adSet, metaAdSetId: retryRes.id, durationMs: dur, note: undefined, ageModeOverride: undefined };
               }
             }
@@ -3441,7 +3914,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         if (r.status === "fulfilled") {
           const { adSet, metaAdSetId, durationMs, note, ageModeOverride } = r.value;
           adSetsCreated.push({
-            name: adSet.name,
+            name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId,
             // ageModeOverride: the subcode-1870196 salvage retry strips
             // Advantage+ Audience and sends explicit ages, so the ad set is
@@ -3459,9 +3932,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           });
         } else {
           const reason = r.reason as { adSet: AdSetSuggestion; err: unknown };
-          const message = formatMetaError(reason.err);
-          console.error("[launch-campaign] Phase 2 ✗  ad set failed:", reason.adSet.name, ":", message);
-          adSetsFailed.push({ name: reason.adSet.name, error: message });
+          const message = formatMetaError(reason.err, metaCampaignId);
+          console.error("[launch-campaign] Phase 2 ✗  ad set failed:", adSetDisplayName(reason.adSet, draft.audiences), ":", message);
+          adSetsFailed.push({ name: adSetDisplayName(reason.adSet, draft.audiences), error: message });
           adSetLaunchResults[reason.adSet.id] = { launchStatus: "failed", error: message };
         }
       }
@@ -3646,29 +4119,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
-      const isMultiPlacement = !!creativePayload.asset_feed_spec?.asset_customization_rules?.length;
-      // Detect BOOK_NOW + dual-mode fallback: dual assets were uploaded but the
-      // creative landed on the single-asset path AND the CTA is BOOK_NOW.
-      // This signals the per-placement fallback fired (Meta subcode 1885396).
-      const isBookNowVerticalFallback =
-        !isMultiPlacement &&
-        creative.cta === "book_now" &&
-        (creative.assetVariations?.[0]?.assets ?? []).filter(
-          (a) => (a.videoId || a.assetHash) && (a.aspectRatio === "4:5" || a.aspectRatio === "1:1" || a.aspectRatio === "9:16"),
-        ).length >= 2;
-      if (isBookNowVerticalFallback) {
-        console.error(
-          `[launch-campaign] ⚠ BOOK_NOW + dual-aspect: per-placement routing unavailable` +
-            ` (Meta API constraint 1885396). Creative "${creative.name}" is using the 9:16 vertical` +
-            ` asset for all placements. 4:5 feed asset NOT used.` +
-            ` To preserve per-placement routing, switch CTA to LEARN_MORE, SIGN_UP, or BUY_TICKETS.`,
-        );
-      }
+      const launchPath = creativeLaunchPath(creativePayload);
       console.log(
         `[launch-campaign] Phase 3 — POSTing creative "${creative.name}" to Meta:`,
         JSON.stringify({
-          path: isMultiPlacement ? "multi_placement" : "single_asset",
-          bookNowVerticalFallback: isBookNowVerticalFallback,
+          path: launchPath,
+          ctaTypes: creativePayload.asset_feed_spec?.call_to_action_types,
           hasAssetFeedSpec: !!creativePayload.asset_feed_spec,
           assetFeedVideoCount: creativePayload.asset_feed_spec?.videos?.length ?? 0,
           assetFeedImageCount: creativePayload.asset_feed_spec?.images?.length ?? 0,
@@ -3692,7 +4148,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const dur = elapsed(cStart);
         console.log(
           `[launch-campaign] Phase 3 ✓  creative: ${creative.name} → ${metaCreativeId}` +
-            ` (${dur}ms) path=${isMultiPlacement ? "multi_placement" : "single_asset"} strictMode=${strictMode}`,
+            ` (${dur}ms) path=${launchPath} strictMode=${strictMode}`,
         );
 
         const cIdx = updatedCreatives.findIndex((c) => c.id === creative.id);
@@ -3702,10 +4158,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const identityMode: "page_only" | "page_and_ig" =
           igId && /^\d{10,}$/.test(igId) ? "page_and_ig" : "page_only";
 
+        const copyNote = suppressedCopyNote(creative);
         creativesCreated.push({
           name: creative.name,
           metaCreativeId,
           identityMode,
+          ...(copyNote ? { copyNote } : {}),
           durationMs: dur,
           ads: [],
           adsFailed: [],
@@ -3722,23 +4180,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // If a future branch re-introduces instagram_actor_id, add targeted
         // retry logic here (not a blanket actor-swap loop).
 
-        const isAppModeError =
-          rawMessage.toLowerCase().includes("development") ||
-          rawMessage.toLowerCase().includes("live mode") ||
-          rawMessage.toLowerCase().includes("app is not live") ||
-          userMsg.toLowerCase().includes("development") ||
-          (isMetaErr && err.code === 200);
-
-        const message = isAppModeError
-          ? `Creative blocked — this ad type requires your Meta app to be in Live/Public mode. ` +
-            `Ads will not deliver until the app is switched to Live mode in Meta for Developers → App Settings → Status. ` +
-            `Original error: ${rawMessage}`
-          : rawMessage;
+        const creativeIgId =
+          creativePayload.instagram_user_id ??
+          creativePayload.object_story_spec?.instagram_user_id ??
+          undefined;
+        const classified = classifyCreativeCreateError(err, {
+          creativeName: creative.name,
+          campaignId: metaCampaignId,
+          pageId: creativePageId,
+          instagramAccountId: creativeIgId,
+        });
 
         console.error(
           `[launch-campaign] Phase 3 ✗  creative failed: "${creative.name}"`,
           JSON.stringify({
-            path: isMultiPlacement ? "multi_placement" : "single_asset",
+            path: launchPath,
+            kind: classified.kind,
             code: isMetaErr ? (err as MetaApiError).code : undefined,
             subcode: isMetaErr ? (err as MetaApiError).subcode : undefined,
             userMsg,
@@ -3747,8 +4204,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
         creativesFailed.push({
           name: creative.name,
-          error: message,
-          skippedReason: isAppModeError ? "app_mode_blocked" : undefined,
+          error: classified.message,
+          skippedReason: classified.skippedReason,
+          ...(classified.kind === "permission"
+            ? {
+                ...(creativePageId ? { pageId: creativePageId } : {}),
+                ...(creativeIgId ? { instagramAccountId: creativeIgId } : {}),
+              }
+            : {}),
         });
       }
     }
@@ -3781,6 +4244,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         allBlocked
           ? "ALL creatives blocked — campaign structure was created but no ads launched."
           : "Partial block — some creatives succeeded.",
+      );
+    }
+
+    const permissionBanner = creativeFailureBanners({ creativesFailed, creativesCreated }).permission;
+    if (permissionBanner) {
+      preflightWarnings.push({
+        stage: "creative",
+        message: `${permissionBanner.title}. ${permissionBanner.body}`,
+        severity: "red",
+      });
+      console.error(
+        `[launch-campaign] Phase 3 ⛔ permission: ${permissionBanner.count} creative(s) rejected on ` +
+          `${permissionBanner.assets.join(", ") || "(unknown assets)"}.`,
       );
     }
   })();
@@ -3816,7 +4292,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const skipReason = "source audience not ready";
         const msg = "Skipped — no lookalike audiences were created for this group (source audience creation failed or timed out)";
         console.log(`[launch-campaign] Phase 2b — skipping lookalike ad set "${adSet.name}"`);
-        adSetsFailed.push({ name: adSet.name, error: msg, skippedReason: skipReason });
+        adSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: msg, skippedReason: skipReason });
         adSetLaunchResults[adSet.id] = { launchStatus: "skipped", skippedReason: skipReason, error: msg };
         continue;
       }
@@ -3824,10 +4300,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // task #126 — objective-gated preflight (same reasoning as standard
       // Phase 2 above): fail fast instead of relying on the salvage ladder's
       // 1870196 handler to silently strip the flag.
-      if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, draft.settings.optimisationGoal)) {
+      if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, optimisationGoalFor(metaCampaignId))) {
         const message = advantageAudienceObjectiveMismatchMessage(adSet.name, phase2Objective);
         console.error(`[launch-campaign] Phase 2b ✗  lookalike ad set failed: ${adSet.name}: ${message}`);
-        adSetsFailed.push({ name: adSet.name, error: message });
+        adSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: message });
         adSetLaunchResults[adSet.id] = { launchStatus: "failed", error: message };
         continue;
       }
@@ -3839,13 +4315,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           adSet,
           metaCampaignId,
           draft.audiences,
-          draft.budgetSchedule,
-          draft.settings.optimisationGoal,
+          budgetScheduleForCreatedAdSets(metaCampaignId),
+          optimisationGoalFor(metaCampaignId),
           phase2Objective,
-          draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+          pixelForCreatedAdSet(metaCampaignId),
           dynamicAdSetIds.has(adSet.id),
           draft.settings.placementConfig,
-          boostAdSetIds.has(adSet.id),
             entityStatus,
         );
 
@@ -3884,9 +4359,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep2b.payload, launchToken);
         const dur = elapsed(asStart);
-        console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
+        console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set: ${adSetDisplayName(adSet, draft.audiences)} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
         adSetsCreated.push({
-          name: adSet.name,
+          name: adSetDisplayName(adSet, draft.audiences),
           metaAdSetId: adSetRes.id,
           ageMode: adSet.advantagePlus ? "suggested" : "strict",
           durationMs: dur,
@@ -3906,12 +4381,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // brings it to full parity.
         try {
           const adSetPayload = buildAdSetPayload(
-            adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
-            draft.settings.optimisationGoal, phase2Objective,
-            draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            adSet, metaCampaignId, draft.audiences, budgetScheduleForCreatedAdSets(metaCampaignId),
+            optimisationGoalFor(metaCampaignId), phase2Objective,
+            pixelForCreatedAdSet(metaCampaignId),
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
-            boostAdSetIds.has(adSet.id),
             entityStatus,
           );
           const salvaged = await createAdSetWithSalvage(
@@ -3931,7 +4405,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             salvageDeps,
           );
           adSetsCreated.push({
-            name: adSet.name,
+            name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId: salvaged.metaAdSetId,
             ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
             durationMs: salvaged.durationMs,
@@ -3946,8 +4420,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           });
         } catch (salvageErr) {
           const message = formatMetaError(salvageErr);
-          console.error("[launch-campaign] Phase 2b ✗  lookalike ad set failed:", adSet.name, ":", message);
-          adSetsFailed.push({ name: adSet.name, error: message });
+          console.error("[launch-campaign] Phase 2b ✗  lookalike ad set failed:", adSetDisplayName(adSet, draft.audiences), ":", message);
+          adSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: message });
           adSetLaunchResults[adSet.id] = { launchStatus: "failed", error: message };
         }
       }
@@ -3961,7 +4435,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const phase4Start = Date.now();
-  const creativeToAdSetIds = invertAssignments(draft.creativeAssignments ?? {});
+  const creativeToAdSetIds = invertAssignments(launchAssignments);
   // Lookup by internal id: name for display, metaAdSetId from this run's Map
   const adSetNameById = new Map<string, string>(
     draft.adSetSuggestions.map((s) => [s.id, s.name]),
@@ -4006,6 +4480,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         : ""),
   );
 
+  const recordCreatedAd = await adRecorderReady;
+
   // Create all ads in parallel batches
   const adCreationTasks: Promise<void>[] = [];
   // Orphan ad-set keys: in creativeAssignments but not in adSetMetaIds (stale
@@ -4013,7 +4489,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const skippedOrphanAdSets: NonNullable<LaunchSummary["skippedOrphanAdSets"]> = [];
 
   for (const creativeEntry of creativesCreated) {
-    const creative = draft.creatives.find((c) => c.name === creativeEntry.name);
+    const creative = launchCreatives.find((c) => c.name === creativeEntry.name);
     if (!creative) continue;
 
     // GOAL 2 — attach_all_adsets: bypass the assignment matrix and attach to
@@ -4057,6 +4533,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             const dur = elapsed(adStart);
             console.log(`[launch-campaign] Phase 4 ✓  ad: ${creative.name} × ${adSetName} → ${adRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
             creativeEntry.ads.push({ adSetName, metaAdId: adRes.id, durationMs: dur });
+            await recordCreatedAd({
+              creative,
+              adName: adPayload.name,
+              metaAdId: adRes.id,
+              metaCreativeId: creativeEntry.metaCreativeId,
+              metaAdSetId,
+              metaCampaignId: attachCampaignIdByMetaAdSetId.get(metaAdSetId) ?? metaCampaignId,
+            });
           } catch (err) {
             const websiteUrl = err instanceof MetaApiError
               ? websiteUrlRequiredMessage(creative.name, err)
@@ -4105,6 +4589,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const campaignAttachResults: CampaignAttachResult[] = [];
+  // Ad ids from the MC[ci] loop, keyed by creative name. Phase 4 ids stay on
+  // creativesCreated[].ads. Counts (ciAdsCreated / campaignAttachResults) are
+  // unchanged — this map only feeds the published creative stamp.
+  const multiCampaignAdIdsByName = new Map<string, string[]>();
 
   if (isMultiCampaignAttach && !isAttachAllAdSets) {
     // Record the first campaign's result from the main Phase 2+4 above.
@@ -4118,7 +4606,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     // Build creative-to-adset assignment lookup once (shared across campaigns).
-    const creativeToAdSetIdsMulti = invertAssignments(draft.creativeAssignments ?? {});
+    const creativeToAdSetIdsMulti = invertAssignments(launchAssignments);
 
     for (let ci = 1; ci < verifiedCampaigns.length; ci++) {
       await sleep(1000);
@@ -4144,21 +4632,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const ciFreshlyCreatedEngagementAudienceIds = new Set(freshlyCreatedEngagementAudienceIds);
       const ciReceiptAudienceIds = new Set(receiptAudienceIds);
 
-      // Build adSet → existing-post creative map for placement override logic.
-      const ciAdSetToCreativeMap = new Map<string, AdCreativeDraft>();
-      for (const [creativeId, adSetIds] of Object.entries(draft.creativeAssignments ?? {})) {
-        const creative = launchCreatives.find((c) => c.id === creativeId);
-        if (!creative || creative.sourceType !== "existing_post") continue;
-        for (const asId of adSetIds ?? []) {
-          if (!ciAdSetToCreativeMap.has(asId)) ciAdSetToCreativeMap.set(asId, creative);
-        }
-      }
+      // Ad set id → first existing-post creative, for placement overrides.
+      const ciAdSetToCreativeMap = firstExistingPostByAdSet(launchAssignments, launchCreatives);
 
-      const ciObjective = internalObjectiveForAttachCampaign(
-        nextCampaign.id,
-        attachCampaignSnapshots,
-        draft.settings.objective,
-      );
+      const ciObjective =
+        nextCampaign.internalObjective ??
+        internalObjectiveForAttachCampaign(
+          nextCampaign.id,
+          attachCampaignSnapshots,
+          draft.settings.objective,
+        );
 
       // Standard ad sets (batches of 5, same as Phase 2).
       const CI_BATCH_SIZE = 5;
@@ -4170,7 +4653,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
             // task #126 — objective-gated preflight (same reasoning as
             // standard Phase 2 above).
-            if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, draft.settings.optimisationGoal)) {
+            if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, optimisationGoalFor(nextCampaign.id))) {
               throw { adSet, err: new Error(advantageAudienceObjectiveMismatchMessage(adSet.name, ciObjective)) };
             }
 
@@ -4178,13 +4661,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               adSet,
               nextCampaign.id,
               draft.audiences,
-              draft.budgetSchedule,
-              draft.settings.optimisationGoal,
+              budgetScheduleForCreatedAdSets(nextCampaign.id),
+              optimisationGoalFor(nextCampaign.id),
               ciObjective,
-              draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+              pixelForCreatedAdSet(nextCampaign.id),
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
-              boostAdSetIds.has(adSet.id),
             entityStatus,
             );
 
@@ -4238,7 +4720,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             try {
               const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep.payload, launchToken);
               const dur = elapsed(asStart);
-              console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
+              console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set: ${adSetDisplayName(adSet, draft.audiences)} → ${adSetRes.id} (${dur}ms)`);
               return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: prep.preflightDroppedNote, ageModeOverride: undefined };
             } catch (err) {
               // Retry once for deprecated-interest failures — stays outside
@@ -4248,12 +4730,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 const replacements = extractDeprecatedReplacements(err.rawErrorData, err.message);
                 if (replacements.length > 0) {
                   const rebuiltPayload = buildAdSetPayload(
-                    adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
-                    draft.settings.optimisationGoal, ciObjective,
-                    draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+                    adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
+                    optimisationGoalFor(nextCampaign.id), ciObjective,
+                    pixelForCreatedAdSet(nextCampaign.id),
                     dynamicAdSetIds.has(adSet.id),
                     draft.settings.placementConfig,
-                    boostAdSetIds.has(adSet.id),
             entityStatus,
                   );
                   let retryPayload = applyInterestReplacements(rebuiltPayload, replacements);
@@ -4263,7 +4744,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   }
                   const retryRes = await createMetaAdSetViaLedger(adAccountId, retryPayload, launchToken);
                   const dur = elapsed(asStart);
-                  console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`);
+                  console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set (retry): ${adSetDisplayName(adSet, draft.audiences)} → ${retryRes.id} (${dur}ms)`);
                   return { adSet, metaAdSetId: retryRes.id, durationMs: dur, note: undefined, ageModeOverride: undefined };
                 }
               }
@@ -4307,7 +4788,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           if (r.status === "fulfilled") {
             const { adSet, metaAdSetId, durationMs, note, ageModeOverride } = r.value;
             ciAdSetsCreated.push({
-              name: adSet.name,
+              name: adSetDisplayName(adSet, draft.audiences),
               metaAdSetId,
               ageMode: ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
               durationMs,
@@ -4320,9 +4801,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             });
           } else {
             const reason = r.reason as { adSet: AdSetSuggestion; err: unknown };
-            const message = formatMetaError(reason.err);
-            console.error(`[launch-campaign] MC[${ci}] Phase 2 ✗  ad set failed: ${reason.adSet.name}: ${message}`);
-            ciAdSetsFailed.push({ name: reason.adSet.name, error: message });
+            const message = formatMetaError(reason.err, nextCampaign.id);
+            console.error(`[launch-campaign] MC[${ci}] Phase 2 ✗  ad set failed: ${adSetDisplayName(reason.adSet, draft.audiences)}: ${message}`);
+            ciAdSetsFailed.push({ name: adSetDisplayName(reason.adSet, draft.audiences), error: message });
           }
         }
       }
@@ -4338,15 +4819,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           lalIds = srcGroup?.lookalikeAudienceIdsByRange?.[adSet.lookalikeRange ?? ""] ?? [];
         }
         if (lalIds.length === 0) {
-          ciAdSetsFailed.push({ name: adSet.name, error: "Skipped — no lookalike audiences ready for this group" });
+          ciAdSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: "Skipped — no lookalike audiences ready for this group" });
           continue;
         }
 
         // task #126 — objective-gated preflight (same reasoning as standard
         // Phase 2 above).
-        if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, draft.settings.optimisationGoal)) {
+        if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, optimisationGoalFor(nextCampaign.id))) {
           ciAdSetsFailed.push({
-            name: adSet.name,
+            name: adSetDisplayName(adSet, draft.audiences),
             error: advantageAudienceObjectiveMismatchMessage(adSet.name, ciObjective),
           });
           continue;
@@ -4356,12 +4837,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         let prep2b: PrepareAdSetPayloadResult | undefined;
         try {
           const adSetPayload = buildAdSetPayload(
-            adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
-            draft.settings.optimisationGoal, ciObjective,
-            draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
+            optimisationGoalFor(nextCampaign.id), ciObjective,
+            pixelForCreatedAdSet(nextCampaign.id),
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
-            boostAdSetIds.has(adSet.id),
             entityStatus,
           );
           if (!hasAudienceTargeting(adSetPayload.targeting, adSet)) {
@@ -4386,7 +4866,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep2b.payload, launchToken);
           const dur = elapsed(asStart);
           ciAdSetsCreated.push({
-            name: adSet.name,
+            name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId: adSetRes.id,
             ageMode: adSet.advantagePlus ? "suggested" : "strict",
             durationMs: dur,
@@ -4396,17 +4876,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           await recordCreatedAdSet(nextCampaign.id, adSet, adSetRes.id, {
             droppedNote: prep2b.preflightDroppedNote,
           });
-          console.log(`[launch-campaign] MC[${ci}] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
+          console.log(`[launch-campaign] MC[${ci}] Phase 2b ✓  lookalike ad set: ${adSetDisplayName(adSet, draft.audiences)} → ${adSetRes.id} (${dur}ms)`);
         } catch (err) {
           // task #125 — same shared salvage ladder as standard Phase 2b.
           try {
             const adSetPayload = buildAdSetPayload(
-              adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
-              draft.settings.optimisationGoal, ciObjective,
-              draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+              adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
+              optimisationGoalFor(nextCampaign.id), ciObjective,
+              pixelForCreatedAdSet(nextCampaign.id),
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
-              boostAdSetIds.has(adSet.id),
             entityStatus,
             );
             const salvaged = await createAdSetWithSalvage(
@@ -4426,7 +4905,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               salvageDeps,
             );
             ciAdSetsCreated.push({
-              name: adSet.name,
+              name: adSetDisplayName(adSet, draft.audiences),
               metaAdSetId: salvaged.metaAdSetId,
               ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
               durationMs: salvaged.durationMs,
@@ -4440,8 +4919,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             });
           } catch (salvageErr) {
             const message = formatMetaError(salvageErr);
-            console.error(`[launch-campaign] MC[${ci}] Phase 2b ✗  lookalike ad set failed: ${adSet.name}: ${message}`);
-            ciAdSetsFailed.push({ name: adSet.name, error: message });
+            console.error(`[launch-campaign] MC[${ci}] Phase 2b ✗  lookalike ad set failed: ${adSetDisplayName(adSet, draft.audiences)}: ${message}`);
+            ciAdSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: message });
           }
         }
       }
@@ -4455,7 +4934,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const ciAdTasks: Promise<void>[] = [];
 
       for (const creativeEntry of creativesCreated) {
-        const creative = draft.creatives.find((c) => c.name === creativeEntry.name);
+        const creative = launchCreatives.find((c) => c.name === creativeEntry.name);
         if (!creative) continue;
         const assignedAdSetIds = creativeToAdSetIdsMulti[creative.id] ?? [];
         for (const internalAdSetId of assignedAdSetIds) {
@@ -4474,6 +4953,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 const adRes = await createMetaAdViaLedger(adAccountId, adPayload, launchToken);
                 console.log(`[launch-campaign] MC[${ci}] Phase 4 ✓  ad: ${creative.name} × ${adSetName} → ${adRes.id}`);
                 ciAdsCreated++;
+                const recordedMcAdIds = multiCampaignAdIdsByName.get(creative.name);
+                if (recordedMcAdIds) recordedMcAdIds.push(adRes.id);
+                else multiCampaignAdIdsByName.set(creative.name, [adRes.id]);
+                await recordCreatedAd({
+                  creative,
+                  adName: adPayload.name,
+                  metaAdId: adRes.id,
+                  metaCreativeId: creativeEntry.metaCreativeId,
+                  metaAdSetId,
+                  metaCampaignId: nextCampaign.id,
+                });
               } catch (err) {
                 const message = formatMetaError(err);
                 console.error(`[launch-campaign] MC[${ci}] Phase 4 ✗  ad failed: ${creative.name} × ${adSetName}: ${message}`);
@@ -4509,6 +4999,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const summary: LaunchSummary = {
     launchRunId,
     metaCampaignId,
+    campaignCreateOutcome,
+    metaObjective,
     adSetLaunchResults: Object.keys(adSetLaunchResults).length > 0 ? adSetLaunchResults : undefined,
     totalDurationMs,
     phaseDurations,
@@ -4563,7 +5055,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const cleanSuggestions = draft.adSetSuggestions.map(({ metaAdSetId: _id, ...rest }) => rest);
   const publishedDraft: CampaignDraft = {
     ...draft,
+    creativeAssignments: launchAssignments,
     metaCampaignId,
+    creatives: stampPublishedCreatives(
+      updatedCreatives,
+      creativesCreated,
+      multiCampaignAdIdsByName,
+    ),
     adSetSuggestions: cleanSuggestions as CampaignDraft["adSetSuggestions"],
     launchSummary: summary,
     status: "published",
@@ -4601,6 +5099,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ok: true,
     platformAdAccountId:
       draft.settings.adAccountId || draft.settings.metaAdAccountId || null,
+    ...preLaunchPlanOwnership,
+  });
+
+  await writeDraftLaunchPrediction(supabase, {
+    userId: user.id,
+    draftId: draft.id,
+    eventId: draft.settings.eventId,
+    unit: predictionUnitForDraft({
+      objective: draft.settings.objective,
+      presetUnit: draft.optimisationStrategy.preset?.targetUnit ?? null,
+    }),
   });
 
   console.log(
@@ -4616,5 +5125,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // The client stores the full summary but does not overwrite adSetSuggestions.
   // ═══════════════════════════════════════════════════════════════════════════
 
-  return NextResponse.json(summary, { status: 201 });
+  return launchJson(summary, { status: 201 });
 }

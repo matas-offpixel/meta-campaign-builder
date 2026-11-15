@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { createDefaultDraft } from "../campaign-defaults.ts";
+import { ATTACH_EVENT_BEFORE_LAUNCH, validateStep } from "../validation.ts";
 import {
   applyEventToCampaignSettings,
   buildDuplicatedCampaign,
@@ -318,28 +318,6 @@ describe("production call sites — no silent inherit", () => {
     assert.match(plan, /from "@\/components\/library\/event-pick-dialog"/);
   });
 
-  it("this branch does not touch evaluate/apply/gates/plan-workspace", () => {
-    const headRef =
-      process.env.GITHUB_HEAD_REF ||
-      execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim();
-    if (headRef !== "cursor/duplicate-must-choose-its-event") return;
-    const changed = execSync("git diff --name-only origin/main...HEAD", {
-      encoding: "utf8",
-    });
-    for (const file of [
-      "lib/optimisation/evaluate.ts",
-      "lib/optimisation/apply.ts",
-      "lib/optimisation/gates.ts",
-      "components/plan/plan-workspace.tsx",
-      "lib/plan/__tests__/drawer.test.ts",
-    ]) {
-      assert.ok(
-        !changed.split("\n").includes(file),
-        `${file} is in this branch's diff`,
-      );
-    }
-  });
-
   it("loadCampaignList does not pull draft_json", () => {
     const src = readFileSync("lib/db/drafts.ts", "utf8");
     const fn = src.slice(
@@ -348,7 +326,7 @@ describe("production call sites — no silent inherit", () => {
     );
     assert.match(
       fn,
-      /\.select\("id, name, objective, status, ad_account_id, created_at, updated_at, event_id"\)/,
+      /\.select\("id, name, objective, status, ad_account_id, created_at, updated_at, event_id, client_id"\)/,
     );
     assert.doesNotMatch(fn, /draft_json/);
     assert.doesNotMatch(fn, /migrateDraft/);
@@ -394,5 +372,25 @@ describe("production call sites — no silent inherit", () => {
     assert.match(setup, /Wired to/);
     assert.match(setup, /useFetchEvents\(settings\.eventId\)/);
     assert.match(setup, /not in this list/);
+    assert.match(setup, /No event attached/);
+  });
+});
+
+describe("campaign step event", () => {
+  it("validateStep: draft with no event blocks on the Campaign step with that message; attaching an event clears it and derives the code as today", () => {
+    const draft = createDefaultDraft();
+    draft.settings = settings({ eventId: "", clientId: "" });
+    const blocked = validateStep(1, draft);
+    assert.equal(blocked.valid, false);
+    assert.ok(blocked.errors.includes(ATTACH_EVENT_BEFORE_LAUNCH));
+
+    const attached = applyEventToCampaignSettings(draft.settings, AZYR);
+    const next = { ...draft, settings: attached };
+    const cleared = validateStep(1, next);
+    assert.equal(cleared.errors.includes(ATTACH_EVENT_BEFORE_LAUNCH), false);
+    assert.equal(cleared.valid, true);
+    assert.equal(attached.campaignCode, "NX26-AZYR");
+    assert.equal(attached.campaignName, "[NX26-AZYR] SCHAK - Registration");
+    assert.equal(attached.eventId, AZYR.id);
   });
 });

@@ -92,6 +92,35 @@ describe("DHB creative copy", () => {
     const blockers = validateStep(4, draft).errors.filter((error) => COPY_BLOCKER.test(error));
     assert.deepEqual(blockers, []);
   });
+
+  it("a title or description of a single space lands as an empty field, and real copy is left alone", async () => {
+    const bundle = await bundlePromise;
+    const source = Object.values(bundle.creatives).find((creative) => {
+      const feed = creative.asset_feed_spec as { descriptions?: { text?: string }[] } | undefined;
+      return (feed?.descriptions?.[0]?.text ?? "").includes("DHB lands");
+    });
+    assert.ok(source, "DHB fixture creative with real description copy");
+    const real = extractImportedCreativeCopy(source as never);
+    assert.match(real.description, /DHB lands in UAE/);
+    assert.notEqual(real.description, " ");
+    assert.equal(real.headline, "");
+
+    const spaced = extractImportedCreativeCopy({
+      ...(source as object),
+      asset_feed_spec: {
+        ...(source.asset_feed_spec as object),
+        titles: [{ text: " " }],
+        descriptions: [{ text: " " }],
+      },
+      object_story_spec: {
+        ...(source.object_story_spec as object),
+        link_data: { name: " ", description: " " },
+      },
+    } as never);
+    assert.equal(spaced.headline, "");
+    assert.equal(spaced.description, "");
+    assert.equal(spaced.headlineAbsent, true);
+  });
 });
 
 describe("object_story_spec fallback", () => {

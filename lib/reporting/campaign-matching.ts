@@ -1,3 +1,5 @@
+import { parseBracketedEventCode } from "../insights/meta-event-code-match.ts";
+
 /**
  * Reporting-layer campaign matcher.
  *
@@ -12,4 +14,9 @@ export function campaignNameMatchesEventCode(
   const needle = eventCode.trim();
   if (!needle) return false;
   return campaignName.toLowerCase().includes(needle.toLowerCase());
+}
+
+/** The first `[CODE]` in a campaign name, exactly as written. Never uppercased. */
+export function campaignEventCode(campaignName: string): string | null {
+  return parseBracketedEventCode(campaignName);
 }

@@ -12,8 +12,8 @@ import { describe, it } from "node:test";
 
 import {
   metaImportDeselectAll,
+  metaImportPickerHeaderLine,
   metaImportSelectAll,
-  metaImportTickedLine,
 } from "../../../../components/meta/meta-import-flow.ts";
 import { metaAdAccountPickerOptions } from "../../account-picker-options.ts";
 import { validateStep } from "../../../validation.ts";
@@ -170,12 +170,23 @@ describe("DHB capture", () => {
   });
 
   describe("carry", () => {
-    it("20 ticked ids carry 20 creatives and report none as unticked", async () => {
+    it("20 carriable objects are 4 unique creatives; 4 ticked carry 4 and report none as unticked", async () => {
       const bundle = await bundlePromise;
       const carry = defaultMetaImportCarry(buildMetaImportPicker(bundle));
-      assert.equal(carry.length, 20);
+      assert.equal(carry.length, 4);
       const draft = importDraft(bundle, carry);
-      assert.equal(draft.creatives.length, 20);
+      assert.equal(draft.creatives.length, 4);
+      assert.equal(
+        draft.creatives.reduce((sum, row) => sum + (row.importedMeta?.creativeIds.length ?? 0), 0),
+        20,
+      );
+      assert.deepEqual(draft.importMeta!.creativeCounts, {
+        read: 25,
+        uniqueCreatives: 9,
+        adsRead: 105,
+        carried: 4,
+        notCarried: 5,
+      });
       assert.deepEqual(
         draft.creatives.map((row) => row.id).sort(),
         [...carry].sort(),
@@ -198,7 +209,7 @@ describe("DHB capture", () => {
         ),
         false,
       );
-      assert.equal(draft.creatives.length, 20);
+      assert.equal(draft.creatives.length, 4);
     });
 
     it("the route refuses a carry with a rejected key, names it, and saves nothing", async () => {
@@ -235,6 +246,7 @@ describe("DHB capture", () => {
       loadEvent: async () =>
         ({ id: "e1", client_id: "client", meta_ad_account_id: ACCOUNT }) as never,
       readCampaign: async () => bundle,
+      countryGroupLabels: async () => ({}),
     });
 
     it("stores a uuid draft id with the operator's session client", async () => {
@@ -328,6 +340,86 @@ describe("DHB capture", () => {
     });
   });
 
+  describe("country groups", () => {
+    it("keeps country ad sets as countries and round-trips europe as a group key", async () => {
+      const draft = importDraft(await bundlePromise);
+      const groups = draft.budgetSchedule.locationGroups ?? [];
+
+      for (const name of ["DHB Primary – EU", "Wide – EU"]) {
+        const row = draft.adSetSuggestions.find((item) => item.name === name);
+        assert.ok(row, name);
+        const selected = groups.filter((group) => row.locationGroupIds?.includes(group.id));
+        assert.equal(selected.length, 1, name);
+        const sel = selected[0]?.selections[0];
+        assert.equal(sel?.locationType, "country_group");
+        assert.equal(sel?.locationKey, "europe");
+        assert.equal(sel?.countryCode, undefined);
+        assert.equal(sel?.label, "europe");
+        assert.equal(sel?.memberCountryCodes, undefined);
+      }
+
+      const unresolved = (draft.importMeta?.dropped ?? []).filter((row) => row.field === "label_unresolved");
+      assert.deepEqual(
+        unresolved.map((row) => row.adSetName).sort(),
+        ["DHB Primary – EU", "Wide – EU"],
+      );
+      assert.ok(unresolved.every((row) => row.value === "europe"));
+      assert.equal(
+        (draft.importMeta?.dropped ?? []).some((row) => row.field === "country_groups"),
+        false,
+      );
+
+      const v2 = draft.adSetSuggestions.find((item) => item.name === "Wide – V2");
+      assert.ok(v2);
+      const v2Groups = groups.filter((group) => v2.locationGroupIds?.includes(group.id));
+      assert.deepEqual(
+        v2Groups.flatMap((group) => group.selections.map((sel) => [sel.locationType, sel.countryCode])),
+        [["country", "AE"]],
+      );
+    });
+
+    it("a label lookup names Europe and stores the member codes", async () => {
+      const bundle = await bundlePromise;
+      const draft = mapMetaLiveCampaign({
+        bundle,
+        adAccountId: ACCOUNT,
+        carry: defaultMetaImportCarry(buildMetaImportPicker(bundle)),
+        availability: [],
+        countryGroupLabels: { europe: { name: "Europe", countryCodes: ["GB", "FR"] } },
+      });
+      const row = draft.adSetSuggestions.find((item) => item.name === "Wide – EU");
+      assert.ok(row);
+      const group = (draft.budgetSchedule.locationGroups ?? []).find((item) =>
+        row.locationGroupIds?.includes(item.id),
+      );
+      const sel = group?.selections[0];
+      assert.equal(sel?.label, "Europe");
+      assert.equal(sel?.locationKey, "europe");
+      assert.deepEqual(sel?.memberCountryCodes, ["GB", "FR"]);
+      assert.equal(
+        (draft.importMeta?.dropped ?? []).some((item) => item.field === "label_unresolved"),
+        false,
+      );
+    });
+
+    it("an excluded country group lands in the exclusion pool", async () => {
+      const bundle = structuredClone(await bundlePromise);
+      const eu = bundle.adSets.find((row) => row.name === "Wide – EU");
+      assert.ok(eu);
+      const targeting = eu.targeting as { excluded_geo_locations?: { country_groups: string[] } };
+      targeting.excluded_geo_locations = { country_groups: ["eea"] };
+      const draft = importDraft(bundle);
+      const row = draft.adSetSuggestions.find((item) => item.name === "Wide – EU");
+      assert.deepEqual(row?.excludedLocationIds, ["excl:country_group:eea"]);
+      const pooled = (draft.budgetSchedule.excludedLocations ?? []).find(
+        (sel) => sel.locationKey === "eea",
+      );
+      assert.equal(pooled?.locationType, "country_group");
+      assert.equal(pooled?.mode, "exclude");
+      assert.equal(pooled?.label, "eea");
+    });
+  });
+
   describe("picker select all", () => {
     it("ticks every carriable row and no asset-less row; deselect clears", async () => {
       const picker = buildMetaImportPicker(await bundlePromise);
@@ -335,14 +427,14 @@ describe("DHB capture", () => {
       assert.equal(disabled.length, 5);
 
       const all = metaImportSelectAll(picker.rows);
-      assert.equal(all.size, 20);
+      assert.equal(all.size, 4);
       for (const key of disabled) assert.equal(all.has(key), false);
       assert.deepEqual([...all].sort(), defaultMetaImportCarry(picker).sort());
-      assert.equal(metaImportTickedLine(all, picker.rows), "20 of 20 ticked");
+      assert.equal(metaImportPickerHeaderLine(picker, all), "9 creatives (105 ads) · 4 ticked");
 
       const none = metaImportDeselectAll();
       assert.equal(none.size, 0);
-      assert.equal(metaImportTickedLine(none, picker.rows), "0 of 20 ticked");
+      assert.equal(metaImportPickerHeaderLine(picker, none), "9 creatives (105 ads) · 0 ticked");
     });
   });
 });

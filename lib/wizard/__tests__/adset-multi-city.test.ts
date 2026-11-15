@@ -55,7 +55,9 @@ function city(id: string, label: string, key: string, radius: number, countryCod
   };
 }
 
-const NEWCASTLE = city("grp_newcastle", "Newcastle upon Tyne, England, United Kingdom (+200 km)", "111", 200, "GB");
+// The label still says "+200 km" because ad set names are parsed from it.
+// The stored radius stays inside Meta's 80 km city cap.
+const NEWCASTLE = city("grp_newcastle", "Newcastle upon Tyne, England, United Kingdom (+200 km)", "111", 80, "GB");
 const BELFAST = city("grp_belfast", "Belfast, Northern Ireland, United Kingdom (+40 km)", "222", 40, "GB");
 const LONDON = city("grp_london", "London, England, United Kingdom (+40 km)", "2421178", 40);
 
@@ -125,6 +127,13 @@ const emptyAudiences = {
 function draftWith(adSetSuggestions: AdSetSuggestion[], bs: Partial<BudgetScheduleSettings>): CampaignDraft {
   return migrateDraft({
     settings: { objective: "traffic", wizardMode: "new", campaignName: "Test campaign" },
+    audiences: {
+      pageGroups: [],
+      customAudienceGroups: [],
+      savedAudiences: { audienceIds: [] },
+      interestGroups: [{ id: "g1", name: "Pages 1", interests: [{ id: "6003108826384", name: "House", source: "search" }] }],
+      selectedPagesLookalikeGroups: [],
+    },
     budgetSchedule: {
       budgetLevel: "ad_set", budgetType: "daily", budgetAmount: 100, currency: "GBP",
       startDate: "2026-10-01", endDate: "2026-10-10", timezone: "Europe/London", ...bs,
@@ -202,9 +211,10 @@ describe("generate: one ad set per audience per non-empty tier", () => {
 
   it("the picker rule line is the place the operator learns the four-ad-set rule", () => {
     const src = readFileSync(new URL("../../../components/steps/budget-schedule.tsx", import.meta.url), "utf8");
-    assert.match(src, /Generate makes one ad set per audience per non-empty tier/);
-    assert.match(src, /Two audiences with Primary and Secondary is four ad sets/);
-    assert.match(src, /Untiered locations stay on All and Custom/);
+    assert.match(
+      src,
+      /Generate makes one ad set per custom audience per non-empty tier; interest audiences take Primary only\./,
+    );
   });
 
   it("an untiered location is in neither tier's ad sets and is present under All", () => {

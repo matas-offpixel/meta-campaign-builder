@@ -4,8 +4,9 @@
  * The ad-set promoted_object.custom_event_type is INITIATED_CHECKOUT —
  * confirmed against Meta 2026-09-10 (INITIATE_CHECKOUT is rejected, code 100).
  *
- * Existing objectives are pinned field-for-field so this addition cannot
- * change purchase / registration / traffic / awareness / engagement payloads.
+ * Purchase, traffic, awareness, and engagement payloads are pinned
+ * field-for-field. Registration's campaign objective is OUTCOME_SALES;
+ * its ad set payload is otherwise unchanged.
  *
  * Run: node --experimental-strip-types --test lib/meta/__tests__/initiate-checkout-objective.test.ts
  */
@@ -113,7 +114,7 @@ const PINNED_CAMPAIGNS = {
   },
   registration: {
     name: "Fixture Campaign",
-    objective: "OUTCOME_LEADS",
+    objective: "OUTCOME_SALES",
     buying_type: "AUCTION",
     status: "ACTIVE",
     is_adset_budget_sharing_enabled: false,
@@ -159,6 +160,10 @@ const PINNED_AD_SETS = {
       pixel_id: "pixel_fixture",
       custom_event_type: "PURCHASE",
     },
+    // Added by the website-destination default. On Sale ad sets carried no
+    // destination at all before it, so Ads Manager showed one the launcher
+    // never chose. Meta accepts WEBSITE on OUTCOME_SALES — verified live.
+    destination_type: "WEBSITE",
   },
   registration: {
     name: "Fixture Ad Set",
@@ -195,7 +200,12 @@ const PINNED_AD_SETS = {
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     targeting: SHARED_TARGETING,
     status: "ACTIVE",
+    // OUTCOME_AWARENESS accepts WEBSITE on all three of its goals — verified
+    // live. #770 left awareness out without testing it.
+    destination_type: "WEBSITE",
   },
+  // engagement is the one objective with no destination: Meta rejects WEBSITE
+  // on OUTCOME_ENGAGEMENT with code=100 subcode=2490408.
   engagement: {
     name: "Fixture Ad Set",
     campaign_id: "cam_001",
@@ -273,6 +283,17 @@ describe("mapMetaObjectiveToInternal — OUTCOME_SALES ambiguity", () => {
     assert.equal(
       mapMetaObjectiveToInternal("OUTCOME_SALES", "INITIATE_CHECKOUT"),
       "purchase",
+    );
+  });
+
+  it("classifies COMPLETE_REGISTRATION as registration", () => {
+    assert.equal(
+      mapMetaObjectiveToInternal("OUTCOME_SALES", "COMPLETE_REGISTRATION"),
+      "registration",
+    );
+    assert.equal(
+      mapMetaObjectiveToInternal("CONVERSIONS", "complete_registration"),
+      "registration",
     );
   });
 

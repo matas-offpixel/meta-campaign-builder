@@ -65,6 +65,13 @@ describe("existing post destination", () => {
     assert.equal(payload.source_instagram_media_id, undefined);
   });
 
+  it("throws when a URL is set and the CTA is empty", async () => {
+    await assert.rejects(
+      () => buildCreativePayload(existing({ destinationUrl: URL, cta: "" as AdCreativeDraft["cta"] })),
+      /A destination URL needs a call to action/,
+    );
+  });
+
   it("leaves a boost with no URL bare", async () => {
     const payload = await buildCreativePayload(existing());
     assert.equal(payload.call_to_action, undefined);
@@ -72,6 +79,7 @@ describe("existing post destination", () => {
       "instagram_user_id",
       "name",
       "source_instagram_media_id",
+      "url_tags",
     ]);
   });
 
@@ -82,6 +90,10 @@ describe("existing post destination", () => {
     const blocked = validateStep(4, video);
     assert.match(blocked.errors.join("\n"), /Feed Post v1/);
     assert.match(blocked.errors.join("\n"), /Instagram video/);
+
+    const urlOnly = createDefaultDraft();
+    urlOnly.creatives = [existing({ destinationUrl: URL, cta: "" as AdCreativeDraft["cta"] })];
+    assert.match(validateStep(4, urlOnly).errors.join("\n"), /"Feed Post v1": A destination URL needs a call to action/);
 
     const carousel = createDefaultDraft();
     carousel.settings.objective = "initiate_checkout";
@@ -106,6 +118,33 @@ describe("existing post destination", () => {
       validateStep(4, engagement).errors.some((e) => /destination URL/.test(e)),
       false,
     );
+  });
+
+  it("existing-post creative with stray assetVariations builds the same object_story_spec as one with none", async () => {
+    const facebook = {
+      source: "facebook" as const,
+      postId: "111_222",
+      mediaKind: "video" as const,
+    };
+    const bare = await buildCreativePayload(existing({
+      existingPost: facebook,
+      assetVariations: [],
+    }));
+    const stray = await buildCreativePayload(existing({
+      existingPost: facebook,
+      assetMode: "dual",
+      assetVariations: [{
+        id: "var-imported",
+        name: "Imported",
+        assets: [
+          { id: "a45", aspectRatio: "4:5", assetHash: "feedhash", uploadStatus: "uploaded" },
+          { id: "a916", aspectRatio: "9:16", videoId: "storyvid", uploadStatus: "uploaded" },
+        ],
+      }],
+    }));
+    assert.deepEqual(stray, bare);
+    assert.equal(stray.object_story_id, "111_222");
+    assert.equal(stray.object_story_spec, undefined);
   });
 
   it("set every URL updates an existing-post creative", () => {

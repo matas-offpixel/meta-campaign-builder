@@ -22,6 +22,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { normalizeAdAccountId } from "@/lib/meta/ad-account";
+import { META_CUSTOM_AUDIENCE_LIST_FIELDS } from "@/lib/meta/reuse-existing-audience";
 import type { CustomAudience } from "@/lib/types";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
@@ -114,7 +115,7 @@ export async function GET(req: Request) {
 
   const url = new URL(`${BASE}/${adAccountId}/customaudiences`);
   url.searchParams.set("access_token", token);
-  url.searchParams.set("fields", "id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound");
+  url.searchParams.set("fields", META_CUSTOM_AUDIENCE_LIST_FIELDS);
   url.searchParams.set("limit", "200");
 
   // Safe URL for logging — strips the access_token so we never write the

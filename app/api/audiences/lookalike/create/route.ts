@@ -48,6 +48,7 @@ interface CellSuccess {
   name: string;
   seedMetaAudienceId: string;
   seedName: string;
+  reused?: boolean;
 }
 
 interface CellFailure {
@@ -182,6 +183,7 @@ async function writeCellsWithConcurrency(
           name: draft.name,
           seedMetaAudienceId: cell.seedMetaAudienceId,
           seedName: cell.seedName,
+          ...(updated.reused ? { reused: true } : {}),
         });
       } catch (err) {
         failures.push({

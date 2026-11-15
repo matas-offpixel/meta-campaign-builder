@@ -2,7 +2,7 @@ import type { BodyValue } from "../client.ts";
 import type { TikTokCampaignDraft, TikTokCreativeDraft } from "../../types/tiktok-draft.ts";
 import { assertTikTokWritesEnabled } from "./feature-flag.ts";
 import {
-  withTikTokWriteIdempotency,
+  withTikTokWriteIdempotencyOutcome,
   type TikTokWriteContext,
 } from "./idempotency.ts";
 import { buildTikTokAdPayload } from "./mapping.ts";
@@ -75,10 +75,17 @@ export async function createTikTokAd(
   args: CreateTikTokAdArgs,
 ): Promise<{ ad_id: string }> {
   assertTikTokWritesEnabled();
+  const { ad_id } = await postTikTokAdCreate(args, buildTikTokAdWritePayload(args));
+  return { ad_id };
+}
 
-  const payload = buildTikTokAdWritePayload(args);
-
-  const adId = await withTikTokWriteIdempotency(args, "ad_create", payload, async () => {
+/** `/ad/create/` for a body that is already built (attach modes). */
+export async function postTikTokAdCreate(
+  args: TikTokWriteContext,
+  payload: Record<string, BodyValue>,
+): Promise<{ ad_id: string; reused: boolean }> {
+  assertTikTokWritesEnabled();
+  const { id: adId, reused } = await withTikTokWriteIdempotencyOutcome(args, "ad_create", payload, async () => {
     logTikTokAdCreateIdentityFields(payload);
     const res = await postTikTokWrite<CreateAdResponse>({
       path: "/ad/create/",
@@ -94,5 +101,5 @@ export async function createTikTokAd(
     return id;
   });
 
-  return { ad_id: adId };
+  return { ad_id: adId, reused };
 }

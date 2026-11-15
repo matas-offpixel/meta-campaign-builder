@@ -388,6 +388,12 @@ export interface EngagementAudienceStatus {
   populating: boolean;
   /** Lookalike audience ID if a lookalike was successfully created from this source */
   lookalikeId?: string;
+  /**
+   * Numeric Meta `account_id` from GET /{custom_audience_id}. Absent until
+   * the audiences step has read it. A mismatch with the draft ad account
+   * means the audience is not ready.
+   */
+  accountId?: string;
 }
 
 export interface PageAudienceGroup {
@@ -439,6 +445,18 @@ export interface CustomAudienceGroup {
    * before this field existed load without it and render the id.
    */
   audienceNames?: Record<string, string>;
+  /**
+   * Ids in this group that belong to another ad account, keyed by audience
+   * id, value `act_…`. Still listed on the custom tab. Launch targeting
+   * omits them.
+   */
+  foreignAccountById?: Record<string, string>;
+  /**
+   * Meta ids added from the creator that are still filling. Meta takes
+   * minutes to hours. Not polled — launch treats operation_status 441 as
+   * available (lib/audiences/ca-availability-recovery.ts).
+   */
+  populatingAudienceIds?: string[];
   /** When true, lookalike ad sets will be created from this group's audiences at launch */
   lookalike?: boolean;
   /** Lookalike percentage tiers to create ad sets for (e.g. ["0-1%", "1-2%"]) */
@@ -458,6 +476,8 @@ export interface SavedAudienceSelection {
 export interface InterestGroup {
   id: string;
   name: string;
+  /** "generated" when the name came from a saved cluster pick; operator-typed otherwise. */
+  nameSource?: "generated" | "operator";
   interests: InterestSuggestion[];
   aiPrompt?: string;
   /**
@@ -541,6 +561,10 @@ export interface Asset {
   /** Object path in `storageBucket` when the original bytes were kept. */
   storagePath?: string;
   storageBucket?: string;
+  /** The Drive file this slot was copied from (the launcher's From Drive, G5); the draft never adds it twice. */
+  driveFileId?: string;
+  /** "From Drive · {owner / folder path}" on the slot (G5). */
+  sourceLabel?: string;
   uploadStatus: AssetUploadStatus;
   error?: string;
 }
@@ -751,11 +775,24 @@ export interface PagePost {
 export interface AdCreativeDraft {
   id: string;
   name: string;
+  /**
+   * Who the name belongs to. `"operator"` is set only by the Ad Name field
+   * and is the only value a later upload will not replace. Absent on drafts
+   * saved before the flag; `migrateDraft` fills it.
+   */
+  nameSource?: "generated" | "file" | "operator";
   sourceType: AdSourceType;
   identity: CreativeIdentity;
   mediaType: "image" | "video";
   assetMode: AssetMode;
   assetVariations: AssetVariation[];
+  /**
+   * Single mode with 2+ variations. Off (the default) launches one normal ad
+   * per variation. On, Meta rotates them in one dynamic-creative ad. Not every
+   * ad account allows that. Absent on drafts saved before the flag;
+   * `migrateDraft` fills false.
+   */
+  rotateVariations?: boolean;
   captions: CaptionVariant[];
   headline: string;
   description: string;
@@ -765,6 +802,16 @@ export interface AdCreativeDraft {
   enhancements: CreativeEnhancementSettings;
   /** Set after a successful POST to Meta — the live ad creative ID */
   metaCreativeId?: string;
+  /**
+   * Live ad ids created for this creative. Phase 4 ids first, then any
+   * multi-campaign attach ids. Stored on the published draft only.
+   */
+  metaAdIds?: string[];
+  /**
+   * Imported from a live Meta campaign: every AdCreative object, ad and ad set
+   * the source ran this creative as. Ads Manager stores one object per ad.
+   */
+  importedMeta?: { creativeIds: string[]; adIds: string[]; adSetIds: string[] };
 }
 
 // ─── Budget & schedule types ───
@@ -776,13 +823,15 @@ export interface AdCreativeDraft {
 export interface MetaGeoLocationResult {
   key: string;
   name: string;
-  type: "city" | "region" | "country" | "zip" | "geo_market" | "electoral_district";
+  type: "city" | "region" | "country" | "country_group" | "zip" | "geo_market" | "electoral_district";
   country_code: string;
   country_name: string;
   region: string;
   region_id?: number;
   supports_region?: boolean;
   supports_city?: boolean;
+  /** ISO codes Meta returns for a country_group hit. */
+  country_codes?: string[];
 }
 
 /**
@@ -795,15 +844,22 @@ export interface LocationSelection {
   source: "preset" | "search";
   label: string;
   mode: "include" | "exclude";
-  locationType: "city" | "country" | "region";
-  /** Meta location key — for cities and regions */
+  locationType: "city" | "country" | "region" | "country_group";
+  /** Meta location key — for cities, regions, and country groups. Not a country code. */
   locationKey?: string;
   /**
    * ISO country code. Always set for country-level targeting; also recorded
    * for cities and regions picked from search (Meta returns it), so preflight
    * can tell that an included city sits inside an excluded or included country.
+   * A country group does not set this — its members are `memberCountryCodes`.
    */
   countryCode?: string;
+  /**
+   * ISO codes inside a country group, from the search hit that produced it.
+   * Preflight uses them the same way it uses a city's country code. Absent
+   * when the group was imported without a name lookup.
+   */
+  memberCountryCodes?: string[];
   radius?: number;
   distanceUnit?: "kilometer" | "mile";
   /**
@@ -839,6 +895,25 @@ export interface BudgetScheduleSettings {
   currency: string;
   startDate: string;
   endDate: string;
+  /**
+   * `"event"` follows the attached event's end. `"operator"` is a typed
+   * date and is not replaced when the event changes. Absent on drafts
+   * saved before this field; `migrateDraft` fills it.
+   */
+  endDateSource?: "event" | "operator";
+  /**
+   * `"event"` is the quarter-hour start filled when an event is selected.
+   * `"operator"` is a typed start and is not replaced when the event
+   * changes. Absent on drafts saved before this field; `migrateDraft`
+   * fills it.
+   */
+  startDateSource?: "event" | "operator";
+  /**
+   * Which event phase an `"event"` end date follows. Set from the
+   * schedule menu. Absent on an `"event"` end is the event day: drafts
+   * saved before phases existed stay on that day until it has passed.
+   */
+  endDatePhase?: "presale" | "general_sale" | "event";
   timezone: string;
   /** @deprecated — use locationGroups instead */
   locationPresets?: LocationPreset[];
@@ -858,10 +933,13 @@ export interface AdSetGeoLocations {
   countries?: string[];
   cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
   regions?: { key: string }[];
+  /** Meta country-group keys, the same shape as `countries`. */
+  country_groups?: string[];
   excluded_geo_locations?: {
     countries?: string[];
     cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
     regions?: { key: string }[];
+    country_groups?: string[];
   };
 }
 
@@ -887,9 +965,24 @@ export interface AdSetSuggestion {
     | "blank";
   sourceId: string;
   sourceName: string;
+  /**
+   * Who last set `name`. Absent or `"generated"`: Step 5 and launch use
+   * the source group's current name, plus a tier suffix, or the city
+   * suffix when the stored name is that group name plus a location.
+   * `"operator"`: launch sends the stored string. That is a name the
+   * operator typed, or a city they chose by splitting or picking one
+   * location.
+   */
+  nameSource?: "generated" | "operator";
   ageMin: number;
   ageMax: number;
   budgetPerDay: number;
+  /**
+   * This ad set's share of a lifetime budget, in major units (£).
+   * Written only when `budgetSchedule.budgetType === "lifetime"`.
+   * Daily drafts leave it unset; `budgetPerDay` keeps its existing meaning.
+   */
+  budgetLifetime?: number;
   advantagePlus: boolean;
   /** User-controlled toggle — never modified by launch results */
   enabled: boolean;
@@ -945,6 +1038,18 @@ export interface AdSetSuggestion {
    * ad set. Absent on every row an operator added.
    */
   importedFromAdSetId?: string;
+  /**
+   * `destination_type` as the importer read it off the live ad set, verbatim,
+   * including Meta's literal `"UNDEFINED"`. Absent when the read never
+   * returned the key.
+   *
+   * Recorded so an import shows what the source campaign actually carried.
+   * It does NOT decide the relaunch payload: `resolveAdSetDestinationType`
+   * owns that, and a website-bound objective always relaunches as `WEBSITE`
+   * regardless of what the source had — a source ad set reading `UNDEFINED`
+   * is the damage being fixed, not a setting to preserve.
+   */
+  importedDestinationType?: string;
   /**
    * @deprecated Do not use — this field is no longer stamped during launch.
    * Per-run Meta IDs are stored in LaunchSummary.adSetLaunchResults instead.
@@ -1135,6 +1240,11 @@ export interface CampaignSettings {
     facebookPage?: boolean;
     instagramActor?: boolean;
   };
+  /**
+   * The operator picked an objective on the MML step, or the event default
+   * was applied once. Stops an on-sale plan from being rewritten on every open.
+   */
+  mmlObjectiveChosen?: boolean;
 
   /**
    * Explicit Instagram account choice per Facebook Page when a page has 2+
@@ -1165,6 +1275,15 @@ export interface CampaignSettings {
    *   steps are inherited from the live ad set and skipped in the wizard.
    */
   wizardMode?: WizardMode;
+
+  /**
+   * Add to campaign opened the attach family but the operator has not
+   * picked Create new ad set or Attach ads to all existing ad sets.
+   * `wizardMode` stays `"attach_campaign"` so the existing Selected
+   * campaign block renders; this flag keeps both cards unselected and
+   * blocks continue. Cleared when a card is picked. Not a launch mode.
+   */
+  attachSubmodePending?: boolean;
 
   /**
    * **Creative Integrity Mode** — when `true` (default), every ad creative
@@ -1267,12 +1386,46 @@ export interface ExistingMetaCampaignSnapshot {
    * `settings.objective` on older drafts that pre-date this field.
    */
   internalObjective?: CampaignObjective;
+  /** "adsets" when at least one ad set voted; "campaign" when none did. */
+  objectiveSource?: "campaign" | "adsets";
+  /** Ad sets included in the vote (capped at 50). */
+  adSetCount?: number;
+  /** Graph returned another ad set page. The chip says "50+". */
+  adSetCountTruncated?: boolean;
+  /**
+   * The picker had to list this page without ad sets (Graph code 1 /
+   * subcode 99). The internal objective is the campaign-objective fallback,
+   * not a vote.
+   */
+  adSetsUnread?: boolean;
+  /** Winning conversion event, e.g. "Complete registration". */
+  conversionEvent?: string;
+  /** Most common promoted_object.pixel_id among those ad sets. */
+  pixelId?: string;
+  /**
+   * Copied from the picker so Step 1 and Review can warn before launch.
+   * The launch itself re-reads the live campaign and does not trust this.
+   */
+  deliveryOptimisation?: {
+    bidStrategy?: string;
+    dailyBudget?: string;
+    lifetimeBudget?: string;
+    adSets: Array<{
+      optimization_goal?: string;
+      promoted_object?: { custom_event_type?: string };
+    }>;
+  };
   /** Raw configured status, e.g. "ACTIVE", "PAUSED". */
   status: string;
   /** Raw effective status (delivery state), if returned by Meta. */
   effectiveStatus?: string;
   /** When the picker captured this snapshot. */
   capturedAt: string;
+  /**
+   * The campaign Add to campaign opened from. It stays in the selection.
+   * Further campaigns from the picker are not locked.
+   */
+  locked?: boolean;
 }
 
 /** Captured-at-selection snapshot of a live Meta ad set. */
@@ -1354,6 +1507,29 @@ export interface MetaCampaignSummary {
   objective: string;
   /** Internal objective if the raw Meta value maps to one we support. */
   internalObjective?: CampaignObjective;
+  /** "adsets" when at least one ad set voted; otherwise "campaign". */
+  objectiveSource?: "campaign" | "adsets";
+  adSetCount?: number;
+  adSetCountTruncated?: boolean;
+  /** Page was listed without ad sets. The badge says the event was not read. */
+  adSetsUnread?: boolean;
+  /** Winning conversion event for the selected-campaign line. */
+  conversionEvent?: string;
+  pixelId?: string;
+  /**
+   * Existing ad sets' optimisation, plus the campaign budget and bid
+   * strategy. Step 1 warns when a lowest-cost campaign will not use the
+   * draft's goal. Absent when the list was read without ad sets.
+   */
+  deliveryOptimisation?: {
+    bidStrategy?: string;
+    dailyBudget?: string;
+    lifetimeBudget?: string;
+    adSets: Array<{
+      optimization_goal?: string;
+      promoted_object?: { custom_event_type?: string };
+    }>;
+  };
   /** Configured status, e.g. "ACTIVE". */
   status: string;
   /** Delivery state (more granular than `status`). */
@@ -1440,6 +1616,17 @@ export interface LaunchSummary {
   /** Unique identifier for this launch run */
   launchRunId: string;
   metaCampaignId: string;
+  /**
+   * Whether Phase 1 minted the campaign, reused a live ledger id, or
+   * replaced an archived one. Absent on launches from before this field.
+   */
+  campaignCreateOutcome?: "created" | "reused" | "recreated";
+  /**
+   * Meta objective string actually sent on a create or recreate
+   * (`OUTCOME_SALES`, `OUTCOME_TRAFFIC`, …). Absent when the launch
+   * attached to a campaign that already existed.
+   */
+  metaObjective?: string;
   /**
    * Per-suggestion launch outcomes for this run.
    * Key = AdSetSuggestion.id. Allows the UI to show per-suggestion
@@ -1617,11 +1804,24 @@ export interface LaunchSummary {
     metaCreativeId: string;
     /** "page_only" or "page_and_ig" */
     identityMode?: "page_only" | "page_and_ig";
+    /**
+     * Set when a blank headline or description was sent as a single space
+     * so Meta could not scrape the destination page. "headline: none",
+     * "description: none", or both.
+     */
+    copyNote?: string;
     durationMs?: number;
     ads: { adSetName: string; metaAdId: string; durationMs?: number }[];
     adsFailed: { adSetName: string; error: string }[];
   }[];
-  creativesFailed: { name: string; error: string; skippedReason?: string }[];
+  creativesFailed: {
+    name: string;
+    error: string;
+    skippedReason?: string;
+    /** Set when `skippedReason === "permission"`: the assets the token lacked access to. */
+    pageId?: string;
+    instagramAccountId?: string;
+  }[];
   adsCreated: number;
   adsFailed: number;
 }
@@ -1643,6 +1843,12 @@ export interface CampaignDraft {
    * drafts built in the wizard. Shape lives in `lib/meta/import/types`.
    */
   importMeta?: import("./meta/import/types").MetaImportMeta;
+  /**
+   * The operator has already confirmed that Generate replaces imported
+   * ad sets on this draft. The confirm shows once; after that, Undo is
+   * the only way back to the previous list.
+   */
+  generateReplaceImportedConfirmed?: boolean;
   /** Set after a successful POST to Meta — the live campaign ID (e.g. "23849562890000") */
   metaCampaignId?: string;
   /** Populated after launch — records what was created and what failed */
@@ -1663,6 +1869,10 @@ export interface CampaignListItem {
   updatedAt: string;
   /** Code vs wired event, or column vs JSON. Null when they agree. */
   eventWarning?: string | null;
+  /** Drafts library only. The row shows a muted "no event" chip. */
+  noEvent?: boolean;
+  /** Client (or the event's client) is archived: listed under Archived only. */
+  clientArchived?: boolean;
 }
 
 // ─── Wizard state ───

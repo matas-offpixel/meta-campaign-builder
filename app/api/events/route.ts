@@ -44,6 +44,8 @@ export async function GET(req: NextRequest) {
       name: e.name,
       slug: e.slug,
       event_date: e.event_date,
+      presale_at: e.presale_at,
+      general_sale_at: e.general_sale_at,
       status: e.status,
       capacity: e.capacity,
       genres: e.genres,

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { SearchInput } from "@/components/ui/search-input";
 import {
@@ -25,13 +26,14 @@ import {
   resolveExistingPostPlacements,
   validatePlacementSelection,
 } from "@/lib/meta/placements";
-import { useUploadAsset, uploadAssetViaStorage } from "@/lib/hooks/useUploadAsset";
+import { reuploadStoredAsset, useUploadAsset, uploadAssetViaStorage } from "@/lib/hooks/useUploadAsset";
 import {
   applyNamedVariationUpdate,
   type AssetVariationUpdater,
 } from "@/lib/creatives/asset-variation-updater";
 import { importedHeadlineNote } from "@/lib/meta/import/creative-copy";
 import { getAspectRatioSlots, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/meta/upload";
+import { planCreativeUpload } from "@/lib/meta/upload-size-guard";
 import { extractVideoFrameFromUrl } from "@/lib/meta/video-frame-extract";
 import { CTA_OPTIONS } from "@/lib/mock-data";
 import {
@@ -54,7 +56,7 @@ import {
   createDefaultCaption,
 } from "@/lib/campaign-defaults";
 import { connectFacebookAccount } from "@/lib/facebook-connect";
-import { nameMetaCreativeFromAssets } from "@/lib/creative-name-from-filename";
+import { copiedCreativeNameSource, nameMetaCreativeFromAssets } from "@/lib/creative-name-from-filename";
 import { nextDuplicateName } from "@/lib/duplicate-name";
 import {
   bindUploadToAssetSlot,
@@ -64,8 +66,9 @@ import {
   deriveMultiIgPageIds,
 } from "@/components/wizard/page-instagram-overrides-panel";
 import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
-import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
+import { BuyTicketsEventNote } from "@/components/steps/buy-tickets-event-note";
 import { EventPageDestination } from "@/components/wizard/event-page-destination";
+import { slotNeedsAccountReupload } from "@/lib/validation";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import type { WizardDestinationUrlFieldId } from "@/lib/wizard/lp-destination-fields";
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer, usePlanOwnsDestination } from "@/components/steps/step-surface";
@@ -73,6 +76,9 @@ import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { META_DRAWER_COPY } from "@/lib/plan/drawer";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
+import { PICKER_WORDS } from "@/lib/drive/picker-model";
+import { DrivePicker } from "@/components/steps/drive-picker";
+import { useDrivePicker } from "@/components/steps/use-drive-picker";
 
 const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
@@ -97,6 +103,8 @@ interface CreativesProps {
   planDestinationUrl?: string;
   /** Imported creatives whose source had no headline. */
   copyNotes?: readonly { creativeId: string; text: string }[];
+  /** Rendered under the new-ad editor. The MML wizard uses it for the TikTok reel row. */
+  afterActive?: (creative: AdCreativeDraft) => ReactNode;
 }
 
 const ASSET_MODES: { value: AssetMode; label: string; desc: string }[] = [
@@ -112,6 +120,11 @@ const RATIO_LABELS: Record<AssetRatio, { label: string; desc: string }> = {
 };
 
 type BulkField = "headline" | "description" | "destinationUrl" | "cta";
+
+/** G5: an ad made from Drive (its slot carries the Drive file id). */
+function fromDrive(c: AdCreativeDraft): boolean {
+  return (c.assetVariations ?? []).some((v) => v.assets.some((a) => Boolean(a.driveFileId)));
+}
 
 // ─── Inline loading/error helpers ────────────────────────────────────────────
 
@@ -156,6 +169,7 @@ function CreativesBody({
   onResetQueueBinding,
   planDestinationUrl = "",
   copyNotes,
+  afterActive,
 }: CreativesProps) {
   const drawer = useIsDrawer();
   const planOwnsDestination = usePlanOwnsDestination();
@@ -190,6 +204,17 @@ function CreativesBody({
   // Keep a fresh reference for async upload callbacks that run after state updates
   const creativesRef = useRef(creatives);
   useEffect(() => { creativesRef.current = creatives; }, [creatives]);
+  // From Drive (G1–G7): the session and the copy live here, so closing the picker never stops a batch.
+  const drivePicker = useDrivePicker({
+    creatives,
+    creativesRef,
+    onChange,
+    objective: settings?.objective,
+    eventId: linkedEventId,
+    ticketUrl: linkedEvent?.ticket_url,
+    adAccountId,
+    onAdded: setActiveId,
+  });
 
   // ── Real Meta identity data ────────────────────────────────────────────────
   // Pass adAccountId so the BM-aware /pages?adAccountId= endpoint is used,
@@ -276,7 +301,7 @@ function CreativesBody({
   );
 
   const addAd = () => {
-    const c = createDefaultCreative();
+    const c = createDefaultCreative(settings?.objective);
     c.name = `Ad ${creatives.length + 1}`;
     onChange([...creatives, c]);
     setActiveId(c.id);
@@ -292,6 +317,7 @@ function CreativesBody({
         source.name,
         creatives.map((c) => c.name),
       ),
+      nameSource: copiedCreativeNameSource(source.nameSource),
       identity: { ...(source.identity ?? { pageId: "", instagramAccountId: "" }) },
       assetVariations: (source.assetVariations ?? []).map((v) => ({
         ...v,
@@ -482,7 +508,7 @@ function CreativesBody({
     const template = active;
     const newAds: AdCreativeDraft[] = [];
     for (let i = 0; i < fileCount; i++) {
-      const c = createDefaultCreative();
+      const c = createDefaultCreative(settings?.objective);
       c.name = `Ad ${creatives.length + i + 1}`;
       if (template) {
         c.identity = { ...template.identity };
@@ -734,9 +760,36 @@ function CreativesBody({
           <button type="button" onClick={() => fileInputRef.current?.click()} className="font-medium text-primary hover:underline">
             browse
           </button>
+          <span className="text-muted-foreground"> · </span>
+          <button type="button" onClick={drivePicker.openPicker} className="font-medium text-primary hover:underline">
+            {PICKER_WORDS.entry}
+          </button>
         </div>
         <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" className="hidden" onChange={handleFileInput} />
       </div>
+
+      {drivePicker.fields ? (
+        <DrivePicker
+          open={drivePicker.open}
+          onClose={drivePicker.close}
+          eventId={linkedEventId}
+          eventCode={linkedEvent?.event_code || linkedEvent?.name || ""}
+          fields={drivePicker.fields}
+          onFieldsChange={drivePicker.onFieldsChange}
+          onClearFields={drivePicker.onClearFields}
+          onOwnerChange={drivePicker.onOwnerChange}
+          ctaOptions={CTA_OPTIONS}
+          pages={pages.data.map((p) => ({ id: p.id, name: p.name }))}
+          instagramFor={(pageId) => igAccounts.data.filter((ig) => ig.linkedPageId === pageId).map((ig) => ({ id: ig.id, username: ig.username ?? "" }))}
+          existingNames={drivePicker.existingNames}
+          existingDriveIds={drivePicker.existingDriveIds}
+          onPrepare={drivePicker.onPrepare}
+          batch={drivePicker.rows}
+          onRetryFailed={drivePicker.onRetryFailed}
+          onRetryRow={drivePicker.onRetryRow}
+          onDismissBatch={drivePicker.onDismissBatch}
+        />
+      ) : null}
 
       {creatives.length === 0 ? (
         <Card className="py-10 text-center">
@@ -774,7 +827,11 @@ function CreativesBody({
                       {importedHeadlineNote(c, copyNotes) ? (
                         <span className="block text-[11px] text-muted-foreground">{importedHeadlineNote(c, copyNotes)}</span>
                       ) : null}
-                      {page && <span className="block truncate text-[11px] text-muted-foreground">{page.name}</span>}
+                      {(page || fromDrive(c)) && (
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {[page?.name, fromDrive(c) ? (c.mediaType ?? "image") : null, fromDrive(c) ? PICKER_WORDS.fromDrive : null].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                       <div className="mt-0.5 flex gap-1">
                         <Badge variant={(c.sourceType ?? "new") === "existing_post" ? "warning" : "outline"} className="text-[8px] px-1 py-0">
                           {(c.sourceType ?? "new") === "existing_post" ? "post" : "new"}
@@ -812,8 +869,12 @@ function CreativesBody({
                   <Input
                     label="Ad Name"
                     value={active.name}
-                    onChange={(e) => updateAd(active.id, { name: e.target.value })}
+                    onChange={(e) =>
+                      updateAd(active.id, { name: e.target.value, nameSource: "operator" })
+                    }
                     placeholder="e.g. J2 — Artist Artwork A"
+                    // File-derived names carry "9x16"; typed glyphs, not the font's × ligature.
+                    style={{ fontFeatureSettings: '"calt" 0' }}
                   />
 
                   {/* Source type */}
@@ -1134,6 +1195,18 @@ function CreativesBody({
                             </Button>
                           </div>
                         </div>
+                        {(active.assetVariations ?? []).length >= 2 &&
+                        (active.assetMode ?? "dual") === "single" &&
+                        active.sourceType !== "existing_post" ? (
+                          <Checkbox
+                            className="mb-3"
+                            checked={active.rotateVariations === true}
+                            onChange={(e) =>
+                              updateAd(active.id, { rotateVariations: e.target.checked })
+                            }
+                            label="Rotate variations in one ad (dynamic creative — not every ad account allows this)"
+                          />
+                        ) : null}
                         <div className="space-y-3">
                           {(active.assetVariations ?? []).map((variation, vi) => (
                             <AssetVariationCard
@@ -1238,16 +1311,7 @@ function CreativesBody({
                           options={CTA_OPTIONS}
                         />
                       </div>
-                      {creativeHasBookNowMultiPlacementConflict(active) && (
-                        <StatusLine tone="alert" className="mt-1 rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive">
-                          Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
-                        </StatusLine>
-                      )}
-                      {active.cta === "book_now" && active.assetMode === "single" && (active.assetVariations ?? []).length >= 2 && (
-                        <StatusLine className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          <strong>Book Now blocks variation rotation:</strong> Only variation 1 will run. Switch CTA to <strong>Learn More</strong> or <strong>Sign Up</strong> to rotate all {(active.assetVariations ?? []).length} variations.
-                        </StatusLine>
-                      )}
+                      <BuyTicketsEventNote creative={active} />
                     </div>
                   </Card>
                   {drawer ? (
@@ -1315,6 +1379,7 @@ function CreativesBody({
                       </div>
                     </IdentityDisclosure>
                   ) : null}
+                  {afterActive ? afterActive(active) : null}
                 </>
               )}
 
@@ -2176,6 +2241,8 @@ function AssetSlot({
   const [framePickerSaving, setFramePickerSaving] = useState(false);
   const [framePickerError, setFramePickerError] = useState<string | null>(null);
   const [customThumbnailUrl, setCustomThumbnailUrl] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [compressedNote, setCompressedNote] = useState<string | null>(null);
   const customThumbnailUrlRef = useRef<string | null>(null);
   customThumbnailUrlRef.current = customThumbnailUrl;
 
@@ -2232,20 +2299,52 @@ function AssetSlot({
   const isUploaded  = asset.uploadStatus === "uploaded";
   const isError     = asset.uploadStatus === "error";
   const isVideo     = mediaType === "video";
+  const needsReupload = Boolean(adAccountId && slotNeedsAccountReupload(asset));
+
+  async function handleReupload() {
+    if (!adAccountId || !asset.storagePath || isUploading) return;
+    onUpdate({ uploadStatus: "uploading", error: undefined });
+    try {
+      const result = await reuploadStoredAsset({
+        storagePath: asset.storagePath,
+        storageBucket: asset.storageBucket,
+        type: mediaType,
+        adAccountId,
+        fileName: asset.fileName,
+      });
+      onUpdate({
+        uploadedUrl: result.url,
+        thumbnailUrl: result.previewUrl ?? result.url,
+        assetHash: result.hash,
+        videoId: result.videoId,
+        registryAssetId: result.registryAssetId ?? asset.registryAssetId,
+        uploadStatus: "uploaded",
+      });
+    } catch (err) {
+      onUpdate({
+        uploadStatus: "error",
+        error: err instanceof Error ? err.message : "Upload failed",
+      });
+    }
+  }
 
   async function handleFile(file: File) {
     if (!adAccountId || isUploading) return;
 
-    // Pre-upload size guard — gives a clear error before touching any network.
-    const maxBytes = mediaType === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
-    const maxLabel = mediaType === "video" ? "200 MB" : "30 MB";
-    if (file.size > maxBytes) {
+    // Size decision before any network. A refuse returns before the upload call.
+    const plan = planCreativeUpload({ byteSize: file.size, mediaType });
+    if (plan.action === "refuse") {
+      setUploadNotice(null);
+      setCompressedNote(null);
       onUpdate({
         uploadStatus: "error",
-        error: `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is ${maxLabel}.`,
+        error: plan.message,
       });
       return;
     }
+
+    setUploadNotice(plan.notice ?? null);
+    setCompressedNote(null);
 
     // For video files create a local blob preview immediately so the slot
     // renders a real video frame before (and even if) Meta returns a thumbnail.
@@ -2259,8 +2358,18 @@ function AssetSlot({
     }
 
     onUpdate({ uploadStatus: "uploading", error: undefined, fileName: file.name });
+    if (plan.notice) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    }
     try {
       const result = await upload({ file, type: mediaType, adAccountId });
+      setUploadNotice(null);
+      if (typeof result.compressedBytes === "number") {
+        const mb = (result.compressedBytes / 1024 / 1024).toFixed(1);
+        setCompressedNote(`Compressed to ${mb} MB`);
+      }
       onUpdate({
         fileName: file.name,
         uploadedUrl: result.url,
@@ -2271,6 +2380,7 @@ function AssetSlot({
         uploadStatus: "uploaded",
       });
     } catch (err) {
+      setUploadNotice(null);
       onUpdate({
         uploadStatus: "error",
         error: err instanceof Error ? err.message : "Upload failed",
@@ -2316,6 +2426,8 @@ function AssetSlot({
     setLocalPreviewUrl(null);
     if (customThumbnailUrl) URL.revokeObjectURL(customThumbnailUrl);
     setCustomThumbnailUrl(null);
+    setUploadNotice(null);
+    setCompressedNote(null);
     setFramePickerOpen(false);
     setFramePickerError(null);
     onUpdate({
@@ -2336,6 +2448,21 @@ function AssetSlot({
         <span className="text-[10px] text-muted-foreground">{ratioInfo.desc}</span>
       </div>
 
+      {needsReupload && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 w-full text-[11px]"
+          disabled={isUploading}
+          onClick={() => {
+            void handleReupload();
+          }}
+        >
+          Re-upload to {adAccountId}
+        </Button>
+      )}
+
       {/* ── Aspect-ratio preview / upload zone ─────────────────────────────
           group/slot enables the X remove button to appear on hover without
           conflicting with the inner group used for the expand overlay.        ── */}
@@ -2355,7 +2482,7 @@ function AssetSlot({
       >
         {/* ── Uploading spinner ── */}
         {isUploading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-2 text-center">
             <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <span className="text-[10px] text-muted-foreground">Uploading…</span>
           </div>
@@ -2552,7 +2679,14 @@ function AssetSlot({
             )}
           </div>
         )}
+        {uploadNotice ? (
+          <StatusLine className="absolute inset-x-1.5 bottom-1.5 z-10 text-center text-[10px] leading-snug text-foreground">{uploadNotice}</StatusLine>
+        ) : null}
       </div>
+
+      {compressedNote ? (
+        <StatusLine className="px-0.5 text-[10px] leading-snug text-muted-foreground">{compressedNote}</StatusLine>
+      ) : null}
 
       {/* ── Footer: type badge + (video only) thumbnail-frame picker ── */}
       {isUploaded && (
@@ -2577,6 +2711,8 @@ function AssetSlot({
           )}
         </div>
       )}
+
+      {asset.sourceLabel ? <Datum className="mt-1 break-words text-[10px] leading-snug text-muted-foreground">{asset.sourceLabel}</Datum> : null}
 
       {/* ── Media viewer modal ── */}
       <MediaViewerModal

@@ -43,6 +43,11 @@ import {
   Plus, Link2, Layers, AlertCircle, Info, X, ListChecks,
 } from "lucide-react";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
+import { attachObjectiveBadgeLabel, attachObjectiveChipTitle } from "@/lib/meta/attach-objective";
+import {
+  attachCampaignTargets,
+  attachOptimisationWarningForCampaign,
+} from "@/lib/meta/attach-optimisation";
 import { AdSetPicker } from "./adset-picker";
 import { CrossCampaignAdSetPicker } from "./cross-campaign-adset-picker";
 
@@ -103,6 +108,8 @@ function pickerRowFromContext(event: EventWithClient): EventPickerRow {
     name: event.name,
     slug: event.slug,
     event_date: event.event_date,
+    presale_at: event.presale_at,
+    general_sale_at: event.general_sale_at,
     status: event.status,
     capacity: event.capacity,
     genres: event.genres ?? [],
@@ -140,8 +147,11 @@ export function CampaignSetup({
     if (eventContext.event && !byId.has(eventContext.event.id)) {
       byId.set(eventContext.event.id, pickerRowFromContext(eventContext.event));
     }
+    if (eventContext.selectedEvent && !byId.has(eventContext.selectedEvent.id)) {
+      byId.set(eventContext.selectedEvent.id, eventContext.selectedEvent);
+    }
     return [...byId.values()];
-  }, [fetchedEvents, eventContext.event]);
+  }, [fetchedEvents, eventContext.event, eventContext.selectedEvent]);
   const pickerEvents = useMemo(
     () => events.map(toPlanEventOption),
     [events],
@@ -162,7 +172,12 @@ export function CampaignSetup({
       })),
     [pickerEvents, settings.eventId],
   );
-  const selectedEvent = events.find((row) => row.id === settings.eventId) ?? null;
+  const selectedEvent =
+    (eventContext.selectedEvent && eventContext.selectedEvent.id === settings.eventId
+      ? eventContext.selectedEvent
+      : null) ??
+    events.find((row) => row.id === settings.eventId) ??
+    null;
   const codeMismatch = describeCodeEventMismatch({
     campaignCode: settings.campaignCode,
     campaignName: settings.campaignName,
@@ -209,12 +224,15 @@ export function CampaignSetup({
   };
 
   const mode: WizardMode = settings.wizardMode ?? "new";
-  const isAttachCampaign = mode === "attach_campaign";
+  const submodePending = settings.attachSubmodePending === true;
+  const isAttachCampaign = mode === "attach_campaign" && !submodePending;
   const isAttachAdSet = mode === "attach_adset";
   const isAttachAllAdSets = mode === "attach_all_adsets";
   // `attach_all_adsets` is a sub-mode of the "attach campaign" flow — both
-  // modes share the campaign picker and selected-campaigns card.
-  const isAttachCampaignFamily = isAttachCampaign || isAttachAllAdSets;
+  // modes share the campaign picker and selected-campaigns card. A pending
+  // Add-to-campaign entry is in that family with neither card chosen.
+  const isAttachCampaignFamily =
+    isAttachCampaign || isAttachAllAdSets || (submodePending && mode === "attach_campaign");
   const isAttach = isAttachCampaignFamily || isAttachAdSet;
 
   const availableGoals = OPTIMISATION_GOALS_BY_OBJECTIVE[settings.objective] || [];
@@ -267,32 +285,38 @@ export function CampaignSetup({
   // ── Mode toggle ───────────────────────────────────────────────────────────
 
   const setMode = (next: WizardMode) => {
-    if (next === mode) return;
+    // Pending uses attach_campaign only so the Selected campaign block
+    // renders. "Create new ad set" is that same mode, so the early
+    // return would swallow the click that clears the pending flag.
+    if (next === mode && !submodePending) return;
     if (next === "new") {
       const {
         existingMetaCampaign: _dropC,
         existingMetaCampaigns: _dropCs,
         existingMetaAdSet: _dropAS,
         existingMetaAdSets: _dropASs,
+        attachSubmodePending: _dropPending,
         ...rest
       } = settings;
-      void _dropC; void _dropCs; void _dropAS; void _dropASs;
+      void _dropC; void _dropCs; void _dropAS; void _dropASs; void _dropPending;
       onChange({ ...rest, wizardMode: "new" });
       return;
     }
     if (next === "attach_campaign" || next === "attach_all_adsets") {
       // Keep the campaign snapshots (still valid) but drop ad set snapshots.
+      // Picking a card is the choice Add to campaign left open.
       const {
         existingMetaAdSet: _dropAS,
         existingMetaAdSets: _dropASs,
+        attachSubmodePending: _dropPending,
         ...rest
       } = settings;
-      void _dropAS; void _dropASs;
-      onChange({ ...rest, wizardMode: next });
+      void _dropAS; void _dropASs; void _dropPending;
+      onChange({ ...rest, wizardMode: next, attachSubmodePending: false });
       return;
     }
     // next === "attach_adset" — multi-campaign allowed (mixed objectives OK).
-    onChange({ ...settings, wizardMode: "attach_adset" });
+    onChange({ ...settings, wizardMode: "attach_adset", attachSubmodePending: false });
   };
 
   // ── Picker selection ──────────────────────────────────────────────────────
@@ -301,8 +325,10 @@ export function CampaignSetup({
   // fall back to wrapping the legacy singular field for backward compat.
   const selectedCampaigns = useMemo<ExistingMetaCampaignSnapshot[]>(
     () =>
-      settings.existingMetaCampaigns ??
-      (settings.existingMetaCampaign ? [settings.existingMetaCampaign] : []),
+      attachCampaignTargets(
+        settings.existingMetaCampaigns,
+        settings.existingMetaCampaign,
+      ),
     [settings.existingMetaCampaigns, settings.existingMetaCampaign],
   );
   const selectedCampaignIds = useMemo(
@@ -342,6 +368,9 @@ export function CampaignSetup({
     if (!campaign.compatible || !campaign.internalObjective) return;
 
     const alreadySelected = selectedCampaignIds.has(campaign.id);
+    if (alreadySelected && selectedCampaigns.some((c) => c.id === campaign.id && c.locked)) {
+      return;
+    }
     let nextList: ExistingMetaCampaignSnapshot[];
 
     if (alreadySelected) {
@@ -355,6 +384,15 @@ export function CampaignSetup({
         // Store internalObjective so we can reconstruct settings.objective when
         // this campaign later moves to the front of the list (e.g. first is deselected).
         internalObjective: campaign.internalObjective ?? undefined,
+        objectiveSource: campaign.objectiveSource,
+        adSetCount: campaign.adSetCount,
+        ...(campaign.adSetCountTruncated ? { adSetCountTruncated: true } : {}),
+        ...(campaign.adSetsUnread ? { adSetsUnread: true } : {}),
+        ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
+        ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
+        ...(campaign.deliveryOptimisation
+          ? { deliveryOptimisation: campaign.deliveryOptimisation }
+          : {}),
         status: campaign.status,
         effectiveStatus: campaign.effectiveStatus,
         capturedAt: new Date().toISOString(),
@@ -378,7 +416,12 @@ export function CampaignSetup({
 
     onChange({
       ...settings,
-      wizardMode: isAttachAllAdSets ? "attach_all_adsets" : "attach_campaign",
+      wizardMode: settings.attachSubmodePending
+        ? "attach_campaign"
+        : isAttachAllAdSets
+          ? "attach_all_adsets"
+          : "attach_campaign",
+      attachSubmodePending: settings.attachSubmodePending ? true : undefined,
       objective: firstCamp ? firstInternal : settings.objective,
       optimisationGoal: nextGoal as OptimisationGoal,
       existingMetaCampaigns: nextList,
@@ -403,6 +446,9 @@ export function CampaignSetup({
       if (!campaign.compatible || !campaign.internalObjective) return;
 
       const alreadySelected = selectedCampaignIds.has(campaign.id);
+      if (alreadySelected && selectedCampaigns.some((c) => c.id === campaign.id && c.locked)) {
+        return;
+      }
       let nextList: ExistingMetaCampaignSnapshot[];
 
       if (alreadySelected) {
@@ -416,6 +462,15 @@ export function CampaignSetup({
             name: campaign.name,
             objective: campaign.objective,
             internalObjective: campaign.internalObjective ?? undefined,
+            objectiveSource: campaign.objectiveSource,
+            adSetCount: campaign.adSetCount,
+            ...(campaign.adSetCountTruncated ? { adSetCountTruncated: true } : {}),
+            ...(campaign.adSetsUnread ? { adSetsUnread: true } : {}),
+            ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
+            ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
+            ...(campaign.deliveryOptimisation
+              ? { deliveryOptimisation: campaign.deliveryOptimisation }
+              : {}),
             status: campaign.status,
             effectiveStatus: campaign.effectiveStatus,
             capturedAt: new Date().toISOString(),
@@ -565,7 +620,7 @@ export function CampaignSetup({
             Wired to an event that is not in this list.
           </Datum>
         ) : (
-          <Datum className="mt-2 text-xs text-muted-foreground">No event linked.</Datum>
+          <Datum className="mt-2 text-xs text-muted-foreground">No event attached</Datum>
         )}
         {codeMismatch ? (
           <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-700/40 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
@@ -723,9 +778,30 @@ export function CampaignSetup({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate font-medium">{camp.name}</span>
-                        <Badge variant="primary">
-                          {(camp.internalObjective && OBJECTIVE_LABELS[camp.internalObjective]) ?? camp.objective}
-                        </Badge>
+                        <span
+                          title={
+                            camp.internalObjective
+                              ? attachObjectiveChipTitle(
+                                  camp.objectiveSource ?? "campaign",
+                                  camp.adSetCount ?? 0,
+                                  camp.adSetCountTruncated === true,
+                                  camp.adSetsUnread === true,
+                                  attachObjectiveBadgeLabel({
+                                    internalObjective: camp.internalObjective,
+                                  }),
+                                )
+                              : undefined
+                          }
+                        >
+                          <Badge variant="primary">
+                            {camp.internalObjective
+                              ? attachObjectiveBadgeLabel({
+                                  internalObjective: camp.internalObjective,
+                                  adSetsUnread: camp.adSetsUnread === true,
+                                })
+                              : camp.objective}
+                          </Badge>
+                        </span>
                         {camp.effectiveStatus && (
                           <Badge variant="outline">{camp.effectiveStatus}</Badge>
                         )}
@@ -734,7 +810,30 @@ export function CampaignSetup({
                         <code className="rounded bg-muted px-1.5 py-0.5">{camp.id}</code>
                         <span>Raw objective: {camp.objective}</span>
                       </div>
+                      {camp.conversionEvent ? (
+                        <Datum className="mt-1 text-[11px] text-muted-foreground">
+                          Conversion event: {camp.conversionEvent}
+                          {camp.pixelId ? ` · pixel ${camp.pixelId}` : ""}
+                        </Datum>
+                      ) : null}
+                      {settings.wizardMode === "attach_campaign"
+                        ? (() => {
+                            const warning = attachOptimisationWarningForCampaign({
+                              campaignName: camp.name,
+                              draftObjective: settings.objective,
+                              draftOptimisationGoal: settings.optimisationGoal,
+                              delivery: camp.deliveryOptimisation,
+                            });
+                            if (!warning) return null;
+                            return (
+                              <span data-testid="attach-optimisation-warning">
+                                <Datum className="mt-1 text-[11px] text-warning">{warning}</Datum>
+                              </span>
+                            );
+                          })()
+                        : null}
                     </div>
+                    {camp.locked ? null : (
                     <button
                       type="button"
                       onClick={() => {
@@ -750,6 +849,7 @@ export function CampaignSetup({
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -787,7 +887,7 @@ export function CampaignSetup({
                       icon: ListChecks,
                     },
                   ] as const).map(({ value, label, desc, icon: Icon }) => {
-                    const isSubSelected = mode === value;
+                    const isSubSelected = !submodePending && mode === value;
                     return (
                       <button
                         key={value}

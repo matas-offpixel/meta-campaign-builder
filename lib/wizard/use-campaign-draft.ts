@@ -6,6 +6,7 @@ import { loadDraftFromStorage, saveDraftToStorage } from "@/lib/autosave";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { loadDraftById, saveDraftToDb } from "@/lib/db/drafts";
 import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
+import { applyBudgetScheduleUpdate } from "@/lib/wizard/budget-schedule-update";
 import { createClient } from "@/lib/supabase/client";
 import type {
   AdCreativeDraft,
@@ -176,12 +177,21 @@ export function useCampaignDraft(draftId: string) {
   );
 
   const updateBudgetSchedule = useCallback(
-    (budgetSchedule: BudgetScheduleSettings) => updateDraft((d) => ({ ...d, budgetSchedule })),
+    (update: (prev: BudgetScheduleSettings) => BudgetScheduleSettings) =>
+      updateDraft((d) => applyBudgetScheduleUpdate(d, update)),
     [updateDraft],
   );
 
   const updateAdSetSuggestions = useCallback(
     (adSetSuggestions: AdSetSuggestion[]) => updateDraft((d) => ({ ...d, adSetSuggestions })),
+    [updateDraft],
+  );
+
+  const markGenerateReplaceImportedConfirmed = useCallback(
+    () =>
+      updateDraft((d) =>
+        d.generateReplaceImportedConfirmed ? d : { ...d, generateReplaceImportedConfirmed: true },
+      ),
     [updateDraft],
   );
 
@@ -216,6 +226,7 @@ export function useCampaignDraft(draftId: string) {
     handlePageInstagramOverride,
     updateBudgetSchedule,
     updateAdSetSuggestions,
+    markGenerateReplaceImportedConfirmed,
     updateOptimisationStrategy,
     updateCreativeAssignments,
   };

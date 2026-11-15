@@ -143,6 +143,8 @@ function tree(overrides: Partial<GoogleSearchPlanTree> = {}): GoogleSearchPlanTr
       name: "Junction 2 Melodic",
       status: "draft",
       total_budget: 500,
+      daily_budget: null,
+      pacing: "even",
       bidding_strategy: "maximize_clicks",
       structure_mode: "single_campaign",
       geo_targets: [],

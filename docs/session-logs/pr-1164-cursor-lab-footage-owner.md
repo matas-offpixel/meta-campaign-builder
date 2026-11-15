@@ -1,0 +1,33 @@
+# Session log
+
+## PR
+
+- **Number:** 1164
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1164
+- **Branch:** `cursor/lab-footage-owner`
+
+## Summary
+
+Promoter copy pairs only with the promoter's own footage, and an Artist caption or a quote pairs only with that artist's clips (plus promoter clips that feature them). Generated first person is no longer written.
+
+## Scope / files
+
+- `supabase/migrations/226_creative_lab_footage_owner.sql` (written, not applied)
+- `lib/db/database.types.ts` — the new columns and `creative_lab_clip_features`, added by hand so the schema guard can see them
+- `lib/creative-lab/footage-owner.ts` and the import, pairing, and round paths
+- Creative Lab clips, captions, and the event page
+- `scripts/lab-unpair-crossed.mts`
+- Frames CLW1–CLW3; CLV1-1280 and CLV4 re-baselined
+
+## Validation
+
+- [x] unit tests for owner, pairing, and propose
+- [x] dry run: 11 Puzzle Lineup captions unpaired, 0 others, 1 first-person retired (Puzzle 4th Birthday Part 1). Nothing written.
+- [x] Ubuntu pairs at 0 px: CLW, CLV1, CLV2-1280, CLV3, CLV4. CLV2-393 was already identical.
+- [ ] CI
+
+## Notes
+
+Migration 226 is not applied. The dry run did not write. The design-pass label is not added. The design-pass check goes red because the frames changed.
+
+Fix round 2: CLW2's Artist caption is wrapped with `wrapCaption` and the caption style profile, the way the writer chooses the width, and Luke #1 plays the 9:16 fixture clip. CLW1 and CLW3 are unchanged. CL1–CL10 still shoot the legacy layout ("Artist, first person"); the event page only renders the owner layout. Rebaseline those, or remove the legacy path, in a later PR.

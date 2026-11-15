@@ -17,8 +17,10 @@ import {
   pagesListIsDegraded,
   PAGES_ERROR_TTL_MS,
   PAGES_LIST_MAX_PAGES,
+  PAGES_LIST_PAGE_SIZE,
   PAGES_LIST_PAGINATION_CAP,
   PAGES_LOAD_INCOMPLETE_MESSAGE,
+  walkPageEdge,
   readPagesError,
   settlePagesSource,
   type PagesSourceFetch,
@@ -236,6 +238,78 @@ describe("followCursors — exhaustion beyond one page", () => {
   });
 });
 
+describe("walkPageEdge", () => {
+  it("default size is 100, and a reduce-data error at 100 retries at 50", async () => {
+    assert.equal(PAGES_LIST_PAGE_SIZE, 100);
+    const limits: number[] = [];
+    const logs: string[] = [];
+    const result = await walkPageEdge({
+      path: "/me/accounts",
+      isReduceData: () => true,
+      log: (message) => logs.push(message),
+      load: async (_after, limit) => {
+        limits.push(limit);
+        if (limit === 100) {
+          throw new Error("Please reduce the amount of data you're asking for, then retry your request");
+        }
+        return {
+          data: [page("p1", "One")],
+          after: null,
+          hasNext: false,
+        };
+      },
+    });
+    assert.deepEqual(limits, [100, 50]);
+    assert.equal(result.truncated, false);
+    assert.deepEqual(result.items.map((p) => p.id), ["p1"]);
+    assert.deepEqual(logs, [
+      "[fetchPagedPageEdge] reduce-data path=/me/accounts limit=50",
+    ]);
+  });
+
+  it("a failure on cursor 3 keeps cursors 1–2 as truncated", async () => {
+    let calls = 0;
+    const result = await walkPageEdge({
+      path: "/me/accounts",
+      isReduceData: () => false,
+      load: async (after) => {
+        calls += 1;
+        if (calls === 3) throw new Error("An unknown error occurred");
+        const start = after ? Number(after) : 0;
+        return {
+          data: [page(String(start + 1), "page")],
+          after: String(start + 1),
+          hasNext: true,
+        };
+      },
+    });
+    assert.equal(calls, 3);
+    assert.deepEqual(result.items.map((p) => p.id), ["1", "2"]);
+    assert.equal(result.truncated, true);
+  });
+
+  it("stops a personal walk at the time budget with the pages already fetched", async () => {
+    let clock = 0;
+    const result = await walkPageEdge({
+      path: "/me/accounts",
+      budgetMs: 1_000,
+      now: () => clock,
+      isReduceData: () => false,
+      load: async (after) => {
+        const start = after ? Number(after) : 0;
+        clock += 1_000;
+        return {
+          data: [page(String(start + 1), "page")],
+          after: String(start + 1),
+          hasNext: true,
+        };
+      },
+    });
+    assert.deepEqual(result.items.map((p) => p.id), ["1"]);
+    assert.equal(result.truncated, true);
+  });
+});
+
 describe("useFetchPages cache policy", () => {
   it("successful response IS cached", () => {
     const cache = new Map<string, MetaApiPage[]>();
@@ -308,7 +382,10 @@ describe("source-guards — picker reads the launch-validated page list", () => 
     const client = readFileSync("lib/meta/client.ts", "utf8");
     assert.match(client, /promote_pages/);
     assert.match(client, /object_story_spec\.page_id/);
-    assert.match(client, /followCursors/);
+    assert.match(client, /walkPageEdge/);
+    assert.match(client, /isReduceDataError/);
+    assert.match(client, /subcode === 99/);
+    assert.equal(PAGES_LIST_PAGE_SIZE, 100);
   });
 
   it("launch still writes the operator-picked page_id, not a new identity", () => {

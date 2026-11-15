@@ -130,6 +130,12 @@ export function duplicateTikTokDraftState(
   copy.status = "draft";
   copy.publishedIds = null;
   copy.reviewReadyAt = null;
+  // Idempotency is per draft id, so a copy that kept its targets would
+  // write the same ads into the same ad groups again.
+  delete copy.launchMode;
+  delete copy.attachCampaigns;
+  delete copy.attachAdGroups;
+  delete copy.attachConversionOverride;
   copy.campaignSetup.campaignName = nextDuplicateName(
     original.campaignSetup.campaignName.trim(),
     existingNames,

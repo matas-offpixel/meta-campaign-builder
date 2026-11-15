@@ -1,0 +1,497 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { before, describe, it } from "node:test";
+
+import { styleVersion } from "../../../src/remotion/caption-style/profile.ts";
+import type { ServiceRoleDb } from "../load.ts";
+import { TRIPLE_FIT_NOT_PAIRED } from "../import-quality.ts";
+import { audioMode, loadLabRender, renderCaptionOnClip, renderMadeTripleFit, renderStoragePath, type CaptionRenderRequest, type RenderDeps } from "../render.ts";
+import { planClipLayout, planVideoClaim, type VideoClaimPlan } from "../t1-video.ts";
+import type { LambdaDeps } from "../lambda.ts";
+import { partWindow } from "../triple-fit.ts";
+import { fakeDb, type FakeDb } from "./fake-db.ts";
+
+const LINES = ["Luke Dean joins", "Enzo Siragusa for", "our 4th Birthday", "You in?"];
+let version = "";
+
+before(async () => {
+  version = await styleVersion();
+});
+
+function seed(over: { aspect?: string; kind?: string; lines?: string[]; style?: string; audio?: string; userId?: string; focus?: number } = {}): FakeDb {
+  return fakeDb({
+    creative_lab_renders: [
+      {
+        id: "render-1",
+        user_id: over.userId ?? "op",
+        clip_id: "clip-1",
+        caption_id: "cap-1",
+        style_version: over.style ?? version,
+        aspect: over.aspect ?? "9:16",
+        kind: over.kind ?? "video",
+        status: "queued",
+      },
+    ],
+    creative_lab_clips: [
+      {
+        id: "clip-1",
+        creative_asset_id: "asset-src",
+        audio_status: over.audio ?? "original",
+        in_s: null,
+        out_s: null,
+        crop_focus_x: 0.5,
+        crop_focus_y: over.focus ?? 0.5,
+        face_samples: {
+          detector: "test",
+          fps: 5,
+          cropFocusX: 0.5,
+          cropFocusY: over.focus ?? 0.5,
+          inS: null,
+          outS: null,
+          samples: [{ t: 0, faces: [] }, { t: 0.2, faces: [] }],
+        },
+      },
+    ],
+    creative_lab_captions: [{ id: "cap-1", lines: over.lines ?? LINES, style_version: over.style ?? version }],
+    creative_assets: [
+      {
+        id: "asset-src",
+        user_id: "op",
+        content_hash: "source",
+        byte_size: 10,
+        filename: "Luke Dean - UGC 1.mp4",
+        media_kind: "video",
+        aspect_ratio: "other",
+        duration_seconds: null,
+        storage_bucket: "campaign-assets",
+        storage_path: "videos/ugc1.mp4",
+      },
+    ],
+  });
+}
+
+function deps(renderToFile: CaptionRenderRequest extends never ? never : (req: CaptionRenderRequest) => Promise<{ bytes: Uint8Array; renderMs: number }>): { uploaded: { path: string; bytes: Uint8Array }[]; deps: RenderDeps } {
+  const uploaded: { path: string; bytes: Uint8Array }[] = [];
+  return {
+    uploaded,
+    deps: {
+      signUrl: async () => "https://signed.example/ugc1.mp4",
+      probe: async () => ({ width: 720, height: 1280, fps: 30, durationInSeconds: 19.7 }),
+      renderToFile,
+      upload: async (path: string, bytes: Uint8Array) => {
+        uploaded.push({ path, bytes });
+      },
+    },
+  };
+}
+
+const db = (fake: FakeDb) => fake as unknown as ServiceRoleDb;
+
+describe("renderCaptionOnClip", () => {
+  it("renders 9:16, registers the asset and marks the row done", async () => {
+    const seen: CaptionRenderRequest[] = [];
+    const fake = seed();
+    const { uploaded, deps: d } = deps(async (req) => {
+      seen.push(req);
+      return { bytes: new Uint8Array([1, 2, 3, 4]), renderMs: 1234 };
+    });
+    const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d });
+
+    assert.equal(result.renderMs, 1234);
+    assert.deepEqual([result.width, result.height, result.aspect], [1080, 1920, "9:16"]);
+    assert.equal(result.durationSeconds, 19.7);
+    assert.equal(seen[0].muted, false);
+    assert.equal(seen[0].props.audio, "original");
+    assert.equal(seen[0].props.plate, "video");
+    assert.deepEqual(seen[0].props.lines, LINES);
+    assert.equal(uploaded.length, 1);
+
+    const row = fake.tables.creative_lab_renders[0];
+    assert.equal(row.status, "done");
+    assert.equal(row.render_ms, 1234);
+    assert.equal(row.creative_asset_id, result.creativeAssetId);
+    assert.equal(row.error, null);
+
+    const asset = fake.tables.creative_assets.find((a) => a.id === result.creativeAssetId);
+    assert.ok(asset);
+    assert.equal(asset.aspect_ratio, "9:16");
+    assert.equal(asset.media_kind, "video");
+    assert.equal(asset.duration_seconds, 19.7);
+    assert.equal(asset.content_hash, createHash("sha256").update(Buffer.from([1, 2, 3, 4])).digest("hex"));
+    assert.equal(asset.byte_size, 4);
+  });
+
+  it("does not render a 1920 × 1080 clip into 9:16", async () => {
+    let called = false;
+    const fake = seed();
+    const { deps: d } = deps(async () => {
+      called = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    d.probe = async () => ({ width: 1920, height: 1080, fps: 30, durationInSeconds: 12 });
+    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }), /Too small for 9:16/);
+    assert.equal(called, false);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "failed");
+    assert.equal(fake.tables.creative_lab_clips.length, 1);
+  });
+
+  it("refuses a made triple-fit instead of burning a caption on it", async () => {
+    let called = false;
+    const fake = seed({ lines: ["one | two"] });
+    fake.tables.creative_lab_clips[0]!.triple_fit_source_id = "source-1";
+    const { deps: d } = deps(async () => {
+      called = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    await assert.rejects(
+      renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }),
+      new RegExp(TRIPLE_FIT_NOT_PAIRED),
+    );
+    assert.equal(called, false);
+    assert.equal(fake.tables.creative_lab_renders[0]!.status, "failed");
+    assert.equal(fake.tables.creative_lab_renders[0]!.error, TRIPLE_FIT_NOT_PAIRED);
+  });
+
+  it("a made triple-fit's claim is the approved ladder claim, never the caption", async () => {
+    const measure = (t: string, cap: number) => t.length * 0.35 * cap;
+    const piece = (w: number, h: number, cap: number, label: string) => ({ png: Buffer.alloc(0), width: w, height: h, capPx: cap, label });
+    const claim = planVideoClaim("Early bird, 1st & 2nd release sold out\n3rd release selling fast", measure) as VideoClaimPlan;
+    const layout = planClipLayout({ lockup: piece(1290, 388, 0, "lockup"), name: piece(1000, 220, 220, "name"), date: piece(800, 60, 60, "date"), claim }, "9:16", "B");
+    let captionCalled = false;
+    const signed: string[] = [];
+    const calls: { name: string; input: Record<string, unknown> }[] = [];
+    const fake = seed({ lines: ["one | two"] });
+    fake.tables.creative_lab_clips[0]!.triple_fit_source_id = "source-1";
+    fake.tables.creative_lab_clips.push({
+      id: "source-1",
+      creative_asset_id: "asset-master",
+      render_asset_id: "asset-copy",
+      audio_status: "original",
+      crop_focus_x: 0.4,
+      crop_focus_y: 0.6,
+      in_s: 1,
+      out_s: 20,
+    });
+    fake.tables.creative_assets.push(
+      { id: "asset-master", storage_bucket: "campaign-assets", storage_path: "videos/4k-master.mp4" },
+      { id: "asset-copy", storage_bucket: "campaign-assets", storage_path: "videos/render-copy.mp4" },
+    );
+    const { uploaded, deps: d } = deps(async () => {
+      captionCalled = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    d.signUrl = async (_bucket: string, path: string) => {
+      signed.push(path);
+      return `https://signed.example/${path}`;
+    };
+    d.probe = async () => ({ width: 1920, height: 1080, fps: 30, durationInSeconds: 24 });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const record = (name: string) => (input: unknown) => {
+      calls.push({ name, input: input as Record<string, unknown> });
+    };
+    const lambda: LambdaDeps = {
+      client: {
+        getFunctions: (async (input: unknown) => {
+          record("getFunctions")(input);
+          return [{ functionName: "remotion-render-4-0-471-mem2048mb-disk2048mb-480sec", timeoutInSeconds: 480 }];
+        }) as never,
+        renderMediaOnLambda: (async (input: unknown) => {
+          record("renderMediaOnLambda")(input);
+          return { bucketName: "remotionlambda-test", renderId: "r1" };
+        }) as never,
+        getRenderProgress: (async (input: unknown) => {
+          record("getRenderProgress")(input);
+          return { done: true, fatalErrorEncountered: false, errors: [], outBucket: "remotionlambda-test", outKey: "renders/r1/out.mp4", costs: { accruedSoFar: 0, displayCost: "$0" } };
+        }) as never,
+        deleteRender: (async (input: unknown) => {
+          record("deleteRender")(input);
+        }) as never,
+        renderStillOnLambda: (async () => ({ url: "https://example.test/sheet.jpg" })) as never,
+      },
+      readConcurrencyLimit: async () => 1000,
+      download: async () => new Uint8Array([7, 7]),
+      pollMs: 0,
+    };
+    fake.tables.creative_lab_clips[0]!.event_id = "event-1";
+    fake.tables.creative_lab_clips[1]!.event_id = "event-1";
+    fake.tables.ticket_warnings = [{
+      id: "fda292bd-claim",
+      event_id: "event-1",
+      claim: "EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\n3RD RELEASE SELLING FAST",
+      format: null,
+      state: "live",
+      approved_by: "matas",
+      approved_at: "2026-11-12T10:00:00Z",
+      runs_from: null,
+      runs_to: null,
+    }];
+    const seenClaims: string[] = [];
+    const result = await renderMadeTripleFit(db(fake), {
+      clipId: "clip-1",
+      signUrl: d.signUrl,
+      probe: d.probe,
+      serveUrl: "https://serve.test/index.html",
+      hooks: {
+        arrange: async (spec) => {
+          seenClaims.push(spec.claimText);
+          return layout;
+        },
+        paint: async () => ({ bands: png, top: png, claim: png }),
+        lambda,
+        deleteRender: async (target) => {
+          calls.push({ name: "deleteRender", input: target });
+        },
+      },
+    });
+    assert.equal(captionCalled, false);
+    assert.deepEqual(seenClaims, ["EARLY BIRD, 1ST & 2ND RELEASE SOLD OUT\n3RD RELEASE SELLING FAST"]);
+    assert.deepEqual(signed, ["videos/render-copy.mp4"]);
+    const render = calls.find((call) => call.name === "renderMediaOnLambda")!.input;
+    const props = render.inputProps as { clipUrl: string; window: unknown; muted: boolean; guideUrl?: string | null; durationInSeconds: number };
+    assert.equal(render.composition, "TripleFitOnClip");
+    assert.equal(props.clipUrl, "https://signed.example/videos/render-copy.mp4");
+    assert.deepEqual(props.window, partWindow({ width: 1920, height: 1080 }, 0.4, 0.6));
+    assert.equal(props.muted, false);
+    assert.equal(render.muted, false);
+    assert.equal(props.guideUrl, null);
+    assert.equal(props.durationInSeconds, 19);
+    assert.equal(calls.some((call) => call.name === "deleteRender"), true);
+    assert.deepEqual([result.width, result.height], [1080, 1920]);
+    assert.equal(result.durationSeconds, 19);
+    assert.equal(uploaded.length, 0);
+    assert.equal(fake.tables.creative_lab_renders[0]!.status, "queued");
+    assert.equal(seenClaims[0]!.includes("one | two"), false);
+  });
+
+  it("a quote on a made triple-fit never becomes a caption render", async () => {
+    let captionCalled = false;
+    const fake = seed();
+    fake.tables.creative_lab_clips[0]!.triple_fit_source_id = "source-1";
+    fake.tables.creative_lab_captions[0]!.mode = "quote";
+    const { deps: d } = deps(async () => {
+      captionCalled = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    await assert.rejects(
+      renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }),
+      new RegExp(TRIPLE_FIT_NOT_PAIRED),
+    );
+    assert.equal(captionCalled, false);
+    assert.equal(fake.tables.creative_lab_renders[0]!.status, "failed");
+  });
+
+  it("rejects aspect 4:5 with kind video before rendering", async () => {
+    let called = false;
+    const fake = seed({ aspect: "4:5", kind: "video" });
+    const { deps: d } = deps(async () => {
+      called = true;
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }), /aspect '4:5' with kind 'video'/);
+    assert.equal(called, false);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "failed");
+    assert.throws(() => loadLabRender({ aspect: "4:5", kind: "video" }), /aspect '4:5' with kind 'video'/);
+  });
+
+  it("plays cleared audio and passes the clip focus through on 9:16", async () => {
+    const seen: CaptionRenderRequest[] = [];
+    const fake = seed({ audio: "cleared", focus: 0.3 });
+    const { deps: d } = deps(async (req) => {
+      seen.push(req);
+      return { bytes: new Uint8Array([9]), renderMs: 50 };
+    });
+    const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d });
+    assert.deepEqual([result.width, result.height, result.aspect], [1080, 1920, "9:16"]);
+    assert.equal(seen[0].props.audio, "original");
+    assert.equal(seen[0].props.cropFocusY, 0.3);
+    assert.equal(seen[0].muted, false);
+  });
+
+  it("mutes a muted clip", async () => {
+    const seen: CaptionRenderRequest[] = [];
+    const { deps: d } = deps(async (req) => {
+      seen.push(req);
+      return { bytes: new Uint8Array([9]), renderMs: 10 };
+    });
+    await renderCaptionOnClip(db(seed({ audio: "muted" })), { renderId: "render-1", userId: "op", deps: d });
+    assert.equal(seen[0].muted, true);
+    assert.equal(audioMode("cleared"), "original");
+  });
+
+  it("records a failed render and writes no asset", async () => {
+    const fake = seed();
+    const { uploaded, deps: d } = deps(async () => {
+      throw new Error("encode failed");
+    });
+    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }), /encode failed/);
+    const row = fake.tables.creative_lab_renders[0];
+    assert.equal(row.status, "failed");
+    assert.match(String(row.error), /encode failed/);
+    assert.equal(typeof row.render_ms, "number");
+    assert.equal(fake.tables.creative_assets.length, 1);
+    assert.equal(uploaded.length, 0);
+  });
+
+  it("rejects a caption whose style version is not the bundled profile, before rendering", async () => {
+    let called = false;
+    const fake = seed({ style: "stale" });
+    const { deps: d } = deps(async () => {
+      called = true;
+      return { bytes: new Uint8Array([1]), renderMs: 1 };
+    });
+    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }), /style_version/);
+    assert.equal(called, false);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "failed");
+  });
+
+  it("rejects more than four lines", async () => {
+    let called = false;
+    const fake = seed({ lines: ["one", "two", "three", "four", "five"] });
+    const { deps: d } = deps(async () => {
+      called = true;
+      return { bytes: new Uint8Array([1]), renderMs: 1 };
+    });
+    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d }), /5 lines/);
+    assert.equal(called, false);
+  });
+
+  it("refuses a render owned by someone else without changing it", async () => {
+    const fake = seed();
+    await assert.rejects(renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "other", deps: deps(async () => ({ bytes: new Uint8Array(), renderMs: 1 })).deps }), /another user/);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "queued");
+  });
+
+  it("registers the asset and deletes the Lambda render", async () => {
+    const fake = seed();
+    const deleted: { bucketName: string; lambdaRenderId: string }[] = [];
+    const result = await renderCaptionOnClip(db(fake), {
+      renderId: "render-1",
+      userId: "op",
+      serveUrl: "https://serve.example/creative-lab",
+      deps: {
+        signUrl: async () => "https://signed.example/ugc1.mp4",
+        probe: async () => ({ width: 1080, height: 1920, fps: 30, durationInSeconds: 34.06 }),
+        upload: async () => {},
+        lambda: {
+          render: async (request) => {
+            assert.equal(request.props.inS, 0);
+            assert.equal(request.props.outS, 30);
+            return {
+            bytes: new Uint8Array([7, 7, 7]),
+            renderMs: 4321,
+            estimatedCostUsd: 0.012,
+            estimatedCostDisplay: "$0.012",
+            bucketName: "remotionlambda-euwest2",
+            lambdaRenderId: "lambda-render-1",
+            };
+          },
+          deleteRender: async (target) => {
+            deleted.push(target);
+          },
+        },
+      },
+    });
+    assert.equal(result.renderMs, 4321);
+    assert.equal(result.durationSeconds, 30);
+    assert.equal(result.estimatedCostUsd, 0.012);
+    assert.deepEqual([result.width, result.height], [1080, 1920]);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "done");
+    assert.equal(fake.tables.creative_lab_renders[0].creative_asset_id, result.creativeAssetId);
+    assert.equal(fake.tables.creative_assets.some((asset) => asset.id === result.creativeAssetId), true);
+    assert.deepEqual(deleted, [{ bucketName: "remotionlambda-euwest2", lambdaRenderId: "lambda-render-1" }]);
+  });
+
+  it("marks the row failed when Lambda returns an error and does not delete", async () => {
+    const fake = seed();
+    let deleted = false;
+    await assert.rejects(
+      renderCaptionOnClip(db(fake), {
+        renderId: "render-1",
+        userId: "op",
+        serveUrl: "https://serve.example/creative-lab",
+        deps: {
+          signUrl: async () => "https://signed.example/ugc1.mp4",
+          probe: async () => ({ width: 720, height: 1280, fps: 30, durationInSeconds: 10 }),
+          upload: async () => {},
+          lambda: {
+            render: async () => {
+              throw new Error("Chrome failed to launch");
+            },
+            deleteRender: async () => {
+              deleted = true;
+            },
+          },
+        },
+      }),
+      /Chrome failed to launch/,
+    );
+    assert.equal(fake.tables.creative_lab_renders[0].status, "failed");
+    assert.match(String(fake.tables.creative_lab_renders[0].error), /Chrome failed to launch/);
+    assert.equal(fake.tables.creative_assets.length, 1);
+    assert.equal(deleted, false);
+  });
+
+  it("rejects a missing serve URL before calling Lambda", async () => {
+    const previous = process.env.REMOTION_LAMBDA_SERVE_URL;
+    delete process.env.REMOTION_LAMBDA_SERVE_URL;
+    let called = false;
+    try {
+      await assert.rejects(
+        renderCaptionOnClip(db(seed()), {
+          renderId: "render-1",
+          userId: "op",
+          deps: {
+            signUrl: async () => "https://signed.example/ugc1.mp4",
+            probe: async () => ({ width: 720, height: 1280, fps: 30, durationInSeconds: 10 }),
+            upload: async () => {},
+            lambda: {
+              render: async () => {
+                called = true;
+                throw new Error("should not render");
+              },
+              deleteRender: async () => {
+                called = true;
+              },
+            },
+          },
+        }),
+        /REMOTION_LAMBDA_SERVE_URL/,
+      );
+      assert.equal(called, false);
+    } finally {
+      if (previous === undefined) delete process.env.REMOTION_LAMBDA_SERVE_URL;
+      else process.env.REMOTION_LAMBDA_SERVE_URL = previous;
+    }
+  });
+
+  it("renders the long size now that it is approved", async () => {
+    const seen: CaptionRenderRequest[] = [];
+    const fake = seed();
+    fake.tables.creative_lab_captions[0].size_variant = "long";
+    const { deps: d } = deps(async (req) => {
+      seen.push(req);
+      return { bytes: new Uint8Array([1]), renderMs: 1 };
+    });
+    const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d });
+    assert.equal(seen[0].props.size, "long");
+    assert.equal(result.creativeAssetId.length > 0, true);
+    assert.equal(fake.tables.creative_lab_renders[0].status, "done");
+  });
+
+  it("writes a retry to a new object so the failed attempt is left in place", async () => {
+    const fake = seed();
+    fake.tables.creative_lab_renders[0].attempt = 2;
+    const { uploaded, deps: d } = deps(async () => ({ bytes: new Uint8Array([1, 2, 3]), renderMs: 4 }));
+    const result = await renderCaptionOnClip(db(fake), { renderId: "render-1", userId: "op", deps: d });
+    assert.equal(renderStoragePath("render-1", 1), "videos/creative-lab/render-1-9x16.mp4");
+    assert.equal(renderStoragePath("render-1", 2), "videos/creative-lab/render-1-a2-9x16.mp4");
+    assert.equal(result.storagePath, "videos/creative-lab/render-1-a2-9x16.mp4");
+    assert.equal(uploaded[0].path, result.storagePath);
+  });
+
+  it("never asks Remotion to photograph an unapproved long size", () => {
+    const source = readFileSync(new URL("../render.ts", import.meta.url), "utf8");
+    assert.equal(source.includes("unapprovedProof"), false);
+  });
+});

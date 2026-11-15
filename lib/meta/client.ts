@@ -14,6 +14,8 @@ import type {
   MetaInstagramAccount,
   PageIgOption,
   PageIgResponse,
+  BudgetLevel,
+  BudgetType,
   CampaignObjective,
 } from "@/lib/types";
 import { buildCampaignPayload } from "./campaign";
@@ -23,8 +25,13 @@ import type {
   MetaAdPayload,
 } from "./creative";
 import type { UploadAssetResult } from "./upload";
+import { ATTACH_ADSET_VOTE_FIELDS } from "./attach-objective.ts";
+import { isReduceDataError } from "./error-classify";
 import { withActPrefix } from "./ad-account-id.ts";
-import { followCursors, PAGES_LIST_PAGE_SIZE } from "./pages-list-response.ts";
+import {
+  PAGES_PERSONAL_WALK_BUDGET_MS,
+  walkPageEdge,
+} from "./pages-list-response.ts";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
 import {
   parseAppUsageHeader,
@@ -43,6 +50,8 @@ import {
   buildVideoUploadFields,
   buildVideoThumbnailOverrideRequest,
 } from "./video-upload-request.ts";
+
+export { isReduceDataError };
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -180,6 +189,7 @@ interface GraphPagedResponse<T> {
 export async function graphGet<T>(
   path: string,
   params: Record<string, string> = {},
+  options?: { maxAttempts?: number },
 ): Promise<T> {
   const token = process.env.META_ACCESS_TOKEN;
   if (!token) {
@@ -187,7 +197,7 @@ export async function graphGet<T>(
       "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
     );
   }
-  return graphGetWithToken<T>(path, params, token);
+  return graphGetWithToken<T>(path, params, token, options);
 }
 
 /**
@@ -453,9 +463,8 @@ function getRetryBudget(
 // `isReduceDataError` lives in a separate, dependency-free module so
 // the unit tests (Node strip-only mode, which can't parse the
 // MetaApiError class's parameter properties) can import the helper
-// without dragging in this whole client. Re-export keeps the
-// canonical `lib/meta/client` import surface intact for callers.
-export { isReduceDataError } from "./error-classify";
+// without dragging in this whole client. Re-exported above so the
+// canonical `lib/meta/client` import surface stays intact.
 
 function reasonLabel(httpStatus: number, metaCode: number | undefined): string {
   if (
@@ -650,38 +659,59 @@ const PAGE_LIST_FIELDS =
   "id,name,fan_count,category,picture{url},instagram_business_account";
 
 /**
+ * Same reduce-data check `fetchCampaignsForAccount` uses. Code 1 /
+ * subcode 99 is this error even when `message` is only
+ * "An unknown error occurred" and the phrase sits in `error_user_msg`.
+ */
+function isPageListReduceData(err: unknown): boolean {
+  return (
+    isReduceDataError(err) ||
+    (err instanceof MetaApiError && err.code === 1 && err.subcode === 99)
+  );
+}
+
+/**
  * Walk a Graph page edge to exhaustion (or the named pagination cap).
- * Used by the wizard picker so a 200-item first page cannot silently drop
- * later pages.
+ * Default page size is 100. A reduce-data response retries that cursor
+ * at half the size, down to 25, and keeps the smaller size. Pages already
+ * fetched survive a later failure (`truncated`).
+ *
+ * Graph code 1 is retried up to five times inside `graphGet` before it
+ * throws. On this edge that retry repeats a query Meta has already
+ * refused, which is the 30–130s failure. One attempt, then shrink.
  */
 export async function fetchPagedPageEdge(
   path: string,
   token?: string,
 ): Promise<{ pages: MetaApiPage[]; truncated: boolean }> {
-  const result = await followCursors<MetaApiPage>(
-    async (after) => {
+  const result = await walkPageEdge<MetaApiPage>({
+    path,
+    budgetMs: path === "/me/accounts" ? PAGES_PERSONAL_WALK_BUDGET_MS : undefined,
+    isReduceData: isPageListReduceData,
+    log: (message) => console.warn(message),
+    warn: (code, fetchedPages) => {
+      console.warn(
+        `[fetchPagedPageEdge] ${code} path=${path} graphPages=${fetchedPages}`,
+      );
+    },
+    load: async (after, limit) => {
       const params: Record<string, string> = {
         fields: PAGE_LIST_FIELDS,
-        limit: String(PAGES_LIST_PAGE_SIZE),
+        limit: String(limit),
       };
       if (after) params.after = after;
       const res = token
-        ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(path, params, token)
-        : await graphGet<GraphPagedResponse<MetaApiPage>>(path, params);
+        ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(path, params, token, {
+            maxAttempts: 1,
+          })
+        : await graphGet<GraphPagedResponse<MetaApiPage>>(path, params, { maxAttempts: 1 });
       return {
         data: res.data ?? [],
         after: res.paging?.cursors?.after ?? null,
         hasNext: Boolean(res.paging?.next),
       };
     },
-    {
-      warn: (code, fetchedPages) => {
-        console.warn(
-          `[fetchPagedPageEdge] ${code} path=${path} graphPages=${fetchedPages}`,
-        );
-      },
-    },
-  );
+  });
   return { pages: result.items, truncated: result.truncated };
 }
 
@@ -724,12 +754,38 @@ export interface RawMetaCampaign {
   buying_type?: string;
   created_time?: string;
   updated_time?: string;
+  /** Minor units. Absent, 0, or "0" means this campaign is not CBO. */
+  daily_budget?: string | number;
+  lifetime_budget?: string | number;
+  /**
+   * Absent on a lowest-cost campaign budget. COST_CAP and the bid-cap
+   * strategies are the cases where a new ad set may use a different goal.
+   */
+  bid_strategy?: string;
+  /** Present when the read asked for adsets.limit(50){promoted_object,optimization_goal}. */
+  adsets?: {
+    data?: Array<{
+      id?: string;
+      optimization_goal?: string;
+      promoted_object?: {
+        custom_event_type?: string;
+        pixel_id?: string;
+      };
+    }>;
+    /** Set when more than 50 ad sets exist. The vote does not fetch the rest. */
+    paging?: { next?: string };
+  };
 }
 
 export interface FetchCampaignsResult {
   data: RawMetaCampaign[];
   nextCursor?: string;
   hasMore: boolean;
+  /**
+   * True when `withAdSets` was asked for and this page was retried without
+   * the ad set edge (Graph code 1 / subcode 99). The rows then have no vote.
+   */
+  adSetsUnread: boolean;
 }
 
 /**
@@ -756,6 +812,11 @@ export async function fetchCampaignsForAccount(params: {
   limit?: number;
   /** Pagination cursor returned by a previous call. */
   after?: string;
+  /**
+   * Attach picker only. Nested ad sets make a 50×50 page heavy enough for
+   * Graph code 1 / subcode 99; the caller retries that page without them.
+   */
+  withAdSets?: boolean;
   /** OAuth or system token. When supplied uses graphGetWithToken instead of the env-var graphGet. */
   token?: string;
 }): Promise<FetchCampaignsResult> {
@@ -765,43 +826,67 @@ export async function fetchCampaignsForAccount(params: {
     nameContains,
     limit = 25,
     after,
+    withAdSets = false,
     token,
   } = params;
 
-  const fields = [
-    "id",
-    "name",
-    "objective",
-    "status",
-    "effective_status",
-    "buying_type",
-    "created_time",
-    "updated_time",
-  ].join(",");
-
-  const queryParams: Record<string, string> = {
-    fields,
-    limit: String(Math.min(Math.max(1, limit), 50)),
+  const accountPath = withActPrefix(adAccountId);
+  const requestPage = async (includeAdSets: boolean) => {
+    const fields = [
+      "id",
+      "name",
+      "objective",
+      "status",
+      "effective_status",
+      "buying_type",
+      "created_time",
+      "updated_time",
+      "daily_budget",
+      "lifetime_budget",
+      "bid_strategy",
+      ...(includeAdSets ? [ATTACH_ADSET_VOTE_FIELDS] : []),
+    ].join(",");
+    const queryParams: Record<string, string> = {
+      fields,
+      limit: String(Math.min(Math.max(1, limit), 50)),
+    };
+    if (filter === "relevant") {
+      queryParams.effective_status = JSON.stringify(["ACTIVE", "PAUSED"]);
+    }
+    if (nameContains?.trim()) {
+      queryParams.filtering = JSON.stringify([
+        { field: "name", operator: "CONTAIN", value: nameContains.trim() },
+      ]);
+    }
+    if (after) queryParams.after = after;
+    return token
+      ? graphGetWithToken<GraphPagedResponse<RawMetaCampaign>>(
+          `/${accountPath}/campaigns`,
+          queryParams,
+          token,
+        )
+      : graphGet<GraphPagedResponse<RawMetaCampaign>>(
+          `/${accountPath}/campaigns`,
+          queryParams,
+        );
   };
 
-  // Server-side status filter for the "relevant" view. Meta accepts a JSON
-  // array of effective_status values via the dedicated query param.
-  if (filter === "relevant") {
-    queryParams.effective_status = JSON.stringify(["ACTIVE", "PAUSED"]);
+  let res: GraphPagedResponse<RawMetaCampaign>;
+  let adSetsUnread = false;
+  try {
+    res = await requestPage(withAdSets);
+  } catch (err) {
+    const reduce =
+      isReduceDataError(err) ||
+      (err instanceof MetaApiError && err.code === 1 && err.subcode === 99);
+    if (!withAdSets || !reduce) throw err;
+    console.warn(
+      `[fetchCampaignsForAccount] adsets edge too heavy (code 1 / subcode 99); ` +
+        `retrying page without ad sets adAccountId=${adAccountId}`,
+    );
+    adSetsUnread = true;
+    res = await requestPage(false);
   }
-
-  if (nameContains?.trim()) {
-    queryParams.filtering = JSON.stringify([
-      { field: "name", operator: "CONTAIN", value: nameContains.trim() },
-    ]);
-  }
-
-  if (after) queryParams.after = after;
-
-  const accountPath = withActPrefix(adAccountId);
-  const res = token
-    ? await graphGetWithToken<GraphPagedResponse<RawMetaCampaign>>(`/${accountPath}/campaigns`, queryParams, token)
-    : await graphGet<GraphPagedResponse<RawMetaCampaign>>(`/${accountPath}/campaigns`, queryParams);
 
   // Sort newest first by updated_time then created_time so the picker's
   // "recency" promise holds even when Meta returns a non-deterministic order.
@@ -815,6 +900,7 @@ export async function fetchCampaignsForAccount(params: {
     data: sorted,
     nextCursor: res.paging?.cursors?.after,
     hasMore: !!res.paging?.next,
+    adSetsUnread,
   };
 }
 
@@ -830,7 +916,7 @@ export async function fetchCampaignById(
   token?: string,
 ): Promise<RawMetaCampaign | null> {
   try {
-    const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time";
+    const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time,daily_budget,lifetime_budget,bid_strategy,adsets.limit(50){promoted_object,optimization_goal}";
     const res = token
       ? await graphGetWithToken<RawMetaCampaign>(`/${campaignId}`, { fields }, token)
       : await graphGet<RawMetaCampaign>(`/${campaignId}`, { fields });
@@ -845,6 +931,28 @@ export async function fetchCampaignById(
     );
     return null;
   }
+}
+
+/**
+ * The ledger re-fetch. Same fields as {@link fetchCampaignById}, but a
+ * Graph error is thrown instead of collapsed to null. A null there is
+ * indistinguishable from "archived", and a retry after a rate limit
+ * would create a second live campaign.
+ *
+ * fetchCampaignById stays null-on-error. The attach path depends on that.
+ */
+export async function fetchCampaignByIdForLedger(
+  campaignId: string,
+  token?: string,
+): Promise<RawMetaCampaign> {
+  const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time,daily_budget,lifetime_budget";
+  const res = token
+    ? await graphGetWithToken<RawMetaCampaign>(`/${campaignId}`, { fields }, token)
+    : await graphGet<RawMetaCampaign>(`/${campaignId}`, { fields });
+  if (!res?.id) {
+    throw new MetaApiError(`Meta returned an empty campaign for ${campaignId}.`);
+  }
+  return res;
 }
 
 // ─── Ad-set listing (live, scoped to a single campaign) ────────────────────
@@ -863,6 +971,11 @@ export interface RawMetaAdSet {
   effective_status?: string;
   created_time?: string;
   updated_time?: string;
+  /**
+   * Meta returns the literal `"UNDEFINED"` for an ad set created without one.
+   * See `META_DESTINATION_TYPE_UNSET` in lib/meta/adset.ts.
+   */
+  destination_type?: string;
   /** Subset of `targeting` fields used for the picker's audience-summary line. */
   targeting?: {
     age_min?: number;
@@ -988,7 +1101,7 @@ export async function fetchAdSetById(
   token?: string,
 ): Promise<RawMetaAdSet | null> {
   try {
-    const fields = "id,name,campaign_id,optimization_goal,billing_event,status,effective_status,created_time,updated_time";
+    const fields = "id,name,campaign_id,optimization_goal,billing_event,status,effective_status,destination_type,created_time,updated_time";
     const res = token
       ? await graphGetWithToken<RawMetaAdSet>(`/${adSetId}`, { fields }, token)
       : await graphGet<RawMetaAdSet>(`/${adSetId}`, { fields });
@@ -1547,6 +1660,8 @@ export interface AudienceReadinessResult {
   populating: boolean;
   code: number;
   description: string;
+  /** Numeric Meta account_id. Absent when the read did not return one. */
+  accountId?: string;
 }
 
 /**
@@ -1562,11 +1677,12 @@ export async function checkAudienceReadiness(
   try {
     const res = await graphGetWithToken<{
       id: string;
+      account_id?: string;
       operation_status?: { code: number; description: string };
       approximate_count_lower_bound?: number;
     }>(
       `/${audienceId}`,
-      { fields: "id,operation_status,approximate_count_lower_bound" },
+      { fields: "id,account_id,operation_status,approximate_count_lower_bound" },
       effectiveToken,
     );
     const code = res.operation_status?.code ?? 200;
@@ -1576,6 +1692,7 @@ export async function checkAudienceReadiness(
       populating: code === 441,
       code,
       description,
+      accountId: res.account_id ? String(res.account_id) : undefined,
     };
   } catch (err) {
     console.warn(`[checkAudienceReadiness] API error for ${audienceId}:`, err);
@@ -2177,11 +2294,16 @@ export async function uploadImageAsset(
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
+    const userMsg = typeof e.error_user_msg === "string" ? e.error_user_msg : undefined;
+    const userTitle = typeof e.error_user_title === "string" ? e.error_user_title : undefined;
     throw new MetaApiError(
-      (e.message as string) ?? `HTTP ${response.status}`,
-      e.code as number | undefined,
-      e.type as string | undefined,
-      e.fbtrace_id as string | undefined,
+      userMsg ?? userTitle ?? (typeof e.message === "string" ? e.message : `HTTP ${response.status}`),
+      typeof e.code === "number" ? e.code : undefined,
+      typeof e.type === "string" ? e.type : undefined,
+      typeof e.fbtrace_id === "string" ? e.fbtrace_id : undefined,
+      typeof e.error_subcode === "number" ? e.error_subcode : undefined,
+      userMsg ?? userTitle,
+      e,
     );
   }
 
@@ -2463,17 +2585,26 @@ export async function createMetaCampaign(params: {
   name: string;
   objective: CampaignObjective;
   status?: "ACTIVE" | "PAUSED";
+  /**
+   * Omitted (or level `ad_set`) keeps today's ABO payload: no budget key.
+   * Level `campaign` puts the budget and bid strategy on the campaign.
+   */
+  budget?: {
+    level: BudgetLevel;
+    type: BudgetType;
+    amountMajor: number;
+  };
   /** OAuth or system token. When supplied uses graphPostWithToken instead of the env-var graphPost. */
   token?: string;
 }): Promise<{ id: string }> {
-  const { adAccountId, name, objective, status = "ACTIVE", token } = params;
+  const { adAccountId, name, objective, status = "ACTIVE", budget, token } = params;
   const accountPath = withActPrefix(adAccountId);
 
   // Minimal valid payload — only fields that belong at campaign level.
   // buying_type is required by Meta; omitting it triggers code 100 "Invalid parameter".
   // is_adset_budget_sharing_enabled: false = ad-set-level budgets (not campaign budget optimisation).
   // special_ad_categories must be present (empty array = no special category restrictions).
-  const payload = buildCampaignPayload({ name, objective, status });
+  const payload = buildCampaignPayload({ name, objective, status, budget });
 
   console.log(
     "[createMetaCampaign] Sending payload to",

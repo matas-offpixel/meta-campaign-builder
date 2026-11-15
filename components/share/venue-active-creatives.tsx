@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 
 import ShareActiveCreativesClient from "@/components/share/share-active-creatives-client";
+import { VenueTikTokCreatives } from "@/components/share/venue-tiktok-creatives";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import type { MetaThumbnailProxyAuth } from "@/lib/dashboard/meta-thumbnail-proxy-url";
@@ -12,6 +13,10 @@ import {
   PLATFORM_LABELS,
   type PlatformId,
 } from "@/lib/dashboard/platform-colors";
+import {
+  venueCreativesLayout,
+  type VenueTikTokEventGroup,
+} from "@/lib/dashboard/venue-tiktok-creatives-view";
 
 /**
  * components/share/venue-active-creatives.tsx
@@ -22,7 +27,9 @@ import {
  * `/api/share/client/[token]/venue-creatives/[event_code]` the first
  * time it mounts, then hands the resolved concept groups to the
  * existing `<ShareActiveCreativesClient>` card grid so the visual
- * language matches the per-event share page exactly.
+ * language matches the per-event share page exactly. TikTok concepts
+ * come from a second fetch (`.../venue-tiktok-creatives/[event_code]`)
+ * that reads stored snapshots only.
  *
  * Why lazy and not server-rendered:
  *
@@ -84,16 +91,24 @@ interface Props {
   refreshNonce?: number;
   fullReport?: boolean;
   /**
-   * Global platform filter from the sticky header. When `"all"` or
-   * `"meta"`, the section renders the existing Meta concept groups
-   * (the only platform with active-creatives wired up today). For
-   * `"tiktok"` and `"google_ads"`, the section shows an inline
-   * "Not yet wired" empty card so the operator gets explicit
-   * feedback rather than seeing the Meta cards under a misleading
-   * platform tab.
+   * Global platform filter from the sticky header. `"all"` renders the
+   * Meta concept groups, then the TikTok groups (stored snapshots, see
+   * `lib/dashboard/venue-tiktok-creatives.ts`) as a second labelled
+   * group. `"meta"` and `"tiktok"` render one platform each.
+   * `"google_ads"` shows an inline "Not yet wired" card.
    */
   platform?: PlatformId;
 }
+
+type TikTokApiResponse =
+  | { ok: true; groups: VenueTikTokEventGroup[] }
+  | { ok: false; error: string };
+
+type TikTokState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; groups: VenueTikTokEventGroup[] }
+  | { status: "error"; message: string };
 
 type ApiResponse =
   | {
@@ -170,11 +185,67 @@ export function VenueActiveCreatives({
   const [showAll, setShowAll] = useState(false);
   const [manualRefreshNonce, setManualRefreshNonce] = useState(0);
   const effectiveRefreshNonce = refreshNonce + manualRefreshNonce;
-  // Single-platform tabs that don't have wired-up creatives data
-  // short-circuit to a "Not yet wired" empty state below; the Meta
-  // fetch only runs on All / Meta to avoid burning rate budget for
-  // a section the operator can't see.
-  const skipMetaFetch = platform !== "all" && platform !== "meta";
+  const [tiktokState, setTikTokState] = useState<TikTokState>({
+    status: "idle",
+  });
+  const tiktokGroups =
+    tiktokState.status === "ready" ? tiktokState.groups : [];
+  const layout = venueCreativesLayout(platform, tiktokGroups.length);
+  // The Meta fetch only runs on All / Meta to avoid burning rate budget
+  // for a section the operator can't see.
+  const skipMetaFetch = !layout.fetchMeta;
+  const skipTikTokFetch = !layout.fetchTikTok;
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    let cancelled = false;
+
+    async function run() {
+      if (skipTikTokFetch) {
+        if (!cancelled) setTikTokState({ status: "idle" });
+        return;
+      }
+      let url: string;
+      if (isInternal) {
+        if (!clientId) return;
+        url = `/api/internal/clients/${encodeURIComponent(clientId)}/venue-tiktok-creatives/${encodeURIComponent(eventCode)}`;
+      } else {
+        if (!token) return;
+        url = `/api/share/client/${encodeURIComponent(token)}/venue-tiktok-creatives/${encodeURIComponent(eventCode)}`;
+      }
+      if (effectiveRefreshNonce > 0) {
+        url = `${url}?nonce=${effectiveRefreshNonce}`;
+      }
+      setTikTokState({ status: "loading" });
+      try {
+        const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+        const payload = await safeJson<TikTokApiResponse>(res);
+        if (cancelled) return;
+        if (!res.ok || !payload.ok) {
+          setTikTokState({
+            status: "error",
+            message:
+              !payload.ok && payload.error ? payload.error : `HTTP ${res.status}`,
+          });
+          return;
+        }
+        setTikTokState({ status: "ready", groups: payload.groups });
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setTikTokState({
+          status: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    void run();
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  }, [token, eventCode, isInternal, clientId, effectiveRefreshNonce, skipTikTokFetch]);
 
   useEffect(() => {
     // Inline AbortController handles React strict-mode's double-
@@ -346,35 +417,70 @@ export function VenueActiveCreatives({
         ) : null}
       </header>
 
-      {skipMetaFetch ? (
-        <PlatformNotWiredCard platform={platform} />
+      {layout.notWired ? (
+        <PlatformNotWiredCard platform={layout.notWired} />
       ) : null}
-      {!skipMetaFetch && state.status === "loading" && <LoadingGrid />}
-      {!skipMetaFetch && state.status === "empty" && (
-        <p className="rounded-md border border-dashed border-border bg-muted/50 px-3 py-4 text-xs text-muted-foreground">
-          No active creatives for this venue yet — the campaign may be
-          paused, or the creative concepts haven&rsquo;t started
-          delivering.
-        </p>
-      )}
-      {!skipMetaFetch && state.status === "error" && (
-        <p className="rounded-md border border-dashed border-border bg-muted/50 px-3 py-4 text-xs text-muted-foreground">
-          Creative breakdown unavailable
+      {layout.showMeta ? (
+        <div className={layout.labelPlatformGroups ? "space-y-3" : undefined}>
+          {layout.labelPlatformGroups ? <PlatformGroupLabel platform="meta" /> : null}
+          {state.status === "loading" && <LoadingGrid />}
+          {state.status === "empty" && (
+            <p className="rounded-md border border-dashed border-border bg-muted/50 px-3 py-4 text-xs text-muted-foreground">
+              No active creatives for this venue yet — the campaign may be
+              paused, or the creative concepts haven&rsquo;t started
+              delivering.
+            </p>
+          )}
+          {state.status === "error" && (
+            <p className="rounded-md border border-dashed border-border bg-muted/50 px-3 py-4 text-xs text-muted-foreground">
+              Creative breakdown unavailable
+              <span className="ml-2 text-muted-foreground/60">
+                ({state.message})
+              </span>
+            </p>
+          )}
+          {state.status === "ready" && (
+            <ShareActiveCreativesClient
+              groups={fullReport || showAll ? state.groups : state.groups.slice(0, TOP_N)}
+              thumbnailAuth={thumbnailProxyAuth({
+                isInternal,
+                clientId,
+                token,
+                eventCode,
+              })}
+            />
+          )}
+        </div>
+      ) : null}
+      {layout.showTikTok ? (
+        <div
+          className={
+            layout.labelPlatformGroups ? "mt-6 space-y-3" : "space-y-3"
+          }
+        >
+          {layout.labelPlatformGroups ? <PlatformGroupLabel platform="tiktok" /> : null}
+          <VenueTikTokCreatives
+            groups={tiktokGroups}
+            topN={TOP_N}
+            fullReport={fullReport}
+          />
+        </div>
+      ) : null}
+      {platform === "tiktok" && tiktokState.status === "loading" && <LoadingGrid />}
+      {platform === "tiktok" &&
+        tiktokState.status === "ready" &&
+        tiktokGroups.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            No TikTok creative snapshot for this venue.
+          </p>
+        )}
+      {layout.fetchTikTok && tiktokState.status === "error" && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          TikTok creatives unavailable
           <span className="ml-2 text-muted-foreground/60">
-            ({state.message})
+            ({tiktokState.message})
           </span>
         </p>
-      )}
-      {!skipMetaFetch && state.status === "ready" && (
-        <ShareActiveCreativesClient
-          groups={fullReport || showAll ? state.groups : state.groups.slice(0, TOP_N)}
-          thumbnailAuth={thumbnailProxyAuth({
-            isInternal,
-            clientId,
-            token,
-            eventCode,
-          })}
-        />
       )}
     </section>
   );
@@ -488,11 +594,27 @@ function PlatformNotWiredCard({
         </span>
       </p>
       <p className="mt-1.5">
-        Active creative breakdown is currently Meta-only. {label} creative
+        Active creative breakdown covers Meta and TikTok. {label} creative
         rollups will surface here once the {label} active-creatives
         snapshot is wired into this section.
       </p>
     </div>
+  );
+}
+
+function PlatformGroupLabel({ platform }: { platform: PlatformId }) {
+  return (
+    <h4
+      className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground"
+      data-testid={`venue-active-creatives-group-${platform}`}
+    >
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ backgroundColor: PLATFORM_COLORS[platform] }}
+      />
+      {PLATFORM_LABELS[platform]}
+    </h4>
   );
 }
 

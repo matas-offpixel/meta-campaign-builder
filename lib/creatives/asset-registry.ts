@@ -43,7 +43,10 @@ export interface CreativeAssetRow {
   aspectRatio: RegistryAspect;
   durationSeconds: number | null;
   storageBucket: string;
+  /** "" for an original kept in Drive (migration 228: storage_path null, drive_file_id set). */
   storagePath: string;
+  /** The Drive file holding the original when it isn't in Storage (migration 228), else null. */
+  driveFileId?: string | null;
   thumbnailUrl: string | null;
   createdAt: string;
 }
@@ -135,7 +138,8 @@ export function rowToCreativeAsset(row: Record<string, unknown>): CreativeAssetR
     durationSeconds:
       typeof row.duration_seconds === "number" ? row.duration_seconds : null,
     storageBucket: String(row.storage_bucket ?? "campaign-assets"),
-    storagePath: String(row.storage_path),
+    storagePath: typeof row.storage_path === "string" ? row.storage_path : "",
+    driveFileId: typeof row.drive_file_id === "string" && row.drive_file_id ? row.drive_file_id : null,
     thumbnailUrl: typeof row.thumbnail_url === "string" ? row.thumbnail_url : null,
     createdAt: String(row.created_at ?? ""),
   };
@@ -240,7 +244,9 @@ export async function upsertRegisteredAsset(
     aspectRatio: RegistryAspect;
     durationSeconds?: number | null;
     storageBucket: string;
-    storagePath: string;
+    /** Null only with driveFileId: an original kept in Drive (migration 228). */
+    storagePath: string | null;
+    driveFileId?: string | null;
     thumbnailUrl?: string | null;
     existingId?: string;
   },
@@ -248,6 +254,7 @@ export async function upsertRegisteredAsset(
   | { ok: true; asset: CreativeAssetRow; created: boolean }
   | { ok: false; tableMissing: boolean; error: string }
 > {
+  if (!input.storagePath && !input.driveFileId) return { ok: false, tableMissing: false, error: "an asset needs a storage_path or a drive_file_id" };
   const existing = await findAssetByFingerprint(supabase, input.userId, input.identity);
   if (!existing.ok) return existing;
   if (existing.asset) {
@@ -264,7 +271,8 @@ export async function upsertRegisteredAsset(
     aspect_ratio: input.aspectRatio,
     duration_seconds: input.durationSeconds ?? null,
     storage_bucket: input.storageBucket,
-    storage_path: input.storagePath,
+    storage_path: input.storagePath || null,
+    ...(input.driveFileId ? { drive_file_id: input.driveFileId } : {}),
     thumbnail_url: input.thumbnailUrl ?? null,
   };
   const insert = asClient(supabase)
@@ -286,6 +294,35 @@ export async function upsertRegisteredAsset(
     return { ok: false, tableMissing: false, error: "creative_assets upsert returned no row" };
   }
   return { ok: true, asset: rowToCreativeAsset(data), created: true };
+}
+
+/**
+ * Upgrade a registry row from "other" or null to a measured standard ratio.
+ * A row that already has 4:5, 1:1 or 9:16 is left alone.
+ */
+export async function upgradeRegisteredAspect(
+  supabase: unknown,
+  input: { assetId: string; userId: string; aspectRatio: Exclude<RegistryAspect, "other"> },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  type UpdateClient = {
+    from: (table: string) => {
+      update: (row: Record<string, unknown>) => {
+        eq: (col: string, value: string) => {
+          eq: (col: string, value: string) => {
+            or: (filters: string) => Promise<{ error: { message?: string } | null }>;
+          };
+        };
+      };
+    };
+  };
+  const { error } = await (supabase as UpdateClient)
+    .from(CREATIVE_ASSETS_TABLE)
+    .update({ aspect_ratio: input.aspectRatio })
+    .eq("id", input.assetId)
+    .eq("user_id", input.userId)
+    .or("aspect_ratio.eq.other,aspect_ratio.is.null");
+  if (error) return { ok: false, error: error.message ?? "aspect update failed" };
+  return { ok: true };
 }
 
 /**
@@ -372,4 +409,52 @@ export async function loadAssetsByIds(
     };
   }
   return { ok: true, assets: (data ?? []).map(rowToCreativeAsset) };
+}
+
+/**
+ * Meta channel rows for these platform ids, any operator. The scope is the
+ * ad account, not the user who uploaded. A missing table is reported and
+ * must not fail a launch.
+ */
+export async function listMetaChannelScopes(
+  supabase: unknown,
+  platformIds: string[],
+): Promise<
+  | { ok: true; rows: { platformId: string; scope: string }[] }
+  | { ok: false; tableMissing: boolean; error: string }
+> {
+  if (platformIds.length === 0) return { ok: true, rows: [] };
+  const client = supabase as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, value: string) => {
+          in: (
+            col: string,
+            values: string[],
+          ) => Promise<{
+            data: { platform_id?: string; scope?: string }[] | null;
+            error: { code?: string; message?: string } | null;
+          }>;
+        };
+      };
+    };
+  };
+  const { data, error } = await client
+    .from(CREATIVE_ASSET_CHANNEL_IDS_TABLE)
+    .select("platform_id, scope")
+    .eq("channel", "meta")
+    .in("platform_id", platformIds);
+  if (error) {
+    return {
+      ok: false,
+      tableMissing: isRelationMissing(error),
+      error: error.message ?? "creative_asset_channel_ids list failed",
+    };
+  }
+  const rows: { platformId: string; scope: string }[] = [];
+  for (const row of data ?? []) {
+    if (!row.platform_id || !row.scope) continue;
+    rows.push({ platformId: row.platform_id, scope: row.scope });
+  }
+  return { ok: true, rows };
 }

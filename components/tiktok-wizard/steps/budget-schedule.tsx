@@ -5,16 +5,47 @@ import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { loadTikTokBenchmarkRows } from "@/lib/plan/launch-reads";
+import { tikTokBenchmarkCost } from "@/lib/plan/benchmarks";
+import { formatGbp } from "@/lib/plan/mml-budget";
+import { tikTokCampaignBudgetIssue } from "@/lib/tiktok/write/mapping";
+import { createClient } from "@/lib/supabase/client";
 import {
   parseOptionalMoney,
   suggestFreshTikTokSchedule,
+  tikTokResultLabel,
   validateBudgetGuardrails,
 } from "@/lib/tiktok-wizard/budget-schedule";
 import { suggestTikTokAdGroups } from "@/lib/tiktok-wizard/review";
 import { tikTokAdvertiserClockLabel } from "@/lib/plan/tiktok-early";
+import { TikTokInheritedStepNote } from "@/components/tiktok-wizard/inherited-step-note";
+import {
+  isTikTokAdsOnlyLaunchMode,
+  tikTokInheritedStepNote,
+  tikTokLaunchModeOf,
+} from "@/lib/tiktok-wizard/launch-mode";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
-export function BudgetScheduleStep({
+export function BudgetScheduleStep(props: {
+  draft: TikTokCampaignDraft;
+  onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
+}) {
+  const mode = tikTokLaunchModeOf(props.draft);
+  const note = tikTokInheritedStepNote(props.draft, "budget");
+  if (note && isTikTokAdsOnlyLaunchMode(mode)) return <TikTokInheritedStepNote note={note} />;
+  if (note) {
+    return (
+      <div className="space-y-4">
+        <TikTokInheritedStepNote note={note} />
+        <BudgetScheduleStepBody {...props} />
+      </div>
+    );
+  }
+  return <BudgetScheduleStepBody {...props} />;
+}
+
+function BudgetScheduleStepBody({
   draft,
   onSave,
   surface = "wizard",
@@ -33,6 +64,12 @@ export function BudgetScheduleStep({
       ? ""
       : String(draft.budgetSchedule.frequencyCap),
   );
+  const [targetDraft, setTargetDraft] = useState(
+    draft.optimisation.targetCostPerResult == null
+      ? ""
+      : String(draft.optimisation.targetCostPerResult),
+  );
+  const [benchmarkHint, setBenchmarkHint] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const refreshedSchedule = useRef(false);
@@ -45,6 +82,13 @@ export function BudgetScheduleStep({
   const budgetInvalid =
     draft.budgetSchedule.budgetAmount != null &&
     draft.budgetSchedule.budgetAmount <= 0;
+  const campaignBudgetIssue = tikTokCampaignBudgetIssue({
+    budgetAmount: draft.budgetSchedule.budgetAmount,
+    budgetMode: draft.budgetSchedule.budgetMode,
+    startAt: draft.budgetSchedule.scheduleStartAt,
+    endAt: draft.budgetSchedule.scheduleEndAt,
+    currency: draft.accountSetup.currency,
+  });
   const scheduleInvalid = Boolean(
     !smartPlus &&
       draft.budgetSchedule.scheduleStartAt &&
@@ -88,6 +132,52 @@ export function BudgetScheduleStep({
       setError(err instanceof Error ? err.message : "Enter a valid budget.");
     }
   }
+
+  async function saveTargetCost(raw: string) {
+    try {
+      const amount = parseOptionalMoney(raw);
+      const bidStrategy = amount != null && amount > 0 ? "COST_CAP" : "LOWEST_COST";
+      setSaving(true);
+      setError(null);
+      await onSave({
+        optimisation: {
+          ...draft.optimisation,
+          targetCostPerResult: amount != null && amount > 0 ? amount : null,
+          bidStrategy,
+        },
+        campaignSetup: { ...draft.campaignSetup, bidStrategy },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Enter a valid target cost.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!draft.clientId) return;
+    let cancelled = false;
+    const unit =
+      tikTokResultLabel({
+        objective: draft.campaignSetup.objective,
+        optimisationEvent: draft.accountSetup.optimisationEvent,
+      }) === "purchase"
+        ? "purchase"
+        : tikTokResultLabel({
+              objective: draft.campaignSetup.objective,
+              optimisationEvent: draft.accountSetup.optimisationEvent,
+            }) === "click"
+          ? "click"
+          : null;
+    void loadTikTokBenchmarkRows(createClient(), draft.clientId!).then((rows) => {
+      if (cancelled) return;
+      const cost = tikTokBenchmarkCost(rows, { clientId: draft.clientId!, unit });
+      setBenchmarkHint(cost == null ? null : `Usual TikTok cost per result ${formatGbp(cost)}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.accountSetup.optimisationEvent, draft.campaignSetup.objective, draft.clientId]);
 
   async function saveFrequencyCap(raw: string) {
     const trimmed = raw.trim();
@@ -161,8 +251,32 @@ export function BudgetScheduleStep({
           onChange={(event) => setBudgetDraft(event.target.value)}
           onBlur={() => void saveBudgetAmount(budgetDraft)}
           placeholder="1,000"
-          error={budgetInvalid ? "Set a budget greater than £0" : undefined}
+          error={
+            budgetInvalid
+              ? "Set a budget greater than £0"
+              : campaignBudgetIssue ?? undefined
+          }
         />
+      </div>
+      <Datum className="text-xs text-muted-foreground">
+        Leave the campaign budget blank for no campaign minimum. A campaign budget must be at least £50/day. Each ad group must be at least £20/day.
+      </Datum>
+      <div className="max-w-sm space-y-1">
+        <Input
+          id="tiktok-target-cost"
+          label="Target cost per result (£)"
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          value={targetDraft}
+          disabled={saving || smartPlus}
+          placeholder="Lowest cost"
+          onChange={(event) => setTargetDraft(event.target.value)}
+          onBlur={() => void saveTargetCost(targetDraft)}
+        />
+        {benchmarkHint ? (
+          <Datum className="text-xs text-muted-foreground">{benchmarkHint}</Datum>
+        ) : null}
       </div>
 
       

@@ -11,7 +11,7 @@
 import type { AdSetLaunchResult, AdSetSuggestion, CampaignDraft } from "../types.ts";
 import { resolveDraftEventId } from "../campaign-event.ts";
 import { launchedAdSetPayload, type LaunchedAdSetWrite } from "./record.ts";
-import { phaseAtLaunchFromEvent } from "./snapshot.ts";
+import { phaseAtLaunchFromObjective } from "./snapshot.ts";
 
 export type BackfillDraftInput = {
   id: string;
@@ -155,12 +155,7 @@ export function planLaunchedAdSetBackfill(
         launchedAt: Number.isNaN(launchedAt.getTime()) ? now : launchedAt,
         launchRunId: draftRow.id,
         objective: draft.settings?.objective ?? null,
-        phaseAtLaunch: phaseAtLaunchFromEvent({
-          launchedAt: Number.isNaN(launchedAt.getTime()) ? now : launchedAt,
-          presaleAt: event?.presaleAt ?? null,
-          generalSaleAt: event?.generalSaleAt ?? null,
-          soldOutAt: event?.soldOutAt ?? null,
-        }),
+        phaseAtLaunch: phaseAtLaunchFromObjective(draft.settings?.objective ?? null),
         descriptorSource: "backfill_from_launch_summary",
         suggestion: claim.suggestion,
         audiences: draft.audiences ?? null,

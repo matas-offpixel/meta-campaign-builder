@@ -10,6 +10,11 @@ import {
   everyAdGroupHasCreative,
   everyCreativeAssigned,
 } from "./review.ts";
+import {
+  isTikTokAdsOnlyLaunchMode,
+  isTikTokAttachLaunchMode,
+  tikTokLaunchModeOf,
+} from "./launch-mode.ts";
 import type { TikTokCampaignDraft } from "../types/tiktok-draft.ts";
 
 export type TikTokWizardIssueSeverity = "error" | "warning";
@@ -44,6 +49,11 @@ export function buildTikTokWizardValidationIssues(
   context: TikTokValidationContext = {},
 ): TikTokWizardValidationIssue[] {
   const issues: TikTokWizardValidationIssue[] = [];
+  // Attach modes take the objective from the target; ads-only modes also
+  // take audience, budget and schedule, and every creative goes everywhere.
+  const mode = tikTokLaunchModeOf(draft);
+  const ownObjective = !isTikTokAttachLaunchMode(mode);
+  const ownAdGroups = !isTikTokAdsOnlyLaunchMode(mode);
   if (!draft.accountSetup.advertiserId) {
     issues.push(error("advertiser", 0, "Connect a TikTok account first", "Connect a TikTok account first before configuring campaign details."));
   }
@@ -94,7 +104,7 @@ export function buildTikTokWizardValidationIssues(
       ),
     );
   }
-  if (isAwarenessTikTokObjective(draft.campaignSetup.objective)) {
+  if (ownObjective && isAwarenessTikTokObjective(draft.campaignSetup.objective)) {
     issues.push(
       error(
         "objective-awareness",
@@ -105,6 +115,7 @@ export function buildTikTokWizardValidationIssues(
     );
   }
   if (
+    ownObjective &&
     draft.campaignSetup.objective &&
     draft.campaignSetup.optimisationGoal &&
     !validOptimisationGoalForObjective(
@@ -115,6 +126,7 @@ export function buildTikTokWizardValidationIssues(
     issues.push(error("objective-goal", 1, "Invalid objective and optimisation goal", "Select an optimisation goal that is valid for the chosen objective."));
   }
   if (
+    ownObjective &&
     isTikTokSalesObjective(draft.campaignSetup.objective) &&
     draft.campaignSetup.salesDestination == null
   ) {
@@ -133,7 +145,7 @@ export function buildTikTokWizardValidationIssues(
   }).forEach((message, index) => {
     issues.push(warning(`guardrail-${index}`, 2, "Budget guardrail warning", message));
   });
-  if (!hasAnyTargeting(draft)) {
+  if (ownAdGroups && !hasAnyTargeting(draft)) {
     issues.push(warning("targeting", 3, "No targeting selected", "Select at least one location, demographic, interest, behaviour, custom audience, or lookalike before review."));
   }
   if (draft.creatives.items.length === 0) {
@@ -143,15 +155,16 @@ export function buildTikTokWizardValidationIssues(
     issues.push(error("ad-text-length", 4, "Ad text too long", "TikTok ad text must be 100 characters or fewer."));
   }
   if (
-    draft.budgetSchedule.budgetAmount == null ||
-    draft.budgetSchedule.budgetAmount <= 0
+    ownAdGroups &&
+    (draft.budgetSchedule.budgetAmount == null ||
+      draft.budgetSchedule.budgetAmount <= 0)
   ) {
     issues.push(error("budget-positive", 5, "Set a budget greater than £0", "Set a budget greater than £0."));
   }
-  if (!draft.optimisation.smartPlusEnabled && !scheduleEndAfterStart(draft)) {
+  if (ownAdGroups && !draft.optimisation.smartPlusEnabled && !scheduleEndAfterStart(draft)) {
     issues.push(error("schedule-order", 5, "Schedule end must be after start", "Schedule end must be after start."));
   }
-  if (!everyCreativeAssigned(draft) || !everyAdGroupHasCreative(draft)) {
+  if (ownAdGroups && (!everyCreativeAssigned(draft) || !everyAdGroupHasCreative(draft))) {
     issues.push(error("creative-assignments", 6, "Assign at least one creative to each ad group", "Assign at least one creative to each ad group."));
   }
   return issues;

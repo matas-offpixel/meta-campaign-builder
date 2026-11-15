@@ -97,7 +97,7 @@ describe("audience write path wiring", () => {
   });
 
   it("records the recovery note on the audience row so the operator sees it", () => {
-    assert.match(WRITE, /recoveryNote/);
-    assert.match(WRITE, /\[warning, recoveryNote\]/);
+    assert.match(WRITE, /notes\.recovery = created\.recoveryNote/);
+    assert.match(WRITE, /\[warning, outcome\.reused \? null : notes\.recovery\]/);
   });
 });

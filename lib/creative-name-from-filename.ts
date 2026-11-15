@@ -89,8 +89,8 @@ export function withCreativeVariationSuffix(base: string, variation: number): st
  * slot order. Slot order is `getAspectRatioSlots`: 4:5, then 9:16, then 1:1.
  * A dual creative bound in one pass is therefore named from the 4:5 file when
  * that slot has a `fileName`, and from the 9:16 file when the feed slot is
- * empty. A later upload does not rename a creative that already left the
- * generated default — see {@link nameMetaCreativeFromAssets}.
+ * empty. A later upload does not rename a creative already marked
+ * `"file"` — see {@link nameMetaCreativeFromAssets}.
  */
 export function firstAssetFileName(creative: AdCreativeDraft): string | null {
   for (const variation of creative.assetVariations ?? []) {
@@ -103,16 +103,27 @@ export function firstAssetFileName(creative: AdCreativeDraft): string | null {
 }
 
 /**
- * Name a creative from its first `fileName` only while the name is still the
- * generated default (`""` or `Ad N`). Operator-typed names, and names already
- * taken from an earlier file, are returned unchanged. Assets with no
- * `fileName` leave the current name in place.
+ * A copied creative keeps the source flag. A missing flag stays
+ * `"generated"` — the name string is not evidence the operator typed it.
+ */
+export function copiedCreativeNameSource(
+  source: AdCreativeDraft["nameSource"],
+): NonNullable<AdCreativeDraft["nameSource"]> {
+  return source ?? "generated";
+}
+
+/**
+ * Name a creative from its first `fileName` unless the operator typed the
+ * name, or an earlier file already did. Assets with no `fileName` leave the
+ * current name in place.
  */
 export function nameMetaCreativeFromAssets(creative: AdCreativeDraft): AdCreativeDraft {
-  if (!isGeneratedMetaCreativeName(creative.name)) return creative;
+  if (creative.nameSource === "operator" || creative.nameSource === "file") return creative;
   const fileName = firstAssetFileName(creative);
   if (!fileName) return creative;
-  const next = creativeNameFromFilename(fileName, creative.name);
-  if (next === creative.name) return creative;
-  return { ...creative, name: next };
+  return {
+    ...creative,
+    name: creativeNameFromFilename(fileName, creative.name),
+    nameSource: "file",
+  };
 }

@@ -1,3 +1,4 @@
+import { copiedCreativeNameSource } from "./creative-name-from-filename.ts";
 import type { CampaignDraft, CampaignTemplate } from "./types";
 
 const STORAGE_KEY = "campaign_templates";
@@ -64,6 +65,9 @@ export function saveTemplate(
         ...snapshot.budgetSchedule,
         startDate: "",
         endDate: "",
+        endDateSource: undefined,
+        startDateSource: undefined,
+        endDatePhase: undefined,
       },
     },
     createdAt: new Date().toISOString(),
@@ -85,6 +89,10 @@ export function applyTemplate(template: CampaignTemplate): CampaignDraft {
   return {
     id: crypto.randomUUID(),
     ...template.snapshot,
+    creatives: (template.snapshot.creatives ?? []).map((creative) => ({
+      ...creative,
+      nameSource: copiedCreativeNameSource(creative.nameSource),
+    })),
     // Always clear account-specific IDs on apply — handles templates saved
     // before stripAccountIds was introduced, and ensures the user must
     // re-select their account for every campaign.

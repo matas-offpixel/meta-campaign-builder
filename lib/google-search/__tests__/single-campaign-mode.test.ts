@@ -5,7 +5,7 @@
  *  1. Parser: single_campaign mode produces 1 campaign with N ad groups
  *  2. Parser: campaign_per_theme mode is unchanged (regression guard)
  *  3. restructureAsSingleCampaign: ad group naming, C-code prefix extraction
- *  4. Negatives: campaign-scoped negatives promoted to plan-scoped in single-campaign mode
+ *  4. Negatives: campaign-scoped negatives become ad-group negatives on that campaign's ad groups
  *  5. Push adapter: single-campaign tree → 1 campaigns:mutate + N adGroups:mutate
  */
 
@@ -244,32 +244,36 @@ describe("restructureAsSingleCampaign", () => {
   });
 });
 
-// ─── 4. Negatives: campaign-scoped negatives promoted in single-campaign mode ─
+// ─── 4. Negatives: campaign-scoped negatives land on the source's ad groups ─
 
-describe("single-campaign mode — negatives promotion", () => {
+describe("single-campaign mode — campaign negatives become ad-group negatives", () => {
   const buf = buildMultiCampaignWorkbook();
   const tree = parseGoogleSearchPlanXlsx(buf, { structureMode: "single_campaign" });
 
-  it("all negatives are plan-scoped (no campaign-scoped remain)", () => {
-    const campaignScoped = tree.negatives.filter((n) => n.scope.kind === "campaign");
-    assert.equal(
-      campaignScoped.length,
-      0,
-      "no campaign-scoped negatives should survive in single-campaign mode",
-    );
+  it("no campaign-scoped negative is widened to plan scope", () => {
+    const planScoped = tree.negatives.filter((n) => n.scope.kind === "plan").map((n) => n.keyword);
+    assert.deepEqual(planScoped, ["free"]);
+    assert.equal(tree.negatives.filter((n) => n.scope.kind === "campaign").length, 0);
   });
 
-  it("promoted negatives are still present (keyword content preserved)", () => {
-    const keywords = tree.negatives.map((n) => n.keyword);
-    // 'stream' and 'event' were originally campaign-scoped — they should be promoted to plan
-    assert.ok(keywords.includes("stream"), "promoted 'stream' negative should be present");
-    assert.ok(keywords.includes("event"), "promoted 'event' negative should be present");
-    assert.ok(keywords.includes("free"), "original plan-scoped 'free' should be present");
+  it("each campaign negative sits on every ad group that came from its campaign, and only those", () => {
+    const placement = tree.negatives
+      .filter((n) => n.scope.kind === "ad_group")
+      .map((n) => `${n.keyword}@${n.scope.kind === "ad_group" ? n.scope.ad_group_name : ""}`)
+      .sort();
+    assert.deepEqual(placement, [
+      "event@C1 – Brand",
+      "stream@C2 – Adam Beyer Tickets",
+      "stream@C2 – Drumcode London",
+    ]);
+    for (const n of tree.negatives) {
+      if (n.scope.kind === "ad_group") assert.equal(n.scope.campaign_name, tree.campaigns[0].name);
+    }
   });
 
-  it("emits campaign_negative_promoted_to_plan warnings for each promotion", () => {
-    const promoted = tree.warnings.filter((w) => w.code === "campaign_negative_promoted_to_plan");
-    assert.equal(promoted.length, 2, "should emit 2 promotion warnings (stream + event)");
+  it("emits one campaign_negative_to_ad_groups warning per source campaign", () => {
+    const moved = tree.warnings.filter((w) => w.code === "campaign_negative_to_ad_groups");
+    assert.equal(moved.length, 2, "C1 and C2 had campaign negatives");
   });
 });
 

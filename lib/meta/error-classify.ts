@@ -200,17 +200,12 @@ export function isObjectiveIncompatibilityError(err: unknown): boolean {
  * supported automation type for the ad set's campaign objective.
  *
  * Reproducer (task #116): East End Dubs Newcastle signup campaign, "Wide"
- * ad set (`advantagePlus: true`) under a Registration campaign
- * (`OUTCOME_LEADS` / `LEAD_GENERATION` optimisation goal) — rejected outright.
- * Other ad sets in the same launch with `advantagePlus: true` under
- * non-LEADS objectives succeeded with the identical field shape, so this is
- * an objective-specific rejection of the VALUE, not a structurally malformed
- * request (the field is correctly nested inside `targeting`, matching
- * Meta's documented shape for the sibling `targeting_optimization` /
- * Advantage Detailed Targeting flag — see the session log for the research
- * trail). The exact objective/automation-type support matrix isn't
- * published, so this classifier drives a retry-without-Advantage+ rather
- * than a guessed field substitution.
+ * ad set (`advantagePlus: true`) under a Registration campaign that launched
+ * as `OUTCOME_LEADS` — rejected outright. Registration now launches as
+ * `OUTCOME_SALES`, which accepts the flag; awareness still does not. This
+ * classifier stays objective-agnostic: any 1870196 still retries without
+ * Advantage+ rather than guessing a field substitution. The request shape
+ * was already correct (the flag nested inside `targeting`).
  *
  * Duck-typed against `{ code, subcode, message, userMsg }`, same rationale
  * as `isObjectiveIncompatibilityError` above.

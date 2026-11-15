@@ -7,6 +7,7 @@ import { useWriteParams } from "@/components/dashboard/_shared/use-write-params"
 import { createClient as createSupabase } from "@/lib/supabase/client";
 import { listClients, type ClientRow } from "@/lib/db/clients";
 import { EVENT_STATUSES } from "@/lib/db/events";
+import { isArchivedClientStatus } from "@/lib/db/client-status";
 
 /**
  * Filter strip rendered above the /events list. Client component because
@@ -77,11 +78,13 @@ export function EventsFilters() {
         className="rounded-md border border-border bg-card px-2 py-1.5 text-xs focus:border-border-strong focus:outline-none"
       >
         <option value="">All clients</option>
-        {clients.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
+        {clients
+          .filter((c) => !isArchivedClientStatus(c.status) || c.id === clientId)
+          .map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
       </select>
 
       <select

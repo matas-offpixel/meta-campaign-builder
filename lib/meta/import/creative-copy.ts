@@ -6,6 +6,8 @@ export const CTA_FROM_META: Record<string, CTAType> = {
   SIGN_UP: "sign_up",
   LEARN_MORE: "learn_more",
   BOOK_NOW: "book_now",
+  /** What `mapCTAToAssetFeed` writes for Book now in an `asset_feed_spec`. */
+  BOOK_TRAVEL: "book_now",
   BUY_TICKETS: "buy_tickets",
 };
 
@@ -69,6 +71,7 @@ export type ImportCreativeSource = {
   title?: string;
   link_url?: string;
   call_to_action_type?: string;
+  call_to_action?: Cta;
   object_story_id?: string;
   effective_object_story_id?: string;
   instagram_permalink_url?: string;
@@ -92,17 +95,17 @@ function storyText(value: string | undefined): string {
   return value?.trim() ?? "";
 }
 
-/** App-built creatives keep `sourceType: "new"` even when Meta also returns a story id. */
-function hasAppBuiltSpec(creative: ImportCreativeSource): boolean {
+/**
+ * App-built creatives keep `sourceType: "new"` even when Meta also returns a
+ * story id. Images and videos on `asset_feed_spec` are not that signal: a
+ * boosted post can carry placement ratios, and the existing-post mapper
+ * drops them instead of treating the post as an uploaded creative.
+ */
+export function hasAppBuiltSpec(creative: ImportCreativeSource): boolean {
   const feed = creative.asset_feed_spec;
   if (
     feed &&
-    (feed.bodies ||
-      feed.titles ||
-      feed.descriptions ||
-      feed.link_urls ||
-      feed.images ||
-      feed.videos)
+    (feed.bodies || feed.titles || feed.descriptions || feed.link_urls)
   ) {
     return true;
   }

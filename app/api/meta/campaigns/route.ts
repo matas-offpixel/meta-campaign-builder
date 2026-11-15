@@ -16,6 +16,8 @@
  *                Meta `filtering=[{field:"name",operator:"CONTAIN",…}]`)
  *   limit        page size, default 25, max 50
  *   after        cursor returned by a previous call's `paging.after`
+ *   withAdSets   "1" — attach picker only. Nested ad sets for the
+ *                conversion-event vote. Other callers omit it.
  *
  * Response:
  *   { data: MetaCampaignSummary[], count: number,
@@ -37,6 +39,7 @@ import {
   type RawMetaCampaign,
 } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { resolveAttachCampaign } from "@/lib/meta/attach-objective";
 import { mapMetaObjectiveToInternal } from "@/lib/meta/campaign";
 import { normalizeAdAccountId } from "@/lib/meta/ad-account";
 import type {
@@ -50,12 +53,26 @@ const MAX_LIMIT = 50;
 function deriveCompatibility(raw: RawMetaCampaign): {
   compatible: boolean;
   internalObjective?: ReturnType<typeof mapMetaObjectiveToInternal>;
+  objectiveSource: "campaign" | "adsets";
+  adSetCount: number;
+  adSetCountTruncated: boolean;
+  conversionEvent: string | null;
+  pixelId: string | null;
   reason?: string;
 } {
-  const internal = mapMetaObjectiveToInternal(raw.objective);
+  const voted = resolveAttachCampaign(raw);
+  const internal = voted.objective;
+  const vote = {
+    objectiveSource: voted.objectiveSource,
+    adSetCount: voted.adSetCount,
+    adSetCountTruncated: voted.adSetCountTruncated,
+    conversionEvent: voted.conversionEvent,
+    pixelId: voted.pixelId,
+  };
   if (!internal) {
     return {
       compatible: false,
+      ...vote,
       reason: `Objective "${raw.objective ?? "unknown"}" not supported by this wizard.`,
     };
   }
@@ -63,6 +80,7 @@ function deriveCompatibility(raw: RawMetaCampaign): {
     return {
       compatible: false,
       internalObjective: internal,
+      ...vote,
       reason: `Buying type "${raw.buying_type}" not supported (this wizard only creates auction ad sets).`,
     };
   }
@@ -72,19 +90,47 @@ function deriveCompatibility(raw: RawMetaCampaign): {
     return {
       compatible: false,
       internalObjective: internal,
+      ...vote,
       reason: `Campaign is ${raw.effective_status.toLowerCase()}; can't add ad sets.`,
     };
   }
-  return { compatible: true, internalObjective: internal };
+  return { compatible: true, internalObjective: internal, ...vote };
+}
+
+function deliveryOptimisation(raw: RawMetaCampaign): MetaCampaignSummary["deliveryOptimisation"] {
+  const adSets = raw.adsets?.data;
+  if (!adSets || adSets.length === 0) return undefined;
+  return {
+    ...(raw.bid_strategy ? { bidStrategy: raw.bid_strategy } : {}),
+    ...(raw.daily_budget != null && raw.daily_budget !== ""
+      ? { dailyBudget: String(raw.daily_budget) }
+      : {}),
+    ...(raw.lifetime_budget != null && raw.lifetime_budget !== ""
+      ? { lifetimeBudget: String(raw.lifetime_budget) }
+      : {}),
+    adSets: adSets.map((row) => ({
+      ...(row.optimization_goal ? { optimization_goal: row.optimization_goal } : {}),
+      ...(row.promoted_object?.custom_event_type
+        ? { promoted_object: { custom_event_type: row.promoted_object.custom_event_type } }
+        : {}),
+    })),
+  };
 }
 
 function toSummary(raw: RawMetaCampaign): MetaCampaignSummary {
   const c = deriveCompatibility(raw);
+  const delivery = deliveryOptimisation(raw);
   return {
     id: raw.id,
     name: raw.name,
     objective: raw.objective ?? "",
     internalObjective: c.internalObjective,
+    objectiveSource: c.objectiveSource,
+    adSetCount: c.adSetCount,
+    ...(c.adSetCountTruncated ? { adSetCountTruncated: true } : {}),
+    ...(c.conversionEvent ? { conversionEvent: c.conversionEvent } : {}),
+    ...(c.pixelId ? { pixelId: c.pixelId } : {}),
+    ...(delivery ? { deliveryOptimisation: delivery } : {}),
     status: raw.status ?? "",
     effectiveStatus: raw.effective_status,
     buyingType: raw.buying_type,
@@ -124,6 +170,7 @@ export async function GET(req: NextRequest) {
     filterParam === "all" ? "all" : "relevant";
   const search = req.nextUrl.searchParams.get("search")?.trim() || undefined;
   const after = req.nextUrl.searchParams.get("after") ?? undefined;
+  const withAdSets = req.nextUrl.searchParams.get("withAdSets") === "1";
   const rawLimit = Number(req.nextUrl.searchParams.get("limit") ?? DEFAULT_LIMIT);
   const limit = Number.isFinite(rawLimit)
     ? Math.min(Math.max(1, Math.trunc(rawLimit)), MAX_LIMIT)
@@ -144,7 +191,8 @@ export async function GET(req: NextRequest) {
 
   console.log(
     `[/api/meta/campaigns] fetch start adAccountId=${adAccountId} filter=${filter}` +
-      ` search=${search ?? "-"} limit=${limit} after=${after ? "yes" : "no"} tokenSource=${tokenSource}`,
+      ` search=${search ?? "-"} limit=${limit} after=${after ? "yes" : "no"}` +
+      ` withAdSets=${withAdSets ? "1" : "0"} tokenSource=${tokenSource}`,
   );
 
   try {
@@ -154,10 +202,14 @@ export async function GET(req: NextRequest) {
       nameContains: search,
       limit,
       after,
+      withAdSets,
       token,
     });
 
-    const data = res.data.map(toSummary);
+    const data = res.data.map((raw) => ({
+      ...toSummary(raw),
+      ...(res.adSetsUnread ? { adSetsUnread: true as const } : {}),
+    }));
     const compatibleCount = data.filter((c) => c.compatible).length;
 
     console.log(

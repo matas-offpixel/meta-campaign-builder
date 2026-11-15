@@ -4,8 +4,10 @@ import type {
   AssetVariation,
   Asset,
   AssetRatio,
+  CampaignObjective,
   CaptionVariant,
   CreativeEnhancementSettings,
+  CTAType,
   OptimisationStrategySettings,
 } from "./types";
 
@@ -110,7 +112,12 @@ export function createDefaultOptimisationStrategy(): OptimisationStrategySetting
   };
 }
 
-export function createDefaultCreative(): AdCreativeDraft {
+/** Registration campaigns ask for a sign-up; every other objective sells. */
+export function defaultCtaForObjective(objective?: CampaignObjective): CTAType {
+  return objective === "registration" ? "sign_up" : "book_now";
+}
+
+export function createDefaultCreative(objective?: CampaignObjective): AdCreativeDraft {
   // Default mode is "single" → 9:16 Story / Reel
   const defaultVariation = createDefaultAssetVariation(["9:16"]);
   defaultVariation.name = "Variation 1";
@@ -118,6 +125,7 @@ export function createDefaultCreative(): AdCreativeDraft {
   return {
     id: crypto.randomUUID(),
     name: "",
+    nameSource: "generated",
     sourceType: "new",
     identity: {
       pageId: "",
@@ -130,7 +138,8 @@ export function createDefaultCreative(): AdCreativeDraft {
     headline: "",
     description: "",
     destinationUrl: "",
-    cta: "book_now",
+    cta: defaultCtaForObjective(objective),
+    rotateVariations: false,
     enhancements: { ...ENHANCEMENTS_OFF },
   };
 }

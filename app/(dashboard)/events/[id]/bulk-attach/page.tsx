@@ -56,9 +56,11 @@ import {
   summariseRelaunchGuard,
 } from "@/lib/bulk-attach/launch-validation";
 import { useFetchPages } from "@/lib/hooks/useMeta";
+import { RotationAdSetNote } from "@/components/steps/rotation-adset-note";
+import { useBulkAttachRotationBlock } from "@/components/steps/use-bulk-attach-rotation";
+import { adsThisCreativeLaunches } from "@/lib/meta/variation-ads";
 import type { AdSetGuardInfo } from "@/lib/meta/client";
 import type { AdSetGuardResponse } from "@/app/api/meta/bulk-attach-ads/adset-guard/route";
-import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
 
 const BULK_ATTACH_CAP = 8;
 
@@ -237,12 +239,6 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     pagesLoading: pages.loading,
     pagesCount: pages.data.length,
   });
-  // BOOK_NOW + Dual/Full mode silently drops the Feed asset (Meta subcode
-  // 1885396) — block launch instead of only warning. See creativeHasBookNowMultiPlacementConflict.
-  const bookNowMultiPlacementConflicts = creatives.filter((c) =>
-    creativeHasBookNowMultiPlacementConflict(c),
-  );
-
   // ── "Launch another variation to these ad sets" relaunch flow ────────────
   // Preserves selectedCampaigns + campaignAdSets, resets Configure creatives,
   // and re-enters step 2. shippedVariationsCount persists through drafts /
@@ -312,11 +308,16 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const [templatePreviewLoading, setTemplatePreviewLoading] = useState(false);
 
   // ── Computed totals ───────────────────────────────────────────────────────
+  const rotationBlock = useBulkAttachRotationBlock(
+    creatives,
+    Array.from(campaignAdSets.values()).flatMap((ids) => Array.from(ids)),
+  );
   const totalSelectedAdSets = Array.from(campaignAdSets.values()).reduce(
     (sum, s) => sum + s.size,
     0,
   );
-  const totalAdsToCreate = totalSelectedAdSets * creatives.length;
+  const totalAdsToCreate =
+    totalSelectedAdSets * creatives.reduce((sum, creative) => sum + adsThisCreativeLaunches(creative), 0);
 
   // ── localStorage autosave ─────────────────────────────────────────────────
   useEffect(() => {
@@ -1069,12 +1070,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                 />
               </div>
 
+              {rotationBlock.text ? <RotationAdSetNote message={rotationBlock.text} /> : null}
               <div className="flex flex-col items-end gap-2">
-                {bookNowMultiPlacementConflicts.length > 0 && (
-                  <p className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive">
-                    Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
-                  </p>
-                )}
                 <Button
                   size="sm"
                   onClick={() => setStep(3)}
@@ -1085,7 +1082,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                         v.assets?.some((a) => a.uploadStatus === "uploaded"),
                       ),
                     ) ||
-                    bookNowMultiPlacementConflicts.length > 0
+                    rotationBlock.blocked
                   }
                 >
                   Review & launch <ChevronRight className="ml-1 h-3.5 w-3.5" />
@@ -1154,13 +1151,9 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                     onBackToCreatives={() => navigateToStep(2)}
                   />
                 )}
-                {bookNowMultiPlacementConflicts.length > 0 && (
-                  <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive">
-                    Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
-                  </div>
-                )}
               </div>
 
+              {rotationBlock.text ? <RotationAdSetNote message={rotationBlock.text} /> : null}
               <div className="flex flex-col items-end gap-2">
                 {creativeLaunchReadiness.pagesStillLoading && (
                   <p className="text-xs text-muted-foreground">
@@ -1178,7 +1171,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                   disabled={
                     launching ||
                     !creativeLaunchReadiness.ready ||
-                    bookNowMultiPlacementConflicts.length > 0
+                    rotationBlock.blocked
                   }
                 >
                   {launching ? (
@@ -1312,11 +1305,6 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                         />
                         Start from the creative config I just launched (otherwise resets to blank)
                       </label>
-                      {relaunchKeepCreatives && bookNowMultiPlacementConflicts.length > 0 && (
-                        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive">
-                          Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
-                        </div>
-                      )}
                       <div className="flex justify-end gap-2">
                         <Button
                           variant="outline"
@@ -1328,7 +1316,6 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                         <Button
                           size="sm"
                           onClick={confirmLaunchAnotherVariation}
-                          disabled={relaunchKeepCreatives && bookNowMultiPlacementConflicts.length > 0}
                         >
                           Continue to Configure creatives
                         </Button>
@@ -1347,12 +1334,6 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                     variant="outline"
                     size="sm"
                     onClick={openRelaunchPanel}
-                    disabled={bookNowMultiPlacementConflicts.length > 0}
-                    title={
-                      bookNowMultiPlacementConflicts.length > 0
-                        ? "Can't launch: switch CTA to Buy Tickets to preserve per-placement asset routing."
-                        : undefined
-                    }
                   >
                     Launch another variation to these ad sets
                   </Button>

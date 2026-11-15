@@ -1,7 +1,8 @@
 import { validateGoogleSearchPlan } from "../google-search/validation.ts";
 import { validateCampaignPayload } from "../meta/campaign.ts";
+import { videoDraftHold } from "../creative-lab/import-quality.ts";
 import { validateCreativePayload } from "../meta/creative.ts";
-import { collectTikTokLaunchPreflight } from "../tiktok/write/preflight.ts";
+import { collectTikTokDraftLaunchPreflight } from "../tiktok/write/launch-preflight.ts";
 import {
   annotateChannelDefaultCures,
   resolveChannelDefaults,
@@ -34,6 +35,17 @@ export interface PlanPreflightIssue {
   blocking: boolean;
   /** Client settings path when a missing channel default is the cure. */
   href?: string;
+}
+
+/**
+ * Most Google validator messages already name their campaign or ad group
+ * (`Plan campaign: No daily budget resolved …`); prefixing the scope again
+ * printed it twice.
+ */
+export function scopedGoogleIssueMessage(scope: string | undefined, message: string): string {
+  const trimmed = scope?.trim();
+  if (!trimmed || message.includes(trimmed)) return message;
+  return `${trimmed}: ${message}`;
 }
 
 export function collectPlanPreflightBlockers(
@@ -151,6 +163,16 @@ export function collectPlanPreflight(
     });
   }
   for (const creative of drafts.meta.creatives) {
+    const hold = videoDraftHold(creative);
+    if (hold) {
+      issues.push({
+        adapter: "meta",
+        id: `meta:creative:${creative.id}:video-aspect`,
+        field: "creative",
+        message: hold,
+        blocking: true,
+      });
+    }
     const result = validateCreativePayload(creative);
     for (const [index, message] of result.errors.entries()) {
       issues.push({
@@ -163,7 +185,7 @@ export function collectPlanPreflight(
     }
   }
 
-  const tiktok = collectTikTokLaunchPreflight(drafts.tiktok);
+  const tiktok = collectTikTokDraftLaunchPreflight(drafts.tiktok);
   for (const issue of tiktok.issues) {
     if (tikTokLaunchIssueSupersededByEarly(issue, tiktokEarly)) continue;
     issues.push({
@@ -190,7 +212,7 @@ export function collectPlanPreflight(
       adapter: "google",
       id: `google:${issue.code}`,
       field: issue.code,
-      message: issue.scope ? `${issue.scope}: ${issue.message}` : issue.message,
+      message: scopedGoogleIssueMessage(issue.scope, issue.message),
       blocking: issue.severity === "error",
     });
   }

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
+import { MML_LIST_PATH, mmlNavMatch } from "@/lib/plan/mml-routes";
 import type { InvoiceRow } from "@/lib/types/invoicing";
 import { CMD_K_OPEN_EVENT } from "@/components/dashboard/cmd-k-palette";
 
@@ -46,9 +47,10 @@ type NavSection = {
 };
 
 /**
- * Two-section nav. The original flat list is preserved as the unnamed
- * top section; "Platforms" groups the per-channel surfaces (TikTok in
- * Slice 3, Google Ads in Slice 4) introduced by the overnight scaffold.
+ * Sectioned nav. The unnamed top section holds the cross-channel
+ * surfaces; "Platforms" opens with MML (one launch across every channel)
+ * and then the per-channel campaign libraries: Meta (the Campaign Library
+ * at "/"), TikTok and Google Ads.
  */
 const NAV_SECTIONS: NavSection[] = [
   {
@@ -73,18 +75,6 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Ticket,
         match: (p) => p === "/events" || p.startsWith("/events/"),
       },
-      {
-        href: "/",
-        label: "Campaigns",
-        icon: Megaphone,
-        match: (p) => p === "/" || p.startsWith("/campaign/"),
-      },
-      {
-        href: "/plans",
-        label: "Plans",
-        icon: Layers,
-        match: (p) => p === "/plans" || p.startsWith("/plan/"),
-      },
       { href: "/reporting", label: "Reporting", icon: BarChart3 },
       {
         href: "/invoicing",
@@ -98,6 +88,18 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: "Platforms",
     items: [
+      {
+        href: MML_LIST_PATH,
+        label: "MML",
+        icon: Layers,
+        match: mmlNavMatch,
+      },
+      {
+        href: "/",
+        label: "Meta",
+        icon: Megaphone,
+        match: (p) => p === "/" || p.startsWith("/campaign/"),
+      },
       {
         href: "/tiktok",
         label: "TikTok",

@@ -38,6 +38,7 @@ describe("boosted post import", () => {
     assert.equal(creative.identity.pageId, "111");
     assert.equal(creative.name, "Sign up link in bio Tickets on sale this Friday 2026-09-23-e86c8b00");
     assert.equal(creative.mediaType, "video");
+    assert.equal(creative.existingPost?.mediaKind, "video");
     assert.equal(creative.destinationUrl, "https://www.schak-newcastle.com/");
     assert.equal(creative.cta, "sign_up");
     assert.deepEqual(creative.captions, []);
@@ -70,6 +71,52 @@ describe("boosted post import", () => {
     assert.equal(creative.existingPost?.instagramAccountId, "999");
     assert.equal(creative.identity.pageId, "555");
     assert.equal(creative.mediaType, "image");
+    assert.equal(creative.existingPost?.mediaKind, undefined);
+    assert.equal(
+      draft.importMeta?.dropped.some((row) => row.field === "media_kind" && row.value === "not_recorded"),
+      true,
+    );
+  });
+
+  it("reads the URL from call_to_action.value.link for thirteen boosts of one post, carried as one creative", () => {
+    const creatives: MetaLiveCampaignBundle["creatives"] = {};
+    const ids: string[] = [];
+    for (let i = 0; i < 13; i++) {
+      const id = `c${i}`;
+      ids.push(id);
+      creatives[id] = {
+        id,
+        name: `Schak feed ${i}`,
+        effective_object_story_id: "111_222",
+        video_id: "vid",
+        instagram_permalink_url: "https://www.instagram.com/reel/EXAMPLE/",
+        call_to_action: { type: "SIGN_UP", value: { link: "https://www.schak-newcastle.com/" } },
+      };
+    }
+    const draft = mapMetaLiveCampaign({
+      bundle: {
+        campaign: { id: "1", name: "[NX26-SCHAK] SCHAK Signup", objective: "OUTCOME_LEADS" },
+        adSets: [],
+        ads: [],
+        creatives,
+      },
+      adAccountId: "act_1",
+      carry: ids,
+      availability: [],
+    });
+    assert.equal(draft.creatives.length, 1);
+    assert.deepEqual(draft.creatives[0]!.importedMeta?.creativeIds, ids);
+    assert.equal(draft.importMeta?.creativeCounts.uniqueCreatives, 1);
+    assert.equal(draft.importMeta?.creativeCounts.read, 13);
+    assert.ok(draft.creatives.every((c) => c.destinationUrl === "https://www.schak-newcastle.com/"));
+    assert.ok(draft.creatives.every((c) => c.cta === "sign_up"));
+    assert.ok(draft.creatives.every((c) => c.existingPost?.mediaKind === "video"));
+    const checked = createDefaultDraft();
+    checked.settings.objective = "registration";
+    checked.creatives = draft.creatives;
+    const joined = validateStep(4, checked).errors.join("\n");
+    assert.doesNotMatch(joined, /destination URL/i);
+    assert.doesNotMatch(joined, /call to action/);
   });
 
   it("carries link_url and drops a CTA the app does not have", () => {
@@ -127,6 +174,38 @@ describe("boosted post import", () => {
     });
     assert.equal(draft.creatives.length, 0);
     assert.equal(draft.importMeta?.notCarried[0]?.reason, "post_unreachable");
+  });
+
+  it("Importer fixture with an existing-post creative carrying asset_feed_spec → assetMode \"single\", dropped[] row field \"asset_feed_spec\" reason \"existing_post\"", () => {
+    const draft = mapMetaLiveCampaign({
+      bundle: bundle({
+        name: "Feed Post 1",
+        effective_object_story_id: "111_222",
+        video_id: "vid",
+        instagram_permalink_url: "https://www.instagram.com/reel/EXAMPLE/",
+        asset_feed_spec: {
+          images: [
+            { hash: "feedhash", adlabels: [{ name: "feed_asset" }] },
+            { hash: "storyhash", adlabels: [{ name: "story_asset" }] },
+          ],
+        },
+      }),
+      adAccountId: "act_1",
+      carry: ["c1"],
+      availability: [],
+    });
+    const creative = draft.creatives[0]!;
+    assert.equal(creative.sourceType, "existing_post");
+    assert.equal(creative.assetMode, "single");
+    assert.deepEqual(
+      creative.assetVariations[0]?.assets.map((asset) => asset.aspectRatio),
+      ["9:16"],
+    );
+    assert.equal(creative.assetVariations[0]?.assets[0]?.assetHash, undefined);
+    assert.equal(creative.assetVariations[0]?.assets[0]?.videoId, undefined);
+    const row = draft.importMeta?.dropped.find((entry) => entry.field === "asset_feed_spec");
+    assert.equal(row?.reason, "existing_post");
+    assert.equal(row?.creativeId, "c1");
   });
 
   it("keeps an asset_feed_spec creative as a new ad", () => {

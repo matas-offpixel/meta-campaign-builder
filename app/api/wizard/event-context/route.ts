@@ -7,7 +7,8 @@ import { loadEventContextForDraft } from "@/lib/wizard/event-context";
  * GET /api/wizard/event-context?draftId=…
  *
  * Returns `{ ok, event, client }` — both nullable — for the wizard to
- * pre-fill defaults on first hydration. Auth-gated by the active
+ * pre-fill defaults on first hydration. `event` is the events row from
+ * select *, including presale_at and general_sale_at. Auth-gated by the active
  * Supabase session; ownership is enforced by RLS on the underlying
  * tables (the resolver only sees rows the caller owns).
  */

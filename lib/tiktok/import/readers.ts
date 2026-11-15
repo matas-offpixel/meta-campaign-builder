@@ -249,7 +249,7 @@ export const AD_GET_FIELDS = [
   "campaign_automation_type",
 ] as const;
 
-async function pageRows<T>(input: {
+export async function pageRows<T>(input: {
   path: string;
   advertiserId: string;
   token: string;

@@ -57,8 +57,14 @@ describe("prediction row from a benchmark", () => {
 
 describe("§1.5 removal — predictions table", () => {
   it("Launch writes the row; archive can stamp actual", () => {
-    const launch = readFileSync("app/api/plan/launch/route.ts", "utf8");
+    const launch = readFileSync("lib/plan/launch-prediction.ts", "utf8");
     assert.match(launch, /writePredictionsAtLaunch/);
+    assert.match(launch, /planBenchmark/);
+    const route = readFileSync("app/api/plan/launch/route.ts", "utf8");
+    assert.match(route, /writePlanLaunchPrediction/);
+    assert.doesNotMatch(route, /targetValue != null/);
+    const standalone = readFileSync("app/api/meta/launch-campaign/route.ts", "utf8");
+    assert.match(standalone, /writeDraftLaunchPrediction/);
     const dispose = readFileSync("lib/plan/dispose.ts", "utf8");
     assert.match(dispose, /writePredictionActualsAtClose/);
     assert.match(dispose, /closedReason: "archived"/);

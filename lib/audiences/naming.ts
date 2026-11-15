@@ -71,6 +71,11 @@ export interface BuildAudienceNameOpts {
   /** Video views threshold — defaults to 50. */
   threshold?: number;
   /**
+   * Website-pixel event. When set, it replaces the generic "pixel" phrase
+   * so a Purchase audience is not named the same as a PageView audience.
+   */
+  pixelEvent?: string;
+  /**
    * Campaign display names for video views (e.g. from SourceSelection.campaignSummaries).
    * When non-empty, prefix comes from bracket codes in these names.
    */
@@ -141,6 +146,10 @@ export function buildAudienceName(opts: BuildAudienceNameOpts): string {
     prefixInner = basePrefixToken(opts);
   }
 
-  const middle = subtypeMiddlePhrase(opts.subtype, threshold);
+  const pixelEvent = opts.pixelEvent?.trim();
+  const middle =
+    opts.subtype === "website_pixel" && pixelEvent
+      ? pixelEvent
+      : subtypeMiddlePhrase(opts.subtype, threshold);
   return `${bracketToken(prefixInner)} ${middle} ${retention}d`;
 }

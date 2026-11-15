@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { CronHealthRefreshButton } from "@/components/admin/cron-health-refresh-button";
 import { createClient } from "@/lib/supabase/server";
 import { loadUnmatchedCampaignSnapshot } from "@/lib/db/unmatched-campaign-findings";
+import { LEARNING_LOOP_ROWS } from "@/lib/learning/loop-card";
 import { UNMATCHED_CAMPAIGN_SPEND_FLOOR_MAJOR } from "@/lib/insights/unmatched-campaign-code";
 import type { CronHealthStatus } from "@/lib/reporting/cron-health-monitor";
 
@@ -24,6 +25,7 @@ interface ReportTableRow {
   age_minutes: number | null;
   threshold_minutes: number;
   status: CronHealthStatus;
+  detail?: string;
 }
 
 interface ReportRow {
@@ -36,6 +38,7 @@ const STATUS_STYLES: Record<CronHealthStatus, string> = {
   fresh: "bg-green-100 text-green-800",
   stale: "bg-amber-100 text-amber-800",
   missing: "bg-red-100 text-red-800",
+  failed: "bg-red-100 text-red-800",
 };
 
 function formatAge(minutes: number | null): string {
@@ -90,6 +93,30 @@ export default async function CronHealthPage() {
         <CronHealthRefreshButton />
       </div>
 
+      <section aria-labelledby="learning-loop" className="mb-6 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 id="learning-loop" className="text-sm font-semibold">Learning loop</h2>
+          <span className="text-xs text-muted-foreground">Nightly: what to keep</span>
+        </div>
+        <ul className="mt-3 divide-y divide-border text-sm">
+          {LEARNING_LOOP_ROWS.map((row) => (
+            <li key={row.label} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2">
+              <span className="min-w-0">
+                {row.label}
+                {row.note ? <p className="mt-0.5 text-xs text-muted-foreground">{row.note}</p> : null}
+              </span>
+              <span
+                className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                  row.tone === "live" ? "border-success text-success" : row.tone === "none" ? "border-dashed border-border-strong text-muted-foreground" : "border-warning text-warning-foreground"
+                }`}
+              >
+                {row.status}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
       {!report ? (
         <div className="rounded-lg border border-border bg-card p-8 text-center">
           <p className="text-sm text-muted-foreground">
@@ -129,7 +156,10 @@ export default async function CronHealthPage() {
               <tbody className="divide-y divide-border">
                 {tables.map((t) => (
                   <tr key={t.name}>
-                    <td className="px-4 py-2.5 font-mono text-xs">{t.name}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs">
+                      {t.name}
+                      {t.detail && <p className="mt-1 font-sans text-red-800">{t.detail}</p>}
+                    </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
                       {formatTimestamp(t.last_refreshed_at)}
                     </td>

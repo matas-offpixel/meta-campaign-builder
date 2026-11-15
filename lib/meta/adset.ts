@@ -17,7 +17,9 @@ import type {
   CampaignObjective,
   AdSetSuggestion,
   AudienceSettings,
+  BudgetLevel,
   BudgetScheduleSettings,
+  BudgetType,
   PlacementConfig,
   LocationTargetingGroup,
   LocationSelection,
@@ -26,6 +28,8 @@ import type {
 // not type-only, so `--experimental-strip-types` does not erase it — plain
 // Node ESM resolution needs a real resolvable specifier, unlike the
 // type-only "@/lib/types" imports above which vanish entirely at runtime.
+import { zonedLocalToUtc } from "../time.ts";
+import { adSetDisplayName } from "../wizard/import-edits.ts";
 import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
 import { geoHasNoIncludedArea, resolveAdSetGeoLocations } from "./location-targeting.ts";
 import { META_INITIATE_CHECKOUT_EVENT } from "./campaign.ts";
@@ -72,6 +76,8 @@ export interface MetaGeoLocations {
   countries?: string[];
   cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
   regions?: { key: string }[];
+  /** Meta country-group keys, the same shape as `countries`. */
+  country_groups?: string[];
 }
 
 /**
@@ -190,15 +196,18 @@ export interface MetaAdSetPayload {
   billing_event: string;
   optimization_goal: string;
   /**
-   * Must always be set explicitly. Omitting it causes Meta to infer a default
-   * strategy that can require bid_amount or bid_constraints.
+   * Must be set on an ad set that holds its own budget. Omitting it there
+   * causes Meta to infer a default that can require bid_amount.
+   * Omitted entirely under campaign budget optimisation: the bid strategy
+   * lives on the campaign, and a paused probe of a budget-less ad set
+   * succeeded only when this field was absent.
    *
    * LOWEST_COST_WITHOUT_CAP — autobid, no constraints required (default for this tool).
    * LOWEST_COST_WITH_BID_CAP — requires bid_amount.
    * COST_CAP — requires bid_amount.
    * MINIMUM_ROAS — requires bid_constraints.roas_average_floor.
    */
-  bid_strategy: string;
+  bid_strategy?: string;
   targeting: MetaTargeting;
   /**
    * Unix timestamp. Omit entirely when no explicit start date is chosen —
@@ -213,16 +222,12 @@ export interface MetaAdSetPayload {
   status: "PAUSED" | "ACTIVE";
   promoted_object?: MetaPromotedObject;
   /**
-   * Where the ad set sends people. Required for OUTCOME_TRAFFIC /
-   * OUTCOME_LEADS website campaigns — omitting it lets Meta's newer Ads
-   * Manager Edit UI default the destination radio to "Facebook event" when
-   * the associated Page has upcoming events (Modern Funktion Traffic
-   * reproducer, draft campaign 120251191631740755). Delivery still works
-   * via `link_data.link`, but an operator saving the Edit view would nuke
-   * the website destination. See {@link resolveAdSetDestinationType}.
-   *
-   * Omitted when the ad set has an existing-post (boost) creative assigned
-   * — Meta rejects boost ads under WEBSITE with subcode 1815676 (task #132).
+   * Where the ad set sends people. Set for every objective that sends people
+   * to a site; omitted only for engagement, which Meta refuses to accept it
+   * on. Delivery works either way via `link_data.link`, but an ad set left
+   * without one reads back as `"UNDEFINED"` and the Ads Manager Edit view
+   * shows a destination the launcher never chose — saving that view writes it
+   * in. See {@link resolveAdSetDestinationType}.
    *
    * Meta enum: WEBSITE | APP | MESSENGER | INSTAGRAM_DIRECT | PHONE_CALL |
    * FACEBOOK_EVENT | LEAD | WHATSAPP.
@@ -275,42 +280,36 @@ function isRealMetaId(id: string): boolean {
   return /^\d{10,}$/.test(id);
 }
 
+/** Real Meta ids, minus ones marked as belonging to another ad account. */
+function audienceIdsForLaunch(
+  ids: readonly string[],
+  foreign?: Record<string, string>,
+): string[] {
+  return ids.filter((id) => isRealMetaId(id) && !foreign?.[id]);
+}
+
 /**
- * Convert a date string to a Unix timestamp (seconds, UTC).
+ * Convert a wizard date string to a Unix timestamp (seconds).
  *
- * Accepted formats:
- *   - "YYYY-MM-DD"          legacy / date-only → treated as midnight UTC
- *   - "YYYY-MM-DDTHH:mm"    current wizard (datetime-local, no zone) → treated as UTC
- *   - "YYYY-MM-DDTHH:mm:ssZ" already-ISO with Z suffix → parsed as-is
- *
- * Timezone awareness is a Phase 5 TODO; until then all inputs are UTC.
+ * Datetime-local and date-only strings are wall-clock in `timezone`
+ * (midnight for a date-only string). A trailing `Z` is already UTC.
  * Throws on invalid input — callers must not pass a malformed date string
  * (fail loudly rather than silently send NaN / null to Meta).
  */
-function toUnixTs(dateStr: string): number {
-  let iso: string;
-  if (dateStr.includes("T")) {
-    // datetime-local ("2026-08-06T12:00") or already-ISO ("2026-08-06T12:00:00Z")
-    // Normalise to a full Z-suffixed ISO string so Date() parses as UTC.
-    if (dateStr.endsWith("Z")) {
-      iso = dateStr;
-    } else {
-      // Append seconds if missing, then add Z for UTC.
-      // "2026-08-06T12:00"    → "2026-08-06T12:00:00Z"
-      // "2026-08-06T12:00:00" → "2026-08-06T12:00:00Z"
-      const withSeconds = dateStr.length === 16 ? `${dateStr}:00` : dateStr;
-      iso = `${withSeconds}Z`;
+function toUnixTs(dateStr: string, timezone: string): number {
+  if (dateStr.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(dateStr)) {
+    const ts = Math.floor(new Date(dateStr).getTime() / 1000);
+    if (!Number.isFinite(ts)) {
+      throw new Error(`toUnixTs: invalid date input "${dateStr}"`);
     }
-  } else {
-    // Date-only: "2026-08-06" → midnight UTC
-    iso = `${dateStr}T00:00:00Z`;
+    return ts;
   }
-
-  const ts = Math.floor(new Date(iso).getTime() / 1000);
-  if (!Number.isFinite(ts)) {
+  const local = dateStr.includes("T") ? dateStr.slice(0, 16) : `${dateStr}T00:00`;
+  const instant = zonedLocalToUtc(local, timezone);
+  if (!instant) {
     throw new Error(`toUnixTs: invalid date input "${dateStr}"`);
   }
-  return ts;
+  return Math.floor(instant.getTime() / 1000);
 }
 
 // ─── Targeting builder ────────────────────────────────────────────────────────
@@ -369,7 +368,12 @@ export function buildMetaTargeting(
     throw new Error(`Ad set "${adSet.name}" has no included locations — refusing to default it to UK nationwide.`);
   }
   const geoLocations: MetaGeoLocations = rawGeo
-    ? { countries: rawGeo.countries, cities: rawGeo.cities, regions: rawGeo.regions }
+    ? {
+        countries: rawGeo.countries,
+        cities: rawGeo.cities,
+        regions: rawGeo.regions,
+        ...(rawGeo.country_groups?.length ? { country_groups: rawGeo.country_groups } : {}),
+      }
     : { countries: ["GB"] };
 
   // Blank ad sets always run Advantage+ Audience — there's no manual
@@ -430,7 +434,7 @@ export function buildMetaTargeting(
     case "custom_group": {
       const group = audiences.customAudienceGroups.find((g) => g.id === adSet.sourceId);
       if (group) {
-        const realIds = group.audienceIds.filter(isRealMetaId);
+        const realIds = audienceIdsForLaunch(group.audienceIds, group.foreignAccountById);
         if (realIds.length > 0) {
           targeting.custom_audiences = realIds.map((id) => ({ id }));
         }
@@ -514,14 +518,15 @@ export function buildMetaTargeting(
       const group = audiences.customAudienceGroups.find((g) => g.id === adSet.sourceId);
       if (group) {
         const rangeKey = adSet.lookalikeRange ?? "";
-        const lalIds = (group.lookalikeAudienceIdsByRange?.[rangeKey] ?? []).filter(isRealMetaId);
+        const rawIds = group.lookalikeAudienceIdsByRange?.[rangeKey] ?? [];
+        const lalIds = audienceIdsForLaunch(rawIds, group.foreignAccountById);
         if (lalIds.length > 0) {
           targeting.custom_audiences = lalIds.map((id) => ({ id }));
           console.log(
             `[buildMetaTargeting] custom_group_lookalike "${group.name}" (${rangeKey}): ` +
             `custom_audiences → ${lalIds.join(", ")}`,
           );
-        } else {
+        } else if (rawIds.filter(isRealMetaId).length === 0) {
           throw new Error(
             `Cannot build targeting for custom_group_lookalike "${group.name}" (${rangeKey}): ` +
             `no lookalike audience IDs available — creation likely failed or timed out`,
@@ -713,81 +718,143 @@ export function mapBidStrategy(_goal: OptimisationGoal): string {
 }
 
 /**
- * Resolve Meta ad set `destination_type` for wizard website-bound objectives.
+ * Objectives whose ad sets send people to a website, and so must carry an
+ * explicit `destination_type: "WEBSITE"`.
  *
- * OUTCOME_TRAFFIC / OUTCOME_LEADS (registration) website creatives need an
- * explicit `destination_type: "WEBSITE"` — omitting it lets Meta's newer Ads
- * Manager Edit UI default the destination radio to "Facebook event" whenever
- * the associated Page has upcoming events (Modern Funktion Traffic
- * reproducer, campaign 120251191631740755 — PR #770).
+ * Omitting the field does not disable delivery — the ad still follows
+ * `link_data.link` — but Meta stores the ad set as `destination_type:
+ * "UNDEFINED"`, and an operator opening the Ads Manager Edit view sees the
+ * destination radio sitting on something the launcher never chose. Saving
+ * that view writes it in. Every `OUTCOME_SALES` ad set this tool has ever
+ * launched reads `UNDEFINED` today.
  *
- * BUT: setting WEBSITE rejects existing-post (boost) ads with code=100
- * subcode=1815676 "Non-website ads are not allowed in ad sets with website
- * destination type" (task #132 / PR #770 regression). So when ANY assigned
- * creative is an existing-post boost, we omit the field (pre-#770 behaviour)
- * — link ads in that ad set still deliver via `link_data.link`, and the
- * boost attaches.
+ * `engagement` is deliberately absent. Meta rejects `WEBSITE` on
+ * `OUTCOME_ENGAGEMENT` with code=100 subcode=2490408, for both goals the
+ * wizard offers (`post_engagement`, `video_views`), while the identical ad
+ * set without the field is accepted — engagement ad sets get `ON_POST` from
+ * Meta instead. Verified live 2026-09-30 against a matched control; see the
+ * session log for the captured request/response pairs.
  *
- * Returns `"WEBSITE"` for traffic / registration when `hasBoostCreative` is
- * falsy. Returns `undefined` for awareness / engagement / purchase, and for
- * traffic/registration ad sets that carry a boost creative.
+ * `awareness` IS included: `OUTCOME_AWARENESS` accepts `WEBSITE` on all
+ * three of its goals (reach, impressions, video_views), verified the same
+ * way. #770 left it out without testing it.
+ */
+export const WEBSITE_DESTINATION_OBJECTIVES: readonly CampaignObjective[] = [
+  "traffic",
+  "registration",
+  "purchase",
+  "initiate_checkout",
+  "awareness",
+];
+
+/** True when {@link resolveAdSetDestinationType} returns `"WEBSITE"`. */
+export function isWebsiteDestinationObjective(
+  objective: CampaignObjective,
+): boolean {
+  return WEBSITE_DESTINATION_OBJECTIVES.includes(objective);
+}
+
+/**
+ * Meta returns the literal string `"UNDEFINED"` — not `null`, not an absent
+ * key — for an ad set created without `destination_type`. Anything that reads
+ * the field back off the Graph has to treat that as "no destination".
+ */
+export const META_DESTINATION_TYPE_UNSET = "UNDEFINED";
+
+/**
+ * Resolve Meta ad set `destination_type`.
+ *
+ * `"WEBSITE"` for every objective in {@link WEBSITE_DESTINATION_OBJECTIVES},
+ * `undefined` for engagement. The optimisation goal does not affect the
+ * answer — every valid goal per objective was probed live.
+ *
+ * Boost creatives no longer change this. #777 omitted the field for the whole
+ * ad set whenever one assigned creative was an `existing_post`, because Meta
+ * rejected boosts under a website destination with code=100 subcode=1815676.
+ * That rejection no longer happens: an existing-post ad attaches to a
+ * `WEBSITE` ad set whether or not the creative carries #983's
+ * `call_to_action.value.link`, for both `object_story_id` and
+ * `source_instagram_media_id` boosts. Verified live 2026-09-30 across the
+ * full matrix. The cost of #777's guard was that one boosted post silently
+ * stripped the destination from every website ad beside it.
  */
 export function resolveAdSetDestinationType(
   objective: CampaignObjective,
   _optimisationGoal: OptimisationGoal,
-  hasBoostCreative?: boolean,
 ): MetaAdSetDestinationType | undefined {
-  if (hasBoostCreative) return undefined;
-  if (objective === "traffic" || objective === "registration") {
-    return "WEBSITE";
-  }
-  return undefined;
+  return isWebsiteDestinationObjective(objective) ? "WEBSITE" : undefined;
+}
+
+// ─── Website-destination preflight ───────────────────────────────────────────
+
+/** One ad set a `new` creative is about to be launched into. */
+export interface AdSetDestinationCandidate {
+  id: string;
+  name: string;
+  /**
+   * The ad set's destination: the value {@link resolveAdSetDestinationType}
+   * returns for an ad set this launch is about to create, or the value read
+   * off the Graph for an existing ad set being attached to. Meta's
+   * `"UNDEFINED"` and an absent value both count as no destination.
+   */
+  destinationType?: string | null;
+}
+
+export interface AdSetDestinationRefusal {
+  adSetId: string;
+  adSetName: string;
+  /** What Meta currently has, for the operator-facing message. */
+  found: string;
 }
 
 /**
- * True when `adSetId` has at least one `existing_post` creative assigned in
- * the draft's assignment matrix (`adSetId → creativeId[]`, the Assign
- * Creatives / {@link invertAssignments} convention).
+ * Ad sets that would receive a `new` (non-boost) ad while carrying something
+ * other than a website destination, on an objective that must be website-bound.
  *
- * Pure — no Meta calls. Used to decide whether {@link buildAdSetPayload}
- * may set `destination_type=WEBSITE` (task #132).
+ * This is the "exactly as on launcher" guarantee. A new creative built from an
+ * uploaded asset and a typed URL is a website ad; if the ad set it lands in
+ * says otherwise, the Ads Manager Edit view contradicts the launcher and an
+ * operator saving that view changes where the ad points. Refusing is better
+ * than launching an ad nobody can edit safely.
+ *
+ * Pure. Engagement objectives return `[]` — they cannot carry `WEBSITE` at all.
  */
-export function adSetHasBoostCreative(
-  adSetId: string,
-  assignments: Record<string, string[]>,
-  creatives: ReadonlyArray<{ id: string; sourceType?: string }>,
-): boolean {
-  const assignedIds = assignments[adSetId] ?? [];
-  if (assignedIds.length === 0) return false;
-  const byId = new Map(creatives.map((c) => [c.id, c]));
-  return assignedIds.some((cid) => byId.get(cid)?.sourceType === "existing_post");
+export function findAdSetsWithoutWebsiteDestination(
+  objective: CampaignObjective,
+  adSets: ReadonlyArray<AdSetDestinationCandidate>,
+): AdSetDestinationRefusal[] {
+  if (!isWebsiteDestinationObjective(objective)) return [];
+  const refusals: AdSetDestinationRefusal[] = [];
+  for (const adSet of adSets) {
+    const found = (adSet.destinationType ?? "").trim().toUpperCase();
+    if (found === "WEBSITE") continue;
+    refusals.push({
+      adSetId: adSet.id,
+      adSetName: adSet.name,
+      found: found || META_DESTINATION_TYPE_UNSET,
+    });
+  }
+  return refusals;
 }
 
 /**
- * Ad set ids that have both an existing-post boost AND at least one
- * non-boost (new / link) creative assigned. Powers the Step 6 soft info
- * note (task #132) — Meta Edit UI may show "Facebook event" as destination
- * because we omit `destination_type` for boost compatibility.
+ * Operator-facing refusal. Names every ad set and what it carries instead, so
+ * the message is actionable without opening Ads Manager.
  */
-export function findAdSetsWithMixedBoostAndLinkCreatives(
-  assignments: Record<string, string[]>,
-  creatives: ReadonlyArray<{ id: string; name?: string; sourceType?: string }>,
-  adSets: ReadonlyArray<{ id: string; name: string }>,
-): Array<{ adSetId: string; adSetName: string }> {
-  const byId = new Map(creatives.map((c) => [c.id, c]));
-  const mixed: Array<{ adSetId: string; adSetName: string }> = [];
-  for (const adSet of adSets) {
-    const assigned = (assignments[adSet.id] ?? [])
-      .map((cid) => byId.get(cid))
-      .filter((c): c is { id: string; name?: string; sourceType?: string } => Boolean(c));
-    if (assigned.length < 2) continue;
-    const hasBoost = assigned.some((c) => c.sourceType === "existing_post");
-    const hasLink = assigned.some((c) => c.sourceType !== "existing_post");
-    if (hasBoost && hasLink) {
-      mixed.push({ adSetId: adSet.id, adSetName: adSet.name });
-    }
-  }
-  return mixed;
+export function websiteDestinationRefusalMessage(
+  objective: CampaignObjective,
+  refusals: ReadonlyArray<AdSetDestinationRefusal>,
+): string {
+  const listed = refusals
+    .map((r) => `"${r.adSetName}" (${r.adSetId}) has destination ${r.found}`)
+    .join("; ");
+  return (
+    `This is a ${objective} campaign, so its ads send people to a website, but ` +
+    `${refusals.length} ad set${refusals.length > 1 ? "s do" : " does"} not carry a website destination: ${listed}. ` +
+    `Launching here would produce ads whose destination in Ads Manager contradicts the launcher. ` +
+    `Set the destination to Website on ${refusals.length > 1 ? "those ad sets" : "that ad set"} first — ` +
+    `the Published library's "Set website destination" action does it — then launch again.`
+  );
 }
 
 // ─── Full payload builder ─────────────────────────────────────────────────────
@@ -818,14 +885,6 @@ export function buildAdSetPayload(
    */
   campaignPlacementConfig?: PlacementConfig,
   /**
-   * When true, this ad set has an existing-post (boost) creative assigned —
-   * omit `destination_type` even for traffic/registration so Meta accepts
-   * the boost (subcode 1815676). Threaded from the draft's
-   * `creativeAssignments` via {@link adSetHasBoostCreative}; never inferred
-   * by re-fetching Meta.
-   */
-  hasBoostCreative?: boolean,
-  /**
    * Create-time status. Wizard default ACTIVE (spend starts immediately).
    * Plan fan-out passes PAUSED. Omitting keeps today's wizard behaviour.
    */
@@ -835,20 +894,20 @@ export function buildAdSetPayload(
   // that are incompatible with the campaign objective (see resolveOptimisationGoal).
   const effectiveGoal = resolveOptimisationGoal(optimisationGoal, objective);
 
-  // daily_budget must be in the smallest currency unit (pence / cents).
-  // budgetPerDay is stored in the major currency unit (£/€/$), so multiply by 100.
+  // Money is minor units on the wire. Draft amounts are major units (£).
   // Math.round prevents floating-point noise (e.g. £2.50 → 250, not 249.99999).
-  const dailyBudgetMinorUnits = Math.round(adSet.budgetPerDay * 100);
+  // A missing budgetLevel/budgetType is a daily ad-set budget: that is every
+  // draft this builder has ever launched, and the pinned ABO payloads.
+  const level: BudgetLevel = budgetSchedule.budgetLevel ?? "ad_set";
+  const type: BudgetType = budgetSchedule.budgetType ?? "daily";
+  const cbo = level === "campaign";
+  const lifetimeAbo = !cbo && type === "lifetime";
 
   const payload: MetaAdSetPayload = {
-    name: adSet.name,
+    name: adSetDisplayName(adSet, audiences),
     campaign_id: campaignId,
-    daily_budget: dailyBudgetMinorUnits,
     billing_event: mapBillingEvent(effectiveGoal),
     optimization_goal: mapOptimisationGoal(effectiveGoal),
-    // Always explicit — omitting causes Meta to pick a default that may require
-    // bid_amount or bid_constraints, resulting in code 100 "Invalid parameter".
-    bid_strategy: mapBidStrategy(effectiveGoal),
     targeting: buildMetaTargeting(
       adSet,
       audiences,
@@ -861,6 +920,19 @@ export function buildAdSetPayload(
     // start_time and end_time are added below only when explicitly set —
     // sending null / 0 is rejected by Meta as "Invalid parameter".
   };
+
+  if (cbo) {
+    // Probe b: a campaign-budget ad set carries no budget and no bid_strategy.
+    // Meta rejects an ad-set budget under CBO.
+  } else if (lifetimeAbo) {
+    // Probe a: lifetime_budget + end_time, no daily_budget. Meta's readback
+    // stores daily_budget "0" even when it was not sent — do not send 0.
+    payload.lifetime_budget = Math.round((adSet.budgetLifetime ?? 0) * 100);
+    payload.bid_strategy = mapBidStrategy(effectiveGoal);
+  } else {
+    payload.daily_budget = Math.round(adSet.budgetPerDay * 100);
+    payload.bid_strategy = mapBidStrategy(effectiveGoal);
+  }
 
   // ── Placement targeting (task #117) ────────────────────────────────────
   // Applied unconditionally so every ad set — not just existing-post boosts
@@ -888,25 +960,22 @@ export function buildAdSetPayload(
     }
   }
 
+  const scheduleTimezone = budgetSchedule.timezone || "Europe/London";
   if (budgetSchedule.startDate) {
-    payload.start_time = toUnixTs(budgetSchedule.startDate);
+    payload.start_time = toUnixTs(budgetSchedule.startDate, scheduleTimezone);
   }
 
   if (budgetSchedule.endDate) {
-    payload.end_time = toUnixTs(budgetSchedule.endDate);
+    payload.end_time = toUnixTs(budgetSchedule.endDate, scheduleTimezone);
   }
 
   const promotedObject = buildPromotedObject(effectiveGoal, objective, pixelId);
   if (promotedObject) payload.promoted_object = promotedObject;
 
-  // Explicit website destination for Traffic / registration — omitted when
-  // any assigned creative is an existing-post boost (task #132 / subcode
-  // 1815676). See resolveAdSetDestinationType.
-  const destinationType = resolveAdSetDestinationType(
-    objective,
-    effectiveGoal,
-    hasBoostCreative,
-  );
+  // Explicit website destination for every objective that sends people to a
+  // site. Only engagement is left without one. See
+  // resolveAdSetDestinationType.
+  const destinationType = resolveAdSetDestinationType(objective, effectiveGoal);
   if (destinationType) {
     payload.destination_type = destinationType;
   }
@@ -932,9 +1001,10 @@ export function buildAdSetPayload(
     `\n  optimisationGoal (draft): ${optimisationGoal} → (effective): ${effectiveGoal}`,
     `\n  optimization_goal: ${payload.optimization_goal}`,
     `\n  billing_event:     ${payload.billing_event}`,
-    `\n  bid_strategy:      ${payload.bid_strategy}`,
+    `\n  bid_strategy:      ${payload.bid_strategy ?? "(omitted — campaign budget)"}`,
     `\n  destination_type:  ${payload.destination_type ?? "(omitted)"}`,
-    `\n  daily_budget:      ${payload.daily_budget} minor units (= ${adSet.budgetPerDay} major)`,
+    `\n  daily_budget:      ${payload.daily_budget ?? "(omitted)"}`,
+    `\n  lifetime_budget:   ${payload.lifetime_budget ?? "(omitted)"}`,
     `\n  age mode:          ${ageMode} (${adSet.ageMin}–${adSet.ageMax})`,
     `\n  location:          ${adSet.locationLabel ?? "default GB"}`,
     `\n  placements:        ${placementTargeting ? JSON.stringify(placementTargeting) : "automatic (Advantage+ Placements)"}`,
@@ -966,11 +1036,16 @@ export function buildAdSetPayload(
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
-export function validateAdSetPayloads(adSets: AdSetSuggestion[]): {
+export function validateAdSetPayloads(
+  adSets: AdSetSuggestion[],
+  budget?: { level?: BudgetLevel; type?: BudgetType },
+): {
   isValid: boolean;
   errors: string[];
 } {
   const errors: string[] = [];
+  const cbo = budget?.level === "campaign";
+  const lifetime = !cbo && budget?.type === "lifetime";
 
   if (adSets.length === 0) {
     errors.push("No enabled ad sets to create");
@@ -979,7 +1054,13 @@ export function validateAdSetPayloads(adSets: AdSetSuggestion[]): {
   adSets.forEach((s, i) => {
     const label = s.name || `Ad Set #${i + 1}`;
     if (!s.name?.trim()) errors.push(`${label}: name is required`);
-    if (!s.budgetPerDay || s.budgetPerDay <= 0) {
+    if (cbo) {
+      // The campaign holds the budget. An ad-set amount is not sent.
+    } else if (lifetime) {
+      if (!(s.budgetLifetime != null && s.budgetLifetime > 0)) {
+        errors.push(`${label}: lifetime budget must be greater than 0`);
+      }
+    } else if (!s.budgetPerDay || s.budgetPerDay <= 0) {
       errors.push(`${label}: daily budget must be greater than 0`);
     }
     if (s.ageMin >= s.ageMax) {

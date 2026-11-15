@@ -35,6 +35,8 @@ Decision 1: destinations are authoritative. `rudimental-nx` disagrees today and 
 
 Decision 2: cirqlin `revalidate = 3600` is not changed in this PR.
 
-Migration 178 was not applied to production. The down-migration was run inside a transaction and rolled back.
+On 27 Sep 2026 the down-migration was run inside a transaction and rolled back. Production now has migration 178: `supabase_migrations.schema_migrations` version `20260927120000`, name `178_wa_community_alias_repoint`. The file matches the live slug constraint, `event_ref`, `interstitial_enabled`, the column comments, both deferred triggers, and the bodies of `assert_wa_alias_invite_homes`, `trg_wa_alias_invite_homes_agree`, `create_community_alias`, and `repoint_community_alias`. That row stores no `statements` (`created_by` is null), so the check is the live objects. `service_role` can execute the trigger functions because the database's default privileges grant it, which the file's `revoke` list leaves in place.
+
+15 Nov 2026: merged `main`. CLAUDE.md kept `CIRQLIN_TO_DASHBOARD_BEARER`. `package.json` keeps `@vercel/functions` at `^3.9.9` on top of main's dependencies.
 
 Do not deploy on a day with a live D2C send. No `d2c_scheduled_sends` rows are scheduled between 27 Sep and 1 Oct 2026; Throwback Porto gen sale is still the kickoff gate (30 Sep).

@@ -1,6 +1,10 @@
 import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio, AdSetGeoLocations, BudgetScheduleSettings, LocationTargetingGroup, LocationPreset } from "./types";
 import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types.ts";
 import { inferRulesObjectiveFromRules } from "./optimisation-rules.ts";
+import { isGeneratedMetaCreativeName } from "./creative-name-from-filename.ts";
+import { readBlankCopy } from "./meta/creative.ts";
+import { migrateEndDateSource, migrateStartDateSource } from "./wizard/event-end-date.ts";
+import { repairImportedLocations } from "./wizard/imported-locations.ts";
 
 const STORAGE_KEY = "campaign_draft";
 
@@ -246,9 +250,18 @@ function migrateCreative(c: Partial<AdCreativeDraft> & { id: string }): AdCreati
           },
         ];
 
+  const name = c.name ?? "";
+  const nameSource =
+    c.nameSource === "generated" || c.nameSource === "file" || c.nameSource === "operator"
+      ? c.nameSource
+      : isGeneratedMetaCreativeName(name)
+        ? "generated"
+        : "operator";
+
   return {
     id: c.id,
-    name: c.name ?? "",
+    name,
+    nameSource,
     sourceType: c.sourceType ?? "new",
     identity: c.identity ?? { pageId: "", instagramAccountId: "" },
     mediaType: c.mediaType ?? "image",
@@ -264,12 +277,14 @@ function migrateCreative(c: Partial<AdCreativeDraft> & { id: string }): AdCreati
                 (c as Record<string, unknown>).primaryText as string ?? "",
             },
           ],
-    headline: c.headline ?? "",
-    description: c.description ?? "",
+    headline: readBlankCopy(c.headline),
+    description: readBlankCopy(c.description),
     destinationUrl: c.destinationUrl ?? "",
     cta: c.cta ?? "book_now",
+    rotateVariations: c.rotateVariations === true,
     existingPost: c.existingPost,
     enhancements: c.enhancements ?? { ...DEFAULT_ENHANCEMENTS },
+    ...(c.importedMeta ? { importedMeta: c.importedMeta } : {}),
   };
 }
 
@@ -279,7 +294,10 @@ function migrateCreative(c: Partial<AdCreativeDraft> & { id: string }): AdCreati
  * Migrate a full draft to ensure all top-level and nested fields exist.
  * Exported so the Supabase persistence layer can reuse it when loading remote drafts.
  */
-export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
+export function migrateDraft(
+  raw: Record<string, unknown>,
+  eventDate?: string | null,
+): CampaignDraft {
   const draft = raw as unknown as CampaignDraft;
 
   // ── Reconcile the two ad account ID fields ─────────────────────────────────
@@ -414,6 +432,25 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     endDate: "",
     timezone: "Europe/London",
   };
+  if (
+    eventDate !== undefined &&
+    draft.budgetSchedule.endDateSource !== "event" &&
+    draft.budgetSchedule.endDateSource !== "operator"
+  ) {
+    const source = migrateEndDateSource(draft.budgetSchedule.endDate ?? "", eventDate);
+    if (source) draft.budgetSchedule.endDateSource = source;
+  }
+  if (
+    draft.budgetSchedule.startDateSource !== "event" &&
+    draft.budgetSchedule.startDateSource !== "operator"
+  ) {
+    const source = migrateStartDateSource(
+      draft.budgetSchedule.startDate ?? "",
+      draft.createdAt,
+      draft.budgetSchedule.timezone,
+    );
+    if (source) draft.budgetSchedule.startDateSource = source;
+  }
 
   // Migrate old locationPresets → new locationGroups
   if (draft.budgetSchedule.locationPresets?.length && !draft.budgetSchedule.locationGroups?.length) {
@@ -519,6 +556,8 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
   if (raw.importMeta !== undefined) {
     draft.importMeta = raw.importMeta as CampaignDraft["importMeta"];
   }
+
+  repairImportedLocations(draft);
 
   return draft;
 }

@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>On-sale refresh — 12 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%}
+.vp.w1280{width:1000px;padding:20px}
+.vp.w393{width:393px;padding:12px}
+/* the event page panel */
+.rf{background:var(--edit);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.rf-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.rf-hd h4{margin:0;font:600 15px var(--sans)}
+.rf-hd .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-strong);color:var(--ink-2);white-space:nowrap}
+.tag.shadow{border-style:dashed}
+.tag.live{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.sec{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sec h5{margin:0 0 6px;font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.setup{background:#f3e3c8;border-radius:8px;padding:8px 10px;font-size:12.5px;margin:0 0 6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.why{font-size:12.5px;color:var(--ink);margin:0 0 4px}
+.why small{display:block;color:var(--ink-2);font-size:12px}
+.camp{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+.camp b{font-weight:600}.camp .m{font:11.5px/1.4 var(--mono);color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ln:last-child{border-bottom:0}
+.ln .kind{font:700 9px/1.6 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ln .what{font-weight:600;overflow-wrap:anywhere}
+.ln .ev{font:11.5px/1.45 var(--mono);color:var(--ink-2);margin-top:2px}
+.ln .wr{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ln .gate{font-size:11.5px;color:var(--brick);margin-top:2px}
+.acts{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.on{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.dis{opacity:.4}
+.watch{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+.watch b{font-weight:600}
+.rf-ft{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;background:var(--card)}
+.rf-ft .note{font-size:12px;color:var(--ink-2)}
+.st{font:700 10px/1.4 var(--mono);letter-spacing:.06em;max-width:300px;text-align:right}
+.st.ok{color:var(--olive)}.st.no{color:var(--brick)}.st.off{color:var(--ink-3)}
+.w393 .ln{grid-template-columns:minmax(0,1fr)}
+.w393 .ln .kind{order:-1}
+.w393 .acts{justify-content:flex-start}
+.w393 .camp{display:block}
+.w393 .rf-hd{flex-direction:column}
+/* cadence strip */
+.cad{background:var(--card);border-radius:10px;padding:14px 16px;overflow-x:auto}
+.cad-row{display:grid;grid-template-columns:repeat(9,minmax(96px,1fr));gap:6px;min-width:880px}
+.cad-row div{background:var(--edit);border-radius:6px;padding:8px;font-size:11.5px;line-height:1.35}
+.cad-row div b{display:block;font:700 10px/1.4 var(--mono)}
+.cad-row .c{border:2px solid var(--ink)}
+.cad-row .p{border:2px dashed var(--ochre)}
+.cad-row .x{opacity:.6}
+@media (max-width:700px){.wrap{padding:24px 14px 80px}table.t td:first-child{width:110px}.ln{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.st{text-align:left}.camp{display:block}.camp b,.camp .m{display:block}.rf-hd{flex-direction:column}.vp.w1280{padding:12px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">Off/Pixel · design record · on-sale optimisation · 12 November 2026</div>
+<h1>The on-sale refresh: one proposal per campaign, accepted line by line</h1>
+<p class="lead">Matas, 12 Nov: once a show is on sale, the remaining budget should run to the end of the campaign, optimising for purchases. It gets there through an Initiate Checkout (IC) or Landing Page View (LPV) campaign, whichever performs best. IC is preferred, but only where the pixel's IC fires; elsewhere it's LPV. A Purchase campaign runs alongside, and budget moves between campaigns by best-performing audience, as he did by hand for Ironworks. Creatives and audiences refresh from what the data says. A condensed version comes to presale later: on-sale first, then condense it.</p>
+<p class="lead">This record rules the loop that turns the existing learning into a proposal Matas accepts or rejects line by line. These already exist and are not re-ruled here:</p>
+<ul class="lead">
+<li>ad_daily_insights and the nightly learning-refresh (creative_scores, tag_performance, copy performance, interest_clusters.live_evidence, client_funnel_benchmarks);</li>
+<li>the 4-hourly optimisation tick (evaluate → apply) and its gates, floors and pause limits;</li>
+<li>the pacing alerts;</li>
+<li>the fortnightly payday-aligned cycle and its Drive folders;</li>
+<li>the ticket-warning ladder;</li>
+<li>From Drive (#1200);</li>
+<li>the gated Meta write paths.</li>
+</ul>
+<p class="lead">Grounded in <code>lib/optimisation/apply.ts</code>, <code>lib/learning/read.ts</code>, <code>lib/creative-lab/payday.ts</code> and <code>lib/drive/tree.ts</code>, and in a read of P26-BDAY's rows taken 12 Nov (data to Wed 11 Nov).</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>R1 Cadence</td><td>
+<p><b>The proposal is accepted.</b> Two triggers, both Mondays and both ready by 08:00 London, after the nightly learning-refresh and inside Matas's Monday planning:</p>
+<ul>
+<li><b>Cycle refresh</b>, on each on-sale cycle's Monday: the payday-week Monday and the Monday two weeks after it. It covers creatives and claims, plus everything the mid-cycle check covers.</li>
+<li><b>Mid-cycle check</b>, on the Monday between: budget and audiences only, with no creative adds.</li>
+</ul>
+<p><b>The data window</b> is the last full Monday–Sunday week, which is how Matas judges rounds. Significance is also read cumulatively since on sale, from creative_scores.</p>
+<p><b>Data sets the floor.</b> If a campaign logged fewer than 20 results in the week, its proposal holds no pauses, drops or moves. It carries only supply (adds and claims) and says <i>Not enough data this week — next check Mon {d Mon}.</i></p>
+<p><b>No other triggers:</b> nothing daily and no proposal per budget alert. Pacing alerts and the 4-hourly budget tick carry on as they are.</p>
+<p><b>Show week:</b> from 4 Show week's Monday the refresh stops, and the show-week burst takes over.</p>
+<p><b>Shadow catch-up:</b> a shadow run may be started by hand for any day. It reads the data to the day before.</p></td></tr>
+<tr><td>R2 The proposal</td><td>
+<p>One proposal per campaign per refresh. Each line has a kind, a target, its evidence and what it would write. The kinds:</p>
+<ul>
+<li><b>Pause creative.</b>
+<ul>
+<li><b>Qualifies when</b> all of these hold: its convert-axis score is significant and in the campaign's bottom third; it has been live at least 7 days; it has spent at least 2× the campaign's cost per result.</li>
+<li><b>Never</b> the last delivering ad in an ad set, and at most 3 per campaign per refresh.</li>
+<li><b>Evidence:</b> ad copies (n), spend, results, cost per result against the campaign's, the score and whether it's significant.</li>
+<li><b>Watch list:</b> creatives past the cost bar but not yet significant are shown under <i>Watch</i>, with no action.</li>
+</ul></li>
+<li><b>Add creative.</b> Approved finals in this cycle's owner folders (<code>{owner} / Videos | Statics / UGC | CTA | No CTA</code>) that aren't already in the campaign, matched by <code>drive_file_id</code>.
+<ul>
+<li><b>The mix follows the cycle.</b> The payday cycle is CTA-led: 2 of every 3 adds from CTA folders, plus approved ticket warnings. The content cycle (weeks 3–4) is UGC- and No CTA-led: 2 of every 3 from those folders.</li>
+<li><b>Limits:</b> at most 6 adds per campaign per refresh, each going into every ad set that is delivering.</li>
+</ul></li>
+<li><b>Claim ready, no creative.</b> An approved ticket-warning claim with no render yet points to the Lab. It's a supply line, not a Meta write.</li>
+<li><b>Bring back an audience.</b> Qualifies for a stopped ad set of this event with at least 10 results at no more than 0.6× the campaign's cost per result. Also for a client interest cluster whose live evidence has a shrunk index of at least 1.2, confidence at least 0.5, and isn't used on this event.</li>
+<li><b>Missing standing default:</b> a retargeting ad set, or the registrations lookalike in its own ad set.</li>
+<li><b>Drop an audience.</b> Qualifies for a delivering ad set that has run at least 7 days, spent at least 3× the campaign's cost per result, and runs at at least 2× it. Never the last ad set, never retargeting.</li>
+<li><b>Move budget</b> (R3, R5).</li>
+</ul>
+<p>Lines are ordered by expected effect, and each one says plainly why. A rule with a poor track record (R6) sorts last.</p></td></tr>
+<tr><td>R3 Objective choice</td><td>
+<p><b>IC</b> is chosen when the event's own campaigns logged at least 10 IC in the last 14 days (ad_daily_insights actions). For an event with no history yet, it's chosen when the pixel's own event counts show at least 10 InitiateCheckout in 7 days; that's a new read-only Meta call. Otherwise the event runs <b>LPV</b>.</p>
+<p><b>IC is preferred whenever it fires.</b> LPV is chosen only where it doesn't. It isn't chosen on cost, because LPV is always cheaper per result and that says nothing about intent.</p>
+<p><b>Purchase.</b> A Purchase campaign is proposed only when the pixel logged at least 15 purchases in 14 days, the existing pause conversion minimum. When the event has a ticketing link, the line also shows the pixel's share of real sales.</p>
+<p><b>Moves between campaigns</b> need that purchase signal. With it, campaigns and audiences compare on cost per purchase (the Ironworks move). Without it, there are no cross-campaign moves, only within a campaign by its own cost per result.</p>
+<p><b>The why line</b> is always shown at the top of the proposal, for example <i>Initiate Checkout — 212 reached the pixel since 21 Oct. Purchase campaign not proposed — 1 purchase on the pixel in 3 weeks.</i></p></td></tr>
+<tr><td>R4 Approval and apply</td><td>
+<p><b>Where it lives.</b> On the event page, as a <i>Refresh</i> panel (F1, F2). The MML canvas shows only a count chip on the campaign node (<i>Refresh · 4 to review</i>) that opens the event page. A Slack post in ads_automation links to it when a proposal is ready.</p>
+<p><b>Accept and Apply.</b> Every line is unset until Matas chooses Accept or Reject; Reject asks for an optional reason. <i>Apply accepted (n)</i> writes only the accepted lines, each through its existing path:</p>
+<ul>
+<li><b>Add creative:</b> the launch path's ad creation into the existing ad sets, with the files copied by #1200's path.</li>
+<li><b>Bring back:</b> the ad set's status, via a new gated status write, or a new ad set through the launch path.</li>
+<li><b>Audience edits:</b> adset-targeting-write.</li>
+<li><b>Ad-set budget:</b> the optimisation budget write.</li>
+<li><b>Moves between lifetime campaigns:</b> a new gated <code>lifetime_budget</code> write.</li>
+<li><b>Pause creative:</b> a new gated ad-status write.</li>
+</ul>
+<p><b>Ads go in live,</b> into ad sets that are already delivering. The Accept click is the approval, and the line shows the creative and copy before it's clicked. Paused ads tend to be forgotten, and Meta's review still applies. New ad sets also go in live, but only when their budget comes from a named move or plan headroom (R5).</p>
+<p><b>Line states:</b> <i>To review · Accepted · Rejected · Applied · Failed — {reason} · Expired</i>. Unanswered lines expire at the next refresh.</p>
+<p><b>Shadow mode</b> is the default. Proposals are generated, stored and shown read-only, marked <i>Shadow</i>, and each line is scored next week (R6).</p>
+<p><b>Arming.</b> Live mode needs a global gate plus a per-event arm (<i>Shadow / Live</i>), as the budget tick does. Nothing applies without Matas's click. Applying without a click isn't in this record.</p></td></tr>
+<tr><td>R5 Guardrails</td><td>
+<ul>
+<li><b>Spend never goes above plan.</b> The plan is the event's marketing budget minus spend to date. With no budget set, a line that adds spend is shown but can't be accepted, and reads <i>Set this event's budget to accept this.</i></li>
+<li><b>Moves are capped.</b> At most 20 % of the remaining budget moves in one refresh.</li>
+<li><b>Live ads are never edited.</b> Their creative and copy stay as they are; changes arrive only as new ads.</li>
+<li><b>Existing limits apply.</b> The pause floor, the 15-conversion pause minimum, max writes per run and never pausing the last ad set all apply, and nothing auto-resumes.</li>
+<li><b>Claims.</b> They come only from ticket-warning rows Matas approved, live in their window. The refresh never writes a claim and never words scarcity itself.</li>
+<li><b>Where to write.</b> Only to campaigns of this event's drafts on this account.</li>
+</ul></td></tr>
+<tr><td>R6 Learning from its own moves</td><td>
+<p><b>What's recorded.</b> Every line (shadow, rejected or applied) is stored with its evidence snapshot.</p>
+<p><b>How it's judged.</b> A new nightly learning-refresh job scores each line on the next full week:</p>
+<ul>
+<li><b>Pause:</b> right if the campaign's cost per result held or improved, and the creative had kept running worse than 1.5× the campaign.</li>
+<li><b>Add:</b> right if the new ad's convert score is at or above the campaign median after 7 days.</li>
+<li><b>Bring back or drop:</b> right if the audience's cost per result came in on the predicted side of the campaign's.</li>
+<li><b>Move:</b> right if the receiving side held its cost per result within 20 %.</li>
+</ul>
+<p><b>Track record.</b> Each rule × client has a hit rate, used from 10 outcomes. Under 40 % sorts the rule's lines last and marks them <i>low track record</i>. Under 25 % over 20 outcomes stops proposing that rule for the client, and the panel tells Matas.</p>
+<p><b>Rejections</b> with the same reason 5 times in a row for a client do the same.</p></td></tr>
+<tr><td>R7 Scope</td><td>
+<p><b>Meta only</b> in this record.</p>
+<ul>
+<li><b>TikTok</b> comes next, after Meta's piece 3. It needs its rollup sync fixed first (failing on 31 events this week), plus ad-status and budget writes; its CompletePayment and InitiateCheckout checks are to be ruled. The launch path exists.</li>
+<li><b>Google</b> gets report-only lines later, from google-ads-daily-insights. There are no Google writes.</li>
+</ul></td></tr>
+<tr><td>R8 Presale, noted only</td><td>
+<p><b>Same loop, different parameters.</b> The build keeps one phase config, so nothing assumes weekly. Its fields:</p>
+<ul>
+<li><code>cadence</code>: every 2 days at 08:00 on presale;</li>
+<li><code>window</code>: a rolling 7–10 days, not Monday–Sunday;</li>
+<li><code>resultEvent</code>: CompleteRegistration on presale, not IC;</li>
+<li><code>minDays</code> and <code>minResults</code>: smaller on presale, leaning on the existing shrinkage and showing confidence on every line;</li>
+<li><code>maxPauses</code>;</li>
+<li><code>supplyFolders</code>: 1 Signup / Teaser and Announcement on presale;</li>
+<li><code>claimsLadder</code>: the presale rows on presale.</li>
+</ul>
+<p><b>Presale has no Purchase campaign.</b></p></td></tr>
+</table>
+
+<h2>The cadence for P26-BDAY</h2>
+<p class="lead">Paydays are the last Friday of the month: Fri 30 Oct and Fri 27 Nov. Cycles start on Mon 26 Oct, 9 Nov and 23 Nov. The event is Sun 27 Dec, so 4 Show week starts Mon 21 Dec and the refresh stops there.</p>
+<div class="cad"><div class="cad-row">
+<div class="c"><b>Mon 9 Nov</b>Cycle refresh · content cycle (UGC / No CTA-led)</div>
+<div><b>Mon 16 Nov</b>Mid-cycle check · budget, audiences</div>
+<div class="c"><b>Mon 23 Nov</b>Cycle refresh · payday cycle (CTA + approved warnings)</div>
+<div class="p"><b>Fri 27 Nov</b>Payday</div>
+<div><b>Mon 30 Nov</b>Mid-cycle check</div>
+<div class="c"><b>Mon 7 Dec</b>Cycle refresh · content cycle</div>
+<div><b>Mon 14 Dec</b>Mid-cycle check</div>
+<div class="x"><b>Mon 21 Dec</b>4 Show week · refresh stops, show-week burst</div>
+<div class="x"><b>Sun 27 Dec</b>Show</div>
+</div></div>
+
+<h2>F1 · The proposal on the event page (1280), worked on P26-BDAY</h2>
+<p class="lead">This is a shadow run on Thu 12 Nov over the data to Wed 11 Nov, read as the w/c 9 Nov cycle refresh would read it. Every figure is a query of the live tables on 12 Nov. The On Sale campaign since 29 Oct: £734.22, 96 IC, £7.65 each. Its ad sets are not armed for the 4-hourly budget tick (no P26-BDAY draft is live), and the refresh doesn't depend on that arm.</p>
+<div class="frame"><figure><figcaption>1280 · event page · Refresh panel · shadow</figcaption>
+<div class="vp w1280"><div class="rf">
+<div class="rf-hd"><div><h4>On-sale refresh · w/c 9 Nov</h4><div class="sub">Data to Wed 11 Nov · next: Mon 16 Nov (budget and audiences) · Mon 23 Nov (payday cycle)</div></div><span class="tag shadow">Shadow</span></div>
+<div class="sec"><h5>Before it can move money</h5>
+<div class="setup"><span>This event has no marketing budget, so nothing that adds spend can be accepted.</span><span class="btn">Set budget</span></div>
+<div class="setup"><span>No ticketing link: Skiddle's sales can't be checked against the pixel.</span><span class="btn">Link listing</span></div></div>
+<div class="sec"><h5>Objective</h5>
+<p class="why">Initiate Checkout — 212 reached the pixel since 21 Oct.<small>Purchase campaign not proposed — 1 purchase on the pixel in 3 weeks. Budget moves stay inside each campaign.</small></p></div>
+<div class="camp"><b>[P26-BDAY] Puzzle - 27 Dec - On Sale</b><span class="m">29 Oct – 11 Nov · £734.22 · 96 IC · £7.65 each</span></div>
+<div class="sec"><h5>Creatives</h5>
+<div class="ln"><span class="kind">Add</span><div><div class="what">P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16</div><div class="ev">Enzo Siragusa / Videos / UGC · approved final · content cycle</div><div class="wr">New ad in each delivering ad set · launch path · goes in live</div></div><div class="acts"><span class="btn dis">Accept</span><span class="btn dis">Reject</span></div></div>
+<div class="ln"><span class="kind">Add</span><div><div class="what">P26-BDAY_enzo-siragusa-4_quote-on-sale_r1_9x16</div><div class="ev">Enzo Siragusa / Videos / UGC · approved final · content cycle</div><div class="wr">New ad in each delivering ad set · launch path · goes in live</div></div><div class="acts"><span class="btn dis">Accept</span><span class="btn dis">Reject</span></div></div>
+<div class="ln"><span class="kind">Claim</span><div><div class="what">"EARLY BIRD, 1ST &amp; 2ND RELEASE SOLD OUT / 3RD RELEASE SELLING FAST"</div><div class="ev">Approved · live since 11 Nov · no render yet</div><div class="wr">Make it in the Lab: it joins the 23 Nov payday cycle's adds</div></div><div class="acts"><span class="btn dis">Open Lab</span></div></div>
+<div class="watch"><b>No pauses:</b> no creative has enough evidence. <b>Watch:</b> Puzzle - 4th Birthday - Static · 20 ads · £21.66 · 0 IC · 30 LPV · convert 23, not yet significant.</div></div>
+<div class="sec"><h5>Audiences</h5>
+<div class="ln"><span class="kind">Bring back</span><div><div class="what">Electronic dance music, Electronic music</div><div class="ev">Stopped 6 Nov · £36.85 · 12 IC · £3.07 each, 0.4× the campaign</div><div class="wr">Ad set status → on · its own budget</div><div class="gate">Adds spend: set this event's budget to accept this.</div></div><div class="acts"><span class="btn dis">Accept</span><span class="btn dis">Reject</span></div></div>
+<div class="watch"><b>No drops:</b> none qualifies. <b>Watch:</b> Lineup — Primary · £28.36 · 2 IC · £14.18 each, 1.85× the campaign (drops at 2×).</div></div>
+<div class="rf-ft"><span class="note">Shadow: nothing here can be applied yet. Each line is checked against next week's data.</span><span class="btn solid dis">Apply accepted (0)</span></div>
+</div></div></figure></div>
+
+<h2>F2 · The same at 393</h2>
+<p class="lead">The panel stacks. Each line's kind sits above its target, and Accept and Reject go under the evidence.</p>
+<div class="frame"><figure><figcaption>393 · event page · Refresh panel · shadow</figcaption>
+<div class="vp w393"><div class="rf">
+<div class="rf-hd"><div><h4>On-sale refresh · w/c 9 Nov</h4><div class="sub">Data to Wed 11 Nov · next: Mon 16 Nov</div></div><span class="tag shadow">Shadow</span></div>
+<div class="sec"><h5>Before it can move money</h5>
+<div class="setup"><span>No marketing budget: nothing that adds spend can be accepted.</span><span class="btn">Set budget</span></div></div>
+<div class="sec"><h5>Objective</h5><p class="why">Initiate Checkout — 212 reached the pixel since 21 Oct.<small>No Purchase campaign: 1 purchase on the pixel in 3 weeks.</small></p></div>
+<div class="camp"><b>[P26-BDAY] Puzzle - 27 Dec - On Sale</b><div class="m">£734.22 · 96 IC · £7.65 each</div></div>
+<div class="sec"><h5>Creatives</h5>
+<div class="ln"><span class="kind">Add</span><div><div class="what">P26-BDAY_enzo-siragusa-1_quote-on-sale_r1_9x16</div><div class="ev">Enzo Siragusa / Videos / UGC · content cycle</div><div class="wr">New ad in each delivering ad set · live</div></div><div class="acts"><span class="btn dis">Accept</span><span class="btn dis">Reject</span></div></div>
+<div class="watch"><b>No pauses</b> · Watch: Puzzle - 4th Birthday - Static · £21.66 · 0 IC</div></div>
+<div class="sec"><h5>Audiences</h5>
+<div class="ln"><span class="kind">Bring back</span><div><div class="what">Electronic dance music, Electronic music</div><div class="ev">£36.85 · 12 IC · £3.07 each, 0.4×</div><div class="gate">Adds spend: set this event's budget to accept this.</div></div><div class="acts"><span class="btn dis">Accept</span><span class="btn dis">Reject</span></div></div></div>
+<div class="rf-ft"><span class="note">Shadow: nothing applies yet.</span><span class="btn solid dis">Apply accepted (0)</span></div>
+</div></div></figure></div>
+
+<h2>F3 · Live, after Apply (1280)</h2>
+<p class="lead">The same panel once the event is armed Live and a budget is set. Applied lines show their result in the line. A failure keeps the rest, and Meta's own reason shows in plain words. The figures are illustrative.</p>
+<div class="frame"><figure><figcaption>1280 · live · after Apply accepted (3)</figcaption>
+<div class="vp w1280"><div class="rf">
+<div class="rf-hd"><div><h4>On-sale refresh · w/c 23 Nov</h4><div class="sub">Applied Mon 23 Nov, 08:41 · by Matas</div></div><span class="tag live">Live</span></div>
+<div class="sec">
+<div class="ln"><span class="kind">Add</span><div><div class="what">P26-BDAY_luke-dean_artist-card-3_on-sale_9x16_v1</div><div class="ev">Luke Dean / Statics / CTA · payday cycle</div></div><span class="st ok">Applied · 6 ads live</span></div>
+<div class="ln"><span class="kind">Add</span><div><div class="what">P26-BDAY_enzo-siragusa-5_caption-artist-on-sale_r1_9x16</div><div class="ev">Enzo Siragusa / Videos / UGC</div></div><span class="st no">Failed — Meta didn't take this file — the video is still processing. Retry</span></div>
+<div class="ln"><span class="kind">Bring back</span><div><div class="what">Electronic dance music, Electronic music</div><div class="ev">£3.07 per IC when stopped</div></div><span class="st ok">Applied · on</span></div>
+<div class="ln"><span class="kind">Drop</span><div><div class="what">Lineup — Primary</div><div class="ev">Rejected — Too early</div></div><span class="st off">Rejected</span></div>
+</div>
+<div class="rf-ft"><span class="note">Outcomes are checked Mon 30 Nov on the week to Sun 29 Nov.</span><span class="btn">Retry failed (1)</span></div>
+</div></div></figure></div>
+
+<h2>Build, in shippable pieces</h2>
+<table class="t">
+<tr><th>Piece</th><th>Ships</th></tr>
+<tr><td>P1 Shadow proposals</td><td>The generator for every on-sale event with Meta campaigns: R2's creative, audience and objective lines from ad_daily_insights, creative_scores, interest live evidence and the cycle's Drive folders. Tables for proposals and lines; the R1 schedule; the Slack post; the event page's read-only <i>Shadow</i> panel (F1, F2); the canvas count chip. No writes at all.</td></tr>
+<tr><td>P2 Accept and apply: creatives</td><td>Accept and Reject with reasons, and <i>Apply accepted</i>, for adds (launch path + #1200 copy) and pauses (the new gated ad-status write). The per-event arm, line states, Retry failed (F3), and outcome recording from day one.</td></tr>
+<tr><td>P3 Audiences and budget</td><td>Bring back and drop (status write, adset-targeting-write, new ad sets through launch), within-campaign budget moves (optimisation budget write), the plan guard and the 20 % cap.</td></tr>
+<tr><td>P4 Objective and Purchase</td><td>The pixel's own event counts (read only) for new events. The Purchase signal check and its share of ticketing sales; the Purchase campaign line; cross-campaign moves on cost per purchase with the new lifetime-budget write.</td></tr>
+<tr><td>P5 Learning from its moves</td><td>R6's nightly scoring, hit rates per rule × client, sorting and stopping, and rejection streaks.</td></tr>
+<tr><td>P6 Presale</td><td>R8's phase config switched on for presale.</td></tr>
+</table>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>Item</th><th>Spec</th></tr>
+<tr><td>HR1 Schedule</td><td>A cron at 07:00 London on Mondays. Cycle Mondays come from <code>cycleMondayFor</code> / payday.ts; mid-cycle is the Monday after. Each run is idempotent per campaign and week. A hand-started shadow run is stored as such.</td></tr>
+<tr><td>HR2 Lines</td><td>Each line stores its kind, campaign, target (ad / ad set / file / claim ids), evidence snapshot (n, spend, results, cost per result, campaign cost per result, score, significance, window), the write it would make, rule id, state, reason, decided_by / at and applied result.</td></tr>
+<tr><td>HR3 Objective</td><td>IC is chosen at ≥ 10 IC in 14 days on the event's campaigns, else from the pixel's event counts at ≥ 10 in 7 days, else LPV. Purchase needs ≥ 15 in 14 days. The why line uses the counts verbatim.</td></tr>
+<tr><td>HR4 Writes</td><td>Existing: launch, adset-targeting-write, optimisation budget write. New, each behind its own environment gate and default off: ad status (pause / resume), ad-set status, campaign lifetime budget. Every write checks the event's draft and account, and the plan guard, again at apply time.</td></tr>
+<tr><td>HR5 Panel</td><td>Event page panel F1–F3 in the event page's existing tokens. Accept and Reject are a toggle pair. The Reject reasons are <i>Too early · Wrong creative · Claim not right · Other</i>. <i>Apply accepted (n)</i> is disabled at 0 and in Shadow. Lines that add spend are disabled with the plan sentence when there's no budget.</td></tr>
+<tr><td>HR6 Outcomes</td><td>A learning-refresh job (nightly) scores each line after the next full week, by R6's tests. It writes per-rule × client hit rates and feeds the sort order and stopping.</td></tr>
+<tr><td>HR7 Frames</td><td>F1 (1280), F2 (393) and F3 (1280), on a fixture with P26-BDAY's 12 Nov figures as drawn.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li><b>Thresholds:</b> 20 results a week; pause at significant + bottom third + 7 days + 2× cost per result, max 3; adds max 6 and the 2-in-3 mix; bring back at ≥ 10 results and ≤ 0.6×, or index ≥ 1.2 and confidence ≥ 0.5; drop at 7 days, 3× spend and 2× cost; IC at 10 in 14 days or 10 in 7 days on the pixel; 20 % move cap; R6's 1.5×, 20 %, 40 % / 25 %, 10 / 20 outcomes and 5 rejections.</li>
+<li><b>Schedule:</b> the 08:00 Monday timing and the mid-cycle Monday.</li>
+<li><b>Ads go in live.</b></li>
+<li><b>Surfaces:</b> the event page as home, the canvas chip, the Slack post.</li>
+<li><b>Words:</b> every sentence in F1–F3.</li>
+<li><b>New writes and gates:</b> the three new write paths and their gates.</li>
+<li><b>F3's figures:</b> all of them; F1 and F2 use measured figures only.</li>
+</ul>
+
+<div class="open"><b>Open for Matas</b>
+<ul>
+<li><b>Ads live or paused?</b> This record rules live, with the Accept click as the approval. Say if he wants them paused first.</li>
+<li><b>Thresholds:</b> are the numbers above right for his accounts? The pause bar is deliberately strict.</li>
+<li><b>Budget:</b> P26-BDAY has no marketing budget set, so no spend-adding line can be accepted until it has one.</li>
+<li><b>Ticketing link:</b> the Skiddle listing isn't linked, so the pixel's 1 purchase can't be checked against real sales.</li>
+<li><b>Ironworks:</b> is it the first event for P4? Its Purchase campaign logged 23 purchases in 3 days (8–10 Oct).</li>
+</ul></div>
+
+</div>
+</body>
+</html>

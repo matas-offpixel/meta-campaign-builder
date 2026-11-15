@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Off Pixel — Creative Lab, redrawn — 6 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28;
+  --meta:#5B7FA6; --ig:#B0607A; --tt:#6E5A9E; --sp:#3D7A52;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:22px;font-weight:600;margin:0 0 6px}
+h2{font-size:16px;font-weight:600;margin:52px 0 8px}
+p{margin:0 0 10px;max-width:80ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.note{background:var(--card);border-radius:10px;padding:16px 20px;margin:16px 0 24px}
+.note ol{margin:6px 0 0 18px;padding:0}.note li{margin:0 0 6px;max-width:92ch;font-size:13px}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.w1280{width:1040px;padding:20px}
+.w393{width:393px;padding:12px}
+.strike{text-decoration:line-through;color:var(--ink-3)}
+/* surfaces */
+.panel{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.sec-h h3{margin:0;font-size:13px;font-weight:600}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn[disabled]{opacity:.45}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:99px;font:600 10px/1 var(--mono);letter-spacing:.04em;white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.ok{color:var(--olive);border-color:color-mix(in srgb,var(--olive) 55%,transparent)}
+.chip.warn{color:var(--ochre);border-color:color-mix(in srgb,var(--ochre) 55%,transparent)}
+.chip.bad{color:var(--brick);border-color:color-mix(in srgb,var(--brick) 55%,transparent)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.chip.lose{background:var(--brick);color:#fff;border-color:var(--brick)}
+.muted{color:var(--ink-3)}
+.mono{font-family:var(--mono)}
+/* F1 strip */
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:var(--card);border-radius:10px;overflow:hidden;margin:0 0 10px}
+.step{padding:12px 14px;border-right:1px solid var(--border);position:relative}
+.step:last-child{border-right:0}
+.step .n{font:600 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}
+.step .s{font-size:12px;color:var(--ink-2);margin-top:2px}
+.step.now{background:var(--edit);box-shadow:inset 0 -3px 0 var(--ink)}
+.step .k{margin-bottom:6px}
+.next{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;margin:0 0 10px}
+.working{display:flex;gap:10px;align-items:baseline;font-size:12.5px;color:var(--ink-2);padding:8px 12px;border:1px solid var(--border);border-radius:8px}
+.w393 .strip{grid-template-columns:repeat(4,1fr)}
+.w393 .step{padding:9px 8px}
+.w393 .step .n{font-size:17px}
+.w393 .step .s{font-size:10.5px;line-height:1.3}
+.w393 .next{flex-direction:column;align-items:stretch}
+/* F2 lineup */
+.arow{display:grid;grid-template-columns:16px 40px minmax(0,1.3fr) minmax(0,1fr) 150px auto;gap:12px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border)}
+.arow:last-of-type{border-bottom:0}
+.drag{color:var(--ink-3);font-size:14px;letter-spacing:-2px;cursor:grab}
+.ph{width:40px;height:40px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font:700 13px var(--sans);color:#fff}
+.who b{display:flex;align-items:center;gap:6px;font-size:14px}
+.star{color:var(--ochre);font-size:14px}
+.star.off{color:var(--ink-3);opacity:.5}
+.handles{display:flex;gap:8px;margin-top:3px;font:11px var(--mono);color:var(--ink-3);flex-wrap:wrap}
+.handles i{font-style:normal;display:inline-flex;align-items:center;gap:3px}
+.dot{width:8px;height:8px;border-radius:2px;display:inline-block}
+.clipsct{font-size:12px;color:var(--ink-2)}
+.clipsct b{font-variant-numeric:tabular-nums}
+.typeahead{margin-top:10px;position:relative}
+.ta-in{display:flex;align-items:center;gap:8px;height:38px;background:var(--edit);border:1px solid var(--border-strong);border-radius:8px;padding:0 10px;font-size:14px}
+.ta-in .caret{width:1px;height:18px;background:var(--ink)}
+.ta-pop{position:relative;margin-top:6px;background:var(--edit);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 20px rgba(30,24,16,.12);padding:6px;max-width:460px}
+.ta-row{display:grid;grid-template-columns:32px 1fr auto;gap:10px;align-items:center;padding:6px;border-radius:6px}
+.ta-row.hi{background:var(--muted)}
+.ta-row .ph{width:32px;height:32px;font-size:11px}
+.ta-row small{display:block;font:11px var(--mono);color:var(--ink-3)}
+.ta-g{font:700 9px/1 var(--mono);letter-spacing:.16em;color:var(--ink-3);padding:8px 6px 4px}
+.spcard{background:var(--edit);border:1px solid var(--border-strong);border-radius:10px;padding:12px 14px;width:300px;box-shadow:0 8px 20px rgba(30,24,16,.12)}
+.spcard ol{margin:6px 0 10px 18px;padding:0;font-size:12.5px}
+.bar{height:6px;border-radius:3px;background:var(--muted);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--sp)}
+.w393 .arow{grid-template-columns:14px 36px minmax(0,1fr) auto;row-gap:6px}
+.w393 .arow .ph{width:36px;height:36px}
+.w393 .arow .rights,.w393 .arow .clipsct{grid-column:3 / -1}
+.w393 .arow .act{grid-column:3 / -1;justify-self:start}
+/* F3 clips */
+.grp-h{display:flex;align-items:baseline;gap:10px;margin:14px 0 8px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.tile{background:var(--edit);border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.thumb{aspect-ratio:9/16;max-height:210px;width:100%;position:relative;display:flex;align-items:flex-end}
+.thumb .dur{position:absolute;right:6px;bottom:6px;font:600 10px var(--mono);color:#fff;background:rgba(0,0,0,.45);padding:1px 5px;border-radius:4px}
+.thumb .src{position:absolute;left:6px;top:6px;width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;font:700 9px var(--mono);color:#fff}
+.thumb .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.75);font-size:22px}
+.tmeta{padding:7px 8px 8px;font-size:11.5px}
+.tmeta .t1{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tmeta .t2{display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap}
+.cpr{font:600 13px var(--sans);font-variant-numeric:tabular-nums}
+.tile.cant{opacity:.65;border-style:dashed;border-color:var(--brick)}
+.tile.skip{opacity:.55}
+.reason{font-size:11px;color:var(--brick)}
+.gs{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}.gs .grid{grid-template-columns:repeat(var(--n),150px)}
+.w393 .grid{grid-template-columns:repeat(2,1fr);gap:8px}
+.w393 .thumb{max-height:220px}
+.hscroll{display:flex;gap:8px;overflow:hidden}
+.hscroll .tile{flex:0 0 46%}
+/* F4 captions as ads */
+.gen{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin:0 0 14px}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden}
+.seg span{padding:5px 10px;font-size:12px;border-right:1px solid var(--border)}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.ads{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.ad{background:#fff;border-radius:10px;overflow:hidden;border:1px solid var(--border);color:#1c1e21;font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.ad-h{display:flex;gap:8px;align-items:center;padding:9px 10px}
+.ad-h .av{width:28px;height:28px;border-radius:50%;background:#2a2a2a;color:#fff;font:700 10px var(--sans);display:flex;align-items:center;justify-content:center}
+.ad-h b{font-size:12.5px;display:block;line-height:1.1}
+.ad-h small{font-size:11px;color:#65676b}
+.ad-copy{padding:0 10px 8px;font-size:12.5px;line-height:1.38;white-space:pre-line}
+.ad-media{aspect-ratio:4/5;position:relative}
+.ad-cta{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#f0f2f5;font-size:11.5px}
+.ad-cta b{font-size:12px}
+.ad-cta span.b{background:#e4e6eb;border-radius:6px;padding:5px 10px;font-weight:600;font-size:12px}
+.adfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 2px 0;flex-wrap:wrap}
+.acts{display:flex;gap:6px}
+.icon{display:inline-flex;width:30px;height:30px;border-radius:6px;border:1px solid var(--border-strong);align-items:center;justify-content:center;font-size:14px}
+.icon.yes{color:var(--olive);border-color:color-mix(in srgb,var(--olive) 60%,transparent)}
+.fail{font-size:12px;color:var(--brick);margin-top:6px}
+.w393 .ads{grid-template-columns:1fr}
+/* F5 round */
+.mx{display:grid;gap:8px}
+.mx .hd{font:700 9px/1.3 var(--mono);letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase;align-self:end}
+.cell{background:var(--edit);border:1px solid var(--border);border-radius:6px;padding:6px;font-size:11px;display:flex;gap:6px;align-items:center;min-height:54px}
+.cell .mini{width:26px;height:44px;border-radius:3px;flex:none}
+.cell.off{border-style:dashed;background:transparent;color:var(--ink-3)}
+.roundbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
+.big{font:600 20px var(--sans);font-variant-numeric:tabular-nums}
+table.hb{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 24px;background:var(--card);border-radius:8px;overflow:hidden}
+table.hb th,table.hb td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border)}
+table.hb th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.hb td:first-child{width:180px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF PIXEL · CREATIVE LAB · DESIGN FRAMES · 6 NOVEMBER 2026</div>
+<h1>Creative Lab, redrawn — thumbnails and previews first, fields behind Edit</h1>
+<p class="lead">This redraws the Creative Lab section on an event's Overview tab, using Puzzle 4th Birthday Part 1 (27 Dec, Circuit) as the example. Drawn on Off Pixel's own ground — sand <code>#F0C9A8</code>, card <code>#e8d4c0</code>, ink <code>#1e1810</code>, system type, 1280 max width — with the CIRQLIN rules: numbers are the hierarchy, empties are honest, dashed is a modifier, our words get translated and their data never does. The olive / ochre / brick hexes here are close approximations; the build uses the app's existing semantic tokens. <b>The artists, handles and copy are the event's. Every number, Spotify detail, like count and cost per result is a placeholder.</b> Thumbnails are colour blocks standing in for the first frame of each clip.</p>
+
+<div class="note">
+<div class="k">THE CHANGES</div>
+<ol>
+<li><b>One strip says where you are.</b> Four steps — Lineup, Clips, Captions, Round — each with a count and a state. The step that needs you is highlighted, and one sentence below names the next action. A <i>what's working</i> line sits under it once there's round data.</li>
+<li><b>Artists are entered once, by @-tagging.</b> Type <code>@Enz</code> and pick from the Artists library or a Spotify match. The row carries a photo, Instagram/TikTok handles, Spotify ID and the Page. ★ = headliner, drag = draw order. The lineup is these rows; no separate lineup, headliner or name field remains.</li>
+<li><b>Spotify context on hover or expand:</b> top 3 tracks, popularity, genres.</li>
+<li><b>Rights are one tick:</b> <code>✓ Cleared · Matas, 6 Nov</code>, recorded automatically, with an optional note. No rights-reference field.</li>
+<li><b>Clips are a grid in three groups</b> — Keeping (with cost per result and verdict), New, Can't run — plus <code>Find clips on Instagram</code>, which ranks the artist's recent reels, shows likes and comments, and says why any were skipped.</li>
+<li><b>Captions show as the ad.</b> Labelled generator controls, the caption rendered in a feed post with its clip, ✓ / ✕ / edit, and the verdict and cost on the ones that ran. A failed check says what to fix.</li>
+<li><b>The round shows what ships:</b> a clips × captions grid, the count of ads, and why the button is off when it is.</li>
+<li><b>Ticketing and Tickets sold move out of Creative Lab</b> — connecting ticketing goes to the client's Ticketing tab, and tickets to date goes to Reporting.</li>
+</ol>
+</div>
+
+<!-- F1 -->
+<h2>F1 · The next-step strip and what's working</h2>
+<p class="lead">It replaces <span class="strike">Next payday Friday, 27 November 2026. 51 days to the event.</span> — the countdown moves into the event header, where the date already is. Each step is a button that scrolls to its section. Counts are numbers first; the state word sits under them.</p>
+<div class="frame">
+<figure><figcaption>1280</figcaption>
+<div class="vp w1280">
+  <div class="strip">
+    <div class="step"><div class="k">Lineup</div><div class="n">3</div><div class="s">2 cleared · 1 waiting</div></div>
+    <div class="step"><div class="k">Clips</div><div class="n">5</div><div class="s">4 usable · 1 can't run</div></div>
+    <div class="step now"><div class="k">Captions</div><div class="n">3</div><div class="s">waiting for you</div></div>
+    <div class="step"><div class="k">Round</div><div class="n">—</div><div class="s">needs 1 approved caption</div></div>
+  </div>
+  <div class="next"><span><b>Next:</b> approve a caption, then propose round 1.</span><button class="btn solid">Review captions ↓</button></div>
+  <div class="working"><span class="k">What's working</span><span>Lineup captions beat POV by 31% on Puzzle · Enzo clip #2 is the current winner</span></div>
+</div></figure>
+<figure><figcaption>393</figcaption>
+<div class="vp w393">
+  <div class="strip">
+    <div class="step"><div class="k">Lineup</div><div class="n">3</div><div class="s">1 waiting</div></div>
+    <div class="step"><div class="k">Clips</div><div class="n">5</div><div class="s">4 usable</div></div>
+    <div class="step now"><div class="k">Captions</div><div class="n">3</div><div class="s">for you</div></div>
+    <div class="step"><div class="k">Round</div><div class="n">—</div><div class="s">not yet</div></div>
+  </div>
+  <div class="next"><span><b>Next:</b> approve a caption, then propose round 1.</span><button class="btn solid">Review captions ↓</button></div>
+  <div class="working"><span>Lineup captions beat POV by 31% · Enzo clip #2 is winning</span></div>
+</div></figure>
+</div>
+<p class="lead">Before the first round has data, <i>what's working</i> isn't drawn at all — not a <code>0%</code> or an empty sentence. It reads the client's own past rounds first (<i>on Puzzle</i>), then the event's own once round 1 has a verdict.</p>
+
+<!-- F2 -->
+<h2>F2 · Lineup — entered once, by @-tag</h2>
+<p class="lead">The rows are the lineup. Drag ⋮⋮ to set draw order; ★ marks a headliner. The rights tick is the only rights control. Each row has one action; everything else is behind <code>⋯ Edit</code>. Adding an artist is the @ field at the foot.</p>
+<div class="frame">
+<figure><figcaption>1280 · four artists, the @ field open on "@Lu"</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="sec-h"><h3>Lineup</h3><span class="k">Drag to reorder · ★ headliner</span></div>
+  <div class="arow">
+    <span class="drag">⋮⋮</span><span class="ph" style="background:#6b4f3a">ES</span>
+    <div class="who"><b>Enzo Siragusa <span class="star">★</span></b><div class="handles"><i><span class="dot" style="background:var(--ig)"></span>@enzosiragusa</i><i><span class="dot" style="background:var(--sp)"></span>Spotify</i><i><span class="dot" style="background:var(--meta)"></span>Page</i></div></div>
+    <div class="rights"><span class="chip ok">✓ Cleared · Matas, 6 Nov</span><div class="muted" style="font-size:11px;margin-top:3px">Email from Fuse — paid use incl. feed footage</div></div>
+    <div class="clipsct"><b>4</b> clips · Instagram</div>
+    <div class="act"><button class="btn">Find clips</button> <button class="btn ghost">⋯</button></div>
+  </div>
+  <div class="arow">
+    <span class="drag">⋮⋮</span><span class="ph" style="background:#4f5b6b">LD</span>
+    <div class="who"><b>Luke Dean <span class="star">★</span></b><div class="handles"><i><span class="dot" style="background:var(--ig)"></span>—</i><i><span class="dot" style="background:var(--sp)"></span>Spotify</i></div></div>
+    <div class="rights"><span class="chip warn">○ Not cleared</span> <button class="btn" style="height:22px;font-size:11px;margin-left:4px">Mark cleared</button></div>
+    <div class="clipsct"><b>1</b> clip · render test</div>
+    <div class="act"><button class="btn">Add Instagram</button> <button class="btn ghost">⋯</button></div>
+  </div>
+  <div class="arow">
+    <span class="drag">⋮⋮</span><span class="ph" style="background:#7a5a7a">RE</span>
+    <div class="who"><b>Reeshy <span class="star">★</span></b><div class="handles"><i><span class="dot" style="background:var(--sp)"></span>Spotify</i></div></div>
+    <div class="rights"><span class="chip warn">○ Not cleared</span> <button class="btn" style="height:22px;font-size:11px;margin-left:4px">Mark cleared</button></div>
+    <div class="clipsct muted">— no clips</div>
+    <div class="act"><button class="btn">Add Instagram</button> <button class="btn ghost">⋯</button></div>
+  </div>
+  <div class="arow">
+    <span class="drag">⋮⋮</span><span class="ph" style="background:#8a7a5a">PJ</span>
+    <div class="who"><b>Phil de Janeiro <span class="star off">☆</span></b><div class="handles"><i><span class="dot" style="background:var(--sp)"></span>Spotify</i></div></div>
+    <div class="rights"><span class="chip dash">— Not needed: no clips</span></div>
+    <div class="clipsct muted">— no clips</div>
+    <div class="act"><button class="btn ghost">⋯</button></div>
+  </div>
+  <div class="typeahead">
+    <div class="ta-in"><span class="muted">@</span>Lu<span class="caret"></span></div>
+    <div class="ta-pop">
+      <div class="ta-g">ARTISTS LIBRARY</div>
+      <div class="ta-row hi"><span class="ph" style="background:#4f5b6b">LD</span><div>Luke Dean<small>already on the lineup</small></div><span class="chip dash">added</span></div>
+      <div class="ta-row"><span class="ph" style="background:#5b6b4f">LS</span><div>Lauren Lo Sung<small>@laurenlosung · Spotify · Page · 2 events</small></div><span class="mono muted" style="font-size:11px">↵</span></div>
+      <div class="ta-g">SPOTIFY</div>
+      <div class="ta-row"><span class="ph" style="background:#3D7A52">Lu</span><div>Luciano<small>Spotify only · handles added after</small></div><span class="mono muted" style="font-size:11px">↵</span></div>
+    </div>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>Spotify context · hover a name or tap ⓘ</figcaption>
+<div class="spcard">
+  <div style="display:flex;gap:10px;align-items:center"><span class="ph" style="background:#6b4f3a">ES</span><div><b>Enzo Siragusa</b><div class="mono muted" style="font-size:11px">Spotify · {spotify_id}</div></div></div>
+  <div class="k" style="margin-top:12px">Top tracks</div>
+  <ol><li>{top track 1}</li><li>{top track 2}</li><li>{top track 3}</li></ol>
+  <div class="k">Popularity</div>
+  <div style="display:flex;align-items:center;gap:8px;margin:6px 0 10px"><div class="bar" style="flex:1"><i style="width:54%"></i></div><span class="mono" style="font-size:12px">54</span></div>
+  <div class="k">Genres</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><span class="chip">{genre}</span><span class="chip">{genre}</span></div>
+  <p class="muted" style="font-size:11px;margin:10px 0 0">Played before: Southampton · from your events</p>
+</div>
+</figure>
+<figure><figcaption>393 · rows stack; the action drops to its own line</figcaption>
+<div class="vp w393">
+<div class="panel">
+  <div class="sec-h"><h3>Lineup</h3></div>
+  <div class="arow">
+    <span class="drag">⋮⋮</span><span class="ph" style="background:#6b4f3a">ES</span>
+    <div class="who"><b>Enzo Siragusa <span class="star">★</span></b><div class="handles"><i>@enzosiragusa</i></div></div>
+    <button class="btn ghost">⋯</button>
+    <div class="rights"><span class="chip ok">✓ Cleared · Matas, 6 Nov</span></div>
+    <div class="clipsct"><b>4</b> clips</div>
+    <div class="act"><button class="btn">Find clips</button></div>
+  </div>
+  <div class="arow">
+    <span class="drag">⋮⋮</span><span class="ph" style="background:#4f5b6b">LD</span>
+    <div class="who"><b>Luke Dean <span class="star">★</span></b><div class="handles"><i>no Instagram yet</i></div></div>
+    <button class="btn ghost">⋯</button>
+    <div class="rights"><span class="chip warn">○ Not cleared</span> <button class="btn" style="height:22px;font-size:11px">Mark cleared</button></div>
+    <div class="act"><button class="btn">Add Instagram</button></div>
+  </div>
+  <div class="typeahead"><div class="ta-in"><span class="muted">@</span><span class="muted">Add an artist</span></div></div>
+</div>
+</div></figure>
+</div>
+<p class="lead"><b>Mark cleared</b> opens a small sheet: <i>Cleared by Matas, today</i> (filled in, not editable), an optional note, and <code>Clear</code>. The row then reads <code>✓ Cleared · Matas, 6 Nov</code> with the note under it in muted text. To undo, use <code>⋯ → Remove clearance</code>; it keeps the history. A clip from an artist who isn't cleared can sit in the grid, but it can't go into a round.</p>
+
+<!-- F3 -->
+<h2>F3 · Clips — a grid, three groups, and Find clips on Instagram</h2>
+<p class="lead"><b>F3–F5 show the same Lab after a first round has run</b>, so the Keeping group, the verdicts and round 2 have something to draw; F1 is the event as it stands today. Every tile is the clip's first frame, with source, length, artist and one status. <b>Keeping</b> is what's running and earning its place: cost per result in numbers, plus the round's verdict. <b>New</b> is untested. <b>Can't run</b> is drawn dashed in brick with the reason in words. The rights text appears on hover, never on the tile.</p>
+<div class="frame">
+<figure><figcaption>1280</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="sec-h"><h3>Clips</h3><span><button class="btn">Find clips on Instagram</button> <button class="btn ghost">+ Upload</button></span></div>
+  <div class="gs">
+  <div class="g" style="--n:2"><div class="grp-h"><span class="k">Keeping · 2</span><span class="muted" style="font-size:12px">ran in round 1 · cost per signup</span></div>
+  <div class="grid">
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"><span class="src" style="background:var(--ig)">IG</span><span class="play">▶</span><span class="dur">0:21</span></div>
+      <div class="tmeta"><div class="t1"><span>Enzo #2</span><span class="chip win">Winner</span></div><div class="t2"><span class="cpr">£0.42</span><span class="muted">/ signup · 812</span></div></div></div>
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#2a2a36,#5a4a7a)"><span class="src" style="background:var(--ig)">IG</span><span class="play">▶</span><span class="dur">0:21</span></div>
+      <div class="tmeta"><div class="t1"><span>Enzo #4</span><span class="chip">Holding</span></div><div class="t2"><span class="cpr">£0.61</span><span class="muted">/ signup · 344</span></div></div></div>
+  </div></div>
+  <div class="g" style="--n:2"><div class="grp-h"><span class="k">New · 2</span><span class="muted" style="font-size:12px">untested</span></div>
+  <div class="grid">
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a)"><span class="src" style="background:var(--ig)">IG</span><span class="play">▶</span><span class="dur">0:21</span></div>
+      <div class="tmeta"><div class="t1"><span>Enzo #1</span><span class="chip dash">Untested</span></div></div></div>
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#2a3a3a,#4a7a7a)"><span class="src" style="background:var(--ig)">IG</span><span class="play">▶</span><span class="dur">0:22</span></div>
+      <div class="tmeta"><div class="t1"><span>Enzo #3</span><span class="chip dash">Untested</span></div></div></div>
+  </div></div>
+  <div class="g" style="--n:1"><div class="grp-h"><span class="k">Can't run · 1</span></div>
+  <div class="grid">
+    <div class="tile cant"><div class="thumb" style="background:linear-gradient(160deg,#3a3a3a,#6a6a6a)"><span class="src" style="background:var(--ig)">IG</span><span class="play">▶</span><span class="dur">0:34</span></div>
+      <div class="tmeta"><div class="t1"><span>Luke Dean</span></div><div class="reason">Render test only — Luke Dean isn't cleared</div></div></div>
+  </div></div>
+  </div>
+</div>
+<div class="panel">
+  <div class="sec-h"><h3>Find clips on Instagram · @enzosiragusa</h3><span class="muted" style="font-size:12px">last 30 reels, ranked by likes and comments</span></div>
+  <div class="grid">
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#5a3a2a,#c08a5a)"><span class="play">▶</span><span class="dur">0:18</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 4,210 · 💬 186</span></div><div class="t2"><button class="btn" style="height:24px;font-size:11px">Add</button></div></div></div>
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#2a2a2a,#6a5a4a)"><span class="play">▶</span><span class="dur">0:27</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 3,980 · 💬 141</span></div><div class="t2"><button class="btn" style="height:24px;font-size:11px">Add</button></div></div></div>
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#3a2a3a,#8a5a8a)"><span class="play">▶</span><span class="dur">0:15</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 2,770 · 💬 98</span></div><div class="t2"><span class="chip ok">✓ Added</span></div></div></div>
+    <div class="tile skip"><div class="thumb" style="background:linear-gradient(160deg,#4a4a4a,#8a8a8a)"><span class="play">▶</span><span class="dur">0:12</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 5,320 · 💬 240</span></div><div class="reason">Skipped — text overlay</div></div></div>
+    <div class="tile skip"><div class="thumb" style="background:linear-gradient(160deg,#3a3a2a,#7a7a4a)"><span class="play">▶</span><span class="dur">0:30</span></div>
+      <div class="tmeta"><div class="t1"><span class="mono">♥ 2,100 · 💬 77</span></div><div class="reason">No file — <u>request from team</u></div></div></div>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>393 · two across; candidates scroll sideways</figcaption>
+<div class="vp w393">
+<div class="panel">
+  <div class="sec-h"><h3>Clips</h3><button class="btn">Find on Instagram</button></div>
+  <div class="grp-h"><span class="k">Keeping · 2</span></div>
+  <div class="grid">
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"><span class="src" style="background:var(--ig)">IG</span><span class="play">▶</span><span class="dur">0:21</span></div>
+      <div class="tmeta"><div class="t1"><span>Enzo #2</span><span class="chip win">Winner</span></div><div class="t2"><span class="cpr">£0.42</span><span class="muted">/ signup</span></div></div></div>
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#2a2a36,#5a4a7a)"><span class="src" style="background:var(--ig)">IG</span><span class="play">▶</span><span class="dur">0:21</span></div>
+      <div class="tmeta"><div class="t1"><span>Enzo #4</span><span class="chip">Holding</span></div><div class="t2"><span class="cpr">£0.61</span><span class="muted">/ signup</span></div></div></div>
+  </div>
+  <div class="grp-h"><span class="k">New · 2</span><span class="k">Can't run · 1</span></div>
+  <div class="hscroll">
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a);max-height:150px"><span class="play">▶</span></div><div class="tmeta">Enzo #1</div></div>
+    <div class="tile cant"><div class="thumb" style="background:linear-gradient(160deg,#3a3a3a,#6a6a6a);max-height:150px"><span class="play">▶</span></div><div class="tmeta"><div class="reason">Not cleared</div></div></div>
+    <div class="tile"><div class="thumb" style="background:linear-gradient(160deg,#2a3a3a,#4a7a7a);max-height:150px"><span class="play">▶</span></div><div class="tmeta">Enzo #3</div></div>
+  </div>
+</div>
+</div></figure>
+</div>
+<p class="lead">Verdict chips: <code>Winner</code> filled olive · <code>Loser</code> filled brick · <code>Holding</code> outlined ink (ran, inside the band) · <code>Untested</code> dashed. Colour judges a clip only against the client's own band. A clip with no round data shows no cost — <code>—</code>, never <code>£0.00</code>. The Instagram pass drops reels with text over the video (they read as someone else's ad) and says so on the tile instead of hiding them. A reel whose file can't be fetched offers <i>request from team</i>, which drafts the ask.</p>
+
+<!-- F4 -->
+<h2>F4 · Captions — shown as the ad</h2>
+<p class="lead">The generator is one row of labelled choices. Each caption renders in a feed post, with its real line breaks and the clip it would pair with. The <span class="strike">lineup · proposed · long · passed</span> line is gone: a passed check draws nothing, and a failed one says what to fix. ✓ approves, ✕ rejects, ✎ edits the copy in place.</p>
+<div class="frame">
+<figure><figcaption>1280 · generator, three proposals, one with a fix-me</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="sec-h"><h3>Captions</h3><span class="muted" style="font-size:12px">3 waiting · 0 approved</span></div>
+  <div class="gen">
+    <div class="fld"><label>Angle</label><div class="seg"><span class="on">Lineup</span><span>Artist, first person</span><span>POV</span><span>Scarcity</span></div></div>
+    <div class="fld"><label>Stage</label><div class="seg"><span>Teaser</span><span class="on">Presale</span><span>On sale</span></div></div>
+    <div class="fld"><label>How many</label><div class="seg"><span>1</span><span class="on">3</span><span>5</span></div></div>
+    <div class="fld"><label>Pair with</label><div class="seg"><span class="on">Best clip</span><span>Each new clip</span></div></div>
+    <button class="btn solid">Write 3</button>
+  </div>
+  <div class="ads">
+    <div>
+      <div class="ad"><div class="ad-h"><span class="av">PZ</span><div><b>Puzzle</b><small>Sponsored</small></div></div>
+        <div class="ad-copy">POV: Enzo Siragusa, Luke Dean, Reeshy &amp; more all on one bill
+27 December at Circuit
+Tag who you're bringing 👀</div>
+        <div class="ad-media" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"></div>
+        <div class="ad-cta"><div><small style="color:#65676b">PUZZLE</small><br><b>Puzzle 4th Birthday</b></div><span class="b">Sign up</span></div></div>
+      <div class="adfoot"><span class="muted" style="font-size:12px">Lineup · with Enzo #2</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div>
+    </div>
+    <div>
+      <div class="ad"><div class="ad-h"><span class="av">PZ</span><div><b>Puzzle</b><small>Sponsored</small></div></div>
+        <div class="ad-copy">Enzo Siragusa, Luke Dean, Reeshy &amp; more are taking over
+Circuit 27 December
+Who's in? Sign up for updates 🙋</div>
+        <div class="ad-media" style="background:linear-gradient(160deg,#2a2a36,#5a4a7a)"></div>
+        <div class="ad-cta"><div><small style="color:#65676b">PUZZLE</small><br><b>Puzzle 4th Birthday</b></div><span class="b">Sign up</span></div></div>
+      <div class="adfoot"><span class="muted" style="font-size:12px">Lineup · with Enzo #4</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div>
+    </div>
+    <div>
+      <div class="ad"><div class="ad-h"><span class="av">PZ</span><div><b>Puzzle</b><small>Sponsored</small></div></div>
+        <div class="ad-copy">Back in Southampton on 27th December to close out the year w/ Puzzle.
+Who's coming?</div>
+        <div class="ad-media" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a)"></div>
+        <div class="ad-cta"><div><small style="color:#65676b">PUZZLE</small><br><b>Puzzle 4th Birthday</b></div><span class="b">Sign up</span></div></div>
+      <div class="adfoot"><span class="muted" style="font-size:12px">Artist, first person · Enzo</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div>
+      <div class="fail">Needs an artist and a city they've played — pick the artist, or add the city to their row.</div>
+    </div>
+  </div>
+  <div class="grp-h" style="margin-top:18px"><span class="k">Ran in round 1 · 2</span></div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap">
+    <div class="panel" style="background:var(--edit);margin:0;flex:1;min-width:260px;font-size:12.5px"><div class="t1" style="display:flex;justify-content:space-between;align-items:center"><span class="muted" style="font-size:11px">Lineup</span><span class="chip win">Winner</span></div>Puzzle 4th Birthday — Enzo Siragusa, Luke Dean, Reeshy &amp; more…<div style="margin-top:6px"><span class="cpr">£0.44</span> <span class="muted">/ signup · 1,020</span></div></div>
+    <div class="panel" style="background:var(--edit);margin:0;flex:1;min-width:260px;font-size:12.5px"><div class="t1" style="display:flex;justify-content:space-between;align-items:center"><span class="muted" style="font-size:11px">POV</span><span class="chip lose">Loser</span></div>POV: you're at Circuit for Puzzle's birthday…<div style="margin-top:6px"><span class="cpr">£0.64</span> <span class="muted">/ signup · 136</span></div></div>
+  </div>
+</div>
+</div></figure>
+<figure><figcaption>393 · one ad at a time</figcaption>
+<div class="vp w393">
+<div class="panel">
+  <div class="sec-h"><h3>Captions</h3><span class="muted" style="font-size:12px">1 of 3</span></div>
+  <div class="gen">
+    <div class="fld"><label>Angle</label><div class="seg"><span class="on">Lineup</span><span>First person</span><span>POV</span></div></div>
+    <button class="btn solid">Write 3</button>
+  </div>
+  <div class="ads">
+    <div>
+      <div class="ad"><div class="ad-h"><span class="av">PZ</span><div><b>Puzzle</b><small>Sponsored</small></div></div>
+        <div class="ad-copy">POV: Enzo Siragusa, Luke Dean, Reeshy &amp; more all on one bill
+27 December at Circuit
+Tag who you're bringing 👀</div>
+        <div class="ad-media" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a);aspect-ratio:4/4"></div>
+        <div class="ad-cta"><div><b>Puzzle 4th Birthday</b></div><span class="b">Sign up</span></div></div>
+      <div class="adfoot"><span class="muted" style="font-size:12px">with Enzo #2</span><span class="acts"><span class="icon">✎</span><span class="icon">✕</span><span class="icon yes">✓</span></span></div>
+    </div>
+  </div>
+</div>
+</div></figure>
+</div>
+<p class="lead">The CTA label follows the event's stage, as the comms rules do: <i>Sign up</i> while collecting, <i>Get tickets</i> on sale. <i>How many</i> and <i>Stage</i> sit behind <code>More</code> at 393; the defaults are the event's stage and 3.</p>
+
+<!-- F5 -->
+<h2>F5 · The round — what would ship</h2>
+<p class="lead">Approved captions across, usable clips down; each cell is one ad. Cells start on and can be tapped off. The total is the hierarchy. A clip that can't run never appears. While the round can't be proposed, the button says why in words.</p>
+<div class="frame">
+<figure><figcaption>1280 · round 2, keeping the winner, adding two new clips</figcaption>
+<div class="vp w1280">
+<div class="panel">
+  <div class="sec-h"><h3>Round 2</h3><span class="muted" style="font-size:12px">keeps Enzo #2 and the lineup winner · tests 2 new clips and 1 new caption</span></div>
+  <div class="mx" style="grid-template-columns:140px repeat(2,1fr)">
+    <span></span><span class="hd">Lineup · winner, round 1</span><span class="hd">Lineup · new — "taking over"</span>
+    <span class="hd" style="align-self:center">Enzo #2 <span class="chip win" style="margin-left:4px">Winner</span></span>
+    <div class="cell"><span class="mini" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"></span>Kept from round 1</div>
+    <div class="cell"><span class="mini" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"></span>New pairing</div>
+    <span class="hd" style="align-self:center">Enzo #1 · new</span>
+    <div class="cell"><span class="mini" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a)"></span>New</div>
+    <div class="cell"><span class="mini" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a)"></span>New</div>
+    <span class="hd" style="align-self:center">Enzo #3 · new</span>
+    <div class="cell"><span class="mini" style="background:linear-gradient(160deg,#2a3a3a,#4a7a7a)"></span>New</div>
+    <div class="cell off">Off — tap to include</div>
+  </div>
+  <div class="roundbar">
+    <div><span class="big">5 ads</span> <span class="muted" style="font-size:12.5px">3 clips × 2 captions, 1 left out · Meta · {ad set}</span></div>
+    <button class="btn solid">Propose round 2</button>
+  </div>
+</div>
+<div class="panel" style="margin-top:12px">
+  <div class="sec-h"><h3>Round 1</h3><span class="muted" style="font-size:12px">the same block today, before any caption is approved</span></div>
+  <div class="roundbar" style="margin-top:0"><span><span class="big">—</span> <span class="muted" style="font-size:12.5px">Approve at least 1 caption to propose round 1.</span></span><button class="btn solid" disabled>Propose round 1</button></div>
+</div>
+</div></figure>
+<figure><figcaption>393 · the grid becomes a list of pairings</figcaption>
+<div class="vp w393">
+<div class="panel">
+  <div class="sec-h"><h3>Round 2</h3></div>
+  <div class="mx" style="grid-template-columns:1fr">
+    <div class="cell"><span class="mini" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"></span><div>Enzo #2 × Lineup winner<div class="muted">kept from round 1</div></div></div>
+    <div class="cell"><span class="mini" style="background:linear-gradient(160deg,#3a2a24,#8a5a3a)"></span><div>Enzo #2 × "taking over"<div class="muted">new pairing</div></div></div>
+    <div class="cell"><span class="mini" style="background:linear-gradient(160deg,#4a3a2a,#a07a4a)"></span><div>Enzo #1 × Lineup winner</div></div>
+    <div class="cell off">+ 2 more · 1 off</div>
+  </div>
+  <div class="roundbar"><span class="big">5 ads</span><button class="btn solid">Propose round 2</button></div>
+</div>
+</div></figure>
+</div>
+<p class="lead">Proposing a round keeps today's step as it is (the operator approves before anything launches). Once a round runs, its cells pick up the same verdict chips as the clips and captions, and those verdicts feed <i>what's working</i> in F1.</p>
+
+<h2>Hand-back</h2>
+<table class="hb">
+<tr><th>Item</th><th>Spec</th></tr>
+<tr><td>Order</td><td>Creative Lab = strip · lineup · clips · captions · round. Ticketing and Tickets sold are removed from this section: the connect link goes to the client's Ticketing tab, and tickets-to-date goes to Reporting. The <i>Next payday … days to the event</i> line moves to the event header.</td></tr>
+<tr><td>Strip</td><td>Four equal cells: kicker, count (22px, tabular), state line (12px). The step needing action gets the edit surface and a 3px ink underline. Below it, <b>Next:</b> plus one action button that scrolls. Order of precedence for "next": rights waiting on a clip you'd run → captions waiting → round proposable → nothing (then the line reads <i>Round {n} is running.</i>). At 393 the cells stay in one row with shorter state words.</td></tr>
+<tr><td>What's working</td><td>Only drawn when at least one round has a verdict. At most two facts, client-scoped first: the angle comparison (<i>{Angle} captions beat {Angle} by {n}% on {Client}</i>, cost per result, only when both sides ran in the same rounds) and the current winning clip.</td></tr>
+<tr><td>Lineup rows</td><td>⋮⋮ drag · 40px photo · name + ★ (headliner toggle) · handles as dots + text (IG, TikTok, Spotify, Page) · rights chip · clip count · one action · <code>⋯</code> (Edit, Remove clearance, Remove from lineup). Draw order = row order; headliners = ★ rows. Edit holds: played before (cities), starting caption, artist voice and its Page, clip folder. Played before also fills itself from the client's past events.</td></tr>
+<tr><td>@-tag</td><td>One input at the foot: <i>@ Add an artist</i>. Results come in two groups: the Artists library (photo, handles, past events) first, then Spotify matches. Enter adds a row. A Spotify-only pick creates a library artist with its Spotify ID; the handles get filled in on the row afterwards. An artist already in the lineup shows as <i>added</i>, greyed out.</td></tr>
+<tr><td>Spotify context</td><td>On hover of the name at 1280, or ⓘ at 393: top 3 tracks, popularity (bar + number), genres as chips, and played-before from your own events. If Spotify is unavailable: <i>Spotify isn't answering — try again later</i>, never empty boxes.</td></tr>
+<tr><td>Rights</td><td>States: <code>✓ Cleared · {name}, {d Mon}</code> (olive outline) · <code>○ Not cleared</code> + <code>Mark cleared</code> (ochre) · <code>— Not needed: no clips</code> (dashed). Mark cleared records who and when automatically, plus an optional note shown muted under the chip. A not-cleared artist's clips go to <i>Can't run</i>. The rights-ref field is removed.</td></tr>
+<tr><td>Clip tile</td><td>9:16 first frame · source badge (IG / TT / file) · duration · artist + number · one status. Keeping: cost per result (13px) + <i>/ signup · {results}</i> + verdict chip. New: <code>Untested</code> dashed. Can't run: dashed brick border, the reason in words. Grid 5 across at 1280, 2 at 393; New and Can't run scroll sideways at 393. Rights text and source detail on hover / long-press.</td></tr>
+<tr><td>Find clips on Instagram</td><td>Per artist with an IG handle. Ranks the last 30 reels by likes + comments. Tile: frame, duration, ♥ and 💬 counts, <code>Add</code> → <code>✓ Added</code>. Skipped tiles stay visible at 55% with the reason: <i>Skipped — text overlay</i>, <i>No file — request from team</i> (drafts the ask). Without a handle the row's action is <code>Add Instagram</code> instead.</td></tr>
+<tr><td>Generator</td><td>Labelled segmented controls: Angle (Lineup · Artist, first person · POV · Scarcity) · Stage (defaults to the event's) · How many (1/3/5) · Pair with (Best clip / Each new clip) · <code>Write {n}</code>. No unlabelled selects.</td></tr>
+<tr><td>Caption card</td><td>Rendered as a feed post: page avatar + name + <i>Sponsored</i> · copy with real line breaks (the <code>/</code> markers are rendered as breaks, never shown) · the paired clip's frame · CTA bar by stage. Under it: angle · clip, then ✎ ✕ ✓. Failed check → one brick sentence saying what to fix. Passed checks draw nothing. Ran captions sit under <i>Ran in round {n}</i> with cost per result and verdict.</td></tr>
+<tr><td>Round</td><td>Captions across, clips down, one cell = one ad, all on by default, tap to turn off. Total in 20px (<i>{n} ads</i>) with <i>{clips} × {captions}, {off} left out</i>. Disabled reason in words beside the button. 393: a list of pairings, the first three then <i>+ {n} more · {off} off</i>.</td></tr>
+<tr><td>Words struck</td><td><span class="strike">recorded, not approved (PENDING: Luke Dean team)</span> · <span class="strike">Rights ref</span> · <span class="strike">lineup · proposed · long · passed</span> · <span class="strike">Headliners, in draw order</span> · <span class="strike">Allowed dates</span> textarea (comes from the event) · <span class="strike">No rounds.</span> · <span class="strike">Choose file No file chosen</span> · the raw per-clip rights strings.</td></tr>
+</table>
+
+<h2>Data this needs</h2>
+<p class="lead"><b>Artists library</b> (org-wide): name, photo, instagram_handle, tiktok_handle, spotify_id, page_id. The lineup becomes event ↔ artist rows with <code>position</code> and <code>headliner</code>. <b>Clearance</b> per event artist: <code>cleared_by</code>, <code>cleared_at</code>, <code>note</code>. <b>Clip candidates</b>: reel id, like_count, comment_count, has_text_overlay, file_available, skipped_reason. <b>Verdicts</b> per clip and per caption per round: cost per result, results, verdict (<code>winner · loser · holding · untested</code>) against the client's band. Spotify context is read live and cached; it isn't stored as fact.</p>
+
+<h2>Acceptance</h2>
+<p class="lead">On Puzzle 4th Birthday Part 1, the strip reads Lineup 3 · Clips 5 · Captions 3 · Round —, with Captions highlighted and <i>Next: approve a caption, then propose round 1.</i> There are no lineup, headliner or name text fields anywhere in Creative Lab, and adding an artist is only the @ field. Enzo's row shows <code>✓ Cleared · Matas, 6 Nov</code> with the Fuse note muted; Luke Dean shows <code>○ Not cleared</code>, and his render-test clip sits in <i>Can't run</i>. Clips are a thumbnail grid, and no rights string appears on a tile. Captions render as feed posts with real line breaks and no <code>/</code>. The first-person caption that failed its check says what to fix. Round 1's button is off with <i>Approve at least 1 caption to propose round 1.</i> beside it. Ticketing and Tickets sold no longer appear in Creative Lab.</p>
+
+</div>
+</body>
+</html>

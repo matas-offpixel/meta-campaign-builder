@@ -337,7 +337,7 @@ describe("ADJUST surface guards", () => {
     );
     const adjustFace = readFileSync("lib/plan/adjust-face.ts", "utf8");
     assert.doesNotMatch(adjustFace, /export function planLaunchedAt/);
-    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    const page = readFileSync("app/(dashboard)/mml/[id]/page.tsx", "utf8");
     assert.match(page, /sinceDate: launchedAt \? launchedAt\.slice\(0, 10\) : null/);
     assert.match(page, /from "@\/lib\/plan\/launch-face"/);
     assert.match(page, /loadPlanBenchmarkRows/);

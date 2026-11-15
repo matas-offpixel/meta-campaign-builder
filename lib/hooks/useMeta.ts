@@ -42,6 +42,11 @@ import {
   type PagesErrorEntry,
   type PagesListPayload,
 } from "@/lib/meta/pages-list-response";
+import {
+  cachedCustomAudiences,
+  mergeCustomAudienceList,
+  rememberCustomAudience,
+} from "@/lib/audiences/custom-audience-list-cache";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -1027,6 +1032,7 @@ export function useFetchCampaigns(
         adAccountId: adAccountId ?? "",
         filter,
         limit: String(limit),
+        withAdSets: "1",
       });
       if (search?.trim()) params.set("search", search.trim());
       if (after) params.set("after", after);
@@ -1348,6 +1354,8 @@ export interface CustomAudiencesFetchState {
   loaded: boolean;
   /** Call to trigger a fetch (or re-fetch). No-ops when already loading. */
   fetch: () => void;
+  /** Insert a created audience into the open list and the account cache. */
+  noteCreated: (audience: CustomAudience) => void;
 }
 
 /**
@@ -1360,15 +1368,18 @@ export interface CustomAudiencesFetchState {
 export function useFetchCustomAudiences(
   adAccountId: string | undefined,
 ): CustomAudiencesFetchState {
-  const [data, setData] = useState<CustomAudience[]>([]);
+  const cached = adAccountId ? cachedCustomAudiences(adAccountId) : undefined;
+  const [data, setData] = useState<CustomAudience[]>(cached ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState((cached?.length ?? 0) > 0);
 
-  // Reset when ad account changes so stale data is never shown
+  // Reset when ad account changes so stale data is never shown.
+  // A cache hit for the new account stays visible without another Load click.
   useEffect(() => {
-    setData([]);
-    setLoaded(false);
+    const next = adAccountId ? cachedCustomAudiences(adAccountId) : [];
+    setData(next);
+    setLoaded(next.length > 0);
     setError(null);
   }, [adAccountId]);
 
@@ -1403,7 +1414,7 @@ export function useFetchCustomAudiences(
           }
           throw new Error(json.error ?? `HTTP ${res.status}`);
         }
-        setData(json.data ?? []);
+        setData(mergeCustomAudienceList(adAccountId, json.data ?? []));
         setLoaded(true);
       })
       .catch((err: unknown) => {
@@ -1413,7 +1424,13 @@ export function useFetchCustomAudiences(
       .finally(() => setLoading(false));
   }, [loading, adAccountId]);
 
-  return { data, loading, error, loaded, fetch: doFetch };
+  const noteCreated = useCallback((audience: CustomAudience) => {
+    if (!adAccountId) return;
+    setData(rememberCustomAudience(adAccountId, audience));
+    setLoaded(true);
+  }, [adAccountId]);
+
+  return { data, loading, error, loaded, fetch: doFetch, noteCreated };
 }
 
 // ─── useFetchSavedAudiences ───────────────────────────────────────────────────
@@ -1504,10 +1521,12 @@ export interface LocationSearchResult {
   key: string;
   name: string;
   type: string;
-  country_code: string;
-  country_name: string;
-  region: string;
+  country_code?: string;
+  country_name?: string;
+  region?: string;
   region_id?: number;
+  /** ISO codes on a country_group hit. */
+  country_codes?: string[];
 }
 
 export function useLocationSearch(): {
@@ -1537,7 +1556,7 @@ export function useLocationSearch(): {
     timerRef.current = setTimeout(async () => {
       try {
         const res = await fetch(
-          `/api/meta/location-search?q=${encodeURIComponent(query.trim())}&types=city,region,country`,
+          `/api/meta/location-search?q=${encodeURIComponent(query.trim())}&types=city,region,country,country_group`,
         );
         const json = (await res.json()) as {
           data?: LocationSearchResult[];

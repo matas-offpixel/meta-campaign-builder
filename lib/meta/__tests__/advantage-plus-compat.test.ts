@@ -50,6 +50,17 @@ describe("isAdvantageAudienceSupportedForObjective — supported objectives", ()
     }
   });
 
+  it("supports every optimisation goal under 'registration' (OUTCOME_SALES)", () => {
+    for (const goal of ALL_GOALS) {
+      assert.equal(isAdvantageAudienceSupportedForObjective("registration", goal), true, goal);
+    }
+  });
+
+  it("supports the East End Dubs combo now that registration launches as OUTCOME_SALES", () => {
+    assert.equal(isAdvantageAudienceSupportedForObjective("registration", "conversions"), true);
+    assert.equal(isAdvantageAudienceSupportedForObjective("registration", "complete_registration"), true);
+  });
+
   it("supports every optimisation goal under 'engagement' (OUTCOME_ENGAGEMENT)", () => {
     for (const goal of ALL_GOALS) {
       assert.equal(isAdvantageAudienceSupportedForObjective("engagement", goal), true, goal);
@@ -64,24 +75,11 @@ describe("isAdvantageAudienceSupportedForObjective — unsupported objectives", 
     }
   });
 
-  it("blocks every optimisation goal under 'registration' (OUTCOME_LEADS), reproducing subcode 1870196", () => {
-    for (const goal of ALL_GOALS) {
-      assert.equal(isAdvantageAudienceSupportedForObjective("registration", goal), false, goal);
-    }
-  });
-
-  it("blocks the exact East End Dubs Newcastle reproducer combo (registration + conversions)", () => {
-    assert.equal(isAdvantageAudienceSupportedForObjective("registration", "conversions"), false);
-  });
-
-  it("blocks registration + complete_registration too (the objective's other valid goal)", () => {
-    assert.equal(isAdvantageAudienceSupportedForObjective("registration", "complete_registration"), false);
-  });
 });
 
 describe("isAdvantageAudienceSupportedForObjective — full matrix sanity (all 6 objectives x 9 goals)", () => {
   it("every combo returns a boolean and matches the objective-level expectation", () => {
-    const unsupported = new Set<CampaignObjective>(["awareness", "registration"]);
+    const unsupported = new Set<CampaignObjective>(["awareness"]);
     for (const objective of ALL_OBJECTIVES) {
       for (const goal of ALL_GOALS) {
         const result = isAdvantageAudienceSupportedForObjective(objective, goal);

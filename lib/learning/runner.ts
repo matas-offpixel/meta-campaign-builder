@@ -1,0 +1,386 @@
+/**
+ * Learning loop B — nightly learning refresh, DB-only, zero Meta calls.
+ *
+ * Loads facts once (lib/learning/joins.ts), then runs seven jobs that
+ * each log their rows and fail alone:
+ *   1. creative_scores           (lib/learning/creative-scores.ts)
+ *   2. tag_performance           (lib/learning/tag-performance.ts)
+ *   3. client_funnel_benchmarks  (lib/learning/funnel-benchmarks.ts)
+ *   4. interest_clusters.live_evidence (lib/learning/interest-evidence.ts)
+ *   5. artist_library            (lib/learning/copy/artist-plan.ts): names
+ *      recovered from the last ARTIST_WINDOW_DAYS of ad copy, confirmed on
+ *      Spotify, into artists + event_artists. The only job that calls out,
+ *      and only to Spotify; never Meta. No credentials → nothing written
+ *      that needed them.
+ *   6. copy_performance          (lib/learning/copy-performance.ts), reading
+ *      the names job 5 is linking as if already linked.
+ *   7. copy_features             (lib/learning/copy-features.ts), the same
+ *      library re-keyed from words to shape labels
+ * and, after them and only while ENABLE_ONSALE_REFRESH_SCORING is "1",
+ *   8. onsale_refresh_scoring    (lib/onsale-refresh/scoring.ts): R6's
+ *      outcome for each on-sale refresh line on its next full week, into
+ *      onsale_refresh_outcomes. DB-only like the rest. With the switch off
+ *      the job isn't run and the result carries no entry for it.
+ * `dryRun` computes everything and writes nothing.
+ */
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { OPERATOR_EMAIL } from "../analysis/cluster-seed-sql.ts";
+import { logSkippedArchivedClients } from "../db/client-status.ts";
+import { computeCreativeScores, writeCreativeScores } from "./creative-scores.ts";
+import { computeFunnelBenchmarks, writeFunnelBenchmarks, type FunnelBenchmarkRow, type FunnelSkip } from "./funnel-benchmarks.ts";
+import { computeLiveEvidence, loadOperatorClusters, writeLiveEvidence, type LiveEvidence } from "./interest-evidence.ts";
+import {
+  joinRates,
+  loadLearningInputs,
+  STAGE_SOURCES,
+  type JoinRate,
+  type LearningInputs,
+  type LoadLearningOptions,
+  type Stage,
+  type StageSource,
+} from "./joins.ts";
+import { computeCopyFeatures, summariseCopyFeatures, writeCopyFeatures, type CopyFeatureRow } from "./copy-features.ts";
+import {
+  artistExtractionInputs,
+  buildCopyLibrary,
+  computeCopyPerformance,
+  existingLinks,
+  loadCopySources,
+  scopeCounts,
+  writeCopyPerformance,
+  type CopyLibrary,
+  type CopySources,
+} from "./copy-performance.ts";
+import { spotifyConfirmer, type ArtistConfirmer } from "./copy/artist-confirm.ts";
+import { planArtistLibrary, writeArtistPlan, type ArtistPlan } from "./copy/artist-plan.ts";
+import { passesCopyMinimum, type CopyPerformanceRow } from "./copy/score.ts";
+import { computeTagPerformance, TAG_WINDOW_DAYS, windowStart, writeTagPerformance, type TagPerformanceRow } from "./tag-performance.ts";
+import { isScoringEnabled, scoreOnsaleRefresh } from "../onsale-refresh/scoring.ts";
+
+export function isLearningRefreshEnabled(env: Record<string, string | undefined>): boolean {
+  return env.ENABLE_LEARNING_REFRESH === "1";
+}
+
+export type LearningJobName =
+  | "creative_scores"
+  | "tag_performance"
+  | "client_funnel_benchmarks"
+  | "interest_live_evidence"
+  | "artist_library"
+  | "copy_performance"
+  | "copy_features";
+export const LEARNING_JOBS: readonly LearningJobName[] = [
+  "creative_scores",
+  "tag_performance",
+  "client_funnel_benchmarks",
+  "interest_live_evidence",
+  "artist_library",
+  "copy_performance",
+  "copy_features",
+];
+
+/** Nightly: only events with ad copy written in the last week are read for names. */
+export const ARTIST_WINDOW_DAYS = 7;
+/** Spotify searches one nightly run may spend. The rest wait for the next night. */
+export const ARTIST_MAX_SEARCHES = 100;
+
+export type JobOutcome = { ok: boolean; rows: number; detail?: Record<string, unknown>; error?: string };
+
+/**
+ * `cron_runs.rows_written` for this route. The response has no
+ * `rowsWritten`; each job reports its own `rows`. A killswitch body
+ * has no jobs and writes nothing.
+ */
+export function learningRefreshRunLog(body: Record<string, unknown>): {
+  rows: number;
+  detail: Record<string, unknown>;
+} {
+  const jobs = body.jobs;
+  if (!jobs || typeof jobs !== "object") return { rows: 0, detail: {} };
+  const perJob: Record<string, number> = {};
+  let rows = 0;
+  for (const [name, job] of Object.entries(jobs as Record<string, { rows?: unknown }>)) {
+    const n = Number(job?.rows ?? 0);
+    const count = Number.isFinite(n) ? n : 0;
+    perJob[name] = count;
+    rows += count;
+  }
+  return { rows, detail: { jobs: perJob } };
+}
+
+export type LearningRefreshResult =
+  | { ok: true; skippedReason: "killswitch" }
+  | {
+      ok: boolean;
+      dryRun: boolean;
+      /** The seven jobs, plus `onsale_refresh_scoring` only while ENABLE_ONSALE_REFRESH_SCORING is "1". */
+      jobs: Record<LearningJobName, JobOutcome> & { onsale_refresh_scoring?: JobOutcome };
+      adDays: number;
+      dropped: LearningInputs["dropped"];
+      joinRates: Record<string, JoinRate>;
+      /** Ad-days per client per stage. */
+      stages: Record<string, Record<Stage, number>>;
+      /** Ad-days per client by where the stage came from. */
+      stageSources: Record<string, Record<StageSource, number>>;
+      /** GBP spend per client, all ad-days and those with stage 'unknown'. */
+      spend: Record<string, { total: number; unknown: number }>;
+      /** Ticket-sale result per client in the 90-day tag window. Initiate checkout when that is the promoted event, otherwise purchases. */
+      ticketSaleResults: Record<string, number>;
+      /** Purchases on those same ticket-sale ad-days. The result before initiate checkout was counted. */
+      ticketSalePurchases: Record<string, number>;
+      /** Initiate-checkout results on ticket-sale ad-days whose promoted event is INITIATED_CHECKOUT. */
+      ticketSaleCheckouts: Record<string, number>;
+      currencyAssumed: string[];
+      /** Dry run only: what the jobs computed. */
+      preview?: {
+        tagPerformance: TagPerformanceRow[];
+        funnel: { rows: FunnelBenchmarkRow[]; skipped: FunnelSkip[] };
+        liveEvidence: Record<string, LiveEvidence & { name: string }>;
+        clients: LearningInputs["clients"];
+        copyPerformance: CopyPerformanceRow[];
+        artistPlan: ArtistPlan | null;
+        copyFeatures: CopyFeatureRow[];
+      };
+      error?: string;
+    };
+
+type Db = SupabaseClient;
+
+/** The operator, by the same email migration 182 looks up. */
+export async function loadOperatorUserId(db: Pick<Db, "auth">): Promise<string> {
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await db.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw new Error(`operator lookup: ${error.message}`);
+    const hit = data.users.find((u) => u.email?.toLowerCase() === OPERATOR_EMAIL);
+    if (hit) return hit.id;
+    if (data.users.length < 200) break;
+  }
+  throw new Error(`operator lookup: no user ${OPERATOR_EMAIL}`);
+}
+
+function stageCounts(facts: LearningInputs["facts"]): Record<string, Record<Stage, number>> {
+  const out: Record<string, Record<Stage, number>> = {};
+  for (const f of facts) {
+    const c = (out[f.clientId ?? ""] ??= { registration: 0, ticket_sale: 0, unknown: 0 });
+    c[f.stage] += 1;
+  }
+  return out;
+}
+
+function stageSourceCounts(facts: LearningInputs["facts"]): Record<string, Record<StageSource, number>> {
+  const out: Record<string, Record<StageSource, number>> = {};
+  for (const f of facts) {
+    const c = (out[f.clientId ?? ""] ??= Object.fromEntries(STAGE_SOURCES.map((s) => [s, 0])) as Record<StageSource, number>);
+    c[f.stageSource] += 1;
+  }
+  return out;
+}
+
+function ticketSaleResultCounts(
+  facts: LearningInputs["facts"],
+  since: string,
+): { results: Record<string, number>; purchases: Record<string, number>; checkouts: Record<string, number> } {
+  const results: Record<string, number> = {};
+  const purchases: Record<string, number> = {};
+  const checkouts: Record<string, number> = {};
+  for (const fact of facts) {
+    if (fact.stage !== "ticket_sale" || !fact.clientId || fact.row.date < since) continue;
+    const id = fact.clientId;
+    results[id] = (results[id] ?? 0) + (fact.result ?? 0);
+    purchases[id] = (purchases[id] ?? 0) + (Number(fact.row.purchases) || 0);
+    if ((fact.row.promoted_event ?? "").trim().toUpperCase() === "INITIATED_CHECKOUT") {
+      checkouts[id] = (checkouts[id] ?? 0) + (fact.result ?? 0);
+    }
+  }
+  return { results, purchases, checkouts };
+}
+
+function spendCounts(facts: LearningInputs["facts"]): Record<string, { total: number; unknown: number }> {
+  const out: Record<string, { total: number; unknown: number }> = {};
+  for (const f of facts) {
+    const c = (out[f.clientId ?? ""] ??= { total: 0, unknown: 0 });
+    c.total += f.spendGbp;
+    if (f.stage === "unknown") c.unknown += f.spendGbp;
+  }
+  for (const c of Object.values(out)) {
+    c.total = Math.round(c.total * 100) / 100;
+    c.unknown = Math.round(c.unknown * 100) / 100;
+  }
+  return out;
+}
+
+async function job(name: LearningJobName | "onsale_refresh_scoring", run: () => Promise<JobOutcome>): Promise<JobOutcome> {
+  try {
+    const outcome = await run();
+    console.log(`[learning-refresh] job=${name} ok=${outcome.ok} rows=${outcome.rows}${outcome.detail ? ` ${JSON.stringify(outcome.detail)}` : ""}`);
+    return outcome;
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    console.error(`[learning-refresh] job=${name} failed: ${error}`);
+    return { ok: false, rows: 0, error };
+  }
+}
+
+export async function runLearningRefresh(input: {
+  env: Record<string, string | undefined>;
+  db: Db;
+  now?: Date;
+  dryRun?: boolean;
+  /** Tests: skip the auth admin lookup. */
+  operatorUserId?: string;
+  /** Tests: inject the loaded inputs. */
+  inputs?: LearningInputs;
+  /** Dry runs: see `LoadLearningOptions`. */
+  load?: LoadLearningOptions;
+  /** Tests: the artist confirmer. Default: Spotify from `env`, or null when the credentials are not set. */
+  confirm?: ArtistConfirmer | null;
+  /** Tests: the on-sale refresh scoring job. Default: scoreOnsaleRefresh. */
+  scoreRefresh?: typeof scoreOnsaleRefresh;
+}): Promise<LearningRefreshResult> {
+  const dryRun = input.dryRun === true;
+  if (!dryRun && !isLearningRefreshEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
+  const now = input.now ?? new Date();
+  const runAt = now.toISOString();
+  if (input.load?.adSetMeta && !dryRun) throw new Error("load.adSetMeta is for dry runs only");
+  const inputs = input.inputs ?? (await loadLearningInputs(input.db, input.load));
+  logSkippedArchivedClients("learning-refresh", inputs.archivedClientIds.size, `dropped_ad_days=${inputs.dropped.archived}`);
+
+  let operatorId: string | null = input.operatorUserId ?? null;
+  const operator = async () => (operatorId ??= await loadOperatorUserId(input.db));
+
+  let tagRows: TagPerformanceRow[] = [];
+  let funnel: { rows: FunnelBenchmarkRow[]; skipped: FunnelSkip[] } = { rows: [], skipped: [] };
+  let liveEvidence: Map<string, LiveEvidence> = new Map();
+  let clusterNames = new Map<string, string>();
+  let copyRows: CopyPerformanceRow[] = [];
+  let copySources: CopySources | null = null;
+  let artistPlan: ArtistPlan | null = null;
+  const confirm = input.confirm === undefined ? spotifyConfirmer(input.env) : input.confirm;
+  let copyLibrary: CopyLibrary | null = null;
+  let featureRows: CopyFeatureRow[] = [];
+
+  const jobs = {} as Record<LearningJobName, JobOutcome> & { onsale_refresh_scoring?: JobOutcome };
+  jobs.creative_scores = await job("creative_scores", async () => {
+    const rows = computeCreativeScores(inputs.facts, { userId: await operator(), fetchedAt: runAt });
+    const events = new Set(rows.map((r) => r.eventId)).size;
+    if (dryRun) return { ok: true, rows: rows.length, detail: { events, dryRun } };
+    const written = await writeCreativeScores(input.db, rows);
+    return {
+      ok: written.failed === 0,
+      rows: written.written,
+      detail: { events, failed: written.failed },
+      ...(written.firstError ? { error: written.firstError } : {}),
+    };
+  });
+  jobs.tag_performance = await job("tag_performance", async () => {
+    tagRows = computeTagPerformance(inputs.facts, inputs.clients, inputs.tags, { now, shows: inputs.shows });
+    const scopes = { client: 0, vertical: 0, all: 0 };
+    for (const r of tagRows) scopes[r.scope] += 1;
+    if (dryRun) return { ok: true, rows: tagRows.length, detail: { ...scopes, dryRun } };
+    const written = await writeTagPerformance(input.db, tagRows, { computedAt: runAt });
+    return { ok: true, rows: written.written, detail: { ...scopes, staleDeleted: written.deleted } };
+  });
+  jobs.client_funnel_benchmarks = await job("client_funnel_benchmarks", async () => {
+    funnel = computeFunnelBenchmarks(inputs.facts, inputs.clients, { now });
+    const detail = { skipped: funnel.skipped.length };
+    if (dryRun) return { ok: true, rows: funnel.rows.length, detail: { ...detail, dryRun } };
+    const written = await writeFunnelBenchmarks(input.db, funnel.rows);
+    return { ok: true, rows: written.written, detail: { ...detail, preservedManual: written.preservedManual } };
+  });
+  jobs.interest_live_evidence = await job("interest_live_evidence", async () => {
+    const clusters = await loadOperatorClusters(input.db, await operator());
+    clusterNames = new Map(clusters.map((c) => [c.id, c.name]));
+    liveEvidence = computeLiveEvidence(clusters, inputs.adSets, inputs.facts, inputs.clients, { now });
+    const matched = [...liveEvidence.values()].filter((e) => e.adSets > 0).length;
+    if (dryRun) return { ok: true, rows: liveEvidence.size, detail: { matched, dryRun } };
+    const written = await writeLiveEvidence(input.db, liveEvidence, runAt);
+    return { ok: true, rows: written.written, detail: { matched } };
+  });
+  jobs.artist_library = await job("artist_library", async () => {
+    copySources = await loadCopySources(input.db);
+    const extraction = artistExtractionInputs(copySources, inputs.facts, inputs.clients, inputs.archivedClientIds, {
+      since: windowStart(now, ARTIST_WINDOW_DAYS),
+    });
+    artistPlan = await planArtistLibrary({ ...extraction, existing: copySources.artists, confirm, maxSearches: ARTIST_MAX_SEARCHES });
+    const detail = { ...artistPlan.counts, searches: artistPlan.searches, spotify: artistPlan.spotify, artists: artistPlan.artists.length };
+    if (dryRun) return { ok: true, rows: artistPlan.links.length, detail: { ...detail, dryRun } };
+    const written = await writeArtistPlan(input.db, artistPlan, {
+      userId: await operator(),
+      now: runAt,
+      existingLinks: existingLinks(copySources),
+      existing: copySources.artists,
+    });
+    return { ok: true, rows: written.links, detail: { ...detail, ...written } };
+  });
+  jobs.copy_performance = await job("copy_performance", async () => {
+    const sources = copySources ?? (await loadCopySources(input.db));
+    const library: CopyLibrary = buildCopyLibrary(sources, inputs.facts, inputs.clients, { extraLineups: artistPlan?.lineups });
+    copyLibrary = library;
+    copyRows = computeCopyPerformance(library);
+    const scopes = scopeCounts(copyRows);
+    const detail = {
+      ...scopes,
+      droppedNameOnly: library.droppedNameOnly,
+      shown: copyRows.filter((row) => row.scope === "all" && passesCopyMinimum(row)).length,
+      proven: copyRows.filter((row) => row.scope === "all" && row.proven).length,
+    };
+    if (dryRun) return { ok: true, rows: copyRows.length, detail: { ...detail, dryRun } };
+    const written = await writeCopyPerformance(input.db, copyRows, runAt);
+    return { ok: true, rows: written.written, detail: { ...scopes, droppedNameOnly: library.droppedNameOnly, staleDeleted: written.deleted } };
+  });
+  jobs.copy_features = await job("copy_features", async () => {
+    const library =
+      copyLibrary ?? buildCopyLibrary(copySources ?? (await loadCopySources(input.db)), inputs.facts, inputs.clients, { extraLineups: artistPlan?.lineups });
+    featureRows = computeCopyFeatures(library);
+    const summary = summariseCopyFeatures(featureRows);
+    const detail = { ...summary.scopes, recurring: summary.recurring, proven: summary.proven };
+    if (dryRun) return { ok: true, rows: featureRows.length, detail: { ...detail, dryRun } };
+    const written = await writeCopyFeatures(input.db, featureRows, runAt);
+    return { ok: true, rows: written.written, detail: { ...detail, staleDeleted: written.deleted } };
+  });
+
+  // 8. After the others, behind its own switch: a failure here is caught by job() and leaves them as they ran.
+  if (isScoringEnabled(input.env)) {
+    jobs.onsale_refresh_scoring = await job("onsale_refresh_scoring", async () => {
+      const scored = await (input.scoreRefresh ?? scoreOnsaleRefresh)(input.db, { now, dryRun });
+      const detail = { due: scored.due, right: scored.right, wrong: scored.wrong, unknown: scored.unknown, latestDay: scored.latestDay, ...(dryRun ? { dryRun } : {}) };
+      return { ok: true, rows: scored.scored, detail };
+    });
+  }
+
+  const ticketSales = ticketSaleResultCounts(inputs.facts, windowStart(now, TAG_WINDOW_DAYS));
+  const result: LearningRefreshResult = {
+    ok: LEARNING_JOBS.every((name) => jobs[name].ok) && (jobs.onsale_refresh_scoring?.ok ?? true),
+    dryRun,
+    jobs,
+    adDays: inputs.facts.length,
+    dropped: inputs.dropped,
+    joinRates: Object.fromEntries(joinRates(inputs.facts)),
+    stages: stageCounts(inputs.facts),
+    stageSources: stageSourceCounts(inputs.facts),
+    spend: spendCounts(inputs.facts),
+    ticketSaleResults: ticketSales.results,
+    ticketSalePurchases: ticketSales.purchases,
+    ticketSaleCheckouts: ticketSales.checkouts,
+    currencyAssumed: [...inputs.currency.assumed].sort(),
+  };
+  if (dryRun) {
+    result.preview = {
+      tagPerformance: tagRows,
+      funnel,
+      liveEvidence: Object.fromEntries(
+        [...liveEvidence].map(([id, e]) => [id, { ...e, name: clusterNames.get(id) ?? id }]),
+      ),
+      clients: inputs.clients,
+      copyPerformance: copyRows,
+      artistPlan,
+      copyFeatures: featureRows,
+    };
+  }
+  console.log(
+    `[learning-refresh] done ok=${result.ok} dry_run=${dryRun} ad_days=${result.adDays} ${LEARNING_JOBS.map((n) => `${n}=${jobs[n].rows}`).join(" ")}`,
+  );
+  return result;
+}

@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Off Pixel — Insights rail — 7 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#7A6A5C;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#5F6B2A; --ochre:#A86B12; --brick:#9B3B28; --meta:#5B7FA6; --tt:#6E5A9E;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:22px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:52px 0 8px}
+h3{font-size:13px;font-weight:600;margin:22px 0 6px}
+p{margin:0 0 10px;max-width:84ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px}
+.frame{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin:12px 0}
+figure{margin:0}
+figcaption{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.vp{background:var(--sand);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;position:relative}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border)}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{white-space:nowrap;font-weight:600}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--ink);font:600 12px var(--sans);white-space:nowrap}
+.btn.solid{background:var(--ink);color:var(--sand);border-color:var(--ink)}
+.btn.tan{background:#c4a882;border-color:#c4a882}
+.btn.sm{height:24px;padding:0 9px;font-size:11.5px}
+.chip{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px;border-radius:4px;font:600 10.5px/1 var(--sans);white-space:nowrap;border:1px solid var(--border-strong);color:var(--ink-2)}
+.chip.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.chip.lose{background:var(--brick);color:#fff;border-color:var(--brick)}
+.chip.dash{border-style:dashed;color:var(--ink-3)}
+.muted{color:var(--ink-3)}
+.mono{font-family:var(--mono)}
+/* app shell */
+.app{display:flex;height:100%}
+.nav{width:172px;flex:none;background:#e3d1bf;border-right:1px solid var(--border);padding:14px 12px;font-size:12px;color:var(--ink-2)}
+.nav b{display:block;font:700 12px var(--sans);color:var(--ink);letter-spacing:.04em}
+.nav .it{padding:5px 8px;border-radius:5px;margin:2px 0}.nav .it.on{background:var(--muted);color:var(--ink)}
+.main{flex:1;min-width:0;padding:16px 22px;overflow:hidden}
+.ehead{display:flex;justify-content:space-between;align-items:flex-start;margin:0 0 10px}
+.ehead h4{margin:0;font:700 17px/1.1 var(--sans);letter-spacing:.02em}
+.tabs{display:flex;gap:18px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--border-strong);margin:8px 0 12px}
+.tabs span{padding:6px 0}.tabs span.on{color:var(--ink);border-bottom:2px solid var(--ink)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin:0 0 10px}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;font-size:11px}
+.strip div{padding:8px 4px;border-radius:5px}.strip .n{font:600 19px/1.1 var(--sans)}
+.strip .now{background:var(--ink);color:var(--sand)}
+.row{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;background:rgba(255,255,255,.12)}
+.ph{height:10px;border-radius:3px;background:var(--muted);margin:5px 0}
+.tiles{display:flex;gap:8px}.tiles i{flex:1;aspect-ratio:9/16;max-height:120px;border-radius:5px;background:linear-gradient(160deg,#2a1d2a,#6a3b4a 55%,#1a1214)}
+/* rail */
+.rail{width:360px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;font-size:12.5px}
+.rail .rh{padding:12px 14px 10px;border-bottom:1px solid var(--border);background:var(--edit);position:sticky;top:0}
+.rail .rh .top{display:flex;justify-content:space-between;align-items:center}
+.rail .rh .top b{font-size:14px}
+.rail .ctx{font-size:11.5px;color:var(--ink-3);margin:2px 0 8px}
+.rail .body{padding:4px 14px 14px;overflow:hidden}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:99px;overflow:hidden;font-size:11.5px}
+.seg span{padding:3px 10px;border-right:1px solid var(--border)}.seg span:last-child{border-right:0}
+.seg span.on{background:var(--ink);color:var(--sand)}
+.seg span.off{color:var(--ink-3);opacity:.6}
+.toggles{display:flex;gap:6px;flex-wrap:wrap}
+.lock{font-size:11px;color:var(--ink-3);margin-top:6px}
+.isec{padding:12px 0 10px;border-bottom:1px solid var(--border)}
+.isec:last-child{border-bottom:0}
+.isec .h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:0 0 6px}
+.isec .h .k{color:var(--ink-2)}
+.res{font-size:12.5px;font-weight:600;margin:0 0 6px}
+.res.none{font-weight:500;color:var(--ink-2)}
+.bars{display:flex;flex-direction:column;gap:5px}
+.br{display:grid;grid-template-columns:1fr 122px;gap:3px 10px;align-items:center;font-size:11.5px}
+.br .lab{grid-column:1 / -1}
+.br .lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.br .tr{height:8px;border-radius:4px;background:var(--muted);position:relative}
+.br .tr i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--ink-2)}
+.br .tr i.w{background:var(--olive)}.br .tr i.b{background:var(--brick)}
+.br .tr s{position:absolute;top:-3px;bottom:-3px;border-left:1.5px dashed var(--ink-3)}
+.br .v{font:10.5px var(--mono);text-align:right;white-space:nowrap}
+.br .v small{color:var(--ink-3)}
+.br.thin .tr{background:transparent;border:1px dashed var(--border-strong)}
+.br.thin .lab,.br.thin .v{color:var(--ink-3)}
+.br.thin .tr{display:none}.br.thin .v{grid-column:1 / -1;text-align:left;font-family:var(--sans);font-size:11px;white-space:normal}
+
+.conf{font:10.5px var(--mono);color:var(--ink-3);margin-top:6px}
+.act{margin-top:8px;display:flex;align-items:center;gap:8px}
+.empty{font-size:12px;color:var(--ink-2);background:var(--muted);border-radius:6px;padding:8px 10px}
+.fall{font-size:11.5px;color:var(--ochre);margin:0 0 6px}
+.thumbs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.thumbs div{font:10.5px/1.3 var(--mono)}
+.thumbs i{display:block;aspect-ratio:4/5;border-radius:4px;margin-bottom:3px;background:linear-gradient(160deg,#141018,#5a3048 55%,#c06a58)}
+.thumbs div:nth-child(2) i{background:linear-gradient(160deg,#101828,#2a3a6a 55%,#8a6ad0)}
+.thumbs div:nth-child(3) i{background:linear-gradient(160deg,#1a1410,#6b4a36 55%,#d0a060)}
+.thumbs div:nth-child(4) i{background:linear-gradient(160deg,#0e1612,#2a5040 55%,#80c0a0)}
+.cl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--border);font-size:12px}
+.cl:first-child{border-top:0}
+.cl small{grid-column:1;font:10.5px var(--mono);color:var(--ink-3)}
+.cl .btn{grid-row:1 / span 2;grid-column:2}
+.tab{width:34px;flex:none;background:var(--edit);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;align-items:center;padding-top:14px;gap:10px}
+.tab span{writing-mode:vertical-rl;font:600 12px var(--sans);letter-spacing:.06em;color:var(--ink-2)}
+.tab em{font-style:normal;font-size:13px;color:var(--ink-2)}
+/* 393 */
+.phone{width:393px;height:852px;position:relative;overflow:hidden;background:var(--sand)}
+.phone .pg{padding:12px 14px;font-size:12px}
+.phone .scrim{position:absolute;inset:0;background:rgba(30,24,16,.35)}
+.sheet{position:absolute;left:0;right:0;bottom:0;height:86%;background:var(--edit);border-radius:14px 14px 0 0;box-shadow:0 -8px 24px rgba(30,24,16,.18);display:flex;flex-direction:column}
+.sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--border-strong);margin:8px auto 2px}
+.sheet .rh{padding:6px 16px 10px;border-bottom:1px solid var(--border)}
+.sheet .body{padding:0 16px;overflow:hidden}
+.notes{font-size:12.5px;color:var(--ink-2)}
+.notes li{margin:0 0 6px;max-width:96ch}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--border-strong);border-radius:99px;font:600 11.5px var(--sans);background:var(--edit)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="k">OFF PIXEL · DESIGN RECORD · INSIGHTS RAIL · 7 NOVEMBER 2026</div>
+<h1>The Insights rail — what's working, beside whatever you're building</h1>
+<p class="lead">Matas: <i>"I'm not seeing the overall insights — captions, creatives, variations, styles. Have it to the right of the event info tabs, like a side panel I can expand / retract at all times. Useful not only on this page but across the board."</i> This record draws one rail for every operator page. It reads the page it sits on, opens on the insights that matter there, and gives at most one action per insight. Frames are at 1280 and 393 in Off Pixel's tokens. The rules are <code>docs/creative-lab/design-rules.md</code>, especially 6 (units and a comparison), 8 (empty states say what unlocks them) and 12 (cross-client data is Matas-only), plus the insight chip / bars and verdict chip components.</p>
+<p class="lead"><b>Every figure in the frames is real</b> unless it's marked <span class="chip dash">placeholder</span>. They come from <code>tag_performance</code> as it stood on 7 Nov (90-day window) for Puzzle (vertical <code>music</code>) and for all clients. Lab verdicts, copy lines and lookalike or retargeting results don't exist yet, so those sections are drawn as the honest empty states they'll be at launch.</p>
+
+<h2>Data note — read before building</h2>
+<table class="t">
+<tr><th>Source</th><th>What's there on 7 Nov</th><th>What it means for the rail</th></tr>
+<tr><td>tag_performance</td><td>420 rows. 8 dimensions × 2 stages (<code>registration</code>, <code>ticket_sale</code>) × 3 scopes. Each row has ads, funded_ads, spend, results, cpr, baseline_cpr, shrunk_index, confidence (strong / ok / thin).</td><td>The backbone. Colour and "winner" read <code>shrunk_index</code>, so thin rows are already pulled towards 1.00. The shown % uses cpr ÷ baseline_cpr.</td></tr>
+<tr><td>Vertical scope</td><td><b>Broken.</b> The 89 <code>vertical / music</code> rows are identical to the 89 <code>all</code> rows, and they include a football value (<code>biggest_fanpark</code>, 4TheFans). Only two verticals exist on clients (music, football).</td><td>The Vertical option ships <b>disabled</b>, with the sentence in IR3. It turns on when the rollup filters by <code>clients.vertical</code>. That's a data fix for Claude Code, not this build.</td></tr>
+<tr><td>Puzzle ticket sales</td><td>Every <code>ticket_sale</code> row for Puzzle has 0 results (thin), although its ads spent in that stage.</td><td>On a ticket-sale page the rail falls back to all clients and says why (IR2). Ops should check why no sales reach Meta for Puzzle. That's a separate question from this record.</td></tr>
+<tr><td>Shows count</td><td><code>tag_performance</code> stores ads and funded ads, not shows. <code>copy_performance</code> has <code>events_n</code>.</td><td>Thin rows say <i>"Not enough data yet: n funded ads"</i>. "n shows" needs an <code>events_n</code> column (a migration), so it's in a later build.</td></tr>
+<tr><td>creative_scores</td><td>11,784 rows on 4 axes (click / convert / hook / watch) over 33 events. 123 Puzzle creatives. No cost, no thumbnail.</td><td>Top creatives need cost per result from the ad's insights and a stored thumbnail. Confirm both sources before building. They're drawn as <span class="chip dash">placeholder</span>.</td></tr>
+<tr><td>interest_clusters</td><td>36 live: music 29, lifestyle 4, football 3. 8 have spend; 4 are <code>ok</code> and the rest thin. All registration-stage. <code>cprIndex</code> is against the client's own baseline.</td><td>The audience builder ranks by <code>cprIndex</code>. The 28 clusters with no spend collapse into "28 not tried yet".</td></tr>
+<tr><td>copy_performance</td><td>0 rows today, filled by tonight's job. 0 proven lines.</td><td>The Copy and Proven-elsewhere sections are drawn empty (IR4) and fill without a redesign.</td></tr>
+<tr><td>Lab round verdicts</td><td>0 rounds, 0 judged.</td><td>"What's working in the Lab" is empty today. IR6 draws it filled from the CL6 fixture.</td></tr>
+<tr><td>Lookalike / retargeting</td><td>No per-audience results table.</td><td>An empty state in IR5, built later.</td></tr>
+</table>
+
+<h2>R · Rulings</h2>
+<table class="t">
+<tr><th>#</th><th>Ruling</th></tr>
+<tr><td>R1 Placement</td><td>A right-hand rail on every page under the operator layout (<code>app/(dashboard)</code>). At ≥1200 px it <b>pushes</b> the page (the content column narrows by 360 px); it never overlays. Between 768 and 1199 it opens as a drawer over the content, below the page header, so the header's own buttons stay reachable. At 393 it's a bottom sheet.</td></tr>
+<tr><td>R2 Rest state</td><td>Collapsed by default: a 34 px tab down the right edge reading <b>Insights</b> with a <b>‹</b> (IR1). Tap the tab or ‹ to open and › to close. The state is remembered per user in the browser (<code>localStorage</code>, key <code>op.insightsRail</code>), so no migration. It's one state for every page: open stays open as you move between pages.</td></tr>
+<tr><td>R3 Never on client pages</td><td>The rail is mounted by the operator layout only. It's never on <code>/admin/[clientSlug]</code>, <code>/share/*</code> or <code>/l/*</code>, and no client-facing component imports it (rule 12). CI checks this by DOM (IR0).</td></tr>
+<tr><td>R4 Context</td><td>Each page declares <code>{surface, clientId?, eventId?, stage?, objective?}</code>, and the rail reads it. Stage defaults from the page: an event that's on sale → <b>Ticket sale</b>, announced or registration → <b>Signup</b>, the campaign drawer → its objective's stage. A page with no client (Today, Calendar) opens on <b>All clients</b>.</td></tr>
+<tr><td>R5 Scope</td><td><b>This client · Vertical · All clients</b> (the insight chip's scope toggle). Default is This client. When a section has no strong or ok row at that scope, <b>that section alone</b> falls back to the next scope, with one ochre line saying why (IR2). It never silently mixes scopes. Vertical and All carry a 🔒 line: <i>"🔒 Across clients · Matas only"</i>. Today the whole rail is Matas-only; the lock line keeps this explicit for when the team grows.</td></tr>
+<tr><td>R6 Bars</td><td>One bar per option, length = cost per result, with a dashed tick at the scope's own baseline. Each bar is labelled <code>£3.85 / signup · 8% under</code>, where the % is against that scope's baseline. Colour reads <code>shrunk_index</code>: <b>olive</b> ≤ 0.95 (ok or strong only), <b>brick</b> ≥ 1.10, otherwise ink. Thin rows draw no bar and read <i>"Not enough data yet: n funded ads"</i> in muted text. They never show a confident bar or a %. Four bars at most, then <i>"+n more"</i>.</td></tr>
+<tr><td>R7 Result line</td><td>Every section opens on one result sentence above its bars. If the best ok/strong option beats the runner-up by ≥ 0.05 index and is olive, it reads <i>"{Option} costs {n}% less than usual."</i> Otherwise it reads <i>"No clear winner between {A} and {B}."</i>, drawn as a result, not an error. All thin reads <i>"Not enough data yet."</i></td></tr>
+<tr><td>R8 Confidence line</td><td>Under every section, in mono: <code>{strong|ok} · {funded ads} funded ads · 90 days · {scope}</code>. When the rows differ it uses the weakest shown.</td></tr>
+<tr><td>R9 One action, where it helps</td><td>On the event page an angle maps to the Lab generator: <code>artist_headliner → Lineup</code>, <code>urgency_scarcity_fomo → Scarcity</code>, visual format <code>pov → POV</code>. When the section's winner maps, it gets <b>Use {angle}</b>, which scrolls to Captions and pre-selects that angle without generating. Scarcity still needs the ticket data that makes it true (rule 11); the generator enforces that, not the rail. In the audience builder each cluster gets <b>Add cluster</b>. Everything else is read-only.</td></tr>
+<tr><td>R10 Names</td><td>No raw keys (rule 5). A label map ships with the rail, for example <code>lifestyle_image_with_text</code> → "Lifestyle image with text", <code>urgency_scarcity_fomo</code> → "Urgency / scarcity", <code>event_announcement_update</code> → "Event announcement", <code>cinematic_b_roll</code> → "Cinematic B-roll". An unmapped key shows Title Case and logs a warning.</td></tr>
+<tr><td>R11 393</td><td>Collapsed, the rail is an <b>Insights</b> pill in the page header row, never floating, so it can't cover a sticky primary action (IR7). Open, it's a bottom sheet at 86% height with a scrim, closed by swipe-down or ✕. The sheet uses the same section layout as the rail.</td></tr>
+</table>
+
+<!-- ===================== IR1 ===================== -->
+<h2>IR1 · Event page, rail collapsed (1280)</h2>
+<div class="frame"><figure><figcaption>IR1-1280 · Puzzle 4th Birthday · rest state</figcaption>
+<div class="vp" style="width:1280px;height:560px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it">Clients</div><div class="it on">Events</div><div class="it">Reporting</div><div class="it">Meta</div><div class="it">Audience Builder</div><div class="it">Creatives</div></div>
+  <div class="main">
+    <div class="ehead"><div><h4>PUZZLE 4TH BIRTHDAY</h4><span class="muted" style="font-size:11.5px">Puzzle · on sale · Next payday Friday, 27 November 2026. 50 days to the event.</span></div><span><span class="btn sm">View client</span> <span class="btn sm">Edit</span></span></div>
+    <div class="tabs"><span class="on">Overview</span><span>Plan</span><span>Campaigns 7</span><span>Reporting</span><span>Active Creatives</span><span>Activity</span></div>
+    <div class="card"><div class="k" style="margin-bottom:8px">▾ Creative Lab</div>
+      <div class="strip"><div><span class="k">Lineup</span><div class="n">5</div>on the bill</div><div><span class="k">Clips</span><div class="n">5</div>ready</div><div class="now"><span class="k" style="color:var(--sand)">Captions</span><div class="n">1</div>need approval</div><div><span class="k">Round</span><div class="n">—</div>not started</div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;font-size:12px">Next: Approve a caption, then propose round 1.<span class="btn sm solid">Approve</span></div>
+      <div class="row">★ Enzo Siragusa<span class="btn sm tan">Find clips</span></div><div class="row">★ Luke Dean<span class="btn sm tan">Find clips</span></div>
+      <div class="tiles"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+  </div>
+  <div class="tab"><em>‹</em><span>Insights</span></div>
+</div></div></figure></div>
+<p class="lead">The tab is the whole rest state: no badge, no count, nothing that pulls the eye off the page. It sits beside the page, not on it, so it can't cover the Approve button or any other primary action.</p>
+
+<!-- ===================== IR2 ===================== -->
+<h2>IR2 · Event page, rail open — ticket-sale stage, Puzzle has no sale results (1280 and 393)</h2>
+<div class="frame"><figure><figcaption>IR2-1280 · on sale → Ticket sale · client thin, sections fall back to All clients</figcaption>
+<div class="vp" style="width:1280px;height:1400px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it">Today</div><div class="it">Clients</div><div class="it on">Events</div><div class="it">Reporting</div><div class="it">Meta</div><div class="it">Audience Builder</div><div class="it">Creatives</div></div>
+  <div class="main">
+    <div class="ehead"><div><h4>PUZZLE 4TH BIRTHDAY</h4><span class="muted" style="font-size:11.5px">Puzzle · on sale · Next payday Friday, 27 November 2026.</span></div><span><span class="btn sm">Edit</span></span></div>
+    <div class="tabs"><span class="on">Overview</span><span>Plan</span><span>Campaigns 7</span><span>Reporting</span><span>Activity</span></div>
+    <div class="card"><div class="k" style="margin-bottom:8px">▾ Creative Lab</div>
+      <div class="strip"><div><span class="k">Lineup</span><div class="n">5</div>on the bill</div><div><span class="k">Clips</span><div class="n">5</div>ready</div><div class="now"><span class="k" style="color:var(--sand)">Captions</span><div class="n">1</div>need approval</div><div><span class="k">Round</span><div class="n">—</div>not started</div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;font-size:12px">Next: Approve a caption, then propose round 1.<span class="btn sm solid">Approve</span></div>
+      <div class="row">★ Enzo Siragusa<span class="btn sm tan">Find clips</span></div><div class="row">★ Luke Dean<span class="btn sm tan">Find clips</span></div><div class="row">★ Reeshy<span class="btn sm tan">Add Instagram</span></div>
+      <div class="tiles"><i></i><i></i><i></i><i></i></div>
+      <div class="k" style="margin:12px 0 6px">Captions</div><div class="ph" style="width:60%"></div><div class="ph" style="width:40%"></div>
+    </div>
+  </div>
+  <div class="rail">
+    <div class="rh"><div class="top"><b>Insights</b><span class="muted" style="font-size:14px">›</span></div>
+      <div class="ctx">Puzzle 4th Birthday · on sale</div>
+      <div class="toggles"><span class="seg"><span class="on">This client</span><span class="off">Vertical</span><span>All clients</span></span><span class="seg"><span>Signup</span><span class="on">Ticket sale</span></span></div>
+    </div>
+    <div class="body">
+      <div class="isec"><div class="h"><span class="k">Caption angle</span><span class="k">All clients</span></div>
+        <div class="fall">Puzzle has no ticket sales attributed to its ads in the last 90 days. Showing all clients.</div>
+        <div class="res">Urgency / scarcity costs 25% less than usual.</div>
+        <div class="bars">
+          <div class="br"><span class="lab">Urgency / scarcity</span><span class="tr"><i class="w" style="width:44%"></i><s style="left:59%"></s></span><span class="v">£34.92 <small>· 25% under</small></span></div>
+          <div class="br"><span class="lab">Event announcement</span><span class="tr"><i style="width:57%"></i><s style="left:59%"></s></span><span class="v">£45.13 <small>· 4% under</small></span></div>
+          <div class="br"><span class="lab">Artist / headliner</span><span class="tr"><i style="width:60%"></i><s style="left:59%"></s></span><span class="v">£47.36 <small>· 1% over</small></span></div>
+          <div class="br"><span class="lab">High-energy atmosphere</span><span class="tr"><i class="b" style="width:66%"></i><s style="left:59%"></s></span><span class="v">£51.91 <small>· 11% over</small></span></div>
+        </div>
+        <div class="conf">strong · 255+ funded ads · 90 days · all clients · £ / purchase</div>
+        <div class="lock">🔒 Across clients · Matas only</div>
+        <div class="act"><span class="btn sm solid">Use Scarcity</span><span class="muted" style="font-size:11px">needs the ticket count that makes it true</span></div>
+      </div>
+      <div class="isec"><div class="h"><span class="k">Hook</span><span class="k">All clients</span></div>
+        <div class="res">Social proof costs 54% less than usual.</div>
+        <div class="bars">
+          <div class="br"><span class="lab">Social proof</span><span class="tr"><i class="w" style="width:27%"></i><s style="left:59%"></s></span><span class="v">£21.47 <small>· 54% under</small></span></div>
+          <div class="br"><span class="lab">Curiosity</span><span class="tr"><i class="w" style="width:48%"></i><s style="left:59%"></s></span><span class="v">£38.13 <small>· 19% under</small></span></div>
+          <div class="br"><span class="lab">FOMO</span><span class="tr"><i class="w" style="width:53%"></i><s style="left:59%"></s></span><span class="v">£42.22 <small>· 10% under</small></span></div>
+          <div class="br"><span class="lab">Urgency</span><span class="tr"><i style="width:57%"></i><s style="left:59%"></s></span><span class="v">£45.38 <small>· 3% under</small></span></div>
+        </div>
+        <div class="conf">strong · 54+ funded ads · 90 days · all clients · +5 more</div>
+      </div>
+      <div class="isec"><div class="h"><span class="k">Visual format</span><span class="k">All clients</span></div>
+        <div class="res">Nostalgia costs 38% less than usual.</div>
+        <div class="bars">
+          <div class="br"><span class="lab">Nostalgia</span><span class="tr"><i class="w" style="width:37%"></i><s style="left:59%"></s></span><span class="v">£29.09 <small>· 38% under</small></span></div>
+          <div class="br"><span class="lab">Headline</span><span class="tr"><i class="w" style="width:52%"></i><s style="left:59%"></s></span><span class="v">£41.38 <small>· 12% under</small></span></div>
+          <div class="br"><span class="lab">Billboard</span><span class="tr"><i class="w" style="width:56%"></i><s style="left:59%"></s></span><span class="v">£44.57 <small>· 5% under</small></span></div>
+          <div class="br"><span class="lab">Cinematic B-roll</span><span class="tr"><i class="b" style="width:79%"></i><s style="left:59%"></s></span><span class="v">£62.90 <small>· 34% over</small></span></div>
+        </div>
+        <div class="conf">strong · 15+ funded ads · 90 days · all clients · +5 more</div>
+      </div>
+      <div class="isec"><div class="h"><span class="k">Puzzle's top creatives · signup</span><span class="chip dash">placeholder</span></div>
+        <div class="fall" style="color:var(--ink-3)">No ticket-sale results yet, so these rank by cost per signup.</div>
+        <div class="thumbs"><div><i></i>£2.41 / signup<br><span class="muted">42% under</span></div><div><i></i>£2.88<br><span class="muted">31% under</span></div><div><i></i>£3.10<br><span class="muted">25% under</span></div><div><i></i>£3.36<br><span class="muted">19% under</span></div></div>
+      </div>
+      <div class="isec"><div class="h"><span class="k">In the Lab</span></div>
+        <div class="empty">No round judged yet. Approve a caption and propose round 1.</div>
+        <div class="conf" style="margin-top:8px">Meta spent on 6 of 23 ads in this event's ad sets · last 7 days <span class="chip dash">placeholder</span></div>
+      </div>
+    </div>
+  </div>
+</div></div></figure>
+
+<figure><figcaption>IR2-393 · the same, as a bottom sheet</figcaption>
+<div class="vp" style="width:393px"><div class="phone">
+  <div class="pg"><b>PUZZLE 4TH BIRTHDAY</b><div class="muted">Puzzle · on sale</div><div class="card" style="margin-top:10px"><div class="strip"><div><div class="n">5</div>on bill</div><div><div class="n">5</div>ready</div><div class="now"><div class="n">1</div>waiting</div><div><div class="n">—</div>none</div></div></div></div>
+  <div class="scrim"></div>
+  <div class="sheet"><div class="grab"></div>
+    <div class="rh"><div style="display:flex;justify-content:space-between"><b>Insights</b><span class="muted">✕</span></div>
+      <div class="ctx" style="font-size:11.5px;color:var(--ink-3);margin:2px 0 8px">Puzzle 4th Birthday · on sale</div>
+      <div class="toggles"><span class="seg"><span class="on">This client</span><span class="off">Vertical</span><span>All</span></span><span class="seg"><span>Signup</span><span class="on">Ticket sale</span></span></div></div>
+    <div class="body">
+      <div class="isec"><div class="h"><span class="k">Caption angle</span><span class="k">All clients</span></div>
+        <div class="fall">Puzzle has no ticket sales attributed to its ads in the last 90 days. Showing all clients.</div>
+        <div class="res">Urgency / scarcity costs 25% less than usual.</div>
+        <div class="bars">
+          <div class="br"><span class="lab">Urgency / scarcity</span><span class="tr"><i class="w" style="width:44%"></i><s style="left:59%"></s></span><span class="v">£34.92 <small>· 25% under</small></span></div>
+          <div class="br"><span class="lab">Event announcement</span><span class="tr"><i style="width:57%"></i><s style="left:59%"></s></span><span class="v">£45.13 <small>· 4% under</small></span></div>
+          <div class="br"><span class="lab">Artist / headliner</span><span class="tr"><i style="width:60%"></i><s style="left:59%"></s></span><span class="v">£47.36 <small>· 1% over</small></span></div>
+          <div class="br"><span class="lab">High-energy atmosphere</span><span class="tr"><i class="b" style="width:66%"></i><s style="left:59%"></s></span><span class="v">£51.91 <small>· 11% over</small></span></div>
+        </div>
+        <div class="conf">strong · 255+ funded ads · 90 days</div><div class="lock">🔒 Across clients · Matas only</div>
+        <div class="act"><span class="btn sm solid">Use Scarcity</span></div>
+      </div>
+      <div class="isec"><div class="h"><span class="k">Hook</span><span class="k">All clients</span></div><div class="res">Social proof costs 54% less than usual.</div></div>
+    </div>
+  </div>
+</div></div></figure></div>
+<p class="lead">Puzzle is on sale, so the rail opens on <b>Ticket sale</b>. Puzzle has no attributed sales, so each section falls back to All clients, says so in one ochre line, and shows the 🔒 line. <b>Use Scarcity</b> appears because the winning angle maps to the Lab generator. It pre-selects Scarcity. The generator still refuses scarcity copy without the ticket count that makes it true (rule 11).</p>
+
+<!-- ===================== IR3 ===================== -->
+<h2>IR3 · Event page, Signup — Puzzle's own data, including "No clear winner" and thin rows (1280)</h2>
+<div class="frame"><figure><figcaption>IR3-1280 · rail only (the page is as IR2)</figcaption>
+<div class="vp" style="width:362px"><div class="rail" style="border-left:0">
+  <div class="rh"><div class="top"><b>Insights</b><span class="muted">›</span></div><div class="ctx">Puzzle 4th Birthday · Signup</div>
+    <div class="toggles"><span class="seg"><span class="on">This client</span><span class="off">Vertical</span><span>All clients</span></span><span class="seg"><span class="on">Signup</span><span>Ticket sale</span></span></div>
+    <div class="lock">Vertical is off until the music rollup stops including other verticals.</div></div>
+  <div class="body">
+    <div class="isec"><div class="h"><span class="k">Caption angle</span><span class="k">Puzzle</span></div>
+      <div class="res none">No clear winner between Artist / headliner and Event announcement.</div>
+      <div class="bars">
+        <div class="br"><span class="lab">Event announcement</span><span class="tr"><i style="width:63%"></i><s style="left:63%"></s></span><span class="v">£4.16 <small>· level</small></span></div>
+        <div class="br"><span class="lab">Artist / headliner</span><span class="tr"><i style="width:63%"></i><s style="left:63%"></s></span><span class="v">£4.17 <small>· level</small></span></div>
+        <div class="br"><span class="lab">High-energy atmosphere</span><span class="tr"><i class="b" style="width:70%"></i><s style="left:63%"></s></span><span class="v">£4.60 <small>· 11% over</small></span></div>
+      </div>
+      <div class="conf">ok · 25+ funded ads · 90 days · Puzzle · £ / signup</div></div>
+    <div class="isec"><div class="h"><span class="k">Visual format</span><span class="k">Puzzle</span></div>
+      <div class="res">Headline costs 6% less than usual.</div>
+      <div class="bars">
+        <div class="br"><span class="lab">Headline</span><span class="tr"><i class="w" style="width:59%"></i><s style="left:63%"></s></span><span class="v">£3.90 <small>· 6% under</small></span></div>
+        <div class="br"><span class="lab">Cinematic B-roll</span><span class="tr"><i class="b" style="width:71%"></i><s style="left:63%"></s></span><span class="v">£4.70 <small>· 13% over</small></span></div>
+      </div><div class="conf">ok · 21+ funded ads · 90 days · Puzzle</div></div>
+    <div class="isec"><div class="h"><span class="k">Asset type</span><span class="k">Puzzle</span></div>
+      <div class="res">Lifestyle image with text costs 8% less than usual.</div>
+      <div class="bars">
+        <div class="br"><span class="lab">Lifestyle image with text</span><span class="tr"><i class="w" style="width:58%"></i><s style="left:63%"></s></span><span class="v">£3.85 <small>· 8% under</small></span></div>
+        <div class="br"><span class="lab">High production</span><span class="tr"><i style="width:69%"></i><s style="left:63%"></s></span><span class="v">£4.59 <small>· 10% over</small></span></div>
+        <div class="br thin"><span class="lab">UGC</span><span class="tr"></span><span class="v">Not enough data yet: 0 funded ads</span></div>
+      </div><div class="conf">ok · 25+ funded ads · 90 days · Puzzle</div></div>
+    <div class="isec"><div class="h"><span class="k">Hook</span><span class="k">Puzzle</span></div>
+      <div class="res none">No clear winner between FOMO and Curiosity.</div>
+      <div class="bars">
+        <div class="br"><span class="lab">FOMO</span><span class="tr"><i style="width:63%"></i><s style="left:63%"></s></span><span class="v">£4.16 <small>· level</small></span></div>
+        <div class="br"><span class="lab">Curiosity</span><span class="tr"><i style="width:65%"></i><s style="left:63%"></s></span><span class="v">£4.30 <small>· 3% over</small></span></div>
+        <div class="br thin"><span class="lab">Urgency</span><span class="tr"></span><span class="v">Not enough data yet: 2 funded ads</span></div>
+      </div><div class="conf">strong · 49+ funded ads · 90 days · Puzzle</div></div>
+  </div></div></div></figure>
+<div style="max-width:560px">
+<p class="lead"><b>Expected figures</b> (Puzzle, registration, 90 days, baseline £4.16 / signup). The % uses cpr ÷ baseline − 1 on stored values, ±1 point:</p>
+<table class="t"><tr><th>Option</th><th>£ / signup</th><th>vs £4.16</th><th>shrunk</th><th>colour</th></tr>
+<tr><td>Event announcement</td><td>4.16</td><td>level</td><td>1.00</td><td>ink</td></tr>
+<tr><td>Artist / headliner</td><td>4.17</td><td>level</td><td>1.00</td><td>ink</td></tr>
+<tr><td>High-energy atmosphere</td><td>4.60</td><td>11% over</td><td>1.11</td><td>brick</td></tr>
+<tr><td>Headline</td><td>3.90</td><td>6% under</td><td>0.94</td><td>olive · winner</td></tr>
+<tr><td>Cinematic B-roll</td><td>4.70</td><td>13% over</td><td>1.11</td><td>brick</td></tr>
+<tr><td>Lifestyle image with text</td><td>3.85</td><td>8% under</td><td>0.92</td><td>olive · winner</td></tr>
+<tr><td>High production</td><td>4.59</td><td>10% over</td><td>1.07</td><td>ink (shrunk under 1.10)</td></tr>
+<tr><td>UGC</td><td>—</td><td>thin (31 ads, 0 funded)</td><td>—</td><td>no bar, muted</td></tr>
+<tr><td>FOMO / Curiosity</td><td>4.16 / 4.30</td><td>level / 3% over</td><td>1.00 / 0.98</td><td>ink · no clear winner</td></tr>
+<tr><td>Urgency</td><td>—</td><td>thin (4 ads, 2 funded)</td><td>—</td><td>no bar, muted</td></tr></table>
+<p class="lead">No <b>Use</b> action here: the angle section has no winner, and visual format and asset type don't map to the caption generator. Puzzle's 1% difference between its two top angles is a result, so it's drawn as one.</p>
+</div></div>
+
+<!-- ===================== IR4 ===================== -->
+<h2>IR4 · Campaign creation — MML canvas / Meta drawer, Signup, Leads objective (1280 and 393)</h2>
+<div class="frame"><figure><figcaption>IR4-1280 · rail beside the Meta drawer</figcaption>
+<div class="vp" style="width:1280px;height:820px"><div class="app">
+  <div class="nav"><b>OFF/PIXEL</b><div class="it">Events</div><div class="it on">MML</div><div class="it">Meta</div><div class="it">Audience Builder</div></div>
+  <div class="main" style="display:flex;gap:14px">
+    <div style="flex:1"><div class="k" style="margin-bottom:8px">MML canvas · Puzzle 4th Birthday</div><div class="card" style="height:300px"><div class="ph" style="width:50%"></div><div class="ph" style="width:70%"></div><div class="ph" style="width:40%"></div></div></div>
+    <div class="card" style="width:330px;flex:none;background:var(--edit)"><b style="font-size:13px">New Meta campaign</b><div class="muted" style="font-size:11.5px;margin-bottom:10px">Signup · Leads objective</div>
+      <div class="k">Primary text</div><div class="ph" style="height:56px;background:#fff8"></div><div class="k" style="margin-top:8px">Headline</div><div class="ph" style="height:24px;background:#fff8"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px"><span class="btn sm solid">Create campaign</span></div></div>
+  </div>
+  <div class="rail">
+    <div class="rh"><div class="top"><b>Insights</b><span class="muted">›</span></div><div class="ctx">New Meta campaign · Puzzle · Signup · Leads</div>
+      <div class="toggles"><span class="seg"><span class="on">This client</span><span class="off">Vertical</span><span>All clients</span></span><span class="seg"><span class="on">Signup</span><span>Ticket sale</span></span></div></div>
+    <div class="body">
+      <div class="isec"><div class="h"><span class="k">Best lines</span></div>
+        <div class="empty">Lines are scored overnight. None are scored yet, so the first examples arrive after tonight's run.</div></div>
+      <div class="isec"><div class="h"><span class="k">Proven elsewhere</span></div>
+        <div class="empty">No line is proven yet. Proven lines appear here as chips you can drop into the copy.</div></div>
+      <div class="isec"><div class="h"><span class="k">Caption angle</span><span class="k">Puzzle</span></div>
+        <div class="res none">No clear winner between Artist / headliner and Event announcement.</div><div class="conf">ok · 25+ funded ads · 90 days · Puzzle</div></div>
+      <div class="isec"><div class="h"><span class="k">Visual format</span><span class="k">Puzzle</span></div>
+        <div class="res">Headline costs 6% less than usual.</div>
+        <div class="bars"><div class="br"><span class="lab">Headline</span><span class="tr"><i class="w" style="width:59%"></i><s style="left:63%"></s></span><span class="v">£3.90 <small>· 6% under</small></span></div>
+        <div class="br"><span class="lab">Cinematic B-roll</span><span class="tr"><i class="b" style="width:71%"></i><s style="left:63%"></s></span><span class="v">£4.70 <small>· 13% over</small></span></div></div></div>
+      <div class="isec"><div class="h"><span class="k">Asset type</span><span class="k">Puzzle</span></div><div class="res">Lifestyle image with text costs 8% less than usual.</div></div>
+    </div></div>
+</div></div></figure>
+<figure><figcaption>IR4-393 · sheet over the drawer</figcaption>
+<div class="vp" style="width:393px"><div class="phone"><div class="pg"><b>New Meta campaign</b><div class="muted">Signup · Leads</div></div><div class="scrim"></div>
+  <div class="sheet"><div class="grab"></div><div class="rh"><div style="display:flex;justify-content:space-between"><b>Insights</b><span class="muted">✕</span></div>
+    <div class="ctx" style="font-size:11.5px;color:var(--ink-3);margin:2px 0 8px">Puzzle · Signup · Leads</div><div class="toggles"><span class="seg"><span class="on">This client</span><span class="off">Vertical</span><span>All</span></span></div></div>
+    <div class="body"><div class="isec"><div class="h"><span class="k">Best lines</span></div><div class="empty">Lines are scored overnight. None are scored yet, so the first examples arrive after tonight's run.</div></div>
+    <div class="isec"><div class="h"><span class="k">Proven elsewhere</span></div><div class="empty">No line is proven yet. Proven lines appear here as chips you can drop into the copy.</div></div>
+    <div class="isec"><div class="h"><span class="k">Visual format</span><span class="k">Puzzle</span></div><div class="res">Headline costs 6% less than usual.</div>
+      <div class="bars"><div class="br"><span class="lab">Headline</span><span class="tr"><i class="w" style="width:59%"></i><s style="left:63%"></s></span><span class="v">£3.90 <small>· 6% under</small></span></div></div></div></div>
+  </div></div></div></figure></div>
+<p class="lead">In campaign creation, <b>copy leads</b>: Best lines, then Proven elsewhere, then the creative sections. Stage and objective come from the drawer. Once lines exist, Best lines shows up to 3 example lines with their £ / result and the "vs event" index, and each Proven chip gets one action, <b>Use line</b>, which drops it into the focused copy field. Both are empty today and say exactly what fills them.</p>
+
+<!-- ===================== IR5 ===================== -->
+<h2>IR5 · Audience builder — interest clusters with live results (1280 and 393)</h2>
+<div class="frame"><figure><figcaption>IR5-1280 · rail only (beside the builder)</figcaption>
+<div class="vp" style="width:362px"><div class="rail" style="border-left:0">
+  <div class="rh"><div class="top"><b>Insights</b><span class="muted">›</span></div><div class="ctx">Audience builder · Puzzle · Signup</div>
+    <div class="toggles"><span class="seg"><span>This client</span><span class="on">Vertical · music</span><span>All clients</span></span></div><div class="lock">🔒 Across clients · Matas only</div></div>
+  <div class="body">
+    <div class="isec"><div class="h"><span class="k">Interest clusters</span><span class="k">music · signup</span></div>
+      <div class="res">Disc Genre costs 41% less than its clients' usual.</div>
+      <div class="cl">Disc Genre <span class="btn sm">Add cluster</span><small>£1.06 / signup · 41% under · 8 funded ad sets · 2 clients · ok</small></div>
+      <div class="cl">Music festivals <span class="btn sm">Add cluster</span><small>£0.98 / signup · 33% under · 3 funded ad sets · 2 clients · ok</small></div>
+      <div class="cl">Latest iPhone users <span class="btn sm">Add cluster</span><small>£2.00 / signup · 8% under · 3 funded ad sets · 1 client · ok</small></div>
+      <div class="cl">Electronic music <span class="btn sm">Add cluster</span><small>£2.13 / signup · 2% under · 4 funded ad sets · 1 client · ok</small></div>
+      <div class="cl" style="color:var(--ink-3)">Melodic Techno, Streaming, Fashion, Streaming — full <span></span><small>Not enough data yet: 1–2 funded ad sets each</small></div>
+      <div class="conf">28 clusters not tried yet · show</div></div>
+    <div class="isec"><div class="h"><span class="k">Lookalikes and retargeting</span></div>
+      <div class="empty">Not measured yet. These appear once results are stored per audience.</div></div>
+  </div></div></div></figure>
+<figure><figcaption>IR5-393</figcaption>
+<div class="vp" style="width:393px"><div class="phone"><div class="pg"><b>Audience builder</b></div><div class="scrim"></div>
+  <div class="sheet"><div class="grab"></div><div class="rh"><div style="display:flex;justify-content:space-between"><b>Insights</b><span class="muted">✕</span></div>
+    <div class="toggles" style="margin-top:6px"><span class="seg"><span>This client</span><span class="on">Vertical</span><span>All</span></span></div><div class="lock">🔒 Across clients · Matas only</div></div>
+    <div class="body"><div class="isec"><div class="h"><span class="k">Interest clusters</span></div><div class="res">Disc Genre costs 41% less than its clients' usual.</div>
+      <div class="cl">Disc Genre <span class="btn sm">Add cluster</span><small>£1.06 / signup · 41% under · ok</small></div>
+      <div class="cl">Music festivals <span class="btn sm">Add cluster</span><small>£0.98 / signup · 33% under · ok</small></div>
+      <div class="cl">Latest iPhone users <span class="btn sm">Add cluster</span><small>£2.00 / signup · 8% under · ok</small></div></div></div>
+  </div></div></div></figure></div>
+<p class="lead">Clusters rank by <code>cprIndex</code>, which is against each client's own baseline, so the £ figures across clients aren't compared directly. The % comes from the index (1 − cprIndex), not from a shared baseline. That's why Music festivals (£0.98) sits below Disc Genre (£1.06). Clusters default to Vertical, because clusters carry their own <code>vertical</code> and per-client results are mostly thin. <b>Add cluster</b> adds it to the audience being built.</p>
+
+<!-- ===================== IR6 ===================== -->
+<h2>IR6 · Event page with Lab verdicts (fixture, as CL6) — the action and the Lab section filled (1280)</h2>
+<div class="frame"><figure><figcaption>IR6-1280 · rail only · CL6 fixture (Fixture Night)</figcaption>
+<div class="vp" style="width:362px"><div class="rail" style="border-left:0">
+  <div class="rh"><div class="top"><b>Insights</b><span class="muted">›</span></div><div class="ctx">Fixture Night · on sale</div>
+    <div class="toggles"><span class="seg"><span class="on">This client</span><span class="off">Vertical</span><span>All clients</span></span><span class="seg"><span class="on">Signup</span><span>Ticket sale</span></span></div></div>
+  <div class="body">
+    <div class="isec"><div class="h"><span class="k">In the Lab</span><span class="k">round 1 · judged</span></div>
+      <div class="res">Lineup captions beat POV by 33% on Off Pixel Fixtures.</div>
+      <div class="bars">
+        <div class="br"><span class="lab">Lineup</span><span class="tr"><i class="w" style="width:40%"></i></span><span class="v">£0.50 <small>· 40 signups</small></span></div>
+        <div class="br"><span class="lab">POV</span><span class="tr"><i class="b" style="width:60%"></i></span><span class="v">£0.75 <small>· 20 signups</small></span></div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:12px">Ada North #1 × Lineup <span class="chip win">Winner</span></div>
+      <div class="conf">round 1 · 60 signups · £35 spent</div>
+      <div class="act"><span class="btn sm solid">Use Lineup</span></div>
+      <div class="conf" style="margin-top:8px">Meta spent on 3 of 3 ads in round 1</div></div>
+  </div></div></div></figure>
+<div style="max-width:560px"><p class="lead"><b>Expected figures</b> are from the CL6 fixture, as in <code>scripts/plan-frames/README.md</code>: Lineup £0.50 / signup × 40 = £20, POV £0.75 × 20 = £15, (0.75 − 0.50) ÷ 0.75 = 33%, round total £35 / 60 = £0.58. <b>Use Lineup</b> pre-selects Lineup in the generator. The Lab section always leads the event-page rail once a round is judged. It's the client's own, freshest evidence.</p></div></div>
+
+<!-- ===================== IR7 ===================== -->
+<h2>IR7 · 393 rest state — the trigger lives in the header (393)</h2>
+<div class="frame"><figure><figcaption>IR7-393 · event page, rail collapsed</figcaption>
+<div class="vp" style="width:393px;height:360px"><div class="phone" style="height:360px">
+  <div class="pg"><div style="display:flex;justify-content:space-between;align-items:center"><b>PUZZLE 4TH BIRTHDAY</b><span class="pill">Insights ‹</span></div><div class="muted">Puzzle · on sale · 50 days to go</div>
+    <div class="card" style="margin-top:10px"><div class="strip"><div><div class="n">5</div>on bill</div><div><div class="n">5</div>ready</div><div class="now"><div class="n">1</div>waiting</div><div><div class="n">—</div>none</div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">Next: Approve a caption.<span class="btn sm solid">Approve</span></div></div></div>
+</div></div></figure>
+<div style="max-width:560px"><p class="lead">No floating button at 393. The <b>Insights</b> pill sits in the header row, so it can't cover a sticky Approve or Create button. Tapping it opens the IR2-393 sheet.</p></div></div>
+
+<!-- ===================== components ===================== -->
+<h2>Components (add to design-rules.md)</h2>
+<table class="t">
+<tr><th>Component</th><th>At rest</th><th>Primary action</th><th>393</th></tr>
+<tr><td>Insights rail</td><td>Collapsed tab (34 px, "Insights ‹"). Open: header (title, context line, scope + stage toggles, lock line), then insight sections</td><td>none (the tab toggles)</td><td>header pill → 86% bottom sheet</td></tr>
+<tr><td>Insight section</td><td>kicker + scope used · result sentence · ≤4 bars (cost per result, baseline tick, olive / ink / brick by shrunk index), each label above its bar because the rail is narrow at every width · thin rows: no bar, muted sentence · confidence line · optional fallback line (ochre) · optional 🔒 line</td><td><code>Use {angle}</code> only when the winner maps to the generator</td><td>same, inside the sheet</td></tr>
+<tr><td>Cluster row</td><td>name · £ / signup · % vs its clients' usual · funded ad sets · clients · confidence</td><td><code>Add cluster</code></td><td>same, meta line shortened</td></tr>
+<tr><td>Creative thumb row</td><td>4 thumbs (4:5), each with £ / result and % vs the client's usual</td><td>tap = open the ad</td><td>2 across, swipe</td></tr>
+</table>
+
+<!-- ===================== hand-back ===================== -->
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th>#</th><th>Spec</th><th>Data</th><th>Acceptance (frame)</th></tr>
+<tr><td>H1 Shell</td><td>Rail in the operator layout. Collapsed tab, open 360 px, pushes at ≥1200, drawer at 768–1199, sheet at 393. State in <code>localStorage op.insightsRail</code>, default collapsed.</td><td>none</td><td>IR1-1280 tab only; IR2-1280 content narrower by 360 px, Approve visible; reload keeps the state</td></tr>
+<tr><td>H2 Guard</td><td>Never mounted on <code>/admin/[clientSlug]</code>, <code>/share/*</code>, <code>/l/*</code>.</td><td>none</td><td>IR0: <code>[data-insights-rail]</code> count is 0 on a client portal, a share page and a landing page</td></tr>
+<tr><td>H3 Context</td><td>A page context provider: surface, client, event, stage, objective. Stage defaults per R4.</td><td>events.status, drawer objective</td><td>IR2 opens on Ticket sale (on sale); IR4 on Signup · Leads</td></tr>
+<tr><td>H4 Sections</td><td>Insight section per R6–R8 over <code>tag_performance</code>. Dimensions by surface: event → caption angle, hook, visual format, creatives, Lab; campaign → lines, proven, angle, visual format, asset type; audience → clusters, LAL/RT.</td><td>tag_performance (90 days, stage, scope)</td><td>IR3 figures as in its table; IR2 figures as drawn, ±1 point on %</td></tr>
+<tr><td>H5 Fallback</td><td>A section with no ok/strong row at the chosen scope uses the next scope and shows the ochre line.</td><td>Puzzle ticket_sale all thin</td><td>IR2: "Puzzle has no ticket sales attributed to its ads in the last 90 days. Showing all clients."</td></tr>
+<tr><td>H6 Vertical off</td><td>Vertical disabled on the tag sections, with the IR3 sentence, until the rollup is fixed. Cluster sections use the clusters' own <code>vertical</code>, so Vertical works there (IR5).</td><td>vertical == all (89 rows, includes biggest_fanpark)</td><td>IR3 shows the Vertical option disabled with its sentence</td></tr>
+<tr><td>H7 Labels</td><td>Value-key label map (R10); no raw keys.</td><td>all value_keys present</td><td>No underscore in any rail text in IR2–IR6</td></tr>
+<tr><td>H8 Actions</td><td><code>Use {angle}</code> pre-selects the generator angle (R9 map); <code>Add cluster</code> adds to the current audience.</td><td>angle map</td><td>IR2 "Use Scarcity", IR6 "Use Lineup", IR5 "Add cluster"; clicking pre-selects or adds and doesn't generate</td></tr>
+<tr><td>H9 Empty states</td><td>The exact sentences in IR2, IR4 and IR5.</td><td>copy_performance 0, Lab 0, LAL/RT none</td><td>Words match exactly</td></tr>
+<tr><td>H10 Placeholders</td><td>Top creatives and "Meta spent on x of y ads" ship once their sources are confirmed (cost per result per ad, thumbnail URL, the ad set's ads with spend &gt; 0 in 7 days).</td><td>to confirm</td><td>Not in build 1 if unsourced; the section is omitted, not faked</td></tr>
+</table>
+
+<h2>Build order</h2>
+<ul class="notes">
+<li><b>Build 1 (this record):</b> the shell (H1–H3), the guard (H2), the event page (IR1, IR2, IR3, IR6), the MML canvas and Meta drawer (IR4), the label map, fallback, Vertical off, and the 393 sheet and header pill (IR7). Top creatives and "Meta spent" only if their sources are confirmed; otherwise they're omitted.</li>
+<li><b>Build 2:</b> the audience builder (IR5) with clusters and Add cluster, and the TikTok drawer once tag data covers TikTok ads.</li>
+<li><b>Later:</b> the Vertical scope (after the rollup fix), "n shows" (an <code>events_n</code> column, a migration), lookalike and retargeting results, Best lines and Proven chips filling (no redesign needed), and every other operator page (Today, client page, Reporting) with a client summary.</li>
+</ul>
+
+<h2>Frames for CI (IR series)</h2>
+<table class="t">
+<tr><th>Id</th><th>Widths</th><th>Fixture</th></tr>
+<tr><td>IR0</td><td>— (DOM check)</td><td>client portal, share page, landing page: no rail</td></tr>
+<tr><td>IR1</td><td>1280</td><td>event page, rail collapsed</td></tr>
+<tr><td>IR2</td><td>1280, 393</td><td>event on sale, client ticket_sale thin → all-clients fallback (rows as drawn)</td></tr>
+<tr><td>IR3</td><td>1280</td><td>event, Signup, client rows as in IR3's table (incl. no clear winner + 2 thin)</td></tr>
+<tr><td>IR4</td><td>1280, 393</td><td>Meta drawer, Signup · Leads, copy_performance empty</td></tr>
+<tr><td>IR5</td><td>1280, 393</td><td>audience builder, 4 ok clusters + 4 thin + 28 untried, LAL/RT empty (build 2)</td></tr>
+<tr><td>IR6</td><td>1280</td><td>CL6 fixture: Lab judged, Use Lineup</td></tr>
+<tr><td>IR7</td><td>393</td><td>event page, collapsed: header pill</td></tr>
+</table>
+
+</div>
+</body>
+</html>

@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { refreshSendMetrics } from "@/lib/d2c/metrics/refresh";
+import { isNightlyStatsSlot, isStatsIngestEnabled } from "@/lib/d2c/stats-ingest/run";
+import { runNightlyStatsIngest, type NightlyStatsSummary } from "@/lib/d2c/stats-ingest/nightly";
 
 /**
  * /api/cron/d2c-metrics-refresh
@@ -10,6 +12,11 @@ import { refreshSendMetrics } from "@/lib/d2c/metrics/refresh";
  * metrics onto result_jsonb.metrics (Goal 4). Idempotent + safe to re-run —
  * refreshSendMetrics is itself 60s-rate-limited per send. 15-min cadence
  * (registered in vercel.json).
+ *
+ * HE3: when ENABLE_D2C_STATS_INGEST is exactly "1", the 04:00–04:14 UTC
+ * run first reads Bird and Mailchimp stats into d2c_broadcast_stats
+ * (lib/d2c/stats-ingest). `?stats=now` runs it outside the slot, still
+ * only behind the flag. With the flag off this route is unchanged.
  */
 
 function isAuthorized(req: NextRequest): boolean {
@@ -34,6 +41,14 @@ export async function GET(req: NextRequest) {
     admin = createServiceRoleClient();
   } catch {
     return NextResponse.json({ ok: false, error: "Server misconfigured" }, { status: 500 });
+  }
+
+  let statsIngest: NightlyStatsSummary | undefined;
+  if (
+    isStatsIngestEnabled() &&
+    (req.nextUrl.searchParams.get("stats") === "now" || isNightlyStatsSlot(new Date()))
+  ) {
+    statsIngest = await runNightlyStatsIngest(admin);
   }
 
   const since = new Date(Date.now() - FOURTEEN_DAYS_MS).toISOString();
@@ -69,5 +84,6 @@ export async function GET(req: NextRequest) {
     refreshed,
     skipped,
     errors: errors.slice(0, 20),
+    ...(statsIngest ? { statsIngest } : {}),
   });
 }

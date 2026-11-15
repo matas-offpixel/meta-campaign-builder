@@ -143,6 +143,26 @@ export function selectBenchmarkRows(
  * The one read. Pass view rows (or fixtures). Returns undefined when
  * there is no usual yet — J7 / starting-point faces handle that.
  */
+/** Median TikTok-channel cost for this client. Null when that channel has no rows. */
+export function tikTokBenchmarkCost(
+  rows: readonly BenchmarkRow[],
+  input: { clientId: string; unit?: string | null },
+): number | null {
+  const costs = rows
+    .filter(
+      (row) =>
+        row.client_id === input.clientId &&
+        row.channel === "tiktok" &&
+        (input.unit == null || row.unit === input.unit) &&
+        Number.isFinite(row.cost) &&
+        row.cost > 0,
+    )
+    .map((row) => row.cost)
+    .sort((a, b) => a - b);
+  if (costs.length === 0) return null;
+  return roundGbp(percentileCont(costs, 0.5));
+}
+
 export function planBenchmark(input: {
   rows: readonly BenchmarkRow[];
   clientId: string;

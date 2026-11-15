@@ -3,19 +3,23 @@
 import { useState, type ElementType, type ReactNode } from "react";
 import {
   Archive,
+  ArchiveRestore,
   BookmarkPlus,
   Clock,
   Copy,
   FolderOpen,
+  Globe,
+  Plus,
   RotateCcw,
   Tag,
   Trash2,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
-import { OverflowMenu } from "@/components/viz/overflow-menu";
+import { OverflowMenu, type OverflowMenuItem } from "@/components/viz/overflow-menu";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { formatPlanListBudget } from "@/lib/plan/format-schedule";
 import {
@@ -33,6 +37,8 @@ import {
   type CampaignPlanTemplate,
   type PlanLibraryItem,
 } from "@/lib/plan/library";
+import { AdSetAudiencePush } from "@/components/library/adset-audience-push";
+import { AdSetDestinationPush } from "@/components/library/adset-destination-push";
 import type { CampaignDraft, CampaignListItem, CampaignTemplate } from "@/lib/types";
 
 export { filterLibraryPlans };
@@ -56,7 +62,11 @@ export function filterLibraryCampaigns(
   search: string,
 ): CampaignListItem[] {
   const statusFilter = tab === "drafts" ? "draft" : tab === "published" ? "published" : "archived";
-  let items = campaigns.filter((c) => c.status === statusFilter);
+  let items = campaigns.filter((c) =>
+    statusFilter === "archived"
+      ? c.status === statusFilter || Boolean(c.clientArchived)
+      : c.status === statusFilter && !c.clientArchived,
+  );
   if (search.trim()) {
     const q = search.toLowerCase();
     items = items.filter(
@@ -129,7 +139,13 @@ export interface CampaignRowProps {
   onConfirmDelete?: (id: string) => void;
   onCancelDelete?: () => void;
   onRelaunch?: (id: string) => void;
+  /** Published rows. Opens the wizard on the Selected campaign block. */
+  onAddToCampaign?: (id: string) => void;
+  /** Set when the live read refused this row. */
+  addToCampaignError?: string | null;
   onSaveAsTemplate?: (id: string) => void;
+  /** Published rows only. Null while the write-gate request is in flight. */
+  targetingWritesEnabled?: boolean | null;
 }
 
 export function CampaignRow({
@@ -146,10 +162,71 @@ export function CampaignRow({
   onConfirmDelete,
   onCancelDelete,
   onRelaunch,
+  onAddToCampaign,
+  addToCampaignError,
   onSaveAsTemplate,
+  targetingWritesEnabled,
 }: CampaignRowProps) {
+  const [tool, setTool] = useState<"audience" | "destination" | null>(null);
   const objective = OBJECTIVE_LABELS[c.objective ?? ""] ?? c.objective ?? "—";
   const objectiveMark = objective.slice(0, 1).toUpperCase();
+  const published = c.status === "published";
+  const showPush = published && targetingWritesEnabled !== undefined;
+  const menuItems: OverflowMenuItem[] = [
+    {
+      id: "add-to-campaign",
+      icon: <Plus />,
+      label: "Add to campaign",
+      hidden: !(c.status === "published" && onAddToCampaign),
+      onSelect: () => onAddToCampaign?.(c.id),
+    },
+    {
+      id: "relaunch",
+      icon: <RotateCcw />,
+      label: "Relaunch",
+      hidden: !published,
+      onSelect: () => onRelaunch?.(c.id),
+    },
+    {
+      id: "audience",
+      icon: <Users />,
+      label: "Add audience to ad sets",
+      hidden: !showPush,
+      onSelect: () => setTool("audience"),
+    },
+    {
+      id: "destination",
+      icon: <Globe />,
+      label: "Set website destination",
+      hidden: !showPush,
+      onSelect: () => setTool("destination"),
+    },
+    {
+      id: "duplicate",
+      icon: <Copy />,
+      label: "Duplicate",
+      onSelect: () => onDuplicate?.(c.id),
+    },
+    {
+      id: "template",
+      icon: <BookmarkPlus />,
+      label: "Save as template",
+      onSelect: () => onSaveAsTemplate?.(c.id),
+    },
+    {
+      id: "archive",
+      icon: c.status === "archived" ? <ArchiveRestore /> : <Archive />,
+      label: c.status === "archived" ? "Unarchive" : "Archive",
+      onSelect: () => (c.status === "archived" ? onUnarchive?.(c.id) : onArchive?.(c.id)),
+    },
+    {
+      id: "delete",
+      icon: <Trash2 />,
+      label: "Delete",
+      destructive: true,
+      onSelect: () => onDelete?.(c.id),
+    },
+  ];
 
   return (
     <div
@@ -163,6 +240,16 @@ export function CampaignRow({
               {c.name || "Untitled Campaign"}
             </p>
             <StatusBadge status={c.status} />
+            {c.noEvent ? (
+              <span className="inline-flex shrink-0 items-center rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                no event
+              </span>
+            ) : null}
+            {c.clientArchived ? (
+              <span className="inline-flex shrink-0 items-center rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                client archived
+              </span>
+            ) : null}
           </div>
           {c.eventWarning ? (
             <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">{c.eventWarning}</p>
@@ -187,10 +274,14 @@ export function CampaignRow({
               </span>
             </div>
           ) : (
-            <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="font-medium">{objective}</span>
-              {c.adAccountId && <span>Account: {c.adAccountId}</span>}
-              <span className="flex items-center gap-1">
+            <div className="mt-1 flex min-w-0 items-center gap-3 overflow-hidden text-xs text-muted-foreground">
+              <span className="whitespace-nowrap font-medium">{objective}</span>
+              {c.adAccountId && (
+                <span className="min-w-0 truncate whitespace-nowrap" title={c.adAccountId}>
+                  Account: {c.adAccountId}
+                </span>
+              )}
+              <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
                 <Clock className="h-2.5 w-2.5" />
                 {formatLibraryDate(c.updatedAt)}
               </span>
@@ -218,39 +309,30 @@ export function CampaignRow({
               <Button size="sm" onClick={() => onOpen?.(c.id)}>
                 Open
               </Button>
-
-              {c.status === "published" && (
-                <Button size="sm" variant="outline" onClick={() => onRelaunch?.(c.id)}>
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  <span className="hidden lg:inline">Relaunch</span>
-                </Button>
+              <OverflowMenu items={menuItems} />
+              {showPush && targetingWritesEnabled !== undefined && (
+                <>
+                  <AdSetAudiencePush
+                    campaign={c}
+                    writesEnabled={targetingWritesEnabled}
+                    open={tool === "audience"}
+                    onOpenChange={(next) => setTool(next ? "audience" : null)}
+                  />
+                  <AdSetDestinationPush
+                    campaign={c}
+                    writesEnabled={targetingWritesEnabled}
+                    open={tool === "destination"}
+                    onOpenChange={(next) => setTool(next ? "destination" : null)}
+                  />
+                </>
               )}
-
-              <Button size="sm" variant="ghost" onClick={() => onDuplicate?.(c.id)}>
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-
-              <Button size="sm" variant="ghost" onClick={() => onSaveAsTemplate?.(c.id)}>
-                <BookmarkPlus className="h-3.5 w-3.5" />
-              </Button>
-
-              {c.status === "archived" ? (
-                <Button size="sm" variant="ghost" onClick={() => onUnarchive?.(c.id)}>
-                  <RotateCcw className="h-3.5 w-3.5" />
-                </Button>
-              ) : (
-                <Button size="sm" variant="ghost" onClick={() => onArchive?.(c.id)}>
-                  <Archive className="h-3.5 w-3.5" />
-                </Button>
-              )}
-
-              <Button size="sm" variant="ghost" onClick={() => onDelete?.(c.id)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
             </>
           )}
         </div>
       </div>
+      {addToCampaignError ? (
+        <p className="mt-2 text-xs text-amber-800 dark:text-amber-300">{addToCampaignError}</p>
+      ) : null}
     </div>
   );
 }

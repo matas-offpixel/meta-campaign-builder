@@ -11,8 +11,10 @@ import type {
   CreativeAssignmentMatrix,
 } from "@/lib/types";
 import { ATTACHED_AD_SET_KEY_PREFIX } from "@/lib/types";
-import { findAdSetsWithMixedBoostAndLinkCreatives } from "@/lib/meta/adset";
+import { rotationProblemsFromMatrix } from "@/lib/meta/rotation-adset";
+import { adsThisCreativeLaunches } from "@/lib/meta/variation-ads";
 import { CardDescription, Datum, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { RotationAdSetNote } from "@/components/steps/rotation-adset-note";
 
 interface AssignCreativesProps {
   /** `drawer` drops the step heading; the `⊞` tab already names the surface. */
@@ -21,6 +23,11 @@ interface AssignCreativesProps {
   creatives: AdCreativeDraft[];
   assignments: CreativeAssignmentMatrix;
   onChange: (assignments: CreativeAssignmentMatrix) => void;
+  /**
+   * Clone the ad set and move one rotation creative into it. Only for ad sets
+   * this launch creates. Existing Meta ad sets can't be switched to dynamic.
+   */
+  onSplitRotation?: (adSetId: string, creativeId: string) => void;
   /**
    * When true, render the per-ad card view tailored for the
    * "Add ads to existing ad set(s)" flow. Each ad card lists the selected
@@ -43,6 +50,7 @@ function AssignCreativesBody({
   creatives,
   assignments,
   onChange,
+  onSplitRotation,
   attachAdSetMode = false,
 }: AssignCreativesProps) {
   const enabledSets = useMemo(() => adSets.filter((s) => s.enabled), [adSets]);
@@ -132,21 +140,40 @@ function AssignCreativesBody({
   };
 
   const totalAds = useMemo(() => {
-    return Object.values(assignments).reduce((sum, ids) => sum + ids.length, 0);
-  }, [assignments]);
+    const byId = new Map(creatives.map((creative) => [creative.id, creative]));
+    return Object.values(assignments).reduce((sum, ids) => {
+      return sum + ids.reduce((n, id) => n + (byId.get(id) ? adsThisCreativeLaunches(byId.get(id)!) : 0), 0);
+    }, 0);
+  }, [assignments, creatives]);
 
-  // task #132 — soft note when an ad set mixes a boost with link creatives.
-  // destination_type is omitted for boost compatibility, so Meta Edit UI may
-  // show "Facebook event" as destination (cosmetic; delivery still works).
-  const mixedBoostAdSets = useMemo(
+  const rotationProblems = useMemo(
     () =>
-      findAdSetsWithMixedBoostAndLinkCreatives(
-        assignments,
+      rotationProblemsFromMatrix({
         creatives,
-        enabledSets,
-      ),
-    [assignments, creatives, enabledSets],
+        adSets: enabledSets,
+        assignments,
+        existing: attachAdSetMode,
+      }),
+    [creatives, enabledSets, assignments, attachAdSetMode],
   );
+  const rotationMessage = rotationProblems[0]?.message ?? null;
+  const splitActions =
+    onSplitRotation && !attachAdSetMode
+      ? rotationProblems
+          .filter((problem) => problem.kind === "shares")
+          .flatMap((problem) =>
+            problem.rotationCreativeIds.map((creativeId) => {
+              const creative = creatives.find((c) => c.id === creativeId);
+              const creativeName = creative?.name?.trim() || "Ad";
+              return {
+                key: `${problem.adSetId}:${creativeId}`,
+                label: "Give it its own ad set",
+                onClick: () => onSplitRotation(problem.adSetId, creativeId),
+                title: `${problem.adSetName} — ${creativeName}`,
+              };
+            }),
+          )
+      : [];
 
   if (enabledSets.length === 0 || creatives.length === 0) {
     return (
@@ -197,6 +224,8 @@ function AssignCreativesBody({
             </Button>
           </div>
         </div>
+
+        {rotationMessage ? <RotationAdSetNote message={rotationMessage} actions={splitActions} /> : null}
 
         <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary-light/30 px-3 py-2 text-xs">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
@@ -329,6 +358,8 @@ function AssignCreativesBody({
         </div>
       </div>
 
+      {rotationMessage ? <RotationAdSetNote message={rotationMessage} actions={splitActions} /> : null}
+
       <Card className="p-0 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -391,27 +422,6 @@ function AssignCreativesBody({
           </tbody>
         </table>
       </Card>
-
-      {mixedBoostAdSets.length > 0 && (
-        <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="text-muted-foreground">
-            {mixedBoostAdSets.length === 1 ? (
-              <>
-                <span className="font-medium text-foreground">{mixedBoostAdSets[0].adSetName}</span>
-                {" "}has both a Use Existing Post creative and a new link creative.
-              </>
-            ) : (
-              <>
-                {mixedBoostAdSets.length} ad sets mix a Use Existing Post creative with new link creatives
-                ({mixedBoostAdSets.map((s) => s.adSetName).join(", ")}).
-              </>
-            )}{" "}
-            Meta&apos;s Edit UI may show &quot;Facebook event&quot; as the destination for those ad sets
-            (cosmetic — a known Meta default). Delivery still uses each creative&apos;s own link or post.
-          </span>
-        </div>
-      )}
 
       <div className="flex items-center justify-between rounded-lg border border-border bg-muted/50 px-4 py-3">
         <span className="text-sm text-muted-foreground">

@@ -3,6 +3,8 @@
 import React, { useMemo, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { markPageCapabilityFailures } from "@/lib/hooks/useMeta";
+import { LAUNCH_ON_CANVAS_LABEL } from "@/lib/plan/drawer";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { planContinuationHref } from "@/lib/plan/schedule";
 import { Card, CardTitle } from "@/components/ui/card";
 import { ThresholdBand } from "@/components/viz/threshold-band";
@@ -27,7 +29,23 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import type { CampaignDraft, CampaignSettings, LaunchSummary } from "@/lib/types";
+import { launchFailureLead, type LaunchErrorSource } from "@/lib/meta/launch-failure-copy";
+import { attachedAdSetKey, type CampaignDraft, type CampaignSettings, type LaunchSummary } from "@/lib/types";
+import { urlTagsReviewLine } from "@/lib/meta/url-tags";
+import { describeLaunchBudget } from "@/lib/meta/budget-launch";
+import {
+  adSetAudienceRemoved,
+  adSetsSkippedForMissingAudience,
+  skippedAudienceReviewLine,
+} from "@/lib/wizard/import-edits";
+import {
+  formatAttachMultiCampaignReviewLine,
+  formatAttachVoteDriftReviewLine,
+} from "@/lib/meta/attach-objective";
+import {
+  attachCampaignTargets,
+  attachOptimisationWarningForCampaign,
+} from "@/lib/meta/attach-optimisation";
 import { METRIC_LABELS, TIME_WINDOW_LABELS } from "@/lib/optimisation-rules";
 import {
   failedAdLabelsFromSummary,
@@ -38,6 +56,7 @@ import {
   type BusinessUseCaseBucket,
 } from "@/lib/meta/app-usage";
 import { type RateLimitUiState } from "@/lib/meta/rate-limit-ui";
+import { creativeFailureBanners } from "@/lib/meta/launch-error-classify";
 import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
@@ -67,8 +86,10 @@ interface ReviewLaunchProps {
   draft: CampaignDraft;
   /** True while the launch API call is in-flight */
   isLaunching?: boolean;
-  /** Set when the Meta campaign creation call fails */
+  /** Set when the launch call fails */
   launchError?: string | null;
+  /** `preflight` when we refused before a Meta write. Absent keeps the Meta wording. */
+  launchErrorSource?: LaunchErrorSource | null;
   /** Named BUC / rate-limit state from a 429 launch abort. */
   launchRateLimit?: RateLimitUiState | null;
   onDismissLaunchError?: () => void;
@@ -83,6 +104,11 @@ interface ReviewLaunchProps {
    * leave this unset and the continuation is not rendered.
    */
   linkedPlan?: { id: string; name: string | null } | null;
+  /**
+   * The plan canvas owns Launch. Review still renders, read-only, and the
+   * canvas pointer replaces the launch controls.
+   */
+  canvasOwnsLaunch?: boolean;
   /**
    * Optional escape hatch for review-only fields (currently the Creative
    * Integrity Mode toggle). If absent the toggle renders read-only.
@@ -177,9 +203,13 @@ function buildLaunchEvents(
           }${attachedCampaignName ? ` (campaign "${attachedCampaignName}")` : ""}`
         : wizardMode === "attach_campaign"
         ? attachedCampaigns.length > 1
-          ? `Attached to ${attachedCampaigns.length} existing campaigns`
+          ? formatAttachMultiCampaignReviewLine(attachedCampaigns)
           : `Attached to existing campaign${attachedCampaignName ? ` "${attachedCampaignName}"` : ""}`
-        : `Campaign created`,
+        : summary.campaignCreateOutcome === "reused"
+          ? "Campaign reused"
+          : summary.campaignCreateOutcome === "recreated"
+            ? `Campaign recreated${summary.metaObjective ? ` · ${summary.metaObjective}` : ""}`
+            : `Campaign created${summary.metaObjective ? ` · ${summary.metaObjective}` : ""}`,
     metaId: summary.metaCampaignId,
     durationMs: summary.phaseDurations?.campaign,
   });
@@ -372,7 +402,9 @@ function buildLaunchEvents(
       stage: "creative",
       entity: c.name,
       status: "success",
-      label: `Creative created · ${identityLabel}`,
+      label: c.copyNote
+        ? `Creative created · ${identityLabel} · ${c.copyNote}`
+        : `Creative created · ${identityLabel}`,
       metaId: c.metaCreativeId,
       durationMs: c.durationMs,
     });
@@ -400,16 +432,19 @@ function buildLaunchEvents(
   }
   for (const c of summary.creativesFailed) {
     const isAppModeBlocked = c.skippedReason === "app_mode_blocked";
+    const isPermissionBlocked = c.skippedReason === "permission";
     events.push({
       id: uid("cr-fail"),
       stage: "creative",
       entity: c.name,
-      // app_mode_blocked is a hard failure (the creative was actively rejected),
-      // not a skip — show it as failed so users understand it needs action.
-      status: isAppModeBlocked ? "failed" : c.skippedReason ? "skipped" : "failed",
+      // app_mode_blocked / permission are hard failures (the creative was actively
+      // rejected), not skips — show them as failed so users understand they need action.
+      status: isAppModeBlocked || isPermissionBlocked ? "failed" : c.skippedReason ? "skipped" : "failed",
       label: isAppModeBlocked
         ? "Creative blocked — Meta app not in Live/Public mode"
-        : c.skippedReason
+        : isPermissionBlocked
+          ? "Creative blocked — launch token lacks permission"
+          : c.skippedReason
           ? `Creative skipped — ${c.skippedReason}`
           : "Creative failed",
       detail: c.error,
@@ -528,10 +563,13 @@ function SummaryCounts({ summary }: { summary: LaunchSummary }) {
   const lalDeferred = summary.lookalikesDeferred?.length ?? 0;
   const lalSkipped = summary.lookalikeAudiencesFailed?.filter((f) => f.skippedReason).length ?? 0;
   const asSkipped = summary.adSetsFailed.filter((f) => f.skippedReason).length;
-  // app_mode_blocked is shown as a hard failure in the event log, so don't count
-  // it as "skipped" in the summary chip — keeps the counts consistent.
+  // app_mode_blocked / permission are shown as hard failures in the event log, so
+  // don't count them as "skipped" in the summary chip — keeps the counts consistent.
   const crSkipped = summary.creativesFailed.filter(
-    (f) => f.skippedReason && f.skippedReason !== "app_mode_blocked",
+    (f) =>
+      f.skippedReason &&
+      f.skippedReason !== "app_mode_blocked" &&
+      f.skippedReason !== "permission",
   ).length;
 
   return (
@@ -868,12 +906,14 @@ export function ReviewLaunch({
   draft,
   isLaunching = false,
   launchError,
+  launchErrorSource = null,
   launchRateLimit = null,
   onDismissLaunchError,
   onRetryLaunch,
   launchSummary,
   onGoToLibrary,
   linkedPlan,
+  canvasOwnsLaunch = false,
   onUpdateSettings,
   onRetryFailedAds,
 }: ReviewLaunchProps) {
@@ -898,6 +938,10 @@ export function ReviewLaunch({
     bucket: BusinessUseCaseBucket | null;
     warn: boolean;
   } | null>(null);
+  const [launchErrorCopied, setLaunchErrorCopied] = useState(false);
+  const launchFailureText = launchRateLimit
+    ? formatLaunchRateLimitMessage(launchRateLimit, prelaunchUsage?.accountName)
+    : launchError ?? "";
 
   useEffect(() => {
     if (!adAccountId || launchSummary) return;
@@ -958,12 +1002,9 @@ export function ReviewLaunch({
       launchSummary.creativesFailed.length > 0 ||
       launchSummary.adsFailed > 0);
 
-  // App-mode blocking — creatives rejected because Meta app is in Development mode
-  const appModeBlockedCreatives =
-    launchSummary?.creativesFailed.filter((c) => c.skippedReason === "app_mode_blocked") ?? [];
-  const allCreativesBlocked =
-    appModeBlockedCreatives.length > 0 &&
-    (launchSummary?.creativesCreated.length ?? 0) === 0;
+  const creativeBanners = launchSummary ? creativeFailureBanners(launchSummary) : null;
+  const appModeBanner = creativeBanners?.appMode ?? null;
+  const permissionBanner = creativeBanners?.permission ?? null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -1053,29 +1094,52 @@ export function ReviewLaunch({
               )}
 
               {/* App mode blocking banner */}
-              {appModeBlockedCreatives.length > 0 && (
+              {appModeBanner && (
                 <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
                   <div className="flex items-start gap-2">
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                     <div>
                       <Datum className="text-sm font-semibold text-destructive">
-                        {allCreativesBlocked
-                          ? "Campaign structure created — creatives not launched"
-                          : `${appModeBlockedCreatives.length} creative${appModeBlockedCreatives.length !== 1 ? "s" : ""} blocked by Meta app mode`}
+                        {appModeBanner.title}
                       </Datum>
                       <Datum className="mt-1 text-xs text-destructive/80">
-                        {allCreativesBlocked
+                        {appModeBanner.allBlocked
                           ? "Your campaign and ad sets were created in Meta, but no creatives were launched because "
                           : "Some creatives could not launch because "}
                         your Meta app is in <strong>Development mode</strong>. Ads will not deliver until you switch to{" "}
                         <strong>Live/Public mode</strong> in{" "}
                         <span className="font-mono">Meta for Developers → App Settings → Status</span>.
-                        {allCreativesBlocked && (
+                        {appModeBanner.allBlocked && (
                           <span className="mt-1 block">
                             The campaign structure is live in Meta Ads Manager — you can relaunch creatives once the app is in Live mode.
                           </span>
                         )}
                       </Datum>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {permissionBanner && (
+                <div
+                  className="rounded-lg border border-destructive/40 bg-destructive/5 p-3"
+                  data-testid="creative-permission-banner"
+                >
+                  <div className="flex items-start gap-2">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    <div>
+                      <Datum className="text-sm font-semibold text-destructive">
+                        {permissionBanner.title}
+                      </Datum>
+                      <Datum className="mt-1 text-xs text-destructive/80">
+                        {permissionBanner.body}
+                      </Datum>
+                      <Link
+                        href="/business-managers"
+                        className="mt-2 inline-flex text-xs font-medium text-destructive underline underline-offset-2"
+                      >
+                        Open Business Managers
+                      </Link>
                     </div>
                   </div>
                 </div>
@@ -1173,6 +1237,23 @@ export function ReviewLaunch({
         </div>
       </Card>
 
+      {(() => {
+        const adSetKeys = isAttachAdSet
+          ? (draft.settings.existingMetaAdSets ??
+              (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : [])
+            ).map((a) => attachedAdSetKey(a.id))
+          : draft.adSetSuggestions
+              .filter((row) => row.enabled && !adSetAudienceRemoved(row, draft.audiences))
+              .map((row) => row.id);
+        const line = urlTagsReviewLine(draft.creatives, draft.creativeAssignments ?? {}, adSetKeys);
+        if (!line) return null;
+        return (
+          <span data-testid="url-tags-review-line">
+            <Datum className="text-sm text-muted-foreground">{line}</Datum>
+          </span>
+        );
+      })()}
+
       {!isAttachAdSet && (
         <AutomationArmControl
           draftId={draft.id}
@@ -1192,10 +1273,95 @@ export function ReviewLaunch({
         />
       )}
 
+      {wizardMode === "attach_campaign" &&
+        (draft.settings.existingMetaCampaigns ?? []).length > 1 && (
+          <span data-testid="attach-review-line">
+            <Datum className="text-sm text-foreground">
+              {formatAttachMultiCampaignReviewLine(draft.settings.existingMetaCampaigns ?? [])}
+            </Datum>
+          </span>
+        )}
+
+      {wizardMode === "attach_campaign" &&
+        (() => {
+          const line = formatAttachVoteDriftReviewLine({
+            draftObjective: draft.settings.objective,
+            campaigns: draft.settings.existingMetaCampaigns ?? [],
+          });
+          if (!line) return null;
+          return (
+            <span data-testid="attach-vote-drift-line">
+              <Datum className="text-sm text-muted-foreground">{line}</Datum>
+            </span>
+          );
+        })()}
+
+      {wizardMode === "attach_campaign" &&
+        (() => {
+          const selected = attachCampaignTargets(
+            draft.settings.existingMetaCampaigns,
+            draft.settings.existingMetaCampaign,
+          );
+          return selected.flatMap((campaign) => {
+            const warning = attachOptimisationWarningForCampaign({
+              campaignName: campaign.name,
+              draftObjective: draft.settings.objective,
+              draftOptimisationGoal: draft.settings.optimisationGoal,
+              delivery: campaign.deliveryOptimisation,
+            });
+            if (!warning) return [];
+            return [
+              <span key={campaign.id} data-testid="attach-optimisation-warning">
+                <Datum className="text-sm text-warning">
+                  {selected.length > 1 ? `${campaign.name}: ${warning}` : warning}
+                </Datum>
+              </span>,
+            ];
+          });
+        })()}
+
+      {(() => {
+        const skipped = adSetsSkippedForMissingAudience(draft.adSetSuggestions, draft.audiences).length;
+        if (skipped === 0) return null;
+        return (
+          <span data-testid="audience-removed-review">
+            <Datum className="text-sm text-muted-foreground">
+              {skippedAudienceReviewLine(skipped)}
+            </Datum>
+          </span>
+        );
+      })()}
+
+      {canvasOwnsLaunch && linkedPlan ? (
+        <a
+          href={mmlPlanHref(linkedPlan.id)}
+          data-testid="launch-on-canvas"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+        >
+          {LAUNCH_ON_CANVAS_LABEL} ↗
+        </a>
+      ) : null}
+
+      <span data-testid="launch-budget-line">
+        <Datum className="text-sm text-foreground">
+          {describeLaunchBudget({
+            budgetLevel: bs.budgetLevel,
+            budgetType: bs.budgetType,
+            budgetAmount: bs.budgetAmount,
+            currency: bs.currency || "GBP",
+            enabledAdSetCount: draft.adSetSuggestions.filter(
+              (row) => row.enabled && !adSetAudienceRemoved(row, draft.audiences),
+            ).length,
+            endDate: bs.endDate,
+            endDatePhase: bs.endDatePhase,
+          })}
+        </Datum>
+      </span>
+
       {/* ── Launch error modal ─────────────────────────────────────────────── */}
       {launchError && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4"
+          className="fixed inset-x-0 top-0 bottom-20 z-40 flex items-center justify-center bg-foreground/40 p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Campaign launch failed"
@@ -1208,9 +1374,11 @@ export function ReviewLaunch({
                   <Datum className="font-heading text-lg tracking-wide">
                     Launch Failed
                   </Datum>
-                  <Datum className="mt-1 text-sm text-muted-foreground">
-                    Meta returned an error. Your draft has not been changed.
-                  </Datum>
+                  <span data-testid="launch-failure-lead">
+                    <Datum className="mt-1 text-sm text-muted-foreground">
+                      {launchFailureLead(launchErrorSource)}
+                    </Datum>
+                  </span>
                 </div>
               </div>
               {onDismissLaunchError && (
@@ -1225,12 +1393,30 @@ export function ReviewLaunch({
               )}
             </div>
 
-            <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <Datum className="text-sm text-destructive" data-testid="launch-error-message">
-                {launchRateLimit
-                  ? formatLaunchRateLimitMessage(launchRateLimit, prelaunchUsage?.accountName)
-                  : launchError}
-              </Datum>
+            <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5">
+              <div className="flex justify-end px-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(launchFailureText).then(
+                      () => {
+                        setLaunchErrorCopied(true);
+                        window.setTimeout(() => setLaunchErrorCopied(false), 1500);
+                      },
+                      () => {},
+                    );
+                  }}
+                >
+                  {launchErrorCopied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+              <div className="max-h-48 overflow-y-auto px-4 pb-3" data-testid="launch-error-message">
+                <Datum className="whitespace-pre-wrap text-sm text-destructive">
+                  {launchFailureText}
+                </Datum>
+              </div>
             </div>
 
             <div className="mt-5 flex justify-end gap-2">

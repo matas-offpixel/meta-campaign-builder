@@ -6,10 +6,12 @@ import { AccountSetupStep } from "@/components/tiktok-wizard/steps/account-setup
 import { BudgetScheduleStep } from "@/components/tiktok-wizard/steps/budget-schedule";
 import { CampaignSetupStep } from "@/components/tiktok-wizard/steps/campaign-setup";
 import { OptimisationStrategyStep } from "@/components/tiktok-wizard/steps/optimisation-strategy";
+import { TikTokLaunchModeSection } from "@/components/tiktok-wizard/launch-mode-section";
 import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import { TIKTOK_DRAWER_COPY, resolveDetailField, tiktokDetailRows } from "@/lib/plan/drawer";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { formatPlanScheduleRange } from "@/lib/plan/format-schedule";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 import { VIZ_TYPE, VIZ_TYPE_NUM, type VizProvenance } from "@/lib/viz/tokens";
@@ -61,6 +63,11 @@ export function TikTokDrawerDetails({
       </button>
       <InfoTip label={TIKTOK_DRAWER_COPY.detailsTip} />
 
+      {open && planId ? (
+        <div className="mt-2 border-b border-border pb-3" data-launch-mode="">
+          <TikTokLaunchModeSection compact draft={draft} onSave={onSave} />
+        </div>
+      ) : null}
       {open ? (
         <dl className="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-0">
           {rows.map((row) => (
@@ -78,7 +85,7 @@ export function TikTokDrawerDetails({
           ))}
           {planId ? (
             <div className={`col-span-3 mt-1 ${VIZ_TYPE.label}`}>
-              <a className="text-muted-foreground underline" href={`/plan/${planId}`}>
+              <a className="text-muted-foreground underline" href={mmlPlanHref(planId)}>
                 canvas ↗
               </a>
             </div>

@@ -51,6 +51,34 @@ export function classifyCampaignFunnelStage(
   return "MOFU";
 }
 
+export type SignupSalesStage = "signup" | "sales";
+
+/**
+ * Signup versus sales for reporting. Both Meta objectives are BOFU in
+ * {@link classifyCampaignFunnelStage}; this is the split that must not
+ * follow the campaign objective alone. A new registration launch is
+ * OUTCOME_SALES with COMPLETE_REGISTRATION on the ad set. An old one is
+ * OUTCOME_LEADS and stays signup. PURCHASE (and any other sales event,
+ * including a missing event) stays sales.
+ */
+export function classifySignupSalesStage(campaign: {
+  objective?: string | null;
+  customEventType?: string | null;
+}): SignupSalesStage | null {
+  const event = (campaign.customEventType ?? "").trim().toUpperCase();
+  const objective = (campaign.objective ?? "").trim().toUpperCase();
+  if (event === "COMPLETE_REGISTRATION") return "signup";
+  if (objective === "OUTCOME_LEADS" || objective === "LEAD_GENERATION") return "signup";
+  if (
+    objective === "OUTCOME_SALES" ||
+    objective === "CONVERSIONS" ||
+    objective === "PRODUCT_CATALOG_SALES"
+  ) {
+    return "sales";
+  }
+  return null;
+}
+
 function normalizeStage(value: string | null | undefined): FunnelStage | null {
   const stage = value?.toUpperCase();
   return stage && VALID_STAGES.has(stage as FunnelStage)

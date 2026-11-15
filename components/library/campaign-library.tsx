@@ -13,7 +13,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { saveDraftToDb, loadCampaignList, duplicateCampaign, deleteCampaign, updateCampaignStatus } from "@/lib/db/drafts";
+import { saveDraftToDb, loadCampaignList, loadDraftById, duplicateCampaign, deleteCampaign, updateCampaignStatus } from "@/lib/db/drafts";
+import {
+  addToCampaignHref,
+  seedAddToCampaignDraft,
+  type LiveCampaignForAdd,
+} from "@/lib/library/add-to-campaign";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { applyTemplate } from "@/lib/templates";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
@@ -46,6 +51,8 @@ export function CampaignLibrary() {
   const [armedCount, setArmedCount] = useState(0);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [addError, setAddError] = useState<{ id: string; message: string } | null>(null);
+  const [targetingWritesEnabled, setTargetingWritesEnabled] = useState<boolean | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Save-as-template modal
@@ -74,6 +81,12 @@ export function CampaignLibrary() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserId(user.id);
+      fetch("/api/meta/adset-targeting-writes")
+        .then(async (res) => {
+          const json = (await res.json()) as { enabled?: boolean };
+          setTargetingWritesEnabled(res.ok && json.enabled === true);
+        })
+        .catch(() => setTargetingWritesEnabled(false));
 
       const [items, armedRes] = await Promise.all([
         loadCampaignList(user.id),
@@ -168,6 +181,46 @@ export function CampaignLibrary() {
     setPickedEventId("");
   };
 
+  const handleAddToCampaign = async (id: string) => {
+    if (!userId) return;
+    setActionLoading(id);
+    setAddError(null);
+    try {
+      const source = await loadDraftById(id);
+      const metaId = source?.metaCampaignId?.trim() ?? "";
+      if (!source || !metaId) {
+        setAddError({ id, message: "This campaign has no Meta campaign id." });
+        return;
+      }
+      const res = await fetch(`/api/meta/campaigns/${encodeURIComponent(metaId)}`);
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        campaign?: LiveCampaignForAdd;
+      } | null;
+      if (!res.ok || !body?.campaign) {
+        setAddError({
+          id,
+          message: body?.error || "Could not read the campaign from Meta.",
+        });
+        return;
+      }
+      const now = new Date().toISOString();
+      const next = seedAddToCampaignDraft(source, body.campaign, {
+        id: crypto.randomUUID(),
+        now,
+      });
+      await saveDraftToDb(next, userId);
+      router.push(addToCampaignHref(next.id));
+    } catch (err) {
+      setAddError({
+        id,
+        message: err instanceof Error ? err.message : "Could not open the campaign.",
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const confirmEventPick = async () => {
     if (!userId || !eventPick || !pickedEventId) return;
     setActionLoading(eventPick.sourceId);
@@ -227,9 +280,9 @@ export function CampaignLibrary() {
 
   // ─── Tab config ──────────────────────────────────────────────────────────────
   const tabs: { id: LibraryTab; label: string; count: number }[] = [
-    { id: "drafts", label: "Drafts", count: campaigns.filter((c) => c.status === "draft").length },
-    { id: "published", label: "Published", count: campaigns.filter((c) => c.status === "published").length },
-    { id: "archived", label: "Archived", count: campaigns.filter((c) => c.status === "archived").length },
+    { id: "drafts", label: "Drafts", count: filterLibraryCampaigns(campaigns, "drafts", "").length },
+    { id: "published", label: "Published", count: filterLibraryCampaigns(campaigns, "published", "").length },
+    { id: "archived", label: "Archived", count: filterLibraryCampaigns(campaigns, "archived", "").length },
     { id: "armed", label: "Armed", count: armedCount },
     { id: "templates", label: "Templates", count: templates.length },
   ];
@@ -357,7 +410,10 @@ export function CampaignLibrary() {
                   onConfirmDelete={handleDelete}
                   onCancelDelete={() => setConfirmDeleteId(null)}
                   onRelaunch={handleRelaunch}
+                  onAddToCampaign={(rowId) => void handleAddToCampaign(rowId)}
+                  addToCampaignError={addError?.id === c.id ? addError.message : null}
                   onSaveAsTemplate={handleSaveAsTemplate}
+                  targetingWritesEnabled={targetingWritesEnabled}
                 />
               ))}
             </div>

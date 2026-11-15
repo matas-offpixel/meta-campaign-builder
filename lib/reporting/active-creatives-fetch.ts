@@ -26,6 +26,7 @@ import {
   type CreativeRow,
 } from "@/lib/reporting/active-creatives-group";
 import { dedupAdsByAdId } from "@/lib/reporting/active-creatives-dedup";
+import { videoIdToUpgrade } from "@/lib/reporting/active-creatives-thumbnail";
 import {
   buildMultiGetBatch,
   parseMultiGetSubResponse,
@@ -36,6 +37,7 @@ import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import {
   extractPreview,
+  firstPresentCopy,
   type RawCreative,
 } from "@/lib/reporting/creative-preview-extract";
 import type { ActiveCreativeThumbnailSource } from "@/lib/reporting/active-creatives-group";
@@ -363,17 +365,20 @@ function extractCopy(
 ): { headline: string | null; body: string | null } {
   if (!creative) return { headline: null, body: null };
   const oss = creative.object_story_spec;
-  const headline =
-    creative.title?.trim() ||
-    oss?.link_data?.name?.trim() ||
-    oss?.video_data?.title?.trim() ||
-    null;
-  const body =
-    creative.body?.trim() ||
-    oss?.link_data?.message?.trim() ||
-    oss?.link_data?.description?.trim() ||
-    oss?.video_data?.message?.trim() ||
-    null;
+  const headline = firstPresentCopy([
+    creative.asset_feed_spec?.titles?.[0]?.text,
+    creative.title,
+    oss?.link_data?.name,
+    oss?.video_data?.title,
+  ]);
+  const body = firstPresentCopy([
+    creative.body,
+    oss?.link_data?.message,
+    creative.asset_feed_spec?.bodies?.[0]?.text,
+    oss?.link_data?.description,
+    creative.asset_feed_spec?.descriptions?.[0]?.text,
+    oss?.video_data?.message,
+  ]);
   return { headline, body };
 }
 
@@ -1571,13 +1576,8 @@ export async function fetchActiveCreativesForEvent(
     const admin = input.admin;
     const videoIdsToUpgrade = new Set<string>();
     for (const ad of dedupedAds) {
-      if (
-        ad.preview?.is_low_res_fallback === true &&
-        ad.preview.tier === "afs_video_thumb" &&
-        ad.preview.video_id
-      ) {
-        videoIdsToUpgrade.add(ad.preview.video_id);
-      }
+      const videoId = videoIdToUpgrade(ad.preview);
+      if (videoId) videoIdsToUpgrade.add(videoId);
     }
     // Per-gate breakdown: how many ads match each condition independently, plus the intersection
     const gateStats = {
@@ -1620,9 +1620,9 @@ export async function fetchActiveCreativesForEvent(
           `[active-creatives] video_thumbnail_enrichment done upgraded=${thumbnailsMap.size}/${videoIdsToUpgrade.size} event=${eventCode}`,
         );
         for (const ad of dedupedAds) {
-          if (ad.preview.tier !== "afs_video_thumb") continue;
-          if (!ad.preview.video_id) continue;
-          const thumb = thumbnailsMap.get(ad.preview.video_id);
+          const videoId = videoIdToUpgrade(ad.preview);
+          if (!videoId) continue;
+          const thumb = thumbnailsMap.get(videoId);
           if (!thumb) continue;
           ad.preview.image_url = thumb.uri;
           ad.preview.is_low_res_fallback = false;

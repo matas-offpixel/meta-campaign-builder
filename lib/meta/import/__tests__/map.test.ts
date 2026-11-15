@@ -253,22 +253,21 @@ describe("Ironworks capture maps to a draft", () => {
 });
 
 describe("import save", () => {
-  it("returns 400 and writes nothing when carry has no eventId", async () => {
-    let saved = 0;
+  it("a carry with no eventId is not refused before the campaign is read", async () => {
     const result = await handleMetaImport({
       userId: OPERATOR,
       body: { adAccountId: ACCOUNT, campaignId: "52522388611107", carry: ["1"] },
       supabase: {} as never,
       deps: {
         tokenForUser: async () => ({ token: "t" }),
-        saveDraft: async () => {
-          saved += 1;
+        readCampaign: async () => {
+          throw new Error("read started");
         },
       },
     });
-    assert.equal(result.status, 400);
-    assert.equal(result.body.error, "event_id is required");
-    assert.equal(saved, 0);
+    assert.equal(result.status, 502);
+    assert.match(String(result.body.error), /read started/);
+    assert.notEqual(result.body.error, "event_id is required");
   });
 
   it("carry [] saves nothing", async () => {
@@ -316,18 +315,94 @@ describe("import save", () => {
 });
 
 describe("importer writes nothing to Meta", () => {
-  it("has no write helper and no location search", () => {
+  const write =
+    /\b(createMeta[A-Za-z]+|createLookalikeAudience|createEngagementAudience|graphPost[A-Za-z]*)\s*\(/;
+
+  it("has no write helper", () => {
     const files = [
       ...collectTs(IMPORT_ROOT),
       join(HERE, "../../../../app/api/meta/campaigns/import/route.ts"),
     ];
-    const write =
-      /\b(createMeta[A-Za-z]+|createLookalikeAudience|createEngagementAudience|graphPost[A-Za-z]*)\s*\(/;
     for (const file of files) {
       const source = readFileSync(file, "utf8");
       assert.equal(write.test(source), false, file);
-      assert.equal(source.includes("location-search"), false, file);
       assert.equal(source.includes("fetchAdSetsForCampaign"), false, file);
     }
+  });
+
+  it("uses location search only in save.ts, as a country-group name lookup", () => {
+    const files = [
+      ...collectTs(IMPORT_ROOT),
+      join(HERE, "../../../../app/api/meta/campaigns/import/route.ts"),
+    ];
+    const save = join(IMPORT_ROOT, "save.ts");
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      if (!source.includes("location-search")) continue;
+      assert.equal(file, save, `${file} must not reach location search`);
+      const imports = [
+        ...source.matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]*location-search[^"]*)"/g),
+      ];
+      assert.equal(imports.length, 1, file);
+      assert.equal(imports[0]![2], "../location-search.ts");
+      assert.deepEqual(
+        imports[0]![1]!.split(",").map((name) => name.trim()).filter(Boolean).sort(),
+        ["locationSearchQuery", "parseLocationSearchHits"],
+      );
+      assert.equal(source.split("location-search").length - 1, 1, "only the import names it");
+      assert.match(source, /locationSearchQuery\(\s*key\s*,\s*\["country_group"\]\s*\)/);
+    }
+
+    const helper = readFileSync(join(HERE, "../../location-search.ts"), "utf8");
+    assert.equal(write.test(helper), false);
+    assert.equal(/\bfetch\s*\(/.test(helper), false);
+  });
+});
+
+describe("budget probe c imports as CBO lifetime", () => {
+  it("reads the campaign lifetime_budget and does not invent an ad set daily budget", () => {
+    const fixture = JSON.parse(
+      readFileSync(join(HERE, "../../__fixtures__/budget-probes/zz-budget-probe.json"), "utf8"),
+    ) as {
+      probes: {
+        c: { readback: Record<string, unknown> };
+        b: { adsetReadback?: Record<string, unknown> };
+      };
+    };
+    const campaign = fixture.probes.c.readback;
+    const draft = mapMetaLiveCampaign({
+      bundle: {
+        campaign,
+        adSets: [
+          {
+            id: "120252046531910755",
+            name: "zz-budget-probe-cbo-end-via-adset-row",
+            status: "PAUSED",
+            campaign_id: campaign.id,
+            targeting: {
+              age_min: 18,
+              age_max: 65,
+              geo_locations: { countries: ["GB"] },
+            },
+          },
+        ],
+        ads: [],
+        creatives: {},
+      },
+      adAccountId: "act_606252931141334",
+      carry: [],
+      availability: [],
+    });
+
+    assert.equal(draft.budgetSchedule.budgetLevel, "campaign");
+    assert.equal(draft.budgetSchedule.budgetType, "lifetime");
+    assert.equal(draft.budgetSchedule.budgetAmount, 50);
+    assert.equal(draft.adSetSuggestions.length, 1);
+    assert.equal(draft.adSetSuggestions[0]?.budgetPerDay, 0);
+    assert.equal(draft.adSetSuggestions[0]?.budgetLifetime, undefined);
+    assert.equal(
+      draft.importMeta?.dropped.some((row) => row.field === "daily_budget"),
+      false,
+    );
   });
 });

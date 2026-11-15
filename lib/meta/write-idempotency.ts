@@ -15,7 +15,43 @@ export type MetaWriteOpKind =
   | "campaign_create"
   | "adset_create"
   | "ad_create"
-  | "creative_upload";
+  | "creative_upload"
+  | "adset_targeting_update"
+  | "adset_destination_update"
+  /** On-sale refresh Apply (migration 236): one creative per accepted add line and campaign. */
+  | "refresh_creative_create"
+  /** On-sale refresh Apply: one ad per accepted add line and ad set. */
+  | "refresh_ad_create"
+  /** The gated ad-status write (lib/meta/ad-status-write.ts). */
+  | "ad_status_update"
+  /** The gated ad-set status write (lib/meta/adset-status-write.ts, migration 237). */
+  | "adset_status_update"
+  /** On-sale refresh Apply: one side of a budget move — a within-campaign move, or a new ad set's funding (migration 237). */
+  | "refresh_adset_budget_update"
+  /** On-sale refresh Apply: the new ad set a cluster bring-back or a standing default makes (migration 237). */
+  | "refresh_adset_create"
+  /** P4 Purchase campaign, step 1: the show's custom conversion, own-domain path (migration 243). */
+  | "refresh_custom_conversion_create"
+  /** P4 Purchase campaign, step 2: the campaign, paused; one per line (migration 243). */
+  | "refresh_campaign_create"
+  /** P4 step 5 (and PC4): a campaign's lifetime_budget write (migration 243). */
+  | "refresh_campaign_lifetime_budget_update"
+  /** P4 step 6: the Purchase campaign set active (migration 243). */
+  | "refresh_campaign_status_update";
+
+/**
+ * Thrown only when a caller passes `{ required: true }` and the ledger
+ * cannot record the op. Launch creates stay fall-open: they omit `required`
+ * and still proceed when the table is absent.
+ */
+export class MetaWriteLedgerRequiredError extends Error {
+  readonly reason: string;
+  constructor(reason: string) {
+    super(`Meta write ledger is required (${reason})`);
+    this.name = "MetaWriteLedgerRequiredError";
+    this.reason = reason;
+  }
+}
 
 export interface MetaWriteContext {
   supabase: Pick<SupabaseClient, "from">;
@@ -30,8 +66,22 @@ interface IdempotencyRow {
   op_status: "pending" | "success" | "failed";
 }
 
-export function hashMetaWritePayload(payload: unknown): string {
-  return createHash("sha256").update(stableStringify(payload)).digest("hex");
+/**
+ * Stable hash of a write payload. `adset_create` omits `name`: a group
+ * rename or city-suffix resolution between attempts is the same ad set.
+ * The ledger key stays draft + this hash, and the hash still includes
+ * `campaign_id` and targeting.
+ */
+export function hashMetaWritePayload(payload: unknown, opKind?: MetaWriteOpKind): string {
+  return createHash("sha256").update(stableStringify(payloadForHash(payload, opKind))).digest("hex");
+}
+
+function payloadForHash(payload: unknown, opKind?: MetaWriteOpKind): unknown {
+  if (opKind !== "adset_create") return payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  const rest = { ...(payload as Record<string, unknown>) };
+  delete rest.name;
+  return rest;
 }
 
 export function isMetaIdempotencyTableMissing(error: {
@@ -72,12 +122,19 @@ export async function withMetaWriteIdempotency(
   opKind: MetaWriteOpKind,
   payload: unknown,
   run: () => Promise<string>,
+  options?: { required?: boolean },
 ): Promise<string> {
+  const required = options?.required === true;
+  const refuse = (reason: string): never => {
+    throw new MetaWriteLedgerRequiredError(reason);
+  };
+
   if (!context?.draftId || !context.userId) {
+    if (required) refuse("no_context");
     return run();
   }
 
-  const payloadHash = hashMetaWritePayload(payload);
+  const payloadHash = hashMetaWritePayload(payload, opKind);
   const { data: existing, error: lookupError } = await context.supabase
     .from("meta_write_idempotency")
     .select("id,op_result_id,op_status")
@@ -88,12 +145,14 @@ export async function withMetaWriteIdempotency(
 
   const lookupUnavailable = ledgerUnavailableReason(lookupError);
   if (lookupUnavailable) {
+    if (required) refuse(lookupUnavailable);
     console.warn(
       `[meta-write-idempotency] ledger unavailable (${lookupUnavailable}); proceeding without idempotency`,
     );
     return run();
   }
   if (lookupError) {
+    if (required) refuse(`ledger_error:${lookupError.code ?? "unknown"}`);
     console.warn(
       `[meta-write-idempotency] ledger unavailable (ledger_error:${lookupError.code ?? "unknown"}); proceeding without idempotency`,
     );
@@ -125,12 +184,14 @@ export async function withMetaWriteIdempotency(
 
   const pendingUnavailable = ledgerUnavailableReason(pendingError);
   if (pendingUnavailable) {
+    if (required) refuse(pendingUnavailable);
     console.warn(
       `[meta-write-idempotency] ledger unavailable (${pendingUnavailable}); proceeding without idempotency`,
     );
     return run();
   }
   if (pendingError) {
+    if (required) refuse(`ledger_error:${pendingError.code ?? "unknown"}`);
     console.warn(
       `[meta-write-idempotency] ledger unavailable (ledger_error:${pendingError.code ?? "unknown"}); proceeding without idempotency`,
     );
@@ -139,6 +200,7 @@ export async function withMetaWriteIdempotency(
 
   const rowId = (pending as { id?: string } | null)?.id ?? existingRow?.id ?? null;
   if (!rowId) {
+    if (required) refuse("row_not_returned");
     console.warn(
       "[meta-write-idempotency] ledger unavailable (row_not_returned); proceeding without idempotency",
     );
@@ -199,6 +261,63 @@ export async function listFailedMetaWrites(
   return (data as Array<FailedMetaWrite & { op_status?: string }>)
     .filter((row) => row.op_status === "failed" && kinds.has(row.op_kind))
     .map((row) => ({ op_kind: row.op_kind, op_payload_hash: row.op_payload_hash }));
+}
+
+/**
+ * A stored campaign id Meta will no longer accept. Drops that campaign
+ * row and the draft's ad-set and ad rows, whose parent id is dead.
+ * Creative uploads stay. No new column — delete is the invalidation,
+ * same as the TikTok rollback clear.
+ */
+export async function invalidateDeadCampaignLedger(
+  context: Pick<MetaWriteContext, "supabase" | "draftId">,
+  campaignRowId: string,
+): Promise<void> {
+  const drop = async (eqs: Record<string, string>) => {
+    let query = context.supabase.from("meta_write_idempotency").delete();
+    for (const [column, value] of Object.entries(eqs)) {
+      query = query.eq(column, value);
+    }
+    const { error } = await query;
+    const unavailable = ledgerUnavailableReason(error);
+    if (unavailable) {
+      console.warn(
+        `[meta-write-idempotency] invalidate skipped (${unavailable}) draft=${context.draftId}`,
+      );
+      return;
+    }
+    if (error) throw new Error(error.message);
+  };
+  await drop({ id: campaignRowId });
+  await drop({ draft_id: context.draftId, op_kind: "adset_create" });
+  await drop({ draft_id: context.draftId, op_kind: "ad_create" });
+}
+
+/**
+ * Drops one ledger row by the same delete-by-hash invalidation as
+ * `invalidateDeadCampaignLedger`. A targeting add and its remove are
+ * different triples; after one succeeds, the other triple must be gone
+ * so a deliberate reversal is not short-circuited as a retry.
+ */
+export async function invalidateMetaWritePayload(
+  context: Pick<MetaWriteContext, "supabase" | "draftId">,
+  opKind: MetaWriteOpKind,
+  payload: unknown,
+): Promise<void> {
+  const { error } = await context.supabase
+    .from("meta_write_idempotency")
+    .delete()
+    .eq("draft_id", context.draftId)
+    .eq("op_kind", opKind)
+    .eq("op_payload_hash", hashMetaWritePayload(payload, opKind));
+  const unavailable = ledgerUnavailableReason(error);
+  if (unavailable) {
+    console.warn(
+      `[meta-write-idempotency] invalidate skipped (${unavailable}) draft=${context.draftId}`,
+    );
+    return;
+  }
+  if (error) throw new Error(error.message);
 }
 
 export async function clearMetaWriteIdempotency(

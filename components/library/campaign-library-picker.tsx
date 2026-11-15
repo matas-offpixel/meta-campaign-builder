@@ -84,9 +84,9 @@ export function CampaignLibraryPicker({
   );
 
   const tabs: { id: LibraryTab; label: string; count: number }[] = [
-    { id: "drafts", label: "Drafts", count: campaigns.filter((c) => c.status === "draft").length },
-    { id: "published", label: "Published", count: campaigns.filter((c) => c.status === "published").length },
-    { id: "archived", label: "Archived", count: campaigns.filter((c) => c.status === "archived").length },
+    { id: "drafts", label: "Drafts", count: filterLibraryCampaigns(campaigns, "drafts", "").length },
+    { id: "published", label: "Published", count: filterLibraryCampaigns(campaigns, "published", "").length },
+    { id: "archived", label: "Archived", count: filterLibraryCampaigns(campaigns, "archived", "").length },
     { id: "templates", label: "Templates", count: templates.length },
   ];
 

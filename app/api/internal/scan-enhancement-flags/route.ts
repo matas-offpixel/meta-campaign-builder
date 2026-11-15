@@ -26,6 +26,11 @@ import {
   type FlaggedFeatureMap,
 } from "@/lib/meta/enhancement-policy";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  activeClientFilter,
+  loadArchivedClientIds,
+  logSkippedArchivedClients,
+} from "@/lib/db/client-status";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const maxDuration = 800;
@@ -404,14 +409,19 @@ async function handleScan(req: NextRequest) {
     });
   }
 
-  const { data: clients, error: clientsErr } = await admin
+  const clientsQuery = admin
     .from("clients")
     .select("id, name, meta_ad_account_id, user_id")
     .not("meta_ad_account_id", "is", null);
+  const [{ data: clients, error: clientsErr }, archivedClientIds] = await Promise.all([
+    activeClientFilter(clientsQuery),
+    loadArchivedClientIds(admin),
+  ]);
 
   if (clientsErr) {
     return NextResponse.json({ error: clientsErr.message }, { status: 500 });
   }
+  logSkippedArchivedClients("scan-enhancement-flags", archivedClientIds.size);
 
   console.info("[scan-enhancement-flags] cron: scanning all clients", {
     count: clients?.length ?? 0,

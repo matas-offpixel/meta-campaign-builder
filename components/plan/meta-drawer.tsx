@@ -9,6 +9,7 @@ import {
 } from "@/lib/wizard/use-campaign-draft";
 
 import { AssignCreatives } from "@/components/steps/assign-creatives";
+import { splitRotationOntoOwnAdSet } from "@/lib/wizard/split-rotation-adset";
 import { AudiencesStep } from "@/components/steps/audiences/audiences-step";
 import { BudgetSchedule } from "@/components/steps/budget-schedule";
 import { CampaignSetup } from "@/components/steps/campaign-setup";
@@ -44,9 +45,15 @@ import {
   type CampaignTemplate,
 } from "@/lib/types";
 import { applyTemplate } from "@/lib/templates";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { validateStep } from "@/lib/validation";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
 import { VIZ_TYPE, type VizStatus } from "@/lib/viz/tokens";
+
+import {
+  EventEndDateSync,
+  WizardEventContextProvider,
+} from "@/lib/wizard/use-event-context";
 
 import { MetaDrawerDetails } from "./meta-drawer-details";
 
@@ -116,11 +123,13 @@ export function MetaDrawer({
     flush,
     setDraft,
     updateSettings,
+    updateDraft,
     updateAudiences,
     updateCreatives,
     handlePageInstagramOverride,
     updateBudgetSchedule,
     updateAdSetSuggestions,
+    markGenerateReplaceImportedConfirmed,
     updateCreativeAssignments,
     updateOptimisationStrategy,
     autosave,
@@ -169,12 +178,10 @@ export function MetaDrawer({
   const appliedDefaults = useRef(false);
   useEffect(() => {
     if (!hydrated || !channelDefaults || appliedDefaults.current) return;
-    const next = fillMetaChannelDefaultsIfEmpty(draft, channelDefaults);
     appliedDefaults.current = true;
-    if (!next) return;
-    setDraft(next);
-    autosave(next);
-  }, [hydrated, channelDefaults, draft, setDraft, autosave]);
+    if (!fillMetaChannelDefaultsIfEmpty(draft, channelDefaults)) return;
+    updateDraft((current) => fillMetaChannelDefaultsIfEmpty(current, channelDefaults) ?? current);
+  }, [hydrated, channelDefaults, draft, updateDraft]);
 
   const audienceCount = useMemo(() => {
     const a = draft.audiences;
@@ -269,6 +276,8 @@ export function MetaDrawer({
   }, []);
 
   return (
+    <WizardEventContextProvider draftId={draft.id} eventId={settings.eventId} enabled={hydrated}>
+    <EventEndDateSync draft={draft} updateDraft={updateDraft} />
     <>
       <Drawer
         open={open}
@@ -320,6 +329,7 @@ export function MetaDrawer({
               eventId={settings.eventId}
               campaignName={settings.campaignName}
               imported={draft.importMeta != null}
+              adSetSuggestions={draft.adSetSuggestions}
             />
           ) : null}
 
@@ -347,6 +357,7 @@ export function MetaDrawer({
               showRows={mode === "new" || mode === "attach_campaign"}
               onBudgetChange={updateBudgetSchedule}
               onSuggestionsChange={updateAdSetSuggestions}
+              onGenerateReplaceImportedConfirmed={markGenerateReplaceImportedConfirmed}
               onSettingsChange={updateSettings}
               onAssignmentsChange={updateCreativeAssignments}
               planId={planId}
@@ -357,6 +368,7 @@ export function MetaDrawer({
           <MetaDrawerDetails
             draft={draft}
             onSettingsChange={updateSettings}
+            onApplyDraft={updateDraft}
             onBudgetChange={updateBudgetSchedule}
             onStrategyChange={updateOptimisationStrategy}
             /* In an attach mode the pickers own the `⊞` tab (decision 2). */
@@ -404,6 +416,7 @@ export function MetaDrawer({
         }}
       />
     </>
+    </WizardEventContextProvider>
   );
 }
 
@@ -443,6 +456,7 @@ function AdSetsTab({
   showRows,
   onBudgetChange,
   onSuggestionsChange,
+  onGenerateReplaceImportedConfirmed,
   onSettingsChange,
   onAssignmentsChange,
   planId,
@@ -457,6 +471,7 @@ function AdSetsTab({
   showRows: boolean;
   onBudgetChange: DraftController["updateBudgetSchedule"];
   onSuggestionsChange: DraftController["updateAdSetSuggestions"];
+  onGenerateReplaceImportedConfirmed: DraftController["markGenerateReplaceImportedConfirmed"];
   onSettingsChange: DraftController["updateSettings"];
   onAssignmentsChange: DraftController["updateCreativeAssignments"];
   planId: string | null;
@@ -499,6 +514,8 @@ function AdSetsTab({
           onBudgetChange={onBudgetChange}
           onSuggestionsChange={onSuggestionsChange}
           onSettingsChange={onSettingsChange}
+          generateReplaceImportedConfirmed={draft.generateReplaceImportedConfirmed}
+          onGenerateReplaceImportedConfirmed={onGenerateReplaceImportedConfirmed}
         />
       ) : null}
       {showAssign ? (
@@ -508,6 +525,23 @@ function AdSetsTab({
           creatives={draft.creatives}
           assignments={draft.creativeAssignments}
           onChange={onAssignmentsChange}
+          onSplitRotation={
+            attachAdSetMode
+              ? undefined
+              : (adSetId, creativeId) => {
+                  const creative = controller.draft.creatives.find((c) => c.id === creativeId);
+                  const next = splitRotationOntoOwnAdSet({
+                    adSets: controller.draft.adSetSuggestions,
+                    assignments: controller.draft.creativeAssignments,
+                    adSetId,
+                    creativeId,
+                    creativeName: creative?.name ?? "",
+                    newId: crypto.randomUUID(),
+                  });
+                  controller.updateAdSetSuggestions(next.adSets);
+                  controller.updateCreativeAssignments(next.assignments);
+                }
+          }
           attachAdSetMode={attachAdSetMode}
         />
       ) : null}
@@ -555,7 +589,7 @@ function LaunchIssues({
           */}
           <RetryFailedAdsPanel
             draftId={draft.id}
-            onRetryFailedAds={() => router.push(`/plan/${planId}`)}
+            onRetryFailedAds={() => router.push(mmlPlanHref(planId))}
           />
           <RetryLookalikesPanel draft={draft} />
         </div>

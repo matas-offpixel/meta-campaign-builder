@@ -2,8 +2,14 @@
 
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import {
+  googleAdsAccountPickerOptions,
+  googlePickerStoredId,
+  googleSearchEventPickerOptions,
+} from "@/lib/google-ads/account-picker-options";
 import {
   setPlanDefaultFinalUrl,
   updatePlan,
@@ -16,6 +22,7 @@ import {
   type GoogleSearchPlanTree,
 } from "@/lib/google-search/types";
 import { collectPlanFinalUrlState } from "@/lib/google-search/final-url-state";
+import { effectivePlanDailyBudget, formatPounds, inclusiveDays } from "@/lib/google-search/budget";
 
 import type { GoogleSearchWizardContext } from "../wizard-shell";
 
@@ -41,21 +48,17 @@ export function PlanSetupStep({
   surface?: StepSurface;
 }) {
   const plan = tree.plan;
+  const planDaily = effectivePlanDailyBudget(plan);
+  const planDays = inclusiveDays(plan.date_range);
 
   const eventOptions = [
     { value: "", label: "— no event link —" },
-    ...context.events.map((e) => ({
-      value: e.id,
-      label: e.event_code ? `${e.name} (${e.event_code})` : e.name,
-    })),
+    ...googleSearchEventPickerOptions(context.events),
   ];
 
   const accountOptions = [
     { value: "", label: "— pick an account —" },
-    ...context.googleAdsAccounts.map((a) => ({
-      value: a.id,
-      label: `${a.account_name ?? "Account"} (${a.google_customer_id})`,
-    })),
+    ...googleAdsAccountPickerOptions(context.googleAdsAccounts),
   ];
 
   function updateField<K extends keyof typeof plan>(key: K, value: (typeof plan)[K]) {
@@ -87,40 +90,53 @@ export function PlanSetupStep({
             onChange={(e) => updateField("name", e.target.value)}
             placeholder="e.g. Junction 2 Melodic Google Search"
           />
-          <Select
-            id="gs-plan-event"
+          <Combobox
             label="Linked event (optional)"
             value={plan.event_id ?? ""}
             options={eventOptions}
-            onChange={(e) => {
-              const value = e.target.value || null;
+            emptyText="No events match"
+            onChange={(picked) => {
+              const value = googlePickerStoredId(picked);
               if (value && !plan.name) suggestNameFromEvent(value);
               else updateField("event_id", value);
             }}
           />
-          <Select
-            id="gs-plan-account"
-            label="Google Ads account"
-            value={plan.google_ads_account_id ?? ""}
-            options={accountOptions}
-            onChange={(e) => updateField("google_ads_account_id", e.target.value || null)}
-            error={!plan.google_ads_account_id ? "Required before push." : undefined}
-          />
-          <Input
-            id="gs-plan-budget"
-            label="Total plan budget (£)"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="0.01"
-            value={plan.total_budget ?? ""}
-            onChange={(e) => {
-              const raw = e.target.value;
-              const num = raw === "" ? null : Number(raw);
-              updateField("total_budget", Number.isFinite(num) ? (num as number | null) : null);
-            }}
-            placeholder="e.g. 5000"
-          />
+          <div className="flex flex-col gap-1.5">
+            <Combobox
+              label="Google Ads account"
+              value={plan.google_ads_account_id ?? ""}
+              options={accountOptions}
+              emptyText="No accounts match"
+              onChange={(picked) => updateField("google_ads_account_id", googlePickerStoredId(picked))}
+            />
+            {!plan.google_ads_account_id && (
+              <StatusLine className="text-xs text-destructive">
+                Required before push.
+              </StatusLine>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="gs-plan-budget"
+              label="Total plan budget (£)"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={plan.total_budget ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const num = raw === "" ? null : Number(raw);
+                updateField("total_budget", Number.isFinite(num) ? (num as number | null) : null);
+              }}
+              placeholder="e.g. 5000"
+            />
+            <StatusLine className="text-xs text-muted-foreground">
+              {planDaily != null
+                ? `≈ ${formatPounds(planDaily)}/day over ${planDays} day${planDays === 1 ? "" : "s"}`
+                : "Set a total and a date range to get a daily budget."}
+            </StatusLine>
+          </div>
         </div>
       </Card>
 

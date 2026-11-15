@@ -7,7 +7,10 @@ import {
   type CreativePreview,
 } from "../active-creatives-group.ts";
 import { groupByAssetSignature } from "../group-creatives.ts";
-import { resolveActiveCreativeModalImage } from "../active-creatives-thumbnail.ts";
+import {
+  resolveActiveCreativeModalImage,
+  videoIdToUpgrade,
+} from "../active-creatives-thumbnail.ts";
 
 function preview(overrides: Partial<CreativePreview> = {}): CreativePreview {
   return {
@@ -163,4 +166,24 @@ test("single-ad concept uses that ad thumbnail for card and modal", () => {
     ],
     { thumbnail: "https://cdn.example/only.jpg", adId: "ad-only" },
   );
+});
+
+test("videoIdToUpgrade: every low-res tier with a video id gets the cached video thumbnail", () => {
+  const vid = "1234567890";
+  for (const tier of ["top_thumbnail_url", "afs_video_thumb", "video_id_graph_fallback"] as const) {
+    assert.equal(
+      videoIdToUpgrade(preview({ tier, video_id: vid, is_low_res_fallback: true })),
+      vid,
+      tier,
+    );
+  }
+  assert.equal(
+    videoIdToUpgrade(preview({ tier: "video_data_image_url", video_id: vid, is_low_res_fallback: false })),
+    null,
+  );
+  assert.equal(
+    videoIdToUpgrade(preview({ tier: "top_thumbnail_url", video_id: null, is_low_res_fallback: true })),
+    null,
+  );
+  assert.equal(videoIdToUpgrade(undefined), null);
 });

@@ -112,6 +112,34 @@ export async function fetchTikTokVideoInfo(input: {
   return rowsWithVideoId(res.list).map(normalizeTikTokVideoRow);
 }
 
+export interface TikTokImageInfo {
+  image_id: string;
+  image_url: string;
+}
+
+/** Same `/file/image/ad/info/` read the share snapshot uses for image-only ads. */
+export async function fetchTikTokImageInfo(input: {
+  advertiserId: string;
+  token: string;
+  imageIds: string[];
+  request?: TikTokGet;
+}): Promise<TikTokImageInfo[]> {
+  if (input.imageIds.length === 0) return [];
+  const request = input.request ?? tiktokGet;
+  const res = await request<{
+    list?: Array<{ image_id?: string; image_url?: string }>;
+  }>(
+    "/file/image/ad/info/",
+    { advertiser_id: input.advertiserId, image_ids: input.imageIds },
+    input.token,
+  );
+  return (res.list ?? []).flatMap((row) =>
+    row.image_id && row.image_url
+      ? [{ image_id: row.image_id, image_url: row.image_url }]
+      : [],
+  );
+}
+
 function clampLibraryPage(value: number | undefined): number {
   const n =
     typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : 1;

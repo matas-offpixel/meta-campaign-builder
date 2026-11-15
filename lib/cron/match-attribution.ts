@@ -101,20 +101,24 @@ export async function runMatchAttribution(
   // gets a touchpoint match doesn't keep getting deferred behind
   // newer ones.
   let from = 0;
+  const seenPurchases = new Set<string>();
   while (true) {
     const { data: purchaseRows, error: purchaseErr } = await sb
       .from("ticketing_purchase_events")
       .select("id, client_id, purchased_at, email_hash, external_id_hash, fbc")
       .gte("purchased_at", sinceIso)
       .order("purchased_at", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + PURCHASE_PAGE_SIZE - 1);
     if (purchaseErr) {
       throw new Error(
         `[match-attribution] purchase page read failed: ${purchaseErr.message}`,
       );
     }
-    const page = (purchaseRows ?? []) as PurchaseRow[];
-    if (page.length === 0) break;
+    const rawPage = (purchaseRows ?? []) as PurchaseRow[];
+    if (rawPage.length === 0) break;
+    // A row a later page repeats (unordered overlap) is not matched twice.
+    const page = rawPage.filter((r) => !seenPurchases.has(r.id) && Boolean(seenPurchases.add(r.id)));
 
     // Skip rows that already have a final match. We don't want to
     // re-flip an existing `email_hash` match to `unmatched` just
@@ -229,7 +233,7 @@ export async function runMatchAttribution(
       }
     }
 
-    if (page.length < PURCHASE_PAGE_SIZE) break;
+    if (rawPage.length < PURCHASE_PAGE_SIZE) break;
     from += PURCHASE_PAGE_SIZE;
   }
 

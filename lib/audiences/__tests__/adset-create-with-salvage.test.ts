@@ -114,7 +114,25 @@ describe("prepareAdSetPayloadForCreate", () => {
         },
         deps,
       ),
-      /has no budget/,
+      /has no daily budget/,
+    );
+  });
+
+  it("names a lifetime budget when lifetime_budget is present but not positive", async () => {
+    const deps = baseDeps();
+    await assert.rejects(
+      prepareAdSetPayloadForCreate(
+        {
+          adSet: adSet({ sourceType: "blank", sourceId: "" }),
+          payload: payload([], { daily_budget: undefined, lifetime_budget: 0 }),
+          freshlyCreatedEngagementAudienceIds: new Set(),
+          audienceNameById: new Map(),
+          getOrWaitAudienceReady: async (id) => ({ id, ready: true, timedOut: false, finalCode: null, finalDescription: null }),
+          logPrefix: "Phase 2",
+        },
+        deps,
+      ),
+      /has no lifetime budget/,
     );
   });
 

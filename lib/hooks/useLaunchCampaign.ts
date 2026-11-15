@@ -4,6 +4,10 @@ import { useState, useCallback } from "react";
 import type { CampaignDraft, LaunchSummary } from "@/lib/types";
 import { setFbTokenExpiredGlobal } from "@/lib/hooks/useMeta";
 import {
+  resolveLaunchErrorSource,
+  type LaunchErrorSource,
+} from "@/lib/meta/launch-failure-copy";
+import {
   writeBucCooldown,
   type RateLimitUiState,
 } from "@/lib/meta/rate-limit-ui";
@@ -27,6 +31,8 @@ export interface UseLaunchCampaignReturn {
   mutate: (draft: CampaignDraft, options?: LaunchOptions) => Promise<LaunchCampaignResult>;
   loading: boolean;
   error: string | null;
+  /** `preflight` when the 400 was our check; `meta` when Meta answered, or the source was absent. */
+  errorSource: LaunchErrorSource;
   rateLimit: RateLimitUiState | null;
   data: LaunchCampaignResult | null;
   resetError: () => void;
@@ -35,11 +41,13 @@ export interface UseLaunchCampaignReturn {
 export function useLaunchCampaign(): UseLaunchCampaignReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorSource, setErrorSource] = useState<LaunchErrorSource>("meta");
   const [rateLimit, setRateLimit] = useState<RateLimitUiState | null>(null);
   const [data, setData] = useState<LaunchCampaignResult | null>(null);
 
   const resetError = useCallback(() => {
     setError(null);
+    setErrorSource("meta");
     setRateLimit(null);
   }, []);
 
@@ -49,6 +57,7 @@ export function useLaunchCampaign(): UseLaunchCampaignReturn {
   ): Promise<LaunchCampaignResult> => {
     setLoading(true);
     setError(null);
+    setErrorSource("meta");
     setRateLimit(null);
     setData(null);
 
@@ -68,6 +77,7 @@ export function useLaunchCampaign(): UseLaunchCampaignReturn {
         | LaunchCampaignResult
         | {
             error?: string;
+            source?: LaunchErrorSource;
             fields?: Record<string, string>;
             metaError?: unknown;
             tokenExpired?: boolean;
@@ -78,11 +88,13 @@ export function useLaunchCampaign(): UseLaunchCampaignReturn {
       if (!res.ok) {
         const errBody = json as {
           error?: string;
+          source?: LaunchErrorSource;
           fields?: Record<string, string>;
           tokenExpired?: boolean;
           rateLimited?: boolean;
           rateLimit?: RateLimitUiState;
         };
+        setErrorSource(resolveLaunchErrorSource(errBody.source, res.status));
         if (errBody.rateLimited && errBody.rateLimit) {
           setRateLimit(errBody.rateLimit);
           const id = errBody.rateLimit.adAccountId;
@@ -111,5 +123,5 @@ export function useLaunchCampaign(): UseLaunchCampaignReturn {
     }
   }, []);
 
-  return { mutate, loading, error, rateLimit, data, resetError };
+  return { mutate, loading, error, errorSource, rateLimit, data, resetError };
 }

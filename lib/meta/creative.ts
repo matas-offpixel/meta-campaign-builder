@@ -40,6 +40,7 @@
 
 import type { AdCreativeDraft, CTAType, AdSetSuggestion } from "@/lib/types";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
+import { urlTagsFor } from "./url-tags.ts";
 
 // ─── CTA mapping ──────────────────────────────────────────────────────────────
 
@@ -52,6 +53,17 @@ export const CTA_MAP: Record<CTAType, string> = {
 
 export function mapCTAToMeta(cta: CTAType): string {
   return CTA_MAP[cta] ?? "LEARN_MORE";
+}
+
+/**
+ * The CTA for `asset_feed_spec.call_to_action_types`. Meta rejects BOOK_NOW
+ * there (subcode 1885396) and accepts BOOK_TRAVEL, which Ads Manager shows as
+ * "Book now" with Main destination Website (ad 120252046313680755).
+ * BUY_TICKETS there makes Ads Manager show the ad as a Facebook event
+ * (ad 120251882396650755), so it is passed through, not substituted.
+ */
+export function mapCTAToAssetFeed(cta: CTAType): string {
+  return cta === "book_now" ? "BOOK_TRAVEL" : mapCTAToMeta(cta);
 }
 
 // ─── Meta payload types ───────────────────────────────────────────────────────
@@ -179,6 +191,7 @@ export interface AssetFeedText {
 
 export interface AssetFeedLinkUrl {
   website_url: string;
+  display_url?: string;
   adlabels?: MetaAdLabel[];
 }
 
@@ -200,6 +213,8 @@ export interface AssetCustomizationRule {
   image_label?: MetaAdLabel;
   /** Required for SINGLE_VIDEO rules — references a video's adlabel name. */
   video_label?: MetaAdLabel;
+  /** References an adlabel on `link_urls[0]`. */
+  link_url_label?: MetaAdLabel;
 }
 
 export interface AssetFeedSpec {
@@ -272,6 +287,12 @@ export interface MetaCreativePayload {
    * per-source builders. See its docstring for the full feature list.
    */
   degrees_of_freedom_spec?: DegreesOfFreedomSpec;
+  /**
+   * Query string Meta appends to the landing URL — see `lib/meta/url-tags.ts`.
+   * Set once by {@link buildCreativePayload} on every shape; omitted when the
+   * operator's destination URL already carries its own utm tags.
+   */
+  url_tags?: string;
 }
 
 export interface MetaAdPayload {
@@ -389,6 +410,67 @@ function pickPrimaryCaption(creative: AdCreativeDraft): string {
   return creative.captions?.find((c) => c.text?.trim())?.text?.trim() ?? "";
 }
 
+/**
+ * A blank headline or description is sent as a single space.
+ *
+ * Meta stores `""` as absent and then scrapes the destination page —
+ * `og:title` into the headline, `og:description` into the description.
+ * Proven live 2026-09-30 on act_968594768066330, probe campaign
+ * `120250184738460453` (ads zz-1..zz-7):
+ *   - asset_feed_spec descriptions `[{text:""}]` (creative 2076871546280437)
+ *     read back as the page's og:description
+ *   - asset_feed_spec descriptions `[{text:" "}]` (ad 120250184747020453,
+ *     creative 3596321990508549) read back as `" "`
+ *   - asset_feed_spec titles `[{text:" "}]` (ad 120250184996260453,
+ *     creative 1834646800881210) read back as `" "`
+ *   - link_data `description: " "` / `name: " "` (ads 120250184742660453 and
+ *     120250184997590453) — the same
+ * Ads Manager confirmed zz-5 (spaces, creative 1834646800881210) renders
+ * blank and zz-7 (nothing sent, creative 2403727703789123) renders the
+ * page tags. The seven live DHB Dubai ads were corrected the same way
+ * (creative 1095493156197655).
+ *
+ * Do not "clean this up" to an empty string or by omitting the field.
+ * An empty string is byte-identical to omitting it, and that is what Meta scrapes.
+ * Operator-typed text is returned unchanged, including its own spacing.
+ */
+export function blankAsNoScrape(text: string | undefined | null): string {
+  if (text != null && text.trim().length > 0) return text;
+  return " ";
+}
+
+/** True when the launcher field is empty or whitespace, so a space will be sent. */
+export function isBlankCopy(text: string | undefined | null): boolean {
+  return text == null || text.trim().length === 0;
+}
+
+/**
+ * Read-back of {@link blankAsNoScrape}. A whitespace-only value is an absent
+ * field — the space must not reappear as headline or description content.
+ * Text that contains a real character is returned unchanged.
+ */
+export function readBlankCopy(text: string | undefined | null): string {
+  if (text == null || text.trim().length === 0) return "";
+  return text;
+}
+
+/**
+ * Launch-summary note for a new creative whose headline or description was
+ * blank. Existing-post boosts have no copy of their own and are not noted.
+ * Returns null when both fields carry operator text.
+ */
+export function suppressedCopyNote(creative: {
+  sourceType?: string;
+  headline?: string;
+  description?: string;
+}): string | null {
+  if (creative.sourceType === "existing_post") return null;
+  const parts: string[] = [];
+  if (isBlankCopy(creative.headline)) parts.push("headline: none");
+  if (isBlankCopy(creative.description)) parts.push("description: none");
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 // ─── Creative payload builders ────────────────────────────────────────────────
 
 function buildLinkCreative(
@@ -401,8 +483,8 @@ function buildLinkCreative(
   const linkData: MetaLinkData = {
     message: caption,
     link: creative.destinationUrl,
-    name: creative.headline || undefined,
-    description: creative.description || undefined,
+    name: blankAsNoScrape(creative.headline),
+    description: blankAsNoScrape(creative.description),
     call_to_action: {
       type: cta,
       value: { link: creative.destinationUrl },
@@ -515,10 +597,9 @@ async function buildVideoCreative(
     },
   };
 
-  // title is valid in video_data; description is NOT — omit it
-  if (creative.headline) {
-    videoData.title = creative.headline;
-  }
+  // title is valid in video_data; description is NOT — leave description unset.
+  // A blank headline is still sent as a space so Meta cannot scrape og:title.
+  videoData.title = blankAsNoScrape(creative.headline);
 
   // Meta requires image_url OR image_hash (subcode=1443226). We send
   // image_url only — never image_hash (/adimages is App-Review-blocked).
@@ -637,6 +718,8 @@ function detectMultiPlacement(creative: AdCreativeDraft): MultiPlacementPlan | n
 
 const FEED_LABEL = "feed_asset";
 const STORY_LABEL = "story_asset";
+const FEED_LINK_LABEL = "feed_link";
+const STORY_LINK_LABEL = "story_link";
 
 /**
  * Build a per-placement creative using `asset_feed_spec` +
@@ -649,8 +732,12 @@ const STORY_LABEL = "story_asset";
  *     them with asset_feed_spec triggers code=100.)
  *   - Two rules (Meta requires ≥2): the vertical rule (explicit Stories/Reels
  *     placements) and the Feed default rule (empty customization_spec catch-all).
- *   - `bodies` / `titles` / `descriptions` / `link_urls` carry no adlabels, so
- *     they apply across every placement (copy is not customized per placement).
+ *   - `bodies` / `titles` / `descriptions` carry no adlabels, so they apply
+ *     across every placement (copy is not customized per placement).
+ *   - `link_urls[0]` has `display_url: ""` and one adlabel per rule, and each
+ *     rule names its own with `link_url_label` — the shape Ads Manager saves
+ *     (creative 1141391478840165). The Website destination comes from the CTA
+ *     ({@link mapCTAToAssetFeed}), not from these labels.
  *
  * Caller (`buildCreativePayload`) only routes here when `detectMultiPlacement`
  * returns a plan, so both buckets are guaranteed present and same-media.
@@ -661,17 +748,22 @@ function buildMultiPlacementCreative(
   validatedIgActorId?: string,
 ): MetaCreativePayload {
   const caption = pickPrimaryCaption(creative);
-  const cta = mapCTAToMeta(creative.cta);
+  const cta = mapCTAToAssetFeed(creative.cta);
 
   const spec: AssetFeedSpec = {
     bodies: [{ text: caption }],
-    link_urls: [{ website_url: creative.destinationUrl }],
+    link_urls: [
+      {
+        website_url: creative.destinationUrl,
+        display_url: "",
+        adlabels: [{ name: STORY_LINK_LABEL }, { name: FEED_LINK_LABEL }],
+      },
+    ],
     call_to_action_types: [cta],
     optimization_type: "PLACEMENT",
+    titles: [{ text: blankAsNoScrape(creative.headline) }],
+    descriptions: [{ text: blankAsNoScrape(creative.description) }],
   };
-
-  if (creative.headline) spec.titles = [{ text: creative.headline }];
-  if (creative.description) spec.descriptions = [{ text: creative.description }];
 
   if (plan.mediaKind === "video") {
     spec.ad_formats = ["SINGLE_VIDEO"];
@@ -688,9 +780,17 @@ function buildMultiPlacementCreative(
       },
     ];
     spec.asset_customization_rules = [
-      { customization_spec: STORIES_REELS_SPEC, video_label: { name: STORY_LABEL } },
+      {
+        customization_spec: STORIES_REELS_SPEC,
+        video_label: { name: STORY_LABEL },
+        link_url_label: { name: STORY_LINK_LABEL },
+      },
       // Default catch-all (empty spec) → Feed asset. Must be last.
-      { customization_spec: {}, video_label: { name: FEED_LABEL } },
+      {
+        customization_spec: {},
+        video_label: { name: FEED_LABEL },
+        link_url_label: { name: FEED_LINK_LABEL },
+      },
     ];
   } else {
     spec.ad_formats = ["SINGLE_IMAGE"];
@@ -699,8 +799,16 @@ function buildMultiPlacementCreative(
       { hash: plan.vertical.assetHash!, adlabels: [{ name: STORY_LABEL }] },
     ];
     spec.asset_customization_rules = [
-      { customization_spec: STORIES_REELS_SPEC, image_label: { name: STORY_LABEL } },
-      { customization_spec: {}, image_label: { name: FEED_LABEL } },
+      {
+        customization_spec: STORIES_REELS_SPEC,
+        image_label: { name: STORY_LABEL },
+        link_url_label: { name: STORY_LINK_LABEL },
+      },
+      {
+        customization_spec: {},
+        image_label: { name: FEED_LABEL },
+        link_url_label: { name: FEED_LINK_LABEL },
+      },
     ];
   }
 
@@ -832,7 +940,7 @@ export function detectVariationRotation(creative: AdCreativeDraft): VariationRot
  * the assets live in `asset_feed_spec`.
  *
  * Caller (`buildCreativePayload`) only routes here when `detectVariationRotation`
- * returns a plan, and never for CTA=BOOK_NOW (blocked in AFS, constraint 1885396).
+ * returns a plan. Book now is sent as BOOK_TRAVEL ({@link mapCTAToAssetFeed}).
  */
 function buildVariationRotationCreative(
   creative: AdCreativeDraft,
@@ -840,16 +948,15 @@ function buildVariationRotationCreative(
   validatedIgActorId?: string,
 ): MetaCreativePayload {
   const caption = pickPrimaryCaption(creative);
-  const cta = mapCTAToMeta(creative.cta);
+  const cta = mapCTAToAssetFeed(creative.cta);
 
   const spec: AssetFeedSpec = {
     bodies: [{ text: caption }],
     link_urls: [{ website_url: creative.destinationUrl }],
     call_to_action_types: [cta],
+    titles: [{ text: blankAsNoScrape(creative.headline) }],
+    descriptions: [{ text: blankAsNoScrape(creative.description) }],
   };
-
-  if (creative.headline) spec.titles = [{ text: creative.headline }];
-  if (creative.description) spec.descriptions = [{ text: creative.description }];
 
   if (plan.mediaKind === "video") {
     spec.ad_formats = ["SINGLE_VIDEO"];
@@ -894,53 +1001,43 @@ function buildVariationRotationCreative(
  *
  * Mirrors the routing in {@link buildCreativePayload} EXACTLY so the launch
  * orchestration flags precisely the ad sets that get a rotation creative:
+ *   - the creative opts in (`rotateVariations`). Off, the default, launches
+ *     one normal ad per variation instead;
  *   - gated behind `ENABLE_MULTI_PLACEMENT_ASSETS === "1"` (same flag as the
  *     builder), so it returns false whenever rotation cannot fire;
  *   - never fires for existing-post creatives;
  *   - requires {@link detectVariationRotation} to return a plan (Single mode,
- *     2+ variations, same media kind);
- *   - never fires for CTA=BOOK_NOW (that path falls back to a single asset —
- *     Meta constraint 1885396 — so the ad set must NOT be dynamic).
+ *     2+ variations, same media kind).
  */
 export function creativeTriggersVariationRotation(creative: AdCreativeDraft): boolean {
+  if (creative.rotateVariations !== true) return false;
   if (process.env.ENABLE_MULTI_PLACEMENT_ASSETS !== "1") return false;
   if (creative.sourceType === "existing_post") return false;
-  if (!detectVariationRotation(creative)) return false;
-  if (mapCTAToMeta(creative.cta) === "BOOK_NOW") return false;
-  return true;
+  return detectVariationRotation(creative) !== null;
 }
 
+/** Which builder produced a payload. Rotation has an asset_feed_spec and no placement rules. */
+export function creativeLaunchPath(
+  payload: MetaCreativePayload,
+): "multi_placement" | "variation_rotation" | "single_asset" {
+  if ((payload.asset_feed_spec?.asset_customization_rules?.length ?? 0) > 0) return "multi_placement";
+  if (payload.asset_feed_spec) return "variation_rotation";
+  return "single_asset";
+}
+
+export const BUY_TICKETS_FACEBOOK_EVENT_WARNING =
+  "Ads Manager will show this ad as a Facebook event. Use Book now to keep the Website destination.";
+
 /**
- * Detect the BOOK_NOW + multi-placement conflict Meta blocks in
- * `asset_feed_spec.call_to_action_types` (subcode 1885396, PR #574/#575):
- * CTA is BOOK_NOW, `assetMode` is Dual or Full (not Single), and at least
- * one asset variation has BOTH a Feed (4:5/1:1) asset AND a vertical (9:16)
- * asset uploaded.
- *
- * When this fires, {@link buildCreativePayload} silently falls back to a
- * single 9:16 asset cross-published to every placement — the 4:5 Feed asset
- * is never used (live incident: WC26 Bournemouth, 2026-07-10, 10 ads shipped
- * 9:16 to Feed placements). Used to hard-block launch in the bulk-attach
- * Configure Creatives step rather than only warn.
- *
- * Broader than {@link detectMultiPlacement} on purpose: that helper only
- * inspects `assetVariations[0]` (it mirrors the builder's actual launch
- * scope), whereas this checks every variation so the UI block catches the
- * conflict regardless of which variation ends up primary.
+ * True when a Buy tickets creative is set up for an `asset_feed_spec` (Dual or
+ * Full mode, or Single mode with 2+ variations). Ads Manager shows those ads
+ * as a Facebook event, not Website. Warns only; the CTA is never changed.
  */
-export function creativeHasBookNowMultiPlacementConflict(creative: AdCreativeDraft): boolean {
-  if (mapCTAToMeta(creative.cta) !== "BOOK_NOW") return false;
-  if (creative.assetMode === "single") return false;
-  return (creative.assetVariations ?? []).some((variation) => {
-    const assets = variation.assets ?? [];
-    const hasVertical = assets.some(
-      (a) => a.aspectRatio === "9:16" && (a.videoId || a.assetHash),
-    );
-    const hasFeed = FEED_RATIOS.some((r) =>
-      assets.some((a) => a.aspectRatio === r && (a.videoId || a.assetHash)),
-    );
-    return hasVertical && hasFeed;
-  });
+export function creativeBuyTicketsShowsAsFacebookEvent(creative: AdCreativeDraft): boolean {
+  if (creative.cta !== "buy_tickets") return false;
+  if (creative.sourceType === "existing_post") return false;
+  if (creative.assetMode === "dual" || creative.assetMode === "full") return true;
+  return (creative.assetVariations ?? []).length >= 2;
 }
 
 function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePayload {
@@ -1021,8 +1118,8 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
  * A destination the operator typed. The captured Reel boost carries it as
  * `call_to_action.value.link` on the creative, not as `link_url`. An empty
  * URL leaves the payload bare — an engagement boost must stay that way.
- * CTA type is the draft's CTA. A URL with no CTA still needs a type on
- * this object, so that one case uses LEARN_MORE.
+ * CTA type is the draft's CTA. A URL without a CTA is a Step 5 block;
+ * this function throws rather than inventing a button.
  */
 function withExistingPostDestination(
   payload: MetaCreativePayload,
@@ -1030,65 +1127,13 @@ function withExistingPostDestination(
 ): MetaCreativePayload {
   const link = creative.destinationUrl?.trim() ?? "";
   if (!link) return payload;
-  const type = creative.cta && CTA_MAP[creative.cta] ? CTA_MAP[creative.cta] : "LEARN_MORE";
-  return { ...payload, call_to_action: { type, value: { link } } };
-}
-
-/**
- * Build a single-asset creative using the 9:16 VERTICAL asset from a
- * multi-placement plan. Used as the BOOK_NOW fallback: when the user has
- * uploaded both a 4:5 feed asset and a 9:16 vertical asset but chosen
- * BOOK_NOW as the CTA, per-placement AFS routing is unavailable (Meta API
- * subcode=1885396). We cross-publish the vertical asset across all placements
- * so that Stories/Reels receive their native ratio. Feed will auto-crop.
- *
- * The CTA is preserved exactly as configured — no silent substitution.
- */
-async function buildSingleAssetFromVertical(
-  creative: AdCreativeDraft,
-  plan: MultiPlacementPlan,
-  opts?: BuildCreativePayloadOpts,
-): Promise<MetaCreativePayload> {
-  const { validatedIgActorId } = opts ?? {};
-  if (plan.mediaKind === "video") {
-    // Build a video creative but force the vertical video id + thumbnail.
-    // We construct a minimal proxy creative whose only asset is the 9:16 video
-    // so that buildVideoCreative's pickPrimaryVideoAsset returns it.
-    const caption = pickPrimaryCaption(creative);
-    const cta = mapCTAToMeta(creative.cta);
-    const videoData: MetaVideoData = {
-      video_id: plan.vertical.videoId!,
-      message: caption,
-      call_to_action: { type: cta, value: { link: creative.destinationUrl } },
-    };
-    if (creative.headline) videoData.title = creative.headline;
-    // Same image_url-only treatment as buildVideoCreative (PR #767 regression fix).
-    const imageUrl = await resolveVideoThumbnailImageUrl(
-      creative.name,
-      plan.vertical.videoId!,
-      plan.vertical.thumbnailUrl,
-      opts,
+  const type = creative.cta && CTA_MAP[creative.cta] ? CTA_MAP[creative.cta] : "";
+  if (!type) {
+    throw new Error(
+      `"${creative.name || "This creative"}": A destination URL needs a call to action`,
     );
-    if (imageUrl) videoData.image_url = imageUrl;
-    const spec: MetaObjectStorySpec = { page_id: creative.identity.pageId, video_data: videoData };
-    if (validatedIgActorId) spec.instagram_user_id = validatedIgActorId;
-    return { name: creative.name || "Ad Creative", object_story_spec: spec };
-  } else {
-    // Build a link creative but force the vertical image hash.
-    const caption = pickPrimaryCaption(creative);
-    const cta = mapCTAToMeta(creative.cta);
-    const linkData: MetaLinkData = {
-      message: caption,
-      link: creative.destinationUrl,
-      name: creative.headline || undefined,
-      description: creative.description || undefined,
-      call_to_action: { type: cta, value: { link: creative.destinationUrl } },
-      image_hash: plan.vertical.assetHash,
-    };
-    const spec: MetaObjectStorySpec = { page_id: creative.identity.pageId, link_data: linkData };
-    if (validatedIgActorId) spec.instagram_user_id = validatedIgActorId;
-    return { name: creative.name || "Ad Creative", object_story_spec: spec };
   }
+  return { ...payload, call_to_action: { type, value: { link } } };
 }
 
 /**
@@ -1142,6 +1187,16 @@ export async function buildCreativePayload(
   creative: AdCreativeDraft,
   opts?: BuildCreativePayloadOpts,
 ): Promise<MetaCreativePayload> {
+  const payload = await buildCreativePayloadShape(creative, opts);
+  const urlTags = urlTagsFor(creative.destinationUrl);
+  console.log(`[url_tags] ${urlTags ? "applied" : "operator_utm_kept"} "${creative.name}"`);
+  return urlTags ? { ...payload, url_tags: urlTags } : payload;
+}
+
+async function buildCreativePayloadShape(
+  creative: AdCreativeDraft,
+  opts?: BuildCreativePayloadOpts,
+): Promise<MetaCreativePayload> {
   if (creative.sourceType === "existing_post") {
     return buildExistingPostCreative(creative);
   }
@@ -1181,56 +1236,26 @@ export async function buildCreativePayload(
   // asset of the same media kind is sent with asset_feed_spec so each placement
   // renders its own asset. Single-aspect creatives are untouched.
   //
-  // BOOK_NOW exception (Meta API constraint, PR #574/#575):
-  // asset_feed_spec.call_to_action_types: ["BOOK_NOW"] returns subcode=1885396
-  // for any objective and any media type — this is a Meta platform restriction,
-  // not a wizard bug. When CTA is BOOK_NOW and dual-mode is detected we fall
-  // through to the single-asset path using the 9:16 VERTICAL asset so that:
-  //   1. The CTA stays BOOK_NOW (never silently substituted).
-  //   2. The vertical asset cross-publishes more acceptably across placements
-  //      than 4:5 would (Stories/Reels receive the native ratio; Feed auto-crops).
+  // Book now goes into asset_feed_spec as BOOK_TRAVEL (mapCTAToAssetFeed):
+  // Meta rejects BOOK_NOW there (subcode 1885396). Single-asset paths below
+  // keep BOOK_NOW in link_data / video_data.
   if (process.env.ENABLE_MULTI_PLACEMENT_ASSETS === "1") {
-    // ── Variation rotation (Single mode + N variations) ────────────────────
-    // Checked BEFORE multi-placement detection so Single mode + N variations
-    // always wins over any accidental multi-placement detection.
-    const rotationPlan = detectVariationRotation(creative);
+    // ── Variation rotation (opt-in, Single mode + N variations) ─────────────
+    // Only when the creative asks to rotate. Otherwise launch expands the
+    // creative into one ad per variation before this builder runs.
+    const rotationPlan = creativeTriggersVariationRotation(creative)
+      ? detectVariationRotation(creative)
+      : null;
     if (rotationPlan) {
-      const metaCta = mapCTAToMeta(creative.cta);
-      if (metaCta === "BOOK_NOW") {
-        // BOOK_NOW is blocked in asset_feed_spec.call_to_action_types (Meta
-        // subcode 1885396) — same constraint as multi-placement. Fall through
-        // to the existing single-asset path below, which uses variation[0]
-        // only. CTA is preserved as-is (never silently substituted).
-        console.error(
-          `[buildCreativePayload] "${creative.name}" → SINGLE-ASSET path` +
-            ` (BOOK_NOW + N variations blocked in AFS per Meta API constraint 1885396;` +
-            ` using variation[0] only. Variations 2-${rotationPlan.variations.length} discarded.` +
-            ` To rotate variations: switch CTA to LEARN_MORE, SIGN_UP, or BUY_TICKETS.)`,
-        );
-        // Fall through — continue to multi-placement / single-asset logic below.
-      } else {
-        console.error(
-          `[buildCreativePayload] "${creative.name}" → VARIATION-ROTATION path` +
-            ` (${rotationPlan.variations.length} variations, ${rotationPlan.mediaKind})`,
-        );
-        return buildVariationRotationCreative(creative, rotationPlan, validatedIgActorId);
-      }
+      console.error(
+        `[buildCreativePayload] "${creative.name}" → VARIATION-ROTATION path` +
+          ` (${rotationPlan.variations.length} variations, ${rotationPlan.mediaKind})`,
+      );
+      return buildVariationRotationCreative(creative, rotationPlan, validatedIgActorId);
     }
 
     const plan = detectMultiPlacement(creative);
     if (plan) {
-      const metaCta = mapCTAToMeta(creative.cta);
-      if (metaCta === "BOOK_NOW") {
-        // BOOK_NOW is blocked in asset_feed_spec.call_to_action_types (Meta
-        // subcode 1885396). Fall through to single-asset using the vertical
-        // (9:16) asset. CTA is preserved as-is in link_data / video_data.
-        console.error(
-          `[buildCreativePayload] "${creative.name}" → SINGLE-ASSET path` +
-            ` (BOOK_NOW blocked in AFS per Meta API constraint 1885396;` +
-            ` using ${plan.mediaKind} vertical 9:16 asset for all placements)`,
-        );
-        return buildSingleAssetFromVertical(creative, plan, opts);
-      }
       // Dual/Full mode + N variations — OUT OF SCOPE for this PR. The
       // multi-placement path below only ever reads variation[0] (see
       // detectMultiPlacement), so this is already the correct fallback

@@ -4,6 +4,7 @@ import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurfa
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Select } from "@/components/ui/select";
+import { TikTokLaunchModeSection } from "@/components/tiktok-wizard/launch-mode-section";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
 import {
   defaultOptimisationGoalForObjective,
@@ -27,6 +28,12 @@ import {
   applyTikTokCampaignSetupPatch,
   createDebouncedCallback,
 } from "@/lib/tiktok-wizard/debounced-text-save";
+import {
+  isTikTokAdsOnlyLaunchMode,
+  tikTokAttachGoalObjective,
+  tikTokInheritedStepNote,
+  tikTokLaunchModeOf,
+} from "@/lib/tiktok-wizard/launch-mode";
 import { tikTokSalesPixelNotFiredMessage } from "@/lib/plan/tiktok-early";
 import type {
   TikTokBidStrategy,
@@ -105,16 +112,23 @@ export function CampaignSetupStep({
   const eventCode = draft.campaignSetup.eventCode;
   const lockedPrefix = eventCode ? `[${eventCode}] ` : "";
   const objective = draft.campaignSetup.objective ?? "TRAFFIC";
+  const launchMode = tikTokLaunchModeOf(draft);
+  const attach = launchMode !== "new";
+  const adsOnly = isTikTokAdsOnlyLaunchMode(launchMode);
+  const inheritedNote = tikTokInheritedStepNote(draft, "campaign");
+  // New ad groups in an existing campaign take that campaign's objective.
+  const goalObjective = tikTokAttachGoalObjective(draft) ?? objective;
   const goalOptions = useMemo(
-    () => TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE[objective],
-    [objective],
+    () => TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE[goalObjective],
+    [goalObjective],
   );
   const optimisationGoal =
     draft.campaignSetup.optimisationGoal &&
-    validOptimisationGoalForObjective(objective, draft.campaignSetup.optimisationGoal)
+    validOptimisationGoalForObjective(goalObjective, draft.campaignSetup.optimisationGoal)
       ? draft.campaignSetup.optimisationGoal
-      : defaultOptimisationGoalForObjective(objective);
+      : defaultOptimisationGoalForObjective(goalObjective);
   const invalidObjectiveGoal = Boolean(
+    !attach &&
     draft.campaignSetup.objective &&
       draft.campaignSetup.optimisationGoal &&
       !validOptimisationGoalForObjective(
@@ -198,7 +212,7 @@ export function CampaignSetupStep({
 
   async function saveGoal(nextGoal: TikTokOptimisationGoal) {
     await persist({
-      objective: draftRef.current.campaignSetup.objective ?? objective,
+      objective: attach ? goalObjective : (draftRef.current.campaignSetup.objective ?? objective),
       optimisationGoal: nextGoal,
     });
   }
@@ -210,7 +224,15 @@ export function CampaignSetupStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      
+      {surface === "wizard" ? (
+        <TikTokLaunchModeSection draft={draft} onSave={onSave} />
+      ) : null}
+
+      {inheritedNote ? (
+        <StatusLine className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+          {inheritedNote}
+        </StatusLine>
+      ) : null}
 
       {saveError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -219,6 +241,8 @@ export function CampaignSetupStep({
       )}
 
       <div className="space-y-2">
+        {!attach ? (
+        <>
         <label htmlFor="tiktok-campaign-name" className="text-sm font-medium text-foreground">
           Campaign name
         </label>
@@ -237,6 +261,8 @@ export function CampaignSetupStep({
             placeholder="Campaign name"
           />
         </div>
+        </>
+        ) : null}
         {!eventCode && (
           <StatusLine tone="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             Set an event_code on the event row before creating a campaign.
@@ -259,7 +285,9 @@ export function CampaignSetupStep({
         )}
       </div>
 
+      {!adsOnly ? (
       <div className="grid gap-4 md:grid-cols-2">
+        {!attach ? (
         <Select
           id="tiktok-objective"
           label="Objective"
@@ -271,6 +299,7 @@ export function CampaignSetupStep({
             label: TIKTOK_OBJECTIVE_LABELS[value],
           }))}
         />
+        ) : null}
         <Select
           id="tiktok-optimisation-goal"
           label="Optimisation goal"
@@ -279,12 +308,13 @@ export function CampaignSetupStep({
           disabled={saving}
           options={goalOptions.map((value) => ({
             value,
-            label: tikTokOptimisationGoalLabel(value, objective),
+            label: tikTokOptimisationGoalLabel(value, goalObjective),
           }))}
         />
       </div>
+      ) : null}
 
-      {isAwarenessTikTokObjective(draft.campaignSetup.objective) && (
+      {!attach && isAwarenessTikTokObjective(draft.campaignSetup.objective) && (
         <StatusLine
           tone="alert"
           className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
@@ -293,7 +323,7 @@ export function CampaignSetupStep({
         </StatusLine>
       )}
 
-      {isTikTokSalesObjective(draft.campaignSetup.objective) && (
+      {!attach && isTikTokSalesObjective(draft.campaignSetup.objective) && (
         <Select
           id="tiktok-sales-destination"
           label="Sales destination"
@@ -311,7 +341,8 @@ export function CampaignSetupStep({
         />
       )}
 
-      {isTikTokSalesObjective(draft.campaignSetup.objective) &&
+      {!attach &&
+        isTikTokSalesObjective(draft.campaignSetup.objective) &&
         draft.accountSetup.pixelId &&
         pixelEventCount === 0 && (
           <StatusLine
@@ -324,13 +355,14 @@ export function CampaignSetupStep({
           </StatusLine>
         )}
 
-      {draft.campaignSetup.objective === "LEAD_GENERATION" && (
+      {!attach && draft.campaignSetup.objective === "LEAD_GENERATION" && (
         <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
           <Datum className="font-medium text-foreground">Optimization location</Datum>
           
         </div>
       )}
 
+      {!adsOnly ? (
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <Select
@@ -366,6 +398,7 @@ export function CampaignSetupStep({
           Smart+ is set in Step 2. A Smart+ draft cannot be launched by this writer.
         </Datum>
       </div>
+      ) : null}
     </div>
       </StepSurfaceProvider>
   );

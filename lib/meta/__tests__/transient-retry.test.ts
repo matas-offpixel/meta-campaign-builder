@@ -233,7 +233,7 @@ describe("retry surface copy and wiring", () => {
     const review = readFileSync("components/steps/review-launch.tsx", "utf8");
     const launch = readFileSync("app/api/meta/launch-campaign/route.ts", "utf8");
     const retry = readFileSync("app/api/meta/launch-retry/route.ts", "utf8");
-    assert.match(wizard, /onRetryFailedAds=\{handleLaunch\}/);
+    assert.match(wizard, /onRetryFailedAds=\{canvasOwnsLaunch \? undefined : handleLaunch\}/);
     assert.match(review, /RetryFailedAdsPanel/);
     assert.match(launch, /prepareAdSetPayloadForCreate/);
     assert.match(launch, /receiptAudienceIds/);

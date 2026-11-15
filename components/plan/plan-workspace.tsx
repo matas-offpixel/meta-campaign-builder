@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
 import { CanvasAdjust } from "@/components/plan/canvas-adjust";
@@ -13,6 +13,9 @@ import { CanvasHeader } from "@/components/plan/canvas-header";
 import { CanvasLaunch } from "@/components/plan/canvas-launch";
 import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
+import { MmlCopy } from "@/components/plan/mml-copy";
+import { MmlPlaceholderCard, MmlSection } from "@/components/plan/mml-section";
+import { MmlPromoterIdentity } from "@/components/plan/mml-promoter-identity";
 import { maybePlanNoShowLock } from "@/components/plan/plan-no-show-lock";
 import { DecisionsSheet } from "@/components/plan/decisions-sheet";
 import { GoogleDrawerMount } from "@/components/plan/google-drawer";
@@ -21,6 +24,7 @@ import { MetaDrawerMount } from "@/components/plan/meta-drawer";
 import { TikTokDrawerMount } from "@/components/plan/tiktok-drawer";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
 import { Combobox } from "@/components/ui/combobox";
+import { MmlWizard } from "@/components/wizard/mml-wizard";
 import { InfoTip } from "@/components/viz/info-tip";
 import type { OverflowMenuItem } from "@/components/viz/overflow-menu";
 import {
@@ -35,8 +39,10 @@ import {
   planLaunchButton,
   type PlanChannelRowModel,
 } from "@/lib/plan/canvas";
-import type { IdentityNameMap } from "@/lib/plan/identity-chips";
+import { EMPTY_IDENTITY_NAMES, type IdentityNameMap } from "@/lib/plan/identity-chips";
 import { EMPTY_CHANNEL_FACTS } from "@/lib/plan/canvas-facts";
+import { MML_LIST_PATH, MML_NEW_HREF, mmlPlanHref } from "@/lib/plan/mml-routes";
+import { MML_SECTION } from "@/lib/plan/mml-sections";
 import {
   planDefaultWindow,
   planWindowFromHandles,
@@ -58,7 +64,7 @@ import { planBenchmark, runFromViewRow, selectBenchmarkRows, type BenchmarkRow }
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { dismissBlockerBadges } from "@/lib/viz/blockers";
-import { VIZ_TYPE, VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
+import { VIZ_TYPE } from "@/lib/viz/tokens";
 import { resolvePlanDestination } from "@/lib/plan/destination";
 import { planHeaderName } from "@/lib/plan/plan-name";
 import { shouldPersistPlanOnChange } from "@/lib/plan/persist-policy";
@@ -101,7 +107,7 @@ import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import {
   identityAccountLabel,
   launchBlockedLine,
-  launchBlockerRows,
+  launchBlockerGroups,
   launchChannelRunning,
   launchReadingUnit,
   launchUnitWord,
@@ -137,7 +143,10 @@ interface MirrorFacts {
 }
 
 /**
- * `/plan/[id]` — the canvas (§2). Seven zones top to bottom, one button.
+ * `/mml/[id]` — the MML canvas. One scrolling page of numbered sections
+ * (`MML_SECTIONS`): ① event & promoter · ② creatives · ③ copy · ④ budget &
+ * schedule · ⑤ locations & placements · ⑥ channels · ⑦ launch. The zones
+ * below moved into those sections unchanged.
  *
  * Everything that used to be a form control on this page is either a
  * zone, a badge, or gone: the name comes from the event, the objective
@@ -152,6 +161,7 @@ interface MirrorFacts {
 export function PlanWorkspace({
   initialPlan,
   events,
+  headerActions,
   tiktokAdvertiserId,
   googleAdsAccounts = [],
   isNew = false,
@@ -174,6 +184,8 @@ export function PlanWorkspace({
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
+  /** Rendered in the canvas header beside share; the operator page passes the Insights pill. */
+  headerActions?: ReactNode;
   tiktokAdvertiserId?: string | null;
   googleAdsAccounts?: GoogleSearchWizardContext["googleAdsAccounts"];
   isNew?: boolean;
@@ -269,6 +281,7 @@ export function PlanWorkspace({
    */
   const restoredDrawer = useRef(false);
   useEffect(() => {
+    if (!readOnly) return;
     if (restoredDrawer.current) return;
     restoredDrawer.current = true;
     const fromUrl = readDrawerUrl(searchParams);
@@ -287,10 +300,11 @@ export function PlanWorkspace({
         : defaultAnchorFor(fromUrl.adapter),
       tab: fromUrl.tab,
     });
-  }, [searchParams, plan.launches]);
+  }, [searchParams, plan.launches, readOnly]);
 
-  /** Shallow replace — the route stays `/plan/[id]`; only the query moves. */
+  /** Shallow replace — the route stays `/mml/[id]`; only the query moves. */
   useEffect(() => {
+    if (!readOnly && !drawer && !decisionsOpen) return;
     const next = drawerUrl(
       pathname,
       decisionsOpen
@@ -306,7 +320,7 @@ export function PlanWorkspace({
     const current = `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`;
     if (next !== current) router.replace(next, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- searchParams is the comparison basis, not a trigger
-  }, [drawer, decisionsOpen, pathname, router]);
+  }, [drawer, decisionsOpen, pathname, router, readOnly]);
 
   const hasMetaDraft = plan.launches.meta.draftId != null;
   const selectedEvent = events.find((event) => event.id === plan.intent.eventId) ?? null;
@@ -540,8 +554,8 @@ export function PlanWorkspace({
           if (json.ok) {
             setPersisted(true);
             setExistingOffer(null);
-            if (window.location.pathname === "/plan/new") {
-              router.replace(`/plan/${plan.id}`);
+            if (window.location.pathname === MML_NEW_HREF) {
+              router.replace(mmlPlanHref(plan.id));
             }
             return;
           }
@@ -713,7 +727,7 @@ export function PlanWorkspace({
     }
     setHasUserEdit(true);
     setPersisted(true);
-    if (window.location.pathname === "/plan/new") router.replace(`/plan/${plan.id}`);
+    if (window.location.pathname === MML_NEW_HREF) router.replace(mmlPlanHref(plan.id));
     return true;
   }
 
@@ -1024,7 +1038,7 @@ export function PlanWorkspace({
       body: JSON.stringify({ eventId: plan.intent.eventId }),
     });
     const json = (await res.json()) as { ok?: boolean; plan?: { id: string } };
-    if (res.ok && json.ok && json.plan) router.push(`/plan/${json.plan.id}`);
+    if (res.ok && json.ok && json.plan) router.push(mmlPlanHref(json.plan.id));
   }
 
   async function saveAsTemplate() {
@@ -1143,316 +1157,419 @@ export function PlanWorkspace({
     ? identityAccountLabel(metaAccountId, identityNames) || metaAccountId
     : null;
 
+  /** Roadmap placeholders and the ① markers are operator-only. */
+  const numbered = !readOnly;
+  const launchPanel = (
+    <CanvasLaunch
+      role={role}
+      button={launchButton}
+      stages={undefined}
+      error={error}
+      onLaunch={() => void launchAll()}
+      onResumeAll={() =>
+        void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
+      }
+      readyAdapters={readyLaunchAdapters(rows)}
+      preflightSettled={preflightOk !== null}
+      blockerSentence={launchBlockedLine({
+        hasEvent: Boolean(plan.intent.eventId),
+        busy,
+        windowOk,
+        issues,
+        blockerCount: planPreflightBlockerCount(issues),
+      })}
+      blockerGroups={launchBlockerGroups(issues)}
+      onOpenBlocker={(anchor) => {
+        const row = rows.find((item) => item.adapter === anchor.drawer);
+        if (row) void openChannel(row, undefined, anchor);
+      }}
+    />
+  );
+
   return (
     <div>
-      <CanvasHeader
-        name={headerName}
-        planTitle={plan.name}
-        clientName={selectedEvent?.clientName ?? null}
-        venueName={selectedEvent?.venueName ?? null}
-        eventDate={selectedEvent?.eventDate ?? null}
-        eventCode={selectedEvent?.eventCode ?? null}
-        launchedMeta={plan.launches.meta}
-        clientDefaultMetaId={selectedEvent?.metaAdAccountId ?? null}
-        launchedAt={launchStamp?.at ?? null}
-        launchedWord={launchStamp?.word}
-        launchedAtSource={launchStamp?.source}
-        thumbUrl={thumbUrl}
-        destination={
-          readOnly ? { ...destination, overridable: false } : destination
-        }
-        onDestination={(url) => {
-          if (readOnly) return;
-          patchIntent({ destinationUrl: url });
-        }}
-        decisionCount={readOnly ? 0 : decisionCount}
-        decisionsRef={decisionsOpenRef}
-        onDecisionsOpen={() => {
-          window.localStorage.setItem(planLastOpenedKey(plan.id), new Date().toISOString());
-          setDecisionCount(0);
-          setDrawer(null);
-          setDecisionsOpen(true);
-        }}
-        menuItems={menuItems}
-        resolved={resolved}
-        identityNames={identityNames}
-        shareAction={
-          role === "operator" && persisted ? (
-            <PlanShareAction
-              planId={plan.id}
-              initialToken={initialShareToken}
-              initialEnabled={initialShareEnabled}
-            />
-          ) : null
-        }
-      />
+      {readOnly ? (
+      <div className="space-y-8">
+      <MmlSection section={MML_SECTION.event} numbered={numbered}>
+        <CanvasHeader
+          actions={headerActions}
+          name={headerName}
+          planTitle={plan.name}
+          clientName={selectedEvent?.clientName ?? null}
+          venueName={selectedEvent?.venueName ?? null}
+          eventDate={selectedEvent?.eventDate ?? null}
+          eventCode={selectedEvent?.eventCode ?? null}
+          launchedMeta={plan.launches.meta}
+          clientDefaultMetaId={selectedEvent?.metaAdAccountId ?? null}
+          launchedAt={launchStamp?.at ?? null}
+          launchedWord={launchStamp?.word}
+          launchedAtSource={launchStamp?.source}
+          thumbUrl={thumbUrl}
+          destination={
+            readOnly ? { ...destination, overridable: false } : destination
+          }
+          onDestination={(url) => {
+            if (readOnly) return;
+            patchIntent({ destinationUrl: url });
+          }}
+          decisionCount={readOnly ? 0 : decisionCount}
+          decisionsRef={decisionsOpenRef}
+          onDecisionsOpen={() => {
+            window.localStorage.setItem(planLastOpenedKey(plan.id), new Date().toISOString());
+            setDecisionCount(0);
+            setDrawer(null);
+            setDecisionsOpen(true);
+          }}
+          menuItems={menuItems}
+          resolved={resolved}
+          identityNames={identityNames}
+          shareAction={
+            !readOnly && persisted ? (
+              <PlanShareAction
+                planId={plan.id}
+                initialToken={initialShareToken}
+                initialEnabled={initialShareEnabled}
+              />
+            ) : null
+          }
+        />
 
-      {noShow && share.switcher ? (
-        <div className={`max-w-md ${VIZ_ZONE_GUTTER.normal}`}>
-          <Combobox
-            label="Event"
-            value={plan.intent.eventId}
-            onChange={(eventId) => {
-              const event = events.find((row) => row.id === eventId) ?? null;
-              const window = planDefaultWindow(event);
-              phasePickedRef.current = false;
-              markPlan((current) => ({
-                ...current,
-                phase: derivePhaseFor(event, window.startDate),
-                intent: { ...current.intent, eventId, ...window },
-                updatedAt: new Date().toISOString(),
-              }));
-            }}
-            options={pickerOptions}
-            placeholder="Select an event"
-            emptyText="No matching events"
-          />
-        </div>
-      ) : null}
-
-      {isNew && !readOnly && !isLearnFace && !isAdjustFace ? (
-        <div className={`max-w-md space-y-1 ${VIZ_ZONE_GUTTER.normal}`}>
-          {offer ? (
-            <span className={`block ${VIZ_TYPE.body}`}>
-              <a href={`/plan/${offer.id}`} className="underline underline-offset-2">
-                {existingPhaseOffer(offer.phase)}
-              </a>
-            </span>
-          ) : null}
-          {plan.phase ? null : (
-            <span className={`block ${VIZ_TYPE.body} text-foreground/70`}>
-              {NEW_PLAN_NEEDS_PHASE}
-            </span>
-          )}
-          <label className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground`}>
-            <span>phase</span>
-            <select
-              className="rounded-sm border border-border bg-background px-1.5 py-0.5"
-              aria-label="plan phase"
-              value={plan.phase ?? ""}
-              onChange={(event) => {
-                const next = event.target.value;
-                phasePickedRef.current = next.length > 0;
+        {noShow && share.switcher ? (
+          <div className="max-w-md">
+            <Combobox
+              label="Event"
+              value={plan.intent.eventId}
+              onChange={(eventId) => {
+                const event = events.find((row) => row.id === eventId) ?? null;
+                const window = planDefaultWindow(event);
+                phasePickedRef.current = false;
                 markPlan((current) => ({
                   ...current,
-                  phase: isCampaignPlanPhase(next) ? next : null,
+                  phase: derivePhaseFor(event, window.startDate),
+                  intent: { ...current.intent, eventId, ...window },
                   updatedAt: new Date().toISOString(),
                 }));
               }}
-            >
-              <option value="">phase</option>
-              {CAMPAIGN_PLAN_PHASES.map((phase) => (
-                <option key={phase} value={phase}>
-                  {phaseWord(phase)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      ) : null}
+              options={pickerOptions}
+              placeholder="Select an event"
+              emptyText="No matching events"
+            />
+          </div>
+        ) : null}
 
-      {isLearnFace ? (
-        <CanvasLearn
-          role={role}
-          eventName={learnEventName}
-          venueLabel={selectedEvent?.venueName ?? null}
-          unitWord={launchUnitWord(
-            learnReadingUnit({
-              launchedAt: planLaunchedAt(plan.launches) ?? plan.createdAt,
-              now: clock,
-              generalSaleAt: selectedEvent?.generalSaleAt,
-              presaleAt: selectedEvent?.presaleAt,
-              kind: selectedEvent?.kind,
-            }),
-          )}
-          prediction={learnPrediction}
-          actual={learnActual}
-          nextTime={learnNext?.value ?? null}
-          nextN={learnNext?.n ?? 0}
-          nextBand={learnNext?.band ?? null}
-          paceDaily={plan.intent.budget.totalDaily}
-          pacePlanSaid={
-            days
-              ? plan.intent.budget.totalDaily * days
-              : plan.intent.budget.totalDaily
-          }
-          paceSpent={liveSpend}
-          archivedAt={plan.status === "archived" ? plan.updatedAt : null}
-          identity={{
-            metaName: learnMetaName,
-            tiktokRan: plan.launches.tiktok.platformCampaignId != null,
-            googleRan: plan.launches.google.platformCampaignId != null,
+        {isNew && !readOnly && !isLearnFace && !isAdjustFace ? (
+          <div className="max-w-md space-y-1">
+            {offer ? (
+              <span className={`block ${VIZ_TYPE.body}`}>
+                <a href={mmlPlanHref(offer.id)} className="underline underline-offset-2">
+                  {existingPhaseOffer(offer.phase)}
+                </a>
+              </span>
+            ) : null}
+            {plan.phase ? null : (
+              <span className={`block ${VIZ_TYPE.body} text-foreground/70`}>
+                {NEW_PLAN_NEEDS_PHASE}
+              </span>
+            )}
+            <label className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground`}>
+              <span>phase</span>
+              <select
+                className="rounded-sm border border-border bg-background px-1.5 py-0.5"
+                aria-label="plan phase"
+                value={plan.phase ?? ""}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  phasePickedRef.current = next.length > 0;
+                  markPlan((current) => ({
+                    ...current,
+                    phase: isCampaignPlanPhase(next) ? next : null,
+                    updatedAt: new Date().toISOString(),
+                  }));
+                }}
+              >
+                <option value="">phase</option>
+                {CAMPAIGN_PLAN_PHASES.map((phase) => (
+                  <option key={phase} value={phase}>
+                    {phaseWord(phase)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
+
+        <MmlPromoterIdentity
+          hasEvent={!noShow}
+          resolved={resolved}
+          names={identityNames}
+          editLink={!readOnly}
+        />
+
+        {isLearnFace || isAdjustFace ? null : (
+          <div className="pt-2">
+            {maybePlanNoShowLock(
+              noShow,
+              <CanvasWindow
+                event={selectedEvent}
+                dates={{
+                  startDate: plan.intent.startDate,
+                  startTime: plan.intent.startTime,
+                  endDate: plan.intent.endDate,
+                  endTime: plan.intent.endTime,
+                }}
+                createdAt={plan.createdAt}
+                now={clock}
+                onChange={setWindow}
+                readOnly={readOnly || noShow}
+                googleBudgeted={plan.intent.budget.googleDaily > 0}
+              />,
+            )}
+          </div>
+        )}
+      </MmlSection>
+
+      <MmlSection section={MML_SECTION.creatives} numbered={numbered}>
+        <CanvasAssets
+          planId={plan.id}
+          hasMetaDraft={hasMetaDraft}
+          onUpload={() => {
+            if (metaDraftId) openDrawerOrWizard("meta", metaDraftId);
           }}
+          onUnregistered={setUnregisteredAssets}
+          readOnly={readOnly}
         />
-      ) : isAdjustFace ? (
-        <CanvasAdjust
-          role={role}
-          spent={adjustReads?.spend ?? liveSpend ?? 0}
-          planned={plannedSpendByToday(dailyBudget, sinceLaunch, clock)}
-          kind={selectedEvent?.kind}
-          benchmark={adjustBenchmark}
-          writeGates={adjustGates}
-          channels={(adjustReads?.channels ?? []).map((channel) => ({
-            ...channel,
-            connected:
-              channel.name === "TikTok"
-                ? Boolean(resolved?.tiktokAdvertiser.value)
-                : channel.name === "Google"
-                  ? Boolean(resolved?.googleAdsCustomer.value)
-                  : true,
-          }))}
-          metaSignups={adjustReads ? adjustReads.metaRegs : null}
-          metaPurchases={adjustReads ? adjustReads.metaPurchases : null}
-          tagDomain={domainFromUrl(destination.url)}
-          tickets={ticketSource === "none" ? null : (adjustReads?.tickets ?? ticketStage?.value ?? null)}
-          ticketSource={ticketSource}
-          decisions={adjustDecisions}
-          moments={planWindowMoments(selectedEvent, clock)}
-          start={sinceLaunch}
-          end={adjustHandles.end}
-          endSet={adjustValidity.ok}
-          launchedAt={launchedAt}
-          venueName={selectedEvent?.venueName ?? null}
-          generalSaleAt={selectedEvent?.generalSaleAt ?? null}
-          presaleAt={selectedEvent?.presaleAt ?? null}
-          lastCreativeSnapshotAt={adjustReads?.lastCreativeSnapshotAt ?? null}
-          trend={adjustReads?.dailyCostPerSignup ?? null}
-          reach={adjustReads?.reach ?? null}
-          clicks={adjustReads?.clicks ?? null}
-          pageViews={adjustReads?.firstPartyLpv ?? lpvStage?.value ?? null}
-          now={clock}
-          readsPending={readsPending}
-          onWindowChange={(next) => setWindow(planWindowFromHandles(next))}
-        />
-      ) : null}
+      </MmlSection>
 
-      {isLearnFace || isAdjustFace ? null : (
-      <div className={VIZ_ZONE_GUTTER.normal}>
-        {maybePlanNoShowLock(
-          noShow,
-          <CanvasWindow
-            event={selectedEvent}
-            dates={{
-              startDate: plan.intent.startDate,
-              startTime: plan.intent.startTime,
-              endDate: plan.intent.endDate,
-              endTime: plan.intent.endTime,
-            }}
-            createdAt={plan.createdAt}
-            now={clock}
-            onChange={setWindow}
-            readOnly={readOnly || noShow}
-            googleBudgeted={plan.intent.budget.googleDaily > 0}
-          />,
-        )}
-      </div>
+      {readOnly ? null : (
+        <MmlSection section={MML_SECTION.copy}>
+          <MmlCopy planId={plan.id} defaultUrl={plan.intent.destinationUrl} />
+        </MmlSection>
       )}
 
-      {isLearnFace || isAdjustFace ? null : (
-      <div className={VIZ_ZONE_GUTTER.tight}>
-        {maybePlanNoShowLock(
-          noShow,
-          <CanvasBudget
-            budget={plan.intent.budget}
-            mode={budgetMode}
-            lifetime={lifetimeTotal}
-            startDate={plan.intent.startDate}
-            endDate={plan.intent.endDate}
-            hasUserEdit={hasUserEdit}
-            onBudget={(budget) => patchIntent({ budget })}
-            onMode={(mode) => {
-              setBudgetMode(mode);
-              if (mode === "lifetime" && days) {
-                setLifetimeTotal(
-                  Math.round(
-                    (plan.intent.budget.metaDaily +
-                      plan.intent.budget.tiktokDaily +
-                      plan.intent.budget.googleDaily) *
-                      days,
-                  ),
-                );
-              }
+      <MmlSection section={MML_SECTION.budget} numbered={numbered}>
+        {isLearnFace ? (
+          <CanvasLearn
+            role={role}
+            eventName={learnEventName}
+            venueLabel={selectedEvent?.venueName ?? null}
+            unitWord={launchUnitWord(
+              learnReadingUnit({
+                launchedAt: planLaunchedAt(plan.launches) ?? plan.createdAt,
+                now: clock,
+                generalSaleAt: selectedEvent?.generalSaleAt,
+                presaleAt: selectedEvent?.presaleAt,
+                kind: selectedEvent?.kind,
+              }),
+            )}
+            prediction={learnPrediction}
+            actual={learnActual}
+            nextTime={learnNext?.value ?? null}
+            nextN={learnNext?.n ?? 0}
+            nextBand={learnNext?.band ?? null}
+            paceDaily={plan.intent.budget.totalDaily}
+            pacePlanSaid={
+              days
+                ? plan.intent.budget.totalDaily * days
+                : plan.intent.budget.totalDaily
+            }
+            paceSpent={liveSpend}
+            archivedAt={plan.status === "archived" ? plan.updatedAt : null}
+            identity={{
+              metaName: learnMetaName,
+              tiktokRan: plan.launches.tiktok.platformCampaignId != null,
+              googleRan: plan.launches.google.platformCampaignId != null,
             }}
-            onLifetime={setLifetimeTotal}
-            readOnly={readOnly || noShow}
-            readAcross={readAcross}
-            remedyLinks={role === "operator" && !noShow}
-          />,
-        )}
-      </div>
-      )}
-
-      {isLearnFace || isAdjustFace ? null : (
-      <div className={VIZ_ZONE_GUTTER.tight}>
-        {maybePlanNoShowLock(
-          noShow,
-          <CanvasTarget
-            value={plan.intent.target.value}
-            unit={plan.intent.target.unit}
-            objectiveIntent={plan.intent.objectiveIntent}
-            presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
-            onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
-            onUnit={setTargetUnit}
-            onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
-            generalSaleAt={selectedEvent?.generalSaleAt}
-            presaleAt={selectedEvent?.presaleAt}
+          />
+        ) : isAdjustFace ? (
+          <CanvasAdjust
+            role={role}
+            spent={adjustReads?.spend ?? liveSpend ?? 0}
+            planned={plannedSpendByToday(dailyBudget, sinceLaunch, clock)}
             kind={selectedEvent?.kind}
-            venueName={selectedEvent?.venueName}
-            venueKey={selectedEvent?.venueKey}
-            clientId={selectedEvent?.clientId}
-            excludeEventId={selectedEvent?.id}
-            launched={launchStamp != null}
+            benchmark={adjustBenchmark}
+            writeGates={adjustGates}
+            channels={(adjustReads?.channels ?? []).map((channel) => ({
+              ...channel,
+              connected:
+                channel.name === "TikTok"
+                  ? Boolean(resolved?.tiktokAdvertiser.value)
+                  : channel.name === "Google"
+                    ? Boolean(resolved?.googleAdsCustomer.value)
+                    : true,
+            }))}
+            metaSignups={adjustReads ? adjustReads.metaRegs : null}
+            metaPurchases={adjustReads ? adjustReads.metaPurchases : null}
+            tagDomain={domainFromUrl(destination.url)}
+            tickets={ticketSource === "none" ? null : (adjustReads?.tickets ?? ticketStage?.value ?? null)}
+            ticketSource={ticketSource}
+            decisions={adjustDecisions}
+            moments={planWindowMoments(selectedEvent, clock)}
+            start={sinceLaunch}
+            end={adjustHandles.end}
+            endSet={adjustValidity.ok}
+            launchedAt={launchedAt}
+            venueName={selectedEvent?.venueName ?? null}
+            generalSaleAt={selectedEvent?.generalSaleAt ?? null}
+            presaleAt={selectedEvent?.presaleAt ?? null}
+            lastCreativeSnapshotAt={adjustReads?.lastCreativeSnapshotAt ?? null}
+            trend={adjustReads?.dailyCostPerSignup ?? null}
+            reach={adjustReads?.reach ?? null}
+            clicks={adjustReads?.clicks ?? null}
+            pageViews={adjustReads?.firstPartyLpv ?? lpvStage?.value ?? null}
             now={clock}
-            benchmarkRows={benchmarkRows}
-            unitPicker={share.unitPicker && !noShow}
-            campaignTarget={campaignTarget}
-            remedyLinks={role === "operator" && !noShow}
+            readsPending={readsPending}
+            onWindowChange={(next) => setWindow(planWindowFromHandles(next))}
+          />
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
+            <div className="min-w-0">
+              {maybePlanNoShowLock(
+                noShow,
+                <CanvasBudget
+                  budget={plan.intent.budget}
+                  mode={budgetMode}
+                  lifetime={lifetimeTotal}
+                  startDate={plan.intent.startDate}
+                  endDate={plan.intent.endDate}
+                  hasUserEdit={hasUserEdit}
+                  onBudget={(budget) => patchIntent({ budget })}
+                  onMode={(mode) => {
+                    setBudgetMode(mode);
+                    if (mode === "lifetime" && days) {
+                      setLifetimeTotal(
+                        Math.round(
+                          (plan.intent.budget.metaDaily +
+                            plan.intent.budget.tiktokDaily +
+                            plan.intent.budget.googleDaily) *
+                            days,
+                        ),
+                      );
+                    }
+                  }}
+                  onLifetime={setLifetimeTotal}
+                  readOnly={readOnly || noShow}
+                  readAcross={readAcross}
+                  remedyLinks={!readOnly && !noShow}
+                />,
+              )}
+            </div>
+            <aside className="min-w-0 lg:border-l lg:border-border lg:pl-6">
+              {maybePlanNoShowLock(
+                noShow,
+                <CanvasTarget
+                  value={plan.intent.target.value}
+                  unit={plan.intent.target.unit}
+                  objectiveIntent={plan.intent.objectiveIntent}
+                  presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
+                  onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
+                  onUnit={setTargetUnit}
+                  onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
+                  generalSaleAt={selectedEvent?.generalSaleAt}
+                  presaleAt={selectedEvent?.presaleAt}
+                  kind={selectedEvent?.kind}
+                  venueName={selectedEvent?.venueName}
+                  venueKey={selectedEvent?.venueKey}
+                  clientId={selectedEvent?.clientId}
+                  excludeEventId={selectedEvent?.id}
+                  launched={launchStamp != null}
+                  now={clock}
+                  benchmarkRows={benchmarkRows}
+                  unitPicker={share.unitPicker && !noShow}
+                  campaignTarget={campaignTarget}
+                  remedyLinks={!readOnly && !noShow}
+                />,
+              )}
+            </aside>
+          </div>
+        )}
+      </MmlSection>
+
+      {readOnly ? null : (
+        <MmlSection section={MML_SECTION.locations}>
+          <MmlPlaceholderCard>{MML_SECTION.locations.placeholder}</MmlPlaceholderCard>
+        </MmlSection>
+      )}
+
+      <MmlSection section={MML_SECTION.channels} numbered={numbered}>
+        {/* The wizard's PlanLinkBanner still lands here. */}
+        <div id={PLAN_STEP2_HASH} className="scroll-mt-6" />
+        {maybePlanNoShowLock(
+          noShow,
+          <CanvasChannels
+            rows={rows}
+            blockerCounts={planPreflightBlockerCounts(issues)}
+            readingUnit={channelReadingUnit}
+            running={
+              launchStamp
+                ? launchChannelRunning(rollupDays, channelReadingUnit, usual)
+                : undefined
+            }
+            readsPending={readsPending}
+            onOpen={(row) => void openChannel(row)}
+            onOpenAnchor={(row, anchor) => void openChannel(row, undefined, anchor)}
+            drawerEdit={share.drawerEdit && !noShow}
+            refreshEventId={share.drawerEdit ? plan.intent.eventId || null : null}
+            openRefs={{
+              meta: metaOpenRef,
+              tiktok: tiktokOpenRef,
+              google: googleOpenRef,
+            }}
+            onResume={(row) => void resume([row.adapter])}
+            onRederive={(row) => void rederive(row.adapter)}
+            busy={busy}
           />,
         )}
-      </div>
-      )}
+      </MmlSection>
 
-      {/* The wizard's PlanLinkBanner still lands here. */}
-      <div id={PLAN_STEP2_HASH} />
-      <div className={VIZ_ZONE_GUTTER.loose}>
-      {maybePlanNoShowLock(
-        noShow,
-        <CanvasChannels
-          rows={rows}
-          blockerCounts={planPreflightBlockerCounts(issues)}
-          readingUnit={channelReadingUnit}
-          running={
-            launchStamp
-              ? launchChannelRunning(rollupDays, channelReadingUnit, usual)
-              : undefined
-          }
-          readsPending={readsPending}
-          onOpen={(row) => void openChannel(row)}
-          onOpenAnchor={(row, anchor) => void openChannel(row, undefined, anchor)}
-          drawerEdit={share.drawerEdit && !noShow}
-          openRefs={{
-            meta: metaOpenRef,
-            tiktok: tiktokOpenRef,
-            google: googleOpenRef,
+      <MmlSection section={MML_SECTION.launch} numbered={numbered}>
+        {launchPanel}
+      </MmlSection>
+      </div>
+      ) : (
+        <MmlWizard
+          plan={plan}
+          events={events}
+          resolved={resolved}
+          identityNames={identityNames ?? EMPTY_IDENTITY_NAMES}
+          googleAdsAccounts={googleAdsAccounts.map((account) => ({
+            id: account.id,
+            account_name: account.account_name,
+            google_customer_id: account.google_customer_id,
+          }))}
+          drawerOpen={drawer !== null || decisionsOpen}
+          onPatchIntent={patchIntent}
+          onOpenDrawer={(adapter) => {
+            const row = rows.find((item) => item.adapter === adapter);
+            if (row) void openChannel(row);
           }}
-          onResume={(row) => void resume([row.adapter])}
-          onRederive={(row) => void rederive(row.adapter)}
-          busy={busy}
-        />,
+          onSave={persistNow}
+          launch={launchPanel}
+          benchmarks={
+            <CanvasTarget
+              value={plan.intent.target.value}
+              unit={plan.intent.target.unit}
+              objectiveIntent={plan.intent.objectiveIntent}
+              presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
+              onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
+              onUnit={setTargetUnit}
+              onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
+              generalSaleAt={selectedEvent?.generalSaleAt}
+              presaleAt={selectedEvent?.presaleAt}
+              kind={selectedEvent?.kind}
+              venueName={selectedEvent?.venueName}
+              venueKey={selectedEvent?.venueKey}
+              clientId={selectedEvent?.clientId}
+              excludeEventId={selectedEvent?.id}
+              launched={launchStamp != null}
+              now={clock}
+              benchmarkRows={benchmarkRows}
+              unitPicker={!noShow}
+              campaignTarget={campaignTarget}
+              remedyLinks={!noShow}
+            />
+          }
+        />
       )}
-      </div>
-
-      <div className={VIZ_ZONE_GUTTER.normal}>
-      <CanvasAssets
-        planId={plan.id}
-        hasMetaDraft={hasMetaDraft}
-        onUpload={() => {
-          if (metaDraftId) openDrawerOrWizard("meta", metaDraftId);
-        }}
-        onUnregistered={setUnregisteredAssets}
-        readOnly={readOnly}
-      />
-      </div>
 
       {share.drawerEdit && drawer?.adapter === "meta" ? (
         <MetaDrawerMount
@@ -1524,33 +1641,6 @@ export function PlanWorkspace({
         />
       ) : null}
 
-      <div className={VIZ_ZONE_GUTTER.loose}>
-      <CanvasLaunch
-        role={role}
-        button={launchButton}
-        stages={undefined}
-        error={error}
-        onLaunch={() => void launchAll()}
-        onResumeAll={() =>
-          void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
-        }
-        readyAdapters={readyLaunchAdapters(rows)}
-        preflightSettled={preflightOk !== null}
-        blockerSentence={launchBlockedLine({
-          hasEvent: Boolean(plan.intent.eventId),
-          busy,
-          windowOk,
-          issues,
-          blockerCount: planPreflightBlockerCount(issues),
-        })}
-        blockerItems={launchBlockerRows(issues)}
-        onOpenBlocker={(anchor) => {
-          const row = rows.find((item) => item.adapter === anchor.drawer);
-          if (row) void openChannel(row, undefined, anchor);
-        }}
-      />
-      </div>
-
       {readOnly ? null : (
         <>
           <CampaignLibraryPicker
@@ -1569,7 +1659,7 @@ export function PlanWorkspace({
             trigger="none"
             open={deleteOpen}
             onOpenChange={setDeleteOpen}
-            onDeleted={() => router.push("/plans")}
+            onDeleted={() => router.push(MML_LIST_PATH)}
           />
         </>
       )}

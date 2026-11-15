@@ -57,6 +57,7 @@ interface CellResultSuccess {
   retentionDays: number;
   willSplit: boolean;
   partCount: number;
+  reused?: boolean;
 }
 
 interface CellResultFailure {
@@ -219,6 +220,7 @@ async function writeCellsWithConcurrency(
           retentionDays: cell.retentionDays,
           willSplit: cell.willSplit,
           partCount: cell.partCount,
+          ...(updated.reused ? { reused: true } : {}),
         });
       } catch (err) {
         failures.push({

@@ -56,9 +56,17 @@ References/
 # supabase CLI scratch (linked-project metadata, gen-types cache)
 supabase/.temp/
 
+# Agent worktree checkouts. These live INSIDE the repo, so a `git add -A`
+# from the repo root commits them as mode-160000 gitlinks — which is how
+# 89d834e (#875) landed two broken submodule entries on main. Never track.
+.claude/worktrees/
+
 # scripts/repair-video-thumbnails.mjs resumability checkpoint (task #128) —
 # local run state, never shared across machines/operators.
 scripts/.repair-video-thumbnails-checkpoint.json
+
+# Raw Graph caches from analysis scripts (scripts/interest-performance.mts).
+scripts/out/
 
 # Personal accounting — must never be committed
 vat_q*_2026_receipts/
@@ -80,3 +88,16 @@ WC26_funnel_xref_*.xlsx
 # Off/Pixel accounting — personal, must never be committed
 offpixel_vat_*.xlsx
 offpixel_xero_*.xlsx
+
+# plan-frames evidence pack (CI artifact)
+/frames-evidence/
+
+# Font files are never committed: client kit fonts are read where Matas installs them (FONTS_DIR, default ~/Library/Fonts).
+*.otf
+*.ttf
+*.ttc
+*.otc
+*.woff
+*.woff2
+# Remotion's bundled TikTok Sans (SIL OFL) is the one font the repo carries.
+!src/remotion/fonts/TikTokSans*.ttf

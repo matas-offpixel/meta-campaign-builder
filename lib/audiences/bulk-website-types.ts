@@ -24,12 +24,17 @@ import type { FunnelStage, MetaCustomAudienceInsert } from "../types/audience.ts
 // ── Pixel events ──────────────────────────────────────────────────────────────
 
 /**
- * Pixel events supported by the matrix builder. Structured as an extensible
- * array so ViewContent / InitiateCheckout / Purchase can be added later without
- * UI rebuild — the matrix just grows an extra row per new event.
+ * Pixel events supported by the matrix builder. One row per event — the
+ * matrix grows without a UI rebuild.
  */
-export const BULK_WEBSITE_PIXEL_EVENTS = ["PageView"] as const;
-// Future: "ViewContent", "InitiateCheckout", "Purchase"
+export const BULK_WEBSITE_PIXEL_EVENTS = [
+  "PageView",
+  "ViewContent",
+  "InitiateCheckout",
+  "Purchase",
+  "Lead",
+  "CompleteRegistration",
+] as const;
 
 export type BulkWebsitePixelEvent = (typeof BULK_WEBSITE_PIXEL_EVENTS)[number];
 
@@ -43,6 +48,11 @@ export function isBulkWebsitePixelEvent(v: unknown): v is BulkWebsitePixelEvent 
 /** Human-readable label for UI display. */
 export const BULK_WEBSITE_EVENT_LABELS: Record<BulkWebsitePixelEvent, string> = {
   PageView: "PageView (all visitors)",
+  ViewContent: "ViewContent",
+  InitiateCheckout: "InitiateCheckout",
+  Purchase: "Purchase",
+  Lead: "Lead",
+  CompleteRegistration: "CompleteRegistration",
 };
 
 // ── URL scope mode ────────────────────────────────────────────────────────────

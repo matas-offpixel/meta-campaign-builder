@@ -1,8 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { recordCronRun } from "@/lib/reporting/cron-run-log";
+
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { loadRollupSyncCronEligibility } from "@/lib/dashboard/cron-eligibility";
 import { warnMetaReconcileDriftForTopRollupEvents } from "@/lib/dashboard/rollup-meta-reconcile-log";
+import { addLegResult, emptyLegTallies, legRunRecord, ROLLUP_LEGS } from "@/lib/dashboard/rollup-sync-leg-tally";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
 import {
   runUnmatchedCampaignCodeGuard,
@@ -194,7 +197,7 @@ export async function GET(req: NextRequest) {
       results: [],
     };
     console.log(
-      `[cron rollup-sync-events] cadence=base no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
+      `[cron rollup-sync-events] cadence=base no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO} skipped_archived_clients=${eligibility.skippedArchivedClients} skipped_archived_events=${eligibility.skippedArchivedEvents}`,
     );
     await runShowClosePass(supabase);
     return NextResponse.json(empty);
@@ -216,11 +219,16 @@ export async function GET(req: NextRequest) {
   const events = (rawEvents ?? []) as unknown as EventToSync[];
 
   console.log(
-    `[cron rollup-sync-events] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO}`,
+    `[cron rollup-sync-events] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO} skipped_archived_clients=${eligibility.skippedArchivedClients} skipped_archived_events=${eligibility.skippedArchivedEvents}`,
   );
 
   const results: EventSyncResult[] = [];
   let totalRowsUpserted = 0;
+  // Per-leg tallies for `cron_runs`. A leg an event does not use (no
+  // TikTok account, no ticketing link) is a skip, not a failure — see
+  // `rollup-sync-leg-tally.ts`.
+  const legTallies = emptyLegTallies();
+  const legEvidence: { eventCode: string | null; claimedCampaignIds: number; metaRows: number }[] = [];
   const venueAllocatorCompletedKeys = new Set<string>();
   const unmatchedScanAccounts: AdAccountScanTarget[] = [];
 
@@ -277,6 +285,45 @@ export async function GET(req: NextRequest) {
       });
 
       totalRowsUpserted += result.summary.rowsUpserted;
+
+      // Per-leg tallies for `cron_runs`. Folding the four legs into one
+      // number is how a dead tickets leg hid behind a healthy Meta leg.
+      const { summary } = result;
+      addLegResult(legTallies.meta, "meta", {
+        eventCode: event.event_code ?? null,
+        ok: summary.metaOk,
+        reason: summary.metaReason,
+        error: summary.metaError,
+        rows: summary.metaRowsUpserted,
+      });
+      addLegResult(legTallies.tickets, "tickets", {
+        eventCode: event.event_code ?? null,
+        ok: summary.eventbriteOk,
+        reason: summary.eventbriteReason,
+        error: summary.eventbriteError,
+        rows: summary.eventbriteRowsUpserted,
+      });
+      addLegResult(legTallies.tiktok, "tiktok", {
+        eventCode: event.event_code ?? null,
+        ok: summary.tiktokOk,
+        reason: summary.tiktokReason,
+        error: summary.tiktokError,
+        rows: summary.tiktokRowsUpserted,
+      });
+      addLegResult(legTallies.google, "google", {
+        eventCode: event.event_code ?? null,
+        ok: summary.googleAdsOk,
+        reason: summary.googleAdsReason,
+        error: summary.googleAdsError,
+        rows: summary.googleAdsRowsUpserted,
+      });
+      // Evidence the evaluator needs without calling Meta: what this event
+      // claimed, and whether any spend came back for it.
+      legEvidence.push({
+        eventCode: event.event_code ?? null,
+        claimedCampaignIds: (event.meta_campaign_id ?? "").split(",").filter(Boolean).length,
+        metaRows: result.summary.metaRowsUpserted ?? 0,
+      });
 
       // For brand_campaign events, sync Mailchimp audience daily history.
       let mailchimpOk = true;
@@ -351,6 +398,9 @@ export async function GET(req: NextRequest) {
       console.error(
         `[cron rollup-sync-events] event=${event.id} threw: ${message}`,
       );
+      for (const leg of ROLLUP_LEGS) {
+        addLegResult(legTallies[leg], leg, { eventCode: event.event_code ?? null, ok: false, error: message });
+      }
       results.push({
         eventId: event.id,
         ok: false,
@@ -433,6 +483,19 @@ export async function GET(req: NextRequest) {
   }
 
   await runShowClosePass(supabase);
+
+  // One `cron_runs` row per leg. Each leg is alarmed separately, so each
+  // leg has to be able to report a zero of its own. `ok` is false only
+  // when the leg was asked to sync an event and could not; the skips are
+  // counted by reason in `detail`.
+  for (const leg of ROLLUP_LEGS) {
+    const record = legRunRecord(legTallies[leg], leg === "meta" ? { events: legEvidence } : {});
+    await recordCronRun(supabase, {
+      cronName: `rollup-sync-events:${leg}`,
+      startedAt,
+      ...record,
+    });
+  }
 
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
 }

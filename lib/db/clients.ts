@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/db/database.types";
+import { ARCHIVED, activeClientFilter } from "@/lib/db/client-status";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -8,7 +9,7 @@ export type ClientInsert = TablesInsert<"clients">;
 export type ClientUpdate = TablesUpdate<"clients">;
 
 export type ClientType = "promoter" | "venue" | "brand" | "artist" | "festival";
-export type ClientStatus = "active" | "paused" | "archived";
+export type ClientStatus = "active" | "paused" | typeof ARCHIVED;
 
 export const CLIENT_TYPES: ClientType[] = [
   "promoter",
@@ -18,7 +19,7 @@ export const CLIENT_TYPES: ClientType[] = [
   "festival",
 ];
 
-export const CLIENT_STATUSES: ClientStatus[] = ["active", "paused", "archived"];
+export const CLIENT_STATUSES: ClientStatus[] = ["active", "paused", ARCHIVED];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ export function slugify(raw: string): string {
 
 export async function listClients(
   userId: string,
-  options?: { status?: ClientStatus },
+  options?: { status?: ClientStatus; excludeArchived?: boolean },
 ): Promise<ClientRow[]> {
   const supabase = createClient();
   let query = supabase
@@ -51,6 +52,8 @@ export async function listClients(
 
   if (options?.status) {
     query = query.eq("status", options.status);
+  } else if (options?.excludeArchived) {
+    query = activeClientFilter(query);
   }
 
   const { data, error } = await query;

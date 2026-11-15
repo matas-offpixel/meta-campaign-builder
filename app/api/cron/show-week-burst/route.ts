@@ -4,6 +4,11 @@ import { warmCreativeThumbnailsForGroups } from "@/lib/meta/creative-thumbnail-w
 import { refreshActiveCreativesForEvent } from "@/lib/reporting/active-creatives-refresh-runner";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  dropArchivedClientRows,
+  loadArchivedClientIds,
+  logSkippedArchivedClients,
+} from "@/lib/db/client-status";
 
 /**
  * GET /api/cron/show-week-burst
@@ -143,22 +148,31 @@ export async function GET(req: NextRequest) {
     .toISOString()
     .slice(0, 10);
 
-  const { data: rawEvents, error: eventErr } = await supabase
-    .from("events")
-    .select(
-      "id, user_id, client_id, event_code, event_timezone, event_date, general_sale_at, tiktok_account_id, google_ads_account_id, meta_campaign_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
-    )
-    .gte("event_date", since)
-    .lte("event_date", until);
+  const [{ data: rawEvents, error: eventErr }, archivedClientIds] = await Promise.all([
+    supabase
+      .from("events")
+      .select(
+        "id, user_id, client_id, event_code, event_timezone, event_date, general_sale_at, tiktok_account_id, google_ads_account_id, meta_campaign_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
+      )
+      .gte("event_date", since)
+      .lte("event_date", until),
+    loadArchivedClientIds(supabase),
+  ]);
   if (eventErr) {
     return NextResponse.json(
       { ok: false, error: eventErr.message },
       { status: 500 },
     );
   }
-  const candidateEvents = (rawEvents ?? []) as unknown as Array<
+  const windowEvents = (rawEvents ?? []) as unknown as Array<
     BurstEventRow & { meta_campaign_id: string | null }
   >;
+  const candidateEvents = dropArchivedClientRows(windowEvents, archivedClientIds);
+  logSkippedArchivedClients(
+    "cron show-week-burst",
+    archivedClientIds.size,
+    `skipped_archived_events=${windowEvents.length - candidateEvents.length}`,
+  );
 
   // Ticketing-link signal: pull every event_id that has a row,
   // intersect with the candidate set. Cheaper than a per-event

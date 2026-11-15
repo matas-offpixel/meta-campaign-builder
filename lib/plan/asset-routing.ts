@@ -137,12 +137,28 @@ export function extractMetaDraftAssetRefs(draft: CampaignDraft): MetaDraftAssetR
     const caption = firstCaption(creative);
     for (const variation of creative.assetVariations ?? []) {
       for (const asset of variation.assets ?? []) {
-        if (asset.uploadStatus !== "uploaded") continue;
+        if (asset.uploadStatus !== "uploaded" && !asset.registryAssetId) continue;
         const mediaKind: RegistryMediaKind =
           creative.mediaType === "video" || Boolean(asset.videoId) ? "video" : "image";
         const platformId =
           mediaKind === "video" ? asset.videoId?.trim() ?? "" : asset.assetHash?.trim() ?? "";
-        if (!platformId) continue;
+        if (!platformId) {
+          if (!asset.registryAssetId) continue;
+          const registryKey = `registry:${asset.registryAssetId}:${asset.id}`;
+          if (seen.has(registryKey)) continue;
+          seen.add(registryKey);
+          refs.push({
+            registryAssetId: asset.registryAssetId,
+            metaPlatformId: "",
+            mediaKind,
+            aspectRatio: asset.aspectRatio,
+            filename: variation.name || creative.name || asset.fileName || "asset",
+            thumbnailUrl: asset.thumbnailUrl ?? asset.uploadedUrl ?? null,
+            caption,
+            creativeName: creative.name || variation.name || "Untitled",
+          });
+          continue;
+        }
         const key = `${adAccountId}:${mediaKind}:${platformId}`;
         if (seen.has(key)) continue;
         seen.add(key);

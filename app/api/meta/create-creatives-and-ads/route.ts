@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { bindLaunchAdRecorder, noopRecordCreatedAd } from "@/lib/launched-ads/launch-recorder";
 import {
   createMetaCreative,
   createMetaAd,
@@ -22,6 +23,7 @@ import {
   type CreativeFailureResult,
 } from "@/lib/meta/creative";
 import { metaAdName } from "@/lib/creative-name-from-filename";
+import { adSetAdLimitMessage, expandVariationAds } from "@/lib/meta/variation-ads";
 import type { AdCreativeDraft, AdSetSuggestion } from "@/lib/types";
 
 // Same ceiling as /api/meta/launch-campaign — this route can create many
@@ -81,7 +83,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Build lookup helpers ──────────────────────────────────────────────────
   // internalCreativeId → [ internalAdSetId, ... ]
-  const creativeToInternalAdSetIds = invertAssignments(assignments ?? {});
+  let creativeToInternalAdSetIds = invertAssignments(assignments ?? {});
 
   // internalAdSetId → AdSetSuggestion (for metaAdSetId + name lookups)
   const adSetByInternalId = new Map<string, AdSetSuggestion>(
@@ -161,6 +163,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return creative;
     });
   }
+
+  {
+    const expanded = expandVariationAds(patchedCreatives, assignments ?? {});
+    patchedCreatives = expanded.creatives;
+    creativeToInternalAdSetIds = invertAssignments(expanded.assignments);
+    const names = new Map((adSetSuggestions ?? []).map((adSet) => [adSet.id, adSet.name]));
+    const adLimit = adSetAdLimitMessage(
+      Object.keys(expanded.assignments).map((id) => ({
+        name: names.get(id) ?? id,
+        existingAds: 0,
+        newAds: expanded.assignments[id]?.length ?? 0,
+      })),
+    );
+    if (adLimit) {
+      return NextResponse.json({ error: adLimit }, { status: 400 });
+    }
+  }
+
+  // Bookkeeping only — never throws into the ad path. No draft here:
+  // campaign/client/event come from the ad set's launched_ad_sets row.
+  const recordCreatedAd = await bindLaunchAdRecorder({
+    session: supabase,
+    serviceRole: createServiceRoleClient,
+    creatives: patchedCreatives,
+    userId: user.id,
+    adAccountId: metaAdAccountId,
+    launchRunId: crypto.randomUUID(),
+    fillFromLaunchedAdSets: true,
+  }).catch(() => noopRecordCreatedAd);
 
   // ── Create creatives + ads ────────────────────────────────────────────────
   const created: CreativeCreationResult[] = [];
@@ -307,6 +338,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             ` metaAdId=${adRes.id} metaCreativeId=${metaCreativeId}` +
             ` strictMode=${strictMode}`,
         );
+        await recordCreatedAd({
+          creative,
+          adName: adPayload.name,
+          metaAdId: adRes.id,
+          metaCreativeId,
+          metaAdSetId: adSet.metaAdSetId,
+        });
       } catch (err) {
         const message =
           err instanceof MetaApiError

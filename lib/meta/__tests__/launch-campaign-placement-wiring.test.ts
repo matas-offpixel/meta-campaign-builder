@@ -50,14 +50,24 @@ describe("launch-campaign route: placement config wiring (task #117)", () => {
     );
   });
 
-  it("every buildAdSetPayload(...) call forwards boostAdSetIds.has(adSet.id) (task #132)", () => {
+  it("no buildAdSetPayload(...) call passes a boost flag — a boost must not strip the whole ad set's destination", () => {
+    // The inverse of #777's guard, which required every call site to forward
+    // `boostAdSetIds.has(adSet.id)`. Meta no longer rejects boosts under a
+    // website destination (subcode 1815676, probed live 2026-09-30), and that
+    // flag was what turned every website ad beside a boosted post into an
+    // event ad.
     const calls = ROUTE.match(/buildAdSetPayload\(([\s\S]*?)\);/g) ?? [];
-    const missing = calls.filter((c) => !/boostAdSetIds\.has\(adSet\.id\)/.test(c));
+    assert.ok(calls.length >= 6, `expected at least 6 buildAdSetPayload call sites, found ${calls.length}`);
+    const offenders = calls.filter((c) => /boostAdSetIds/.test(c));
     assert.equal(
-      missing.length,
+      offenders.length,
       0,
-      `every buildAdSetPayload call must pass boostAdSetIds.has(adSet.id) so existing-post boosts omit destination_type — ` +
-        `found ${missing.length} call site(s) that don't:\n${missing.join("\n---\n")}`,
+      `buildAdSetPayload no longer takes a boost flag — found ${offenders.length} call site(s) still passing one:\n${offenders.join("\n---\n")}`,
+    );
+    assert.doesNotMatch(
+      ROUTE,
+      /boostAdSetIds/,
+      "boostAdSetIds should be gone from the route entirely",
     );
   });
 

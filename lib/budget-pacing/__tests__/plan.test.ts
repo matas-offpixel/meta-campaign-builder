@@ -3,6 +3,30 @@ import assert from "node:assert/strict";
 
 import { computeCampaignBudgetPlan } from "../plan.ts";
 
+test("a live lifetime budget is the denominator and is not multiplied by days", () => {
+  const plan = computeCampaignBudgetPlan({
+    enabledDailyBudgetsMajor: [20],
+    liveLifetimeBudgetsMinor: [170000],
+    startDate: "2026-08-01",
+    endDate: "2026-10-13",
+    now: new Date("2026-08-05T00:00:00Z"),
+  });
+  assert.ok(plan);
+  assert.equal(plan?.plannedTotalPence, 170000);
+  assert.ok((plan?.scheduledDays ?? 0) > 1);
+});
+
+test("a zero lifetime budget is ignored and the daily plan stands", () => {
+  const plan = computeCampaignBudgetPlan({
+    enabledDailyBudgetsMajor: [20],
+    liveLifetimeBudgetsMinor: [0],
+    startDate: "2026-08-01",
+    endDate: "2026-08-11",
+    now: new Date("2026-08-05T00:00:00Z"),
+  });
+  assert.equal(plan?.plannedTotalPence, 20 * 10 * 100);
+});
+
 test("sums enabled daily budgets and multiplies by scheduled days", () => {
   const plan = computeCampaignBudgetPlan({
     enabledDailyBudgetsMajor: [20, 30],

@@ -1,0 +1,498 @@
+/**
+ * Learning loop B joins: one ad-day of ad_daily_insights → client, event,
+ * funnel stage, result and creative tags. DB-only; zero Meta calls.
+ *
+ * - Client / event: `resolveAdContext` (launched_ads → launched_ad_sets →
+ *   [EVENT_CODE] in campaign_name). A context with an event but no client
+ *   takes the event's client.
+ * - Tags: the union of creative_tag_assignments by meta_ad_id and by
+ *   (event_id, creative_name = ad_name) — creative_name holds the Meta AD
+ *   name (audit two §5). The auto-tagger stamps one representative ad id
+ *   per content group and Creative Lab stamps its own ad ids, so neither
+ *   key alone holds every tag an ad carries.
+ * - Stage, first that applies (recorded as `stageSource`):
+ *   1. phase_at_launch on the ad set, which comes from the campaign
+ *      objective (`phaseAtLaunchFromObjective`: registration → presale,
+ *      every other objective → on_sale). presale / waiting_list →
+ *      registration, on_sale → ticket_sale. A registration ad set running
+ *      after general sale is still a registration-stage ad.
+ *   2. meta_objective: what Meta says the ad set is for, for ad sets the
+ *      app did not launch: `phaseFromMetaObjective` over the ad-day's
+ *      campaign_objective, optimization_goal and promoted_event
+ *      (migration 187). Complete Registration and leads → registration,
+ *      every other known objective → ticket_sale, a sales conversion ad
+ *      set whose promoted event is not known → no answer.
+ *   3. event_dates: 'registration' before the event's general sale
+ *      (presale when there is no general sale date), 'ticket_sale' on or
+ *      after it.
+ *   4. objective: the ad's own result_action_type (registration / lead
+ *      pixel types → registration, purchase → ticket_sale), read per ad,
+ *      not per ad-day: the stage most of the ad's result days carry, none
+ *      on a tie. Per ad-day, the ad's days with no result would stay
+ *      'unknown' and their spend would drop out of the stage's cost.
+ *   5. adset_objective: an ad with no result day takes the stage most of
+ *      its ad set's result days carry. An ad set has one optimisation
+ *      goal, so its other ads' result type is the ad set's objective.
+ *      Recorded apart from 4 so the dry run shows how much rests on it.
+ *   6. 'unknown', which is kept. Campaign names are never read for stage.
+ * - Result: registrations in registration. In ticket_sale, initiate
+ *   checkout when the ad set's promoted_event is INITIATED_CHECKOUT
+ *   (the Lab judge's optimisation event; Skiddle reports that, not
+ *   Purchase), otherwise purchases. None in unknown.
+ */
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import {
+  firstPresentAction,
+  LEAD_ACTION_TYPES,
+  PURCHASE_ACTION_TYPES,
+  REGISTRATION_ACTION_TYPES,
+  type MetaActionRow,
+} from "../ad-daily-insights/derive.ts";
+import { phaseFromMetaObjective } from "../launched-ad-sets/snapshot.ts";
+import { dropArchivedClientRows, loadArchivedClientIds } from "../db/client-status.ts";
+import { clusterKey } from "../analysis/interest-performance.ts";
+import { loadAdContextIndex, resolveAdContext, type AdContextIndex, type AdContextSource } from "./ad-facts.ts";
+import { loadAllPaged, type PagedQuery } from "./paged-read.ts";
+import { showOf } from "./copy/shows.ts";
+import { currencyResolver, type CurrencyResolver } from "./currency.ts";
+
+export type Stage = "registration" | "ticket_sale" | "unknown";
+export const STAGES: readonly Stage[] = ["registration", "ticket_sale", "unknown"];
+
+export type AdDayRow = {
+  ad_account_id: string;
+  meta_ad_id: string;
+  meta_adset_id: string | null;
+  date: string;
+  ad_name: string | null;
+  campaign_name: string | null;
+  /** Snapshot of the ad set's name. Read by the artist library job. */
+  adset_name?: string | null;
+  spend: number;
+  impressions: number;
+  reach: number;
+  link_clicks: number;
+  landing_page_views: number;
+  video_plays_3s: number;
+  video_plays_p100: number;
+  registrations: number;
+  purchases: number;
+  /** Raw Meta actions. Ticket-sale initiate checkout is read from here. */
+  actions?: MetaActionRow[] | null;
+  result_action_type?: string | null;
+  campaign_objective?: string | null;
+  optimization_goal?: string | null;
+  promoted_event?: string | null;
+};
+
+export type StageSource =
+  | "phase_at_launch"
+  | "meta_objective"
+  | "event_dates"
+  | "objective"
+  | "adset_objective"
+  | "unknown";
+export const STAGE_SOURCES: readonly StageSource[] = [
+  "phase_at_launch",
+  "meta_objective",
+  "event_dates",
+  "objective",
+  "adset_objective",
+  "unknown",
+];
+
+export type StageEvent = {
+  clientId: string | null;
+  generalSaleAt: string | null;
+  presaleAt: string | null;
+};
+
+const REGISTRATION_PHASES = new Set(["presale", "waiting_list", "signup", "registration"]);
+const TICKET_PHASES = new Set(["on_sale", "general_sale"]);
+
+const REGISTRATION_RESULT_TYPES = new Set<string>([...REGISTRATION_ACTION_TYPES, ...LEAD_ACTION_TYPES]);
+const TICKET_RESULT_TYPES = new Set<string>(PURCHASE_ACTION_TYPES);
+const INITIATE_CHECKOUT_ACTIONS = ["offsite_conversion.fb_pixel_initiate_checkout", "initiate_checkout"] as const;
+
+function isInitiateCheckout(promotedEvent: string | null | undefined): boolean {
+  return (promotedEvent ?? "").trim().toUpperCase() === "INITIATED_CHECKOUT";
+}
+
+export function resultTypeStage(resultActionType: string | null | undefined): Stage | null {
+  const t = (resultActionType ?? "").trim();
+  if (REGISTRATION_RESULT_TYPES.has(t)) return "registration";
+  if (TICKET_RESULT_TYPES.has(t)) return "ticket_sale";
+  return null;
+}
+
+type ResultRow = Pick<AdDayRow, "meta_ad_id" | "result_action_type"> & { meta_adset_id?: string | null };
+
+function majorityResultStage(rows: readonly ResultRow[], keyOf: (row: ResultRow) => string | null): Map<string, Stage> {
+  const counts = new Map<string, { registration: number; ticket_sale: number }>();
+  for (const r of rows) {
+    const key = keyOf(r);
+    const stage = resultTypeStage(r.result_action_type);
+    if (!key || (stage !== "registration" && stage !== "ticket_sale")) continue;
+    const c = counts.get(key) ?? { registration: 0, ticket_sale: 0 };
+    c[stage] += 1;
+    counts.set(key, c);
+  }
+  const out = new Map<string, Stage>();
+  for (const [ad, c] of counts) {
+    if (c.registration > c.ticket_sale) out.set(ad, "registration");
+    else if (c.ticket_sale > c.registration) out.set(ad, "ticket_sale");
+  }
+  return out;
+}
+
+/** meta_ad_id → the stage most of the ad's result days carry; ties and ads with no result day are left out. */
+export function resultStageByAd(rows: readonly ResultRow[]): Map<string, Stage> {
+  return majorityResultStage(rows, (r) => r.meta_ad_id);
+}
+
+/** meta_adset_id → the stage most of the ad set's result days carry, across its ads; ties left out. */
+export function resultStageByAdSet(rows: readonly ResultRow[]): Map<string, Stage> {
+  return majorityResultStage(rows, (r) => r.meta_adset_id ?? null);
+}
+
+type MetaObjectiveRow = Pick<AdDayRow, "campaign_objective" | "optimization_goal" | "promoted_event"> & {
+  meta_adset_id?: string | null;
+};
+
+/**
+ * meta_adset_id → `phaseFromMetaObjective`, from the first non-null
+ * objective, goal and promoted event across the ad set's ad-days. Ad
+ * sets with no answer are left out.
+ */
+export function metaPhaseByAdSet(rows: readonly MetaObjectiveRow[]): Map<string, string> {
+  const seen = new Map<string, { campaignObjective: string | null; optimizationGoal: string | null; promotedEvent: string | null }>();
+  for (const r of rows) {
+    if (!r.meta_adset_id) continue;
+    const s = seen.get(r.meta_adset_id) ?? { campaignObjective: null, optimizationGoal: null, promotedEvent: null };
+    s.campaignObjective ??= r.campaign_objective ?? null;
+    s.optimizationGoal ??= r.optimization_goal ?? null;
+    s.promotedEvent ??= r.promoted_event ?? null;
+    seen.set(r.meta_adset_id, s);
+  }
+  const out = new Map<string, string>();
+  for (const [id, s] of seen) {
+    const phase = phaseFromMetaObjective(s);
+    if (phase) out.set(id, phase);
+  }
+  return out;
+}
+
+function phaseStage(phaseValue: string | null | undefined): Stage | null {
+  const phase = (phaseValue ?? "").toLowerCase();
+  if (REGISTRATION_PHASES.has(phase)) return "registration";
+  if (TICKET_PHASES.has(phase)) return "ticket_sale";
+  return null;
+}
+
+export function stageOf(
+  date: string,
+  event: StageEvent | null | undefined,
+  phaseAtLaunch: string | null | undefined,
+  metaPhase?: string | null,
+  objective?: Stage | null,
+  adSetObjective?: Stage | null,
+): { stage: Stage; source: StageSource } {
+  const launched = phaseStage(phaseAtLaunch);
+  if (launched) return { stage: launched, source: "phase_at_launch" };
+  const meta = phaseStage(metaPhase);
+  if (meta) return { stage: meta, source: "meta_objective" };
+  const boundary = (event?.generalSaleAt ?? event?.presaleAt ?? "").slice(0, 10);
+  if (boundary) return { stage: date < boundary ? "registration" : "ticket_sale", source: "event_dates" };
+  if (objective === "registration" || objective === "ticket_sale") return { stage: objective, source: "objective" };
+  if (adSetObjective === "registration" || adSetObjective === "ticket_sale") {
+    return { stage: adSetObjective, source: "adset_objective" };
+  }
+  return { stage: "unknown", source: "unknown" };
+}
+
+export function resultOf(
+  stage: Stage,
+  row: Pick<AdDayRow, "registrations" | "purchases" | "promoted_event" | "actions">,
+): number | null {
+  if (stage === "registration") return Number(row.registrations) || 0;
+  if (stage === "ticket_sale") {
+    if (isInitiateCheckout(row.promoted_event)) {
+      const actions = Array.isArray(row.actions) ? row.actions : [];
+      return firstPresentAction(actions, INITIATE_CHECKOUT_ACTIONS)?.value ?? 0;
+    }
+    return Number(row.purchases) || 0;
+  }
+  return null;
+}
+
+export type TagAssignment = {
+  event_id: string;
+  creative_name: string;
+  tag_id: string;
+  meta_ad_id: string | null;
+};
+
+export type TagIndex = {
+  byAdId: ReadonlyMap<string, ReadonlySet<string>>;
+  byEventName: ReadonlyMap<string, ReadonlySet<string>>;
+};
+
+function eventNameKey(eventId: string, name: string): string {
+  return `${eventId}|${name.trim()}`;
+}
+
+/** `knownTags`: taxonomy tag ids; assignments to any other tag are ignored. */
+export function buildTagIndex(assignments: readonly TagAssignment[], knownTags?: ReadonlySet<string>): TagIndex {
+  const byAdId = new Map<string, Set<string>>();
+  const byEventName = new Map<string, Set<string>>();
+  const add = (map: Map<string, Set<string>>, key: string, tag: string) => {
+    const set = map.get(key) ?? new Set<string>();
+    set.add(tag);
+    map.set(key, set);
+  };
+  for (const a of assignments) {
+    if (knownTags && !knownTags.has(a.tag_id)) continue;
+    if (a.meta_ad_id) add(byAdId, a.meta_ad_id, a.tag_id);
+    if (a.event_id && a.creative_name) add(byEventName, eventNameKey(a.event_id, a.creative_name), a.tag_id);
+  }
+  return { byAdId, byEventName };
+}
+
+export type TagVia = "meta_ad_id" | "name";
+
+export function tagsForAd(
+  metaAdId: string,
+  eventId: string | null,
+  adName: string | null,
+  index: TagIndex,
+): { tagIds: string[]; via: TagVia | null } {
+  const byId = index.byAdId.get(metaAdId);
+  const byName = eventId && adName ? index.byEventName.get(eventNameKey(eventId, adName)) : undefined;
+  const tagIds = [...new Set([...(byId ?? []), ...(byName ?? [])])].sort();
+  if (!tagIds.length) return { tagIds, via: null };
+  return { tagIds, via: byId?.size ? "meta_ad_id" : "name" };
+}
+
+export type LearningFact = {
+  row: AdDayRow;
+  clientId: string | null;
+  eventId: string | null;
+  contextSource: AdContextSource | null;
+  stage: Stage;
+  stageSource: StageSource;
+  /** Stage result; null in 'unknown'. */
+  result: number | null;
+  spendGbp: number;
+  tagIds: string[];
+  tagVia: TagVia | null;
+};
+
+export type JoinContext = {
+  context: AdContextIndex;
+  events: ReadonlyMap<string, StageEvent>;
+  /** meta_adset_id → phase_at_launch. */
+  adSetPhase: ReadonlyMap<string, string | null>;
+  /** meta_adset_id → phase from Meta's objective (`metaPhaseByAdSet`). */
+  adSetMetaPhase?: ReadonlyMap<string, string>;
+  /** meta_ad_id → stage from the ad's result days (`resultStageByAd`). */
+  adResultStage?: ReadonlyMap<string, Stage>;
+  /** meta_adset_id → stage from the ad set's result days (`resultStageByAdSet`). */
+  adSetResultStage?: ReadonlyMap<string, Stage>;
+  tags: TagIndex;
+  currency: CurrencyResolver;
+};
+
+export function joinAdDay(row: AdDayRow, ctx: JoinContext): LearningFact {
+  const resolved = resolveAdContext(row, ctx.context);
+  const event = resolved.eventId ? ctx.events.get(resolved.eventId) : undefined;
+  const clientId = resolved.clientId ?? event?.clientId ?? null;
+  const adSetId = row.meta_adset_id;
+  const objective = ctx.adResultStage?.get(row.meta_ad_id) ?? null;
+  const { stage, source } = stageOf(
+    row.date,
+    event,
+    adSetId ? ctx.adSetPhase.get(adSetId) : null,
+    adSetId ? ctx.adSetMetaPhase?.get(adSetId) : null,
+    objective,
+    adSetId ? ctx.adSetResultStage?.get(adSetId) : null,
+  );
+  const { tagIds, via } = tagsForAd(row.meta_ad_id, resolved.eventId, row.ad_name, ctx.tags);
+  return {
+    row,
+    clientId,
+    eventId: resolved.eventId,
+    contextSource: resolved.source,
+    stage,
+    stageSource: source,
+    result: resultOf(stage, row),
+    spendGbp: (Number(row.spend) || 0) * ctx.currency.rate(row.ad_account_id),
+    tagIds,
+    tagVia: via,
+  };
+}
+
+export type JoinRate = { adDays: number; tagged: number; byAdId: number; byName: number; rate: number };
+
+/** Tagged ad-days ÷ ad-days, per client (facts with no client under ''). */
+export function joinRates(facts: readonly LearningFact[]): Map<string, JoinRate> {
+  const out = new Map<string, JoinRate>();
+  for (const f of facts) {
+    const key = f.clientId ?? "";
+    const r = out.get(key) ?? { adDays: 0, tagged: 0, byAdId: 0, byName: 0, rate: 0 };
+    r.adDays += 1;
+    if (f.tagVia) r.tagged += 1;
+    if (f.tagVia === "meta_ad_id") r.byAdId += 1;
+    if (f.tagVia === "name") r.byName += 1;
+    r.rate = r.tagged / r.adDays;
+    out.set(key, r);
+  }
+  return out;
+}
+
+// ─── Loading (service role) ───────────────────────────────────────────────────
+
+type Db = Pick<SupabaseClient, "from">;
+
+/** Every row of a table in `id` order, deduped on `id` (paged-read.ts); every column list here selects `id`. */
+function loadAll<T extends Record<string, unknown>>(db: Db, table: string, columns: string, filter?: (q: PagedQuery) => PagedQuery): Promise<T[]> {
+  return loadAllPaged<T>(db, table, columns, ["id"], filter);
+}
+
+export type LearningClient = {
+  id: string;
+  name: string;
+  /** clients.vertical. Null is not a vertical: the client stays out of vertical scope. */
+  vertical: string | null;
+  userId: string | null;
+};
+
+export type LaunchedAdSetRow = {
+  meta_adset_id: string;
+  client_id: string | null;
+  event_id: string | null;
+  phase_at_launch: string | null;
+  interest_ids: unknown;
+};
+
+export type CreativeTag = { id: string; dimension: string; value_key: string; value_label: string | null };
+
+export type LearningInputs = {
+  /** Active (non-archived) clients. */
+  clients: LearningClient[];
+  /** event id → show id, from the same show rule as copy_performance. */
+  shows: ReadonlyMap<string, string>;
+  archivedClientIds: ReadonlySet<string>;
+  /** Facts whose client is active. */
+  facts: LearningFact[];
+  /** Facts dropped: no client resolved, or an archived client. */
+  dropped: { noClient: number; archived: number };
+  adSets: LaunchedAdSetRow[];
+  tags: ReadonlyMap<string, CreativeTag>;
+  currency: CurrencyResolver;
+};
+
+export function interestIdsOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((v) => (v && typeof v === "object" ? (v as { id?: unknown }).id : v))
+    .map((v) => (v == null ? "" : String(v).trim()))
+    .filter(Boolean);
+}
+
+/** Same key rule as the interest-performance report: sorted, deduped ids. */
+export function interestKeyOf(value: unknown): string {
+  return clusterKey(interestIdsOf(value));
+}
+
+const AD_DAY_COLUMNS =
+  "id, ad_account_id, meta_ad_id, meta_adset_id, date, ad_name, adset_name, campaign_name, spend, impressions, reach, link_clicks, landing_page_views, video_plays_3s, video_plays_p100, registrations, purchases, actions, result_action_type";
+const META_OBJECTIVE_COLUMNS = "campaign_objective, optimization_goal, promoted_event";
+
+export type LoadLearningOptions = {
+  /**
+   * Dry runs only: stage from this ad set map (a `backfill-insights-objective.mts
+   * --fetch` snapshot) instead of the migration 187 columns, which are not read.
+   */
+  adSetMeta?: ReadonlyMap<
+    string,
+    { campaignObjective: string | null; optimizationGoal: string | null; promotedEvent: string | null }
+  >;
+};
+
+export async function loadLearningInputs(db: Db, opts: LoadLearningOptions = {}): Promise<LearningInputs> {
+  const adDayColumns = opts.adSetMeta ? AD_DAY_COLUMNS : `${AD_DAY_COLUMNS}, ${META_OBJECTIVE_COLUMNS}`;
+  const archivedClientIds = await loadArchivedClientIds(db);
+  const [clients, events, adSets, assignments, tagRows, bmAccounts, adDays, context] = await Promise.all([
+    loadAll<{ id: string; name: string; vertical: string | null; user_id: string | null }>(db, "clients", "id, name, vertical, user_id"),
+    loadAll<{
+      id: string;
+      client_id: string | null;
+      general_sale_at: string | null;
+      presale_at: string | null;
+      event_date: string | null;
+      venue_name: string | null;
+      venue_key: string | null;
+      status: string | null;
+    }>(db, "events", "id, client_id, general_sale_at, presale_at, event_date, venue_name, venue_key, status"),
+    loadAll<LaunchedAdSetRow>(db, "launched_ad_sets", "id, meta_adset_id, client_id, event_id, phase_at_launch, interest_ids"),
+    loadAll<TagAssignment>(db, "creative_tag_assignments", "id, event_id, creative_name, tag_id, meta_ad_id"),
+    loadAll<CreativeTag>(db, "creative_tags", "id, dimension, value_key, value_label", (q) => q.not("dimension", "is", null)),
+    loadAll<{ ad_account_id: string; currency: string | null }>(db, "bm_ad_accounts", "id, ad_account_id, currency"),
+    loadAll<AdDayRow>(db, "ad_daily_insights", adDayColumns),
+    loadAdContextIndex(db),
+  ]);
+  const tags = new Map(tagRows.map((t) => [t.id, t]));
+  const currency = currencyResolver(
+    new Map(bmAccounts.filter((a) => a.currency).map((a) => [a.ad_account_id, a.currency as string])),
+  );
+  const ctx: JoinContext = {
+    context,
+    events: new Map(
+      events.map((e) => [e.id, { clientId: e.client_id, generalSaleAt: e.general_sale_at, presaleAt: e.presale_at }]),
+    ),
+    adSetPhase: new Map(adSets.map((a) => [a.meta_adset_id, a.phase_at_launch])),
+    adSetMetaPhase: opts.adSetMeta
+      ? metaPhaseByAdSet(
+          [...opts.adSetMeta].map(([id, m]) => ({
+            meta_adset_id: id,
+            campaign_objective: m.campaignObjective,
+            optimization_goal: m.optimizationGoal,
+            promoted_event: m.promotedEvent,
+          })),
+        )
+      : metaPhaseByAdSet(adDays),
+    adResultStage: resultStageByAd(adDays),
+    adSetResultStage: resultStageByAdSet(adDays),
+    tags: buildTagIndex(assignments, new Set(tags.keys())),
+    currency,
+  };
+  const all = adDays.map((row) => joinAdDay(row, ctx));
+  const withClient = all.filter((f) => f.clientId);
+  const facts = dropArchivedClientRows(withClient, archivedClientIds, (f) => f.clientId);
+  return {
+    clients: dropArchivedClientRows(clients, archivedClientIds, (c) => c.id).map((c) => ({
+      id: c.id,
+      name: c.name,
+      vertical: c.vertical?.trim() || null,
+      userId: c.user_id,
+    })),
+    /** event id → show id. Cancelled and undated events are absent. */
+    shows: showOf(
+      events.map((event) => ({
+        id: event.id,
+        date: event.event_date,
+        venueName: event.venue_name,
+        venueKey: event.venue_key,
+        status: event.status,
+      })),
+    ),
+    archivedClientIds,
+    facts,
+    dropped: { noClient: all.length - withClient.length, archived: withClient.length - facts.length },
+    adSets: dropArchivedClientRows(adSets, archivedClientIds),
+    tags,
+    currency,
+  };
+}

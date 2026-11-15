@@ -553,6 +553,7 @@ describe("non-plan drafts are unchanged", () => {
     assert.deepEqual(await loadPlanForMetaDraft(supabase, "draft-1", "user-1"), {
       id: "plan-1",
       name: "BB26 Kayode",
+      metaLaunchStatus: "idle",
     });
   });
 
@@ -569,8 +570,8 @@ describe("plan page guards (extends #852)", () => {
   it("plan pages still grow no targeting, account-picker or upload UI", () => {
     const files = [
       "components/plan/plan-workspace.tsx",
-      "app/(dashboard)/plans/page.tsx",
-      "app/(dashboard)/plan/[id]/page.tsx",
+      "app/(dashboard)/mml/page.tsx",
+      "app/(dashboard)/mml/[id]/page.tsx",
       "components/plan/canvas-window.tsx",
       "components/library/campaign-library-picker.tsx",
       "components/library/plan-library.tsx",

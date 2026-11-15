@@ -33,7 +33,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { bindLaunchAdRecorder, noopRecordCreatedAd } from "@/lib/launched-ads/launch-recorder";
 import {
   createMetaCreative,
   createMetaAd,
@@ -53,6 +54,8 @@ import {
   mapLaunchTokenError,
 } from "@/lib/meta/launch-error-classify";
 import { summariseRelaunchGuard } from "@/lib/bulk-attach/launch-validation";
+import { bulkAttachRotationMessage } from "@/lib/meta/rotation-adset";
+import { META_ADS_PER_AD_SET_LIMIT, adSetAdLimitMessage, expandCreativesForLaunch } from "@/lib/meta/variation-ads";
 import type { AdCreativeDraft } from "@/lib/types";
 
 export const maxDuration = 600;
@@ -152,7 +155,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const { adAccountId, campaignAdSets, newCreatives } = body;
+  const { adAccountId, campaignAdSets } = body;
+  // One normal ad per variation, unless that creative opted into rotation.
+  const newCreatives = expandCreativesForLaunch(body.newCreatives);
   const campaignIds = Object.keys(campaignAdSets);
 
   // ── Hard cap on campaign count ────────────────────────────────────────────
@@ -242,7 +247,36 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // variation to these ad sets" flow pre-checks the same thing client-side
   // via GET /api/meta/bulk-attach-ads/adset-guard for faster feedback.
   const allTargetAdSetIds = [...new Set(campaignIds.flatMap((cid) => campaignAdSets[cid]))];
+  if (newCreatives.length > META_ADS_PER_AD_SET_LIMIT) {
+    const message = adSetAdLimitMessage([
+      { name: "each selected ad set", existingAds: 0, newAds: newCreatives.length },
+    ]);
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+  // A rotation creative sharing these ad sets with anything else is refused
+  // before the live read. One rotation creative still needs the live flag.
+  const shareRefusal = bulkAttachRotationMessage(newCreatives, allTargetAdSetIds, null);
+  if (shareRefusal) {
+    console.error(`[bulk-attach-ads] ✗ rotation ad set guard: ${shareRefusal}`);
+    return NextResponse.json({ error: shareRefusal }, { status: 400 });
+  }
   const guardInfoMap = await fetchAdSetGuardInfo(allTargetAdSetIds, token);
+  const adLimit = adSetAdLimitMessage(
+    allTargetAdSetIds.map((id) => ({
+      name: id,
+      existingAds: guardInfoMap.get(id)?.adCount ?? 0,
+      newAds: newCreatives.length,
+    })),
+  );
+  if (adLimit) {
+    console.error(`[bulk-attach-ads] ✗ ad set ad limit: ${adLimit}`);
+    return NextResponse.json({ error: adLimit }, { status: 400 });
+  }
+  const rotationRefusal = bulkAttachRotationMessage(newCreatives, allTargetAdSetIds, guardInfoMap);
+  if (rotationRefusal) {
+    console.error(`[bulk-attach-ads] ✗ rotation ad set guard: ${rotationRefusal}`);
+    return NextResponse.json({ error: rotationRefusal }, { status: 400 });
+  }
   const { blockedMessage } = summariseRelaunchGuard(Array.from(guardInfoMap.values()), 0);
   if (blockedMessage) {
     console.error(`[bulk-attach-ads] ✗ Dynamic Creative guard blocked launch: ${blockedMessage}`);
@@ -271,6 +305,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       pageTokenMap.set(pid, null);
     }
   }
+
+  // Bookkeeping only — never throws into the attach path. No draft here:
+  // client/event come from the target ad set's launched_ad_sets row.
+  const recordCreatedAd = await bindLaunchAdRecorder({
+    session: supabase,
+    serviceRole: createServiceRoleClient,
+    creatives: newCreatives,
+    userId: user.id,
+    adAccountId,
+    launchRunId: crypto.randomUUID(),
+    fillFromLaunchedAdSets: true,
+  }).catch(() => noopRecordCreatedAd);
 
   // ── Per-campaign serial execution ────────────────────────────────────────
   const results: CampaignAttachResult[] = [];
@@ -418,6 +464,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           console.error(
             `[bulk-attach-ads]   ad created: "${adName}" → adSet ${adSetId} adId=${adId}`,
           );
+          await recordCreatedAd({
+            creative,
+            adName,
+            metaAdId: adId,
+            metaCreativeId,
+            metaAdSetId: adSetId,
+            metaCampaignId: campaignId,
+          });
         } catch (err) {
           const metaErr = err instanceof MetaApiError ? err : null;
           const kind = classifyLaunchMetaCode(metaErr?.code);

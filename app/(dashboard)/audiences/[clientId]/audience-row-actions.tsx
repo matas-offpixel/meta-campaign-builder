@@ -20,6 +20,7 @@ export function AudienceRowActions({
   const router = useRouter();
   const [archiving, setArchiving] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [reused, setReused] = useState(false);
 
   async function archive() {
     setArchiving(true);
@@ -30,7 +31,12 @@ export function AudienceRowActions({
 
   async function createOnMeta() {
     setCreating(true);
-    await fetch(`/api/audiences/${audienceId}/write`, { method: "POST" });
+    setReused(false);
+    const res = await fetch(`/api/audiences/${audienceId}/write`, { method: "POST" });
+    const json = (await res.json().catch(() => null)) as {
+      audience?: { reused?: boolean };
+    } | null;
+    if (res.ok && json?.audience?.reused) setReused(true);
     router.refresh();
     setCreating(false);
   }
@@ -47,6 +53,7 @@ export function AudienceRowActions({
           {creating ? "Creating..." : status === "failed" ? "Retry" : "Create on Meta"}
         </Button>
       )}
+      {reused ? <span className="text-xs text-muted-foreground">reused</span> : null}
       <Link
         href={`/audiences/${clientId}/new?audience_id=${audienceId}`}
         className="text-xs font-medium text-primary-hover hover:underline"

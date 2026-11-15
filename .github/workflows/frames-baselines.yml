@@ -1,9 +1,15 @@
 # Ubuntu raster source of truth. `frames:check` asserts against the
 # PNGs this job writes. macOS `npm run frames -- --local` is for looking.
+# A PR that commits these PNGs needs the design-pass label.
 name: frames-baselines
 
 on:
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Only shots whose id starts with this (e.g. CL). Empty = all."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -17,15 +23,21 @@ jobs:
       ENABLE_PLAN_FRAMES: "1"
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key
+      LANG: en_GB.UTF-8
+      LC_ALL: en_GB.UTF-8
     steps:
       - uses: actions/checkout@v5
+      - name: en-GB locale
+        run: sudo locale-gen en_GB.UTF-8
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run frames
+      - run: npm run frames -- --only "$ONLY"
+        env:
+          ONLY: ${{ inputs.only }}
       - uses: actions/upload-artifact@v4
         with:
           name: plan-frames-ubuntu

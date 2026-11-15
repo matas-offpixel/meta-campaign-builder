@@ -23,7 +23,7 @@ describe("isBulkWebsitePixelEvent", () => {
 
   it("rejects arbitrary strings and non-strings", () => {
     assert.ok(!isBulkWebsitePixelEvent("page_engagement_fb"));
-    assert.ok(!isBulkWebsitePixelEvent("Purchase"));
+    assert.ok(!isBulkWebsitePixelEvent("AddToCart"));
     assert.ok(!isBulkWebsitePixelEvent(""));
     assert.ok(!isBulkWebsitePixelEvent(undefined));
     assert.ok(!isBulkWebsitePixelEvent(42));

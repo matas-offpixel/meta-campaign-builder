@@ -22,7 +22,10 @@ import {
 export interface RegisterMetaUploadInput {
   supabase: unknown;
   userId: string;
-  bytes: Uint8Array | Buffer;
+  /** Present when the route held the bytes. Omitted on the file_url path. */
+  bytes?: Uint8Array | Buffer;
+  /** Browser SHA-256, used when the route never downloaded the file. */
+  identity?: ContentIdentity;
   fileName: string;
   mediaKind: AssetUploadType;
   adAccountId: string;
@@ -47,11 +50,13 @@ export async function findExistingMetaChannelUpload(
   supabase: unknown,
   input: {
     userId: string;
-    bytes: Uint8Array | Buffer;
+    bytes?: Uint8Array | Buffer;
+    identity?: ContentIdentity;
     adAccountId: string;
   },
 ): Promise<ExistingMetaChannelHit | null> {
-  const identity = fingerprintBytes(input.bytes);
+  const identity = input.identity ?? (input.bytes ? fingerprintBytes(input.bytes) : null);
+  if (!identity) return null;
   const found = await findAssetByFingerprint(supabase, input.userId, identity);
   if (!found.ok || !found.asset) return null;
   const channel = await findChannelId(supabase, {
@@ -96,11 +101,14 @@ export async function registerMetaUpload(
   });
   if (!platformId) return undefined;
 
-  const identity = fingerprintBytes(input.bytes);
-  const probed = await probeAspectFromBuffer(
-    Buffer.isBuffer(input.bytes) ? input.bytes : Buffer.from(input.bytes),
-    input.mediaKind === "image" ? "image/jpeg" : "video/mp4",
-  );
+  const identity = input.identity ?? (input.bytes ? fingerprintBytes(input.bytes) : null);
+  if (!identity) return undefined;
+  const probed = input.bytes
+    ? await probeAspectFromBuffer(
+        Buffer.isBuffer(input.bytes) ? input.bytes : Buffer.from(input.bytes),
+        input.mediaKind === "image" ? "image/jpeg" : "video/mp4",
+      )
+    : null;
   const upserted = await upsertRegisteredAsset(input.supabase, {
     userId: input.userId,
     identity,

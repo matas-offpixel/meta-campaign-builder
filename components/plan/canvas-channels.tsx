@@ -3,6 +3,8 @@
 import type { RefObject } from "react";
 
 import { PlanBlockerItems } from "@/components/plan/blocker-items";
+import { RefreshCountChip } from "@/components/plan/refresh-count-chip";
+import { Button } from "@/components/ui/button";
 import { ChannelRow } from "@/components/viz/channel-row";
 import { PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
 import {
@@ -19,12 +21,12 @@ import type { BlockerAnchor } from "@/lib/viz/blockers";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 /**
- * Zone E — what is each channel's state, in one glance.
+ * MML ⑥ — one card per channel: state, blocker count, Adjust.
  *
- * A row click prepares the draft on first open and then opens that
- * channel's drawer at the row's own section — there is no separate Prepare
- * button, and no route change. The needs-you sentence is the control that
- * opens the drawer at the first blocker.
+ * Adjust prepares the draft on first open and then opens that channel's
+ * drawer at the row's own section — there is no separate Prepare button,
+ * and no route change. The needs-you sentence opens the drawer at the
+ * first blocker.
  */
 export function CanvasChannels({
   rows,
@@ -39,6 +41,8 @@ export function CanvasChannels({
   busy,
   openRefs,
   drawerEdit = true,
+  refreshEventId,
+  refreshCount,
 }: {
   rows: PlanChannelRowModel[];
   blockerCounts?: Record<PlanAdapterName, number>;
@@ -53,9 +57,13 @@ export function CanvasChannels({
   busy: boolean;
   openRefs?: Partial<Record<PlanAdapterName, RefObject<HTMLButtonElement | null>>>;
   drawerEdit?: boolean;
+  /** The plan's event: the Meta card shows the on-sale refresh's count chip for it (R4). */
+  refreshEventId?: string | null;
+  /** Frames: the chip's count without a fetch. */
+  refreshCount?: number;
 }) {
   return (
-    <section aria-label="channels" className="min-h-[120px] space-y-1.5">
+    <section aria-label="channels" className="grid min-h-[120px] gap-3 lg:grid-cols-3">
       {rows.map((row) => {
         const resume = resumeSupport(row.adapter);
         const blockers = launchBlockers(row.blockers);
@@ -76,18 +84,74 @@ export function CanvasChannels({
         const needsYou = drawerEdit && stateWord === "needs you" && blockerCount > 0;
         if (face.pending) {
           return (
-            <div key={row.adapter} data-pending={true} className="flex h-10 items-center gap-2">
+            <div
+              key={row.adapter}
+              data-pending={true}
+              className="flex h-[120px] items-start rounded-md border border-border bg-card p-3"
+            >
               <span className="h-2 w-24 bg-foreground/35" aria-hidden="true" />
             </div>
           );
         }
         return (
-          <div key={row.adapter} className="space-y-1">
+          <article
+            key={row.adapter}
+            data-mml-channel={row.adapter}
+            className="flex min-w-0 flex-col gap-2 rounded-md border border-border bg-card p-3"
+          >
+            <header className="flex items-center gap-2">
+              <h3 className={`${VIZ_TYPE.body} font-medium`}>{VIZ_PLATFORM_LABEL[row.adapter]}</h3>
+              {hideStateWord ? null : (
+                <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{stateWord}</span>
+              )}
+              <span
+                data-blocker-count={blockerCount}
+                className={`${VIZ_TYPE.label} ${blockerCount > 0 ? "text-foreground" : "text-muted-foreground"}`}
+              >
+                {blockerCount === 0 ? "no blockers" : blockerCount === 1 ? "1 blocker" : `${blockerCount} blockers`}
+              </span>
+              {drawerEdit ? (
+                <Button
+                  ref={openRefs?.[row.adapter]}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto"
+                  disabled={busy}
+                  onClick={() => onOpen(row)}
+                >
+                  Adjust
+                </Button>
+              ) : null}
+            </header>
+            <ChannelRow
+              platform={row.adapter}
+              status={row.status}
+              facts={row.facts}
+              derived={row.derived}
+              waiting={row.waiting}
+              waitingFor={row.waitingFor}
+              hideWaitingText
+              tip={
+                row.adapter === "tiktok" || row.adapter === "google"
+                  ? PLAN_CANVAS_COPY.derive
+                  : undefined
+              }
+              liveFacts={
+                runningFact ? (
+                  <span className={VIZ_TYPE.body}>{runningFact}</span>
+                ) : null
+              }
+              onOpenAnchor={
+                drawerEdit && onOpenAnchor ? (anchor) => onOpenAnchor(row, anchor) : undefined
+              }
+            />
             <div className="flex flex-wrap items-center gap-1.5">
-              {hideStateWord ? null : needsYou ? (
+              {row.adapter === "meta" && refreshEventId ? <RefreshCountChip eventId={refreshEventId} initialCount={refreshCount} /> : null}
+              {needsYou ? (
                 <button
                   type="button"
-                  className={`${VIZ_TYPE.label} text-foreground`}
+                  className={`text-left ${VIZ_TYPE.label} text-foreground hover:underline`}
                   onClick={() => {
                     if (first?.anchor && onOpenAnchor) onOpenAnchor(row, first.anchor);
                     else onOpen(row);
@@ -95,35 +159,7 @@ export function CanvasChannels({
                 >
                   {formatChannelNeedsYou(blockerCount, VIZ_PLATFORM_LABEL[row.adapter])}
                 </button>
-              ) : (
-                <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{stateWord}</span>
-              )}
-              <div className="min-w-0 flex-1">
-                <ChannelRow
-                  platform={row.adapter}
-                  status={row.status}
-                  facts={row.facts}
-                  derived={row.derived}
-                  waiting={row.waiting}
-                  waitingFor={row.waitingFor}
-                  hideWaitingText
-                  tip={
-                    row.adapter === "tiktok" || row.adapter === "google"
-                      ? PLAN_CANVAS_COPY.derive
-                      : undefined
-                  }
-                  liveFacts={
-                    runningFact ? (
-                      <span className={VIZ_TYPE.body}>{runningFact}</span>
-                    ) : null
-                  }
-                  onOpen={drawerEdit ? () => onOpen(row) : undefined}
-                  onOpenAnchor={
-                    drawerEdit && onOpenAnchor ? (anchor) => onOpenAnchor(row, anchor) : undefined
-                  }
-                  openRef={openRefs?.[row.adapter]}
-                />
-              </div>
+              ) : null}
               {drawerEdit && row.state === "paused" ? (
                 resume.supported ? (
                   <button
@@ -161,8 +197,18 @@ export function CanvasChannels({
                 </button>
               ) : null}
             </div>
-            {onOpenAnchor ? <PlanBlockerItems items={blockers} onOpenAnchor={(anchor) => onOpenAnchor(row, anchor)} /> : null}
-          </div>
+            {onOpenAnchor && blockers.length > 0 ? (
+              <details className="group">
+                <summary className={`cursor-pointer list-none ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}>
+                  <span aria-hidden="true" className="mr-1 inline-block transition-transform group-open:rotate-90">▸</span>
+                  what to fix
+                </summary>
+                <div className="mt-1 pl-4">
+                  <PlanBlockerItems items={blockers} onOpenAnchor={(anchor) => onOpenAnchor(row, anchor)} />
+                </div>
+              </details>
+            ) : null}
+          </article>
         );
       })}
     </section>

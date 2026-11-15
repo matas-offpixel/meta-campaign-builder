@@ -1,7 +1,7 @@
 import { createDefaultDraft } from "../../campaign-defaults.ts";
 import { normalizeAdAccountId } from "../ad-account.ts";
-import { resolveOptimisationGoal } from "../adset.ts";
-import { mapMetaObjectiveToInternal } from "../campaign.ts";
+import { META_DESTINATION_TYPE_UNSET, resolveOptimisationGoal } from "../adset.ts";
+import { importedObjectiveFromAdSetEvents, mapMetaObjectiveToInternal } from "../campaign.ts";
 import type {
   AdCreativeDraft,
   AdSetSuggestion,
@@ -24,6 +24,11 @@ import {
   type ImportCreativeSource,
   type ImportedExistingPost,
 } from "./creative-copy.ts";
+import {
+  groupMetaImportCreatives,
+  metaImportCreativeCarriable,
+  type MetaImportCreativeGroup,
+} from "./groups.ts";
 import type {
   MetaImportDropped,
   MetaImportFlexibleSpec,
@@ -47,8 +52,14 @@ const HANDLED_GEO = new Set<string>([
   "cities",
   "countries",
   "regions",
+  "country_groups",
   ...META_IMPORT_UNCARRIABLE_TARGETING_FIELDS,
 ]);
+
+export type CountryGroupLabel = {
+  name: string;
+  countryCodes?: string[];
+};
 
 export type MetaAudienceAvailability = {
   id: string;
@@ -62,12 +73,14 @@ export type MapMetaLiveCampaignInput = {
   /**
    * Ignored. An audience a live ad set on this account is targeting is
    * carried with the name the read returned. Changing the ad account
-   * after import is blocked separately (`importedAccountProblem`).
+   * afterwards drops those custom-audience ids; it does not block.
    */
   availability: readonly MetaAudienceAvailability[];
   appUsageCallCount?: number | null;
   clientId?: string;
   eventId?: string;
+  /** Recorded on `importMeta`. Does not change what was carried. */
+  eventAttachment?: "none" | "event";
   now?: string;
   /** `campaign_drafts.id` is a uuid. Defaults to a fresh one. */
   draftId?: string;
@@ -77,6 +90,12 @@ export type MapMetaLiveCampaignInput = {
    * Single and are named on `dropped`.
    */
   imageSizes?: Readonly<Record<string, { width: number; height: number }>>;
+  /**
+   * Names for country-group keys, from a location search the caller already
+   * ran. This mapper does not call Meta. A missing name keeps the key and
+   * is flagged `label_unresolved`.
+   */
+  countryGroupLabels?: Readonly<Record<string, CountryGroupLabel>>;
 };
 
 export const META_IMPORT_CARRY_KEY_REJECTED = "carry_key_rejected";
@@ -87,12 +106,7 @@ export function carriableMetaCreativeIds(bundle: MetaLiveCampaignBundle): Set<st
   for (const [key, raw] of Object.entries(bundle.creatives)) {
     const creative = raw as RawCreative & { id?: string };
     const id = str(creative.id) ?? key;
-    const source = { ...creative, id } as ImportCreativeSource;
-    const existing = classifyImportedExistingPost(source);
-    const postMedia = existing && !("unreachable" in existing) ? importedExistingPostMedia(source) : null;
-    if (postMedia || (existing == null && deriveAssetSignature({ ...creative, id }))) {
-      ids.add(id);
-    }
+    if (metaImportCreativeCarriable({ ...creative, id })) ids.add(id);
   }
   return ids;
 }
@@ -135,6 +149,13 @@ function num(value: unknown): number | null {
     return Number(value);
   }
   return null;
+}
+
+/** Meta reads the unused budget type back as "0". That is not a budget. */
+function positiveBudgetMinor(value: unknown): number | null {
+  const parsed = num(value);
+  if (parsed == null || parsed <= 0) return null;
+  return parsed;
 }
 
 function dateOnly(value: unknown): string {
@@ -244,6 +265,29 @@ function regionSelection(
   };
 }
 
+function countryGroupSelection(
+  key: string,
+  label: string,
+  id: string,
+  mode: "include" | "exclude",
+  memberCountryCodes: string[] | undefined,
+): LocationSelection {
+  return {
+    id,
+    source: "search",
+    label,
+    mode,
+    locationType: "country_group",
+    locationKey: key,
+    memberCountryCodes,
+  };
+}
+
+function countryGroupKey(raw: unknown): string | null {
+  if (typeof raw === "string") return raw.trim() || null;
+  return str(asRecord(raw)?.key);
+}
+
 type GeoBucket = {
   groups: Map<string, LocationTargetingGroup>;
   pool: Map<string, LocationSelection>;
@@ -261,6 +305,7 @@ function readGeo(
   dropped: MetaImportDropped[],
   ctx: { adSetId?: string; adSetName?: string },
   mode: "include" | "exclude",
+  countryGroupLabels: Readonly<Record<string, CountryGroupLabel>> | undefined,
 ): string[] {
   if (!geo) return [];
   dropUncarriable(dropped, geo, ctx);
@@ -307,6 +352,28 @@ function readGeo(
       ensureGroup(bucket, id, name, regionSelection(key, name, id, "include"));
     } else if (!bucket.pool.has(id)) {
       bucket.pool.set(id, regionSelection(key, name, id, "exclude"));
+    }
+    ids.push(id);
+  }
+
+  for (const raw of Array.isArray(geo.country_groups) ? geo.country_groups : []) {
+    const key = countryGroupKey(raw);
+    if (!key) {
+      drop(dropped, "country_groups", raw, ctx);
+      continue;
+    }
+    const lookedUp = countryGroupLabels?.[key];
+    const objectName = str(asRecord(raw)?.name);
+    const name = lookedUp?.name || objectName;
+    if (!name) drop(dropped, "label_unresolved", key, ctx);
+    const label = name ?? key;
+    const memberCountryCodes = lookedUp?.countryCodes;
+    const id = `${mode === "exclude" ? "excl:" : ""}country_group:${key}`;
+    const selection = countryGroupSelection(key, label, id, mode, memberCountryCodes);
+    if (mode === "include") {
+      ensureGroup(bucket, id, label, selection);
+    } else if (!bucket.pool.has(id)) {
+      bucket.pool.set(id, selection);
     }
     ids.push(id);
   }
@@ -374,8 +441,24 @@ function interestSuggestions(
   return out;
 }
 
+function importedCreativeFields(group: MetaImportCreativeGroup): Pick<
+  AdCreativeDraft,
+  "name" | "nameSource" | "importedMeta"
+> {
+  return {
+    name: group.name,
+    nameSource: "file",
+    importedMeta: {
+      creativeIds: [...group.creativeIds],
+      adIds: [...group.adIds],
+      adSetIds: [...group.adSetIds],
+    },
+  };
+}
+
 function creativeDraft(
   creative: RawCreative & { id: string },
+  group: MetaImportCreativeGroup,
   dropped: MetaImportDropped[],
   imageSizes: Readonly<Record<string, { width: number; height: number }>>,
   headlineNotes: { creativeId: string; text: string }[],
@@ -398,7 +481,7 @@ function creativeDraft(
   const oss = source.object_story_spec;
   return {
     id: creative.id,
-    name: str(creative.name) ?? creative.id,
+    ...importedCreativeFields(group),
     sourceType: "new",
     identity: {
       pageId: str(oss?.page_id) ?? "",
@@ -429,18 +512,35 @@ function creativeDraft(
 function existingPostDraft(
   creative: RawCreative & { id: string },
   post: ImportedExistingPost,
+  group: MetaImportCreativeGroup,
   mediaType: "video" | "image",
   dropped: MetaImportDropped[],
 ): AdCreativeDraft {
   const source = creative as ImportCreativeSource;
-  const rawCta = source.call_to_action_type?.trim().toUpperCase() ?? "";
+  const linkFromCta = source.call_to_action?.value?.link?.trim() ?? "";
+  const rawCta = (source.call_to_action?.type || source.call_to_action_type || "").trim().toUpperCase();
   const mapped = rawCta ? CTA_FROM_META[rawCta] : undefined;
   if (rawCta && !mapped) {
     drop(dropped, "call_to_action_type", rawCta, { creativeId: creative.id });
   }
+  const mediaKind = mediaType === "video" ? "video" : undefined;
+  if (!mediaKind) {
+    drop(dropped, "media_kind", "not_recorded", { creativeId: creative.id });
+  }
+  const feed = source.asset_feed_spec;
+  const feedImages = feed?.images ?? [];
+  const feedVideos = feed?.videos ?? [];
+  if (feedImages.length > 0 || feedVideos.length > 0) {
+    dropped.push({
+      field: "asset_feed_spec",
+      reason: "existing_post",
+      value: { images: feedImages, videos: feedVideos },
+      creativeId: creative.id,
+    });
+  }
   return {
     id: creative.id,
-    name: str(creative.name) ?? creative.id,
+    ...importedCreativeFields(group),
     sourceType: "existing_post",
     identity: {
       pageId: post.pageId,
@@ -448,16 +548,29 @@ function existingPostDraft(
     },
     mediaType,
     assetMode: "single",
-    assetVariations: [],
+    assetVariations: [
+      {
+        id: `var:${creative.id}`,
+        name: "Variation 1",
+        assets: [
+          {
+            id: `asset:${creative.id}`,
+            aspectRatio: "9:16",
+            uploadStatus: "pending",
+          },
+        ],
+      },
+    ],
     captions: [],
     headline: "",
     description: "",
-    destinationUrl: str(source.link_url) ?? "",
+    destinationUrl: linkFromCta || (str(source.link_url) ?? ""),
     cta: mapped ?? ("" as AdCreativeDraft["cta"]),
     existingPost: {
       source: post.source,
       postId: post.postId,
       instagramAccountId: post.instagramAccountId,
+      mediaKind,
     },
     enhancements: {
       enabled: false,
@@ -473,12 +586,18 @@ function existingPostDraft(
 /**
  * Map a live Meta campaign onto a `CampaignDraft`. Targeting the draft
  * cannot represent is named on `importMeta.dropped` and never defaulted.
- * Does not call Meta.
+ * Does not call Meta. The source creative's `url_tags` are not copied:
+ * imported creatives get our tags at launch (`lib/meta/url-tags.ts`).
  */
 export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDraft {
   const campaign = input.bundle.campaign;
   const rawObjective = str(campaign.objective);
-  const objective = mapMetaObjectiveToInternal(rawObjective);
+  const adSetEvents = input.bundle.adSets.map((raw) => {
+    const promoted = asRecord(raw.promoted_object);
+    return str(promoted?.custom_event_type);
+  });
+  const voted = importedObjectiveFromAdSetEvents(rawObjective, adSetEvents);
+  const objective = voted.objective;
   if (!objective) {
     throw new Error(
       `Meta import refused: objective ${rawObjective ?? "(missing)"} is not supported`,
@@ -493,6 +612,11 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
   const bucket: GeoBucket = { groups: new Map(), pool: new Map() };
   const carry = new Set(input.carry);
   const optimisationGoal = resolveOptimisationGoal("conversions", objective);
+
+  const campaignDailyMinor = positiveBudgetMinor(campaign.daily_budget);
+  const campaignLifetimeMinor = positiveBudgetMinor(campaign.lifetime_budget);
+  const campaignBudgetConflict = campaignDailyMinor != null && campaignLifetimeMinor != null;
+  const cbo = !campaignBudgetConflict && (campaignDailyMinor != null || campaignLifetimeMinor != null);
 
   const interestGroups = new Map<string, InterestGroup>();
   const customGroups = new Map<string, CustomAudienceGroup>();
@@ -513,6 +637,10 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     }
     if (Object.prototype.hasOwnProperty.call(raw, "promoted_object")) {
       drop(dropped, "promoted_object", raw.promoted_object, ctx);
+    }
+    const event = str(asRecord(raw.promoted_object)?.custom_event_type);
+    if (event && mapMetaObjectiveToInternal(rawObjective, event) !== objective) {
+      drop(dropped, "objective_event_mixed", { event, kept: objective }, ctx);
     }
 
     const flexible = flexibleSpecOf(targeting);
@@ -564,24 +692,55 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     }
 
     const geo = asRecord(targeting.geo_locations);
-    const locationGroupIds = readGeo(geo, bucket, dropped, ctx, "include");
+    const locationGroupIds = readGeo(geo, bucket, dropped, ctx, "include", input.countryGroupLabels);
     const excludedLocationIds = readGeo(
       asRecord(targeting.excluded_geo_locations),
       bucket,
       dropped,
       ctx,
       "exclude",
+      input.countryGroupLabels,
     );
 
     const ageMin = num(targeting.age_min);
     const ageMax = num(targeting.age_max);
     if (ageMin == null) drop(dropped, "age_min", targeting.age_min ?? null, ctx);
     if (ageMax == null) drop(dropped, "age_max", targeting.age_max ?? null, ctx);
-    const daily = num(raw.daily_budget);
-    if (daily == null) drop(dropped, "daily_budget", raw.daily_budget ?? null, ctx);
+    const dailyRaw = num(raw.daily_budget);
+    const dailyMinor = positiveBudgetMinor(raw.daily_budget);
+    const lifetimeMinor = positiveBudgetMinor(raw.lifetime_budget);
+    let budgetPerDay = Number.NaN;
+    let budgetLifetime: number | undefined;
+    if (cbo) {
+      // The campaign holds the budget. A child ad set reads both budget
+      // fields as "0"; that is not a missing daily budget.
+      budgetPerDay = 0;
+    } else if (lifetimeMinor != null && dailyMinor == null) {
+      budgetPerDay = 0;
+      budgetLifetime = lifetimeMinor / 100;
+    } else if (dailyMinor != null && lifetimeMinor != null) {
+      drop(dropped, "daily_budget", raw.daily_budget ?? null, ctx);
+      drop(dropped, "lifetime_budget", raw.lifetime_budget ?? null, ctx);
+    } else if (dailyRaw == null) {
+      drop(dropped, "daily_budget", raw.daily_budget ?? null, ctx);
+    } else {
+      budgetPerDay = dailyRaw / 100;
+    }
 
     const automation = asRecord(targeting.targeting_automation);
     const advantagePlus = automation?.advantage_audience === 1;
+
+    // What the live ad set carries as a destination, verbatim. Meta answers
+    // "UNDEFINED" for an ad set created without one — that is the state this
+    // import is most likely to find, and the one relaunch has to correct
+    // rather than copy, so it is named on `dropped` as defaulted.
+    const importedDestinationType = str(raw.destination_type) ?? undefined;
+    if (
+      !importedDestinationType ||
+      importedDestinationType.toUpperCase() === META_DESTINATION_TYPE_UNSET
+    ) {
+      drop(dropped, "destination_type_defaulted", raw.destination_type ?? null, ctx);
+    }
 
     const sourceType = customGroupId
       ? "custom_group"
@@ -598,12 +757,14 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
       sourceName: name,
       ageMin: ageMin ?? Number.NaN,
       ageMax: ageMax ?? Number.NaN,
-      budgetPerDay: daily == null ? Number.NaN : daily / 100,
+      budgetPerDay,
+      ...(budgetLifetime != null ? { budgetLifetime } : {}),
       advantagePlus,
       enabled: raw.status === "ACTIVE",
       locationGroupIds,
       excludedLocationIds,
       importedFromAdSetId: id,
+      ...(importedDestinationType ? { importedDestinationType } : {}),
     };
     adSets.push(suggestion);
     assignments[id] = [];
@@ -612,13 +773,26 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
   const creatives: AdCreativeDraft[] = [];
   const headlineNotes: { creativeId: string; text: string }[] = [];
   const creativeIds = Object.keys(input.bundle.creatives);
-  for (const creativeId of creativeIds) {
-    const creative = input.bundle.creatives[creativeId] as RawCreative & { id?: string };
-    const id = str(creative.id) ?? creativeId;
-    const named = { ...creative, id };
+  const byId = new Map<string, RawCreative & { id: string }>();
+  for (const key of creativeIds) {
+    const creative = input.bundle.creatives[key] as RawCreative & { id?: string };
+    const id = str(creative.id) ?? key;
+    byId.set(id, { ...creative, id });
+  }
+  const groups = groupMetaImportCreatives(input.bundle);
+  const assignGroup = (group: MetaImportCreativeGroup) => {
+    for (const adSetId of group.adSetIds) {
+      const list = assignments[adSetId];
+      if (list && !list.includes(group.representativeId)) list.push(group.representativeId);
+    }
+  };
+  for (const group of groups) {
+    const id = group.representativeId;
+    const named = byId.get(id)!;
+    const name = group.name;
+    const ticked = group.creativeIds.some((memberId) => carry.has(memberId));
     const existing = classifyImportedExistingPost(named as ImportCreativeSource);
     if (existing) {
-      const name = str(named.name) ?? id;
       if ("unreachable" in existing) {
         notCarried.push({ id, name, reason: "post_unreachable" });
         continue;
@@ -628,51 +802,31 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
         notCarried.push({ id, name, reason: "no_media_reported" });
         continue;
       }
-      if (!carry.has(id)) {
+      if (!ticked) {
         notCarried.push({ id, name, reason: "operator_unticked" });
         continue;
       }
-      creatives.push(existingPostDraft(named, existing, mediaType, dropped));
+      creatives.push(existingPostDraft(named, existing, group, mediaType, dropped));
+      assignGroup(group);
       continue;
     }
-    const signature = deriveAssetSignature(named);
-    if (!signature) {
-      notCarried.push({
-        id,
-        name: str(named.name) ?? id,
-        reason: "no_asset_reported",
-      });
+    if (!deriveAssetSignature(named)) {
+      notCarried.push({ id, name, reason: "no_asset_reported" });
       continue;
     }
-    if (!carry.has(id)) {
-      notCarried.push({
-        id,
-        name: str(named.name) ?? id,
-        reason: "operator_unticked",
-      });
+    if (!ticked) {
+      notCarried.push({ id, name, reason: "operator_unticked" });
       continue;
     }
-    const draftCreative = creativeDraft(named, dropped, input.imageSizes ?? {}, headlineNotes);
+    const draftCreative = creativeDraft(named, group, dropped, input.imageSizes ?? {}, headlineNotes);
     if (!draftCreative) continue;
     creatives.push(draftCreative);
+    assignGroup(group);
   }
 
-  const readIds = new Set(
-    creativeIds.map((key) => str((input.bundle.creatives[key] as { id?: unknown }).id) ?? key),
-  );
   for (const key of carry) {
-    if (readIds.has(key)) continue;
+    if (byId.has(key)) continue;
     notCarried.push({ id: key, name: key, reason: META_IMPORT_CARRY_KEY_REJECTED });
-  }
-
-  const carriedIds = new Set(creatives.map((creative) => creative.id));
-  for (const ad of input.bundle.ads) {
-    const adSetId = str(ad.adset_id);
-    const creative = asRecord(ad.creative);
-    const creativeId = str(creative?.id);
-    if (!adSetId || !creativeId || !carriedIds.has(creativeId)) continue;
-    const list = assignments[adSetId];
-    if (list && !list.includes(creativeId)) list.push(creativeId);
   }
 
   const draft = createDefaultDraft();
@@ -691,9 +845,47 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
   draft.settings.wizardMode = "new";
   draft.audiences.interestGroups = [...interestGroups.values()];
   draft.audiences.customAudienceGroups = [...customGroups.values()];
-  draft.budgetSchedule.budgetLevel = "ad_set";
-  draft.budgetSchedule.budgetType = "daily";
-  draft.budgetSchedule.budgetAmount = dailyTotal;
+  if (campaignBudgetConflict) {
+    drop(dropped, "daily_budget", campaign.daily_budget ?? null);
+    drop(dropped, "lifetime_budget", campaign.lifetime_budget ?? null);
+  }
+  const lifetimeShares = adSets.reduce(
+    (sum, adSet) => sum + (adSet.budgetLifetime ?? 0),
+    0,
+  );
+  const anyDailyShare = adSets.some(
+    (adSet) => Number.isFinite(adSet.budgetPerDay) && adSet.budgetPerDay > 0,
+  );
+  const anyLifetimeShare = adSets.some((adSet) => (adSet.budgetLifetime ?? 0) > 0);
+  if (cbo && campaignLifetimeMinor != null) {
+    draft.budgetSchedule.budgetLevel = "campaign";
+    draft.budgetSchedule.budgetType = "lifetime";
+    draft.budgetSchedule.budgetAmount = campaignLifetimeMinor / 100;
+  } else if (cbo && campaignDailyMinor != null) {
+    draft.budgetSchedule.budgetLevel = "campaign";
+    draft.budgetSchedule.budgetType = "daily";
+    draft.budgetSchedule.budgetAmount = campaignDailyMinor / 100;
+  } else if (anyLifetimeShare && anyDailyShare) {
+    for (const adSet of adSets) {
+      if ((adSet.budgetLifetime ?? 0) <= 0) continue;
+      drop(dropped, "lifetime_budget", adSet.budgetLifetime ?? null, {
+        adSetId: adSet.id,
+        adSetName: adSet.name,
+      });
+      adSet.budgetLifetime = undefined;
+    }
+    draft.budgetSchedule.budgetLevel = "ad_set";
+    draft.budgetSchedule.budgetType = "daily";
+    draft.budgetSchedule.budgetAmount = dailyTotal;
+  } else if (anyLifetimeShare) {
+    draft.budgetSchedule.budgetLevel = "ad_set";
+    draft.budgetSchedule.budgetType = "lifetime";
+    draft.budgetSchedule.budgetAmount = lifetimeShares;
+  } else {
+    draft.budgetSchedule.budgetLevel = "ad_set";
+    draft.budgetSchedule.budgetType = "daily";
+    draft.budgetSchedule.budgetAmount = dailyTotal;
+  }
   draft.budgetSchedule.startDate = dateOnly(campaign.start_time);
   draft.budgetSchedule.endDate = dateOnly(campaign.stop_time);
   draft.budgetSchedule.locationGroups = [...bucket.groups.values()];
@@ -711,6 +903,8 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     notCarried,
     creativeCounts: {
       read: creativeIds.length,
+      uniqueCreatives: groups.length,
+      adsRead: input.bundle.ads.length,
       carried: creatives.length,
       notCarried: notCarried.filter(
         (row) => row.reason === "no_asset_reported" || row.reason === "operator_unticked",
@@ -719,6 +913,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     flexibleSpec,
     appUsageCallCount: input.appUsageCallCount ?? null,
     copyNotes: headlineNotes,
+    ...(input.eventAttachment ? { eventAttachment: input.eventAttachment } : {}),
   };
   return draft;
 }

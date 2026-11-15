@@ -304,9 +304,10 @@ export function buildMetaCustomAudiencePayload(
       });
       // Trailing empty url filter — verified structural requirement.
       filters.push({ field: "url", operator: "i_contains", value: "" });
-    } else {
-      filters.push(metaLeafEq("event", sourceMeta.pixelEvent || "PageView"));
     }
+    // Same leaf for every event. Website rules use field "event", not the
+    // video-views `event_name` key. No per-event special case.
+    filters.push(metaLeafEq("event", sourceMeta.pixelEvent || "PageView"));
     return {
       ...base,
       // No `subtype: "WEBSITE"` — same lesson as engagement audiences (PR #340).

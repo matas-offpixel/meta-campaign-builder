@@ -12,6 +12,7 @@ import { AudiencesStep } from "@/components/steps/audiences/audiences-step";
 import { Creatives } from "@/components/steps/creatives";
 import { BudgetSchedule } from "@/components/steps/budget-schedule";
 import { AssignCreatives } from "@/components/steps/assign-creatives";
+import { splitRotationOntoOwnAdSet } from "@/lib/wizard/split-rotation-adset";
 import { ReviewLaunch } from "@/components/steps/review-launch";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import { LoadTemplateModal } from "@/components/templates/load-template-modal";
@@ -33,24 +34,27 @@ import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
 import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import {
+  EventEndDateSync,
   WizardEventContextProvider,
   useWizardEventContext,
 } from "@/lib/wizard/use-event-context";
 import { derivePlanName } from "@/lib/plan/plan-name";
+import { patchBudgetSchedule } from "@/lib/wizard/budget-schedule-update";
 import { useCampaignDraft } from "@/lib/wizard/use-campaign-draft";
-import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
+import { planOwnsLaunch, type LinkedMetaPlanSummary } from "@/lib/plan/linked-plan";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 
 interface WizardShellProps {
   draftId: string;
   /** Set when this draft belongs to a campaign plan. Ordinary drafts omit it. */
-  linkedPlan?: LinkedPlanSummary | null;
+  linkedPlan?: LinkedMetaPlanSummary | null;
 }
 
 export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   const router = useRouter();
   const [step, setStep] = useState<WizardStep>(0);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
-  /** One loader, one autosave, shared with the drawer on `/plan/[id]`. */
+  /** One loader, one autosave, shared with the drawer on `/mml/[id]`. */
   const draftController = useCampaignDraft(draftId);
   const {
     draft,
@@ -67,12 +71,13 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     handlePageInstagramOverride,
     updateBudgetSchedule,
     updateAdSetSuggestions,
+    markGenerateReplaceImportedConfirmed,
     updateOptimisationStrategy,
     updateCreativeAssignments,
   } = draftController;
 
   // Launch state
-  const { mutate: launchCampaign, loading: launching, error: launchError, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
+  const { mutate: launchCampaign, loading: launching, error: launchError, errorSource: launchErrorSource, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
   const [launchSummary, setLaunchSummary] = useState<LaunchSummary | null>(null);
   const launchAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId || null;
   const launchCooldown = useBucCooldown(launchAccountId, launchRateLimit);
@@ -195,6 +200,14 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleSteps]);
+
+  const openedOnCampaign = useRef(false);
+  useEffect(() => {
+    if (!hydrated || openedOnCampaign.current) return;
+    if (!draft.settings.attachSubmodePending) return;
+    openedOnCampaign.current = true;
+    setStep(1);
+  }, [hydrated, draft.settings.attachSubmodePending]);
 
   const handleContinue = () => {
     const idx = visibleSteps.indexOf(step);
@@ -358,6 +371,14 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     }
   };
 
+  const canvasOwnsLaunch =
+    linkedPlan != null &&
+    planOwnsLaunch({
+      wizardMode: draft.settings.wizardMode,
+      planLaunchStatus: linkedPlan.metaLaunchStatus,
+      draftStatus: draft.status,
+    });
+
   // ─── Loading gate ────────────────────────────────────────────────────────────
   if (!hydrated) {
     return (
@@ -368,8 +389,9 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   }
 
   return (
-    <WizardEventContextProvider draftId={draftId} enabled={hydrated}>
+    <WizardEventContextProvider draftId={draftId} eventId={draft.settings.eventId} enabled={hydrated}>
       <EventDefaultsApplier updateDraft={updateDraft} />
+      <EventEndDateSync draft={draft} updateDraft={updateDraft} />
       <StepSurfaceProvider surface="wizard" planOwnsDestination={linkedPlan != null}>
       <div className="flex min-h-screen flex-col">
       <div className="border-b border-border bg-card px-6 py-2">
@@ -420,6 +442,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
           <AccountSetup
             settings={draft.settings}
             onChange={updateSettings}
+            draft={draft}
+            onApplyDraft={updateDraft}
             campaignId={draftId}
           />
         )}
@@ -456,6 +480,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             eventId={draft.settings.eventId}
             campaignName={draft.settings.campaignName}
             imported={draft.importMeta != null}
+            adSetSuggestions={draft.adSetSuggestions}
           />
         )}
         {step === 4 && (
@@ -477,6 +502,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             onBudgetChange={updateBudgetSchedule}
             onSuggestionsChange={updateAdSetSuggestions}
             onSettingsChange={updateSettings}
+            generateReplaceImportedConfirmed={draft.generateReplaceImportedConfirmed}
+            onGenerateReplaceImportedConfirmed={markGenerateReplaceImportedConfirmed}
           />
         )}
         {step === 6 && (() => {
@@ -509,29 +536,49 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
               creatives={draft.creatives}
               assignments={draft.creativeAssignments}
               onChange={updateCreativeAssignments}
+              onSplitRotation={
+                isAttachAdSet
+                  ? undefined
+                  : (adSetId, creativeId) => {
+                      const creative = draft.creatives.find((c) => c.id === creativeId);
+                      const next = splitRotationOntoOwnAdSet({
+                        adSets: draft.adSetSuggestions,
+                        assignments: draft.creativeAssignments,
+                        adSetId,
+                        creativeId,
+                        creativeName: creative?.name ?? "",
+                        newId: crypto.randomUUID(),
+                      });
+                      updateAdSetSuggestions(next.adSets);
+                      updateCreativeAssignments(next.assignments);
+                    }
+              }
               attachAdSetMode={isAttachAdSet}
             />
           );
         })()}
         {/*
-          Launch stays here for a standalone draft and only there: a
-          plan-linked draft launches from the canvas with the other
-          channels, so rendering Launch twice would be two ways to start
-          the same campaign (§3a row 8, friction #6).
+          The canvas takes Launch only for an unpublished new campaign
+          whose Meta row is still idle or failed. Attach modes, a
+          published draft, and a plan that has already launched stay on
+          this creator. Review always renders; when the canvas owns
+          Launch it is read-only and points there.
         */}
-        {step === 7 && !linkedPlan && (
+        {step === 7 && (
           <ReviewLaunch
             draft={draft}
             isLaunching={launching}
             launchError={launchError}
+            launchErrorSource={launchErrorSource}
             launchRateLimit={launchRateLimit}
             onDismissLaunchError={dismissLaunchError}
             launchSummary={launchSummary}
             onGoToLibrary={() => router.push("/")}
             linkedPlan={linkedPlan}
-            onUpdateSettings={updateSettings}
-            onRetryFailedAds={handleLaunch}
-            onRetryLaunch={handleLaunch}
+            canvasOwnsLaunch={canvasOwnsLaunch}
+            onUpdateSettings={canvasOwnsLaunch ? undefined : updateSettings}
+            onRetryFailedAds={canvasOwnsLaunch ? undefined : handleLaunch}
+            onRetryLaunch={canvasOwnsLaunch ? undefined : handleLaunch}
           />
         )}
       </main>
@@ -544,8 +591,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         saveStatus={saveStatus}
         launching={launching}
         launchCooldownLabel={launchCooldown.label}
-        showLaunch={!linkedPlan}
-        planHref={linkedPlan ? `/plan/${linkedPlan.id}` : null}
+        showLaunch={!canvasOwnsLaunch}
+        planHref={canvasOwnsLaunch && linkedPlan ? mmlPlanHref(linkedPlan.id) : null}
         onBack={handleBack}
         onContinue={handleContinue}
         onSaveDraft={handleSaveDraft}
@@ -589,9 +636,9 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
 // hydrated. On the first render where the context fetch completes, it
 // soft-fills the draft with values derived from the linked event +
 // client: ad account / pixel / pages from client defaults, campaign
-// name + event_code from the event, schedule start/end from today +
-// event_date. Only ever touches fields that are still empty — user
-// edits always win.
+// name + event_code from the event, schedule start from today.
+// The end date is owned by EventEndDateSync. Only ever touches fields
+// that are still empty — user edits always win.
 //
 // Guarded by a ref so navigating between steps (which re-renders
 // everything but doesn't change the draft id) doesn't reapply the
@@ -667,21 +714,12 @@ function EventDefaultsApplier({ updateDraft }: DefaultsApplierProps) {
         }
       }
 
-      // Schedule defaults: start = today (yyyy-mm-ddT00:00 in local
-      // tz), end = event_date end-of-day. The Input is type
-      // datetime-local so the value must be a 16-char local string
-      // ("YYYY-MM-DDThh:mm"); UTC ISO breaks the picker.
-      const bs = next.budgetSchedule
-        ? { ...next.budgetSchedule }
-        : null;
-      if (bs) {
-        if (!bs.startDate) {
-          bs.startDate = formatLocalDateTime(new Date(), { hour: 0, minute: 0 });
-        }
-        if (!bs.endDate && event?.event_date) {
-          bs.endDate = `${event.event_date}T23:59`;
-        }
-        next.budgetSchedule = bs;
+      // No event yet: the old midnight start. With an event attached,
+      // EventEndDateSync fills start and end from the phases.
+      if (next.budgetSchedule && !next.budgetSchedule.startDate && !event) {
+        next.budgetSchedule = patchBudgetSchedule(next.budgetSchedule, {
+          startDate: formatLocalDateTime(new Date(), { hour: 0, minute: 0 }),
+        });
       }
 
       appliedRef.current = true;
