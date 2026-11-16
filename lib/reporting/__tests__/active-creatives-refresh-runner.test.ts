@@ -273,8 +273,33 @@ describe("refreshActiveCreativesForEvent", () => {
     for (const p of out.presetResults) {
       assert.equal(p.kind, "skip");
       assert.equal(p.wroteSnapshot, false);
+      assert.equal(p.skipReason, "no_event_code");
     }
     assert.equal(rec.upserts.length, 0);
+  });
+
+  it("leaves the remaining presets for the next run when shouldStartPreset says no", async () => {
+    const { client, rec } = makeFakeSupabase();
+    const fetched: DatePreset[] = [];
+    let allowed = 2;
+    const out = await refreshActiveCreativesForEvent({
+      ...baseInput,
+      supabase: client,
+      shouldStartPreset: () => allowed-- > 0,
+      _fetcher: async (args) => {
+        fetched.push(args.datePreset as DatePreset);
+        return OK_RESULT;
+      },
+    });
+    assert.deepEqual(fetched, DEFAULT_REFRESH_PRESETS.slice(0, 2));
+    assert.equal(rec.upserts.length, 2);
+    const deferred = out.presetResults.filter((p) => p.deferred);
+    assert.equal(deferred.length, DEFAULT_REFRESH_PRESETS.length - 2);
+    for (const p of deferred) {
+      assert.equal(p.kind, "skip");
+      assert.equal(p.skipReason, "time_budget");
+      assert.equal(p.wroteSnapshot, false);
+    }
   });
 
   it("uses tight TTL inside 14d of event_date", async () => {

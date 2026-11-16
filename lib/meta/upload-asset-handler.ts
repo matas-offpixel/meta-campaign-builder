@@ -1,3 +1,4 @@
+import { isOperator } from "../auth/operator-allowlist.ts";
 import { compressUploadImage } from "./compress-upload-image.ts";
 import { uploadStoredVideoByUrl } from "./storage-video-by-url.ts";
 import {
@@ -126,6 +127,12 @@ async function runUploadAsset(req: Request, h: UploadAssetHooks): Promise<Respon
   const user = await h.getUser();
   if (!user) {
     return Response.json({ error: "Unauthorised" }, { status: 401 });
+  }
+  // proxy.ts's matcher skips this route (multipart bodies), so the proxy's
+  // /api operator gate never sees it: check here. It signs, downloads and
+  // can delete Storage objects with the service role.
+  if (!isOperator(user.id)) {
+    return Response.json({ ok: false, error: "Operator access required" }, { status: 403 });
   }
 
   let uploadToken: string | undefined;

@@ -63,7 +63,7 @@ function Wide({ wide, narrow }: { wide: string; narrow: string }) {
 function LineRow({ line, shadow }: { line: PanelLine; shadow: boolean }) {
   const disabled = shadow || line.state !== "to_review";
   return (
-    <li className="rounded border border-border/70 p-3" data-kind={line.kind}>
+    <li id={`refresh-line-${line.id}`} className="rounded border border-border/70 p-3" data-kind={line.kind}>
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-2">
@@ -154,7 +154,7 @@ function LiveLineRow({ line: stored, apply, actions, frozen }: { line: PanelLine
   const busy = Boolean(actions.busy);
   const retry = retriesNow(line, apply);
   return (
-    <li className="rounded border border-border/70 p-3" data-kind={line.kind} data-state={line.state}>
+    <li id={`refresh-line-${line.id}`} className="rounded border border-border/70 p-3" data-kind={line.kind} data-state={line.state}>
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-2">

@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 import { APPLY_ENV, applyGates } from "../apply-gates.ts";
 import { applyAccepted, type ApplyDeps, type RefreshMeta } from "../apply.ts";
 import type { AudienceSpec, AudienceState, NewAdSetDeps } from "../apply-adsets.ts";
-import { MOVES_SWITCHED_OFF, audienceName, urlFragment } from "../apply-adsets.ts";
+import { MAX_RETENTION_DAYS, MOVES_SWITCHED_OFF, audienceDraftFields, audienceName, urlFragment } from "../apply-adsets.ts";
 import { signupFacts } from "../load.ts";
 import {
   ALL_INTERESTS_RETIRED,
@@ -190,9 +190,10 @@ describe("P3 new ad sets: money (design's ruling) — CBO shares, ABO headroom, 
     // The same with £150 of the cap already moved → none.
     assert.equal(decideFunding({ ...base, dailyGbp: 14.5, spend: 3500, appliedMovesGbp: 150, eventDate: "2027-02-25" }).mode, "none");
     assert.equal(decideFunding({ ...base, dailyGbp: 14.5, spend: 0, budget: null, appliedMovesGbp: 0 }).mode, "none", "ABO with no budget: none");
-    assert.equal(budgetText({ mode: "cbo" }), "shares the campaign budget");
-    assert.equal(budgetText({ mode: "headroom", dailyGbp: 14.5 }), "£14.50 a day from plan headroom");
-    assert.equal(budgetText({ mode: "move", dailyGbp: 14.5, fromAdsetId: "302", fromName: "Lineup — Primary" }), "£14.50 a day moved from Lineup — Primary");
+    const adv = { name: "Adv+", dailyBudgetGbp: 14.5 };
+    assert.equal(budgetText({ mode: "cbo" }, adv), "shares the campaign budget");
+    assert.equal(budgetText({ mode: "headroom", dailyGbp: 14.5 }, adv), "starts at £14.50 a day, Adv+'s daily budget, from plan headroom");
+    assert.equal(budgetText({ mode: "move", dailyGbp: 14.5, fromAdsetId: "302", fromName: "Lineup — Primary" }, adv), "starts at £14.50 a day, Adv+'s daily budget, moved from Lineup — Primary");
   });
 
   it("CBO: the copy shares the campaign budget — no daily_budget, no bid strategy, no giver write", async () => {
@@ -337,6 +338,23 @@ describe("P3 new ad sets: a missing standing default", () => {
     assert.equal(mem.tables.onsale_refresh_audiences!.filter((row) => row.part !== "adset").length, 4, "every audience id stored on the event");
   });
 
+  it("retargeting from a copied ad set with no pixel (a Traffic / LPV ad set): the video viewers only — what the line now says", async () => {
+    const mem = seed([defaultLine("retargeting")]);
+    const fake = fakes();
+    const read = fake.meta.readAdSetForCopy.bind(fake.meta);
+    fake.meta.readAdSetForCopy = async (id) => {
+      const row = await read(id);
+      if (!row) return row;
+      const copy: Record<string, unknown> = { ...row, optimization_goal: "LANDING_PAGE_VIEWS" };
+      delete copy.promoted_object;
+      return copy as typeof row;
+    };
+    await apply(mem, fake);
+    assert.equal(lineOf(mem, "retargeting").state, "applied", String(lineOf(mem, "retargeting").reason));
+    assert.deepEqual(fake.meta.specs.map((spec) => spec.part), ["video"], "no landing-page, ticket-link or registrations audience");
+    assert.deepEqual((fake.meta.payloads[0]!.targeting as Record<string, unknown>).custom_audiences, [{ id: "aud-video" }]);
+  });
+
   it("the lookalike: 1 % in the event's country, seeded from registrations; named per the ruling", async () => {
     const mem = seed([defaultLine("registrations_lookalike")]);
     const fake = fakes();
@@ -455,10 +473,10 @@ describe("P3: registrations are the page's own signup event on the pixel, read, 
 
 describe("P3 new ad sets: design's words, and OR8 / OR9's", () => {
   it("the cluster's and the defaults' lines", () => {
-    const copy = { adsetId: "303", name: "Adv+", cprGbp: 6.1, resultLabel: "IC", dailyGbp: 14.5, creatives: 6 };
+    const copy = { adsetId: "303", name: "Adv+", cprGbp: 6.1, resultLabel: "IC", dailyGbp: 14.5, creatives: 6, dailyBudgetGbp: 14.5, recentSpendGbp: 14.5 };
     assert.equal(clusterWrite(copy, { mode: "headroom", dailyGbp: 14.5 }), OR8_CLUSTER.write);
     assert.equal(interestsLine(["Disc Genre", "Minimal techno", "Deep house", "a", "b", "c", "d"]), OR8_CLUSTER.extra);
-    assert.equal(defaultWrite({ ...copy, name: "Broad — Primary", creatives: 4 }, { mode: "headroom", dailyGbp: 3.8 }), OR8_RETARGETING.write);
+    assert.equal(defaultWrite({ ...copy, name: "Broad — Primary", creatives: 4, dailyGbp: 3.8, dailyBudgetGbp: 3.8, recentSpendGbp: 3.8 }, { mode: "headroom", dailyGbp: 3.8 }), OR8_RETARGETING.write);
     assert.equal(retargetingEvidence({ landing: 1840, ticket: 412, registrations: 3105 }), OR8_RETARGETING.extra);
     assert.equal(lookalikeEvidence(64, "GB"), OR8_LOOKALIKE.extra);
     assert.equal(appliedNewAdSet("retargeting", 4, [], 4), OR9_RESULTS.retargeting);
@@ -516,5 +534,68 @@ describe("P3: no customer-file or user-hash upload anywhere in this path (ops)",
     const source = readFileSync("lib/onsale-refresh/apply-adsets.ts", "utf8");
     const subtypes = [...source.matchAll(/subtype: "([a-z_]+)"/g)].map((match) => match[1]);
     assert.deepEqual([...new Set(subtypes)].sort(), ["lookalike", "video_views", "website_pixel"]);
+  });
+});
+
+// ── EBR26-KREAM, 16 Nov: the lookalike's draft row failed the retention CHECK ─
+
+describe("P3 lookalike: the audience builder's draft row keeps retention_days in 1–365", () => {
+  // migration 068c: retention_days int not null check (retention_days > 0 and retention_days <= 365). The draft insert runs before the Meta create.
+  const CHECK = "check (retention_days > 0 and retention_days <= 365)";
+  const insertDraft = (retentionDays: number) => {
+    if (!(retentionDays > 0 && retentionDays <= MAX_RETENTION_DAYS)) throw new Error('new row for relation "meta_custom_audiences" violates check constraint "meta_custom_audiences_retention_days_check"');
+  };
+  const SEED = "120250534178560716";
+  const lookalikeSpec = { part: "lookalike", subtype: "lookalike", name: "[EBR26-KREAM] Registrations lookalike 1% GB", originAudienceId: SEED, ratio: 0.01, country: "GB" } as const;
+
+  it("the constraint is the one the fake enforces", () => {
+    assert.ok(readFileSync("supabase/migrations/068c_meta_custom_audiences.sql", "utf8").includes(CHECK));
+  });
+
+  it("reproduces the failure: the route's lookalike retention of 0 fails the CHECK; the lookalike now stores its seed's 180 days", () => {
+    assert.throws(() => insertDraft(0), /meta_custom_audiences_retention_days_check/, "what the route used to insert for a lookalike");
+    assert.throws(() => audienceDraftFields({ ...lookalikeSpec, retentionDays: 0 }), /no retention in 1–365 days/, "refused before any insert");
+    const fields = audienceDraftFields({ ...lookalikeSpec, retentionDays: 180 });
+    assert.equal(fields.retentionDays, 180);
+    assert.deepEqual(fields.sourceMeta, { subtype: "lookalike", originAudienceId: SEED, ratio: 0.01, country: "GB", seedName: lookalikeSpec.name, type: "similarity" });
+    assert.doesNotThrow(() => insertDraft(fields.retentionDays));
+  });
+
+  it("every audience a default builds passes the CHECK", async () => {
+    for (const which of ["retargeting", "registrations_lookalike"] as const) {
+      const mem = seed([defaultLine(which)]);
+      const fake = fakes();
+      await apply(mem, fake);
+      assert.equal(lineOf(mem, which).state, "applied", which);
+      for (const spec of fake.meta.specs) assert.doesNotThrow(() => insertDraft(audienceDraftFields(spec, { videoIds: ["v1"], contextId: "page" }).retentionDays), `${which}: ${spec.part}`);
+    }
+    const lookalike = (await (async () => {
+      const mem = seed([defaultLine("registrations_lookalike")]);
+      const fake = fakes();
+      await apply(mem, fake);
+      return fake.meta.specs.find((spec) => spec.part === "lookalike")!;
+    })());
+    assert.equal(lookalike.retentionDays, 180, "the registrations seed's window");
+  });
+
+  it("EBR26-KREAM's retry: the stored seed is reused, the lookalike is made once, and the line applies", async () => {
+    const failed = { ...defaultLine("registrations_lookalike"), id: "57262ab0", state: "failed", reason: "Meta didn't take this — new row for relation \"meta_custom_audiences\" violates check constraint \"meta_custom_audiences_retention_days_check\"", applied_result: { step: "audience", source: "registrations_lookalike", funding: { mode: "cbo" }, copiedFrom: "303" } };
+    const mem = seed([failed], { stored: [{ id: "s1", event_id: "e1", user_id: "u1", kind: "registrations_lookalike", part: "registrations", campaign_key: "", meta_audience_id: SEED, line_id: "57262ab0" }] });
+    const fake = fakes({ cbo: true }); // KREAM's campaign is on a campaign budget, as the stored funding says
+    // The builder's draft insert, with the CHECK, ahead of the Meta create.
+    const made: string[] = [];
+    fake.ensureAudience = async (spec: AudienceSpec) => {
+      insertDraft(audienceDraftFields(spec, { videoIds: ["v1"], contextId: "page" }).retentionDays);
+      fake.meta.specs.push(spec);
+      made.push(spec.part);
+      return { metaAudienceId: `aud-${spec.part}`, reused: false };
+    };
+    await apply(mem, fake, { retry: true });
+    assert.equal(lineOf(mem, "57262ab0").state, "applied", String(lineOf(mem, "57262ab0").reason));
+    assert.deepEqual(made, ["lookalike"], "the seed comes from onsale_refresh_audiences; no second seed");
+    assert.equal((fake.meta.specs[0] as Extract<AudienceSpec, { subtype: "lookalike" }>).originAudienceId, SEED);
+    assert.ok(mem.tables.onsale_refresh_audiences!.some((row) => row.part === "lookalike" && row.meta_audience_id === "aud-lookalike"), "stored, so a later retry reuses it");
+    await apply(mem, fake, { retry: true });
+    assert.deepEqual(made, ["lookalike"], "an applied line is not re-run");
   });
 });

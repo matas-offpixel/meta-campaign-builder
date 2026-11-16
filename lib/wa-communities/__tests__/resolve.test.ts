@@ -1,27 +1,39 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { inviteHomesAgree } from "../invite-homes.ts";
+import {
+  authoritativeDestination,
+  resolveInviteSegment,
+  whatsappCommunityRedirectUrl,
+} from "../resolve.ts";
 import {
   isValidInviteCode,
   isValidSlug,
   normaliseInviteInput,
 } from "../slug.ts";
-import {
-  resolveInviteSegment,
-  whatsappCommunityRedirectUrl,
-} from "../resolve.ts";
+
+const THROWBACK_CODES = [
+  "BEkbaKi9HUS3Tjl1ULBbe1",
+  "DHjPw1HRvipCu6S6ZT6d5P",
+  "HyDdYMsXYCv4WNQe5DeMuU",
+] as const;
 
 describe("slug + invite validation", () => {
-  it("accepts lowercase hyphenated slugs", () => {
+  it("accepts current slugs, dotted runbook slugs, and mixed-case invite codes", () => {
     assert.equal(isValidSlug("throwback"), true);
     assert.equal(isValidSlug("throwback-madrid"), true);
-    assert.equal(isValidSlug("j2-melodic"), true);
+    assert.equal(isValidSlug("fever105-sheffield"), true);
+    assert.equal(isValidSlug("Throwback-Porto-17.10.26"), true);
+    assert.equal(isValidSlug("Closa-Selects-Barcelona-30.10.26"), true);
+    assert.equal(isValidSlug("BEkbaKi9HUS3Tjl1ULBbe1"), true);
   });
 
-  it("rejects invalid slug shapes", () => {
-    assert.equal(isValidSlug("Throwback"), false);
+  it("rejects separators in the wrong place", () => {
     assert.equal(isValidSlug("-bad"), false);
     assert.equal(isValidSlug("bad-"), false);
+    assert.equal(isValidSlug("bad."), false);
+    assert.equal(isValidSlug(".bad"), false);
     assert.equal(isValidSlug("has_under"), false);
     assert.equal(isValidSlug("has space"), false);
     assert.equal(isValidSlug(""), false);
@@ -51,11 +63,90 @@ describe("slug + invite validation", () => {
   });
 });
 
-describe("resolveInviteSegment", () => {
-  it("alias resolves to current destination", () => {
-    const out = resolveInviteSegment("throwback-madrid", {
+describe("authoritativeDestination", () => {
+  it("reads the active destination and ignores a different cache", () => {
+    const code = authoritativeDestination({
       is_active: true,
-      active_invite_code: "IPCpHTE8JMu9JT5DenZglv",
+      active_invite_code: "CCCCCCCC33333333",
+      destinations: [
+        { invite_code: "AAAAAAAA11111111", is_active: false },
+        { invite_code: "BBBBBBBB22222222", is_active: true },
+      ],
+    });
+    assert.equal(code, "BBBBBBBB22222222");
+  });
+
+  it("uses the cache when an active alias has no destination row", () => {
+    assert.equal(
+      authoritativeDestination({
+        is_active: true,
+        active_invite_code: "C7WMSoEAPJL59FIY0iDJd2",
+        destinations: [],
+      }),
+      "C7WMSoEAPJL59FIY0iDJd2",
+    );
+  });
+
+  it("returns null when the alias is inactive even if a destination is flagged active", () => {
+    assert.equal(
+      authoritativeDestination({
+        is_active: false,
+        active_invite_code: "DdsCUNGsF1RAZlGXkA5L81",
+        destinations: [{ invite_code: "DdsCUNGsF1RAZlGXkA5L81", is_active: true }],
+      }),
+      null,
+    );
+  });
+
+  // wa_community_aliases on 16 Nov 2026. Cache-only rows have no destination.
+  it("resolves every live slug to its active code", () => {
+    const rows: {
+      slug: string;
+      is_active: boolean;
+      active_invite_code: string | null;
+      destination: string | null;
+      expect: string | null;
+    }[] = [
+      { slug: "azyr-nx", is_active: true, active_invite_code: "H98f8mIfT864uOmirYlSbA", destination: "H98f8mIfT864uOmirYlSbA", expect: "H98f8mIfT864uOmirYlSbA" },
+      { slug: "cdw", is_active: true, active_invite_code: "FwcMtg5zsqA4Z4sIOes2Cq", destination: "FwcMtg5zsqA4Z4sIOes2Cq", expect: "FwcMtg5zsqA4Z4sIOes2Cq" },
+      { slug: "djez-nx", is_active: true, active_invite_code: "JbIuiMMi67O2Uk90W8Z1c3", destination: "JbIuiMMi67O2Uk90W8Z1c3", expect: "JbIuiMMi67O2Uk90W8Z1c3" },
+      { slug: "dod-nx", is_active: true, active_invite_code: "C0S0mhgnJdEHLa0ibqlGDM", destination: "C0S0mhgnJdEHLa0ibqlGDM", expect: "C0S0mhgnJdEHLa0ibqlGDM" },
+      { slug: "eed-nx", is_active: true, active_invite_code: "LBuE4GwEMt81hOx1KgB7Lx", destination: "LBuE4GwEMt81hOx1KgB7Lx", expect: "LBuE4GwEMt81hOx1KgB7Lx" },
+      { slug: "ewanmcvicar-nx", is_active: true, active_invite_code: "Dl7VK7opleoKWbemaQFcW8", destination: null, expect: "Dl7VK7opleoKWbemaQFcW8" },
+      { slug: "fever105-sheffield", is_active: true, active_invite_code: "DdsCUNGsF1RAZlGXkA5L81", destination: "DdsCUNGsF1RAZlGXkA5L81", expect: "DdsCUNGsF1RAZlGXkA5L81" },
+      { slug: "folamour-nx", is_active: true, active_invite_code: "EyjMPWNJFuZ5RTJi8I4QPw", destination: "EyjMPWNJFuZ5RTJi8I4QPw", expect: "EyjMPWNJFuZ5RTJi8I4QPw" },
+      { slug: "gds-sheffield", is_active: true, active_invite_code: "FknA5LDC4zD5rBPj7sWcmt", destination: "FknA5LDC4zD5rBPj7sWcmt", expect: "FknA5LDC4zD5rBPj7sWcmt" },
+      { slug: "glitterbox-bristol", is_active: true, active_invite_code: "KtVHgTtmGxALxaKmWJOxwR", destination: null, expect: "KtVHgTtmGxALxaKmWJOxwR" },
+      { slug: "ipc-nx", is_active: true, active_invite_code: "L4jN3AFWkKtI1FIS2yEXjX", destination: "L4jN3AFWkKtI1FIS2yEXjX", expect: "L4jN3AFWkKtI1FIS2yEXjX" },
+      { slug: "kream-bristol", is_active: true, active_invite_code: "DLsK34iUMpC3sFDg80CQrd", destination: null, expect: "DLsK34iUMpC3sFDg80CQrd" },
+      { slug: "locklead-nx", is_active: true, active_invite_code: "C7WMSoEAPJL59FIY0iDJd2", destination: null, expect: "C7WMSoEAPJL59FIY0iDJd2" },
+      { slug: "lprhythm-sheffield", is_active: true, active_invite_code: "EPLTFhrSlOj3u3QZBE5b02", destination: null, expect: "EPLTFhrSlOj3u3QZBE5b02" },
+      { slug: "mg-sheffield", is_active: true, active_invite_code: "GRhIHPpdO7T2d8JSt1ioBD", destination: "GRhIHPpdO7T2d8JSt1ioBD", expect: "GRhIHPpdO7T2d8JSt1ioBD" },
+      { slug: "paulvandyk-nx", is_active: true, active_invite_code: "FcmnE27aoR649oO9QSz4MR", destination: "FcmnE27aoR649oO9QSz4MR", expect: "FcmnE27aoR649oO9QSz4MR" },
+      { slug: "puzzle-circuit", is_active: true, active_invite_code: "EIRmWYF6uTVBBfXVE5vXxU", destination: "EIRmWYF6uTVBBfXVE5vXxU", expect: "EIRmWYF6uTVBBfXVE5vXxU" },
+      { slug: "robbie-nx", is_active: true, active_invite_code: "CbtX589VmAg5vLilBrmeme", destination: "CbtX589VmAg5vLilBrmeme", expect: "CbtX589VmAg5vLilBrmeme" },
+      { slug: "rudimental-nx", is_active: false, active_invite_code: null, destination: "DdsCUNGsF1RAZlGXkA5L81", expect: null },
+      { slug: "schak-nx", is_active: true, active_invite_code: "D7AvqS8L27rKJwio2BhpJw", destination: "D7AvqS8L27rKJwio2BhpJw", expect: "D7AvqS8L27rKJwio2BhpJw" },
+    ];
+    assert.equal(rows.length, 20);
+    for (const row of rows) {
+      assert.equal(isValidSlug(row.slug), true, row.slug);
+      const code = authoritativeDestination({
+        is_active: row.is_active,
+        active_invite_code: row.active_invite_code,
+        destinations: row.destination
+          ? [{ invite_code: row.destination, is_active: true }]
+          : [],
+      });
+      assert.equal(code, row.expect, row.slug);
+    }
+  });
+});
+
+describe("resolveInviteSegment", () => {
+  it("alias resolves to the destination code", () => {
+    const out = resolveInviteSegment("throwback-madrid", {
+      destination_invite_code: "IPCpHTE8JMu9JT5DenZglv",
     });
     assert.deepEqual(out, {
       kind: "alias",
@@ -65,59 +156,49 @@ describe("resolveInviteSegment", () => {
     });
   });
 
-  it("unknown slug 404s (not invite-shaped)", () => {
-    const out = resolveInviteSegment("unknown-brand", null);
-    assert.deepEqual(out, { kind: "not_found", status: 404 });
-  });
-
-  it("inactive alias 404s", () => {
-    const out = resolveInviteSegment("throwback", {
-      is_active: false,
-      active_invite_code: "IPCpHTE8JMu9JT5DenZglv",
-    });
-    assert.deepEqual(out, { kind: "not_found", status: 404 });
-  });
-
-  it("alias without destination 404s", () => {
-    const out = resolveInviteSegment("throwback", {
-      is_active: true,
-      active_invite_code: null,
-    });
-    assert.deepEqual(out, { kind: "not_found", status: 404 });
-  });
-
-  it("raw invite code still passes through", () => {
-    const code = "IPCpHTE8JMu9JT5DenZglv";
-    const out = resolveInviteSegment(code, null);
-    assert.deepEqual(out, {
-      kind: "passthrough",
-      status: 302,
-      inviteCode: code,
-    });
-  });
-
-  it("mixed-case invite bypasses slug lookup path and passthroughs", () => {
-    // Mixed case fails SLUG_RE, so alias is never consulted.
+  it("mixed-case invite follows the alias when a destination is in force", () => {
     const code = "BEkbaKi9HUS3Tjl1ULBbe1";
     const out = resolveInviteSegment(code, {
-      is_active: true,
-      active_invite_code: "SHOULD_NOT_USE",
+      destination_invite_code: "CCCCCCCC33333333",
     });
-    assert.equal(out.kind, "passthrough");
-    if (out.kind === "passthrough") {
-      assert.equal(out.inviteCode, code);
+    assert.equal(out.kind, "alias");
+    if (out.kind === "alias") {
+      assert.equal(out.inviteCode, "CCCCCCCC33333333");
+      assert.notEqual(out.inviteCode, code);
     }
   });
 
-  it("repointing changes destination with same slug (no template change)", () => {
+  it("unaliased mixed-case invite passes through byte-identical", () => {
+    for (const code of THROWBACK_CODES) {
+      const out = resolveInviteSegment(code, null);
+      assert.deepEqual(out, {
+        kind: "passthrough",
+        status: 302,
+        inviteCode: code,
+      });
+      assert.equal(
+        whatsappCommunityRedirectUrl(out.kind === "passthrough" ? out.inviteCode : ""),
+        `https://chat.whatsapp.com/${code}?mode=gi_t`,
+      );
+    }
+  });
+
+  it("unknown well-formed slug passes through", () => {
+    const out = resolveInviteSegment("unknown-brand", null);
+    assert.deepEqual(out, {
+      kind: "passthrough",
+      status: 302,
+      inviteCode: "unknown-brand",
+    });
+  });
+
+  it("repointing changes destination with the same slug", () => {
     const slug = "jackies";
     const before = resolveInviteSegment(slug, {
-      is_active: true,
-      active_invite_code: "AAAAAAAA11111111",
+      destination_invite_code: "AAAAAAAA11111111",
     });
     const after = resolveInviteSegment(slug, {
-      is_active: true,
-      active_invite_code: "BBBBBBBB22222222",
+      destination_invite_code: "BBBBBBBB22222222",
     });
     assert.equal(before.kind, "alias");
     assert.equal(after.kind, "alias");
@@ -128,41 +209,34 @@ describe("resolveInviteSegment", () => {
     }
   });
 
-  it("lowercase invite-shaped unknown segment still passthroughs", () => {
-    // 8+ lowercase alnum matches both slug + invite; unknown alias → passthrough.
-    const out = resolveInviteSegment("abcdefghij", null);
-    assert.deepEqual(out, {
-      kind: "passthrough",
-      status: 302,
-      inviteCode: "abcdefghij",
-    });
-  });
-
-  it("short non-hyphenated string (not invite-length) 404s", () => {
-    // Fails INVITE_RE (<8 chars) but matches SLUG_RE — must not redirect.
-    assert.deepEqual(resolveInviteSegment("hello", null), {
+  it("garbage is 404", () => {
+    assert.deepEqual(resolveInviteSegment("!!bad!!", null), {
       kind: "not_found",
       status: 404,
     });
-    assert.deepEqual(resolveInviteSegment("abc", null), {
-      kind: "not_found",
-      status: 404,
-    });
-    assert.deepEqual(resolveInviteSegment("short", null), {
+    assert.deepEqual(resolveInviteSegment("has space", null), {
       kind: "not_found",
       status: 404,
     });
   });
 
-  it("garbage returns 400", () => {
-    const out = resolveInviteSegment("!!bad!!", null);
-    assert.deepEqual(out, { kind: "invalid", status: 400 });
-  });
-
-  it("builds WhatsApp redirect URL", () => {
+  it("builds WhatsApp redirect URL with the code unchanged", () => {
     assert.equal(
-      whatsappCommunityRedirectUrl("ABC12345"),
-      "https://chat.whatsapp.com/ABC12345?mode=gi_t",
+      whatsappCommunityRedirectUrl("BEkbaKi9HUS3Tjl1ULBbe1"),
+      "https://chat.whatsapp.com/BEkbaKi9HUS3Tjl1ULBbe1?mode=gi_t",
     );
+  });
+});
+
+describe("invite homes", () => {
+  it("agrees when both are null or both hold the same code", () => {
+    assert.equal(inviteHomesAgree(null, null), true);
+    assert.equal(inviteHomesAgree("AAAAAAAA11111111", "AAAAAAAA11111111"), true);
+  });
+
+  it("disagrees when the cache and the active destination differ", () => {
+    assert.equal(inviteHomesAgree(null, "DdsCUNGsF1RAZlGXkA5L81"), false);
+    assert.equal(inviteHomesAgree("AAAAAAAA11111111", "BBBBBBBB22222222"), false);
+    assert.equal(inviteHomesAgree("AAAAAAAA11111111", null), false);
   });
 });

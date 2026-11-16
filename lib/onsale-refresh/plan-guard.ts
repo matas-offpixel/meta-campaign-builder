@@ -25,6 +25,24 @@ type Db = Pick<SupabaseClient, "from">;
 
 export const MOVE_CAP_SHARE = 0.2;
 
+/** The floor we keep on a giving ad set's daily budget, in minor units (£1.00). A move never takes it under. */
+export const MIN_DAILY_BUDGET_MINOR = 100;
+
+/** A week's move as a daily change, in minor units: the week's amount ÷ 7. Apply writes exactly this; the rule sizes on it. */
+export function moveDeltaMinor(amountGbp: number): number {
+  return Math.round((amountGbp * 100) / 7);
+}
+
+/**
+ * The most a week's move can take from a giver at `dailyMinor` a day and
+ * still leave it at the £1.00 floor, in £ (2 dp); 0 when it is already at
+ * or under the floor. moveDeltaMinor of the result never passes the floor.
+ */
+export function maxWeeklyMoveGbp(dailyMinor: number): number {
+  const headroom = Math.round(dailyMinor) - MIN_DAILY_BUDGET_MINOR;
+  return headroom > 0 ? Math.floor(headroom * 7) / 100 : 0;
+}
+
 export const SPEND_NEEDS_BUDGET = "Adds spend: set this event's budget to accept this.";
 export const MOVE_NEEDS_BUDGET = "Moves need the event's budget to size the cap: set this event's budget to accept this.";
 

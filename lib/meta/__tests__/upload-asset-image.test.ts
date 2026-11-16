@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { MATAS_USER_IDS } from "../../auth/operator-allowlist.ts";
 import { handleUploadAsset, type UploadAssetHooks } from "../upload-asset-handler.ts";
+
+// The handler is operator-only (the proxy's matcher skips this route).
+const OPERATOR = MATAS_USER_IDS[0]!;
 
 const USER_MSG = "We could not process the image that you have uploaded. Please try again or upload a different image.";
 
@@ -41,7 +45,7 @@ function hooks(overrides: Partial<UploadAssetHooks> = {}): UploadAssetHooks & {
   const persisted: string[] = [];
   const uploadedNames: string[] = [];
   const base: UploadAssetHooks = {
-    getUser: async () => ({ id: "user-1" }),
+    getUser: async () => ({ id: OPERATOR }),
     resolveToken: async () => ({ token: "tok", source: "test" }),
     supabase: {},
     storage: {
@@ -170,5 +174,33 @@ describe("image upload paths", () => {
     const json = await res.json();
     assert.equal(res.status, 500);
     assert.equal(json.error, "registry unavailable");
+  });
+});
+
+describe("operator only", () => {
+  it("a signed-in non-operator gets 403 before any Storage or Meta call", async () => {
+    let touched = 0;
+    const h = hooks({
+      getUser: async () => ({ id: "7d0c3f52-1b6e-4a9d-8e21-5f4a3c2b1d0e" }), // invented client_users member
+      resolveToken: async () => {
+        touched += 1;
+        return { token: "tok", source: "test" };
+      },
+      storage: {
+        createSignedUrl: async () => {
+          touched += 1;
+          return { signedUrl: "https://storage.example/object" };
+        },
+        remove: async () => {
+          touched += 1;
+        },
+      },
+    });
+    const res = await handleUploadAsset(storageRequest(), h);
+    assert.equal(res.status, 403);
+    assert.deepEqual(await res.json(), { ok: false, error: "Operator access required" });
+    assert.equal(touched, 0);
+    assert.equal(h.uploadedNames.length, 0);
+    assert.equal(h.persisted.length, 0);
   });
 });

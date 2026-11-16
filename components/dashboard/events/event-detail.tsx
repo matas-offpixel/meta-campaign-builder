@@ -25,6 +25,7 @@ import { LiveReleases } from "@/components/dashboard/asset-bank/live";
 import { OffersSheet } from "@/components/dashboard/asset-bank/surface";
 import { CreativeLabCard } from "@/components/dashboard/events/creative-lab-card";
 import { OnSaleRefreshPanel } from "@/components/dashboard/events/onsale-refresh-panel";
+import { eventAdAccountSource } from "@/lib/meta/ad-account";
 import { isOnSale } from "@/lib/onsale-refresh/on-sale";
 import { todayLondon } from "@/lib/onsale-refresh/schedule";
 import { InsightsPageContext } from "@/components/insights-rail/rail-context";
@@ -423,13 +424,8 @@ export function EventDetail({
                 clientGoogleAdsAccountId={
                   event.client?.google_ads_account_id ?? null
                 }
-                metaAdAccount={{
-                  // Events don't carry their own meta_ad_account_id
-                  // override yet, so the resolved value is always the
-                  // client-level one (inherited).
-                  value: event.client?.meta_ad_account_id ?? null,
-                  inherited: Boolean(event.client?.meta_ad_account_id),
-                }}
+                // The event's own events.meta_ad_account_id first, else the client's.
+                metaAdAccount={eventAdAccountSource(event)}
                 driveFolderUrl={event.google_drive_folder_url ?? null}
               />
               <EventInvoicingPanel

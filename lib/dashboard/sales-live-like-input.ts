@@ -64,6 +64,8 @@ type ShowPlan = {
   page?: string;
   umbrella?: boolean;
   finished?: boolean;
+  /** Capacity and allocation; 2,000 when unset. */
+  capacity?: number;
 };
 
 /**
@@ -91,7 +93,7 @@ const PLANS: ShowPlan[] = [
 ];
 
 /** Each show's last-day share of Meta spend; NX's counted shows land £82 in all on 13 Nov. */
-const LAST_DAY: Record<string, number> = { ipc: 24, robbie: 10, dod: 14, locklead: 9, rudimental: 13, schak: 12, global: 30, kream: 12, fever: 10 };
+const LAST_DAY: Record<string, number> = { ipc: 24, robbie: 10, dod: 14, locklead: 9, rudimental: 13, schak: 12, global: 30, kream: 12, fever: 10, lprhythm: 181 };
 
 function counts(plan: ShowPlan, lastDay: string): ShowCount[] {
   if (!plan.firstCount || !plan.lastCount) return [];
@@ -118,8 +120,8 @@ function showInput(plan: ShowPlan, index: number, lastCountDay: string): ShowInp
     name: plan.name,
     showDate: plan.showDate,
     presaleDate: plan.presale,
-    capacity: plan.umbrella ? null : 2000,
-    allocation: plan.umbrella ? null : 2000,
+    capacity: plan.umbrella ? null : plan.capacity ?? 2000,
+    allocation: plan.umbrella ? null : plan.capacity ?? 2000,
     allocationFromTiers: false,
     isUmbrella: plan.umbrella ?? false,
     cirqlinPageId: plan.page ? `page-${plan.id}` : null,
@@ -163,13 +165,13 @@ function spendDays(plan: ShowPlan): string[] {
   return days(start < FIRST_DAY ? FIRST_DAY : start, end);
 }
 
-function build(lastCountDayFor: (plan: ShowPlan) => string): SalesCalcInput {
-  const shows = PLANS.map((p, i) => showInput(p, i, lastCountDayFor(p)));
+function build(lastCountDayFor: (plan: ShowPlan) => string, plans: readonly ShowPlan[] = PLANS): SalesCalcInput {
+  const shows = plans.map((p, i) => showInput(p, i, lastCountDayFor(p)));
   const meta: MetaCampaignDay[] = [];
   const rollups: RollupDay[] = [];
   const signups: SignupDay[] = [];
   let campaignNo = 0;
-  for (const plan of PLANS) {
+  for (const plan of plans) {
     const show = shows.find((s) => s.code === plan.code)!;
     const ds = spendDays(plan);
     // Meta: each day's spend is split exactly among the campaigns running that day. The spending ones run to
@@ -239,3 +241,33 @@ export const LIVE_LIKE_INPUT: SalesCalcInput = build(() => COUNT_END);
  * on spend to each show's last count (latest 12 Nov)".
  */
 export const LIVE_LIKE_MIXED_INPUT: SalesCalcInput = build((p) => (p.id === "julian" ? "2026-11-11" : COUNT_END));
+
+/**
+ * NC1 / NC1S: a venue with no Internal Counts. Electric Studios' one live show
+ * is L.P Rhythm, in its real shape on 16 Nov: £590 Meta spend on one
+ * campaign, still spending, 754 registrations, capacity 1,000, presale
+ * 20 Nov, show 6 Feb, no counts yet.
+ * Every other row is LIVE_LIKE_INPUT's.
+ */
+export const NO_COUNTS_VENUE_INPUT: SalesCalcInput = build(
+  () => COUNT_END,
+  PLANS.map((plan) =>
+    plan.venue !== "electric studios"
+      ? plan
+      : {
+          id: "lprhythm",
+          code: "ES27-LPRHYTHM",
+          name: "L.P Rhythm",
+          showDate: "2027-02-06",
+          presale: "2026-11-20",
+          venue: "electric studios",
+          venueName: "Electric Studios",
+          meta: 590,
+          campaigns: 1,
+          spending: 1,
+          signups: 754,
+          page: "es-lp-rhythm",
+          capacity: 1000,
+        },
+  ),
+);

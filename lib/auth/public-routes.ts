@@ -183,12 +183,23 @@ export function isPublicPath(
   if (/^\/api\/events\/[^/]+\/mailchimp\/tag-backfill\/(start|status)$/.test(pathname)) {
     return true;
   }
+  // `/api/community-aliases/{slug}` — cirqlin reads the active WhatsApp
+  // destination with Bearer CIRQLIN_TO_DASHBOARD_BEARER. No session. The
+  // handler compares the bearer itself and returns a degraded 200 (not a
+  // fan-facing 5xx) when the lookup fails.
+  if (/^\/api\/community-aliases\/[^/]+$/.test(pathname)) return true;
   // `/api/webhooks/mailchimp/{clientId}/{audienceId}` — Mailchimp tag webhook
   // receiver. Authenticates via URL secret / HMAC in the handler, so it must
   // bypass the session proxy entirely.
   if (/^\/api\/webhooks\/mailchimp\/[^/]+\/[^/]+$/.test(pathname)) {
     return true;
   }
+  // `/api/webhooks/ticketing/{provider}` — ticketing provider purchase
+  // webhook. The provider calls with no session, so without this the proxy
+  // 307s it to /login and the handler never runs. The route verifies an
+  // HMAC of the raw body before parsing (fails closed: 503 when the secret
+  // is unset, 401 on a bad signature, 404 for unsupported providers).
+  if (/^\/api\/webhooks\/ticketing\/[^/]+$/.test(pathname)) return true;
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;

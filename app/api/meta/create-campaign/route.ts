@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { NO_META_TOKEN_MESSAGE, mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 import { createMetaCampaign, MetaApiError } from "@/lib/meta/client";
 import {
   validateCampaignPayload,
@@ -15,6 +16,11 @@ export async function POST(request: Request) {
 
   if (!user) {
     return Response.json({ error: "Unauthorised" }, { status: 401 });
+  }
+  // The campaign is written with the agency token (no per-call token below),
+  // which is for operators only.
+  if (!mayUseAgencyMetaToken(user.id)) {
+    return Response.json({ error: NO_META_TOKEN_MESSAGE }, { status: 403 });
   }
 
   // ── 2. Parse body ─────────────────────────────────────────────────────────

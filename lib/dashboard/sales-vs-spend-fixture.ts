@@ -19,7 +19,7 @@ import {
   type SalesTotal,
 } from "./sales-vs-spend.ts";
 import { buildSalesDashboard } from "./sales-calc/model.ts";
-import { LIVE_LIKE_INPUT, LIVE_LIKE_MIXED_INPUT } from "./sales-live-like-input.ts";
+import { LIVE_LIKE_INPUT, LIVE_LIKE_MIXED_INPUT, NO_COUNTS_VENUE_INPUT } from "./sales-live-like-input.ts";
 
 const ESTIMATE = "Estimated between counts on 5 Nov and 12 Nov";
 
@@ -646,3 +646,6 @@ export const NX_SALES_LIVE_LIKE: SalesDashboardModel = buildSalesDashboard(LIVE_
 
 /** The same rows with one show last counted a day earlier: the longest header sentence, for MB1's guard. */
 export const NX_SALES_LIVE_LIKE_MIXED: SalesDashboardModel = buildSalesDashboard(LIVE_LIKE_MIXED_INPUT).model;
+
+/** NC1 / NC1S: Electric Studios with no Internal Counts (L.P Rhythm, 0 of 1 shows counted); the rest is the live-like rows. */
+export const NX_SALES_NO_COUNTS: SalesDashboardModel = buildSalesDashboard(NO_COUNTS_VENUE_INPUT).model;

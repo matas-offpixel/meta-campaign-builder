@@ -427,12 +427,17 @@ export async function resolveIgActorForAdAccount(
  * @param pageId      The Facebook Page ID.
  * @param userToken   The user's OAuth provider token (from `user_facebook_tokens`).
  *                    Pass `null` if it isn't available; resolution will likely fail.
+ * @param opts.allowSystemToken  Whether the agency's META_ACCESS_TOKEN may be
+ *                    tried. Request routes pass `mayUseAgencyMetaToken(caller)`,
+ *                    so a non-operator never reaches it; system paths keep the
+ *                    default.
  */
 export async function resolvePageIdentity(
   pageId: string,
   userToken: string | null,
+  opts: { allowSystemToken?: boolean } = {},
 ): Promise<ResolvedPageIdentity> {
-  const systemToken = process.env.META_ACCESS_TOKEN ?? null;
+  const systemToken = opts.allowSystemToken === false ? null : (process.env.META_ACCESS_TOKEN ?? null);
   let lastError: string | undefined;
 
   // ── Attempt 1: GET /{pageId} with user token (preferred) ────────────────────

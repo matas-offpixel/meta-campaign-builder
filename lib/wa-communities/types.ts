@@ -29,7 +29,10 @@ export interface WaCommunityAlias {
   brand: string | null;
   is_active: boolean;
   notes: string | null;
+  /** Denormalised cache. The active destination row is authoritative. */
   active_invite_code: string | null;
+  /** Optional label for an event that has no clients row. */
+  event_ref: string | null;
   created_at: string;
   updated_at: string;
   created_by_user_id: string | null;

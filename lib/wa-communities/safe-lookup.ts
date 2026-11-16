@@ -1,20 +1,23 @@
 /**
  * Fail-open alias lookup for the public /j/{segment} route.
  *
- * Alias resolution must never take down raw-invite passthrough. Table missing,
- * DB unreachable, timeout, service-role misconfig — anything — returns null so
- * resolveInviteSegment can still 302 chat.whatsapp.com/{invite} for live
- * Meta-approved templates.
+ * Fail-open spans both invite-shaped and slug-shaped segments. Table
+ * missing, DB unreachable, timeout, cache failure that escapes the lookup —
+ * anything thrown — returns null so the route can still 302
+ * chat.whatsapp.com/{segment} for an already-approved button. A broken
+ * alias subsystem must never break a community link.
+ *
+ * Segments that match neither shape skip the lookup and stay a 404.
  */
 
-import { isValidSlug } from "./slug.ts";
 import type { AliasLookupRow } from "./resolve.ts";
+import { isWellFormedSegment } from "./slug.ts";
 
 export async function lookupAliasFailOpen(
   segment: string,
   fetch: (slug: string) => Promise<AliasLookupRow | null>,
 ): Promise<{ alias: AliasLookupRow | null; lookupError: unknown | null }> {
-  if (!isValidSlug(segment)) {
+  if (!isWellFormedSegment(segment)) {
     return { alias: null, lookupError: null };
   }
   try {

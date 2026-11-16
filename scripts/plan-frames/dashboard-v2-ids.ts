@@ -9,6 +9,7 @@ import type { SalesPeriod, SalesSurface } from "@/lib/dashboard/sales-vs-spend";
 export const DASHBOARD_V2_FRAME_IDS = [
   "DV1", "DV2", "DV3", "NV1", "NV2", "NV5", "NV6", "MBO", "MBS",
   "MBF375", "MBF390", "MBF430", "MBM", "MBA", "MBC", "MBH1", "MBH2", "MB14",
+  "NC1", "NC1S",
 ] as const;
 
 export type DashboardV2FrameId = (typeof DASHBOARD_V2_FRAME_IDS)[number];
@@ -22,8 +23,11 @@ export const DASHBOARD_V2_FRAMES: Record<
     pinHover?: boolean;
     pinSpend?: boolean;
     venueKey?: string;
-    /** "live": the live-like rows through the calc; "live-mixed": the same with mixed count days (the longest sentence). */
-    fixture?: "live" | "live-mixed";
+    /**
+     * "live": the live-like rows through the calc; "live-mixed": the same with mixed count days (the longest sentence);
+     * "no-counts": the same with Electric Studios' one show (L.P Rhythm) not counted yet.
+     */
+    fixture?: "live" | "live-mixed" | "no-counts";
     /** The first-screen line: the record's budget for this width (MB2). */
     fold?: { width: number; height: number };
     moreOpen?: boolean;
@@ -59,4 +63,7 @@ export const DASHBOARD_V2_FRAMES: Record<
   MBH2: { surface: "share", showId: "venue:nx newcastle", period: "launch", fixture: "live", holdDay: "2026-10-03", chartOpenAt: "2026-10-03" },
   /** 14 days: no scroller. */
   MB14: { surface: "share", showId: "venue:nx newcastle", period: "14", fixture: "live" },
+  /** NC1 / NC1S at 1280 and 393: a venue with no Internal Counts (countDay null, 0 of 1 shows counted), Since launch. */
+  NC1: { surface: "internal", showId: "venue:electric studios", period: "launch", fixture: "no-counts", venueKey: "electric studios" },
+  NC1S: { surface: "share", showId: "venue:electric studios", period: "launch", fixture: "no-counts", venueKey: "electric studios" },
 };

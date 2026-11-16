@@ -103,6 +103,22 @@ export function resolveEventAdAccountId(
 }
 
 /**
+ * The event's Meta ad account for display, and where it is set: the
+ * event's own `events.meta_ad_account_id` first ("event"), else the
+ * client's ("client"). The same rule as resolveEventAdAccountId.
+ */
+export function eventAdAccountSource(event: {
+  meta_ad_account_id?: string | null;
+  client?: { meta_ad_account_id?: string | null } | null;
+}): { value: string | null; source: "event" | "client" | null } {
+  const own = event.meta_ad_account_id?.trim();
+  if (own) return { value: own, source: "event" };
+  const inherited = event.client?.meta_ad_account_id?.trim();
+  if (inherited) return { value: inherited, source: "client" };
+  return { value: null, source: null };
+}
+
+/**
  * Venue-scoped variant. The venue surfaces (`/insights/venue/...`,
  * `/share/venue/...`, the venue-creatives routes) key on
  * `(client_id, event_code)` rather than a single event id, so there can

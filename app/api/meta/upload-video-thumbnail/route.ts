@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { uploadVideoThumbnail, MetaApiError } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { mayUseAgencyMetaToken, NO_META_TOKEN_MESSAGE } from "@/lib/meta/agency-token";
 
 export const maxDuration = 60;
 
@@ -57,7 +58,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const resolved = await resolveServerMetaToken(supabase, user.id);
     token = resolved.token;
   } catch {
-    token = undefined; // uploadVideoThumbnail falls back to META_ACCESS_TOKEN
+    // uploadVideoThumbnail falls back to META_ACCESS_TOKEN, which is for
+    // operators only (resolveServerMetaToken already refuses anyone else).
+    if (!mayUseAgencyMetaToken(user.id)) {
+      return NextResponse.json({ error: NO_META_TOKEN_MESSAGE }, { status: 403 });
+    }
+    token = undefined;
   }
 
   console.log("[upload-video-thumbnail] override attempt:", {

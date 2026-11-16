@@ -21,6 +21,7 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
+import { agencyMetaToken, mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 
 import { uploadFileToStorageBucket } from "@/lib/clients/asset-queue/storage-upload";
 import { driveFromEnv } from "@/lib/drive/client";
@@ -35,7 +36,7 @@ import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { resolvePageIdentity } from "@/lib/meta/page-token";
 import { handleUploadAsset } from "@/lib/meta/upload-asset-handler";
 import { APPLY_SHADOW, applyAccepted, type DriveCopy, type RefreshMeta } from "@/lib/onsale-refresh/apply";
-import type { AudienceSpec, NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
+import { audienceDraftFields, type AudienceSpec, type NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
 import type { PurchaseMeta } from "@/lib/onsale-refresh/apply-purchase";
 
 import { ownedRefreshEvent } from "../_owned";
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
   const lineIds = Array.isArray(body.lineIds) ? body.lineIds.filter((value): value is string => typeof value === "string") : undefined;
 
-  let token = process.env.META_ACCESS_TOKEN ?? "";
+  let token = agencyMetaToken(who.userId) ?? ""; // the agency token is for operators only
   try {
     const { data } = await who.session.from("user_facebook_tokens").select("provider_token").eq("user_id", who.userId).maybeSingle();
     if ((data as { provider_token?: string } | null)?.provider_token) token = (data as { provider_token: string }).provider_token;
@@ -101,7 +102,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       validators.set(adAccountId, validator);
       let pageToken: string | null = null;
       try {
-        pageToken = (await resolvePageIdentity(creative.identity.pageId, token)).pageAccessToken ?? null;
+        pageToken = (
+          await resolvePageIdentity(creative.identity.pageId, token, { allowSystemToken: mayUseAgencyMetaToken(who.userId) })
+        ).pageAccessToken ?? null;
       } catch {
         pageToken = null;
       }
@@ -198,23 +201,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     },
     async ensureAudience(spec: AudienceSpec, adAccountId: string) {
       if (!who.event.client_id) throw new Error("This event has no client, so the audience builder can't file the audience.");
-      let sourceId = "";
-      let sourceMeta: Record<string, unknown>;
-      let retentionDays = 0;
-      if (spec.subtype === "website_pixel") {
-        sourceId = spec.pixelId;
-        sourceMeta = { subtype: "website_pixel", pixelEvent: spec.pixelEvent, urlContains: spec.urlContains };
-        retentionDays = spec.retentionDays;
-      } else if (spec.subtype === "video_views") {
+      let videoSource: { videoIds: string[]; contextId: string } | undefined;
+      if (spec.subtype === "video_views") {
         const videos = await fetchAudienceMultiCampaignVideos(adAccountId, spec.campaignIds, token);
         if (!videos.videos.length || !videos.contextPageId) return null;
-        sourceId = spec.campaignIds.join(",");
-        sourceMeta = { subtype: "video_views", threshold: spec.threshold, videoIds: videos.videos.map((video) => video.id), contextId: videos.contextPageId, campaignIds: spec.campaignIds };
-        retentionDays = spec.retentionDays;
-      } else {
-        sourceId = spec.originAudienceId;
-        sourceMeta = { subtype: "lookalike", originAudienceId: spec.originAudienceId, ratio: spec.ratio, country: spec.country, seedName: spec.name, type: "similarity" };
+        videoSource = { videoIds: videos.videos.map((video) => video.id), contextId: videos.contextPageId };
       }
+      // Source and retention per spec (a lookalike stores its seed's window): the draft insert runs before the Meta create.
+      const { sourceId, sourceMeta, retentionDays } = audienceDraftFields(spec, videoSource);
       const draft = await createAudienceDraft({
         userId: who.userId,
         clientId: who.event.client_id,

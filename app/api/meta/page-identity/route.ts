@@ -39,6 +39,7 @@
  */
 
 import { type NextRequest } from "next/server";
+import { mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -77,7 +78,9 @@ export async function GET(req: NextRequest) {
       ` userToken=${userToken ? `present(len=${userToken.length})` : "missing"}`,
   );
 
-  const identity = await resolvePageIdentity(pageId, userToken);
+  const identity = await resolvePageIdentity(pageId, userToken, {
+    allowSystemToken: mayUseAgencyMetaToken(user.id),
+  });
 
   console.log(
     `[/api/meta/page-identity] page resolved pageId=${pageId}` +

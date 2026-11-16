@@ -14,6 +14,9 @@ import {
   MIN_LOOKALIKE_SEED,
   NO_BUDGET_TO_START,
   NO_COPY_SOURCE,
+  NO_PIXEL_NO_REGISTRATIONS,
+  NO_PIXEL_NO_VIDEO,
+  RETARGETING_VIDEO_ONLY,
   SIGNUP_NOT_READ,
   clusterEvidence,
   clusterIndex,
@@ -35,6 +38,7 @@ import {
   type Giver,
 } from "./new-adset.ts";
 import { RESULT_LABEL, type PhaseConfig, type ResultEvent } from "./phase-config.ts";
+import { MIN_DAILY_BUDGET_MINOR, maxWeeklyMoveGbp } from "./plan-guard.ts";
 import { stoppedText, trackKey, type TrackRecords } from "./track-record.ts";
 import type { PurchaseScalePlan } from "./load.ts";
 import { runningForm, type PcState, type PurchaseCampaignPlan } from "./purchase-campaign.ts";
@@ -75,6 +79,12 @@ export type AdSetInput = {
   recentDailySpend?: number;
   /** P3: its ads that delivered on the window's last two days (a copy reuses their creatives). */
   deliveringAds?: number;
+  /**
+   * The purchase read's batch read of `adsetId` (promoted_object, daily_budget; no extra Meta call). Absent = not read.
+   * `dailyBudgetMinor` null: no ad-set daily budget. With `lifetimeBudgetMinor` null too, the budget is on the campaign (CBO);
+   * with it set, the ad set runs on a lifetime budget. `pixelId` null: no pixel on the ad set.
+   */
+  meta?: { dailyBudgetMinor: number | null; lifetimeBudgetMinor?: number | null; pixelId: string | null };
 };
 
 export type ClusterInput = {
@@ -151,6 +161,8 @@ export type CampaignInput = {
   signup?: { event: "CompleteRegistration" | "Lead" | null; registrations180: number; landing30: number; ticket30: number };
   /** P3: the lookalike's country. */
   country?: string;
+  /** 3-second video plays on the campaign's ads (ad_daily_insights): 0 = no video for a video-viewer audience. Absent = not read. */
+  videoPlays?: number;
   landingUrl?: string | null;
   ticketUrl?: string | null;
   /** P3: standing defaults / clusters whose ad set the refresh already made for this campaign. */
@@ -532,17 +544,17 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
     if (cluster.usedOnEvent || cluster.index == null || !cluster.client) continue;
     if (cluster.index > config.bringBackClusterCprIndexAtMost || cluster.confidence < config.bringBackClusterConfidenceAtLeast) continue;
     if (input.storedDefaults?.includes(`cluster:${cluster.id}`)) continue;
-    lines.push(clusterLine(input, cluster, newSets, config));
+    pushNewAdSet(lines, watch, clusterLine(input, cluster, newSets, config), newSets);
   }
   lines.sort((a, b) => Number(a.evidence.cprRatio ?? 9) - Number(b.evidence.cprRatio ?? 9));
 
   // Missing standing default.
   const delivering = input.adSets.filter((set) => set.delivering);
   if (delivering.length && !delivering.some((set) => RETARGETING.test(set.name)) && !input.storedDefaults?.includes("retargeting")) {
-    lines.push(defaultLine(input, "retargeting", newSets));
+    pushNewAdSet(lines, watch, defaultLine(input, "retargeting", newSets), newSets);
   }
   if (delivering.length && !delivering.some((set) => REG_LOOKALIKE.test(set.name)) && !input.storedDefaults?.includes("registrations_lookalike")) {
-    lines.push(defaultLine(input, "registrations_lookalike", newSets));
+    pushNewAdSet(lines, watch, defaultLine(input, "registrations_lookalike", newSets), newSets);
   }
 
   // Drop a delivering ad set.
@@ -592,16 +604,43 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
     if (best && worst && best.set.adsetId !== worst.set.adsetId && best.setCpr! <= config.moveToCprRatio * campaignCpr && worst.setCpr! >= config.moveFromCprRatio * campaignCpr) {
       const cap = remaining == null ? null : round2(remaining * config.moveCapShare);
       const wanted = round2(worst.set.weekSpend / 2);
-      const amount = cap == null ? wanted : Math.min(cap, wanted);
+      const title = `${worst.set.name} → ${best.set.name}`;
+      // Apply moves ad-set daily budgets only: a campaign budget (CBO) or a lifetime budget on either side, read in the purchase read's batch, is no move.
+      const level = moveBudgetBlock(worst.set, best.set);
+      if (level) {
+        watch.push({
+          title,
+          detail: level.detail,
+          narrow: `${title} · ${level.narrow}`,
+          evidence: { fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId, budget: level.kind, fromBudget: worst.set.meta ?? null, toBudget: best.set.meta ?? null, wantedGbp: cap == null ? wanted : Math.min(cap, wanted) },
+        });
+        return { lines, watch, note };
+      }
+      // The £1.00 floor, sized the way Apply moves it (the week ÷ 7 off the giver's daily budget), on the budget the purchase read saw.
+      const giverDaily = worst.set.meta?.dailyBudgetMinor ?? null;
+      const floorMax = giverDaily == null ? null : maxWeeklyMoveGbp(giverDaily);
+      if (floorMax === 0) {
+        watch.push({
+          title,
+          detail: giverDaily === MIN_DAILY_BUDGET_MINOR ? "no move: the giving ad set is already at the £1.00 a day floor" : `no move: the giving ad set is at ${gbp(giverDaily! / 100)} a day, under the £1.00 a day floor`,
+          narrow: `${title} · no move, £1.00 floor`,
+          evidence: { fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId, fromDailyBudgetGbp: giverDaily! / 100, floorGbp: MIN_DAILY_BUDGET_MINOR / 100, wantedGbp: cap == null ? wanted : Math.min(cap, wanted) },
+        });
+        return { lines, watch, note };
+      }
+      const unfloored = cap == null ? wanted : Math.min(cap, wanted);
+      const floored = floorMax != null && unfloored > floorMax;
+      const amount = floored ? floorMax! : unfloored;
+      const floorText = floored ? ` (keeps ${worst.set.name} at £1.00 a day)` : "";
       lines.push({
         kind: "move_budget",
         ruleId: "move.within_campaign",
-        title: `${worst.set.name} → ${best.set.name}`,
-        detail: `${gbp(worst.setCpr!)} per ${label} (${ratioText(worst.setCpr! / campaignCpr)}) to ${gbp(best.setCpr!)} per ${label} (${ratioText(best.setCpr! / campaignCpr)}) · ${gbp(amount)} a week${cap != null ? ` · cap ${gbp(cap)} (20 % of ${gbp(remaining!)} remaining)` : ""}`,
+        title,
+        detail: `${gbp(worst.setCpr!)} per ${label} (${ratioText(worst.setCpr! / campaignCpr)}) to ${gbp(best.setCpr!)} per ${label} (${ratioText(best.setCpr! / campaignCpr)}) · ${gbp(amount)} a week${floorText}${cap != null ? ` · cap ${gbp(cap)} (20 % of ${gbp(remaining!)} remaining)` : ""}`,
         writeText: "Ad-set budget write, both sides",
-        narrow: { detail: `${gbp(amount)} a week${cap != null ? ` · cap ${gbp(cap)}` : ""}`, writeText: null },
+        narrow: { detail: `${gbp(amount)} a week${floored ? " · £1.00 a day floor" : ""}${cap != null ? ` · cap ${gbp(cap)}` : ""}`, writeText: null },
         target: { fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId },
-        evidence: { fromCpr: round2(worst.setCpr!), toCpr: round2(best.setCpr!), campaignCpr: round2(campaignCpr), amountGbp: amount, capGbp: cap, remainingBudgetGbp: remaining },
+        evidence: { fromCpr: round2(worst.setCpr!), toCpr: round2(best.setCpr!), campaignCpr: round2(campaignCpr), amountGbp: amount, capGbp: cap, remainingBudgetGbp: remaining, fromDailyBudgetGbp: giverDaily == null ? null : giverDaily / 100, ...(floored ? { flooredFromGbp: unfloored, floorGbp: MIN_DAILY_BUDGET_MINOR / 100 } : {}) },
         write: { kind: "adset_budget_move", fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId, amountGbp: amount, ...whereTo(input) },
         addsSpend: false,
         blockedReason: notOurs(input) ?? (remaining == null ? "Moves need the event's budget to size the cap: set this event's budget to accept this." : null),
@@ -612,26 +651,76 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
   return { lines, watch, note };
 }
 
-type NewSetContext = { copy: CopySource | null; giver: Giver | null; funding: Funding; budgetLevel: "campaign" | "ad_set" | null };
+type NewSetContext = {
+  copy: CopySource | null;
+  giver: Giver | null;
+  funding: Funding;
+  budgetLevel: "campaign" | "ad_set" | null;
+  /** The copied ad set's promoted_object.pixel_id, as the purchase read saw it: null = it has none (Apply builds no pixel audience); undefined = not read. */
+  copyPixelId?: string | null;
+  /** Set when the only ad set to copy runs on a lifetime budget (Apply's LIFETIME_COPY): the lines go on Watch instead. */
+  lifetimeCopy?: { adsetId: string; name: string };
+};
+
+/** Where a move can't be written: either side's budget, as the purchase read's batch saw it (not read = Apply checks). */
+function moveBudgetBlock(from: AdSetInput, to: AdSetInput): { kind: "campaign" | "lifetime_from" | "lifetime_to"; detail: string; narrow: string } | null {
+  const onCampaign = (set: AdSetInput) => set.meta != null && set.meta.dailyBudgetMinor == null && set.meta.lifetimeBudgetMinor == null;
+  const lifetime = (set: AdSetInput) => set.meta != null && set.meta.dailyBudgetMinor == null && set.meta.lifetimeBudgetMinor != null;
+  if (onCampaign(from) || onCampaign(to)) return { kind: "campaign", detail: MOVE_ON_CAMPAIGN, narrow: "no move, campaign budget" };
+  if (lifetime(from)) return { kind: "lifetime_from", detail: MOVE_LIFETIME_FROM, narrow: "no move, lifetime budget" };
+  if (lifetime(to)) return { kind: "lifetime_to", detail: MOVE_LIFETIME_TO, narrow: "no move, lifetime budget" };
+  return null;
+}
+
+export const MOVE_ON_CAMPAIGN = "no move: the budget is set on the campaign, so ad-set budgets can't be moved";
+export const MOVE_LIFETIME_FROM = "no move: the giving ad set runs on a lifetime budget, so there's no daily budget to move";
+export const MOVE_LIFETIME_TO = "no move: the receiving ad set runs on a lifetime budget, so there's no daily budget to add to";
+
+export function lifetimeCopyWatch(name: string): string {
+  return `not proposed: the ad set it would copy, ${name}, runs on a lifetime budget, so there's no daily budget to give the new one`;
+}
+
+/** A new ad set's line, or — when the only ad set to copy runs on a lifetime budget — a Watch entry saying so. */
+function pushNewAdSet(lines: ProposalLine[], watch: WatchItem[], line: ProposalLine, ctx: NewSetContext): void {
+  if (!ctx.lifetimeCopy) {
+    lines.push(line);
+    return;
+  }
+  watch.push({ title: line.title, detail: lifetimeCopyWatch(ctx.lifetimeCopy.name), narrow: `${line.title} · not proposed, lifetime budget`, evidence: { ruleId: line.ruleId, copyFrom: ctx.lifetimeCopy, budget: "lifetime" } });
+}
 
 /** P3: what a new ad set would copy, and how it would be funded (design's ruling), read at proposal time. */
 function newAdSetContext(input: CampaignInput): NewSetContext {
   const label = RESULT_LABEL[input.resultEvent].short;
-  const source = pickCopySource(input.adSets, input.plan.window.end);
-  const budgetLevel = input.draft?.budgetLevel ?? null;
-  if (!source) return { copy: null, giver: null, funding: { mode: "none" }, budgetLevel };
+  // Apply copies an ad set's daily budget under ABO: one on a lifetime budget can't be copied (LIFETIME_COPY), so it isn't picked.
+  const lifetime = (set: AdSetInput) => set.meta != null && set.meta.dailyBudgetMinor == null && set.meta.lifetimeBudgetMinor != null;
+  const source = pickCopySource(input.adSets.filter((set) => !lifetime(set)), input.plan.window.end);
+  // The budget level as the batch read saw the copied ad set (Apply reads the campaign again): no ad-set budget is CBO, a daily one ABO; not read, the draft's.
+  const read = source?.meta;
+  const budgetLevel = read ? (read.dailyBudgetMinor != null ? "ad_set" : read.lifetimeBudgetMinor == null ? "campaign" : (input.draft?.budgetLevel ?? null)) : (input.draft?.budgetLevel ?? null);
+  if (!source) {
+    const only = pickCopySource(input.adSets, input.plan.window.end);
+    return { copy: null, giver: null, funding: { mode: "none" }, budgetLevel, ...(only ? { lifetimeCopy: { adsetId: only.adsetId, name: only.name } } : {}) };
+  }
+  const spendGbp = round2(source.recentDailySpend ?? source.weekSpend / 7);
   const copy: CopySource = {
     adsetId: source.adsetId,
     name: source.name,
     cprGbp: source.weekResults > 0 ? round2(source.weekSpend / source.weekResults) : null,
     resultLabel: label,
-    dailyGbp: round2(source.recentDailySpend ?? source.weekSpend / 7),
+    // What Apply writes: the copied ad set's daily budget (read in the batch); not read, its recent spend sizes the funding and the line names no figure.
+    dailyGbp: read?.dailyBudgetMinor != null ? read.dailyBudgetMinor / 100 : spendGbp,
     creatives: Math.max(1, Math.min(MAX_REUSED_CREATIVES, source.deliveringAds ?? 1)),
+    dailyBudgetGbp: read?.dailyBudgetMinor != null ? read.dailyBudgetMinor / 100 : null,
+    recentSpendGbp: spendGbp,
   };
-  const giverSet = pickGiver(input.adSets, source.adsetId);
+  // A giver Apply can take from: an ad-set daily budget (not CBO, not lifetime) that stays at £1.00 a day after giving the copy's daily budget.
+  const takes = read?.dailyBudgetMinor ?? Math.round(copy.dailyGbp * 100);
+  const canGive = (set: AdSetInput) => !set.meta || (set.meta.dailyBudgetMinor != null && set.meta.dailyBudgetMinor - takes >= MIN_DAILY_BUDGET_MINOR);
+  const giverSet = pickGiver(input.adSets.filter(canGive), source.adsetId);
   const giver = giverSet ? { adsetId: giverSet.adsetId, name: giverSet.name } : null;
   const funding = decideFunding({ budgetLevel, dailyGbp: copy.dailyGbp, budget: input.budgetGbp, spend: input.spendToDateGbp, today: input.plan.day, eventDate: input.eventDate ?? null, appliedMovesGbp: 0, giver });
-  return { copy, giver, funding, budgetLevel };
+  return { copy, giver, funding, budgetLevel, ...(source.meta ? { copyPixelId: source.meta.pixelId } : {}) };
 }
 
 function newAdSetWrite(input: CampaignInput, ctx: NewSetContext, extra: Record<string, unknown>): Record<string, unknown> {
@@ -677,10 +766,18 @@ function defaultLine(input: CampaignInput, which: "retargeting" | "registrations
   const signup = input.signup ?? { event: null, registrations180: 0, landing30: 0, ticket30: 0 };
   const country = input.country ?? "GB";
   const copy = ctx.copy;
+  // Apply builds pixel audiences from the copied ad set's pixel only: with none (a Traffic / LPV ad set), retargeting is the video viewers alone, and only if the campaign has video.
+  const noPixel = copy != null && ctx.copyPixelId === null;
+  const noVideo = input.videoPlays === 0;
   const extra =
     which === "retargeting"
-      ? retargetingEvidence({ landing: input.landingUrl ? signup.landing30 : null, ticket: input.ticketUrl ? signup.ticket30 : null, registrations: signup.event ? signup.registrations180 : null })
+      ? noPixel
+        ? noVideo
+          ? null
+          : RETARGETING_VIDEO_ONLY
+        : retargetingEvidence({ landing: input.landingUrl ? signup.landing30 : null, ticket: input.ticketUrl ? signup.ticket30 : null, registrations: signup.event ? signup.registrations180 : null })
       : lookalikeEvidence(signup.registrations180, country);
+  const pixelBlock = noPixel ? (which === "retargeting" ? (noVideo ? NO_PIXEL_NO_VIDEO : null) : NO_PIXEL_NO_REGISTRATIONS) : null;
   const seedBlock = which === "registrations_lookalike" ? (signup.event ? (signup.registrations180 < MIN_LOOKALIKE_SEED ? seedTooSmall(signup.registrations180) : null) : SIGNUP_NOT_READ) : null;
   return {
     kind: "missing_default",
@@ -690,10 +787,10 @@ function defaultLine(input: CampaignInput, which: "retargeting" | "registrations
     writeText: copy ? defaultWrite(copy, ctx.funding) : "New audience and ad set through the launch path",
     narrow: { detail: defaultWhy(which), writeText: copy ? defaultNarrowWrite(copy, ctx.funding) : null },
     target: { default: which, extra },
-    evidence: { signupEvent: signup.event, registrations180: signup.registrations180, landing30: signup.landing30, ticket30: signup.ticket30, country, copyFrom: copy, funding: ctx.funding },
+    evidence: { signupEvent: signup.event, registrations180: signup.registrations180, landing30: signup.landing30, ticket30: signup.ticket30, country, copyFrom: copy, funding: ctx.funding, ...(ctx.copyPixelId !== undefined ? { copyPixelId: ctx.copyPixelId } : {}), ...(input.videoPlays !== undefined ? { videoPlays: input.videoPlays } : {}) },
     write: newAdSetWrite(input, ctx, { source: which, signupEvent: signup.event, seed: signup.registrations180, country, landingUrl: input.landingUrl ?? null, ticketUrl: input.ticketUrl ?? null }),
     addsSpend: false,
-    blockedReason: notOurs(input) ?? seedBlock ?? newAdSetBlock(input, ctx),
+    blockedReason: notOurs(input) ?? pixelBlock ?? seedBlock ?? newAdSetBlock(input, ctx),
     supply: false,
   };
 }

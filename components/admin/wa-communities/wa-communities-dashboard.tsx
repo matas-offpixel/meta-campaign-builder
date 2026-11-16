@@ -112,12 +112,18 @@ export function WaCommunitiesDashboard({
         ok: boolean;
         error?: string;
         alias?: WaCommunityAliasWithDestinations;
+        cachePurge?: "purged" | "failed" | "skipped";
       };
       if (!json.ok || !json.alias) {
         setError(json.error ?? "Repoint failed");
         return;
       }
       replaceAlias(json.alias);
+      if (json.cachePurge === "failed") {
+        setError(
+          "Repointed in the database. Cache purge failed, so the previous destination can stick for up to an hour. Verify with curl -I on both hosts.",
+        );
+      }
       router.refresh();
     });
   }
@@ -166,8 +172,10 @@ export function WaCommunitiesDashboard({
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Stable <code className="text-xs">/j/{"{slug}"}</code> links for Meta
-          template buttons. When a group fills up, activate the next staged
-          invite — no new template review.
+          template buttons. When a group fills up, make the next staged invite
+          active — no new template review. The redirect follows the active
+          destination. A failed cache purge leaves the previous destination
+          for up to an hour.
         </p>
       </header>
 
@@ -191,11 +199,14 @@ export function WaCommunitiesDashboard({
             <input
               required
               value={slug}
-              onChange={(e) => setSlug(e.target.value.toLowerCase())}
-              placeholder="throwback-madrid"
-              pattern="[a-z0-9]+(-[a-z0-9]+)*"
+              onChange={(e) => setSlug(e.target.value.trim())}
+              placeholder="Throwback-Porto-17.10.26"
+              pattern="[A-Za-z0-9]+([.\-][A-Za-z0-9]+)*"
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             />
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Letters, digits, hyphens, and dots. Case is kept, including a raw invite code.
+            </span>
           </label>
           <label className="block text-sm">
             <span className="text-muted-foreground">Invite code or URL</span>
@@ -277,6 +288,9 @@ export function WaCommunitiesDashboard({
             {aliases.map((alias) => {
               const draft = addDrafts[alias.id] ?? { invite: "", label: "" };
               const activeDest = alias.destinations.find((d) => d.is_active);
+              const shownCode = activeDest?.invite_code ?? alias.active_invite_code;
+              const homesDisagree =
+                (alias.active_invite_code ?? null) !== (activeDest?.invite_code ?? null);
               return (
                 <li
                   key={alias.id}
@@ -314,7 +328,7 @@ export function WaCommunitiesDashboard({
                   <p className="mt-3 text-sm">
                     <span className="text-muted-foreground">Current destination: </span>
                     <code className="text-xs">
-                      {alias.active_invite_code ?? "—"}
+                      {shownCode ?? "—"}
                     </code>
                     {activeDest?.label ? (
                       <span className="text-muted-foreground">
@@ -323,6 +337,12 @@ export function WaCommunitiesDashboard({
                       </span>
                     ) : null}
                   </p>
+                  {homesDisagree ? (
+                    <p className="mt-1 text-xs text-amber-800">
+                      Cache and active destination disagree. The redirect follows
+                      the active destination. The next repoint writes both together.
+                    </p>
+                  ) : null}
 
                   <ul className="mt-3 space-y-2">
                     {alias.destinations.map((dest) => (
