@@ -1,7 +1,156 @@
 # Copy A/B test, draft for approval (16 Nov 2026)
 
 Stage 1 only. Nothing here has been written to Meta, Drive or the database.
+The current pairs are in the redraft section. The first draft further down is superseded.
 The Stage 2 plan (write path, gates, call count) is in the PR body.
+
+## Redraft (16 Nov): promoter voice, for approval
+
+This section replaces the first draft below, which stays for the record. The operator corrected
+the test on 16 Nov:
+
+- Artists provide their own first-person captions, and those run as given. They are not
+  part of this test, and none are written, edited or used here.
+- Both lines are the promoter's copy, in the promoter's voice, posted from the promoter's page.
+- **A (artist first):** opens with the act or acts, then the venue or event, then the date.
+- **B (experience first):** opens with the night or the occasion, then the date, then the
+  act or acts.
+- Within each pair, A and B have the same facts, the date, the length band, the CTA line
+  ("Tickets on sale now.") and the emoji count. Only the opening differs.
+
+These lines are written by hand from prod facts: `event_artists`, the Lab lineup for
+P26-BDAY, `events.venue_name` and `events.event_date`. The Lab writer is not used, because
+its styles are overlays, not promoter body copy. The only claim about the night is the
+weekday, which is a fact. There are no superlatives except in Puzzle's B, which is the operator's
+own line.
+
+### Pairs
+
+The CTA line, "Tickets on sale now.", follows each line as a second line. The character
+count includes it.
+
+| Show | A (artist first) | B (experience first) | Chars A / B | Band |
+|---|---|---|---|---|
+| NX26-LOCKLEAD | Locklead, Marlie & Paramida at NX Newcastle, Friday 11 December. | A Friday night at NX Newcastle, 11 December, with Locklead, Marlie & Paramida. | 85 / 99 | 61–120 |
+| NX26-DOD | D.O.D at NX Newcastle, Friday 4 December. | A Friday night at NX Newcastle, 4 December, with D.O.D. | 62 / 76 | 61–120 |
+| NX26-ROBBIEDOHERTY | Robbie Doherty at NX Newcastle, Friday 27 November. | A Friday night at NX Newcastle, 27 November, with Robbie Doherty. | 72 / 86 | 61–120 |
+| NX27-JULIANFIJMA | Julian Fijma at NX Newcastle, Friday 19 March. | A Friday night at NX Newcastle, 19 March, with Julian Fijma. | 67 / 81 | 61–120 |
+| EBR26-KREAM | Kream, Estiva, Leena Punks & Parts at Electric Bristol, Friday 4 December. | A Friday night at Electric Bristol, 4 December, with Kream, Estiva, Leena Punks & Parts. | 95 / 109 | 61–120 |
+| P26-BDAY | Luke Dean, Enzo Siragusa & more. Puzzle's 4th Birthday, 27 December at Circuit & Engine Rooms. | The biggest house party in Southampton returns on 27 December with Luke Dean, Enzo Siragusa & more. *(proposed fix: see below)* | 115 / 120 | 61–120 |
+| NX27-EWANMCVICAR · ad set to follow (on sale 20 Nov) | Ewan McVicar at NX Newcastle, Friday 26 February. | A Friday night at NX Newcastle, 26 February, with Ewan McVicar. | 70 / 84 | 61–120 |
+| NX27-PAULVANDYK · ad set to follow (on sale 24 Nov) | Paul van Dyk at NX Newcastle, Friday 12 February. | A Friday night at NX Newcastle, 12 February, with Paul van Dyk. | 70 / 84 | 61–120 |
+
+### Feature check (`lib/learning/copy/features.ts`)
+
+Each line was checked with its CTA line. Per pair, only `opener` differs, as `name_first`
+for A and `statement` for B. The other features are equal in A and B:
+
+| Show | opener A / B | has_date | length_band | cta_kind | emoji | has_lineup_list | lines | scarcity | Result |
+|---|---|---|---|---|---|---|---|---|---|
+| NX26-LOCKLEAD | name_first / statement | yes | 61_120 | book_now | 0 | yes | 2_3 | none | pass |
+| NX26-DOD | name_first / statement | yes | 61_120 | book_now | 0 | no | 2_3 | none | pass |
+| NX26-ROBBIEDOHERTY | name_first / statement | yes | 61_120 | book_now | 0 | no | 2_3 | none | pass |
+| NX27-JULIANFIJMA | name_first / statement | yes | 61_120 | book_now | 0 | no | 2_3 | none | pass |
+| EBR26-KREAM | name_first / statement | yes | 61_120 | book_now | 0 | yes | 2_3 | none | pass |
+| P26-BDAY, the operator's lines as written | **name_first / name_first** | yes | 61_120 | book_now | 0 | yes | 2_3 | none | **fail: nothing differs** |
+| P26-BDAY, proposed fix | name_first / statement | yes | 61_120 | book_now | 0 | yes | 2_3 | none | pass |
+| NX27-EWANMCVICAR | name_first / statement | yes | 61_120 | book_now | 0 | no | 2_3 | none | pass |
+| NX27-PAULVANDYK | name_first / statement | yes | 61_120 | book_now | 0 | no | 2_3 | none | pass |
+
+Two openers failed the check, and these are the fixes:
+
+- **"Friday night at…"** reads as `number_first`, because the normaliser turns "Friday"
+  into `{date}`. Adding "A" makes it `statement`.
+- **Puzzle's B as written** opens "Southampton's", which the normaliser turns into
+  `{city}`. That is a name slot, so B also reads as `name_first`, the same as A, and the
+  pair tests nothing.
+
+### Puzzle: the operator's lines and the proposed fix
+
+- **A**, as the operator wrote it: "Luke Dean, Enzo Siragusa & more. Puzzle's 4th Birthday, 27 December at Circuit & Engine Rooms."
+- **B**, as the operator wrote it: "Southampton's biggest house party returns on 27th December with Luke Dean, Enzo Siragusa and more."
+- **B, proposed:** "The biggest house party in Southampton returns on 27 December with Luke Dean, Enzo Siragusa & more."
+
+The fix makes three edits to B. A is unchanged.
+
+1. "Southampton's biggest house party" becomes "The biggest house party in Southampton". This makes the opener `statement`, not `name_first`.
+2. "27th December" becomes "27 December", the same as A.
+3. "and more" becomes "& more", the same as A.
+
+Edits 2 and 3 are also needed to keep the length band. With "27th" and "and", B would be
+124 characters with its CTA line, which is the 121_200 band. With them, B is 120, the top
+edge of 61_120, so any further word moves it out of the band.
+
+**Not fixed, for the operator:** the pair doesn't state the same facts.
+
+- A has "Puzzle's 4th Birthday" and the venue (Circuit & Engine Rooms).
+- B has the city and "biggest house party returns".
+
+Making the facts the same would take B over 120 characters, so I left both lines as the operator
+wrote them, apart from the three edits above.
+
+### Ad set and creative per show
+
+Each show has the same ad set and source ad as the first draft, chosen by the rule further
+down: "Best current creative: the rule". The one exception is Julian Fijma, which is now
+included.
+
+| Show | Ad set | Source ad (creative) | 14-day figures | Button |
+|---|---|---|---|---|
+| NX26-LOCKLEAD | `120252504502750755` Lineup - Suggested | Artist - UGC 3 (`2399259150841758`) | £67.79, 4 purch, 18 IC | BOOK_NOW |
+| NX26-DOD | `120252309614100755` Commercial house data | Artist - UGC 3 (`1112160641684081`) | £42.79, 14 IC campaign-wide (thin) | BOOK_NOW |
+| NX26-ROBBIEDOHERTY | `120252129292810755` Lineup — Primary – 1% | Teaser Video (No Text) (`1761714991720171`) | £123.06, 1 purch, 40 IC | BUY_TICKETS |
+| NX27-JULIANFIJMA | `120252504524480755` Venue | Venue - UGC 1 (`1948436576120619`), ad `120252504524840755` | £11.43, 2 purch, 2 IC | BOOK_TRAVEL → BOOK_NOW |
+| EBR26-KREAM | `120250163686370716` Lineup — Secondary | Motion - New – Copy (`906635865776611`) | £98.43, 82 IC | BOOK_TRAVEL → BOOK_NOW |
+| P26-BDAY | `120248863412000539` Similar Pages – Adv+ — Primary | Puzzle - Static CTA (`2322179805273190`) | £14.90, 4 IC | BOOK_TRAVEL → BOOK_NOW |
+| NX27-EWANMCVICAR | to follow | to follow | — | — |
+| NX27-PAULVANDYK | to follow | to follow | — | — |
+
+**Julian Fijma.** The source is the Ads Manager rebuild, `[NX27-JULIANFIJMA] ON SALE`,
+campaign `120252504524280755`. That campaign has no app draft.
+
+- The main ad set is **`Venue` `120252504524480755`**. From 9 to 15 Nov it spent £24.49,
+  of the campaign's £52.73, with 2 purchases.
+- Its best ad is `Venue - UGC 1`. It is the only ad in that ad set that spent more than
+  £10 in the 14 days, and it had 2 purchases and 2 IC.
+- Its live copy is "Julian Fijma set to close out UK tour at NX Newcastle." The "UK tour"
+  fact is left out of both lines, so A and B state the same facts.
+- The Stage 2 plan in the PR body says how its ads get `launched_ads` rows.
+
+### Kream: spellings and cards
+
+- **Spellings.** The source folder `1rIUKcUIHs1eFIRCxT5tUA2vNJk1mUdYH` holds `Kream.jpg`,
+  `Estiva.jpg`, `LeenaPunks.jpg` and `Parts.jpg`. I read the file names only and did not
+  open the images.
+  - Kream, Estiva and Parts match their file names.
+  - "Leena Punks" with a space comes from the brief. The file name has no space.
+  - `event_artists` has only Kream, and no ad copy names the supports, so nothing on
+    record confirms the spelling.
+  - The spelling on the card itself should be checked before Stage 2.
+- **Cards.** All four cards carry Kream's A: "Kream, Estiva, Leena Punks & Parts at
+  Electric Bristol, Friday 4 December." followed by "Tickets on sale now.".
+- **Drive.** The cards are filed under the promoter: `03 Creatives / 3 On sale / w/c 9 Nov
+  / Electric Brixton / Statics`. The owner folder takes the client's name, and becomes
+  `Electric Brixton (promoter)` only if that name clashes with an act on the lineup.
+
+### Ad names
+
+Each ad is named `[AB-A] {source ad name}` or `[AB-B] {source ad name}`, plus the four
+Kream cards:
+
+- `[CARD-HEADLINER]`
+- `[CARD-SUPPORT-Estiva]`
+- `[CARD-SUPPORT-LeenaPunks]`
+- `[CARD-SUPPORT-Parts]`
+
+Every ad is PAUSED and uses the source ad's own media.
+
+---
+
+# First draft (superseded 16 Nov)
+
+Kept for the record. It used artist-voice copy as A, which the correction rules out. Don't use these pairs.
+
 
 ## The test
 
