@@ -3,10 +3,12 @@ import { Suspense } from "react";
 
 import { AudiencePanelsUrl } from "@/components/dashboard/audience-panels/audience-panels";
 import { CreativeSectionUrl } from "@/components/dashboard/creative-section/creative-panel";
+import { SignupsPanelUrl } from "@/components/dashboard/page-audience/signups-panel";
 import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-url";
 import { initialFromQuery } from "@/components/dashboard/sales/venue-query";
 import { loadShareAudiencePanels } from "@/lib/dashboard/audience-panels-server";
 import { loadShareCreativeSection } from "@/lib/dashboard/creative-section-server";
+import { loadSharePageAudiencePanels } from "@/lib/dashboard/page-audience-panel/server";
 import { resolveShareByToken } from "@/lib/db/report-shares";
 import { dashboardV2Enabled } from "@/lib/dashboard/sales-calc/gate";
 import { pickPeriod } from "@/lib/dashboard/sales-calc/query";
@@ -40,6 +42,8 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
   const clientId = resolved.ok && resolved.share.scope === "client" ? resolved.share.client_id : null;
   const panels = clientId ? await loadShareAudiencePanels(clientId, result.model) : null;
   const creatives = clientId ? await loadShareCreativeSection(clientId, result.model) : null;
+  // HE2: CIRQLIN page audience, stored rows only.
+  const audience = clientId ? await loadSharePageAudiencePanels(clientId, result.model) : null;
   return (
     <Suspense>
       <SalesDashboardUrl
@@ -49,7 +53,8 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
         initialPeriod={pickPeriod(query.period)}
         initialVenueKey={initial.venueKey}
       />
-      {panels ? <AudiencePanelsUrl byView={panels} initialViewId={initial.showId} /> : null}
+      {panels ? <AudiencePanelsUrl byView={panels} initialViewId={initial.showId} geographyByView={audience?.geography} /> : null}
+      {audience ? <SignupsPanelUrl byView={audience.signups} initialViewId={initial.showId} initialPeriod={pickPeriod(query.period) ?? result.model.initialPeriod} /> : null}
       {creatives ? <CreativeSectionUrl byView={creatives} initialViewId={initial.showId} /> : null}
     </Suspense>
   );

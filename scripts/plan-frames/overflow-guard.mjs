@@ -24,13 +24,15 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "@playwright/test";
 
+import { PAGE_AUDIENCE_OVERFLOW_FRAMES } from "./page-audience-shots.mjs";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const EVIDENCE = path.join(ROOT, "frames-evidence");
 const argBase = process.argv.indexOf("--base");
 const PORT = Number(process.env.OVERFLOW_GUARD_PORT ?? 3311);
 const BASE = argBase >= 0 ? process.argv[argBase + 1] : `http://127.0.0.1:${PORT}`;
 
-export const OVERFLOW_FRAMES = ["sales/MBO", "sales/MBS", "sales/MBF375", "sales/MBM", "sales/MBA", "sales/MBH1", "audience/WR1", "audience/WR1S", "audience/DF1", "audience/DF1S", "creative/CR1", "creative/CR1S", "creative/CR2", "sales/NC1", "sales/NC1S"];
+export const OVERFLOW_FRAMES = ["sales/MBO", "sales/MBS", "sales/MBF375", "sales/MBM", "sales/MBA", "sales/MBH1", "audience/WR1", "audience/WR1S", "audience/DF1", "audience/DF1S", "creative/CR1", "creative/CR1S", "creative/CR2", "sales/NC1", "sales/NC1S", ...PAGE_AUDIENCE_OVERFLOW_FRAMES];
 export const OVERFLOW_WIDTHS = [320, 375, 390, 430];
 
 /**
