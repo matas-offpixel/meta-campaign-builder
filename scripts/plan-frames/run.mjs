@@ -168,6 +168,19 @@ async function settleLab(page, shotId) {
     }),
   );
   if (badCaptions.length) throw new Error(`${shotId}: caption lines: ${badCaptions.join(" | ")}`);
+  await settleVideos(page, shotId);
+}
+
+/**
+ * Every visible video has reached its poster frame and painted it. A Lab
+ * shot calls it from settleLab; a static shot with videos (the CLW
+ * candidate tiles' PosterVideo) calls it too, since 16 Nov 2026: without
+ * it CLW1b-393 sometimes caught a candidate tile before its frame painted
+ * (a blank tile, 1.648 %), the same race settleLab already closed for Lab
+ * shots. Call it with the viewport as tall as the frame: Chromium does not
+ * reliably paint a video frame below the viewport.
+ */
+async function settleVideos(page, shotId) {
   try {
     await page.waitForFunction(
       () =>
@@ -318,6 +331,15 @@ async function main() {
           await page.evaluate(
             () => Promise.race([document.fonts.ready, new Promise((resolve) => setTimeout(resolve, 2000))]),
           );
+          // A static shot with videos (CLW's candidate tiles) waits for each
+          // one's poster frame, with the viewport as tall as the frame, as a
+          // Lab shot does. A shot with no video is untouched.
+          const frame = page.locator(`[data-frame-ready="${shot.frame}"]`);
+          if ((await frame.locator("video").count()) > 0) {
+            const tall = await frame.evaluate((node) => Math.ceil(node.getBoundingClientRect().height));
+            await page.setViewportSize({ width: shot.width, height: Math.max(900, tall) });
+            await settleVideos(page, shot.id);
+          }
         }
         await page.waitForTimeout(150);
         const png = await page.locator(`[data-frame-ready="${shot.frame}"]`).screenshot({
