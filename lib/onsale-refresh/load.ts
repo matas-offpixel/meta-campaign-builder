@@ -66,6 +66,8 @@ type InsightRow = {
   promoted_event?: string | null;
   /** The ad set's optimisation goal (migration 187): P4 tells a Purchase campaign and the main IC / LPV campaign by it. */
   optimization_goal?: string | null;
+  /** 3-second video plays: a campaign with none has no video for a video-viewer audience. */
+  video_plays_3s?: number | string | null;
 };
 
 const PAGE = 1000;
@@ -134,7 +136,7 @@ export type RawInsights = { rows: InsightRow[]; context: AdContextIndex };
  */
 export async function loadInsights(db: Db): Promise<RawInsights> {
   const [rows, context] = await Promise.all([
-    loadAll<InsightRow>(db, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, ad_account_id, date, ad_name, adset_name, campaign_name, spend, landing_page_views, purchases, actions, promoted_event, optimization_goal", ["date", "meta_ad_id"]),
+    loadAll<InsightRow>(db, "ad_daily_insights", "meta_ad_id, meta_adset_id, meta_campaign_id, ad_account_id, date, ad_name, adset_name, campaign_name, spend, landing_page_views, purchases, actions, promoted_event, optimization_goal, video_plays_3s", ["date", "meta_ad_id"]),
     loadAdContextIndex(db as SupabaseClient),
   ]);
   return { rows, context };
@@ -553,6 +555,11 @@ export async function buildEventInputs(args: {
       const recent = since.filter((row) => (row.adset_name ?? row.meta_adset_id ?? "").trim() === set.name && row.date >= from && row.date <= set.lastDay).reduce((sum, row) => sum + num(row.spend), 0);
       set.recentDailySpend = recent / 7;
     }
+    // The purchase read's batch already read each ad set's pixel and daily budget: the move's floor and a default's audiences size on it.
+    for (const set of adSets.values()) {
+      const read = args.purchaseBudgets?.adSets.get(set.adsetId);
+      if (read) set.meta = { dailyBudgetMinor: read.daily == null ? null : Math.round(read.daily * 100), pixelId: read.pixelId };
+    }
     const campaignIds = [...new Set(campaignRows.map((row) => row.meta_campaign_id).filter((id): id is string => Boolean(id)))];
     const adAccountId = campaignRows.map((row) => row.ad_account_id).find((id): id is string => Boolean(id)) ?? null;
     campaigns.push({
@@ -568,6 +575,7 @@ export async function buildEventInputs(args: {
       // P3: the standing defaults' inputs, from the event's own ad-days and stored rows.
       signup,
       country: lookalikeCountry(event.venue_country),
+      videoPlays: campaignRows.reduce((sum, row) => sum + num(row.video_plays_3s), 0),
       landingUrl: event.signup_url ?? null,
       ticketUrl: event.ticket_url ?? null,
       // A default's ad set is stored under the campaign's name; a cluster's under "{campaign}::{cluster id}".

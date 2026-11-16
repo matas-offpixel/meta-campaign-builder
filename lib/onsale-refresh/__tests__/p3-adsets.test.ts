@@ -337,6 +337,23 @@ describe("P3 new ad sets: a missing standing default", () => {
     assert.equal(mem.tables.onsale_refresh_audiences!.filter((row) => row.part !== "adset").length, 4, "every audience id stored on the event");
   });
 
+  it("retargeting from a copied ad set with no pixel (a Traffic / LPV ad set): the video viewers only — what the line now says", async () => {
+    const mem = seed([defaultLine("retargeting")]);
+    const fake = fakes();
+    const read = fake.meta.readAdSetForCopy.bind(fake.meta);
+    fake.meta.readAdSetForCopy = async (id) => {
+      const row = await read(id);
+      if (!row) return row;
+      const copy: Record<string, unknown> = { ...row, optimization_goal: "LANDING_PAGE_VIEWS" };
+      delete copy.promoted_object;
+      return copy as typeof row;
+    };
+    await apply(mem, fake);
+    assert.equal(lineOf(mem, "retargeting").state, "applied", String(lineOf(mem, "retargeting").reason));
+    assert.deepEqual(fake.meta.specs.map((spec) => spec.part), ["video"], "no landing-page, ticket-link or registrations audience");
+    assert.deepEqual((fake.meta.payloads[0]!.targeting as Record<string, unknown>).custom_audiences, [{ id: "aud-video" }]);
+  });
+
   it("the lookalike: 1 % in the event's country, seeded from registrations; named per the ruling", async () => {
     const mem = seed([defaultLine("registrations_lookalike")]);
     const fake = fakes();

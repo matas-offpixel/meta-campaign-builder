@@ -28,11 +28,10 @@ interface Props {
   /** Client-level default (clients.google_ads_account_id). */
   clientGoogleAdsAccountId: string | null;
   /**
-   * Read-only Meta ad-account row. Events don't carry their own
-   * meta_ad_account_id override yet; once they do this turns into a
-   * dropdown like the other two.
+   * Read-only Meta ad-account row: the event's own
+   * events.meta_ad_account_id ("event"), else the client's ("client").
    */
-  metaAdAccount: { value: string | null; inherited: boolean };
+  metaAdAccount: { value: string | null; source: "event" | "client" | null };
   /** Drive folder URL stored on events.google_drive_folder_url. */
   driveFolderUrl: string | null;
 }
@@ -49,8 +48,9 @@ type SaveStatus =
  * /api/events/[id] with the override (or clears it back to the
  * client default by selecting the placeholder option).
  *
- * Meta + Drive folder stay read-only here. Meta lacks an event-level
- * override column; Drive folder is handled by the dedicated
+ * Meta + Drive folder stay read-only here. Meta shows the event's own
+ * events.meta_ad_account_id ("set on this event"), else the client's
+ * ("inherited"); Drive folder is handled by the dedicated
  * GoogleDriveCard above.
  */
 export function PlatformConfigCard({
@@ -171,7 +171,8 @@ export function PlatformConfigCard({
           }
           label="Meta ad account"
           value={metaAdAccount.value}
-          inherited={metaAdAccount.inherited}
+          inherited={metaAdAccount.source === "client"}
+          setOnEvent={metaAdAccount.source === "event"}
         />
 
         <EditableRow
@@ -261,12 +262,14 @@ function ReadOnlyRow({
   label,
   value,
   inherited,
+  setOnEvent = false,
   href,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string | null;
   inherited: boolean;
+  setOnEvent?: boolean;
   href?: string | null;
 }) {
   return (
@@ -292,6 +295,7 @@ function ReadOnlyRow({
               <span className="text-sm truncate max-w-xs">{value}</span>
             )}
             {inherited && <InheritedBadge />}
+            {setOnEvent && <SetOnEventBadge />}
           </>
         ) : (
           <NotConfiguredBadge />
@@ -367,6 +371,14 @@ function InheritedBadge() {
   return (
     <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
       inherited
+    </span>
+  );
+}
+
+function SetOnEventBadge() {
+  return (
+    <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+      set on this event
     </span>
   );
 }

@@ -51,6 +51,7 @@ import {
   type Giver,
   type NewAdSetSource,
 } from "./new-adset.ts";
+import { MIN_DAILY_BUDGET_MINOR } from "./plan-guard.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -114,7 +115,6 @@ export type NewAdSetLine = {
 type Outcome = { state: "applied" | "failed"; reason: string | null; result: Record<string, unknown> };
 
 const DELIVERING = new Set(["ACTIVE", "LEARNING", "LEARNING_LIMITED"]);
-const MIN_DAILY_MINOR = 100;
 
 export const MOVES_SWITCHED_OFF = "Moving budget is switched off on this deployment, so nothing was made.";
 export const COPY_GONE = "The ad set it copies isn't delivering any more, so nothing was made.";
@@ -275,7 +275,7 @@ export async function applyNewAdSet(
     const giver = await deps.meta.readAdSet(funding.fromAdsetId);
     if (!giver?.campaignId || !ctx.campaignIds.includes(giver.campaignId) || giver.dailyBudget == null) return fail(NO_BUDGET_TO_START, { ...base, audienceIds });
     giverPlan ??= { adsetId: funding.fromAdsetId, before: giver.dailyBudget, after: giver.dailyBudget - dailyMinor };
-    if (giverPlan.after < MIN_DAILY_MINOR) return fail(NO_BUDGET_TO_START, { ...base, audienceIds, giverPlan });
+    if (giverPlan.after < MIN_DAILY_BUDGET_MINOR) return fail(NO_BUDGET_TO_START, { ...base, audienceIds, giverPlan });
     if (giver.dailyBudget !== giverPlan.after) {
       if (giver.dailyBudget !== giverPlan.before) return fail("The budget changed in Ads Manager since the proposal, so nothing was made.", { ...base, audienceIds, giverPlan });
       try {

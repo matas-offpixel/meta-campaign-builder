@@ -47,7 +47,7 @@ import { LAST_ADSET_STAYS, RETARGETING_STAYS } from "./decide.ts";
 import { applyNewAdSet, type NewAdSetDeps } from "./apply-adsets.ts";
 import { applyPurchaseCampaign, campaignSpendGbp, type PurchaseMeta } from "./apply-purchase.ts";
 import { applyCopyAudience, applyScalePurchase } from "./apply-purchase-scale.ts";
-import { appliedMovesGbp, moveGuard, planGuard, projectedSpend, spendToDate } from "./plan-guard.ts";
+import { MIN_DAILY_BUDGET_MINOR, appliedMovesGbp, moveDeltaMinor, moveGuard, planGuard, projectedSpend, spendToDate } from "./plan-guard.ts";
 import { RETARGETING, type AddCopy } from "./rules.ts";
 import { todayLondon } from "./schedule.ts";
 
@@ -128,8 +128,8 @@ type Outcome = { state: "applied" | "failed"; reason: string | null; result: Rec
 /** Meta's statuses for an ad set that is spending. */
 const DELIVERING = new Set(["ACTIVE", "LEARNING", "LEARNING_LIMITED"]);
 
-/** The floor we keep on a giving ad set's daily budget, in minor units (£1.00). A move never takes it under. */
-export const MIN_DAILY_BUDGET_MINOR = 100;
+/** The £1.00 floor, shared with the rule that sizes the move (plan-guard.ts). */
+export { MIN_DAILY_BUDGET_MINOR };
 
 export const APPLY_SHADOW = "Shadow: nothing here can be applied yet.";
 
@@ -425,7 +425,7 @@ async function applyMove(deps: ApplyDeps, line: LineRow, ledger: MetaWriteContex
   }
   if (from!.dailyBudget == null || to!.dailyBudget == null) return { state: "failed", reason: "The budget is set on the campaign or as a lifetime budget, so ad-set budgets can't be moved.", result: { fromAdsetId, toAdsetId } };
   const previous = (line.applied_result?.plan ?? (line.applied_result?.previous as Record<string, unknown> | undefined)?.plan) as MovePlan | undefined;
-  const deltaMinor = Math.round((amount * 100) / 7);
+  const deltaMinor = moveDeltaMinor(amount);
   const plan: MovePlan = previous?.fromAdsetId === fromAdsetId && previous.toAdsetId === toAdsetId
     ? previous
     : { fromAdsetId, toAdsetId, deltaMinor, from: { before: from!.dailyBudget, after: from!.dailyBudget - deltaMinor }, to: { before: to!.dailyBudget, after: to!.dailyBudget + deltaMinor } };
