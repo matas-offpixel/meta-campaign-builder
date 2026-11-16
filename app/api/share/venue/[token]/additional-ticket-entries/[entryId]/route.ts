@@ -86,9 +86,12 @@ export async function PATCH(
   if (!scope.ok) return NextResponse.json(scope.body, { status: scope.status });
 
   try {
+    // eventId is verified to be in this venue (assertVenueShareTokenWritable);
+    // pinning the update to it keeps other venues' entries out of reach.
     const row = await updateAdditionalTicketEntry(supabase, {
       id: entryId,
       userId: scope.ownerUserId,
+      eventId,
       scope: scopeValue,
       tierName: scopeValue === "tier" ? tierName : null,
       ticketsCount,
@@ -117,14 +120,22 @@ export async function DELETE(
 ) {
   const { token, entryId } = await params;
   const eventId = req.nextUrl.searchParams.get("event_id") ?? "";
+  if (!eventId) {
+    return NextResponse.json({ ok: false, error: "event_id is required." }, { status: 400 });
+  }
   const supabase = createServiceRoleClient();
   const scope = await assertVenueShareTokenWritable(token, supabase, { eventId });
   if (!scope.ok) return NextResponse.json(scope.body, { status: scope.status });
   try {
-    await deleteAdditionalTicketEntry(supabase, {
+    // eventId is verified to be in this venue; the delete is pinned to it.
+    const deleted = await deleteAdditionalTicketEntry(supabase, {
       id: entryId,
       userId: scope.ownerUserId,
+      eventId,
     });
+    if (!deleted) {
+      return NextResponse.json({ ok: false, error: "Entry not found" }, { status: 404 });
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
