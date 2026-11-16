@@ -4,6 +4,7 @@ import type { RefObject } from "react";
 
 import { PlanBlockerItems } from "@/components/plan/blocker-items";
 import { RefreshCountChip } from "@/components/plan/refresh-count-chip";
+import { TestPlanChip } from "@/components/plan/test-plan-chip";
 import { Button } from "@/components/ui/button";
 import { ChannelRow } from "@/components/viz/channel-row";
 import { PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
@@ -148,6 +149,7 @@ export function CanvasChannels({
             />
             <div className="flex flex-wrap items-center gap-1.5">
               {row.adapter === "meta" && refreshEventId ? <RefreshCountChip eventId={refreshEventId} initialCount={refreshCount} /> : null}
+              {row.adapter === "meta" && refreshEventId ? <TestPlanChip eventId={refreshEventId} /> : null}
               {needsYou ? (
                 <button
                   type="button"
