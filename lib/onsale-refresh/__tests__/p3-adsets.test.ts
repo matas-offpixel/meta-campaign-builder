@@ -190,9 +190,10 @@ describe("P3 new ad sets: money (design's ruling) — CBO shares, ABO headroom, 
     // The same with £150 of the cap already moved → none.
     assert.equal(decideFunding({ ...base, dailyGbp: 14.5, spend: 3500, appliedMovesGbp: 150, eventDate: "2027-02-25" }).mode, "none");
     assert.equal(decideFunding({ ...base, dailyGbp: 14.5, spend: 0, budget: null, appliedMovesGbp: 0 }).mode, "none", "ABO with no budget: none");
-    assert.equal(budgetText({ mode: "cbo" }), "shares the campaign budget");
-    assert.equal(budgetText({ mode: "headroom", dailyGbp: 14.5 }), "£14.50 a day from plan headroom");
-    assert.equal(budgetText({ mode: "move", dailyGbp: 14.5, fromAdsetId: "302", fromName: "Lineup — Primary" }), "£14.50 a day moved from Lineup — Primary");
+    const adv = { name: "Adv+", dailyBudgetGbp: 14.5 };
+    assert.equal(budgetText({ mode: "cbo" }, adv), "shares the campaign budget");
+    assert.equal(budgetText({ mode: "headroom", dailyGbp: 14.5 }, adv), "starts at £14.50 a day, Adv+'s daily budget, from plan headroom");
+    assert.equal(budgetText({ mode: "move", dailyGbp: 14.5, fromAdsetId: "302", fromName: "Lineup — Primary" }, adv), "starts at £14.50 a day, Adv+'s daily budget, moved from Lineup — Primary");
   });
 
   it("CBO: the copy shares the campaign budget — no daily_budget, no bid strategy, no giver write", async () => {
@@ -472,10 +473,10 @@ describe("P3: registrations are the page's own signup event on the pixel, read, 
 
 describe("P3 new ad sets: design's words, and OR8 / OR9's", () => {
   it("the cluster's and the defaults' lines", () => {
-    const copy = { adsetId: "303", name: "Adv+", cprGbp: 6.1, resultLabel: "IC", dailyGbp: 14.5, creatives: 6 };
+    const copy = { adsetId: "303", name: "Adv+", cprGbp: 6.1, resultLabel: "IC", dailyGbp: 14.5, creatives: 6, dailyBudgetGbp: 14.5, recentSpendGbp: 14.5 };
     assert.equal(clusterWrite(copy, { mode: "headroom", dailyGbp: 14.5 }), OR8_CLUSTER.write);
     assert.equal(interestsLine(["Disc Genre", "Minimal techno", "Deep house", "a", "b", "c", "d"]), OR8_CLUSTER.extra);
-    assert.equal(defaultWrite({ ...copy, name: "Broad — Primary", creatives: 4 }, { mode: "headroom", dailyGbp: 3.8 }), OR8_RETARGETING.write);
+    assert.equal(defaultWrite({ ...copy, name: "Broad — Primary", creatives: 4, dailyGbp: 3.8, dailyBudgetGbp: 3.8, recentSpendGbp: 3.8 }, { mode: "headroom", dailyGbp: 3.8 }), OR8_RETARGETING.write);
     assert.equal(retargetingEvidence({ landing: 1840, ticket: 412, registrations: 3105 }), OR8_RETARGETING.extra);
     assert.equal(lookalikeEvidence(64, "GB"), OR8_LOOKALIKE.extra);
     assert.equal(appliedNewAdSet("retargeting", 4, [], 4), OR9_RESULTS.retargeting);

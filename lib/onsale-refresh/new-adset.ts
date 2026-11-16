@@ -45,7 +45,19 @@ export type Funding =
   | { mode: "move"; dailyGbp: number; fromAdsetId: string; fromName: string }
   | { mode: "none" };
 
-export type CopySource = { adsetId: string; name: string; cprGbp: number | null; resultLabel: string; dailyGbp: number; creatives: number };
+export type CopySource = {
+  adsetId: string;
+  name: string;
+  cprGbp: number | null;
+  resultLabel: string;
+  /** What the new ad set starts at, £ a day, and what funding sizes on: the copied ad set's daily budget when read (what Apply writes), else its recent spend. */
+  dailyGbp: number;
+  creatives: number;
+  /** The copied ad set's daily budget as the batch read saw it, £ (Apply writes it as the new ad set's daily_budget); null or absent = not read, or none. */
+  dailyBudgetGbp?: number | null;
+  /** Its spend over its last 7 days of delivery, per day, £: shown beside the start amount, marked as spend. */
+  recentSpendGbp?: number;
+};
 
 export type Giver = { adsetId: string; name: string };
 
@@ -86,12 +98,22 @@ export function decideFunding(args: {
   return { mode: "none" };
 }
 
-/** `{budget}` in the write line. */
-export function budgetText(funding: Funding): string {
+/** The start amount: what Apply writes as the new ad set's daily budget (the copied ad set's), with the figure when it was read. */
+function startText(copy: Pick<CopySource, "name" | "dailyBudgetGbp"> | null | undefined, narrow: boolean): string {
+  if (copy?.dailyBudgetGbp != null) return narrow ? `starts at ${gbp(copy.dailyBudgetGbp)} a day` : `starts at ${gbp(copy.dailyBudgetGbp)} a day, ${copy.name}'s daily budget`;
+  return copy ? `starts at ${copy.name}'s daily budget` : "starts at the copied ad set's daily budget";
+}
+
+/** `{budget}` in the write line. Under a campaign budget Apply writes no ad-set budget: it shares the campaign's. */
+export function budgetText(funding: Funding, copy?: Pick<CopySource, "name" | "dailyBudgetGbp" | "recentSpendGbp"> | null, opts: { narrow?: boolean } = {}): string {
   if (funding.mode === "cbo") return "shares the campaign budget";
-  if (funding.mode === "headroom") return `${gbp(funding.dailyGbp)} a day from plan headroom`;
-  if (funding.mode === "move") return `${gbp(funding.dailyGbp)} a day moved from ${funding.fromName}`;
-  return "no budget yet";
+  if (funding.mode === "none") return "no budget yet";
+  const from = funding.mode === "headroom" ? "from plan headroom" : `moved from ${funding.fromName}`;
+  // Recent spend sits beside the start amount, marked as spend, only where it says something the start amount doesn't (wide only).
+  const spend = !opts.narrow && copy?.recentSpendGbp != null && (copy.dailyBudgetGbp == null || Math.abs(copy.recentSpendGbp - copy.dailyBudgetGbp) >= 0.005) ? ` (recent spend ${gbp(copy.recentSpendGbp)} a day)` : "";
+  // Design (16 Nov): "from plan headroom" follows the start with a comma only after the "{ad set}'s daily budget" clause (wide, read); a move keeps its comma.
+  const joint = funding.mode === "move" || (!opts.narrow && copy?.dailyBudgetGbp != null) ? ", " : " ";
+  return `${startText(copy, Boolean(opts.narrow))}${joint}${from}${spend}`;
 }
 
 /** A week of a moved daily budget: what counts against the 20 % cap. */
@@ -127,11 +149,11 @@ export function clusterNarrow(index: number, n: number): string {
 
 export function clusterWrite(copy: CopySource, funding: Funding): string {
   const cpr = copy.cprGbp == null ? "" : ` (${gbp(copy.cprGbp)} per ${copy.resultLabel})`;
-  return `New ad set: a copy of ${copy.name}${cpr} with these interests · ${copy.creatives} creative${copy.creatives === 1 ? "" : "s"} reused · ${budgetText(funding)} · goes in live`;
+  return `New ad set: a copy of ${copy.name}${cpr} with these interests · ${copy.creatives} creative${copy.creatives === 1 ? "" : "s"} reused · ${budgetText(funding, copy)} · goes in live`;
 }
 
 export function newAdSetNarrowWrite(copy: CopySource, funding: Funding): string {
-  return `New ad set from ${copy.name} · ${budgetText(funding)} · live`;
+  return `New ad set from ${copy.name} · ${budgetText(funding, copy, { narrow: true })} · live`;
 }
 
 export function defaultWhy(which: "retargeting" | "registrations_lookalike"): string {
@@ -157,11 +179,11 @@ export function lookalikeEvidence(seed: number, country: string): string {
 }
 
 export function defaultWrite(copy: CopySource, funding: Funding): string {
-  return `New audience and ad set: a copy of ${copy.name} aimed at this audience only · ${copy.creatives} creative${copy.creatives === 1 ? "" : "s"} reused · ${budgetText(funding)} · goes in live`;
+  return `New audience and ad set: a copy of ${copy.name} aimed at this audience only · ${copy.creatives} creative${copy.creatives === 1 ? "" : "s"} reused · ${budgetText(funding, copy)} · goes in live`;
 }
 
 export function defaultNarrowWrite(copy: CopySource, funding: Funding): string {
-  return `New audience and ad set from ${copy.name} · ${budgetText(funding)} · live`;
+  return `New audience and ad set from ${copy.name} · ${budgetText(funding, copy, { narrow: true })} · live`;
 }
 
 /** The new ad set's name († design's default). */
