@@ -10,13 +10,15 @@
  *   - 2026-11-15-dashboard-v2-he2-page-audience.html (PA1–PA7);
  *   - 2026-11-15-dashboard-v2-panels-and-he2-gaps.html (PB3, PB4);
  *   - 2026-11-15-dashboard-v2-presale-creatives-budget.html (PH2, PH7);
+ *   - 2026-11-16-sales-page-order-he2.html (HP1–HP3: no join rate until
+ *     CIRQLIN returns joined ∩ reachable; the scope line);
  *   - 2026-11-13-dashboard-v2-phase-2.html (E1, E2, EV1, EV2), where the
  *     records above don't replace them.
- * Strings no record gives are marked NEW below and listed in the PR body.
+ * HP2 accepted the strings #1284 added; they're marked HP2 below.
  *
  * Two figures live here:
- *   - Signups & communities (E2): the three steps, the join rate on
- *     "Since launch" only, marketing and partner opt-in, invite link clicks.
+ *   - Signups & communities (E2): the three steps (no join rate, HP1),
+ *     marketing and partner opt-in, invite link clicks.
  *   - Signup geography (E1), drawn inside "Who we reached" beside Meta's.
  *
  * The umbrella page (events.is_umbrella) is its own block in both, never
@@ -56,17 +58,21 @@ export const STEP_SIGNUPS = "1 · Email signups";
 export const STEP_REACHABLE = "2 · Reachable on WhatsApp";
 export const REACHABLE_SUB = "said yes to marketing and left a phone";
 export const WHATSAPP_NOT_OFFERED = "WhatsApp isn't offered on this page";
-/** NEW: PA2's not-offered state on a block of several pages. */
+/** HP2: PA2's not-offered state on a block of several pages. */
 export const WHATSAPP_NOT_OFFERED_PAGES = "WhatsApp isn't offered on these pages";
 /** EV2's step 3. */
 export const STEP_COMMUNITY = "3 · Community members";
-/** EV2's join-rate tile and its source. */
+/**
+ * EV2's join-rate tile, kept for when CIRQLIN returns joined ∩ reachable
+ * (HP1, HP3). Until then no view draws it.
+ */
 export const JOIN_RATE_LABEL = "Opt-in → community";
-export const DERIVED = "Derived";
+/** HP1: under the steps, only when step 3 is more than step 2. */
+export const JOINED_OVER_REACHABLE = "Joining the community doesn't need a marketing opt-in, so this can be more than step 2.";
 /** PA3. */
 export const JOINED_SUB = "joined from signups";
 export const CIRQLIN_EXACT = "CIRQLIN · exact";
-/** NEW: step 2's source. */
+/** HP2: step 2's source. */
 export const CIRQLIN = "CIRQLIN";
 /** PA1. */
 export const MARKETING_LABEL = "Marketing opt-in";
@@ -88,7 +94,7 @@ const CHANNEL_WORDS: Record<string, string> = { email: "email", sms: "SMS", what
 /** PA1: always in this order. */
 const CHANNEL_ORDER = ["email", "sms", "whatsapp"] as const;
 
-/** NEW: "{j} joined {period}" (PA3) needs the period as words. */
+/** HP2: "{j} joined {period}" (PA3) with the period as words. */
 export const PERIOD_WORDS: Record<Exclude<PanelPeriod, "launch">, string> = {
   "30": "in the last 30 days",
   "14": "in the last 14 days",
@@ -114,22 +120,28 @@ export function offeredLine(channels: Iterable<string>): string | null {
   return named.length ? `offered: ${named.join(" · ")}` : null;
 }
 
-/** NEW: the umbrella block's heading. */
+/** HP2: the umbrella block's heading. */
 export function umbrellaHeading(name: string): string {
   return `${name} · its own page, never added to the shows`;
 }
 
-/** NEW: the block's scope line, after EV1's footnote. */
-export function scopeLine(label: string, pages: number, fetchDay: string, nowMs: number): string {
-  return `${label} · ${pagesWord(pages)} · read ${dayWords(fetchDay, nowMs)}`;
+/**
+ * HP2: the block's scope line. Step 1 carries the source, so the line
+ * doesn't repeat it. Shows in scope with no CIRQLIN page are named as a
+ * count, so a total never reads as complete when it isn't.
+ */
+export function scopeLine(label: string, pages: number, fetchDay: string, nowMs: number, showsWithoutPage = 0): string {
+  const line = `${label} · ${pagesWord(pages)} · read ${dayWords(fetchDay, nowMs)}`;
+  if (showsWithoutPage <= 0) return line;
+  return `${line} · ${showsWithoutPage === 1 ? "1 show" : `${n(showsWithoutPage)} shows`} without a CIRQLIN page`;
 }
 
-/** NEW: a period whose start no stored read reaches. */
+/** HP2: a period whose start no stored read reaches. */
 export function windowNotStored(start: string, nowMs: number): string {
   return `No CIRQLIN read before ${dayWords(start, nowMs)} yet, so this period isn't counted.`;
 }
 
-/** NEW: PA6's internal note, naming the page. */
+/** HP2: PA6's internal note, naming the page. */
 export function geographyNote(pages: readonly string[]): string {
   return `Doesn't add up: ${pages.join(", ")}`;
 }
@@ -163,12 +175,14 @@ export interface PageAudiencePanelInput {
   /** Event id → HE4's entered member count. */
   entered: ReadonlyMap<string, EnteredMembers>;
   clientName: string;
+  /** Umbrella events (events.is_umbrella), so one with no page isn't counted as a show without one. */
+  umbrellaIds?: ReadonlySet<string>;
 }
 
 // ── Models ───────────────────────────────────────────────────────────────
 
 export interface PanelStep {
-  id: "signups" | "reachable" | "community" | "join";
+  id: "signups" | "reachable" | "community";
   label: string;
   /** The figure; null on "WhatsApp isn't offered". */
   value: string | null;
@@ -186,6 +200,8 @@ export interface SignupsBlock {
   /** Set when the period can't be counted; the block then shows only this. */
   notCounted: string | null;
   steps: PanelStep[];
+  /** HP1's footnote under the steps, or null. */
+  stepsNote: string | null;
   marketing: { line: string; offered: string | null } | null;
   partner: { line: string; sub: string } | null;
   source: string;
@@ -292,6 +308,8 @@ type BlockArgs = {
   kind: "shows" | "umbrella";
   heading: string | null;
   label: string;
+  /** Shows in scope with no CIRQLIN page (HP2). */
+  showsWithoutPage?: number;
   pages: readonly PageAudienceFigures[];
   /** Only a one-page block reads it (PB4: the show's own count). */
   entered: EnteredMembers | null;
@@ -316,9 +334,10 @@ export function buildSignupsBlock(a: BlockArgs): SignupsBlock {
   const base: SignupsBlock = {
     kind: a.kind,
     heading: a.heading,
-    scopeLine: scopeLine(a.label, a.pages.length, fetchDay, a.nowMs),
+    scopeLine: scopeLine(a.label, a.pages.length, fetchDay, a.nowMs, a.showsWithoutPage ?? 0),
     notCounted: null,
     steps: [],
+    stepsNote: null,
     marketing: null,
     partner: null,
     source: SOURCE_LINE,
@@ -363,10 +382,10 @@ export function buildSignupsBlock(a: BlockArgs): SignupsBlock {
   } else {
     steps.push({ id: "community", label: STEP_COMMUNITY, value: n(counts.joined), sub: JOINED_SUB, source: CIRQLIN_EXACT, lines: tail });
   }
-  // PA3: community_joined ÷ Reachable on WhatsApp, both CIRQLIN's, "Since launch" only.
-  if (days == null && offers && counts.reachable > 0) {
-    steps.push({ id: "join", label: JOIN_RATE_LABEL, value: pct(counts.joined, counts.reachable), sub: null, source: DERIVED, lines: [] });
-  }
+  // HP1: no join rate until CIRQLIN returns joined ∩ reachable. community_joined counts every
+  // joiner, most of whom said no to marketing, so it can pass step 2; the footnote says why.
+  const stepThree = days == null && single && a.entered ? a.entered.members : counts.joined;
+  const stepsNote = offers && stepThree > counts.reachable ? JOINED_OVER_REACHABLE : null;
 
   const offered = offeredLine(a.pages.flatMap((p) => p.channelsOffered));
   const marketing = {
@@ -374,7 +393,7 @@ export function buildSignupsBlock(a: BlockArgs): SignupsBlock {
     offered,
   };
   const partner = counts.partner == null ? null : { line: `${PARTNER_LABEL} · ${n(counts.partner)}`, sub: PARTNER_SUB };
-  return { ...base, steps, marketing, partner };
+  return { ...base, steps, stepsNote, marketing, partner };
 }
 
 /** A page's geography adds up when its named cities, everywhere else and couldn't tell make its signups (PA6). */
@@ -432,7 +451,13 @@ export function buildGeographyBlock(a: GeoArgs): GeographyBlock {
 
 // ── Views ────────────────────────────────────────────────────────────────
 
-type ViewPages = { label: string; shows: PageAudienceFigures[]; umbrellas: { name: string; figures: PageAudienceFigures }[] };
+type ViewPages = {
+  label: string;
+  shows: PageAudienceFigures[];
+  umbrellas: { name: string; figures: PageAudienceFigures }[];
+  /** HP2: shows in scope (umbrellas aside) with no stored CIRQLIN page read. */
+  showsWithoutPage: number;
+};
 
 function pagesForViews(input: PageAudiencePanelInput, view: { viewIds: readonly string[]; venues: readonly PanelVenue[] }): Map<string, ViewPages> {
   const names = new Map(input.shows.map((s) => [s.id, s.name]));
@@ -440,13 +465,17 @@ function pagesForViews(input: PageAudiencePanelInput, view: { viewIds: readonly 
   for (const [viewId, scope] of scopesForViews(view.viewIds, view.venues, input.shows, input.clientName)) {
     const shows: PageAudienceFigures[] = [];
     const umbrellas: ViewPages["umbrellas"] = [];
+    let showsWithoutPage = 0;
     for (const id of scope.eventIds) {
       const f = input.pages.get(id);
-      if (!f) continue;
+      if (!f) {
+        if (!input.umbrellaIds?.has(id)) showsWithoutPage += 1;
+        continue;
+      }
       if (f.isUmbrella) umbrellas.push({ name: names.get(id) ?? "—", figures: f });
       else shows.push(f);
     }
-    if (shows.length || umbrellas.length) out.set(viewId, { label: scope.d2c.label, shows, umbrellas });
+    if (shows.length || umbrellas.length) out.set(viewId, { label: scope.d2c.label, shows, umbrellas, showsWithoutPage });
   }
   return out;
 }
@@ -464,7 +493,9 @@ export function buildSignupsPanels(
       const blocks: SignupsBlock[] = [];
       if (v.shows.length) {
         const entered = v.shows.length === 1 ? input.entered.get(v.shows[0]!.eventId) ?? null : null;
-        blocks.push(buildSignupsBlock({ kind: "shows", heading: null, label: v.label, pages: v.shows, entered, history: input.history, period, surface, nowMs }));
+        blocks.push(
+          buildSignupsBlock({ kind: "shows", heading: null, label: v.label, showsWithoutPage: v.showsWithoutPage, pages: v.shows, entered, history: input.history, period, surface, nowMs }),
+        );
       }
       for (const u of v.umbrellas) {
         blocks.push(

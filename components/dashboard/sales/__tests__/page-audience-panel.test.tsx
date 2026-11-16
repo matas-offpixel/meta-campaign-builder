@@ -54,8 +54,32 @@ describe("Signups & communities (HE2)", () => {
     const { container } = render(<SignupsPanel model={panels("internal").all!.launch} />);
     const grid = container.querySelector("[data-step]")!.parentElement!;
     expect(grid.className).toContain("grid-cols-[repeat(2,minmax(0,1fr))]");
-    expect(grid.className).toContain("sm:grid-cols-[repeat(4,minmax(0,1fr))]");
+    expect(grid.className).toContain("sm:grid-cols-[repeat(3,minmax(0,1fr))]");
   });
+
+  for (const surface of ["internal", "share"] as const) {
+    it(`${surface}: no join rate anywhere; the footnote only where step 3 is more than step 2 (HP1)`, () => {
+      const all = render(<SignupsPanel model={panels(surface).all!.launch} />);
+      expect(all.container.textContent).not.toContain("Opt-in → community");
+      expect(all.container.querySelectorAll("[data-signups-block='shows'] [data-step]").length).toBe(3);
+      // Shows: 1,230 joined, 2,298 reachable. Umbrella: 0 and 825.
+      expect(all.container.querySelector("[data-steps-note]")).toBeNull();
+      cleanup();
+      const gl = render(<SignupsPanel model={panels(surface)["ebr27-glitterbox"]!.launch} />);
+      expect(gl.container.querySelector("[data-steps-note]")!.textContent).toBe(
+        "Joining the community doesn't need a marketing opt-in, so this can be more than step 2.",
+      );
+    });
+
+    it(`${surface}: the scope line carries no repeated source and names shows without a page (HP2)`, () => {
+      const { container } = render(<SignupsPanel model={panels(surface).all!.launch} />);
+      const lines = [...container.querySelectorAll("[data-scope-line]")].map((l) => l.textContent);
+      expect(lines).toEqual([
+        "Electric Brixton · 15 CIRQLIN pages · read 16 Nov · 5 shows without a CIRQLIN page",
+        "Global Marketing · 1 CIRQLIN page · read 16 Nov",
+      ]);
+    });
+  }
 });
 
 describe("Who we reached · signup geography (HE2)", () => {

@@ -14,6 +14,9 @@
  * No person data: show names and counts only. No entered member count
  * exists for Electric yet (community_member_counts is empty).
  *
+ * ELECTRIC_SHOWS_WITHOUT_PAGE are the client's five events with no
+ * cirqlin_page_id (prod, 16 Nov), for HP2's "shows without a CIRQLIN page".
+ *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
@@ -134,6 +137,15 @@ export const ELECTRIC_PAGES: readonly Page[] = [
   },
 ];
 
+/** Electric's shows with no CIRQLIN page (events.cirqlin_page_id null, 16 Nov). */
+export const ELECTRIC_SHOWS_WITHOUT_PAGE: readonly PanelShow[] = [
+  { id: "a8696914-1280-4b13-a0b4-ebf584bbd55c", code: "ES26-MALLGRAB", name: "Mall Grab - Sheffield", venue_key: "electric studios" },
+  { id: "df3ea903-5ab5-4b7c-948e-e21666826df1", code: "NX26-MF", name: "Modern Funktion", venue_key: "nx newcastle" },
+  { id: "2b7b7262-5d04-4363-b980-17b3900224fb", code: "NX26-EED", name: "East End Dubs", venue_key: "nx newcastle" },
+  { id: "2567a255-3015-4aeb-b1a3-13d070c62ec6", code: "NX26-IPC", name: "Interplanetary Criminal", venue_key: "nx newcastle" },
+  { id: "217c0436-460d-4a18-b612-68fe8f9ba794", code: "NX27-JULIANFIJMA", name: "Julian Fijma", venue_key: "nx newcastle" },
+];
+
 /** The stored row a page would have after the 16 Nov nightly read. */
 export function storedRow(p: Page, day = ELECTRIC_READ_DAY): StoredPageAudienceRow {
   return {
@@ -162,7 +174,7 @@ export function storedRow(p: Page, day = ELECTRIC_READ_DAY): StoredPageAudienceR
 }
 
 export function electricShows(): PanelShow[] {
-  return ELECTRIC_PAGES.map((p) => ({ id: p.eventId, code: p.code, name: p.name, venue_key: p.venue }));
+  return [...ELECTRIC_PAGES.map((p) => ({ id: p.eventId, code: p.code, name: p.name, venue_key: p.venue })), ...ELECTRIC_SHOWS_WITHOUT_PAGE];
 }
 
 /** The dashboard's views for Electric: the client, its three venues, every show chip. */
@@ -172,7 +184,10 @@ export function electricViews(): { viewIds: string[]; venues: PanelVenue[] } {
     { key: "electric bristol", name: "Electric Bristol", viewId: "venue:electric bristol" },
     { key: "electric studios", name: "Electric Studios", viewId: "venue:electric studios" },
   ];
-  return { viewIds: ["all", ...venues.map((v) => v.viewId), ...ELECTRIC_PAGES.map((p) => p.code.toLowerCase())], venues };
+  return {
+    viewIds: ["all", ...venues.map((v) => v.viewId), ...[...ELECTRIC_PAGES.map((p) => p.code), ...ELECTRIC_SHOWS_WITHOUT_PAGE.map((s) => s.code!)].map((c) => c.toLowerCase())],
+    venues,
+  };
 }
 
 export function electricFigures(): Map<string, PageAudienceFigures> {
@@ -180,7 +195,14 @@ export function electricFigures(): Map<string, PageAudienceFigures> {
 }
 
 export function electricInput(): PageAudiencePanelInput {
-  return { shows: electricShows(), pages: electricFigures(), history: new Map(), entered: new Map(), clientName: ELECTRIC_CLIENT_NAME };
+  return {
+    shows: electricShows(),
+    pages: electricFigures(),
+    history: new Map(),
+    entered: new Map(),
+    clientName: ELECTRIC_CLIENT_NAME,
+    umbrellaIds: new Set(ELECTRIC_PAGES.filter((p) => p.umbrella).map((p) => p.eventId)),
+  };
 }
 
 export function electricPage(code: string): Page {

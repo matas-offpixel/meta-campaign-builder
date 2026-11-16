@@ -1,6 +1,6 @@
 /**
- * HE2's panel rules (PA1–PA7, PB3, PB4, PH7) on Electric's real counts
- * (./fixture.ts), internal and share.
+ * HE2's panel rules (PA1–PA7, PB3, PB4, PH7, HP1, HP2) on Electric's real
+ * counts (./fixture.ts), internal and share.
  */
 
 import assert from "node:assert/strict";
@@ -17,8 +17,10 @@ import {
   EVERYWHERE_ELSE,
   GEOGRAPHY_WITHHELD,
   inviteClicksLine,
+  JOINED_OVER_REACHABLE,
   offeredLine,
   REACHABLE_SUB,
+  scopeLine,
   SOURCE_LINE,
   WHATSAPP_NOT_OFFERED,
   type PageDayCounts,
@@ -50,8 +52,8 @@ function block(pages: PageAudienceFigures[], opts: { period?: PanelPeriod; surfa
 
 const step = (b: SignupsBlock, id: string) => b.steps.find((s) => s.id === id);
 
-describe("HE2 panel · the three steps (PA2, PA3)", () => {
-  it("Glitterbox: 1 Email signups → 2 Reachable on WhatsApp → 3 community, with the join rate", () => {
+describe("HE2 panel · the three steps (PA2, PA3, HP1)", () => {
+  it("Glitterbox: 1 Email signups → 2 Reachable on WhatsApp → 3 community, three tiles only", () => {
     const b = block([figures("EBR27-GLITTERBOX")]);
     assert.deepEqual(
       b.steps.map((s) => [s.label, s.value, s.sub]),
@@ -59,7 +61,6 @@ describe("HE2 panel · the three steps (PA2, PA3)", () => {
         ["1 · Email signups", "1,410", null],
         ["2 · Reachable on WhatsApp", "310", REACHABLE_SUB],
         ["3 · Community members", "410", "joined from signups"],
-        ["Opt-in → community", "132.3 %", null],
       ],
     );
     assert.equal(step(b, "signups")!.source, SOURCE_LINE);
@@ -67,15 +68,15 @@ describe("HE2 panel · the three steps (PA2, PA3)", () => {
     assert.equal(b.source, "CIRQLIN · counted signups, spam removed");
   });
 
-  it("a page that doesn't offer WhatsApp reads the not-offered line, not 0, and has no join rate", () => {
+  it("a page that doesn't offer WhatsApp reads the not-offered line, not 0, and no footnote", () => {
     const b = block([figures("NX26-LOCKLEAD", { channels_offered: ["email", "sms"], whatsapp_with_phone: 0 })]);
     const s = step(b, "reachable")!;
     assert.equal(s.value, null);
     assert.equal(s.sub, WHATSAPP_NOT_OFFERED);
-    assert.equal(step(b, "join"), undefined);
+    assert.equal(b.stepsNote, null);
   });
 
-  it("an entered member count leads; CIRQLIN's joins go under it; the join rate stays joined ÷ reachable", () => {
+  it("an entered member count leads; CIRQLIN's joins go under it; no join rate", () => {
     const entered = { members: 1200, countedOn: "2026-11-14", entered: { at: "2026-11-14T10:00:00Z", name: "Sam" } };
     const internal = block([figures("NX26-LOCKLEAD")], { entered });
     const c = step(internal, "community")!;
@@ -83,8 +84,7 @@ describe("HE2 panel · the three steps (PA2, PA3)", () => {
     assert.equal(c.sub, "members");
     assert.equal(c.source, "entered by Sam, 14 Nov");
     assert.equal(c.lines[0], "257 joined from signups · CIRQLIN");
-    // 257 ÷ 75, never 1,200 ÷ 75.
-    assert.equal(step(internal, "join")!.value, "342.7 %");
+    assert.equal(internal.steps.length, 3);
     const share = block([figures("NX26-LOCKLEAD")], { entered, surface: "share" });
     assert.equal(step(share, "community")!.source, "entered 14 Nov");
   });
@@ -101,15 +101,15 @@ describe("HE2 panel · the three steps (PA2, PA3)", () => {
   });
 });
 
-describe("HE2 panel · join rate on Since launch only (PA3)", () => {
+describe("HE2 panel · no join rate on any period (HP1); windows (PA3)", () => {
   const f = figures("NX26-LOCKLEAD");
   const history = new Map<string, PageDayCounts[]>([
     [f.pageId, [{ fetchDay: "2026-11-09", signups: 600, consentMarketing: 70, whatsappWithPhone: 70, communityJoined: 240, communityLinkClicks: 880, partnerOptIn: 0 }]],
   ]);
 
-  it("7 days: no join rate; the community tile reads '{j} joined in the last 7 days'", () => {
+  it("7 days: the community tile reads '{j} joined in the last 7 days'", () => {
     const b = block([f], { period: "7", history });
-    assert.equal(step(b, "join"), undefined);
+    assert.deepEqual(b.steps.map((s) => s.id), ["signups", "reachable", "community"]);
     const c = step(b, "community")!;
     assert.equal(c.value, "17");
     assert.equal(c.sub, "joined in the last 7 days");
@@ -124,8 +124,52 @@ describe("HE2 panel · join rate on Since launch only (PA3)", () => {
     assert.equal(b.notCounted, "No CIRQLIN read before 18 Oct yet, so this period isn't counted.");
   });
 
-  it("Since launch has the join rate", () => {
-    assert.ok(step(block([f], { history }), "join"));
+  it("Since launch has no join rate either, internal and share", () => {
+    for (const surface of ["internal", "share"] as const) {
+      const b = block([f], { history, surface });
+      assert.deepEqual(b.steps.map((s) => s.id), ["signups", "reachable", "community"]);
+      assert.doesNotMatch(JSON.stringify(b), /Opt-in → community|%"?,"sub":null,"source":"Derived"/);
+    }
+  });
+});
+
+describe("HE2 panel · step 3 over step 2 (HP1)", () => {
+  for (const surface of ["internal", "share"] as const) {
+    it(`${surface}: the footnote shows when joined is more than reachable`, () => {
+      // Glitterbox: 410 joined, 310 reachable. Locklead: 257 and 75.
+      assert.equal(block([figures("EBR27-GLITTERBOX")], { surface }).stepsNote, JOINED_OVER_REACHABLE);
+      assert.equal(block([figures("NX26-LOCKLEAD")], { surface }).stepsNote, "Joining the community doesn't need a marketing opt-in, so this can be more than step 2.");
+    });
+    it(`${surface}: no footnote when step 3 isn't more than step 2`, () => {
+      // D.O.D: 0 joined, 324 reachable. Equal counts don't get it either.
+      assert.equal(block([figures("NX26-DOD")], { surface }).stepsNote, null);
+      assert.equal(block([figures("NX26-LOCKLEAD", { community_joined: 75 })], { surface }).stepsNote, null);
+    });
+  }
+  it("an entered count is step 3's figure when it leads", () => {
+    const entered = { members: 50, countedOn: "2026-11-14", entered: { at: "2026-11-14T10:00:00Z", name: null } };
+    // Locklead: 50 members (< 75 reachable), though 257 joined.
+    assert.equal(block([figures("NX26-LOCKLEAD")], { entered }).stepsNote, null);
+  });
+  it("a window compares the window's counts", () => {
+    const f = figures("NX26-LOCKLEAD");
+    const history = new Map<string, PageDayCounts[]>([
+      [f.pageId, [{ fetchDay: "2026-11-09", signups: 600, consentMarketing: 70, whatsappWithPhone: 70, communityJoined: 240, communityLinkClicks: 880, partnerOptIn: 0 }]],
+    ]);
+    // 17 joined, 5 reachable in the last 7 days.
+    assert.equal(block([f], { period: "7", history }).stepsNote, JOINED_OVER_REACHABLE);
+  });
+});
+
+describe("HE2 panel · the scope line (HP2)", () => {
+  it("no repeated source; '1 CIRQLIN page' for one", () => {
+    const line = scopeLine("Locklead", 1, "2026-11-16", NOW);
+    assert.equal(line, "Locklead · 1 CIRQLIN page · read 16 Nov");
+    assert.doesNotMatch(line, /spam removed/);
+  });
+  it("names shows without a page, '1 show' for one", () => {
+    assert.equal(scopeLine("X", 2, "2026-11-16", NOW, 1), "X · 2 CIRQLIN pages · read 16 Nov · 1 show without a CIRQLIN page");
+    assert.equal(scopeLine("X", 2, "2026-11-16", NOW, 4), "X · 2 CIRQLIN pages · read 16 Nov · 4 shows without a CIRQLIN page");
   });
 });
 
@@ -183,7 +227,9 @@ describe("HE2 panel · views and the umbrella", () => {
       const showPages = ELECTRIC_PAGES.filter((p) => !p.umbrella);
       assert.equal(step(shows!, "signups")!.value, showPages.reduce((s, p) => s + p.signups, 0).toLocaleString("en-GB"));
       assert.equal(step(shows!, "signups")!.value, "13,223");
-      assert.equal(shows!.scopeLine, "Electric Brixton · 15 CIRQLIN pages · read 16 Nov");
+      // Five Electric shows have no page; the umbrella isn't counted as one.
+      assert.equal(shows!.scopeLine, "Electric Brixton · 15 CIRQLIN pages · read 16 Nov · 5 shows without a CIRQLIN page");
+      assert.equal(umbrella!.scopeLine, "Global Marketing · 1 CIRQLIN page · read 16 Nov");
       assert.equal(umbrella!.kind, "umbrella");
       assert.equal(umbrella!.heading, "Global Marketing · its own page, never added to the shows");
       assert.equal(step(umbrella!, "signups")!.value, "825");
@@ -197,6 +243,11 @@ describe("HE2 panel · views and the umbrella", () => {
     const bristol = panels["venue:electric bristol"]!.launch;
     assert.equal(bristol.blocks.length, 1);
     assert.equal(step(bristol.blocks[0]!, "signups")!.value, "2,003");
+    assert.equal(bristol.blocks[0]!.scopeLine, "Electric Bristol · 2 CIRQLIN pages · read 16 Nov");
+    assert.match(panels["venue:nx newcastle"]!.launch.blocks[0]!.scopeLine, / · 4 shows without a CIRQLIN page$/);
+    assert.match(panels["venue:electric studios"]!.launch.blocks[0]!.scopeLine, / · 1 show without a CIRQLIN page$/);
+    // A show with no page has no panel.
+    assert.equal(panels["nx26-eed"], undefined);
     const gl = panels["nx26-global"]!.launch;
     assert.equal(gl.blocks.length, 1);
     assert.equal(gl.blocks[0]!.kind, "umbrella");

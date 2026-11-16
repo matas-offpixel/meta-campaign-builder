@@ -101,8 +101,12 @@ async function load(
 ): Promise<PageAudiencePanels | null> {
   try {
     const [events, audience] = await Promise.all([
-      loadAllPaged<{ id: string; event_code: string | null; name: string | null; venue_key: string | null }>(db, "events", "id,event_code,name,venue_key", ["id"], (q) =>
-        q.eq("client_id", clientId),
+      loadAllPaged<{ id: string; event_code: string | null; name: string | null; venue_key: string | null; is_umbrella: boolean | null }>(
+        db,
+        "events",
+        "id,event_code,name,venue_key,is_umbrella",
+        ["id"],
+        (q) => q.eq("client_id", clientId),
       ),
       pageAudienceForClient(db, clientId),
     ]);
@@ -115,7 +119,8 @@ async function load(
     const enteredMembers = new Map<string, EnteredMembers>();
     for (const [id, e] of entered) enteredMembers.set(id, { members: e.members, countedOn: e.countedOn, entered: { at: e.entered.at, name: e.entered.name } });
     const shows: PanelShow[] = events.map((e) => ({ id: e.id, code: e.event_code, name: e.name ?? e.event_code ?? "—", venue_key: e.venue_key }));
-    const input = { shows, pages, history, entered: enteredMembers, clientName: model.clientName };
+    const umbrellaIds = new Set(events.filter((e) => e.is_umbrella === true).map((e) => e.id));
+    const input = { shows, pages, history, entered: enteredMembers, clientName: model.clientName, umbrellaIds };
     const views = viewsOf(model);
     return { signups: buildSignupsPanels(input, views, surface, nowMs), geography: buildGeography(input, views, surface, nowMs) };
   } catch (error) {
