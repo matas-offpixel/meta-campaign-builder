@@ -1,5 +1,11 @@
 import { SalesDashboard } from "@/components/dashboard/sales/sales-dashboard";
-import { NX_SALES_FIXTURE, NX_SALES_LIVE_LIKE, NX_SALES_LIVE_LIKE_MIXED, NX_SALES_NO_COUNTS } from "@/lib/dashboard/sales-vs-spend-fixture";
+import {
+  IRONWORKS_SALES,
+  NX_SALES_FIXTURE,
+  NX_SALES_LIVE_LIKE,
+  NX_SALES_LIVE_LIKE_MIXED,
+  NX_SALES_NO_COUNTS,
+} from "@/lib/dashboard/sales-vs-spend-fixture";
 import { DASHBOARD_V2_FRAMES, type DashboardV2FrameId } from "@/scripts/plan-frames/dashboard-v2-ids";
 
 /** The record's fold: a dashed line at the first screen's height, the part below dimmed. Frames only. */
@@ -31,7 +37,9 @@ export function SalesFrameMount({ id }: { id: string }) {
               ? NX_SALES_LIVE_LIKE_MIXED
               : frame.fixture === "no-counts"
                 ? NX_SALES_NO_COUNTS
-                : NX_SALES_FIXTURE
+                : frame.fixture === "ironworks"
+                  ? IRONWORKS_SALES
+                  : NX_SALES_FIXTURE
         }
         surface={frame.surface}
         initialShowId={frame.showId}

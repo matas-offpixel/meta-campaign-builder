@@ -78,10 +78,14 @@ function soldSubline(detail: string, countLabel: string): string {
  * header's words ("on spend to the 12 Nov count") where the period's spend
  * runs past a show's last count; 393 drops it.
  */
-/** N3: "{scope} · Meta £x · TikTok £y". A period adds "of £{since launch} since launch". */
+/**
+ * N3: "{scope} · Meta £x · TikTok £y". PH6 adds "includes brand campaigns (£n)" at client level.
+ * A period adds "of £{since launch} since launch".
+ */
 export function spendScopeLine(total: SalesTotal, period: SalesPeriod, launch: SalesTotal | null): string {
   const channels = total.channels.map((channel) => `${channel.label} ${channel.text}`).join(" · ");
-  const line = channels ? `${total.scope} · ${channels}` : total.scope;
+  const scoped = channels ? `${total.scope} · ${channels}` : total.scope;
+  const line = total.includes ? `${scoped} · ${total.includes}` : scoped;
   if (period !== "launch" && launch) return `${line} · of ${launch.text} since launch`;
   return line;
 }
