@@ -1,13 +1,19 @@
 /**
  * Validation helpers for /j/{segment} WhatsApp community redirects.
  *
- * Slugs (aliases): lowercase alphanumeric + hyphens.
- * Invite codes (passthrough): mixed-case alphanumeric, 8–30 chars — Meta's
- * chat.whatsapp.com path segment shape.
+ * Slugs (alias keys): letters, digits, hyphens, and dots. Case-sensitive.
+ * The same shape covers vanity slugs (throwback-madrid), runbook slugs
+ * (Throwback-Porto-17.10.26), and mixed-case invite codes stored as the
+ * slug so /j/{code} can be repointed.
+ *
+ * Invite codes (passthrough and destination values): mixed-case
+ * alphanumeric, 8–30 chars — the check already on
+ * wa_community_alias_destinations.invite_code. Live WhatsApp codes are
+ * usually 20–24; the wider window matches the existing column check.
  */
 
-/** Alias slug: `throwback`, `jackies-madrid`. No leading/trailing hyphens. */
-export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** Alias slug. No leading, trailing, or doubled separators. */
+export const SLUG_RE = /^[A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)*$/;
 
 /** Raw WhatsApp invite code (legacy template variable / passthrough). */
 export const INVITE_RE = /^[A-Za-z0-9]{8,30}$/;
@@ -18,6 +24,11 @@ export function isValidSlug(value: string): boolean {
 
 export function isValidInviteCode(value: string): boolean {
   return INVITE_RE.test(value);
+}
+
+/** A segment the public resolver will look up or pass through. */
+export function isWellFormedSegment(value: string): boolean {
+  return isValidSlug(value) || isValidInviteCode(value);
 }
 
 /**

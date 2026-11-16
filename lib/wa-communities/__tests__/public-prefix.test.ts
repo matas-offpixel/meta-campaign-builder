@@ -31,6 +31,8 @@ describe("ops UI /wa-communities is NOT public", () => {
     assert.equal(isPublicPath("/wa-communities/"), false);
     assert.equal(isPublicPath("/api/wa-communities"), false);
     assert.equal(isPublicPath("/api/wa-communities/some-id"), false);
+    assert.equal(isPublicPath("/api/community-aliases/puzzle-circuit"), true);
+    assert.equal(isPublicPath("/api/community-aliases"), false);
   });
 
   it("PUBLIC_PREFIXES does not list /wa-communities", async () => {

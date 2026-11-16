@@ -72,5 +72,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
   }
-  return NextResponse.json({ ok: true, alias: result.alias });
+  return NextResponse.json({
+    ok: true,
+    alias: result.alias,
+    cachePurge: result.cachePurge,
+  });
 }

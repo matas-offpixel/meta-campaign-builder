@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     notes?: string | null;
     invite_code?: string;
     label?: string | null;
+    event_ref?: string | null;
   };
   try {
     body = await req.json();
@@ -71,11 +72,15 @@ export async function POST(req: NextRequest) {
     notes: body.notes ?? null,
     invite_code: body.invite_code,
     label: body.label ?? null,
+    event_ref: body.event_ref ?? null,
     user_id: auth.user.id,
   });
 
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
   }
-  return NextResponse.json({ ok: true, alias: result.alias }, { status: 201 });
+  return NextResponse.json(
+    { ok: true, alias: result.alias, cachePurge: result.cachePurge },
+    { status: 201 },
+  );
 }
