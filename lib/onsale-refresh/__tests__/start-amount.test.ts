@@ -79,10 +79,10 @@ describe("a new ad set's line: the start amount Apply writes", () => {
     const retargeting = of(i, "missing_default.retargeting");
     assert.deepEqual(retargeting.evidence.funding, { mode: "headroom", dailyGbp: 14.5 });
     assert.equal(retargeting.writeText, "New audience and ad set: a copy of Adv+ aimed at this audience only · 3 creatives reused · starts at £14.50 a day, Adv+'s daily budget, from plan headroom (recent spend £5.00 a day) · goes in live");
-    assert.equal(retargeting.narrow.writeText, "New audience and ad set from Adv+ · starts at £14.50 a day, from plan headroom · live");
+    assert.equal(retargeting.narrow.writeText, "New audience and ad set from Adv+ · starts at £14.50 a day from plan headroom · live");
     const cluster = of(i, "bring_back.client_cluster");
     assert.equal(cluster.writeText, "New ad set: a copy of Adv+ (£1.50 per IC) with these interests · 3 creatives reused · starts at £14.50 a day, Adv+'s daily budget, from plan headroom (recent spend £5.00 a day) · goes in live");
-    assert.equal(cluster.narrow.writeText, "New ad set from Adv+ · starts at £14.50 a day, from plan headroom · live");
+    assert.equal(cluster.narrow.writeText, "New ad set from Adv+ · starts at £14.50 a day from plan headroom · live");
     // Accept re-decides the funding on write.copyFrom.dailyGbp: the figure Apply writes, not the spend.
     assert.equal((retargeting.write!.copyFrom as { dailyGbp: number }).dailyGbp, 14.5);
   });
@@ -117,9 +117,15 @@ describe("a new ad set's line: the start amount Apply writes", () => {
     }
   });
 
+  it("the budget not read, moved: the move keeps its comma", () => {
+    const line = of(input({}, { spendToDateGbp: 4300 }), "missing_default.retargeting");
+    assert.equal((line.evidence.funding as Funding).mode, "move");
+    assert.equal(line.narrow.writeText, "New audience and ad set from Adv+ · starts at Adv+'s daily budget, moved from Lineup — Primary · live");
+  });
+
   it("the budget not read: no figure is named as the start; the spend shows only as spend", () => {
     const line = of(input(), "missing_default.retargeting");
-    assert.equal(line.writeText, "New audience and ad set: a copy of Adv+ aimed at this audience only · 3 creatives reused · starts at Adv+'s daily budget, from plan headroom (recent spend £5.00 a day) · goes in live");
-    assert.equal(line.narrow.writeText, "New audience and ad set from Adv+ · starts at Adv+'s daily budget, from plan headroom · live");
+    assert.equal(line.writeText, "New audience and ad set: a copy of Adv+ aimed at this audience only · 3 creatives reused · starts at Adv+'s daily budget from plan headroom (recent spend £5.00 a day) · goes in live");
+    assert.equal(line.narrow.writeText, "New audience and ad set from Adv+ · starts at Adv+'s daily budget from plan headroom · live");
   });
 });

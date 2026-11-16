@@ -111,7 +111,9 @@ export function budgetText(funding: Funding, copy?: Pick<CopySource, "name" | "d
   const from = funding.mode === "headroom" ? "from plan headroom" : `moved from ${funding.fromName}`;
   // Recent spend sits beside the start amount, marked as spend, only where it says something the start amount doesn't (wide only).
   const spend = !opts.narrow && copy?.recentSpendGbp != null && (copy.dailyBudgetGbp == null || Math.abs(copy.recentSpendGbp - copy.dailyBudgetGbp) >= 0.005) ? ` (recent spend ${gbp(copy.recentSpendGbp)} a day)` : "";
-  return `${startText(copy, Boolean(opts.narrow))}, ${from}${spend}`;
+  // Design (16 Nov): "from plan headroom" follows the start with a comma only after the "{ad set}'s daily budget" clause (wide, read); a move keeps its comma.
+  const joint = funding.mode === "move" || (!opts.narrow && copy?.dailyBudgetGbp != null) ? ", " : " ";
+  return `${startText(copy, Boolean(opts.narrow))}${joint}${from}${spend}`;
 }
 
 /** A week of a moved daily budget: what counts against the 20 % cap. */
