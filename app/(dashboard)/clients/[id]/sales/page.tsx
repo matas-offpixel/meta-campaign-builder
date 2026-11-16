@@ -2,9 +2,11 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AudiencePanelsUrl } from "@/components/dashboard/audience-panels/audience-panels";
+import { CreativeSectionUrl } from "@/components/dashboard/creative-section/creative-panel";
 import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-url";
 import { initialFromQuery } from "@/components/dashboard/sales/venue-query";
 import { loadInternalAudiencePanels } from "@/lib/dashboard/audience-panels-server";
+import { loadInternalCreativeSection } from "@/lib/dashboard/creative-section-server";
 import { loadInternalSalesDashboard } from "@/lib/dashboard/sales-calc/server";
 import { dashboardV2Enabled } from "@/lib/dashboard/sales-calc/gate";
 import { pickPeriod } from "@/lib/dashboard/sales-calc/query";
@@ -37,6 +39,7 @@ export default async function ClientSalesPage({ params, searchParams }: Props) {
   const initial = initialFromQuery(build.model, query);
   // HE1 + HE3: read only after the owner's session has read this client's dashboard.
   const panels = await loadInternalAudiencePanels(supabase, id, build.model);
+  const creatives = await loadInternalCreativeSection(supabase, id, build.model);
   return (
     <Suspense>
       <SalesDashboardUrl
@@ -47,6 +50,7 @@ export default async function ClientSalesPage({ params, searchParams }: Props) {
         initialVenueKey={initial.venueKey}
       />
       {panels ? <AudiencePanelsUrl byView={panels} initialViewId={initial.showId} /> : null}
+      {creatives ? <CreativeSectionUrl byView={creatives} initialViewId={initial.showId} /> : null}
     </Suspense>
   );
 }
