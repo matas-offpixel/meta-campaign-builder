@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative testing 3 — 16 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative testing · issue 3 · 16 November 2026</p>
+<h1>A small test budget and a fast call</h1>
+<p class="lead">This record carries two re-rulings from Matas (16 Nov) of numbers that <code>2026-11-16-creative-testing-2.html</code> invented:</p>
+<ul class="notes">
+<li><b>The budget:</b> a test ad set gets about 10 % of the event's current daily spend, capped at £10 a day.</li>
+<li><b>The call:</b> Meta usually picks the winning ad within about 24 hours, so a test is called from its spend share. There's no 7-day wait and no 10-result floor. At £10 a day those would take weeks.</li>
+</ul>
+<p class="lead">TF1–TF4 replace TT2 and TT3. Everything else in TT stands: the Tests campaign and its Video and Statics ad sets, one test at a time, Test 3's control, the Promote and Pause lines (TT4), the rights mute (TT5) and the surfaces (TT6). TT-A and TT-C are redrawn here as TF-A and TF-C. The example figures are <span class="inv">invented</span>.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>TF1 · The test ad set's budget (replaces TT2)</td><td>
+<ul>
+<li><b>Current daily spend</b> is the event's average Meta spend per day over the last 7 days, across its main campaigns. The Tests campaign isn't counted.</li>
+<li><b>The test ad set's daily budget</b> is 10 % of that, rounded down to the whole pound. Two limits apply:
+<ul>
+<li>it's never more than <b>£10 a day</b>;</li>
+<li>it's never more than the daily budget of the event's median live main ad set, so a test is never bigger than the event's typical ad set.</li>
+</ul></li>
+<li><b>Meta's minimum:</b> when that comes in under Meta's minimum daily budget, the test uses the minimum.
+<ul>
+<li>That's <b>£1.00 a day</b> for these ad sets, which bill on impressions. It's the same floor WB8 uses.</li>
+<li>The build reads Meta's own minimum from the ad account when it applies (<code>min_daily_budget</code>). If Meta's figure differs from £1.00, it uses Meta's.</li>
+</ul></li>
+<li><b>No recent spend:</b> with no Meta spend in the last 7 days, a test can't start, and the line reads <b>"No spend in the last 7 days to size a test from."</b></li>
+<li><b>The plan:</b> a test holds 4 days of its daily budget against the plan (R5). That's the most it can run (TF2). Both test ad sets together still stay within the 20 % cap. Pausing returns what's unspent.</li>
+<li><b>The panel line</b> (Matas's words): <b>"£{daily} a day · {pct} % of current daily spend (cap £10)"</b>.
+<ul>
+<li>{pct} is the real share, so a capped test reads lower than 10 %. For example, "£10 a day · 6 % of current daily spend (cap £10)".</li>
+<li>At the minimum, it adds <b>" · Meta's minimum"</b>, for example "£1.00 a day · 15 % of current daily spend (cap £10) · Meta's minimum".</li>
+</ul></li>
+</ul></td></tr>
+
+<tr><td>TF2 · The fast call (replaces TT3)</td><td>
+<ul>
+<li><b>Read daily.</b> A running test is read every morning at 08:00 London, not only on refresh Mondays. The read covers spend and results since the test ad set first delivered.</li>
+<li><b>The first read is at 48 hours</b> after first delivery. Before that, the test reads "Running · first read at 48 h".</li>
+<li><b>Spend share is the signal.</b> It's each variant's share of the test ad set's spend since the start.</li>
+<li><b>A variant wins when all three of these hold:</b>
+<ul>
+<li>it has a <b>clear majority</b>, 60 % or more of the spend;</li>
+<li>it has <b>at least 3 results</b>, so its cost per result is a number and not one lucky sale;</li>
+<li>its <b>cost per result isn't worse than any other judged variant's</b>.</li>
+</ul></li>
+<li><b>Barely served:</b> a variant with under 10 % of the spend reads <b>"Not enough spend to judge"</b>. It never reads "lost", and it isn't compared on cost.</li>
+<li><b>Judged variants</b> are the ones with 10 % or more of the spend. A judged variant with no results counts as worse than the leader once its spend passes the leader's cost per result.</li>
+<li><b>Meta's favourite costs more.</b> When a variant has the majority but another judged variant is cheaper per result, nothing wins yet. The test runs on and reads "Running · Meta favours {variant} ({share} % of spend), but {other} is cheaper per {result}".</li>
+<li><b>Day 4:</b> with no winner by the read at day 4 (96 hours), the call is <b>"No clear winner"</b>. Nothing is promoted, TT4's pause line is offered, and the variants can go into a later test.</li>
+<li><b>The states:</b>
+<ul>
+<li>"Running · first read at 48 h";</li>
+<li>"Running · {hours} h · {share} % of spend on {leader}";</li>
+<li>"Running · Meta favours {variant} …" as above;</li>
+<li>"Ready to call";</li>
+<li><b>"Winner: {variant} · {share} % of spend · £{cost} per {result}"</b>;</li>
+<li><b>"No clear winner by day 4"</b>;</li>
+<li>"Waiting for Test {n−1}".</li>
+</ul></li>
+<li><b>Withdrawn from TT3:</b> the 10-result floor, the day-7 call, clear and narrow, and "Not enough results to call this test".</li>
+<li><b>Unchanged:</b> calling is Matas's click, "Call the winner", and a call is stored with its evidence. TT4's lines follow the call, and R6's test for calls stands.</li>
+</ul></td></tr>
+
+<tr><td>TF3 · The spend-share view</td><td>
+<ul>
+<li><b>Spend share is now the main signal,</b> so on the event page it's the first figure column. Each bar has two marks:
+<ul>
+<li>a line at 60 %, the majority a winner needs;</li>
+<li>a faint line at 10 %, below which a variant is barely served.</li>
+</ul></li>
+<li><b>Rows are sorted by spend share,</b> and the leader's bar is olive. Spend, results and cost per result follow.</li>
+<li><b>On a phone,</b> each row starts with the share: "{share} % of spend · {variant} · £{cost} per {result} · {results}".</li>
+<li><b>The share link</b> still never shows spend share (TT6). Its winner reads "Winner: {variant} · £{cost} per {result}", and barely served rows read "Not enough spend to judge".</li>
+</ul></td></tr>
+
+<tr><td>TF4 · What carries over</td><td>
+<ul>
+<li>Test 3 is still the combined winner against a copy of the best ad, called by the same TF2 rule.</li>
+<li>A rights mute (TT5) takes the variant out of the share sums from the moment it's paused.</li>
+<li>The Promote line's evidence now reads "{share} % of spend · £{cost} per {result} · {results} {result}s".</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+<div class="frame">
+<figure><figcaption>TF-A · 1280 · event page · a winner at the 48-hour read</figcaption>
+<div class="vp wide">
+<div class="h">Test plan</div>
+<div class="test">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Test 1 · Tracks</b><span class="st win">Winner: Track two · 66 % of spend · £1.65 per checkout</span></div>
+<div class="fs">In P26-BDAY · Tests · Video · £10 a day · 6 % of current daily spend (cap £10) · read at 48 h, £20.00 spent</div>
+<table class="v">
+<tr><th>Variant</th><th>Spend share</th><th class="r">Spend</th><th class="r">Checkouts</th><th class="r">Cost per checkout</th></tr>
+<tr><td><b>Track two</b></td><td><span class="sbar"><i class="lead" style="width:66px"></i><s></s><b></b></span>66 %</td><td class="r">£13.20</td><td class="r">8</td><td class="r">£1.65</td></tr>
+<tr><td>Track one</td><td><span class="sbar"><i style="width:21px"></i><s></s><b></b></span>21 %</td><td class="r">£4.20</td><td class="r">2</td><td class="r">£2.10</td></tr>
+<tr><td>Track five</td><td><span class="sbar"><i style="width:9px"></i><s></s><b></b></span>9 %</td><td class="r">£1.80</td><td class="r">1</td><td class="r">Not enough spend to judge</td></tr>
+<tr><td>Track three</td><td><span class="sbar"><i style="width:4px"></i><s></s><b></b></span>4 %</td><td class="r">£0.80</td><td class="r">0</td><td class="r">Not enough spend to judge</td></tr></table>
+<div class="fs">The marks on each bar: 60 %, the majority a winner needs, and a faint 10 %, below which a variant is barely served.</div>
+</div>
+</div></figure>
+<figure><figcaption>TF-A · 393 · the same card</figcaption>
+<div class="vp w393">
+<div class="h">Test plan</div>
+<div class="test">
+<b>Test 1 · Tracks</b><br><span class="st win">Winner: Track two · 66 % of spend · £1.65 per checkout</span>
+<div class="fs" style="margin-top:6px">£10 a day · 6 % of current daily spend (cap £10)</div>
+<div class="line">66 % of spend · Track two · £1.65 per checkout · 8</div>
+<div class="line">21 % of spend · Track one · £2.10 per checkout · 2</div>
+<div class="line">9 % of spend · Track five · Not enough spend to judge</div>
+<div class="line">4 % of spend · Track three · Not enough spend to judge</div>
+</div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>TF-B · 393 · another event · no clear winner, at Meta's minimum</figcaption>
+<div class="vp w393">
+<div class="test">
+<b>Test 1 · Statics</b><br><span class="st">No clear winner by day 4</span>
+<div class="fs" style="margin-top:6px">£1.00 a day · 15 % of current daily spend (cap £10) · Meta's minimum</div>
+<div class="line">48 % of spend · Static A · £0.48 per signup · 4</div>
+<div class="line">41 % of spend · Static B · £0.41 per signup · 4</div>
+<div class="line">11 % of spend · Static C · £0.44 per signup · 1</div>
+</div>
+<div class="line wait"><b>Pause NX26-LOCKLEAD · Tests · Statics</b><br><span class="fs">Test 1 had no clear winner</span></div>
+</div></figure>
+<figure><figcaption>TF-C · 393 · client share link</figcaption>
+<div class="vp w393">
+<div class="h">What we're testing</div>
+<div class="test">
+<b>Test 1 · Tracks</b><br><span class="st win">Winner: Track two · £1.65 per checkout</span>
+<table class="v">
+<tr><th>Track</th><th class="r">Checkouts</th><th class="r">Per checkout</th></tr>
+<tr><td>Track two</td><td class="r">8</td><td class="r">£1.65</td></tr>
+<tr><td>Track one</td><td class="r">2</td><td class="r">£2.10</td></tr>
+<tr><td>Track five</td><td class="r" colspan="2">Not enough spend to judge</td></tr>
+<tr><td>Track three</td><td class="r" colspan="2">Not enough spend to judge</td></tr></table>
+</div>
+</div></figure>
+</div>
+
+<h2>Expected figures</h2>
+<ul class="notes">
+<li><b>TF-A budget:</b> current daily spend £160. 10 % of that is £16, so the test is capped at £10, and £10 ÷ £160 = 6.25 %, shown as 6 %.</li>
+<li><b>TF-A at 48 h:</b> £20.00 spent = £13.20 + £4.20 + £1.80 + £0.80, which is 66 %, 21 %, 9 % and 4 %.</li>
+<li><b>TF-A's winner:</b> Track two has 66 % of the spend (60 % or more) and 8 checkouts (3 or more). Its £1.65 per checkout (£13.20 ÷ 8) is no worse than Track one's £2.10 (£4.20 ÷ 2). Track one is the only other judged variant. Tracks five and three are under 10 %, so they're barely served.</li>
+<li><b>TF-B budget:</b> current daily spend £6.50. 10 % of that is £0.65, which is under Meta's £1.00, so the test uses £1.00, which is 15.4 % of £6.50.</li>
+<li><b>TF-B at day 4:</b> £4.00 spent = £1.92 + £1.64 + £0.44, which is 48 %, 41 % and 11 %. No variant has 60 %, so the call is "No clear winner by day 4".</li>
+</ul>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>The daily budget follows TF1: 10 % rounded down, at most £10, at most the median live main ad set's budget, and at least Meta's minimum, read from the account. The panel line follows TF1 exactly, with the suffix at the minimum.</li>
+<li>Reads run daily at 08:00 London. Nothing can be called before 48 hours.</li>
+<li>A win needs 60 % of spend, 3 results and no cheaper judged variant. A variant under 10 % is never a loser.</li>
+<li>Day 4 with no winner ends as "No clear winner by day 4", offering the pause line and no promote line.</li>
+<li>Frames TF-A at 1280 and 393, and TF-B and TF-C at 393, from fixtures.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>"Current daily spend" as the 7-day Meta average across the main campaigns, rounding down to the whole pound, the median-ad-set ceiling, and holding 4 days against the plan.</li>
+<li>£1.00 as Meta's minimum, read from <code>min_daily_budget</code>, the " · Meta's minimum" suffix, and "No spend in the last 7 days to size a test from."</li>
+<li>The fast call's numbers: 60 % for the majority (Matas said "clear majority"), 3 results, 10 % for barely served, the 08:00 daily read, the 48-hour first read and the day-4 end.</li>
+<li>The states: "Running · first read at 48 h", "Running · {hours} h · {share} % of spend on {leader}", the "Meta favours … but … is cheaper" line, "Winner: {variant} · {share} % of spend · £{cost} per {result}" and "No clear winner by day 4".</li>
+<li>The spend-share bar's 60 % and 10 % marks, and the phone row order.</li>
+</ul>
+
+</div>
+</body>
+</html>
