@@ -13,10 +13,16 @@ import {
 
 /**
  * E2 "Signups & communities" (HE2, HA2 / HB3): CIRQLIN's page audience on
- * the sales pages. Three tiles (HP1: no join rate yet): a two-up grid below
- * 640 px with step 3 across both columns, three across from there (#1231
- * MB3, MB8). Every row wraps; nothing is wider than the phone (MB1).
+ * the sales pages. Since launch, four tiles with the join rate last (JR1,
+ * JR5): two by two below 640 px, four across from there. On a dated period
+ * three (JR2): two-up below 640 px with step 3 across both columns, three
+ * across from there (#1231 MB3, MB8). Every row wraps; nothing is wider
+ * than the phone (MB1).
  */
+
+const GRID_THREE =
+  "mt-2 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 sm:grid-cols-[repeat(3,minmax(0,1fr))] sm:gap-3 [&>*:last-child:nth-child(odd)]:col-span-2 sm:[&>*:last-child:nth-child(odd)]:col-span-1";
+const GRID_FOUR = "mt-2 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 sm:grid-cols-[repeat(4,minmax(0,1fr))] sm:gap-3";
 
 const NOTE = "text-[11px] leading-snug text-muted-foreground [overflow-wrap:anywhere]";
 
@@ -48,7 +54,7 @@ function Block({ block }: { block: SignupsBlock }) {
         </p>
       ) : (
         <>
-          <div className="mt-2 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 sm:grid-cols-[repeat(3,minmax(0,1fr))] sm:gap-3 [&>*:last-child:nth-child(odd)]:col-span-2 sm:[&>*:last-child:nth-child(odd)]:col-span-1">
+          <div className={block.steps.length === 4 ? GRID_FOUR : GRID_THREE}>
             {block.steps.map((s) => (
               <Tile key={s.id} step={s} />
             ))}

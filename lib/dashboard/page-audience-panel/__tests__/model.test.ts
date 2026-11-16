@@ -1,5 +1,5 @@
 /**
- * HE2's panel rules (PA1–PA7, PB3, PB4, PH7, HP1, HP2) on Electric's real
+ * HE2's panel rules (PA1–PA7, PB3, PB4, PH7, HP1, HP2, JR1–JR5) on Electric's real
  * counts (./fixture.ts), internal and share.
  */
 
@@ -17,7 +17,10 @@ import {
   EVERYWHERE_ELSE,
   GEOGRAPHY_WITHHELD,
   inviteClicksLine,
+  JOIN_RATE_LABEL,
+  JOIN_RATE_SUB,
   JOINED_OVER_REACHABLE,
+  joinRateSource,
   offeredLine,
   REACHABLE_SUB,
   scopeLine,
@@ -36,6 +39,8 @@ function figures(code: string, patch: Partial<ReturnType<typeof storedRow>> = {}
   return toFigures(p.eventId, p.umbrella === true, { ...storedRow(p), ...patch });
 }
 
+const PAGE_NAMES = new Map(ELECTRIC_PAGES.map((p) => [p.pageId, p.name]));
+
 function block(pages: PageAudienceFigures[], opts: { period?: PanelPeriod; surface?: PanelSurface; history?: Map<string, PageDayCounts[]>; entered?: Parameters<typeof buildSignupsBlock>[0]["entered"] } = {}): SignupsBlock {
   return buildSignupsBlock({
     kind: "shows",
@@ -43,6 +48,7 @@ function block(pages: PageAudienceFigures[], opts: { period?: PanelPeriod; surfa
     label: "Test",
     pages,
     entered: opts.entered ?? null,
+    pageNames: PAGE_NAMES,
     history: opts.history ?? new Map(),
     period: opts.period ?? "launch",
     surface: opts.surface ?? "internal",
@@ -52,8 +58,8 @@ function block(pages: PageAudienceFigures[], opts: { period?: PanelPeriod; surfa
 
 const step = (b: SignupsBlock, id: string) => b.steps.find((s) => s.id === id);
 
-describe("HE2 panel · the three steps (PA2, PA3, HP1)", () => {
-  it("Glitterbox: 1 Email signups → 2 Reachable on WhatsApp → 3 community, three tiles only", () => {
+describe("HE2 panel · the steps (PA2, PA3, HP1, JR1)", () => {
+  it("Glitterbox: 1 Email signups → 2 Reachable on WhatsApp → 3 community → the join rate last", () => {
     const b = block([figures("EBR27-GLITTERBOX")]);
     assert.deepEqual(
       b.steps.map((s) => [s.label, s.value, s.sub]),
@@ -61,8 +67,10 @@ describe("HE2 panel · the three steps (PA2, PA3, HP1)", () => {
         ["1 · Email signups", "1,410", null],
         ["2 · Reachable on WhatsApp", "310", REACHABLE_SUB],
         ["3 · Community members", "410", "joined from signups"],
+        ["Opt-in → community", "39.0 %", "of reachable signups joined"],
       ],
     );
+    assert.equal(step(b, "rate")!.source, "CIRQLIN · 121 of 310 · since launch");
     assert.equal(step(b, "signups")!.source, SOURCE_LINE);
     assert.equal(step(b, "community")!.source, "CIRQLIN · exact");
     assert.equal(b.source, "CIRQLIN · counted signups, spam removed");
@@ -76,7 +84,7 @@ describe("HE2 panel · the three steps (PA2, PA3, HP1)", () => {
     assert.equal(b.stepsNote, null);
   });
 
-  it("an entered member count leads; CIRQLIN's joins go under it; no join rate", () => {
+  it("an entered member count leads; CIRQLIN's joins go under it; the rate stays CIRQLIN's", () => {
     const entered = { members: 1200, countedOn: "2026-11-14", entered: { at: "2026-11-14T10:00:00Z", name: "Sam" } };
     const internal = block([figures("NX26-LOCKLEAD")], { entered });
     const c = step(internal, "community")!;
@@ -84,7 +92,8 @@ describe("HE2 panel · the three steps (PA2, PA3, HP1)", () => {
     assert.equal(c.sub, "members");
     assert.equal(c.source, "entered by Sam, 14 Nov");
     assert.equal(c.lines[0], "257 joined from signups · CIRQLIN");
-    assert.equal(internal.steps.length, 3);
+    assert.deepEqual(internal.steps.map((s) => s.id), ["signups", "reachable", "community", "rate"]);
+    assert.equal(step(internal, "rate")!.value, "46.7 %");
     const share = block([figures("NX26-LOCKLEAD")], { entered, surface: "share" });
     assert.equal(step(share, "community")!.source, "entered 14 Nov");
   });
@@ -101,13 +110,13 @@ describe("HE2 panel · the three steps (PA2, PA3, HP1)", () => {
   });
 });
 
-describe("HE2 panel · no join rate on any period (HP1); windows (PA3)", () => {
+describe("HE2 panel · the join rate only since launch (JR2); windows (PA3)", () => {
   const f = figures("NX26-LOCKLEAD");
   const history = new Map<string, PageDayCounts[]>([
     [f.pageId, [{ fetchDay: "2026-11-09", signups: 600, consentMarketing: 70, whatsappWithPhone: 70, communityJoined: 240, communityLinkClicks: 880, partnerOptIn: 0 }]],
   ]);
 
-  it("7 days: the community tile reads '{j} joined in the last 7 days'", () => {
+  it("7 days: no rate tile, left out not dashed; the community tile reads '{j} joined in the last 7 days'", () => {
     const b = block([f], { period: "7", history });
     assert.deepEqual(b.steps.map((s) => s.id), ["signups", "reachable", "community"]);
     const c = step(b, "community")!;
@@ -124,12 +133,93 @@ describe("HE2 panel · no join rate on any period (HP1); windows (PA3)", () => {
     assert.equal(b.notCounted, "No CIRQLIN read before 18 Oct yet, so this period isn't counted.");
   });
 
-  it("Since launch has no join rate either, internal and share", () => {
+  it("every dated period leaves the tile out, internal and share", () => {
+    const all: PageDayCounts[] = [{ fetchDay: "2026-10-01", signups: 0, consentMarketing: 0, whatsappWithPhone: 0, communityJoined: 0, communityLinkClicks: 0, partnerOptIn: 0 }];
     for (const surface of ["internal", "share"] as const) {
-      const b = block([f], { history, surface });
-      assert.deepEqual(b.steps.map((s) => s.id), ["signups", "reachable", "community"]);
-      assert.doesNotMatch(JSON.stringify(b), /Opt-in → community|%"?,"sub":null,"source":"Derived"/);
+      for (const period of ["30", "14", "7", "3", "yesterday"] as const) {
+        const b = block([f], { history: new Map([[f.pageId, all]]), surface, period });
+        assert.deepEqual(b.steps.map((s) => s.id), ["signups", "reachable", "community"], `${surface} ${period}`);
+        assert.doesNotMatch(JSON.stringify(b), /Opt-in → community|Derived/);
+      }
+      const launch = block([f], { history, surface });
+      assert.deepEqual(launch.steps.map((s) => s.id), ["signups", "reachable", "community", "rate"]);
+      assert.doesNotMatch(JSON.stringify(launch), /Derived/);
     }
+  });
+});
+
+describe("HE2 panel · the join rate (JR1–JR3)", () => {
+  const rate = (b: SignupsBlock) => step(b, "rate");
+
+  it("one decimal, the tile's line and its counts (Locklead: 35 of 75)", () => {
+    const r = rate(block([figures("NX26-LOCKLEAD")]))!;
+    assert.equal(r.label, JOIN_RATE_LABEL);
+    assert.equal(r.value, "46.7 %");
+    assert.equal(r.sub, JOIN_RATE_SUB);
+    assert.equal(r.source, "CIRQLIN · 35 of 75 · since launch");
+    assert.deepEqual(r.lines, []);
+  });
+
+  it("several pages sum both counts, then divide; never an average of the pages' rates", () => {
+    // Glitterbox 121 / 310 (39.0 %), Locklead 35 / 75 (46.7 %): 156 / 385 = 40.5 %, not 42.9 %.
+    const r = rate(block([figures("EBR27-GLITTERBOX"), figures("NX26-LOCKLEAD")]))!;
+    assert.equal(r.value, "40.5 %");
+    assert.equal(r.source, "CIRQLIN · 156 of 385 · since launch");
+  });
+
+  it("a page that doesn't offer WhatsApp adds nothing to either count", () => {
+    const noWa = figures("NX26-DOD", { channels_offered: ["email", "sms"], community_joined_reachable: 40 });
+    const r = rate(block([figures("NX26-LOCKLEAD"), noWa]))!;
+    assert.equal(r.source, "CIRQLIN · 35 of 75 · since launch");
+  });
+
+  it("nothing reachable in scope: the tile is left out", () => {
+    assert.equal(rate(block([figures("NX26-LOCKLEAD", { channels_offered: ["email"], whatsapp_with_phone: 0 })])), undefined);
+    assert.equal(rate(block([figures("NX26-LOCKLEAD", { whatsapp_with_phone: 0, community_joined_reachable: 0 })])), undefined);
+  });
+
+  it("a page read before #647 is left out of both counts and named in the suffix", () => {
+    const before = (code: string) => figures(code, { community_joined_reachable: null });
+    const one = rate(block([figures("NX26-LOCKLEAD"), before("EBR27-GLITTERBOX")]))!;
+    assert.equal(one.value, "46.7 %");
+    assert.equal(one.source, "CIRQLIN · 35 of 75 · since launch · 1 page without this count yet");
+    const two = rate(block([figures("NX26-LOCKLEAD"), before("EBR27-GLITTERBOX"), before("NX26-DOD")]))!;
+    assert.equal(two.source, "CIRQLIN · 35 of 75 · since launch · 2 pages without this count yet");
+    // Every page before #647: nothing counted is reachable, so no tile.
+    assert.equal(rate(block([before("NX26-LOCKLEAD")])), undefined);
+    // A row that never selected the column reads the same as null.
+    const p = electricPage("NX26-LOCKLEAD");
+    const row = storedRow(p);
+    delete row.community_joined_reachable;
+    assert.equal(rate(block([toFigures(p.eventId, false, row)])), undefined);
+  });
+
+  it("joinRateSource words: '1 page' / '{m} pages'", () => {
+    assert.equal(joinRateSource(122, 314), "CIRQLIN · 122 of 314 · since launch");
+    assert.equal(joinRateSource(1234, 5678, 1), "CIRQLIN · 1,234 of 5,678 · since launch · 1 page without this count yet");
+  });
+
+  for (const surface of ["internal", "share"] as const) {
+    it(`${surface}: a read over 100 % shows 100.0 %; only internal names the page`, () => {
+      const over = figures("NX26-LOCKLEAD", { community_joined_reachable: 80 });
+      const r = rate(block([over], { surface }))!;
+      assert.equal(r.value, "100.0 %");
+      assert.equal(r.source, "CIRQLIN · 80 of 75 · since launch");
+      assert.deepEqual(
+        r.lines,
+        surface === "internal" ? ["Joined-and-reachable is more than reachable on Locklead's page. Check CIRQLIN's read."] : [],
+      );
+      // Summed with Glitterbox: 201 / 385 = 52.2 %, under the cap, and the review line still names Locklead.
+      const sum = rate(block([over, figures("EBR27-GLITTERBOX")], { surface }))!;
+      assert.equal(sum.value, "52.2 %");
+      assert.equal(sum.lines.length, surface === "internal" ? 1 : 0);
+    });
+  }
+
+  it("the HP1 footnote stays beside the tile (JR4)", () => {
+    const b = block([figures("EBR27-GLITTERBOX")]);
+    assert.ok(rate(b));
+    assert.equal(b.stepsNote, JOINED_OVER_REACHABLE);
   });
 });
 
@@ -235,6 +325,13 @@ describe("HE2 panel · views and the umbrella", () => {
       assert.equal(step(umbrella!, "signups")!.value, "825");
       // Partner: the five pages with a box (429 + 166 + 88 + 116 + 1).
       assert.equal(shows!.partner!.line, "Partner opt-in · 800");
+      // JR3: the shows' rate sums both counts across pages; the umbrella gets its own from its own page.
+      const reachable = showPages.reduce((s, p) => s + p.whatsapp, 0);
+      assert.equal(reachable, 2298);
+      assert.equal(step(shows!, "rate")!.value, "13.7 %");
+      assert.equal(step(shows!, "rate")!.source, "CIRQLIN · 314 of 2,298 · since launch");
+      assert.equal(step(umbrella!, "rate")!.value, "0.0 %");
+      assert.equal(step(umbrella!, "rate")!.source, "CIRQLIN · 0 of 825 · since launch");
     });
   }
 
@@ -244,6 +341,9 @@ describe("HE2 panel · views and the umbrella", () => {
     assert.equal(bristol.blocks.length, 1);
     assert.equal(step(bristol.blocks[0]!, "signups")!.value, "2,003");
     assert.equal(bristol.blocks[0]!.scopeLine, "Electric Bristol · 2 CIRQLIN pages · read 16 Nov");
+    // Glitterbox 121 / 310 and Kream 0 / 134.
+    assert.equal(step(bristol.blocks[0]!, "rate")!.source, "CIRQLIN · 121 of 444 · since launch");
+    assert.equal(step(bristol.blocks[0]!, "rate")!.value, "27.3 %");
     assert.match(panels["venue:nx newcastle"]!.launch.blocks[0]!.scopeLine, / · 4 shows without a CIRQLIN page$/);
     assert.match(panels["venue:electric studios"]!.launch.blocks[0]!.scopeLine, / · 1 show without a CIRQLIN page$/);
     // A show with no page has no panel.

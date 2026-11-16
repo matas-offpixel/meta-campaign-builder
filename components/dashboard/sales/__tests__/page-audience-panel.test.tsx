@@ -1,5 +1,5 @@
 /**
- * HE2's panel as drawn (PA1–PA7, PB3), on Electric's real counts, internal
+ * HE2's panel as drawn (PA1–PA7, PB3, HP1, HP2, JR1–JR5), on Electric's real counts, internal
  * and share. Kept in this folder because vitest's include list covers it.
  */
 
@@ -11,8 +11,9 @@ import { SignupGeography } from "@/components/dashboard/page-audience/signup-geo
 import { SignupsPanel } from "@/components/dashboard/page-audience/signups-panel";
 import { locklead } from "@/lib/dashboard/audience-panels-fixture";
 import { PANEL_FRAME_NOW_MS } from "@/lib/dashboard/page-audience-panel/dates";
-import { electricInput, electricViews } from "@/lib/dashboard/page-audience-panel/fixture";
-import { buildGeography, buildSignupsPanels, type PanelSurface } from "@/lib/dashboard/page-audience-panel/model";
+import { electricInput, electricViews, storedRow, electricPage } from "@/lib/dashboard/page-audience-panel/fixture";
+import { toFigures } from "@/lib/cirqlin/page-audience/read";
+import { buildGeography, buildSignupsPanels, type PageAudiencePanelInput, type PanelSurface } from "@/lib/dashboard/page-audience-panel/model";
 
 afterEach(() => {
   cleanup();
@@ -50,25 +51,60 @@ describe("Signups & communities (HE2)", () => {
     expect(container.textContent).toContain("906 invite link clicks · every source");
   });
 
-  it("tiles are two-up on a phone and never wider than their track (MB1, MB3)", () => {
+  it("since launch: four tiles, two by two on a phone, four across from 640 px, the rate last (JR5, MB1)", () => {
     const { container } = render(<SignupsPanel model={panels("internal").all!.launch} />);
     const grid = container.querySelector("[data-step]")!.parentElement!;
     expect(grid.className).toContain("grid-cols-[repeat(2,minmax(0,1fr))]");
+    expect(grid.className).toContain("sm:grid-cols-[repeat(4,minmax(0,1fr))]");
+    expect(grid.className).not.toContain("col-span-2");
+    expect([...grid.querySelectorAll("[data-step]")].map((t) => t.getAttribute("data-step"))).toEqual(["signups", "reachable", "community", "rate"]);
+  });
+
+  it("a dated period: three tiles, step 3 across both columns on a phone (JR2, MB3)", () => {
+    const input = electricInput();
+    const f = input.pages.get(electricPage("NX26-LOCKLEAD").eventId)!;
+    const withHistory: PageAudiencePanelInput = {
+      ...input,
+      history: new Map([[f.pageId, [{ fetchDay: "2026-11-09", signups: 600, consentMarketing: 70, whatsappWithPhone: 70, communityJoined: 240, communityLinkClicks: 880, partnerOptIn: 0 }]]]),
+    };
+    const week = buildSignupsPanels(withHistory, electricViews(), "share", PANEL_FRAME_NOW_MS)["nx26-locklead"]!["7"];
+    const { container } = render(<SignupsPanel model={week} />);
+    const grid = container.querySelector("[data-step]")!.parentElement!;
     expect(grid.className).toContain("sm:grid-cols-[repeat(3,minmax(0,1fr))]");
+    expect(grid.className).toContain("[&>*:last-child:nth-child(odd)]:col-span-2");
+    expect(container.querySelector("[data-step='rate']")).toBeNull();
+    expect(container.textContent).not.toContain("Opt-in → community");
+    expect(container.textContent).toContain("joined in the last 7 days");
   });
 
   for (const surface of ["internal", "share"] as const) {
-    it(`${surface}: no join rate anywhere; the footnote only where step 3 is more than step 2 (HP1)`, () => {
+    it(`${surface}: the join rate tile since launch; the footnote only where step 3 is more than step 2 (JR1, JR4)`, () => {
       const all = render(<SignupsPanel model={panels(surface).all!.launch} />);
-      expect(all.container.textContent).not.toContain("Opt-in → community");
-      expect(all.container.querySelectorAll("[data-signups-block='shows'] [data-step]").length).toBe(3);
+      const rate = all.container.querySelector("[data-signups-block='shows'] [data-step='rate']")!;
+      expect(rate.textContent).toBe("Opt-in → community13.7 %of reachable signups joinedCIRQLIN · 314 of 2,298 · since launch");
+      expect(all.container.querySelector("[data-signups-block='umbrella'] [data-step='rate']")!.textContent).toContain("CIRQLIN · 0 of 825 · since launch");
       // Shows: 1,230 joined, 2,298 reachable. Umbrella: 0 and 825.
       expect(all.container.querySelector("[data-steps-note]")).toBeNull();
       cleanup();
       const gl = render(<SignupsPanel model={panels(surface)["ebr27-glitterbox"]!.launch} />);
+      expect(gl.container.querySelector("[data-step='rate']")!.textContent).toBe("Opt-in → community39.0 %of reachable signups joinedCIRQLIN · 121 of 310 · since launch");
       expect(gl.container.querySelector("[data-steps-note]")!.textContent).toBe(
         "Joining the community doesn't need a marketing opt-in, so this can be more than step 2.",
       );
+    });
+
+    it(`${surface}: a read over 100 % shows 100.0 %; only the internal view names the page (JR2)`, () => {
+      const input = electricInput();
+      const p = electricPage("NX26-LOCKLEAD");
+      const pages = new Map(input.pages);
+      pages.set(p.eventId, toFigures(p.eventId, false, { ...storedRow(p), community_joined_reachable: 80 }));
+      const model = buildSignupsPanels({ ...input, pages }, electricViews(), surface, PANEL_FRAME_NOW_MS)["nx26-locklead"]!.launch;
+      const { container } = render(<SignupsPanel model={model} />);
+      const rate = container.querySelector("[data-step='rate']")!;
+      expect(rate.textContent).toContain("100.0 %");
+      const review = "Joined-and-reachable is more than reachable on Locklead's page. Check CIRQLIN's read.";
+      if (surface === "internal") expect(rate.textContent).toContain(review);
+      else expect(container.textContent).not.toContain("Joined-and-reachable");
     });
 
     it(`${surface}: the scope line carries no repeated source and names shows without a page (HP2)`, () => {

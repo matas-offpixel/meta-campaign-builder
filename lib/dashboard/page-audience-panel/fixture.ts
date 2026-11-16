@@ -9,7 +9,9 @@
  * partner-page-audience.ts: spam_verdict 'ok', cities named at 10 or more,
  * whatsapp_with_phone = marketing yes with a phone, community_joined_at,
  * clicks on the page's invite code, the code on another page = shared,
- * partner consents not revoked). partner_box_offered is the page's own
+ * partner consents not revoked). community_joined_reachable (#647) is the
+ * joiners among the first `joined` by join time who said yes to marketing
+ * and left a phone, so it matches the same read. partner_box_offered is the page's own
  * additional_privacy_policies being non-empty (no crowd pages here).
  * No person data: show names and counts only. No entered member count
  * exists for Electric yet (community_member_counts is empty).
@@ -37,6 +39,8 @@ type Page = {
   marketing: number;
   whatsapp: number;
   joined: number;
+  /** community_joined_reachable (cirqlin #647): joiners counted in whatsapp. Absent → 0. */
+  joinedReachable?: number;
   clicks: number;
   shared: boolean;
   partner: number;
@@ -74,7 +78,7 @@ export const ELECTRIC_PAGES: readonly Page[] = [
   },
   {
     eventId: "9361ce50-8a5f-4cbd-a7d9-67dc853fc212", code: "EBR27-GLITTERBOX", name: "Glitterbox", venue: "electric bristol", pageId: "efc691c4-a121-4190-8bdf-3002d5df7972",
-    signups: 1410, marketing: 310, whatsapp: 310, joined: 410, clicks: 326, shared: false, partner: 429, box: true, couldntTell: 0, everywhereElse: 549,
+    signups: 1410, marketing: 310, whatsapp: 310, joined: 410, joinedReachable: 121, clicks: 326, shared: false, partner: 429, box: true, couldntTell: 0, everywhereElse: 549,
     cities: [["London", E, "GB", 263], ["Bristol", E, "GB", 256], ["Plymouth", E, "GB", 76], ["Newport", W, "GB", 47], ["Bath", E, "GB", 32], ["Cardiff", W, "GB", 24], ["Swindon", E, "GB", 24], ["Weston-super-Mare", E, "GB", 23], ["Birmingham", E, "GB", 22], ["Bridgwater", E, "GB", 17], ["Gloucester", E, "GB", 13], ["Kingswood", E, "GB", 12], ["Cheltenham", E, "GB", 11], ["Mangotsfield", E, "GB", 11], ["Glasgow", S, "GB", 10], ["Rochdale", E, "GB", 10], ["Sheffield", E, "GB", 10]],
   },
   {
@@ -94,7 +98,7 @@ export const ELECTRIC_PAGES: readonly Page[] = [
   },
   {
     eventId: "f319a1c7-29fb-47cd-a7dc-66fdd7356ee1", code: "ES27-LPRHYTHM", name: "L.P Rhythm", venue: "electric studios", pageId: "d08aa5b4-7002-449b-b646-8c7fafc59fec",
-    signups: 810, marketing: 198, whatsapp: 198, joined: 371, clicks: 275, shared: false, partner: 0, box: false, couldntTell: 0, everywhereElse: 314,
+    signups: 810, marketing: 198, whatsapp: 198, joined: 371, joinedReachable: 98, clicks: 275, shared: false, partner: 0, box: false, couldntTell: 0, everywhereElse: 314,
     cities: [["London", E, "GB", 176], ["Sheffield", E, "GB", 165], ["Manchester", E, "GB", 53], ["Leeds", E, "GB", 26], ["Birmingham", E, "GB", 23], ["Chesterfield", E, "GB", 12], ["Liverpool", E, "GB", 11], ["Doncaster", E, "GB", 10], ["Newcastle upon Tyne", E, "GB", 10], ["Rotherham", E, "GB", 10]],
   },
   {
@@ -104,7 +108,7 @@ export const ELECTRIC_PAGES: readonly Page[] = [
   },
   {
     eventId: "602f9e86-ee03-4ece-81e0-6b7a3b224ae6", code: "NX26-LOCKLEAD", name: "Locklead", venue: "nx newcastle", pageId: "62df0675-3dd9-4d02-9aa4-cabaee568ae7",
-    signups: 649, marketing: 75, whatsapp: 75, joined: 257, clicks: 906, shared: false, partner: 0, box: false, couldntTell: 0, everywhereElse: 266,
+    signups: 649, marketing: 75, whatsapp: 75, joined: 257, joinedReachable: 35, clicks: 906, shared: false, partner: 0, box: false, couldntTell: 0, everywhereElse: 266,
     cities: [["London", E, "GB", 168], ["Manchester", E, "GB", 60], ["Newcastle upon Tyne", E, "GB", 57], ["Wallsend", E, "GB", 47], ["South Shields", E, "GB", 15], ["Middlesbrough", E, "GB", 13], ["Glasgow", S, "GB", 12], ["Stockton-on-Tees", E, "GB", 11]],
   },
   {
@@ -119,7 +123,7 @@ export const ELECTRIC_PAGES: readonly Page[] = [
   },
   {
     eventId: "144aa77b-9e12-49d2-a92b-a42e2f0af4ee", code: "NX27-EWANMCVICAR", name: "Ewan McVicar", venue: "nx newcastle", pageId: "8552e007-6de0-4cc4-ad7f-a3607d07ed5b",
-    signups: 469, marketing: 117, whatsapp: 117, joined: 192, clicks: 83, shared: false, partner: 116, box: true, couldntTell: 0, everywhereElse: 231,
+    signups: 469, marketing: 117, whatsapp: 117, joined: 192, joinedReachable: 60, clicks: 83, shared: false, partner: 116, box: true, couldntTell: 0, everywhereElse: 231,
     cities: [["London", E, "GB", 58], ["Newcastle upon Tyne", E, "GB", 47], ["Wallsend", E, "GB", 35], ["Manchester", E, "GB", 31], ["Leeds", E, "GB", 22], ["South Shields", E, "GB", 21], ["Stockton-on-Tees", E, "GB", 13], ["Sunderland", E, "GB", 11]],
   },
   {
@@ -160,6 +164,7 @@ export function storedRow(p: Page, day = ELECTRIC_READ_DAY): StoredPageAudienceR
     consent_marketing: p.marketing,
     channels_offered: ["email", "sms", "whatsapp"],
     community_joined: p.joined,
+    community_joined_reachable: p.joinedReachable ?? 0,
     community_link_clicks: p.clicks,
     community_code_shared: p.shared,
     whatsapp_with_phone: p.whatsapp,

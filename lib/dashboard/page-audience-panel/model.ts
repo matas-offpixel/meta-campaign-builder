@@ -10,15 +10,17 @@
  *   - 2026-11-15-dashboard-v2-he2-page-audience.html (PA1–PA7);
  *   - 2026-11-15-dashboard-v2-panels-and-he2-gaps.html (PB3, PB4);
  *   - 2026-11-15-dashboard-v2-presale-creatives-budget.html (PH2, PH7);
- *   - 2026-11-16-sales-page-order-he2.html (HP1–HP3: no join rate until
- *     CIRQLIN returns joined ∩ reachable; the scope line);
+ *   - 2026-11-16-sales-page-order-he2.html (HP1–HP3: the footnote, the
+ *     scope line);
+ *   - 2026-11-16-he2-join-rate.html (JR1–JR5: the join rate returns from
+ *     CIRQLIN's joined-and-reachable count, since launch only);
  *   - 2026-11-13-dashboard-v2-phase-2.html (E1, E2, EV1, EV2), where the
  *     records above don't replace them.
  * HP2 accepted the strings #1284 added; they're marked HP2 below.
  *
  * Two figures live here:
- *   - Signups & communities (E2): the three steps (no join rate, HP1),
- *     marketing and partner opt-in, invite link clicks.
+ *   - Signups & communities (E2): the three steps and, since launch, the
+ *     join rate (JR1), marketing and partner opt-in, invite link clicks.
  *   - Signup geography (E1), drawn inside "Who we reached" beside Meta's.
  *
  * The umbrella page (events.is_umbrella) is its own block in both, never
@@ -62,11 +64,10 @@ export const WHATSAPP_NOT_OFFERED = "WhatsApp isn't offered on this page";
 export const WHATSAPP_NOT_OFFERED_PAGES = "WhatsApp isn't offered on these pages";
 /** EV2's step 3. */
 export const STEP_COMMUNITY = "3 · Community members";
-/**
- * EV2's join-rate tile, kept for when CIRQLIN returns joined ∩ reachable
- * (HP1, HP3). Until then no view draws it.
- */
+/** JR1: the fourth tile's title (kept by HP3). */
 export const JOIN_RATE_LABEL = "Opt-in → community";
+/** JR1: the tile's line. */
+export const JOIN_RATE_SUB = "of reachable signups joined";
 /** HP1: under the steps, only when step 3 is more than step 2. */
 export const JOINED_OVER_REACHABLE = "Joining the community doesn't need a marketing opt-in, so this can be more than step 2.";
 /** PA3. */
@@ -137,6 +138,18 @@ export function scopeLine(label: string, pages: number, fetchDay: string, nowMs:
 }
 
 /** HP2: a period whose start no stored read reaches. */
+/** JR1's source, with JR3's suffix for pages read before cirqlin #647. */
+export function joinRateSource(joinedReachable: number, reachable: number, pagesWithout = 0): string {
+  const line = `${CIRQLIN} · ${n(joinedReachable)} of ${n(reachable)} · since launch`;
+  if (pagesWithout <= 0) return line;
+  return `${line} · ${pagesWithout === 1 ? "1 page" : `${n(pagesWithout)} pages`} without this count yet`;
+}
+
+/** JR2: internal only, when a stored read has more joined-and-reachable than reachable. */
+export function joinRateOverLine(show: string): string {
+  return `Joined-and-reachable is more than reachable on ${show}'s page. Check CIRQLIN's read.`;
+}
+
 export function windowNotStored(start: string, nowMs: number): string {
   return `No CIRQLIN read before ${dayWords(start, nowMs)} yet, so this period isn't counted.`;
 }
@@ -182,7 +195,7 @@ export interface PageAudiencePanelInput {
 // ── Models ───────────────────────────────────────────────────────────────
 
 export interface PanelStep {
-  id: "signups" | "reachable" | "community";
+  id: "signups" | "reachable" | "community" | "rate";
   label: string;
   /** The figure; null on "WhatsApp isn't offered". */
   value: string | null;
@@ -313,6 +326,8 @@ type BlockArgs = {
   pages: readonly PageAudienceFigures[];
   /** Only a one-page block reads it (PB4: the show's own count). */
   entered: EnteredMembers | null;
+  /** Page id → the show's name, for JR2's internal review line. */
+  pageNames?: ReadonlyMap<string, string>;
   history: ReadonlyMap<string, readonly PageDayCounts[]>;
   period: PanelPeriod;
   surface: PanelSurface;
@@ -382,10 +397,16 @@ export function buildSignupsBlock(a: BlockArgs): SignupsBlock {
   } else {
     steps.push({ id: "community", label: STEP_COMMUNITY, value: n(counts.joined), sub: JOINED_SUB, source: CIRQLIN_EXACT, lines: tail });
   }
-  // HP1: no join rate until CIRQLIN returns joined ∩ reachable. community_joined counts every
-  // joiner, most of whom said no to marketing, so it can pass step 2; the footnote says why.
+  // HP1 / JR4: step 3 counts every joiner, most of whom said no to marketing, so it can pass
+  // step 2; the footnote says why. The rate tile counts only the reachable joiners.
   const stepThree = days == null && single && a.entered ? a.entered.members : counts.joined;
   const stepsNote = offers && stepThree > counts.reachable ? JOINED_OVER_REACHABLE : null;
+
+  // JR1–JR3: since launch only.
+  if (days == null) {
+    const rate = joinRateStep(a.pages, a.surface, a.pageNames);
+    if (rate) steps.push(rate);
+  }
 
   const offered = offeredLine(a.pages.flatMap((p) => p.channelsOffered));
   const marketing = {
@@ -394,6 +415,39 @@ export function buildSignupsBlock(a: BlockArgs): SignupsBlock {
   };
   const partner = counts.partner == null ? null : { line: `${PARTNER_LABEL} · ${n(counts.partner)}`, sub: PARTNER_SUB };
   return { ...base, steps, stepsNote, marketing, partner };
+}
+
+/**
+ * JR1–JR3: the summed joined-and-reachable over the summed reachable, all
+ * time. Pages that don't offer WhatsApp add nothing; a page read before
+ * cirqlin #647 (no count) is left out of both and named in the suffix.
+ * Null when nothing counted is reachable. Capped at 100 %; internal views
+ * name the page whose read passes it.
+ */
+export function joinRateStep(pages: readonly PageAudienceFigures[], surface: PanelSurface, pageNames?: ReadonlyMap<string, string>): PanelStep | null {
+  let joinedReachable = 0;
+  let reachable = 0;
+  let without = 0;
+  const over: string[] = [];
+  for (const p of pages) {
+    if (!p.offersWhatsapp) continue;
+    if (p.communityJoinedReachable == null) {
+      without += 1;
+      continue;
+    }
+    joinedReachable += p.communityJoinedReachable;
+    reachable += p.whatsappWithPhone;
+    if (p.communityJoinedReachable > p.whatsappWithPhone) over.push(pageNames?.get(p.pageId) ?? "—");
+  }
+  if (reachable <= 0) return null;
+  return {
+    id: "rate",
+    label: JOIN_RATE_LABEL,
+    value: pct(Math.min(joinedReachable, reachable), reachable),
+    sub: JOIN_RATE_SUB,
+    source: joinRateSource(joinedReachable, reachable, without),
+    lines: surface === "internal" ? over.map(joinRateOverLine) : [],
+  };
 }
 
 /** A page's geography adds up when its named cities, everywhere else and couldn't tell make its signups (PA6). */
@@ -486,6 +540,9 @@ export function buildSignupsPanels(
   surface: PanelSurface,
   nowMs: number,
 ): SignupsPanelsByView {
+  const names = new Map(input.shows.map((s) => [s.id, s.name]));
+  const pageNames = new Map<string, string>();
+  for (const [eventId, f] of input.pages) pageNames.set(f.pageId, names.get(eventId) ?? "—");
   const out: SignupsPanelsByView = {};
   for (const [viewId, v] of pagesForViews(input, view)) {
     const byPeriod = {} as Record<PanelPeriod, SignupsPanelModel>;
@@ -494,7 +551,7 @@ export function buildSignupsPanels(
       if (v.shows.length) {
         const entered = v.shows.length === 1 ? input.entered.get(v.shows[0]!.eventId) ?? null : null;
         blocks.push(
-          buildSignupsBlock({ kind: "shows", heading: null, label: v.label, showsWithoutPage: v.showsWithoutPage, pages: v.shows, entered, history: input.history, period, surface, nowMs }),
+          buildSignupsBlock({ kind: "shows", heading: null, label: v.label, showsWithoutPage: v.showsWithoutPage, pages: v.shows, entered, pageNames, history: input.history, period, surface, nowMs }),
         );
       }
       for (const u of v.umbrellas) {
@@ -505,6 +562,7 @@ export function buildSignupsPanels(
             label: u.name,
             pages: [u.figures],
             entered: input.entered.get(u.figures.eventId) ?? null,
+            pageNames,
             history: input.history,
             period,
             surface,
