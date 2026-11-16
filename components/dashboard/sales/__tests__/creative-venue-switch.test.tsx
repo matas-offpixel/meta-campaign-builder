@@ -4,7 +4,9 @@
  * whole page had re-rendered on the server: the tiles moved to Electric
  * Bristol while the creatives still read "Electric Brixton · NX Newcastle".
  * The query is now written in place with the History API, which Next keeps
- * useSearchParams in step with; the mock below does the same.
+ * useSearchParams in step with; the mock below does the same. A switch then
+ * refreshes the server render in the background (for panels the server reads
+ * for one show only), never router.replace.
  */
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -12,6 +14,7 @@ import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listeners = new Set<() => void>();
+const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   // As Next: a replaceState call (with no Next state) updates useSearchParams.
@@ -25,10 +28,7 @@ vi.mock("next/navigation", () => ({
         () => window.location.search,
       ),
     ),
-  // The dashboard must not navigate: no server round trip on a venue click.
-  useRouter: () => {
-    throw new Error("useRouter is not used by the sales page any more");
-  },
+  useRouter: () => router,
 }));
 
 import { CreativeSectionUrl } from "@/components/dashboard/creative-section/creative-panel";
@@ -62,6 +62,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  router.replace.mockReset();
+  router.push.mockReset();
+  router.refresh.mockReset();
 });
 
 function mount(surface: SalesSurface, search = "") {
@@ -124,6 +127,44 @@ describe.each<SalesSurface>(["internal", "share"])("%s: the creative section fol
   it("a link to a venue opens the section on it", () => {
     const { container } = mount(surface, "?venue=electric+studios&show=venue%3Aelectric+studios");
     expect(creativeSource(container)).toBe(`${CLIENT} · Electric Studios · Meta · to 13 Nov`);
+  });
+});
+
+describe.each<SalesSurface>(["internal", "share"])("%s: a venue switch never navigates", (surface) => {
+  it("no router.replace or push; one background refresh per switch, after the URL and the creatives have changed", () => {
+    const { container } = mount(surface);
+    let seenAtRefresh: [string, string] | null = null;
+    router.refresh.mockImplementation(() => {
+      seenAtRefresh = [window.location.search, creativeSource(container)];
+    });
+    clickVenue("Electric Bristol");
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+    // The refresh comes after the address bar is written; the section has the new view from it.
+    expect(seenAtRefresh?.[0]).toBe("?venue=electric+bristol&show=venue%3Aelectric+bristol");
+    expect(creativeSource(container)).toBe(`${CLIENT} · Electric Bristol · Meta · to 13 Nov`);
+    clickVenue("All venues");
+    expect(router.refresh).toHaveBeenCalledTimes(2);
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it("a period change writes the URL with no refresh: nothing on the server reads it after the first load", () => {
+    mount(surface);
+    act(() => {
+      fireEvent.click(screen.getAllByRole("button", { name: "7 days" })[0]);
+    });
+    expect(window.location.search).toContain("period=7");
+    expect(router.refresh).not.toHaveBeenCalled();
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it("replaces the history entry, as router.replace did: no new entry", () => {
+    mount(surface);
+    const before = window.history.length;
+    clickVenue("Electric Studios");
+    clickVenue("All venues");
+    expect(window.history.length).toBe(before);
   });
 });
 

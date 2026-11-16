@@ -1,5 +1,7 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+
 import { SalesDashboard } from "@/components/dashboard/sales/sales-dashboard";
 import { applyQuery, type SalesQueryUpdate } from "@/components/dashboard/sales/venue-query";
 import type { SalesDashboardModel, SalesPeriod, SalesSurface } from "@/lib/dashboard/sales-vs-spend";
@@ -7,9 +9,10 @@ import type { SalesDashboardModel, SalesPeriod, SalesSurface } from "@/lib/dashb
 /**
  * Writes `show`, `period` and `venue` into the address bar in place. The
  * native History API keeps useSearchParams in step at once, so the panels
- * under the dashboard (who we reached, direct to fan, creatives) follow the
- * venue switch with the tiles. router.replace waited for the whole page to
- * re-render on the server first; every view is already in the page.
+ * that pick their view from `?show=` (who we reached, direct to fan,
+ * creatives) follow the venue switch with the tiles. router.replace waited
+ * for the whole page to re-render on the server first. Replaces the entry,
+ * as router.replace did: no new history entry.
  */
 export function replaceSalesQuery(updates: SalesQueryUpdate): void {
   const search = applyQuery(window.location.search, updates);
@@ -31,6 +34,7 @@ export function SalesDashboardUrl({
   initialPeriod?: SalesPeriod;
   initialVenueKey?: string;
 }) {
+  const router = useRouter();
   return (
     <SalesDashboard
       model={model}
@@ -38,7 +42,12 @@ export function SalesDashboardUrl({
       initialShowId={initialShowId}
       initialPeriod={initialPeriod}
       initialVenueKey={initialVenueKey}
-      onQuery={replaceSalesQuery}
+      onQuery={(updates) => {
+        replaceSalesQuery(updates);
+        // A panel the server reads for one show only (not one view per show in the page) still
+        // needs the server render: refresh in the background, after the URL has already changed.
+        if (updates.show != null) router.refresh();
+      }}
     />
   );
 }
