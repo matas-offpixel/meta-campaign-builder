@@ -6,7 +6,7 @@
 
 import type { AllShowBar, FreshnessStamp, SalesMetricId, SalesPeriod, SalesTile, TrajectoryTile } from "@/lib/dashboard/sales-vs-spend";
 
-import { periodSpan } from "./tile-copy";
+import { NO_TICKET_COUNTS_WORDS, periodSpan } from "./tile-copy";
 
 /** MB3: the six key figures, in order. Pace and Projected come from the trajectory. */
 export const KEY_TILE_IDS: readonly SalesMetricId[] = ["spend", "sold", "costPerTicket", "registrations"];
@@ -41,12 +41,13 @@ export function stampLine(stamps: readonly FreshnessStamp[]): string {
 
 /**
  * MB3 / MB4: a tile's one-line span on a phone. The full subline (N3, N7)
- * moves to a press and hold on the tile.
+ * moves to a press and hold on the tile. `countLabel` is null when no show in
+ * scope has a count.
  */
 export function phoneSpan(
   id: SalesMetricId,
   period: SalesPeriod,
-  countLabel: string,
+  countLabel: string | null,
   tile: Pick<SalesTile, "narrowDetail" | "title">,
 ): string {
   const span = periodSpan(period);
@@ -55,15 +56,18 @@ export function phoneSpan(
     case "spend":
       return span;
     case "sold":
+      if (countLabel == null) return NO_TICKET_COUNTS_WORDS;
       return tile.narrowDetail.replace(/^to date · /, "") || `Internal Counts, ${countLabel}`;
     case "costPerTicket":
+      if (countLabel == null) return span;
       // D13: since launch always; in a period, where its spend runs past a count (the hover carries the cap).
       if (!launch && !/on spend to/.test(tile.title)) return span;
       return /each show's last count/.test(tile.title) ? "spend to each show's last count" : `spend to the ${countLabel} count`;
     case "registrations":
       return launch ? "show pages, to date" : span;
     case "tickets":
-      return launch ? `since launch, to ${countLabel}` : span;
+      if (!launch) return span;
+      return countLabel == null ? NO_TICKET_COUNTS_WORDS : `since launch, to ${countLabel}`;
     case "checkoutActions":
       return `${span} · actions`;
     case "costPerCheckout":

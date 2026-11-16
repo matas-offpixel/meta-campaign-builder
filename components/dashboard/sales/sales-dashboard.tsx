@@ -18,7 +18,7 @@ import {
   stampLine,
   trajectoryTitle,
 } from "@/components/dashboard/sales/phone-copy";
-import { TILE_NAMES, spendScopeLine, tileSubline } from "@/components/dashboard/sales/tile-copy";
+import { NO_TICKET_COUNTS_LINE, TILE_NAMES, spendScopeLine, tileSubline } from "@/components/dashboard/sales/tile-copy";
 import type { SalesQueryUpdate } from "@/components/dashboard/sales/venue-query";
 import { shortDay } from "@/lib/dashboard/sales-calc/days";
 import { barOutcome, capacityTicks, formatCount, shareOf, trajectoryAxisMax, trajectorySums } from "@/components/dashboard/sales/trajectory-bars";
@@ -205,7 +205,9 @@ export function SalesDashboard({
   const shownTiles = tiles.filter((tile) => !umbrella || (tile.id !== "sold" && tile.id !== "tickets" && tile.id !== "costPerTicket"));
   const moreTiles = shownTiles.filter((tile) => !keyIds.includes(tile.id));
   const moreWords = moreFiguresLabel(moreOpen, moreTiles.length);
-  const countLabel = shortDay(view.countDay ?? view.endDay);
+  // Null when no show in scope has a count (a venue with none yet): the tiles say so, never borrow the spend date.
+  const countDay = view.countDay === null ? null : (view.countDay ?? view.endDay);
+  const countLabel = countDay == null ? null : shortDay(countDay);
   // MB3 order on a phone: the key figures 1–6, the fold action 7, the chart toggles 8, then the rest in N7's order.
   const phoneOrder = (id: SalesMetricId) => {
     const key = keyIds.indexOf(id);
@@ -501,7 +503,7 @@ export function SalesDashboard({
       ) : (
         <Trajectory
           trajectory={view.trajectory}
-          countDay={view.countDay ?? view.endDay}
+          countDay={countDay}
           onSelectShow={chooseShow}
           crossClientNote={presented.crossClientNote}
           reviewLine={presented.reviewLine}
@@ -521,7 +523,7 @@ function Trajectory({
   reviewLine,
 }: {
   trajectory: SalesTrajectory;
-  countDay: string;
+  countDay: string | null;
   onSelectShow: (id: string) => void;
   crossClientNote: string | null;
   reviewLine: string | null;
@@ -664,23 +666,26 @@ function AllTrajectoryView({
   onSelectShow,
 }: {
   trajectory: Extract<SalesTrajectory, { kind: "all" }>;
-  /** The view's one count date: the Sold tile's fallback and the legend. */
-  countDay: string;
+  /** The view's one count date: the Sold tile's fallback and the legend. Null when no show in scope has a count. */
+  countDay: string | null;
   onSelectShow: (id: string) => void;
 }) {
   const sums = trajectorySums(trajectory.bars);
   const axisMax = trajectoryAxisMax(trajectory.bars);
   const soldShare = shareOf(sums.sold, sums.capacity);
   const highShare = shareOf(sums.high, sums.capacity);
-  const counted = shortDay(countDay);
-  const soldTile = trajectory.summary?.sold ?? {
-    label: `Sold · count of ${counted}`,
-    value: formatCount(sums.sold),
-    detail: soldShare == null ? "—" : `${soldShare}% of ${formatCount(sums.capacity)} across ${sums.shows} shows`,
-  };
+  const counted = countDay == null ? null : shortDay(countDay);
+  // No counts in scope: say so, never a count date or a sold figure of 0.
+  const soldTile = trajectory.summary?.sold ?? (counted == null
+    ? { label: "Sold", value: "—", detail: NO_TICKET_COUNTS_LINE }
+    : {
+        label: `Sold · count of ${counted}`,
+        value: formatCount(sums.sold),
+        detail: soldShare == null ? "—" : `${soldShare}% of ${formatCount(sums.capacity)} across ${sums.shows} shows`,
+      });
   const projectedTile = trajectory.summary?.projected ?? {
     label: "Projected on show day",
-    value: `${formatCount(sums.holds)}–${formatCount(sums.high)}`,
+    value: sums.shows === 0 ? "—" : `${formatCount(sums.holds)}–${formatCount(sums.high)}`,
     detail: highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show at its recent pace`,
   };
   const paceTile = trajectory.summary?.pace ?? {
@@ -713,7 +718,7 @@ function AllTrajectoryView({
       <CapacityAxis max={axisMax} />
       <p className="mt-2 text-[11px] text-muted-foreground sm:hidden">{TRAJECTORY_KEY}</p>
       <ul className="mt-2 hidden flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground sm:flex">
-        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground" />Sold, count of {counted}</li>
+        <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground" />{counted == null ? "Sold" : `Sold, count of ${counted}`}</li>
         <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/45" />Holds at each show&apos;s recent pace</li>
         <li className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-foreground/20" />Like your best finish</li>
         <li className="flex items-center gap-1.5"><span className="inline-block h-3 border-l border-dashed border-foreground" />Capacity</li>
