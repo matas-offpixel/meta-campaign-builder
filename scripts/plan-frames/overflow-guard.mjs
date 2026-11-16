@@ -30,7 +30,7 @@ const argBase = process.argv.indexOf("--base");
 const PORT = Number(process.env.OVERFLOW_GUARD_PORT ?? 3311);
 const BASE = argBase >= 0 ? process.argv[argBase + 1] : `http://127.0.0.1:${PORT}`;
 
-export const OVERFLOW_FRAMES = ["sales/MBO", "sales/MBS", "sales/MBF375", "sales/MBM", "sales/MBA", "sales/MBH1", "audience/WR1", "audience/WR1S", "audience/DF1", "audience/DF1S", "creative/CR1", "creative/CR1S", "creative/CR2", "sales/NC1", "sales/NC1S"];
+export const OVERFLOW_FRAMES = ["sales/MBO", "sales/MBS", "sales/MBF375", "sales/MBM", "sales/MBA", "sales/MBH1", "audience/WR1", "audience/WR1S", "audience/DF1", "audience/DF1S", "creative/CR1", "creative/CR1S", "creative/CR2", "sales/NC1", "sales/NC1S", "presale/PS1", "presale/PS1S", "presale/PS2", "presale/PS2S", "objective/OB1", "objective/OB1S", "objective/OB2", "objective/OB2S", "objective/OB3", "objective/OB3S"];
 export const OVERFLOW_WIDTHS = [320, 375, 390, 430];
 
 /**
