@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1265
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1265
 - **Branch:** `cursor/he5-tiktok-zero-rows`
 
 ## Summary
