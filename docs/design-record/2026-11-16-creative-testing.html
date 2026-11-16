@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Creative testing — 16 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative testing · 16 November 2026</p>
+<h1>Audio snippet statics and the test plan</h1>
+<p class="lead">From Matas, 16 Nov. Puzzle gives Off/Pixel free rein on its ads and creatives, so Puzzle is where two new things start:</p>
+<ul class="notes">
+<li>the <b>audio snippet static</b>: a static with 15–20 seconds of one of the act's top tracks, around its main drop;</li>
+<li>the <b>test plan</b>: tests in a fixed order that find the best track, then the best static, then run the two together. It's built for every client, not just Puzzle.</li>
+</ul>
+<p class="lead">This record also notes three things carried over: the copy A/B test now running as GK9's house-pattern test, the GK9 ruling on series events, and #1270 closing WB9's retry gap.</p>
+<p class="lead">It builds on the on-sale refresh (R2 pause lines, R4 Accept and shadow, R5 the plan guard, R6 scoring), the overlay records' 9:16 rules (O93, O95, O96), the Drive tree (S18, D1–D5) and S14's file names. Those all stand. Every value not taken from an earlier record is listed under "Invented here". The example tracks, spend and results are <span class="inv">invented</span>.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>CT1 · The format</td><td>
+<ul>
+<li><b>An audio snippet static is a video:</b> one still image held for the whole snippet, with the snippet as its only sound. Meta runs sound only on video, so it follows the video rules: one 9:16 render at 1080 × 1920 (O93, O95), its type inside O96's band.</li>
+<li><b>The image is an existing static's 9:16 render,</b> unchanged: a T2 card, an artist card or a poster. Its 4:5 and 1:1 stills stay stills and aren't touched.</li>
+<li><b>No words are added for the track:</b> no title and no "now playing". In Test 1 the image must be identical across the variants, so only the sound differs.</li>
+<li><b>Length</b> is 15 to 20 seconds, 16 by default: from 4 seconds before the drop to 12 seconds after it.</li>
+<li><b>Sound:</b> a 0.25 s fade in, a 1.5 s fade out, loudness normalised to −14 LUFS with peaks no higher than −1 dBTP, AAC at 256 kbps.</li>
+<li><b>File name</b> (S14 pattern): <code>{event code}_{artist}-{track n}_snippet-{static}-{stage}_r{n}_9x16.mp4</code>. {track n} is the track's place in the picker, and {static} is the static's own S14 name. It files under Videos for the track's artist (D1, D2).</li>
+</ul></td></tr>
+
+<tr><td>CT2 · Where the audio comes from, and the rights note</td><td>
+<ul>
+<li><b>One source:</b> audio files in the event's Drive folder, <code>02 Source / Audio / {artist}</code>, named exactly as the Lab lineup. The folder is made on first need (D5).</li>
+<li><b>No way in from a link.</b> The Lab has no field for a YouTube, SoundCloud or Spotify link, and never downloads audio from anywhere. Spotify is read only for the list of tracks (CT3). This makes "never ripped" true by construction, not by trust.</li>
+<li><b>Accepted files:</b> WAV, AIFF, FLAC, or MP3 at 256 kbps or more, and at least 30 seconds long. Anything else is shown as "Can't use this file: {reason}".</li>
+<li><b>Who supplied it is recorded.</b> The first time a file is used, the Lab asks <b>"Who supplied this file?"</b> with the choices "{client}" and "{artist}'s team". It stores the answer with who picked it and when. A file without an answer is held: <b>"Name who supplied this file before it can run."</b></li>
+<li><b>The rights note</b> sits under every track that has a file, and on the snippet's render row: <b>"Audio supplied by {supplier} · {file name} · {who}, {date}"</b>.</li>
+<li>The client's free rein on ads covers how Off/Pixel uses files the client or the artist's team supplied. It doesn't stand in for the supplier step, which records it per file.</li>
+</ul></td></tr>
+
+<tr><td>CT3 · The track picker</td><td>
+<ul>
+<li><b>Act chips</b> in billing order, the same lineup the Lab uses. One act's tracks show at a time.</li>
+<li><b>Spotify's top tracks</b> for that act, up to 10, in Spotify's order, as "{n} · {title}". The order is Spotify's popularity ranking and is never re-sorted.</li>
+<li><b>Each row's file state:</b>
+<ul>
+<li>a matched file: the rights note (CT2);</li>
+<li>a suggested match: <b>"Looks like {file name}"</b> with the action <b>"Match"</b>. Matching is by title, and an operator confirms it;</li>
+<li>no file: <b>"No file in Drive yet"</b>, and the row's tick is off.</li>
+</ul></li>
+<li><b>Only rows with a matched, supplied file can be picked.</b> The count reads <b>"{n} of 5 picked"</b>. Test 1 takes 2 to 5 tracks.</li>
+<li><b>From Drive only:</b> an audio file in the folder that matches no Spotify top track is listed under them as "{file name} · not in Spotify's top tracks". It can still be picked.</li>
+<li>The Spotify read is cached per act for a day. When Spotify doesn't answer: <b>"Spotify didn't answer, so the top tracks can't be listed. Pick from the Drive files below."</b></li>
+</ul></td></tr>
+
+<tr><td>CT4 · The drop marker</td><td>
+<ul>
+<li><b>The Lab finds the drop</b> when the file is first matched: the biggest rise in low-end energy after a build, past the first 20 seconds.</li>
+<li><b>The waveform</b> shows the whole track. On it:
+<ul>
+<li>the drop marker, a brick line with <b>"DROP · {m:ss}"</b>;</li>
+<li>the snippet window, a box over the waveform, by default from 4 s before the drop to 12 s after.</li>
+</ul></li>
+<li><b>Both can be moved.</b> Drag the marker to set the drop, which moves the window with it. Drag the window to move the start alone.</li>
+<li><b>Length chips:</b> 15 to 20 seconds, one chip each.</li>
+<li>The source line reads <b>"Drop found by the Lab"</b> or <b>"Drop set by {first name}"</b>.</li>
+<li><b>No clear drop:</b> <b>"No clear drop found. Drag the marker to where it lands."</b> No snippet renders until a marker is placed.</li>
+</ul></td></tr>
+
+<tr><td>CT5 · The preview</td><td>
+<ul>
+<li>Beside the waveform: the rendered 9:16 at phone size, with one play / pause button. It plays the snippet exactly as it will run, fades and loudness included.</li>
+<li>Under it, the snippet's span: <b>"{start}–{end} · {length} s"</b>.</li>
+<li>Each change to the marker, window or length re-renders the preview after a 1-second pause. A failed render reads <b>"Preview didn't render. Try again."</b></li>
+</ul></td></tr>
+
+<tr><td>CT6 · The test plan</td><td>
+<ul>
+<li><b>A test plan belongs to one event.</b> It holds tests in order, and each test changes one thing and holds the rest. They're called <b>tests</b>, not rounds: the Lab and S14's <code>_r{n}</code> already use "round" for writing rounds, and two meanings of one word on one screen would mislead.</li>
+<li><b>Puzzle's plan</b>, and the default for any client:
+<ul>
+<li><b>Test 1 · Tracks:</b> 2 to 5 snippets, the same static, one track each.</li>
+<li><b>Test 2 · Statics:</b> 2 to 5 statics, all carrying Test 1's winning track.</li>
+<li><b>Test 3 · Together:</b> Test 2's winner (which carries both winners) runs in the main on-sale campaign beside that campaign's current best ad, to confirm it before it scales.</li>
+</ul></li>
+<li><b>Other kinds of test:</b> a test can change the copy instead (CT12), or the clip. A plan can be one test long.</li>
+<li><b>A clean test:</b> each variant gets its own ad set in one test campaign, <code>{event code} · Test {n} · {kind}</code>, with the same audience, placements, optimisation and daily budget. That way Meta's delivery can't pick a favourite before the result is in. Test 3 runs in the main campaign as R2 add lines.</li>
+<li><b>Each test's settings:</b> the result it's judged on, a daily budget per variant, a minimum number of days and a minimum spend per variant.
+<ul>
+<li>The result is the campaign's own (R3): checkouts, else landing-page views, or signups on a signup campaign.</li>
+<li>Defaults: £10 a day per variant, at least 4 days, at least £40 per variant.</li>
+</ul></li>
+<li><b>Money:</b> a test's budget is shown as <b>"£{daily} a day × {n} variants × {days} days = £{total}"</b> and comes from plan headroom or a named move (R5). A test that doesn't fit the plan can't start: <b>"This test needs £{total} and the plan has £{headroom} left."</b></li>
+</ul></td></tr>
+
+<tr><td>CT7 · The winner rule, and what a test says</td><td>
+<ul>
+<li><b>No winner is called before every variant has had both its minimum days and its minimum spend.</b></li>
+<li>When they have:
+<ul>
+<li><b>The winner</b> is the variant with the lowest cost per result.</li>
+<li><b>Clear</b> means it's at least 15 % cheaper than the next one, and both have 20 results or more.</li>
+<li><b>Too close</b>: the test runs on for the minimum days once more. After that, the cheapest wins and is marked <b>narrow</b>.</li>
+</ul></li>
+<li><b>Not enough results:</b> when any variant has fewer than 5 results at its minimum spend, no winner is called. The test reads "Not enough {results} to call this. Raise the budget or judge on {next result}."</li>
+<li><b>States, as the event page shows them:</b>
+<ul>
+<li><b>"Running · day {d} of {min days} · £{spent} of £{min spend} each"</b>;</li>
+<li><b>"Ready to call"</b>;</li>
+<li><b>"Too close · running {n} more days"</b>;</li>
+<li><b>"Winner: {variant} · {pct} % cheaper per {result} than {runner-up}"</b>, with " · narrow" added when it is;</li>
+<li><b>"Waiting for Test {n−1}"</b>.</li>
+</ul></li>
+<li><b>Calling is Matas's click</b>, <b>"Call the winner"</b>, as R4's Accept. A call is stored with its evidence snapshot.</li>
+</ul></td></tr>
+
+<tr><td>CT8 · After a call</td><td>
+<ul>
+<li><b>Losers</b> become R2 pause lines in the event's refresh panel, as the rule <b>"Lost Test {n}"</b>. The test is their evidence, so R2's own significance bar doesn't apply to them. They still need Accept, and shadow mode applies (R4).</li>
+<li><b>The winner moves on.</b> Test {n+1} holds it as the fixed part and starts once the Lab has made its variants: <b>"Make Test 2's statics with {track}"</b>.</li>
+<li><b>Test 3's winner</b> stays in the main campaign and joins the refresh's normal creative care. If the current best ad wins, the plan ends: <b>"The current best ad held. Nothing changes."</b></li>
+<li><b>R6 scores calls too.</b> A call is right if the winner's cost per result, over its next 7 days in the main campaign, is no worse than 1.15 × what it showed in the test.</li>
+</ul></td></tr>
+
+<tr><td>CT9 · The event page</td><td>
+<ul>
+<li><b>A "Test plan" panel</b> under the Refresh panel, with one card per test in order.
+<ul>
+<li>A card shows the test's name, what changes and what's held, its budget line, its state (CT7), and its variant table: variant, spend, results, cost per result, and "vs best".</li>
+<li>The running test is open. Finished and waiting tests are folded to one line.</li>
+</ul></li>
+<li><b>On a phone</b> the table becomes rows of "{variant} · {cost per result} · {results}", with the state above them.</li>
+<li><b>The canvas chip</b> reads "Test {n} running" or "Test {n} ready to call".</li>
+</ul></td></tr>
+
+<tr><td>CT10 · The Lab</td><td>
+<ul>
+<li><b>A "Snippet" tab</b> beside the writer holds CT3–CT5: act chips, the track picker, then the waveform and preview for the track that's open.</li>
+<li><b>"Make Test 1"</b> renders one snippet per picked track on the chosen static. A static is chosen from the event's approved 9:16 statics: <b>"Static: {name}"</b>.</li>
+<li><b>Render rows</b> carry the test tag "Test {n} · {variant}" and the rights note. They file to Drive by S14, as CT1.</li>
+<li>A snippet is approved like any render. It can launch only as part of a test or as an R2 add line.</li>
+</ul></td></tr>
+
+<tr><td>CT11 · The client share</td><td>
+<ul>
+<li><b>"What we're testing"</b> on the client's share link, under the creative section. It shows each test's name and what it changes, the state as CT7 words it, and its variant table, which is figures only (PH3): results and cost per result.</li>
+<li><b>It never shows</b> budgets, pause lines, Accept or calling, the supplier step, or any internal note.</li>
+<li><b>Variant names</b> are the track titles or the statics' names. A copy variant shows its first line.</li>
+</ul></td></tr>
+
+<tr><td>CT12 · Carried over</td><td>
+<ul>
+<li><b>The copy A/B test is GK9's house-pattern test.</b> Matas's call was to test, not watch. It's running on NX Newcastle, Kream and Puzzle: artist voice, name first, date in the body, against venue voice. It's registered as a one-test plan per event, of kind Copy, with CT7's winner rule. Its results feed the genre pool's shadow rows (GK3) like any other learning, and its calls are scored by R6.</li>
+<li><b>GK9 · series events</b> (Matas, 16 Nov):
+<ul>
+<li>Each Bridger or Junction 2 event takes its own genre, as GK1 says. A series never gets a genre of its own.</li>
+<li>A series or umbrella parent isn't a show (PT3), so it gets no genre and never counts in a pool. "No single genre" is only for a show that mixes genres.</li>
+<li>GK2's suggestion reads only that event's own genre tags and lineup.</li>
+<li>Each event counts as a show, but a series is one client.</li>
+<li>Junction 2 is active and its history is loaded, so its shows count. GK8's unarchive item is closed.</li>
+</ul></li>
+<li><b>WB9's open item is closed by #1270</b> (merged 1490bdb), as ops reported it. Every retry re-checks the stored funding against live headroom, the £1.00 a day floor and the 20 % cap, and refuses with the same reasons as a first apply. CBO lines are unaffected.</li>
+</ul></td></tr>
+</table>
+
+<p class="open"><b>Open for Matas:</b><br>
+(1) Test 3 is read here as "run the combined winner against the main campaign's current best ad." If "the winners combined" meant a grid instead (say the top 2 tracks × the top 2 statics), say so and Test 3 changes.<br>
+(2) The defaults: £10 a day, 4 days, £40 per variant. That's £200 for a five-track Test 1.<br>
+(3) Meta can mute or limit an ad whose audio it matches to a rights holder, whoever supplied the file. The refresh should surface a muted or rejected snippet. This record doesn't rule how.</p>
+
+<h2>Frames</h2>
+<div class="frame">
+<figure><figcaption>CT-A · 1280 · Lab · Snippet · the track picker</figcaption>
+<div class="vp wide">
+<div class="ph">P26-BDAY · Snippet</div>
+<div class="chips"><span class="chip on">Luke Dean</span><span class="chip">Enzo Siragusa</span></div>
+<div class="sub">Spotify's top tracks for Luke Dean · 3 of 5 picked</div>
+<div class="row"><span class="box on"></span><span class="n">1</span><span>Track one<br><span class="fs">Audio supplied by Puzzle · LD_track-one_master.wav · Matas, 16 Nov</span></span><span class="fs ok">DROP · 1:04</span></div>
+<div class="row"><span class="box on"></span><span class="n">2</span><span>Track two<br><span class="fs">Audio supplied by Luke Dean's team · track two (club mix).aiff · Matas, 16 Nov</span></span><span class="fs ok">DROP · 0:58</span></div>
+<div class="row"><span class="box"></span><span class="n">3</span><span>Track three<br><span class="fs">Looks like LD - Track Three.mp3</span></span><span class="btn ghost">Match</span></div>
+<div class="row"><span class="box off"></span><span class="n">4</span><span>Track four<br><span class="fs">No file in Drive yet</span></span><span></span></div>
+<div class="row"><span class="box on"></span><span class="n">5</span><span>Track five<br><span class="fs warn">Name who supplied this file before it can run.</span></span><span class="btn ghost">Who supplied it?</span></div>
+<div class="row"><span class="box"></span><span class="n">·</span><span>LD_unreleased-edit.wav · not in Spotify's top tracks<br><span class="fs">Audio supplied by Luke Dean's team · Matas, 16 Nov</span></span><span></span></div>
+<div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center"><span class="fs">Static: P26-BDAY_puzzle_t2-roll-call-w23nov_9x16</span><span class="btn dis">Make Test 1 · 3 snippets</span></div>
+</div></figure>
+</div>
+<p class="lead">In CT-A, track 5 is picked but held: its file has no supplier yet, so "Make Test 1" waits until it's named or unticked.</p>
+
+<div class="frame">
+<figure><figcaption>CT-B · 1280 · the drop marker and preview</figcaption>
+<div class="vp wide">
+<div class="split">
+<div style="flex:1;min-width:0">
+<div class="h">Track two</div>
+<div class="sub">Drop found by the Lab · 0:54–1:10 · 16 s</div>
+<div class="wave">
+<div class="win" style="left:30%;width:8.9%"></div>
+<div class="drop" style="left:32.2%"><span>DROP · 0:58</span></div></div>
+<div class="tl"><span>0:00</span><span>1:00</span><span>2:00</span><span>3:00</span></div>
+<div class="chips" style="margin-top:12px"><span class="chip">15 s</span><span class="chip on">16 s</span><span class="chip">17 s</span><span class="chip">18 s</span><span class="chip">19 s</span><span class="chip">20 s</span></div>
+<div class="fs">Audio supplied by Luke Dean's team · track two (club mix).aiff · Matas, 16 Nov</div>
+</div>
+<div class="pv">9:16 STATIC<span class="play"></span></div>
+</div>
+</div></figure>
+<figure><figcaption>CT-B · 393 · the same, stacked</figcaption>
+<div class="vp w393">
+<div class="h">Track two</div>
+<div class="sub">Drop found by the Lab · 0:54–1:10 · 16 s</div>
+<div style="display:flex;justify-content:center;margin:6px 0 10px">
+<div class="pv">9:16 STATIC<span class="play"></span></div></div>
+<div class="wave">
+<div class="win" style="left:30%;width:8.9%"></div>
+<div class="drop" style="left:32.2%"><span>DROP · 0:58</span></div></div>
+<div class="tl"><span>0:00</span><span>1:30</span><span>3:00</span></div>
+<div class="chips" style="margin-top:10px"><span class="chip">15</span><span class="chip on">16</span><span class="chip">17</span><span class="chip">18</span><span class="chip">19</span><span class="chip">20 s</span></div>
+<div class="fs">Audio supplied by Luke Dean's team · track two (club mix).aiff · Matas, 16 Nov</div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>CT-C · 1280 · event page · Test plan · Test 1 called</figcaption>
+<div class="vp wide">
+<div class="h">Test plan</div>
+<div class="test">
+<div style="display:flex;justify-content:space-between;align-items:center"><b>Test 1 · Tracks</b><span class="st win">Winner: Track two · 30 % cheaper per checkout than Track one</span></div>
+<div class="fs">Changes the track. Holds the static (T2 roll-call) and the audience. £10 a day × 3 variants × 4 days = £120</div>
+<table class="v">
+<tr><th>Variant</th><th class="r">Spend</th><th class="r">Checkouts</th><th class="r">Cost per checkout</th><th class="r">vs best</th></tr>
+<tr><td><b>Track two</b></td><td class="r">£41.20</td><td class="r">29</td><td class="r">£1.42</td><td class="r">best</td></tr>
+<tr><td>Track one</td><td class="r">£40.88</td><td class="r">20</td><td class="r">£2.04</td><td class="r">+44 %</td></tr>
+<tr><td>Track five</td><td class="r">£40.05</td><td class="r">16</td><td class="r">£2.50</td><td class="r">+76 %</td></tr></table>
+<div class="line">Refresh · Lost Test 1 · pause Track one, Track five · Shadow</div>
+<div class="btn">Make Test 2's statics with Track two</div>
+</div>
+<div class="test dim"><b>Test 2 · Statics</b> · <span class="fs">Waiting for Test 1's statics</span></div>
+<div class="test dim"><b>Test 3 · Together</b> · <span class="fs">Waiting for Test 2</span></div>
+</div></figure>
+<figure><figcaption>CT-C · 393 · Test 1 running</figcaption>
+<div class="vp w393">
+<div class="h">Test plan</div>
+<div class="test">
+<b>Test 1 · Tracks</b><br><span class="st run">Running · day 3 of 4 · £30 of £40 each</span>
+<div class="fs" style="margin-top:6px">£10 a day × 3 variants × 4 days = £120</div>
+<div class="line">Track two · £1.40 per checkout · 21</div>
+<div class="line">Track one · £2.10 per checkout · 14</div>
+<div class="line">Track five · £2.56 per checkout · 12</div>
+</div>
+<div class="test dim"><b>Test 2 · Statics</b> · <span class="fs">Waiting for Test 1</span></div>
+</div></figure>
+</div>
+
+<div class="frame">
+<figure><figcaption>CT-D · 393 · client share link · What we're testing</figcaption>
+<div class="vp w393">
+<div class="h">What we're testing</div>
+<div class="test">
+<b>Test 1 · Tracks</b><br><span class="st win">Winner: Track two · 30 % cheaper per checkout than Track one</span>
+<table class="v">
+<tr><th>Track</th><th class="r">Checkouts</th><th class="r">Per checkout</th></tr>
+<tr><td>Track two</td><td class="r">29</td><td class="r">£1.42</td></tr>
+<tr><td>Track one</td><td class="r">20</td><td class="r">£2.04</td></tr>
+<tr><td>Track five</td><td class="r">16</td><td class="r">£2.50</td></tr></table>
+</div>
+<div class="test"><b>Copy · Artist voice vs venue voice</b><br><span class="st run">Running · day 2 of 4</span></div>
+</div></figure>
+</div>
+<p class="lead">CT-D has no budgets, refresh lines, supplier step or call button: the share link only reads the results.</p>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>The Lab has no field or path that takes audio from a link. A test asserts that the snippet renderer reads only from <code>02 Source / Audio</code>.</li>
+<li>A snippet can't render without a confirmed match, a named supplier and a placed drop marker.</li>
+<li>Renders are 9:16 only, at the loudness and fades in CT1, named by CT1's pattern.</li>
+<li>No winner is called before both minimums are met. Clear, too close, narrow and not-enough-results each have a test.</li>
+<li>Losers reach the refresh only as "Lost Test {n}" lines, with Accept and shadow intact.</li>
+<li>The share link renders CT11's fields and none of the internal ones.</li>
+<li>Frames CT-A to CT-D at 1280 and 393, from fixtures.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The format's numbers: 16 s by default, 4 s before and 12 s after the drop, 15–20 s, 0.25 s and 1.5 s fades, −14 LUFS, −1 dBTP, AAC 256 kbps, the snippet file name.</li>
+<li>The folder <code>02 Source / Audio / {artist}</code>, the accepted formats, and "Can't use this file: {reason}".</li>
+<li>"Who supplied this file?", "{client}" / "{artist}'s team", "Name who supplied this file before it can run.", and the rights note.</li>
+<li>The picker: "{n} of 5 picked", "Looks like {file name}", "Match", "No file in Drive yet", "{file name} · not in Spotify's top tracks", and the Spotify no-answer line.</li>
+<li>The drop: the detection rule, "DROP · {m:ss}", "Drop found by the Lab", "Drop set by {first name}", and the no-drop line.</li>
+<li>The preview: "{start}–{end} · {length} s", and "Preview didn't render. Try again."</li>
+<li>"Test", the test names, the clean-test structure, the defaults (£10, 4 days, £40), the budget line and the plan sentence.</li>
+<li>The winner rule (15 %, 20 results, 5 results), the CT7 states, "Call the winner", "Lost Test {n}", "Make Test 2's statics with {track}", "The current best ad held. Nothing changes.", and the R6 test for calls.</li>
+<li>"Test plan", "Snippet", "Make Test 1", "Static: {name}", the canvas chip, and "What we're testing".</li>
+</ul>
+
+</div>
+</body>
+</html>
