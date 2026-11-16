@@ -147,6 +147,11 @@ export function retargetingEvidence(counts: { landing: number | null; ticket: nu
   return `Builds ${parts.length} audiences, targeted together: ${parts.join(" · ")} (our counts, last 30–180 days)`;
 }
 
+/** Retargeting when the copied ad set has no pixel: Apply builds the video-viewer audience only. */
+export const RETARGETING_VIDEO_ONLY = `Builds 1 audience: video viewers, last ${RETENTION.video} days. The ad set it copies has no pixel, so visitors and registrations can't be built.`;
+export const NO_PIXEL_NO_VIDEO = "The ad set it copies has no pixel and this campaign's ads have no video views, so there's no audience to build.";
+export const NO_PIXEL_NO_REGISTRATIONS = "The ad set it copies has no pixel, so there are no registrations to build from.";
+
 export function lookalikeEvidence(seed: number, country: string): string {
   return `Seed: ${seed} registrations on the pixel · 1 % lookalike in ${country}`;
 }

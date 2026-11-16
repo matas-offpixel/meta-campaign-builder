@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   adAccountDigitsOnly,
+  eventAdAccountSource,
   isValidAdAccountId,
   normalizeAdAccountId,
 } from "../ad-account.ts";
@@ -65,5 +66,17 @@ describe("adAccountDigitsOnly", () => {
   it("returns null for invalid input", () => {
     assert.equal(adAccountDigitsOnly(null), null);
     assert.equal(adAccountDigitsOnly("act_xyz"), null);
+  });
+});
+
+describe("eventAdAccountSource (the event page's Platform config row)", () => {
+  it("the event's own account first: EBR26-KREAM runs in 2011069725849568, not the client's 1073273492854557", () => {
+    assert.deepEqual(eventAdAccountSource({ meta_ad_account_id: "2011069725849568", client: { meta_ad_account_id: "1073273492854557" } }), { value: "2011069725849568", source: "event" });
+    assert.deepEqual(eventAdAccountSource({ meta_ad_account_id: " 606252931141334 ", client: { meta_ad_account_id: "1073273492854557" } }), { value: "606252931141334", source: "event" });
+  });
+
+  it("no account on the event: the client's, inherited; neither: none", () => {
+    assert.deepEqual(eventAdAccountSource({ meta_ad_account_id: null, client: { meta_ad_account_id: "1073273492854557" } }), { value: "1073273492854557", source: "client" });
+    assert.deepEqual(eventAdAccountSource({ meta_ad_account_id: "  ", client: null }), { value: null, source: null });
   });
 });
