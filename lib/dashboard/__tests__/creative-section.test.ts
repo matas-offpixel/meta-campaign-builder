@@ -13,6 +13,7 @@ import {
   FILTER_EMPTY,
   FORMAT_EMPTY,
   LEAST_REFRESH_NOTE,
+  TIKTOK_EMPTY,
   buildCreativeSection,
   filterCreativeSection,
   formatOf,
@@ -141,6 +142,7 @@ describe("rules", () => {
   it("names Meta and TikTok only when both have rows", () => {
     const both = jamieJonesCreative("internal");
     assert.equal(both.source, "IRONWORKS · Jamie Jones · Meta and TikTok · to 10 Oct");
+    assert.equal(both.tiktok.length, 6);
     assert.equal(both.tiktok[0]?.name, "80% - JJ New 1_vaES07ge.mp4");
     assert.equal(both.tiktok[0]?.completion, "4.94 %");
     assert.equal(both.tiktok[0]?.spend, "£167.67");
@@ -168,6 +170,27 @@ describe("rules", () => {
     );
     assert.equal(model.tiktok[0]?.completion, "4.94 %");
     assert.equal(model.tiktok[0]?.spend, "£167.67");
+  });
+
+  it("drops a TikTok row only when spend and impressions are both zero", () => {
+    const served = { name: "Served", spend: 12, impressions: 400, clicks: 8, views2s: 100, viewsFull: 10 };
+    const silent = { name: "Silent", spend: 0, impressions: 0, clicks: 0, views2s: 0, viewsFull: 0 };
+    const adjustment = { name: "Adjustment", spend: 3.2, impressions: 0, clicks: 0, views2s: 0, viewsFull: 0 };
+    const mixed = buildCreativeSection(base({ tiktok: [silent, served, adjustment] }));
+    assert.deepEqual(
+      mixed.tiktok.map((row) => [row.name, row.spend, row.impressions]),
+      [
+        ["Served", "£12.00", "400"],
+        ["Adjustment", "£3.20", "0"],
+      ],
+    );
+    assert.equal(mixed.tiktokEmpty, null);
+    assert.equal(mixed.source, "Test · Show · Meta and TikTok · to 6 Aug");
+    assert.equal(JSON.stringify(mixed).includes("not shown"), false);
+    const none = buildCreativeSection(base({ tiktok: [silent, { ...silent, name: "Also silent" }] }));
+    assert.deepEqual(none.tiktok, []);
+    assert.equal(none.tiktokEmpty, TIKTOK_EMPTY);
+    assert.equal(none.source, "Test · Show · Meta · to 6 Aug");
   });
 
   it("replaces least impact with the refresh's pause lines", () => {
