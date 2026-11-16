@@ -105,3 +105,16 @@ describe("the client dashboard's writes don't depend on a member session", () =>
     }
   });
 });
+
+describe("migration 252: is_client_member() is not executable by anon", () => {
+  const SQL_252 = readFileSync(join(ROOT, "supabase/migrations/252_is_client_member_revoke_anon.sql"), "utf8");
+  const statements = SQL_252.split("\n").filter((line) => line.trim() && !line.trim().startsWith("--"));
+
+  it("revokes EXECUTE from anon", () => {
+    assert.deepEqual(statements, ["revoke execute on function public.is_client_member() from anon;"]);
+  });
+
+  it("is additive only: nothing else", () => {
+    assert.doesNotMatch(SQL_252, /\b(grant|drop|create|alter|policy)\b/i);
+  });
+});
