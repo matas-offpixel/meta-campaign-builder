@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { isOperator } from "@/lib/auth/operator-allowlist";
+import { requireOperator } from "@/lib/bm/route-auth";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   listD2CConnectionsForUser,
   upsertD2CConnection,
@@ -23,22 +25,18 @@ import { MissingD2CTokenKeyError } from "@/lib/d2c/secrets";
  *                                 connection is refused (409). Logic:
  *                                 lib/d2c/connections/save.ts.
  *
- * Mirrors the ticketing connections route surface.
+ * Mirrors the ticketing connections route surface. Operator only
+ * (`requireOperator`): no session → 401, a signed-in non-operator → 403.
  */
 
 const ALLOWED_PROVIDERS = listD2CProviderNames();
 
 export async function GET(req: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Not signed in" },
-      { status: 401 },
-    );
-  }
+  // Operator only: a client_users member has a session too (proxy.ts lets
+  // any session through outside /admin). No session → 401, member → 403.
+  const gate = await requireOperator();
+  if (!gate.ok) return gate.response;
+  const { supabase } = gate;
 
   const clientId = req.nextUrl.searchParams.get("clientId");
   const connections = await listD2CConnectionsForUser(supabase, {
@@ -52,16 +50,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Not signed in" },
-      { status: 401 },
-    );
-  }
+  // Operator only: a client_users member has a session too (proxy.ts lets
+  // any session through outside /admin). No session → 401, member → 403.
+  const gate = await requireOperator();
+  if (!gate.ok) return gate.response;
+  const { supabase, user } = gate;
 
   let body: unknown;
   try {
@@ -121,7 +114,13 @@ export async function POST(req: NextRequest) {
         upsert: (input) =>
           upsertD2CConnection(supabase, { userId: user.id, ...input }),
       },
-      { body, allowedProviders: ALLOWED_PROVIDERS },
+      {
+        body,
+        allowedProviders: ALLOWED_PROVIDERS,
+        // The other client's name is shown to operators only. The route is
+        // operator-gated, so this is defence in depth.
+        callerIsOperator: isOperator(user.id),
+      },
     );
     return NextResponse.json(result.body, { status: result.status });
   } catch (e) {

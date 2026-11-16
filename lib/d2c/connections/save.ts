@@ -30,10 +30,18 @@ export const BIRD_WORKSPACE_ID_REQUIRED = "Workspace id is required.";
 export const BIRD_WORKSPACE_ID_SHAPE =
   "Workspace id must be a UUID, like xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.";
 
-export function birdWorkspaceTaken(clientName: string | null): string {
-  const where = clientName ? clientName : "another client";
-  return `This Bird workspace is already saved on ${where}. A workspace can be saved on one client only, or its sends can't be tied to a client.`;
+/**
+ * The other client is named to operators only; anyone else reads "another
+ * client" even when the name is known. Decided by the caller's role, never by
+ * whether a name was found.
+ */
+export function birdWorkspaceTaken(clientName: string | null, callerIsOperator: boolean): string {
+  const where = callerIsOperator && clientName ? clientName : "another client";
+  return `This Bird workspace is already saved on ${where}. A workspace can be saved on one client only, so each send is tied to one client.`;
 }
+
+export const BIRD_WORKSPACE_CHECK_FAILED =
+  "Couldn't check whether this Bird workspace is saved on another client, so nothing was saved. Try again.";
 
 export type BirdWorkspaceCheck =
   | { ok: true; workspaceId: string }
@@ -81,7 +89,12 @@ function fail(status: 400 | 404 | 409 | 500, error: string): SaveConnectionResul
 
 export async function saveD2CConnection(
   deps: SaveConnectionDeps,
-  input: { body: unknown; allowedProviders: readonly D2CProviderName[] },
+  input: {
+    body: unknown;
+    allowedProviders: readonly D2CProviderName[];
+    /** Operators see the other client's name on a workspace clash. */
+    callerIsOperator: boolean;
+  },
 ): Promise<SaveConnectionResult> {
   const body = (input.body && typeof input.body === "object" ? input.body : {}) as Record<string, unknown>;
   const clientId = typeof body.clientId === "string" ? body.clientId.trim() : "";
@@ -117,10 +130,10 @@ export async function saveD2CConnection(
     try {
       owners = await deps.findBirdWorkspaceOwners(credentials.workspace_id as string);
     } catch {
-      return fail(500, "Couldn't check whether this Bird workspace is saved on another client.");
+      return fail(500, BIRD_WORKSPACE_CHECK_FAILED);
     }
     const other = owners.find((o) => o.client_id !== clientId);
-    if (other) return fail(409, birdWorkspaceTaken(other.client_name));
+    if (other) return fail(409, birdWorkspaceTaken(other.client_name, input.callerIsOperator));
   }
 
   const validation = await deps.validate(provider, credentials);
