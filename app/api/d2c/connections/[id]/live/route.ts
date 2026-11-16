@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { requireOperator } from "@/lib/bm/route-auth";
 import {
   getD2CConnectionById,
   setD2CConnectionLiveFlag,
@@ -23,16 +23,11 @@ export async function PATCH(
     );
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Not signed in" },
-      { status: 401 },
-    );
-  }
+  // Operator only: a client_users member has a session too (proxy.ts lets
+  // any session through outside /admin). No session → 401, member → 403.
+  const gate = await requireOperator();
+  if (!gate.ok) return gate.response;
+  const { supabase, user } = gate;
 
   const existing = await getD2CConnectionById(supabase, id);
   if (!existing || existing.user_id !== user.id) {

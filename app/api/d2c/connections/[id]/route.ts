@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { requireOperator } from "@/lib/bm/route-auth";
 import {
   deleteD2CConnection,
   getD2CConnectionById,
@@ -16,6 +16,7 @@ import type { D2CConnectionStatus } from "@/lib/d2c/types";
  *          through POST /connections so the validation flow runs.
  * DELETE → soft-delete by default (status=paused). `?hard=1` triggers
  *          a true delete.
+ * Both are operator only (`requireOperator`): 401 / 403 before any read.
  */
 
 interface PatchBody {
@@ -36,16 +37,11 @@ export async function PATCH(
     );
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Not signed in" },
-      { status: 401 },
-    );
-  }
+  // Operator only: a client_users member has a session too (proxy.ts lets
+  // any session through outside /admin). No session → 401, member → 403.
+  const gate = await requireOperator();
+  if (!gate.ok) return gate.response;
+  const { supabase, user } = gate;
 
   const existing = await getD2CConnectionById(supabase, id);
   if (!existing || existing.user_id !== user.id) {
@@ -108,16 +104,11 @@ export async function DELETE(
     );
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Not signed in" },
-      { status: 401 },
-    );
-  }
+  // Operator only: a client_users member has a session too (proxy.ts lets
+  // any session through outside /admin). No session → 401, member → 403.
+  const gate = await requireOperator();
+  if (!gate.ok) return gate.response;
+  const { supabase, user } = gate;
 
   const existing = await getD2CConnectionById(supabase, id);
   if (!existing || existing.user_id !== user.id) {
