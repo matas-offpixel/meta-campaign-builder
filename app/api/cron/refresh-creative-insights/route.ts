@@ -11,6 +11,15 @@ import {
 import { fetchCreativeInsights } from "@/lib/meta/creative-insights";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import type { CreativeDatePreset } from "@/lib/types/intelligence";
+import {
+  INSIGHTS_ACCOUNT_RESERVE_MS,
+  INSIGHTS_PRESET_RESERVE_MS,
+  accountPairKey,
+  hasRoomFor,
+  orderAccountPairsStalestFirst,
+  summariseInsightsRun,
+  type InsightsRunSummary,
+} from "@/lib/reporting/creative-crons";
 
 /**
  * GET /api/cron/refresh-creative-insights
@@ -42,8 +51,16 @@ import type { CreativeDatePreset } from "@/lib/types/intelligence";
  *     consistently failing.
  *
  * Soft timeout: stops iterating new pairs near the end of the
- * function budget so the JSON response can still flush. The next
- * cron tick picks up where this one left off.
+ * function budget so the JSON response can still flush.
+ *
+ * Order and budget (16 Nov 2026): accounts run stalest snapshot first,
+ * so the ones a run leaves over lead the next run. Until then they ran
+ * in PostgREST's return order and three accounts went 8–17 days
+ * without a refresh. An account starts only with 6 min of budget left
+ * and a preset only with 200 s left; an account can take 6 min, and
+ * the old check (any time before 790 s) let a late start run past the
+ * 800 s cap, so 3 of 7 runs from 14–16 Nov were killed with a 504 and
+ * recorded nothing. See `lib/reporting/creative-crons.ts`.
  */
 
 /**
@@ -109,6 +126,40 @@ function logAccount(
   );
 }
 
+/**
+ * Newest `snapshot_at` per (user, account): one ordered `limit(1)` read
+ * per pair, so no read can hit PostgREST's row cap (the table holds
+ * tens of thousands of rows per account). A failed read leaves that
+ * pair unordered (treated as never snapshotted) rather than failing
+ * the run.
+ */
+async function loadLastSnapshotAt(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  pairs: readonly { userId: string; adAccountId: string }[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  for (const pair of pairs) {
+    const { data, error } = await supabase
+      .from("creative_insight_snapshots")
+      .select("snapshot_at")
+      .eq("user_id", pair.userId)
+      .eq("ad_account_id", pair.adAccountId)
+      .order("snapshot_at", { ascending: false })
+      .limit(1);
+    if (error) {
+      console.warn(
+        `[cron refresh-creative-insights] stalest_first_lookup_failed account=${pair.adAccountId}: ${error.message}`,
+      );
+      continue;
+    }
+    const at = (data?.[0] as { snapshot_at?: string | null } | undefined)
+      ?.snapshot_at;
+    const ms = at ? Date.parse(at) : NaN;
+    if (Number.isFinite(ms)) out.set(accountPairKey(pair), ms);
+  }
+  return out;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -131,6 +182,12 @@ interface PairResult {
 
 interface RefreshResponse {
   ok: boolean;
+  /** Set when `ok` is false: which accounts failed and why, for `cron_runs.error`. */
+  error?: string;
+  /** What `cron_runs.detail` records. */
+  runSummary?: InsightsRunSummary["detail"];
+  /** Pairs this run looked at, for `cron_runs.rows_considered`. */
+  accountsConsidered?: number;
   startedAt: string;
   finishedAt: string;
   /**
@@ -204,7 +261,9 @@ async function handleGET(req: NextRequest) {
     );
   }
 
-  const pairs = await listEligibleAccountPairs(supabase);
+  const unorderedPairs = await listEligibleAccountPairs(supabase);
+  const lastSnapshotAt = await loadLastSnapshotAt(supabase, unorderedPairs);
+  const pairs = orderAccountPairsStalestFirst(unorderedPairs, lastSnapshotAt);
   if (pairs.length === 0) {
     const finishedAt = new Date().toISOString();
     const empty: RefreshResponse = {
@@ -252,7 +311,13 @@ async function handleGET(req: NextRequest) {
     // the per-account try/catch so a sleep can't hide inside an
     // error path that's supposed to be local-only.
     if (firstAccountStarted) {
-      if (Date.now() - startMs + INTER_ACCOUNT_DELAY_MS > SOFT_TIMEOUT_MS) {
+      if (
+        !hasRoomFor(
+          Date.now() - startMs,
+          INTER_ACCOUNT_DELAY_MS + INSIGHTS_ACCOUNT_RESERVE_MS,
+          SOFT_TIMEOUT_MS,
+        )
+      ) {
         timedOut = true;
         logAccount(pair, "timeout", "skipped before inter-account sleep");
         results.push({
@@ -300,7 +365,13 @@ async function handleGET(req: NextRequest) {
       let rateLimitedThisAccount = false;
 
       for (const preset of presetsForThisRun) {
-        if (Date.now() - startMs > SOFT_TIMEOUT_MS) {
+        if (
+          !hasRoomFor(
+            Date.now() - startMs,
+            INSIGHTS_PRESET_RESERVE_MS,
+            SOFT_TIMEOUT_MS,
+          )
+        ) {
           timedOut = true;
           break;
         }
@@ -351,6 +422,10 @@ async function handleGET(req: NextRequest) {
         adAccountId: pair.adAccountId,
         presetsRun,
         snapshotsWritten,
+        // Stopped by the budget before its first preset: left for the next run.
+        ...(presetsRun === 0 && timedOut && errors.length === 0
+          ? { skipped: "timeout" as const }
+          : {}),
         errors,
       });
     } catch (err) {
@@ -370,11 +445,22 @@ async function handleGET(req: NextRequest) {
   }
 
   const finishedAt = new Date().toISOString();
-  const allOk =
-    !timedOut && results.every((r) => r.errors.length === 0 && !r.skipped);
+  // An account the budget left for the next run is not a failure: the
+  // stalest-first order puts it first next time. Errors and missing
+  // tokens are. `stalestDeferredHours` shows a rotation that stalls.
+  const lastSnapshotByAccount = new Map<string, number>();
+  for (const pair of pairs) {
+    const at = lastSnapshotAt.get(accountPairKey(pair));
+    if (at !== undefined) lastSnapshotByAccount.set(pair.adAccountId, at);
+  }
+  const summary = summariseInsightsRun(results, lastSnapshotByAccount);
+  const allOk = summary.ok;
 
   const response: RefreshResponse = {
     ok: allOk,
+    ...(summary.error ? { error: summary.error } : {}),
+    runSummary: summary.detail,
+    accountsConsidered: pairs.length,
     startedAt,
     finishedAt,
     cadence_tier: "base",
@@ -399,7 +485,14 @@ export const GET = withCronRunLog(
         return null;
       }
     },
-    rows: (b) => Number(b.rowsWritten ?? 0),
+    // The fields this route returns. `rowsWritten` was read here until
+    // 16 Nov 2026 and never existed, so every run recorded 0.
+    rows: (b) => Number(b.snapshotsWritten ?? 0),
+    considered: (b) => Number(b.accountsConsidered ?? 0),
+    detail: (b) =>
+      b.runSummary && typeof b.runSummary === "object"
+        ? (b.runSummary as Record<string, unknown>)
+        : {},
   },
   handleGET,
 );
