@@ -33,6 +33,7 @@ import { withMetaWriteIdempotency, type MetaWriteContext } from "../meta/write-i
 import {
   ALL_INTERESTS_RETIRED,
   AUDIENCE_BUILDING,
+  BUDGET_CHANGED,
   AUDIENCE_TOO_SMALL,
   COPIED_FIELDS,
   LOOKALIKE_RATIO,
@@ -46,6 +47,7 @@ import {
   decideFunding,
   newAdSetName,
   partialNewAdSet,
+  recheckFunding,
   weeklyMoved,
   type Funding,
   type Giver,
@@ -234,9 +236,31 @@ export async function applyNewAdSet(
   if (!cbo) {
     dailyMinor = Number(src.daily_budget) || null;
     if (!dailyMinor) return fail(LIFETIME_COPY);
-    funding = (previous.funding as Funding | undefined) ?? decideFunding({ budgetLevel: "ad_set", dailyGbp: dailyMinor / 100, budget: deps.plan.budget, spend: deps.plan.spend, today: deps.plan.today, eventDate: deps.plan.eventDate, appliedMovesGbp: deps.plan.appliedMovesGbp, giver: (write.giver as Giver | null) ?? null });
+    const stored = previous.funding as Funding | undefined;
+    const live = { budget: deps.plan.budget, spend: deps.plan.spend, today: deps.plan.today, eventDate: deps.plan.eventDate, appliedMovesGbp: deps.plan.appliedMovesGbp };
+    funding = stored ?? decideFunding({ budgetLevel: "ad_set", dailyGbp: dailyMinor / 100, ...live, giver: (write.giver as Giver | null) ?? null });
     if (funding.mode === "none") return fail(NO_BUDGET_TO_START);
     if (funding.mode === "move" && deps.env.ENABLE_OPTIMISATION_WRITES !== "1") return fail(MOVES_SWITCHED_OFF);
+    // Before any write — the audiences included: the giver as it is now, and on a retry the stored money on today's figures.
+    // Money already committed (the ad set made, or the giver already given) isn't re-decided: the retry finishes it, never moves twice.
+    const storedGiverPlan = previous.giverPlan as { adsetId: string; before: number; after: number } | undefined;
+    let giverNow: number | null = null;
+    if (funding.mode === "move") {
+      const giver = await deps.meta.readAdSet(funding.fromAdsetId);
+      if (!giver?.campaignId || !ctx.campaignIds.includes(giver.campaignId) || giver.dailyBudget == null) return fail(NO_BUDGET_TO_START, { funding });
+      giverNow = giver.dailyBudget;
+    }
+    const committed = typeof previous.adsetId === "string" || (funding.mode === "move" && storedGiverPlan != null && giverNow === storedGiverPlan.after);
+    if (!committed) {
+      if (stored) {
+        const stale = recheckFunding(stored, { dailyGbp: dailyMinor / 100, ...live });
+        if (stale) return fail(stale, { funding: stored, step: "funding" });
+      }
+      if (funding.mode === "move") {
+        if (storedGiverPlan && giverNow !== storedGiverPlan.before) return fail(BUDGET_CHANGED, { funding, giverPlan: storedGiverPlan, step: "funding" });
+        if (!storedGiverPlan && giverNow! - dailyMinor < MIN_DAILY_BUDGET_MINOR) return fail(NO_BUDGET_TO_START, { funding, step: "funding" });
+      }
+    }
   }
   const base = { funding, movedWeeklyGbp: weeklyMoved(funding), copiedFrom: copyFrom.adsetId };
 
@@ -277,7 +301,7 @@ export async function applyNewAdSet(
     giverPlan ??= { adsetId: funding.fromAdsetId, before: giver.dailyBudget, after: giver.dailyBudget - dailyMinor };
     if (giverPlan.after < MIN_DAILY_BUDGET_MINOR) return fail(NO_BUDGET_TO_START, { ...base, audienceIds, giverPlan });
     if (giver.dailyBudget !== giverPlan.after) {
-      if (giver.dailyBudget !== giverPlan.before) return fail("The budget changed in Ads Manager since the proposal, so nothing was made.", { ...base, audienceIds, giverPlan });
+      if (giver.dailyBudget !== giverPlan.before) return fail(BUDGET_CHANGED, { ...base, audienceIds, giverPlan });
       try {
         await withMetaWriteIdempotency(ctx.ledger, "refresh_adset_budget_update", { line_id: line.id, adset_id: giverPlan.adsetId, daily_budget: giverPlan.after }, async () => {
           await deps.meta.updateAdSetDailyBudget(giverPlan!.adsetId, giverPlan!.after);

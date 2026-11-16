@@ -98,6 +98,31 @@ export function decideFunding(args: {
   return { mode: "none" };
 }
 
+/** Apply's refusal when a budget moved under the line between Accept and now (the existing sentence). */
+export const BUDGET_CHANGED = "The budget changed in Ads Manager since the proposal, so nothing was made.";
+
+/**
+ * A retry's stored funding, re-checked on live figures before any write
+ * (Apply, P3): the copy's daily budget is still the one funded; headroom
+ * still fits the plan's headroom against spend to date for the days left;
+ * a move still fits the 20 % cap. Null when it still holds; else the
+ * refusal (the existing sentences). The giver's own floor is read by the
+ * caller. A stored campaign-budget funding on a campaign that has since
+ * left CBO is a changed budget.
+ */
+export function recheckFunding(stored: Funding, live: { dailyGbp: number; budget: number | null; spend: number; today: string; eventDate: string | null; appliedMovesGbp: number }): string | null {
+  if (stored.mode === "cbo") return BUDGET_CHANGED;
+  if (stored.mode === "none") return NO_BUDGET_TO_START;
+  const daily = round2(live.dailyGbp);
+  if (Math.abs(daily - stored.dailyGbp) >= 0.005) return BUDGET_CHANGED;
+  if (stored.mode === "headroom") {
+    const remaining = remainingPlan(live.budget, live.spend);
+    return remaining != null && daily * daysToShow(live.today, live.eventDate) <= remaining ? null : NO_BUDGET_TO_START;
+  }
+  const cap = moveCapLeft(live.budget, live.spend, live.appliedMovesGbp);
+  return cap && daily * 7 <= cap.left + 0.005 ? null : NO_BUDGET_TO_START;
+}
+
 /** The start amount: what Apply writes as the new ad set's daily budget (the copied ad set's), with the figure when it was read. */
 function startText(copy: Pick<CopySource, "name" | "dailyBudgetGbp"> | null | undefined, narrow: boolean): string {
   if (copy?.dailyBudgetGbp != null) return narrow ? `starts at ${gbp(copy.dailyBudgetGbp)} a day` : `starts at ${gbp(copy.dailyBudgetGbp)} a day, ${copy.name}'s daily budget`;
