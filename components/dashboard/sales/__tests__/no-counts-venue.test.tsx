@@ -135,3 +135,27 @@ describe("tileSubline with no counts", () => {
     expect(tileSubline("tickets", "since launch, to 12 Nov", "launch", "12 Nov")).toBe("since launch, to 12 Nov");
   });
 });
+
+describe("NC1 / NC1S frames: Electric Studios with no counts (L.P Rhythm)", () => {
+  it("the fixture is the record's shape: countDay null, 0 of 1 shows counted, £590 Meta, 754 registrations, capacity 1,000", async () => {
+    const { NX_SALES_NO_COUNTS } = await import("@/lib/dashboard/sales-vs-spend-fixture");
+    const view = NX_SALES_NO_COUNTS.views[STUDIOS];
+    expect(view.countDay).toBeNull();
+    expect(view.showCounts).toEqual({ counted: 0, shows: 1 });
+    expect(view.tiles.find((t) => t.id === "spend")!.value).toBe("£590");
+    expect(view.tiles.find((t) => t.id === "registrations")!.value).toBe("754");
+    if (view.trajectory.kind !== "all") throw new Error("all");
+    expect(view.trajectory.bars).toEqual([expect.objectContaining({ label: "L.P Rhythm · 6 Feb", allocation: 1000, caption: "No ticket counts yet" })]);
+  });
+
+  it("are registered internal and share, Since launch, at 1280 and 393, and in the overflow guard", async () => {
+    const { DASHBOARD_V2_FRAMES } = await import("@/scripts/plan-frames/dashboard-v2-ids");
+    expect(DASHBOARD_V2_FRAMES.NC1).toMatchObject({ surface: "internal", showId: STUDIOS, period: "launch", fixture: "no-counts" });
+    expect(DASHBOARD_V2_FRAMES.NC1S).toMatchObject({ surface: "share", showId: STUDIOS, period: "launch", fixture: "no-counts" });
+    const { DASHBOARD_V2_SHOTS } = await import("@/scripts/plan-frames/dashboard-v2-shots.mjs");
+    const ids = (DASHBOARD_V2_SHOTS as { id: string }[]).map((s) => s.id);
+    for (const id of ["NC1-1280", "NC1-393", "NC1S-1280", "NC1S-393"]) expect(ids).toContain(id);
+    const { OVERFLOW_FRAMES } = await import("@/scripts/plan-frames/overflow-guard.mjs");
+    expect(OVERFLOW_FRAMES).toEqual(expect.arrayContaining(["sales/NC1", "sales/NC1S"]));
+  });
+});
