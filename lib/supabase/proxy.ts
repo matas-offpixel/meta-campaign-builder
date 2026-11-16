@@ -7,6 +7,10 @@ import {
   isAdminPublicPath,
   isOperatorAdminPath,
 } from "@/lib/auth/admin-routes";
+import {
+  apiAccessForSignedInUser,
+  OPERATOR_REQUIRED_BODY,
+} from "@/lib/auth/api-access";
 
 /**
  * Supabase SSR session refresh + route protection.
@@ -21,6 +25,12 @@ import {
  *     Slug mismatch is a 403 (NOT a redirect) so a client probing another
  *     tenant's URL gets an explicit denial, never a silent bounce that
  *     could be mistaken for "page moved".
+ *
+ * `/api/*` is operator-only for signed-in users: a session that isn't on
+ * the operator allowlist gets a 403 JSON response before any route runs,
+ * unless the path is on `NON_OPERATOR_API_ALLOWLIST` (lib/auth/api-access.ts).
+ * A client_users member's session would otherwise pass every route that only
+ * checks for a session.
  */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -104,6 +114,11 @@ export async function updateSession(request: NextRequest) {
     }
 
     return supabaseResponse;
+  }
+
+  // ── /api: operator-only for signed-in users ──────────────────────────
+  if (user && apiAccessForSignedInUser(pathname, user.id) === "operator_required") {
+    return NextResponse.json(OPERATOR_REQUIRED_BODY, { status: 403 });
   }
 
   // ── Internal operator app (existing behaviour) ───────────────────────

@@ -194,6 +194,12 @@ export function isPublicPath(
   if (/^\/api\/webhooks\/mailchimp\/[^/]+\/[^/]+$/.test(pathname)) {
     return true;
   }
+  // `/api/webhooks/ticketing/{provider}` — ticketing provider purchase
+  // webhook. The provider calls with no session, so without this the proxy
+  // 307s it to /login and the handler never runs. The route verifies an
+  // HMAC of the raw body before parsing (fails closed: 503 when the secret
+  // is unset, 401 on a bad signature, 404 for unsupported providers).
+  if (/^\/api\/webhooks\/ticketing\/[^/]+$/.test(pathname)) return true;
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;

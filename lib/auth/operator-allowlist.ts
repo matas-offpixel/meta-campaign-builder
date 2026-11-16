@@ -17,7 +17,18 @@ export function isD2CApprover(userId: string): boolean {
   return MATAS_USER_IDS.includes(userId);
 }
 
-/** Same allowlist as `/business-managers` — agency-wide armed reads/writes. */
+/**
+ * Agency operators: the proxy's /api gate (lib/auth/api-access.ts), the
+ * optimisation and automation controls, cross-client reads. Wider than
+ * MATAS_USER_IDS, which stays the list for what acts as Matas himself:
+ * live D2C approval (`isD2CApprover`), the Business Manager tool (his
+ * Facebook token) and WhatsApp communities.
+ */
+export const OPERATOR_USER_IDS: readonly string[] = [
+  ...MATAS_USER_IDS,
+  '4aa59005-5c1d-495c-8029-8c9453950c4d', // agency staff account, added 16 Nov 2026 on Matas's word
+];
+
 export function isOperator(userId: string): boolean {
-  return MATAS_USER_IDS.includes(userId);
+  return OPERATOR_USER_IDS.includes(userId);
 }
