@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wording batch — 16 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · wording batch · 16 November 2026</p>
+<h1>Wording batch: budget, presale log, creatives, no-counts views, the on-sale refresh, Bird and venue shares</h1>
+<p class="lead">This record collects the words ruled in reviews between 15 and 16 November, so they sit in one place before the next builds read them:</p>
+<ul class="notes">
+<li>#1261 (the HE4 and HE6 panels);</li>
+<li>#1265 (TikTok rows with nothing delivered);</li>
+<li>#1266, #1268 and #1269 (on-sale refresh lines);</li>
+<li>#1271 (a scope with no ticket counts);</li>
+<li>#1274 (the Bird connection form);</li>
+<li>#1279 (venue share links).</li>
+</ul>
+<p class="lead">It amends <code>2026-11-15-dashboard-v2-presale-creatives-budget.html</code> (PH3, PH6) only where WB4 and WB5 name it. Everything else here adds words that no record held yet. Every string is exact. Words in braces are filled from the data.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>WB1 · The budget panel (HE6)</td><td>
+<p>Line order: Plan, Paid, Brand campaigns (client view only), Credits, the sub-budgets, D2C, Variance, Total. Each line's note:</p>
+<ul>
+<li><b>Plan:</b> "Season budget" when a season budget is entered, else "Show budgets".</li>
+<li><b>Paid:</b> "Meta £{x} · TikTok £{y} · Google £{z}", naming only channels with spend. It's left out when only one channel has spend.</li>
+<li><b>Brand campaigns:</b> "Included in paid." when there's a figure. "No brand campaign." with "—" when there's none. The figure is inside Paid and is never added again.</li>
+<li><b>Credits:</b> "{credit name}. Changes the variance, not the total." When none is entered: "—", with "None entered. Changes the variance, not the total."</li>
+<li><b>A sub-budget</b> is its own line, by name. The figure is what the total counts: the spend when it's entered, with "Spent, of a £{allocation} allocation.", else the allocation, with "Allocation. Spend not entered yet." With no sub-budgets at all, one line, "Sub-budgets", reads "—" with "None entered."</li>
+<li><b>D2C:</b> "WhatsApp delivered × rate, plus SMS". When there's no WhatsApp rate, the total's footnote reads "The total excludes WhatsApp."</li>
+<li><b>Variance:</b> "Plan − paid + credits."</li>
+<li><b>Total:</b> "Paid + sub-budgets + D2C."</li>
+</ul>
+<p>The column adds up to its total. Ironworks (OB3): £83,421.09 + £1,181.76 + £115.51 + £8,681.15 = £93,399.51. The variance is £83,000 − £83,421.09 + £460 = £38.91.</p></td></tr>
+
+<tr><td>WB2 · The objective table (HE6)</td><td>
+<ul>
+<li><b>Scope line:</b> "{client} · all shows and brand campaigns · {period} · to {day}" on a client view. A show view names the show.</li>
+<li><b>Cost labels,</b> under each cost: "£ / signup", "£ / purchase", "£ / landing page view", "£ / click".</li>
+<li><b>An ad set with no stored goal</b> reads "Objective not stored", with "—" for result and cost.</li>
+<li>ROAS reads "—" until Meta purchase value is stored (PH4).</li>
+</ul></td></tr>
+
+<tr><td>WB3 · The presale log (HE4)</td><td>
+<ul>
+<li>The spend row is titled <b>"Signup spend"</b>, with the source "Meta signup spend" (PH2).</li>
+<li>With nothing entered, only counted and derived rows show. The internal view adds the link <b>"Add the window figures"</b> to the form. A share link has neither.</li>
+<li>Entered rows read "entered by {first name}, {date}" (PH2). Derived rows read "derived".</li>
+</ul></td></tr>
+
+<tr><td>WB4 · PH6's example, corrected</td><td>
+<p>PH6's example becomes <b>"includes brand campaigns (£22,553)"</b>, from IRWOHD's £22,553.07 after the 25–26 May TikTok re-sync (−£98.03). The rule is unchanged: whole pounds, from the stored figure, never copied from a record.</p></td></tr>
+
+<tr><td>WB5 · The creative section (HE5)</td><td>
+<ul>
+<li><b>Rows with nothing delivered.</b> A TikTok row with no impressions and no spend in the period isn't listed or counted. A row with spend and no impressions, such as a billing correction, stays. No line says how many were left out (#1265).</li>
+<li><b>Channels in the source line.</b> This amends PH3's "channels with data": a channel counts only when it has a row that's listed. So when every TikTok row is left out, the source line names Meta alone.</li>
+<li><b>The empty TikTok line names the scope:</b>
+<ul>
+<li>"No TikTok creatives for this show yet." (as shipped);</li>
+<li><b>"No TikTok creatives for this venue yet."</b> on a venue view;</li>
+<li><b>"No TikTok creatives yet."</b> on a client view.</li></ul></li>
+</ul></td></tr>
+
+<tr><td>WB6 · A scope with no ticket counts (#1271)</td><td>
+<p>When no show in scope has a count, nothing borrows a date from another scope:</p>
+<ul>
+<li>Total sold, Sales and Cost per ticket read "—". Their sublines are "to date · no ticket counts yet", "since launch · no ticket counts yet" and "since launch · no ticket counts yet", or "in 7 days · no ticket counts yet" in a period.</li>
+<li>On a phone, the Sales span is "no ticket counts yet" and the Cost per ticket span is "since launch".</li>
+<li>The freshness line drops "Counts to …" and keeps "Spend to {day} · Signups to {day}".</li>
+<li>The chart draws the spend axis only. The caption is "Left axis: spend (£).", the legend "Spend", and the Internal Count sentence is dropped.</li>
+<li>The trajectory: Sold reads "—" with "No ticket counts yet", Projected reads "—", and Pace reads "—". No unit and no 14-day line.</li>
+<li>The case rule: "No ticket counts yet" takes a capital when it starts a line, and is lower case after a "·".</li>
+</ul>
+<p>Frames NC1 and NC1S, at 1280 and 393.</p></td></tr>
+
+<tr><td>WB7 · Years</td><td>
+<p>PH7 stands and covers every panel above. There's no new year wording.</p></td></tr>
+
+<tr><td>WB8 · On-sale refresh: moving budget (#1266, #1268)</td><td>
+<p>A move line, when it's capped by the floor:</p>
+<ul>
+<li>Wide: "… · £{amount} a week (keeps {giver} at £1.00 a day) · cap £{cap} (20 % of £{remaining} remaining)".</li>
+<li>Narrow: "£{amount} a week · £1.00 a day floor · cap £{cap}".</li>
+<li>A move with room to spare carries no floor words.</li>
+</ul>
+<p>No move, on Watch (wide · narrow):</p>
+<ul>
+<li>"{giver} → {receiver} · no move: the giving ad set is already at the £1.00 a day floor" · "{giver} → {receiver} · no move, £1.00 floor";</li>
+<li>"… · no move: the giving ad set is at £{x} a day, under the £1.00 a day floor" · the same narrow line;</li>
+<li>"… · no move: the budget is set on the campaign, so ad-set budgets can't be moved" · "… · no move, campaign budget";</li>
+<li>"… · no move: the giving ad set runs on a lifetime budget, so there's no daily budget to move" · "… · no move, lifetime budget";</li>
+<li>"… · no move: the receiving ad set runs on a lifetime budget, so there's no daily budget to add to" · "… · no move, lifetime budget".</li>
+</ul></td></tr>
+
+<tr><td>WB9 · On-sale refresh: new ad sets (#1266, #1268, #1269)</td><td>
+<p><b>The start amount is the amount Apply writes.</b></p>
+<table class="t" style="margin:6px 0 10px">
+<tr><th>Case</th><th>Wide</th><th>Narrow</th></tr>
+<tr><td>From headroom</td><td>"starts at £{daily} a day, {ad set}'s daily budget, from plan headroom (recent spend £{spend} a day)"</td><td>"starts at £{daily} a day from plan headroom"</td></tr>
+<tr><td>Moved</td><td>"starts at £{daily} a day, {ad set}'s daily budget, moved from {giver}"</td><td>"starts at £{daily} a day, moved from {giver}"</td></tr>
+<tr><td>Budget not read, headroom</td><td>"starts at {ad set}'s daily budget from plan headroom (recent spend £{spend} a day)"</td><td>"starts at {ad set}'s daily budget from plan headroom"</td></tr>
+<tr><td>Budget not read, moved</td><td>"starts at {ad set}'s daily budget, moved from {giver}"</td><td>the same</td></tr>
+</table>
+<ul>
+<li>Recent spend shows on the wide line only, in brackets, and only when it differs from the start. It never shows under a campaign budget.</li>
+<li>The comma rule: "moved from …" describes the amount, so a comma comes before it. "from plan headroom" is part of the same phrase, so none does.</li>
+<li><b>Under a campaign budget</b> the line says "shares the campaign budget". When no daily-budget giver above £1.00 is left: "No budget to start it: …".</li>
+<li><b>Only copy source on a lifetime budget:</b> "{title} · not proposed: the ad set it would copy, {ad set}, runs on a lifetime budget, so there's no daily budget to give the new one" · "{title} · not proposed, lifetime budget".</li>
+<li><b>Retargeting, no pixel on the copied ad set:</b> "Builds 1 audience: video viewers, last {n} days. The ad set it copies has no pixel, so landing-page and ticket-link visitors can't be built." Here n is the video audience's own retention constant (60).</li>
+<li><b>Blocked:</b>
+<ul>
+<li>"The ad set it copies has no pixel and this campaign's ads have no video views, so there's no audience to build."</li>
+<li>"The ad set it copies has no pixel, so there are no registrations to build from."</li></ul></li>
+</ul>
+<p>Frame OR8 carries the headroom lines.</p>
+<p class="open"><b>Open, before Apply writes live:</b> a retry after a later step fails reuses the stored funding and doesn't re-check headroom or the giver's floor against newer spend. Fix that before Apply is armed.</p></td></tr>
+
+<tr><td>WB10 · Platform config (#1266)</td><td>
+<p>The event page's Meta ad account carries <b>"set on this event"</b> when the event has its own account, and <b>"inherited"</b> when it uses the client's.</p></td></tr>
+
+<tr><td>WB11 · The Bird connection form (#1274)</td><td>
+<ul>
+<li><b>Hint:</b> "Workspace API key, workspace id + channel id".</li>
+<li><b>Field:</b> "Workspace id", placeholder "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", helper "The Bird workspace's UUID. A workspace can be saved on one client only."</li>
+<li><b>Errors:</b>
+<ul>
+<li>"Workspace id is required."</li>
+<li>"Workspace id must be a UUID, like xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx."</li>
+<li>"This Bird workspace is already saved on {client name}. A workspace can be saved on one client only, so each send is tied to one client." The client is named to an operator only. Anyone else reads "another client".</li>
+<li>"Couldn't check whether this Bird workspace is saved on another client, so nothing was saved. Try again."</li></ul></li>
+</ul></td></tr>
+
+<tr><td>WB12 · A venue share turned off (#1279)</td><td>
+<p>When a client link tries to open a venue report the agency turned off: <b>"This venue report has been turned off."</b> Only the agency turns it back on.</p></td></tr>
+</table>
+
+<h2>Frames</h2>
+<p>No frame changes because of this record. It holds words already built into these frames: PS1, PS1S, PS2, PS2S, OB1, OB1S, OB2, OB2S, OB3 and OB3S (#1261); NC1 and NC1S (#1271); OR8 (#1269).</p>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>Every string in WB1, WB2, WB5's empty lines, WB6, and WB8–WB12, ruled in the PR reviews named above.</li>
+<li>"No TikTok creatives for this venue yet." and "No TikTok creatives yet." are new in this record.</li>
+</ul>
+
+</div>
+</body>
+</html>

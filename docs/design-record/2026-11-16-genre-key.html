@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Genre key — 16 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px}
+.vp.w1280{width:560px}.vp.w393{width:393px}
+.fl{font:600 13px var(--sans);margin:0 0 6px}
+.sel{height:40px;border:1px solid var(--border-strong);border-radius:6px;background:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:14px}
+.sel .ph{color:var(--ink-3)}
+.sug{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:8px;font-size:12.5px;color:var(--ink-2)}
+.sug a{font:700 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink);text-decoration:underline;white-space:nowrap}
+.help{font-size:12px;color:var(--ink-2);margin-top:6px}
+.opts{margin-top:8px;border:1px solid var(--border);border-radius:6px;background:#fff}
+.opts div{padding:7px 12px;font-size:13.5px;border-bottom:1px solid var(--border)}.opts div:last-child{border-bottom:0}
+.opts .on{background:var(--muted);font-weight:600}
+.opts .sep{color:var(--ink-3)}
+.lline{background:var(--card);border-radius:8px;padding:10px 12px;font-size:12.5px;margin:6px 0}
+.lline .src{display:block;color:var(--ink-2);font-size:12px;margin-top:3px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · learnings · 16 November 2026</p>
+<h1>A genre key per event, and how genre-sourced learnings are worded</h1>
+<p class="lead">This record rules the design questions raised by <code>docs/session-logs/genre-learnings-audit-2026-11-15.md</code>, with the build decisions ops has already made:</p>
+<ul class="notes">
+<li>a new column, <code>events.genre_family</code>, holding one value from a fixed list per event, confirmed by an operator;</li>
+<li>genre learnings computed in shadow;</li>
+<li>a genre pool switched on for a job only at 5 or more shows across 2 or more clients, once the real grouping beats 90 % or more of shuffles.</li>
+</ul>
+<p class="lead">The audit found that today genre doesn't separate learnings from show-to-show noise. So the key is built now and kept out of every reader until a job passes. Every surface here is internal. Example counts and families are <span class="inv">invented</span>.</p>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+
+<tr><td>GK1 · The field and its labels</td><td>
+<p>The event form gets one field, <b>"Genre"</b>. The operators already say "genre", and the free-text tags beside it are called genres, so it isn't renamed "sound". The choices, in this order, with their stored keys:</p>
+<table class="t" style="margin:6px 0 10px">
+<tr><th>Label</th><th>Key</th></tr>
+<tr><td>House / tech house</td><td><code>house_tech</code></td></tr>
+<tr><td>Deep / afro house</td><td><code>deep_afro</code></td></tr>
+<tr><td>Melodic / progressive</td><td><code>melodic_prog</code></td></tr>
+<tr><td>Disco</td><td><code>disco</code></td></tr>
+<tr><td>Garage / bass</td><td><code>garage_bass</code></td></tr>
+<tr><td>Drum &amp; bass</td><td><code>dnb</code></td></tr>
+<tr><td>Techno</td><td><code>techno</code></td></tr>
+<tr><td>Hard techno</td><td><code>hard_techno</code></td></tr>
+<tr><td>Commercial / nostalgia</td><td><code>commercial</code></td></tr>
+<tr><td>No single genre</td><td>a confirmed "none", for multi-genre brand campaigns like IRWOHD</td></tr>
+</table>
+<ul>
+<li>"No single genre" is a choice the operator makes, kept apart from "Not set" (nothing confirmed yet). Neither one joins any genre.</li>
+<li>Inside a sentence, a label is written in lower case: "house / tech house shows".</li>
+<li>The list is fixed. A new family is a new record, not a free entry.</li>
+</ul></td></tr>
+
+<tr><td>GK2 · A suggestion, never pre-selected</td><td>
+<ul>
+<li><b>The field starts at "Not set".</b> Nothing is ever selected or saved without an operator.</li>
+<li>When Off/Pixel can guess, from the event's genre tags or else its lineup, a line under the field reads <b>"Suggested: {label}, from the genre tags"</b> or <b>"… from the lineup"</b>, with the action <b>"Use it"</b>. Taking it is the operator's confirmation.</li>
+<li>Why: a family pools a show into other clients' learnings once a job is on, and the audit's own map was a guess. A wrong genre spreads. A missing one only leaves a show out.</li>
+<li><b>Backfill</b> runs the same way: Matas confirms the events with learning facts one by one, from the suggestion, in one pass. Nothing is written in bulk.</li>
+<li>The helper line under the field reads exactly: <b>"One per show. Shows of the same genre can share learnings once there are enough of them."</b></li>
+</ul></td></tr>
+
+<tr><td>GK3 · Shadow is internal and silent</td><td>
+<ul>
+<li>While a job's genre pool is off, its genre rows are stored and checked, and no reader shows them. That covers the Lab writer, the insights rail, plan predictions and every client surface.</li>
+<li>The one place shadow shows is an operator status line per job, on the learning-refresh report:
+<ul>
+<li><b>"Genre pool off · {job}: {n} {label} shows across {m} clients. Needs 5 shows across 2 clients, and to beat 90 % of shuffles. Today: {p} %."</b></li>
+<li>When it switches on: <b>"Genre pool on · {job} · {label}: {n} shows across {m} clients, beats {p} % of shuffles."</b></li></ul></li>
+<li>Shuffle percentages appear only in this status line, never in a learning.</li>
+</ul></td></tr>
+
+<tr><td>GK4 · How a genre-sourced learning is worded</td><td>
+<p>Wherever one appears once its pool is on, it says it isn't the client's own result:</p>
+<ul>
+<li><b>The source names the genre, the shows and the clients, as counts:</b> <b>"From {n} {label} shows across {m} clients"</b>. For example: "From 9 house / tech house shows across 3 clients".</li>
+<li><b>It never names another client or another client's show.</b> D10's "never another client's shows" stands.</li>
+<li><b>The client's own result always wins.</b> Genre is a fallback. When it's used because the client's own is thin, the line says so: <b>"Not enough of {client}'s own shows yet, so this is from {n} {label} shows across {m} clients."</b></li>
+<li><b>Lab writer's shape line:</b> the finding first, then the source line under it, as in frame G3.</li>
+<li><b>Plan predictions</b> (a comparable set when the venue has fewer than 2 shows): <b>"Compared with {n} {label} shows across {m} clients"</b>.</li>
+<li><b>Never on a client's share link or client dashboard.</b> Genre learnings are operator tools, and an aggregate of other clients' shows doesn't belong on a client's page.</li>
+</ul></td></tr>
+
+<tr><td>GK5 · The insights rail's scope</td><td>
+<ul>
+<li>While every active client is music, the scope picker reads <b>Client · Genre · All</b>. "Vertical" comes back only when a non-music client does.</li>
+<li>"Genre" is a choice only when the event has a confirmed family and that family's pool is on for the rail's job. Otherwise it's dimmed, with <b>"Not enough {label} shows yet."</b>, or <b>"No genre set for this show."</b> when the family isn't set.</li>
+</ul></td></tr>
+
+<tr><td>GK6 · The reference library (D10)</td><td>
+<p>D10 stands. Genre can filter a client's own library, for example Electric Brixton's garage nights. It never adds another client's shows.</p></td></tr>
+
+<tr><td>GK7 · Few shows never read "strong"</td><td>
+<p>At genre scope, a row needs at least 3 shows before it shows at all, as the build plans. Separately, at any scope, a row from fewer than 3 shows never reads "strong". Its confidence wording tops out at the level below. Whether client-scope rows also need 3 shows to show at all is a statistics call for the build, not a wording rule.</p></td></tr>
+
+<tr><td>GK8 · Not ruled here</td><td>
+<p>These are Matas's:</p>
+<ul>
+<li>unarchiving Junction 2 and backfilling its 2026 per-ad insights;</li>
+<li>which family each show takes, for example Puzzle, Throwback, GMC, Rudimental, Don Diablo and L.P Rhythm;</li>
+<li>whether the Bridger series is its own family;</li>
+<li>the house / tech house copy-shape test.</li>
+</ul></td></tr>
+</table>
+
+<h2>Frames</h2>
+<div class="frame">
+<figure><figcaption>G1 · event form · not set, with a suggestion</figcaption>
+<div class="vp w1280">
+<div class="fl">Genre</div>
+<div class="sel"><span class="ph">Not set</span><span>▾</span></div>
+<div class="sug"><span>Suggested: Techno, from the genre tags</span><a>Use it</a></div>
+<div class="help">One per show. Shows of the same genre can share learnings once there are enough of them.</div>
+</div></figure>
+<figure><figcaption>G2 · 393 · the list open</figcaption>
+<div class="vp w393">
+<div class="fl">Genre</div>
+<div class="sel"><span>Techno</span><span>▴</span></div>
+<div class="opts">
+<div>House / tech house</div>
+<div>Deep / afro house</div>
+<div>Melodic / progressive</div>
+<div>Disco</div>
+<div>Garage / bass</div>
+<div>Drum &amp; bass</div>
+<div class="on">Techno</div>
+<div>Hard techno</div>
+<div>Commercial / nostalgia</div>
+<div class="sep">No single genre</div>
+</div>
+</div></figure>
+</div>
+<div class="frame">
+<figure><figcaption>G3 · Lab writer · a genre-sourced shape line</figcaption>
+<div class="vp w1280">
+<div class="lline">Name the act first and give the date in the body.<span class="src">Not enough of Puzzle's own shows yet, so this is from 9 house / tech house shows across 3 clients.</span></div>
+<div class="lline">Plan · Compared with 6 melodic / progressive shows across 2 clients</div>
+</div></figure>
+<figure><figcaption>G4 · learning-refresh report · operator status</figcaption>
+<div class="vp w393">
+<div class="lline">Genre pool off · copy_features: 9 house / tech house shows across 3 clients. Needs 5 shows across 2 clients, and to beat 90 % of shuffles. Today: 63 %.</div>
+</div></figure>
+</div>
+<p class="lead">G3 and G4 are internal surfaces. Client names in a fallback line take the possessive as written: "of Puzzle's own shows".</p>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li>The event form at 1280 and 393: "Not set" by default, the suggestion line and "Use it", the helper line exactly, and the list in GK1's order, ending with "No single genre".</li>
+<li>No path writes <code>genre_family</code> without an operator: no bulk write, no default.</li>
+<li>While a pool is off, no reader returns a genre row. A test asserts it per reader.</li>
+<li>Learning lines carry GK4's source wording. A test asserts that no other client's name appears in any genre-sourced line, and that none renders on a share link.</li>
+</ul>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The field name "Genre", the nine labels, their order, and "No single genre".</li>
+<li>"Suggested: {label}, from the genre tags" / "… from the lineup", and "Use it".</li>
+<li>"One per show. Shows of the same genre can share learnings once there are enough of them."</li>
+<li>The two status lines in GK3.</li>
+<li>"From {n} {label} shows across {m} clients", the fallback sentence, and "Compared with {n} {label} shows across {m} clients".</li>
+<li>The rail's "Not enough {label} shows yet." and "No genre set for this show."</li>
+</ul>
+
+</div>
+</body>
+</html>

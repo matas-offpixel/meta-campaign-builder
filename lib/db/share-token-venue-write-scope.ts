@@ -26,6 +26,11 @@ import {
  *     AND the share owner still owns the resolved venue event(s).
  *   - Returns a structured `{ ok: false, status, body }` error otherwise.
  *
+ * A venue token's `eventId`, when the caller passes one, must be an event in
+ * that venue (same client and event_code, owned by the share owner); any
+ * other event is a 404, so a venue link can only read or write its own
+ * venue's rows.
+ *
  * `requireCanEdit` defaults to true — POST/PATCH/DELETE callers should
  * leave it at the default; GET callers pass `requireCanEdit: false` so
  * view-only shares can still list the rows.
@@ -101,6 +106,9 @@ export async function assertVenueShareTokenWritable(
 
   if (isVenueScopedShare(resolved.share)) {
     eventCode = resolved.share.event_code;
+    // The caller's event must be in this venue: the anchor lookup below
+    // checks it against (client_id, event_code).
+    if (options?.eventId) anchorEventId = options.eventId;
   } else {
     if (!options?.eventId) {
       return {
@@ -197,7 +205,9 @@ export async function assertVenueShareTokenWritable(
       status: 404,
       body: {
         ok: false,
-        error: "Venue has no events under this event_code",
+        error: options?.eventId
+          ? "Event is not part of this venue share"
+          : "Venue has no events under this event_code",
       },
     };
   }

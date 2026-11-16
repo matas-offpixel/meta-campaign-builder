@@ -17,6 +17,7 @@ export default defineConfig({
       "components/dashboard/sales/__tests__/**/*.test.tsx",
       "app/api/d2c/connections/__tests__/**/*.test.ts",
       "app/api/__tests__/**/*.test.ts",
+      "app/api/share/venue/__tests__/**/*.test.ts",
       "app/api/meta/__tests__/agency-token-guard.test.ts",
     ],
   },
