@@ -402,7 +402,7 @@ function buildRows(input: CreativeSectionInput): Built {
     tags.push(...options);
   }
 
-  const tiktok = [...input.tiktok]
+  const tiktok = tiktokWithImpressions(input.tiktok)
     .sort((a, b) => b.spend - a.spend || a.name.localeCompare(b.name))
     .map((row) => ({
       name: row.name,
@@ -542,10 +542,15 @@ export function tablesFor(built: Built, selected: readonly TagChoice[]): Creativ
   };
 }
 
-/** Meta when the view has ad days, TikTok when it has snapshot rows, both only when both do. */
+/** A snapshot row with no impressions in the period is not a creative on the page. */
+function tiktokWithImpressions(rows: readonly TikTokRef[]): TikTokRef[] {
+  return rows.filter((row) => row.impressions > 0);
+}
+
+/** Meta when the view has ad days, TikTok when a row was seen, both only when both do. */
 function sourceLine(input: CreativeSectionInput): string {
   const meta = input.days.length > 0;
-  const tiktok = input.tiktok.length > 0;
+  const tiktok = tiktokWithImpressions(input.tiktok).length > 0;
   const channels = meta && tiktok ? "Meta and TikTok" : meta ? "Meta" : tiktok ? "TikTok" : null;
   return [input.client, input.show, channels, `to ${input.through}`].filter((part) => part).join(" · ");
 }
