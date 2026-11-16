@@ -1,0 +1,216 @@
+/**
+ * A venue with no Internal Counts (Electric Studios on 15 Nov): Total sold,
+ * Sales and the trajectory said "Internal Counts, 15 Nov" / "count of 15 Nov",
+ * borrowing the spend date. With no counts in scope they say so.
+ */
+
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { phoneSpan } from "@/components/dashboard/sales/phone-copy";
+import { SalesDashboard } from "@/components/dashboard/sales/sales-dashboard";
+import { NO_TICKET_COUNTS_LINE, NO_TICKET_COUNTS_WORDS, tileSubline } from "@/components/dashboard/sales/tile-copy";
+import { NO_COUNTS_BAR, buildSalesDashboard } from "@/lib/dashboard/sales-calc/model";
+import { LIVE_LIKE_INPUT } from "@/lib/dashboard/sales-live-like-input";
+import { NO_TICKET_COUNTS, type SalesSurface } from "@/lib/dashboard/sales-vs-spend";
+
+afterEach(() => {
+  cleanup();
+});
+
+/** The live-like rows with Electric Studios' one show (Fever 105) not counted yet. */
+function noStudiosCounts() {
+  const input = structuredClone(LIVE_LIKE_INPUT);
+  for (const show of input.shows) {
+    if (show.venueKey !== "electric studios") continue;
+    show.counts = [];
+    show.finalCount = null;
+  }
+  return buildSalesDashboard(input).model;
+}
+
+const MODEL = noStudiosCounts();
+const STUDIOS = "venue:electric studios";
+const SURFACES: SalesSurface[] = ["internal", "share"];
+
+function tileLabel(name: string): string {
+  return screen.getByRole("button", { name: new RegExp(`^${name}, `) }).getAttribute("aria-label") ?? "";
+}
+
+describe("the words stay in step with the model", () => {
+  it("no ticket counts yet", () => {
+    expect(NO_TICKET_COUNTS_WORDS).toBe(NO_TICKET_COUNTS);
+    expect(NO_TICKET_COUNTS_LINE).toBe(NO_COUNTS_BAR);
+  });
+});
+
+describe("the model: a venue with no counts has no count date", () => {
+  it("Electric Studios has countDay null and 0 counted shows; Electric Bristol and All venues keep 12 Nov", () => {
+    expect(MODEL.views[STUDIOS].countDay).toBeNull();
+    expect(MODEL.views[STUDIOS].showCounts).toEqual({ counted: 0, shows: 1 });
+    expect(MODEL.views["venue:electric bristol"].countDay).toBe("2026-11-12");
+    expect(MODEL.views.all.countDay).toBe("2026-11-12");
+  });
+});
+
+describe.each(SURFACES)("%s: Electric Studios with no counts", (surface) => {
+  it("Total sold, Sales and Cost per ticket say 'no ticket counts yet', never a date", () => {
+    render(<SalesDashboard model={MODEL} surface={surface} initialShowId={STUDIOS} initialVenueKey="electric studios" initialPeriod="launch" />);
+    expect(tileLabel("Total sold")).toBe("Total sold, —, to date · no ticket counts yet");
+    expect(tileLabel("Sales")).toBe("Sales, —, since launch · no ticket counts yet");
+    expect(tileLabel("Cost per ticket")).toBe("Cost per ticket, —, since launch · no ticket counts yet");
+    expect(document.body.textContent).not.toMatch(/Internal Counts, \d|count of \d|the 0 shows/);
+  });
+
+  it("the trajectory's Sold tile and legend carry no count date, and Projected is no '0–0'", () => {
+    const { container } = render(
+      <SalesDashboard model={MODEL} surface={surface} initialShowId={STUDIOS} initialVenueKey="electric studios" initialPeriod="launch" />,
+    );
+    const tiles = [...container.querySelectorAll("li")];
+    const sold = tiles.find((li) => li.textContent?.startsWith("Sold") && li.className.includes("rounded-md"))!;
+    expect(sold.textContent).toBe("Sold—No ticket counts yet");
+    expect(screen.getByText("Sold", { selector: "li" })).toBeTruthy();
+    const projected = tiles.find((li) => li.textContent?.startsWith("Projected on show day"))!;
+    expect(projected.textContent).not.toContain("0–0");
+    // The show's own bar already said so.
+    expect(screen.getAllByText("No ticket counts yet").length).toBeGreaterThan(1);
+  });
+
+  it("in a period, the same: no borrowed date anywhere", () => {
+    render(<SalesDashboard model={MODEL} surface={surface} initialShowId={STUDIOS} initialVenueKey="electric studios" initialPeriod="7" />);
+    expect(tileLabel("Total sold")).toBe("Total sold, —, to date · no ticket counts yet");
+    expect(tileLabel("Sales")).toBe("Sales, —, in 7 days · no ticket counts yet");
+    expect(document.body.textContent).not.toMatch(/Internal Counts, \d|count of \d/);
+  });
+
+  it("the show itself (Fever 105) says the same", () => {
+    render(<SalesDashboard model={MODEL} surface={surface} initialShowId="es26-fever105" initialVenueKey="electric studios" initialPeriod="launch" />);
+    expect(tileLabel("Total sold")).toBe("Total sold, —, to date · no ticket counts yet");
+    expect(tileLabel("Sales")).toBe("Sales, —, since launch · no ticket counts yet");
+  });
+});
+
+describe.each(SURFACES)("%s: venues with counts are unchanged", (surface) => {
+  it("All venues keeps 'Internal Counts, 12 Nov' and 'count of 12 Nov'", () => {
+    render(<SalesDashboard model={MODEL} surface={surface} initialShowId="all" initialVenueKey="all" initialPeriod="launch" />);
+    expect(tileLabel("Total sold")).toContain("to date · Internal Counts, 12 Nov");
+    expect(tileLabel("Sales")).toBe(`Sales, ${MODEL.views.all.tiles.find((t) => t.id === "tickets")!.value}, since launch, to 12 Nov`);
+    expect(document.body.textContent).toContain("Sold, count of 12 Nov");
+  });
+
+  it("Electric Bristol keeps its count date", () => {
+    render(<SalesDashboard model={MODEL} surface={surface} initialShowId="venue:electric bristol" initialVenueKey="electric bristol" initialPeriod="launch" />);
+    expect(tileLabel("Total sold")).toContain("Internal Counts, 12 Nov");
+    expect(tileLabel("Sales")).toContain("since launch, to 12 Nov");
+  });
+});
+
+describe("phone spans with no counts", () => {
+  const tile = { narrowDetail: NO_TICKET_COUNTS, title: "" };
+  it("Total sold and Sales say 'no ticket counts yet'; Cost per ticket names no count", () => {
+    expect(phoneSpan("sold", "launch", null, tile)).toBe("no ticket counts yet");
+    expect(phoneSpan("tickets", "launch", null, tile)).toBe("no ticket counts yet");
+    expect(phoneSpan("tickets", "7", null, tile)).toBe("in 7 days");
+    expect(phoneSpan("costPerTicket", "launch", null, tile)).toBe("since launch");
+  });
+
+  it("with a count date, unchanged", () => {
+    expect(phoneSpan("tickets", "launch", "12 Nov", tile)).toBe("since launch, to 12 Nov");
+    expect(phoneSpan("costPerTicket", "launch", "12 Nov", tile)).toBe("spend to the 12 Nov count");
+  });
+});
+
+describe("tileSubline with no counts", () => {
+  it("Total sold, Sales since launch and Cost per ticket", () => {
+    expect(tileSubline("sold", NO_TICKET_COUNTS, "launch", null)).toBe("to date · no ticket counts yet");
+    expect(tileSubline("sold", NO_TICKET_COUNTS, "14", null)).toBe("to date · no ticket counts yet");
+    expect(tileSubline("tickets", NO_TICKET_COUNTS, "launch", null)).toBe("since launch · no ticket counts yet");
+    expect(tileSubline("costPerTicket", NO_TICKET_COUNTS, "launch", null, { showsWithCounts: 0, shows: 1 }, true)).toBe(
+      "since launch · no ticket counts yet",
+    );
+  });
+
+  it("with a count date, unchanged", () => {
+    expect(tileSubline("sold", "to date · Internal Counts, 12 Nov", "launch", "12 Nov")).toBe("to date · Internal Counts, 12 Nov");
+    expect(tileSubline("tickets", "since launch, to 12 Nov", "launch", "12 Nov")).toBe("since launch, to 12 Nov");
+  });
+});
+
+describe("NC1 / NC1S frames: Electric Studios with no counts (L.P Rhythm)", () => {
+  it("the fixture is the record's shape: countDay null, 0 of 1 shows counted, £590 Meta, 754 registrations, capacity 1,000", async () => {
+    const { NX_SALES_NO_COUNTS } = await import("@/lib/dashboard/sales-vs-spend-fixture");
+    const view = NX_SALES_NO_COUNTS.views[STUDIOS];
+    expect(view.countDay).toBeNull();
+    expect(view.showCounts).toEqual({ counted: 0, shows: 1 });
+    expect(view.tiles.find((t) => t.id === "spend")!.value).toBe("£590");
+    expect(view.tiles.find((t) => t.id === "registrations")!.value).toBe("754");
+    if (view.trajectory.kind !== "all") throw new Error("all");
+    expect(view.trajectory.bars).toEqual([expect.objectContaining({ label: "L.P Rhythm · 6 Feb", allocation: 1000, caption: "No ticket counts yet" })]);
+  });
+
+  it("are registered internal and share, Since launch, at 1280 and 393, and in the overflow guard", async () => {
+    const { DASHBOARD_V2_FRAMES } = await import("@/scripts/plan-frames/dashboard-v2-ids");
+    expect(DASHBOARD_V2_FRAMES.NC1).toMatchObject({ surface: "internal", showId: STUDIOS, period: "launch", fixture: "no-counts" });
+    expect(DASHBOARD_V2_FRAMES.NC1S).toMatchObject({ surface: "share", showId: STUDIOS, period: "launch", fixture: "no-counts" });
+    const { DASHBOARD_V2_SHOTS } = await import("@/scripts/plan-frames/dashboard-v2-shots.mjs");
+    const ids = (DASHBOARD_V2_SHOTS as { id: string }[]).map((s) => s.id);
+    for (const id of ["NC1-1280", "NC1-393", "NC1S-1280", "NC1S-393"]) expect(ids).toContain(id);
+    const { OVERFLOW_FRAMES } = await import("@/scripts/plan-frames/overflow-guard.mjs");
+    expect(OVERFLOW_FRAMES).toEqual(expect.arrayContaining(["sales/NC1", "sales/NC1S"]));
+  });
+});
+
+/** Design FAIL on #1271 at c314ae8: three spots where the no-counts scope still drew counts. */
+describe.each(SURFACES)("%s: the no-counts scope draws no counts (design on c314ae8)", (surface) => {
+  function studios() {
+    return render(<SalesDashboard model={MODEL} surface={surface} initialShowId={STUDIOS} initialVenueKey="electric studios" initialPeriod="launch" />);
+  }
+  function allVenues() {
+    return render(<SalesDashboard model={MODEL} surface={surface} initialShowId="all" initialVenueKey="all" initialPeriod="launch" />);
+  }
+
+  it("1. the freshness line drops 'Counts to …' and keeps Spend and Signups", () => {
+    const { container } = studios();
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/Counts (to )?\d/);
+    expect(screen.getAllByText("Spend to 13 Nov").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Signups to 13 Nov").length).toBeGreaterThan(0);
+    // The phone's one-line stamp row.
+    expect(screen.getByText("Spend 13 Nov · Signups 13 Nov")).toBeTruthy();
+  });
+
+  it("2. the chart draws the spend axis only: caption, legend, no right axis, no dot sentence", () => {
+    const { container } = studios();
+    const text = container.textContent ?? "";
+    expect(screen.getAllByText("Left axis: spend (£).").length).toBeGreaterThan(0);
+    expect(text).not.toContain("Right axis");
+    // Both charts (wide and phone): no Total sold axis title, ticks or legend entry.
+    const charts = [...container.querySelectorAll("figure")].map((f) => f.textContent ?? "").join(" | ");
+    expect(charts.length).toBeGreaterThan(0);
+    expect(charts).not.toMatch(/total sold/i);
+    expect(charts).toMatch(/Spend/);
+    expect(text).not.toContain("A dot is a real Internal Count");
+    expect(text).toContain("Solid lines are volumes; the dashed line in the same colour is its cost.");
+  });
+
+  it("3. Pace and Projected read '—' alone", () => {
+    const { container } = studios();
+    const tiles = [...container.querySelectorAll("li")].filter((li) => li.className.includes("rounded-md border border-border px-2.5"));
+    const pace = tiles.find((li) => li.textContent?.startsWith("Pace, last 7 days"))!;
+    const projected = tiles.find((li) => li.textContent?.startsWith("Projected on show day"))!;
+    expect(pace.textContent).toBe("Pace, last 7 days—");
+    expect(projected.textContent).toBe("Projected on show day—");
+    expect(container.textContent).not.toMatch(/14-day/);
+  });
+
+  it("a scope with counts is unchanged: Counts stamp, the sold axis, the dot sentence, Pace a day", () => {
+    const { container } = allVenues();
+    const text = container.textContent ?? "";
+    expect(screen.getAllByText("Counts to 12 Nov").length).toBeGreaterThan(0);
+    expect(text).toContain("Right axis: total sold (tickets).");
+    const charts = [...container.querySelectorAll("figure")].map((f) => f.textContent ?? "").join(" | ");
+    expect(charts).toMatch(/total sold/i);
+    expect(text).toContain("A dot is a real Internal Count; between two counts the line is a straight estimate.");
+    expect(text).toMatch(/14-day [\d.]+ a day/);
+  });
+});

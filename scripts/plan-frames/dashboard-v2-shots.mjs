@@ -6,7 +6,8 @@
 import { AUDIENCE_PANEL_SHOTS } from "./audience-panels-shots.mjs";
 import { CREATIVE_SHOTS } from "./creative-section-shots.mjs";
 
-export const DASHBOARD_V2_FRAME_IDS = ["DV1", "DV2", "DV3", "NV1", "NV2", "NV5", "NV6"];
+/** NC1 / NC1S (#1271): a venue with no Internal Counts, internal and share. */
+export const DASHBOARD_V2_FRAME_IDS = ["DV1", "DV2", "DV3", "NV1", "NV2", "NV5", "NV6", "NC1", "NC1S"];
 export const DASHBOARD_V2_WIDTHS = [1280, 393];
 
 /**
