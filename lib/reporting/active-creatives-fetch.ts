@@ -1236,9 +1236,6 @@ export async function fetchActiveCreativesForEvent(
             input.datePreset,
             input.customRange,
           );
-          console.info(
-            `[active-creatives] insights_fetch_ok campaign_id=${c.id} campaign_name=${JSON.stringify(c.name ?? null)} date_preset=${input.datePreset ?? "default"} insights_rows=${map.size}`,
-          );
           return { campaign: c, map };
         } catch (err) {
           if (isMetaAuthError(err)) authExpired = true;
@@ -1263,6 +1260,14 @@ export async function fetchActiveCreativesForEvent(
         }
       }),
     ),
+  );
+
+  // One line per fetch, not one per campaign: Vercel keeps about 256
+  // log lines per request, and per-campaign lines from a 16-campaign
+  // event pushed the cron's own summary out of its logs (16 Nov 2026).
+  // Failures still log one line each above.
+  console.info(
+    `[active-creatives] insights_fetch_done event=${eventCode} date_preset=${input.datePreset ?? "default"} campaigns=${insightsResults.length} insights_rows=${insightsResults.reduce((n, r) => n + r.map.size, 0)}`,
   );
 
   // Merge per-campaign insights into one event-wide map keyed by
@@ -1431,7 +1436,8 @@ export async function fetchActiveCreativesForEvent(
   // access_token for public clients). Capped per Lambda
   // invocation; one log line per distinct creative_id.
   const previewTierLogged = new Set<string>();
-  const PREVIEW_TIER_LOG_CAP = 50;
+  // Kept small: these lines count toward Vercel's ~256 per request.
+  const PREVIEW_TIER_LOG_CAP = 5;
   // Diagnostic: ~40% of Innervisions cards render ImageOff because
   // Meta's /?ids= batched creative read silently drops some IDs
   // that phase-1 /ads successfully returned. Log the missing IDs
