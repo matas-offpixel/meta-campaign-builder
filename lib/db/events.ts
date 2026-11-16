@@ -51,6 +51,12 @@ type EventBridgeColumns = {
   objective: string | null;
   campaign_end_at: string | null;
   report_cadence: ReportCadence;
+  /**
+   * Migration 253 (unapplied until Matas applies it). One of
+   * GENRE_FAMILY_KEYS (lib/learning/genre/families.ts), or null for
+   * "Not set". Written only from the operator event form.
+   */
+  genre_family: string | null;
 };
 
 export type EventRow = Omit<Tables<"events">, keyof EventBridgeColumns> &

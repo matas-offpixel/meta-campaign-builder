@@ -8,6 +8,7 @@ import { lookupCirqlinPage } from "@/lib/cirqlin/page";
 import { refreshCirqlinPageCache } from "@/lib/event-config/cirqlin-refresh";
 import { loadEventConfigPanel } from "@/lib/event-config/panel";
 import { getEventByIdServer } from "@/lib/db/events-server";
+import { loadLineupGenres } from "@/lib/db/event-lineup-genres";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -22,6 +23,8 @@ export default async function EditEventPage({ params }: Props) {
   // D9 config (migration 235). Until 235 is applied the read fails, and the
   // panel says so rather than taking the edit page down.
   const supabase = await createClient();
+  // GK2: the Genre suggestion's "… from the lineup" fallback. Read only.
+  const lineupGenres = await loadLineupGenres(supabase, event.id);
   const config = await loadEventConfigPanel(supabase, event.id, event.client_id ?? null).catch((err) => {
     console.error("[EditEventPage] loadEventConfigPanel failed:", err);
     return null;
@@ -51,7 +54,7 @@ export default async function EditEventPage({ params }: Props) {
             <ArrowLeft className="h-3 w-3" />
             Back
           </Link>
-          <EventForm mode="edit" initial={event} />
+          <EventForm mode="edit" initial={event} lineupGenres={lineupGenres} />
           {config ? (
             <EventConfigPanel eventId={event.id} data={config} />
           ) : (

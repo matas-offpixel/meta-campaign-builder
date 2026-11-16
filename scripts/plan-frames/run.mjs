@@ -45,6 +45,7 @@ import { DRIVE_PICKER_SHOTS } from "./drive-picker-shots.mjs";
 import { DASHBOARD_V2_SHOTS } from "./dashboard-v2-shots.mjs";
 import { EVENT_CONFIG_SHOTS } from "./event-config-shots.mjs";
 import { INTERNAL_COUNTS_SHOTS } from "./internal-counts-shots.mjs";
+import { GENRE_SHOTS } from "./genre-shots.mjs";
 
 const PLAYWRIGHT_PIN = "1.63.0";
 const require = createRequire(import.meta.url);
@@ -78,7 +79,7 @@ const ONLY = (() => {
   const at = process.argv.indexOf("--only");
   return at >= 0 ? process.argv[at + 1] ?? "" : "";
 })();
-const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS, ...BANK_SHOTS, ...QUOTE_SHOTS, ...PLACEMENT_SHOTS, ...VOICE_SHOTS, ...SELECTION_SHOTS, ...AUDIO_SHOTS, ...FOOTAGE_SHOTS, ...REFRESH_SHOTS, ...EVENT_CONFIG_SHOTS, ...INTERNAL_COUNTS_SHOTS, ...DRIVE_PICKER_SHOTS, ...DASHBOARD_V2_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
+const FRAME_SHOTS = [...PLAN_SHOTS, ...LAB_SHOTS, ...RAIL_SHOTS, ...BANK_SHOTS, ...QUOTE_SHOTS, ...PLACEMENT_SHOTS, ...VOICE_SHOTS, ...SELECTION_SHOTS, ...AUDIO_SHOTS, ...FOOTAGE_SHOTS, ...REFRESH_SHOTS, ...EVENT_CONFIG_SHOTS, ...INTERNAL_COUNTS_SHOTS, ...GENRE_SHOTS, ...DRIVE_PICKER_SHOTS, ...DASHBOARD_V2_SHOTS].filter((shot) => !ONLY || shot.id.startsWith(ONLY));
 const RUN_GUARD = !ONLY || "IR0".startsWith(ONLY);
 const TIKTOK_SANS = path.join(ROOT, "src/remotion/fonts/TikTokSans[opsz,slnt,wdth,wght].ttf");
 

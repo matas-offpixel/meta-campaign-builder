@@ -19,7 +19,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { THIN_MIN_AD_SET_SPEND_GBP } from "../analysis/interest-performance.ts";
 import { rollAd } from "./copy/shows.ts";
 import type { CreativeTag, LearningClient, LearningFact, Stage } from "./joins.ts";
-import { choosePool, confidenceOf, shrinkIndex, type Confidence, type PoolRow } from "./shrink.ts";
+import { capByShows, choosePool, confidenceOf, shrinkIndex, type Confidence, type PoolRow } from "./shrink.ts";
 
 export const TAG_WINDOW_DAYS = 90;
 
@@ -176,6 +176,7 @@ export function computeTagPerformance(
     const cpr = b.stage !== "unknown" && results > 0 ? spend / results : null;
     const base = baseline.get(`${b.scope}|${b.scopeId}|${b.stage}`) ?? null;
     const index = cpr != null && base ? cpr / base : null;
+    const eventsN = showCount(b.ads);
     rows.set(key, {
       scope: b.scope,
       scope_id: b.scopeId,
@@ -191,7 +192,7 @@ export function computeTagPerformance(
       landing_page_views: sum((a) => a.lpv),
       video_plays_3s: sum((a) => a.plays3s),
       results,
-      events_n: showCount(b.ads),
+      events_n: eventsN,
       cpr: cpr == null ? null : round(cpr, 4),
       ctr: impressions > 0 ? round(linkClicks / impressions, 6) : null,
       baseline_cpr: base == null ? null : round(base, 4),
@@ -199,7 +200,8 @@ export function computeTagPerformance(
       pool_index: null,
       n_effective: null,
       shrunk_index: null,
-      confidence: confidenceOf(funded, spend, results),
+      // GK7: fewer than 3 shows never reads "strong", at any scope.
+      confidence: capByShows(confidenceOf(funded, spend, results), eventsN),
       computed_at: computedAt,
     });
   }
