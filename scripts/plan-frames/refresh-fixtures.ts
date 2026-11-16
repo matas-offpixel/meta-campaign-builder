@@ -245,8 +245,8 @@ export const OR1_PROPOSALS: PanelProposal[] = [
  * On Sale campaign. On Sale: one bring-back acceptable (£9.10 a day × 20 =
  * £182.00), one held by the plan guard (£34.00 × 20 = £680.00), the drop
  * accepted, the move applied, and the interest cluster as a new ad set
- * copied from Adv+ (£14.50 a day from plan headroom). Purchase: the
- * retargeting standing default (£3.80 a day from plan headroom), the
+ * copied from Adv+ (starts at £14.50 a day from plan headroom). Purchase: the
+ * retargeting standing default (starts at £3.80 a day from plan headroom), the
  * registrations lookalike held at a seed of 64, and a move into its
  * lookalike set held by the cap (£30.00 > £28.00 free). The Purchase
  * campaign has no retargeting ad set, so nothing in it names one. Cluster
@@ -402,20 +402,20 @@ export const OR8_CLUSTER = {
   detail: "Interest cluster · index 1.25 · confidence ok · not on this event",
   extra: "Interests: Disc Genre, Minimal techno, Deep house +4",
   narrow: "Cluster · index 1.25 · 7 interests",
-  write: "New ad set: a copy of Adv+ (£6.10 per IC) with these interests · 6 creatives reused · £14.50 a day from plan headroom · goes in live",
-  narrowWrite: "New ad set from Adv+ · £14.50 a day from plan headroom · live",
+  write: "New ad set: a copy of Adv+ (£6.10 per IC) with these interests · 6 creatives reused · starts at £14.50 a day, Adv+'s daily budget, from plan headroom · goes in live",
+  narrowWrite: "New ad set from Adv+ · starts at £14.50 a day, from plan headroom · live",
 };
 export const OR8_RETARGETING = {
   detail: "This campaign has no retargeting ad set.",
   extra: "Builds 4 audiences, targeted together: landing-page visitors 1840 · ticket-link visitors 412 · video viewers · registrations 3105 (our counts, last 30–180 days)",
-  write: "New audience and ad set: a copy of Broad — Primary aimed at this audience only · 4 creatives reused · £3.80 a day from plan headroom · goes in live",
-  narrowWrite: "New audience and ad set from Broad — Primary · £3.80 a day from plan headroom · live",
+  write: "New audience and ad set: a copy of Broad — Primary aimed at this audience only · 4 creatives reused · starts at £3.80 a day, Broad — Primary's daily budget, from plan headroom · goes in live",
+  narrowWrite: "New audience and ad set from Broad — Primary · starts at £3.80 a day, from plan headroom · live",
 };
 export const OR8_LOOKALIKE = {
   detail: "The registrations lookalike isn't in its own ad set.",
   extra: "Seed: 64 registrations on the pixel · 1 % lookalike in GB",
-  write: "New audience and ad set: a copy of Broad — Primary aimed at this audience only · 4 creatives reused · £3.80 a day from plan headroom · goes in live",
-  narrowWrite: "New audience and ad set from Broad — Primary · £3.80 a day from plan headroom · live",
+  write: "New audience and ad set: a copy of Broad — Primary aimed at this audience only · 4 creatives reused · starts at £3.80 a day, Broad — Primary's daily budget, from plan headroom · goes in live",
+  narrowWrite: "New audience and ad set from Broad — Primary · starts at £3.80 a day, from plan headroom · live",
 };
 
 const OR8_WEEK = { runKind: "cycle" as const, runDay: "2026-12-07", cycleMonday: "2026-12-07", cycleKind: "content" as const, windowStart: "2026-11-30", windowEnd: "2026-12-06", nextCheck: "2026-12-14", nextCycle: null, nextCycleKind: null, watch: { creatives: [], audiences: [] } };
@@ -470,8 +470,8 @@ export const OR9_PROPOSALS: PanelProposal[] = [
         title: "Melodic Techno",
         detail: "Interest cluster · index 1.35 · confidence ok · not on this event",
         extra: "Interests: Melodic techno, Afterlife, Tale Of Us +2",
-        narrow: { detail: "Cluster · index 1.35 · 5 interests", writeText: "New ad set from Adv+ · £14.50 a day from plan headroom · live" },
-        writeText: "New ad set: a copy of Adv+ (£6.10 per IC) with these interests · 6 creatives reused · £14.50 a day from plan headroom · goes in live",
+        narrow: { detail: "Cluster · index 1.35 · 5 interests", writeText: OR8_CLUSTER.narrowWrite },
+        writeText: OR8_CLUSTER.write,
         state: "failed",
         reason: OR9_RESULTS.partial,
         writeKind: "new_adset",

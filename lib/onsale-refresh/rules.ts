@@ -702,13 +702,17 @@ function newAdSetContext(input: CampaignInput): NewSetContext {
     const only = pickCopySource(input.adSets, input.plan.window.end);
     return { copy: null, giver: null, funding: { mode: "none" }, budgetLevel, ...(only ? { lifetimeCopy: { adsetId: only.adsetId, name: only.name } } : {}) };
   }
+  const spendGbp = round2(source.recentDailySpend ?? source.weekSpend / 7);
   const copy: CopySource = {
     adsetId: source.adsetId,
     name: source.name,
     cprGbp: source.weekResults > 0 ? round2(source.weekSpend / source.weekResults) : null,
     resultLabel: label,
-    dailyGbp: round2(source.recentDailySpend ?? source.weekSpend / 7),
+    // What Apply writes: the copied ad set's daily budget (read in the batch); not read, its recent spend sizes the funding and the line names no figure.
+    dailyGbp: read?.dailyBudgetMinor != null ? read.dailyBudgetMinor / 100 : spendGbp,
     creatives: Math.max(1, Math.min(MAX_REUSED_CREATIVES, source.deliveringAds ?? 1)),
+    dailyBudgetGbp: read?.dailyBudgetMinor != null ? read.dailyBudgetMinor / 100 : null,
+    recentSpendGbp: spendGbp,
   };
   // A giver Apply can take from: an ad-set daily budget (not CBO, not lifetime) that stays at £1.00 a day after giving the copy's daily budget.
   const takes = read?.dailyBudgetMinor ?? Math.round(copy.dailyGbp * 100);
