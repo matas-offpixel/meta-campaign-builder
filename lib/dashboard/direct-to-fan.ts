@@ -23,10 +23,13 @@
 
 import { summariseD2CStats, type BroadcastStat, type ChannelGroup, type ChannelTotals, type MessageRate, type StoredStatsRow } from "../d2c/stats-ingest/summary.ts";
 import type { D2CShowVenue } from "../d2c/stats-ingest/read.ts";
+import { cqListNames } from "../d2c/stats-ingest/attribution.ts";
 
 export const DIRECT_TO_FAN_TITLE = "Direct-to-fan";
 export const RATE_NOT_SET = "Rate not set";
 export const WHOLE_LIST = "Whole list";
+/** A client's own send that matched no show and is not its whole list (migration 248). */
+export const NOT_TIED = "Not tied to a show";
 export const BOT_FILTER_FOOTNOTE = "Email opens are Mailchimp's bot-filtered opens: Apple Mail Privacy and link-scanner opens removed.";
 export const DIRECT_TO_FAN_EMPTY = "No direct-to-fan sends yet";
 export const CLICK_RATE_TITLE = "Click rate · clicks ÷ delivered";
@@ -58,7 +61,7 @@ export type SendRow = {
   id: string;
   dayText: string;
   name: string;
-  /** The show's name, or WHOLE_LIST. */
+  /** The show's name, WHOLE_LIST or NOT_TIED. */
   showText: string;
   channelText: string;
   deliveredText: string;
@@ -85,6 +88,8 @@ export type DirectToFanModel = {
   footnote: string | null;
   /** PI6's internal review line; always null on the share link. */
   reviewLine: string | null;
+  /** PT1: not-tied sends whose audience couldn't be read; internal only, null on a show. */
+  unreadLine: string | null;
   sends: SendRow[];
   /** Whether the Show column is drawn (not on a show's own view). */
   showColumn: boolean;
@@ -131,6 +136,25 @@ export function sendDay(iso: string | null): string {
   return `${day} ${MONTHS[month - 1]}`;
 }
 
+/** The year a moment falls in, in London (the panel's dates are London dates). */
+export function londonYear(iso: string | number): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric" }).format(d);
+}
+
+/**
+ * A send's day as the Sends table shows it: "13 Nov" in the current year,
+ * "1 Dec 2022" in an earlier one. The current year is `nowMs`'s, in London,
+ * never the machine clock read here.
+ */
+export function sendDate(iso: string | null, nowMs: number): string {
+  const day = sendDay(iso);
+  if (day === DASH || !iso) return day;
+  const year = londonYear(iso);
+  return year && year !== londonYear(nowMs) ? `${day} ${year}` : day;
+}
+
 // ---- scope ----------------------------------------------------------------
 
 /**
@@ -151,16 +175,42 @@ export function venueAudiences(shows: readonly D2CShowVenue[], venueKey: string 
   return out;
 }
 
-/** The sends that count in a scope. Unattributed sends never count anywhere (PI6). */
+/**
+ * PT3: the CQ lists (and tiers) of the umbrella events at a venue, names as
+ * stored. A whole-list send to one of them counts on that venue's view.
+ */
+export function venueUmbrellaLists(shows: readonly D2CShowVenue[], venueKey: string | null): Set<string> {
+  const out = new Set<string>();
+  for (const s of shows) {
+    if (s.is_umbrella !== true || (s.venue_key ?? null) !== venueKey) continue;
+    for (const name of cqListNames(s.cirqlin_page_slug)) out.add(name);
+  }
+  return out;
+}
+
+function namesUmbrellaList(row: StoredStatsRow, lists: ReadonlySet<string>): boolean {
+  if (!lists.size || !Array.isArray(row.audience_refs)) return false;
+  return row.audience_refs.some((ref) => ref.include && typeof ref.name === "string" && lists.has(ref.name));
+}
+
+/**
+ * The sends that count in a scope. Unattributed sends never count anywhere
+ * (PI6). A not-tied send counts like a whole-list one: on the client, and on
+ * a venue only when its Mailchimp audience is that venue's; never in a show.
+ * A whole-list send to an umbrella event's list also counts on the umbrella
+ * event's venue, by Bird or Mailchimp (PT3).
+ */
 export function scopeRows(rows: readonly StoredStatsRow[], shows: readonly D2CShowVenue[], scope: D2CScope): StoredStatsRow[] {
   if (scope.kind === "show") return rows.filter((r) => r.attribution === "show" && r.event_id === scope.eventId);
-  if (scope.kind === "client") return rows.filter((r) => r.attribution === "show" || r.attribution === "client");
+  if (scope.kind === "client") return rows.filter((r) => r.attribution !== "unattributed");
   const ids = new Set(shows.filter((s) => (s.venue_key ?? null) === scope.venueKey).map((s) => s.id));
   const audiences = venueAudiences(shows, scope.venueKey);
+  const umbrellaLists = venueUmbrellaLists(shows, scope.venueKey);
   return rows.filter(
     (r) =>
       (r.attribution === "show" && r.event_id != null && ids.has(r.event_id)) ||
-      (r.attribution === "client" && r.provider === "mailchimp" && r.list_id != null && audiences.has(r.list_id)),
+      ((r.attribution === "client" || r.attribution === "not_tied") && r.provider === "mailchimp" && r.list_id != null && audiences.has(r.list_id)) ||
+      (r.attribution === "client" && namesUmbrellaList(r, umbrellaLists)),
   );
 }
 
@@ -205,14 +255,14 @@ function channelRow(c: ChannelTotals, currency: string, surface: D2CSurface, rat
   };
 }
 
-function sendRow(b: BroadcastStat, showName: (eventId: string) => string): SendRow {
+function sendRow(b: BroadcastStat, showName: (eventId: string) => string, nowMs: number): SendRow {
   const channelText =
     b.channel === "whatsapp" ? "WhatsApp" : b.channel === "sms" ? "SMS" : b.audienceKind === "ticket_holder" ? "Email · ticket holders" : "Email";
   return {
     id: b.id,
-    dayText: sendDay(b.sentAt),
+    dayText: sendDate(b.sentAt, nowMs),
     name: b.name ?? DASH,
-    showText: b.attribution === "show" && b.eventId ? showName(b.eventId) : WHOLE_LIST,
+    showText: b.attribution === "show" && b.eventId ? showName(b.eventId) : b.attribution === "not_tied" ? NOT_TIED : WHOLE_LIST,
     channelText,
     deliveredText: count(b.delivered),
     readOpenedText: readOpened({ channel: b.channel, readRate: b.readRate, openRate: b.opens?.rate ?? null, estimated: b.opens?.estimated ?? false }),
@@ -237,13 +287,33 @@ export function clickHeadline(channels: readonly ChannelTotals[]): string | null
   return `${lead} ${opens}`;
 }
 
-function spanOf(broadcasts: readonly BroadcastStat[]): string | null {
-  const days = broadcasts.map((b) => b.sentAt).filter((d): d is string => !!d).sort();
+/**
+ * The totals line's send span, earliest to latest send. `firstSentAt` is the
+ * scope's real first send when the summary carries only some of its sends
+ * (the frames' fixture), so the span never starts at a row the frame happens
+ * to show. The year rule (London years; the current year is `nowMs`'s):
+ *   - across years, both years: "1 Dec 2022 – 13 Nov 2026";
+ *   - wholly inside an earlier year, the year once at the end: "3 Jul – 13 Nov 2025";
+ *   - inside the current year, no year: "10 Sep – 13 Nov".
+ */
+export function sendSpan(sentAts: readonly (string | null)[], firstSentAt: string | null | undefined, nowMs: number): string | null {
+  const days = [...sentAts, firstSentAt ?? null]
+    .filter((d): d is string => !!d && !Number.isNaN(new Date(d).getTime()))
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   if (!days.length) return null;
-  const first = sendDay(days[0]!);
-  const last = sendDay(days[days.length - 1]!);
-  return first === last ? first : `${first} – ${last}`;
+  const firstIso = days[0]!;
+  const lastIso = days[days.length - 1]!;
+  const first = sendDay(firstIso);
+  const last = sendDay(lastIso);
+  const y1 = londonYear(firstIso);
+  const y2 = londonYear(lastIso);
+  if (y1 && y2 && y1 !== y2) return `${first} ${y1} – ${last} ${y2}`;
+  const span = first === last ? first : `${first} – ${last}`;
+  return y2 && y2 !== londonYear(nowMs) ? `${span} ${y2}` : span;
 }
+
+/** Options every scope's panel takes. `nowMs` decides the current year for dates (Date.now() when left out). */
+export type DirectToFanOpts = { surface: D2CSurface; showName: (eventId: string) => string; rateHref: string | null; nowMs?: number };
 
 export type DirectToFanInput = {
   /** The client's stored rows (every attribution). */
@@ -260,7 +330,7 @@ export type DirectToFanInput = {
 export function buildDirectToFan(
   input: DirectToFanInput,
   scope: D2CScope,
-  opts: { surface: D2CSurface; showName: (eventId: string) => string; rateHref: string | null },
+  opts: DirectToFanOpts,
 ): DirectToFanModel {
   const scoped = scopeRows(input.rows, input.shows, scope);
   const ratioRows = input.rows.filter((r) => r.attribution !== "unattributed");
@@ -268,23 +338,46 @@ export function buildDirectToFan(
   return modelFromSummary(summary, scope, opts, input.unattributed);
 }
 
+/**
+ * PT1: "includes {w} whole-list sends and {t} sends not tied to a show". A
+ * clause with 0 is dropped; with both 0 there is no clause.
+ */
+export function includesClause(wholeList: number, notTied: number): string | null {
+  const parts = [
+    wholeList > 0 ? `${wholeList.toLocaleString("en-GB")} whole-list ${wholeList === 1 ? "send" : "sends"}` : null,
+    notTied > 0 ? `${notTied.toLocaleString("en-GB")} ${notTied === 1 ? "send" : "sends"} not tied to a show` : null,
+  ].filter((p): p is string => p !== null);
+  return parts.length ? `includes ${parts.join(" and ")}` : null;
+}
+
+/** PT1's internal line for not-tied sends whose audience couldn't be read. */
+export function unreadText(n: number): string {
+  return n === 1
+    ? "1 send's audience couldn't be read, so it isn't tied to a show."
+    : `${n.toLocaleString("en-GB")} sends' audiences couldn't be read, so they aren't tied to a show.`;
+}
+
 /** The same model from a summary (fixtures, and the scope already filtered). */
 export function modelFromSummary(
   summary: ReturnType<typeof summariseD2CStats>,
   scope: D2CScope,
-  opts: { surface: D2CSurface; showName: (eventId: string) => string; rateHref: string | null },
+  opts: DirectToFanOpts,
   unattributed: number,
-  sendCount?: { sends: number; wholeList: number },
+  sendCount?: { sends: number; wholeList: number; notTied?: number; unread?: number; firstSentAt?: string },
 ): DirectToFanModel {
   const channels = summary.channels.map((c) => channelRow(c, summary.currency, opts.surface, summary.ratePerMessage));
-  const sends = summary.broadcasts.map((b) => sendRow(b, opts.showName));
+  const nowMs = opts.nowMs ?? Date.now();
+  const sends = summary.broadcasts.map((b) => sendRow(b, opts.showName, nowMs));
   const total = sendCount?.sends ?? summary.broadcasts.length;
   const wholeList = sendCount?.wholeList ?? summary.broadcasts.filter((b) => b.attribution === "client").length;
+  const notTiedRows = summary.broadcasts.filter((b) => b.attribution === "not_tied");
+  const notTied = sendCount?.notTied ?? notTiedRows.length;
+  const unread = sendCount?.unread ?? notTiedRows.filter((b) => !b.audienceRead).length;
   const totalsLine = [
     scope.label,
     `${total.toLocaleString("en-GB")} ${total === 1 ? "send" : "sends"}`,
-    spanOf(summary.broadcasts),
-    scope.kind !== "show" && wholeList > 0 ? `includes ${wholeList.toLocaleString("en-GB")} whole-list ${wholeList === 1 ? "send" : "sends"}` : null,
+    sendSpan(summary.broadcasts.map((b) => b.sentAt), sendCount?.firstSentAt, nowMs),
+    scope.kind !== "show" ? includesClause(wholeList, notTied) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -310,6 +403,7 @@ export function modelFromSummary(
       opts.surface === "internal" && unattributed > 0
         ? `${unattributed.toLocaleString("en-GB")} ${unattributed === 1 ? "send" : "sends"} on a shared account couldn't be tied to a client.`
         : null,
+    unreadLine: opts.surface === "internal" && scope.kind !== "show" && unread > 0 ? unreadText(unread) : null,
     sends,
     showColumn: scope.kind !== "show",
     nameColumn: sends.some((s) => s.name !== DASH),

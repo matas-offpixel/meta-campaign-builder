@@ -58,7 +58,24 @@ type Db = Pick<SupabaseClient, "from">;
 export type AudienceSpec =
   | { part: "landing" | "ticket" | "registrations"; subtype: "website_pixel"; name: string; pixelId: string; pixelEvent: string; urlContains: string[]; retentionDays: number }
   | { part: "video"; subtype: "video_views"; name: string; campaignIds: string[]; threshold: 75; retentionDays: number }
-  | { part: "lookalike"; subtype: "lookalike"; name: string; originAudienceId: string; ratio: number; country: string };
+  | { part: "lookalike"; subtype: "lookalike"; name: string; originAudienceId: string; ratio: number; country: string; /** A lookalike has no retention of its own: its seed's window, stored because meta_custom_audiences.retention_days is 1–365. */ retentionDays: number };
+
+/** meta_custom_audiences_retention_days_check (migration 068c): retention_days > 0 and ≤ 365. */
+export const MAX_RETENTION_DAYS = 365;
+
+/**
+ * The audience builder's draft fields for a spec: its source, source meta
+ * and retention_days. A video-viewer audience takes the videos the caller
+ * listed. Every spec carries a retention in 1–365, so the draft insert
+ * (which runs before any Meta call) never fails the CHECK.
+ */
+export function audienceDraftFields(spec: AudienceSpec, videos?: { videoIds: string[]; contextId: string }): { sourceId: string; sourceMeta: Record<string, unknown>; retentionDays: number } {
+  const retentionDays = spec.retentionDays;
+  if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > MAX_RETENTION_DAYS) throw new Error(`The ${spec.part} audience has no retention in 1–${MAX_RETENTION_DAYS} days (${retentionDays}).`);
+  if (spec.subtype === "website_pixel") return { sourceId: spec.pixelId, sourceMeta: { subtype: "website_pixel", pixelEvent: spec.pixelEvent, urlContains: spec.urlContains }, retentionDays };
+  if (spec.subtype === "video_views") return { sourceId: spec.campaignIds.join(","), sourceMeta: { subtype: "video_views", threshold: spec.threshold, videoIds: videos?.videoIds ?? [], contextId: videos?.contextId ?? null, campaignIds: spec.campaignIds }, retentionDays };
+  return { sourceId: spec.originAudienceId, sourceMeta: { subtype: "lookalike", originAudienceId: spec.originAudienceId, ratio: spec.ratio, country: spec.country, seedName: spec.name, type: "similarity" }, retentionDays };
+}
 
 export type AudienceState = "ready" | "building" | "too_small";
 
@@ -186,7 +203,7 @@ async function ensureDefaultAudiences(deps: NewAdSetDeps, args: { eventId: strin
   }
   if (!signupEvent || !args.pixelId) throw new Error(NO_PIXEL);
   const seed = (await ensure(pixel("registrations", signupEvent, [], RETENTION.registrations)))!;
-  push(await ensure({ part: "lookalike", subtype: "lookalike", name: audienceName(code, "lookalike", signupEvent, country), originAudienceId: seed, ratio: LOOKALIKE_RATIO, country }));
+  push(await ensure({ part: "lookalike", subtype: "lookalike", name: audienceName(code, "lookalike", signupEvent, country), originAudienceId: seed, ratio: LOOKALIKE_RATIO, country, retentionDays: RETENTION.registrations }));
   return { ids, made, all: ids.length + 1 };
 }
 

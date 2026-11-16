@@ -38,6 +38,13 @@ import { orderByStalestFirst } from "@/lib/dashboard/cron-rotation";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
 import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
+import {
+  ACTIVE_EVENT_START_CUTOFF_MS,
+  ACTIVE_PRESET_START_CUTOFF_MS,
+  presetFailed,
+  summariseActiveCreativesRun,
+  type ActiveCreativesRunSummary,
+} from "@/lib/reporting/creative-crons";
 
 /**
  * GET /api/cron/refresh-active-creatives
@@ -92,8 +99,8 @@ import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 export const maxDuration = 800;
 export const dynamic = "force-dynamic";
 
-/**
- * Wall-clock budget for the whole run, in ms. Deliberately short of
+/*
+ * Time budget for the whole run. Deliberately short of
  * `maxDuration` so the route returns its own summary instead of
  * being killed mid-event by the platform.
  *
@@ -110,8 +117,14 @@ export const dynamic = "force-dynamic";
  * run drains the oldest slice, so consecutive runs rotate through
  * the whole eligible set instead of re-doing the same head of the
  * list and never reaching the tail.
+ *
+ * The budget is two cutoffs (`lib/reporting/creative-crons.ts`): no
+ * new event after 8 min, no new preset after 10 min. Until 16 Nov 2026
+ * it was one 10-min check before each event, so an event started at
+ * 7½ min ran past the 800 s cap: a Junction 2 event (1,584 ads) takes
+ * about 7½ min for its four presets, and the 07:30 run was killed
+ * with a 504 mid-preset.
  */
-const RUN_TIME_BUDGET_MS = 600_000;
 
 const AI_AUTOTAG_CONCURRENCY = 3;
 
@@ -136,6 +149,7 @@ interface EventToRefresh {
 
 interface EventRefreshSummary {
   eventId: string;
+  eventCode: string | null;
   ok: boolean;
   presetsAttempted: number;
   presetsWritten: number;
@@ -159,7 +173,7 @@ interface CronResponse {
   eventsProcessed: number;
   /**
    * Events that were eligible but never attempted because the run
-   * hit {@link RUN_TIME_BUDGET_MS}. Non-zero means the eligible set
+   * hit `ACTIVE_EVENT_START_CUTOFF_MS`. Non-zero means the eligible set
    * no longer fits one invocation — see the budget note above.
    * NEVER omit this: a silently truncated run reads identically to
    * a complete one, which is exactly how this cron 504'd unnoticed
@@ -167,6 +181,10 @@ interface CronResponse {
    */
   eventsSkippedTimeBudget: number;
   totalPresetsRefreshed: number;
+  /** Set when `ok` is false: which events failed and why, for `cron_runs.error`. */
+  error?: string;
+  /** What `cron_runs.detail` records. */
+  runSummary?: ActiveCreativesRunSummary["detail"];
   results: EventRefreshSummary[];
 }
 
@@ -230,9 +248,10 @@ function isAutoTagEnabled(): boolean {
 }
 
 /**
- * Newest `fetched_at` per event across every preset. One row per
- * (event, preset) exists, so we reduce to the max rather than
- * assuming a single row.
+ * Oldest `fetched_at` per event across its presets. One row per
+ * (event, preset) exists. The oldest, not the newest: an event the
+ * budget stopped part-way through must lead the next run, not look
+ * fresh because its first preset was written.
  */
 async function loadLastRefreshedAt(
   supabase: ReturnType<typeof createServiceRoleClient>,
@@ -260,7 +279,7 @@ async function loadLastRefreshedAt(
     const ms = row.fetched_at ? Date.parse(row.fetched_at) : NaN;
     if (!Number.isFinite(ms)) continue;
     const prev = out.get(row.event_id);
-    if (prev === undefined || ms > prev) out.set(row.event_id, ms);
+    if (prev === undefined || ms < prev) out.set(row.event_id, ms);
   }
   return out;
 }
@@ -395,7 +414,7 @@ async function handleGET(req: NextRequest) {
   );
 
   console.log(
-    `[cron refresh-active-creatives] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO} time_budget_ms=${RUN_TIME_BUDGET_MS}`,
+    `[cron refresh-active-creatives] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO} event_cutoff_ms=${ACTIVE_EVENT_START_CUTOFF_MS} preset_cutoff_ms=${ACTIVE_PRESET_START_CUTOFF_MS}`,
   );
 
   const results: EventRefreshSummary[] = [];
@@ -419,7 +438,7 @@ async function handleGET(req: NextRequest) {
   let eventsSkippedTimeBudget = 0;
 
   for (const [index, event] of events.entries()) {
-    if (Date.now() - runStartedMs >= RUN_TIME_BUDGET_MS) {
+    if (Date.now() - runStartedMs >= ACTIVE_EVENT_START_CUTOFF_MS) {
       eventsSkippedTimeBudget = events.length - index;
       console.warn(
         `[cron refresh-active-creatives] time_budget_reached processed=${index} skipped=${eventsSkippedTimeBudget} of=${events.length} — remaining events roll to the next run (stalest-first ordering means they lead it)`,
@@ -451,6 +470,8 @@ async function handleGET(req: NextRequest) {
         eventCode: event.event_code,
         adAccountId,
         eventDate,
+        shouldStartPreset: () =>
+          Date.now() - runStartedMs < ACTIVE_PRESET_START_CUTOFF_MS,
         onSnapshotWritten: async ({ payload }) => {
           await warmCreativeThumbnailsForGroups({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -478,7 +499,9 @@ async function handleGET(req: NextRequest) {
       totalPresetsRefreshed += presetsWritten;
       results.push({
         eventId: event.id,
-        ok: result.ok,
+        eventCode: event.event_code,
+        // A skip or a preset left for the next run is not a failure.
+        ok: !result.presetResults.some(presetFailed),
         presetsAttempted: result.presetResults.length,
         presetsWritten,
         durationMs: Date.now() - t0,
@@ -492,6 +515,7 @@ async function handleGET(req: NextRequest) {
       );
       results.push({
         eventId: event.id,
+        eventCode: event.event_code,
         ok: false,
         presetsAttempted: 0,
         presetsWritten: 0,
@@ -504,7 +528,8 @@ async function handleGET(req: NextRequest) {
   }
 
   const finishedAt = new Date().toISOString();
-  const allOk = results.every((r) => r.ok);
+  const summary = summariseActiveCreativesRun(results, eventsSkippedTimeBudget);
+  const allOk = summary.ok;
   const response: CronResponse = {
     ok: allOk,
     startedAt,
@@ -514,6 +539,8 @@ async function handleGET(req: NextRequest) {
     eventsProcessed: results.length,
     eventsSkippedTimeBudget,
     totalPresetsRefreshed,
+    ...(summary.error ? { error: summary.error } : {}),
+    runSummary: summary.detail,
     results,
   };
 
@@ -843,7 +870,14 @@ export const GET = withCronRunLog(
         return null;
       }
     },
-    rows: (b) => Number(b.rowsWritten ?? 0),
+    // The fields this route returns. `rowsWritten` was read here until
+    // 16 Nov 2026 and never existed, so every run recorded 0.
+    rows: (b) => Number(b.totalPresetsRefreshed ?? 0),
+    considered: (b) => Number(b.eventsConsidered ?? 0),
+    detail: (b) =>
+      b.runSummary && typeof b.runSummary === "object"
+        ? (b.runSummary as Record<string, unknown>)
+        : {},
   },
   handleGET,
 );

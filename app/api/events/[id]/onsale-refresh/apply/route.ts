@@ -35,7 +35,7 @@ import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { resolvePageIdentity } from "@/lib/meta/page-token";
 import { handleUploadAsset } from "@/lib/meta/upload-asset-handler";
 import { APPLY_SHADOW, applyAccepted, type DriveCopy, type RefreshMeta } from "@/lib/onsale-refresh/apply";
-import type { AudienceSpec, NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
+import { audienceDraftFields, type AudienceSpec, type NewAdSetDeps } from "@/lib/onsale-refresh/apply-adsets";
 import type { PurchaseMeta } from "@/lib/onsale-refresh/apply-purchase";
 
 import { ownedRefreshEvent } from "../_owned";
@@ -198,23 +198,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     },
     async ensureAudience(spec: AudienceSpec, adAccountId: string) {
       if (!who.event.client_id) throw new Error("This event has no client, so the audience builder can't file the audience.");
-      let sourceId = "";
-      let sourceMeta: Record<string, unknown>;
-      let retentionDays = 0;
-      if (spec.subtype === "website_pixel") {
-        sourceId = spec.pixelId;
-        sourceMeta = { subtype: "website_pixel", pixelEvent: spec.pixelEvent, urlContains: spec.urlContains };
-        retentionDays = spec.retentionDays;
-      } else if (spec.subtype === "video_views") {
+      let videoSource: { videoIds: string[]; contextId: string } | undefined;
+      if (spec.subtype === "video_views") {
         const videos = await fetchAudienceMultiCampaignVideos(adAccountId, spec.campaignIds, token);
         if (!videos.videos.length || !videos.contextPageId) return null;
-        sourceId = spec.campaignIds.join(",");
-        sourceMeta = { subtype: "video_views", threshold: spec.threshold, videoIds: videos.videos.map((video) => video.id), contextId: videos.contextPageId, campaignIds: spec.campaignIds };
-        retentionDays = spec.retentionDays;
-      } else {
-        sourceId = spec.originAudienceId;
-        sourceMeta = { subtype: "lookalike", originAudienceId: spec.originAudienceId, ratio: spec.ratio, country: spec.country, seedName: spec.name, type: "similarity" };
+        videoSource = { videoIds: videos.videos.map((video) => video.id), contextId: videos.contextPageId };
       }
+      // Source and retention per spec (a lookalike stores its seed's window): the draft insert runs before the Meta create.
+      const { sourceId, sourceMeta, retentionDays } = audienceDraftFields(spec, videoSource);
       const draft = await createAudienceDraft({
         userId: who.userId,
         clientId: who.event.client_id,

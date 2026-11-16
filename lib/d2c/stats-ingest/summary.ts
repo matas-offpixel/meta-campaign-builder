@@ -16,7 +16,7 @@
  */
 
 import { clientOpenRatio, resolveOpens, type ResolvedOpens } from "./opens.ts";
-import type { D2CAudienceKind, D2CStatsAttribution, D2CStatsChannel, D2CStatsProvider } from "./types.ts";
+import type { D2CAudienceKind, D2CAudienceRef, D2CStatsAttribution, D2CStatsChannel, D2CStatsProvider } from "./types.ts";
 
 export interface StoredStatsRow {
   id: string;
@@ -32,6 +32,14 @@ export interface StoredStatsRow {
   sent_at: string | null;
   /** The Bird list or Mailchimp audience the send went to (PI6's venue rule). */
   list_id?: string | null;
+  /**
+   * `audience->>mode`: null when the send's audience couldn't be read (no
+   * campaign or recipients returned), so it is not tied for that reason
+   * rather than for matching no show (PT1). Left out = read.
+   */
+  audience_mode?: string | null;
+  /** `audience->refs`: the lists and tags the send targeted, names as stored (PT3's venue rule). */
+  audience_refs?: readonly D2CAudienceRef[] | null;
   sent: number | null;
   delivered: number | null;
   read: number | null;
@@ -54,6 +62,8 @@ export interface BroadcastStat {
   audienceKind: D2CAudienceKind;
   attribution: D2CStatsAttribution;
   eventId: string | null;
+  /** False when the send's audience couldn't be read (PT1's review line). */
+  audienceRead: boolean;
   name: string | null;
   sentAt: string | null;
   sent: number | null;
@@ -119,6 +129,7 @@ export function broadcastStat(row: StoredStatsRow, rate: MessageRate, openRatio:
     audienceKind: row.audience_kind,
     attribution: row.attribution,
     eventId: row.event_id,
+    audienceRead: row.audience_mode !== null,
     name: row.name,
     sentAt: row.sent_at,
     sent: row.sent,

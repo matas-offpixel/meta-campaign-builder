@@ -131,6 +131,13 @@ export interface RefreshInput {
     preset: DatePreset;
     payload: Extract<ShareActiveCreativesResult, { kind: "ok" }>;
   }) => Promise<void>;
+  /**
+   * Asked before each preset starts. Returning false leaves that preset
+   * and the rest for the next run (`deferred: true`), so a time-budgeted
+   * caller stops inside a large event instead of running past the
+   * function cap. Omitted, every preset runs.
+   */
+  shouldStartPreset?: () => boolean;
 }
 
 export interface PresetRefreshResult {
@@ -140,6 +147,10 @@ export interface PresetRefreshResult {
   ok: boolean;
   kind: ShareActiveCreativesResult["kind"];
   error?: string;
+  /** Why a `kind="skip"` preset skipped. */
+  skipReason?: string;
+  /** True when the caller's budget left this preset for the next run. */
+  deferred?: boolean;
   /** True iff the snapshot table was upserted on this iteration.
    *  Always false for `kind="skip"` / `kind="error"` per the
    *  refusal-to-overwrite contract. */
@@ -231,11 +242,24 @@ export async function refreshActiveCreativesForEvent(
   const presetResults: PresetRefreshResult[] = [];
 
   for (const preset of presets) {
+    if (input.shouldStartPreset && !input.shouldStartPreset()) {
+      presetResults.push({
+        preset,
+        ok: false,
+        kind: "skip",
+        skipReason: "time_budget",
+        deferred: true,
+        wroteSnapshot: false,
+        durationMs: 0,
+      });
+      continue;
+    }
     const t0 = Date.now();
     let kind: ShareActiveCreativesResult["kind"] = "error";
     let ok = false;
     let wroteSnapshot = false;
     let error: string | undefined;
+    let skipReason: string | undefined;
 
     try {
       // `fetchShareActiveCreatives` already wraps Meta calls in
@@ -295,6 +319,8 @@ export async function refreshActiveCreativesForEvent(
         ok = false;
         if (result.kind === "error") {
           error = result.message;
+        } else {
+          skipReason = result.reason;
         }
       }
     } catch (err) {
@@ -311,6 +337,7 @@ export async function refreshActiveCreativesForEvent(
       ok,
       kind,
       error,
+      ...(skipReason ? { skipReason } : {}),
       wroteSnapshot,
       durationMs: Date.now() - t0,
     });

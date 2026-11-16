@@ -9,7 +9,12 @@
 
 export type D2CStatsProvider = "bird" | "mailchimp";
 export type D2CStatsChannel = "whatsapp" | "sms" | "email";
-export type D2CStatsAttribution = "show" | "client" | "unattributed";
+/**
+ * show: one show's lists only. client: the client's whole list or master
+ * tag ("Whole list"). not_tied: the client's own send that is neither
+ * (migration 248). unattributed: no single client owns the account.
+ */
+export type D2CStatsAttribution = "show" | "client" | "not_tied" | "unattributed";
 export type D2CAudienceKind = "marketing" | "ticket_holder";
 
 /** One audience a send targeted: a Bird list or a Mailchimp segment/tag. */
@@ -69,6 +74,8 @@ export interface D2CShowKey {
   clientId: string;
   /** events.mailchimp_tag — the show's tag, usually `CQ-{slug}`. */
   tag: string | null;
+  /** events.event_code — a list named exactly the code is the show's. */
+  code: string | null;
   /** events.cirqlin_page_slug — the `{slug}` of the `CQ-{slug}` list. */
   slug: string | null;
   /** events.mailchimp_audience_id — a Mailchimp tag only counts on this list. */

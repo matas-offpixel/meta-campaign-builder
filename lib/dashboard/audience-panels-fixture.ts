@@ -16,7 +16,16 @@
  *     NX Newcastle audience (229 sends; the dry run read that one audience
  *     of five). The sends are the six the dry run printed, with their names
  *     as Bird and Mailchimp hold them (read 15 Nov by a re-run of the
- *     same dry run, nothing written). Electric's WhatsApp rate
+ *     same dry run, nothing written). Since the positive-match rules
+ *     (migration 248), "Azyr - presale live v2" is NX26-AZYR's (it went to
+ *     the show's CQ list and its opt-in tiers), so the whole-list row is
+ *     "Locklead- Announcement" (2 Nov, the NX Loves master tag, same
+ *     audience). The frame shows Electric once ops has set its
+ *     `clients.d2c_whole_list_tags` to {NX Loves}; until then that send
+ *     reads not tied. The last row is the earliest of the 281, "World
+ *     Cup - End v Sen (copy 02)" (1 Dec 2022, NX Newcastle's whole
+ *     audience; re-read 15 Nov, nothing written), in place of "Kream
+ *     presale" so the frame keeps eight rows. Electric's WhatsApp rate
  *     isn't set, which is the PI5 state.
  *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
@@ -141,13 +150,17 @@ const SHOWS: Record<string, string> = {
   "show-robbiedoherty": "Robbie Doherty",
   "show-kream": "Kream",
   "show-locklead": "Locklead",
+  "show-azyr": "AZYR b2b Partiboi69",
 };
+
+const NOT_TIED_SEND = "not-tied";
 
 function send(
   id: string,
   name: string,
   day: string,
   channelId: "whatsapp" | "email",
+  /** A show id, null for a whole-list send, or NOT_TIED_SEND. */
   eventId: string | null,
   sent: number,
   delivered: number,
@@ -155,13 +168,15 @@ function send(
   clicked: number,
 ): BroadcastStat {
   const email = channelId === "email";
+  const notTied = eventId === NOT_TIED_SEND;
   return {
     id,
     provider: email ? "mailchimp" : "bird",
     channel: channelId,
     audienceKind: "marketing",
-    attribution: eventId ? "show" : "client",
-    eventId,
+    attribution: notTied ? "not_tied" : eventId ? "show" : "client",
+    eventId: notTied ? null : eventId,
+    audienceRead: true,
     name,
     sentAt: `${day}T12:00:00Z`,
     sent,
@@ -191,19 +206,46 @@ export const ELECTRIC_D2C: D2CStatsSummary = {
     send("mc-1", "Robbie Doherty — NX Loves-Newcastle-27.11.26 — Lineup Announce (13 Nov 17:00)", "2026-11-13", "email", "show-robbiedoherty", 572, 572, 17, 0),
     send("bird-2", "Kream lineup", "2026-11-12", "whatsapp", "show-kream", 589, 525, 275, 26),
     send("bird-3", "Locklead - presale reminder", "2026-11-05", "whatsapp", "show-locklead", 627, 585, 331, 68),
-    send("bird-4", "Azyr - presale live v2", "2026-10-23", "whatsapp", null, 1750, 1571, 545, 47),
-    send("bird-5", "Kream presale", "2026-10-23", "whatsapp", "show-kream", 591, 539, 323, 113),
+    send("mc-2", "Locklead- Announcement", "2026-11-02", "email", null, 19_789, 19_715, 571, 54),
+    send("bird-4", "Azyr - presale live v2", "2026-10-23", "whatsapp", "show-azyr", 1750, 1571, 545, 47),
+    // PT5: not tied to a show. Its fourth list, CQ-folamour-newcastle-opt-in-fever-105, isn't one of the show's.
+    send("bird-6", "Folamour - Presale", "2026-09-10", "whatsapp", NOT_TIED_SEND, 1312, 1222, 643, 0),
+    // The earliest of the 281: NX Newcastle's whole audience, no segment (read-only re-read, 15 Nov).
+    // It replaces "Kream presale" so the frame keeps eight rows and Kream still shows by "Kream lineup".
+    send("mc-3", "World Cup - End v Sen (copy 02)", "2022-12-01", "email", null, 1621, 1601, 567, 12),
   ],
 };
 
-/** 52 Bird sends (24 whole-list) and 229 Mailchimp sends (210 whole-list or master-tag). */
-export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 234 };
+/**
+ * 52 Bird sends (34 show, 18 not tied to a show, none whole-list) and 229
+ * Mailchimp sends on the NX Newcastle audience (19 show, 196 whole list or
+ * the NX Loves master tag, 14 not tied), by the positive-match rules
+ * (migration 248) with Electric's d2c_whole_list_tags = {NX Loves}, from a
+ * read-only dry run on 15 Nov. Before ops sets that, the 18 NX Loves sends
+ * read not tied: Mailchimp has 178 whole list and 32 not tied. notTied
+ * below is 18 Bird + 14 Mailchimp, the seeded state. Names compare exactly as
+ * stored (PT2, PT4); that changed none of these. No not-tied send had an
+ * unread audience, so the frame has no "couldn't be read" line.
+ * firstSentAt is the earliest of the 281 (a Mailchimp whole-list send on
+ * NX Newcastle, 1 Dec 2022, from the same dry run; Bird's first is 3 Jul
+ * 2026), so the span starts there and not at the oldest row the frame shows
+ * (PT5). No Electric send targets the umbrella page's lists, so PT3 moves no
+ * count here.
+ */
+export const ELECTRIC_SEND_COUNT = { sends: 281, wholeList: 196, notTied: 32, unread: 0, firstSentAt: "2022-12-01T11:19:04+00:00" };
+
+/**
+ * The frames' fixed "now" (the dry run's day), so the current year for the
+ * panel's dates is 2026 in London whatever the machine clock says, and the
+ * baselines don't change on 1 Jan.
+ */
+export const FRAME_NOW_MS = Date.parse("2026-11-15T12:00:00Z");
 
 export function electric(surface: D2CSurface): DirectToFanModel {
   return modelFromSummary(
     ELECTRIC_D2C,
     { kind: "client", label: "Electric Group" },
-    { surface, showName: (id) => SHOWS[id] ?? "—", rateHref: "/clients/electric?tab=d2c" },
+    { surface, showName: (id) => SHOWS[id] ?? "—", rateHref: "/clients/electric?tab=d2c", nowMs: FRAME_NOW_MS },
     0,
     ELECTRIC_SEND_COUNT,
   );

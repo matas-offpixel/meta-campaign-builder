@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isNightlyStatsSlot, isStatsIngestEnabled, runD2CStatsIngest } from "../run.ts";
+import { isNightlyStatsSlot, isStatsIngestEnabled, loadShowKeys, loadWholeListNames, runD2CStatsIngest } from "../run.ts";
 import { StatsReadError, type StatsReader } from "../reader.ts";
 import type { D2CStatsSource } from "../types.ts";
 
@@ -120,7 +120,8 @@ test("a dry run reads both providers, attributes, and writes nothing", async () 
   const b2 = result.rows.find((r) => r.external_id === "b2")!;
   const m1 = result.rows.find((r) => r.external_id === "m1")!;
   assert.equal(b1.event_id, "ev-moonlit");
-  assert.equal(b2.attribution, "client");
+  // A list no show answers to, and not a master tag of this client: not tied to a show.
+  assert.equal(b2.attribution, "not_tied");
   assert.equal(b2.client_id, CLIENT);
   assert.equal(m1.event_id, "ev-moonlit");
   assert.equal(m1.opens_unique_filtered, 12);
@@ -175,4 +176,47 @@ test("a provider error is reported per account and does not stop the others", as
   assert.equal(result.ok, false);
   assert.ok(result.sources.find((s) => s.provider === "bird")?.error?.includes("401"));
   assert.equal(result.rows.filter((r) => r.provider === "mailchimp").length, 1);
+});
+
+test("an umbrella event is never a show; its CQ lists and the client's whole-list tags are the whole list", async () => {
+  const withUmbrella = {
+    ...tables,
+    clients: [
+      { id: CLIENT, status: "active", mailchimp_audience_id: null, d2c_whole_list_tags: ["Harbour Loves", ""] },
+      { id: "client-gone", status: "archived", mailchimp_audience_id: null, d2c_whole_list_tags: ["Old Loves"] },
+    ],
+    events: [
+      ...tables.events,
+      { id: "ev-umbrella", client_id: CLIENT, event_code: "HB26-GLOBAL", mailchimp_tag: null, cirqlin_page_slug: "harbour-loves-aw26", mailchimp_audience_id: null, is_umbrella: true },
+    ],
+  };
+  const { db } = fakeDb(withUmbrella);
+  const archived = new Set(["client-gone"]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const shows = await loadShowKeys(db as any, archived);
+  assert.deepEqual(shows.map((s) => s.eventId), ["ev-moonlit"]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const whole = await loadWholeListNames(db as any, archived);
+  assert.equal(whole.note, null);
+  assert.deepEqual(whole.names.get(CLIENT), ["CQ-harbour-loves-aw26", "CQ-harbour-loves-aw26-Together", "CQ-harbour-loves-aw26-opted-in", "Harbour Loves"]);
+  assert.equal(whole.names.has("client-gone"), false);
+});
+
+test("before migration 248 the whole-list tags read as empty, with a note", async () => {
+  const { db } = fakeDb(tables);
+  const missing = {
+    from: (table: string) => {
+      if (table !== "clients") return db.from(table);
+      const q = {
+        select: () => q,
+        order: () => q,
+        range: async () => ({ data: null, error: { message: "column clients.d2c_whole_list_tags does not exist" } }),
+      };
+      return q;
+    },
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const whole = await loadWholeListNames(missing as any, new Set());
+  assert.equal(whole.names.size, 0);
+  assert.match(whole.note ?? "", /migration 248 not applied/);
 });

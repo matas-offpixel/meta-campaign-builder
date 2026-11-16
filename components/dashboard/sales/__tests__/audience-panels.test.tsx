@@ -41,8 +41,19 @@ describe("Direct-to-fan (HE3)", () => {
     expect(links.length).toBeGreaterThan(0);
     expect(links[0]!.getAttribute("href")).toBe("/clients/electric?tab=d2c");
     expect(container.textContent).toContain("Email opens are Mailchimp's bot-filtered opens: Apple Mail Privacy and link-scanner opens removed.");
-    expect(container.textContent).toContain("includes 234 whole-list sends");
+    expect(container.textContent).toContain("includes 196 whole-list sends and 32 sends not tied to a show");
     expect(container.textContent).toContain("Whole list");
+  });
+
+  it("the 1 Dec 2022 row's Sent cell never wraps; the sends table scrolls in its own row", () => {
+    const { container } = render(<DirectToFanPanel model={electric("internal")} />);
+    const table = container.querySelector("[data-d2c-sends]") as HTMLElement;
+    const last = [...table.querySelectorAll("tbody tr")].at(-1)!;
+    const sent = last.querySelector("td")!;
+    expect(sent.textContent).toBe("1 Dec 2022");
+    expect(sent.className).toContain("whitespace-nowrap");
+    expect(last.textContent).toContain("Whole list");
+    expect(table.parentElement!.className).toContain("overflow-x-auto");
   });
 
   it("share: no 'Rate not set', no link, '—' instead", () => {

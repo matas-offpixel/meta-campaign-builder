@@ -762,6 +762,30 @@ export function groupByAssetSignature(
   // Materialise the buckets into the public shape. Display name is
   // computed in a second pass so we have a stable group_index for
   // the "Dark post · N" fallback (1-based, in spend-DESC order).
+  // One `[asset-grouping]` line per call, not one per group: Vercel
+  // keeps about 256 log lines per request, and per-group lines from
+  // the active-creatives cron (dozens of groups × four presets per
+  // event) pushed the cron's own summary out of its logs (16 Nov 2026).
+  // Lists the five biggest groups by spend with their top ad names.
+  {
+    const top = [...buckets.values()]
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 5)
+      .map((acc) => ({
+        key: acc.group_key,
+        reason: acc.reason,
+        ads: acc.ad_count,
+        spend: +acc.spend.toFixed(2),
+        names: [...acc.ad_names_spend.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([n]) => n),
+      }));
+    console.info(
+      `[asset-grouping] groups=${buckets.size} rows=${rows.length} top=${JSON.stringify(top)}`,
+    );
+  }
+
   const out: ConceptGroupRow[] = [];
   for (const acc of buckets.values()) {
     // Sort distinct ad.names by descending cumulative row spend.
@@ -770,23 +794,6 @@ export function groupByAssetSignature(
     const ad_names = [...acc.ad_names_spend.entries()]
       .sort((a, b) => b[1] - a[1])
       .map((e) => e[0]);
-
-    // Per-bucket diagnostic — one line per concept group, surfaces
-    // which ad.name strings rolled into this bucket and their spend
-    // share. Lets us trace from the share page back to the raw row
-    // set without rebuilding the input fixture: greppable in Vercel
-    // as `[asset-grouping]`. Logging-only, no behaviour change. Runs
-    // on every caller of `groupByAssetSignature`, but in practice the
-    // share/internal report routes are the only callers and the log
-    // volume is bounded by SHARE_GROUPS_CAP=30 per request.
-    console.info(
-      `[asset-grouping] group_key=${acc.group_key} reason=${acc.reason} creative_ids=${acc.underlying_creative_ids.length} ad_count=${acc.ad_count} spend=${acc.spend.toFixed(2)} top_ad_names=${JSON.stringify(
-        [...acc.ad_names_spend.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 5)
-          .map(([n, s]) => ({ n, spend: +s.toFixed(2) })),
-      )}`,
-    );
 
     out.push({
       group_key: acc.group_key,

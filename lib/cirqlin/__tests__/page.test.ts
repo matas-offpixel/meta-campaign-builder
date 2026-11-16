@@ -168,7 +168,18 @@ describe("no dashboard path calls CIRQLIN's page endpoint", () => {
   const users = (pattern: RegExp) => files.filter((f) => pattern.test(code(f))).map(rel).sort();
 
   it("only the client itself builds a /api/partner/page request", () => {
-    assert.deepEqual(users(/["'`][^"'`\n]*\/api\/partner\/page/), ["lib/cirqlin/page.ts"]);
+    assert.deepEqual(users(/["'`][^"'`\n]*\/api\/partner\/page(?![-\w])/), ["lib/cirqlin/page.ts"]);
+  });
+
+  // HE2: the page-audience read shares the same bucket. One client builds
+  // it, only the cron step calls it, and only the 23:55 cron runs the step.
+  it("only the page-audience client builds a /api/partner/page-audience request", () => {
+    assert.deepEqual(users(/["'`][^"'`\n]*\/api\/partner\/page-audience/), ["lib/cirqlin/page-audience/client.ts"]);
+  });
+
+  it("only the cron step imports the page-audience client's fetch, and only the EOD cron runs the step", () => {
+    assert.deepEqual(users(/\bfetchCirqlinPageAudience\b/), ["lib/cirqlin/page-audience/client.ts", "lib/cirqlin/page-audience/step.ts"]);
+    assert.deepEqual(users(/\brunPageAudienceStep\b/), ["app/api/cron/mailchimp-eod-snapshot/route.ts", "lib/cirqlin/page-audience/step.ts"]);
   });
 
   it("only the save action and the edit page import the lookup", () => {
