@@ -107,9 +107,10 @@ async function appendEvent(
 /**
  * Public-route lookup by exact path segment.
  *
- * Reads the active destination row, not active_invite_code. Throws on a
- * database error so lookupAliasFailOpen can passthrough. A missing row and
- * an inactive alias both return null (nothing to follow).
+ * Reads the active destination, then active_invite_code when the alias is
+ * active and has no destination row. Throws on a database error so
+ * lookupAliasFailOpen can passthrough. A missing row and an inactive alias
+ * both return null (nothing to follow).
  */
 export async function getAliasLookupBySlug(
   supabase: AnySupabaseClient,
@@ -120,7 +121,7 @@ export async function getAliasLookupBySlug(
   const { data, error } = await sb
     .from("wa_community_aliases")
     .select(
-      "is_active, interstitial_enabled, wa_community_alias_destinations ( invite_code, is_active )",
+      "is_active, active_invite_code, interstitial_enabled, wa_community_alias_destinations ( invite_code, is_active )",
     )
     .eq("slug", slug)
     .maybeSingle();
@@ -136,6 +137,7 @@ export async function getAliasLookupBySlug(
       | null) ?? [];
   const code = authoritativeDestination({
     is_active: Boolean(row.is_active),
+    active_invite_code: (row.active_invite_code as string | null) ?? null,
     destinations: destRaw,
   });
   if (!code) return null;

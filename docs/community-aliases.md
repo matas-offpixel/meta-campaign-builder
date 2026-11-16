@@ -126,7 +126,8 @@ Matas mints the bearer (`openssl rand -hex 32`) and sets the same value on both 
 
 - Hit: `200` `{ slug, invite_code, effective_destination, interstitial_enabled }`, cached 60s. `interstitial_enabled` defaults false. Cirqlin renders the card only when it is true; otherwise it 302s.
 - No alias: `404`.
-- Lookup failure or unset bearer: `200` with `invite_code: null` and `degraded: true` (`lookup_failed` or `not_configured`).
+- Lookup failure: `200` with `invite_code: null` and `degraded: true` (`lookup_failed`).
+- Unset `CIRQLIN_TO_DASHBOARD_BEARER`, or a bearer that does not match: `401`. The compare is timing-safe. The value is never logged. Unset fails closed: no invite code is returned.
 
 Fans cannot tell a miss from an outage: both fail open, and a fail-open during a repoint sends them to the group the button was minted with. If that group is full, they hit the full group. That is accepted on this endpoint. The `degraded` field is how an operator tells the two apart in logs.
 
@@ -154,6 +155,6 @@ Whichever is chosen, cirqlin's propagation needs a test. This PR does not add on
 
 ## Deploy
 
-Apply migration `178_wa_community_alias_repoint.sql` before the app that calls `create_community_alias` / `repoint_community_alias`. Do not apply it on a day with a live D2C send.
+Migration `178_wa_community_alias_repoint.sql` is already applied in production (`supabase_migrations.schema_migrations` version `20260927120000`). Do not apply it again.
 
-The down-migration is in the header comment of that file. It restores `wa_community_aliases_slug_format` to `CHECK ((slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'))`. It fails if any slug has gained a capital letter or a dot. It was executed inside a transaction and rolled back on 27 Sep 2026; it was not left applied.
+The down-migration is in the header comment of that file. It restores `wa_community_aliases_slug_format` to `CHECK ((slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'))`. It fails if any slug has gained a capital letter or a dot. It was executed inside a transaction and rolled back on 27 Sep 2026; it was not left applied. The forward migration was applied later and is the live schema.

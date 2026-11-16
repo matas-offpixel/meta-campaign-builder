@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { communityAliasReadResponse } from "../community-alias-read.ts";
+import {
+  communityAliasBearerMatches,
+  communityAliasReadResponse,
+} from "../community-alias-read.ts";
 
 describe("community alias read response", () => {
   it("returns the destination on a hit", () => {
@@ -59,6 +62,21 @@ describe("community alias read response", () => {
     assert.equal(res.cacheControl, "private, no-store");
   });
 
+  it("refuses every request when the bearer is unset", () => {
+    const res = communityAliasReadResponse({
+      slug: "locklead-nx",
+      configured: false,
+      authorized: true,
+      rateLimited: false,
+      lookupError: null,
+      destinationInviteCode: "C7WMSoEAPJL59FIY0iDJd2",
+      interstitialEnabled: true,
+    });
+    assert.equal(res.status, 401);
+    assert.deepEqual(res.body, { error: "Unauthorized." });
+    assert.equal(JSON.stringify(res.body).includes("C7WM"), false);
+  });
+
   it("rejects a missing bearer when the secret is configured", () => {
     const res = communityAliasReadResponse({
       slug: "puzzle-circuit",
@@ -87,5 +105,21 @@ describe("community alias read response", () => {
       (res.body as { interstitial_enabled?: boolean }).interstitial_enabled,
       true,
     );
+  });
+});
+
+describe("community alias bearer", () => {
+  const secret = "test-bearer-value";
+
+  it("matches the bearer with a timing-safe compare", () => {
+    assert.equal(communityAliasBearerMatches(`Bearer ${secret}`, secret), true);
+    assert.equal(communityAliasBearerMatches(`bearer ${secret}`, secret), true);
+  });
+
+  it("rejects a wrong token of the same length, a different length, and an empty secret", () => {
+    assert.equal(communityAliasBearerMatches("Bearer test-bearer-WRONG", secret), false);
+    assert.equal(communityAliasBearerMatches("Bearer short", secret), false);
+    assert.equal(communityAliasBearerMatches(`Bearer ${secret}`, ""), false);
+    assert.equal(communityAliasBearerMatches(null, secret), false);
   });
 });

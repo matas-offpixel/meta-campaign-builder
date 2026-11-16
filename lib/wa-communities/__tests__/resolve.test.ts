@@ -64,9 +64,10 @@ describe("slug + invite validation", () => {
 });
 
 describe("authoritativeDestination", () => {
-  it("reads the active destination and ignores the cache column", () => {
+  it("reads the active destination and ignores a different cache", () => {
     const code = authoritativeDestination({
       is_active: true,
+      active_invite_code: "CCCCCCCC33333333",
       destinations: [
         { invite_code: "AAAAAAAA11111111", is_active: false },
         { invite_code: "BBBBBBBB22222222", is_active: true },
@@ -75,14 +76,70 @@ describe("authoritativeDestination", () => {
     assert.equal(code, "BBBBBBBB22222222");
   });
 
+  it("uses the cache when an active alias has no destination row", () => {
+    assert.equal(
+      authoritativeDestination({
+        is_active: true,
+        active_invite_code: "C7WMSoEAPJL59FIY0iDJd2",
+        destinations: [],
+      }),
+      "C7WMSoEAPJL59FIY0iDJd2",
+    );
+  });
+
   it("returns null when the alias is inactive even if a destination is flagged active", () => {
     assert.equal(
       authoritativeDestination({
         is_active: false,
+        active_invite_code: "DdsCUNGsF1RAZlGXkA5L81",
         destinations: [{ invite_code: "DdsCUNGsF1RAZlGXkA5L81", is_active: true }],
       }),
       null,
     );
+  });
+
+  // wa_community_aliases on 16 Nov 2026. Cache-only rows have no destination.
+  it("resolves every live slug to its active code", () => {
+    const rows: {
+      slug: string;
+      is_active: boolean;
+      active_invite_code: string | null;
+      destination: string | null;
+      expect: string | null;
+    }[] = [
+      { slug: "azyr-nx", is_active: true, active_invite_code: "H98f8mIfT864uOmirYlSbA", destination: "H98f8mIfT864uOmirYlSbA", expect: "H98f8mIfT864uOmirYlSbA" },
+      { slug: "cdw", is_active: true, active_invite_code: "FwcMtg5zsqA4Z4sIOes2Cq", destination: "FwcMtg5zsqA4Z4sIOes2Cq", expect: "FwcMtg5zsqA4Z4sIOes2Cq" },
+      { slug: "djez-nx", is_active: true, active_invite_code: "JbIuiMMi67O2Uk90W8Z1c3", destination: "JbIuiMMi67O2Uk90W8Z1c3", expect: "JbIuiMMi67O2Uk90W8Z1c3" },
+      { slug: "dod-nx", is_active: true, active_invite_code: "C0S0mhgnJdEHLa0ibqlGDM", destination: "C0S0mhgnJdEHLa0ibqlGDM", expect: "C0S0mhgnJdEHLa0ibqlGDM" },
+      { slug: "eed-nx", is_active: true, active_invite_code: "LBuE4GwEMt81hOx1KgB7Lx", destination: "LBuE4GwEMt81hOx1KgB7Lx", expect: "LBuE4GwEMt81hOx1KgB7Lx" },
+      { slug: "ewanmcvicar-nx", is_active: true, active_invite_code: "Dl7VK7opleoKWbemaQFcW8", destination: null, expect: "Dl7VK7opleoKWbemaQFcW8" },
+      { slug: "fever105-sheffield", is_active: true, active_invite_code: "DdsCUNGsF1RAZlGXkA5L81", destination: "DdsCUNGsF1RAZlGXkA5L81", expect: "DdsCUNGsF1RAZlGXkA5L81" },
+      { slug: "folamour-nx", is_active: true, active_invite_code: "EyjMPWNJFuZ5RTJi8I4QPw", destination: "EyjMPWNJFuZ5RTJi8I4QPw", expect: "EyjMPWNJFuZ5RTJi8I4QPw" },
+      { slug: "gds-sheffield", is_active: true, active_invite_code: "FknA5LDC4zD5rBPj7sWcmt", destination: "FknA5LDC4zD5rBPj7sWcmt", expect: "FknA5LDC4zD5rBPj7sWcmt" },
+      { slug: "glitterbox-bristol", is_active: true, active_invite_code: "KtVHgTtmGxALxaKmWJOxwR", destination: null, expect: "KtVHgTtmGxALxaKmWJOxwR" },
+      { slug: "ipc-nx", is_active: true, active_invite_code: "L4jN3AFWkKtI1FIS2yEXjX", destination: "L4jN3AFWkKtI1FIS2yEXjX", expect: "L4jN3AFWkKtI1FIS2yEXjX" },
+      { slug: "kream-bristol", is_active: true, active_invite_code: "DLsK34iUMpC3sFDg80CQrd", destination: null, expect: "DLsK34iUMpC3sFDg80CQrd" },
+      { slug: "locklead-nx", is_active: true, active_invite_code: "C7WMSoEAPJL59FIY0iDJd2", destination: null, expect: "C7WMSoEAPJL59FIY0iDJd2" },
+      { slug: "lprhythm-sheffield", is_active: true, active_invite_code: "EPLTFhrSlOj3u3QZBE5b02", destination: null, expect: "EPLTFhrSlOj3u3QZBE5b02" },
+      { slug: "mg-sheffield", is_active: true, active_invite_code: "GRhIHPpdO7T2d8JSt1ioBD", destination: "GRhIHPpdO7T2d8JSt1ioBD", expect: "GRhIHPpdO7T2d8JSt1ioBD" },
+      { slug: "paulvandyk-nx", is_active: true, active_invite_code: "FcmnE27aoR649oO9QSz4MR", destination: "FcmnE27aoR649oO9QSz4MR", expect: "FcmnE27aoR649oO9QSz4MR" },
+      { slug: "puzzle-circuit", is_active: true, active_invite_code: "EIRmWYF6uTVBBfXVE5vXxU", destination: "EIRmWYF6uTVBBfXVE5vXxU", expect: "EIRmWYF6uTVBBfXVE5vXxU" },
+      { slug: "robbie-nx", is_active: true, active_invite_code: "CbtX589VmAg5vLilBrmeme", destination: "CbtX589VmAg5vLilBrmeme", expect: "CbtX589VmAg5vLilBrmeme" },
+      { slug: "rudimental-nx", is_active: false, active_invite_code: null, destination: "DdsCUNGsF1RAZlGXkA5L81", expect: null },
+      { slug: "schak-nx", is_active: true, active_invite_code: "D7AvqS8L27rKJwio2BhpJw", destination: "D7AvqS8L27rKJwio2BhpJw", expect: "D7AvqS8L27rKJwio2BhpJw" },
+    ];
+    assert.equal(rows.length, 20);
+    for (const row of rows) {
+      assert.equal(isValidSlug(row.slug), true, row.slug);
+      const code = authoritativeDestination({
+        is_active: row.is_active,
+        active_invite_code: row.active_invite_code,
+        destinations: row.destination
+          ? [{ invite_code: row.destination, is_active: true }]
+          : [],
+      });
+      assert.equal(code, row.expect, row.slug);
+    }
   });
 });
 

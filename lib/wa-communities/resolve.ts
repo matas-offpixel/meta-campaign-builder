@@ -8,26 +8,32 @@
  *      to chat.whatsapp.com/{segment} with the segment bytes unchanged.
  *
  * The destination code comes from wa_community_alias_destinations (the
- * active row). aliases.active_invite_code is a cache and is not read here.
+ * active row). When that row exists it wins over active_invite_code.
+ * An active alias with no destination still resolves through the cache:
+ * several live rows were written with only active_invite_code.
  */
 
 import { isValidInviteCode, isWellFormedSegment } from "./slug.ts";
 
 /**
- * Destination code the public redirect is allowed to follow.
- * Inactive aliases and rows with no active destination yield null so the
- * segment passes through. The cache column is not consulted.
+ * Invite code the public redirect and the Cirqlin read are allowed to follow.
+ * An inactive alias yields null. An active destination wins. With no active
+ * destination, a valid active_invite_code is the code the alias was given.
  */
 export function authoritativeDestination(
   row: {
     is_active: boolean;
+    active_invite_code?: string | null;
     destinations: { invite_code: string; is_active: boolean }[];
   } | null,
 ): string | null {
   if (!row?.is_active) return null;
   const active = row.destinations.find((d) => d.is_active);
-  if (!active || !isValidInviteCode(active.invite_code)) return null;
-  return active.invite_code;
+  if (active && isValidInviteCode(active.invite_code)) return active.invite_code;
+  if (row.active_invite_code && isValidInviteCode(row.active_invite_code)) {
+    return row.active_invite_code;
+  }
+  return null;
 }
 
 export type AliasLookupRow = {

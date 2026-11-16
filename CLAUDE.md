@@ -304,9 +304,9 @@ REMOTION_LAMBDA_SERVE_URL=
 > **`CIRQLIN_TO_DASHBOARD_BEARER`** is the shared bearer Cirqlin sends to
 > `GET /api/community-aliases/{slug}` so crqln.com can resolve a repointable
 > WhatsApp invite. Matas mints it (`openssl rand -hex 32`) and sets the same
-> value on both Vercel projects. Neither Cursor nor Cowork holds it. Unset →
-> the route returns 200 with `invite_code: null` and `degraded: true` so
-> cirqlin passes the raw code through. See `docs/community-aliases.md`.
+> value on both Vercel projects. Neither Cursor nor Cowork holds it. The
+> route compares the bearer with `timingSafeEqual` and never logs the value.
+> Unset refuses every request (401). See `docs/community-aliases.md`.
 
 > **`GOOGLE_DRIVE_EXPORT_DRIVE_ID`** — the Shared Drive "Off / Pixel"
 > (`0AGzNNGLxNV_kUk9PVA`) that holds every client's and event's folder tree

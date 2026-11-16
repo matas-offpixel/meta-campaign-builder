@@ -12,9 +12,10 @@
  * Those two are distinguishable. Both still fail open for the fan, so a
  * repoint window where this endpoint is down sends fans to the previous
  * group. That is an accepted risk; the runbook names it.
+ *
+ * CIRQLIN_TO_DASHBOARD_BEARER unset refuses every request. The value is
+ * never logged.
  */
-import { timingSafeEqual } from "node:crypto";
-
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getAliasLookupBySlug } from "@/lib/db/wa-community-aliases";
@@ -25,22 +26,16 @@ import {
   ALIAS_READ_CACHE_TTL_SECONDS,
   getAliasRuntimeCache,
 } from "@/lib/wa-communities/alias-cache";
-import { communityAliasReadResponse } from "@/lib/wa-communities/community-alias-read";
+import {
+  communityAliasBearerMatches,
+  communityAliasReadResponse,
+} from "@/lib/wa-communities/community-alias-read";
 import {
   checkCommunityAliasRateLimit,
   communityAliasRateKey,
 } from "@/lib/wa-communities/read-rate-limit";
 
 export const dynamic = "force-dynamic";
-
-function bearerMatches(header: string | null, secret: string): boolean {
-  if (!secret || !header?.toLowerCase().startsWith("bearer ")) return false;
-  const token = header.slice(header.indexOf(" ") + 1).trim();
-  const a = Buffer.from(token);
-  const b = Buffer.from(secret);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
 
 type CachedRead = {
   destination_invite_code: string | null;
@@ -54,7 +49,7 @@ export async function GET(
   const { slug } = await ctx.params;
   const secret = (process.env.CIRQLIN_TO_DASHBOARD_BEARER ?? "").trim();
   const configured = secret.length > 0;
-  const authorized = configured && bearerMatches(req.headers.get("authorization"), secret);
+  const authorized = configured && communityAliasBearerMatches(req.headers.get("authorization"), secret);
 
   const rate = checkCommunityAliasRateLimit(
     communityAliasRateKey(req.headers.get("x-forwarded-for")),
