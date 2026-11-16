@@ -581,7 +581,7 @@ describe("P3 lookalike: the audience builder's draft row keeps retention_days in
   it("EBR26-KREAM's retry: the stored seed is reused, the lookalike is made once, and the line applies", async () => {
     const failed = { ...defaultLine("registrations_lookalike"), id: "57262ab0", state: "failed", reason: "Meta didn't take this — new row for relation \"meta_custom_audiences\" violates check constraint \"meta_custom_audiences_retention_days_check\"", applied_result: { step: "audience", source: "registrations_lookalike", funding: { mode: "cbo" }, copiedFrom: "303" } };
     const mem = seed([failed], { stored: [{ id: "s1", event_id: "e1", user_id: "u1", kind: "registrations_lookalike", part: "registrations", campaign_key: "", meta_audience_id: SEED, line_id: "57262ab0" }] });
-    const fake = fakes();
+    const fake = fakes({ cbo: true }); // KREAM's campaign is on a campaign budget, as the stored funding says
     // The builder's draft insert, with the CHECK, ahead of the Meta create.
     const made: string[] = [];
     fake.ensureAudience = async (spec: AudienceSpec) => {
