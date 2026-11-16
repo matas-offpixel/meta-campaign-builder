@@ -148,7 +148,7 @@ export function retargetingEvidence(counts: { landing: number | null; ticket: nu
 }
 
 /** Retargeting when the copied ad set has no pixel: Apply builds the video-viewer audience only. */
-export const RETARGETING_VIDEO_ONLY = `Builds 1 audience: video viewers, last ${RETENTION.video} days. The ad set it copies has no pixel, so visitors and registrations can't be built.`;
+export const RETARGETING_VIDEO_ONLY = `Builds 1 audience: video viewers, last ${RETENTION.video} days. The ad set it copies has no pixel, so landing-page and ticket-link visitors can't be built.`;
 export const NO_PIXEL_NO_VIDEO = "The ad set it copies has no pixel and this campaign's ads have no video views, so there's no audience to build.";
 export const NO_PIXEL_NO_REGISTRATIONS = "The ad set it copies has no pixel, so there are no registrations to build from.";
 

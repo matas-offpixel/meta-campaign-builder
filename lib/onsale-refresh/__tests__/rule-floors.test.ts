@@ -17,7 +17,7 @@ import { describe, it } from "node:test";
 
 import { APPLY_ENV, applyGates } from "../apply-gates.ts";
 import { MIN_DAILY_BUDGET_MINOR as APPLY_FLOOR, applyAccepted, type AdSetNow, type ApplyDeps, type RefreshMeta } from "../apply.ts";
-import { NO_PIXEL_NO_REGISTRATIONS, NO_PIXEL_NO_VIDEO, RETARGETING_VIDEO_ONLY } from "../new-adset.ts";
+import { NO_PIXEL_NO_REGISTRATIONS, NO_PIXEL_NO_VIDEO, RETARGETING_VIDEO_ONLY, RETENTION } from "../new-adset.ts";
 import { ONSALE_PHASE } from "../phase-config.ts";
 import { MIN_DAILY_BUDGET_MINOR, maxWeeklyMoveGbp, moveDeltaMinor } from "../plan-guard.ts";
 import { audienceLines, type AdSetInput, type CampaignInput } from "../rules.ts";
@@ -81,11 +81,11 @@ describe("move.within_campaign keeps the giver at the £1.00 a day floor Apply k
     const { lines, watch } = audienceLines(p26(100), ONSALE_PHASE);
     assert.equal(lines.find((line) => line.kind === "move_budget"), undefined, "£3.74 a week off £1.00 a day would be refused at Apply");
     const item = watch.find((row) => row.title === "Retargeting – No Suggest → Adv+")!;
-    assert.equal(item.detail, "no move: the giving ad set is already at the £1.00 a day floor");
+    assert.equal(item.detail, "no move: the giving ad set is at £1.00 a day, under the £1.00 a day floor");
     assert.equal(item.narrow, "Retargeting – No Suggest → Adv+ · no move, £1.00 floor");
     assert.deepEqual(item.evidence, { fromAdsetId: GIVER, toAdsetId: RECEIVER, fromDailyBudgetGbp: 1, floorGbp: 1, wantedGbp: 3.74 });
     const under = audienceLines(p26(50), ONSALE_PHASE).watch.find((row) => row.title === "Retargeting – No Suggest → Adv+")!;
-    assert.equal(under.detail, "no move: the giving ad set is at £0.50 a day, under the £1.00 floor");
+    assert.equal(under.detail, "no move: the giving ad set is at £0.50 a day, under the £1.00 a day floor");
   });
 
   it("a giver just over the floor: the move is capped at what keeps it at £1.00, and says so", () => {
@@ -185,8 +185,9 @@ describe("missing_default.retargeting says what Apply builds when the copied ad 
   it("no pixel, the campaign has video: the video viewers only, never landing-page visitors", () => {
     const line = defaultOf(trancoso(null), "retargeting");
     assert.equal(line.target.extra, RETARGETING_VIDEO_ONLY);
-    assert.equal(RETARGETING_VIDEO_ONLY, "Builds 1 audience: video viewers, last 60 days. The ad set it copies has no pixel, so visitors and registrations can't be built.");
-    assert.doesNotMatch(String(line.target.extra), /landing-page visitors|ticket-link visitors|registrations \d/);
+    assert.equal(RETARGETING_VIDEO_ONLY, "Builds 1 audience: video viewers, last 60 days. The ad set it copies has no pixel, so landing-page and ticket-link visitors can't be built.");
+    assert.doesNotMatch(String(line.target.extra), /landing-page visitors \d|ticket-link visitors \d|registrations/);
+    assert.equal(RETENTION.video, 60, "the window ensureDefaultAudiences gives the video audience");
     assert.equal(line.blockedReason, null);
     assert.equal(line.evidence.copyPixelId, null);
     assert.equal(line.evidence.videoPlays, 5120);
