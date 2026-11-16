@@ -402,7 +402,7 @@ function buildRows(input: CreativeSectionInput): Built {
     tags.push(...options);
   }
 
-  const tiktok = tiktokWithImpressions(input.tiktok)
+  const tiktok = tiktokShown(input.tiktok)
     .sort((a, b) => b.spend - a.spend || a.name.localeCompare(b.name))
     .map((row) => ({
       name: row.name,
@@ -542,15 +542,15 @@ export function tablesFor(built: Built, selected: readonly TagChoice[]): Creativ
   };
 }
 
-/** A snapshot row with no impressions in the period is not a creative on the page. */
-function tiktokWithImpressions(rows: readonly TikTokRef[]): TikTokRef[] {
-  return rows.filter((row) => row.impressions > 0);
+/** Hide a row only when it neither spent nor was seen. A billing correction with spend and no impressions stays. */
+function tiktokShown(rows: readonly TikTokRef[]): TikTokRef[] {
+  return rows.filter((row) => row.impressions > 0 || row.spend > 0);
 }
 
-/** Meta when the view has ad days, TikTok when a row was seen, both only when both do. */
+/** Meta when the view has ad days, TikTok when a row is shown, both only when both do. */
 function sourceLine(input: CreativeSectionInput): string {
   const meta = input.days.length > 0;
-  const tiktok = tiktokWithImpressions(input.tiktok).length > 0;
+  const tiktok = tiktokShown(input.tiktok).length > 0;
   const channels = meta && tiktok ? "Meta and TikTok" : meta ? "Meta" : tiktok ? "TikTok" : null;
   return [input.client, input.show, channels, `to ${input.through}`].filter((part) => part).join(" · ");
 }

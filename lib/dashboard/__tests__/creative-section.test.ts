@@ -172,12 +172,21 @@ describe("rules", () => {
     assert.equal(model.tiktok[0]?.spend, "£167.67");
   });
 
-  it("leaves out TikTok rows with no impressions, and shows the empty line when every row is zero", () => {
+  it("drops a TikTok row only when spend and impressions are both zero", () => {
     const served = { name: "Served", spend: 12, impressions: 400, clicks: 8, views2s: 100, viewsFull: 10 };
     const silent = { name: "Silent", spend: 0, impressions: 0, clicks: 0, views2s: 0, viewsFull: 0 };
-    const mixed = buildCreativeSection(base({ tiktok: [silent, served, { ...silent, name: "Silent again" }] }));
-    assert.deepEqual(mixed.tiktok.map((row) => row.name), ["Served"]);
+    const adjustment = { name: "Adjustment", spend: 3.2, impressions: 0, clicks: 0, views2s: 0, viewsFull: 0 };
+    const mixed = buildCreativeSection(base({ tiktok: [silent, served, adjustment] }));
+    assert.deepEqual(
+      mixed.tiktok.map((row) => [row.name, row.spend, row.impressions]),
+      [
+        ["Served", "£12.00", "400"],
+        ["Adjustment", "£3.20", "0"],
+      ],
+    );
     assert.equal(mixed.tiktokEmpty, null);
+    assert.equal(mixed.source, "Test · Show · Meta and TikTok · to 6 Aug");
+    assert.equal(JSON.stringify(mixed).includes("not shown"), false);
     const none = buildCreativeSection(base({ tiktok: [silent, { ...silent, name: "Also silent" }] }));
     assert.deepEqual(none.tiktok, []);
     assert.equal(none.tiktokEmpty, TIKTOK_EMPTY);

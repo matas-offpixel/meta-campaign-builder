@@ -8,11 +8,11 @@
 
 ## Summary
 
-The TikTok creatives table was listing snapshot rows that had no impressions in the period, including Electric's NX Newcastle view (16 rows at £0.00 and 0 impressions, mostly duplicate names). Those rows are left out. When none remain, the table shows the existing "No TikTok creatives for this show yet." line, and the source line does not name TikTok.
+The TikTok creatives table was listing snapshot rows that neither spent nor were seen, including Electric's NX Newcastle view (16 rows at £0.00 and 0 impressions, mostly duplicate names). A row is dropped only when spend and impressions are both 0, so a billing correction stays. When none remain, the table shows the existing empty line and the source line does not name TikTok. Never-delivered rows are hidden with no count of how many were left out.
 
 ## Scope / files
 
-- `lib/dashboard/creative-section.ts` — drop TikTok rows with no impressions
+- `lib/dashboard/creative-section.ts` — drop a TikTok row only when spend and impressions are both 0
 - `lib/dashboard/__tests__/creative-section.test.ts`
 
 ## Validation
