@@ -22,7 +22,6 @@ import { adSetAudienceRemoved, adSetDisplayName } from "@/lib/wizard/import-edit
 import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
 import { predictionUnitForDraft, writeDraftLaunchPrediction } from "@/lib/plan/launch-prediction";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
-import { isOperator } from "@/lib/auth/operator-allowlist";
 import {
   isLaunchErrorSource,
   type LaunchErrorSource,
@@ -685,14 +684,6 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   // ── Single authoritative launch token ────────────────────────────────────
   // Resolved ONCE here and threaded through every Meta write/read call below.
   // Priority: user's personal OAuth token (DB) > META_ACCESS_TOKEN env-var.
-  // The env token is the agency's: operators only, even if the proxy gate
-  // were bypassed.
-  if (!userFbToken && !isOperator(user.id)) {
-    return launchJson(
-      { error: "No Meta access token available. Connect your Facebook account in Account Setup." },
-      { status: 403 },
-    );
-  }
   const launchToken: string = userFbToken ?? process.env.META_ACCESS_TOKEN ?? "";
   const launchTokenSource: string = userFbToken ? "db" : "META_ACCESS_TOKEN (env)";
 

@@ -8,22 +8,39 @@ import {
   NON_OPERATOR_API_ALLOWLIST,
   nonOperatorApiEntry,
 } from "../api-access.ts";
-import { MATAS_USER_IDS } from "../operator-allowlist.ts";
+import { isD2CApprover, isOperator, MATAS_USER_IDS, OPERATOR_USER_IDS } from "../operator-allowlist.ts";
 import { isPublicPath } from "../public-routes.ts";
 
 const OPERATOR = MATAS_USER_IDS[0]!;
+const STAFF_OPERATOR = "4aa59005-5c1d-495c-8029-8c9453950c4d";
 const MEMBER = "7d0c3f52-1b6e-4a9d-8e21-5f4a3c2b1d0e"; // invented client_users member
 const ID = "a1b2c3d4-0000-4000-8000-000000000001";
 
+/** The audit's worst routes (Matas's list), plus a few more from it. */
 const WORST = [
   "/api/meta/launch-campaign",
-  "/api/internal-counts/upload",
-  "/api/meta/upload-asset",
-  "/api/venues/enrich",
-  `/api/plan/${ID}/resume`,
+  "/api/meta/create-adsets",
+  "/api/meta/create-creatives-and-ads",
   "/api/meta/bulk-attach-ads",
-  "/api/meta/customer-audience-upload",
+  `/api/plan/${ID}/resume`,
+  "/api/internal-counts/upload",
   `/api/internal-counts/items/${ID}`,
+  "/api/meta/upload-asset",
+  // the audience routes
+  "/api/audiences",
+  `/api/audiences/${ID}`,
+  `/api/audiences/${ID}/write`,
+  "/api/audiences/batch-write",
+  "/api/audiences/bulk/create",
+  "/api/audiences/lookalike/create",
+  "/api/audiences/bulk-website/create",
+  "/api/audiences/bulk-page/create",
+  "/api/audiences/saved-audience/clone",
+  "/api/meta/customer-audience-upload",
+  "/api/meta/lookalikes/retry",
+  "/api/venues/enrich",
+  // more from the audit
+  "/api/meta/create-campaign",
   `/api/clients/${ID}/asset-queue/${ID}/upload-to-meta`,
   "/api/admin/smooth-historical-tier-channel-sales",
   "/api/admin/remotion/render-caption",
@@ -69,6 +86,8 @@ describe("signed-in client_users member on /api", () => {
       "/api/webhooks/ticketing/fourthefans",
       "/api/proxy/creative-thumbnail",
       "/api/meta/thumbnail-proxy",
+      "/api/auth/facebook-start",
+      "/api/auth/facebook-token",
     ]) {
       assert.equal(apiAccessForSignedInUser(path, MEMBER), "pass", path);
     }
@@ -102,6 +121,22 @@ describe("operator on /api", () => {
     for (const path of [...WORST, "/api/brand-new-feature", "/api/share/report/tok"]) {
       assert.equal(apiAccessForSignedInUser(path, OPERATOR), "pass", path);
     }
+  });
+
+  it("the staff operator account passes too", () => {
+    assert.equal(isOperator(STAFF_OPERATOR), true);
+    for (const path of WORST) assert.equal(apiAccessForSignedInUser(path, STAFF_OPERATOR), "pass", path);
+  });
+
+  it("the staff account is an operator, not a D2C approver or Matas", () => {
+    assert.equal(OPERATOR_USER_IDS.includes(STAFF_OPERATOR), true);
+    assert.equal(MATAS_USER_IDS.includes(STAFF_OPERATOR), false);
+    assert.equal(isD2CApprover(STAFF_OPERATOR), false);
+  });
+
+  it("the second unclassified account stays locked out", () => {
+    // 2c24a0e6… (not asked about on its own): not an operator.
+    assert.equal(OPERATOR_USER_IDS.some((id) => id.startsWith("2c24a0e6")), false);
   });
 });
 
@@ -164,7 +199,7 @@ describe("NON_OPERATOR_API_ALLOWLIST", () => {
     // Everything a member can reach is a cron, share, landing, webhook or
     // thumbnail route.
     for (const u of open) {
-      assert.match(u, /^\/api\/(cron|share|l|community-aliases|webhooks|proxy|meta\/thumbnail-proxy|events\/by-share-token|venues\/by-share-token|ticketing\/rollup-sync\/by-share-token)(\/|$)/, u);
+      assert.match(u, /^\/api\/(cron|share|l|auth|community-aliases|webhooks|proxy|meta\/thumbnail-proxy|events\/by-share-token|venues\/by-share-token|ticketing\/rollup-sync\/by-share-token)(\/|$)/, u);
     }
     assert.ok(closed > open.length, `closed ${closed} open ${open.length}`);
   });

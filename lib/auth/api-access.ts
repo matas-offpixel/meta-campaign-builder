@@ -44,6 +44,11 @@ export const NON_OPERATOR_API_ALLOWLIST: readonly NonOperatorApiEntry[] = [
       "Vercel cron. Each route checks Authorization: Bearer CRON_SECRET itself and returns 401 without it; a session adds nothing.",
   },
   {
+    match: "/api/auth/",
+    reason:
+      "Facebook connect for the signed-in user (facebook-start, facebook-token). Reads and writes only the caller's own user_facebook_tokens row.",
+  },
+  {
     match: "/api/share/",
     reason:
       "Public share links (report, client portal, venue, D2C, plan). Each route resolves an unguessable share token with the service role; a signed-in viewer is treated like an anonymous one.",

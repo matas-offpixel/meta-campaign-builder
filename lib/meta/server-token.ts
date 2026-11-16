@@ -13,7 +13,6 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isOperator } from "../auth/operator-allowlist.ts";
 import {
   parseAppUsageHeader,
   parseBusinessUseCaseUsageHeader,
@@ -209,15 +208,7 @@ export async function resolveServerMetaToken(
     console.warn("[resolveToken] DB exception — falling back to env:", err);
   }
 
-  // ── 2. Env-var fallback (operators only) ─────────────────────────────────
-  // The env token is the agency's. A non-operator (e.g. a client_users
-  // member) never falls back to it, even if a route forgot to gate them.
-  if (!isOperator(userId)) {
-    console.info("[resolveToken] no DB token and user is not an operator — no env fallback.");
-    throw new Error(
-      "No Meta access token available. Connect your Facebook account in Account Setup.",
-    );
-  }
+  // ── 2. Env-var fallback ──────────────────────────────────────────────────
   const envToken = process.env.META_ACCESS_TOKEN;
   if (envToken) {
     console.info(
