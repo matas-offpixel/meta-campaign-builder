@@ -95,6 +95,8 @@ export async function POST(req: NextRequest) {
 
   let shareUserId: string;
   let writeClient: VenueShareClient = supabase;
+  // Set when a client share token (not a session) authorises the call.
+  let clientShareCanEdit: boolean | null = null;
   if (!user && isToken(body.client_token)) {
     const admin = createServiceRoleClient();
     const resolved = await resolveShareByToken(body.client_token, admin);
@@ -109,6 +111,7 @@ export async function POST(req: NextRequest) {
       );
     }
     shareUserId = resolved.share.user_id;
+    clientShareCanEdit = resolved.share.can_edit;
     // Public client-portal clicks are authorised by the client share
     // token, not a browser session. Use service role after that token
     // check so RLS does not block the venue lookup or insert.
@@ -167,6 +170,15 @@ export async function POST(req: NextRequest) {
   const existing = await getShareForVenue(clientId, eventCode, writeClient);
   if (existing) {
     if (!existing.enabled) {
+      // Only the agency (a session) turns a venue share back on. A client
+      // share token can open an enabled one, never re-enable one the agency
+      // turned off.
+      if (clientShareCanEdit !== null) {
+        return NextResponse.json(
+          { ok: false, error: "This venue report has been turned off." },
+          { status: 403 },
+        );
+      }
       await setShareEnabled(existing.token, true, writeClient);
     }
     return NextResponse.json({
@@ -182,6 +194,9 @@ export async function POST(req: NextRequest) {
       eventCode,
       userId: shareUserId,
       client: writeClient,
+      // A venue share minted from a client link gets that link's edit
+      // rights, never more: a view-only client link mints a view-only venue.
+      ...(clientShareCanEdit !== null ? { canEdit: clientShareCanEdit } : {}),
     });
     return NextResponse.json(
       {

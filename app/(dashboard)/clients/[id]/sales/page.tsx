@@ -4,6 +4,9 @@ import { Suspense } from "react";
 import { AudiencePanelsUrl } from "@/components/dashboard/audience-panels/audience-panels";
 import { CreativeSectionUrl } from "@/components/dashboard/creative-section/creative-panel";
 import { SignupsPanelUrl } from "@/components/dashboard/page-audience/signups-panel";
+import { ObjectiveBudgetPanel } from "@/components/dashboard/objective-budget-panel/panel";
+import { PresalePanel } from "@/components/dashboard/presale-panel/presale-panel";
+import { loadSalesPanels } from "@/lib/dashboard/he-panels/server";
 import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-url";
 import { initialFromQuery } from "@/components/dashboard/sales/venue-query";
 import { loadInternalAudiencePanels } from "@/lib/dashboard/audience-panels-server";
@@ -12,7 +15,7 @@ import { loadInternalPageAudiencePanels } from "@/lib/dashboard/page-audience-pa
 import { loadInternalSalesDashboard } from "@/lib/dashboard/sales-calc/server";
 import { dashboardV2Enabled } from "@/lib/dashboard/sales-calc/gate";
 import { pickPeriod } from "@/lib/dashboard/sales-calc/query";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
  * Internal sales vs spend (dashboard v2, D11). The server calc
@@ -41,6 +44,7 @@ export default async function ClientSalesPage({ params, searchParams }: Props) {
   const initial = initialFromQuery(build.model, query);
   // HE1 + HE3: read only after the owner's session has read this client's dashboard.
   const panels = await loadInternalAudiencePanels(supabase, id, build.model);
+  const he = await loadSalesPanels(createServiceRoleClient(), id, initial.showId, "internal");
   const creatives = await loadInternalCreativeSection(supabase, id, build.model);
   // HE2: CIRQLIN page audience, stored rows only.
   const audience = await loadInternalPageAudiencePanels(supabase, id, build.model);
@@ -55,7 +59,9 @@ export default async function ClientSalesPage({ params, searchParams }: Props) {
       />
       {panels ? <AudiencePanelsUrl byView={panels} initialViewId={initial.showId} geographyByView={audience?.geography} /> : null}
       {audience ? <SignupsPanelUrl byView={audience.signups} initialViewId={initial.showId} initialPeriod={pickPeriod(query.period) ?? build.model.initialPeriod} /> : null}
+      {he.presale ? <PresalePanel model={he.presale} /> : null}
       {creatives ? <CreativeSectionUrl byView={creatives} initialViewId={initial.showId} /> : null}
+      {he.budget ? <ObjectiveBudgetPanel model={he.budget} /> : null}
     </Suspense>
   );
 }

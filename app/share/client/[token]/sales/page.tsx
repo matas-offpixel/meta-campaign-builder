@@ -4,6 +4,9 @@ import { Suspense } from "react";
 import { AudiencePanelsUrl } from "@/components/dashboard/audience-panels/audience-panels";
 import { CreativeSectionUrl } from "@/components/dashboard/creative-section/creative-panel";
 import { SignupsPanelUrl } from "@/components/dashboard/page-audience/signups-panel";
+import { ObjectiveBudgetPanel } from "@/components/dashboard/objective-budget-panel/panel";
+import { PresalePanel } from "@/components/dashboard/presale-panel/presale-panel";
+import { loadShareSalesPanels } from "@/lib/dashboard/he-panels/server";
 import { SalesDashboardUrl } from "@/components/dashboard/sales/sales-dashboard-url";
 import { initialFromQuery } from "@/components/dashboard/sales/venue-query";
 import { loadShareAudiencePanels } from "@/lib/dashboard/audience-panels-server";
@@ -41,6 +44,7 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
   const resolved = await resolveShareByToken(token);
   const clientId = resolved.ok && resolved.share.scope === "client" ? resolved.share.client_id : null;
   const panels = clientId ? await loadShareAudiencePanels(clientId, result.model) : null;
+  const he = clientId ? await loadShareSalesPanels(clientId, initial.showId) : null;
   const creatives = clientId ? await loadShareCreativeSection(clientId, result.model) : null;
   // HE2: CIRQLIN page audience, stored rows only.
   const audience = clientId ? await loadSharePageAudiencePanels(clientId, result.model) : null;
@@ -55,7 +59,9 @@ export default async function ShareSalesPage({ params, searchParams }: Props) {
       />
       {panels ? <AudiencePanelsUrl byView={panels} initialViewId={initial.showId} geographyByView={audience?.geography} /> : null}
       {audience ? <SignupsPanelUrl byView={audience.signups} initialViewId={initial.showId} initialPeriod={pickPeriod(query.period) ?? result.model.initialPeriod} /> : null}
+      {he?.presale ? <PresalePanel model={he.presale} /> : null}
       {creatives ? <CreativeSectionUrl byView={creatives} initialViewId={initial.showId} /> : null}
+      {he?.budget ? <ObjectiveBudgetPanel model={he.budget} /> : null}
     </Suspense>
   );
 }

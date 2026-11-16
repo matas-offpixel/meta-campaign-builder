@@ -176,6 +176,8 @@ export async function updateAdditionalTicketEntry(
   args: {
     id: string;
     userId: string;
+    /** Share-token callers pin the entry to the verified event. */
+    eventId?: string;
     scope?: AdditionalTicketScope;
     tierName?: string | null;
     ticketsCount?: number;
@@ -196,13 +198,13 @@ export async function updateAdditionalTicketEntry(
   if (args.label !== undefined) patch.label = args.label;
   if (args.notes !== undefined) patch.notes = args.notes;
 
-  const { data, error } = await asAny(supabase)
+  let query = asAny(supabase)
     .from("additional_ticket_entries")
     .update(patch)
     .eq("id", args.id)
-    .eq("user_id", args.userId)
-    .select("*")
-    .maybeSingle();
+    .eq("user_id", args.userId);
+  if (args.eventId !== undefined) query = query.eq("event_id", args.eventId);
+  const { data, error } = await query.select("*").maybeSingle();
   if (error) {
     console.warn("[additional-tickets update]", error.message);
     throw new Error(error.message);
@@ -210,18 +212,21 @@ export async function updateAdditionalTicketEntry(
   return (data as unknown as AdditionalTicketEntry) ?? null;
 }
 
+/** True when a row was deleted. */
 export async function deleteAdditionalTicketEntry(
   supabase: AnySupabase,
-  args: { id: string; userId: string },
+  args: { id: string; userId: string; /** Share-token callers pin the entry to the verified event. */ eventId?: string },
 ): Promise<boolean> {
-  const { error } = await asAny(supabase)
+  let query = asAny(supabase)
     .from("additional_ticket_entries")
     .delete()
     .eq("id", args.id)
     .eq("user_id", args.userId);
+  if (args.eventId !== undefined) query = query.eq("event_id", args.eventId);
+  const { data, error } = await query.select("id");
   if (error) {
     console.warn("[additional-tickets delete]", error.message);
     throw new Error(error.message);
   }
-  return true;
+  return Array.isArray(data) && data.length > 0;
 }

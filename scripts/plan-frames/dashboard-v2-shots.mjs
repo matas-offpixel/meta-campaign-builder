@@ -4,6 +4,7 @@
  * not import the shared frames page.
  */
 import { AUDIENCE_PANEL_SHOTS } from "./audience-panels-shots.mjs";
+import { HE_PANEL_SHOTS } from "./he-panels-shots.mjs";
 import { CREATIVE_SHOTS } from "./creative-section-shots.mjs";
 import { PAGE_AUDIENCE_SHOTS } from "./page-audience-shots.mjs";
 
@@ -44,6 +45,7 @@ export const DASHBOARD_V2_SHOTS = [
   ...MB_PHONE_SHOTS,
   // HE1 + HE3 panels (WR1, DF1), here so run.mjs is unchanged.
   ...AUDIENCE_PANEL_SHOTS,
+  ...HE_PANEL_SHOTS,
   // HE5 creative section (CR1), here so run.mjs is unchanged.
   ...CREATIVE_SHOTS,
   // HE2 panel (SC1, SC2, WR2), here so run.mjs is unchanged.
