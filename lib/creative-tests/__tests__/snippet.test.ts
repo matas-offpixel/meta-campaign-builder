@@ -1,19 +1,20 @@
 /**
- * CT1–CT5, CT10 (docs/design-record/2026-11-16-creative-testing.html): the
- * snippet's pure parts, the Snippet tab's view against CT-A and CT-B, the
- * static list and the filing name.
+ * CT1–CT5, CT10 (docs/design-record/2026-11-16-creative-testing.html), as
+ * AU1–AU4 (2026-11-16-creative-testing-4.html) re-rule them: the snippet's
+ * pure parts, the Snippet tab's view against AU-A and CT-B, the static list
+ * and the filing name.
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { CTA_PICKS, SNIPPET_FILES, snippetFixtureView } from "../../../scripts/plan-frames/snippet-fixtures.ts";
+import { AUA_PICKS, EXTRA_FILE, SNIPPET_FILES, snippetFixtureView } from "../../../scripts/plan-frames/snippet-fixtures.ts";
 import { freeSnippetName, wantsSnippetFiling } from "../snippet-filing.ts";
-import { SNIPPET, clampWindow, formatOf, makeTestText, mmss, pickable, rightsNote, snippetFileName, spanText, suggestTrack, supplierChoices, unusableReason, windowForDrop, type TopTrack } from "../snippet.ts";
-import { buildSnippetView, makeButtonText, pickerHeading } from "../snippet-view.ts";
+import { SNIPPET, cantUseText, clampWindow, fileLine, formatOf, makeTestText, mmss, mutedLine, pickable, snippetFileName, spanText, suggestTrack, unusableReason, windowForDrop, type TopTrack } from "../snippet.ts";
+import { buildSnippetView, makeButtonText, pickerHeading, pickerHeadingShort } from "../snippet-view.ts";
 import { isNineSixteenStill, isStaticsKey, staticSlugForName } from "../statics.ts";
 
-const TRACKS: TopTrack[] = ["Track one", "Track two", "Track three", "Track four", "Track five"].map((title, i) => ({ id: `t${i + 1}`, title, rank: i + 1 }));
+const TRACKS: TopTrack[] = ["Track one", "Track two", "Track three", "Track four", "Track five", "Track six"].map((title, i) => ({ id: `t${i + 1}`, title, rank: i + 1 }));
 
 describe("CT1: the format", () => {
   it("is 15 to 20 seconds, 16 by default, from 4 s before the drop to 12 s after", () => {
@@ -54,28 +55,47 @@ describe("CT1: the format", () => {
   });
 });
 
-describe("CT2: the files", () => {
-  const probe = (codec: string, container: string, kbps: number | null, s: number | null) => ({ codec, container, bitrateKbps: kbps, durationS: s });
+describe("AU1 / AU2: the files", () => {
+  const probe = (codec: string, container: string, kbps: number | null, sec: number | null) => ({ codec, container, bitrateKbps: kbps, durationS: sec });
 
-  it("takes WAV, AIFF, FLAC, or MP3 at 256 kbps or more, at least 30 seconds", () => {
+  it("takes WAV, AIFF, FLAC, or MP3 at 128 kbps or more, at least 30 seconds", () => {
+    assert.equal(SNIPPET.minMp3Kbps, 128);
     assert.equal(unusableReason(probe("pcm_s16le", "wav", 1411, 192), "a.wav"), null);
     assert.equal(unusableReason(probe("pcm_s24be", "aiff", 2116, 192), "a.aiff"), null);
     assert.equal(unusableReason(probe("flac", "flac", 900, 192), "a.flac"), null);
-    assert.equal(unusableReason(probe("mp3", "mp3", 320, 192), "a.mp3"), null);
-    assert.equal(unusableReason(probe("mp3", "mp3", 256, 192), "a.mp3"), null);
+    assert.equal(unusableReason(probe("mp3", "mp3", 128, 192), "a.mp3"), null);
+    assert.equal(unusableReason(probe("mp3", "mp3", 320, 30), "a.mp3"), null);
   });
 
-  it("says why it can't use anything else", () => {
-    assert.equal(unusableReason(probe("mp3", "mp3", 192, 192), "a.mp3"), "it's an MP3 under 256 kbps");
-    assert.equal(unusableReason(probe("aac", "mov,mp4,m4a,3gp,3g2,mj2", 256, 192), "a.m4a"), "it isn't WAV, AIFF, FLAC or MP3");
-    assert.equal(unusableReason(probe("pcm_s16le", "wav", 1411, 29.5), "a.wav"), "it's shorter than 30 seconds");
-    assert.equal(unusableReason(null, "a.wav"), "it couldn't be read");
+  it("has exactly three reasons, worded as AU1 words them", () => {
+    assert.equal(cantUseText(unusableReason(probe("mp3", "mp3", 96, 192), "a.mp3")!), "Can't use this file: MP3 under 128 kbps");
+    assert.equal(cantUseText(unusableReason(probe("pcm_s16le", "wav", 1411, 29.5), "a.wav")!), "Can't use this file: shorter than 30 seconds");
+    assert.equal(cantUseText(unusableReason(null, "a.wav")!), "Can't use this file: it can't be read");
+    // Not one of the four formats: the Lab doesn't recognise it as audio it takes.
+    assert.equal(cantUseText(unusableReason(probe("aac", "mov,mp4,m4a,3gp,3g2,mj2", 256, 192), "a.m4a")!), "Can't use this file: it can't be read");
     assert.equal(formatOf(probe("flac", "ogg", 900, 60), "a.ogg"), null);
   });
 
-  it("asks who supplied it: {client} or {artist}'s team, and writes the rights note", () => {
-    assert.deepEqual(supplierChoices("Puzzle", "Luke Dean").map((c) => c.label), ["Puzzle", "Luke Dean's team"]);
-    assert.equal(rightsNote({ supplier: "Puzzle", fileName: "LD_track-one_master.wav", who: "Matas", at: "2026-11-16T12:00:00Z" }), "Audio supplied by Puzzle · LD_track-one_master.wav · Matas, 16 Nov");
+  it("the file line names the file and its format, an MP3 with its bitrate (AU2)", () => {
+    assert.equal(fileLine({ fileName: "track two (club mix).aiff", format: "aiff", bitrateKbps: 2116 }), "track two (club mix).aiff · AIFF");
+    assert.equal(fileLine({ fileName: "LD - Track Three.mp3", format: "mp3", bitrateKbps: 128 }), "LD - Track Three.mp3 · MP3 128 kbps");
+    assert.equal(fileLine({ fileName: "LD_track-one_master.wav", format: "wav", bitrateKbps: 1411 }), "LD_track-one_master.wav · WAV");
+    assert.equal(mutedLine("LD_track-six.mp3 · MP3 320 kbps"), "LD_track-six.mp3 · MP3 320 kbps · Meta muted the audio (rights)");
+  });
+
+  it("no supplier field, hold or line exists in the Lab's code or reads (AU2)", async () => {
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    const root = path.join(process.cwd(), "lib/creative-tests");
+    const files = [
+      ...readdirSync(root).filter((f: string) => f.endsWith(".ts")).map((f: string) => path.join(root, f)),
+      path.join(process.cwd(), "components/dashboard/events/creative-lab/snippet.tsx"),
+      path.join(process.cwd(), "app/api/creative-lab/events/[eventId]/snippet/route.ts"),
+    ];
+    for (const file of files) {
+      const code = readFileSync(file, "utf8").split("\n").filter((l: string) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n");
+      assert.doesNotMatch(code, /supplier|Who supplied|Audio supplied by/i, file);
+    }
   });
 });
 
@@ -88,53 +108,55 @@ describe("CT3: the picker", () => {
     assert.equal(suggestTrack("track one track two.wav", TRACKS), null);
   });
 
-  it("only a matched, supplied, unflagged file with a drop can be picked", () => {
-    const ok = { matchState: "matched", supplier: "client", unusableReason: null, rightsFlag: null, dropS: 58 };
+  it("only a matched file that passes AU1, and isn't flagged, can be picked (AU2, AU3)", () => {
+    const ok = { matchState: "matched", unusableReason: null, rightsFlag: null };
     assert.equal(pickable(ok), true);
     assert.equal(pickable({ ...ok, matchState: "suggested" }), false);
-    assert.equal(pickable({ ...ok, supplier: null }), false);
-    assert.equal(pickable({ ...ok, dropS: null }), false);
+    assert.equal(pickable({ ...ok, unusableReason: "MP3 under 128 kbps" }), false);
     assert.equal(pickable({ ...ok, rightsFlag: "Meta muted the audio (rights)" }), false);
   });
 
-  it("CT-A: the rows, the count and the button", () => {
+  it("AU-A: the rows, the count and the button", () => {
     const view = snippetFixtureView();
     assert.equal(view.eventCode, "P26-BDAY");
     assert.deepEqual(view.acts.map((a) => [a.name, a.open]), [["Luke Dean", true], ["Enzo Siragusa", false]]);
-    assert.deepEqual(view.rows.map((r) => r.title), ["1 · Track one", "2 · Track two", "3 · Track three", "4 · Track four", "5 · Track five"]);
-    assert.equal(view.rows[0]!.file!.note, "Audio supplied by Puzzle · LD_track-one_master.wav · Matas, 16 Nov");
-    assert.equal(view.rows[0]!.file!.dropLabel, "DROP · 1:04");
-    assert.equal(view.rows[1]!.file!.note, "Audio supplied by Luke Dean's team · track two (club mix).aiff · Matas, 16 Nov");
-    assert.equal(view.rows[1]!.file!.dropLabel, "DROP · 0:58");
-    assert.equal(view.rows[2]!.file!.note, "Looks like LD - Track Three.mp3");
-    assert.deepEqual(view.rows[2]!.file!.suggestion, { trackId: "t3", title: "Track three" });
-    assert.equal(view.rows[3]!.file, null);
-    assert.equal(view.rows[3]!.empty, "No file in Drive yet");
-    assert.equal(view.rows[4]!.file!.note, "Name who supplied this file before it can run.");
-    assert.equal(view.rows[4]!.file!.pickable, false);
-    assert.equal(view.rows[4]!.file!.supplierAsk?.question, "Who supplied it?");
-    assert.deepEqual(view.extras.map((r) => r.title), ["LD_unreleased-edit.wav · not in Spotify's top tracks"]);
-    assert.equal(pickerHeading("Luke Dean", CTA_PICKS.length), "Spotify's top tracks for Luke Dean · 3 of 5 picked");
+    assert.deepEqual(view.rows.map((r) => r.title), ["1 · Track one", "2 · Track two", "3 · Track three", "4 · Track four", "5 · Track five", "6 · Track six"]);
+    const notes = view.rows.map((r) => r.file?.note ?? r.empty);
+    assert.deepEqual(notes, [
+      "LD_track-one_master.wav · WAV",
+      "track two (club mix).aiff · AIFF",
+      "LD - Track Three.mp3 · MP3 128 kbps",
+      "Can't use this file: MP3 under 128 kbps",
+      "No file in Drive yet",
+      "LD_track-six.mp3 · MP3 320 kbps · Meta muted the audio (rights)",
+    ]);
+    assert.deepEqual(view.rows.map((r) => r.file?.dropLabel ?? null), ["DROP · 1:04", "DROP · 0:58", "DROP · 1:12", null, null, "DROP · 0:49"]);
+    assert.deepEqual(view.rows.map((r) => r.file?.pickable ?? false), [true, true, true, false, false, false]);
+    assert.equal(view.rows[3]!.file!.suggestion, null);
+    assert.equal(view.rows[5]!.file!.flagged, true);
+    assert.equal(pickerHeading("Luke Dean", AUA_PICKS.length), "Spotify's top tracks for Luke Dean · 3 of 5 picked");
+    assert.equal(pickerHeadingShort("Luke Dean", AUA_PICKS.length), "Luke Dean · 3 of 5 picked");
     assert.deepEqual(view.statics.map((s) => s.label), ["Static: P26-BDAY_puzzle_t2-roll-call-w23nov_9x16"]);
     assert.equal(makeButtonText(3), "Make Test 1 · 3 snippets");
     assert.equal(makeTestText(1, 1), "Make Test 1 · 1 snippet");
   });
 
-  it("CT-A: a held pick (track 5) holds Make Test 1", () => {
-    const view = snippetFixtureView();
-    const picked = [...view.rows, ...view.extras].filter((r) => r.file && CTA_PICKS.includes(r.file.id));
-    assert.equal(picked.some((r) => !r.file!.pickable), true);
+  it("a suggested file sits on its track with Match; a Drive file in no top track is listed under them", () => {
+    const suggested = { ...SNIPPET_FILES[2]!, match_state: "none" as const, spotify_track_id: null, spotify_title: null };
+    const view = buildSnippetView({ eventId: "e", eventCode: null, acts: [{ id: "luke-dean", name: "Luke Dean" }], actId: "luke-dean", tracks: TRACKS, files: [suggested, EXTRA_FILE], names: new Map(), statics: [], renders: [], testN: null, testState: null, variantLabels: new Map() });
+    assert.equal(view.rows[2]!.file!.note, "Looks like LD - Track Three.mp3");
+    assert.deepEqual(view.rows[2]!.file!.suggestion, { trackId: "t3", title: "Track three" });
+    assert.deepEqual(view.extras.map((r) => [r.title, r.file!.note]), [["LD_unreleased-edit.wav · not in Spotify's top tracks", "LD_unreleased-edit.wav · WAV"]]);
   });
 
   it("when Spotify doesn't answer, the picker says so and lists the Drive files", () => {
     const view = buildSnippetView({
       eventId: "e",
       eventCode: "P26-BDAY",
-      clientName: "Puzzle",
       acts: [{ id: "luke-dean", name: "Luke Dean" }],
       actId: "luke-dean",
       tracks: null,
-      files: SNIPPET_FILES,
+      files: [...SNIPPET_FILES, EXTRA_FILE],
       names: new Map(),
       statics: [],
       renders: [],
@@ -144,21 +166,22 @@ describe("CT3: the picker", () => {
     });
     assert.equal(view.spotifyLine, "Spotify didn't answer, so the top tracks can't be listed. Pick from the Drive files below.");
     assert.equal(view.rows.length, 0);
-    assert.equal(view.extras.length, SNIPPET_FILES.length);
+    assert.equal(view.extras.length, SNIPPET_FILES.length + 1);
   });
 });
 
 describe("CT4 / CT5: the drop and the preview", () => {
-  it("CT-B: Track two, found by the Lab, 0:54–1:10 · 16 s", () => {
+  it("CT-B: Track two, found by the Lab, 0:54–1:10 · 16 s, with its file line", () => {
     const file = snippetFixtureView().rows[1]!.file!;
     assert.equal(file.dropSource, "Drop found by the Lab");
+    assert.equal(file.note, "track two (club mix).aiff · AIFF");
     assert.equal(file.span, "0:54–1:10 · 16 s");
     assert.equal(file.waveform.length, 400);
   });
 
   it("a drop the operator set reads Drop set by {first name}", () => {
     const moved = { ...SNIPPET_FILES[1]!, drop_source: "operator" as const, drop_set_by: "frame-operator" };
-    const view = buildSnippetView({ eventId: "e", eventCode: null, clientName: "Puzzle", acts: [{ id: "luke-dean", name: "Luke Dean" }], actId: "luke-dean", tracks: TRACKS, files: [moved], names: new Map([["frame-operator", "Matas"]]), statics: [], renders: [], testN: null, testState: null, variantLabels: new Map() });
+    const view = buildSnippetView({ eventId: "e", eventCode: null, acts: [{ id: "luke-dean", name: "Luke Dean" }], actId: "luke-dean", tracks: TRACKS, files: [moved], names: new Map([["frame-operator", "Matas"]]), statics: [], renders: [], testN: null, testState: null, variantLabels: new Map() });
     assert.equal(view.rows[1]!.file!.dropSource, "Drop set by Matas");
   });
 

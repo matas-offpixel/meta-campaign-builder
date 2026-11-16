@@ -79,8 +79,9 @@ describe("ffmpeg: arguments and parsing", () => {
   it("parses ffmpeg's report", () => {
     const wav = "Input #0, wav, from '/tmp/a.wav':\n  Duration: 00:03:12.50, bitrate: 1411 kb/s\n  Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 44100 Hz, 2 channels, s16, 1411 kb/s\n";
     assert.deepEqual(parseProbe(wav), { container: "wav", codec: "pcm_s16le", bitrateKbps: 1411, durationS: 192.5 });
-    const mp3 = "Input #0, mp3, from 'b.mp3':\n  Duration: 00:02:00.00, start: 0.025057, bitrate: 192 kb/s\n  Stream #0:0: Audio: mp3 (mp3float), 44100 Hz, stereo, fltp, 192 kb/s\n";
-    assert.equal(unusableReason(parseProbe(mp3), "b.mp3"), "it's an MP3 under 256 kbps");
+    const mp3 = "Input #0, mp3, from 'b.mp3':\n  Duration: 00:02:00.00, start: 0.025057, bitrate: 96 kb/s\n  Stream #0:0: Audio: mp3 (mp3float), 44100 Hz, stereo, fltp, 96 kb/s\n";
+    assert.equal(unusableReason(parseProbe(mp3), "b.mp3"), "MP3 under 128 kbps");
+    assert.equal(unusableReason(parseProbe(mp3.replaceAll("96 kb/s", "128 kb/s")), "b.mp3"), null);
     const json = '[Parsed_loudnorm_0 @ 0x1]\n{\n\t"input_i" : "-20.10",\n\t"input_tp" : "-3.20",\n\t"input_lra" : "6.00",\n\t"input_thresh" : "-30.40",\n\t"output_i" : "-14.0",\n\t"target_offset" : "0.20"\n}\n';
     assert.equal(parseLoudness(json)?.input_i, "-20.10");
     assert.equal(parseLoudness("no json"), null);

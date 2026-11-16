@@ -11,8 +11,8 @@
  * muxed on with no re-encode. Queued rows run from the render tick, at most
  * MAX_SNIPPET_RENDERS_AT_ONCE at a time, failed after 15 minutes stuck.
  *
- * A render needs a matched file, a named supplier, a placed drop and no
- * rights flag (CT2, CT4, TT5): `renderRefusal` says which is missing. The
+ * A render needs a matched file that passes AU1, a placed drop and no
+ * rights flag (AU4, CT4, TT5): `renderRefusal` says which is missing. The
  * audio only ever comes from the file's Storage copy of the Drive file.
  */
 
@@ -21,8 +21,8 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AudioFileRow } from "./audio-intake.ts";
-import { AUDIO_BUCKET } from "./audio-intake.ts";
-import { SUPPLIER_HELD, clampLength, NO_CLEAR_DROP } from "./snippet.ts";
+import { AUDIO_BUCKET, AUDIO_COLUMNS } from "./audio-intake.ts";
+import { NO_CLEAR_DROP, REASON_UNREADABLE, cantUseText, clampLength } from "./snippet.ts";
 import { RIGHTS_MUTED } from "./words.ts";
 
 type Db = Pick<SupabaseClient, "from">;
@@ -49,12 +49,15 @@ export type SnippetRenderRow = {
   updated_at: string;
 };
 
-/** Why this file can't make a snippet yet, or null (CT2 supplier, CT3 match, CT4 drop, TT5 flag). */
-export function renderRefusal(file: Pick<AudioFileRow, "match_state" | "supplier" | "drop_s" | "unusable_reason" | "rights_flag" | "storage_path">): string | null {
-  if (file.unusable_reason || !file.storage_path) return "This file can't be used.";
+/**
+ * Why this file can't make a snippet yet, or null: a confirmed match, a file
+ * that passes AU1 and a placed drop marker (AU4), and no rights flag (TT5).
+ */
+export function renderRefusal(file: Pick<AudioFileRow, "match_state" | "drop_s" | "unusable_reason" | "rights_flag" | "storage_path">): string | null {
+  if (file.unusable_reason) return cantUseText(file.unusable_reason);
+  if (!file.storage_path) return cantUseText(REASON_UNREADABLE);
   if (file.rights_flag) return RIGHTS_MUTED;
   if (file.match_state !== "matched") return "Match this file to a track first.";
-  if (!file.supplier) return SUPPLIER_HELD;
   if (file.drop_s == null) return NO_CLEAR_DROP;
   return null;
 }
@@ -104,7 +107,7 @@ export type RenderDeps = CutDeps & {
 
 /** One render: still on Lambda, the cut muxed on, stored, registered. */
 export async function renderSnippet(db: Db, row: SnippetRenderRow, deps: RenderDeps): Promise<void> {
-  const fileRes = await db.from("creative_lab_audio_files").select("*").eq("id", row.audio_file_id).maybeSingle();
+  const fileRes = await db.from("creative_lab_audio_files").select(AUDIO_COLUMNS).eq("id", row.audio_file_id).maybeSingle();
   if (fileRes.error) throw new Error(`creative_lab_audio_files: ${fileRes.error.message}`);
   const file = fileRes.data as AudioFileRow | null;
   if (!file) throw new Error("the audio file is gone");

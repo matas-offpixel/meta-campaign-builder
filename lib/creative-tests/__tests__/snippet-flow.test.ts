@@ -16,7 +16,7 @@ import { describe, it } from "node:test";
 import { fakeDrive } from "../../drive/__tests__/fake-drive.ts";
 import { AUDIO_KEY, audioKey, ensureAudioFolder } from "../../drive/folders.ts";
 import { memoryDb } from "../../onsale-refresh/__tests__/memory-db.ts";
-import { SNIPPET_FILES } from "../../../scripts/plan-frames/snippet-fixtures.ts";
+import { EXTRA_FILE, SNIPPET_FILES } from "../../../scripts/plan-frames/snippet-fixtures.ts";
 import { editPatch } from "../audio-edits.ts";
 import { audioFilesIn, scanArtistAudio, type AudioFileRow, type IntakeDeps } from "../audio-intake.ts";
 import { makeTest1, trackNumbers, variantLabel } from "../make-test.ts";
@@ -102,7 +102,7 @@ describe("CT2: the audio folder and intake", () => {
     const { db, tables } = memoryDb({ creative_lab_audio_files: [] });
     const { deps, downloads, uploads } = intakeFakes(drive, {
       [good.id]: { codec: "pcm_s16be", container: "aiff", bitrateKbps: 1411, durationS: 120 },
-      [low.id]: { codec: "mp3", container: "mp3", bitrateKbps: 128, durationS: 120 },
+      [low.id]: { codec: "mp3", container: "mp3", bitrateKbps: 96, durationS: 120 },
     });
     const result = await scanArtistAudio(db, { ...deps, ensureFolder: async () => folder.id }, { event: EVENT as never, client: CLIENT as never, artist: ARTIST, userId: "u1" });
     assert.equal(result.added, 2);
@@ -115,7 +115,7 @@ describe("CT2: the audio folder and intake", () => {
     assert.equal(g.drop_source, "lab");
     assert.equal(g.window_start_s, Number(g.drop_s) - 4);
     const l = rows.find((r) => r.drive_file_id === low.id)!;
-    assert.equal(l.unusable_reason, "it's an MP3 under 256 kbps");
+    assert.equal(l.unusable_reason, "MP3 under 128 kbps");
     assert.equal(l.storage_path, null);
     assert.equal(JSON.stringify([...drive.files.values()].map((f) => [f.id, f.name, f.parents])), before);
     assert.ok(!drive.calls.some((c) => /update|createFolder|upload/.test(c)), drive.calls.join(","));
@@ -128,13 +128,7 @@ describe("CT2: the audio folder and intake", () => {
 
 const row = (extra: Partial<AudioFileRow> = {}): AudioFileRow => ({ ...SNIPPET_FILES[1]!, ...extra });
 
-describe("CT2–CT4: the operator's edits", () => {
-  it("records who supplied it once, with who and when", () => {
-    const fresh = row({ supplier: null, supplier_set_by: null, supplier_set_at: null });
-    assert.deepEqual(editPatch(fresh, { kind: "supplier", supplier: "client" }, "u1", "2026-11-16T12:00:00Z"), { supplier: "client", supplier_set_by: "u1", supplier_set_at: "2026-11-16T12:00:00Z" });
-    assert.deepEqual(editPatch(row(), { kind: "supplier", supplier: "client" }, "u1", "t"), { refused: "Who supplied this file is already recorded." });
-  });
-
+describe("CT3 / CT4: the operator's edits", () => {
   it("dragging the marker sets the drop and moves the window with it; dragging the window moves the start alone", () => {
     assert.deepEqual(editPatch(row(), { kind: "drop", dropS: 70 }, "u1", "t"), { drop_s: 70, drop_source: "operator", drop_set_by: "u1", drop_set_at: "t", window_start_s: 66, length_s: 16 });
     assert.deepEqual(editPatch(row(), { kind: "window", startS: 50 }, "u1", "t"), { window_start_s: 50 });
@@ -154,13 +148,13 @@ describe("CT2–CT4: the operator's edits", () => {
 });
 
 describe("CT1 / CT10: the render", () => {
-  it("can't render without a confirmed match, a named supplier and a placed drop, or with a rights flag", () => {
+  it("renders with a confirmed match, a file that passes AU1 and a placed drop marker, and no rights flag (AU4)", () => {
     assert.equal(renderRefusal(row()), null);
     assert.equal(renderRefusal(row({ match_state: "suggested" })), "Match this file to a track first.");
-    assert.equal(renderRefusal(row({ supplier: null })), "Name who supplied this file before it can run.");
     assert.equal(renderRefusal(row({ drop_s: null })), "No clear drop found. Drag the marker to where it lands.");
     assert.equal(renderRefusal(row({ rights_flag: "Meta muted the audio (rights)" })), "Meta muted the audio (rights)");
-    assert.equal(renderRefusal(row({ unusable_reason: "it couldn't be read" })), "This file can't be used.");
+    assert.equal(renderRefusal(row({ unusable_reason: "MP3 under 128 kbps" })), "Can't use this file: MP3 under 128 kbps");
+    assert.equal(renderRefusal(row({ storage_path: null })), "Can't use this file: it can't be read");
   });
 
   function renderFakes() {
@@ -241,21 +235,21 @@ describe("CT1 / CT10: the render", () => {
     assert.equal(by.get("q3")!.status, "queued");
   });
 
-  it("a render whose file lost its supplier fails with the record's words", async () => {
+  it("a render whose file was flagged meanwhile fails with the record's words", async () => {
     const render = { id: "r9", user_id: "u1", event_id: "ev1", audio_file_id: "f2", purpose: "final", static_drive_file_id: "s1", static_name: "x", start_s: 54, length_s: 16, test_id: null, status: "queued", attempt: 0, error: null, storage_path: null, file_name: "a_r1_9x16.mp4", updated_at: "2026-11-16T11:59:00Z", created_at: "2026-11-16T11:00:00Z" };
-    const { db, tables } = memoryDb({ creative_lab_audio_files: [row({ id: "f2", supplier: null }) as never], creative_lab_snippet_renders: [render as never] });
+    const { db, tables } = memoryDb({ creative_lab_audio_files: [row({ id: "f2", rights_flag: "Meta muted the audio (rights)" }) as never], creative_lab_snippet_renders: [render as never] });
     const result = await runSnippetRenderTick(db, renderFakes().deps, { now: new Date("2026-11-16T12:00:00Z") });
     assert.equal(result.failed, 1);
-    assert.equal(tables.creative_lab_snippet_renders![0]!.error, "Name who supplied this file before it can run.");
+    assert.equal(tables.creative_lab_snippet_renders![0]!.error, "Meta muted the audio (rights)");
   });
 });
 
 describe("CT10: Make Test 1", () => {
-  const tracks = ["Track one", "Track two", "Track three", "Track four", "Track five"].map((title, i) => ({ id: `t${i + 1}`, title, rank: i + 1 }));
+  const tracks = ["Track one", "Track two", "Track three", "Track four", "Track five", "Track six"].map((title, i) => ({ id: `t${i + 1}`, title, rank: i + 1 }));
   const ctx = (files: AudioFileRow[]) => ({ event: { event_code: "P26-BDAY", status: "on_sale" }, artistNames: new Map([["luke-dean", "Luke Dean"]]), allFiles: files, tracksByArtist: new Map([["luke-dean", tracks]]) });
 
   it("makes the default plan, Test 1's variants, and one queued snippet per track on the static", async () => {
-    const files = [SNIPPET_FILES[0]!, SNIPPET_FILES[1]!, SNIPPET_FILES[4]!];
+    const files = [SNIPPET_FILES[0]!, SNIPPET_FILES[1]!, EXTRA_FILE];
     const { db, tables } = memoryDb({ creative_test_plans: [], creative_tests: [], creative_test_variants: [], creative_lab_snippet_renders: [] });
     const made = await makeTest1(db, { eventId: "ev1", userId: "u1", fileIds: files.map((f) => f.id), static: { driveFileId: "s1", fileName: "P26-BDAY_puzzle_t2-roll-call-w23nov_9x16.png" } }, ctx(files));
     assert.ok(made.ok);
@@ -267,18 +261,18 @@ describe("CT10: Make Test 1", () => {
     assert.deepEqual(renders.map((r) => r.file_name), [
       "P26-BDAY_luke-dean-1_snippet-puzzle_t2-roll-call-w23nov-on-sale_r1_9x16.mp4",
       "P26-BDAY_luke-dean-2_snippet-puzzle_t2-roll-call-w23nov-on-sale_r1_9x16.mp4",
-      "P26-BDAY_luke-dean-6_snippet-puzzle_t2-roll-call-w23nov-on-sale_r1_9x16.mp4",
+      "P26-BDAY_luke-dean-7_snippet-puzzle_t2-roll-call-w23nov-on-sale_r1_9x16.mp4",
     ]);
     // Nothing reaches Meta: no launched rows, no ledger.
     assert.equal(tables.launched_ads, undefined);
     assert.equal(tables.meta_write_idempotency, undefined);
   });
 
-  it("refuses a held track (no supplier), fewer than 2 or more than 5", async () => {
-    const files = [SNIPPET_FILES[0]!, SNIPPET_FILES[3]!];
+  it("refuses a flagged track, fewer than 2 or more than 5", async () => {
+    const files = [SNIPPET_FILES[0]!, SNIPPET_FILES[4]!];
     const { db } = memoryDb({ creative_test_plans: [], creative_tests: [] });
     const held = await makeTest1(db, { eventId: "ev1", userId: "u1", fileIds: files.map((f) => f.id), static: { driveFileId: "s1", fileName: "s.png" } }, ctx(files));
-    assert.deepEqual(held, { ok: false, error: "Track five: Name who supplied this file before it can run.", status: 409 });
+    assert.deepEqual(held, { ok: false, error: "Track six: Meta muted the audio (rights)", status: 409 });
     const one = await makeTest1(db, { eventId: "ev1", userId: "u1", fileIds: ["f1"], static: { driveFileId: "s1", fileName: "s.png" } }, ctx([SNIPPET_FILES[0]!]));
     assert.equal(one.ok, false);
   });
@@ -291,10 +285,10 @@ describe("CT10: Make Test 1", () => {
   });
 
   it("{track n} is the picker place; a file in no top track comes after them", () => {
-    const numbers = trackNumbers([SNIPPET_FILES[4]!, SNIPPET_FILES[1]!], tracks);
+    const numbers = trackNumbers([EXTRA_FILE, SNIPPET_FILES[1]!], tracks);
     assert.equal(numbers.get("f2"), 2);
-    assert.equal(numbers.get("fx"), 6);
-    assert.equal(variantLabel(SNIPPET_FILES[4]!), "LD_unreleased-edit");
+    assert.equal(numbers.get("fx"), 7);
+    assert.equal(variantLabel(EXTRA_FILE), "LD_unreleased-edit");
   });
 });
 

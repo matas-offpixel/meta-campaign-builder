@@ -1,5 +1,5 @@
 /**
- * The Snippet tab's view (CT3–CT5, CT10, TT5), built from rows. Pure, no
+ * The Snippet tab's view (CT3–CT5, CT10, TT5, as AU1–AU4 re-rule them), built from rows. Pure, no
  * server imports: the route builds it, the panel and the CT-A / CT-B frames
  * draw it.
  */
@@ -9,39 +9,35 @@ import {
   DROP_FOUND,
   NO_FILE_YET,
   SPOTIFY_NO_ANSWER,
-  SUPPLIER_HELD,
   cantUseText,
   dropLabel,
   dropSetBy,
+  fileLine,
   fileWindow,
   looksLikeText,
   makeTestText,
+  mutedLine,
   notInTopText,
   pickable,
   pickedText,
-  rightsNote,
   spanText,
   staticLabel,
   suggestTrack,
-  supplierChoices,
-  supplierName,
   testTag,
   trackRowTitle,
   type TopTrack,
 } from "./snippet.ts";
-import { RIGHTS_MUTED } from "./words.ts";
 
 export type ActChip = { id: string; name: string; open: boolean };
 
 export type FileView = {
   id: string;
   fileName: string;
-  /** The row's state line under the title: the rights note, "Looks like …", the held line, or why it can't be used. */
+  /** The row's line under the title (AU2–AU3): the file line, "Looks like …", why it can't be used, or the muted file line. */
   note: string | null;
-  noteTone: "plain" | "held" | "failed";
+  noteTone: "plain" | "failed";
   /** "Match" on a suggested file. */
   suggestion: { trackId: string; title: string } | null;
-  supplierAsk: { question: string; choices: { value: string; label: string }[] } | null;
   pickable: boolean;
   flagged: boolean;
   durationS: number;
@@ -75,7 +71,6 @@ export type SnippetView = {
 export type ViewInput = {
   eventId: string;
   eventCode: string | null;
-  clientName: string;
   acts: { id: string; name: string }[];
   actId: string | null;
   tracks: TopTrack[] | null;
@@ -88,30 +83,34 @@ export type ViewInput = {
   variantLabels: ReadonlyMap<string, string>;
 };
 
-/** Spotify's heading in CT-A: "Spotify's top tracks for {act} · {n} of 5 picked". */
+/** Spotify's heading in AU-A: "Spotify's top tracks for {act} · {n} of 5 picked". */
 export function pickerHeading(actName: string, picked: number): string {
   return `Spotify's top tracks for ${actName} · ${pickedText(picked)}`;
 }
 
-export function fileView(file: AudioFileRow, ctx: { clientName: string; artistName: string; names: ReadonlyMap<string, string>; tracks: TopTrack[] }): FileView {
+/** AU-A at 393: "{act} · {n} of 5 picked". */
+export function pickerHeadingShort(actName: string, picked: number): string {
+  return `${actName} · ${pickedText(picked)}`;
+}
+
+export function fileView(file: AudioFileRow, ctx: { artistName: string; names: ReadonlyMap<string, string>; tracks: TopTrack[] }): FileView {
   const who = (id: string | null) => (id ? ctx.names.get(id) ?? "Someone" : "Someone");
   const win = fileWindow(file);
-  const suggestion = file.match_state === "matched" ? null : suggestTrack(file.drive_file_name, ctx.tracks, ctx.artistName);
-  let note: string | null = null;
+  const line = fileLine({ fileName: file.drive_file_name, format: file.format, bitrateKbps: file.bitrate_kbps });
+  const open = !file.unusable_reason && !file.rights_flag;
+  const suggestion = open && file.match_state !== "matched" ? suggestTrack(file.drive_file_name, ctx.tracks, ctx.artistName) : null;
+  let note: string;
   let tone: FileView["noteTone"] = "plain";
   if (file.unusable_reason) {
     note = cantUseText(file.unusable_reason);
     tone = "failed";
   } else if (file.rights_flag) {
-    note = RIGHTS_MUTED;
+    note = mutedLine(line);
     tone = "failed";
-  } else if (file.match_state !== "matched" && suggestion) {
+  } else if (suggestion) {
     note = looksLikeText(file.drive_file_name);
-  } else if (!file.supplier) {
-    note = SUPPLIER_HELD;
-    tone = "held";
   } else {
-    note = rightsNote({ supplier: supplierName(file.supplier, ctx.clientName, ctx.artistName), fileName: file.drive_file_name, who: who(file.supplier_set_by), at: String(file.supplier_set_at) });
+    note = line;
   }
   const drop = file.drop_s != null ? Number(file.drop_s) : null;
   return {
@@ -120,8 +119,7 @@ export function fileView(file: AudioFileRow, ctx: { clientName: string; artistNa
     note,
     noteTone: tone,
     suggestion: suggestion ? { trackId: suggestion.id, title: suggestion.title } : null,
-    supplierAsk: !file.supplier && !file.unusable_reason ? { question: "Who supplied it?", choices: supplierChoices(ctx.clientName, ctx.artistName) } : null,
-    pickable: pickable({ matchState: file.match_state, supplier: file.supplier, unusableReason: file.unusable_reason, rightsFlag: file.rights_flag, dropS: drop }),
+    pickable: pickable({ matchState: file.match_state, unusableReason: file.unusable_reason, rightsFlag: file.rights_flag }),
     flagged: Boolean(file.rights_flag),
     durationS: Number(file.duration_s ?? 0),
     dropS: drop,
@@ -140,14 +138,14 @@ export function buildSnippetView(input: ViewInput): SnippetView {
   if (!act) return { eventId: input.eventId, eventCode: input.eventCode, acts, actName: null, heading: null, spotifyLine: null, rows: [], extras: [], statics: [], renders: [], testState: input.testState };
   const tracks = input.tracks ?? [];
   const files = input.files.filter((f) => f.artist_id === act.id);
-  const ctx = { clientName: input.clientName, artistName: act.name, names: input.names, tracks };
+  const ctx = { artistName: act.name, names: input.names, tracks };
   const byTrack = new Map<string, AudioFileRow>();
   for (const f of files) if (f.spotify_track_id && f.match_state === "matched") byTrack.set(f.spotify_track_id, f);
   const used = new Set<string>();
   const rows: PickerRow[] = tracks.map((track) => {
     let file = byTrack.get(track.id) ?? null;
     if (!file) {
-      // A suggested file sits on the track it looks like, waiting for "Match".
+      // A suggested file sits on the track it looks like, waiting for "Match"; one that fails AU1 sits there with its reason.
       file = files.find((f) => f.match_state !== "matched" && !used.has(f.id) && suggestTrack(f.drive_file_name, tracks, act.name)?.id === track.id) ?? null;
     }
     if (file) used.add(file.id);
@@ -167,7 +165,7 @@ export function buildSnippetView(input: ViewInput): SnippetView {
         tag: r.test_id && input.testN && label ? testTag(input.testN, label) : null,
         fileName: r.file_name,
         status: r.status,
-        note: view.noteTone === "plain" ? view.note : null,
+        note: fileLine({ fileName: file.drive_file_name, format: file.format, bitrateKbps: file.bitrate_kbps }),
         approved: Boolean(r.approved_at),
         driveFailed: r.drive_status === "failed",
       };

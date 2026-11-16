@@ -4,8 +4,8 @@ import { SnippetFrameMount } from "@/components/dashboard/events/creative-lab/sn
 import { SNIPPET_FRAME_IDS } from "@/scripts/plan-frames/snippet-fixtures";
 
 /**
- * Creative testing frames at /frames/creative-tests/{id}: CT-A and CT-B
- * (docs/design-record/2026-11-16-creative-testing.html). A nested route
+ * Creative testing frames at /frames/creative-tests/{id}: AU-A
+ * (2026-11-16-creative-testing-4.html) and CT-B (2026-11-16-creative-testing.html). A nested route
  * under the shared /frames/ prefix, like onsale/[id], while
  * app/(dev)/frames/[id]/page.tsx sits in an open Cursor PR.
  */

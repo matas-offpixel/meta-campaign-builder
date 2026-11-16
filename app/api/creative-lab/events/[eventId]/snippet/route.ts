@@ -7,8 +7,8 @@
  *   file in it (download, check, Storage copy, drop and waveform), reads
  *   Spotify's top tracks (cached a day), and lists the event's 9:16 statics.
  * POST { action }:
- *   edit       a file's supplier, match, drop, window or length; clearing a
- *              rights flag is Matas's only.
+ *   edit       a file's match, drop, window or length; clearing a rights
+ *              flag is Matas's only (TT5, AU3). AU2 withdrew the supplier step.
  *   preview    CT5's cut for the file's window, and the static beside it.
  *   makeTest   CT10's "Make Test 1": a snippet per picked track on the static.
  *   approve    approves a done snippet render (it then files to Drive).
@@ -22,7 +22,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { MATAS_USER_IDS } from "@/lib/auth/operator-allowlist";
 import { saveAudioEdit, type AudioEdit } from "@/lib/creative-tests/audio-edits";
-import { loadAudioRows, scanArtistAudio, type AudioFileRow } from "@/lib/creative-tests/audio-intake";
+import { AUDIO_COLUMNS, loadAudioRows, scanArtistAudio, type AudioFileRow } from "@/lib/creative-tests/audio-intake";
 import { makeTest1 } from "@/lib/creative-tests/make-test";
 import { AUDIO_BUCKET } from "@/lib/creative-tests/audio-intake";
 import { fileWindow, makePreview } from "@/lib/creative-tests/snippet-render";
@@ -113,11 +113,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ eventId: st
     const renders = await db.from("creative_lab_snippet_renders").select("id, audio_file_id, status, file_name, approved_at, drive_status, test_id, error").eq("event_id", event.id).eq("purpose", "final").order("created_at", { ascending: true }).range(0, 199);
     if (renders.error) throw new Error(`creative_lab_snippet_renders: ${renders.error.message}`);
     const { test, labels } = await testOne(db, event.id);
-    const names = await firstNames(db, files.flatMap((f) => [f.supplier_set_by, f.drop_set_by]));
+    const names = await firstNames(db, files.map((f) => f.drop_set_by));
     const view = buildSnippetView({
       eventId: event.id,
       eventCode: event.event_code,
-      clientName: client.name,
       acts: acts.map(({ id, name }) => ({ id, name })),
       actId: act?.id ?? null,
       tracks: top && top.ok ? (top.tracks as TopTrack[]) : null,
@@ -167,7 +166,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ eventId: s
       }
       case "preview": {
         if (!body.fileId) return NextResponse.json({ error: "Missing fileId." }, { status: 400 });
-        const read = await db.from("creative_lab_audio_files").select("*").eq("id", body.fileId).eq("event_id", event.id).eq("user_id", user.id).maybeSingle();
+        const read = await db.from("creative_lab_audio_files").select(AUDIO_COLUMNS).eq("id", body.fileId).eq("event_id", event.id).eq("user_id", user.id).maybeSingle();
         if (read.error) throw new Error(read.error.message);
         const file = read.data as AudioFileRow | null;
         if (!file?.storage_path || file.drop_s == null) return NextResponse.json({ error: PREVIEW_FAILED }, { status: 409 });

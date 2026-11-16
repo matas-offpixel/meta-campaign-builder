@@ -6,9 +6,11 @@
  *   snippet its only sound. 15 to 20 seconds, 16 by default, from 4 s before
  *   the drop to 12 s after. A 0.25 s fade in, a 1.5 s fade out, −14 LUFS with
  *   peaks no higher than −1 dBTP, AAC at 256 kbps. The S14 file name.
- * - CT2 the source: 02 Source / Audio / {artist} only. WAV, AIFF, FLAC, or MP3
- *   at 256 kbps or more, at least 30 seconds. Who supplied it, and the
- *   rights note.
+ * - CT2 the source: 02 Source / Audio / {artist} only. AU1 (2026-11-16-creative-testing-4.html):
+ *   WAV, AIFF, FLAC, or MP3 at 128 kbps or more, at least 30 seconds, with
+ *   three reasons worded exactly. AU2: no supplier step; the file line
+ *   "{file name} · {format}" (an MP3 adds its bitrate) replaces the rights
+ *   note. AU3: a flagged file's line adds " · Meta muted the audio (rights)".
  * - CT3 the picker: Spotify's top tracks in Spotify's order, the file state
  *   per row, "{n} of 5 picked", and Drive files that match no top track.
  * - CT4 / CT5 the drop marker, the window and the preview span.
@@ -32,9 +34,9 @@ export const SNIPPET = {
   lufs: -14,
   truePeak: -1,
   audioBitrateK: 256,
-  /** CT2: the least a file may run, and an MP3's least bitrate. */
+  /** CT2: the least a file may run; AU1: an MP3's least bitrate. */
   minFileSeconds: 30,
-  minMp3Kbps: 256,
+  minMp3Kbps: 128,
   /** CT4: no drop is looked for in the first 20 seconds. */
   dropSearchFrom: 20,
   /** CT3: Spotify's top tracks shown, and the most Test 1 takes. */
@@ -88,16 +90,22 @@ export function formatOf(probe: ProbedAudio, fileName: string): AudioFormat | nu
   return null;
 }
 
+/** AU1's three reasons, worded exactly ("Can't use this file: {reason}"). */
+export const REASON_MP3_LOW = "MP3 under 128 kbps";
+export const REASON_SHORT = "shorter than 30 seconds";
+export const REASON_UNREADABLE = "it can't be read";
+
 /**
- * CT2's check. The reason finishes "Can't use this file: {reason}". The
- * reasons themselves are new strings, listed for design.
+ * AU1's check: WAV, AIFF, FLAC, or MP3 at 128 kbps or more, at least 30
+ * seconds. Anything the Lab can't open or doesn't recognise as one of those
+ * is "it can't be read".
  */
 export function unusableReason(probe: ProbedAudio | null, fileName: string): string | null {
-  if (!probe || (probe.durationS == null && !probe.codec)) return "it couldn't be read";
+  if (!probe || (probe.durationS == null && !probe.codec)) return REASON_UNREADABLE;
   const format = formatOf(probe, fileName);
-  if (!format) return "it isn't WAV, AIFF, FLAC or MP3";
-  if (format === "mp3" && (probe.bitrateKbps == null || probe.bitrateKbps < SNIPPET.minMp3Kbps)) return `it's an MP3 under ${SNIPPET.minMp3Kbps} kbps`;
-  if (probe.durationS == null || probe.durationS < SNIPPET.minFileSeconds) return `it's shorter than ${SNIPPET.minFileSeconds} seconds`;
+  if (!format) return REASON_UNREADABLE;
+  if (format === "mp3" && (probe.bitrateKbps == null || probe.bitrateKbps < SNIPPET.minMp3Kbps)) return REASON_MP3_LOW;
+  if (probe.durationS == null || probe.durationS < SNIPPET.minFileSeconds) return REASON_SHORT;
   return null;
 }
 
@@ -105,36 +113,19 @@ export function cantUseText(reason: string): string {
   return `Can't use this file: ${reason}`;
 }
 
-export type Supplier = "client" | "artist_team";
+const FORMAT_WORD: Record<AudioFormat, string> = { wav: "WAV", aiff: "AIFF", flac: "FLAC", mp3: "MP3" };
 
-export const SUPPLIER_QUESTION = "Who supplied this file?";
-export const SUPPLIER_HELD = "Name who supplied this file before it can run.";
-
-/** CT2's choices: "{client}" and "{artist}'s team". */
-export function supplierChoices(clientName: string, artistName: string): { value: Supplier; label: string }[] {
-  return [
-    { value: "client", label: clientName },
-    { value: "artist_team", label: `${artistName}'s team` },
-  ];
+/** AU2's file line: "track two (club mix).aiff · AIFF", "LD - Track Three.mp3 · MP3 128 kbps". */
+export function fileLine(input: { fileName: string; format: string | null; bitrateKbps: number | null }): string {
+  const format = (input.format ?? "") as AudioFormat;
+  const word = FORMAT_WORD[format] ?? (input.format ?? "").toUpperCase();
+  const bitrate = format === "mp3" && input.bitrateKbps ? ` ${Math.round(input.bitrateKbps)} kbps` : "";
+  return word ? `${input.fileName} · ${word}${bitrate}` : input.fileName;
 }
 
-export function supplierName(supplier: Supplier, clientName: string, artistName: string): string {
-  return supplier === "client" ? clientName : `${artistName}'s team`;
-}
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "16 Nov", London. */
-export function shortDate(iso: string): string {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", day: "numeric", month: "numeric" }).formatToParts(new Date(iso));
-  const day = parts.find((p) => p.type === "day")?.value ?? "";
-  const month = Number(parts.find((p) => p.type === "month")?.value ?? "1");
-  return `${day} ${MONTHS[month - 1]}`;
-}
-
-/** CT2's rights note: "Audio supplied by {supplier} · {file name} · {who}, {date}". */
-export function rightsNote(input: { supplier: string; fileName: string; who: string; at: string }): string {
-  return `Audio supplied by ${input.supplier} · ${input.fileName} · ${input.who}, ${shortDate(input.at)}`;
+/** AU3: a flagged file's line. */
+export function mutedLine(line: string): string {
+  return `${line} · Meta muted the audio (rights)`;
 }
 
 // ── CT3: the picker ─────────────────────────────────────────────────────────
@@ -199,13 +190,14 @@ export function suggestTrack(fileName: string, tracks: readonly TopTrack[], arti
 export type FileState = "matched" | "suggested" | "none" | "held" | "unusable" | "flagged";
 
 /**
- * What a picker row can do: only a matched, supplied, unflagged file with a
- * drop can be picked (CT3, CT4, TT5). A Drive file that matches no top track
+ * What a picker row can do (AU2): only a matched file that passes AU1, and
+ * isn't flagged (AU3), can be picked. A Drive file that matches no top track
  * can still be picked (CT3): ticking it is its match, stored with no Spotify
- * track (matched, spotify_track_id null).
+ * track (matched, spotify_track_id null). A snippet also needs its drop
+ * marker before it renders (CT4).
  */
-export function pickable(file: { matchState: string; supplier: string | null; unusableReason: string | null; rightsFlag: string | null; dropS: number | null }): boolean {
-  return file.matchState === "matched" && file.supplier != null && !file.unusableReason && !file.rightsFlag && file.dropS != null;
+export function pickable(file: { matchState: string; unusableReason: string | null; rightsFlag: string | null }): boolean {
+  return file.matchState === "matched" && !file.unusableReason && !file.rightsFlag;
 }
 
 // ── CT4 / CT5: the drop and the window ─────────────────────────────────────

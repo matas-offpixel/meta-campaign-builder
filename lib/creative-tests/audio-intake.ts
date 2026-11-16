@@ -1,8 +1,8 @@
 /**
  * CT2 / CT4: the act's audio files, read from 02 Source / Audio / {artist}
  * and nowhere else. The folder is made on first need (the Snippet tab
- * opening that act). Each new file is downloaded, checked (WAV, AIFF, FLAC,
- * or MP3 at 256 kbps or more, 30 s or longer), copied as it is to Storage,
+ * opening that act). Each new file is downloaded, checked (AU1: WAV, AIFF,
+ * FLAC, or MP3 at 128 kbps or more, 30 s or longer), copied as it is to Storage,
  * and read for its drop and waveform. The Drive file is never moved,
  * renamed or deleted: the Lab only reads it (CT2).
  *
@@ -35,9 +35,6 @@ export type AudioFileRow = {
   duration_s: number | null;
   storage_path: string | null;
   unusable_reason: string | null;
-  supplier: "client" | "artist_team" | null;
-  supplier_set_by: string | null;
-  supplier_set_at: string | null;
   spotify_track_id: string | null;
   spotify_title: string | null;
   match_state: "none" | "suggested" | "matched";
@@ -171,8 +168,15 @@ export async function scanArtistAudio(
   return { folderId, files: await loadAudioRows(db, input.event.id, input.artist.libraryArtistId), added, failed };
 }
 
+/**
+ * The columns the Lab reads. AU2 withdrew the supplier step: migration 255's
+ * supplier columns stay in the table unused and are never read.
+ */
+export const AUDIO_COLUMNS =
+  "id, event_id, artist_id, drive_file_id, drive_file_name, format, bitrate_kbps, duration_s, storage_path, unusable_reason, spotify_track_id, spotify_title, match_state, matched_by, matched_at, drop_s, drop_source, drop_set_by, drop_set_at, window_start_s, length_s, waveform, rights_flag, rights_flagged_at, created_at";
+
 export async function loadAudioRows(db: Db, eventId: string, artistId: string | null): Promise<AudioFileRow[]> {
-  let query = db.from("creative_lab_audio_files").select("*").eq("event_id", eventId);
+  let query = db.from("creative_lab_audio_files").select(AUDIO_COLUMNS).eq("event_id", eventId);
   if (artistId) query = query.eq("artist_id", artistId);
   const res = await query.order("created_at", { ascending: true }).range(0, 999);
   if (res.error) throw new Error(`creative_lab_audio_files: ${res.error.message}`);

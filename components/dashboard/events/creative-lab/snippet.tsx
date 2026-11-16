@@ -14,8 +14,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AudioEdit } from "@/lib/creative-tests/audio-edits";
-import { LENGTHS, NO_CLEAR_DROP, PREVIEW_FAILED, SNIPPET, SNIPPET_TAB, SUPPLIER_QUESTION, dropLabel, spanText, mmss } from "@/lib/creative-tests/snippet";
-import { makeButtonText, pickerHeading, type FileView, type PickerRow, type RenderView, type SnippetView } from "@/lib/creative-tests/snippet-view";
+import { LENGTHS, NO_CLEAR_DROP, PREVIEW_FAILED, SNIPPET, SNIPPET_TAB, dropLabel, spanText, mmss } from "@/lib/creative-tests/snippet";
+import { makeButtonText, pickerHeading, pickerHeadingShort, type FileView, type PickerRow, type RenderView, type SnippetView } from "@/lib/creative-tests/snippet-view";
 
 type Preview = { audioUrl: string | null; imageUrl: string | null; failed: boolean };
 
@@ -155,7 +155,12 @@ export function LabSnippet({
       </div>
 
       {view.spotifyLine ? <p className="text-sm text-muted-foreground">{view.spotifyLine}</p> : null}
-      {view.actName && view.rows.length ? <p className="text-sm font-medium">{pickerHeading(view.actName, picked.length)}</p> : null}
+      {view.actName && view.rows.length ? (
+        <p className="text-sm font-medium">
+          <span className="max-sm:hidden">{pickerHeading(view.actName, picked.length)}</span>
+          <span className="sm:hidden">{pickerHeadingShort(view.actName, picked.length)}</span>
+        </p>
+      ) : null}
 
       <div>
         {view.rows.map((row) => (
@@ -200,7 +205,8 @@ function PickerLine({ row, picked, open, extra = false, onToggle, onOpen, onEdit
   const file = row.file;
   const n = row.trackId ? row.title.split(" · ")[0] : "·";
   const title = row.trackId ? row.title.replace(/^\d+ · /, "") : row.title;
-  const canTick = Boolean(file) && !file?.flagged && (file?.pickable || !file?.suggestion);
+  // AU2 / AU3: a matched file that passes AU1 and isn't flagged; a Drive file in no top track picks as itself (CT3).
+  const canTick = Boolean(file) && !file!.flagged && file!.noteTone !== "failed" && (file!.pickable || (!row.trackId && !file!.suggestion));
   return (
     <div className={`grid grid-cols-[1.375rem_1.625rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 border-t border-border py-2 sm:grid-cols-[1.375rem_1.625rem_minmax(0,1fr)_auto] ${open ? "bg-background/50" : ""}`}>
       <button
@@ -226,27 +232,9 @@ function PickerLine({ row, picked, open, extra = false, onToggle, onOpen, onEdit
             Match
           </button>
         ) : null}
-        {file?.supplierAsk && !file.suggestion ? <SupplierAsk file={file} onEdit={onEdit} /> : null}
-        {file?.dropLabel && !file.suggestion ? <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-destructive">{file.dropLabel}</span> : null}
+        {file?.dropLabel && !file.suggestion && file.noteTone !== "failed" ? <span className="max-sm:hidden font-mono text-[10px] uppercase tracking-[0.12em] text-destructive">{file.dropLabel}</span> : null}
       </div>
     </div>
-  );
-}
-
-function SupplierAsk({ file, onEdit }: { file: FileView; onEdit: (fileId: string, change: AudioEdit) => void }) {
-  const ask = file.supplierAsk!;
-  return (
-    <details className="relative">
-      <summary className="cursor-pointer list-none rounded bg-foreground px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em] text-background">{ask.question}</summary>
-      <div className="absolute right-0 z-10 mt-1 w-56 rounded border border-border bg-card p-2 shadow">
-        <p className="mb-1 text-xs text-muted-foreground">{SUPPLIER_QUESTION}</p>
-        {ask.choices.map((choice) => (
-          <button key={choice.value} type="button" className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-background" onClick={() => onEdit(file.id, { kind: "supplier", supplier: choice.value as "client" | "artist_team" })}>
-            {choice.label}
-          </button>
-        ))}
-      </div>
-    </details>
   );
 }
 

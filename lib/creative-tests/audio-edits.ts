@@ -1,10 +1,9 @@
 /**
- * The operator's edits to an audio file (CT2–CT4, TT5): who supplied it, the
- * Spotify match, the drop marker, the window and its length, and clearing a
- * rights flag. Each edit is a patch worked out here (pure) and written by
+ * The operator's edits to an audio file (CT3, CT4, TT5): the Spotify match,
+ * the drop marker, the window and its length, and clearing a rights flag.
+ * (AU2 withdrew CT2's supplier step.) Each edit is a patch worked out here (pure) and written by
  * `saveAudioEdit`, scoped to the operator's own rows.
  *
- * - Supplier (CT2): picked once, stored with who picked it and when.
  * - Match (CT3): an operator confirms a suggested track, or picks one; a
  *   file in no top track is picked as itself (own_track).
  * - Drop (CT4): dragging the marker sets the drop and moves the window with
@@ -16,13 +15,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { AudioFileRow } from "./audio-intake.ts";
-import { clampLength, clampWindow, type Supplier } from "./snippet.ts";
+import { AUDIO_COLUMNS, type AudioFileRow } from "./audio-intake.ts";
+import { clampLength, clampWindow } from "./snippet.ts";
 
 type Db = Pick<SupabaseClient, "from">;
 
 export type AudioEdit =
-  | { kind: "supplier"; supplier: Supplier }
   | { kind: "match"; trackId: string; title: string }
   | { kind: "own_track" }
   | { kind: "unmatch" }
@@ -33,18 +31,10 @@ export type AudioEdit =
 
 export type EditRefusal = { refused: string };
 
-export function isSupplier(value: unknown): value is Supplier {
-  return value === "client" || value === "artist_team";
-}
-
 /** The columns an edit writes, or why it can't be made. */
 export function editPatch(row: AudioFileRow, edit: AudioEdit, by: string, now: string): Record<string, unknown> | EditRefusal {
   const duration = Number(row.duration_s ?? 0);
   switch (edit.kind) {
-    case "supplier":
-      if (!isSupplier(edit.supplier)) return { refused: "Pick who supplied the file." };
-      if (row.supplier) return { refused: "Who supplied this file is already recorded." };
-      return { supplier: edit.supplier, supplier_set_by: by, supplier_set_at: now };
     case "match":
       if (row.unusable_reason) return { refused: "This file can't be used." };
       return { spotify_track_id: edit.trackId, spotify_title: edit.title, match_state: "matched", matched_by: by, matched_at: now };
@@ -77,13 +67,13 @@ export function editPatch(row: AudioFileRow, edit: AudioEdit, by: string, now: s
 }
 
 export async function saveAudioEdit(db: Db, input: { fileId: string; userId: string; edit: AudioEdit; now?: Date }): Promise<{ ok: true; row: AudioFileRow } | { ok: false; error: string; status: number }> {
-  const read = await db.from("creative_lab_audio_files").select("*").eq("id", input.fileId).eq("user_id", input.userId).maybeSingle();
+  const read = await db.from("creative_lab_audio_files").select(AUDIO_COLUMNS).eq("id", input.fileId).eq("user_id", input.userId).maybeSingle();
   if (read.error) throw new Error(`creative_lab_audio_files: ${read.error.message}`);
   const row = read.data as AudioFileRow | null;
   if (!row) return { ok: false, error: "No audio file with that id.", status: 404 };
   const patch = editPatch(row, input.edit, input.userId, (input.now ?? new Date()).toISOString());
   if ("refused" in patch) return { ok: false, error: String(patch.refused), status: 409 };
-  const write = await db.from("creative_lab_audio_files").update(patch).eq("id", row.id).select("*").maybeSingle();
+  const write = await db.from("creative_lab_audio_files").update(patch).eq("id", row.id).select(AUDIO_COLUMNS).maybeSingle();
   if (write.error) throw new Error(`creative_lab_audio_files: ${write.error.message}`);
   return { ok: true, row: write.data as AudioFileRow };
 }
