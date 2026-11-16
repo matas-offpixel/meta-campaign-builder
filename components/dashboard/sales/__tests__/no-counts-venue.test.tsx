@@ -159,3 +159,58 @@ describe("NC1 / NC1S frames: Electric Studios with no counts (L.P Rhythm)", () =
     expect(OVERFLOW_FRAMES).toEqual(expect.arrayContaining(["sales/NC1", "sales/NC1S"]));
   });
 });
+
+/** Design FAIL on #1271 at c314ae8: three spots where the no-counts scope still drew counts. */
+describe.each(SURFACES)("%s: the no-counts scope draws no counts (design on c314ae8)", (surface) => {
+  function studios() {
+    return render(<SalesDashboard model={MODEL} surface={surface} initialShowId={STUDIOS} initialVenueKey="electric studios" initialPeriod="launch" />);
+  }
+  function allVenues() {
+    return render(<SalesDashboard model={MODEL} surface={surface} initialShowId="all" initialVenueKey="all" initialPeriod="launch" />);
+  }
+
+  it("1. the freshness line drops 'Counts to …' and keeps Spend and Signups", () => {
+    const { container } = studios();
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/Counts (to )?\d/);
+    expect(screen.getAllByText("Spend to 13 Nov").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Signups to 13 Nov").length).toBeGreaterThan(0);
+    // The phone's one-line stamp row.
+    expect(screen.getByText("Spend 13 Nov · Signups 13 Nov")).toBeTruthy();
+  });
+
+  it("2. the chart draws the spend axis only: caption, legend, no right axis, no dot sentence", () => {
+    const { container } = studios();
+    const text = container.textContent ?? "";
+    expect(screen.getAllByText("Left axis: spend (£).").length).toBeGreaterThan(0);
+    expect(text).not.toContain("Right axis");
+    // Both charts (wide and phone): no Total sold axis title, ticks or legend entry.
+    const charts = [...container.querySelectorAll("figure")].map((f) => f.textContent ?? "").join(" | ");
+    expect(charts.length).toBeGreaterThan(0);
+    expect(charts).not.toMatch(/total sold/i);
+    expect(charts).toMatch(/Spend/);
+    expect(text).not.toContain("A dot is a real Internal Count");
+    expect(text).toContain("Solid lines are volumes; the dashed line in the same colour is its cost.");
+  });
+
+  it("3. Pace and Projected read '—' alone", () => {
+    const { container } = studios();
+    const tiles = [...container.querySelectorAll("li")].filter((li) => li.className.includes("rounded-md border border-border px-2.5"));
+    const pace = tiles.find((li) => li.textContent?.startsWith("Pace, last 7 days"))!;
+    const projected = tiles.find((li) => li.textContent?.startsWith("Projected on show day"))!;
+    expect(pace.textContent).toBe("Pace, last 7 days—");
+    expect(projected.textContent).toBe("Projected on show day—");
+    expect(container.textContent).not.toMatch(/14-day/);
+  });
+
+  it("a scope with counts is unchanged: Counts stamp, the sold axis, the dot sentence, Pace a day", () => {
+    const { container } = allVenues();
+    const text = container.textContent ?? "";
+    expect(screen.getAllByText("Counts to 12 Nov").length).toBeGreaterThan(0);
+    expect(text).toContain("Right axis: total sold (tickets).");
+    const charts = [...container.querySelectorAll("figure")].map((f) => f.textContent ?? "").join(" | ");
+    expect(charts).toMatch(/total sold/i);
+    expect(text).toContain("A dot is a real Internal Count; between two counts the line is a straight estimate.");
+    expect(text).toMatch(/14-day [\d.]+ a day/);
+  });
+});

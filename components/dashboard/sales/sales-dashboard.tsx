@@ -200,14 +200,17 @@ export function SalesDashboard({
   }
 
   const summary = view.trajectory.summary ?? null;
-  const chartSelected = umbrella ? selected.filter((id) => id !== "sold" && id !== "tickets" && id !== "costPerTicket") : selected;
+  // Null when no show in scope has a count (a venue with none yet): the tiles say so, never borrow the spend date.
+  const countDay = view.countDay === null ? null : (view.countDay ?? view.endDay);
+  const countLabel = countDay == null ? null : shortDay(countDay);
+  // An umbrella, or a scope with no counts, charts no sold line: spend axis only, no count dots (design on #1271).
+  const chartSelected = umbrella || countDay == null ? selected.filter((id) => id !== "sold" && id !== "tickets" && id !== "costPerTicket") : selected;
+  // No counts in scope: no "Counts to …" stamp; it would be another venue's date.
+  const stamps = countDay == null ? presented.freshness.filter((stamp) => stamp.id !== "counts") : presented.freshness;
   const keyIds = umbrella ? UMBRELLA_KEY_TILE_IDS : KEY_TILE_IDS;
   const shownTiles = tiles.filter((tile) => !umbrella || (tile.id !== "sold" && tile.id !== "tickets" && tile.id !== "costPerTicket"));
   const moreTiles = shownTiles.filter((tile) => !keyIds.includes(tile.id));
   const moreWords = moreFiguresLabel(moreOpen, moreTiles.length);
-  // Null when no show in scope has a count (a venue with none yet): the tiles say so, never borrow the spend date.
-  const countDay = view.countDay === null ? null : (view.countDay ?? view.endDay);
-  const countLabel = countDay == null ? null : shortDay(countDay);
   // MB3 order on a phone: the key figures 1–6, the fold action 7, the chart toggles 8, then the rest in N7's order.
   const phoneOrder = (id: SalesMetricId) => {
     const key = keyIds.indexOf(id);
@@ -232,7 +235,7 @@ export function SalesDashboard({
           </h2>
           <PeriodSelect period={period} onChange={choosePeriod} />
         </div>
-        <p className="mt-1 font-mono text-[10px] text-muted-foreground sm:hidden">{stampLine(presented.freshness)}</p>
+        <p className="mt-1 font-mono text-[10px] text-muted-foreground sm:hidden">{stampLine(stamps)}</p>
         {umbrella && view.header ? (
           <p className="mt-1 text-xs text-muted-foreground">{view.subtitle}</p>
         ) : null}
@@ -256,7 +259,7 @@ export function SalesDashboard({
           </>
         )}
         <ul className="mt-2 hidden flex-wrap gap-x-3 gap-y-1 text-[11px] sm:flex">
-          {presented.freshness.map((stamp) => (
+          {stamps.map((stamp) => (
             <li key={stamp.id} className={stamp.stale ? "text-warning" : "text-muted-foreground"}>
               <span className="sm:hidden">{stamp.narrow}</span>
               <span className="hidden sm:inline">{stamp.wide}</span>
@@ -683,16 +686,21 @@ function AllTrajectoryView({
         value: formatCount(sums.sold),
         detail: soldShare == null ? "—" : `${soldShare}% of ${formatCount(sums.capacity)} across ${sums.shows} shows`,
       });
-  const projectedTile = trajectory.summary?.projected ?? {
-    label: "Projected on show day",
-    value: sums.shows === 0 ? "—" : `${formatCount(sums.holds)}–${formatCount(sums.high)}`,
-    detail: highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show at its recent pace`,
-  };
-  const paceTile = trajectory.summary?.pace ?? {
-    label: "Pace, last 7 days",
-    value: "— a day",
-    detail: "14-day — a day",
-  };
+  // No counts in scope: Pace and Projected read "—" alone; Sold already says why (design on #1271).
+  const projectedTile = trajectory.summary?.projected ?? (counted == null
+    ? { label: "Projected on show day", value: "—", detail: "" }
+    : {
+        label: "Projected on show day",
+        value: sums.shows === 0 ? "—" : `${formatCount(sums.holds)}–${formatCount(sums.high)}`,
+        detail: highShare == null ? "—" : `up to ${highShare}% of ${formatCount(sums.capacity)} · each show at its recent pace`,
+      });
+  const paceTile = trajectory.summary?.pace ?? (counted == null
+    ? { label: "Pace, last 7 days", value: "—", detail: "" }
+    : {
+        label: "Pace, last 7 days",
+        value: "— a day",
+        detail: "14-day — a day",
+      });
   return (
     <div>
       <h3 className="text-sm font-medium">
