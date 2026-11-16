@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { checkBirdWorkspaceId } from "@/lib/d2c/connections/save";
 import type {
   D2CConnection,
   D2CConnectionStatus,
@@ -60,7 +61,15 @@ interface ProviderOption {
   value: D2CProviderName;
   label: string;
   hint: string;
-  fields: Array<{ key: string; label: string; placeholder?: string }>;
+  fields: Array<{
+    key: string;
+    label: string;
+    placeholder?: string;
+    /** Shown under the input. */
+    help?: string;
+    /** Plain text for ids that aren't secret; every other field is a password input. */
+    plain?: boolean;
+  }>;
 }
 
 const PROVIDERS: ProviderOption[] = [
@@ -84,9 +93,16 @@ const PROVIDERS: ProviderOption[] = [
   {
     value: "bird",
     label: "Bird (SMS / WhatsApp)",
-    hint: "Workspace API key + channel id",
+    hint: "Workspace API key, workspace id + channel id",
     fields: [
       { key: "api_key", label: "API key" },
+      {
+        key: "workspace_id",
+        label: "Workspace id",
+        placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        help: "The Bird workspace's UUID. A workspace can be saved on one client only.",
+        plain: true,
+      },
       { key: "channel_id", label: "Channel id" },
     ],
   },
@@ -144,6 +160,14 @@ export function D2CConnectionsPanel({ clientId, initial }: Props) {
         return;
       }
       credentials[f.key] = v;
+    }
+    if (provider === "bird") {
+      const ws = checkBirdWorkspaceId(credentials.workspace_id);
+      if (!ws.ok) {
+        setError(ws.error);
+        return;
+      }
+      credentials.workspace_id = ws.workspaceId;
     }
 
     setSubmitting(true);
@@ -357,8 +381,9 @@ export function D2CConnectionsPanel({ clientId, initial }: Props) {
                     {f.label}
                   </span>
                   <Input
-                    type="password"
+                    type={f.plain ? "text" : "password"}
                     autoComplete="off"
+                    spellCheck={f.plain ? false : undefined}
                     placeholder={f.placeholder}
                     value={fields[f.key] ?? ""}
                     onChange={(e) =>
@@ -368,6 +393,11 @@ export function D2CConnectionsPanel({ clientId, initial }: Props) {
                       }))
                     }
                   />
+                  {f.help ? (
+                    <span className="text-xs text-muted-foreground">
+                      {f.help}
+                    </span>
+                  ) : null}
                 </label>
               ))}
             </div>
