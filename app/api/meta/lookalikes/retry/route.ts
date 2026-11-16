@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { NO_META_TOKEN_MESSAGE, mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 import { createClient } from "@/lib/supabase/server";
 import {
   checkAudienceReadiness,
@@ -27,6 +28,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  // Lookalikes are created with the agency token (no per-call token below),
+  // which is for operators only.
+  if (!mayUseAgencyMetaToken(user.id)) {
+    return NextResponse.json({ error: NO_META_TOKEN_MESSAGE }, { status: 403 });
+  }
 
   let draft: CampaignDraft;
   try {

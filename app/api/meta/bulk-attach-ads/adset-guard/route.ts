@@ -24,6 +24,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { agencyMetaToken } from "@/lib/meta/agency-token";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAdSetGuardInfo, type AdSetGuardInfo } from "@/lib/meta/client";
 
@@ -59,7 +60,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── Resolve token ────────────────────────────────────────────────────────
-  let token: string = process.env.META_ACCESS_TOKEN ?? "";
+  // The agency token is for operators only; anyone else needs their own.
+  let token: string = agencyMetaToken(user.id) ?? "";
   try {
     const { data } = await supabase
       .from("user_facebook_tokens")

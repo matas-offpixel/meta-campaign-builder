@@ -22,6 +22,7 @@ import { adSetAudienceRemoved, adSetDisplayName } from "@/lib/wizard/import-edit
 import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
 import { predictionUnitForDraft, writeDraftLaunchPrediction } from "@/lib/plan/launch-prediction";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { mayUseAgencyMetaToken, NO_META_TOKEN_MESSAGE } from "@/lib/meta/agency-token";
 import {
   isLaunchErrorSource,
   type LaunchErrorSource,
@@ -684,6 +685,10 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   // ── Single authoritative launch token ────────────────────────────────────
   // Resolved ONCE here and threaded through every Meta write/read call below.
   // Priority: user's personal OAuth token (DB) > META_ACCESS_TOKEN env-var.
+  // The env token is the agency's: operators only.
+  if (!userFbToken && !mayUseAgencyMetaToken(user.id)) {
+    return launchJson({ error: NO_META_TOKEN_MESSAGE }, { status: 403 });
+  }
   const launchToken: string = userFbToken ?? process.env.META_ACCESS_TOKEN ?? "";
   const launchTokenSource: string = userFbToken ? "db" : "META_ACCESS_TOKEN (env)";
 
@@ -1346,7 +1351,9 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       );
 
       // Step A: resolve page identity to get content account id + page token.
-      const pageIdentity = await resolvePageIdentity(pageId, userFbToken);
+      const pageIdentity = await resolvePageIdentity(pageId, userFbToken, {
+        allowSystemToken: mayUseAgencyMetaToken(user.id),
+      });
 
       const contentAccountId =
         pageIdentity.ig.state === "linked" ? pageIdentity.ig.account.id : undefined;
@@ -3972,7 +3979,9 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     ];
     for (const pid of phasePageIds) {
       try {
-        const ident = await resolvePageIdentity(pid, userFbToken);
+        const ident = await resolvePageIdentity(pid, userFbToken, {
+          allowSystemToken: mayUseAgencyMetaToken(user.id),
+        });
         pageTokenMap.set(pid, ident.pageAccessToken ?? null);
       } catch {
         pageTokenMap.set(pid, null);

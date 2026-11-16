@@ -13,6 +13,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchPageInstagramOptions, MetaApiError } from "@/lib/meta/client";
 import { getUserFacebookToken } from "@/lib/meta/page-token";
+import { mayUseAgencyMetaToken, NO_META_TOKEN_MESSAGE } from "@/lib/meta/agency-token";
 
 export async function GET() {
   const supabase = await createClient();
@@ -25,6 +26,11 @@ export async function GET() {
   }
 
   const userToken = await getUserFacebookToken(supabase, user.id);
+  // With no user token the lookup below uses the agency token, which is for
+  // operators only.
+  if (!userToken && !mayUseAgencyMetaToken(user.id)) {
+    return Response.json({ error: NO_META_TOKEN_MESSAGE }, { status: 403 });
+  }
   console.log(
     `[/api/meta/instagram-accounts] resolve user=${user.id}` +
       ` userToken=${userToken ? "present" : "missing"}`,

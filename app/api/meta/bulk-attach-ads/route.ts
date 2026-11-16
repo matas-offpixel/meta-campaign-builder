@@ -33,6 +33,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { agencyMetaToken, mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { bindLaunchAdRecorder, noopRecordCreatedAd } from "@/lib/launched-ads/launch-recorder";
 import {
@@ -214,7 +215,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── Resolve token ────────────────────────────────────────────────────────
-  let token: string = process.env.META_ACCESS_TOKEN ?? "";
+  // The agency token is for operators only; anyone else needs their own.
+  let token: string = agencyMetaToken(user.id) ?? "";
   try {
     const { data } = await supabase
       .from("user_facebook_tokens")
@@ -299,7 +301,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   ];
   for (const pid of uniquePageIds) {
     try {
-      const ident = await resolvePageIdentity(pid, token);
+      const ident = await resolvePageIdentity(pid, token, {
+        allowSystemToken: mayUseAgencyMetaToken(user.id),
+      });
       pageTokenMap.set(pid, ident.pageAccessToken ?? null);
     } catch {
       pageTokenMap.set(pid, null);

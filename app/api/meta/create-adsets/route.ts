@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { NO_META_TOKEN_MESSAGE, mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 import { createMetaAdSets, MetaApiError } from "@/lib/meta/client";
 import {
   buildAdSetPayload,
@@ -17,6 +18,11 @@ export async function POST(request: Request) {
 
   if (!user) {
     return Response.json({ error: "Unauthorised" }, { status: 401 });
+  }
+  // Ad sets are written with the agency token (no per-call token below),
+  // which is for operators only.
+  if (!mayUseAgencyMetaToken(user.id)) {
+    return Response.json({ error: NO_META_TOKEN_MESSAGE }, { status: 403 });
   }
 
   // ── 2. Parse body ─────────────────────────────────────────────────────────
