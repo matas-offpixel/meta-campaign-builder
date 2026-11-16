@@ -16,6 +16,7 @@ import {
 import { FrameSheet } from "./compositions/FrameSheet";
 import { T1OnClip, type T1OnClipProps } from "./compositions/T1OnClip";
 import { TripleFitOnClip, type TripleFitOnClipProps } from "./compositions/TripleFitOnClip";
+import { StillWithAudio, type StillWithAudioProps } from "./compositions/StillWithAudio";
 import { FORMAT_SIZE } from "../../lib/creative-lab/t1-video-frame";
 import {
   captionLimits,
@@ -168,6 +169,20 @@ function RemotionRoot() {
         height={1920}
         durationInFrames={30}
         defaultProps={tripleFitDefaultProps as unknown as Record<string, unknown>}
+      />
+      <Composition
+        id="StillWithAudio"
+        component={StillWithAudio as unknown as FC<Record<string, unknown>>}
+        calculateMetadata={({ props }) => {
+          const p = props as unknown as StillWithAudioProps;
+          const fps = p.fps || 30;
+          return { width: 1080, height: 1920, fps, durationInFrames: Math.max(1, Math.round(p.durationInSeconds * fps)) };
+        }}
+        fps={30}
+        width={1080}
+        height={1920}
+        durationInFrames={480}
+        defaultProps={{ imageUrl: "", durationInSeconds: 16, fps: 30 }}
       />
       <Composition
         id="FrameSheet"
