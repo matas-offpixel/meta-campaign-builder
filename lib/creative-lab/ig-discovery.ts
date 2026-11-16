@@ -4,6 +4,7 @@
  * A thumbnail JPEG is stored in creative-thumbnails. The URL is never stored.
  */
 
+import { agencyMetaToken } from "../meta/agency-token.ts";
 import { igThumbObjectPath } from "./ig-import.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { saveVoiceSamples, venueNamesForClient, VOICE_REFRESH_DAYS } from "./voice-store.ts";
@@ -420,7 +421,8 @@ async function loadToken(db: ServiceRoleDb, userId: string): Promise<string> {
   if (res.error) throw new IgDiscoveryError("no_token", "Connect Facebook in Account Setup.");
   const token = text(res.data as Row | null, "provider_token");
   if (token) return token;
-  const env = process.env.META_ACCESS_TOKEN?.trim() ?? "";
+  // The agency token is for operators only (userId is the Lab row's owner).
+  const env = agencyMetaToken(userId)?.trim() ?? "";
   if (env) return env;
   throw new IgDiscoveryError("no_token", "Connect Facebook in Account Setup.");
 }

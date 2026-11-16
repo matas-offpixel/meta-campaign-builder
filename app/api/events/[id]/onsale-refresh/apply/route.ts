@@ -21,6 +21,7 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
+import { agencyMetaToken, mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 
 import { uploadFileToStorageBucket } from "@/lib/clients/asset-queue/storage-upload";
 import { driveFromEnv } from "@/lib/drive/client";
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
   const lineIds = Array.isArray(body.lineIds) ? body.lineIds.filter((value): value is string => typeof value === "string") : undefined;
 
-  let token = process.env.META_ACCESS_TOKEN ?? "";
+  let token = agencyMetaToken(who.userId) ?? ""; // the agency token is for operators only
   try {
     const { data } = await who.session.from("user_facebook_tokens").select("provider_token").eq("user_id", who.userId).maybeSingle();
     if ((data as { provider_token?: string } | null)?.provider_token) token = (data as { provider_token: string }).provider_token;
@@ -101,7 +102,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       validators.set(adAccountId, validator);
       let pageToken: string | null = null;
       try {
-        pageToken = (await resolvePageIdentity(creative.identity.pageId, token)).pageAccessToken ?? null;
+        pageToken = (
+          await resolvePageIdentity(creative.identity.pageId, token, { allowSystemToken: mayUseAgencyMetaToken(who.userId) })
+        ).pageAccessToken ?? null;
       } catch {
         pageToken = null;
       }

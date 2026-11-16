@@ -11,6 +11,7 @@
  */
 
 import { withActPrefix } from "@/lib/meta/ad-account-id";
+import { mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 import { createClient } from "@/lib/supabase/server";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
@@ -96,6 +97,10 @@ export async function GET() {
 
   if (!user) {
     return Response.json({ error: "Unauthorised" }, { status: 401 });
+  }
+  // This route describes and exercises the agency token: operators only.
+  if (!mayUseAgencyMetaToken(user.id)) {
+    return Response.json({ ok: false, error: "Operator access required" }, { status: 403 });
   }
 
   // ── Env vars ─────────────────────────────────────────────────────────────

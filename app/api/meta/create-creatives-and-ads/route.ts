@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { NO_META_TOKEN_MESSAGE, agencyMetaToken, mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { bindLaunchAdRecorder, noopRecordCreatedAd } from "@/lib/launched-ads/launch-recorder";
 import {
@@ -39,6 +40,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  }
+  // Creatives and ads are written with the agency token (no per-call token
+  // below), which is for operators only.
+  if (!mayUseAgencyMetaToken(user.id)) {
+    return NextResponse.json({ error: NO_META_TOKEN_MESSAGE }, { status: 403 });
   }
 
   // ── Parse body ────────────────────────────────────────────────────────────
@@ -125,7 +131,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const pageActorMap = new Map<string, string>();
 
     for (const pageId of uniquePageIds) {
-      const pageIdentity = await resolvePageIdentity(pageId, userFbToken);
+      const pageIdentity = await resolvePageIdentity(pageId, userFbToken, {
+        allowSystemToken: mayUseAgencyMetaToken(user.id),
+      });
       if (pageIdentity.pageAccessToken && pageIdentity.ig.state === "linked") {
         const resolved = await resolvePageIgActor(
           pageId,
@@ -202,7 +210,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let payload;
     try {
       payload = await buildCreativePayload(creative, {
-        metaAccessToken: userFbToken ?? process.env.META_ACCESS_TOKEN ?? undefined,
+        metaAccessToken: userFbToken ?? agencyMetaToken(user.id) ?? undefined,
       });
       if (strictMode) {
         const report = sanitizeCreativeForStrictMode(payload);
@@ -283,7 +291,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               identity: { ...creative.identity, instagramActorId: recoveryIds[0] },
             };
             const retryPayload = await buildCreativePayload(retryCrv, {
-              metaAccessToken: userFbToken ?? process.env.META_ACCESS_TOKEN ?? undefined,
+              metaAccessToken: userFbToken ?? agencyMetaToken(user.id) ?? undefined,
             });
             if (strictMode) sanitizeCreativeForStrictMode(retryPayload);
             const retryRes = await createMetaCreative(metaAdAccountId, retryPayload);

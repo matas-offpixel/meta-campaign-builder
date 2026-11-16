@@ -13,6 +13,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { mayUseAgencyMetaToken, NO_META_TOKEN_MESSAGE } from "./agency-token.ts";
 import {
   parseAppUsageHeader,
   parseBusinessUseCaseUsageHeader,
@@ -208,7 +209,14 @@ export async function resolveServerMetaToken(
     console.warn("[resolveToken] DB exception — falling back to env:", err);
   }
 
-  // ── 2. Env-var fallback ──────────────────────────────────────────────────
+  // ── 2. Env-var fallback (operators only) ─────────────────────────────────
+  // The env token is the agency's. `userId` is the caller on request paths
+  // and the row owner on cron/backfill paths; either way a non-operator
+  // never falls back to it.
+  if (!mayUseAgencyMetaToken(userId)) {
+    console.info("[resolveToken] no DB token and user is not an operator — no env fallback.");
+    throw new Error(NO_META_TOKEN_MESSAGE);
+  }
   const envToken = process.env.META_ACCESS_TOKEN;
   if (envToken) {
     console.info(
@@ -218,7 +226,5 @@ export async function resolveServerMetaToken(
   }
 
   // ── 3. Nothing available ─────────────────────────────────────────────────
-  throw new Error(
-    "No Meta access token available. Connect your Facebook account in Account Setup.",
-  );
+  throw new Error(NO_META_TOKEN_MESSAGE);
 }

@@ -31,6 +31,7 @@
  */
 
 import { type NextRequest } from "next/server";
+import { agencyMetaToken, mayUseAgencyMetaToken } from "@/lib/meta/agency-token";
 
 import { createClient } from "@/lib/supabase/server";
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
@@ -152,8 +153,10 @@ export async function GET(req: NextRequest) {
 
   // ── Token resolution ──────────────────────────────────────────────────────
   const userToken = await getUserFacebookToken(supabase, user.id);
-  const identity = await resolvePageIdentity(pageId, userToken);
-  const systemToken = process.env.META_ACCESS_TOKEN ?? null;
+  const identity = await resolvePageIdentity(pageId, userToken, {
+    allowSystemToken: mayUseAgencyMetaToken(user.id),
+  });
+  const systemToken = agencyMetaToken(user.id); // operators only
 
   type TokenAttempt = { token: string; source: string };
   const attempts: TokenAttempt[] = [];
