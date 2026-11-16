@@ -158,7 +158,6 @@ export function buildSnippetView(input: ViewInput): SnippetView {
     .filter((r) => files.some((f) => f.id === r.audio_file_id))
     .map((r) => {
       const file = files.find((f) => f.id === r.audio_file_id)!;
-      const view = fileView(file, ctx);
       const label = input.variantLabels.get(r.id) ?? null;
       return {
         id: r.id,
