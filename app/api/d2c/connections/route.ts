@@ -1,13 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { isOperator } from "@/lib/auth/operator-allowlist";
 import { requireOperator } from "@/lib/bm/route-auth";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   listD2CConnectionsForUser,
   upsertD2CConnection,
 } from "@/lib/db/d2c";
 import { getD2CProvider, listD2CProviderNames } from "@/lib/d2c/registry";
+import { saveD2CConnection } from "@/lib/d2c/connections/save";
 import { MissingD2CTokenKeyError } from "@/lib/d2c/secrets";
-import type { D2CProviderName } from "@/lib/d2c/types";
 
 /**
  * /api/d2c/connections
@@ -18,18 +20,16 @@ import type { D2CProviderName } from "@/lib/d2c/types";
  *                                 upsert. Bad credentials → 400; nothing is
  *                                 written to the DB on failure. Credentials
  *                                 are always redacted on response.
+ *                                 Bird needs a UUID workspace_id, and a
+ *                                 workspace on another client's active Bird
+ *                                 connection is refused (409). Logic:
+ *                                 lib/d2c/connections/save.ts.
  *
  * Mirrors the ticketing connections route surface. Operator only
  * (`requireOperator`): no session → 401, a signed-in non-operator → 403.
  */
 
 const ALLOWED_PROVIDERS = listD2CProviderNames();
-
-interface PostBody {
-  clientId?: unknown;
-  provider?: unknown;
-  credentials?: unknown;
-}
 
 export async function GET(req: NextRequest) {
   // Operator only: a client_users member has a session too (proxy.ts lets
@@ -56,9 +56,9 @@ export async function POST(req: NextRequest) {
   if (!gate.ok) return gate.response;
   const { supabase, user } = gate;
 
-  let body: PostBody;
+  let body: unknown;
   try {
-    body = (await req.json()) as PostBody;
+    body = await req.json();
   } catch {
     return NextResponse.json(
       { ok: false, error: "Invalid JSON body" },
@@ -66,79 +66,63 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const clientId =
-    typeof body.clientId === "string" ? body.clientId.trim() : "";
-  const provider = body.provider as D2CProviderName | undefined;
-  const credentials =
-    body.credentials && typeof body.credentials === "object"
-      ? (body.credentials as Record<string, unknown>)
-      : null;
-
-  if (!clientId) {
-    return NextResponse.json(
-      { ok: false, error: "clientId is required" },
-      { status: 400 },
-    );
-  }
-  if (!provider || !ALLOWED_PROVIDERS.includes(provider)) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: `provider must be one of: ${ALLOWED_PROVIDERS.join(", ")}`,
-      },
-      { status: 400 },
-    );
-  }
-  if (!credentials) {
-    return NextResponse.json(
-      { ok: false, error: "credentials object is required" },
-      { status: 400 },
-    );
-  }
-
-  const { data: client, error: clientErr } = await supabase
-    .from("clients")
-    .select("id, user_id")
-    .eq("id", clientId)
-    .maybeSingle();
-  if (clientErr) {
-    return NextResponse.json(
-      { ok: false, error: clientErr.message },
-      { status: 500 },
-    );
-  }
-  if (!client) {
-    return NextResponse.json(
-      { ok: false, error: "Client not found" },
-      { status: 404 },
-    );
-  }
-
-  const providerImpl = getD2CProvider(provider);
-  const validation = await providerImpl.validateCredentials(credentials);
-  if (!validation.ok) {
-    // While FEATURE_D2C_LIVE is off the providers always return
-    // ok:false with a "live mode disabled" message — we still surface
-    // a 400 so the dashboard knows nothing was stored. Once the flag
-    // is on, this is a real validation result.
-    return NextResponse.json(
-      {
-        ok: false,
-        error: validation.error ?? "Provider rejected the credentials.",
-      },
-      { status: 400 },
-    );
-  }
-
-  let connection;
   try {
-    connection = await upsertD2CConnection(supabase, {
-      userId: user.id,
-      clientId,
-      provider,
-      credentials,
-      externalAccountId: validation.externalAccountId ?? null,
-    });
+    const result = await saveD2CConnection(
+      {
+        async findClient(clientId) {
+          const { data, error } = await supabase
+            .from("clients")
+            .select("id")
+            .eq("id", clientId)
+            .maybeSingle();
+          if (error) throw new Error(error.message);
+          return (data as { id: string } | null) ?? null;
+        },
+        validate: (provider, credentials) =>
+          getD2CProvider(provider).validateCredentials(credentials),
+        // Service role: a workspace saved by any user would split the
+        // nightly ingest. Reads ids and names only, never credentials.
+        async findBirdWorkspaceOwners(workspaceId) {
+          const admin = createServiceRoleClient();
+          const { data, error } = await admin
+            .from("d2c_connections")
+            .select("client_id")
+            .eq("provider", "bird")
+            .eq("status", "active")
+            .ilike("external_account_id", workspaceId);
+          if (error) throw new Error(error.message);
+          const ids = [
+            ...new Set(
+              ((data ?? []) as { client_id: string }[]).map((r) => r.client_id),
+            ),
+          ];
+          if (ids.length === 0) return [];
+          const { data: clients } = await admin
+            .from("clients")
+            .select("id, name")
+            .in("id", ids);
+          const names = new Map(
+            ((clients ?? []) as { id: string; name: string | null }[]).map(
+              (c) => [c.id, c.name],
+            ),
+          );
+          return ids.map((id) => ({
+            client_id: id,
+            client_name: names.get(id) ?? null,
+          }));
+        },
+        upsert: (input) =>
+          upsertD2CConnection(supabase, { userId: user.id, ...input }),
+      },
+      {
+        body,
+        allowedProviders: ALLOWED_PROVIDERS,
+        // The other client's name is shown to operators only. The route is
+        // operator-gated, so this is defence in depth.
+        callerIsOperator: isOperator(user.id),
+      },
+    );
+    return NextResponse.json(result.body, { status: result.status });
   } catch (e) {
     if (e instanceof MissingD2CTokenKeyError) {
       return NextResponse.json(
@@ -148,14 +132,4 @@ export async function POST(req: NextRequest) {
     }
     throw e;
   }
-  if (!connection) {
-    return NextResponse.json(
-      { ok: false, error: "Failed to persist the connection." },
-      { status: 500 },
-    );
-  }
-  return NextResponse.json(
-    { ok: true, connection: { ...connection, credentials: null } },
-    { status: 201 },
-  );
 }

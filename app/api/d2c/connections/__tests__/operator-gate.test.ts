@@ -40,6 +40,9 @@ vi.mock("@/lib/d2c/registry", () => ({
   listD2CProviderNames: () => ["mailchimp", "klaviyo", "bird", "firetext"],
 }));
 vi.mock("@/lib/supabase/server", () => ({
+  createServiceRoleClient: () => {
+    throw new Error("service role not expected in these tests");
+  },
   createClient: async () => ({
     auth: {
       getUser: async () => ({ data: { user: state.userId ? { id: state.userId } : null } }),
