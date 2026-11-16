@@ -109,7 +109,7 @@ describe("move.within_campaign: no move Apply can't write on the budget level", 
     assert.equal(giver.detail, MOVE_LIFETIME_FROM);
     assert.equal(giver.narrow, "Lineup — Primary → Adv+ · no move, lifetime budget");
     const to = run(input({ adv: LIFETIME(60000), lineup: DAILY(2000) })).watch.find((row) => row.title === MOVE_TITLE)!;
-    assert.equal(to.detail, "no move: the receiving ad set runs on a lifetime budget, so there's no daily budget to move");
+    assert.equal(to.detail, "no move: the receiving ad set runs on a lifetime budget, so there's no daily budget to add to");
     assert.equal(to.detail, MOVE_LIFETIME_TO);
   });
 

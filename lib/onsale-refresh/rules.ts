@@ -674,7 +674,7 @@ function moveBudgetBlock(from: AdSetInput, to: AdSetInput): { kind: "campaign" |
 
 export const MOVE_ON_CAMPAIGN = "no move: the budget is set on the campaign, so ad-set budgets can't be moved";
 export const MOVE_LIFETIME_FROM = "no move: the giving ad set runs on a lifetime budget, so there's no daily budget to move";
-export const MOVE_LIFETIME_TO = "no move: the receiving ad set runs on a lifetime budget, so there's no daily budget to move";
+export const MOVE_LIFETIME_TO = "no move: the receiving ad set runs on a lifetime budget, so there's no daily budget to add to";
 
 export function lifetimeCopyWatch(name: string): string {
   return `not proposed: the ad set it would copy, ${name}, runs on a lifetime budget, so there's no daily budget to give the new one`;
