@@ -1,10 +1,100 @@
 # Copy A/B test, draft for approval (16 Nov 2026)
 
 Stage 1 only. Nothing here has been written to Meta, Drive or the database.
-The current pairs are in the redraft section. The first draft further down is superseded.
+The current B lines are in the B redraft section. The current A lines are in the redraft section after it. The first draft further down is superseded.
 The Stage 2 plan (write path, gates, call count) is in the PR body.
 
-## Redraft (16 Nov): promoter voice, for approval
+## B redraft (overnight 16 Nov): selling-point B lines, for approval
+
+The operator rejected the plain B line ("A Friday night at…") because it gives no reason to
+go. **This section replaces only the B lines in the redraft below. A stays as drafted
+there.**
+
+The new B lines:
+
+- **Order:** B opens with the genre, the act's standing or the experience, written for
+  someone who doesn't know the act. Then it names the act, then the venue and the date.
+- **Angle:** the angle changes by show, so the B lines don't all read the same.
+- **Unchanged:** the date is in both lines, both close with "Tickets on sale now.", there
+  are no emoji, and both lines stay in the 61–120 band. Puzzle's B is unchanged.
+
+### Where each descriptor comes from
+
+`events.genres` and `artists.genres` are empty for every show here, and there are no genre
+tags, so no stored genre could be used. Each descriptor comes from one of two sources:
+
+- the promoter's own live ad copy (`ad_copy`), or the genre targeting on the show's ad sets;
+- the act's widely known style or standing.
+
+There are no chart claims, awards or numbers.
+
+| Show | Angle | Descriptor | Source |
+|---|---|---|---|
+| Locklead | genre standing | "in-demand house star" | the operator's example ("one of house music's most in-demand stars") |
+| D.O.D | anticipation | "a highly anticipated return" | live promoter copy: "D.O.D makes his highly anticipated return to Newcastle" |
+| Robbie Doherty | the night | "get ready to dance", "house music" | house and tech-house targeting; his own copy, "let's have a wee dance" |
+| Julian Fijma | tour finale | "the final stop of his UK tour" | live promoter copy: "Julian Fijma set to close out UK tour at NX Newcastle" |
+| Kream | who they are | "Norwegian house duo" | the act's known profile (not stored in the app; **check**) |
+| Ewan McVicar | standing | "Scottish house favourite" | the act's known profile (not stored in the app; **check**) |
+| Paul van Dyk | legend | "trance legend" | the operator's brief names him as the example for "legend" |
+| Puzzle | experience | "the biggest house party in Southampton returns" | the operator's line, unchanged |
+
+### New B lines
+
+The CTA line, "Tickets on sale now.", follows each line, and the character count includes it.
+
+| Show | A (as drafted) | **B (new)** | Chars A / B | Band |
+|---|---|---|---|---|
+| NX26-LOCKLEAD | Locklead, Marlie & Paramida at NX Newcastle, Friday 11 December. | In-demand house star Locklead lands at NX Newcastle, 11 December, with Marlie & Paramida. | 85 / 110 | 61–120 |
+| NX26-DOD | D.O.D at NX Newcastle, Friday 4 December. | A highly anticipated return: D.O.D is back at NX Newcastle, 4 December. | 62 / 92 | 61–120 |
+| NX26-ROBBIEDOHERTY | Robbie Doherty at NX Newcastle, Friday 27 November. | Newcastle, get ready to dance: Robbie Doherty brings house music to NX Newcastle, 27 November. | 72 / 115 | 61–120 |
+| NX27-JULIANFIJMA | Julian Fijma at NX Newcastle, Friday 19 March. | The final stop of his UK tour: Julian Fijma closes it out at NX Newcastle, 19 March. | 67 / 105 | 61–120 |
+| EBR26-KREAM | Kream, Estiva, Leena Punks & Parts at Electric Bristol, Friday 4 December. | Norwegian house duo Kream headline Electric Bristol, 4 December, with Estiva, Leena Punks & Parts. | 95 / 119 | 61–120 |
+| P26-BDAY | Luke Dean, Enzo Siragusa & more. Puzzle's 4th Birthday, 27 December at Circuit & Engine Rooms. | The biggest house party in Southampton returns on 27 December with Luke Dean, Enzo Siragusa & more. | 115 / 120 | 61–120 |
+| NX27-EWANMCVICAR · ad set to follow | Ewan McVicar at NX Newcastle, Friday 26 February. | Scottish house favourite Ewan McVicar takes over NX Newcastle, 26 February. | 70 / 96 | 61–120 |
+| NX27-PAULVANDYK · ad set to follow | Paul van Dyk at NX Newcastle, Friday 12 February. | Trance legend Paul van Dyk plays NX Newcastle, 12 February. | 70 / 80 | 61–120 |
+
+### Feature check (`lib/learning/copy/features.ts`)
+
+Every pair below passes: only `opener` differs, with A `name_first` and B `statement`. In
+both lines of every pair:
+
+- `has_date` is yes;
+- `cta_kind` is `book_now`;
+- `length_band` is `61_120`;
+- emoji is 0, lines are `2_3` and `scarcity_kind` is none.
+
+`has_lineup_list` is the same in A and B: yes for Locklead, Kream and Puzzle, no for the
+others.
+
+**Locklead fails as written.** Used as written, the operator's example, "One of house
+music's most in-demand stars, Locklead lands at NX Newcastle, 11 December.", reads as
+`statement` but names only Locklead. A lists three acts, so `has_lineup_list` differs
+(A yes, B no). Adding "with Marlie & Paramida" to that line takes it to 131 characters,
+outside the band.
+
+The proposed B, "In-demand house star Locklead lands…, with Marlie & Paramida.", keeps the
+claim and all three acts in 110 characters. The other choice is the operator's line as
+written, with the lineup-list difference accepted.
+
+**Openers that start with a place:**
+
+- **Robbie's B** opens "Newcastle," and still reads as `statement`. The normaliser
+  matches the venue's city only as "Newcastle upon Tyne", not "Newcastle" alone.
+- **Puzzle's B** has "Southampton" as its fifth word, so it doesn't decide the opener.
+- **Scottish** and **Norwegian** are not place slots.
+
+### Kream
+
+- **Spelling.** "Leena Punks", two words, is confirmed from the card itself.
+- **Cards.** All four cards carry Kream's A line, unchanged.
+
+The 16 Nov B lines in the redraft below are superseded, but A, the ad sets and creatives,
+the Julian Fijma ad set and the Kream Drive folder there still stand.
+
+---
+
+## Redraft (16 Nov): promoter voice (A current; B superseded by the B redraft above)
 
 This section replaces the first draft below, which stays for the record. The operator corrected
 the test on 16 Nov:
