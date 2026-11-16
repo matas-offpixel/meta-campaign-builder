@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { buildPresaleLog } from "../../presale/model.ts";
 import { budgetPanel } from "../budget-view.ts";
 import { FRAME_NOW_MS, periodText } from "../dates.ts";
-import { DOD_BUDGET, cdwPresale, dodPresale, electricBudget, ironworksBudget } from "../fixture.ts";
+import { DOD_BUDGET, ELECTRIC_BUDGET, cdwPresale, dodPresale, electricBudget, ironworksBudget } from "../fixture.ts";
 import { presalePanel } from "../presale-view.ts";
 
 describe("PH7 dates", () => {
@@ -141,6 +141,8 @@ describe("HE6 Electric", () => {
     assert.equal(client.lines.find((l) => l.label === "Plan")?.note, "Show budgets");
     assert.equal(total.note, "Paid + sub-budgets + D2C.");
     assert.equal(client.lines.find((l) => l.label === "Brand campaigns")?.note, "No brand campaign.");
+    assert.equal(client.lines.find((l) => l.label === "D2C")?.note, null);
+    assert.equal(show.lines.find((l) => l.label === "D2C")?.note, null);
     assert.equal(client.lines.some((l) => l.note?.includes("paid − credits")), false);
     assert.equal(show.lines.some((l) => l.label === "Brand campaigns"), false);
     assert.equal(show.lines.find((l) => l.label === "Variance")?.value, "£967.01");
@@ -160,13 +162,17 @@ describe("HE6 Ironworks Season 1", () => {
     assert.equal(line("Paid")?.value, "£83,421.09");
     assert.equal(line("Paid")?.note, "Meta £76,288.60 · TikTok £5,871.51 · Google £1,260.98");
     assert.equal(line("Brand campaigns")?.value, "£22,553.07");
+    assert.equal(line("Brand campaigns")?.note, "Included in paid.");
     assert.equal(line("Credits")?.value, "£460.00");
     assert.equal(line("Credits")?.note, "Google promo credit. Changes the variance, not the total.");
-    assert.equal(line("Afters one")?.value, "£1,500.00");
-    assert.equal(line("Afters one")?.note, "Allocation · spent £1,181.76");
-    assert.equal(line("Afters two")?.value, "£750.00");
-    assert.equal(line("Afters two")?.note, "Allocation · spent £115.51");
+    assert.equal(line("Afters one")?.value, "£1,181.76");
+    assert.equal(line("Afters one")?.note, "Spent, of a £1,500.00 allocation.");
+    assert.equal(line("Afters two")?.value, "£115.51");
+    assert.equal(line("Afters two")?.note, "Spent, of a £750.00 allocation.");
     assert.equal(line("D2C")?.value, "£8,681.15");
+    assert.equal(line("D2C")?.note, "WhatsApp delivered × rate, plus SMS");
+    const counted = ["Paid", "Afters one", "Afters two", "D2C"].reduce((sum, label) => sum + Number(line(label)!.value.replace(/[£,]/g, "")), 0);
+    assert.equal(Math.round(counted * 100) / 100, 93399.51);
     assert.equal(line("Variance")?.value, "£38.91");
     assert.equal(line("Variance")?.note, "Plan − paid + credits.");
     assert.equal(line("Total")?.value, "£93,399.51");
@@ -176,5 +182,13 @@ describe("HE6 Ironworks Season 1", () => {
     assert.equal(model.rows.find((r) => r.objective === "Registration" && r.channel === "Meta")?.spend, "£27,354.73");
     assert.equal(model.rows.find((r) => r.objective === "Traffic" && r.channel === "Google")?.spend, "£1,260.98");
     assert.equal(model.rows.filter((r) => r.objective === "Objective not stored").length, 2);
+  });
+
+  it("shows the allocation when spend has not been entered", () => {
+    const result = structuredClone(ELECTRIC_BUDGET);
+    result.budget.subBudgetLines = [{ label: "Afters", allocation: 400, spent: null }];
+    const line = budgetPanel(result, FRAME_NOW_MS).lines.find((l) => l.label === "Afters");
+    assert.equal(line?.value, "£400.00");
+    assert.equal(line?.note, "Allocation. Spend not entered yet.");
   });
 });

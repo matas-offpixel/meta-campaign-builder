@@ -4,7 +4,7 @@
  * and changes only the variance. Table names stay off the page.
  */
 
-import type { Channel, ObjectiveBudgetResult, ObjectiveRow } from "../objective-budget/types.ts";
+import type { BudgetPicture, Channel, ObjectiveBudgetResult, ObjectiveRow, SubBudgetLine } from "../objective-budget/types.ts";
 import { periodText } from "./dates.ts";
 import { count, pounds } from "./presale-view.ts";
 
@@ -71,6 +71,24 @@ function creditNote(source: string): string {
   return named ? `${named}. ${standing}` : standing;
 }
 
+/** The figure is what the total counts: spent where it is entered, otherwise the allocation. */
+function subBudgetRow(line: SubBudgetLine): BudgetLine {
+  if (line.spent == null) {
+    return { label: line.label, value: pounds(line.allocation), note: "Allocation. Spend not entered yet." };
+  }
+  return { label: line.label, value: pounds(line.spent), note: `Spent, of a ${pounds(line.allocation)} allocation.` };
+}
+
+/** A source line only when the builder counted both parts. Empty D2C stays blank. */
+function d2cNote(parts: BudgetPicture["d2cParts"]): string | null {
+  const whatsapp = parts.whatsapp;
+  const sms = parts.sms.value ?? 0;
+  if ((whatsapp.value ?? 0) > 0 && sms > 0 && whatsapp.source.includes("delivered")) {
+    return "WhatsApp delivered × rate, plus SMS";
+  }
+  return null;
+}
+
 export function budgetPanel(result: ObjectiveBudgetResult, nowMs: number): BudgetPanelModel {
   const b = result.budget;
   const channels = (["meta", "tiktok", "google"] as const)
@@ -85,7 +103,7 @@ export function budgetPanel(result: ObjectiveBudgetResult, nowMs: number): Budge
     lines.push({
       label: "Brand campaigns",
       value: brand > 0 ? pounds(brand) : DASH,
-      note: brand > 0 ? null : "No brand campaign.",
+      note: brand > 0 ? "Included in paid." : "No brand campaign.",
     });
   }
   const creditsEmpty = b.credits.source.includes("none entered") || b.credits.source.includes("isn't applied");
@@ -95,15 +113,12 @@ export function budgetPanel(result: ObjectiveBudgetResult, nowMs: number): Budge
     note: creditNote(b.credits.source),
   });
   if (b.subBudgetLines.length) {
-    for (const line of b.subBudgetLines) {
-      const spent = line.spent == null ? "spent —" : `spent ${pounds(line.spent)}`;
-      lines.push({ label: line.label, value: pounds(line.allocation), note: `Allocation · ${spent}` });
-    }
+    for (const line of b.subBudgetLines) lines.push(subBudgetRow(line));
   } else {
     const subsEmpty = b.subBudgets.source.includes("none entered") || b.subBudgets.source.includes("isn't applied");
     lines.push({ label: "Sub-budgets", value: subsEmpty ? DASH : money(b.subBudgets.value), note: subsEmpty ? "None entered." : null });
   }
-  lines.push({ label: "D2C", value: money(b.d2c.value), note: null });
+  lines.push({ label: "D2C", value: money(b.d2c.value), note: d2cNote(b.d2cParts) });
   lines.push({ label: "Variance", value: money(b.variance.value), note: "Plan − paid + credits." });
   lines.push({ label: "Total", value: money(b.totalMarketing.value), note: "Paid + sub-budgets + D2C." });
   const excludes = b.totalExcludes.length ? `The total excludes ${b.totalExcludes.join(" and ")}.` : null;
