@@ -81,9 +81,10 @@ export type AdSetInput = {
   deliveringAds?: number;
   /**
    * The purchase read's batch read of `adsetId` (promoted_object, daily_budget; no extra Meta call). Absent = not read.
-   * `dailyBudgetMinor` null: no ad-set daily budget (a campaign or lifetime budget). `pixelId` null: no pixel on the ad set.
+   * `dailyBudgetMinor` null: no ad-set daily budget. With `lifetimeBudgetMinor` null too, the budget is on the campaign (CBO);
+   * with it set, the ad set runs on a lifetime budget. `pixelId` null: no pixel on the ad set.
    */
-  meta?: { dailyBudgetMinor: number | null; pixelId: string | null };
+  meta?: { dailyBudgetMinor: number | null; lifetimeBudgetMinor?: number | null; pixelId: string | null };
 };
 
 export type ClusterInput = {
@@ -543,17 +544,17 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
     if (cluster.usedOnEvent || cluster.index == null || !cluster.client) continue;
     if (cluster.index > config.bringBackClusterCprIndexAtMost || cluster.confidence < config.bringBackClusterConfidenceAtLeast) continue;
     if (input.storedDefaults?.includes(`cluster:${cluster.id}`)) continue;
-    lines.push(clusterLine(input, cluster, newSets, config));
+    pushNewAdSet(lines, watch, clusterLine(input, cluster, newSets, config), newSets);
   }
   lines.sort((a, b) => Number(a.evidence.cprRatio ?? 9) - Number(b.evidence.cprRatio ?? 9));
 
   // Missing standing default.
   const delivering = input.adSets.filter((set) => set.delivering);
   if (delivering.length && !delivering.some((set) => RETARGETING.test(set.name)) && !input.storedDefaults?.includes("retargeting")) {
-    lines.push(defaultLine(input, "retargeting", newSets));
+    pushNewAdSet(lines, watch, defaultLine(input, "retargeting", newSets), newSets);
   }
   if (delivering.length && !delivering.some((set) => REG_LOOKALIKE.test(set.name)) && !input.storedDefaults?.includes("registrations_lookalike")) {
-    lines.push(defaultLine(input, "registrations_lookalike", newSets));
+    pushNewAdSet(lines, watch, defaultLine(input, "registrations_lookalike", newSets), newSets);
   }
 
   // Drop a delivering ad set.
@@ -604,6 +605,17 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
       const cap = remaining == null ? null : round2(remaining * config.moveCapShare);
       const wanted = round2(worst.set.weekSpend / 2);
       const title = `${worst.set.name} → ${best.set.name}`;
+      // Apply moves ad-set daily budgets only: a campaign budget (CBO) or a lifetime budget on either side, read in the purchase read's batch, is no move.
+      const level = moveBudgetBlock(worst.set, best.set);
+      if (level) {
+        watch.push({
+          title,
+          detail: level.detail,
+          narrow: `${title} · ${level.narrow}`,
+          evidence: { fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId, budget: level.kind, fromBudget: worst.set.meta ?? null, toBudget: best.set.meta ?? null, wantedGbp: cap == null ? wanted : Math.min(cap, wanted) },
+        });
+        return { lines, watch, note };
+      }
       // The £1.00 floor, sized the way Apply moves it (the week ÷ 7 off the giver's daily budget), on the budget the purchase read saw.
       const giverDaily = worst.set.meta?.dailyBudgetMinor ?? null;
       const floorMax = giverDaily == null ? null : maxWeeklyMoveGbp(giverDaily);
@@ -646,14 +658,50 @@ type NewSetContext = {
   budgetLevel: "campaign" | "ad_set" | null;
   /** The copied ad set's promoted_object.pixel_id, as the purchase read saw it: null = it has none (Apply builds no pixel audience); undefined = not read. */
   copyPixelId?: string | null;
+  /** Set when the only ad set to copy runs on a lifetime budget (Apply's LIFETIME_COPY): the lines go on Watch instead. */
+  lifetimeCopy?: { adsetId: string; name: string };
 };
+
+/** Where a move can't be written: either side's budget, as the purchase read's batch saw it (not read = Apply checks). */
+function moveBudgetBlock(from: AdSetInput, to: AdSetInput): { kind: "campaign" | "lifetime_from" | "lifetime_to"; detail: string; narrow: string } | null {
+  const onCampaign = (set: AdSetInput) => set.meta != null && set.meta.dailyBudgetMinor == null && set.meta.lifetimeBudgetMinor == null;
+  const lifetime = (set: AdSetInput) => set.meta != null && set.meta.dailyBudgetMinor == null && set.meta.lifetimeBudgetMinor != null;
+  if (onCampaign(from) || onCampaign(to)) return { kind: "campaign", detail: MOVE_ON_CAMPAIGN, narrow: "no move, campaign budget" };
+  if (lifetime(from)) return { kind: "lifetime_from", detail: MOVE_LIFETIME_FROM, narrow: "no move, lifetime budget" };
+  if (lifetime(to)) return { kind: "lifetime_to", detail: MOVE_LIFETIME_TO, narrow: "no move, lifetime budget" };
+  return null;
+}
+
+export const MOVE_ON_CAMPAIGN = "no move: the budget is set on the campaign, so ad-set budgets can't be moved";
+export const MOVE_LIFETIME_FROM = "no move: the giving ad set runs on a lifetime budget, so there's no daily budget to move";
+export const MOVE_LIFETIME_TO = "no move: the receiving ad set runs on a lifetime budget, so there's no daily budget to add to";
+
+export function lifetimeCopyWatch(name: string): string {
+  return `not proposed: the ad set it would copy, ${name}, runs on a lifetime budget, so there's no daily budget to give the new one`;
+}
+
+/** A new ad set's line, or — when the only ad set to copy runs on a lifetime budget — a Watch entry saying so. */
+function pushNewAdSet(lines: ProposalLine[], watch: WatchItem[], line: ProposalLine, ctx: NewSetContext): void {
+  if (!ctx.lifetimeCopy) {
+    lines.push(line);
+    return;
+  }
+  watch.push({ title: line.title, detail: lifetimeCopyWatch(ctx.lifetimeCopy.name), narrow: `${line.title} · not proposed, lifetime budget`, evidence: { ruleId: line.ruleId, copyFrom: ctx.lifetimeCopy, budget: "lifetime" } });
+}
 
 /** P3: what a new ad set would copy, and how it would be funded (design's ruling), read at proposal time. */
 function newAdSetContext(input: CampaignInput): NewSetContext {
   const label = RESULT_LABEL[input.resultEvent].short;
-  const source = pickCopySource(input.adSets, input.plan.window.end);
-  const budgetLevel = input.draft?.budgetLevel ?? null;
-  if (!source) return { copy: null, giver: null, funding: { mode: "none" }, budgetLevel };
+  // Apply copies an ad set's daily budget under ABO: one on a lifetime budget can't be copied (LIFETIME_COPY), so it isn't picked.
+  const lifetime = (set: AdSetInput) => set.meta != null && set.meta.dailyBudgetMinor == null && set.meta.lifetimeBudgetMinor != null;
+  const source = pickCopySource(input.adSets.filter((set) => !lifetime(set)), input.plan.window.end);
+  // The budget level as the batch read saw the copied ad set (Apply reads the campaign again): no ad-set budget is CBO, a daily one ABO; not read, the draft's.
+  const read = source?.meta;
+  const budgetLevel = read ? (read.dailyBudgetMinor != null ? "ad_set" : read.lifetimeBudgetMinor == null ? "campaign" : (input.draft?.budgetLevel ?? null)) : (input.draft?.budgetLevel ?? null);
+  if (!source) {
+    const only = pickCopySource(input.adSets, input.plan.window.end);
+    return { copy: null, giver: null, funding: { mode: "none" }, budgetLevel, ...(only ? { lifetimeCopy: { adsetId: only.adsetId, name: only.name } } : {}) };
+  }
   const copy: CopySource = {
     adsetId: source.adsetId,
     name: source.name,
@@ -662,7 +710,10 @@ function newAdSetContext(input: CampaignInput): NewSetContext {
     dailyGbp: round2(source.recentDailySpend ?? source.weekSpend / 7),
     creatives: Math.max(1, Math.min(MAX_REUSED_CREATIVES, source.deliveringAds ?? 1)),
   };
-  const giverSet = pickGiver(input.adSets, source.adsetId);
+  // A giver Apply can take from: an ad-set daily budget (not CBO, not lifetime) that stays at £1.00 a day after giving the copy's daily budget.
+  const takes = read?.dailyBudgetMinor ?? Math.round(copy.dailyGbp * 100);
+  const canGive = (set: AdSetInput) => !set.meta || (set.meta.dailyBudgetMinor != null && set.meta.dailyBudgetMinor - takes >= MIN_DAILY_BUDGET_MINOR);
+  const giverSet = pickGiver(input.adSets.filter(canGive), source.adsetId);
   const giver = giverSet ? { adsetId: giverSet.adsetId, name: giverSet.name } : null;
   const funding = decideFunding({ budgetLevel, dailyGbp: copy.dailyGbp, budget: input.budgetGbp, spend: input.spendToDateGbp, today: input.plan.day, eventDate: input.eventDate ?? null, appliedMovesGbp: 0, giver });
   return { copy, giver, funding, budgetLevel, ...(source.meta ? { copyPixelId: source.meta.pixelId } : {}) };

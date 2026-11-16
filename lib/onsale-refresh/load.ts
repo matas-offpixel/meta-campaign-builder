@@ -558,7 +558,7 @@ export async function buildEventInputs(args: {
     // The purchase read's batch already read each ad set's pixel and daily budget: the move's floor and a default's audiences size on it.
     for (const set of adSets.values()) {
       const read = args.purchaseBudgets?.adSets.get(set.adsetId);
-      if (read) set.meta = { dailyBudgetMinor: read.daily == null ? null : Math.round(read.daily * 100), pixelId: read.pixelId };
+      if (read) set.meta = { dailyBudgetMinor: read.daily == null ? null : Math.round(read.daily * 100), lifetimeBudgetMinor: read.lifetime == null ? null : Math.round(read.lifetime * 100), pixelId: read.pixelId };
     }
     const campaignIds = [...new Set(campaignRows.map((row) => row.meta_campaign_id).filter((id): id is string => Boolean(id)))];
     const adAccountId = campaignRows.map((row) => row.ad_account_id).find((id): id is string => Boolean(id)) ?? null;
