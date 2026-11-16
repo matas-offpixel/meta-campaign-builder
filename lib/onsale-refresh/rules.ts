@@ -610,7 +610,7 @@ export function audienceLines(input: CampaignInput, config: PhaseConfig): { line
       if (floorMax === 0) {
         watch.push({
           title,
-          detail: `no move: the giving ad set is at ${gbp(giverDaily! / 100)} a day, under the £1.00 a day floor`,
+          detail: giverDaily === MIN_DAILY_BUDGET_MINOR ? "no move: the giving ad set is already at the £1.00 a day floor" : `no move: the giving ad set is at ${gbp(giverDaily! / 100)} a day, under the £1.00 a day floor`,
           narrow: `${title} · no move, £1.00 floor`,
           evidence: { fromAdsetId: worst.set.adsetId, toAdsetId: best.set.adsetId, fromDailyBudgetGbp: giverDaily! / 100, floorGbp: MIN_DAILY_BUDGET_MINOR / 100, wantedGbp: cap == null ? wanted : Math.min(cap, wanted) },
         });

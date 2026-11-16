@@ -81,11 +81,18 @@ describe("move.within_campaign keeps the giver at the £1.00 a day floor Apply k
     const { lines, watch } = audienceLines(p26(100), ONSALE_PHASE);
     assert.equal(lines.find((line) => line.kind === "move_budget"), undefined, "£3.74 a week off £1.00 a day would be refused at Apply");
     const item = watch.find((row) => row.title === "Retargeting – No Suggest → Adv+")!;
-    assert.equal(item.detail, "no move: the giving ad set is at £1.00 a day, under the £1.00 a day floor");
+    assert.equal(item.detail, "no move: the giving ad set is already at the £1.00 a day floor");
     assert.equal(item.narrow, "Retargeting – No Suggest → Adv+ · no move, £1.00 floor");
     assert.deepEqual(item.evidence, { fromAdsetId: GIVER, toAdsetId: RECEIVER, fromDailyBudgetGbp: 1, floorGbp: 1, wantedGbp: 3.74 });
     const under = audienceLines(p26(50), ONSALE_PHASE).watch.find((row) => row.title === "Retargeting – No Suggest → Adv+")!;
     assert.equal(under.detail, "no move: the giving ad set is at £0.50 a day, under the £1.00 a day floor");
+    assert.equal(audienceLines(p26(50), ONSALE_PHASE).watch.find((row) => row.title === "Retargeting – No Suggest → Adv+")!.narrow, "Retargeting – No Suggest → Adv+ · no move, £1.00 floor", "narrow: one wording");
+    // Above £1.00, where the wanted £3.74 would take it under: no Watch entry, the move is capped at the penny's headroom.
+    const above = audienceLines(p26(101), ONSALE_PHASE);
+    assert.equal(above.watch.find((row) => row.title === "Retargeting – No Suggest → Adv+"), undefined);
+    const capped = above.lines.find((line) => line.kind === "move_budget")!;
+    assert.equal(capped.detail, "£7.48 per IC (2.99×) to £1.50 per IC (0.6×) · £0.07 a week (keeps Retargeting – No Suggest at £1.00 a day) · cap £475.28 (20 % of £2376.42 remaining)");
+    assert.equal(101 - moveDeltaMinor(0.07), MIN_DAILY_BUDGET_MINOR);
   });
 
   it("a giver just over the floor: the move is capped at what keeps it at £1.00, and says so", () => {
