@@ -135,6 +135,9 @@ export async function runRenderTick(
     const claim = await claimFaceCheck(db, pending[0], now);
     if (claim.ok) {
       readiness.set(pending[0], await detect(db, pending[0]));
+      // A face check can take most of the function's 800 s: this tick starts no renders it might not finish.
+      // The next minute's tick claims them (it sees the lock as busy, or the samples as ready).
+      return { ok: true, claimed: 0, timedOut, skippedArchived: 0, busy: false };
     } else if (claim.reason === "timed_out") {
       readiness.set(pending[0], "failed");
     }

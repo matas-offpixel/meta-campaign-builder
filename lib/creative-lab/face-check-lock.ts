@@ -23,6 +23,7 @@ import {
   FACE_CHECK_MAX_ATTEMPTS,
   FACE_CHECK_TIMED_OUT,
   FACE_DETECTOR,
+  FACE_SAMPLE_FPS,
   faceCheckLocked,
   readFaceSamples,
   type StoredFaceSamples,
@@ -95,7 +96,7 @@ export async function claimFaceCheck(
   };
   const base = {
     detector: FACE_DETECTOR,
-    fps: 5 as const,
+    fps: FACE_SAMPLE_FPS,
     cropFocusX: num(clip.crop_focus_x, 0.5) ?? 0.5,
     cropFocusY: num(clip.crop_focus_y, 0.5) ?? 0.5,
     inS: num(clip.in_s, null),

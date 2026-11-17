@@ -541,6 +541,7 @@ export async function loadCreativeLabCard(
           windowIn: window.inS,
           windowOut: window.outS,
           samples: stored.samples,
+          fps: stored.fps,
         }).line;
       }
     }

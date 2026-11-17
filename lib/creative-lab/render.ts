@@ -292,6 +292,7 @@ export async function renderCaptionOnClip(
       windowIn: inS,
       windowOut: outS,
       samples: stored.samples,
+      fps: stored.fps,
     });
     if (!place.ok) throw new Error(place.line);
     props.placementCenterY = place.centre;
