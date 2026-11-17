@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lab video window 2 — 17 Nov 2026</title>
+<style>
+:root{
+  --sand:#F0C9A8; --card:#e8d4c0; --edit:#f6ebe0; --paper:#fff8f0; --ink:#1e1810; --ink-2:#4a3d30; --ink-3:#6f6052;
+  --border:rgba(30,24,16,.10); --border-strong:rgba(30,24,16,.18); --muted:rgba(30,24,16,.06);
+  --olive:#4f5a1f; --ochre:#8a560c; --brick:#8f3424;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 var(--sans);font-feature-settings:"calt" 0}
+.wrap{max-width:1360px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:24px;font-weight:600;margin:0 0 6px}
+h2{font-size:20px;font-weight:600;margin:56px 0 8px}
+h3{font-size:13px;font-weight:600;margin:20px 0 6px}
+p{margin:0 0 10px;max-width:86ch}
+.lead{font-size:13px;color:var(--ink-2)}
+.k{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+code{font:12px var(--mono);background:var(--muted);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+figure{margin:0;min-width:0;max-width:100%}
+figcaption{font:700 9px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 22px;background:var(--card);border-radius:8px;overflow:hidden;table-layout:fixed}
+table.t th,table.t td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+table.t th{font:700 9px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);background:var(--muted)}
+table.t td:first-child{font-weight:600;width:190px}
+table.t ul{margin:4px 0 0 16px;padding:0}table.t li{margin:0 0 4px}
+.open{background:#f3e3c8;border:1px dashed var(--ochre);border-radius:8px;padding:10px 14px;font-size:12.5px;margin:10px 0 16px}
+.notes{font-size:12.5px;color:var(--ink-2)}.notes li{margin:0 0 6px;max-width:96ch}
+.frame{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 24px}
+.vp{background:var(--paper);border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;max-width:100%;padding:16px;font-size:13px}
+.vp.wide{width:760px}.vp.w393{width:393px}
+.ph{font:700 9px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.h{font-weight:600;font-size:14px;margin:0 0 4px}
+.sub{font-size:12px;color:var(--ink-2);margin:0 0 10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--border-strong);border-radius:999px;padding:3px 10px;font-size:12px;background:#fff}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mono{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--border)}
+.row .n{color:var(--ink-3);font:12px var(--mono)}
+.box{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:3px;display:inline-block}
+.box.on{background:var(--ink)}
+.box.off{border-color:var(--ink-3);opacity:.45}
+.fs{font-size:11.5px;color:var(--ink-2)}
+.fs.warn{color:var(--brick)}
+.ok{color:var(--olive)}
+.btn{display:inline-block;border:1px solid var(--ink);border-radius:4px;padding:5px 10px;font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.dis{opacity:.4}
+.wave{position:relative;height:64px;background:repeating-linear-gradient(90deg,var(--ink-3) 0 2px,transparent 2px 5px);border-radius:4px;margin:26px 0 4px;opacity:.9}
+.wave .win{position:absolute;top:-4px;bottom:-4px;border:2px solid var(--ink);background:rgba(232,212,192,.55);border-radius:4px}
+.wave .drop{position:absolute;top:-10px;bottom:-10px;width:2px;background:var(--brick)}
+.wave .drop span{position:absolute;top:-16px;left:-20px;font:700 9px var(--mono);letter-spacing:.1em;color:var(--brick);white-space:nowrap}
+.tl{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--ink-3)}
+.pv{width:150px;height:267px;background:#222;border-radius:6px;position:relative;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font:700 9px var(--mono);letter-spacing:.12em}
+.pv .play{position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-radius:50%;background:#fff}
+.split{display:flex;gap:16px;align-items:flex-start}
+table.v{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
+table.v th{font:700 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-strong)}
+table.v td{padding:6px;border-bottom:1px solid var(--border)}
+table.v td.r,table.v th.r{text-align:right}
+.st{display:inline-block;border:1px solid var(--border-strong);border-radius:10px;padding:2px 8px;font:700 9px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st.run{border-style:dashed}
+.st.win{background:var(--olive);color:#fff;border-color:var(--olive)}
+.test{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:8px 0;background:#fff}
+.test.dim{opacity:.55}
+.line{background:var(--card);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px}
+.inv{text-decoration:underline dotted var(--brick);text-decoration-thickness:1.5px;text-underline-offset:3px}
+table.t table.t td:first-child{width:auto;font-weight:400}
+@media (max-width:560px){table.t th[style]{width:100px!important}table.t td:first-child{width:100px}}
+.st.fail{border-color:var(--brick);color:var(--brick)}
+.line .acts{float:right;font:700 9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.line.wait{opacity:.6}
+.line.failed{border:1px solid var(--brick);background:#f6e3dc}
+.tick{display:inline-block;width:11px;height:11px;border:1.5px solid var(--ink);border-radius:2px;margin-right:6px;vertical-align:-1px}
+.tick.on{background:var(--ink)}
+.bar{display:inline-block;height:8px;background:var(--ink-3);border-radius:2px;vertical-align:middle;margin-right:6px}
+.sbar{position:relative;display:inline-block;width:100px;height:8px;background:var(--muted);border-radius:2px;vertical-align:middle;margin-right:8px}
+.sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink-3);border-radius:2px}
+.sbar i.lead{background:var(--olive)}
+.sbar b{position:absolute;left:60px;top:-3px;bottom:-3px;width:1px;background:var(--ink)}
+.sbar s{position:absolute;left:10px;top:-3px;bottom:-3px;width:1px;background:var(--ink-3);opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="k">Off/Pixel · design record · creative lab · video window · issue 2 · 17 November 2026</p>
+<h1>The main drop is the last major transient</h1>
+<p class="lead">This re-rules how VW1 of <code>2026-11-17-creative-lab-video-window.html</code> (#1319) picks the main drop. On P26-BDAY clip 27 (no-CTA r3), "largest rise, earlier wins" picked the first kick. That kick is the lead-in to the build-up, and the edit cut out just before the real drop. Matas approved clip 30's r3 as a perfect cut. His rule: the main drop is the second, or even the last, main transient in the clip, as long as the clip still runs on for 10 s after it.</p>
+<ul class="notes">
+<li><b>Replaced:</b> VW1's last two bullets, which picked the largest rise with the earlier one winning within 1 dB, and the build's choice of the largest fitting rise for "Use the drop at {m:ss.s}".</li>
+<li><b>Stands:</b> the rest of VW1–VW6. That covers what a candidate is (a 6 dB rise over 2 s with an onset within 0.1 s, merged within 4 s), VW2's window (the drop 3.0–5.0 s in, 15–20 s long), VW3's refusals and their words, VW4's nudges and VW5's words.</li>
+<li><b>Frames:</b> VW-A is redrawn with new expected figures, and VW-C is new (the rule on a schematic track).</li>
+<li><b>Invented:</b> the 3 dB margins, the after-level test and VW-C's figures are <span class="inv">invented</span>. Clips 27 and 30 settle them (acceptance).</li>
+</ul>
+
+<h2>Rulings</h2>
+<table class="t">
+<tr><th style="width:190px">#</th><th>Ruling</th></tr>
+<tr><td>VW7 · The main drop</td><td>
+<ul>
+<li><b>Major or minor.</b> Every candidate is either major or minor. A candidate is <b>major</b> when either of these holds:
+<ul>
+<li>its rise is within 3 dB of the largest rise in the clip;</li>
+<li>the 2 s after it are within 3 dB of the loudest 2 s in the clip.</li>
+</ul>
+Every other candidate is minor: a fill, a snare roll, a small hit between sections.</li>
+<li><b>The main drop is the last major candidate that fits VW2</b>, which means 3 s or more before it and 10 s or more after it. With only one major candidate, it's that one. "The earlier wins" is retired.</li>
+<li><b>No major candidate fits.</b> VW3 refuses the clip, naming the latest major candidate. With under 10 s after it, that's "Too little after the drop". Otherwise, that's "Drop too soon". The words are VW3's, unchanged.</li>
+<li><b>Ops' reading, confirmed with one change.</b> Rise size alone isn't enough to call a candidate major. A lead-in kick out of near-silence can rise more than the real drop does out of a loud build-up, and that is clip 27's shape. The second test catches a drop that lands at full level. Fills fail both tests: they rise little, and they don't reach the clip's loudest level.</li>
+</ul></td></tr>
+<tr><td>VW8 · The other drops</td><td>
+<ul>
+<li><b>The picker lists every candidate</b>, major and minor. The main drop comes first, then the rest in time order, in VW5's words. One that fits offers "Use this drop", and one that doesn't adds "· doesn't fit". The earlier transients stay listed: they are the lead-ins an operator may still prefer, and picking one is VW4's nudge.</li>
+<li><b>A refusal's "Use the drop at {m:ss.s}"</b> offers the latest candidate that fits, major or minor. This replaces the build's largest fitting rise and matches VW7's lean to the later drop.</li>
+<li>No new words.</li>
+</ul></td></tr>
+<tr><td>VW9 · Existing work</td><td>
+<ul>
+<li><b>Kept as they are:</b> approved renders, and windows set by hand.</li>
+<li><b>Recomputed:</b> detected windows, by the backfill's <code>--recheck</code>. Drafts are re-cut the next time they render (VW6).</li>
+<li><b>P26-BDAY:</b> clip 27's drafts move to its later drop. Clip 30's approved r3 is untouched.</li>
+</ul></td></tr>
+</table>
+
+<h2>The rule on a track</h2>
+<p class="lead">A schematic 44.0 s track shaped like clip 27, not its real figures. The old rule took 0:04.0, the largest rise, and cut 0:00–0:16. VW7 takes 0:20.0, the last major candidate with 10 s after it.</p>
+<div class="frame">
+<figure><figcaption>VW-C · 1280 · which candidate is the main drop</figcaption>
+<div class="vp wide">
+<div class="wave">
+<div class="win" style="left:36.4%;width:36.4%"></div>
+<div class="drop" style="left:9.1%;opacity:.35"></div>
+<div class="drop" style="left:27.3%;opacity:.35"></div>
+<div class="drop" style="left:45.5%"><span>DROP</span></div>
+<div class="drop" style="left:86.4%;opacity:.35"></div></div>
+<div class="tl"><span>0:00</span><span>0:10</span><span>0:20</span><span>0:30</span><span>0:44</span></div>
+<table class="v" style="margin-top:14px">
+<tr><th>Candidate</th><th class="r">Rise</th><th class="r">After vs loudest</th><th>Major</th><th class="r">After it</th><th>Result</th></tr>
+<tr><td>0:04.0 · the lead-in kick</td><td class="r">12 dB</td><td class="r">−7 dB</td><td>yes (rise)</td><td class="r">40.0 s</td><td>fits, but a later major fits</td></tr>
+<tr><td>0:12.0 · a fill</td><td class="r">7 dB</td><td class="r">−8 dB</td><td>no</td><td class="r">32.0 s</td><td>minor</td></tr>
+<tr><td><b>0:20.0 · the drop</b></td><td class="r">10 dB</td><td class="r">0 dB</td><td>yes (both)</td><td class="r">24.0 s</td><td><b>main drop</b> · window 0:16.0–0:32.0</td></tr>
+<tr><td>0:38.0 · the outro hit</td><td class="r">11 dB</td><td class="r">−1 dB</td><td>yes (both)</td><td class="r">6.0 s</td><td>doesn't fit</td></tr>
+</table>
+<p class="fs" style="margin-top:8px">The largest rise is 12 dB, so a rise of 9 dB or more is major. The loudest 2 s are at 0:20.0–0:22.0.</p>
+</div></figure>
+</div>
+
+<h2>VW-A, redrawn</h2>
+<p class="lead">Under VW7, XMPL clip 07's 0:31.2 candidate is major (8 dB is within 3 dB of 11). It's also the last, and it fits: 31.2 s before it, 10.8 s after. So it becomes the main drop. Its 16 s window would end at 0:43.2, past the clip's end at 0:42.0. Shortened to the end, it's 14.8 s, so it starts earlier: 0:27.0–0:42.0, 15 s long, with the drop 4.2 s in.</p>
+<div class="frame">
+<figure><figcaption>VW-A · 1280 · the window picker on a clip · detected window (VW7)</figcaption>
+<div class="vp wide">
+<div class="h">Edit window · XMPL clip 07</div>
+<div class="fs">Drop at 0:31.2 · 4.2 s in · 15 s long</div>
+<div class="wave">
+<div class="win" style="left:64.3%;width:35.7%"></div>
+<div class="drop" style="left:74.3%"><span>DROP</span></div>
+<div class="drop" style="left:39.0%;opacity:.35"></div></div>
+<div class="tl"><span>0:00</span><span>0:10</span><span>0:20</span><span>0:30</span><span>0:42</span></div>
+<table class="v" style="margin-top:14px">
+<tr><td style="width:220px"><b>Main drop 0:31.2</b> · rises 8 dB</td><td class="fs">in use</td></tr>
+<tr><td>0:16.4 · rises 11 dB</td><td><span class="btn ghost">Use this drop</span></td></tr>
+</table>
+<div class="split" style="margin-top:12px">
+<div>
+<div class="ph">Drop in at</div><span class="chip">−</span> <b>4.2 s</b> <span class="chip">+</span> <span class="fs">3.0–5.0 s</span></div>
+<div>
+<div class="ph">Length</div><span class="chip">−</span> <b>15 s</b> <span class="chip">+</span> <span class="fs">15–20 s</span></div>
+</div>
+<div style="margin-top:12px"><span class="btn ghost dis">Back to the detected window</span></div>
+</div></figure>
+<figure><figcaption>VW-A · 393 · the same</figcaption>
+<div class="vp w393">
+<div class="h">Edit window · XMPL clip 07</div>
+<div class="fs">Drop at 0:31.2 · 4.2 s in · 15 s long</div>
+<div class="wave">
+<div class="win" style="left:64.3%;width:35.7%"></div>
+<div class="drop" style="left:74.3%"><span>DROP</span></div>
+<div class="drop" style="left:39.0%;opacity:.35"></div></div>
+<div class="tl"><span>0:00</span><span>0:20</span><span>0:42</span></div>
+<div class="line"><b>Main drop 0:31.2</b> · rises 8 dB · in use</div>
+<div class="line">0:16.4 · rises 11 dB <span class="acts">Use this drop</span></div>
+<div class="ph" style="margin-top:10px">Drop in at</div>
+<div><span class="chip">−</span> <b>4.2 s</b> <span class="chip">+</span> <span class="fs">3.0–5.0 s</span></div>
+<div class="ph" style="margin-top:10px">Length</div>
+<div><span class="chip">−</span> <b>15 s</b> <span class="chip">+</span> <span class="fs">15–20 s</span></div>
+<div style="margin-top:12px"><span class="btn ghost dis">Back to the detected window</span></div>
+</div></figure>
+</div>
+
+<h2>Expected figures</h2>
+<ul class="notes">
+<li><b>VW-A:</b> the main drop is 0:31.2, rising 8 dB, in a window of 0:27.0–0:42.0 (15 s), with the drop 4.2 s in. 0:16.4 (rising 11 dB, with 25.6 s after it) fits and offers "Use this drop".</li>
+<li><b>VW-B:</b> unchanged. For "Drop too soon", the fixture's 0:09.0 candidate must be minor, or it would become the main drop and the clip wouldn't be refused. It's still offered as "Use the drop at 0:09.0", being the latest that fits. "Too little after the drop" holds: 0:24.8 is the latest major, with 6.2 s after it.</li>
+</ul>
+
+<h2>Acceptance</h2>
+<ul class="notes">
+<li><b>Real fixtures.</b> P26-BDAY clips 27 and 30 become test fixtures, with their real candidate lists (time, rise, the after-level against the loudest 2 s) taken from the backfill's dry run.
+<ul>
+<li>Clip 30's main drop is where its approved r3 has the drop, within one 50 ms step.</li>
+<li>Clip 27's main drop is its later drop, not the lead-in kick.</li>
+<li>If either fails under VW7's margins, the build stops and reports both lists, and design re-rules the margins before merge.</li>
+</ul></li>
+<li><b>Synthetic tests.</b> A minor fill never becomes the main drop. The last major candidate that fits wins over a larger, earlier one. One major candidate is used alone. A latest major with under 10 s after it is skipped for an earlier major that fits. No major fitting gives VW3's refusal, naming the latest major. "Use the drop at" offers the latest candidate that fits.</li>
+<li><b>Frames:</b> VW-A at 1280 and 393 with the figures above. VW-B is unchanged.</li>
+</ul>
+
+<h2>Hand-back</h2>
+<table class="t">
+<tr><th style="width:190px">Piece</th><th>Build</th></tr>
+<tr><td>HV6 · Main drop</td><td>
+<ul>
+<li>In <code>DROP_RULE</code>: each candidate stores its after-level against the clip's loudest 2 s. Major is a rise within 3 dB of the largest, or an after-level within 3 dB of the loudest.</li>
+<li>Main is the last major candidate that fits VW2.</li>
+<li>Refusals name the latest major candidate.</li>
+<li>Both margins are named constants.</li>
+</ul></td></tr>
+<tr><td>HV7 · Other drops</td><td>The picker order (main first, then time order), and "Use the drop at" offering the latest candidate that fits.</td></tr>
+<tr><td>HV8 · Fixtures and backfill</td><td>Clips 27 and 30 as fixtures from their real lists. VW-A's fixture moves to the figures above. The backfill's <code>--recheck</code> recomputes detected windows only.</td></tr>
+</table>
+
+<h2>Invented here</h2>
+<ul class="notes">
+<li>The two 3 dB margins and the after-level test.</li>
+<li>"Use the drop at" offering the latest candidate that fits.</li>
+<li>VW-C's track and figures.</li>
+</ul>
+
+</div>
+</body>
+</html>
