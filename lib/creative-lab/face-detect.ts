@@ -10,8 +10,9 @@
  * in the source image's pixels.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, renameSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -75,6 +76,23 @@ export function faceApiMain(cwd: string = process.cwd(), exists: (path: string) 
   if (exists(traced)) return traced;
   return createRequire(import.meta.url).resolve(FACE_API_MAIN);
 }
+
+/**
+ * face-api's ESM bundle as an .mjs copy in the temp dir. Its package.json has
+ * no "type", so Node only reads the .js as ESM by syntax detection, and in the
+ * production function that load failed with "Unexpected token 'export'"
+ * (17 Nov 2026, after #1302): the file was parsed as CommonJS. An .mjs file is
+ * ESM to every loader. Copied once per instance (renamed into place, so a
+ * concurrent copy never reads half a file); the size keys the name.
+ */
+export function faceApiEsmPath(main: string, dir: string = tmpdir()): string {
+  const out = join(dir, `offpixel-face-api-${statSync(main).size}.mjs`);
+  if (existsSync(out)) return out;
+  const partial = `${out}.${process.pid}.${Date.now()}.tmp`;
+  copyFileSync(main, partial);
+  renameSync(partial, out);
+  return out;
+}
 let loaded: Promise<FaceApi> | null = null;
 
 async function faceApi(): Promise<FaceApi> {
@@ -94,7 +112,7 @@ async function faceApi(): Promise<FaceApi> {
       // can't analyse it replaces the import with a stub that throws "Cannot
       // find module as expression is too dynamic" (production, 17 Nov 2026).
       // CI checks the built route: scripts/check-face-detect-bundle.mts.
-      api = (await import(/* webpackIgnore: true */ pathToFileURL(main).href)) as unknown as FaceApi;
+      api = (await import(/* webpackIgnore: true */ pathToFileURL(faceApiEsmPath(main)).href)) as unknown as FaceApi;
     } finally {
       Object.defineProperty(process, "versions", { value: versions, configurable: true, writable: true });
     }

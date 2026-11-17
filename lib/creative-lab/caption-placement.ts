@@ -66,7 +66,7 @@ function sameTime(a: number | null, b: number | null): boolean {
  * Production stored these on every clip until 17 Nov 2026 (face-detect.ts).
  */
 export function isDetectorLoadError(error: string | undefined): boolean {
-  return /cannot find module|too dynamic|module_not_found/i.test(error ?? "");
+  return /cannot find module|too dynamic|module_not_found|unexpected token 'export'/i.test(error ?? "");
 }
 
 /**
