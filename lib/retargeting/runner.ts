@@ -30,6 +30,10 @@ import { addDaysIso, planRun, todayLondon } from "../onsale-refresh/schedule.ts"
 import { pixelRules, ruleChanges, tierSpecs, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
 import { linksFallback, linksFromPages, otherLandingHosts, type PixelHosts, type ShowLink } from "./links.ts";
 import { refreshTokenFor, rewriteRules, ruleRewriteGates } from "./rule-rewrite.ts";
+import { pooled, type PooledRead } from "./test.ts";
+import type { CallShow, CallWrite } from "./apply-call.ts";
+import { callLine, type RunningTest } from "./plan.ts";
+import type { Arm } from "./words.ts";
 import { planRetargeting, retargetingOnSaleDay, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
 import { isRetargetingCampaignName, isTestsCampaignName, retargetingCampaignName, TIERS, type Tier } from "./words.ts";
 
@@ -167,6 +171,10 @@ export function retargetingInput(args: {
   campaignStatus?: string | null;
   otherLandingHosts?: string[];
   linkSizes?: RetargetingInput["linkSizes"];
+  /** RT17: the test's winner once its call was applied. */
+  testWinner?: Arm | null;
+  /** RT17: the pooled read across every show in the test. */
+  pooledRead?: PooledRead | null;
 }): RetargetingInput {
   const { event, day } = args;
   const code = event.event_code ?? event.id;
@@ -177,10 +185,10 @@ export function retargetingInput(args: {
   const rows = args.rows.filter((row) => row.date <= end);
   const last7 = rows.filter((row) => row.date >= start && onSale(row.campaign_name)).reduce((sum, row) => sum + num(row.spend), 0);
   const named = rows.find((row) => isRetargetingCampaignName(row.campaign_name, code) && row.meta_campaign_id);
-  const progress = (args.appliedLine?.applied_result?.retargeting ?? null) as { campaignId?: string; share?: number; adSets?: Partial<Record<Tier, { dailyMinor: number }>> } | null;
+  const progress = (args.appliedLine?.applied_result?.retargeting ?? null) as { campaignId?: string; share?: number; adSets?: Partial<Record<Tier, { dailyMinor: number }>>; test?: TestProgress } | null;
   const firstDay = rows.filter((row) => isRetargetingCampaignName(row.campaign_name, code) && num(row.spend) > 0).map((row) => row.date).sort()[0] ?? null;
-  const tiers = progress?.adSets ? Object.fromEntries(TIERS.map((tier) => [tier, progress.adSets?.[tier]?.dailyMinor ?? 0])) as Record<Tier, number> : undefined;
-  const existing = named || progress?.campaignId
+  const tiers = progress?.adSets ? Object.fromEntries(TIERS.map((tier) => [tier, progress.adSets?.[tier]?.dailyMinor ?? 0])) as Record<Tier, number> : progress?.test?.arms ? armsTotal(progress.test) : undefined;
+  const existing = named || progress?.campaignId || progress?.test?.studyId
     ? { campaignId: progress?.campaignId ?? named?.meta_campaign_id ?? null, since: firstDay, totalMinor: tiers ? TIERS.reduce((sum, tier) => sum + tiers[tier], 0) : null, share: progress?.share ?? null, ...(tiers ? { tiers } : {}), status: args.campaignStatus ?? null }
     : null;
   const campaigns = args.campaigns;
@@ -231,7 +239,57 @@ export function retargetingInput(args: {
     pixelHosts: args.pixelHosts ?? null,
     otherLandingHosts: args.otherLandingHosts ?? [],
     linkSizes: args.linkSizes,
+    testWinner: args.testWinner ?? null,
+    test: progress?.test?.studyId ? runningTest(progress.test, rows, start, end, args.pooledRead ?? null) : null,
   };
+}
+
+type TestProgress = { startAt?: string; studyId?: string; arms?: Partial<Record<Arm, { campaignId?: string; adSets?: Partial<Record<Tier, { id: string; dailyMinor: number }>> }>> };
+
+/** Both arms' tier budgets added, for the running header's total. */
+function armsTotal(test: TestProgress): Record<Tier, number> {
+  const out = { bottom: 0, mid_bottom: 0, mid: 0 } as Record<Tier, number>;
+  for (const arm of Object.values(test.arms ?? {})) for (const tier of TIERS) out[tier] += arm?.adSets?.[tier]?.dailyMinor ?? 0;
+  return out;
+}
+
+/** RT17: each arm's tiers over the 7 days (ad_daily_insights by ad set), with the pooled read. Pool and frequency come with the daily figures. */
+export function runningTest(test: TestProgress, rows: readonly { date: string; meta_adset_id?: string | null; spend: number | string; purchases: number | string }[], start: string, end: string, pooledRead: PooledRead | null): RunningTest {
+  const week = rows.filter((row) => row.date >= start && row.date <= end);
+  const arms = { A: {}, B: {} } as RunningTest["arms"];
+  for (const arm of ["A", "B"] as const) {
+    for (const tier of TIERS) {
+      const set = test.arms?.[arm]?.adSets?.[tier];
+      if (!set) continue;
+      const mine = week.filter((row) => row.meta_adset_id === set.id);
+      arms[arm][tier] = { budgetMinor: set.dailyMinor, spendMinor: Math.round(mine.reduce((sum, row) => sum + num(row.spend), 0) * 100), purchases: mine.reduce((sum, row) => sum + num(row.purchases), 0), frequency: null, pool: null };
+    }
+  }
+  return { arms, pooled: pooledRead };
+}
+
+const ARM_CAMPAIGN = /^(.+?) · Retargeting · A\/B · (A|B)$/i;
+
+/** RT17: the pooled read — every show in the test, from the first show's start to the read's last day, each arm's spend and attributed purchases summed. */
+export function pooledFromRows(rows: readonly { date: string; campaign_name?: string | null; spend: number | string; purchases: number | string }[], to: string): PooledRead | null {
+  const tagged = rows.flatMap((row) => {
+    const match = ARM_CAMPAIGN.exec((row.campaign_name ?? "").trim());
+    return match ? [{ show: match[1]!, arm: match[2]!.toUpperCase() as Arm, date: row.date, spend: num(row.spend), purchases: num(row.purchases) }] : [];
+  });
+  const started = tagged.filter((row) => row.spend > 0).map((row) => row.date).sort()[0];
+  if (!started || started > to) return null;
+  return pooled(tagged, { from: started, to });
+}
+
+/** RT17: the call's write, every show in the test (its draft, test, campaigns and arm budgets). */
+export function callWrite(args: { winner: Arm; from: string; tests: { eventId: string; code: string; draftId: string | null; test: TestProgress }[] }): CallWrite {
+  const shows: CallShow[] = args.tests.flatMap(({ eventId, code, draftId, test }) => {
+    if (!draftId || !test.studyId) return [];
+    const adSets = { A: test.arms?.A?.adSets ?? {}, B: test.arms?.B?.adSets ?? {} };
+    const totalMinor = TIERS.reduce((sum, tier) => sum + (adSets.A[tier]?.dailyMinor ?? 0) + (adSets.B[tier]?.dailyMinor ?? 0), 0);
+    return [{ eventId, code, draftId, studyId: test.studyId, campaigns: { A: test.arms?.A?.campaignId ?? null, B: test.arms?.B?.campaignId ?? null }, adSets, totalMinor }];
+  });
+  return { kind: "retargeting_test_call", callKey: `${args.from}:${args.winner}`, winner: args.winner, shows };
 }
 
 /** RT13: the show's links — CIRQLIN's pages by its tag, RT2's two links with no tag; the two failures as states. */
@@ -330,6 +388,19 @@ export async function runRetargetingRead(input: {
   const arms = dryRun ? new Map<string, ArmMode>() : await loadArms(input.db, events.map((event) => event.id));
   const lines = await loadAll<{ id: string; state: string; write: Record<string, unknown> | null; applied_result: Record<string, unknown> | null; onsale_refresh_proposals: { event_id: string | null } | null }>(input.db, "onsale_refresh_lines", "id, state, write, applied_result, onsale_refresh_proposals!inner(event_id)", ["id"], (q) => q.eq("kind", "retargeting_campaign").in("onsale_refresh_proposals.event_id", events.map((event) => event.id))).catch(() => []);
   const minDaily = new Map<string, number | null>();
+  // RT17: every show in the layout test (an applied Create line with a Meta A/B test), the pooled read, and the winner once called.
+  const appliedCreates = await loadAll<{ id: string; write: Record<string, unknown> | null; applied_result: Record<string, unknown> | null; onsale_refresh_proposals: { event_id: string | null; campaign_key: string | null } | null }>(input.db, "onsale_refresh_lines", "id, write, applied_result, onsale_refresh_proposals!inner(event_id, campaign_key)", ["id"], (q) => q.eq("kind", "retargeting_campaign").eq("state", "applied")).catch(() => []);
+  const testShows = appliedCreates.flatMap((row) => {
+    const test = (row.applied_result?.retargeting as { test?: TestProgress } | undefined)?.test;
+    const eventId = row.onsale_refresh_proposals?.event_id;
+    if (!test?.studyId || !eventId) return [];
+    const code = (row.onsale_refresh_proposals?.campaign_key ?? "").replace(/ · Retargeting$/, "");
+    return [{ eventId, code, draftId: (row.write?.draftId as string | null | undefined) ?? null, test }];
+  });
+  const calls = await loadAll<{ id: string; write: Record<string, unknown> | null; applied_at: string | null }>(input.db, "onsale_refresh_lines", "id, write, applied_at", ["id"], (q) => q.eq("kind", "retargeting_test_call").eq("state", "applied")).catch(() => []);
+  const testWinner = (calls.sort((a, b) => ((a.applied_at ?? "") < (b.applied_at ?? "") ? 1 : -1))[0]?.write?.winner as Arm | undefined) ?? null;
+  const pooledRead = testShows.length ? pooledFromRows(raw.rows, addDaysIso(day, -1)) : null;
+  const call = !testWinner && pooledRead ? callLine(pooledRead) : null;
   const hostsByPixel = new Map<string, PixelHosts>();
   const readLinks = input.pageLinks ?? ((tag: string) => fetchCirqlinPageLinks(tag));
   // RT13: every show's links first, so a landing host another show uses gets no pixel line.
@@ -378,7 +449,7 @@ export async function runRetargetingRead(input: {
         metaCalls += sized.calls;
         linkSizes = sized.sizes;
       }
-      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes }));
+      const plan = planRetargeting(retargetingInput({ event, day, rows, campaigns: inputs.campaigns, read, budgets: purchases.budgets, sources, appliedLine, minDailyMinor: account ? (minDaily.get(account) ?? null) : null, linksRead: links.linksRead, pixelHosts: pixelId ? (hostsByPixel.get(pixelId) ?? null) : null, campaignStatus, otherLandingHosts: [...otherLandingHosts(landingByShow, event.id)], linkSizes, testWinner, pooledRead }));
       const record: RetargetingRecord = { eventId: event.id, eventCode: event.event_code, plan, proposalId: null };
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.
       const storedRules = ((appliedLine?.applied_result?.retargeting ?? null) as { rules?: Record<string, string[]> } | null)?.rules;
@@ -417,7 +488,12 @@ export async function runRetargetingRead(input: {
         }
       }
       if (!dryRun && plan.state !== "no_signal") {
-        record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: retargetingGates(applyGates(input.env, arms.get(event.id))).mode, userId: input.userId });
+        // RT17: the call, on the panel of every show in the test that this read covers.
+        const mineTest = testShows.find((row) => row.eventId === event.id);
+        const callForShow = call && mineTest && mineTest.draftId
+          ? { line: call, write: { ...callWrite({ winner: call.winner, from: pooledRead!.from, tests: testShows }), draftId: mineTest.draftId, adAccountId: (appliedLine?.write?.adAccountId as string | null | undefined) ?? account, campaignIds: [mineTest.test.arms?.A?.campaignId, mineTest.test.arms?.B?.campaignId].filter((id): id is string => Boolean(id)) } }
+          : null;
+        record.proposalId = await writeRetargetingProposal(input.db, { event, day, plan, mode: retargetingGates(applyGates(input.env, arms.get(event.id))).mode, userId: input.userId, call: callForShow });
       }
       records.push(record);
     } catch (err) {
@@ -444,7 +520,7 @@ async function loadArms(db: Db, eventIds: readonly string[]): Promise<Map<string
  * review line; a line already accepted, rejected, applied or failed stays
  * and is not proposed again. Earlier unanswered lines expire (RT5).
  */
-export async function writeRetargetingProposal(db: Db, args: { event: EventRow; day: string; plan: RetargetingPlan; mode: ArmMode; userId?: string }): Promise<string> {
+export async function writeRetargetingProposal(db: Db, args: { event: EventRow; day: string; plan: RetargetingPlan; mode: ArmMode; userId?: string; call?: { line: NonNullable<ReturnType<typeof callLine>>; write: Record<string, unknown> } | null }): Promise<string> {
   const { event, plan } = args;
   const userId = args.userId ?? (await ownerOf(db, event.id));
   const code = event.event_code!;
@@ -510,6 +586,33 @@ export async function writeRetargetingProposal(db: Db, args: { event: EventRow; 
       state: "to_review",
     });
     if (written.error) throw new Error(`onsale_refresh_lines: ${written.error.message}`);
+  }
+  if (args.call) {
+    // RT17: the call (or "No clear winner after 28 days") — once decided on this read, not proposed again the same day.
+    const decidedCall = await db.from("onsale_refresh_lines").select("id").eq("proposal_id", proposalId).eq("kind", "retargeting_test_call").neq("state", "to_review").neq("state", "expired");
+    if (decidedCall.error) throw new Error(`onsale_refresh_lines decided call: ${decidedCall.error.message}`);
+    if (!((decidedCall.data ?? []) as unknown[]).length) {
+      const call = args.call.line;
+      const written = await db.from("onsale_refresh_lines").insert({
+        proposal_id: proposalId,
+        user_id: userId,
+        position: 3,
+        kind: "retargeting_test_call",
+        rule_id: `retargeting.test_${call.kind}`,
+        title: call.title,
+        detail: call.detail,
+        write_text: call.writeText,
+        narrow: { detail: call.narrow, writeText: call.narrowSub },
+        target: { winner: call.winner },
+        evidence: { onAccept: call.onAccept, kind: call.kind },
+        write: args.call.write,
+        adds_spend: false,
+        blocked_reason: null,
+        supply: false,
+        state: "to_review",
+      });
+      if (written.error) throw new Error(`onsale_refresh_lines call: ${written.error.message}`);
+    }
   }
   if (earlierIds.length) {
     const expired = await db.from("onsale_refresh_lines").update({ state: "expired" }).in("proposal_id", earlierIds).eq("state", "to_review");

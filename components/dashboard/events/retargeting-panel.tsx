@@ -6,8 +6,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { REJECT_REASONS, appliesNow, panelText, rejectReasonsFor, stateText, type RejectReason } from "@/lib/onsale-refresh/line-states";
 import type { PanelApply, PanelLine } from "@/lib/onsale-refresh/read";
-import type { MissingLine, RetargetingView, TierRow } from "@/lib/retargeting/plan";
-import { budgetHeader, createHead, endsLine, NO_FIGURE, pence, POOL_BEFORE_CREATE, POOL_BEFORE_CREATE_NARROW, runningLine, tierBudget } from "@/lib/retargeting/words";
+import type { ArmView, MissingLine, RetargetingView, TestView, TierRow } from "@/lib/retargeting/plan";
+import { armTierNarrow, budgetHeader, createHead, LAST_7_DAYS, POOLED_TITLE, spentText, endsLine, NO_FIGURE, pence, POOL_BEFORE_CREATE, POOL_BEFORE_CREATE_NARROW, runningLine, tierBudget } from "@/lib/retargeting/words";
 
 /**
  * The Retargeting panel (docs/design-record/2026-11-17-retargeting-campaign.html,
@@ -168,6 +168,8 @@ function CreateCard({ view, line, shadow, apply, actions, share }: { view: Retar
           <p className="mt-0.5 text-xs sm:hidden">{k(createHead(option.totalMinor, option.share, option.stretch ?? null))}</p>
           <p className="mt-0.5 text-xs sm:hidden">{k(option.split)}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">{k(option.hold)}</p>
+          {create.eachArm ? <p className="mt-0.5 text-xs text-muted-foreground" data-each-arm>{k(create.eachArm)}</p> : null}
+          {create.tooSmall ? <p className="mt-0.5 text-xs text-muted-foreground" data-too-small>{k(create.tooSmall)}</p> : null}
           {create.legacy.map((text) => (
             <p key={text} className="mt-0.5 text-xs text-muted-foreground" data-legacy>
               {k(text)}
@@ -227,10 +229,202 @@ function CreateCard({ view, line, shadow, apply, actions, share }: { view: Retar
   );
 }
 
+/** RT17: one arm's table (1280): Tier, Audiences, Pool, Frequency, Budget, Cost per attributed purchase, Purchases, and its total row. */
+function ArmTable({ arm }: { arm: ArmView }) {
+  return (
+    <div className="mt-3 hidden sm:block" data-arm={arm.arm}>
+      <p className="text-xs font-medium">{arm.label}</p>
+      <table className="mt-1 w-full table-fixed border-collapse text-xs">
+        <colgroup>
+          <col className="w-[10%]" />
+          <col className="w-[38%]" />
+          <col className="w-[13%]" />
+          <col className="w-[9%]" />
+          <col className="w-[11%]" />
+          <col className="w-[11%]" />
+          <col className="w-[8%]" />
+        </colgroup>
+        <thead>
+          <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+            <th className="py-1.5 pr-2 font-medium">Tier</th>
+            <th className="py-1.5 pr-2 font-medium">Audiences</th>
+            <th className="py-1.5 pr-2 font-medium">Pool</th>
+            <th className="py-1.5 pr-2 font-medium">Frequency</th>
+            <th className="py-1.5 pr-2 font-medium">Budget</th>
+            <th className="py-1.5 pr-2 font-medium">Cost per attributed purchase</th>
+            <th className="py-1.5 font-medium">Purchases</th>
+          </tr>
+        </thead>
+        <tbody>
+          {arm.rows.map((row) => (
+            <tr key={row.tier} className="border-b border-border/60 align-top" data-tier={row.tier}>
+              <td className="py-2 pr-2 font-medium">{row.label}</td>
+              <td className="py-2 pr-2">
+                {row.audiences.map((line) => (
+                  <p key={line}>{k(line)}</p>
+                ))}
+              </td>
+              <td className="py-2 pr-2 tabular-nums">{figure(row.pool)}</td>
+              <td className={`py-2 pr-2 tabular-nums ${row.frequency != null && row.frequency >= 4 ? "text-destructive" : ""}`}>{figure(row.frequency, (v) => v.toFixed(1))}</td>
+              <td className="py-2 pr-2 tabular-nums">{k(tierBudget(row.budgetMinor))}</td>
+              <td className="py-2 pr-2 tabular-nums">{row.cost == null ? NO_FIGURE : k(pence(row.cost))}</td>
+              <td className="py-2 tabular-nums">{figure(row.purchases)}</td>
+            </tr>
+          ))}
+          <tr className="align-top text-muted-foreground" data-total>
+            <td className="py-2 pr-2">{LAST_7_DAYS}</td>
+            <td className="py-2 pr-2 tabular-nums">{k(spentText(arm.total.spentMinor))}</td>
+            <td />
+            <td />
+            <td className="py-2 pr-2 tabular-nums">{k(tierBudget(arm.total.budgetMinor))}</td>
+            <td className="py-2 pr-2 tabular-nums">{arm.total.cost == null ? NO_FIGURE : k(pence(arm.total.cost))}</td>
+            <td className="py-2 tabular-nums">{arm.total.purchases}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** RT17 at 393: each arm one card, headed by the arm and its budget. */
+function ArmCard({ arm }: { arm: ArmView }) {
+  return (
+    <div className="mt-2 rounded border border-border/70 p-3 text-xs sm:hidden" data-arm-card={arm.arm}>
+      <p className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-medium">{arm.label}</span>
+        <span className="tabular-nums">{k(tierBudget(arm.total.budgetMinor))}</span>
+      </p>
+      <p className="mt-0.5">{arm.total.cost == null ? NO_FIGURE : k(`${pence(arm.total.cost)} per attributed purchase · ${arm.total.purchases}`)}</p>
+      {arm.rows.map((row) => (
+        <p key={row.tier} className="mt-0.5 text-muted-foreground">
+          {k(armTierNarrow({ tier: row.tier, budgetMinor: row.budgetMinor, cost: row.cost, purchases: row.purchases, frequency: row.frequency }))}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** RT17: the pooled block, "The test, every show". */
+function Pooled({ test }: { test: TestView }) {
+  if (!test.pooled) return null;
+  return (
+    <div className="mt-3" data-pooled>
+      <p className="text-xs font-medium sm:block">
+        {POOLED_TITLE}
+        {test.pooledDays != null ? <span className="ml-2 font-normal text-muted-foreground sm:hidden">{`${test.pooledDays} days`}</span> : null}
+      </p>
+      <table className="mt-1 hidden w-full border-collapse text-xs sm:table">
+        <thead>
+          <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+            <th className="py-1.5 pr-2 font-medium">Arm</th>
+            <th className="py-1.5 pr-2 font-medium">Shows</th>
+            <th className="py-1.5 pr-2 font-medium">Days</th>
+            <th className="py-1.5 pr-2 font-medium">Spend</th>
+            <th className="py-1.5 pr-2 font-medium">Attributed purchases</th>
+            <th className="py-1.5 font-medium">Cost per attributed purchase</th>
+          </tr>
+        </thead>
+        <tbody>
+          {test.pooled.map((row) => (
+            <tr key={row.arm} className="border-b border-border/60" data-pooled-arm={row.arm}>
+              <td className="py-1.5 pr-2">{row.arm}</td>
+              <td className="py-1.5 pr-2 tabular-nums">{row.shows}</td>
+              <td className="py-1.5 pr-2 tabular-nums">{row.days}</td>
+              <td className="py-1.5 pr-2 tabular-nums">{k(pence(row.spend))}</td>
+              <td className="py-1.5 pr-2 tabular-nums">{row.purchases}</td>
+              <td className="py-1.5 tabular-nums">{row.cost == null ? NO_FIGURE : k(pence(row.cost))}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {test.pooled.map((row) => (
+        <p key={row.arm} className="mt-0.5 text-xs sm:hidden">
+          {k(`${row.arm} · ${row.shows} shows · ${row.cost == null ? NO_FIGURE : pence(row.cost)} per attributed purchase · ${row.purchases}`)}
+        </p>
+      ))}
+      {test.note ? <p className="mt-2 text-xs text-muted-foreground" data-call-note>{k(test.note)}</p> : null}
+    </div>
+  );
+}
+
+/** RT17: the call, one line for Matas on every show in the test; accepting it once applies to all. Accept and Reject sit right at 1280, under it at 393. */
+function CallCard({ line, shadow, apply, actions }: { line: PanelLine; shadow: boolean; apply?: PanelApply; actions: RetargetingActions }) {
+  const [picking, setPicking] = useState(false);
+  const state = line.state;
+  const decidable = Boolean(apply && apply.mode === "live" && (state === "to_review" || state === "accepted" || state === "rejected"));
+  const busy = Boolean(actions.busy);
+  const shadowTitle = shadow ? "Shadow: nothing here can be applied yet" : undefined;
+  const onAccept = line.retargetingCall?.onAccept ?? null;
+  return (
+    <div className="mt-3 rounded border border-border/70 p-3" data-call data-line-state={state}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="flex flex-col sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Call</span>
+            <span className="hidden text-sm font-medium sm:inline">{k(line.title)}</span>
+          </p>
+          <p className="mt-0.5 hidden text-xs sm:block">{k(line.detail)}</p>
+          {onAccept ? <p className="mt-0.5 hidden text-xs sm:block">{k(onAccept)}</p> : null}
+          {line.writeText ? <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block">{k(line.writeText)}</p> : null}
+          <p className="mt-0.5 text-sm font-medium sm:hidden">{k(line.narrow?.detail ?? line.title)}</p>
+          {line.narrow?.writeText ? <p className="mt-0.5 text-xs text-muted-foreground sm:hidden">{k(line.narrow.writeText)}</p> : null}
+          {state !== "to_review" ? (
+            <p className={`mt-0.5 text-xs ${state === "failed" ? "text-destructive" : "text-muted-foreground"}`} data-line-state={state}>
+              {k(stateText(state, line.reason ?? null))}
+            </p>
+          ) : null}
+        </div>
+        {state === "applied" || state === "applying" || state === "expired" ? null : (
+          <div className="flex shrink-0 gap-2" role="group" aria-label="Accept or reject">
+            <Button type="button" size="sm" variant={state === "accepted" ? "primary" : "outline"} aria-pressed={state === "accepted"} disabled={!decidable || busy} title={shadowTitle} onClick={() => actions.onDecide?.(line.id, "accept")}>
+              Accept
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={state === "rejected" ? "secondary" : "ghost"}
+              aria-pressed={state === "rejected"}
+              disabled={!decidable || busy}
+              title={shadowTitle}
+              onClick={() => {
+                if (state === "rejected") actions.onDecide?.(line.id, "reject");
+                else setPicking(!picking);
+              }}
+            >
+              Reject
+            </Button>
+          </div>
+        )}
+      </div>
+      {picking ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5" data-reasons>
+          {rejectReasonsFor(line.kind).map((reason) => (
+            <Button
+              key={reason}
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                setPicking(false);
+                actions.onDecide?.(line.id, "reject", reason);
+              }}
+            >
+              {REJECT_REASONS[reason]}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export type RetargetingPanelViewProps = {
   view: RetargetingView;
   /** The Create line, when one is stored. */
   line?: PanelLine | null;
+  /** RT17: the layout test's call, when one is stored. */
+  callLine?: PanelLine | null;
   clientId?: string | null;
   /** The show, for RT8's wizard links. */
   eventId?: string | null;
@@ -240,7 +434,7 @@ export type RetargetingPanelViewProps = {
   actions?: RetargetingActions;
 };
 
-export function RetargetingPanelView({ view, line = null, clientId = null, eventId = null, apply, mode, actions = {} }: RetargetingPanelViewProps) {
+export function RetargetingPanelView({ view, line = null, callLine = null, clientId = null, eventId = null, apply, mode, actions = {} }: RetargetingPanelViewProps) {
   // RT3: before Apply the tiers' audiences don't exist, so the pool is "Known after create".
   const created = view.state === "running";
   const create = view.create;
@@ -281,6 +475,24 @@ export function RetargetingPanelView({ view, line = null, clientId = null, event
       ) : null}
 
       {create ? <CreateCard view={view} line={line} shadow={shadow} apply={apply} actions={actions} share={share} /> : null}
+
+      {view.test ? (
+        <>
+          <p className="mt-1 hidden text-xs text-muted-foreground sm:block" data-each-arm>
+            {k(view.test.eachArm)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground sm:hidden">{k(view.test.eachArmNarrow)}</p>
+          <p className="text-xs text-muted-foreground sm:hidden">{k(view.test.metaSplits)}</p>
+          {view.test.arms.map((arm) => (
+            <ArmTable key={`t-${arm.arm}`} arm={arm} />
+          ))}
+          {view.test.arms.map((arm) => (
+            <ArmCard key={`c-${arm.arm}`} arm={arm} />
+          ))}
+          <Pooled test={view.test} />
+        </>
+      ) : null}
+      {callLine ? <CallCard line={callLine} shadow={shadow} apply={apply} actions={actions} /> : null}
 
       {view.tiers.length ? (
         <>

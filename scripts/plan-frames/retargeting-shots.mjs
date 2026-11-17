@@ -5,4 +5,4 @@
  * event-config-shots.mjs while run.mjs sits in open PRs.
  */
 
-export const RETARGETING_SHOTS = ["RA", "RB", "RD"].flatMap((frame) => [1280, 393].map((width) => ({ id: `${frame}-${width}`, frame: `retargeting/${frame}`, width, lab: false, before: null })));
+export const RETARGETING_SHOTS = ["RA", "RB", "RD", "RG"].flatMap((frame) => [1280, 393].map((width) => ({ id: `${frame}-${width}`, frame: `retargeting/${frame}`, width, lab: false, before: null })));
