@@ -13,6 +13,7 @@
 
 import { loadArchivedClientScope } from "../db/client-status.ts";
 import { faceSampleState, readFaceSamples } from "./caption-placement.ts";
+import { claimFaceCheck } from "./face-check-lock.ts";
 import { MAX_LAB_RENDERS_AT_ONCE } from "./lambda.ts";
 import type { ServiceRoleDb } from "./load.ts";
 import { isSamplesPending, renderCaptionOnClip } from "./render.ts";
@@ -127,9 +128,15 @@ export async function runRenderTick(
   const readiness = await clipReadiness(db, queued);
   const pending = [...readiness.entries()].find(([, state]) => state === "checking");
   if (pending && !opts.render) {
-    const { ensureClipFaces } = await import("./caption-place-run.ts");
-    const detected = await ensureClipFaces(db, pending[0]);
-    readiness.set(pending[0], detected);
+    // At most one face check at a time, never two on one clip (face-check-lock.ts).
+    const claim = await claimFaceCheck(db, pending[0], now);
+    if (claim.ok) {
+      const { ensureClipFaces } = await import("./caption-place-run.ts");
+      const detected = await ensureClipFaces(db, pending[0]);
+      readiness.set(pending[0], detected);
+    } else if (claim.reason === "timed_out") {
+      readiness.set(pending[0], "failed");
+    }
   }
   let skippedArchived = 0;
   const claimed: Row[] = [];

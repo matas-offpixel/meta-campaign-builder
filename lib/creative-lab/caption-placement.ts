@@ -37,7 +37,22 @@ export type StoredFaceSamples = {
   outS: number | null;
   samples?: { t: number; faces: StoredFaceRect[] }[];
   error?: string;
+  /** A face check in progress (the lock): when it started, when the lock lapses, which try it is. */
+  running?: { since: string; until: string; attempt: number };
 };
+
+export const FACE_DETECTOR = "ssd_mobilenet_v1";
+
+/** A lock outlives the function (800 s), so a check still running is never started again. */
+export const FACE_CHECK_LOCK_MS = 15 * 60 * 1000;
+/** After this many tries that never finished, the clip is failed and not tried again. */
+export const FACE_CHECK_MAX_ATTEMPTS = 2;
+export const FACE_CHECK_TIMED_OUT = "The face check didn't finish in time";
+
+/** A lock that hasn't lapsed: a check is (or may still be) running on this clip. */
+export function faceCheckLocked(stored: StoredFaceSamples | null, now: Date): boolean {
+  return Boolean(stored?.running && Date.parse(stored.running.until) > now.getTime());
+}
 
 export function readFaceSamples(value: unknown): StoredFaceSamples | null {
   if (!value || typeof value !== "object") return null;
@@ -78,6 +93,8 @@ export function faceSampleState(
     && sameTime(stored.inS, clip.inS)
     && sameTime(stored.outS, clip.outS);
   if (!same) return "checking";
+  // A check in progress, or one whose lock lapsed: still checking (the tick decides whether to try again).
+  if (stored.running && !stored.error && !stored.samples?.length) return "checking";
   if (stored.error && isDetectorLoadError(stored.error)) return "checking";
   if (stored.error || !stored.samples?.length) return "failed";
   return "ready";
