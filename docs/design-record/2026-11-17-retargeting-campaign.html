@@ -117,11 +117,13 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <h1>One Retargeting campaign per show, in three tiers</h1>
 <p class="lead">From the audit in #1298 (<code>docs/session-logs/retargeting-funnel-audit-2026-11-17.md</code>, §1–§4) and Matas's budget rule of 17 Nov. Each show on sale gets its own <code>{code} · Retargeting</code> campaign, separate from its on-sale campaigns, with budgets set on the ad sets. It has three tiers that never share a person: Bottom, Mid Bottom and Mid. Budget moves between them on cost per attributed purchase, each move a line to accept. The campaign runs to the end of the show day.</p>
 <p class="lead">This record replaces the on-sale refresh's per-campaign Retargeting standing default ("This campaign has no retargeting ad set.") for every show that can take this campaign (RT9). R1–R6, C2–C9, E1–E4 and T1–T6 stand. The example figures are <span class="inv">invented</span>.</p>
+<p class="lead">Revised 17 Nov, before merge, from #1300's review: buyers come only from a hand-uploaded Buyers list for now (RT2, RT8), the pool before create reads "Known after create" (RT3), and RB is redrawn.</p>
 
 <div class="open"><b>Open, for Matas:</b>
 <ol style="margin:4px 0 0 18px;padding:0">
 <li><b>Step heights.</b> How far the budget rises in the payday stretch, the final month, the final two weeks and the final week (RT6). Until he sets them, the step lines are drawn with a slot, and the build ships with steps switched off.</li>
 <li><b>Signup lists in Mid Bottom.</b> Whether the show's signup list also goes in Mid Bottom (RT2). Until he rules, it's in Bottom only.</li>
+<li><b>Buyers from a ticketing connection.</b> Uploading a show's buyers from its ticketing connection means processing fan data, so it waits for him (RT2). Until then, buyers come only from a list uploaded by hand.</li>
 </ol></div>
 
 <h2>Rulings</h2>
@@ -157,7 +159,7 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <ul>
 <li><b>Checkout starters</b> are the pixel's Initiate Checkout. <b>Ticket-link visitors</b> are pixel visits to the ticket link's URL. <b>Event page visitors</b> are pixel visits to the show's page. Because Mid Bottom leaves out Bottom, it holds page visitors who didn't reach the ticket link in 30 days and checkout starters from 31–60 days ago.</li>
 <li><b>Lists</b> are the show's customer lists with a role: <b>Signups</b>, <b>Similar</b> or <b>Buyers</b>. The customer-audience wizard on the client page gains a role and a show, and writes the list's row (today it writes none, audit §4.1). Lists have no window.</li>
-<li><b>Buyers</b> come from the client's ticketing connection. The list is uploaded at create and refreshed every morning while the campaign runs. Without a connection, see RT8.</li>
+<li><b>Buyers</b> come only from a list uploaded by hand with the Buyers role, for this show. Nothing fetches or uploads buyers from a ticketing connection until Matas rules on it (open item 3); a later record adds that. Without a Buyers list, see RT8.</li>
 <li><b>Lineup pages</b> go in only where the operator's Facebook user holds a role on the page (at least ADVERTISE). Missing pages: RT8.</li>
 <li><b>Signup lists in Mid Bottom:</b> open for Matas. Until he rules, they're in Bottom only.</li>
 </ul></td></tr>
@@ -173,9 +175,9 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <ul>
 <li><b>Tier:</b> Bottom, Mid Bottom or Mid.</li>
 <li><b>Audiences:</b> the includes in short, for example "Ticket-link visitors · checkout starters · 30 days" on one line and "Signup list · 2 similar lists" on the next. A missing source shows as its RT8 line under them.</li>
-<li><b>Pool:</b> Meta's estimate for the ad set's targeting with its exclusions applied (the delivery estimate), in Meta's band: "3,900–4,600", or "Below 1,000".</li>
+<li><b>Pool:</b> Meta's estimate for the ad set's targeting with its exclusions applied (the delivery estimate), in Meta's band: "3,900–4,600", or "Below 1,000". Before Apply the tier's audiences don't exist, so Meta has no estimate, and the cell reads <b>"Known after create"</b> (on a phone, "Pool known after create"). It never reads "—" or a figure from anything else.</li>
 <li><b>Frequency:</b> the ad set's 7-day frequency to one decimal, "4.3". A tier at 4.0 or more reads it in brick.</li>
-<li><b>Leaves out:</b> "Buyers", "Bottom · buyers" or "Mid Bottom · Bottom · buyers". Without a buyers source the word "buyers" goes, and RT8's line explains why.</li>
+<li><b>Leaves out:</b> "Buyers", "Bottom · buyers" or "Mid Bottom · Bottom · buyers". Without a Buyers list the word "buyers" goes, and RT8's line explains why. With nothing left out, Bottom reads "—".</li>
 <li><b>Budget:</b> "£12.00 a day".</li>
 <li><b>Cost per attributed purchase:</b> 7 days, "£5.15", with the count, "16", in its own column. Spend with no purchase reads "No purchase yet". Before the campaign runs, the figure columns read "—".</li>
 </ul>
@@ -240,7 +242,7 @@ table.tier td:nth-last-child(-n+3){white-space:nowrap}
 <ul>
 <li><b>No signup list yet:</b> "No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only." Action: "Upload the signup list" (the client page's wizard, role Signups). No similar list adds no line.</li>
 <li><b>A lineup page with no role:</b> "{page} isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read." On a phone: "{page}: no page role, not in Mid." Several pages give one line naming them all. With no usable page and no video views, Mid can't be built: "Mid has no audience yet: no page with a role and no video views." Its 25 % then goes to Bottom and Mid Bottom, 2 to 1.</li>
-<li><b>No ticketing connection:</b> "No ticketing connection, so buyers aren't left out and will keep seeing these ads." Actions: "Connect ticketing" (client page) and "Upload a buyers list".
+<li><b>No Buyers list:</b> "No buyers list yet, so buyers aren't left out and will keep seeing these ads." Action: "Upload a buyers list", which opens the client page's customer-audience wizard with the role Buyers and this show chosen. The line is the same whether or not the client has a ticketing connection, because a connection doesn't supply buyers yet. There's no "Connect ticketing" action until Matas rules on open item 3.
 <ul>
 <li>With a list uploaded by hand: "Buyers list uploaded {d Mon} · {n} days old".</li>
 <li>From 7 days old: "… · {n} days old: upload it again so new buyers drop out". Melodic's list was ten weeks stale (audit §3.3, point 5).</li>
@@ -338,7 +340,7 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 </div>
 
 <div class="frame">
-<figure><figcaption>RB · 1280 · a new show · the Create line, with all three missing states</figcaption>
+<figure><figcaption>RB · 1280 · a new show · the Create line, with all three missing states, before Apply</figcaption>
 <div class="vp wide">
 <div class="h">XMPL-ROOF · Retargeting</div>
 <div class="line"><span class="acts">Accept · Reject</span><span class="kind">Create</span><span class="t">XMPL-ROOF · Retargeting</span>
@@ -348,11 +350,11 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <div class="w">New campaign, audiences and ad sets through the Purchase create path · goes in live</div></div>
 <table class="tier">
 <tr><th style="width:84px">Tier</th><th>Audiences</th><th style="width:120px">Pool</th><th class="r" style="width:62px">Frequency</th><th style="width:116px">Leaves out</th><th class="r" style="width:96px">Budget</th><th class="r" style="width:84px">Cost per attributed purchase</th><th class="r" style="width:66px">Purchases</th></tr>
-<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 30 days<div class="miss">No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only. <a href="#">Upload the signup list</a></div></td><td>Below 1,000</td><td class="r">—</td><td>—</td><td class="r">£2.90 a day</td><td class="r">—</td><td class="r">—</td></tr>
-<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · checkout starters · 60 days</td><td>1,600–1,900</td><td class="r">—</td><td>Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
-<tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 365 days<br>Page and Instagram engagers · 180 days · 3 of 4 pages<div class="miss">Mira Vale isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read.</div></td><td>41,000–48,000</td><td class="r">—</td><td>Mid Bottom · Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td><b>Bottom</b></td><td class="src">Ticket-link visitors · checkout starters · 30 days<div class="miss">No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only. <a href="#">Upload the signup list</a></div></td><td>Known after create</td><td class="r">—</td><td>—</td><td class="r">£2.90 a day</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td><b>Mid Bottom</b></td><td class="src">Page visitors · checkout starters · 60 days</td><td>Known after create</td><td class="r">—</td><td>Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td><b>Mid</b></td><td class="src">Video viewers 75 % · 365 days<br>Page and Instagram engagers · 180 days · 3 of 4 pages<div class="miss">Mira Vale isn't in Mid: your Facebook user has no role on the page. Granting ADVERTISE on it adds it at the next read.</div></td><td>Known after create</td><td class="r">—</td><td>Mid Bottom · Bottom</td><td class="r">£1.45 a day</td><td class="r">—</td><td class="r">—</td></tr>
 </table>
-<div class="miss" style="font-size:12px">No ticketing connection, so buyers aren't left out and will keep seeing these ads. <a href="#">Connect ticketing</a> · <a href="#">Upload a buyers list</a></div>
+<div class="miss" style="font-size:12px">No buyers list yet, so buyers aren't left out and will keep seeing these ads. <a href="#">Upload a buyers list</a></div>
 </div></figure>
 <figure><figcaption>RB · 393 · the same</figcaption>
 <div class="vp w393">
@@ -366,19 +368,19 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <div style="margin-top:6px"><span class="btn">Accept</span> <span class="btn ghost">Reject</span></div></div>
 <div class="card">
 <div class="top"><span>Bottom</span><span>£2.90 a day</span></div>
-<div class="fs">Pool below 1,000</div>
+<div class="fs">Pool known after create</div>
 <div class="src">Ticket-link visitors · checkout starters · 30 days</div>
 <div class="miss">No signup list yet, so Bottom runs on ticket-link visitors and checkout starters only. <a href="#">Upload the signup list</a></div></div>
 <div class="card">
 <div class="top"><span>Mid Bottom</span><span>£1.45 a day</span></div>
-<div class="fs">Pool 1,600–1,900 · leaves out Bottom</div>
+<div class="fs">Pool known after create · leaves out Bottom</div>
 <div class="src">Page visitors · checkout starters · 60 days</div></div>
 <div class="card">
 <div class="top"><span>Mid</span><span>£1.45 a day</span></div>
-<div class="fs">Pool 41,000–48,000 · leaves out Mid Bottom · Bottom</div>
+<div class="fs">Pool known after create · leaves out Mid Bottom · Bottom</div>
 <div class="src">Video viewers 75 % · 365 days · page and Instagram engagers · 180 days · 3 of 4 pages</div>
 <div class="miss">Mira Vale: no page role, not in Mid.</div></div>
-<div class="miss">No ticketing connection, so buyers aren't left out and will keep seeing these ads. <a href="#">Connect ticketing</a> · <a href="#">Upload a buyers list</a></div>
+<div class="miss">No buyers list yet, so buyers aren't left out and will keep seeing these ads. <a href="#">Upload a buyers list</a></div>
 </div></figure>
 </div>
 
@@ -463,7 +465,8 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <li>The starting budget follows RT4 exactly, including the 10 / 15 / 20 % choice, the penny split and the £1 floor taken out of Bottom.</li>
 <li>Moves, holds and cuts follow RT5. The measure is cost per attributed purchase only, there's at most one Move or Cut per read, and room is computed as written.</li>
 <li>Steps follow RT6 and stay switched off until Matas sets the heights.</li>
-<li>RT8's strings are exact, and none of them blocks Create.</li>
+<li>RT8's strings are exact, and none of them blocks Create. No "Connect ticketing" action appears anywhere on the panel.</li>
+<li>Before Apply, every Pool cell reads "Known after create".</li>
 <li>RT9: no "This campaign has no retargeting ad set." on a show with the campaign, its Create line or "couldn't be read". The note shows instead.</li>
 <li>Frames RA, RB and RC at 1280 and 393, and RD at both, from fixtures with these figures.</li>
 </ul>
@@ -472,7 +475,7 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <table class="t">
 <tr><th style="width:190px">Piece</th><th>Build</th></tr>
 <tr><td>HR1 · Source set and audiences</td><td>A per-show source set (pages with a role, Instagram accounts, the show's videos, page and ticket URLs). The three audience sets from it: pixel URL and Initiate Checkout at 30 and 60 days, video 75 % at 365, page and IG engagement at 180. Exclusions written per tier (<code>excluded_custom_audiences</code>). Behind the audience-write gate.</td></tr>
-<tr><td>HR2 · List roles and buyers</td><td>The customer-audience wizard takes a role (Signups, Similar, Buyers) and a show, and writes a <code>meta_custom_audiences</code> row. Buyers from a ticketing connection are uploaded at create and refreshed daily. The hand-uploaded age shows per RT8.</td></tr>
+<tr><td>HR2 · List roles and buyers</td><td>The customer-audience wizard takes a role (Signups, Similar, Buyers) and a show, and writes a <code>meta_custom_audiences</code> row. Buyers come only from these hand-uploaded lists; nothing reads buyers from a ticketing connection. The list's age shows per RT8.</td></tr>
 <tr><td>HR3 · Create</td><td>The Purchase create path with daily budgets on the ad sets (<code>buildCampaignPayload</code> already writes that when the level isn't campaign), RT4's budget and hold, the Create line and its 10 / 15 / 20 % choice.</td></tr>
 <tr><td>HR4 · The daily read</td><td>08:00 London to the show day, 7-day spend, attributed purchases, frequency and the delivery estimate per tier. Move, Hold and Cut per RT5 through the ad-set budget write. Lines expire at the next read. Learning (R6) scores these moves like any other.</td></tr>
 <tr><td>HR5 · Steps</td><td>Payday stretch and run-in dates per RT6, written as Meta budget schedules. A read-only probe of the endpoint comes first. Heights come from config, empty, so steps stay off until Matas sets them.</td></tr>
@@ -488,7 +491,7 @@ Lines stack as on the refresh panel, with the kind above the target and Accept a
 <li>The source windows: 30 and 60 days on the pixel, 180 on engagement, 365 on video (from audit §3.1, re-sliced to Matas's tiers).</li>
 <li>The run-in thresholds of 30, 14 and 7 days, the higher step winning in an overlap, splitting a step by room, and writing it as a Meta budget schedule.</li>
 <li>Mid's 25 % going 2 to 1 to Bottom and Mid Bottom when Mid can't be built, and the 7-day staleness on a hand-uploaded buyers list.</li>
-<li>Every string in RT3–RT10, the XMPL shows and Mira Vale.</li>
+<li>"Known after create", "No buyers list yet, so buyers aren't left out and will keep seeing these ads." and every other string in RT3–RT10, the XMPL shows and Mira Vale.</li>
 </ul>
 
 </div>
