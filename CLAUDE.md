@@ -724,9 +724,16 @@ REMOTION_LAMBDA_SERVE_URL=
 > `landing_url` and ticket link is one "URL contains" rule, host to the end of
 > the path as returned (`lib/retargeting/links.ts`). A show with no tag keeps
 > RT2's two links (`ticket_url`, `signup_url`). A 404 `no_page` and any other
-> failure are their own not-proposed sentences. A running campaign keeps its
-> last rules: the read records changed rules (`ruleChanges`) but never writes
-> them. Checkout starters and registrations count on the links' rules only.
+> failure are their own not-proposed sentences. A failed read keeps a running
+> campaign's last rules. When the links change, the read rewrites the changed
+> audiences' rules (`lib/retargeting/rule-rewrite.ts`: `POST /{audience} {rule}`)
+> through the on-sale refresh Apply's token (the event owner's
+> `agencyMetaToken`, then their own `user_facebook_tokens` token; never a
+> client's) and its `graphPostWithToken`, on `meta_write_idempotency`
+> (`retargeting_audience_rule_update`, migration 257), only behind the apply
+> and audience-write gates and only for a campaign an accepted Create line
+> built. A per-link audience that's new or gone is reported as a rebuild,
+> never written. Checkout starters and registrations count on the links' rules only.
 > Every source is built at RT14's windows, each its own audience, named
 > "{code} · {source} · {n} days" (`lib/retargeting/audiences.ts`), with leave-outs
 > over every window. Bottom gains CompleteRegistration on the landing pages

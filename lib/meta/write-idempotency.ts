@@ -37,7 +37,9 @@ export type MetaWriteOpKind =
   /** P4 step 5 (and PC4): a campaign's lifetime_budget write (migration 243). */
   | "refresh_campaign_lifetime_budget_update"
   /** P4 step 6: the Purchase campaign set active (migration 243). */
-  | "refresh_campaign_status_update";
+  | "refresh_campaign_status_update"
+  /** Retargeting RT13: a running campaign's audience rule rewritten when the show's links change (migration 257). */
+  | "retargeting_audience_rule_update";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger

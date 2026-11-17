@@ -29,6 +29,7 @@ import { RETARGETING } from "../onsale-refresh/rules.ts";
 import { addDaysIso, planRun, todayLondon } from "../onsale-refresh/schedule.ts";
 import { pixelRules, ruleChanges, tierSpecs, type SourceList, type SourcePage, type SourceSet } from "./audiences.ts";
 import { linksFallback, linksFromPages, otherLandingHosts, type PixelHosts, type ShowLink } from "./links.ts";
+import { refreshTokenFor, rewriteRules, ruleRewriteGates } from "./rule-rewrite.ts";
 import { planRetargeting, retargetingOnSaleDay, type RetargetingInput, type RetargetingPlan } from "./plan.ts";
 import { isRetargetingCampaignName, isTestsCampaignName, retargetingCampaignName, TIERS, type Tier } from "./words.ts";
 
@@ -138,8 +139,10 @@ export type RetargetingRecord = {
   eventCode: string | null;
   plan: RetargetingPlan;
   proposalId: string | null;
-  /** RT13: a running campaign's audiences whose rules differ from today's links (not rewritten here: see the PR's open item). */
+  /** RT13: a running campaign's audiences whose rules differ from today's links. */
   ruleChanges?: string[];
+  /** RT13: those rewritten on Meta (the refresh's token and write path, behind its gates). */
+  rulesRewritten?: string[];
 };
 
 export type RetargetingReadResult =
@@ -284,6 +287,8 @@ export async function runRetargetingRead(input: {
   userId?: string;
   /** RT13: CIRQLIN's page-links read (injectable for tests). */
   pageLinks?: (tag: string) => Promise<PageLinksResult>;
+  /** RT13's rule rewrite: the refresh's POST (graphPostWithToken), with the owner's refresh token. Absent = never write. */
+  graphPost?: (path: string, body: Record<string, unknown>, token: string) => Promise<unknown>;
 }): Promise<RetargetingReadResult> {
   const dryRun = input.dryRun === true;
   if (!dryRun && !isRetargetingReadEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
@@ -378,10 +383,37 @@ export async function runRetargetingRead(input: {
       // RT13: a running campaign's rules against today's links. A failed read keeps the last rules, so nothing is compared.
       const storedRules = ((appliedLine?.applied_result?.retargeting ?? null) as { rules?: Record<string, string[]> } | null)?.rules;
       if (plan.state === "running" && storedRules && comparesRules(links.linksRead)) {
-        const changed = ruleChanges(storedRules, pixelRules(tierSpecs(sources)));
+        const specs = tierSpecs(sources);
+        const changed = ruleChanges(storedRules, pixelRules(specs));
         if (changed.length) {
           record.ruleChanges = changed;
-          skipped.push({ eventCode: code, reason: `Retargeting links changed for ${changed.length} audience${changed.length === 1 ? "" : "s"}; rules not rewritten` });
+          // Ops (17 Nov): the refresh's token and write path, behind its gates; only a campaign an accepted Create line built.
+          const createWrite = (appliedLine?.write ?? null) as { draftId?: string | null; adAccountId?: string | null } | null;
+          const audienceIds = ((appliedLine?.applied_result?.retargeting ?? null) as { audiences?: Record<string, string> } | null)?.audiences ?? {};
+          const gates = ruleRewriteGates(input.env);
+          if (dryRun || !input.graphPost || !gates.ok || !appliedLine || !createWrite?.draftId || !createWrite.adAccountId) {
+            skipped.push({ eventCode: code, reason: `Retargeting links changed for ${changed.length} audience${changed.length === 1 ? "" : "s"}; not rewritten (${dryRun ? "dry run" : !gates.ok ? gates.reason : "no applied Create line or writer"})` });
+          } else {
+            const owner = await ownerOf(input.db, event.id);
+            const token = await refreshTokenFor(input.db as never, owner);
+            if (!token) skipped.push({ eventCode: code, reason: "Retargeting links changed; no Facebook token for the event's owner, so not rewritten" });
+            else {
+              const post = input.graphPost;
+              const done = await rewriteRules(
+                { post: (path, body) => post(path, body, token), ledger: { supabase: input.db as never, userId: owner, draftId: createWrite.draftId, eventId: event.id } },
+                { code, adAccountId: createWrite.adAccountId, lineId: appliedLine.id, specs, audienceIds, changed, stored: storedRules },
+              );
+              metaCalls += done.written.length + done.failed.length;
+              record.rulesRewritten = done.written;
+              for (const row of done.failed) skipped.push({ eventCode: code, reason: `Retargeting rule rewrite ${row.key}: ${row.reason}` });
+              if (done.rebuild.length) skipped.push({ eventCode: code, reason: `Retargeting: ${done.rebuild.length} per-link audience${done.rebuild.length === 1 ? "" : "s"} added or dropped; a rebuild, not a rule rewrite` });
+              if (done.written.length) {
+                const progress = (appliedLine.applied_result?.retargeting ?? {}) as Record<string, unknown>;
+                const stored = await input.db.from("onsale_refresh_lines").update({ applied_result: { ...appliedLine.applied_result, retargeting: { ...progress, rules: done.rules } } }).eq("id", appliedLine.id);
+                if (stored.error) errors.push(`${code}: storing the rewritten rules: ${stored.error.message}`);
+              }
+            }
+          }
         }
       }
       if (!dryRun && plan.state !== "no_signal") {
