@@ -9,6 +9,9 @@
  * from a code or a name. The display name is venue_name as written on the
  * venue's next show. A show with no key is "Venue not set" (internal only).
  *
+ * PH6: at client level the total includes the brand campaigns' spend, and
+ * its scope line and the header's channel line say so in whole pounds.
+ *
  * Relative imports only: the `node --test` runner can't resolve `@/`.
  */
 
@@ -86,6 +89,11 @@ export function channelAmounts(f: Pick<PeriodFigures, "platformsWithData" | "byP
   }));
 }
 
+/** PH6: "includes brand campaigns (£22,553)", whole pounds; null when the total holds no brand spend. */
+export function brandIncludes(amount: number): string | null {
+  return amount > 0 ? `includes brand campaigns (${money(amount)})` : null;
+}
+
 export function channelSplit(channels: readonly SalesChannelAmount[]): string {
   return channels.map((c) => `${c.label} ${c.text}`).join(" · ");
 }
@@ -123,6 +131,7 @@ export function spendTotal(input: {
     parts,
     headline: `${money(input.figures.spend)} ${input.span} · to ${shortDay(input.endDay)}`,
     notIncluded: out.length ? `Not in this total: ${out.join(". ")}.` : null,
+    includes: brandIncludes(input.figures.brandSpend),
   };
 }
 
@@ -187,7 +196,12 @@ export function headerSentence(input: {
       : `${input.name} to date: ${spend}. No ticket counts yet.`;
     if (umbrellas.length) sentence += ` Separate ${umbrellas[0].venue} umbrella spend: ${money(umbrellas[0].amount)}.`;
   }
-  const channelLine = [channelSplit(channelAmounts(f)), `to ${shortDay(input.endDay)}`, input.finishedLeftOut ? "finished shows not included" : null]
+  const channelLine = [
+    channelSplit(channelAmounts(f)),
+    brandIncludes(f.brandSpend),
+    `to ${shortDay(input.endDay)}`,
+    input.finishedLeftOut ? "finished shows not included" : null,
+  ]
     .filter(Boolean)
     .join(" · ");
   return { sentence, channelLine };

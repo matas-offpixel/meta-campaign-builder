@@ -114,33 +114,47 @@ function TikTokTable({ rows, total, first, data }: { rows: TikTokRow[]; total: T
 
 const NOTE = "mt-2 max-w-3xl text-[11px] leading-snug text-muted-foreground [overflow-wrap:anywhere]";
 
-export function WhoWeReachedPanel({ model }: { model: WhoWeReachedModel }) {
+/**
+ * `aside` (HE2): CIRQLIN's signup geography beside Meta's results by age
+ * from 1024 px, under it below. Without it the panel is unchanged.
+ */
+export function WhoWeReachedPanel({ model, aside }: { model: WhoWeReachedModel; aside?: React.ReactNode }) {
   const meta = model.metaSays;
   const tiktok = model.tiktok;
+  const metaBody = (
+    <>
+      <h3 className="text-sm font-medium">{meta.title}</h3>
+      {meta.empty ? (
+        <p className={NOTE}>{meta.empty}</p>
+      ) : meta.withheld ? (
+        <p className={NOTE} data-withheld>
+          {meta.withheld}
+        </p>
+      ) : (
+        <>
+          <MetaAgeTable rows={meta.byAge} total={meta.total} />
+          <p className={NOTE}>{meta.footnote}</p>
+          {meta.totalsNote ? (
+            <p className="mt-1 max-w-3xl text-[11px] leading-snug text-muted-foreground [overflow-wrap:anywhere]" data-totals-note>
+              {meta.totalsNote}
+            </p>
+          ) : null}
+        </>
+      )}
+    </>
+  );
   return (
     <section className="mx-auto w-full min-w-0 max-w-6xl px-3 py-4 sm:px-6" data-panel="who-we-reached">
       <h2 className="text-lg font-medium tracking-tight sm:text-xl">{model.title}</h2>
 
-      <div className="mt-4">
-        <h3 className="text-sm font-medium">{meta.title}</h3>
-        {meta.empty ? (
-          <p className={NOTE}>{meta.empty}</p>
-        ) : meta.withheld ? (
-          <p className={NOTE} data-withheld>
-            {meta.withheld}
-          </p>
-        ) : (
-          <>
-            <MetaAgeTable rows={meta.byAge} total={meta.total} />
-            <p className={NOTE}>{meta.footnote}</p>
-            {meta.totalsNote ? (
-              <p className="mt-1 max-w-3xl text-[11px] leading-snug text-muted-foreground [overflow-wrap:anywhere]" data-totals-note>
-                {meta.totalsNote}
-              </p>
-            ) : null}
-          </>
-        )}
-      </div>
+      {aside ? (
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_16rem] lg:gap-8" data-reach-with-geography>
+          <div className="mt-4 min-w-0">{metaBody}</div>
+          <div className="mt-6 min-w-0 lg:mt-4">{aside}</div>
+        </div>
+      ) : (
+        <div className="mt-4">{metaBody}</div>
+      )}
 
       {meta.region ? (
         <div className="mt-6">
