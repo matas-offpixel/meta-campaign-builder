@@ -26,42 +26,24 @@
  * imports lib/meta/client.ts, so tests run on fakes.
  */
 
-import { findTestsCampaign, testsCampaignPayload, TestsCampaignProblem, type CampaignRow } from "../creative-tests/tests-campaign.ts";
+import { findTestsCampaign, TEST_AD_SET_DAYS, testAdSetEndTime, testsCampaignPayload, TestsCampaignProblem, type CampaignRow } from "../creative-tests/tests-campaign.ts";
 import { sanitizeCreativeForStrictMode, type MetaCreativePayload } from "./creative.ts";
 import { withMetaWriteIdempotency, type MetaWriteContext } from "./write-idempotency.ts";
 
 type Json = Record<string, unknown>;
 
-export const COPY_TEST_DAYS = 4;
+/** A test runs 4 days (TF1's hold), the shared helper's TEST_AD_SET_DAYS. */
+export const COPY_TEST_DAYS = TEST_AD_SET_DAYS;
 
-/** "{code} · AB copy test" (Matas, 17 Nov). Not "{code} · Tests", which the creative-tests code owns (TT1). */
+/** "{code} · AB copy test": this 17 Nov round's per-test name. Since the second set of rules it is the ad set's name in "{code} · Tests". */
 export function copyTestName(eventCode: string): string {
   return `${eventCode} · AB copy test`;
 }
 
-/** London's calendar date of an instant, YYYY-MM-DD. */
-export function londonDay(at: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
-}
-
-function addDays(day: string, days: number): string {
-  const d = new Date(`${day}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-/** 23:59 London on a day, with that day's offset, as Meta takes it. */
-export function londonEndOfDay(day: string): string {
-  const noon = new Date(`${day}T12:00:00Z`);
-  const offset = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", timeZoneName: "shortOffset" }).formatToParts(noon).find((part) => part.type === "timeZoneName")?.value ?? "GMT";
-  const hours = Number(offset.match(/GMT([+-]\d+)?/)?.[1] ?? 0);
-  return `${day}T23:59:00${hours < 0 ? "-" : "+"}${String(Math.abs(hours)).padStart(2, "0")}00`;
-}
-
-/** The test's end: 23:59 London, COPY_TEST_DAYS days after the London day it is created. */
+/** The test's end: testAdSetEndTime (23:59 London, COPY_TEST_DAYS days after the London day it starts), with that day. */
 export function copyTestEndTime(createdAt: Date, days = COPY_TEST_DAYS): { day: string; endTime: string } {
-  const day = addDays(londonDay(createdAt), days);
-  return { day, endTime: londonEndOfDay(day) };
+  const endTime = testAdSetEndTime(createdAt, days);
+  return { day: endTime.slice(0, 10), endTime };
 }
 
 /** What the copy keeps from its source ad set, besides targeting and the promoted object. */
