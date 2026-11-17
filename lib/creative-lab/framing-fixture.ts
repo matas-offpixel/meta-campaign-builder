@@ -42,14 +42,20 @@ export const FIXTURE_CLAIM = "EARLY BIRD SOLD OUT\nSELLING FAST";
 // ─── The photo ──────────────────────────────────────────────────────────────
 
 export const FIXTURE_PHOTO = { width: 1500, height: 2400 } as const;
-/** The drawn face, photo px: head top 1250, eyes 1450, chin 1650; the box is ear to ear, brow to chin. */
+/**
+ * The drawn face, photo px: head top 1280, eyes 1450, chin 1620; the box is ear to ear, brow to chin. At the
+ * cards' scale (1.0×, the 1:1 at 0.8×) that is the record's measured face: the eyes 0.126 H under the head's top
+ * and above the chin in the 4:5 (record 0.129 / 0.130), and 0.126 H in the 1:1 (record 0.125). On the plain
+ * backdrop the card measures the head's top on the drawn hair (measureHeadTop), so it lands at 0.297 H and
+ * 0.312 H (record 0.301, 0.32), clear of the head-top limits with the name well above the face zone.
+ */
 export const FIXTURE_FACE = {
   eyeX: 750,
   eyeY: 1450,
-  headTopY: 1250,
-  browY: 1400,
-  chinY: 1650,
-  box: { x: 615, y: 1330, width: 270, height: 330 },
+  headTopY: 1280,
+  browY: 1410,
+  chinY: 1620,
+  box: { x: 635, y: 1350, width: 230, height: 270 },
 } as const;
 
 /** A press-photo stand-in: a plain dark backdrop, a figure in a dark jacket, head and shoulders. */
@@ -65,11 +71,11 @@ export async function fixturePhoto(): Promise<Buffer> {
   <path d="M 190 ${H} C 210 1980 330 1800 560 1760 L 940 1760 C 1170 1800 1290 1980 1310 ${H} Z" fill="#2a2420"/>
   <path d="M 640 1760 L 750 1930 L 860 1760 Z" fill="#4a423b"/>
   <rect x="680" y="1590" width="140" height="190" rx="40" fill="#a8714f"/>
-  <ellipse cx="750" cy="1450" rx="135" ry="200" fill="url(#skin)"/>
-  <path d="M 612 1400 C 600 1250 680 1238 750 1238 C 830 1238 905 1260 890 1400 C 860 1325 640 1325 612 1400 Z" fill="#2a1d17"/>
-  <ellipse cx="700" cy="1450" rx="16" ry="9" fill="#2a1d17"/>
-  <ellipse cx="800" cy="1450" rx="16" ry="9" fill="#2a1d17"/>
-  <path d="M 712 1570 Q 750 1588 788 1570" stroke="#6e3b2b" stroke-width="7" fill="none"/>
+  <ellipse cx="750" cy="1450" rx="115" ry="170" fill="url(#skin)"/>
+  <path d="M 633 1410 C 625 1290 690 1270 750 1270 C 815 1270 880 1290 867 1410 C 840 1345 660 1345 633 1410 Z" fill="#2a1d17"/>
+  <ellipse cx="707" cy="1450" rx="14" ry="8" fill="#2a1d17"/>
+  <ellipse cx="793" cy="1450" rx="14" ry="8" fill="#2a1d17"/>
+  <path d="M 718 1555 Q 750 1570 782 1555" stroke="#6e3b2b" stroke-width="6" fill="none"/>
 </svg>`;
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
@@ -83,34 +89,60 @@ export function fixtureFonts(): FontEntry[] {
   return [{ ...tt, postscriptName: "BootzyCondensedTM-Regular", trial: false }];
 }
 
-async function textPiece(text: string, sizePx: number, label: string, colour = "#ffffff", weight = "bold"): Promise<Piece> {
+/**
+ * A stand-in piece: the text set in TikTok Sans, trimmed to its ink and resized to a fixed ink box, as a kit
+ * piece is a PNG of fixed pixels. The text engine's metrics differ by platform (pango and fontconfig on Linux
+ * against macOS), so a piece sized by them moves the layout; a fixed box keeps every placement identical
+ * everywhere. Only the glyphs' own shapes may differ.
+ */
+async function textPiece(text: string, box: { width: number; height: number }, label: string, colour = "#ffffff", weight = "bold"): Promise<Piece> {
   const sharp = (await import("sharp")).default;
   const font = fixtureFonts()[0]!;
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const img = await sharp({ text: { text: `<span foreground="${colour}" font_weight="${weight}">${esc(text)}</span>`, font: `${font.family ?? "TikTok Sans"} ${sizePx}`, fontfile: font.path, dpi: 72, rgba: true } }).png().toBuffer();
+  const img = await sharp({ text: { text: `<span foreground="${colour}" font_weight="${weight}">${esc(text)}</span>`, font: `${font.family ?? "TikTok Sans"} ${box.height * 1.4}`, fontfile: font.path, dpi: 72, rgba: true } }).png().toBuffer();
   const t = await trimToInk(img);
-  return { png: t.png, width: t.width, height: t.height, capPx: t.height, label };
+  const png = await sharp(t.png).resize(box.width, box.height, { fit: "fill", kernel: "lanczos3" }).png().toBuffer();
+  return { png, width: box.width, height: box.height, capPx: box.height, label };
 }
+
+/**
+ * The stand-ins' ink boxes, px. The lockup is the record's Puzzle lockup's shape (0.24 W wide, ending about
+ * 0.111 H in the 4:5: 3.5 : 1); the name sits at its slot's cap without O3's steps (the 4:5's 0.12 H, as the
+ * record's AF-A); the info lines and the date are all capitals, the box height their cap.
+ */
+export const FIXTURE_PIECE_BOXES = {
+  lockup: { width: 700, height: 200 },
+  lockupTop: { width: 700, height: 120 },
+  lockupSub: { width: 360, height: 56 },
+  name: { width: 1100, height: 220 },
+  info: [
+    { width: 1000, height: 60 },
+    { width: 960, height: 60 },
+    { width: 440, height: 60 },
+  ],
+  date: { width: 1000, height: 60 },
+} as const;
 
 export type FixturePieces = { lockup: Piece; name: Piece; info: Piece[] };
 
 /** Stand-ins for the kit's lockup, the artist's name and the PSD's three info lines. */
 export async function fixturePieces(): Promise<FixturePieces> {
   const sharp = (await import("sharp")).default;
-  const top = await textPiece("PUZZLE", 150, "lockup");
-  const sub = await textPiece("4th Birthday", 70, "lockup sub", "#ffffff", "normal");
-  const w = Math.max(top.width, sub.width);
-  const h = top.height + 18 + sub.height;
+  const B = FIXTURE_PIECE_BOXES;
+  const top = await textPiece("PUZZLE", B.lockupTop, "lockup");
+  const sub = await textPiece("4th Birthday", B.lockupSub, "lockup sub", "#ffffff", "normal");
+  const w = B.lockup.width;
+  const h = B.lockup.height;
   const lockupPng = await sharp({ create: { width: w, height: h, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
     .composite([
       { input: top.png, left: Math.round((w - top.width) / 2), top: 0 },
-      { input: sub.png, left: Math.round((w - sub.width) / 2), top: top.height + 18 },
+      { input: sub.png, left: Math.round((w - sub.width) / 2), top: h - sub.height },
     ])
     .png()
     .toBuffer();
   const lockup: Piece = { png: lockupPng, width: w, height: h, capPx: top.height, label: "lockup" };
-  const name = await textPiece("LUKE DEAN", 260, "name");
-  const info = [await textPiece("SUNDAY 27TH DECEMBER", 80, "info 1"), await textPiece("FIXTURE HALL · LONDON", 80, "info 2"), await textPiece("2PM – 11PM", 80, "info 3")];
+  const name = await textPiece("LUKE DEAN", B.name, "name");
+  const info = [await textPiece("SUNDAY 27TH DECEMBER", B.info[0], "info 1"), await textPiece("FIXTURE HALL · LONDON", B.info[1], "info 2"), await textPiece("2PM – 11PM", B.info[2], "info 3")];
   return { lockup, name, info };
 }
 
@@ -205,7 +237,7 @@ export type ClipFixtureFrame = { png: Buffer; layout: ClipLayout; window: Rect; 
 /** Stand-in T1 pieces: the lockup, the name and the date line (O54). */
 async function clipPieces(): Promise<{ lockup: Piece; name: Piece; date: Piece }> {
   const p = await fixturePieces();
-  return { lockup: p.lockup, name: p.name, date: await textPiece("SUNDAY 27TH DECEMBER", 80, "date") };
+  return { lockup: p.lockup, name: p.name, date: await textPiece("SUNDAY 27TH DECEMBER", FIXTURE_PIECE_BOXES.date, "date") };
 }
 
 /** The claim on the clip, measured as the drafts script measures it (widths at a reference cap, scaled). */

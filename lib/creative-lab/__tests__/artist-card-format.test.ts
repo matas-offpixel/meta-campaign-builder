@@ -151,7 +151,10 @@ describe("the fixture card, rendered (AF-A, AF-B)", () => {
       assert.ok(f.claimRect!.top >= infoBottom + 0.02 * H - 1, `${format}: claim ${f.claimRect!.top} vs info ${infoBottom}`);
       const meta = await sharp(f.png!).metadata();
       assert.deepEqual([meta.width, meta.height], [1080, H]);
-      // The format's own pixels say the same: no text pixel in the zone (the shadow-free type layer, by the composer).
+      // The fixture's pieces are fixed ink boxes (framing-fixture.ts), so this margin is the same on every platform;
+      // it was 2.6 px on macOS and under 0 on Linux while the stand-ins took their size from the text engine.
+      const name = f.placements.find((p) => p.label === "name")!;
+      assert.ok(f.faceZone!.top - (name.top + name.height) >= 0.02 * H, `${format}: name ends ${name.top + name.height}, zone starts ${f.faceZone!.top}`);
       assert.equal(f.skipped, null);
     }
   });
@@ -182,6 +185,6 @@ describe(`the 9:16 is pixel-identical to ${PARENT}'s`, () => {
     const old = await (await parent("lib/creative-lab/artist-card.ts")).renderCard(card);
     const now = await renderCard(card);
     assert.ok((await pixels(old.master)).equals(await pixels(now.master)));
-    assert.ok(now.formats["4:5"]?.made && now.formats["1:1"]?.made);
+    for (const format of ["4:5", "1:1"] as const) assert.equal(now.formats[format]?.made, true, `${format}: ${now.formats[format]?.skipped ?? "missing"}`);
   });
 });
