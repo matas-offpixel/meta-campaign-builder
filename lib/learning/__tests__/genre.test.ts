@@ -191,6 +191,8 @@ describe("no path writes genre_family without an operator", () => {
   it("only these files name genre_family, and none of them bulk-writes it", () => {
     const allowed = new Set([
       "supabase/migrations/253_events_genre_family.sql",
+      // Names genre_family only in a comment on why it took 254; writes nothing.
+      "supabase/migrations/254_cirqlin_page_audience_joined_reachable.sql",
       "lib/db/events.ts",
       "components/dashboard/events/event-form.tsx",
       "lib/learning/genre/families.ts",
