@@ -128,7 +128,7 @@ describe("RT2 / RT13 / RT14: the tiers and their audiences", () => {
     const bottom = specs.find((spec) => spec.tier === "bottom")!;
     const midBottom = specs.find((spec) => spec.tier === "mid_bottom")!;
     const mid = specs.find((spec) => spec.tier === "mid")!;
-    // RT13 (revised): at the longest window each link is its own audience.
+    // RT18: at the longest window each link is its own audience.
     const skiddle = linkKey("www.skiddle.com/e/1");
     const page = linkKey("show.example/page");
     assert.deepEqual(bottom.includes.map((aud) => aud.key), ["bottom:ticket:7", "bottom:ticket:14", `bottom:ticket:30:${skiddle}`, ...keysOf(RT14.checkout, "bottom:checkout"), ...keysOf(RT14.registrations, "bottom:registrations"), "list:sig"]);
@@ -214,7 +214,7 @@ describe("RT1 / RT8: the states and the Create line", () => {
     // -2.html: RT14's windows, RT15's registrations and signup line, and the links (ops' ruling of 17 Nov on the words).
     assert.deepEqual(bottom!.audiences, ["Ticket-link visitors · checkout starters · 7, 14 and 30 days", "Registrations · 30, 90 and 180 days"]);
     assert.equal(bottom!.audiencesNarrow, "Ticket-link visitors · checkout starters · 7, 14 and 30 days · registrations · 30, 90 and 180 days");
-    // RT13 (revised 17 Nov): the sizes before Apply, the pixel per platform, and the ticket-site line; at 393 the same lines.
+    // RT18 (-3.html): the sizes before Apply, the pixel per platform, and the ticket-site line; at 393 the same lines.
     assert.deepEqual(bottom!.links.wide, ["By link: known after create", "Pixel on Skiddle: yes · Fatsoma and DICE: no", "A ticket site counts visitors only when your pixel is on it there."]);
     assert.deepEqual(bottom!.links.narrow, bottom!.links.wide);
     assert.deepEqual(bottom!.missing.map((line) => [line.text, line.actions.map((a) => [a.label, a.role])]), [["No signup list yet, so Bottom runs on ticket-link visitors, checkout starters and registrations only.", [["Upload the signup list", "signups"]]]]);

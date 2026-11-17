@@ -253,7 +253,7 @@ export async function pixelHostsOf(graph: RefreshGraph, pixelId: string, now: Da
   return { hosts: { any: hostsOf(any!.rows), pageView: hostsOf(pageView!.rows), checkout: hostsOf(checkout!.rows), registration: hostsOf(registration!.rows) }, calls };
 }
 
-/** RT13 (revised): a running campaign's per-link audiences' size bands, one GET each (approximate_count). */
+/** RT18: a running campaign's per-link audiences' size bands, one GET each (approximate_count). */
 export async function linkSizesOf(graph: RefreshGraph, audiences: Record<string, string>): Promise<{ sizes: Record<string, { lower: number; upper: number } | null>; calls: number }> {
   const perLink = Object.entries(audiences).filter(([key]) => /^(bottom:ticket:30|mid_bottom:page:60):[0-9a-f]{8}$/.test(key));
   const sizes: Record<string, { lower: number; upper: number } | null> = {};
@@ -365,7 +365,7 @@ export async function runRetargetingRead(input: {
         metaCalls += 1;
         campaignStatus = await input.graph.graphGet(`/${campaignId}`, { fields: "effective_status" }).then((body) => (body as { effective_status?: string }).effective_status ?? null).catch(() => null);
       }
-      // RT13 (revised): a running campaign's per-link audience sizes.
+      // RT18: a running campaign's per-link audience sizes.
       const storedAudiences = ((appliedLine?.applied_result?.retargeting ?? null) as { audiences?: Record<string, string> } | null)?.audiences ?? null;
       let linkSizes: RetargetingInput["linkSizes"];
       if (campaignId && storedAudiences && input.graph) {

@@ -9,7 +9,7 @@
  *   - Ticket links feed ticket-link visitors and checkout starters (the
  *     pixel's InitiateCheckout on a ticket link's rule, never pixel-wide).
  *     Landing pages feed page visitors and registrations (RT15).
- *   - A ticket link is named by its host (RT13, revised 17 Nov): Skiddle,
+ *   - A ticket link is named by its host (RT18, -3.html): Skiddle,
  *     RA, Fatsoma, Fixr, DICE, Eventbrite, Ticketmaster, See Tickets, else
  *     "Other ({host})". Two links on one platform are told apart by their
  *     shop_name, else their label, in brackets. A landing page is named by
@@ -54,7 +54,7 @@ export const PLATFORM_NAME: Record<string, string> = {
 /** Hosts many shows share: no per-host pixel line (ops, 17 Nov). */
 export const SHARED_HOSTS: readonly string[] = ["crqln.com", "app.cirqlin.com", "cirqlin.com"];
 
-/** RT13 (revised): a ticket link's platform, by its host. */
+/** RT18: a ticket link's platform, by its host. */
 const HOST_PLATFORM: [RegExp, string][] = [
   [/(^|\.)skiddle\.com$/i, "skiddle"],
   [/(^|\.)ra\.co$/i, "ra"],
@@ -115,7 +115,7 @@ export function linksFromPages(pages: readonly PartnerPageLinks[]): ShowLink[] {
       const ticketHost = hostOf(ticket.url);
       if (!ticketRule || !ticketHost || seen.has(ticketRule)) continue;
       seen.add(ticketRule);
-      // Named by its host (RT13, revised); CIRQLIN's slug is kept for the record.
+      // Named by its host (RT18); CIRQLIN's slug is kept for the record.
       const platform = platformOfHost(ticketHost);
       tickets.push({ link: { kind: "ticket", rule: ticketRule, host: ticketHost, name: platformName(platform, ticketHost), platform }, first: ticket.shown_first, tell: ticket.shop_name?.trim() || ticket.label?.trim() || null });
     }

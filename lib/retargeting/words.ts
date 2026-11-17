@@ -223,21 +223,21 @@ export function noRegistrations(pages: readonly string[]): string {
 /** RT13: Bottom can't be built; its 50 % goes to Mid Bottom and Mid, 1 to 1. */
 export const BOTTOM_NOT_BUILT = "Bottom has no audience yet: no visits, checkout starters, registrations or signup list.";
 
-/** RT13 (revised): before Apply the links' audiences don't exist. */
+/** RT18: before Apply the links' audiences don't exist. */
 export const BY_LINK_BEFORE_CREATE = "By link: known after create";
 
-/** RT13 (revised): a link audience's size band, "2,100–2,500" or "below 1,000". */
+/** RT18: a link audience's size band, "2,100–2,500" or "below 1,000". */
 export function sizeBand(lower: number, upper: number): string {
   if (!(upper >= 1000)) return "below 1,000";
   return `${group(String(Math.round(lower)))}–${group(String(Math.round(upper)))}`;
 }
 
-/** RT13 (revised): "Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000"; a size Meta didn't give reads "—". */
+/** RT18: "Skiddle 2,100–2,500 · RA 1,000–1,200 · Fixr below 1,000"; a size Meta didn't give reads "—". */
 export function sizesLine(entries: readonly { name: string; band: string | null }[]): string {
   return entries.map((entry) => `${entry.name} ${entry.band ?? NO_FIGURE}`).join(" · ");
 }
 
-/** RT13 (revised): "Pixel on {names}: yes · {names}: no", or "Pixel on {names}: no" when all are no. */
+/** RT18: "Pixel on {names}: yes · {names}: no", or "Pixel on {names}: no" when all are no. */
 export function pixelLine(entries: readonly { name: string; on: boolean }[]): string {
   const yes = entries.filter((entry) => entry.on).map((entry) => entry.name);
   const no = entries.filter((entry) => !entry.on).map((entry) => entry.name);
@@ -245,7 +245,7 @@ export function pixelLine(entries: readonly { name: string; on: boolean }[]): st
   return `Pixel on ${joinNames(yes)}: yes${no.length ? ` · ${joinNames(no)}: no` : ""}`;
 }
 
-/** RT13 (revised): under a ticket site the pixel isn't on. */
+/** RT18: under a ticket site the pixel isn't on. */
 export const TICKET_SITE_COUNTS = "A ticket site counts visitors only when your pixel is on it there.";
 
 export const UPLOAD_SIGNUP_LIST = "Upload the signup list";

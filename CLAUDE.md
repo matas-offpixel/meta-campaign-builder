@@ -730,7 +730,7 @@ REMOTION_LAMBDA_SERVE_URL=
 > Every source is built at RT14's windows, each its own audience, named
 > "{code} · {source} · {n} days" (`lib/retargeting/audiences.ts`), with leave-outs
 > over every window. Bottom gains CompleteRegistration on the landing pages
-> (30, 90, 180 days). RT13 (revised 17 Nov): at its source's longest window
+> (30, 90, 180 days). RT18 (`docs/design-record/2026-11-17-retargeting-campaign-3.html`): at its source's longest window
 > each link is its own audience ("{code} · Ticket-link visitors · {name} · 30
 > days", "{code} · Page visitors · {name} · 60 days"), so the row shows Meta's
 > size band per link once created ("By link: known after create" before). The

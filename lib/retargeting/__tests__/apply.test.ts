@@ -195,7 +195,7 @@ describe("RT1 / HR3: the steps, in order", () => {
     // RT14's Ads Manager names, "{code} · {source} · {n} days", the video set naming its page.
     assert.ok(made.includes("bottom:ticket:7|XMPL-ROOF · Ticket-link visitors · 7 days"));
     assert.ok(made.includes("bottom:registrations:180|XMPL-ROOF · Registrations · 180 days"));
-    // RT13 (revised): each link its own audience at its source's longest window.
+    // RT18: each link its own audience at its source's longest window.
     assert.ok(made.includes(`bottom:ticket:30:${linkKey("www.skiddle.com/e/1")}|XMPL-ROOF · Ticket-link visitors · Skiddle · 30 days`));
     assert.ok(made.includes(`mid_bottom:page:60:${linkKey("roof.example/show")}|XMPL-ROOF · Page visitors · roof.example/show · 60 days`));
     assert.ok(made.includes("mid:video:page1:1:90|XMPL-ROOF · Video viewers 75 % · page1 · 90 days"));

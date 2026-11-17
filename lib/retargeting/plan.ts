@@ -170,9 +170,9 @@ export type RetargetingInput = {
   linksRead?: "ok" | "no_tag" | "no_page" | "failed";
   /** The pixel's hosts in 28 days, per event (aggregation=host); null when not read. */
   pixelHosts?: PixelHosts;
-  /** RT13 (revised): landing hosts other shows' pages use (no pixel line for them). */
+  /** RT18: landing hosts other shows' pages use (no pixel line for them). */
   otherLandingHosts?: string[];
-  /** RT13 (revised): a running campaign's per-link audience sizes by key (Meta's approximate count); null = not read. */
+  /** RT18: a running campaign's per-link audience sizes by key (Meta's approximate count); null = not read. */
   linkSizes?: Record<string, { lower: number; upper: number } | null>;
   /** Delivering ad sets with "retarget" in their name, per campaign of the show (not this one). */
   legacy: { campaign: string; adSets: number }[];
@@ -289,7 +289,7 @@ export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts" 
   const hasLanding = Boolean(sources.pixelId) && landing.length > 0;
   const platforms = pixelOnPlatforms(sources.links, input.pixelHosts ?? null);
   const ownDomains = pixelOnOwnDomains(sources.links, input.pixelHosts ?? null, others);
-  // RT13 (revised): each link's audience size once created, else "By link: known after create".
+  // RT18: each link's audience size once created, else "By link: known after create".
   const sizes = (tier: Tier) => {
     if (!input.created) return BY_LINK_BEFORE_CREATE;
     const perLink = perLinkAudiences(specs.find((row) => row.tier === tier));
@@ -330,7 +330,7 @@ export function tierRows(input: Pick<RetargetingInput, "sources" | "pixelHosts" 
       // A pixel line only for a show's own domain, never a shared host.
       if (ownDomains?.length) links.wide.push(pixelLine(ownDomains));
     }
-    // RT13 (revised): on a phone, the same lines.
+    // RT18: on a phone, the same lines.
     links.narrow = [...links.wide];
     if (tier === "mid" && noRole.length) {
       const names = noRole.map((page) => page.name);

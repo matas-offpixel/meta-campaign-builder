@@ -136,7 +136,7 @@ describe("RT13: the show's links from CIRQLIN", () => {
     assert.deepEqual(links.filter((link) => link.kind === "ticket").map((link) => link.name), ["Skiddle (Early bird)", "Skiddle (NX Shop)"]);
   });
 
-  it("a ticket link is named by its host (RT13, revised), else Other ({host})", () => {
+  it("a ticket link is named by its host (RT18), else Other ({host})", () => {
     const named = (url: string) => linksFromPages([{ ...ROBBIE.pages[0]!, ticket_links: [{ platform: "other", url, label: "Tickets", shop_name: null, shown_first: true }] }])[0]!.name;
     assert.deepEqual(
       ["https://www.skiddle.com/e/1", "https://ra.co/events/1", "https://www.fatsoma.com/e/1", "https://fixr.co/event/1", "https://dice.fm/event/1", "https://www.eventbrite.co.uk/e/1", "https://www.ticketmaster.co.uk/e/1", "https://www.seetickets.com/event/1", "https://www.gigantic.com/x"].map(named),

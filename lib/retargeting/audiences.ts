@@ -21,7 +21,7 @@
  * show in Ads Manager how recent each tier's people are. Leave-outs take
  * every window of the hotter tiers.
  *
- * RT13 (revised 17 Nov): at its source's longest window each link is its own
+ * RT18 (-3.html): at its source's longest window each link is its own
  * audience — a ticket link's visitors at 30 days, a landing page's at 60 —
  * in place of one combined audience there, so Meta can size each link. The
  * shorter windows stay one audience across the links.
@@ -97,7 +97,7 @@ export type SourceSet = {
  * Ads Manager ("{code} · {label} · {n} days").
  */
 export type TierAudience =
-  /** `link`: a per-link audience (RT13, revised) names its link, for the size line. */
+  /** `link`: a per-link audience (RT18) names its link, for the size line. */
   | { key: string; kind: "pixel_url"; label: string; pixelId: string; urlContains: string[]; retentionDays: number; link?: string }
   | { key: string; kind: "pixel_event"; label: string; pixelId: string; pixelEvent: "InitiateCheckout" | "CompleteRegistration"; urlContains: string[]; retentionDays: number }
   | { key: string; kind: "video"; label: string; contextId: string; videoIds: string[]; threshold: 75; retentionDays: number }
@@ -158,7 +158,7 @@ export function tierSpecs(set: SourceSet, opts: { bottom?: boolean } = {}): Tier
     if (tickets.length) {
       for (const days of RT14.ticketVisitors) {
         if (days !== longest(RT14.ticketVisitors)) bottom.push({ key: `bottom:ticket:${days}`, kind: "pixel_url", label: "Ticket-link visitors", pixelId, urlContains: tickets, retentionDays: days });
-        // RT13 (revised): each ticket link its own audience at 30 days.
+        // RT18: each ticket link its own audience at 30 days.
         else for (const link of ticketSet) bottom.push({ key: `bottom:ticket:${days}:${linkKey(link.rule)}`, kind: "pixel_url", label: `Ticket-link visitors · ${link.name}`, pixelId, urlContains: [link.rule], retentionDays: days, link: link.name });
       }
       for (const days of RT14.checkout) bottom.push({ key: `bottom:checkout:${days}`, kind: "pixel_event", label: "Checkout starters", pixelId, pixelEvent: "InitiateCheckout", urlContains: tickets, retentionDays: days });
@@ -167,7 +167,7 @@ export function tierSpecs(set: SourceSet, opts: { bottom?: boolean } = {}): Tier
       for (const days of RT14.registrations) bottom.push({ key: `bottom:registrations:${days}`, kind: "pixel_event", label: "Registrations", pixelId, pixelEvent: "CompleteRegistration", urlContains: landing, retentionDays: days });
       for (const days of RT14.pageVisitors) {
         if (days !== longest(RT14.pageVisitors)) midBottom.push({ key: `mid_bottom:page:${days}`, kind: "pixel_url", label: "Page visitors", pixelId, urlContains: landing, retentionDays: days });
-        // RT13 (revised): each landing page its own audience at 60 days.
+        // RT18: each landing page its own audience at 60 days.
         else for (const link of landingSet) midBottom.push({ key: `mid_bottom:page:${days}:${linkKey(link.rule)}`, kind: "pixel_url", label: `Page visitors · ${link.name}`, pixelId, urlContains: [link.rule], retentionDays: days, link: link.name });
       }
     }
@@ -264,7 +264,7 @@ export function ruleChanges(stored: Record<string, string[]>, current: Record<st
   return Object.keys(stored).filter((key) => !current[key] || !same(stored[key]!, current[key]!)).sort();
 }
 
-/** RT13 (revised): the per-link audiences of a tier, in the links' order — the size line's entries. */
+/** RT18: the per-link audiences of a tier, in the links' order — the size line's entries. */
 export function perLinkAudiences(spec: TierSpec | undefined): { key: string; name: string }[] {
   return (spec?.includes ?? []).flatMap((aud) => (aud.kind === "pixel_url" && aud.link ? [{ key: aud.key, name: aud.link }] : []));
 }
