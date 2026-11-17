@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isShowTestCampaign } from "../creative-tests/tests-campaign.ts";
 import { loadArchivedClientIds } from "../db/client-status.ts";
 import { driveFromEnv, FOLDER_MIME, type DriveApi, type DriveFile } from "../drive/client.ts";
 import { kindForFile } from "../drive/tree.ts";
@@ -484,9 +485,14 @@ export async function buildEventInputs(args: {
 
   const signup = signupFacts(rows, plan.window.end);
 
+  // TT8: the show's test campaigns ("{code} · Tests", and the 17 Nov round's "· AB copy test" /
+  // "· Artist cards test") are never main. They get no proposal (no pause, drop or move), and they're
+  // never the Purchase plan's main or existing campaign. Their spend still counts in the event's spend to date.
+  const mainRows = event.event_code ? rows.filter((row) => !isShowTestCampaign(row.campaign_name, event.event_code!)) : rows;
+
   // Campaigns by name; a rebuilt campaign under the same name is the same campaign.
   const byName = new Map<string, InsightRow[]>();
-  for (const row of rows) {
+  for (const row of mainRows) {
     const key = (row.campaign_name ?? row.meta_campaign_id ?? "—").trim();
     const list = byName.get(key) ?? [];
     list.push(row);
@@ -618,7 +624,7 @@ export async function buildEventInputs(args: {
   campaigns.sort((a, b) => b.weekSpend - a.weekSpend);
   // P4 (PC1, PC2): one Purchase campaign plan per event, on every campaign's Objective; the line goes on the main campaign.
   const pcInput = purchaseCampaignInput({
-    rows,
+    rows: mainRows,
     eventCode: event.event_code,
     eventName: event.name,
     runDay: plan.day,

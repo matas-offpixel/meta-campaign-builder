@@ -10,10 +10,15 @@
  *   - never starts a check on a clip whose lock hasn't lapsed;
  *   - never starts one while any clip holds a live lock (one check at a time),
  *     and backs off after claiming if any other clip holds one;
- *   - after FACE_CHECK_MAX_ATTEMPTS tries that never finished, stores
+ *   - after FACE_CHECK_MAX_ATTEMPTS tries in a row with no progress, stores
  *     FACE_CHECK_TIMED_OUT, which is not retried.
- * The lock outlives the function (FACE_CHECK_LOCK_MS > 800 s). ensureClipFaces
- * replaces the marker with the samples or the error when the check finishes.
+ * The lock outlives the function (FACE_CHECK_LOCK_MS > 800 s). A check runs in
+ * slices (face-check-slice.ts): a slice that stops with frames left parks the
+ * check (parkFaceCheck: progress saved, lock renewed, `parked`), and the next
+ * tick's claim resumes it from there, never from zero. Only a parked lock can
+ * be claimed before it lapses; while a slice runs, the clip reads `locked`.
+ * finishFaceCheck replaces the marker with the samples or the error. Both
+ * writes land only if the row is still the claim's (face_samples_at).
  *
  * No `@/` imports: node --test cannot resolve them.
  */
@@ -26,14 +31,16 @@ import {
   FACE_SAMPLE_FPS,
   faceCheckLocked,
   readFaceSamples,
+  type FaceCheckProgress,
   type StoredFaceSamples,
 } from "./caption-placement.ts";
+import { readProgress } from "./face-check-slice.ts";
 import type { ServiceRoleDb } from "./load.ts";
 
 type Row = Record<string, unknown>;
 
 export type FaceCheckClaim =
-  | { ok: true; attempt: number; stamp: string }
+  | { ok: true; attempt: number; stamp: string; progress: FaceCheckProgress | null }
   | { ok: false; reason: "locked" | "busy" | "lost" | "timed_out" | "missing" };
 
 function num(value: unknown, fallback: number | null): number | null {
@@ -84,7 +91,8 @@ export async function claimFaceCheck(
   const clip = clipRes.data as Row | null;
   if (!clip) return { ok: false, reason: "missing" };
   const stored: StoredFaceSamples | null = readFaceSamples(clip.face_samples);
-  if (faceCheckLocked(stored, now)) return { ok: false, reason: "locked" };
+  // A parked check is resumed by the next tick; a slice still running is not touched.
+  if (faceCheckLocked(stored, now) && !stored?.running?.parked) return { ok: false, reason: "locked" };
   if ((await liveLocks(db, now, lockMs, clipId)).length) return { ok: false, reason: "busy" };
 
   const prev = clip.face_samples_at == null ? null : String(clip.face_samples_at);
@@ -103,18 +111,26 @@ export async function claimFaceCheck(
     outS: num(clip.out_s, null),
   };
   const stamp = now.toISOString();
-  // A lapsed lock is a try that never finished (the function was killed). It counts only for the same crop and
-  // window: a changed crop starts again at attempt 1.
-  const attempt = stored?.running && sameWindow(stored, base) ? stored.running.attempt + 1 : 1;
+  // The marker's attempt is the tries since the check last made progress: a lapsed unparked lock is a slice
+  // that was killed, a parked one with attempt > 0 a slice that checked nothing. Both, and the progress, carry
+  // only for the same crop, window, detector and rate: a changed crop starts again at attempt 1 with no progress.
+  const carry = Boolean(stored?.running && sameWindow(stored, base) && stored.detector === FACE_DETECTOR && stored.fps === FACE_SAMPLE_FPS);
+  const attempt = carry ? stored!.running!.attempt + 1 : 1;
+  const progress = carry ? readProgress(stored!.running!.progress) : null;
   if (attempt > maxAttempts) {
-    const body: StoredFaceSamples = { ...base, error: `${FACE_CHECK_TIMED_OUT} (${maxAttempts} tries)` };
+    const so = progress ? `, ${progress.done} of ${progress.frames.length} frames` : "";
+    const body: StoredFaceSamples = { ...base, error: `${FACE_CHECK_TIMED_OUT} (${maxAttempts} tries without progress${so})` };
     const res = await conditional({ face_samples: body, face_samples_at: stamp });
     if (res.error) throw new Error(`creative_lab_clips: ${res.error.message}`);
     // The row changed since it was read (an operator's Retry, another tick): not ours to fail.
     if (!((res.data ?? []) as unknown[]).length) return { ok: false, reason: "lost" };
     return { ok: false, reason: "timed_out" };
   }
-  const marker: StoredFaceSamples = { ...base, running: { since: stamp, until: new Date(now.getTime() + lockMs).toISOString(), attempt } };
+  const since = carry ? stored!.running!.since : stamp;
+  const marker: StoredFaceSamples = {
+    ...base,
+    running: { since, until: new Date(now.getTime() + lockMs).toISOString(), attempt, ...(progress ? { progress } : {}) },
+  };
   const res = await conditional({ face_samples: marker, face_samples_at: stamp });
   if (res.error) throw new Error(`creative_lab_clips: ${res.error.message}`);
   if (!((res.data ?? []) as unknown[]).length) return { ok: false, reason: "lost" };
@@ -131,5 +147,53 @@ export async function claimFaceCheck(
     if (back.error) throw new Error(`creative_lab_clips: ${back.error.message}`);
     return { ok: false, reason: "busy" };
   }
-  return { ok: true, attempt, stamp };
+  return { ok: true, attempt, stamp, progress };
+}
+
+type Base = Pick<StoredFaceSamples, "detector" | "fps" | "cropFocusX" | "cropFocusY" | "inS" | "outS">;
+
+/** Write `payload` only if the row is still the one claimed at `stamp`. False when it isn't (nothing written). */
+async function ifStillClaimed(db: ServiceRoleDb, clipId: string, stamp: string, payload: Row): Promise<boolean> {
+  const res = await db.from("creative_lab_clips").update(payload).eq("id", clipId).eq("face_samples_at", stamp).select("id");
+  if (res.error) throw new Error(`creative_lab_clips: ${res.error.message}`);
+  return ((res.data ?? []) as unknown[]).length > 0;
+}
+
+/**
+ * Save a slice's progress and keep the lock for the next tick: parked, renewed for FACE_CHECK_LOCK_MS. A
+ * slice that made progress resets the tries; one that checked nothing keeps its try counted.
+ */
+export async function parkFaceCheck(
+  db: ServiceRoleDb,
+  clipId: string,
+  claim: { stamp: string; attempt: number; since: string },
+  base: Base,
+  progress: FaceCheckProgress,
+  madeProgress: boolean,
+  now: Date,
+  opts: { lockMs?: number } = {},
+): Promise<boolean> {
+  const lockMs = opts.lockMs ?? FACE_CHECK_LOCK_MS;
+  const marker: StoredFaceSamples = {
+    ...base,
+    running: {
+      since: claim.since,
+      until: new Date(now.getTime() + lockMs).toISOString(),
+      attempt: madeProgress ? 0 : claim.attempt,
+      parked: true,
+      progress,
+    },
+  };
+  return ifStillClaimed(db, clipId, claim.stamp, { face_samples: marker, face_samples_at: now.toISOString() });
+}
+
+/** Replace the claim's marker with the finished samples or the error. */
+export async function finishFaceCheck(
+  db: ServiceRoleDb,
+  clipId: string,
+  claim: { stamp: string },
+  body: StoredFaceSamples,
+  now: Date,
+): Promise<boolean> {
+  return ifStillClaimed(db, clipId, claim.stamp, { face_samples: body, face_samples_at: now.toISOString() });
 }

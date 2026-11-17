@@ -16,7 +16,7 @@ describe("face check lock (render tick)", () => {
   it("claims a clip with no samples: a running marker, attempt 1, still reading 'checking'", async () => {
     const db = fakeDb({ creative_lab_clips: [clip("c1")] });
     const claim = await claimFaceCheck(db as unknown as ServiceRoleDb, "c1", NOW);
-    assert.deepEqual(claim, { ok: true, attempt: 1, stamp: NOW.toISOString() });
+    assert.deepEqual(claim, { ok: true, attempt: 1, stamp: NOW.toISOString(), progress: null });
     const stored = readFaceSamples(db.tables.creative_lab_clips[0]!.face_samples);
     assert.equal(stored?.running?.attempt, 1);
     assert.equal(stored?.running?.until, at(FACE_CHECK_LOCK_MS).toISOString());

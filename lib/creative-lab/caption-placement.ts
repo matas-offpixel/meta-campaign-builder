@@ -39,8 +39,35 @@ export type StoredFaceSamples = {
   outS: number | null;
   samples?: { t: number; faces: StoredFaceRect[] }[];
   error?: string;
-  /** A face check in progress (the lock): when it started, when the lock lapses, which try it is. */
-  running?: { since: string; until: string; attempt: number };
+  /**
+   * A face check in progress (the lock): when it started, when the lock lapses, and the tries since it last
+   * made progress. `parked` means no tick is running it: a slice saved `progress` and the next tick resumes it.
+   * The lock holds while parked, so one check at a time still holds between slices.
+   */
+  running?: { since: string; until: string; attempt: number; parked?: boolean; progress?: FaceCheckProgress };
+};
+
+/**
+ * A face check part done (face-check-slice.ts). Never ready samples: placement reads only `samples` above,
+ * and a row with `running` reads as checking.
+ */
+export type FaceCheckProgress = {
+  /** Source frames to check, ffmpeg's n after the seek: the seeded plan, then any a gap fill adds. */
+  frames: number[];
+  /** How many of `frames` the plan had (the rest are gap fill). */
+  planned: number;
+  /** How many of `frames`, in order, are checked. */
+  done: number;
+  /** The frames checked so far, `t` in seconds from the window start, faces in output pixels. */
+  samples: { t: number; faces: StoredFaceRect[] }[];
+  /** Set once a gap fill ran: the window's real first and last frame times from the scan. */
+  scan?: { startS: number; endS: number };
+  /** Detector calls so far, and the seconds spent extracting, scanning and detecting, over every slice. */
+  checked: number;
+  slices: number;
+  extractS: number;
+  scanS: number;
+  detectS: number;
 };
 
 export const FACE_DETECTOR = "ssd_mobilenet_v1";
@@ -57,16 +84,23 @@ export const FACE_SAMPLING: SamplingScheme = { kind: "jitter", minGap: 0.3, maxG
 /** The scheme's mean rate, stored as StoredFaceSamples.fps (below 5, so placement uses coverInterval). */
 export const FACE_SAMPLE_FPS = Math.round((2 / (0.3 + 0.4)) * 100) / 100;
 
-/** A check that runs past this stores FACE_CHECK_TIMED_OUT instead of being killed by the function limit. */
+/** Each ffmpeg run in a tick's slice of the check stops by this, well inside the function's 800 s. */
 export const FACE_CHECK_BUDGET_MS = 600_000;
+/**
+ * A tick starts no frame, extract or scan past this into its slice: it saves the progress, keeps the lock and
+ * returns, and the next tick resumes from there (Vercel measured ~15 s a frame, 17 Nov 2026).
+ */
+export const FACE_CHECK_SLICE_MS = 450_000;
+/** Seconds a frame, to size a slice's first extract before any frame on this clip is timed (Vercel, 17 Nov). */
+export const FACE_DETECT_ESTIMATE_S = 15;
 
 /** A lock outlives the function (800 s), so a check still running is never started again. */
 export const FACE_CHECK_LOCK_MS = 15 * 60 * 1000;
-/** After this many tries that never finished, the clip is failed and not tried again. */
+/** After this many tries in a row that made no progress (killed, or a slice that checked nothing), the clip is failed and not tried again. */
 export const FACE_CHECK_MAX_ATTEMPTS = 2;
 export const FACE_CHECK_TIMED_OUT = "The face check didn't finish in time";
 
-/** A lock that hasn't lapsed: a check is (or may still be) running on this clip. */
+/** A lock that hasn't lapsed: a check is (or may still be) running on this clip, or is parked between slices. */
 export function faceCheckLocked(stored: StoredFaceSamples | null, now: Date): boolean {
   return Boolean(stored?.running && Date.parse(stored.running.until) > now.getTime());
 }
@@ -110,8 +144,9 @@ export function faceSampleState(
     && sameTime(stored.inS, clip.inS)
     && sameTime(stored.outS, clip.outS);
   if (!same) return "checking";
-  // A check in progress, or one whose lock lapsed: still checking (the tick decides whether to try again).
-  if (stored.running && !stored.error && !stored.samples?.length) return "checking";
+  // A check in progress, parked between slices, or one whose lock lapsed: still checking (the tick decides
+  // whether to resume or try again). Partial progress is never ready.
+  if (stored.running) return "checking";
   if (stored.error && isDetectorLoadError(stored.error)) return "checking";
   if (stored.error || !stored.samples?.length) return "failed";
   return "ready";
